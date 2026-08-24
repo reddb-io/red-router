@@ -16,6 +16,7 @@ import { getExecutor } from "../executors/index.js";
 import { supportsGrokCliReasoningEffort } from "../config/grokCli.js";
 import { buildRequestDetail, extractRequestConfig } from "./chatCore/requestDetail.js";
 import { handleForcedSSEToJson } from "./chatCore/sseToJsonHandler.js";
+import { clientRequestedStreaming as requestedStreaming } from "./chatCore/streamMode.js";
 import { handleNonStreamingResponse } from "./chatCore/nonStreamingHandler.js";
 import { handleStreamingResponse, buildOnStreamComplete } from "./chatCore/streamingHandler.js";
 import { detectClientTool, isNativePassthrough } from "../utils/clientDetector.js";
@@ -115,18 +116,9 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
     }
   }
 
-  const clientRequestedStreaming = body.stream === true || sourceFormat === FORMATS.ANTIGRAVITY || sourceFormat === FORMATS.GEMINI || sourceFormat === FORMATS.GEMINI_CLI;
+  const clientRequestedStreaming = requestedStreaming(body, sourceFormat);
   const providerRequiresStreaming = PROVIDERS[provider]?.forceStream === true;
-  // Claude-format clients speak the Anthropic Messages API, where `stream`
-  // defaults to false — an omitted field is a non-streaming request. The old
-  // `!== false` default routed those into the streaming handler, where a
-  // same-format claude provider returned the upstream's complete-message JSON
-  // body through the raw passthrough stream with a spurious trailing
-  // "data: [DONE]" — and skipped OAuth tool-name decloaking (leaked the
-  // *_ide-suffixed names). Route them to the non-streaming handler, which
-  // decloaks (nonStreamingHandler) and returns clean JSON.
-  const defaultStreaming = sourceFormat === FORMATS.CLAUDE ? body.stream === true : body.stream !== false;
-  let stream = providerRequiresStreaming ? true : defaultStreaming;
+  let stream = providerRequiresStreaming ? true : clientRequestedStreaming;
 
   // Image generation models require non-streaming (Google v1internal:generateContent)
   const modelType = getModelType(alias, model);
