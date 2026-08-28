@@ -1094,21 +1094,15 @@ exports[`GOLDEN buildHeaders (default executor providers) > openrouter → heade
     "Accept": "text/event-stream",
     "Authorization": "Bearer <TOK>",
     "Content-Type": "application/json",
-    "HTTP-Referer": "https://endpoint-proxy.local",
-    "X-Title": "Endpoint Proxy",
   },
   "nonStream": {
     "Authorization": "Bearer <TOK>",
     "Content-Type": "application/json",
-    "HTTP-Referer": "https://endpoint-proxy.local",
-    "X-Title": "Endpoint Proxy",
   },
   "oauth": {
     "Accept": "text/event-stream",
     "Authorization": "Bearer <TOK>",
     "Content-Type": "application/json",
-    "HTTP-Referer": "https://endpoint-proxy.local",
-    "X-Title": "Endpoint Proxy",
   },
 }
 `;

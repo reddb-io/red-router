@@ -752,9 +752,13 @@
   "openrouter": {
     "baseUrl": "https://openrouter.ai/api/v1/chat/completions",
     "thinkingFormat": "openai",
-    "headers": {
-      "HTTP-Referer": "https://endpoint-proxy.local",
-      "X-Title": "Endpoint Proxy"
+    "auth": {
+      "combined": true,
+      "header": "Authorization",
+      "scheme": "bearer",
+      "hooks": [
+        "openrouterAttribution"
+      ]
     },
     "format": "openai",
     "transports": [
@@ -765,11 +769,10 @@
         "auth": {
           "combined": true,
           "header": "Authorization",
-          "scheme": "bearer"
-        },
-        "headers": {
-          "HTTP-Referer": "https://endpoint-proxy.local",
-          "X-Title": "Endpoint Proxy"
+          "scheme": "bearer",
+          "hooks": [
+            "openrouterAttribution"
+          ]
         }
       }
     ]
