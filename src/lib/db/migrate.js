@@ -49,7 +49,12 @@ function isFreshDb(adapter) {
   try {
     const row = adapter.get(`SELECT COUNT(*) as c FROM _meta`);
     return !row || row.c === 0;
-  } catch {
+  } catch (err) {
+    const msg = String(err?.message || "").toLowerCase();
+    if (msg.includes("malformed") || msg.includes("corrupt") || msg.includes("disk image")) {
+      console.error(`[DB][CRITICAL] SQLite disk image is malformed: ${err.message}. Aborting to prevent data wipe.`);
+      throw err;
+    }
     return true;
   }
 }
@@ -219,6 +224,8 @@ export async function runMigrationOnce(adapter) {
 
   // Fail closed before any schema mutation or backup pruning. Recovery is
   // deliberately manual so startup never replaces newer data with a backup.
+  // Covers PRAGMA quick_check corruption detection (#3817) — supersedes the
+  // inline check from upstream #3862.
   assertDatabaseIntegrity(adapter, DATA_FILE);
   _migratedAdapters.add(adapter);
 
