@@ -6,6 +6,7 @@ import {
   isOpenAICompatibleProvider,
 } from "@/shared/constants/providers";
 import { getProviderConnections, getCombos, getCustomModels, getModelAliases } from "@/lib/localDb";
+import { parseModel } from "@/sse/services/model.js";
 import { getDisabledModels } from "@/lib/disabledModelsDb";
 import { resolveKiroModels } from "open-sse/services/kiroModels.js";
 import { resolveKimchiModels } from "open-sse/services/kimchiModels.js";
@@ -17,7 +18,7 @@ import { resolveCursorModels } from "open-sse/services/cursorModels.js";
 import { resolveZedModels } from "open-sse/shared/zedAuth.js";
 import { updateProviderCredentials } from "@/sse/services/tokenRefresh";
 import { resolveConnectionProxyConfig } from "@/lib/network/connectionProxy";
-import { capabilitiesFromServiceKind, getCapabilitiesForModel } from "open-sse/providers/capabilities.js";
+import { capabilitiesFromServiceKind, getCapabilitiesForModel, DEFAULT_CAPABILITIES } from "open-sse/providers/capabilities.js";
 import { getThinkingLevelsForId } from "open-sse/providers/thinkingLevels.js";
 import { comboThinkingLevels } from "open-sse/services/combo.js";
 import { stripThinkingSuffix } from "open-sse/translator/concerns/thinkingUnified.js";
@@ -250,35 +251,66 @@ function comboMatchesKinds(combo, kindFilter) {
   return kindFilter.includes(kind);
 }
 
-// A combo can route to any of its members, so it can only handle what the
-// weakest member handles: its limits are the minimum across them. Clients
-// (and compaction loops) size requests from the model list, so a combo entry
-// without limits makes them guess — usually high — and requests the members
-// cannot hold reach the router only to fail per model (ghcr.io/reddb-io/red-router#1089).
-// Members resolve through the same capability tables as regular models, so an
-// unknown member carries the default window and still bounds the minimum.
-function comboMemberLimits(members) {
-  const list = Array.isArray(members) ? members : [];
-  if (list.length === 0) return null;
-  let contextWindow;
-  let maxOutput;
-  for (const member of list) {
-    if (typeof member !== "string" || !member.trim()) continue;
-    const slash = member.indexOf("/");
-    // Members may carry a thinking suffix ("model(high)") — resolve via clean id.
-    const caps = getCapabilitiesForModel(
-      slash > 0 ? member.slice(0, slash) : "",
-      stripThinkingSuffix(slash > 0 ? member.slice(slash + 1) : member)
-    );
-    if (Number.isFinite(caps?.contextWindow)) {
-      contextWindow = contextWindow === undefined ? caps.contextWindow : Math.min(contextWindow, caps.contextWindow);
+// Boolean capability flags are unioned across members (OR): a feature is
+// available to the combo if any member supports it.
+const COMBO_BOOLEAN_CAPS = [
+  "vision", "pdf", "audioInput", "videoInput", "imageOutput",
+  "audioOutput", "search", "tools", "reasoning",
+  "thinkingCanDisable", "thinkingEffortSupported",
+];
+
+/**
+ * Aggregate capabilities across a combo's member models so the /v1/models entry
+ * carries the same shape as a concrete model. Numeric limits are the MINIMUM
+ * across members (a request can route to any member, so the combo is bounded by
+ * the smallest window); boolean features are the UNION; format scalars take the
+ * first non-null. Nested combos are flattened (mirrors the chat path, which
+ * re-expands a bare combo name as a single model). `seen` guards against cycles.
+ * @param {string[]} memberStrings - combo.models entries (provider/model, alias, or nested combo name)
+ * @param {Map<string,object>} comboByName - name -> combo, for nested expansion
+ * @param {Set<string>} [seen] - names already visited (cycle guard)
+ * @returns {object|null} merged capabilities, or null if no resolvable members
+ */
+function mergeComboCapabilities(memberStrings, comboByName, seen = new Set()) {
+  if (!Array.isArray(memberStrings) || memberStrings.length === 0) return null;
+
+  const merged = { ...DEFAULT_CAPABILITIES };
+  let resolvedAny = false;
+  let seenFinite = false;
+
+  for (const member of memberStrings) {
+    if (typeof member !== "string") continue;
+
+    let caps;
+    if (member.includes("/")) {
+      const { provider, model } = parseModel(member);
+      // Members may carry a thinking suffix ("model(high)") — resolve via clean id.
+      caps = getCapabilitiesForModel(provider, stripThinkingSuffix(model));
+    } else if (comboByName.has(member)) {
+      if (seen.has(member)) continue; // cycle guard
+      seen.add(member);
+      caps = mergeComboCapabilities(comboByName.get(member).models, comboByName, seen);
+    } else {
+      caps = getCapabilitiesForModel(null, stripThinkingSuffix(member));
     }
-    if (Number.isFinite(caps?.maxOutput)) {
-      maxOutput = maxOutput === undefined ? caps.maxOutput : Math.min(maxOutput, caps.maxOutput);
+    if (!caps) continue;
+
+    for (const key of COMBO_BOOLEAN_CAPS) {
+      if (caps[key]) merged[key] = true;
     }
+    if (merged.thinkingFormat === null && caps.thinkingFormat != null) merged.thinkingFormat = caps.thinkingFormat;
+    if (merged.thinkingRange === null && caps.thinkingRange != null) merged.thinkingRange = caps.thinkingRange;
+    if (Number.isFinite(caps.contextWindow)) {
+      merged.contextWindow = seenFinite ? Math.min(merged.contextWindow, caps.contextWindow) : caps.contextWindow;
+    }
+    if (Number.isFinite(caps.maxOutput)) {
+      merged.maxOutput = seenFinite ? Math.min(merged.maxOutput, caps.maxOutput) : caps.maxOutput;
+    }
+    resolvedAny = true;
+    seenFinite = true;
   }
-  if (contextWindow === undefined && maxOutput === undefined) return null;
-  return { contextWindow, maxOutput };
+
+  return resolvedAny ? merged : null;
 }
 
 /**
@@ -304,6 +336,8 @@ export async function buildModelsList(kindFilter, options = {}) {
   } catch (e) {
     console.log("Could not fetch combos");
   }
+  // Name -> combo, used to flatten nested combos when merging capabilities.
+  const comboByName = new Map(combos.map((c) => [c.name, c]));
 
   let customModels = [];
   try {
@@ -346,14 +380,19 @@ export async function buildModelsList(kindFilter, options = {}) {
     };
     if (combo.kind === "webSearch" || combo.kind === "webFetch") {
       entry.kind = combo.kind;
+    } else {
+      // Merge capabilities from member models so clients see a context window
+      // and feature set for the combo (bounded by its smallest-window member).
+      const caps = mergeComboCapabilities(combo.models, comboByName);
+      if (caps) {
+        entry.capabilities = caps;
+        entry.context_length = caps.contextWindow;
+        entry.max_completion_tokens = caps.maxOutput;
+      }
     }
-    // LLM combos carry the limits of their weakest member, under the same
-    // snake_case names regular models emit (see the token-limits block below).
+    // LLM combos can only honor thinking levels every member supports (weakest
+    // member rule); limits and capabilities come from mergeComboCapabilities above.
     if ((combo?.kind || LLM_KIND) === LLM_KIND) {
-      const limits = comboMemberLimits(combo.models);
-      if (Number.isFinite(limits?.contextWindow)) entry.context_length = limits.contextWindow;
-      if (Number.isFinite(limits?.maxOutput)) entry.max_completion_tokens = limits.maxOutput;
-      // Combo can only honor levels every member supports (weakest member rule).
       const comboLevels = comboThinkingLevels(combo.models);
       if (comboLevels) entry.thinking_levels = comboLevels;
     }
