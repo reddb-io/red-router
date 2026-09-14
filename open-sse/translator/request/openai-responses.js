@@ -553,6 +553,8 @@ export function openaiToOpenAIResponsesRequest(model, body, stream, credentials)
           name: name.slice(0, MAX_TOOL_NAME_LEN),
           description: String(tool.function.description || ""),
           parameters: normalizeToolParameters(tool.function.parameters),
+          // Chat Completions defaults to non-strict. Responses may otherwise
+          // normalize optional properties into required fields.
           strict: tool.function.strict ?? false
         };
       }
