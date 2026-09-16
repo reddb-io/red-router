@@ -20,6 +20,7 @@ const FORMAT_TO_NATIVE = {
   vertex: "gemini-budget",
   antigravity: "gemini-budget",
   kiro: "kiro",
+  commandcode: "commandcode",
 };
 
 const RESPONSES_TARGETS = new Set([FORMATS.OPENAI_RESPONSES, FORMATS.OPENAI_RESPONSE]);
@@ -116,6 +117,7 @@ const NATIVE_ONLY_FORMATS = new Set(["gemini-level", "gemini-budget", "claude-bu
 // transport's own thinkingFormat must win (e.g. openrouter: openai wire uses
 // reasoning_effort, its /v1/messages wire speaks native Anthropic thinking).
 function resolveFormat(targetFormat, model, provider, transportFmt = null) {
+  if (targetFormat === FORMATS.COMMANDCODE || targetFormat === "commandcode") return "commandcode";
   if (transportFmt) return transportFmt;
   const providerFmt = provider ? PROVIDERS[provider]?.thinkingFormat : null;
   if (providerFmt) return providerFmt;
@@ -232,6 +234,10 @@ function stripAll(body) {
   delete body.output_config;
   if (body.generationConfig) delete body.generationConfig.thinkingConfig;
   if (body.request?.generationConfig) delete body.request.generationConfig.thinkingConfig;
+  if (body.params && typeof body.params === "object") {
+    delete body.params.reasoning_effort;
+    delete body.params.thinking;
+  }
 }
 
 // Apply unified thinking config to body in the resolved provider-native format.
@@ -345,6 +351,17 @@ function applyFormat(fmt, body, cfg, caps, supportedLevels) {
     case "kiro":
       // Kiro thinking handled via system-tag injection in openai-to-kiro.js; no body field here.
       break;
+    case "commandcode": {
+      // Native CLI sends reasoning_effort inside params of the /alpha/generate envelope.
+      if (!body.params || typeof body.params !== "object") body.params = {};
+      if (none && canDisable) {
+        delete body.params.reasoning_effort;
+        break;
+      }
+      const level = toLevel(eff);
+      if (level) body.params.reasoning_effort = level;
+      break;
+    }
     default:
       break;
   }
