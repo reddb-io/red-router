@@ -9,7 +9,8 @@ import {
 } from "../services/auth.js";
 import { handleAntigravityQuotaError, clearAntigravityStrikes } from "../services/antigravityQuota.js";
 import { getExhaustedQuotaResetMs } from "../services/quotaReset.js";
-import { getSettings } from "@/lib/localDb";
+import { getSettings, getApiKeyOwner } from "@/lib/localDb";
+import { resolveScopedSettings } from "@/lib/auth/scopedSettings";
 import { getModelInfo, resolveComboModels } from "../services/model.js";
 import { handleChatCore } from "open-sse/handlers/chatCore.js";
 import { DEFAULT_HEADROOM_URL } from "@/lib/headroom/detect";
@@ -31,6 +32,13 @@ import { stripModelContextMarker } from "open-sse/utils/modelMarkers.js";
  * Supports: OpenAI, Claude, Gemini, OpenAI Responses API formats
  * Format detection and translation handled by translator
  */
+// undefined (not null) keeps the legacy lookup: name alone, ignoring ownership.
+async function resolveComboOwner(apiKey) {
+  const settings = await getSettings();
+  if (settings?.scopeResourcesByUser !== true) return undefined;
+  return await getApiKeyOwner(apiKey || null);
+}
+
 export async function handleChat(request, clientRawRequest = null, options = {}) {
   const errorContext = createErrorContext(request, options);
   let body;
@@ -69,7 +77,8 @@ export async function handleChat(request, clientRawRequest = null, options = {})
   }
 
   // Enforce API key if enabled in settings
-  const settings = await getSettings();
+  const settings = await resolveScopedSettings(await getSettings(), apiKey);
+  const comboOwner = await resolveComboOwner(apiKey);
   if (settings.requireApiKey) {
     if (!apiKey) {
       log.warn("AUTH", "Missing API key (requireApiKey=true)");
@@ -97,7 +106,8 @@ export async function handleChat(request, clientRawRequest = null, options = {})
   // Check if model is a combo (has multiple models with fallback). The name may
   // carry a thinking override suffix ("my-combo(high)") — resolution strips it
   // and re-attaches it to every member; cleanComboName keys strategies/settings.
-  const comboResolution = await resolveComboModels(modelStr);
+  // Combo names are unique per owner, so resolution is scoped to the key's owner.
+  const comboResolution = await resolveComboModels(modelStr, comboOwner);
   if (comboResolution) {
     const { models: comboModels, comboName: cleanComboName } = comboResolution;
     // Check for combo-specific strategy first, fallback to global
@@ -172,11 +182,13 @@ export async function handleChat(request, clientRawRequest = null, options = {})
  * Handle single model chat request
  */
 async function handleSingleModelChat(body, modelStr, clientRawRequest = null, request = null, apiKey = null, errorContext = {}) {
-  const modelInfo = await getModelInfo(modelStr);
+  // Combo names are unique per owner, so resolution needs to know whose key this is.
+  const comboOwner = await resolveComboOwner(apiKey);
+  const modelInfo = await getModelInfo(modelStr, comboOwner);
 
   // If provider is null, this might be a combo name - check and handle
   if (!modelInfo.provider) {
-    const comboResolution = await resolveComboModels(modelStr);
+    const comboResolution = await resolveComboModels(modelStr, comboOwner);
     if (comboResolution) {
       const { models: comboModels, comboName: cleanComboName } = comboResolution;
       const chatSettings = await getSettings();
