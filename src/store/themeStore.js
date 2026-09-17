@@ -43,10 +43,17 @@ function applyTheme(theme) {
 
   const effectiveTheme = theme === "system" ? systemTheme : theme;
 
+  // The vendored RedDB Design System styles key off data attributes:
+  // theme-application.css applies under [data-theme="application"] and the
+  // scheme files under [data-color-scheme]. The .dark class stays for the
+  // Tailwind @custom-variant; both stay in sync from the same place.
+  root.setAttribute("data-theme", "application");
   if (effectiveTheme === "dark") {
     root.classList.add("dark");
+    root.setAttribute("data-color-scheme", "dark");
   } else {
     root.classList.remove("dark");
+    root.setAttribute("data-color-scheme", "light");
   }
 }
 

@@ -117,12 +117,10 @@ export default function Sidebar({ onClose }) {
           <div className="w-3 h-3 rounded-full bg-[#27C93F]" />
         </div>
 
-        {/* Logo */}
+        {/* Logo — RedDB mark from the vendored Design System */}
         <div className="px-6 py-4 flex flex-col gap-2">
           <Link href="/dashboard" className="flex items-center gap-3">
-            <div className="flex items-center justify-center size-9 rounded-[10px] bg-gradient-to-br from-brand-500 to-brand-700 shadow-[var(--shadow-warm)]">
-              <span className="material-symbols-outlined text-white text-[20px]">hub</span>
-            </div>
+            <img src="/favicon.svg" alt="RedDB" className="size-9 rounded-[10px]" />
             <div className="flex flex-col">
               <h1 className="text-lg font-semibold tracking-tight text-text-main">
                 {APP_CONFIG.name}
