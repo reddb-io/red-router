@@ -14,6 +14,11 @@ const CATALOG_URL = "https://models.dev/api.json";
 // regardless of who serves it. Read as the fallback limits layer when a
 // provider is not covered by the api.json deltas below.
 const MODELS_URL = "https://models.dev/models.json";
+// Offline baseline: snapshots vendored into the repo seed the cache when the API is unreachable,
+// so a fresh install (or an outage before the first successful sync) still serves real limits.
+// The scheduled sync overwrites the cache with fresh data as soon as the API answers again.
+const SNAPSHOT_API_URL = new URL("./snapshot/api.json", import.meta.url);
+const SNAPSHOT_MODELS_URL = new URL("./snapshot/models.json", import.meta.url);
 const FETCH_TIMEOUT_MS = 60000;
 
 export const SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000;
@@ -88,18 +93,55 @@ function slim(catalog) {
 // above only cover aliased gateways; this fallback gives every model with a
 // models.dev entry a real window even when the gateway serving it is unknown.
 // Failure is swallowed: a missing layer just means nothing to fall back to.
+// The provider-agnostic limits layer, built the same way from either the live models.json or the
+// vendored snapshot.
+function buildModelLimits(models) {
+  const limits = {};
+  for (const model of Object.values(models || {})) {
+    const id = baseId(model?.id);
+    const { context, output } = model?.limit || {};
+    if (id && context > 0) limits[id] = { context, output: output > 0 ? output : undefined };
+  }
+  return Object.keys(limits).length ? limits : null;
+}
+
 async function fetchModelLimits() {
   try {
     const response = await fetch(MODELS_URL, { headers: { accept: "application/json" }, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
     if (!response.ok) return null;
-    const models = await response.json();
-    const limits = {};
-    for (const model of Object.values(models)) {
-      const id = baseId(model?.id);
-      const { context, output } = model?.limit || {};
-      if (id && context > 0) limits[id] = { context, output: output > 0 ? output : undefined };
-    }
-    return Object.keys(limits).length ? limits : null;
+    return buildModelLimits(await response.json());
+  } catch {
+    return null;
+  }
+}
+
+// Offline baseline: build the catalog from the snapshots vendored into the repo. Used when the
+// cache does not exist yet and the API is unreachable, so a fresh install serves real limits
+// instead of an empty catalog. The next successful sync overwrites it with fresh data.
+export async function seedFromSnapshot() {
+  if (fs.existsSync(CATALOG_FILE)) return null;
+  const catalog = readSnapshotFile(SNAPSHOT_API_URL);
+  const snapshotModels = readSnapshotFile(SNAPSHOT_MODELS_URL);
+  if (!catalog || !snapshotModels) return null;
+  const entries = await collectEntries();
+  const { models, providers } = build(catalog, entries);
+  const modelLimits = buildModelLimits(snapshotModels);
+  const serialized = JSON.stringify({ v: 1, etag: null, syncedAt: Date.now(), models, providers, modelLimits });
+  writeAtomic(CATALOG_FILE, serialized);
+  writeAtomic(CATALOG_RAW_FILE, JSON.stringify(slim(catalog)));
+  invalidateCatalog();
+  await installCatalogSource().catch(() => {});
+  return {
+    status: "seeded",
+    source: "vendored snapshot",
+    models: Object.keys(models).length,
+    modelLimits: modelLimits ? Object.keys(modelLimits).length : 0,
+  };
+}
+
+function readSnapshotFile(url) {
+  try {
+    return JSON.parse(fs.readFileSync(url, "utf8"));
   } catch {
     return null;
   }
@@ -238,6 +280,15 @@ export async function syncModelCatalog() {
   } catch (error) {
     state.lastError = error?.message || String(error);
     console.log(`[modelCatalog] sync failed: ${state.lastError}`);
+    // The API is down and the cache may be empty: seed from the vendored snapshot so the read
+    // side still serves real limits instead of an empty catalog.
+    const seeded = await seedFromSnapshot().catch(() => null);
+    if (seeded) {
+      state.lastError = null;
+      state.lastResult = seeded;
+      console.log(`[modelCatalog] seeded ${seeded.models} models from the ${seeded.source}`);
+      return seeded;
+    }
     return null;
   } finally {
     // collectEntries() detaches the reader; put it back whatever happened.
@@ -262,6 +313,16 @@ export function startModelCatalogSync() {
   if (timer) return;
   if (String(process.env.MODEL_CATALOG_SYNC || "").toLowerCase() === "off") return;
   restoreEtag();
+
+  // No cache yet: seed from the vendored snapshot right away so the first boot serves real
+  // limits even offline; the scheduled sync updates the cache from the API when reachable.
+  if (!fs.existsSync(CATALOG_FILE)) {
+    seedFromSnapshot()
+      .then((seeded) => {
+        if (seeded) console.log(`[modelCatalog] seeded ${seeded.models} models from the ${seeded.source}`);
+      })
+      .catch(() => {});
+  }
 
   const schedule = (delay) => {
     timer = setTimeout(async () => {
