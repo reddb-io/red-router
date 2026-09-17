@@ -9,6 +9,11 @@ import path from "node:path";
 import { CATALOG_FILE, CATALOG_RAW_FILE, invalidateCatalog, installCatalogSource } from "open-sse/providers/catalogOverride.js";
 
 const CATALOG_URL = "https://models.dev/api.json";
+// Provider-agnostic model facts from the same models.dev project
+// (anomalyco/models.dev): keyed "<vendor>/<model-id>", one entry per model
+// regardless of who serves it. Read as the fallback limits layer when a
+// provider is not covered by the api.json deltas below.
+const MODELS_URL = "https://models.dev/models.json";
 const FETCH_TIMEOUT_MS = 60000;
 
 export const SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000;
@@ -78,8 +83,29 @@ function slim(catalog) {
   return out;
 }
 
-function build(catalog, entries) {
-  // Index once: per provider for limits, and tallied across all of them for
+// Provider-agnostic limits from models.dev/models.json, keyed by model id
+// alone ("zai-org/glm-4.6" -> glm-4.6). The provider-keyed api.json deltas
+// above only cover aliased gateways; this fallback gives every model with a
+// models.dev entry a real window even when the gateway serving it is unknown.
+// Failure is swallowed: a missing layer just means nothing to fall back to.
+async function fetchModelLimits() {
+  try {
+    const response = await fetch(MODELS_URL, { headers: { accept: "application/json" }, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+    if (!response.ok) return null;
+    const models = await response.json();
+    const limits = {};
+    for (const model of Object.values(models)) {
+      const id = baseId(model?.id);
+      const { context, output } = model?.limit || {};
+      if (id && context > 0) limits[id] = { context, output: output > 0 ? output : undefined };
+    }
+    return Object.keys(limits).length ? limits : null;
+  } catch {
+    return null;
+  }
+}
+
+function build(catalog, entries) {  // Index once: per provider for limits, and tallied across all of them for
   // modalities.
   const byProvider = {};
   const tally = {};
@@ -187,7 +213,8 @@ export async function syncModelCatalog() {
       const etag = response.headers.get("etag") || null;
       const entries = await collectEntries();
       const { models, providers } = build(catalog, entries);
-      const serialized = JSON.stringify({ v: 1, etag, syncedAt: Date.now(), models, providers });
+      const modelLimits = await fetchModelLimits();
+      const serialized = JSON.stringify({ v: 1, etag, syncedAt: Date.now(), models, providers, modelLimits });
 
       writeAtomic(CATALOG_FILE, serialized);
       writeAtomic(CATALOG_RAW_FILE, JSON.stringify(slim(catalog)));

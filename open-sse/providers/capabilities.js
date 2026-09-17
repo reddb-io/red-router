@@ -438,7 +438,10 @@ function refine(base, provider, model) {
       }
     }
 
-    const limits = catalogSource.getLimits(provider, model);
+    // Gateway numbers win; the model-agnostic models.dev entry only fills the
+    // gap when the gateway's own limits are unknown (unaliased providers).
+    const limits = catalogSource.getLimits(provider, model)
+      || catalogSource.getLimitsByModel?.(model);
     if (limits) {
       if (limits.contextWindow > 0) result.contextWindow = limits.contextWindow;
       if (limits.maxOutput > 0) result.maxOutput = limits.maxOutput;
