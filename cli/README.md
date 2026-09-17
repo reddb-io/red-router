@@ -45,15 +45,8 @@ red-router
 npx @reddb-io/red-router
 ```
 
-**Option 2 — Docker (server/VPS):**
 
-```bash
-docker run -d --name red-router -p 20128:20128 \
-  -v "$HOME/.red-router:/app/data" -e DATA_DIR=/app/data \
-  ghcr.io/reddb-io/red-router:latest
-```
 
-Published images: [Docker Hub](https://github.com/reddb-io/red-router/pkgs/container/red-router) • [GHCR](https://github.com/reddb-io/red-router/pkgs/container/red-router) (multi-platform amd64/arm64).
 
 🎉 Dashboard opens at `http://localhost:20128`
 
@@ -100,7 +93,6 @@ Any tool supporting OpenAI/Claude-compatible API works.
 
 - **macOS/Linux**: `~/.red-router/db/data.sqlite`
 - **Windows**: `%APPDATA%/red-router/db/data.sqlite`
-- **Docker**: `/app/data/db/data.sqlite` (mount `$HOME/.red-router` to persist)
 
 ---
 

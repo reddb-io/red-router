@@ -96,7 +96,7 @@ Claude Code/Codex/OpenClaw/Cursor/Cline 设置：
 
 **替代方案：从源码运行（本仓库）：**
 
-本仓库的包是私有的（`red-router-app`），所以源码/Docker 执行是预期的本地开发方式。
+本仓库的包是私有的（`red-router-app`），所以源码 执行是预期的本地开发方式。
 
 ```bash
 cp .env.example .env
@@ -403,7 +403,6 @@ RedRouter 与所有主流 AI 编程工具无缝协作：
 | 📝 **请求日志** | 调试模式下的完整请求/响应日志 | 轻松排查问题 |
 | 💾 **云同步** | 跨设备同步配置 | 处处相同设置 |
 | 📊 **使用分析** | 追踪 tokens、成本、趋势 | 优化开支 |
-| 🌐 **任意部署** | 本地、VPS、Docker、Cloudflare Workers | 灵活部署选项 |
 
 <details>
 <summary><b>📖 功能详情</b></summary>
@@ -511,7 +510,6 @@ RedRouter 与所有主流 AI 编程工具无缝协作：
 
 - 💻 **本地** - 默认，离线可用
 - ☁️ **VPS/云** - 跨设备共享
-- 🐳 **Docker** - 一键部署
 - 🚀 **Cloudflare Workers** - 全球边缘网络
 
 </details>
@@ -1048,46 +1046,6 @@ pm2 save
 pm2 startup
 ```
 
-### Docker
-
-```bash
-# 构建镜像（从仓库根目录）
-docker build -t red-router .
-
-# 运行容器（当前设置使用的命令）
-docker run -d \
-  --name red-router \
-  -p 20128:20128 \
-  --env-file /root/dev/red-router/.env \
-  -v red-router-data:/app/data \
-  -v red-router-usage:/root/.red-router \
-  red-router
-```
-
-便携命令（如果你已经在仓库根目录）：
-
-```bash
-docker run -d \
-  --name red-router \
-  -p 20128:20128 \
-  --env-file ./.env \
-  -v red-router-data:/app/data \
-  -v red-router-usage:/root/.red-router \
-  red-router
-```
-
-容器默认值：
-- `PORT=20128`
-- `HOSTNAME=0.0.0.0`
-
-常用命令：
-
-```bash
-docker logs -f red-router
-docker restart red-router
-docker stop red-router && docker rm red-router
-```
-
 ### 环境变量
 
 | 变量 | 默认值 | 描述 |
@@ -1096,7 +1054,6 @@ docker stop red-router && docker rm red-router
 | `INITIAL_PASSWORD` | `123456` | 当没有保存的哈希时首次登录的密码 |
 | `DATA_DIR` | `~/.red-router` | 主应用数据库位置（`db.json`） |
 | `PORT` | 框架默认值 | 服务端口（示例中为 `20128`） |
-| `HOSTNAME` | 框架默认值 | 绑定主机（Docker 默认为 `0.0.0.0`） |
 | `NODE_ENV` | 运行时默认值 | 设置 `production` 用于部署 |
 | `BASE_URL` | `http://localhost:20128` | 云同步任务使用的服务端内部基础 URL |
 | `CLOUD_URL` | `https://github.com/reddb-io/red-router` | 服务端云同步端点基础 URL |
@@ -1111,7 +1068,6 @@ docker stop red-router && docker rm red-router
 
 注意：
 - 也支持小写代理变量：`http_proxy`、`https_proxy`、`all_proxy`、`no_proxy`。
-- `.env` 不会打包到 Docker 镜像中（`.dockerignore`）；使用 `--env-file` 或 `-e` 注入运行时配置。
 - 在 Windows 上，`APPDATA` 可用于本地存储路径解析。
 - `INSTANCE_NAME` 出现在较旧的文档/环境变量模板中，但当前运行时未使用。
 
@@ -1120,7 +1076,6 @@ docker stop red-router && docker rm red-router
 - 主应用状态：`${DATA_DIR}/db.json`（提供商、组合、别名、密钥、设置），由 `src/lib/localDb.js` 管理。
 - 使用历史和日志：`${DATA_DIR}/usage.json` 和 `${DATA_DIR}/log.txt`，由 `src/lib/usageDb.js` 管理。
 - 可选的请求/翻译器日志：`ENABLE_REQUEST_LOGS=true` 时位于 `<repo>/logs/...`。
-- `${DATA_DIR}` 和 `~/.red-router` 在 Docker 容器中解析到同一位置 — 符号链接 `/root/.red-router -> /app/data` 在构建时创建。
 
 </details>
 

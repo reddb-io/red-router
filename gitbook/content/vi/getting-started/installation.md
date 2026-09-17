@@ -398,22 +398,6 @@ pm2 startup
 
 **Use case:** Team access, remote coding
 
-### Docker
-
-```bash
-docker pull red-router/red-router:latest
-
-docker run -d \
-  -p 20128:20128 \
-  -e JWT_SECRET="your-secure-secret" \
-  -e INITIAL_PASSWORD="your-password" \
-  -v red-router-data:/root/.red-router \
-  --name red-router \
-  red-router/red-router:latest
-```
-
-**Use case:** Containerized deployment, Kubernetes
-
 ### Reverse Proxy (Nginx)
 
 ```nginx

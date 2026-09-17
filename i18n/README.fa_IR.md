@@ -483,13 +483,6 @@ headroom proxy --port 8787
 
 مثال‌های داکر:
 
-```bash
-# سرویس Headroom در همان شبکه داکر
-http://headroom:8787
-
-# Headroom در حال اجرا روی ماشین میزبان
-http://host.docker.internal:8787
-```
 
 اگر Headroom از کار بیفتد یا خطا برگرداند، RedRouter به‌حالت بازگشت باز می‌شود و درخواست اصلی را ارسال می‌کند.
 
@@ -597,7 +590,6 @@ http://host.docker.internal:8787
 
 - 💻 **لوکال‌هست** - پیش‌فرض، آفلاین کار می‌کند
 - ☁️ **VPS/ابر** - اشتراک‌گذاری بین دستگاه‌ها
-- 🐳 **داکر** - استقرار با یک دستور
 - 🚀 **Cloudflare Workers** - شبکه لبه جهانی
 
 </details>
@@ -1159,26 +1151,11 @@ pm2 startup
 
 **شروع سریع (استفاده از تصویر منتشر شده):**
 
-```bash
-docker run -d \
-  --name red-router \
-  -p 20128:20128 \
-  -v "$HOME/.red-router:/app/data" \
-  -e DATA_DIR=/app/data \
-  ghcr.io/reddb-io/red-router:latest
-```
 
 → باز کردن http://localhost:20128
 
 **ساخت از سورس (توسعه):**
 
-```bash
-git clone https://github.com/reddb-io/red-router.git
-cd red-router/app
-docker build -t red-router .
-docker run -d --name red-router -p 20128:20128 \
-  -v "$HOME/.red-router:/app/data" -e DATA_DIR=/app/data red-router
-```
 
 **پیش‌فرض‌های کانتینر:**
 
@@ -1187,12 +1164,6 @@ docker run -d --name red-router -p 20128:20128 \
 
 **دستورات مفید:**
 
-```bash
-docker logs -f red-router
-docker restart red-router
-docker stop red-router && docker rm red-router
-docker pull ghcr.io/reddb-io/red-router:latest   # به‌روزرسانی به آخرین نسخه
-```
 
 **ماندگاری داده:** `$HOME/.red-router/db/data.sqlite` در میزبان ↔ `/app/data/db/data.sqlite` در کانتینر.
 
@@ -1221,7 +1192,6 @@ docker pull ghcr.io/reddb-io/red-router:latest   # به‌روزرسانی به 
 نکات:
 
 - متغیرهای پروکسی با حروف کوچک نیز پشتیبانی می‌شوند: `http_proxy`، `https_proxy`، `all_proxy`، `no_proxy`.
-- `.env` در تصویر داکر تعبیه نشده است (`.dockerignore`)؛ پیکربندی زمان اجرا را با `--env-file` یا `-e` تزریق کنید.
 - در ویندوز، می‌توان از `APPDATA` برای وضوح مسیر ذخیره‌سازی محلی استفاده کرد.
 - `INSTANCE_NAME` در مستندات قدیمی/الگوهای env ظاهر می‌شود، اما در حال حاضر در زمان اجرا استفاده نمی‌شود.
 

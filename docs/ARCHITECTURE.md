@@ -550,7 +550,6 @@ Environment variables actively used by code:
 ## Operational Verification Checklist
 
 - Build from source: `cd /root/dev/red-router && npm run build`
-- Build Docker image: `cd /root/dev/red-router && docker build -t red-router .`
 - Start service and verify:
 - `GET /api/settings`
 - `GET /api/v1/models`

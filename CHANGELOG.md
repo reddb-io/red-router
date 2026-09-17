@@ -7,10 +7,10 @@ Full rebrand: 9Router → **RedRouter** (`@reddb-io/red-router` on npm, bin `red
 - **Env vars**: `NINEROUTER_PEER_TOKEN` → `REDROUTER_PEER_TOKEN`, `NINEROUTER_PROXY_CLIENT_MAX_BODY_SIZE` → `REDROUTER_PROXY_CLIENT_MAX_BODY_SIZE`, `NINEROUTER_CLI_APP_DIR` → `REDROUTER_CLI_APP_DIR`, `NINE_ROUTER_PROXY_*` → `RED_ROUTER_PROXY_*`.
 - **Internal loopback headers**: `x-9r-real-ip` → `x-rr-real-ip`, `x-9r-peer-token` → `x-rr-peer-token`, `x-9r-cli-token` → `x-rr-cli-token`, `x-9r-via-proxy` → `x-rr-via-proxy`, `x-9router-connection-id` → `x-red-router-connection-id`; CLI dashboard token salt `9r-cli-auth` → `rr-cli-auth` (stored dashboard CLI tokens must be re-paired).
 - **npm package**: published as `@reddb-io/red-router` (`npx @reddb-io/red-router`); install via `npm install -g @reddb-io/red-router`.
-- **Docker images**: GHCR only — `ghcr.io/reddb-io/red-router` (Docker Hub `decolua/9router` is not published by this fork).
+- **Docker removed**: the Dockerfile, compose file and image-publishing workflow were dropped — RedRouter ships as the built release binary via npm only.
 
 ## Features
-- **Publishing**: Changesets-driven versioning (`pnpm changeset` / `pnpm release:version`) and tag-triggered `red-publish.yml` npm workflow; Docker publishing to GHCR on `v*` tags.
+- **Publishing**: Changesets-driven versioning (`pnpm changeset` / `pnpm release:version`) and tag-triggered `red-publish.yml` npm workflow.
 - **Versioning**: package and app version reset to `0.1.0`; root package renamed `red-router-app`.
 
 - **Video**: add OpenRouter and Vertex AI (Veo) video generation on `/v1/videos/*` via a provider adapter layer; poll requests resolve their provider from `x-connection-id` or `?provider=`

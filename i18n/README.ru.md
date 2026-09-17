@@ -93,7 +93,7 @@ red-router
 
 **Альтернатива: запуск из исходников (этот репозиторий):**
 
-Пакет этого репозитория приватный (`red-router-app`), поэтому запуск из исходников/Docker — это ожидаемый путь локальной разработки.
+Пакет этого репозитория приватный (`red-router-app`), поэтому запуск из исходников — это ожидаемый путь локальной разработки.
 
 ```bash
 cp .env.example .env
@@ -360,7 +360,6 @@ RedRouter бесшовно работает со всеми основными A
 | 📝 **Логирование запросов** | Режим отладки с полным логом запросов/ответов | Лёгкая диагностика проблем |
 | 💾 **Облачная синхронизация** | Синхронизация конфигурации между устройствами | Одинаковые настройки везде |
 | 📊 **Аналитика использования** | Отслеживание токенов, затрат, трендов во времени | Оптимизация расходов |
-| 🌐 **Развёртывание где угодно** | Localhost, VPS, Docker, Cloudflare Workers | Гибкие варианты развёртывания |
 
 <details>
 <summary><b>📖 Подробности о возможностях</b></summary>
@@ -455,7 +454,6 @@ Combo: "my-coding-stack"
 
 - 💻 **Localhost** — По умолчанию, работает офлайн
 - ☁️ **VPS/Cloud** — Общий доступ между устройствами
-- 🐳 **Docker** — Развёртывание одной командой
 - 🚀 **Cloudflare Workers** — Глобальная edge-сеть
 
 </details>
@@ -975,46 +973,6 @@ pm2 save
 pm2 startup
 ```
 
-### Docker
-
-```bash
-# Build image (from repository root)
-docker build -t red-router .
-
-# Run container (command used in current setup)
-docker run -d \
-  --name red-router \
-  -p 20128:20128 \
-  --env-file /root/dev/red-router/.env \
-  -v red-router-data:/app/data \
-  -v red-router-usage:/root/.red-router \
-  red-router
-```
-
-Портативная команда (если вы уже в корне репозитория):
-
-```bash
-docker run -d \
-  --name red-router \
-  -p 20128:20128 \
-  --env-file ./.env \
-  -v red-router-data:/app/data \
-  -v red-router-usage:/root/.red-router \
-  red-router
-```
-
-Значения по умолчанию контейнера:
-- `PORT=20128`
-- `HOSTNAME=0.0.0.0`
-
-Полезные команды:
-
-```bash
-docker logs -f red-router
-docker restart red-router
-docker stop red-router && docker rm red-router
-```
-
 ### Переменные окружения
 
 | Переменная | По умолчанию | Описание |
@@ -1023,7 +981,6 @@ docker stop red-router && docker rm red-router
 | `INITIAL_PASSWORD` | `123456` | Пароль первого входа при отсутствии сохранённого хеша |
 | `DATA_DIR` | `~/.red-router` | Расположение основной БД приложения (`db.json`) |
 | `PORT` | framework default | Порт сервиса (`20128` в примерах) |
-| `HOSTNAME` | framework default | Bind host (Docker по умолчанию `0.0.0.0`) |
 | `NODE_ENV` | runtime default | Установите `production` для развёртывания |
 | `BASE_URL` | `http://localhost:20128` | Внутренний серверный базовый URL для задач облачной синхронизации |
 | `CLOUD_URL` | `https://github.com/reddb-io/red-router` | Серверный базовый URL эндпоинта облачной синхронизации |
@@ -1038,7 +995,6 @@ docker stop red-router && docker rm red-router
 
 Примечания:
 - Прокси-переменные в нижнем регистре также поддерживаются: `http_proxy`, `https_proxy`, `all_proxy`, `no_proxy`.
-- `.env` не запекается в Docker-образ (`.dockerignore`); подавайте runtime-конфигурацию через `--env-file` или `-e`.
 - В Windows для разрешения путей локального хранилища может использоваться `APPDATA`.
 - `INSTANCE_NAME` встречается в старых docs/env-шаблонах, но сейчас в рантайме не используется.
 
@@ -1197,8 +1153,6 @@ Authorization: Bearer your-api-key
 
 Добавлены тестовые скрипты в `tester/security/`:
 
-- `tester/security/test-docker-hardening.sh`
-  - Собирает Docker-образ и проверяет hardening-проверки (`/api/cloud/auth` auth guard, `REQUIRE_API_KEY`, безопасное поведение cookie аутентификации).
 - `tester/security/test-cloud-openai-compatible.sh`
   - Отправляет OpenAI-совместимый запрос напрямую на облачный эндпоинт (`https://github.com/reddb-io/red-router/v1/chat/completions`) с указанной моделью/ключом.
 - `tester/security/test-cloud-sync-and-call.sh`
@@ -1219,7 +1173,6 @@ OPENAI_API_KEY="your-cloud-key" bash tester/security/test-cloud-openai-compatibl
 Ожидаемое поведение по результатам недавней проверки:
 
 - Локально (`http://127.0.0.1:20128/v1/chat/completions`): работает с `stream=false` и `stream=true`.
-- Docker-рантайм (тот же API-путь, экспонируемый контейнером): hardening-проверки проходят, cloud auth guard работает, строгий режим API-ключа работает при включении.
 - Публичный облачный эндпоинт (`https://github.com/reddb-io/red-router/v1/chat/completions`):
   - `stream=true`: ожидается успех (возвращает SSE-чанки).
   - `stream=false`: может падать с `500` + ошибкой разбора (`Unexpected token 'd'`), когда upstream возвращает SSE-контент для непотокового клиентского пути.

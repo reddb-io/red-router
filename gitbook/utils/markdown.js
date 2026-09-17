@@ -28,7 +28,7 @@ const PAGE_ICONS = {
   "Other Tools": Plug,
   "Deployment": Cloud,
   "Localhost": Monitor,
-  "Cloud (VPS/Docker)": Server,
+  "Cloud (VPS)": Server,
   "Troubleshooting": HelpCircle,
   "FAQ": MessageCircle,
   "Frequently Asked Questions": MessageCircle

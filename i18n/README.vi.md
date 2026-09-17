@@ -92,7 +92,7 @@ Cài đặt Claude Code/Codex/OpenClaw/Cursor/Cline/Antigravity:
 
 **Phương án khác: chạy từ mã nguồn (repository này):**
 
-Gói kho lưu trữ này là riêng tư (`red-router-app`), vì vậy việc chạy từ nguồn/Docker là cách phát triển cục bộ mặc định.
+Gói kho lưu trữ này là riêng tư (`red-router-app`), vì vậy việc chạy từ nguồn là cách phát triển cục bộ mặc định.
 
 ```bash
 cp .env.example .env
@@ -360,7 +360,6 @@ RedRouter hoạt động liền mạch với tất cả các công cụ code AI 
 | 📝 **Ghi log Request** | Chế độ gỡ lỗi với log request/response đầy đủ | Dễ dàng khắc phục sự cố |
 | 💾 **Đồng bộ đám mây** | Đồng bộ cấu hình giữa các thiết bị | Cài đặt giống nhau ở mọi nơi |
 | 📊 **Phân tích sử dụng** | Theo dõi token, chi phí, xu hướng theo thời gian | Tối ưu hóa chi tiêu |
-| 🌐 **Triển khai ở bất cứ đâu** | Localhost, VPS, Docker, Cloudflare Workers | Tùy chọn triển khai linh hoạt |
 
 <details>
 <summary><b>📖 Chi tiết tính năng</b></summary>
@@ -455,7 +454,6 @@ Dịch chuyển liền mạch giữa các định dạng:
 
 - 💻 **Localhost** - Mặc định, hoạt động ngoại tuyến
  ☁️ **VPS/Cloud** - Chia sẻ giữa các thiết bị
-- 🐳 **Docker** - Triển khai bằng một lệnh
 - 🚀 **Cloudflare Workers** - Mạng edge toàn cầu
 
 </details>
@@ -972,46 +970,6 @@ pm2 save
 pm2 startup
 ```
 
-### Docker
-
-```bash
-# Build image (từ gốc kho lưu trữ)
-docker build -t red-router .
-
-# Chạy container (lệnh được sử dụng trong thiết lập hiện tại)
-docker run -d \
-  --name red-router \
-  -p 20128:20128 \
-  --env-file /root/dev/red-router/.env \
-  -v red-router-data:/app/data \
-  -v red-router-usage:/root/.red-router \
-  red-router
-```
-
-Lệnh di động (nếu bạn đã ở gốc kho lưu trữ):
-
-```bash
-docker run -d \
-  --name red-router \
-  -p 20128:20128 \
-  --env-file ./.env \
-  -v red-router-data:/app/data \
-  -v red-router-usage:/root/.red-router \
-  red-router
-```
-
-Mặc định container:
-- `PORT=20128`
-- `HOSTNAME=0.0.0.0`
-
-Các lệnh hữu ích:
-
-```bash
-docker logs -f red-router
- restart red-router
-docker stop red-router && docker rm red-router
-```
-
 ### Biến môi trường
 
 | Biến | Mặc định | Mô tả |
@@ -1020,7 +978,6 @@ docker stop red-router && docker rm red-router
 | `INITIAL_PASSWORD` | `123456` | Mật khẩu đăng nhập đầu tiên khi không có hash đã lưu tồn tại |
 | `DATA_DIR` | `~/.red-router` |ị trí cơ sở dữ liệu ứng dụng chính (`db.json`) |
 | `PORT` | framework default | Cổng dịch vụ (`20128` trong các ví dụ) |
-| `HOSTNAME` | framework default | Bind host (Docker mặc định là `0.0.0.0`) |
 | `NODE_ENV` | runtime default | Đặt `production` để triển khai |
 | `BASE_URL` | `http://localhost:20128` | URL cơ sở nội bộ phía máy chủ được sử dụng bởi các tác vụ đồng bộ đám mây |
 | `CLOUD_URL` | `https://github.com/reddb-io/red-router` | URL cơ sở endpoint đồng bộ đám mây phía máy chủ |
@@ -1035,7 +992,6 @@ docker stop red-router && docker rm red-router
 
 Ghi chú:
 - Các biến proxy chữ thường cũng được hỗ trợ: `http_proxy`, `https_proxy`, `all_proxy`, `no_proxy`.
-- `.env` không được nướng vào image Docker (`.dockerignore`); tiêm cấu hình runtime với `--env-file` hoặc `-e`.
 - Trên Windows, `APPDATA` có thể được sử dụng cho việc phân giải đường dẫn lưuữ cục bộ.
 - `INSTANCE_NAME` xuất hiện trong các tài liệu/mẫu env cũ hơn, nhưng hiện không được sử dụng trong runtime.
 
@@ -1194,8 +1150,6 @@ Authorization: Bearer your-api-key
 
 Đã thêm các kịch bản kiểm tra dưới `tester/security/`:
 
-- `tester/security/test-docker-hardening.sh`
-  - Build image Docker và xác thực các kiểm tra hardening (`/api/cloud/auth` auth guard, `REQUIRE_API_KEY`, hành vi cookie xác thực bảo).
 - `tester/security/test-cloud-openai-compatible.sh`
   - Gửi một yêu cầu tương thích OpenAI trực tiếp đến endpoint đám mây (`https://github.com/reddb-io/red-router/v1/chat/completions`) với mô hình/key được cung cấp.
 - `tester/security/test-cloud-sync-and-call.sh`
@@ -1216,7 +1170,6 @@ OPENAI_API_KEY="your-cloud-key" bash tester/security/test-cloud-openai-compatibl
 Hành vi dự kiến từ việc xác thực gần đây:
 
 - cục bộ (`http://127.0.0.1:20128/v1/chat/completions`): hoạt động với `stream=false` và `stream=true`.
-- Runtime Docker (cùng đường dẫn API được expose bởi container): các kiểm tra hardening đạt, cloud auth guard hoạt động, chế độ API key nghiêm ngặt hoạt động khi được bật.
 - Endpoint đám mây công khai (`https://github.com/reddb-io/red-router/v1/chat/completions`):
   - `stream=true`: dự kiến thành công (trả về các khối SSE).
   - `stream=false`: có thể thất bại với `500` + lỗi phân tích (`Unexpected token 'd'`) khi upstream trả về nội dung SSE cho đường dẫn client không phát trực tiếp.

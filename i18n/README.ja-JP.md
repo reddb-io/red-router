@@ -91,7 +91,7 @@ Claude Code/Codex/Gemini CLI/OpenClaw/Cursor/Clineの設定:
 
 **代替方法: ソースから実行（このリポジトリ）：**
 
-このリポジトリパッケージはプライベート（`red-router-app`）のため、ソース/Docker実行がローカル開発の想定パスです。
+このリポジトリパッケージはプライベート（`red-router-app`）のため、ソース実行がローカル開発の想定パスです。
 
 ```bash
 cp .env.example .env
@@ -358,7 +358,6 @@ RedRouterはすべての主要AIコーディングツールとシームレスに
 | 📝 **リクエストログ** | リクエスト/レスポンスの完全ログ | 問題の簡単なトラブルシューティング |
 | 💾 **クラウド同期** | デバイス間で設定を同期 | どこでも同じセットアップ |
 | 📊 **使用状況分析** | トークン、コスト、トレンドの追跡 | 支出の最適化 |
-| 🌐 **どこでもデプロイ** | Localhost、VPS、Docker、Cloudflare Workers | 柔軟なデプロイオプション |
 
 <details>
 <summary><b>📖 機能詳細</b></summary>
@@ -452,7 +451,6 @@ RedRouterはすべての主要AIコーディングツールとシームレスに
 
 - 💻 **ローカルホスト** - デフォルト、オフラインで動作
 - ☁️ **VPS/クラウド** - デバイス間で共有
-- 🐳 **Docker** - ワンコマンドデプロイ
 - 🚀 **Cloudflare Workers** - グローバルエッジネットワーク
 
 </details>
@@ -972,46 +970,6 @@ pm2 save
 pm2 startup
 ```
 
-### Docker
-
-```bash
-# イメージをビルド（リポジトリルートから）
-docker build -t red-router .
-
-# コンテナを実行（現在のセットアップで使用しているコマンド）
-docker run -d \
-  --name red-router \
-  -p 20128:20128 \
-  --env-file /root/dev/red-router/.env \
-  -v red-router-data:/app/data \
-  -v red-router-usage:/root/.red-router \
-  red-router
-```
-
-ポータブルコマンド（リポジトリルートにいる場合）：
-
-```bash
-docker run -d \
-  --name red-router \
-  -p 20128:20128 \
-  --env-file ./.env \
-  -v red-router-data:/app/data \
-  -v red-router-usage:/root/.red-router \
-  red-router
-```
-
-コンテナのデフォルト：
-- `PORT=20128`
-- `HOSTNAME=0.0.0.0`
-
-便利なコマンド：
-
-```bash
-docker logs -f red-router
-docker restart red-router
-docker stop red-router && docker rm red-router
-```
-
 ### 環境変数
 
 | 変数 | デフォルト | 説明 |
@@ -1020,7 +978,6 @@ docker stop red-router && docker rm red-router
 | `INITIAL_PASSWORD` | `123456` | 保存されたハッシュがない場合の初回ログインパスワード |
 | `DATA_DIR` | `~/.red-router` | メインアプリのデータベース格納場所（`db.json`） |
 | `PORT` | フレームワークデフォルト | サービスポート（例では`20128`） |
-| `HOSTNAME` | フレームワークデフォルト | バインドホスト（Dockerデフォルトは`0.0.0.0`） |
 | `NODE_ENV` | ランタイムデフォルト | デプロイ時は`production`に設定 |
 | `BASE_URL` | `http://localhost:20128` | クラウド同期ジョブで使用されるサーバーサイド内部ベースURL |
 | `CLOUD_URL` | `https://github.com/reddb-io/red-router` | サーバーサイドのクラウド同期エンドポイントベースURL |
@@ -1035,7 +992,6 @@ docker stop red-router && docker rm red-router
 
 注意事項：
 - 小文字のプロキシ変数もサポート: `http_proxy`, `https_proxy`, `all_proxy`, `no_proxy`
-- `.env` はDockerイメージにベイクされません（`.dockerignore`）; `--env-file` または `-e` でランタイム設定を注入してください。
 - Windowsでは、`APPDATA` をローカルストレージパスの解決に使用できます。
 - `INSTANCE_NAME` は古いドキュメント/envテンプレートに記載がありますが、現在ランタイムでは使用されていません。
 

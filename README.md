@@ -97,7 +97,7 @@ Claude Code/Codex/OpenClaw/Cursor/Cline Settings:
 
 **Alternative: run from source (this repository):**
 
-This repository package is private (`red-router-app`), so source/Docker execution is the expected local development path.
+This repository package is private (`red-router-app`), so source execution is the expected local development path.
 
 ```bash
 cp .env.example .env
@@ -524,7 +524,7 @@ a third party under a provider named "Self-hosted".
 | 📝 **Request Logging**                                                            | Debug mode with full request/response logs                                               | Troubleshoot issues easily                        |
 | 💾 **Cloud Sync**                                                                 | Sync config across devices                                                               | Same setup everywhere                             |
 | 📊 **Usage Analytics**                                                            | Track tokens, cost, trends over time                                                     | Optimize spending                                 |
-| 🌐 **Deploy Anywhere**                                                            | Localhost, VPS, Docker, Cloudflare Workers                                               | Flexible deployment options                       |
+| 🌐 **Deploy Anywhere**                                                            | Localhost, VPS, Cloudflare Workers                                                       | Flexible deployment options                       |
 
 Set `X-RedRouter-Token-Saver: off` to bypass all token savers for one chat request.
 
@@ -562,16 +562,6 @@ headroom proxy --port 8787
 ```
 
 Enable in Dashboard → Endpoint → Token Saver → Headroom. Default URL: `http://localhost:8787`.
-
-Docker examples:
-
-```bash
-# Headroom service in same Docker network
-http://headroom:8787
-
-# Headroom running on host machine
-http://host.docker.internal:8787
-```
 
 If Headroom is down or returns an error, RedRouter fails open and sends the original request.
 
@@ -681,7 +671,6 @@ Seamless translation between formats:
 
 - 💻 **Localhost** - Default, works offline
 - ☁️ **VPS/Cloud** - Share across devices
-- 🐳 **Docker** - One-command deployment
 - 🚀 **Cloudflare Workers** - Global edge network
 
 </details>
@@ -1234,52 +1223,6 @@ pm2 save
 pm2 startup
 ```
 
-### Docker
-
-Published images (multi-platform `linux/amd64` + `linux/arm64`):
-
-- GHCR: [`ghcr.io/reddb-io/red-router`](https://github.com/reddb-io/red-router/pkgs/container/red-router)
-- GHCR: [`ghcr.io/ghcr.io/reddb-io/red-router`](https://github.com/reddb-io/red-router/pkgs/container/red-router)
-
-**Quick start (use published image):**
-
-```bash
-docker run -d \
-  --name red-router \
-  -p 20128:20128 \
-  -v "$HOME/.red-router:/app/data" \
-  -e DATA_DIR=/app/data \
-  ghcr.io/reddb-io/red-router:latest
-```
-
-→ Open http://localhost:20128
-
-**Build from source (dev):**
-
-```bash
-git clone https://github.com/reddb-io/red-router.git
-cd red-router/app
-docker build -t red-router .
-docker run -d --name red-router -p 20128:20128 \
-  -v "$HOME/.red-router:/app/data" -e DATA_DIR=/app/data red-router
-```
-
-**Container defaults:**
-
-- `PORT=20128`
-- `HOSTNAME=0.0.0.0`
-
-**Useful commands:**
-
-```bash
-docker logs -f red-router
-docker restart red-router
-docker stop red-router && docker rm red-router
-docker pull ghcr.io/reddb-io/red-router:latest   # update to latest
-```
-
-**Data persistence:** `$HOME/.red-router/db/data.sqlite` on host ↔ `/app/data/db/data.sqlite` in container.
-
 ### Environment Variables
 
 | Variable                                             | Default                                  | Description                                                                         |
@@ -1288,7 +1231,7 @@ docker pull ghcr.io/reddb-io/red-router:latest   # update to latest
 | `INITIAL_PASSWORD`                                   | `123456`                                 | First login password when no saved hash exists                                      |
 | `DATA_DIR`                                           | `~/.red-router`                             | Main app data location (SQLite at `$DATA_DIR/db/data.sqlite`)                       |
 | `PORT`                                               | framework default                        | Service port (`20128` in examples)                                                  |
-| `HOSTNAME`                                           | framework default                        | Bind host (Docker defaults to `0.0.0.0`)                                            |
+| `HOSTNAME`                                           | framework default                        | Bind host (`0.0.0.0` exposes on the network)                                        |
 | `NODE_ENV`                                           | runtime default                          | Set `production` for deploy                                                         |
 | `BASE_URL`                                           | `http://localhost:20128`                 | Server-side internal base URL used by cloud sync jobs                               |
 | `CLOUD_URL`                                          | `https://github.com/reddb-io/red-router`                    | Server-side cloud sync endpoint base URL                                            |
@@ -1305,7 +1248,6 @@ docker pull ghcr.io/reddb-io/red-router:latest   # update to latest
 Notes:
 
 - Lowercase proxy variables are also supported: `http_proxy`, `https_proxy`, `all_proxy`, `no_proxy`.
-- `.env` is not baked into Docker image (`.dockerignore`); inject runtime config with `--env-file` or `-e`.
 - On Windows, `APPDATA` can be used for local storage path resolution.
 - `INSTANCE_NAME` appears in older docs/env templates, but is currently not used at runtime.
 
@@ -1314,7 +1256,6 @@ Notes:
 - Main app state: `${DATA_DIR}/db/data.sqlite` (SQLite — providers, combos, aliases, keys, settings, usage history)
 - Auto backups: `${DATA_DIR}/db/backups/`
 - Optional request/translator logs: `<repo>/logs/...` when `ENABLE_REQUEST_LOGS=true`
-- Both `${DATA_DIR}` and `~/.red-router` resolve to the same location in a Docker container — the symlink `/root/.red-router -> /app/data` is created at build time.
 
 </details>
 

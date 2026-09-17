@@ -398,22 +398,6 @@ pm2 startup
 
 **适用场景:** 团队访问、远程编码
 
-### Docker
-
-```bash
-docker pull red-router/red-router:latest
-
-docker run -d \
-  -p 20128:20128 \
-  -e JWT_SECRET="your-secure-secret" \
-  -e INITIAL_PASSWORD="your-password" \
-  -v red-router-data:/root/.red-router \
-  --name red-router \
-  red-router/red-router:latest
-```
-
-**适用场景:** 容器化部署、Kubernetes
-
 ### 反向代理(Nginx)
 
 ```nginx

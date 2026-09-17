@@ -217,16 +217,6 @@ export NODE_ENV="production"
 npm start
 ```
 
-### Docker
-```bash
-docker build -t red-router .
-docker run -d \
-  -p 3000:3000 \
-  -e JWT_SECRET="your-secret" \
-  -v red-router-data:/app/data \
-  red-router
-```
-
 ### Cloudflare Workers
 ```bash
 cd red-router/app
@@ -298,29 +288,6 @@ npm install
 npm run build
 npm start
 ```
-
-### Docker
-```bash
-docker pull red-router:latest
-docker stop red-router
-docker rm red-router
-docker run -d \
-  -p 3000:3000 \
-  -v red-router-data:/app/data \
-  red-router:latest
-```
-
-**バージョンを確認:**
-```bash
-red-router --version
-```
-
-**破壊的変更:**
-- [CHANGELOG.md](https://github.com/reddb-io/red-router/blob/main/CHANGELOG.md)を確認
-- メジャー更新前に`~/.red-router`をバックアップ
-- メジャーバージョンの移行ガイドを確認
-
----
 
 ## どのように貢献できますか?
 

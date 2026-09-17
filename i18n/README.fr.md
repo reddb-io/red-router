@@ -97,7 +97,7 @@ Paramètres de Claude Code/Codex/OpenClaw/Cursor/Cline :
 
 **Alternative : exécuter depuis le code source (ce dépôt) :**
 
-Le paquet de ce dépôt est privé (`red-router-app`), donc l'exécution depuis le code source/Docker est le chemin de développement local attendu.
+Le paquet de ce dépôt est privé (`red-router-app`), donc l'exécution depuis le code source est le chemin de développement local attendu.
 
 ```bash
 cp .env.example .env
@@ -444,7 +444,6 @@ RedRouter fonctionne parfaitement avec tous les principaux outils de codage IA :
 | 📝 **Journalisation des requêtes**                                                      | Mode débogage avec journaux complets de requêtes/réponses                                            | Résolvez facilement les problèmes                         |
 | 💾 **Synchronisation cloud**                                                            | Synchronisez la configuration entre vos appareils                                                    | La même configuration partout                             |
 | 📊 **Analytique d'utilisation**                                                         | Suivez tokens, coûts et tendances au fil du temps                                                    | Optimisez vos dépenses                                    |
-| 🌐 **Déployez partout**                                                                 | Localhost, VPS, Docker, Cloudflare Workers                                                           | Options de déploiement flexibles                          |
 
 <details>
 <summary><b>📖 Détails des fonctionnalités</b></summary>
@@ -481,15 +480,7 @@ headroom proxy --port 8787
 
 Activez-le dans Tableau de bord → Endpoint → Token Saver → Headroom. URL par défaut : `http://localhost:8787`.
 
-Exemples Docker :
 
-```bash
-# Service Headroom dans le même réseau Docker
-http://headroom:8787
-
-# Headroom exécuté sur la machine hôte
-http://host.docker.internal:8787
-```
 
 Si Headroom est indisponible ou renvoie une erreur, RedRouter bascule en mode dégradé et envoie la requête originale.
 
@@ -599,7 +590,6 @@ Traduction transparente entre les formats :
 
 - 💻 **Localhost** - Par défaut, fonctionne hors ligne
 - ☁️ **VPS/Cloud** - Partagez entre appareils
-- 🐳 **Docker** - Déploiement en une commande
 - 🚀 **Cloudflare Workers** - Réseau mondial de périphérie
 
 </details>
@@ -1152,52 +1142,6 @@ pm2 save
 pm2 startup
 ```
 
-### Docker
-
-Images publiées (multi-plateformes `linux/amd64` + `linux/arm64`) :
-
-- GHCR : [`ghcr.io/reddb-io/red-router`](https://github.com/reddb-io/red-router/pkgs/container/red-router)
-- GHCR : [`ghcr.io/ghcr.io/reddb-io/red-router`](https://github.com/reddb-io/red-router/pkgs/container/red-router)
-
-**Démarrage rapide (utilisez l'image publiée) :**
-
-```bash
-docker run -d \
-  --name red-router \
-  -p 20128:20128 \
-  -v "$HOME/.red-router:/app/data" \
-  -e DATA_DIR=/app/data \
-  ghcr.io/reddb-io/red-router:latest
-```
-
-→ Ouvrez http://localhost:20128
-
-**Compiler depuis le code source (dev) :**
-
-```bash
-git clone https://github.com/reddb-io/red-router.git
-cd red-router/app
-docker build -t red-router .
-docker run -d --name red-router -p 20128:20128 \
-  -v "$HOME/.red-router:/app/data" -e DATA_DIR=/app/data red-router
-```
-
-**Valeurs par défaut du conteneur :**
-
-- `PORT=20128`
-- `HOSTNAME=0.0.0.0`
-
-**Commandes utiles :**
-
-```bash
-docker logs -f red-router
-docker restart red-router
-docker stop red-router && docker rm red-router
-docker pull ghcr.io/reddb-io/red-router:latest   # mise à jour vers la dernière version
-```
-
-**Persistance des données :** `$HOME/.red-router/db/data.sqlite` sur l'hôte ↔ `/app/data/db/data.sqlite` dans le conteneur.
-
 ### Variables d'environnement
 
 | Variable                                             | Par défaut                                  | Description                                                                                  |
@@ -1206,7 +1150,6 @@ docker pull ghcr.io/reddb-io/red-router:latest   # mise à jour vers la dernièr
 | `INITIAL_PASSWORD`                                   | `123456`                                    | Mot de passe de première connexion quand aucun hash n'est enregistré                          |
 | `DATA_DIR`                                           | `~/.red-router`                                | Emplacement principal des données de l'app (SQLite dans `$DATA_DIR/db/data.sqlite`)          |
 | `PORT`                                               | défaut du framework                         | Port du service (`20128` dans les exemples)                                                   |
-| `HOSTNAME`                                           | défaut du framework                         | Hôte de liaison (Docker utilise `0.0.0.0` par défaut)                                         |
 | `NODE_ENV`                                           | défaut du runtime                           | Définissez `production` pour le déploiement                                                   |
 | `BASE_URL`                                           | `http://localhost:20128`                    | URL de base interne côté serveur utilisée par les tâches de synchronisation cloud             |
 | `CLOUD_URL`                                          | `https://github.com/reddb-io/red-router`                       | URL de base de l'endpoint de synchronisation cloud côté serveur                               |
@@ -1223,7 +1166,6 @@ docker pull ghcr.io/reddb-io/red-router:latest   # mise à jour vers la dernièr
 Remarques :
 
 - Les variables de proxy en minuscules sont également prises en charge : `http_proxy`, `https_proxy`, `all_proxy`, `no_proxy`.
-- `.env` n'est pas intégré à l'image Docker (`.dockerignore`) ; injectez la configuration du runtime avec `--env-file` ou `-e`.
 - Sous Windows, `APPDATA` peut être utilisé pour résoudre le chemin de stockage local.
 - `INSTANCE_NAME` apparaît dans l'ancienne documentation/les anciens modèles d'environnement, mais n'est actuellement pas utilisé au runtime.
 
@@ -1232,7 +1174,6 @@ Remarques :
 - État principal de l'app : `${DATA_DIR}/db/data.sqlite` (SQLite — fournisseurs, combos, alias, clés, paramètres, historique d'utilisation)
 - Sauvegardes automatiques : `${DATA_DIR}/db/backups/`
 - Journaux optionnels de requêtes/translator : `<repo>/logs/...` quand `ENABLE_REQUEST_LOGS=true`
-- `${DATA_DIR}` et `~/.red-router` résolvent tous deux le même emplacement dans un conteneur Docker — le lien symbolique `/root/.red-router -> /app/data` est créé au moment de la compilation.
 
 </details>
 

@@ -97,7 +97,7 @@ red-router
 
 **วิธีอื่น: รันจากซอร์สโค้ด (เก็บรักษาไว้ใน repo นี้):**
 
-Repo นี้เป็น private package (`red-router-app`) ดังนั้นการรันจากซอร์ส/Docker คือเส้นทางพัฒนาท้องถิ่นที่คาดไว้
+Repo นี้เป็น private package (`red-router-app`) ดังนั้นการรันจากซอร์ส คือเส้นทางพัฒนาท้องถิ่นที่คาดไว้
 
 ```bash
 cp .env.example .env
@@ -343,7 +343,6 @@ RedRouter ทำงานได้อย่างราบรื่นกับ�
 | 📝 **บันทึก Request** | โหมด debug พร้อม log request/response ครบถ้วน | แก้ไขปัญหาได้ง่าย |
 | 💾 **ซิงค์คลาวด์** | ซิงค์การตั้งค่าระหว่างอุปกรณ์ | การตั้งค่าเดียวกันทุกที่ |
 | 📊 **วิเคราะห์การใช้งาน** | ติดตามโทเค็น, ค่าใช้จ่าย, แนวโน้มตามเวลา | ปรับแต่งค่าใช้จ่าย |
-| 🌐 **Deploy ได้ทุกที่** | Localhost, VPS, Docker, Cloudflare Workers | ตัวเลือก deploy ที่ยืดหยุ่น |
 
 <details>
 <summary><b>📖 รายละเอียดฟีเจอร์</b></summary>
@@ -380,12 +379,7 @@ headroom proxy --port 8787
 
 เปิดใช้งานใน แดชบอร์ด → Endpoint → Token Saver → Headroom URL ค่าเริ่มต้น: `http://localhost:8787`
 
-ตัวอย่าง Docker:
 
-```bash
-# Headroom service ใน Docker network เดียวกัน
-http://host.docker.internal:8787
-```
 
 ถ้า Headroom ดับหรือคืน error, RedRouter จะ fail open และส่งคำขอต้นฉบับ
 
@@ -475,7 +469,6 @@ Combo: "my-coding-stack"
 
 - 💻 **Localhost** - ค่าเริ่มต้น, ทำงานออฟไลน์
 - ☁️ **VPS/Cloud** - แชร์ระหว่างอุปกรณ์
-- 🐳 **Docker** - Deploy ด้วยคำสั่งเดียว
 - 🚀 **Cloudflare Workers** - เครือข่าย edge ทั่วโลก
 
 </details>

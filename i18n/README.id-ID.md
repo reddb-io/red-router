@@ -91,7 +91,7 @@ Konfigurasi Claude Code/Codex/Gemini CLI/OpenClaw/Cursor/Cline:
 
 **Alternatif: jalankan dari source (repo ini):**
 
-Paket repo ini bersifat privat (`red-router-app`), jadi menjalankan dari source/Docker adalah jalur yang diharapkan untuk pengembangan lokal.
+Paket repo ini bersifat privat (`red-router-app`), jadi menjalankan dari source adalah jalur yang diharapkan untuk pengembangan lokal.
 
 ```bash
 cp .env.example .env
@@ -358,7 +358,6 @@ RedRouter bekerja mulus dengan semua tool AI coding utama:
 | 📝 **Log Request** | Log lengkap request/response | Troubleshooting jadi mudah |
 | 💾 **Cloud Sync** | Sinkronkan pengaturan antar perangkat | Setup sama di mana pun |
 | 📊 **Analitik Penggunaan** | Lacak token, biaya, dan tren | Optimalkan pengeluaran |
-| 🌐 **Deploy di Mana Saja** | Localhost, VPS, Docker, Cloudflare Workers | Opsi deployment fleksibel |
 
 <details>
 <summary><b>📖 Detail Fitur</b></summary>
@@ -452,7 +451,6 @@ Konversi mulus antar format:
 
 - 💻 **Localhost** - default, jalan offline
 - ☁️ **VPS/Cloud** - berbagi antar perangkat
-- 🐳 **Docker** - deploy satu perintah
 - 🚀 **Cloudflare Workers** - jaringan edge global
 
 </details>
@@ -864,24 +862,8 @@ Biaya bulanan: $0
 
 ---
 
-## 🐳 Deployment
 
 <details>
-<summary><b>Docker</b></summary>
-
-```bash
-docker run -d \
-  --name red-router \
-  -p 20128:20128 \
-  -v red-router-data:/app/data \
-  -e PORT=20128 \
-  -e BASE_URL=http://localhost:20128 \
-  ghcr.io/ghcr.io/reddb-io/red-router:latest
-```
-
-Dashboard: `http://localhost:20128/dashboard`
-
-</details>
 
 <details>
 <summary><b>VPS / Cloud</b></summary>

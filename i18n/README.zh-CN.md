@@ -94,7 +94,7 @@ Claude Code/Codex/Gemini CLI/OpenClaw/Cursor/Cline 设置:
 
 **替代方案：从源码运行（此仓库）：**
 
-此仓库包是私有的（`red-router-app`），因此源码/Docker 执行是预期的本地开发路径。
+此仓库包是私有的（`red-router-app`），因此源码 执行是预期的本地开发路径。
 
 ```bash
 cp .env.example .env
@@ -361,7 +361,6 @@ RedRouter 与所有主流 AI 编程工具无缝协作：
 | 📝 **请求日志** | 调试模式包含完整请求/响应日志 | 轻松排查问题 |
 | 💾 **云端同步** | 跨设备同步配置 | 到处都是相同的设置 |
 | 📊 **使用分析** | 追踪 Token、成本、趋势 | 优化支出 |
-| 🌐 **随处部署** | 本地主机、VPS、Docker、Cloudflare Workers | 灵活的部署选项 |
 
 <details>
 <summary><b>📖 特性详情</b></summary>
@@ -456,7 +455,6 @@ Combo: "my-coding-stack"
 
 - 💻 **本地主机** - 默认，离线工作
 - ☁️ **VPS/云** 跨设备共享
-- 🐳 **Docker** - 一键部署
 - 🚀 **Cloudflare Workers** - 全球边缘网络
 
 </details>
@@ -973,45 +971,6 @@ pm2 save
 pm2 startup
 ```
 
-### Docker
-
-```bash
-# Build image (from repository root)
-docker build -t red-router .
-
-# Run container (command used in current setup)
-docker run -d \
-  --name red-router  -p 20128:20128 \
-  --env-file /root/dev/red-router/.env \
-  -v red-router-data:/app/data \
-  -v red-router-usage:/root/.red-router \
-  red-router
-```
-
-便携式命令（如果您已在仓库根目录）：
-
-```bash
-docker run -d \
-  --name red-router \
-  -p 20128:20128 \
-  --env-file ./.env \
-  -v red-router-data:/app/data \
-  -v red-router-usage:/root/.red-router \
-  9
-```
-
-容器默认值：
-- `PORT=20128`
-- `HOSTNAME=0.0.0.0`
-
-有用命令：
-
-```bash
-docker logs -f red-router
-docker restart red-router
-docker stop red-router && docker rm red-router
-```
-
 ### 环境变量
 
 | 变量 | 默认值 | 描述 |
@@ -1020,7 +979,6 @@ docker stop red-router && docker rm red-router
 | `INITIAL_PASSWORD | `123456` | 当没有保存的哈希时的首次登录密码 |
 | `DATA_DIR` | `~/.red-router` | 主应用数据库位置（`db.json`） |
 | `PORT` | 框架默认值 | 服务端口（示例中为 `20128`） |
-| `HOSTNAME` | 框架默认值 | 绑定主机（Docker 默认为 `0.0.0.0`） |
 | `NODE_ENV` | 运行时默认值 | 部署时设置 `production` |
 | `BASE_URL` |http://localhost:20128` | 云同步作业使用的服务器端内部基础 URL |
 | `CLOUD_URL` | `https://github.com/reddb-io/red-router` | 服务器端云同步端点基础 URL |
@@ -1035,7 +993,6 @@ docker stop red-router && docker rm red-router
 
 注意：
 - 也支持小写代理变量：`http_proxy`, `https_proxy`, `all_proxy`, `no_proxy`。
-- `.env` 不会烘焙到 Docker 镜像中（`.dockerignore`）；使用 `--env-file` 或 `-e` 注入运行时配置。
 - 在 Windows 上，`APPDATA` 可用于本地存储路径解析。
 - `INSTANCE_NAME` 出现在旧/环境模板中，但目前运行时未使用。
 
@@ -1193,8 +1150,6 @@ Authorization: Bearer your-api-key
 
 在 `tester/security/` 下添加了测试脚本：
 
-- `tester/security/test-docker-hardening.sh`
-  - 构建 Docker 镜像并验证加固检查（`/api/cloud/auth` 认证保护、`REQUIRE_API_KEY`、安全认证 cookie 行为）。
 - `tester/security/test-cloud-openai-compatible.sh`
   - 使用提供的模型/密钥向云端端点（`https://github.com/reddb-io/red-router/v1/chat/completions`）发送直接的 OpenAI 兼容请求。
 - `tester/security/test-cloud-sync-and-call.sh`
@@ -1215,7 +1170,6 @@ OPENAI_API_KEY="your-cloud-key" bash tester/security/test-cloud-openai-compatibl
 最近验证的预期行为：
 
 - 本地运行时（`http://127.0.0.1:20128/v1/chat/completions`）：使用 `stream=false` 和 `stream=true` 都可以工作。
-- Docker 运行时（容器暴露的相同 API 路径）：加固检查通过，云端认证保护工作，启用时严格 API 密钥模式工作。
 - 公共云端端点（`https://github.com/reddb-io/red-router/v1/chat/completions`）：
   - `stream=true`：预期成功（返回 SSE 块）。
   - `stream=false`：当上游向非流式客户端路径返回 SSE 内容时，可能失败并显示 `500` + 解析错误（`Unexpected token 'd'`）。
