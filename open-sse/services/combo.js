@@ -188,7 +188,7 @@ function normalizeStickyLimit(stickyLimit) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
 }
 
-// ── Context-aware rotation (decolua/9router#1089) ─────────────────────────
+// ── Context-aware rotation (ghcr.io/reddb-io/red-router#1089) ─────────────────────────
 //
 // A combo must not spend a rotation slot on a member whose context window
 // cannot hold the request: that attempt fails, the combo falls through, and

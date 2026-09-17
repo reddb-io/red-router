@@ -1,6 +1,18 @@
-# v0.5.75 (2026-09-10)
+# v0.1.0 (2026-09-17)
+
+Full rebrand: 9Router → **RedRouter** (`@reddb-io/red-router` on npm, bin `red-router`). Versioning restarts at `0.1.0` for the new identity.
+
+## Breaking / Migration
+- **Data dir**: state moves from `~/.9router` (Windows: `%APPDATA%/9router`) to `~/.red-router` (`%APPDATA%/red-router`). A one-time migration moves the legacy dir (or merges its entries) on first run — existing installs keep their data.
+- **Env vars**: `NINEROUTER_PEER_TOKEN` → `REDROUTER_PEER_TOKEN`, `NINEROUTER_PROXY_CLIENT_MAX_BODY_SIZE` → `REDROUTER_PROXY_CLIENT_MAX_BODY_SIZE`, `NINEROUTER_CLI_APP_DIR` → `REDROUTER_CLI_APP_DIR`, `NINE_ROUTER_PROXY_*` → `RED_ROUTER_PROXY_*`.
+- **Internal loopback headers**: `x-9r-real-ip` → `x-rr-real-ip`, `x-9r-peer-token` → `x-rr-peer-token`, `x-9r-cli-token` → `x-rr-cli-token`, `x-9r-via-proxy` → `x-rr-via-proxy`, `x-9router-connection-id` → `x-red-router-connection-id`; CLI dashboard token salt `9r-cli-auth` → `rr-cli-auth` (stored dashboard CLI tokens must be re-paired).
+- **npm package**: published as `@reddb-io/red-router` (`npx @reddb-io/red-router`); install via `npm install -g @reddb-io/red-router`.
+- **Docker images**: GHCR only — `ghcr.io/reddb-io/red-router` (Docker Hub `decolua/9router` is not published by this fork).
 
 ## Features
+- **Publishing**: Changesets-driven versioning (`pnpm changeset` / `pnpm release:version`) and tag-triggered `red-publish.yml` npm workflow; Docker publishing to GHCR on `v*` tags.
+- **Versioning**: package and app version reset to `0.1.0`; root package renamed `red-router-app`.
+
 - **Video**: add OpenRouter and Vertex AI (Veo) video generation on `/v1/videos/*` via a provider adapter layer; poll requests resolve their provider from `x-connection-id` or `?provider=`
 - **Antigravity**: add weekly quota tracking (Gemini weekly / Claude & GPT weekly) and free-tier handling from `retrieveUserQuotaSummary` (#3892)
 - **Codex**: add GPT Image 2.5, Flare and Sunburst image models with multi-image support; add the same ids to the OpenAI catalog
@@ -179,7 +191,7 @@
   13.0.3 ships per-platform prebuilds, `--ignore-scripts` skips the implicit
   node-gyp build); Node < 22 stays on 12.6.2, working installs untouched
 - **CLI tools**: send the API key Codex actually reads —
-  `[model_providers.9router.http_headers]` instead of auth.json (which left
+  `[model_providers.red-router.http_headers]` instead of auth.json (which left
   every request 401 and clobbered an existing ChatGPT login); subagent model
   moved to `agents.default_subagent_model`
 - **OAuth**: refresh Cline tokens with the extension JSON contract
@@ -259,13 +271,13 @@
 - **i18n**: add Spanish, French, and Brazilian Portuguese README translations
 
 ## Security
-- **Real IP**: `x-9r-real-ip` and the Host fallback were trusted from
+- **Real IP**: `x-rr-real-ip` and the Host fallback were trusted from
   client-controlled headers whenever `custom-server.js` was not in the request
   path (`npm run start`, `start:bun`), letting a remote caller pose as local to
   skip API key auth and reach `LOCAL_ONLY_PATHS` (`/api/mcp/*`,
   `/api/tunnel/enable`, `/api/auth/reset-password`). The server now stamps a
-  per-process `x-9r-peer-token` on every request it sanitizes and only trusts
-  `x-9r-real-ip` behind it — falling back to Host in development and failing
+  per-process `x-rr-peer-token` on every request it sanitizes and only trusts
+  `x-rr-real-ip` behind it — falling back to Host in development and failing
   closed in production (GHSA-pjm4-8fpg-f9p6). Also fixes IPv6 loopback
   detection (`::1`, `::ffff:127.0.0.1`) and routes `npm run start` /
   `start:bun` through `custom-server.js`
@@ -280,7 +292,7 @@
 ## Features
 - **Providers**: add TokenRouter (300+ models via OpenAI-compatible gateway) with
   exact per-model pricing for 110 models and `reasoning_effort` thinking config
-- **Providers**: add Self-hosted STT / TTS / Embedding — point 9Router at your own
+- **Providers**: add Self-hosted STT / TTS / Embedding — point RedRouter at your own
   OpenAI-compatible speech and embedding servers (whisper.cpp, faster-whisper,
   Kokoro-FastAPI, llama-server, vLLM, Infinity). Unlike the named cloud providers
   these read `baseUrl` per connection, so one provider can front several machines
@@ -414,7 +426,7 @@
 - **CLI tools**: Grok Build setup — choose separate main/general-purpose/explore/plan models and preserve each model's context window
 - **GitHub Copilot**: route Claude models through Copilot's native `/v1/messages`
 - **Kiro**: add GPT-5.6 model family (#2596)
-- **RTK**: `X-9Router-Token-Saver` header to bypass token savers per request
+- **RTK**: `X-RedRouter-Token-Saver` header to bypass token savers per request
 - **Providers**: quota visibility settings
 - **Translator**: drop temperature for all Claude models
 - **i18n**: Thai (th) + Persian (fa) translations / README
@@ -495,12 +507,12 @@
 ## Features
 - **Usage**: track cached tokens + correct input/output/cache cost (#2209) — hodtien
 - **Codex**: show reset credit expiry details (#2290) — Rafli Ahmad Zulfikar
-- **NVIDIA**: add new models and capabilities — decolua
+- **NVIDIA**: add new models and capabilities — reddb-io
 - **ClinePass**: add provider support — sternelee
 
 ## Fixes
 - **Usage**: dedupe streaming request-details log entries — Qin Li
-- **Claude**: drop foreign thinking signatures in passthrough — decolua
+- **Claude**: drop foreign thinking signatures in passthrough — reddb-io
 - Prevent non-SSE stream pipe crash and cross-IdP account overwrites (#2244) — KunN-21
 - **Kiro**: route IdC auth to regional CodeWhisperer surface (#2297) — Volodymyr Saakian
 - **Kiro**: add Claude Sonnet 5 model support (#2264) — Edison42
@@ -516,13 +528,13 @@
 
 ## Features
 - Add Kimchi OAuth provider — Nant361
-- Refine Qwen vision/video + thinking model patterns — decolua
+- Refine Qwen vision/video + thinking model patterns — reddb-io
 - Opt-in Codex auto-ping quota keep-alive — Emirhan
 
 ## Fixes
 - **Responses**: handle response.done terminal events (#2142) — rifuki
 - **Headroom**: skip unsafe responses tool history (#2132) — Sutarto Jordan Chrisfivo
-- **Translator**: map mid-conversation system message to user (claude→openai) — decolua
+- **Translator**: map mid-conversation system message to user (claude→openai) — reddb-io
 - **Gemini**: normalize contents to prevent 400 invalid_argument (#2192) — warelik
 - **Gemini**: backfill thoughtSignature + suppress stream done sentinel — WARELIK
 - **Alicode**: preserve cache_control for DashScope providers (#2069) — Rex
@@ -531,12 +543,12 @@
 - **Kiro**: strip leaked <thinking> tags from content stream (#2158) — hamsa0x7
 - **Tray**: make Windows context menu DPI-aware — Emirhan
 - **Kilocode**: expose full gateway catalog in combo model picker — jellylarper
-- **OpenCode**: fix Go GLM — decolua
+- **OpenCode**: fix Go GLM — reddb-io
 
 # v0.5.12 (2026-06-26)
 
 ## Features
-- Add token-saver dashboard page — decolua
+- Add token-saver dashboard page — reddb-io
 - Add bulk delete for provider connections — teddytkz
 - Resolve GitHub Copilot model catalog from upstream — caiqinzhou
 - Add Venice AI provider — Brokenc0de
@@ -545,7 +557,7 @@
 
 ## Fixes
 - Provider thinking compatibility (DeepSeek/Gemini) — Mink Nguyen
-- Stop double-counting streaming usage at source — decolua
+- Stop double-counting streaming usage at source — reddb-io
 - Usage logging dedupe to reduce stats churn — Mink Nguyen
 - Prevent non-JSON SSE lines / duplicate [DONE] from breaking clients (PR #2046) — qianze
 - Resolve Gemini TTS models from catalog — nguyenha935
@@ -564,7 +576,7 @@
 - Avoid stale redirects after auth changes (#2100) — Emirhan
 - Mark Claude Opus 4.7 (dashed id) as 1M context — Brokenc0de
 - Preserve reasoning effort through Codex translations — ntdung6868
-- Token-saver: full width card layout — decolua
+- Token-saver: full width card layout — reddb-io
 - Antigravity: retry transient upstream failures — Sutarto Jordan Chrisfivo
 - Param-support: handle strip rules without match/drop (#1960) — Joseph Yaksich
 - Translator: resolve custom provider prefix in debug endpoint (#1083) — hamsa0x7
@@ -664,7 +676,7 @@
 - Dashboard: show provider node name instead of connection name in topology (#1770) + show explicit `kind="llm"` combos on combos page (#1684)
 
 ## Docs
-- README: add Indonesian 9Router tutorial video (#1709)
+- README: add Indonesian RedRouter tutorial video (#1709)
 
 # v0.4.71 (2026-06-06)
 
@@ -681,7 +693,7 @@
 - Codex: durable OAuth refresh lifecycle (#1664)
 - Tunnel: skip virtual interfaces to prevent false netchange watchdog
 - Claude: fix forced tool_choice 400 on cc/ OAuth route (#1592)
-- Proxy: raise Next client body limit to 128MB via `NINEROUTER_PROXY_CLIENT_MAX_BODY_SIZE` (#1529, #1572)
+- Proxy: raise Next client body limit to 128MB via `REDROUTER_PROXY_CLIENT_MAX_BODY_SIZE` (#1529, #1572)
 - MiniMax: echo `reasoning_content` on follow-up turns to avoid 400 (#1543)
 - Kiro: handle 400 on tool-bearing history without client tools; add mappable "auto" model slot; fix binary EventStream crash + add models & TTS tool filtering
 - Antigravity: passthrough tab-autocomplete + mark default agent slot mandatory

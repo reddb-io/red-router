@@ -1,4 +1,4 @@
-docker stop 9router
-docker rm 9router
-docker build -t 9router .
-docker run -d --name 9router -p 20128:20128 --env-file .env -v 9router-data:/app/data 9router
+docker stop red-router
+docker rm red-router
+docker build -t red-router .
+docker run -d --name red-router -p 20128:20128 --env-file .env -v red-router-data:/app/data red-router

@@ -233,10 +233,10 @@ export function getNavigation(lang) {
 
 // Static config (logo, urls, default English nav for backward compatibility).
 export const DOCS_CONFIG = {
-  title: "9Router Documentation",
+  title: "RedRouter Documentation",
   description: "Smart AI model router - Maximize subscriptions, minimize costs",
-  logo: "9Router",
-  appUrl: "https://9router.com",
-  githubUrl: "https://github.com/decolua/9router",
+  logo: "RedRouter",
+  appUrl: "https://github.com/reddb-io/red-router",
+  githubUrl: "https://github.com/reddb-io/red-router",
   navigation: getNavigation(DEFAULT_LANG)
 };
