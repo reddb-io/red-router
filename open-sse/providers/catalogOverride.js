@@ -13,7 +13,7 @@ export const CATALOG_FILE = path.join(DATA_DIR, "model-catalog.json");
 // Trimmed upstream catalog, read by the add-models skill (not by the router).
 export const CATALOG_RAW_FILE = path.join(DATA_DIR, "model-catalog-raw.json");
 
-const EMPTY = { models: {}, providers: {} };
+const EMPTY = { models: {}, providers: {}, modelLimits: {} };
 let cache = EMPTY;
 let cachedMtime = -1;
 
@@ -38,7 +38,7 @@ function load() {
   cachedMtime = mtime;
   try {
     const parsed = JSON.parse(fs.readFileSync(CATALOG_FILE, "utf8"));
-    cache = { models: parsed?.models || {}, providers: parsed?.providers || {} };
+    cache = { models: parsed?.models || {}, providers: parsed?.providers || {}, modelLimits: parsed?.modelLimits || {} };
   } catch {
     cache = EMPTY;
   }
@@ -59,6 +59,15 @@ export function getCatalogLimits(provider, model) {
   return byProvider[model] || byProvider[baseId(model)] || null;
 }
 
+// Model-agnostic fallback limits from models.dev/models.json, used when the
+// gateway's own numbers are missing (unaliased compatible providers, custom
+// connections). The model is still the model, whoever serves it.
+export function getModelLimits(model) {
+  const limits = load().modelLimits;
+  if (!limits) return null;
+  return limits[model.toLowerCase()] || limits[baseId(model)] || null;
+}
+
 // Force a re-read on the next lookup (called right after a sync writes the file).
 export function invalidateCatalog() {
   cachedMtime = -1;
@@ -68,5 +77,5 @@ export function invalidateCatalog() {
 // too, so it cannot import this file directly — the server pushes it in.
 export async function installCatalogSource() {
   const { setCatalogSource } = await import("./capabilities.js");
-  setCatalogSource({ getModalities: getCatalogModalities, getLimits: getCatalogLimits });
+  setCatalogSource({ getModalities: getCatalogModalities, getLimits: getCatalogLimits, getLimitsByModel: getModelLimits });
 }

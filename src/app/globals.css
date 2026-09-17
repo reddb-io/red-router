@@ -1,6 +1,18 @@
 /* source() sets scan base to src/ for both webpack + Turbopack; auto-detection still skips binaries + gitignore */
 @import "tailwindcss" source("../../");
 
+/* RedDB Design System distribution — vendored byte-for-byte from
+   reddb-io/design-system v2026.08.5 (see vendor/ds/README.md). The theme
+   applies under [data-theme="application"], the scheme under
+   [data-color-scheme]; src/store/themeStore.js and the root layout script
+   keep both in sync with the Tailwind `.dark` class. */
+@import "../../vendor/ds/tokens.css";
+@import "../../vendor/ds/theme-base.css";
+@import "../../vendor/ds/theme-application.css";
+@import "../../vendor/ds/scheme-light.css";
+@import "../../vendor/ds/scheme-dark.css";
+@import "../../vendor/ds/density-compact.css";
+
 @custom-variant dark (&:where(.dark, .dark *));
 
 /* Hide icon ligature text until font is ready */
@@ -8,49 +20,51 @@
 .fonts-loaded .material-symbols-outlined { opacity: 1; transition: opacity .12s ease-out; }
 
 /* ============================================================
-   9Router palette — adopted from 9remote_private/web
-   Brand orange (dark) / soft coral (light), neutral warm bases
+   Palette — bridged onto the vendored RedDB Design System tokens.
+   The --reddb-color-* semantics resolve per data-color-scheme, which
+   stays in sync with the Tailwind `.dark` class (themeStore + layout).
    ============================================================ */
 :root {
-  /* Brand scale (light) - centered on #E56A4A */
-  --color-brand-50: #fdf1ed;
-  --color-brand-100: #fadccf;
-  --color-brand-200: #f4b59c;
-  --color-brand-300: #ee8d6a;
-  --color-brand-400: #ea7855;
-  --color-brand-500: #E56A4A;
-  --color-brand-600: #cc5236;
-  --color-brand-700: #a64027;
-  --color-brand-800: #7a2f1d;
-  --color-brand-900: #4d1e12;
+  /* Brand scale — DS ships the red family (400-700); the tint/shade stops
+     are mixed against the DS neutrals so the scale stays on-brand. */
+  --color-brand-50: color-mix(in srgb, var(--reddb-color-red-500) 10%, var(--reddb-color-neutral-0));
+  --color-brand-100: color-mix(in srgb, var(--reddb-color-red-500) 20%, var(--reddb-color-neutral-0));
+  --color-brand-200: color-mix(in srgb, var(--reddb-color-red-500) 35%, var(--reddb-color-neutral-0));
+  --color-brand-300: color-mix(in srgb, var(--reddb-color-red-400) 60%, var(--reddb-color-neutral-0));
+  --color-brand-400: var(--reddb-color-red-400);
+  --color-brand-500: var(--reddb-color-red-500);
+  --color-brand-600: var(--reddb-color-red-600);
+  --color-brand-700: var(--reddb-color-red-700);
+  --color-brand-800: color-mix(in srgb, var(--reddb-color-red-700) 75%, var(--reddb-color-neutral-950));
+  --color-brand-900: color-mix(in srgb, var(--reddb-color-red-700) 50%, var(--reddb-color-neutral-950));
 
   /* Primary (legacy alias for backward compat with existing components) */
-  --color-primary: var(--color-brand-500);
-  --color-primary-hover: var(--color-brand-600);
+  --color-primary: var(--reddb-color-primary);
+  --color-primary-hover: var(--reddb-color-brand-hover);
 
-  /* Surfaces & backgrounds (light) */
-  --color-bg: #FDFAF6;
-  --color-bg-alt: #F7F3EE;
-  --color-surface: #ffffff;
-  --color-surface-2: #f4f4f5;
-  --color-surface-3: #e7e7e9;
-  --color-sidebar: rgba(244, 241, 236, 0.85);
+  /* Surfaces & backgrounds */
+  --color-bg: var(--reddb-color-background);
+  --color-bg-alt: var(--reddb-color-elevation-sunken-surface);
+  --color-surface: var(--reddb-color-elevation-base-surface);
+  --color-surface-2: var(--reddb-color-elevation-raised-surface);
+  --color-surface-3: var(--reddb-color-elevation-overlay-surface);
+  --color-sidebar: color-mix(in srgb, var(--reddb-color-elevation-raised-surface) 85%, transparent);
 
   /* Borders */
-  --color-border: #e5e7eb;
-  --color-border-subtle: #f1f1f3;
+  --color-border: var(--reddb-color-elevation-base-border);
+  --color-border-subtle: var(--reddb-color-border-subtle);
 
   /* Text */
-  --color-text: #0a0a0a;
-  --color-text-main: #0a0a0a;
-  --color-text-muted: #6B7280;
-  --color-text-subtle: #9CA3AF;
+  --color-text: var(--reddb-color-foreground);
+  --color-text-main: var(--reddb-color-foreground);
+  --color-text-muted: var(--reddb-color-ink-muted);
+  --color-text-subtle: var(--reddb-color-muted);
 
   /* Status */
-  --color-danger: #cf222e;
-  --color-success: #10B981;
-  --color-warning: #F59E0B;
-  --color-info: #3B82F6;
+  --color-danger: var(--reddb-color-feedback-danger-on-light);
+  --color-success: var(--reddb-color-feedback-success-on-light);
+  --color-warning: var(--reddb-color-feedback-warning-on-light);
+  --color-info: var(--reddb-color-feedback-info-on-light);
 
   /* Radius */
   --radius-brand: 10px;
@@ -70,41 +84,32 @@
 }
 
 .dark {
-  /* Brand scale (dark) - centered on #E56A4A, same as light for consistency */
-  --color-brand-50: #fdf1ed;
-  --color-brand-100: #fadccf;
-  --color-brand-200: #f4b59c;
-  --color-brand-300: #ee8d6a;
-  --color-brand-400: #ea7855;
-  --color-brand-500: #E56A4A;
-  --color-brand-600: #cc5236;
-  --color-brand-700: #a64027;
-  --color-brand-800: #7a2f1d;
-  --color-brand-900: #4d1e12;
+  /* The resolved --reddb-color-* semantics follow data-color-scheme (kept in
+     sync with this class), so the same DS references resolve to the dark
+     materials here. The status "on" tokens are scheme-specific. */
+  --color-primary: var(--reddb-color-primary);
+  --color-primary-hover: var(--reddb-color-brand-hover);
 
-  --color-primary: #E56A4A;
-  --color-primary-hover: #cc5236;
+  /* Surfaces & backgrounds */
+  --color-bg: var(--reddb-color-background);
+  --color-bg-alt: var(--reddb-color-elevation-sunken-surface);
+  --color-surface: var(--reddb-color-elevation-base-surface);
+  --color-surface-2: var(--reddb-color-elevation-raised-surface);
+  --color-surface-3: var(--reddb-color-elevation-overlay-surface);
+  --color-sidebar: color-mix(in srgb, var(--reddb-color-elevation-raised-surface) 85%, transparent);
 
-  /* Surfaces (dark - Claude-like neutral warm) */
-  --color-bg: #1a1a1a;
-  --color-bg-alt: #1F1F1E;
-  --color-surface: #262626;
-  --color-surface-2: #303030;
-  --color-surface-3: #3a3a3a;
-  --color-sidebar: rgba(30, 30, 30, 0.85);
+  --color-border: var(--reddb-color-elevation-base-border);
+  --color-border-subtle: var(--reddb-color-border-subtle);
 
-  --color-border: #333333;
-  --color-border-subtle: #2a2a2a;
+  --color-text: var(--reddb-color-foreground);
+  --color-text-main: var(--reddb-color-foreground);
+  --color-text-muted: var(--reddb-color-ink-muted);
+  --color-text-subtle: var(--reddb-color-muted);
 
-  --color-text: #ededed;
-  --color-text-main: #ededed;
-  --color-text-muted: #9ca3af;
-  --color-text-subtle: #6b7280;
-
-  --color-danger: #ef4444;
-  --color-success: #22c55e;
-  --color-warning: #fbbf24;
-  --color-info: #60a5fa;
+  --color-danger: var(--reddb-color-feedback-danger-on-dark);
+  --color-success: var(--reddb-color-feedback-success-on-dark);
+  --color-warning: var(--reddb-color-feedback-warning-on-dark);
+  --color-info: var(--reddb-color-feedback-info-on-dark);
 
   --shadow-soft: 0 1px 2px 0 rgba(0,0,0,0.3);
   --shadow-warm: 0 2px 12px -2px rgba(229, 106, 74, 0.25);
