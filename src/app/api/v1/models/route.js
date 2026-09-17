@@ -247,6 +247,36 @@ function comboMatchesKinds(combo, kindFilter) {
   return kindFilter.includes(kind);
 }
 
+// A combo can route to any of its members, so it can only handle what the
+// weakest member handles: its limits are the minimum across them. Clients
+// (and compaction loops) size requests from the model list, so a combo entry
+// without limits makes them guess — usually high — and requests the members
+// cannot hold reach the router only to fail per model (decolua/9router#1089).
+// Members resolve through the same capability tables as regular models, so an
+// unknown member carries the default window and still bounds the minimum.
+function comboMemberLimits(members) {
+  const list = Array.isArray(members) ? members : [];
+  if (list.length === 0) return null;
+  let contextWindow;
+  let maxOutput;
+  for (const member of list) {
+    if (typeof member !== "string" || !member.trim()) continue;
+    const slash = member.indexOf("/");
+    const caps = getCapabilitiesForModel(
+      slash > 0 ? member.slice(0, slash) : "",
+      slash > 0 ? member.slice(slash + 1) : member
+    );
+    if (Number.isFinite(caps?.contextWindow)) {
+      contextWindow = contextWindow === undefined ? caps.contextWindow : Math.min(contextWindow, caps.contextWindow);
+    }
+    if (Number.isFinite(caps?.maxOutput)) {
+      maxOutput = maxOutput === undefined ? caps.maxOutput : Math.min(maxOutput, caps.maxOutput);
+    }
+  }
+  if (contextWindow === undefined && maxOutput === undefined) return null;
+  return { contextWindow, maxOutput };
+}
+
 /**
  * Build OpenAI-format models list filtered by service kinds.
  * @param {string[]} kindFilter - List of service kinds to include (e.g. ["llm"], ["webSearch","webFetch"]).
@@ -312,6 +342,13 @@ export async function buildModelsList(kindFilter, options = {}) {
     };
     if (combo.kind === "webSearch" || combo.kind === "webFetch") {
       entry.kind = combo.kind;
+    }
+    // LLM combos carry the limits of their weakest member, under the same
+    // snake_case names regular models emit (see the token-limits block below).
+    if ((combo?.kind || LLM_KIND) === LLM_KIND) {
+      const limits = comboMemberLimits(combo.models);
+      if (Number.isFinite(limits?.contextWindow)) entry.context_length = limits.contextWindow;
+      if (Number.isFinite(limits?.maxOutput)) entry.max_completion_tokens = limits.maxOutput;
     }
     models.push(entry);
   }

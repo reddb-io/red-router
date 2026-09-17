@@ -188,6 +188,139 @@ function normalizeStickyLimit(stickyLimit) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
 }
 
+// ── Context-aware rotation (decolua/9router#1089) ─────────────────────────
+//
+// A combo must not spend a rotation slot on a member whose context window
+// cannot hold the request: that attempt fails, the combo falls through, and
+// the retry latency the combo exists to avoid is paid anyway. Estimate the
+// request size, drop members whose window is smaller, and fail fast with a
+// clear error when no member can hold it.
+
+// Fixed token cost of a media block. The real cost varies by resolution and
+// provider; these are generous placeholders so a request carrying media is not
+// routed into a window it overflows once the provider bills the content.
+const MEDIA_TOKEN_COSTS = { image: 1500, pdf: 4000, audio: 1200, video: 6000 };
+
+// 4 characters ≈ 1 token for the text the request carries.
+function charsToTokens(chars) {
+  return Math.ceil(chars / 4);
+}
+
+function textTokens(value) {
+  return typeof value === "string" ? charsToTokens(value.length) : 0;
+}
+
+// Text size of one content value: a string, or the block shapes the
+// OpenAI/Claude/Gemini translators see (text, tool results, media, files).
+function contentTokens(content) {
+  if (typeof content === "string") return charsToTokens(content.length);
+  if (!Array.isArray(content)) return 0;
+  let tokens = 0;
+  for (const block of content) {
+    if (!block || typeof block !== "object") continue;
+    tokens += textTokens(block.text) + textTokens(block.content) + textTokens(block.input);
+    const type = block.type;
+    if (type === "image_url" || type === "image" || type === "input_image") tokens += MEDIA_TOKEN_COSTS.image;
+    else if (type === "input_audio" || type === "audio") tokens += MEDIA_TOKEN_COSTS.audio;
+    else if (type === "input_video" || type === "video" || type === "video_url") tokens += MEDIA_TOKEN_COSTS.video;
+    else if (type === "document" || type === "file" || type === "input_file") tokens += MEDIA_TOKEN_COSTS.pdf;
+    if (block.inlineData || block.fileData) tokens += MEDIA_TOKEN_COSTS.image;
+  }
+  return tokens;
+}
+
+// Rough request size in tokens: system plus every message shape the chat
+// handlers translate (OpenAI messages, Responses input, Gemini contents) plus
+// tool schemas. An estimate, not an exact count: the combo only needs to know
+// which members clearly cannot hold the request.
+export function estimateRequestTokens(body) {
+  if (!body || typeof body !== "object") return 0;
+  let tokens = Array.isArray(body.system) ? contentTokens(body.system) : textTokens(body.system);
+  for (const message of body.messages ?? []) {
+    if (!message || typeof message !== "object") continue;
+    tokens += contentTokens(message.content);
+    if (Array.isArray(message.images)) tokens += MEDIA_TOKEN_COSTS.image * message.images.length;
+    if (Array.isArray(message.tool_calls)) {
+      for (const call of message.tool_calls) {
+        tokens += textTokens(JSON.stringify(call?.function?.arguments ?? ""));
+      }
+    }
+  }
+  for (const item of body.input ?? []) {
+    if (item && typeof item === "object") tokens += contentTokens(item.content);
+  }
+  for (const turn of body.contents ?? []) {
+    if (!turn || typeof turn !== "object") continue;
+    for (const part of turn.parts ?? []) {
+      if (!part || typeof part !== "object") continue;
+      tokens += textTokens(part.text);
+      if (part.inlineData || part.fileData) tokens += MEDIA_TOKEN_COSTS.image;
+    }
+  }
+  if (Array.isArray(body.tools)) tokens += charsToTokens(JSON.stringify(body.tools).length);
+  return tokens;
+}
+
+// Largest output the request asks for: a member must fit input plus output
+// within its window, which bills both.
+function requestedOutputTokens(body) {
+  const candidates = [
+    body?.max_tokens,
+    body?.max_completion_tokens,
+    body?.max_output_tokens,
+    body?.generationConfig?.maxOutputTokens,
+  ];
+  return Math.max(0, ...candidates.filter((n) => Number.isFinite(n) && n > 0));
+}
+
+// Context window of a "provider/model" combo member through the shared
+// capability tables (hand-written patterns plus the models.dev sync). Always
+// finite in practice: unknown members resolve to the default window and stay
+// in the rotation.
+function modelContextWindow(modelStr) {
+  const slash = typeof modelStr === "string" ? modelStr.indexOf("/") : -1;
+  const caps = getCapabilitiesForModel(
+    slash > 0 ? modelStr.slice(0, slash) : "",
+    slash > 0 ? modelStr.slice(slash + 1) : modelStr
+  );
+  return Number.isFinite(caps?.contextWindow) ? caps.contextWindow : null;
+}
+
+// Split the rotation into members that can hold the request and members that
+// clearly cannot (their whole window is smaller than the request, so every
+// attempt is wasted). Order is preserved for the members kept.
+export function filterModelsByContext(models, body) {
+  const kept = Array.isArray(models) ? models : [];
+  const needed = estimateRequestTokens(body) + requestedOutputTokens(body);
+  if (needed <= 0 || kept.length === 0) return { models: kept, skipped: [], needed: 0 };
+  const fits = [];
+  const skipped = [];
+  for (const model of kept) {
+    const context = modelContextWindow(model);
+    if (context === null || needed <= context) fits.push(model);
+    else skipped.push({ model, context });
+  }
+  return { models: fits, skipped, needed };
+}
+
+// Clear 400 instead of looping through members that cannot fit: name each
+// member's window so the user can fix the combo or trim the conversation.
+export function contextOverflowResponse(comboName, filter) {
+  const windows = filter.skipped.map((s) => `${s.model} (${s.context})`).join(", ");
+  return new Response(
+    JSON.stringify({
+      error: {
+        message:
+          `Combo "${comboName}" cannot hold this request (~${filter.needed} tokens). ` +
+          `Every member's context is smaller: ${windows}. ` +
+          `Trim the conversation or give the combo larger-context models.`,
+        type: "invalid_request_error",
+      },
+    }),
+    { status: 400, headers: { "Content-Type": "application/json" } }
+  );
+}
+
 function rotateModelsFromIndex(models, currentIndex) {
   const rotatedModels = [...models];
   for (let i = 0; i < currentIndex; i++) {
@@ -292,7 +425,20 @@ export async function handleComboChat({ body, models, handleSingleModel, log, co
       rotatedModels = reordered;
     }
   }
-  
+
+  // Skip members whose context window cannot hold the request, and fail fast
+  // with a clear error when no member can — instead of burning a rotation slot
+  // (and a provider round-trip) on a member that is guaranteed to overflow.
+  const contextFilter = filterModelsByContext(rotatedModels, body);
+  for (const skip of contextFilter.skipped) {
+    log.info("COMBO", `Skipping ${skip.model} (context ${skip.context} < ~${contextFilter.needed} request tokens)`);
+  }
+  if (contextFilter.skipped.length > 0 && contextFilter.models.length === 0) {
+    log.warn("COMBO", `All ${rotatedModels.length} combo members too small for ~${contextFilter.needed} request tokens`);
+    return contextOverflowResponse(comboName, contextFilter);
+  }
+  rotatedModels = contextFilter.models;
+
   let lastError = null;
   let earliestRetryAfter = null;
   let lastStatus = null;
