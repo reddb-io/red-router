@@ -115,25 +115,41 @@ async function fetchModelLimits() {
   }
 }
 
-// Offline baseline: build the catalog from the snapshots vendored into the repo. Used when the
-// cache does not exist yet and the API is unreachable, so a fresh install serves real limits
-// instead of an empty catalog. The next successful sync overwrites it with fresh data.
+// Offline baseline: build the catalog from a static snapshot. The @opencode-ai/models package
+// (official typed client from the models.dev authors) ships a bundled snapshot that updates via
+// version bumps; the files vendored into the repo are the fallback when the package is not
+// resolvable. Used when the cache does not exist yet and the API is unreachable, so a fresh
+// install serves real limits instead of an empty catalog. The next successful sync overwrites
+// the cache with fresh data.
+async function readSeedSnapshot() {
+  try {
+    const npm = await import("@opencode-ai/models/snapshot");
+    const catalog = npm.providers ?? npm.default?.providers;
+    const models = npm.models ?? npm.default?.models;
+    if (catalog && models) return { catalog, models, source: "npm snapshot" };
+  } catch {
+    // Package not resolvable: fall back to the snapshots vendored into the repo.
+  }
+  const catalog = readSnapshotFile(SNAPSHOT_API_URL);
+  const models = readSnapshotFile(SNAPSHOT_MODELS_URL);
+  return catalog && models ? { catalog, models, source: "vendored snapshot" } : null;
+}
+
 export async function seedFromSnapshot() {
   if (fs.existsSync(CATALOG_FILE)) return null;
-  const catalog = readSnapshotFile(SNAPSHOT_API_URL);
-  const snapshotModels = readSnapshotFile(SNAPSHOT_MODELS_URL);
-  if (!catalog || !snapshotModels) return null;
+  const seed = await readSeedSnapshot();
+  if (!seed) return null;
   const entries = await collectEntries();
-  const { models, providers } = build(catalog, entries);
-  const modelLimits = buildModelLimits(snapshotModels);
+  const { models, providers } = build(seed.catalog, entries);
+  const modelLimits = buildModelLimits(seed.models);
   const serialized = JSON.stringify({ v: 1, etag: null, syncedAt: Date.now(), models, providers, modelLimits });
   writeAtomic(CATALOG_FILE, serialized);
-  writeAtomic(CATALOG_RAW_FILE, JSON.stringify(slim(catalog)));
+  writeAtomic(CATALOG_RAW_FILE, JSON.stringify(slim(seed.catalog)));
   invalidateCatalog();
   await installCatalogSource().catch(() => {});
   return {
     status: "seeded",
-    source: "vendored snapshot",
+    source: seed.source,
     models: Object.keys(models).length,
     modelLimits: modelLimits ? Object.keys(modelLimits).length : 0,
   };
