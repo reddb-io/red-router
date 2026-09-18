@@ -242,9 +242,11 @@ export function claudeToKiroRequest(model, body, stream, credentials) {
     ? (credentials?.providerSpecificData?.profileArn || "")
     : (credentials?.providerSpecificData?.profileArn || resolveDefaultProfileArn(authMethod));
 
-  // The system prompt travels inside the first user turn's content (contentPrefix):
-  // the CodeWhisperer surface rejects a top-level `systemPrompt` with
-  // 400 REQUEST_BODY_INVALID, so the value below is only a replay cache key.
+  // KAS rejects top-level `systemPrompt` with 400 REQUEST_BODY_INVALID since
+  // ~2026-08 (verified against runtime.kiro.dev: identical payload passes
+  // without the field, fails with it; nested placements return 200 but are
+  // silently ignored). The system prompt therefore travels ONLY inlined as a
+  // content prefix on the current message — verified to steer the model.
   const timestamp = new Date().toISOString();
   const systemPromptParts = [];
   if (thinkingBudget !== null && !usesNativeGptEffort) {

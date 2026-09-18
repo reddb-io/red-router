@@ -1,4 +1,5 @@
 import { ERROR_RULES, BACKOFF_CONFIG, TRANSIENT_COOLDOWN_MS } from "../config/errorConfig.js";
+import { classifyRoutingReason, publicStatusForReason } from "../utils/error.js";
 
 /**
  * Calculate exponential backoff cooldown for rate limits (429)
@@ -104,58 +105,86 @@ export function formatRetryAfter(rateLimitedUntil) {
 
 /** Prefix for model lock flat fields on connection record */
 export const MODEL_LOCK_PREFIX = "modelLock_";
+export const MODEL_LOCK_META_PREFIX = "modelLockMeta_";
 
 /** Special key used when no model is known (account-level lock) */
 export const MODEL_LOCK_ALL = `${MODEL_LOCK_PREFIX}__all`;
+export const MODEL_LOCK_META_ALL = `${MODEL_LOCK_META_PREFIX}__all`;
 
-/** Build the flat field key for a model lock */
 export function getModelLockKey(model) {
   return model ? `${MODEL_LOCK_PREFIX}${model}` : MODEL_LOCK_ALL;
 }
 
-/**
- * Check if a model lock on a connection is still active.
- * Reads flat field `modelLock_${model}` (or `modelLock___all` when model=null).
- */
-export function isModelLockActive(connection, model) {
-  const key = getModelLockKey(model);
-  const expiry = connection[key] || connection[MODEL_LOCK_ALL];
-  if (!expiry) return false;
-  return new Date(expiry).getTime() > Date.now();
+export function getModelLockMetaKey(model) {
+  return model ? `${MODEL_LOCK_META_PREFIX}${model}` : MODEL_LOCK_META_ALL;
+}
+
+function activeLock(connection, key, metaKey, nowMs) {
+  const retryAtMs = new Date(connection?.[key]).getTime();
+  if (!Number.isFinite(retryAtMs) || retryAtMs <= nowMs) return null;
+  return { retryAtMs, retryAt: new Date(retryAtMs).toISOString(), meta: connection?.[metaKey] || null, lockKey: key, metaKey };
+}
+
+function countActiveLocks(connection, nowMs) {
+  let count = 0;
+  for (const [key, value] of Object.entries(connection || {})) {
+    if (!key.startsWith(MODEL_LOCK_PREFIX) || key.startsWith(MODEL_LOCK_META_PREFIX) || !value) continue;
+    const retryAtMs = new Date(value).getTime();
+    if (Number.isFinite(retryAtMs) && retryAtMs > nowMs) count++;
+  }
+  return count;
 }
 
 /**
- * Get earliest active model lock expiry across all modelLock_* fields.
- * Used for UI cooldown display.
+ * Locks written before lock metadata existed classify only through the connection's
+ * flat error fields. Those fields describe the lock solely while it is the only one
+ * active — with a second lock, errorCode belongs to whichever model failed last.
  */
+function legacyLockMeta(connection, nowMs) {
+  if (countActiveLocks(connection, nowMs) !== 1) return null;
+  const status = Number(connection?.errorCode);
+  const message = connection?.lastError;
+  const reason = classifyRoutingReason(status, message);
+  if (!reason) return null;
+  return { status: publicStatusForReason(Number.isFinite(status) ? status : 503, reason), reason, message };
+}
+
+export function getApplicableModelLock(connection, model, nowMs = Date.now()) {
+  const specific = activeLock(connection, getModelLockKey(model), getModelLockMetaKey(model), nowMs);
+  const global = activeLock(connection, MODEL_LOCK_ALL, MODEL_LOCK_META_ALL, nowMs);
+  const lock = !specific ? global : !global ? specific : global.retryAtMs > specific.retryAtMs ? global : specific;
+  if (lock && !lock.meta) lock.meta = legacyLockMeta(connection, nowMs);
+  return lock;
+}
+
+export function isModelLockActive(connection, model) {
+  return getApplicableModelLock(connection, model) !== null;
+}
+
 export function getEarliestModelLockUntil(connection) {
   if (!connection) return null;
   let earliest = null;
   const now = Date.now();
   for (const [key, val] of Object.entries(connection)) {
-    if (!key.startsWith(MODEL_LOCK_PREFIX) || !val) continue;
+    if (!key.startsWith(MODEL_LOCK_PREFIX) || key.startsWith(MODEL_LOCK_META_PREFIX) || !val) continue;
     const t = new Date(val).getTime();
-    if (t <= now) continue;
+    if (!Number.isFinite(t) || t <= now) continue;
     if (!earliest || t < earliest) earliest = t;
   }
   return earliest ? new Date(earliest).toISOString() : null;
 }
 
-/**
- * Build update object to set a model lock on a connection.
- */
-export function buildModelLockUpdate(model, cooldownMs) {
+export function buildModelLockUpdate(model, cooldownMs, metadata = null, nowMs = Date.now()) {
   const key = getModelLockKey(model);
-  return { [key]: new Date(Date.now() + cooldownMs).toISOString() };
+  const update = { [key]: new Date(nowMs + cooldownMs).toISOString() };
+  if (metadata) update[getModelLockMetaKey(model)] = metadata;
+  return update;
 }
 
-/**
- * Build update object to clear all model locks on a connection.
- */
 export function buildClearModelLocksUpdate(connection) {
   const cleared = {};
   for (const key of Object.keys(connection)) {
-    if (key.startsWith(MODEL_LOCK_PREFIX)) cleared[key] = null;
+    if (key.startsWith(MODEL_LOCK_PREFIX) || key.startsWith(MODEL_LOCK_META_PREFIX)) cleared[key] = null;
   }
   return cleared;
 }

@@ -1,4 +1,4 @@
-import { getAdapter } from "../driver.js";
+import { getDb } from "../kysely.js";
 import { parseJson, stringifyJson } from "../helpers/jsonCol.js";
 
 const DEFAULT_MITM_ROUTER_BASE = "http://localhost:25050";
@@ -28,6 +28,11 @@ const DEFAULT_SETTINGS = {
   tunnelDashboardAccess: true,
   authMode: "password",
   ssoType: "oidc",
+  // Off: every resource stays visible to anyone who can log in (legacy behaviour).
+  // Turning it off later never drops ownership, it only stops enforcing it.
+  scopeResourcesByUser: false,
+  // E-mails that act as admin when password login is unavailable (SSO-only).
+  ssoAdminEmails: [],
   oidcIssuerUrl: "",
   oidcClientId: "",
   oidcClientSecret: "",
@@ -53,6 +58,12 @@ const DEFAULT_SETTINGS = {
   headroomEnabled: false,
   headroomUrl: DEFAULT_HEADROOM_URL,
   headroomCompressUserMessages: false,
+  // Route each API key's traffic to its own Headroom project (/p/<key name>),
+  // so per-project stats separate the callers instead of pooling them.
+  headroomPerApiKeyProject: false,
+  // Per-user token-saver overrides, keyed by owner. A key left unset here keeps
+  // the global (admin) value, so the default lives in one place.
+  tokenSaverByOwner: {},
   headroomTimeoutMs: 3000,
   cavemanEnabled: false,
   cavemanLevel: "full",
@@ -65,8 +76,8 @@ const DEFAULT_SETTINGS = {
 };
 
 async function readRaw() {
-  const db = await getAdapter();
-  const row = db.get(`SELECT data FROM settings WHERE id = 1`);
+  const db = await getDb();
+  const row = await db.selectFrom("settings").select("data").where("id", "=", 1).executeTakeFirst();
   return row ? parseJson(row.data, {}) : {};
 }
 
@@ -96,16 +107,17 @@ export async function getSettings() {
 
 // Atomic read-merge-write inside transaction (prevents losing concurrent updates)
 export async function updateSettings(updates) {
-  const db = await getAdapter();
+  const db = await getDb();
   let next;
-  db.transaction(function () {
-    const row = db.get(`SELECT data FROM settings WHERE id = 1`);
+  await db.transaction().execute(async (trx) => {
+    const row = await trx.selectFrom("settings").select("data").where("id", "=", 1).executeTakeFirst();
     const current = row ? parseJson(row.data, {}) : {};
     next = { ...current, ...updates };
-    db.run(
-      `INSERT INTO settings(id, data) VALUES(1, ?) ON CONFLICT(id) DO UPDATE SET data = excluded.data`,
-      [stringifyJson(next)],
-    );
+    const data = stringifyJson(next);
+    await trx.insertInto("settings")
+      .values({ id: 1, data })
+      .onConflict((oc) => oc.column("id").doUpdateSet({ data }))
+      .execute();
   });
   return mergeWithDefaults(next);
 }

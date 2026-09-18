@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
+import { getScopeFilter, scopeVisible } from "@/lib/auth/resourceScope";
 import { detectFormat, getTargetFormat } from "open-sse/services/provider.js";
 import { translateRequest } from "open-sse/translator/index.js";
 import { FORMATS } from "open-sse/translator/formats.js";
 import { getModelInfo } from "@/sse/services/model.js";
 import { getProviderConnections } from "@/lib/localDb.js";
 import { getExecutor } from "open-sse/executors/index.js";
+import { redactHeaders, redactUrl, redactSecretValues } from "open-sse/utils/redactHeaders.js";
 
 export async function POST(request) {
   try {
@@ -57,7 +59,7 @@ export async function POST(request) {
         delete translated._toolNameMap;
 
         // Build URL + headers via executor (same as chatCore → executor.execute)
-        const connections = await getProviderConnections({ provider });
+        const connections = scopeVisible(await getProviderConnections({ provider }), await getScopeFilter());
         const connection = connections.find(c => c.isActive !== false);
         if (!connection) {
           return NextResponse.json({ success: false, error: `No active connection for provider: ${provider}` }, { status: 400 });
@@ -77,7 +79,24 @@ export async function POST(request) {
         const headers = executor.buildHeaders(credentials, stream);
         const finalBody = executor.transformRequest(model, translated, stream, credentials);
 
-        return NextResponse.json({ success: true, result: { url, headers, body: finalBody } });
+        // This step exists to show the shape of the outbound request. Handing the
+        // live credential over with it would let any dashboard viewer read the
+        // account's token, so names and structure stay while values are redacted.
+        // /api/translator/send rebuilds the real credentials server-side, so the
+        // redacted copy never has to travel back.
+        const secrets = [
+          connection.apiKey, connection.accessToken, connection.refreshToken, connection.idToken,
+          connection.copilotToken, connection.providerSpecificData?.copilotToken,
+        ];
+        return NextResponse.json({
+          success: true,
+          result: {
+            url: redactSecretValues(redactUrl(url), secrets),
+            headers: redactHeaders(headers, secrets),
+            // Some executors put the token in the payload itself, not a header.
+            body: redactSecretValues(finalBody, secrets),
+          },
+        });
       }
 
       default:

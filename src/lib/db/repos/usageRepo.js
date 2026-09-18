@@ -1,13 +1,9 @@
 import { EventEmitter } from "events";
-import { getAdapter } from "../driver.js";
+import { getDb } from "../kysely.js";
+import { sql } from "kysely";
 import { parseJson, stringifyJson } from "../helpers/jsonCol.js";
 import { getMeta, setMeta } from "../helpers/metaStore.js";
-
-function maskApiKey(key) {
-  if (!key || typeof key !== "string") return null;
-  if (key.length <= 8) return key.charAt(0) + "***";
-  return key.slice(0, 8) + "***";
-}
+import { maskApiKey } from "../helpers/maskKey.js";
 
 const PENDING_TIMEOUT_MS = 60 * 1000;
 const RING_CAP = 50;
@@ -121,8 +117,10 @@ async function ensureRingInitialized() {
   if (recentRing.initialized) return;
   recentRing.initialized = true;
   try {
-    const db = await getAdapter();
-    const rows = db.all(`SELECT timestamp, provider, model, connectionId, apiKey, endpoint, cost, status, tokens FROM usageHistory ORDER BY id DESC LIMIT ?`, [RING_CAP]);
+    const db = await getDb();
+    const rows = await db.selectFrom("usageHistory")
+      .select(["timestamp", "provider", "model", "connectionId", "apiKey", "endpoint", "cost", "status", "tokens"])
+      .orderBy("id", "desc").limit(RING_CAP).execute();
     recentRing.items = rows.reverse().map((r) => ({
       timestamp: r.timestamp, provider: r.provider, model: r.model, connectionId: r.connectionId,
       apiKey: r.apiKey, endpoint: r.endpoint, cost: r.cost, status: r.status,
@@ -193,11 +191,21 @@ export function trackPendingRequest(model, provider, connectionId, started, erro
   scheduleStatsEvent("pending");
 }
 
-export async function getActiveRequests() {
+/**
+ * Live traffic for the topology graph.
+ * `filter` narrows it to what the viewer may see and, when a key is selected in
+ * the UI, to that key's traffic: `{ visible(row), apiKey }`.
+ */
+export async function getActiveRequests(filter = null) {
   const activeRequests = [];
   const connectionMap = await getConnectionMapCached();
+  const isVisible = (row) => !filter?.visible || filter.visible(row);
+  // In-flight counters are tracked per account only — no key is recorded — so a
+  // key selection can only narrow the recent list, not the live bars.
+  const matchesKey = (row) => !filter?.apiKey || row.apiKey === filter.apiKey;
 
   for (const [connectionId, models] of Object.entries(pendingRequests.byAccount)) {
+    if (!isVisible({ connectionId, apiKey: null })) continue;
     for (const [modelKey, count] of Object.entries(models)) {
       if (count > 0) {
         const accountName = connectionMap[connectionId] || `Account ${connectionId.slice(0, 8)}...`;
@@ -214,6 +222,7 @@ export async function getActiveRequests() {
   await ensureRingInitialized();
   const seen = new Set();
   const recentRequests = [...recentRing.items]
+    .filter((e) => isVisible(e) && matchesKey(e))
     .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
     .map((e) => {
       const t = e.tokens || {};
@@ -240,7 +249,7 @@ export async function getActiveRequests() {
 
 export async function saveRequestUsage(entry) {
   try {
-    const db = await getAdapter();
+    const db = await getDb();
 
     if (!entry.timestamp) entry.timestamp = new Date().toISOString();
     entry.cost = await calculateCost(entry.provider, entry.model, entry.tokens);
@@ -253,54 +262,54 @@ export async function saveRequestUsage(entry) {
 
     // All 3 writes (history insert, daily upsert, lifetime counter) in ONE transaction.
     // better-sqlite3 is sync → no JS yield mid-transaction → no race in same process.
-    db.transaction(() => {
-      const existing = db.get(
-        `SELECT id, endpoint FROM usageHistory
-         WHERE timestamp = ?
-           AND COALESCE(provider, '') = COALESCE(?, '')
-           AND COALESCE(model, '') = COALESCE(?, '')
-           AND COALESCE(connectionId, '') = COALESCE(?, '')
-           AND COALESCE(apiKey, '') = COALESCE(?, '')
-           AND promptTokens = ?
-           AND completionTokens = ?
-         ORDER BY id DESC LIMIT 1`,
-        [
-          entry.timestamp, entry.provider || null, entry.model || null,
-          entry.connectionId || null, entry.apiKey || null,
-          promptTokens, completionTokens,
-        ]
-      );
+    await db.transaction().execute(async (trx) => {
+      // Same-second retries of one request must not double count, so an entry
+      // matching on every identifying field is treated as already recorded.
+      const eq = (col, val) => sql`COALESCE(${sql.ref(col)}, '') = COALESCE(${val ?? null}, '')`;
+      const existing = await trx.selectFrom("usageHistory").select(["id", "endpoint"])
+        .where("timestamp", "=", entry.timestamp)
+        .where(eq("provider", entry.provider))
+        .where(eq("model", entry.model))
+        .where(eq("connectionId", entry.connectionId))
+        .where(eq("apiKey", entry.apiKey))
+        .where("promptTokens", "=", promptTokens)
+        .where("completionTokens", "=", completionTokens)
+        .orderBy("id", "desc").limit(1).executeTakeFirst();
 
       if (existing) {
         if (!existing.endpoint && entry.endpoint) {
-          db.run(`UPDATE usageHistory SET endpoint = ? WHERE id = ?`, [entry.endpoint, existing.id]);
+          await trx.updateTable("usageHistory").set({ endpoint: entry.endpoint })
+            .where("id", "=", existing.id).execute();
         }
         return;
       }
 
-      db.run(
-        `INSERT INTO usageHistory(timestamp, provider, model, connectionId, apiKey, endpoint, promptTokens, completionTokens, cost, status, tokens, meta) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          entry.timestamp, entry.provider || null, entry.model || null,
-          entry.connectionId || null, entry.apiKey || null, entry.endpoint || null,
-          promptTokens, completionTokens, entry.cost || 0, entry.status || "ok",
-          stringifyJson(tokens), stringifyJson({}),
-        ]
-      );
+      await trx.insertInto("usageHistory").values({
+        timestamp: entry.timestamp, provider: entry.provider || null, model: entry.model || null,
+        connectionId: entry.connectionId || null, apiKey: entry.apiKey || null,
+        endpoint: entry.endpoint || null, promptTokens, completionTokens,
+        cost: entry.cost || 0, status: entry.status || "ok",
+        tokens: stringifyJson(tokens), meta: stringifyJson({}),
+      }).execute();
 
       const dateKey = getLocalDateKey(entry.timestamp);
-      const row = db.get(`SELECT data FROM usageDaily WHERE dateKey = ?`, [dateKey]);
+      const row = await trx.selectFrom("usageDaily").select("data").where("dateKey", "=", dateKey).executeTakeFirst();
       const day = row ? parseJson(row.data, {}) : {
         requests: 0, promptTokens: 0, completionTokens: 0, cost: 0,
         byProvider: {}, byModel: {}, byAccount: {}, byApiKey: {}, byEndpoint: {},
       };
       aggregateEntryToDay(day, entry);
-      db.run(`INSERT INTO usageDaily(dateKey, data) VALUES(?, ?) ON CONFLICT(dateKey) DO UPDATE SET data = excluded.data`, [dateKey, stringifyJson(day)]);
+      const dayData = stringifyJson(day);
+      await trx.insertInto("usageDaily").values({ dateKey, data: dayData })
+        .onConflict((oc) => oc.column("dateKey").doUpdateSet({ data: dayData }))
+        .execute();
 
       // Atomic counter increment in same transaction
-      const cur = db.get(`SELECT value FROM _meta WHERE key = 'totalRequestsLifetime'`);
-      const next = (cur ? parseInt(cur.value, 10) : 0) + 1;
-      db.run(`INSERT INTO _meta(key, value) VALUES('totalRequestsLifetime', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [String(next)]);
+      const cur = await trx.selectFrom("_meta").select("value").where("key", "=", "totalRequestsLifetime").executeTakeFirst();
+      const value = String((cur ? parseInt(cur.value, 10) : 0) + 1);
+      await trx.insertInto("_meta").values({ key: "totalRequestsLifetime", value })
+        .onConflict((oc) => oc.column("key").doUpdateSet({ value }))
+        .execute();
       inserted = true;
     });
 
@@ -314,17 +323,16 @@ export async function saveRequestUsage(entry) {
 }
 
 export async function getUsageHistory(filter = {}) {
-  const db = await getAdapter();
-  const conds = [];
-  const params = [];
+  const db = await getDb();
+  let q = db.selectFrom("usageHistory")
+    .select(["timestamp", "provider", "model", "connectionId", "apiKey", "endpoint", "cost", "status", "tokens"]);
 
-  if (filter.provider) { conds.push("provider = ?"); params.push(filter.provider); }
-  if (filter.model) { conds.push("model = ?"); params.push(filter.model); }
-  if (filter.startDate) { conds.push("timestamp >= ?"); params.push(new Date(filter.startDate).toISOString()); }
-  if (filter.endDate) { conds.push("timestamp <= ?"); params.push(new Date(filter.endDate).toISOString()); }
+  if (filter.provider) q = q.where("provider", "=", filter.provider);
+  if (filter.model) q = q.where("model", "=", filter.model);
+  if (filter.startDate) q = q.where("timestamp", ">=", new Date(filter.startDate).toISOString());
+  if (filter.endDate) q = q.where("timestamp", "<=", new Date(filter.endDate).toISOString());
 
-  const where = conds.length ? `WHERE ${conds.join(" AND ")}` : "";
-  const rows = db.all(`SELECT timestamp, provider, model, connectionId, apiKey, endpoint, cost, status, tokens FROM usageHistory ${where} ORDER BY id ASC`, params);
+  const rows = await q.orderBy("id", "asc").execute();
 
   return rows.map((r) => ({
     timestamp: r.timestamp, provider: r.provider, model: r.model,
@@ -333,18 +341,23 @@ export async function getUsageHistory(filter = {}) {
   }));
 }
 
-function loadDaysInRange(adapter, maxDays) {
-  if (maxDays == null) {
-    return adapter.all(`SELECT dateKey, data FROM usageDaily`);
-  }
+async function loadDaysInRange(db, maxDays) {
+  const q = db.selectFrom("usageDaily").select(["dateKey", "data"]);
+  if (maxDays == null) return q.execute();
   const today = new Date();
   const cutoff = new Date(today.getFullYear(), today.getMonth(), today.getDate() - maxDays + 1);
   const cutoffKey = `${cutoff.getFullYear()}-${String(cutoff.getMonth() + 1).padStart(2, "0")}-${String(cutoff.getDate()).padStart(2, "0")}`;
-  return adapter.all(`SELECT dateKey, data FROM usageDaily WHERE dateKey >= ?`, [cutoffKey]);
+  return q.where("dateKey", ">=", cutoffKey).execute();
 }
 
-export async function getUsageStats(period = "all") {
-  const db = await getAdapter();
+export async function getUsageStats(period = "all", options = {}) {
+  const db = await getDb();
+  // Filtering by key forces the per-request path: the daily rollups aggregate
+  // providers/models/accounts without a key dimension, so only usageHistory can
+  // answer "this key only" exactly.
+  // ponytail: scans the period's history rows instead of a rollup — fine while
+  // usageHistory is unpruned and small; add a per-key daily rollup if it grows.
+  const apiKeyFilter = typeof options.apiKey === "string" && options.apiKey ? options.apiKey : null;
 
   const [{ getProviderConnections }, { getApiKeys }, { getProviderNodes }] = await Promise.all([
     import("./connectionsRepo.js"),
@@ -369,13 +382,18 @@ export async function getUsageStats(period = "all") {
   for (const k of allApiKeys) apiKeyMap[k.key] = { name: k.name, id: k.id, createdAt: k.createdAt };
 
   // recentRequests from live history (last 100 entries enough for 20 deduped)
-  const recentRows = db.all(`SELECT timestamp, provider, model, tokens, status FROM usageHistory ORDER BY id DESC LIMIT 100`);
+  let recentQ = db.selectFrom("usageHistory")
+    .select(["timestamp", "provider", "model", "apiKey", "tokens", "status"]);
+  if (apiKeyFilter) recentQ = recentQ.where("apiKey", "=", apiKeyFilter);
+  const recentRows = await recentQ.orderBy("id", "desc").limit(100).execute();
   const seen = new Set();
   const recentRequests = recentRows
     .map((r) => {
       const t = parseJson(r.tokens, {}) || {};
       return {
         timestamp: r.timestamp, model: r.model, provider: r.provider || "",
+        apiKeyMasked: maskApiKey(r.apiKey),
+        keyName: (r.apiKey && apiKeyMap[r.apiKey]?.name) || (r.apiKey ? maskApiKey(r.apiKey) : "Local (No API Key)"),
         promptTokens: t.prompt_tokens || t.input_tokens || 0,
         completionTokens: t.completion_tokens || t.output_tokens || 0,
         cachedTokens: t.cached_tokens || t.cache_read_input_tokens || 0,
@@ -428,10 +446,11 @@ export async function getUsageStats(period = "all") {
     bucketMap[ts] = { requests: 0, promptTokens: 0, completionTokens: 0, cost: 0 };
     stats.last10Minutes.push(bucketMap[ts]);
   }
-  const recent10 = db.all(
-    `SELECT timestamp, promptTokens, completionTokens, cost FROM usageHistory WHERE timestamp >= ? AND timestamp <= ?`,
-    [tenMinutesAgo.toISOString(), now.toISOString()]
-  );
+  const recent10 = await db.selectFrom("usageHistory")
+    .select(["timestamp", "promptTokens", "completionTokens", "cost"])
+    .where("timestamp", ">=", tenMinutesAgo.toISOString())
+    .where("timestamp", "<=", now.toISOString())
+    .execute();
   for (const r of recent10) {
     const tt = new Date(r.timestamp).getTime();
     const minuteStart = Math.floor(tt / 60000) * 60000;
@@ -443,12 +462,12 @@ export async function getUsageStats(period = "all") {
     }
   }
 
-  const useDailySummary = period !== "24h" && period !== "today";
+  const useDailySummary = period !== "24h" && period !== "today" && !apiKeyFilter;
 
   if (useDailySummary) {
     const periodDays = { "7d": 7, "30d": 30, "60d": 60 };
     const maxDays = periodDays[period] || null;
-    const dayRows = loadDaysInRange(db, maxDays);
+    const dayRows = await loadDaysInRange(db, maxDays);
 
     for (const dr of dayRows) {
       const dateKey = dr.dateKey;
@@ -539,10 +558,10 @@ export async function getUsageStats(period = "all") {
 
     // Overlay precise lastUsed timestamps from history
     const overlayCutoff = maxDays ? Date.now() - maxDays * 86400000 : 0;
-    const histRows = db.all(
-      `SELECT timestamp, provider, model, connectionId, apiKey, endpoint FROM usageHistory WHERE timestamp >= ?`,
-      [new Date(overlayCutoff).toISOString()]
-    );
+    const histRows = await db.selectFrom("usageHistory")
+      .select(["timestamp", "provider", "model", "connectionId", "apiKey", "endpoint"])
+      .where("timestamp", ">=", new Date(overlayCutoff).toISOString())
+      .execute();
     for (const e of histRows) {
       const ts = e.timestamp;
       const modelKey = e.provider ? `${e.model} (${e.provider})` : e.model;
@@ -564,19 +583,24 @@ export async function getUsageStats(period = "all") {
       if (stats.byEndpoint[endpointKey] && new Date(ts) > new Date(stats.byEndpoint[endpointKey].lastUsed)) stats.byEndpoint[endpointKey].lastUsed = ts;
     }
   } else {
-    // 24h / today: live history
-    let cutoff;
+    // Per-request path: 24h/today, or any period narrowed to one API key.
+    // "all" has no cutoff; every other period here is a fixed window.
+    let cutoff = null;
     if (period === "today") {
       const startOfDay = new Date();
       startOfDay.setHours(0, 0, 0, 0);
       cutoff = startOfDay.toISOString();
-    } else {
-      cutoff = new Date(Date.now() - PERIOD_MS["24h"]).toISOString();
+    } else if (period !== "all") {
+      cutoff = new Date(Date.now() - (PERIOD_MS[period] || PERIOD_MS["24h"])).toISOString();
     }
-    const filtered = db.all(
-      `SELECT timestamp, provider, model, connectionId, apiKey, endpoint, promptTokens, completionTokens, cost, tokens FROM usageHistory WHERE timestamp >= ?`,
-      [cutoff]
-    );
+    const conds = [];
+    const params = [];
+    let fq = db.selectFrom("usageHistory")
+      .select(["timestamp", "provider", "model", "connectionId", "apiKey", "endpoint",
+               "promptTokens", "completionTokens", "cost", "tokens"]);
+    if (cutoff) fq = fq.where("timestamp", ">=", cutoff);
+    if (apiKeyFilter) fq = fq.where("apiKey", "=", apiKeyFilter);
+    const filtered = await fq.execute();
 
     for (const r of filtered) {
       const tokens = parseJson(r.tokens, {}) || {};
@@ -659,7 +683,7 @@ export async function getUsageStats(period = "all") {
 }
 
 export async function getChartData(period = "7d") {
-  const db = await getAdapter();
+  const db = await getDb();
   const now = Date.now();
 
   if (period === "today") {
@@ -672,10 +696,10 @@ export async function getChartData(period = "7d") {
     const labelFn = (ts) => new Date(ts).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false });
     const buckets = Array.from({ length: bucketCount }, (_, i) => ({ label: labelFn(startTime + i * bucketMs), tokens: 0, cost: 0 }));
 
-    const rows = db.all(
-      `SELECT timestamp, promptTokens, completionTokens, cost FROM usageHistory WHERE timestamp >= ?`,
-      [new Date(startTime).toISOString()]
-    );
+    const rows = await db.selectFrom("usageHistory")
+      .select(["timestamp", "promptTokens", "completionTokens", "cost"])
+      .where("timestamp", ">=", new Date(startTime).toISOString())
+      .execute();
     for (const r of rows) {
       const t = new Date(r.timestamp).getTime();
       if (t < startTime || t >= endTime) continue;
@@ -695,10 +719,10 @@ export async function getChartData(period = "7d") {
     const startTime = now - bucketCount * bucketMs;
     const buckets = Array.from({ length: bucketCount }, (_, i) => ({ label: labelFn(startTime + i * bucketMs), tokens: 0, cost: 0 }));
 
-    const rows = db.all(
-      `SELECT timestamp, promptTokens, completionTokens, cost FROM usageHistory WHERE timestamp >= ?`,
-      [new Date(startTime).toISOString()]
-    );
+    const rows = await db.selectFrom("usageHistory")
+      .select(["timestamp", "promptTokens", "completionTokens", "cost"])
+      .where("timestamp", ">=", new Date(startTime).toISOString())
+      .execute();
     for (const r of rows) {
       const t = new Date(r.timestamp).getTime();
       if (t < startTime || t > now) continue;
@@ -714,7 +738,7 @@ export async function getChartData(period = "7d") {
   const labelFn = (d) => d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 
   // Build map of dateKey → day data
-  const dayRows = loadDaysInRange(db, bucketCount);
+  const dayRows = await loadDaysInRange(db, bucketCount);
   const dayMap = {};
   for (const r of dayRows) dayMap[r.dateKey] = parseJson(r.data, {});
 
@@ -739,13 +763,15 @@ function formatLogDate(date = new Date()) {
 // No-op: request log is now derived from usageHistory table on read.
 export async function appendRequestLog() {}
 
-export async function getRecentLogs(limit = 200) {
+// `visible` (from getUsageVisibility) drops rows whose account or key the caller
+// cannot see; rows are formatted here, so the filter has to happen before that.
+export async function getRecentLogs(limit = 200, visible = null) {
   try {
-    const db = await getAdapter();
-    const rows = db.all(
-      `SELECT timestamp, provider, model, connectionId, promptTokens, completionTokens, status, tokens FROM usageHistory ORDER BY id DESC LIMIT ?`,
-      [limit],
-    );
+    const db = await getDb();
+    const rows = await db.selectFrom("usageHistory")
+      .select(["timestamp", "provider", "model", "connectionId", "apiKey",
+               "promptTokens", "completionTokens", "status", "tokens"])
+      .orderBy("id", "desc").limit(limit).execute();
     if (!rows.length) return [];
 
     const connMap = {};
@@ -755,7 +781,7 @@ export async function getRecentLogs(limit = 200) {
       for (const c of connections) connMap[c.id] = c.name || c.email || "";
     } catch {}
 
-    return rows.map((r) => {
+    return rows.filter((r) => !visible || visible(r)).map((r) => {
       const ts = formatLogDate(new Date(r.timestamp));
       const p = r.provider?.toUpperCase() || "-";
       const m = r.model || "-";

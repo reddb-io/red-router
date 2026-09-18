@@ -752,11 +752,33 @@
   "openrouter": {
     "baseUrl": "https://openrouter.ai/api/v1/chat/completions",
     "thinkingFormat": "openai",
-    "headers": {
-      "HTTP-Referer": "https://endpoint-proxy.local",
-      "X-Title": "Endpoint Proxy"
+    "usage": {
+      "url": "https://openrouter.ai/api/v1/key"
     },
-    "format": "openai"
+    "auth": {
+      "combined": true,
+      "header": "Authorization",
+      "scheme": "bearer",
+      "hooks": [
+        "openrouterAttribution"
+      ]
+    },
+    "format": "openai",
+    "transports": [
+      {
+        "format": "claude",
+        "baseUrl": "https://openrouter.ai/api/v1/messages",
+        "thinkingFormat": "claude-budget",
+        "auth": {
+          "combined": true,
+          "header": "Authorization",
+          "scheme": "bearer",
+          "hooks": [
+            "openrouterAttribution"
+          ]
+        }
+      }
+    ]
   },
   "perplexity-web": {
     "baseUrl": "https://www.perplexity.ai/rest/sse/perplexity_ask",

@@ -1,3 +1,22 @@
+# v0.4.0 (2026-09-18)
+
+Port of the PentatonicDev/9router fork (32 product commits; the fork's own CI workflows excluded).
+
+## Features
+- **Distributed mode**: point `DATABASE_URL` at an external Postgres and instances share one database — schema created on boot, queries run through Kysely (one code path for SQLite and Postgres), backups export/import every table and kv scope. Without the variable nothing changes: Local Mode, SQLite under the data dir (`~/.red/router`).
+- **Per-user scoping** (toggle in SSO settings): accounts, API keys and combos carry an `owner` — null = shared with everyone, e-mail = SSO user, `@admin` = password login. Non-admin users see and edit only their own resources; shared accounts are edited/deleted only by the admin, and a user can disable one for themselves (per-user, not global).
+- **API key ↔ account bindings**: `allowedConnectionIds` caps which accounts a key reaches (routing, model catalog, quota tracker; `503 no_active_credentials` when none is eligible); usage views per key; keys gain rename + tags; `maskApiKey` fixed so same-instance keys stop collapsing into one label.
+- **Token-saver per user**: RTK/Headroom/Caveman/Ponytail flags resolve by the calling key's owner (`tokenSaverByOwner`), inherited defaults marked in the UI; Settings becomes admin-only while scoping is on.
+- **Canonical error contract**: consistent error payloads and availability (`503 no_active_credentials`), connection locks classified without metadata, omitted `stream` treated as a JSON response.
+- **Openrouter**: claude-format clients route to the Anthropic-compatible `/v1/messages`; traffic attributed to the calling client; key credit quota tracked.
+- **Quota lifecycle**: provider-declared resets honored when locking; accounts whose quota already reset unlock automatically; kiro accounts stay locked until the quota window really reopens.
+- **Security**: translator views redact live credentials (`redactHeaders`); token refresh starts at boot via instrumentation; `PATCH /api/settings` requires admin while scoping is on.
+
+## Fixes
+- Translators: Claude finish events deduped (scoped to its own pivot-hop state), `max_completion_tokens` + forced streaming for OpenAI-format clients, overlong tool-call ids normalized, Luna reasoning disabled with function tools, thinking kept on for models that cannot disable it.
+- Kiro: no top-level `systemPrompt` (KAS rejects it) — repair instructions and RTK prompts inline into the user turn; image/audio blocks stripped for glm-5/MiniMax; exhausted accounts locked until the quota window reopens.
+- RTK: coordinated with Headroom (each block goes to one of them; deferred blocks compress instead of shipping at full size) and covers single-line blobs.
+
 # v0.3.0 (2026-09-17)
 
 ## Breaking

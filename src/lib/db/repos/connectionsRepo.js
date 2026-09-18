@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from "uuid";
-import { getAdapter } from "../driver.js";
+import { getDb } from "../kysely.js";
 import { parseJson, stringifyJson } from "../helpers/jsonCol.js";
+import { normalizeOwnerInput, resolveDefaultOwner } from "@/lib/auth/resourceScope";
 
 const OPTIONAL_FIELDS = [
   "displayName", "email", "globalPriority", "defaultModel",
@@ -11,6 +12,7 @@ const OPTIONAL_FIELDS = [
 ];
 
 const MODEL_LOCK_PREFIX = "modelLock_";
+const MODEL_LOCK_META_PREFIX = "modelLockMeta_";
 
 function resetHealthStateOnActivation(existing, patch) {
   if (patch?.testStatus !== "active") return patch;
@@ -26,7 +28,7 @@ function resetHealthStateOnActivation(existing, patch) {
   };
 
   for (const key of Object.keys(existing || {})) {
-    if (key.startsWith(MODEL_LOCK_PREFIX)) normalized[key] = null;
+    if (key.startsWith(MODEL_LOCK_PREFIX) || key.startsWith(MODEL_LOCK_META_PREFIX)) normalized[key] = null;
   }
 
   return normalized;
@@ -44,13 +46,14 @@ function rowToConn(row) {
     email: row.email,
     priority: row.priority,
     isActive: row.isActive === 1 || row.isActive === true,
+    owner: row.owner ?? null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
 }
 
 function connToRow(c) {
-  const { id, provider, authType, name, email, priority, isActive, createdAt, updatedAt, ...rest } = c;
+  const { id, provider, authType, name, email, priority, isActive, owner, createdAt, updatedAt, ...rest } = c;
   return {
     id,
     provider,
@@ -59,23 +62,22 @@ function connToRow(c) {
     email: email ?? null,
     priority: priority ?? null,
     isActive: isActive === false ? 0 : 1,
+    owner: owner ?? null,
     data: stringifyJson(rest),
     createdAt,
     updatedAt,
   };
 }
 
-function upsert(db, c) {
+async function upsert(db, c) {
   const r = connToRow(c);
-  db.run(
-    `INSERT INTO providerConnections(id, provider, authType, name, email, priority, isActive, data, createdAt, updatedAt)
-     VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(id) DO UPDATE SET
-       provider=excluded.provider, authType=excluded.authType, name=excluded.name,
-       email=excluded.email, priority=excluded.priority, isActive=excluded.isActive,
-       data=excluded.data, updatedAt=excluded.updatedAt`,
-    [r.id, r.provider, r.authType, r.name, r.email, r.priority, r.isActive, r.data, r.createdAt, r.updatedAt]
-  );
+  await db.insertInto("providerConnections").values(r)
+    .onConflict((oc) => oc.column("id").doUpdateSet({
+      provider: r.provider, authType: r.authType, name: r.name, email: r.email,
+      priority: r.priority, isActive: r.isActive, owner: r.owner,
+      data: r.data, updatedAt: r.updatedAt,
+    }))
+    .execute();
 }
 
 function deriveConnectionName(data, fallbackName) {
@@ -90,44 +92,50 @@ function deriveConnectionName(data, fallbackName) {
 }
 
 export async function getProviderConnections(filter = {}) {
-  const db = await getAdapter();
-  const where = [];
-  const params = [];
-  if (filter.provider) { where.push("provider = ?"); params.push(filter.provider); }
-  if (filter.isActive !== undefined) { where.push("isActive = ?"); params.push(filter.isActive ? 1 : 0); }
-  const sql = `SELECT * FROM providerConnections${where.length ? ` WHERE ${where.join(" AND ")}` : ""}`;
-  const rows = db.all(sql, params);
-  const list = rows.map(rowToConn);
+  const db = await getDb();
+  let q = db.selectFrom("providerConnections").selectAll();
+  if (filter.provider) q = q.where("provider", "=", filter.provider);
+  if (filter.isActive !== undefined) q = q.where("isActive", "=", filter.isActive ? 1 : 0);
+  // Shared accounts (owner IS NULL) stay in everyone's pool.
+  if (filter.owner !== undefined) {
+    q = q.where((eb) => eb.or([eb("owner", "is", null), eb("owner", "=", filter.owner)]));
+  }
+  const list = (await q.execute()).map(rowToConn);
   list.sort((a, b) => (a.priority || 999) - (b.priority || 999));
   return list;
 }
 
 export async function getProviderConnectionById(id) {
-  const db = await getAdapter();
-  const row = db.get(`SELECT * FROM providerConnections WHERE id = ?`, [id]);
+  const db = await getDb();
+  const row = await db.selectFrom("providerConnections").selectAll().where("id", "=", id).executeTakeFirst();
   return rowToConn(row);
 }
 
-// Internal sync reorder — must be called INSIDE a transaction
-function reorderInTx(db, providerId) {
-  const list = db.all(`SELECT * FROM providerConnections WHERE provider = ?`, [providerId]).map(rowToConn);
+// Internal reorder — must be called INSIDE a transaction
+async function reorderInTx(db, providerId) {
+  const list = (await db.selectFrom("providerConnections").selectAll()
+    .where("provider", "=", providerId).execute()).map(rowToConn);
   list.sort((a, b) => {
     const pDiff = (a.priority || 0) - (b.priority || 0);
     if (pDiff !== 0) return pDiff;
     return new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0);
   });
-  list.forEach((c, i) => {
-    db.run(`UPDATE providerConnections SET priority = ? WHERE id = ?`, [i + 1, c.id]);
-  });
+  for (const [i, c] of list.entries()) {
+    await db.updateTable("providerConnections").set({ priority: i + 1 }).where("id", "=", c.id).execute();
+  }
 }
 
 export async function createProviderConnection(data) {
-  const db = await getAdapter();
+  const db = await getDb();
   const now = new Date().toISOString();
+  // Resolved here rather than at the ~23 call sites that create connections
+  // (OAuth flows, bulk imports): a new one would otherwise be world-visible.
+  const owner = data.owner === undefined ? await resolveDefaultOwner() : normalizeOwnerInput(data.owner);
   let result;
 
-  db.transaction(() => {
-    const all = db.all(`SELECT * FROM providerConnections WHERE provider = ?`, [data.provider]).map(rowToConn);
+  await db.transaction().execute(async (trx) => {
+    const all = (await trx.selectFrom("providerConnections").selectAll()
+      .where("provider", "=", data.provider).execute()).map(rowToConn);
 
     let existing = null;
     if (data.authType === "oauth" && data.email) {
@@ -170,8 +178,9 @@ export async function createProviderConnection(data) {
 
     if (existing) {
       const normalized = resetHealthStateOnActivation(existing, data);
-      const merged = { ...existing, ...normalized, updatedAt: now };
-      upsert(db, merged);
+      // Re-login / re-import must not silently reassign an existing account.
+      const merged = { ...existing, ...normalized, owner: existing.owner ?? null, updatedAt: now };
+      await upsert(trx, merged);
       result = merged;
       return;
     }
@@ -192,6 +201,7 @@ export async function createProviderConnection(data) {
       name: connectionName,
       priority: connectionPriority,
       isActive: data.isActive !== undefined ? data.isActive : true,
+      owner,
       createdAt: now,
       updatedAt: now,
     };
@@ -203,8 +213,8 @@ export async function createProviderConnection(data) {
     }
     if (data.email !== undefined) conn.email = data.email;
 
-    upsert(db, conn);
-    reorderInTx(db, data.provider);
+    await upsert(trx, conn);
+    await reorderInTx(trx, data.provider);
     result = conn;
   });
 
@@ -213,48 +223,99 @@ export async function createProviderConnection(data) {
 
 // Critical: OAuth refresh token race — atomic merge inside transaction
 export async function updateProviderConnection(id, data) {
-  const db = await getAdapter();
+  const db = await getDb();
   let result;
-  db.transaction(() => {
-    const row = db.get(`SELECT * FROM providerConnections WHERE id = ?`, [id]);
+  await db.transaction().execute(async (trx) => {
+    const row = await trx.selectFrom("providerConnections").selectAll().where("id", "=", id).executeTakeFirst();
     if (!row) { result = null; return; }
     const existing = rowToConn(row);
     const normalized = resetHealthStateOnActivation(existing, data);
     const merged = { ...existing, ...normalized, updatedAt: new Date().toISOString() };
-    upsert(db, merged);
-    if (data.priority !== undefined) reorderInTx(db, existing.provider);
+    await upsert(trx, merged);
+    const ownerChanged = data.owner !== undefined && (merged.owner ?? null) !== (existing.owner ?? null);
+    if (ownerChanged) await unbindUnreachableInTx(trx, id, merged.owner ?? null);
+    if (data.priority !== undefined) await reorderInTx(trx, existing.provider);
     result = merged;
   });
   return result;
 }
 
+// A deleted account must not linger in apiKeys.allowedConnectionIds, or the key
+// page lists a phantom binding and the quota filter counts an account that is
+// gone. Emptying a key's list returns it to unrestricted, per the documented
+// "no bindings = every account" rule.
+// Must be called INSIDE a transaction.
+async function unbindConnectionsInTx(db, ids) {
+  if (!ids.length) return;
+  const removed = new Set(ids);
+  const rows = await db.selectFrom("apiKeys").select(["id", "allowedConnectionIds"])
+    .where("allowedConnectionIds", "is not", null).execute();
+  for (const row of rows) {
+    const current = parseJson(row.allowedConnectionIds, null);
+    if (!Array.isArray(current)) continue;
+    const next = current.filter((connId) => !removed.has(connId));
+    if (next.length === current.length) continue;
+    await db.updateTable("apiKeys")
+      .set({ allowedConnectionIds: next.length ? stringifyJson(next) : null })
+      .where("id", "=", row.id).execute();
+  }
+}
+
+// An account binding must not outlive the visibility that justified it: after an
+// owner change, a key whose owner can no longer see the account keeps routing to
+// it, since the binding list is consulted before ownership at request time.
+// Must be called INSIDE a transaction.
+async function unbindUnreachableInTx(db, connectionId, owner) {
+  const rows = await db.selectFrom("apiKeys").select(["id", "owner", "allowedConnectionIds"])
+    .where("allowedConnectionIds", "is not", null).execute();
+  for (const row of rows) {
+    const current = parseJson(row.allowedConnectionIds, null);
+    if (!Array.isArray(current) || !current.includes(connectionId)) continue;
+    const keyOwner = row.owner ?? null;
+    // Shared accounts stay reachable by everyone; an admin-owned key reaches
+    // only admin-owned and shared accounts, and a user's key only their own.
+    if (owner === null || keyOwner === owner) continue;
+    const next = current.filter((id) => id !== connectionId);
+    await db.updateTable("apiKeys")
+      .set({ allowedConnectionIds: next.length ? stringifyJson(next) : null })
+      .where("id", "=", row.id).execute();
+  }
+}
+
 export async function deleteProviderConnection(id) {
-  const db = await getAdapter();
+  const db = await getDb();
   let ok = false;
-  db.transaction(() => {
-    const row = db.get(`SELECT provider FROM providerConnections WHERE id = ?`, [id]);
+  await db.transaction().execute(async (trx) => {
+    const row = await trx.selectFrom("providerConnections").select("provider").where("id", "=", id).executeTakeFirst();
     if (!row) return;
-    db.run(`DELETE FROM providerConnections WHERE id = ?`, [id]);
-    reorderInTx(db, row.provider);
+    await trx.deleteFrom("providerConnections").where("id", "=", id).execute();
+    await unbindConnectionsInTx(trx, [id]);
+    await reorderInTx(trx, row.provider);
     ok = true;
   });
   return ok;
 }
 
 export async function deleteProviderConnectionsByProvider(providerId) {
-  const db = await getAdapter();
-  const before = db.get(`SELECT COUNT(*) AS n FROM providerConnections WHERE provider = ?`, [providerId]);
-  db.run(`DELETE FROM providerConnections WHERE provider = ?`, [providerId]);
-  return before?.n || 0;
+  const db = await getDb();
+  let deleted = 0;
+  await db.transaction().execute(async (trx) => {
+    const rows = await trx.selectFrom("providerConnections").select("id").where("provider", "=", providerId).execute();
+    if (!rows.length) return;
+    await trx.deleteFrom("providerConnections").where("provider", "=", providerId).execute();
+    await unbindConnectionsInTx(trx, rows.map((r) => r.id));
+    deleted = rows.length;
+  });
+  return deleted;
 }
 
 export async function reorderProviderConnections(providerId) {
-  const db = await getAdapter();
-  db.transaction(() => reorderInTx(db, providerId));
+  const db = await getDb();
+  await db.transaction().execute(async (trx) => reorderInTx(trx, providerId));
 }
 
 export async function cleanupProviderConnections() {
-  const db = await getAdapter();
+  const db = await getDb();
   const fieldsToCheck = [
     "displayName", "email", "globalPriority", "defaultModel",
     "accessToken", "refreshToken", "expiresAt", "tokenType",
@@ -263,8 +324,8 @@ export async function cleanupProviderConnections() {
     "consecutiveUseCount",
   ];
   let cleaned = 0;
-  db.transaction(() => {
-    const rows = db.all(`SELECT * FROM providerConnections`);
+  await db.transaction().execute(async (trx) => {
+    const rows = await trx.selectFrom("providerConnections").selectAll().execute();
     for (const row of rows) {
       const conn = rowToConn(row);
       let dirty = false;
@@ -278,7 +339,7 @@ export async function cleanupProviderConnections() {
         cleaned++;
         dirty = true;
       }
-      if (dirty) upsert(db, conn);
+      if (dirty) await upsert(trx, conn);
     }
   });
   return cleaned;

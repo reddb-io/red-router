@@ -8,13 +8,15 @@ import {
   isValidApiKey,
 } from "../services/auth.js";
 import { handleAntigravityQuotaError, clearAntigravityStrikes } from "../services/antigravityQuota.js";
-import { getSettings } from "@/lib/localDb";
+import { getExhaustedQuotaResetMs } from "../services/quotaReset.js";
+import { getSettings, getApiKeyOwner, getApiKeyIdentity } from "@/lib/localDb";
+import { resolveScopedSettings, headroomProjectUrl } from "@/lib/auth/scopedSettings";
 import { getModelInfo, resolveComboModels } from "../services/model.js";
 import { handleChatCore } from "open-sse/handlers/chatCore.js";
 import { DEFAULT_HEADROOM_URL } from "@/lib/headroom/detect";
 import { getTransform as getPxpipeTransform } from "@/lib/pxpipe/loader.js";
 import { appendPxpipeEvent } from "@/lib/pxpipe/events.js";
-import { errorResponse, unavailableResponse } from "open-sse/utils/error.js";
+import { createErrorContext, errorResponse, responseFromRoutingCandidate, withRequestId } from "open-sse/utils/error.js";
 import { handleComboChat, handleFusionChat, detectRequiredCapabilities } from "open-sse/services/combo.js";
 import { augmentModelsWithCapacityAdapter, withCapacityAdapterStripping, getActiveAdapterStrategy } from "open-sse/services/capacityAdapter.js";
 import { handleBypassRequest } from "open-sse/utils/bypassHandler.js";
@@ -30,13 +32,21 @@ import { stripModelContextMarker } from "open-sse/utils/modelMarkers.js";
  * Supports: OpenAI, Claude, Gemini, OpenAI Responses API formats
  * Format detection and translation handled by translator
  */
-export async function handleChat(request, clientRawRequest = null) {
+// undefined (not null) keeps the legacy lookup: name alone, ignoring ownership.
+async function resolveComboOwner(apiKey) {
+  const settings = await getSettings();
+  if (settings?.scopeResourcesByUser !== true) return undefined;
+  return await getApiKeyOwner(apiKey || null);
+}
+
+export async function handleChat(request, clientRawRequest = null, options = {}) {
+  const errorContext = createErrorContext(request, options);
   let body;
   try {
     body = await request.json();
   } catch {
     log.warn("CHAT", "Invalid JSON body");
-    return errorResponse(HTTP_STATUS.BAD_REQUEST, "Invalid JSON body");
+    return errorResponse(HTTP_STATUS.BAD_REQUEST, "Invalid JSON body", errorContext);
   }
 
   // Build clientRawRequest for logging (if not provided)
@@ -67,22 +77,23 @@ export async function handleChat(request, clientRawRequest = null) {
   }
 
   // Enforce API key if enabled in settings
-  const settings = await getSettings();
+  const settings = await resolveScopedSettings(await getSettings(), apiKey);
+  const comboOwner = await resolveComboOwner(apiKey);
   if (settings.requireApiKey) {
     if (!apiKey) {
       log.warn("AUTH", "Missing API key (requireApiKey=true)");
-      return errorResponse(HTTP_STATUS.UNAUTHORIZED, "Missing API key");
+      return errorResponse(HTTP_STATUS.UNAUTHORIZED, "Missing API key", errorContext);
     }
     const valid = await isValidApiKey(apiKey);
     if (!valid) {
       log.warn("AUTH", "Invalid API key (requireApiKey=true)");
-      return errorResponse(HTTP_STATUS.UNAUTHORIZED, "Invalid API key");
+      return errorResponse(HTTP_STATUS.UNAUTHORIZED, "Invalid API key", errorContext);
     }
   }
 
   if (!modelStr) {
     log.warn("CHAT", "Missing model");
-    return errorResponse(HTTP_STATUS.BAD_REQUEST, "Missing model");
+    return errorResponse(HTTP_STATUS.BAD_REQUEST, "Missing model", errorContext);
   }
 
   // Bypass naming/warmup requests before combo rotation to avoid wasting rotation slots
@@ -95,7 +106,8 @@ export async function handleChat(request, clientRawRequest = null) {
   // Check if model is a combo (has multiple models with fallback). The name may
   // carry a thinking override suffix ("my-combo(high)") — resolution strips it
   // and re-attaches it to every member; cleanComboName keys strategies/settings.
-  const comboResolution = await resolveComboModels(modelStr);
+  // Combo names are unique per owner, so resolution is scoped to the key's owner.
+  const comboResolution = await resolveComboModels(modelStr, comboOwner);
   if (comboResolution) {
     const { models: comboModels, comboName: cleanComboName } = comboResolution;
     // Check for combo-specific strategy first, fallback to global
@@ -116,12 +128,13 @@ export async function handleChat(request, clientRawRequest = null) {
             const { tools, tool_choice, ...cleanBody } = clientRawRequest.body || {};
             cleanRawReq = { ...clientRawRequest, body: cleanBody };
           }
-          return handleSingleModelChat(b, m, cleanRawReq, request, apiKey);
+          return handleSingleModelChat(b, m, cleanRawReq, request, apiKey, errorContext);
         },
         log,
         comboName: cleanComboName,
         judgeModel: comboStrategies[cleanComboName]?.judgeModel,
         tuning: comboStrategies[cleanComboName]?.fusionTuning,
+        errorContext,
       });
     }
 
@@ -131,13 +144,14 @@ export async function handleChat(request, clientRawRequest = null) {
       body,
       models: augmentedModels,
       handleSingleModel: withCapacityAdapterStripping(
-        (b, m) => handleSingleModelChat(b, m, clientRawRequest, request, apiKey),
+        (b, m) => handleSingleModelChat(b, m, clientRawRequest, request, apiKey, errorContext),
         adapterAdded
       ),
       log,
       comboName: cleanComboName,
       comboStrategy,
-      comboStickyLimit
+      comboStickyLimit,
+      errorContext,
     });
   }
 
@@ -151,27 +165,30 @@ export async function handleChat(request, clientRawRequest = null) {
       body,
       models: soloAugmented,
       handleSingleModel: withCapacityAdapterStripping(
-        (b, m) => handleSingleModelChat(b, m, clientRawRequest, request, apiKey),
+        (b, m) => handleSingleModelChat(b, m, clientRawRequest, request, apiKey, errorContext),
         adapterAdded
       ),
       log,
       comboName: modelStr,
-      comboStrategy: getActiveAdapterStrategy(requiredCapabilities, settings)
+      comboStrategy: getActiveAdapterStrategy(requiredCapabilities, settings),
+      errorContext,
     });
   }
 
-  return handleSingleModelChat(body, modelStr, clientRawRequest, request, apiKey);
+  return handleSingleModelChat(body, modelStr, clientRawRequest, request, apiKey, errorContext);
 }
 
 /**
  * Handle single model chat request
  */
-async function handleSingleModelChat(body, modelStr, clientRawRequest = null, request = null, apiKey = null) {
-  const modelInfo = await getModelInfo(modelStr);
+async function handleSingleModelChat(body, modelStr, clientRawRequest = null, request = null, apiKey = null, errorContext = {}) {
+  // Combo names are unique per owner, so resolution needs to know whose key this is.
+  const comboOwner = await resolveComboOwner(apiKey);
+  const modelInfo = await getModelInfo(modelStr, comboOwner);
 
   // If provider is null, this might be a combo name - check and handle
   if (!modelInfo.provider) {
-    const comboResolution = await resolveComboModels(modelStr);
+    const comboResolution = await resolveComboModels(modelStr, comboOwner);
     if (comboResolution) {
       const { models: comboModels, comboName: cleanComboName } = comboResolution;
       const chatSettings = await getSettings();
@@ -194,12 +211,13 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
               const { tools, tool_choice, ...cleanBody } = clientRawRequest.body || {};
               cleanRawReq = { ...clientRawRequest, body: cleanBody };
             }
-            return handleSingleModelChat(b, m, cleanRawReq, request, apiKey);
+            return handleSingleModelChat(b, m, cleanRawReq, request, apiKey, errorContext);
           },
           log,
           comboName: cleanComboName,
           judgeModel: comboStrategies[cleanComboName]?.judgeModel,
           tuning: comboStrategies[cleanComboName]?.fusionTuning,
+          errorContext,
         });
       }
 
@@ -209,17 +227,18 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
         body,
         models: augmentedModels,
         handleSingleModel: withCapacityAdapterStripping(
-          (b, m) => handleSingleModelChat(b, m, clientRawRequest, request, apiKey),
+          (b, m) => handleSingleModelChat(b, m, clientRawRequest, request, apiKey, errorContext),
           adapterAdded
         ),
         log,
         comboName: cleanComboName,
         comboStrategy,
-        comboStickyLimit
+        comboStickyLimit,
+        errorContext,
       });
     }
     log.warn("CHAT", "Invalid model format", { model: modelStr });
-    return errorResponse(HTTP_STATUS.BAD_REQUEST, "Invalid model format");
+    return errorResponse(HTTP_STATUS.BAD_REQUEST, "Invalid model format", errorContext);
   }
 
   const { provider, model } = modelInfo;
@@ -231,26 +250,17 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
 
   // Try with available accounts (fallback on errors)
   const excludeConnectionIds = new Set();
-  let lastError = null;
-  let lastStatus = null;
 
   while (true) {
-    const credentials = await getProviderCredentials(provider, excludeConnectionIds, model);
+    const credentials = await getProviderCredentials(provider, excludeConnectionIds, model, { apiKey });
 
-    // All accounts unavailable
-    if (!credentials || credentials.allRateLimited) {
-      if (credentials?.allRateLimited) {
-        const errorMsg = lastError || credentials.lastError || "Unavailable";
-        const status = HTTP_STATUS.SERVICE_UNAVAILABLE;
-        log.warn("CHAT", `[${provider}/${model}] ${errorMsg} (${credentials.retryAfterHuman})`);
-        return unavailableResponse(status, `[${provider}/${model}] ${errorMsg}`, credentials.retryAfter, credentials.retryAfterHuman);
-      }
-      if (excludeConnectionIds.size === 0) {
-        log.warn("AUTH", `No active credentials for provider: ${provider}`);
-        return errorResponse(HTTP_STATUS.NOT_FOUND, `No active credentials for provider: ${provider}`);
-      }
-      log.warn("CHAT", "No more accounts available", { provider });
-      return errorResponse(lastStatus || HTTP_STATUS.SERVICE_UNAVAILABLE, lastError || "All accounts unavailable");
+    if (credentials?.noActiveCredentials) {
+      log.warn("AUTH", credentials.candidate.message);
+      return responseFromRoutingCandidate(credentials.candidate, errorContext);
+    }
+    if (credentials?.allRateLimited) {
+      log.warn("CHAT", `[${provider}/${model}] ${credentials.candidate.message} (${credentials.retryAfterHuman})`);
+      return responseFromRoutingCandidate(credentials.candidate, errorContext);
     }
 
     // Account selection shown in the unified "▶" line (acc:...)
@@ -281,7 +291,9 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
       ccFilterNaming: !!chatSettings.ccFilterNaming,
       rtkEnabled: !!chatSettings.rtkEnabled,
       headroomEnabled: !!chatSettings.headroomEnabled,
-      headroomUrl: chatSettings.headroomUrl || DEFAULT_HEADROOM_URL,
+      headroomUrl: chatSettings.headroomPerApiKeyProject
+        ? headroomProjectUrl(chatSettings.headroomUrl || DEFAULT_HEADROOM_URL, (await getApiKeyIdentity(apiKey)).name)
+        : (chatSettings.headroomUrl || DEFAULT_HEADROOM_URL),
       headroomCompressUserMessages: !!chatSettings.headroomCompressUserMessages,
       headroomTimeoutMs: chatSettings.headroomTimeoutMs,
       cavemanEnabled: !!chatSettings.cavemanEnabled,
@@ -295,6 +307,7 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
       pxpipeTransform: chatSettings.pxpipeEnabled ? await getPxpipeTransform() : null,
       onPxpipeEvent: appendPxpipeEvent,
       providerThinking,
+      errorContext,
       // Detect source format by endpoint + body
       sourceFormatOverride: request?.url ? detectFormatByEndpoint(new URL(request.url).pathname, body) : null,
       onCredentialsRefreshed: async (newCreds) => {
@@ -311,7 +324,7 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
       }
     });
 
-    if (result.success) return result.response;
+    if (result.success) return withRequestId(result.response, errorContext);
 
     // Antigravity 409/429: refresh live quota to get exact resetAt before locking
     let quotaResetMs = null;
@@ -324,6 +337,12 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
       if (quotaResetMs) resetsAtMs = quotaResetMs;
     }
 
+    // Providers whose limit error carries no reset (Kiro 402): ask their usage API.
+    if (!resetsAtMs) {
+      resetsAtMs = await getExhaustedQuotaResetMs(provider, result.status, refreshedCredentials);
+      if (resetsAtMs) log.warn("QUOTA", `[${provider}] quota exhausted — locking until ${new Date(resetsAtMs).toISOString()}`);
+    }
+
     // Exhausted Antigravity model is blocked only in RAM cache until upstream resetAt.
     // Do not persist a modelLock_* for this path.
     const shouldFallback = provider === "antigravity" && quotaResetMs
@@ -333,11 +352,9 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
     if (shouldFallback) {
       log.warn("FALLBACK", `⇄ ACC:${credentials.connectionName} UNAVAILABLE (${result.status}) → NEXT ACCOUNT`);
       excludeConnectionIds.add(credentials.connectionId);
-      lastError = result.error;
-      lastStatus = result.status;
       continue;
     }
 
-    return result.response;
+    return withRequestId(result.response, errorContext);
   }
 }

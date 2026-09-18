@@ -2,10 +2,12 @@
 import "open-sse/index.js";
 
 import { getProviderConnectionById, updateProviderConnection } from "@/lib/localDb";
+import { canSee, getScopeFilter } from "@/lib/auth/resourceScope";
 import { getUsageForProvider } from "open-sse/services/usage.js";
 import { getExecutor } from "open-sse/executors/index.js";
 import { resolveConnectionProxyConfig } from "@/lib/network/connectionProxy";
 import { USAGE_APIKEY_PROVIDERS } from "@/shared/constants/providers";
+import { buildQuotaUnlockUpdate } from "@/shared/services/quotaUnlockRules";
 
 // Detect auth-expired messages returned by usage providers instead of throwing
 const AUTH_EXPIRED_PATTERNS = ["expired", "authentication", "unauthorized", "401", "re-authorize"];
@@ -128,7 +130,7 @@ export async function GET(request, { params }) {
 
     // Get connection from database
     connection = await getProviderConnectionById(connectionId);
-    if (!connection) {
+    if (!connection || !canSee(connection, await getScopeFilter())) {
       return Response.json({ error: "Connection not found" }, { status: 404 });
     }
 
@@ -181,6 +183,14 @@ export async function GET(request, { params }) {
       } catch (retryError) {
         console.warn(`[Usage] ${connection.provider}: force refresh failed: ${retryError.message}`);
       }
+    }
+
+    // The quota we just fetched is the freshest evidence available: if it says the
+    // account is free while a quota lock is still standing, drop the lock now.
+    const unlockUpdate = buildQuotaUnlockUpdate(connection, usage);
+    if (unlockUpdate) {
+      await updateProviderConnection(connection.id, unlockUpdate);
+      console.log(`[QuotaUnlock] ${connection.provider}:${connection.id}: quota is free, locks cleared`);
     }
 
     return Response.json(usage);

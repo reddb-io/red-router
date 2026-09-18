@@ -1,7 +1,7 @@
-import { getProviderConnections, validateApiKey, updateProviderConnection, getSettings, getProxyPools } from "@/lib/localDb";
+import { getProviderConnections, validateApiKey, getApiKeyAllowedConnectionIds, getApiKeyOwner, updateProviderConnection, getSettings, getProxyPools } from "@/lib/localDb";
 import { resolveConnectionProxyConfig, pickProxyPoolId } from "@/lib/network/connectionProxy";
-import { formatRetryAfter, checkFallbackError, isModelLockActive, buildModelLockUpdate, getEarliestModelLockUntil } from "open-sse/services/accountFallback.js";
-import { MAX_RATE_LIMIT_COOLDOWN_MS } from "open-sse/config/errorConfig.js";
+import { formatRetryAfter, checkFallbackError, isModelLockActive, buildModelLockUpdate, getApplicableModelLock, getModelLockMetaKey } from "open-sse/services/accountFallback.js";
+import { classifyRoutingReason, publicStatusForReason, sanitizePublicMessage } from "open-sse/utils/error.js";
 import { resolveProviderId, FREE_PROVIDERS } from "@/shared/constants/providers.js";
 import { getAntigravityQuotaCache } from "./antigravityQuota.js";
 import * as log from "../utils/logger.js";
@@ -24,6 +24,8 @@ function githubMonthlyResetMs(status, errorText, provider) {
  * @param {string} provider - Provider name
  * @param {Set<string>|string|null} excludeConnectionIds - Connection ID(s) to exclude (for retry with next account)
  * @param {string|null} model - Model name for per-model rate limit filtering
+ * @param {object} options - { preferredConnectionId, apiKey } — `apiKey` restricts
+ *   selection to the accounts bound to that key (unbound key = every account).
  */
 export async function getProviderCredentials(provider, excludeConnectionIds = null, model = null, options = {}) {
   // Normalize to Set for consistent handling
@@ -69,12 +71,47 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
       };
     }
 
-    const connections = await getProviderConnections({ provider: providerId, isActive: true });
+    let connections = await getProviderConnections({ provider: providerId, isActive: true });
+
+    // Ownership: there is no session here, so the key itself carries the identity.
+    // A key owned by someone only reaches that owner's accounts plus the shared
+    // ones; an unowned key keeps reaching everything.
+    const settings0 = await getSettings();
+    if (settings0?.scopeResourcesByUser === true) {
+      const keyOwner = await getApiKeyOwner(options?.apiKey || null);
+      if (keyOwner) {
+        connections = connections.filter(c => !c.owner || c.owner === keyOwner);
+        // A shared account the user switched off for themselves leaves their
+        // pool without being disabled for anyone else.
+        const { getDisabledAccountIds } = await import("@/lib/db/repos/disabledAccountsRepo.js");
+        const disabled = new Set(await getDisabledAccountIds(keyOwner));
+        if (disabled.size) connections = connections.filter(c => !disabled.has(c.id));
+      } else {
+        connections = connections.filter(c => !c.owner);
+      }
+    }
+
+    // Account binding: a key with `allowedConnectionIds` only routes to those
+    // accounts. No binding (or no key) leaves the pool untouched.
+    const allowedConnectionIds = await getApiKeyAllowedConnectionIds(options?.apiKey || null);
+    if (allowedConnectionIds) connections = connections.filter(c => allowedConnectionIds.includes(c.id));
     log.debug("AUTH", `${provider} | total connections: ${connections.length}, excludeIds: ${excludeSet.size > 0 ? [...excludeSet].join(",") : "none"}, model: ${model || "any"}`);
 
     if (connections.length === 0) {
       log.warn("AUTH", `No credentials for ${provider}`);
-      return null;
+      return {
+        noActiveCredentials: true,
+        candidate: {
+          reason: "no_active_credentials",
+          provider: providerId,
+          model,
+          status: 503,
+          errorType: "api_error",
+          message: `No active credentials for provider: ${providerId}`,
+          retryable: false,
+          retryAtMs: null,
+        },
+      };
     }
 
     // Antigravity quota cache is lazy: only populated after that account returns 409/429.
@@ -102,35 +139,78 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
       const excluded = excludeSet.has(c.id);
       const locked = isModelLockActive(c, model);
       if (excluded || locked) {
-        const lockUntil = getEarliestModelLockUntil(c);
+        const lockUntil = getApplicableModelLock(c, model)?.retryAt;
         log.debug("AUTH", `  → ${c.id?.slice(0, 8)} | ${excluded ? "excluded" : ""} ${locked ? `modelLocked(${model}) until ${lockUntil}` : ""}`);
       }
     });
 
     if (availableConnections.length === 0) {
-      // Find earliest persistent lock or lazy Antigravity quota-cache reset for retry timing.
-      const lockedConns = connections.filter(c => isModelLockActive(c, model));
-      const expiries = lockedConns.map(c => getEarliestModelLockUntil(c)).filter(Boolean);
-      if (isAntigravity && model && antigravityQuotaCache) {
-        connections.forEach((c) => {
-          const resetAt = antigravityQuotaCache.get(c.id)?.[model]?.resetAt;
-          if (resetAt && new Date(resetAt).getTime() > Date.now()) expiries.push(resetAt);
-        });
-      }
-      const earliest = expiries.sort()[0] || null;
-      if (earliest) {
-        const earliestConn = lockedConns[0];
-        log.warn("AUTH", `${provider} | all ${connections.length} accounts locked for ${model || "all"} (${formatRetryAfter(earliest)}) | lastError=${earliestConn?.lastError?.slice(0, 50)}`);
+      const nowMs = Date.now();
+      let bestCandidate = null;
+      connections.forEach((connection, index) => {
+        const lock = getApplicableModelLock(connection, model, nowMs);
+        if (lock) {
+          const meta = lock.meta || {};
+          const reason = meta.reason || "temporarily_unavailable";
+          const status = publicStatusForReason(Number(meta.status) || 503, reason);
+          const candidate = {
+            reason,
+            provider: providerId,
+            model,
+            status,
+            errorType: meta.errorType || (status === 429 ? "rate_limit_error" : "api_error"),
+            message: sanitizePublicMessage(meta.message, "Provider temporarily unavailable"),
+            retryAtMs: lock.retryAtMs,
+            index,
+          };
+          if (!bestCandidate || candidate.retryAtMs < bestCandidate.retryAtMs) bestCandidate = candidate;
+        }
+
+        if (isAntigravity && model && antigravityQuotaCache) {
+          const quota = antigravityQuotaCache.get(connection.id)?.[model];
+          const retryAtMs = new Date(quota?.resetAt).getTime();
+          if (quota?.remainingPercentage <= 0 && Number.isFinite(retryAtMs) && retryAtMs > nowMs) {
+            const candidate = {
+              reason: "quota_exhausted",
+              provider: providerId,
+              model,
+              status: 429,
+              errorType: "rate_limit_error",
+              message: "Provider quota exhausted",
+              retryAtMs,
+              index,
+            };
+            if (!bestCandidate || candidate.retryAtMs < bestCandidate.retryAtMs) bestCandidate = candidate;
+          }
+        }
+      });
+
+      if (bestCandidate) {
+        const retryAfter = new Date(bestCandidate.retryAtMs).toISOString();
+        log.warn("AUTH", `${provider} | all ${connections.length} accounts locked for ${model || "all"} (${formatRetryAfter(retryAfter)})`);
         return {
           allRateLimited: true,
-          retryAfter: earliest,
-          retryAfterHuman: formatRetryAfter(earliest),
-          lastError: earliestConn?.lastError || null,
-          lastErrorCode: earliestConn?.errorCode || null
+          candidate: bestCandidate,
+          retryAfter,
+          retryAfterHuman: formatRetryAfter(retryAfter),
+          lastError: bestCandidate.message,
+          lastErrorCode: bestCandidate.status,
         };
       }
       log.warn("AUTH", `${provider} | all ${connections.length} accounts unavailable`);
-      return null;
+      return {
+        noActiveCredentials: true,
+        candidate: {
+          reason: "no_active_credentials",
+          provider: providerId,
+          model,
+          status: 503,
+          errorType: "api_error",
+          message: `No active credentials for provider: ${providerId}`,
+          retryable: false,
+          retryAtMs: null,
+        },
+      };
     }
 
     const settings = await getSettings();
@@ -253,18 +333,23 @@ export async function markAccountUnavailable(connectionId, status, errorText, pr
     newBackoffLevel = 0;
   } else if (resetsAtMs && resetsAtMs > Date.now()) {
     shouldFallback = true;
-    // Antigravity quota API provides exact per-model resetAt. Do not truncate it.
-    cooldownMs = resolveProviderId(provider) === "antigravity"
-      ? resetsAtMs - Date.now()
-      : Math.min(resetsAtMs - Date.now(), MAX_RATE_LIMIT_COOLDOWN_MS);
+    cooldownMs = resetsAtMs - Date.now();
     newBackoffLevel = 0;
   } else {
     ({ shouldFallback, cooldownMs, newBackoffLevel } = checkFallbackError(status, errorText, backoffLevel));
   }
   if (!shouldFallback) return { shouldFallback: false, cooldownMs: 0 };
 
-  const reason = typeof errorText === "string" ? errorText.slice(0, 100) : "Provider error";
-  const lockUpdate = buildModelLockUpdate(githubResetAtMs ? null : model, cooldownMs);
+  const reason = sanitizePublicMessage(errorText, "Provider temporarily unavailable");
+  const retryAtMs = Date.now() + cooldownMs;
+  const routingReason = classifyRoutingReason(status, reason, retryAtMs) || "temporarily_unavailable";
+  const publicStatus = publicStatusForReason(Number(status) || 503, routingReason);
+  const lockUpdate = buildModelLockUpdate(githubResetAtMs ? null : model, cooldownMs, {
+    status: publicStatus,
+    reason: routingReason,
+    errorType: publicStatus === 429 ? "rate_limit_error" : publicStatus === 529 ? "overloaded_error" : "api_error",
+    message: reason,
+  });
 
   await updateProviderConnection(connectionId, {
     ...lockUpdate,
@@ -320,7 +405,10 @@ export async function clearAccountError(connectionId, currentConnection, model =
     return expiry && new Date(expiry).getTime() > now;
   });
 
-  const clearObj = Object.fromEntries(keysToClear.map(k => [k, null]));
+  const clearObj = Object.fromEntries(keysToClear.flatMap(k => [
+    [k, null],
+    [getModelLockMetaKey(k === "modelLock___all" ? null : k.slice("modelLock_".length)), null],
+  ]));
 
   // Only reset error state if no active locks remain
   if (remainingActiveLocks.length === 0) {

@@ -47,6 +47,11 @@ export default function ProfilePage() {
   const [oidcTestLoading, setOidcTestLoading] = useState(false);
   const [oidcTestStatus, setOidcTestStatus] = useState({ type: "", message: "" });
   const [oidcExpanded, setOidcExpanded] = useState(false);
+  const [ssoAdminEmails, setSsoAdminEmails] = useState("");
+  const [dbInfo, setDbInfo] = useState(null);
+  const [scopeStatus, setScopeStatus] = useState({ type: "", message: "" });
+
+  const isSsoOnly = ["sso", "oidc", "saml"].includes(oidcForm.authMode);
 
   const origin = typeof window !== "undefined" ? window.location.origin : "";
   const oidcRedirectUri = origin ? `${origin}/api/auth/oidc/callback` : "/api/auth/oidc/callback";
@@ -88,6 +93,13 @@ export default function ProfilePage() {
   }, []);
 
   useEffect(() => {
+    fetch("/api/settings/database-mode")
+      .then((res) => res.json())
+      .then((data) => setDbInfo(data?.mode ? data : null))
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
     fetch("/api/settings")
       .then((res) => res.json())
       .then((data) => {
@@ -100,6 +112,7 @@ export default function ProfilePage() {
           oidcLoginLabel: data?.oidcLoginLabel || "Sign in with OIDC",
         });
         setOidcClientSecret("");
+        setSsoAdminEmails((data?.ssoAdminEmails || []).join(", "));
         setSsoTypeTab(data?.ssoType || "saml");
         setSamlForm({
           samlEntryPoint: data?.samlEntryPoint || "",
@@ -274,6 +287,29 @@ export default function ProfilePage() {
       }
     } catch (err) {
       console.error("Failed to update settings:", err);
+    }
+  };
+
+  // Turning scoping off keeps every owner assignment — it only stops enforcing it.
+  const patchScopeSettings = async (patch) => {
+    setScopeStatus({ type: "", message: "" });
+    try {
+      const res = await fetch("/api/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setScopeStatus({ type: "error", message: data?.error || "Failed to save" });
+        return false;
+      }
+      setSettings((prev) => ({ ...prev, ...patch }));
+      setScopeStatus({ type: "success", message: "Saved" });
+      return true;
+    } catch (err) {
+      setScopeStatus({ type: "error", message: err.message || "Failed to save" });
+      return false;
     }
   };
 
@@ -770,12 +806,23 @@ export default function ProfilePage() {
         <Card>
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4">
             <div className="flex items-center gap-3 sm:gap-4">
-              <div className="size-10 sm:size-12 rounded-lg bg-green-500/10 text-green-500 flex items-center justify-center shrink-0">
-                <span className="material-symbols-outlined text-xl sm:text-2xl">computer</span>
+              <div className={cn(
+                "size-10 sm:size-12 rounded-lg flex items-center justify-center shrink-0",
+                dbInfo?.mode === "distributed" ? "bg-blue-500/10 text-blue-500" : "bg-green-500/10 text-green-500",
+              )}>
+                <span className="material-symbols-outlined text-xl sm:text-2xl">
+                  {dbInfo?.mode === "distributed" ? "database" : "computer"}
+                </span>
               </div>
               <div>
-                <h2 className="text-lg sm:text-xl font-semibold">Local Mode</h2>
-                <p className="text-sm text-text-muted">Running on your machine</p>
+                <h2 className="text-lg sm:text-xl font-semibold">
+                  {dbInfo?.label || "Local Mode"}
+                </h2>
+                <p className="text-sm text-text-muted">
+                  {dbInfo?.mode === "distributed"
+                    ? "Sharing an external database with other instances"
+                    : "Running on your machine"}
+                </p>
               </div>
             </div>
             <div className="inline-flex p-1 rounded-lg bg-black/5 dark:bg-white/5 w-full sm:w-auto">
@@ -801,11 +848,38 @@ export default function ProfilePage() {
           </div>
           <div className="flex flex-col gap-3 pt-4 border-t border-border">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between p-3 rounded-lg bg-bg border border-border gap-2">
-              <div>
-                <p className="font-medium text-sm sm:text-base">Database Location</p>
-                <p className="text-xs sm:text-sm text-text-muted font-mono break-all">~/.red-router/db/data.sqlite</p>
+              <div className="min-w-0">
+                <p className="font-medium text-sm sm:text-base">Database</p>
+                {dbInfo?.mode === "distributed" ? (
+                  <div className="text-xs sm:text-sm text-text-muted font-mono break-all">
+                    {dbInfo.invalid ? (
+                      <span className="text-red-500">DATABASE_URL is set but could not be parsed</span>
+                    ) : (
+                      <>
+                        <span>{dbInfo.driver}://{dbInfo.host}:{dbInfo.port}/{dbInfo.database}</span>
+                        {dbInfo.user && <span className="ml-2 opacity-70">user: {dbInfo.user}</span>}
+                        {dbInfo.ssl && <span className="ml-2 opacity-70">sslmode: {dbInfo.ssl}</span>}
+                      </>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-xs sm:text-sm text-text-muted font-mono break-all">
+                    {dbInfo?.file || "~/.red/router/data.sqlite"}
+                  </p>
+                )}
               </div>
+              {dbInfo?.mode === "distributed" && (
+                <span className="shrink-0 rounded-full bg-blue-500/10 px-2 py-0.5 text-[11px] font-medium text-blue-500">
+                  shared
+                </span>
+              )}
             </div>
+            {dbInfo?.mode === "distributed" && (
+              <p className="text-xs text-text-muted">
+                Set by the <span className="font-mono">DATABASE_URL</span> environment variable. Remove it and
+                restart to go back to the local database.
+              </p>
+            )}
             <div className="flex flex-col sm:flex-row gap-2">
               <Button
                 variant="secondary"
@@ -1419,6 +1493,60 @@ export default function ProfilePage() {
                   )}
                 </div>
               )}
+
+              {/* Per-user resource scoping */}
+              <div className="flex flex-col gap-3 pt-4 border-t border-border/50">
+                <div className="flex items-start sm:items-center justify-between gap-4">
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium text-sm sm:text-base">Restrict accounts and API keys per user</p>
+                    <p className="text-xs sm:text-sm text-text-muted">
+                      Each account, API key and combo belongs to the user who created it. Others only
+                      see what is shared. Turning this off keeps every assignment — it just stops
+                      applying them.
+                    </p>
+                  </div>
+                  <Toggle
+                    checked={settings.scopeResourcesByUser === true}
+                    onChange={() => patchScopeSettings({ scopeResourcesByUser: !(settings.scopeResourcesByUser === true) })}
+                    disabled={loading}
+                  />
+                </div>
+
+                {isSsoOnly && (
+                  <div className="flex flex-col gap-2">
+                    <label className="font-medium text-sm sm:text-base">
+                      Admin e-mails <span className="text-red-500">*</span>
+                    </label>
+                    <p className="text-xs sm:text-sm text-text-muted">
+                      With SSO as the only login, password login is unavailable — these users
+                      administer the instance. Separate multiple e-mails with commas.
+                    </p>
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      <Input
+                        placeholder="admin@company.com, other@company.com"
+                        value={ssoAdminEmails}
+                        onChange={(e) => setSsoAdminEmails(e.target.value)}
+                        disabled={loading}
+                        className="flex-1"
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => patchScopeSettings({ ssoAdminEmails })}
+                        className="w-full sm:w-auto"
+                      >
+                        Save admins
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                {scopeStatus.message && (
+                  <p className={`text-xs sm:text-sm ${scopeStatus.type === "error" ? "text-red-500" : "text-green-500"}`}>
+                    {scopeStatus.message}
+                  </p>
+                )}
+              </div>
 
               {settings.authMode === "oidc" || settings.authMode === "saml" || settings.authMode === "sso" ? (
                 <p className="text-xs sm:text-sm text-amber-600 dark:text-amber-400">

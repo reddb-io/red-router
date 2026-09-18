@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import PropTypes from "prop-types";
+import Link from "next/link";
 import { Card, Button, Input, Modal, CardSkeleton, Toggle, ConfirmModal } from "@/shared/components";
 import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
 import {
@@ -17,15 +18,40 @@ import EndpointRow from "./components/EndpointRow";
 import StatusAlert from "./components/StatusAlert";
 import Tooltip from "./components/Tooltip";
 import SecurityWarning from "./components/SecurityWarning";
+// Tags are typed as a comma-separated list; the repo does the trimming,
+// de-duplication and capping.
+function parseTagInput(value) {
+  return (value || "").split(",").map((t) => t.trim()).filter(Boolean);
+}
+
+// A binding is stored as a connection id; show the account's own name when the
+// connection is still around, and a short id when it is not yet loaded.
+function connectionLabel(connectionId, connections) {
+  const conn = connections.find((c) => c.id === connectionId);
+  if (!conn) return `${connectionId.slice(0, 8)}...`;
+  const name = conn.displayName || conn.name || conn.email || conn.id.slice(0, 8);
+  return conn.provider ? `${conn.provider} · ${name}` : name;
+}
+
 export default function APIPageClient({ machineId }) {
   const [keys, setKeys] = useState([]);
+  const [connections, setConnections] = useState([]);
+  const [tagFilter, setTagFilter] = useState("all");
+  const [ownerFilter, setOwnerFilter] = useState("all");
+  const [editKeyState, setEditKeyState] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
   const [newKeyName, setNewKeyName] = useState("");
+  const [newKeyTags, setNewKeyTags] = useState("");
   const [createdKey, setCreatedKey] = useState(null);
   const [confirmState, setConfirmState] = useState(null);
 
   const [requireApiKey, setRequireApiKey] = useState(false);
+  // Assume admin until /api/auth/status answers, so the default (scope off) UI
+  // is unchanged and nothing flickers out for a real admin.
+  const [isAdmin, setIsAdmin] = useState(true);
+  // Owner only means anything while scoping is on, so the field appears only then.
+  const [canAssignOwner, setCanAssignOwner] = useState(false);
   const [requireLogin, setRequireLogin] = useState(true);
   const [hasPassword, setHasPassword] = useState(true);
  const [tunnelDashboardAccess, setTunnelDashboardAccess] = useState(false);
@@ -100,6 +126,13 @@ export default function APIPageClient({ machineId }) {
   useEffect(() => {
     fetchData();
     loadSettings();
+    fetch("/api/auth/status")
+      .then((res) => res.json())
+      .then((data) => {
+        setIsAdmin(!data?.scopeResourcesByUser || !!data?.isAdmin);
+        setCanAssignOwner(!!data?.scopeResourcesByUser && !!data?.isAdmin);
+      })
+      .catch(() => {});
   }, []);
 
   // Status poll: only while degraded (not yet reachable). Stop once healthy to avoid spam.
@@ -261,6 +294,13 @@ export default function APIPageClient({ machineId }) {
         const data = await res.json();
         return data.keys || [];
       };
+
+      // Bound accounts are rendered as pills, so the key list needs the
+      // connections to resolve each id to a readable name.
+      fetch("/api/providers")
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => setConnections(data?.connections || []))
+        .catch(() => {});
 
       let existing = await fetchKeys();
       // Auto-provision a default key for first-time users so the endpoint works out of the box.
@@ -629,7 +669,7 @@ export default function APIPageClient({ machineId }) {
       const res = await fetch("/api/keys", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: newKeyName }),
+        body: JSON.stringify({ name: newKeyName, tags: parseTagInput(newKeyTags) }),
       });
       const data = await res.json();
 
@@ -637,6 +677,7 @@ export default function APIPageClient({ machineId }) {
         setCreatedKey(data.key);
         await fetchData();
         setNewKeyName("");
+        setNewKeyTags("");
         setShowAddModal(false);
       }
     } catch (error) {
@@ -681,6 +722,46 @@ export default function APIPageClient({ machineId }) {
       console.log("Error toggling key:", error);
     }
   };
+
+  const handleSaveKeyEdit = async () => {
+    if (!editKeyState || !editKeyState.name.trim()) return;
+    const { id, name, tags, owner } = editKeyState;
+    try {
+      const payload = { name: name.trim(), tags: parseTagInput(tags) };
+      // Reassigning drops bindings to accounts the new owner cannot reach, so
+      // only send it when it is actually editable here.
+      if (canAssignOwner) payload.owner = owner?.trim() || null;
+      const res = await fetch(`/api/keys/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setKeys((prev) => prev.map((k) => (k.id === id ? { ...k, ...data.key } : k)));
+        setEditKeyState(null);
+      } else {
+        setEditKeyState((prev) => (prev ? { ...prev, error: data.error || "Failed to save" } : prev));
+      }
+    } catch (error) {
+      setEditKeyState((prev) => (prev ? { ...prev, error: "An error occurred" } : prev));
+    }
+  };
+
+  const allTags = Array.from(new Set(keys.flatMap((k) => k.tags || []))).sort((a, b) => a.localeCompare(b));
+  // Renaming or deleting the last key with a tag would leave the filter stuck
+  // on a tag nothing carries, showing an empty list with no way back.
+  const activeTagFilter = tagFilter !== "all" && allTags.includes(tagFilter) ? tagFilter : "all";
+  // Owners come from the keys themselves, so the list cannot offer a value that
+  // would filter to nothing.
+  const allOwners = Array.from(new Set(keys.map((k) => k.owner).filter(Boolean))).sort((a, b) => a.localeCompare(b));
+  const activeOwnerFilter = allOwners.includes(ownerFilter) || ownerFilter === "__shared__" ? ownerFilter : "all";
+  const visibleKeyList = keys.filter((k) => {
+    if (activeTagFilter !== "all" && !(k.tags || []).includes(activeTagFilter)) return false;
+    if (activeOwnerFilter === "__shared__") return !k.owner;
+    if (activeOwnerFilter !== "all" && k.owner !== activeOwnerFilter) return false;
+    return true;
+  });
 
   const maskKey = (fullKey) => {
     if (!fullKey || fullKey.length <= 10) return fullKey || "";
@@ -735,7 +816,8 @@ export default function APIPageClient({ machineId }) {
             copied={copied}
             onCopy={copy}
           />
-          {/* Cloudflare Tunnel */}
+          {/* Cloudflare Tunnel — exposing the instance publicly is an admin action */}
+          {isAdmin && (<>
           <div className="flex items-center gap-2">
             <span className={`text-xs font-mono px-1.5 py-0.5 rounded shrink-0 min-w-[88px] text-center ${
               tunnelEnabled ? "bg-primary/10 text-primary" : "bg-surface-2 text-text-muted"
@@ -911,6 +993,7 @@ export default function APIPageClient({ machineId }) {
               </Button>
             )}
           </div>
+          </>)}
         </div>
 
         {/* Pre-enable security gate banner */}
@@ -970,9 +1053,40 @@ export default function APIPageClient({ machineId }) {
             <span className="material-symbols-outlined text-primary">vpn_key</span>
             API Keys
           </h2>
-          <Button icon="add" onClick={() => setShowAddModal(true)}>
-            Create Key
-          </Button>
+          <div className="flex items-center gap-2">
+            {allTags.length > 0 && (
+              <select
+                value={activeTagFilter}
+                onChange={(e) => setTagFilter(e.target.value)}
+                aria-label="Filter keys by tag"
+                className="h-9 rounded-lg border border-border bg-surface px-2 text-xs text-text-main focus:outline-none focus:ring-2 focus:ring-primary/50"
+                style={{ colorScheme: "auto" }}
+              >
+                <option value="all">All tags</option>
+                {allTags.map((tag) => (
+                  <option key={tag} value={tag}>{tag}</option>
+                ))}
+              </select>
+            )}
+            {canAssignOwner && allOwners.length > 0 && (
+              <select
+                value={activeOwnerFilter}
+                onChange={(e) => setOwnerFilter(e.target.value)}
+                aria-label="Filter keys by owner"
+                className="h-9 rounded-lg border border-border bg-surface px-2 text-xs text-text-main focus:outline-none focus:ring-2 focus:ring-primary/50"
+                style={{ colorScheme: "auto" }}
+              >
+                <option value="all">All owners</option>
+                <option value="__shared__">Shared</option>
+                {allOwners.map((owner) => (
+                  <option key={owner} value={owner}>{owner === "@admin" ? "Admin only" : owner}</option>
+                ))}
+              </select>
+            )}
+            <Button icon="add" onClick={() => setShowAddModal(true)}>
+              Create Key
+            </Button>
+          </div>
         </div>
 
         <div className="flex items-center justify-between pb-4 mb-4 border-b border-border">
@@ -1007,14 +1121,38 @@ export default function APIPageClient({ machineId }) {
           </div>
         ) : (
           <div className="flex flex-col">
-            {keys.map((key) => (
+            {visibleKeyList.length === 0 && (
+              <p className="py-8 text-center text-sm text-text-muted">
+                No keys tagged &ldquo;{activeTagFilter}&rdquo;.
+              </p>
+            )}
+            {visibleKeyList.map((key) => (
               <div
                 key={key.id}
                 className={`group flex items-center justify-between py-3 border-b border-black/[0.03] dark:border-white/[0.03] last:border-b-0 ${key.isActive === false ? "opacity-60" : ""}`}
               >
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium">{key.name}</p>
-                  <div className="flex items-center gap-2 mt-1">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <p className="text-sm font-medium">{key.name}</p>
+                    <span className="text-[11px] text-text-muted">{`Created ${new Date(key.createdAt).toLocaleDateString()}`}</span>
+                    {key.owner ? (
+                      <span className="rounded-full bg-black/5 px-2 py-0.5 text-[11px] text-text-muted dark:bg-white/10">
+                        {key.owner === "@admin" ? "Admin only" : key.owner}
+                      </span>
+                    ) : null}
+                    {(key.tags || []).map((tag) => (
+                      <button
+                        key={tag}
+                        type="button"
+                        onClick={() => setTagFilter(tag)}
+                        title={`Filter by "${tag}"`}
+                        className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] text-primary transition-colors hover:bg-primary/20"
+                      >
+                        {tag}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex items-center gap-2 mt-1.5">
                     <code className="text-xs text-text-muted font-mono">
                       {visibleKeys.has(key.id) ? key.key : maskKey(key.key)}
                     </code>
@@ -1036,14 +1174,39 @@ export default function APIPageClient({ machineId }) {
                       </span>
                     </button>
                   </div>
-                  <p className="text-xs text-text-muted mt-1">
-                    Created {new Date(key.createdAt).toLocaleDateString()}
-                  </p>
                   {key.isActive === false && (
-                    <p className="text-xs text-orange-500 mt-1">Paused</p>
+                    <p className="text-xs text-orange-500 mt-1.5">Paused</p>
+                  )}
+                  {key.allowedConnectionIds?.length > 0 && (
+                    <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                      {key.allowedConnectionIds.map((connId) => (
+                        <span
+                          key={connId}
+                          className="inline-flex items-center gap-1 rounded-full bg-black/5 px-2 py-0.5 text-[11px] text-text-muted dark:bg-white/10"
+                          title={connectionLabel(connId, connections)}
+                        >
+                          <span className="material-symbols-outlined text-[12px]">link</span>
+                          <span className="max-w-[140px] truncate">{connectionLabel(connId, connections)}</span>
+                        </span>
+                      ))}
+                    </div>
                   )}
                 </div>
                 <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setEditKeyState({ id: key.id, name: key.name || "", tags: (key.tags || []).join(", "), owner: key.owner || "", error: null })}
+                    className="p-2 hover:bg-black/5 dark:hover:bg-white/5 rounded text-text-muted hover:text-primary transition-all"
+                    title="Rename and edit tags"
+                  >
+                    <span className="material-symbols-outlined text-[18px]">edit</span>
+                  </button>
+                  <Link
+                    href={`/dashboard/keys/${key.id}`}
+                    className="p-2 hover:bg-black/5 dark:hover:bg-white/5 rounded text-text-muted hover:text-primary transition-all"
+                    title="Link accounts to this key"
+                  >
+                    <span className="material-symbols-outlined text-[18px]">link</span>
+                  </Link>
                   <Toggle
                     size="sm"
                     checked={key.isActive ?? true}
@@ -1083,6 +1246,7 @@ export default function APIPageClient({ machineId }) {
         onClose={() => {
           setShowAddModal(false);
           setNewKeyName("");
+          setNewKeyTags("");
         }}
       >
         <div className="flex flex-col gap-4">
@@ -1092,6 +1256,12 @@ export default function APIPageClient({ machineId }) {
             onChange={(e) => setNewKeyName(e.target.value)}
             placeholder="Production Key"
           />
+          <Input
+            label="Tags (optional)"
+            value={newKeyTags}
+            onChange={(e) => setNewKeyTags(e.target.value)}
+            placeholder="prod, backend"
+          />
           <div className="flex gap-2">
             <Button onClick={handleCreateKey} fullWidth disabled={!newKeyName.trim()}>
               Create
@@ -1100,10 +1270,57 @@ export default function APIPageClient({ machineId }) {
               onClick={() => {
                 setShowAddModal(false);
                 setNewKeyName("");
+                setNewKeyTags("");
               }}
               variant="ghost"
               fullWidth
             >
+              Cancel
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Rename / Tags Modal */}
+      <Modal
+        isOpen={!!editKeyState}
+        title="Edit API Key"
+        onClose={() => setEditKeyState(null)}
+      >
+        <div className="flex flex-col gap-4">
+          <Input
+            label="Key Name"
+            value={editKeyState?.name || ""}
+            onChange={(e) => setEditKeyState((prev) => ({ ...prev, name: e.target.value }))}
+            placeholder="Production Key"
+          />
+          <Input
+            label="Tags"
+            value={editKeyState?.tags || ""}
+            onChange={(e) => setEditKeyState((prev) => ({ ...prev, tags: e.target.value }))}
+            placeholder="prod, backend"
+          />
+          <p className="-mt-2 text-xs text-text-muted">Comma-separated. Leave empty to remove all tags.</p>
+          {canAssignOwner && (
+            <>
+              <Input
+                label="Owner"
+                value={editKeyState?.owner || ""}
+                onChange={(e) => setEditKeyState((prev) => ({ ...prev, owner: e.target.value }))}
+                placeholder="user@company.com"
+              />
+              <p className="-mt-2 text-xs text-text-muted">
+                Leave empty to share with everyone, or use &ldquo;@admin&rdquo; to keep it to the password
+                login. Accounts the new owner cannot reach are unbound from this key.
+              </p>
+            </>
+          )}
+          {editKeyState?.error && <p className="text-sm text-red-500">{editKeyState.error}</p>}
+          <div className="flex gap-2">
+            <Button onClick={handleSaveKeyEdit} fullWidth disabled={!editKeyState?.name?.trim()}>
+              Save
+            </Button>
+            <Button onClick={() => setEditKeyState(null)} variant="ghost" fullWidth>
               Cancel
             </Button>
           </div>

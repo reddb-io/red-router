@@ -3,7 +3,7 @@
 // pre-change safety backup in migrate.js: when the stored version is lower,
 // one lightweight DB backup is taken before applying schema changes. Forgetting
 // to bump only skips that backup — it does NOT break the additive auto-sync.
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 5;
 
 export const PRAGMA_SQL = `
 PRAGMA journal_mode = WAL;
@@ -40,11 +40,15 @@ export const TABLES = {
       email: "TEXT",
       priority: "INTEGER",
       isActive: "INTEGER DEFAULT 1",
+      // Owning dashboard user: NULL = shared, "@admin" = password login only,
+      // otherwise the SSO e-mail. Only enforced while scopeResourcesByUser is on.
+      owner: "TEXT",
       data: "TEXT NOT NULL",
       createdAt: "TEXT NOT NULL",
       updatedAt: "TEXT NOT NULL",
     },
     indexes: [
+      "CREATE INDEX IF NOT EXISTS idx_pc_owner ON providerConnections(owner)",
       "CREATE INDEX IF NOT EXISTS idx_pc_provider ON providerConnections(provider)",
       "CREATE INDEX IF NOT EXISTS idx_pc_provider_active ON providerConnections(provider, isActive)",
       "CREATE INDEX IF NOT EXISTS idx_pc_priority ON providerConnections(provider, priority)",
@@ -82,20 +86,39 @@ export const TABLES = {
       name: "TEXT",
       machineId: "TEXT",
       isActive: "INTEGER DEFAULT 1",
+      // JSON array of providerConnections.id this key may route to.
+      // NULL/empty = unrestricted (the key reaches every account).
+      allowedConnectionIds: "TEXT",
+      // JSON array of free-form labels, for grouping/filtering keys only.
+      tags: "TEXT",
+      // See providerConnections.owner. A key's owner also caps which accounts it
+      // may route to at runtime.
+      owner: "TEXT",
       createdAt: "TEXT NOT NULL",
     },
-    indexes: ["CREATE INDEX IF NOT EXISTS idx_ak_key ON apiKeys(key)"],
+    indexes: [
+      "CREATE INDEX IF NOT EXISTS idx_ak_key ON apiKeys(key)",
+      "CREATE INDEX IF NOT EXISTS idx_ak_owner ON apiKeys(owner)",
+    ],
   },
   combos: {
     columns: {
       id: "TEXT PRIMARY KEY",
-      name: "TEXT UNIQUE NOT NULL",
+      // Unique per owner, not globally: two users may each own a "fast" combo.
+      // The uniqueness lives in idx_combo_owner_name below, since NULL owners
+      // would escape a table-level UNIQUE(name, owner).
+      name: "TEXT NOT NULL",
       kind: "TEXT",
       models: "TEXT NOT NULL",
+      // See providerConnections.owner.
+      owner: "TEXT",
       createdAt: "TEXT NOT NULL",
       updatedAt: "TEXT NOT NULL",
     },
-    indexes: ["CREATE INDEX IF NOT EXISTS idx_combo_name ON combos(name)"],
+    indexes: [
+      "CREATE INDEX IF NOT EXISTS idx_combo_name ON combos(name)",
+      "CREATE UNIQUE INDEX IF NOT EXISTS idx_combo_owner_name ON combos(name, IFNULL(owner, ''))",
+    ],
   },
   kv: {
     columns: {
@@ -127,6 +150,7 @@ export const TABLES = {
       "CREATE INDEX IF NOT EXISTS idx_uh_provider ON usageHistory(provider)",
       "CREATE INDEX IF NOT EXISTS idx_uh_model ON usageHistory(model)",
       "CREATE INDEX IF NOT EXISTS idx_uh_conn ON usageHistory(connectionId)",
+      "CREATE INDEX IF NOT EXISTS idx_uh_apikey ON usageHistory(apiKey)",
     ],
   },
   usageDaily: {
@@ -142,6 +166,7 @@ export const TABLES = {
       provider: "TEXT",
       model: "TEXT",
       connectionId: "TEXT",
+      apiKey: "TEXT",
       status: "TEXT",
       data: "TEXT NOT NULL",
     },
@@ -150,6 +175,7 @@ export const TABLES = {
       "CREATE INDEX IF NOT EXISTS idx_rd_provider ON requestDetails(provider)",
       "CREATE INDEX IF NOT EXISTS idx_rd_model ON requestDetails(model)",
       "CREATE INDEX IF NOT EXISTS idx_rd_conn ON requestDetails(connectionId)",
+      "CREATE INDEX IF NOT EXISTS idx_rd_apikey ON requestDetails(apiKey)",
     ],
   },
 };
@@ -159,3 +185,31 @@ export function buildCreateTableSql(name, def) {
   if (def.primaryKey) cols.push(def.primaryKey);
   return `CREATE TABLE IF NOT EXISTS ${name} (${cols.join(", ")})`;
 }
+
+// Indexes declared structurally so each dialect emits its own DDL: Postgres
+// folds unquoted identifiers to lower case and has no IFNULL, so the raw
+// SQLite strings these replaced only ever worked on SQLite.
+export const INDEXES = [
+  { name: "idx_pc_owner", table: "providerConnections", columns: ["owner"], unique: false },
+  { name: "idx_pc_provider", table: "providerConnections", columns: ["provider"], unique: false },
+  { name: "idx_pc_provider_active", table: "providerConnections", columns: ["provider", "isActive"], unique: false },
+  { name: "idx_pc_priority", table: "providerConnections", columns: ["provider", "priority"], unique: false },
+  { name: "idx_pn_type", table: "providerNodes", columns: ["type"], unique: false },
+  { name: "idx_pp_active", table: "proxyPools", columns: ["isActive"], unique: false },
+  { name: "idx_pp_status", table: "proxyPools", columns: ["testStatus"], unique: false },
+  { name: "idx_ak_key", table: "apiKeys", columns: ["key"], unique: false },
+  { name: "idx_ak_owner", table: "apiKeys", columns: ["owner"], unique: false },
+  { name: "idx_combo_name", table: "combos", columns: ["name"], unique: false },
+  { name: "idx_combo_owner_name", table: "combos", expression: { sqlite: "name, IFNULL(owner, '')", pg: "name, COALESCE(owner, '')" }, unique: true },
+  { name: "idx_kv_scope", table: "kv", columns: ["scope"], unique: false },
+  { name: "idx_uh_ts", table: "usageHistory", columns: ["timestamp"], order: "desc", unique: false },
+  { name: "idx_uh_provider", table: "usageHistory", columns: ["provider"], unique: false },
+  { name: "idx_uh_model", table: "usageHistory", columns: ["model"], unique: false },
+  { name: "idx_uh_conn", table: "usageHistory", columns: ["connectionId"], unique: false },
+  { name: "idx_uh_apikey", table: "usageHistory", columns: ["apiKey"], unique: false },
+  { name: "idx_rd_ts", table: "requestDetails", columns: ["timestamp"], order: "desc", unique: false },
+  { name: "idx_rd_provider", table: "requestDetails", columns: ["provider"], unique: false },
+  { name: "idx_rd_model", table: "requestDetails", columns: ["model"], unique: false },
+  { name: "idx_rd_conn", table: "requestDetails", columns: ["connectionId"], unique: false },
+  { name: "idx_rd_apikey", table: "requestDetails", columns: ["apiKey"], unique: false },
+];
