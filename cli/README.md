@@ -12,24 +12,42 @@
 
 ## Install
 
+Run it straight with npx — nothing to install:
+
+```bash
+npx -y @reddb-io/red-router@latest
+```
+
+Or install globally and start:
+
 ```bash
 npm install -g @reddb-io/red-router
-
-# start the gateway
 red-router
 ```
 
-Dashboard opens at **http://localhost:25050/dashboard**. Or run it once without installing:
+Dashboard opens at **http://localhost:25050/dashboard**.
+
+## Service (background)
+
+Keep the gateway always on — survives reboots and crashes (`systemd --user` on Linux, `launchd` on macOS):
 
 ```bash
-npx @reddb-io/red-router
+red-router service install            # background, 127.0.0.1 only (safe default)
+red-router service install --expose   # open to the subnet (0.0.0.0)
+red-router service status
+red-router service uninstall
 ```
+
+Services bind **127.0.0.1 by default**. Use `--expose` (or `-H 0.0.0.0`) only when other machines need to reach the gateway — set API keys and a strong dashboard password first.
 
 ## Options
 
 | Flag | Description |
 |---|---|
 | `--port, -p <n>` | Custom port (default `25050`) |
+| `--host, -H <host>` | Bind address (foreground default `0.0.0.0`; services default `127.0.0.1`) |
+| `--expose` | Service shorthand for `-H 0.0.0.0` (reachable from the subnet) |
+| `--tray, -t` | Background mode with system tray (Windows/Linux/macOS) |
 | `--no-browser` | Don't open the dashboard on start |
 | `--skip-update` | Skip the auto-update check |
 | `--help` | Show all options |

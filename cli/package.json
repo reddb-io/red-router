@@ -15,6 +15,7 @@
   },
   "files": [
     "cli.js",
+    "service.js",
     "src",
     "hooks",
     "app",

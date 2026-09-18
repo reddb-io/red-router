@@ -80,6 +80,45 @@ if (args[0] === "xai" && args[1] === "video") {
   return;
 }
 
+// Headless service management (`red-router service install|status|uninstall`).
+// Runs the launcher under systemd --user (Linux) or launchd (macOS) so the
+// gateway survives reboots and crashes. Services bind 127.0.0.1 by default;
+// `--expose` (or `-H 0.0.0.0`) opens it to the subnet.
+if (args[0] === "service") {
+  const { installService, uninstallService, serviceStatus } = require("./service");
+  const sub = args[1];
+  const opts = { port: 25050, host: undefined };
+  for (let i = 2; i < args.length; i++) {
+    if ((args[i] === "--port" || args[i] === "-p") && args[i + 1]) {
+      opts.port = parseInt(args[i + 1], 10) || 25050;
+      i++;
+    } else if ((args[i] === "--host" || args[i] === "-H") && args[i + 1]) {
+      opts.host = args[i + 1];
+      i++;
+    } else if (args[i] === "--expose") {
+      opts.host = "0.0.0.0";
+    }
+  }
+  if (!["install", "uninstall", "status"].includes(sub)) {
+    console.log("Usage: red-router service <install|status|uninstall> [-p PORT] [-H HOST | --expose]");
+    process.exit(sub ? 1 : 0);
+  }
+  const result = sub === "install" ? installService(opts) : sub === "uninstall" ? uninstallService() : serviceStatus();
+  if (result.message) console.log(`⚠️  ${result.message}`);
+  if (sub === "install" && result.ok) {
+    console.log(`✅ Serviço instalado (${result.kind}) — http://${result.host}:${result.port}`);
+    console.log(`   Definição: ${result.path}`);
+    if (result.host === "0.0.0.0") {
+      console.log("   ⚠️  Exposto à subnet — defina API keys e senha forte no dashboard antes de usar em rede.");
+    }
+  } else if (sub === "status") {
+    console.log(`Serviço: ${result.state} (${result.kind})`);
+  } else if (sub === "uninstall" && result.ok) {
+    console.log(`✅ Serviço removido (${result.kind})`);
+  }
+  process.exit(result.ok ? 0 : 1);
+}
+
 // Self-heal SQLite runtime deps (sql.js + better-sqlite3) into ~/.red-router/runtime
 // so the server can resolve them via NODE_PATH. Best-effort — sql.js is required,
 // better-sqlite3 is optional. Logs to stderr only on failure.
@@ -155,6 +194,9 @@ Options:
   -v, --version       Show version
 
 Commands:
+  service install|status|uninstall
+                      Run as a background service (systemd --user / launchd).
+                      Binds 127.0.0.1 unless --expose or -H 0.0.0.0 is given.
   xai video --prompt "..." --output video.mp4
                       Generate a Grok Imagine video via the running gateway
                       (see: ${APP_NAME} xai video --help)
