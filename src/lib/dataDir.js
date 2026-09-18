@@ -2,51 +2,63 @@ import fs from "node:fs";
 import path from "path";
 import os from "os";
 
-const APP_NAME = "red-router";
-const LEGACY_APP_NAME = "9router";
+// Data lives under ~/.red/router — matching the .red/* ecosystem layout
+// (.red/code, .red/router). One-time migrations into the new dir, in priority
+// order: ~/.red-router (previous RedRouter layout) and ~/.9router (the
+// official 9router origin). Fail-open: any error keeps the new dir in use
+// without legacy data.
+const LEGACY_DIR_NAMES = ["red-router", "9router"];
 
-function legacyDir() {
-  if (process.platform === "win32") {
-    return path.join(process.env.APPDATA || path.join(os.homedir(), "AppData", "Roaming"), LEGACY_APP_NAME);
+export function buildDefaultDataDir({ homedir = os.homedir(), platform = process.platform } = {}) {
+  if (platform === "win32") {
+    const root = process.env.APPDATA || path.join(homedir, "AppData", "Roaming");
+    return path.join(root, "red", "router");
   }
-  return path.join(os.homedir(), `.${LEGACY_APP_NAME}`);
+  return path.join(homedir, ".red", "router");
 }
 
-// One-time migration from the pre-rebrand legacy data dir. Renames the whole
-// dir when the target does not exist yet; otherwise moves top-level entries
-// that are not already present (runtime/ may exist here first via postinstall).
-// Fail-open: any error keeps the new dir in use without legacy data.
-function migrateLegacyDataDir(dir) {
+export function buildLegacyDataDirs({ homedir = os.homedir(), platform = process.platform } = {}) {
+  if (platform === "win32") {
+    const root = process.env.APPDATA || path.join(homedir, "AppData", "Roaming");
+    return LEGACY_DIR_NAMES.map((name) => path.join(root, name));
+  }
+  return LEGACY_DIR_NAMES.map((name) => path.join(homedir, `.${name}`));
+}
+
+// One-time migration. Renames the newest legacy dir when the target does not
+// exist yet; otherwise moves top-level entries that are not already present
+// (runtime/ may exist in the target first via postinstall). Empty legacy dirs
+// are removed afterwards.
+export function migrateLegacyDataDirs(dir, { homedir = os.homedir(), platform = process.platform, log = console } = {}) {
   try {
-    const legacy = legacyDir();
-    if (!fs.existsSync(legacy)) return dir;
+    const legacies = buildLegacyDataDirs({ homedir, platform }).filter((legacy) => fs.existsSync(legacy));
+    if (legacies.length === 0) return dir;
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(path.dirname(dir), { recursive: true });
-      fs.renameSync(legacy, dir);
-      console.log(`[DATA_DIR] migrated legacy data ${legacy} → ${dir}`);
-      return dir;
+      fs.renameSync(legacies[0], dir);
+      log.log?.(`[DATA_DIR] migrated legacy data ${legacies[0]} → ${dir}`);
+      legacies.shift();
     }
-    let moved = 0;
-    for (const entry of fs.readdirSync(legacy)) {
-      const from = path.join(legacy, entry);
-      const to = path.join(dir, entry);
-      if (fs.existsSync(to)) continue;
-      fs.renameSync(from, to);
-      moved++;
+    for (const legacy of legacies) {
+      let moved = 0;
+      for (const entry of fs.readdirSync(legacy)) {
+        const from = path.join(legacy, entry);
+        const to = path.join(dir, entry);
+        if (fs.existsSync(to)) continue;
+        fs.renameSync(from, to);
+        moved++;
+      }
+      if (moved > 0) log.log?.(`[DATA_DIR] migrated ${moved} item(s) ${legacy} → ${dir}`);
+      if (fs.readdirSync(legacy).length === 0) fs.rmdirSync(legacy);
     }
-    if (moved > 0) console.log(`[DATA_DIR] migrated ${moved} legacy item(s) ${legacy} → ${dir}`);
-    if (fs.readdirSync(legacy).length === 0) fs.rmdirSync(legacy);
   } catch (e) {
-    console.warn(`[DATA_DIR] legacy migration skipped: ${e?.message}`);
+    log.warn?.(`[DATA_DIR] legacy migration skipped: ${e?.message}`);
   }
   return dir;
 }
 
 function defaultDir() {
-  const dir = process.platform === "win32"
-    ? path.join(process.env.APPDATA || path.join(os.homedir(), "AppData", "Roaming"), APP_NAME)
-    : path.join(os.homedir(), `.${APP_NAME}`);
-  return migrateLegacyDataDir(dir);
+  return migrateLegacyDataDirs(buildDefaultDataDir());
 }
 
 export function getDataDir() {
@@ -65,7 +77,7 @@ export function getDataDir() {
     return configured;
   } catch (e) {
     if (e?.code === "EACCES" || e?.code === "EPERM") {
-      console.warn(`[DATA_DIR] '${configured}' not writable → fallback ~/.${APP_NAME}`);
+      console.warn(`[DATA_DIR] '${configured}' not writable → fallback to ${buildDefaultDataDir()}`);
       return defaultDir();
     }
     throw e;
