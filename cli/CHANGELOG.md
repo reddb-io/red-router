@@ -1,5 +1,11 @@
 # @reddb-io/red-router
 
+## 0.3.0
+
+### Minor Changes
+
+- 68ff9aa: **Breaking**: the default port changed from `20128` (source dev: `20127`) to **`25050`**. Update clients/tools pointing at the old port, or pass `--port`/`PORT` explicitly.
+
 ## 0.2.0
 
 ### Minor Changes

@@ -1,3 +1,8 @@
+# v0.3.0 (2026-09-17)
+
+## Breaking
+- **Default port changed to `25050`** (was `20128`; source dev was `20127`). Update clients/tools pointing at the old port, or pass `--port`/`PORT` explicitly. Applied across the CLI launcher, source scripts, `.env.example`, dashboard config samples and docs.
+
 # v0.2.0 (2026-09-17)
 
 ## Features
