@@ -132,11 +132,11 @@ RedRouter利用時の一般的な問題と解決策。
 
 ## Connection Refused
 
-**問題:** 「ECONNREFUSED」または「Cannot connect to localhost:20128」。
+**問題:** 「ECONNREFUSED」または「Cannot connect to localhost:25050」。
 
 **原因:**
 - RedRouterが起動していない
-- ポート20128がブロックされている
+- ポート25050がブロックされている
 - ファイアウォールが接続をブロック
 
 **解決策:**
@@ -147,19 +147,19 @@ RedRouter利用時の一般的な問題と解決策。
    ```
    ダッシュボードがhttp://localhost:3000で開くはず
 
-2. **ポート20128を確認:**
+2. **ポート25050を確認:**
    ```bash
    # ポートがリッスンしているか確認
-   lsof -i :20128
+   lsof -i :25050
    
    # またはWindowsで
-   netstat -ano | findstr :20128
+   netstat -ano | findstr :25050
    ```
 
 3. **ファイアウォールを確認:**
    - macOS: システム設定 → ネットワーク → ファイアウォール
    - Windows: Windows Defenderファイアウォール → アプリを許可
-   - Linux: `sudo ufw allow 20128`
+   - Linux: `sudo ufw allow 25050`
 
 4. **クラウドエンドポイントを使用:**
    localhostが動作しない場合(例: Cursor IDE):
@@ -243,7 +243,7 @@ RedRouter利用時の一般的な問題と解決策。
 
 3. **利用可能なモデルを一覧表示:**
    ```bash
-   curl http://localhost:20128/v1/models \
+   curl http://localhost:25050/v1/models \
      -H "Authorization: Bearer your-api-key"
    ```
 
@@ -338,7 +338,7 @@ RedRouter利用時の一般的な問題と解決策。
 
 4. **APIキーをテスト:**
    ```bash
-   curl http://localhost:20128/v1/models \
+   curl http://localhost:25050/v1/models \
      -H "Authorization: Bearer 9r_your_key"
    ```
 

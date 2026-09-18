@@ -18,7 +18,7 @@
 
 ---
 
-RedRouter runs one **OpenAI-compatible gateway** at `http://localhost:20128/v1` and routes every request across **40+ providers** — subscription quotas first, cheap APIs next, free models last — translating between OpenAI, Claude, Gemini and friends on the fly. Your tools never notice. Your wallet does.
+RedRouter runs one **OpenAI-compatible gateway** at `http://localhost:25050/v1` and routes every request across **40+ providers** — subscription quotas first, cheap APIs next, free models last — translating between OpenAI, Claude, Gemini and friends on the fly. Your tools never notice. Your wallet does.
 
 ## ⚡ Quick Start
 
@@ -27,11 +27,11 @@ npm install -g @reddb-io/red-router
 red-router
 ```
 
-Open **http://localhost:20128/dashboard**, connect a provider (OAuth or API key), then point any tool at the gateway:
+Open **http://localhost:25050/dashboard**, connect a provider (OAuth or API key), then point any tool at the gateway:
 
 ```bash
 # OpenAI-style clients (Codex, Cline, OpenClaw, …)
-export OPENAI_BASE_URL=http://localhost:20128
+export OPENAI_BASE_URL=http://localhost:25050
 ```
 
 Claude Code, Codex, Copilot and other OAuth tools connect straight from the dashboard — no env vars, tokens refresh automatically.

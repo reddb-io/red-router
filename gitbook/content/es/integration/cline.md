@@ -29,7 +29,7 @@ Establece la URL base a tu endpoint de RedRouter:
 
 **Para RedRouter local:**
 ```
-http://localhost:20128/v1
+http://localhost:25050/v1
 ```
 
 **Para RedRouter en la nube:**
@@ -70,7 +70,7 @@ Tu configuración de Cline debería verse así:
 
 ```
 API Provider: Ollama
-Base URL: http://localhost:20128/v1
+Base URL: http://localhost:25050/v1
 API Key: sk-red-router-xxxxxxxxxxxxx
 Model: gpt-4
 ```
@@ -118,9 +118,9 @@ Puedes usar cualquier modelo configurado en tu dashboard de RedRouter. Ejemplos 
 
 ### Error "Connection Failed"
 
-1. Verifica que RedRouter esté corriendo: `curl http://localhost:20128/health`
+1. Verifica que RedRouter esté corriendo: `curl http://localhost:25050/health`
 2. Verifica que la URL base sea correcta e incluya `/v1`
-3. Asegúrate de que ningún firewall esté bloqueando el puerto 20128
+3. Asegúrate de que ningún firewall esté bloqueando el puerto 25050
 4. Intenta reiniciar VSCode
 
 ### Error "Invalid API Key"

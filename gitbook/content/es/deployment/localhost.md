@@ -30,7 +30,7 @@ El dashboard se abrirá automáticamente en tu navegador en `http://localhost:30
 
 **Configuración por defecto:**
 - **Dashboard**: `http://localhost:3000`
-- **API Endpoint**: `http://localhost:20128/v1`
+- **API Endpoint**: `http://localhost:25050/v1`
 - **Directorio de datos**: `~/.red-router`
 
 ---
@@ -47,7 +47,7 @@ DATA_DIR=/path/to/data red-router
 
 ### Puerto personalizado
 
-El puerto de API (20128) y el puerto del dashboard (3000) están configurados en la aplicación. Para cambiarlos, necesitarás modificar el código fuente o usar variables de entorno si se soportan.
+El puerto de API (25050) y el puerto del dashboard (3000) están configurados en la aplicación. Para cambiarlos, necesitarás modificar el código fuente o usar variables de entorno si se soportan.
 
 ---
 
@@ -96,11 +96,11 @@ npm list -g red-router
 
 ### Puerto ya en uso
 
-Si el puerto 20128 o 3000 ya está en uso:
+Si el puerto 25050 o 3000 ya está en uso:
 
 ```bash
 # Encontrar proceso usando el puerto (macOS/Linux)
-lsof -i :20128
+lsof -i :25050
 lsof -i :3000
 
 # Matar el proceso

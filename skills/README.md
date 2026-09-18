@@ -31,7 +31,7 @@ Then ask normally — *"generate an image of a cat"*, *"transcribe this URL"*, e
 ## Configure your shell once
 
 ```bash
-export REDROUTER_URL="http://localhost:20128"   # local default, or your VPS / tunnel URL
+export REDROUTER_URL="http://localhost:25050"   # local default, or your VPS / tunnel URL
 export REDROUTER_KEY="sk-..."                   # from Dashboard → Keys (only if requireApiKey=true)
 ```
 

@@ -19,7 +19,7 @@ npm install -g @reddb-io/red-router
 red-router
 ```
 
-Dashboard opens at **http://localhost:20128/dashboard**. Or run it once without installing:
+Dashboard opens at **http://localhost:25050/dashboard**. Or run it once without installing:
 
 ```bash
 npx @reddb-io/red-router
@@ -29,14 +29,14 @@ npx @reddb-io/red-router
 
 | Flag | Description |
 |---|---|
-| `--port, -p <n>` | Custom port (default `20128`) |
+| `--port, -p <n>` | Custom port (default `25050`) |
 | `--no-browser` | Don't open the dashboard on start |
 | `--skip-update` | Skip the auto-update check |
 | `--help` | Show all options |
 
 ## What you get
 
-One OpenAI-compatible gateway (`http://localhost:20128/v1`) with 3-tier fallback (subscription → cheap → free), multi-account rotation, an RTK token saver (20-40% fewer tokens) and format translation between OpenAI, Claude and Gemini — plus the full dashboard, model combos with thinking-level suffixes, web search/fetch and a live model catalog.
+One OpenAI-compatible gateway (`http://localhost:25050/v1`) with 3-tier fallback (subscription → cheap → free), multi-account rotation, an RTK token saver (20-40% fewer tokens) and format translation between OpenAI, Claude and Gemini — plus the full dashboard, model combos with thinking-level suffixes, web search/fetch and a live model catalog.
 
 See the [full README](https://github.com/reddb-io/red-router#readme) for providers, setup guides and docs.
 

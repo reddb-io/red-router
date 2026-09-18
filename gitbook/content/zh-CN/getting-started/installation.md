@@ -97,7 +97,7 @@ red-router
 ```
 
 **发生了什么:**
-1. 服务器启动在 `http://localhost:20128`
+1. 服务器启动在 `http://localhost:25050`
 2. 仪表盘在浏览器中自动打开
 3. 数据目录创建在 `~/.red-router`
 4. API key 自动生成
@@ -132,7 +132,7 @@ red-router
 ### 检查服务器状态
 
 ```bash
-curl http://localhost:20128/health
+curl http://localhost:25050/health
 ```
 
 **预期响应:**
@@ -146,7 +146,7 @@ curl http://localhost:20128/health
 ### 列出可用模型
 
 ```bash
-curl http://localhost:20128/v1/models \
+curl http://localhost:25050/v1/models \
   -H "Authorization: Bearer your-api-key"
 ```
 
@@ -168,7 +168,7 @@ curl http://localhost:20128/v1/models \
 ### 测试 Chat Completion
 
 ```bash
-curl http://localhost:20128/v1/chat/completions \
+curl http://localhost:25050/v1/chat/completions \
   -H "Authorization: Bearer your-api-key" \
   -H "Content-Type: application/json" \
   -d '{
@@ -196,7 +196,7 @@ export INITIAL_PASSWORD="your-password"
 export DATA_DIR="~/.red-router"
 
 # Server
-export PORT="20128"
+export PORT="25050"
 export NODE_ENV="production"
 
 # Logging
@@ -224,7 +224,7 @@ red-router
 
 ### 端口配置
 
-**默认端口:** `20128`
+**默认端口:** `25050`
 
 **修改端口:**
 
@@ -247,14 +247,14 @@ red-router --port 3000
 
 **错误:**
 ```
-Error: listen EADDRINUSE: address already in use :::20128
+Error: listen EADDRINUSE: address already in use :::25050
 ```
 
 **方案 1:杀掉占用进程**
 
 ```bash
-# 找到使用 20128 端口的进程
-lsof -i :20128
+# 找到使用 25050 端口的进程
+lsof -i :25050
 
 # 杀掉进程
 kill -9 <PID>
@@ -310,7 +310,7 @@ nvm use 20
 **方案 1:手动打开**
 
 ```
-http://localhost:20128
+http://localhost:25050
 ```
 
 **方案 2:检查防火墙**
@@ -406,7 +406,7 @@ server {
     server_name your-domain.com;
 
     location / {
-        proxy_pass http://localhost:20128;
+        proxy_pass http://localhost:25050;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';

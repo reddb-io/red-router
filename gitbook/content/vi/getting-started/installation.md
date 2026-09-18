@@ -97,7 +97,7 @@ red-router
 ```
 
 **Điều gì xảy ra:**
-1. Server khởi động tại `http://localhost:20128`
+1. Server khởi động tại `http://localhost:25050`
 2. Dashboard tự động mở trong browser
 3. Data directory được tạo tại `~/.red-router`
 4. API key được tạo tự động
@@ -132,7 +132,7 @@ Dashboard → Settings → API Keys
 ### Kiểm tra trạng thái Server
 
 ```bash
-curl http://localhost:20128/health
+curl http://localhost:25050/health
 ```
 
 **Phản hồi dự kiến:**
@@ -146,7 +146,7 @@ curl http://localhost:20128/health
 ### Liệt kê Model khả dụng
 
 ```bash
-curl http://localhost:20128/v1/models \
+curl http://localhost:25050/v1/models \
   -H "Authorization: Bearer your-api-key"
 ```
 
@@ -168,7 +168,7 @@ curl http://localhost:20128/v1/models \
 ### Test Chat Completion
 
 ```bash
-curl http://localhost:20128/v1/chat/completions \
+curl http://localhost:25050/v1/chat/completions \
   -H "Authorization: Bearer your-api-key" \
   -H "Content-Type: application/json" \
   -d '{
@@ -196,7 +196,7 @@ export INITIAL_PASSWORD="your-password"
 export DATA_DIR="~/.red-router"
 
 # Server
-export PORT="20128"
+export PORT="25050"
 export NODE_ENV="production"
 
 # Logging
@@ -224,7 +224,7 @@ red-router
 
 ### Cấu hình Port
 
-**Port mặc định:** `20128`
+**Port mặc định:** `25050`
 
 **Đổi port:**
 
@@ -247,14 +247,14 @@ red-router --port 3000
 
 **Lỗi:**
 ```
-Error: listen EADDRINUSE: address already in use :::20128
+Error: listen EADDRINUSE: address already in use :::25050
 ```
 
 **Giải pháp 1: Kill process hiện có**
 
 ```bash
-# Find process using port 20128
-lsof -i :20128
+# Find process using port 25050
+lsof -i :25050
 
 # Kill process
 kill -9 <PID>
@@ -310,7 +310,7 @@ nvm use 20
 **Giải pháp 1: Mở thủ công**
 
 ```
-http://localhost:20128
+http://localhost:25050
 ```
 
 **Giải pháp 2: Kiểm tra firewall**
@@ -406,7 +406,7 @@ server {
     server_name your-domain.com;
 
     location / {
-        proxy_pass http://localhost:20128;
+        proxy_pass http://localhost:25050;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';

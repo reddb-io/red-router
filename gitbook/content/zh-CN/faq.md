@@ -201,7 +201,7 @@ npm start
 npm install -g red-router
 red-router
 → 仪表盘: http://localhost:3000
-→ API: http://localhost:20128/v1
+→ API: http://localhost:25050/v1
 ```
 
 ### VPS/云

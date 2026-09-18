@@ -866,7 +866,7 @@
   "Please install Open Claw CLI to use this feature.": "Silakan instal Open Claw CLI untuk menggunakan fitur ini.",
   "Please install OpenCode CLI to use auto-apply feature.": "Silakan instal OpenCode CLI untuk menggunakan fitur penerapan otomatis.",
   "Please wait while we complete the authorization.": "Silakan tunggu sementara kami menyelesaikan otorisasi.",
-  "Point your CLI tools to http://localhost:20128": "Arahkan alat CLI Anda ke http://localhost:20128",
+  "Point your CLI tools to http://localhost:25050": "Arahkan alat CLI Anda ke http://localhost:25050",
   "Pool:": "Pool:",
   "Popup blocked? Enter URL manually": "Popup diblokir? Masukkan URL secara manual",
   "Port 443 Already In Use": "Port 443 Sudah Digunakan",

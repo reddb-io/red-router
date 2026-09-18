@@ -201,7 +201,7 @@ Xem [hướng dẫn tích hợp Cursor](integration/cursor.md) để biết chi 
 npm install -g red-router
 red-router
 → Dashboard: http://localhost:3000
-→ API: http://localhost:20128/v1
+→ API: http://localhost:25050/v1
 ```
 
 ### VPS/Cloud

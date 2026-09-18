@@ -11,7 +11,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 // Mock the heavy Next.js-dependent imports BEFORE importing ping.js
 // (same pattern as tests/unit/ping-reasoning-models-3010.test.js).
 vi.mock("@/lib/localDb", () => ({ getApiKeys: vi.fn(async () => [{ key: "test-key", isActive: true }]) }));
-vi.mock("@/shared/constants/config", () => ({ UPDATER_CONFIG: { appPort: 20127 } }));
+vi.mock("@/shared/constants/config", () => ({ UPDATER_CONFIG: { appPort: 25050 } }));
 vi.mock("@/shared/utils/machineId", () => ({ getConsistentMachineId: vi.fn(async () => "cli-token") }));
 // requestDetail.js imports from @/lib/usageDb.js too, so one mock covers both
 // the handler and its usage/detail helpers.
@@ -55,7 +55,7 @@ describe("cline free-models {success,data} envelope", () => {
     fetchMock.mockResolvedValue(
       jsonResponse({ success: true, data: { choices: [{ message: { content: "OK" } }] } })
     );
-    const result = await pingModelByKind("cl/z-ai/glm-5.3-flash", "llm", "http://127.0.0.1:20127");
+    const result = await pingModelByKind("cl/z-ai/glm-5.3-flash", "llm", "http://127.0.0.1:25050");
     expect(result.ok).toBe(true);
   });
 
@@ -73,7 +73,7 @@ describe("cline free-models {success,data} envelope", () => {
         },
       })
     );
-    const result = await pingModelByKind("cl/z-ai/glm-5.3-flash", "llm", "http://127.0.0.1:20127");
+    const result = await pingModelByKind("cl/z-ai/glm-5.3-flash", "llm", "http://127.0.0.1:25050");
     expect(result.ok).toBe(true);
     expect(result.note).toMatch(/reasoning-only/);
   });
@@ -86,14 +86,14 @@ describe("cline free-models {success,data} envelope", () => {
       text: async () => JSON.stringify(body),
       json: async () => body,
     });
-    const result = await pingModelByKind("cl/z-ai/glm-5.3-flash", "llm", "http://127.0.0.1:20127");
+    const result = await pingModelByKind("cl/z-ai/glm-5.3-flash", "llm", "http://127.0.0.1:25050");
     expect(result.ok).toBe(false);
     expect(result.error).toMatch(/empty response content/);
   });
 
   it("ping: bare (un-enveloped) body still passes", async () => {
     fetchMock.mockResolvedValue(jsonResponse({ choices: [{ message: { content: "Hello!" } }] }));
-    const result = await pingModelByKind("openai/gpt-4o", "llm", "http://127.0.0.1:20127");
+    const result = await pingModelByKind("openai/gpt-4o", "llm", "http://127.0.0.1:25050");
     expect(result.ok).toBe(true);
   });
 
@@ -101,7 +101,7 @@ describe("cline free-models {success,data} envelope", () => {
     fetchMock.mockResolvedValue(
       jsonResponse({ success: true, data: { choices: [{ message: { content: "OK" } }] } })
     );
-    const result = await pingModelByKind("openai/gpt-4o", "llm", "http://127.0.0.1:20127");
+    const result = await pingModelByKind("openai/gpt-4o", "llm", "http://127.0.0.1:25050");
     expect(result.ok).toBe(false);
     expect(result.error).toMatch(/no completion choices/i);
   });

@@ -116,7 +116,7 @@ red-router
 **Úsalo en tu herramienta CLI:**
 
 ```
-Endpoint: http://localhost:20128/v1
+Endpoint: http://localhost:25050/v1
 API Key: [desde el dashboard]
 Model: cc/claude-opus-4-5-20251101
 ```

@@ -52,7 +52,7 @@ const hasRedRouterConfig = (config) => {
   if (providers["red-router"]) return true;
 
   for (const [name, provider] of Object.entries(providers)) {
-    if (provider.base_url && provider.base_url.includes("localhost:20128")) {
+    if (provider.base_url && provider.base_url.includes("localhost:25050")) {
       return true;
     }
   }

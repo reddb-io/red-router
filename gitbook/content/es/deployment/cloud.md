@@ -166,7 +166,7 @@ server {
 
     # API endpoint
     location /v1 {
-        proxy_pass http://localhost:20128;
+        proxy_pass http://localhost:25050;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -235,7 +235,7 @@ sudo ufw allow 443/tcp
 
 # Si NO usas proxy reverso, permite los puertos de RedRouter
 sudo ufw allow 3000/tcp
-sudo ufw allow 20128/tcp
+sudo ufw allow 25050/tcp
 
 # Habilitar firewall
 sudo ufw enable
@@ -318,7 +318,7 @@ htop
 df -h
 
 # Conexiones de red
-netstat -tulpn | grep -E '3000|20128'
+netstat -tulpn | grep -E '3000|25050'
 ```
 
 ---
@@ -333,7 +333,7 @@ pm2 logs red-router
 
 # Verificar si los puertos están en uso
 sudo lsof -i :3000
-sudo lsof -i :20128
+sudo lsof -i :25050
 
 # Verificar variables de entorno
 pm2 env red-router

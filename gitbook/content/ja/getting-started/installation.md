@@ -97,7 +97,7 @@ red-router
 ```
 
 **何が起こるか:**
-1. サーバーが `http://localhost:20128` で起動
+1. サーバーが `http://localhost:25050` で起動
 2. ダッシュボードが自動的にブラウザで開く
 3. `~/.red-router` にデータディレクトリが作成される
 4. APIキーが自動生成される
@@ -132,7 +132,7 @@ Dashboard → Settings → API Keys
 ### サーバーステータスを確認
 
 ```bash
-curl http://localhost:20128/health
+curl http://localhost:25050/health
 ```
 
 **期待されるレスポンス:**
@@ -146,7 +146,7 @@ curl http://localhost:20128/health
 ### 利用可能なモデルを一覧表示
 
 ```bash
-curl http://localhost:20128/v1/models \
+curl http://localhost:25050/v1/models \
   -H "Authorization: Bearer your-api-key"
 ```
 
@@ -168,7 +168,7 @@ curl http://localhost:20128/v1/models \
 ### チャットコンプリーションをテスト
 
 ```bash
-curl http://localhost:20128/v1/chat/completions \
+curl http://localhost:25050/v1/chat/completions \
   -H "Authorization: Bearer your-api-key" \
   -H "Content-Type: application/json" \
   -d '{
@@ -196,7 +196,7 @@ export INITIAL_PASSWORD="your-password"
 export DATA_DIR="~/.red-router"
 
 # サーバー
-export PORT="20128"
+export PORT="25050"
 export NODE_ENV="production"
 
 # ロギング
@@ -224,7 +224,7 @@ red-router
 
 ### ポート設定
 
-**デフォルトポート:** `20128`
+**デフォルトポート:** `25050`
 
 **ポートを変更:**
 
@@ -247,14 +247,14 @@ red-router --port 3000
 
 **エラー:**
 ```
-Error: listen EADDRINUSE: address already in use :::20128
+Error: listen EADDRINUSE: address already in use :::25050
 ```
 
 **解決策1: 既存のプロセスを終了**
 
 ```bash
-# ポート20128を使用しているプロセスを検索
-lsof -i :20128
+# ポート25050を使用しているプロセスを検索
+lsof -i :25050
 
 # プロセスを終了
 kill -9 <PID>
@@ -310,7 +310,7 @@ nvm use 20
 **解決策1: 手動で開く**
 
 ```
-http://localhost:20128
+http://localhost:25050
 ```
 
 **解決策2: ファイアウォールを確認**
@@ -406,7 +406,7 @@ server {
     server_name your-domain.com;
 
     location / {
-        proxy_pass http://localhost:20128;
+        proxy_pass http://localhost:25050;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';
