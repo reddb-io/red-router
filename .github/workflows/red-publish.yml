@@ -55,6 +55,9 @@ jobs:
       - name: Build CLI
         run: pnpm --dir cli build
 
+      - name: Boot smoke test
+        run: node cli/scripts/smoke-server.js
+
       - name: Publish to npm
         run: pnpm --dir cli publish --access public --no-git-checks
         env:
