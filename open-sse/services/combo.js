@@ -5,6 +5,8 @@
 import { checkFallbackError, formatRetryAfter } from "./accountFallback.js";
 import { unavailableResponse } from "../utils/error.js";
 import { getCapabilitiesForModel } from "../providers/capabilities.js";
+import { getThinkingLevels } from "../providers/thinkingLevels.js";
+import { stripThinkingSuffix } from "../translator/concerns/thinkingUnified.js";
 import { extractTextContent } from "../translator/formats/gemini.js";
 
 // Hard capabilities = input modalities; missing one drops request data (e.g. image
@@ -69,7 +71,8 @@ export function reorderByCapabilities(models, required) {
     const slash = typeof m === "string" ? m.indexOf("/") : -1;
     const provider = slash > 0 ? m.slice(0, slash) : "";
     const model = slash > 0 ? m.slice(slash + 1) : m;
-    const caps = getCapabilitiesForModel(provider, model);
+    // Members may carry a thinking suffix ("model(high)") — resolve via clean id.
+    const caps = getCapabilitiesForModel(provider, stripThinkingSuffix(model));
     if (!hard.every((c) => caps[c] === true)) return 2;
     return soft.every((c) => caps[c] === true) ? 0 : 1;
   };
@@ -279,9 +282,10 @@ function requestedOutputTokens(body) {
 // in the rotation.
 function modelContextWindow(modelStr) {
   const slash = typeof modelStr === "string" ? modelStr.indexOf("/") : -1;
+  // Members may carry a thinking suffix ("model(high)") — resolve via clean id.
   const caps = getCapabilitiesForModel(
     slash > 0 ? modelStr.slice(0, slash) : "",
-    slash > 0 ? modelStr.slice(slash + 1) : modelStr
+    stripThinkingSuffix(slash > 0 ? modelStr.slice(slash + 1) : modelStr)
   );
   return Number.isFinite(caps?.contextWindow) ? caps.contextWindow : null;
 }
@@ -396,6 +400,56 @@ export function getComboModelsFromData(modelStr, combosData) {
     return combo.models;
   }
   return null;
+}
+
+// Re-attach a combo-level thinking suffix ("(high)", "(8192)") to members that
+// do not carry their own — a member-specific suffix always wins over the one
+// requested on the combo name.
+export function withThinkingSuffix(models, suffix) {
+  return (Array.isArray(models) ? models : []).map((id) => (
+    typeof id === "string" && /\([^()]*\)\s*$/.test(id.trim()) ? id : `${id}${suffix}`
+  ));
+}
+
+// Combo names may carry a thinking override suffix ("my-combo(high)"). Combo
+// resolution is by exact name, so parse/strip the suffix before lookup and
+// re-attach it to every member — applyThinking then applies and clamps it
+// per member via parseSuffix.
+export function resolveComboRequest(modelStr, combosData) {
+  const exact = getComboModelsFromData(modelStr, combosData);
+  if (exact) return { models: exact, comboName: modelStr, suffix: "" };
+  const match = typeof modelStr === "string" ? modelStr.match(/^(.*)\(([^()]+)\)\s*$/) : null;
+  if (!match) return null;
+  const comboName = match[1].trim();
+  const models = getComboModelsFromData(comboName, combosData);
+  if (!models) return null;
+  const suffix = `(${match[2]})`;
+  return { models: withThinkingSuffix(models, suffix), comboName, suffix };
+}
+
+// Thinking levels a combo can honor: the intersection across members (weakest
+// member rule, same doctrine as the combo context limits). Any member without
+// reasoning support makes the combo expose no levels — routing to it with a
+// level request would silently drop the override.
+export function comboThinkingLevels(members) {
+  const list = Array.isArray(members) ? members : [];
+  if (list.length === 0) return null;
+  let levels = null;
+  for (const member of list) {
+    if (typeof member !== "string" || !member.trim()) continue;
+    const slash = member.indexOf("/");
+    const provider = slash > 0 ? member.slice(0, slash) : "";
+    const model = stripThinkingSuffix(slash > 0 ? member.slice(slash + 1) : member);
+    const memberLevels = getThinkingLevels(provider, model);
+    if (!memberLevels || memberLevels.length === 0) return null;
+    if (!levels) {
+      levels = [...memberLevels];
+      continue;
+    }
+    levels = levels.filter((l) => memberLevels.includes(l));
+    if (levels.length === 0) return null;
+  }
+  return levels;
 }
 
 /**

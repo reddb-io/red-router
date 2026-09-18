@@ -1,6 +1,7 @@
 import { PROVIDER_MODELS } from "open-sse/config/providerModels.js";
 import { AI_PROVIDERS, ALIAS_TO_ID } from "@/shared/constants/providers";
 import { getModelKind } from "@/shared/constants/models";
+import { getThinkingLevelsForId } from "open-sse/providers/thinkingLevels.js";
 
 const KIND_ENDPOINT = {
   llm: "/v1/chat/completions",
@@ -28,6 +29,10 @@ function buildInfo({ alias, providerId, model, kind, providerInfo }) {
   if (model.options) out.options = model.options;
   if (model.dimensions) out.dimensions = model.dimensions;
   if (model.contextWindow) out.contextWindow = model.contextWindow;
+  if (kind === "llm" || kind === "imageToText") {
+    const levels = getThinkingLevelsForId(providerId, model.id);
+    if (levels) out.thinking_levels = levels;
+  }
   if (kind === "tts" && TTS_VOICES_API.has(providerId)) {
     out.voicesUrl = `/v1/audio/voices?provider=${providerId}`;
   }

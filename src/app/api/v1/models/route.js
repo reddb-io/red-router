@@ -18,6 +18,9 @@ import { resolveZedModels } from "open-sse/shared/zedAuth.js";
 import { updateProviderCredentials } from "@/sse/services/tokenRefresh";
 import { resolveConnectionProxyConfig } from "@/lib/network/connectionProxy";
 import { capabilitiesFromServiceKind, getCapabilitiesForModel } from "open-sse/providers/capabilities.js";
+import { getThinkingLevelsForId } from "open-sse/providers/thinkingLevels.js";
+import { comboThinkingLevels } from "open-sse/services/combo.js";
+import { stripThinkingSuffix } from "open-sse/translator/concerns/thinkingUnified.js";
 
 // Per-provider live model resolvers. Each receives a connection record and
 // returns { models: [{ id, name? }, ...] } | null on failure.
@@ -262,9 +265,10 @@ function comboMemberLimits(members) {
   for (const member of list) {
     if (typeof member !== "string" || !member.trim()) continue;
     const slash = member.indexOf("/");
+    // Members may carry a thinking suffix ("model(high)") — resolve via clean id.
     const caps = getCapabilitiesForModel(
       slash > 0 ? member.slice(0, slash) : "",
-      slash > 0 ? member.slice(slash + 1) : member
+      stripThinkingSuffix(slash > 0 ? member.slice(slash + 1) : member)
     );
     if (Number.isFinite(caps?.contextWindow)) {
       contextWindow = contextWindow === undefined ? caps.contextWindow : Math.min(contextWindow, caps.contextWindow);
@@ -349,6 +353,9 @@ export async function buildModelsList(kindFilter, options = {}) {
       const limits = comboMemberLimits(combo.models);
       if (Number.isFinite(limits?.contextWindow)) entry.context_length = limits.contextWindow;
       if (Number.isFinite(limits?.maxOutput)) entry.max_completion_tokens = limits.maxOutput;
+      // Combo can only honor levels every member supports (weakest member rule).
+      const comboLevels = comboThinkingLevels(combo.models);
+      if (comboLevels) entry.thinking_levels = comboLevels;
     }
     models.push(entry);
   }
@@ -552,6 +559,13 @@ export async function buildModelsList(kindFilter, options = {}) {
           }
           if (Number.isFinite(contextWindow)) model.context_length = contextWindow;
           if (Number.isFinite(maxOutput)) model.max_completion_tokens = maxOutput;
+          // Levels a client may request (resolves via the clean id when the
+          // entry carries a "(level)" suffix). Mirrored under capabilities.
+          const levels = getThinkingLevelsForId(providerId, modelId);
+          if (levels) {
+            model.thinking_levels = levels;
+            if (model.capabilities) model.capabilities.thinkingLevels = levels;
+          }
         }
         models.push(model);
       }

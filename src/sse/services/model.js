@@ -1,6 +1,7 @@
 // Re-export from open-sse with localDb integration
 import { getModelAliases, getComboByName, getProviderNodes } from "@/lib/localDb";
 import { parseModel as parseModelCore, resolveModelAliasFromMap, getModelInfoCore } from "open-sse/services/model.js";
+import { withThinkingSuffix } from "open-sse/services/combo.js";
 import REGISTRY from "open-sse/providers/registry/index.js";
 
 // Local provider alias overrides (HMR-friendly, applied on top of open-sse map)
@@ -91,4 +92,25 @@ export async function getComboModels(modelStr) {
     return combo.models;
   }
   return null;
+}
+
+/**
+ * Check if model is a combo (exact name or with a thinking suffix) and resolve
+ * its members. "my-combo(high)" re-attaches the override to members without
+ * their own suffix; comboName is the clean DB name (for strategy/settings keys).
+ * @returns {Promise<{models: string[], comboName: string, suffix: string}|null>}
+ */
+export async function resolveComboModels(modelStr) {
+  if (typeof modelStr !== "string" || modelStr.includes("/")) return null;
+  const direct = await getComboByName(modelStr);
+  if (direct && direct.models && direct.models.length > 0) {
+    return { models: direct.models, comboName: modelStr, suffix: "" };
+  }
+  const match = modelStr.match(/^(.*)\(([^()]+)\)\s*$/);
+  if (!match) return null;
+  const cleanName = match[1].trim();
+  const combo = await getComboByName(cleanName);
+  if (!combo || !combo.models || combo.models.length === 0) return null;
+  const suffix = `(${match[2]})`;
+  return { models: withThinkingSuffix(combo.models, suffix), comboName: cleanName, suffix };
 }
