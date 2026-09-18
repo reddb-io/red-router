@@ -1,3 +1,10 @@
+# v0.2.0 (2026-09-17)
+
+## Features
+- **Catalog**: expose `thinking_levels` per model and per LLM combo in `/v1/models` and `/v1/models/info` — combos emit the intersection across members (weakest member rule)
+- **Combos**: thinking-suffix overrides on combo names — `my-combo(high)` applies the level to every routed member, clamped to each member's supported levels (members with their own suffix keep it)
+- **Routing**: member capability lookups (`reorderByCapabilities`, context filtering, combo limits) resolve through the clean model id so thinking suffixes don't break pattern matching
+
 # v0.1.0 (2026-09-17)
 
 Full rebrand: 9Router → **RedRouter** (`@reddb-io/red-router` on npm, bin `red-router`). Versioning restarts at `0.1.0` for the new identity.
