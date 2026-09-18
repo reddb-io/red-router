@@ -8,6 +8,7 @@ import { cn } from "@/shared/utils/cn";
 import { APP_CONFIG, UPDATER_CONFIG } from "@/shared/constants/config";
 import { MEDIA_PROVIDER_KINDS } from "@/shared/constants/providers";
 import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
+import { useRuntimeVersion } from "@/shared/hooks/useRuntimeVersion";
 import Button from "./Button";
 import { ConfirmModal } from "./Modal";
 
@@ -41,6 +42,7 @@ const systemItems = [
 export default function Sidebar({ onClose }) {
   const pathname = usePathname();
   const [mediaOpen, setMediaOpen] = useState(false);
+  const runtimeVersion = useRuntimeVersion();
   const [isDisconnected, setIsDisconnected] = useState(false);
   const [updateInfo, setUpdateInfo] = useState(null);
   const [showUpdateModal, setShowUpdateModal] = useState(false);
@@ -135,7 +137,7 @@ export default function Sidebar({ onClose }) {
                 {APP_CONFIG.name}
               </h1>
               <span className="text-xs text-text-muted">
-                v{APP_CONFIG.version} <span aria-hidden="true">·</span> by GSouza Tecnologia
+                v{runtimeVersion} <span aria-hidden="true">·</span> by GSouza Tecnologia
               </span>
             </div>
           </Link>
@@ -329,8 +331,6 @@ export default function Sidebar({ onClose }) {
         </nav>
 
       </aside>
-
-      {/* Remote Promo Modal */}
 
       {/* Update Confirmation Modal */}
       <ConfirmModal

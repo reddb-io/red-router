@@ -22,6 +22,14 @@ RedRouter runs one **OpenAI-compatible gateway** at `http://localhost:25050/v1` 
 
 ## ⚡ Quick Start
 
+Run it straight with npx — nothing to install:
+
+```bash
+npx -y @reddb-io/red-router@latest
+```
+
+Or install globally:
+
 ```bash
 npm install -g @reddb-io/red-router
 red-router
@@ -35,6 +43,19 @@ export OPENAI_BASE_URL=http://localhost:25050
 ```
 
 Claude Code, Codex, Copilot and other OAuth tools connect straight from the dashboard — no env vars, tokens refresh automatically.
+
+### Run it always (background service)
+
+Keep the gateway running across reboots and crashes — `systemd --user` on Linux, `launchd` on macOS:
+
+```bash
+npx -y @reddb-io/red-router@latest service install          # background, 127.0.0.1 only (safe default)
+npx -y @reddb-io/red-router@latest service install --expose # open to the subnet (0.0.0.0)
+npx -y @reddb-io/red-router@latest service status
+npx -y @reddb-io/red-router@latest service uninstall
+```
+
+Services bind **127.0.0.1 by default**. Use `--expose` (or `-H 0.0.0.0`) only when other machines on your network need to reach it — set API keys and a strong dashboard password first. On Windows, run `red-router -t` for tray-background mode.
 
 Run from source instead:
 

@@ -18,6 +18,8 @@ import { decloakToolNames } from "../../utils/claudeCloaking.js";
  * `chat.completion` body when the provider isn't literally "openai"
  * (kiro, codex, gemini — previously returned unshaped and broke clients).
  */
+// Provider responded in OpenAI Chat Completions shape — hand the client whatever
+// dialect it speaks, or the body unchanged when that dialect is OpenAI itself.
 export function translateNonStreamingResponse(responseBody, targetFormat, sourceFormat, customToolNames = null) {
   if (targetFormat === sourceFormat) return responseBody;
   const completion = toOpenAICompletion(responseBody, targetFormat);

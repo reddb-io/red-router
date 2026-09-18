@@ -68,13 +68,15 @@ export function getThinkingLevels(provider, model) {
 }
 
 // Suffix-aware lookup for catalog entries that may carry a "(level)" suffix
-// (e.g. "glm-5.3(high)"): resolves via the clean id when the suffixed form
-// finds nothing. The suffix regex stays local to avoid a circular import with
+// (e.g. "glm-5.3(high)"): the suffix only selects the level at request time —
+// the capability tables match clean ids — so levels always resolve through the
+// clean model. The suffix regex stays local to avoid a circular import with
 // thinkingUnified.js.
 const THINKING_SUFFIX_RE = /\([^()]+\)\s*$/;
 
 export function getThinkingLevelsForId(provider, modelId) {
-  const levels = getThinkingLevels(provider, modelId);
-  if (levels || typeof modelId !== "string" || !THINKING_SUFFIX_RE.test(modelId)) return levels;
+  if (typeof modelId !== "string" || !THINKING_SUFFIX_RE.test(modelId)) {
+    return getThinkingLevels(provider, modelId);
+  }
   return getThinkingLevels(provider, modelId.replace(THINKING_SUFFIX_RE, "").trim());
 }

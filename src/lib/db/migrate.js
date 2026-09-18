@@ -1,12 +1,13 @@
 import fs from "node:fs";
 import path from "node:path";
-import { LEGACY_FILES, DB_DIR } from "./paths.js";
+import { LEGACY_FILES, DB_DIR, DATA_FILE } from "./paths.js";
 import { TABLES, buildCreateTableSql, SCHEMA_VERSION } from "./schema.js";
 import { MIGRATIONS, latestVersion } from "./migrations/index.js";
 import { getMetaSync, setMetaSync } from "./helpers/metaStore.js";
 import { makeBackupDir, backupFile, backupDbLite, pruneOldBackups } from "./backup.js";
 import { getAppVersion } from "./version.js";
 import { stringifyJson } from "./helpers/jsonCol.js";
+import { assertDatabaseIntegrity } from "./integrity.js";
 
 // Marker file: prevents re-importing legacy JSON when user wipes data.sqlite.
 const MIGRATED_MARKER = path.join(DB_DIR, ".migrated-from-json");
@@ -48,7 +49,12 @@ function isFreshDb(adapter) {
   try {
     const row = adapter.get(`SELECT COUNT(*) as c FROM _meta`);
     return !row || row.c === 0;
-  } catch {
+  } catch (err) {
+    const msg = String(err?.message || "").toLowerCase();
+    if (msg.includes("malformed") || msg.includes("corrupt") || msg.includes("disk image")) {
+      console.error(`[DB][CRITICAL] SQLite disk image is malformed: ${err.message}. Aborting to prevent data wipe.`);
+      throw err;
+    }
     return true;
   }
 }
@@ -215,6 +221,12 @@ function importLegacyDetails(adapter, data) {
 // ─── Main entry ──────────────────────────────────────────────────────────
 export async function runMigrationOnce(adapter) {
   if (_migratedAdapters.has(adapter)) return;
+
+  // Fail closed before any schema mutation or backup pruning. Recovery is
+  // deliberately manual so startup never replaces newer data with a backup.
+  // Covers PRAGMA quick_check corruption detection (#3817) — supersedes the
+  // inline check from upstream #3862.
+  assertDatabaseIntegrity(adapter, DATA_FILE);
   _migratedAdapters.add(adapter);
 
   // Capture freshness BEFORE migrations stamp _meta (otherwise we'd misclassify

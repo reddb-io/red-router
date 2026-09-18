@@ -17,6 +17,43 @@ Port of the PentatonicDev/9router fork (32 product commits; the fork's own CI wo
 - Kiro: no top-level `systemPrompt` (KAS rejects it) — repair instructions and RTK prompts inline into the user turn; image/audio blocks stripped for glm-5/MiniMax; exhausted accounts locked until the quota window reopens.
 - RTK: coordinated with Headroom (each block goes to one of them; deferred blocks compress instead of shipping at full size) and covers single-line blobs.
 
+# v0.5.0 (2026-09-18)
+
+Ports of ~20 upstream decolua/9router PRs (#3862, #3822, #3997, #3657, #3772, #3779, #3826, #3878, #3885, #3886, #3936, #3980, #4002, #4050, #4058, #4063, #4069, #4079, #4130, #4133).
+
+## Database safety (breaking-safe)
+- **Fail closed** before any schema mutation when the SQLite database is corrupted — startup never replaces newer data with a backup (#3822)
+- **No more silent database wipe** on SQLite corruption, with startup quick_check (#3862)
+- **OAuth**: parse numeric epoch expiresAt so imported connections still refresh (#3997)
+
+## Streams & translator robustness
+- Terminate streams that end without a finish_reason; Ollama NDJSON no longer blocked as non-SSE (VS Code chat streaming fixed) (#4079, #4002, #3980, #4133)
+- commandcode retries transient stream errors instead of emitting fake stop chunks (#4130)
+- Deduplicate/repair repeated tool call arguments on repeated finish chunks (#3779)
+- Recover tool results that arrive without a call id (#3878)
+- Keep Responses tool-output images as images (#4058)
+- Stop emitting literal think tags on Claude → OpenAI (#4063)
+- Preserve optional tool parameters and function-tool strict across Responses/Codex (#4069)
+- Repair trailing assistant prefill instead of dropping it (#3936)
+- Placeholder for binary tool_result blobs instead of raw base64 dumps (#3772)
+- Emit max_completion_tokens for gpt-5/o-series in to-openai builders (#3657)
+- Strip output_config.format for Claude-compatible gateways (#4050)
+- Decloak tool names on claude→claude and same-format OAuth streams (#3826, #3886)
+- Drop the Claude Code diagnostics body field rejected by Anthropic (#3885)
+
+# v0.4.0 (2026-09-17)
+
+Ports of upstream decolua/9router PRs (#3995, #4064, #4068, #4048, #4090, #4110, #4034).
+
+## Features
+- **Combos**: merge member capabilities into combo `/v1/models` entries — boolean features are unioned, numeric limits minimized, nested combos flattened; thinking levels for suffixed ids resolve through the clean model
+- **Catalog**: register the renamed deepseek-flash id; pricing gains missing long-context tiers
+
+## Fixes
+- **Capabilities**: OpenAI reasoning models cannot disable thinking (thinking_levels drop "none" for them); o-series globs no longer capture Cline's Solar Pro 4
+- **Translator**: repair tool_call_id lost by Responses clients; preserve function-tool strict across Claude/Chat routes
+- **Dashboard**: surface why a provider connection test failed
+
 # v0.3.0 (2026-09-17)
 
 ## Breaking

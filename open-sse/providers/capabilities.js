@@ -113,7 +113,18 @@ export const MODEL_CAPABILITIES = {
   "glm-4.6v":          { vision: true, videoInput: true, reasoning: true, thinkingFormat: "zai", contextWindow: 128000, maxOutput: 32768 },
   "glm-4.5v":          { vision: true, videoInput: true, reasoning: true, thinkingFormat: "zai", contextWindow: 64000, maxOutput: 16384 },
 
-  // DeepSeek's first V4 model with image input; text limits match V4-Flash.
+  // DeepSeek V4.1 Flash. `deepseek-flash` is the canonical id since DeepSeek's
+  // 2026-09-10 rename ("Change the model name to `deepseek-flash` to call the
+  // latest V4.1 Flash model") and it is natively multimodal (image input) with
+  // the full 1M window / 384K output. Without this entry the canonical id falls
+  // through to the generic *deepseek* pattern and is reported as text-only with
+  // a 128K window, so image requests are handed off to the capacity-adapter pool.
+  "deepseek-flash": { vision: true, reasoning: true, thinkingFormat: "deepseek", contextWindow: 1000000, maxOutput: 384000 },
+
+  // Retired V4-Flash ids. DeepSeek no longer lists them but still routes both
+  // to V4.1 Flash, so they keep identical (vision-capable) caps until those
+  // temporary routes are removed upstream.
+  "deepseek-v4-flash": { vision: true, reasoning: true, thinkingFormat: "deepseek", contextWindow: 1000000, maxOutput: 384000 },
   "deepseek-v4-flash-vision-exp": { vision: true, reasoning: true, thinkingFormat: "deepseek", contextWindow: 1000000, maxOutput: 384000 },
 
   // Qwen plain coder/text (no vision) — registry "vision-model" / "coder-model" aliases
@@ -133,17 +144,28 @@ export const MODEL_CAPABILITIES = {
   "muse-spark-1.3-contributor-free": { vision: true, reasoning: true, thinkingFormat: "openai", contextWindow: 1048576, maxOutput: 131072 },
 };
 
-const KIRO_GPT_5_6_CAPABILITIES = { vision: true, reasoning: true, search: true, thinkingFormat: "openai", contextWindow: 272000, maxOutput: 128000 };
+const KIRO_GPT_5_6_CAPABILITIES = { vision: true, reasoning: true, search: true, thinkingFormat: "openai", thinkingCanDisable: false, contextWindow: 272000, maxOutput: 128000 };
 
 // Codex OAuth (ChatGPT backend) — per-model context window reported by upstream
 // (lower than OpenAI API's 1.05M). Sol differs from Terra/Luna. #2720
-const CODEX_GPT_56_SOL_CAPS  = { vision: true, reasoning: true, search: true, thinkingFormat: "openai", contextWindow: 372000, maxOutput: 128000 };
-const CODEX_GPT_56_DEFAULT_CAPS = { vision: true, reasoning: true, search: true, thinkingFormat: "openai", contextWindow: 272000, maxOutput: 128000 };
+const CODEX_GPT_56_SOL_CAPS  = { vision: true, reasoning: true, search: true, thinkingFormat: "openai", thinkingCanDisable: false, contextWindow: 372000, maxOutput: 128000 };
+const CODEX_GPT_56_DEFAULT_CAPS = { vision: true, reasoning: true, search: true, thinkingFormat: "openai", thinkingCanDisable: false, contextWindow: 272000, maxOutput: 128000 };
 
 /**
  * Provider-specific capability overrides. Keyed by provider alias/id.
  */
 export const PROVIDER_CAPABILITIES = {
+  // DeepSeek's own API (api.deepseek.com). Flash reads images — see
+  // https://api-docs.deepseek.com/guides/vision — and the retired
+  // `deepseek-v4-flash` / `-vision-exp` ids are served by the same V4.1-Flash
+  // model, so they share its 1M window and 384K output ceiling. v4-pro stays
+  // text-only on purpose (DeepSeek lists its Vision support as "not supported").
+  "deepseek": {
+    "deepseek-flash":               { vision: true, reasoning: true, thinkingFormat: "deepseek", contextWindow: 1000000, maxOutput: 384000 },
+    "deepseek-v4-flash":            { vision: true, reasoning: true, thinkingFormat: "deepseek", contextWindow: 1000000, maxOutput: 384000 },
+    "deepseek-v4-flash-vision-exp": { vision: true, reasoning: true, thinkingFormat: "deepseek", contextWindow: 1000000, maxOutput: 384000 },
+  },
+
   // NVIDIA NIM is OpenAI-compatible → rejects MiniMax/GLM native `thinking` field.
   // Force openai reasoning_effort format for its reasoning models. #issue
   "nvidia": {
@@ -153,8 +175,11 @@ export const PROVIDER_CAPABILITIES = {
     "deepseek-ai/deepseek-v4-pro": { reasoning: true, thinkingFormat: "openai", contextWindow: 1000000, maxOutput: 65536 },
     "deepseek-ai/deepseek-v4-flash": { reasoning: true, thinkingFormat: "openai", contextWindow: 1000000, maxOutput: 65536 },
   },
+  // OpenAI reasoning models reject `reasoning_effort: "none"` outright
+  // ("Unsupported value: 'reasoning_effort' does not support 'none'"), so they
+  // must clamp to the minimum instead of disabling. #4031
   "codex": {
-    "gpt-6-astra":               { vision: true, reasoning: true, search: true, thinkingFormat: "openai", contextWindow: 272000, maxOutput: 128000 },
+    "gpt-6-astra":               { vision: true, reasoning: true, search: true, thinkingFormat: "openai", thinkingCanDisable: false, contextWindow: 272000, maxOutput: 128000 },
     "gpt-5.6-sol":               CODEX_GPT_56_SOL_CAPS,
     "gpt-5.6-sol-review":        CODEX_GPT_56_SOL_CAPS,
     "gpt-5.6-terra":             CODEX_GPT_56_DEFAULT_CAPS,
@@ -300,6 +325,15 @@ export const PATTERN_CAPABILITIES = [
   { pattern: "*gpt-4*",         caps: { contextWindow: 128000 } },
   { pattern: "*gpt-3.5*",       caps: { contextWindow: 16385, maxOutput: 4096 } },
   { pattern: "*gpt-oss*",       caps: { reasoning: true, thinkingFormat: "openai", contextWindow: 128000 } },
+
+  // ── Cline free tier (Upstage Solar Pro, LongCat) ─────────────────
+  // Declared BEFORE the o-series catch-alls: "solar-pro4" contains "o4", and
+  // resolution is first-match-wins, so these would otherwise inherit the
+  // o-series vision flag and a 100k output ceiling. Solar Pro 4 takes no
+  // image input — the upstream rejects it with "No endpoints found that
+  // support image input" — and both cap out far below 100k.
+  { pattern: "*solar-pro*",     caps: { reasoning: true, thinkingFormat: "openai", contextWindow: 200000, maxOutput: 32000 } },
+  { pattern: "*longcat*",       caps: { reasoning: true, thinkingFormat: "openai", contextWindow: 200000, maxOutput: 32000 } },
 
   // ── OpenAI o-series (reasoning, vision) ──────────────────────────
   { pattern: "*o1-mini*",       caps: { reasoning: true, thinkingFormat: "openai", contextWindow: 128000 } },

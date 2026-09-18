@@ -121,6 +121,35 @@ function copyStandaloneBuild(appDir, buildDistDir, cliAppDir) {
   }
 }
 
+// Next requires some packages at runtime via require() from its own files.
+// Under npm the standalone trace bundles them, but under pnpm (symlinked
+// node_modules) the trace misses them and the packaged server dies on boot
+// with MODULE_NOT_FOUND. Copy each from the package store if not traced.
+const REQUIRED_STANDALONE_DEPS = ["@swc/helpers", "@next/env", "react", "react-dom"];
+
+function copyRequiredStandaloneDeps(appDir, cliAppDir) {
+  const pnpmDir = path.join(appDir, "node_modules", ".pnpm");
+  const pnpmEntries = fs.existsSync(pnpmDir) ? fs.readdirSync(pnpmDir) : [];
+  for (const dep of REQUIRED_STANDALONE_DEPS) {
+    const dest = path.join(cliAppDir, "node_modules", ...dep.split("/"));
+    if (fs.existsSync(path.join(dest, "package.json"))) continue; // traced
+    const candidates = [
+      path.join(appDir, "node_modules", ...dep.split("/")),
+      ...pnpmEntries
+        .filter((entry) => entry.startsWith(`${dep.replace("/", "+")}@`))
+        .map((entry) => path.join(pnpmDir, entry, "node_modules", ...dep.split("/"))),
+    ];
+    const src = candidates.find((c) => fs.existsSync(path.join(c, "package.json")));
+    if (!src) {
+      throw new Error(
+        `${dep} not found in node_modules — the CLI app bundle cannot boot without it`,
+      );
+    }
+    copyRecursive(src, dest);
+    console.log(`✅ Copied ${dep} into the CLI app bundle (pnpm standalone gap)`);
+  }
+}
+
 function mergeServerArtifacts(buildDistDir, cliAppDir) {
   const serverSrc = path.join(buildDistDir, "server");
   const serverDest = path.join(cliAppDir, buildDistDirName, "server");
@@ -203,6 +232,7 @@ function buildCliPackage() {
   console.log("3️⃣  Copying Next.js standalone build to app/cli/app...");
   try {
     copyStandaloneBuild(appDir, buildDistDir, cliAppDir);
+    copyRequiredStandaloneDeps(appDir, cliAppDir);
   } catch (error) {
     console.error("❌ Next.js standalone build not found under .next/standalone");
     console.error("Expected either .next/standalone/server.js or .next/standalone/app/");
@@ -222,7 +252,7 @@ function buildCliPackage() {
   }
 
   // Step 3b: Ensure sql.js (pure JS fallback) bundled in app/cli/app/node_modules.
-  // Strip better-sqlite3 (native) — it lives in ~/.red-router/runtime to avoid
+  // Strip better-sqlite3 (native) — it lives in ~/.red/router/runtime to avoid
   // Windows EBUSY during global CLI updates. node:sqlite (Node ≥22.5) is also
   // available as a no-install middle tier.
   console.log("3️⃣ b Configuring SQLite drivers...");
@@ -253,7 +283,7 @@ function buildCliPackage() {
   const betterDir = path.join(cliAppDir, "node_modules", "better-sqlite3");
   if (fs.existsSync(betterDir)) {
     fs.rmSync(betterDir, { recursive: true, force: true });
-    console.log("✅ Stripped better-sqlite3 (lives in ~/.red-router/runtime)");
+    console.log("✅ Stripped better-sqlite3 (lives in ~/.red/router/runtime)");
   }
   console.log("");
 

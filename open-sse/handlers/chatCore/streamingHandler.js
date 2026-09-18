@@ -22,8 +22,16 @@ const CODEX_SOURCE_TO_TARGET = {
 
 /**
  * Determine which SSE transform stream to use based on provider/format.
+ *
+ * Same-format requests normally take the raw passthrough stream (no
+ * translateResponse call at all). But when OAuth tool cloaking renamed the
+ * client's tools (toolNameMap present), every streamed tool_use block carries
+ * the suffixed name and MUST be decloaked before reaching the client — which
+ * happens in translateResponse's same-format branch. Route cloaked
+ * same-format streams through the translate stream so that branch actually
+ * runs; without a map, passthrough stays byte-exact as before.
  */
-function buildTransformStream({ provider, sourceFormat, targetFormat, userAgent, reqLogger, toolNameMap, customToolNames, model, connectionId, body, onStreamComplete, apiKey, credentials }) {
+export function buildTransformStream({ provider, sourceFormat, targetFormat, userAgent, reqLogger, toolNameMap, customToolNames, model, connectionId, body, onStreamComplete, apiKey, credentials }) {
   const isDroidCLI = userAgent?.toLowerCase().includes("droid") || userAgent?.toLowerCase().includes("codex-cli");
   // Responses-API providers (e.g. codex) emit Responses SSE → translate into client format
   const isResponsesProvider = PROVIDERS[provider]?.format === FORMATS.OPENAI_RESPONSES;
@@ -34,11 +42,31 @@ function buildTransformStream({ provider, sourceFormat, targetFormat, userAgent,
     return createSSETransformStreamWithLogger(FORMATS.OPENAI_RESPONSES, codexTarget, provider, reqLogger, toolNameMap, model, connectionId, body, onStreamComplete, apiKey, customToolNames, credentials);
   }
 
-  if (needsTranslation(targetFormat, sourceFormat)) {
+  // Same-format streams must still decloak when the request was cloaked:
+  // translateRequest() suffixes client tools for OAuth-cloaked Claude providers
+  // even when no format conversion is needed (cloak runs after the same-format
+  // request shortcut), so a claude→claude stream carrying a toolNameMap has to
+  // go through the translate pipeline — its same-format branch applies
+  // decloakStreamChunk() and otherwise relays the parsed event untouched.
+  if (needsTranslation(targetFormat, sourceFormat) || toolNameMap?.size > 0) {
     return createSSETransformStreamWithLogger(targetFormat, sourceFormat, provider, reqLogger, toolNameMap, model, connectionId, body, onStreamComplete, apiKey, customToolNames, credentials);
   }
 
-  return createPassthroughStreamWithLogger(provider, reqLogger, model, connectionId, body, onStreamComplete, apiKey);
+  return createPassthroughStreamWithLogger(provider, reqLogger, model, connectionId, body, onStreamComplete, apiKey, sourceFormat);
+}
+
+// Content types an upstream may legitimately stream, beyond SSE and JSON, keyed by the format the
+// provider declares. Ollama-format providers dial the native /api/chat (see
+// providers/registry/ollama-local.js) which answers application/x-ndjson on success, and
+// translator/response/ollama-to-openai.js exists to convert exactly that stream, so the
+// error-page guard below must not treat it as a non-SSE body (issue #3985).
+const UPSTREAM_STREAM_CONTENT_TYPES = {
+  [FORMATS.OLLAMA]: ['application/x-ndjson'],
+};
+
+function isStreamableUpstreamContentType(contentType, targetFormat) {
+  if (contentType.includes('text/event-stream') || contentType.includes('application/json')) return true;
+  return (UPSTREAM_STREAM_CONTENT_TYPES[targetFormat] || []).some(type => contentType.includes(type));
 }
 
 /**
@@ -53,7 +81,7 @@ export async function handleStreamingResponse({ providerResponse, provider, mode
   // and clamped so untrusted upstream text never reaches the client verbatim
   // (the UI may render error.message as HTML).
   const upstreamContentType = (providerResponse.headers.get('content-type') || '').toLowerCase();
-  if (upstreamContentType && !upstreamContentType.includes('text/event-stream') && !upstreamContentType.includes('application/json')) {
+  if (upstreamContentType && !isStreamableUpstreamContentType(upstreamContentType, targetFormat)) {
     const bodyText = await providerResponse.text().catch(() => '');
     const titleMatch = bodyText.match(/<title>([^<]+)<\/title>/i);
     const sanitizedTitle = (titleMatch?.[1] || '').replace(/<[^>]*>/g, '').replace(/[\r\n]+/g, ' ').trim().slice(0, 160);
@@ -94,9 +122,13 @@ export async function handleStreamingResponse({ providerResponse, provider, mode
 
   const transformStream = buildTransformStream({ provider, sourceFormat, targetFormat, userAgent, reqLogger, toolNameMap, customToolNames, model, connectionId, body, onStreamComplete, apiKey, credentials });
 
-  // Responses passthrough: synthesize response.failed + [DONE] if the stream aborts/stalls before a terminal event
+  // Responses passthrough: synthesize response.failed + [DONE] if the stream aborts/stalls before a terminal event.
+  // OpenAI clients get the equivalent terminal from the transform stream, which knows
+  // whether a finish_reason already went out (and returns null if so).
   const isResponsesPassthrough = sourceFormat === FORMATS.OPENAI_RESPONSES && targetFormat === FORMATS.OPENAI_RESPONSES;
-  const onAbortTerminal = isResponsesPassthrough ? buildAbortedResponsesTerminalBytes : null;
+  const onAbortTerminal = isResponsesPassthrough
+    ? buildAbortedResponsesTerminalBytes
+    : (transformStream.abortTerminalBytes || null);
   const stallTimeoutMs = PROVIDERS[provider]?.stallTimeoutMs || STREAM_STALL_TIMEOUT_MS;
   const transformedBody = pipeWithDisconnect(streamSource, transformStream, streamController, onAbortTerminal, stallTimeoutMs);
 
@@ -131,7 +163,11 @@ export function buildOnStreamComplete({ provider, model, connectionId, apiKey, r
       ttft: ttftAt ? ttftAt - requestStartTime : Date.now() - requestStartTime,
       total: Date.now() - requestStartTime
     };
-    const safeContent = contentObj?.content || "[Empty streaming response]";
+    const toolCalls = contentObj?.toolCalls || [];
+    // A tool-call-only turn carries no content. Label it accurately rather than as
+    // "[Empty streaming response]", which is indistinguishable from a truncated stream.
+    const safeContent = contentObj?.content
+      || (toolCalls.length ? `[Tool calls: ${toolCalls.map((call) => call.name || "unknown").join(", ")}]` : "[Empty streaming response]");
     const safeThinking = contentObj?.thinking || null;
 
     saveRequestDetail(buildRequestDetail({
@@ -141,7 +177,7 @@ export function buildOnStreamComplete({ provider, model, connectionId, apiKey, r
       request: extractRequestConfig(body, stream),
       providerRequest: finalBody || translatedBody || null,
       providerResponse: safeContent,
-      response: { content: safeContent, thinking: safeThinking, type: "streaming" },
+      response: { content: safeContent, thinking: safeThinking, tool_calls: toolCalls, type: "streaming" },
       pxpipe,
       status: "success"
     }, { id: streamDetailId })).catch(err => {

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-// Postinstall: warm-up SQLite deps into ~/.red-router/runtime so the first
+// Postinstall: warm-up SQLite deps into ~/.red/router/runtime so the first
 // `red-router` start doesn't need network. Failure here is non-fatal —
 // cli.js will retry at runtime if anything is missing.
 const { ensureSqliteRuntime } = require("./sqliteRuntime");

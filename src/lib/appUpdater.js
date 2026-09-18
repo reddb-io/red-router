@@ -12,8 +12,8 @@ function killMitmByPidFile() {
   try {
     const mitmPidFile = path.join(
       process.platform === "win32"
-        ? path.join(process.env.APPDATA || "", "red-router")
-        : path.join(os.homedir(), ".red-router"),
+        ? path.join(process.env.APPDATA || "", "red", "router")
+        : path.join(os.homedir(), ".red", "router"),
       "mitm",
       ".mitm.pid"
     );
@@ -99,9 +99,9 @@ function collectAppPids() {
 function getDataDir() {
   if (process.env.DATA_DIR) return process.env.DATA_DIR;
   if (process.platform === "win32") {
-    return path.join(process.env.APPDATA || path.join(os.homedir(), "AppData", "Roaming"), "red-router");
+    return path.join(process.env.APPDATA || path.join(os.homedir(), "AppData", "Roaming"), "red", "router");
   }
-  return path.join(os.homedir(), ".red-router");
+  return path.join(os.homedir(), ".red", "router");
 }
 
 function resolveBundledUpdaterPath() {
