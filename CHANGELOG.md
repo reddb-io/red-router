@@ -1,3 +1,16 @@
+# v0.4.0 (2026-09-17)
+
+Ports of upstream decolua/9router PRs (#3995, #4064, #4068, #4048, #4090, #4110, #4034).
+
+## Features
+- **Combos**: merge member capabilities into combo `/v1/models` entries — boolean features are unioned, numeric limits minimized, nested combos flattened; thinking levels for suffixed ids resolve through the clean model
+- **Catalog**: register the renamed deepseek-flash id; pricing gains missing long-context tiers
+
+## Fixes
+- **Capabilities**: OpenAI reasoning models cannot disable thinking (thinking_levels drop "none" for them); o-series globs no longer capture Cline's Solar Pro 4
+- **Translator**: repair tool_call_id lost by Responses clients; preserve function-tool strict across Claude/Chat routes
+- **Dashboard**: surface why a provider connection test failed
+
 # v0.3.0 (2026-09-17)
 
 ## Breaking
