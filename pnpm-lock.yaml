@@ -29,6 +29,9 @@ importers:
       '@node-saml/node-saml':
         specifier: ^5.1.0
         version: 5.1.0(supports-color@7.2.0)
+      '@opencode-ai/models':
+        specifier: ^0.0.76
+        version: 0.0.76
       '@xyflow/react':
         specifier: ^12.10.1
         version: 12.11.6(immer@11.1.18)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
@@ -846,6 +849,15 @@ packages:
   '@nolyfill/is-core-module@1.0.39':
     resolution: {integrity: sha512-nn5ozdjYQpUCZlWGuxcJY/KpxkWQs4DcbMCmKojjyrYDEAGy4Ce19NN4v5MduafTwJlbKc99UA8YhSVqq9yPZA==}
     engines: {node: '>=12.4.0'}
+
+  '@opencode-ai/models@0.0.76':
+    resolution: {integrity: sha512-lb5q4wuz6KATg2pHjlOC5k8BFXZ/vYGzc872PJKAQyoLbTyTT2PUBFjNrkJynliQ64oDJqZNOXV1OllmnyJvkA==}
+    engines: {node: '>=18'}
+    peerDependencies:
+      effect: 4.0.0-beta.83
+    peerDependenciesMeta:
+      effect:
+        optional: true
 
   '@peculiar/asn1-cms@2.9.4':
     resolution: {integrity: sha512-cben7oxmQsUGZqotus7yt0srYdncOT6RNWcTQ77T2RFOXejYVYkXadrfePdRcrVpO9K95IRLKKglG2k38jKXuw==}
@@ -4063,6 +4075,8 @@ snapshots:
       fastq: 1.20.3
 
   '@nolyfill/is-core-module@1.0.39': {}
+
+  '@opencode-ai/models@0.0.76': {}
 
   '@peculiar/asn1-cms@2.9.4':
     dependencies:
