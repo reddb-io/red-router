@@ -1,6 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import fs from "fs";
 import path from "path";
+import { fileURLToPath } from "url";
+
+// Audit assertions read source files directly. Anchored to this file's
+// location so the suite passes regardless of the vitest working directory.
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 // ============================================================
 // AUDIT-002 (#1962): API key masking in usage stats
@@ -11,7 +16,7 @@ describe("AUDIT-002: API key masking", () => {
   // pulls it in — an import that disappears would silently stop masking.
   it("shared helper should define maskApiKey", () => {
     const helper = fs.readFileSync(
-      path.resolve("src/lib/db/helpers/maskKey.js"),
+      path.resolve(REPO_ROOT, "src/lib/db/helpers/maskKey.js"),
       "utf-8"
     );
     expect(helper).toContain("function maskApiKey");
@@ -20,7 +25,7 @@ describe("AUDIT-002: API key masking", () => {
   it("usage and request-detail repos should import the shared masker", () => {
     for (const repo of ["usageRepo.js", "requestDetailsRepo.js"]) {
       const source = fs.readFileSync(
-        path.resolve(`src/lib/db/repos/${repo}`),
+        path.resolve(REPO_ROOT, `src/lib/db/repos/${repo}`),
         "utf-8"
       );
       expect(source).toMatch(/import \{ maskApiKey \} from ".*helpers\/maskKey\.js"/);
@@ -29,7 +34,7 @@ describe("AUDIT-002: API key masking", () => {
 
   it("getUsageHistory should use apiKeyMasked instead of apiKey", () => {
     const source = fs.readFileSync(
-      path.resolve("src/lib/db/repos/usageRepo.js"),
+      path.resolve(REPO_ROOT, "src/lib/db/repos/usageRepo.js"),
       "utf-8"
     );
     // The REST response should use apiKeyMasked
@@ -44,7 +49,7 @@ describe("AUDIT-002: API key masking", () => {
 
   it("getUsageStats should use apiKeyMasked in byApiKey entries", () => {
     const source = fs.readFileSync(
-      path.resolve("src/lib/db/repos/usageRepo.js"),
+      path.resolve(REPO_ROOT, "src/lib/db/repos/usageRepo.js"),
       "utf-8"
     );
     // Both code paths (daily summary + 24h live) should use apiKeyMasked
@@ -63,7 +68,7 @@ describe("AUDIT-002: API key masking", () => {
 
   it("byApiKey object keys should use masked key, not raw key", () => {
     const source = fs.readFileSync(
-      path.resolve("src/lib/db/repos/usageRepo.js"),
+      path.resolve(REPO_ROOT, "src/lib/db/repos/usageRepo.js"),
       "utf-8"
     );
     // The 24h path should use apiKeyMasked in the akKey template
@@ -89,7 +94,7 @@ describe("AUDIT-003: Proxy URL validation", () => {
 
   it("source should contain validateProxyUrl function", () => {
     const source = fs.readFileSync(
-      path.resolve("src/lib/network/outboundProxy.js"),
+      path.resolve(REPO_ROOT, "src/lib/network/outboundProxy.js"),
       "utf-8"
     );
     expect(source).toContain("function validateProxyUrl");
@@ -186,7 +191,7 @@ describe("AUDIT-003: Proxy URL validation", () => {
 describe("AUDIT-018: XSS escaping in OAuth callback", () => {
   it("source should contain escapeHtml function", () => {
     const source = fs.readFileSync(
-      path.resolve("src/lib/oauth/utils/server.js"),
+      path.resolve(REPO_ROOT, "src/lib/oauth/utils/server.js"),
       "utf-8"
     );
     expect(source).toContain("function escapeHtml");
@@ -194,7 +199,7 @@ describe("AUDIT-018: XSS escaping in OAuth callback", () => {
 
   it("should escape ampersand, angle brackets, and quotes", () => {
     const source = fs.readFileSync(
-      path.resolve("src/lib/oauth/utils/server.js"),
+      path.resolve(REPO_ROOT, "src/lib/oauth/utils/server.js"),
       "utf-8"
     );
     expect(source).toContain("&amp;");
@@ -206,7 +211,7 @@ describe("AUDIT-018: XSS escaping in OAuth callback", () => {
 
   it("should use safeMessage in rendered HTML, not raw message", () => {
     const source = fs.readFileSync(
-      path.resolve("src/lib/oauth/utils/server.js"),
+      path.resolve(REPO_ROOT, "src/lib/oauth/utils/server.js"),
       "utf-8"
     );
     expect(source).toContain("safeMessage");
@@ -222,7 +227,7 @@ describe("AUDIT-018: XSS escaping in OAuth callback", () => {
 describe("AUDIT-004: Atomic lock file for MITM startup", () => {
   it("manager.js should define LOCK_FILE constant", () => {
     const source = fs.readFileSync(
-      path.resolve("src/mitm/manager.js"),
+      path.resolve(REPO_ROOT, "src/mitm/manager.js"),
       "utf-8"
     );
     expect(source).toContain("LOCK_FILE");
@@ -231,7 +236,7 @@ describe("AUDIT-004: Atomic lock file for MITM startup", () => {
 
   it("should use O_EXCL flag (wx) for atomic creation", () => {
     const source = fs.readFileSync(
-      path.resolve("src/mitm/manager.js"),
+      path.resolve(REPO_ROOT, "src/mitm/manager.js"),
       "utf-8"
     );
     expect(source).toContain('"wx"');
@@ -240,7 +245,7 @@ describe("AUDIT-004: Atomic lock file for MITM startup", () => {
 
   it("should clean up lock file on all exit paths", () => {
     const source = fs.readFileSync(
-      path.resolve("src/mitm/manager.js"),
+      path.resolve(REPO_ROOT, "src/mitm/manager.js"),
       "utf-8"
     );
     const matches = source.match(/unlinkSync\(LOCK_FILE\)/g);
@@ -255,7 +260,7 @@ describe("AUDIT-004: Atomic lock file for MITM startup", () => {
 describe("AUDIT-001: Synchronous restart guard", () => {
   it("mitmIsRestarting should be set before first await expression", () => {
     const source = fs.readFileSync(
-      path.resolve("src/mitm/manager.js"),
+      path.resolve(REPO_ROOT, "src/mitm/manager.js"),
       "utf-8"
     );
 
@@ -286,7 +291,7 @@ describe("AUDIT-001: Synchronous restart guard", () => {
 
   it("mitmIsRestarting should be reset on max-restarts early return", () => {
     const source = fs.readFileSync(
-      path.resolve("src/mitm/manager.js"),
+      path.resolve(REPO_ROOT, "src/mitm/manager.js"),
       "utf-8"
     );
 
