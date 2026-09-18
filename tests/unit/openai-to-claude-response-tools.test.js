@@ -83,7 +83,9 @@ describe("openaiToClaudeResponse tool argument sanitization", () => {
     const stops = events.filter((e) => e.type === "content_block_stop" && toolIndexes.includes(e.index));
     expect(stops.map((e) => e.index)).toEqual(toolIndexes);
 
-    expect(events.filter((e) => e.type === "message_delta")).toHaveLength(1);
+    expect(events.filter((e) => e.type === "message_delta")).toHaveLength(2);
+    const usageDelta = events.filter((e) => e.type === "message_delta")[1];
+    expect(usageDelta.usage).toEqual({ input_tokens: 10, output_tokens: 5 });
     expect(events.filter((e) => e.type === "message_stop")).toHaveLength(1);
   });
 
@@ -118,7 +120,9 @@ describe("openaiToClaudeResponse tool argument sanitization", () => {
     collect({ id: "gen-9", model: "glm", choices: [{ delta: {}, finish_reason: "stop" }] });
     collect({ id: "gen-9", model: "glm", choices: [{ delta: {}, finish_reason: "stop" }], usage: { prompt_tokens: 3, completion_tokens: 1 } });
 
-    expect(events.filter((e) => e.type === "message_delta")).toHaveLength(1);
+    expect(events.filter((e) => e.type === "message_delta")).toHaveLength(2);
+    const usageDelta = events.filter((e) => e.type === "message_delta")[1];
+    expect(usageDelta.usage).toEqual({ input_tokens: 3, output_tokens: 1 });
     expect(events.filter((e) => e.type === "message_stop")).toHaveLength(1);
     expect(events.filter((e) => e.type === "content_block_stop")).toHaveLength(1);
   });

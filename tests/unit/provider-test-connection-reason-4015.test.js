@@ -9,6 +9,16 @@ import { describe, expect, it, vi } from "vitest";
 const testSingleConnection = vi.fn();
 vi.mock("../../src/app/api/providers/[id]/test/testUtils.js", () => ({ testSingleConnection }));
 
+// A rota agora resolve a conexão e aplica o escopo por usuário antes de testar;
+// estes testes exercem o encaminhamento do motivo da falha (#4015), não o escopo.
+vi.mock("@/lib/auth/resourceScope", () => ({
+  canSee: vi.fn(() => true),
+  getScopeFilter: vi.fn(async () => null),
+}));
+vi.mock("@/lib/localDb", () => ({
+  getProviderConnectionById: vi.fn(async () => ({ id: "c1", owner: null })),
+}));
+
 const { POST } = await import("../../src/app/api/providers/[id]/test/route.js");
 
 function call() {

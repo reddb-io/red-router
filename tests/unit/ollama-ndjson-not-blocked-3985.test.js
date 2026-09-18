@@ -75,7 +75,7 @@ describe("streaming handler content-type guard (#3985)", () => {
 
     expect(result.success).toBe(false);
     expect(await result.response.json()).toEqual({
-      error: { message: "[200]: 502 Bad Gateway" },
+      error: { type: "api_error", code: "bad_gateway", message: "502 Bad Gateway", param: null },
     });
   });
 

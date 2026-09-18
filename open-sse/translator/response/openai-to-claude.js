@@ -230,15 +230,8 @@ export function openaiToClaudeResponse(chunk, state) {
     }
   }
 
-  // Finish — emitted once. Aggregators (e.g. OpenRouter's terminal usage chunk)
-  // repeat finish_reason; a second pass would re-emit every tool block's
-  // input_json_delta + content_block_stop, which clients accumulate as
-  // duplicated tool_use blocks with concatenated (invalid) JSON args.
-  // Guard field is private to this hop: `finishReasonSent` belongs to the
-  // FIRST hop of a pivot chain (openai-responses→openai sets it when emitting
-  // its finish chunk into this translator) and must not suppress ours.
-  if (choice.finish_reason && !state.claudeFinishSent) {
-    state.claudeFinishSent = true;
+  // Finish
+  if (choice.finish_reason) {
     stopThinkingBlock(state, results);
     stopTextBlock(state, results);
 
@@ -263,29 +256,37 @@ export function openaiToClaudeResponse(chunk, state) {
       }
     }
 
-    if (!state.finishReasonSent) {
-      state.finishReasonSent = true;
+    if (!state.claudeFinishSent) {
+      // Ours, exactly once. `finishReasonSent` belongs to the FIRST hop of a
+      // pivot chain (openai-responses→openai sets it when emitting its finish
+      // chunk into this translator) and must not suppress the client's finish.
+      state.claudeFinishSent = true;
       // Mark finish for later usage injection in stream.js
       state.finishReason = choice.finish_reason;
 
       // Use tracked usage (will be estimated in stream.js if not valid)
       const finalUsage = state.usage || { input_tokens: 0, output_tokens: 0 };
+      state.sentUsageKey = JSON.stringify(finalUsage);
       results.push({
         type: "message_delta",
         delta: { stop_reason: convertFinishReason(choice.finish_reason) },
         usage: finalUsage
       });
       results.push({ type: "message_stop" });
-    } else if (state.usage && !state.messageStopSent) {
-      // Later finish chunk (commonly finish_reason:"stop" carrying usage).
-      // Tool blocks are already closed; emit a usage-only message_delta so the
-      // client still receives final usage without re-opening/duplicating blocks.
-      state.messageStopSent = true;
-      results.push({
-        type: "message_delta",
-        delta: { stop_reason: convertFinishReason(choice.finish_reason) },
-        usage: state.usage
-      });
+    } else if (state.usage) {
+      // Later finish chunk (aggregator terminal usage). Tool blocks are already
+      // closed; forward the usage only when it is NEWER than what was sent, as
+      // a usage-only message_delta — no repeated message_stop, no re-opened
+      // blocks. Same-usage repeats (plain dedup) emit nothing.
+      const usageKey = JSON.stringify(state.usage);
+      if (usageKey !== state.sentUsageKey) {
+        state.sentUsageKey = usageKey;
+        results.push({
+          type: "message_delta",
+          delta: { stop_reason: convertFinishReason(choice.finish_reason) },
+          usage: state.usage
+        });
+      }
     }
   }
 

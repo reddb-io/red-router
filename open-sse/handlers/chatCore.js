@@ -119,7 +119,7 @@ export async function handleChatCore({ body, modelInfo, credentials, log, errorC
   const clientRequestedStreaming = requestedStreaming(body, sourceFormat);
   const providerRequiresStreaming = PROVIDERS[provider]?.forceStream === true;
   // OpenAI and Anthropic specs: `stream` omitted means a JSON response.
-  let stream = providerRequiresStreaming || clientRequestedStreaming;
+  let stream = providerRequiresStreaming ? true : clientRequestedStreaming;
 
   // Image generation models require non-streaming (Google v1internal:generateContent)
   const modelType = getModelType(alias, model);
