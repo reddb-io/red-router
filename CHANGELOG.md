@@ -1,3 +1,27 @@
+# v0.5.0 (2026-09-18)
+
+Ports of ~20 upstream decolua/9router PRs (#3862, #3822, #3997, #3657, #3772, #3779, #3826, #3878, #3885, #3886, #3936, #3980, #4002, #4050, #4058, #4063, #4069, #4079, #4130, #4133).
+
+## Database safety (breaking-safe)
+- **Fail closed** before any schema mutation when the SQLite database is corrupted — startup never replaces newer data with a backup (#3822)
+- **No more silent database wipe** on SQLite corruption, with startup quick_check (#3862)
+- **OAuth**: parse numeric epoch expiresAt so imported connections still refresh (#3997)
+
+## Streams & translator robustness
+- Terminate streams that end without a finish_reason; Ollama NDJSON no longer blocked as non-SSE (VS Code chat streaming fixed) (#4079, #4002, #3980, #4133)
+- commandcode retries transient stream errors instead of emitting fake stop chunks (#4130)
+- Deduplicate/repair repeated tool call arguments on repeated finish chunks (#3779)
+- Recover tool results that arrive without a call id (#3878)
+- Keep Responses tool-output images as images (#4058)
+- Stop emitting literal think tags on Claude → OpenAI (#4063)
+- Preserve optional tool parameters and function-tool strict across Responses/Codex (#4069)
+- Repair trailing assistant prefill instead of dropping it (#3936)
+- Placeholder for binary tool_result blobs instead of raw base64 dumps (#3772)
+- Emit max_completion_tokens for gpt-5/o-series in to-openai builders (#3657)
+- Strip output_config.format for Claude-compatible gateways (#4050)
+- Decloak tool names on claude→claude and same-format OAuth streams (#3826, #3886)
+- Drop the Claude Code diagnostics body field rejected by Anthropic (#3885)
+
 # v0.4.0 (2026-09-17)
 
 Ports of upstream decolua/9router PRs (#3995, #4064, #4068, #4048, #4090, #4110, #4034).
