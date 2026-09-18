@@ -125,7 +125,7 @@ function copyStandaloneBuild(appDir, buildDistDir, cliAppDir) {
 // Under npm the standalone trace bundles them, but under pnpm (symlinked
 // node_modules) the trace misses them and the packaged server dies on boot
 // with MODULE_NOT_FOUND. Copy each from the package store if not traced.
-const REQUIRED_STANDALONE_DEPS = ["@swc/helpers", "@next/env"];
+const REQUIRED_STANDALONE_DEPS = ["@swc/helpers", "@next/env", "react", "react-dom"];
 
 function copyRequiredStandaloneDeps(appDir, cliAppDir) {
   const pnpmDir = path.join(appDir, "node_modules", ".pnpm");
