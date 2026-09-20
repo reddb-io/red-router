@@ -1,5 +1,11 @@
 # @reddb-io/red-router
 
+## 0.9.0
+
+### Minor Changes
+
+- 2625322: Make first-run setup task-first, harden empty-stream recovery, repair capability routing and restore release validation for the app and documentation. Validate JEV releases through a provider cascade instead of requiring the direct TypeSafe API.
+
 ## 0.8.1
 
 ### Patch Changes
