@@ -1,5 +1,11 @@
 # @reddb-io/red-router
 
+## 0.9.1
+
+### Patch Changes
+
+- a275528: Route JEV System One requests through stored OpenRouter credentials using its native Decisions API, with provider fallback and release-smoke coverage.
+
 ## 0.9.0
 
 ### Minor Changes
