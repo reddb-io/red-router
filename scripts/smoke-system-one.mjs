@@ -1,4 +1,9 @@
 import { pathToFileURL } from "node:url";
+import {
+  OPENROUTER_SYSTEM_ONE_ENDPOINT,
+  OPENROUTER_SYSTEM_ONE_MODEL,
+  SYSTEM_ONE_ENDPOINT,
+} from "../open-sse/config/systemOne.js";
 
 const REQUEST_BODY = {
   state: "RedRouter release validation",
@@ -48,10 +53,21 @@ export function buildSystemOneSmokeCandidates(env = process.env) {
   if (typesafeToken) {
     candidates.push(nativeCandidate({
       id: "typesafe",
-      baseUrl: "https://api.typesafe.ai/v1",
+      baseUrl: SYSTEM_ONE_ENDPOINT,
       model: "jev-1.13.0",
       token: typesafeToken,
     }));
+  }
+
+  if (env.OPENROUTER_API_KEY) {
+    candidates.push({
+      id: "openrouter",
+      endpoint: OPENROUTER_SYSTEM_ONE_ENDPOINT,
+      model: OPENROUTER_SYSTEM_ONE_MODEL,
+      token: env.OPENROUTER_API_KEY,
+      headers: {},
+      body: { ...REQUEST_BODY, model: OPENROUTER_SYSTEM_ONE_MODEL },
+    });
   }
 
   const cloudflareToken = env.CLOUDFLARE_API_TOKEN || env.CF_AIG_TOKEN;
