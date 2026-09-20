@@ -12,9 +12,9 @@ const variants = {
 };
 
 const sizes = {
-  sm: "h-7 px-3 text-xs rounded-[8px]",
-  md: "h-9 px-4 text-sm rounded-[10px]",
-  lg: "h-11 px-6 text-sm rounded-[10px]",
+  sm: "min-h-11 px-3 text-xs rounded-md",
+  md: "min-h-11 px-4 text-sm rounded-md",
+  lg: "min-h-12 px-6 text-sm rounded-md",
 };
 
 export default function Button({
@@ -32,8 +32,8 @@ export default function Button({
   return (
     <button
       className={cn(
-        "inline-flex items-center justify-center gap-2 font-semibold transition-all duration-150 ease-out cursor-pointer",
-        "active:scale-[0.97] disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100",
+        "inline-flex items-center justify-center gap-2 font-semibold transition-[background-color,border-color,color,opacity,transform] duration-150 ease-out cursor-pointer",
+        "active:translate-y-px disabled:opacity-50 disabled:cursor-not-allowed disabled:active:translate-y-0",
         variants[variant],
         sizes[size],
         fullWidth && "w-full",

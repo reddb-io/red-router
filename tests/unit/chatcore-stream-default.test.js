@@ -63,7 +63,14 @@ describe("chatCore stream mode when the client omits `stream`", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     const ok = { success: true, response: new Response("{}", { status: 200 }) };
-    executeMock.mockResolvedValue({ response: new Response("{}", { status: 200 }), url: "https://upstream/v1/chat/completions", headers: {} });
+    executeMock.mockImplementation(async ({ stream }) => ({
+      response: new Response(stream ? "data: {\"choices\":[]}\n\n" : "{}", {
+        status: 200,
+        headers: { "content-type": stream ? "text/event-stream" : "application/json" },
+      }),
+      url: "https://upstream/v1/chat/completions",
+      headers: {},
+    }));
     forcedSSEToJsonMock.mockResolvedValue(ok);
     nonStreamingMock.mockResolvedValue(ok);
     streamingMock.mockResolvedValue(ok);
@@ -90,5 +97,28 @@ describe("chatCore stream mode when the client omits `stream`", () => {
     expect(await run("openai", "gpt-4o", {})).toBe(true);
     expect(forcedSSEToJsonMock).toHaveBeenCalledTimes(1);
     expect(streamingMock).not.toHaveBeenCalled();
+  });
+
+  it("preserves provider session identity and client tool across an empty-stream retry", async () => {
+    executeMock
+      .mockResolvedValueOnce({
+        response: new Response("", { status: 200, headers: { "content-type": "text/event-stream" } }),
+        url: "https://upstream/v1/chat/completions",
+        headers: {},
+      })
+      .mockResolvedValueOnce({
+        response: new Response("data: {\"choices\":[]}\n\n", { status: 200, headers: { "content-type": "text/event-stream" } }),
+        url: "https://upstream/v1/chat/completions",
+        headers: {},
+      });
+
+    await run("deepseek", "deepseek-chat", { stream: true }, { "user-agent": "claude-cli" });
+
+    expect(executeMock).toHaveBeenCalledTimes(2);
+    const [initial, retry] = executeMock.mock.calls.map(([options]) => options);
+    expect(initial.clientTool).toBe("claude");
+    expect(retry.clientTool).toBe("claude");
+    expect(initial.providerSessionId).toBeTruthy();
+    expect(retry.providerSessionId).toBe(initial.providerSessionId);
   });
 });

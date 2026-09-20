@@ -27,7 +27,7 @@ export default function Card({
       className={cn(
         "bg-surface border border-border-subtle",
         elev ? "rounded-[14px] shadow-[var(--shadow-elev)]" : "rounded-[14px] shadow-[var(--shadow-soft)]",
-        hover && "hover:shadow-[var(--shadow-warm)] hover:border-brand-500/30 transition-all cursor-pointer",
+        hover && "hover:shadow-[var(--shadow-warm)] hover:border-brand-500/30 transition-[border-color,box-shadow] cursor-pointer",
         paddings[padding],
         className
       )}
@@ -62,8 +62,7 @@ Card.Section = function CardSection({ children, className, ...props }) {
   return (
     <div
       className={cn(
-        "p-4 rounded-[10px]",
-        "bg-bg border border-border-subtle",
+        "py-4 border-t border-border-subtle first:border-t-0",
         className
       )}
       {...props}
@@ -107,7 +106,7 @@ Card.ListItem = function CardListItem({
     >
       <div className="flex-1 min-w-0">{children}</div>
       {actions && (
-        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        <div className="flex items-center gap-1">
           {actions}
         </div>
       )}

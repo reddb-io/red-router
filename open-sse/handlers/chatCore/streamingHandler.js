@@ -130,7 +130,7 @@ export async function handleStreamingResponse({ providerResponse, provider, mode
     ? buildAbortedResponsesTerminalBytes
     : (transformStream.abortTerminalBytes || null);
   const stallTimeoutMs = PROVIDERS[provider]?.stallTimeoutMs || STREAM_STALL_TIMEOUT_MS;
-  const transformedBody = pipeWithDisconnect(streamSource, transformStream, streamController, onAbortTerminal, stallTimeoutMs);
+  const transformedBody = pipeWithDisconnect({ providerResponse: streamSource, transformStream, streamController, onAbortTerminal, stallTimeoutMs });
 
   saveRequestDetail(buildRequestDetail({
     provider, model, connectionId, apiKey,

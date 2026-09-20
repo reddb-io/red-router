@@ -21,10 +21,13 @@ on:
         required: true
 
 permissions:
-  contents: read
+  contents: write
+
+env:
+  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
 
 concurrency:
-  group: red-publish-${{ github.ref }}
+  group: red-publish-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -37,6 +40,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -58,7 +63,27 @@ jobs:
       - name: Boot smoke test
         run: node cli/scripts/smoke-server.js
 
+      - name: Real TypeSafe AI System One smoke
+        run: pnpm smoke:system-one
+        env:
+          TYPESAFE_AI_API_KEY: ${{ secrets.TYPESAFE_AI_API_KEY }}
+
+      - name: Verify tag matches package
+        run: node -e "const version=require('./cli/package.json').version; if (process.env.RELEASE_TAG !== 'v' + version) throw new Error('tag/package mismatch')"
+
+      - name: Pack release artifact
+        run: |
+          mkdir -p release-artifacts
+          pnpm --dir cli pack --pack-destination ../release-artifacts
+          cd release-artifacts
+          sha256sum *.tgz > SHA256SUMS
+
       - name: Publish to npm
         run: pnpm --dir cli publish --access public --no-git-checks
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Create GitHub release
+        run: gh release create "$RELEASE_TAG" release-artifacts/* --verify-tag --generate-notes --title "$RELEASE_TAG"
+        env:
+          GH_TOKEN: ${{ github.token }}

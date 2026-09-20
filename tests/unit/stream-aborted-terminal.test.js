@@ -162,7 +162,13 @@ function resettingBody(chunks = [CONTENT]) {
 const passthroughWithAbortTerminal = (chunks) => {
   const ts = createPassthroughStreamWithLogger("deepseek", null, "deepseek-flash", null, { messages: [] }, null, null, FORMATS.OPENAI);
   const response = new Response(resettingBody(chunks), { status: 200 });
-  return read(pipeWithDisconnect(response, ts, fakeController(), ts.abortTerminalBytes || null, 60_000));
+  return read(pipeWithDisconnect({
+    providerResponse: response,
+    transformStream: ts,
+    streamController: fakeController(),
+    onAbortTerminal: ts.abortTerminalBytes || null,
+    stallTimeoutMs: 60_000,
+  }));
 };
 
 describe("aborted OpenAI stream: mid-stream transport error", () => {
