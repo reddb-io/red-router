@@ -103,6 +103,7 @@ Important compatibility routes:
 - `src/app/api/v1/chat/completions/route.js`
 - `src/app/api/v1/messages/route.js`
 - `src/app/api/v1/responses/route.js`
+- `src/app/api/v1/systemone/route.js` (native TypeSafe AI/JEV contract; no chat translation)
 - `src/app/api/v1/models/route.js`
 - `src/app/api/v1/messages/count_tokens/route.js`
 - `src/app/api/v1beta/models/route.js`

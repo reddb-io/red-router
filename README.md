@@ -97,7 +97,28 @@ One endpoint, your client's dialect:
 | Claude | `POST /v1/messages` |
 | Media | `/v1/images` · `/v1/audio` · `/v1/embeddings` · `/v1/videos` |
 | Web | `/v1/search` · `/v1/fetch` |
+| TypeSafe AI / JEV | `POST /v1/systemone` (native `state` + `questions` contract) |
 | Catalog | `GET /v1/models` · `GET /v1/models/info?id=…` · `GET /v1/models/{image,tts,stt,embedding,web}` |
+
+JEV requests keep the native TypeSafe AI shape; RedRouter only selects the
+configured TypeSafe AI account, applies account fallback and records returned
+token usage:
+
+```bash
+curl http://localhost:25050/v1/systemone \
+  -H "Authorization: Bearer $RED_ROUTER_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "state": "Production is down; restore service now.",
+    "model": "jev-latest",
+    "questions": {
+      "urgency": {
+        "type": "noul",
+        "instructions": "Does this express urgency?"
+      }
+    }
+  }'
+```
 
 ## 📚 Docs
 

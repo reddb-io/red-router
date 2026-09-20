@@ -24,7 +24,7 @@ const MEDIA_KEYS = new Set([
   "serviceKinds", "ttsConfig", "sttConfig", "embeddingConfig",
   "imageConfig", "imageToTextConfig", "videoConfig", "musicConfig",
   "searchViaChat", "searchConfig", "fetchConfig",
-  "modelsFetcher", "mediaPriority", "hiddenKinds",
+  "systemOneConfig", "modelsFetcher", "mediaPriority", "hiddenKinds",
 ]);
 
 export const PROVIDERS = {};
