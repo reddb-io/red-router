@@ -1,5 +1,6 @@
 import {
   SYSTEM_ONE_DEFAULT_MODEL,
+  SYSTEM_ONE_MODEL_MAP,
   SYSTEM_ONE_ENDPOINT,
   SYSTEM_ONE_MODELS,
   SYSTEM_ONE_MODELS_ENDPOINT,
@@ -30,6 +31,8 @@ const typesafeAi = {
     baseUrl: SYSTEM_ONE_ENDPOINT,
     validateUrl: SYSTEM_ONE_MODELS_ENDPOINT,
     defaultModel: SYSTEM_ONE_DEFAULT_MODEL,
+    modelMap: SYSTEM_ONE_MODEL_MAP,
+    passthroughModels: true,
     contextWindow: 64000,
     maxStateAndQuestionTokens: 32000,
   },

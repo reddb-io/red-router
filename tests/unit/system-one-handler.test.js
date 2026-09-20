@@ -28,7 +28,7 @@ vi.mock("@/sse/utils/logger.js", () => ({
 
 const { handleSystemOne } = await import("../../src/sse/handlers/systemOne.js");
 
-function makeRequest() {
+function makeRequest(model = "jev/jev-latest") {
   return new Request("http://router.test/v1/systemone", {
     method: "POST",
     headers: {
@@ -38,7 +38,7 @@ function makeRequest() {
     },
     body: JSON.stringify({
       state: "Ship the incident fix now",
-      model: "jev/jev-latest",
+      model,
       questions: { urgency: { type: "noul", instructions: "Is it urgent?" } },
     }),
   });
@@ -96,6 +96,50 @@ describe("System One app handler", () => {
     }));
   });
 
+  it("falls through missing TypeSafe credentials to a stored OpenRouter connection", async () => {
+    mocks.getProviderCredentials
+      .mockResolvedValueOnce({
+        noActiveCredentials: true,
+        candidate: { status: 503, message: "No TypeSafe credentials" },
+      })
+      .mockResolvedValueOnce({
+        apiKey: "stored-openrouter-key",
+        connectionId: "openrouter-connection",
+        connectionName: "OpenRouter production",
+        providerSpecificData: {},
+      });
+
+    const response = await handleSystemOne(makeRequest());
+
+    expect(response.status).toBe(200);
+    expect(mocks.getProviderCredentials).toHaveBeenNthCalledWith(
+      2,
+      "openrouter",
+      expect.any(Set),
+      "typesafe/jev-1.13",
+      { apiKey: "router-client-key", preferredConnectionId: "typesafe-connection" },
+    );
+    expect(mocks.handleSystemOneCore).toHaveBeenCalledWith(expect.objectContaining({
+      providerId: "openrouter",
+      credentials: expect.objectContaining({ apiKey: "stored-openrouter-key" }),
+    }));
+  });
+
+  it("routes an explicit OpenRouter JEV catalog model there first", async () => {
+    await handleSystemOne(makeRequest("openrouter/typesafe/jev-1.13"));
+
+    expect(mocks.getProviderCredentials).toHaveBeenCalledWith(
+      "openrouter",
+      expect.any(Set),
+      "typesafe/jev-1.13",
+      expect.any(Object),
+    );
+    expect(mocks.handleSystemOneCore).toHaveBeenCalledWith(expect.objectContaining({
+      providerId: "openrouter",
+      body: expect.objectContaining({ model: "jev-1.13" }),
+    }));
+  });
+
   it("returns the last native 429 response after exhausting account fallback", async () => {
     const upstreamBody = { error: { message: "rate limited" } };
     mocks.handleSystemOneCore.mockResolvedValueOnce({
@@ -116,6 +160,10 @@ describe("System One app handler", () => {
       .mockResolvedValueOnce({
         allRateLimited: true,
         candidate: { status: 429, message: "locked", provider: "typesafe-ai", model: "jev-latest" },
+      })
+      .mockResolvedValueOnce({
+        noActiveCredentials: true,
+        candidate: { status: 503, message: "No OpenRouter credentials", provider: "openrouter", model: "typesafe/jev-1.13" },
       });
 
     const response = await handleSystemOne(makeRequest());

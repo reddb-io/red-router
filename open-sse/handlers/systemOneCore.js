@@ -3,6 +3,7 @@ import {
   SYSTEM_ONE_DEFAULT_MODEL,
   SYSTEM_ONE_MODEL_PREFIXES,
   SYSTEM_ONE_PROVIDER_ID,
+  SYSTEM_ONE_PROVIDER_IDS,
 } from "../config/systemOne.js";
 import { PROVIDER_MEDIA } from "../providers/index.js";
 import { proxyAwareFetch } from "../utils/proxyFetch.js";
@@ -35,6 +36,13 @@ export function normalizeSystemOneModel(value) {
   return /^jev-[A-Za-z0-9][A-Za-z0-9._-]*$/.test(model) ? model : null;
 }
 
+export function getSystemOneProviderOrder(value) {
+  if (typeof value !== "string" || !value.trim().startsWith("openrouter/")) {
+    return [...SYSTEM_ONE_PROVIDER_IDS];
+  }
+  return ["openrouter", ...SYSTEM_ONE_PROVIDER_IDS.filter((providerId) => providerId !== "openrouter")];
+}
+
 export function validateSystemOneRequest(body) {
   if (!jsonObject(body)) return "Request body must be a JSON object";
   if (!Object.hasOwn(body, "state")) return "Missing required field: state";
@@ -59,9 +67,9 @@ function copyResponseHeaders(source) {
   return headers;
 }
 
-async function responseMetadata(response) {
+async function responseMetadata(response, providerId) {
   let payload = null;
-  let error = `TypeSafe AI returned ${response.status}`;
+  let error = `${providerId} returned ${response.status}`;
   try {
     payload = await response.clone().json();
     error = payload?.error?.message || payload?.message || error;
@@ -74,17 +82,27 @@ async function responseMetadata(response) {
 
   return {
     usage: response.ok && jsonObject(payload?.usage) ? payload.usage : null,
-    error: sanitizePublicMessage(error, `TypeSafe AI returned ${response.status}`),
+    error: sanitizePublicMessage(error, `${providerId} returned ${response.status}`),
   };
 }
 
+export function resolveSystemOneProviderModel(providerId, model) {
+  const normalized = normalizeSystemOneModel(model);
+  if (!normalized) return null;
+  const config = PROVIDER_MEDIA[providerId]?.systemOneConfig;
+  if (!config?.baseUrl) return null;
+  if (!config.modelMap) return normalized;
+  return config.modelMap[normalized] || (config.passthroughModels ? normalized : null);
+}
+
 /**
- * Proxy one native TypeSafe AI System One request. No chat translation is
+ * Proxy one native System One request. No chat translation is
  * involved: state/questions and provider response shapes stay intact.
  */
 export async function handleSystemOneCore({
   body,
   credentials,
+  providerId = SYSTEM_ONE_PROVIDER_ID,
   signal,
   proxyOptions = null,
   fetchImpl = proxyAwareFetch,
@@ -101,17 +119,23 @@ export async function handleSystemOneCore({
 
   const token = credentials?.apiKey || credentials?.accessToken;
   if (!token) {
-    const message = `No credentials for provider: ${SYSTEM_ONE_PROVIDER_ID}`;
+    const message = `No credentials for provider: ${providerId}`;
     return { success: false, status: 401, error: message, response: errorResponse(401, message) };
   }
 
-  const config = PROVIDER_MEDIA[SYSTEM_ONE_PROVIDER_ID]?.systemOneConfig;
+  const config = PROVIDER_MEDIA[providerId]?.systemOneConfig;
   if (!config?.baseUrl) {
-    const message = "TypeSafe AI System One endpoint is not configured";
+    const message = `System One endpoint is not configured for provider: ${providerId}`;
     return { success: false, status: 500, error: message, response: errorResponse(500, message) };
   }
 
-  const upstreamBody = { ...body, model: normalizeSystemOneModel(body.model) };
+  const providerModel = resolveSystemOneProviderModel(providerId, body.model);
+  if (!providerModel) {
+    const message = `JEV model is not available through provider: ${providerId}`;
+    return { success: false, status: 422, error: message, response: errorResponse(422, message) };
+  }
+
+  const upstreamBody = { ...body, model: providerModel };
   const connectController = new AbortController();
   const timer = setTimeout(
     () => connectController.abort(new Error("fetch connect timeout")),
@@ -128,13 +152,14 @@ export async function handleSystemOneCore({
         Authorization: `Bearer ${token}`,
         "Content-Type": "application/json",
         Accept: "application/json",
+        ...(config.headers || {}),
       },
       body: JSON.stringify(upstreamBody),
       signal: mergedSignal,
     }, proxyOptions);
     clearTimeout(timer);
 
-    const { usage, error } = await responseMetadata(upstream);
+    const { usage, error } = await responseMetadata(upstream, providerId);
     const response = new Response(upstream.body, {
       status: upstream.status,
       statusText: upstream.statusText,
@@ -152,12 +177,13 @@ export async function handleSystemOneCore({
   } catch (cause) {
     clearTimeout(timer);
     if (signal?.aborted && cause?.name === "AbortError") throw cause;
-    const message = sanitizePublicMessage(cause?.message, "TypeSafe AI request failed");
+    const fallbackMessage = `${providerId} System One request failed`;
+    const message = sanitizePublicMessage(cause?.message, fallbackMessage);
     return {
       success: false,
       status: 502,
       error: message,
-      response: errorResponse(502, "TypeSafe AI request failed"),
+      response: errorResponse(502, fallbackMessage),
     };
   }
 }

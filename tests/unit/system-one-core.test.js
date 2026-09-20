@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  getSystemOneProviderOrder,
   handleSystemOneCore,
   normalizeSystemOneModel,
   validateSystemOneRequest,
@@ -16,15 +17,23 @@ const requestBody = {
   },
 };
 
-describe("TypeSafe AI System One core", () => {
+describe("System One core", () => {
   it.each([
     [undefined, "jev-latest"],
     ["jev-latest", "jev-latest"],
     ["jev/jev-preview", "jev-preview"],
     ["typesafe/jev-1.13.0", "jev-1.13.0"],
     ["typesafe-ai/jev-next", "jev-next"],
+    ["openrouter/typesafe/jev-1.13", "jev-1.13"],
   ])("normalizes model %s", (input, expected) => {
     expect(normalizeSystemOneModel(input)).toBe(expected);
+  });
+
+  it("prefers OpenRouter when its fully-qualified catalog model is requested", () => {
+    expect(getSystemOneProviderOrder("openrouter/typesafe/jev-1.13")).toEqual([
+      "openrouter",
+      "typesafe-ai",
+    ]);
   });
 
   it("rejects chat and non-JEV model identifiers", () => {
@@ -53,6 +62,30 @@ describe("TypeSafe AI System One core", () => {
     expect(options.headers.Authorization).toBe("Bearer stored-typesafe-secret");
     expect(JSON.parse(options.body)).toEqual({ ...requestBody, model: "jev-latest" });
     expect((await result.response.json()).answers.urgency.noul).toBe(0.92);
+  });
+
+  it("routes OpenRouter credentials through the native Decisions API", async () => {
+    const fetchImpl = vi.fn(async () => Response.json({
+      model: "typesafe/jev-1.13",
+      answers: { urgency: { type: "noul", noul: 0.88 } },
+      usage: { input_tokens: 220, output_tokens: 0 },
+    }));
+
+    const result = await handleSystemOneCore({
+      body: { ...requestBody, model: "jev-1.13.0" },
+      providerId: "openrouter",
+      credentials: { apiKey: "stored-openrouter-secret" },
+      fetchImpl,
+    });
+
+    expect(result.success).toBe(true);
+    const [url, options] = fetchImpl.mock.calls[0];
+    expect(url).toBe("https://openrouter.ai/api/alpha/decisions");
+    expect(options.headers.Authorization).toBe("Bearer stored-openrouter-secret");
+    expect(JSON.parse(options.body)).toEqual({
+      ...requestBody,
+      model: "typesafe/jev-1.13",
+    });
   });
 
   it.each([422, 429, 529])("preserves upstream %i bodies and Retry-After", async (status) => {

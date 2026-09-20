@@ -7,8 +7,13 @@ import {
 } from "../services/auth.js";
 import { getSettings } from "@/lib/localDb";
 import { saveRequestUsage } from "@/lib/usageDb.js";
-import { handleSystemOneCore, normalizeSystemOneModel, validateSystemOneRequest } from "open-sse/handlers/systemOneCore.js";
-import { SYSTEM_ONE_PROVIDER_ID } from "open-sse/config/systemOne.js";
+import {
+  handleSystemOneCore,
+  getSystemOneProviderOrder,
+  normalizeSystemOneModel,
+  resolveSystemOneProviderModel,
+  validateSystemOneRequest,
+} from "open-sse/handlers/systemOneCore.js";
 import { errorResponse, responseFromRoutingCandidate } from "open-sse/utils/error.js";
 import * as log from "../utils/logger.js";
 
@@ -47,63 +52,73 @@ export async function handleSystemOne(request) {
   }
 
   const preferredConnectionId = request.headers.get("x-connection-id") || null;
-  const excluded = new Set();
   let lastUpstreamResponse = null;
+  let lastRoutingCandidate = null;
 
-  while (true) {
-    const credentials = await getProviderCredentials(
-      SYSTEM_ONE_PROVIDER_ID,
-      excluded,
-      model,
-      { apiKey: clientApiKey, preferredConnectionId },
-    );
+  for (const providerId of getSystemOneProviderOrder(body.model)) {
+    const providerModel = resolveSystemOneProviderModel(providerId, model);
+    if (!providerModel) continue;
+    const excluded = new Set();
 
-    if (credentials?.noActiveCredentials || credentials?.allRateLimited) {
-      return lastUpstreamResponse || responseFromRoutingCandidate(credentials.candidate);
-    }
+    while (true) {
+      const credentials = await getProviderCredentials(
+        providerId,
+        excluded,
+        providerModel,
+        { apiKey: clientApiKey, preferredConnectionId },
+      );
 
-    log.info("AUTH", `Using ${SYSTEM_ONE_PROVIDER_ID} account: ${credentials.connectionName}`);
-    const providerData = credentials.providerSpecificData || {};
-    const result = await handleSystemOneCore({
-      body: { ...body, model },
-      credentials,
-      signal: request.signal,
-      proxyOptions: {
-        connectionProxyEnabled: providerData.connectionProxyEnabled === true,
-        connectionProxyUrl: providerData.connectionProxyUrl || "",
-        connectionNoProxy: providerData.connectionNoProxy || "",
-        vercelRelayUrl: providerData.vercelRelayUrl || "",
-      },
-    });
-
-    if (result.success) {
-      await clearAccountError(credentials.connectionId, credentials, model);
-      const tokens = exactSystemOneUsage(result.usage);
-      if (tokens) {
-        saveRequestUsage({
-          provider: SYSTEM_ONE_PROVIDER_ID,
-          model,
-          connectionId: credentials.connectionId,
-          apiKey: clientApiKey,
-          endpoint: url.pathname,
-          tokens,
-          status: "success",
-        }).catch(() => {});
+      if (credentials?.noActiveCredentials || credentials?.allRateLimited) {
+        lastRoutingCandidate = credentials.candidate || lastRoutingCandidate;
+        break;
       }
-      return result.response;
+
+      log.info("AUTH", `Using ${providerId} account: ${credentials.connectionName}`);
+      const providerData = credentials.providerSpecificData || {};
+      const result = await handleSystemOneCore({
+        body: { ...body, model },
+        credentials,
+        providerId,
+        signal: request.signal,
+        proxyOptions: {
+          connectionProxyEnabled: providerData.connectionProxyEnabled === true,
+          connectionProxyUrl: providerData.connectionProxyUrl || "",
+          connectionNoProxy: providerData.connectionNoProxy || "",
+          vercelRelayUrl: providerData.vercelRelayUrl || "",
+        },
+      });
+
+      if (result.success) {
+        await clearAccountError(credentials.connectionId, credentials, providerModel);
+        const tokens = exactSystemOneUsage(result.usage);
+        if (tokens) {
+          saveRequestUsage({
+            provider: providerId,
+            model: providerModel,
+            connectionId: credentials.connectionId,
+            apiKey: clientApiKey,
+            endpoint: url.pathname,
+            tokens,
+            status: "success",
+          }).catch(() => {});
+        }
+        return result.response;
+      }
+
+      const { shouldFallback } = await markAccountUnavailable(
+        credentials.connectionId,
+        result.status,
+        result.error,
+        providerId,
+        providerModel,
+        result.resetsAtMs,
+      );
+
+      lastUpstreamResponse = result.response;
+      if (!shouldFallback) break;
+      excluded.add(credentials.connectionId);
     }
-
-    const { shouldFallback } = await markAccountUnavailable(
-      credentials.connectionId,
-      result.status,
-      result.error,
-      SYSTEM_ONE_PROVIDER_ID,
-      model,
-      result.resetsAtMs,
-    );
-
-    if (!shouldFallback) return result.response;
-    lastUpstreamResponse = result.response;
-    excluded.add(credentials.connectionId);
   }
+
+  return lastUpstreamResponse || responseFromRoutingCandidate(lastRoutingCandidate);
 }
