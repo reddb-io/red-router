@@ -28,12 +28,12 @@ jobs:
       - name: Install application dependencies
         run: pnpm install --frozen-lockfile
       - name: Install test dependencies
-        run: npm install --prefix tests --no-audit --no-fund
+        run: pnpm --dir tests install --ignore-workspace --lockfile=false
       - name: Prepare clean main baseline
         run: |
           git worktree add --detach ../red-router-base "${{ github.event.pull_request.base.sha }}"
           pnpm --dir ../red-router-base install --frozen-lockfile
-          npm install --prefix ../red-router-base/tests --no-audit --no-fund
+          pnpm --dir ../red-router-base/tests install --ignore-workspace --lockfile=false
       - name: Lint changed subsystems
         run: pnpm exec eslint open-sse/handlers/chatCore.js open-sse/handlers/chatCore/streamResponse.js open-sse/handlers/chatCore/streamingHandler.js open-sse/services/combo.js src/app src/shared/components gitbook/components/LanguageSwitcher.js
       - name: Run main baseline suite
