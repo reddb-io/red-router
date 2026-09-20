@@ -171,6 +171,19 @@ const passthroughWithAbortTerminal = (chunks) => {
   }));
 };
 
+const passthroughWithReconnect = (chunks, reconnect) => {
+  const ts = createPassthroughStreamWithLogger("deepseek", null, "deepseek-flash", null, { messages: [] }, null, null, FORMATS.OPENAI);
+  const response = new Response(resettingBody(chunks), { status: 200 });
+  return read(pipeWithDisconnect({
+    providerResponse: response,
+    transformStream: ts,
+    streamController: fakeController(),
+    onAbortTerminal: ts.abortTerminalBytes || null,
+    stallTimeoutMs: 60_000,
+    reconnect,
+  }));
+};
+
 describe("aborted OpenAI stream: mid-stream transport error", () => {
   it("still synthesizes a terminal after partial content", async () => {
     const parsed = frames(await passthroughWithAbortTerminal());
@@ -180,6 +193,41 @@ describe("aborted OpenAI stream: mid-stream transport error", () => {
 
   it("synthesizes a terminal when the reset happens before any frame", async () => {
     const parsed = frames(await passthroughWithAbortTerminal([]));
+    expect(finishReasons(parsed)).toEqual(["network_error"]);
+    expect(doneCount(parsed)).toBe(1);
+  });
+
+  it("reconnects when the reset happens before the first byte", async () => {
+    let reconnects = 0;
+    const parsed = frames(await passthroughWithReconnect([], async () => {
+      reconnects++;
+      return new Response(body([CONTENT, FINISH, "data: [DONE]\n\n"]), { status: 200 });
+    }));
+
+    expect(reconnects).toBe(1);
+    expect(finishReasons(parsed)).toEqual(["stop"]);
+    expect(doneCount(parsed)).toBe(1);
+  });
+
+  it("does not reconnect after forwarding a byte", async () => {
+    let reconnects = 0;
+    const parsed = frames(await passthroughWithReconnect([CONTENT], async () => {
+      reconnects++;
+      return new Response(body([FINISH]), { status: 200 });
+    }));
+
+    expect(reconnects).toBe(0);
+    expect(finishReasons(parsed)).toEqual(["network_error"]);
+  });
+
+  it("stops after three empty-stream reconnect attempts", async () => {
+    let reconnects = 0;
+    const parsed = frames(await passthroughWithReconnect([], async () => {
+      reconnects++;
+      throw new Error("connection reset by server");
+    }));
+
+    expect(reconnects).toBe(3);
     expect(finishReasons(parsed)).toEqual(["network_error"]);
     expect(doneCount(parsed)).toBe(1);
   });

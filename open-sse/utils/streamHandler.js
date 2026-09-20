@@ -2,6 +2,8 @@
 import { STREAM_STALL_TIMEOUT_MS } from "../config/runtimeConfig.js";
 import { dbg, isDebugEnabled } from "./debugLog.js";
 
+export const EMPTY_STREAM_MAX_RECONNECTS = 3;
+
 // Get HH:MM:SS timestamp
 function getTimeString() {
   return new Date().toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
@@ -144,6 +146,7 @@ export function createDisconnectAwareStream(transformStream, streamController, o
           error.name === "AbortError" ||
           msg.includes("aborted") ||
           msg.includes("socket hang up") ||
+          msg.toLowerCase().includes("connection reset") ||
           msg.includes("ECONNRESET") ||
           msg.includes("ETIMEDOUT") ||
           msg.includes("EPIPE") ||
@@ -188,8 +191,9 @@ export function createDisconnectAwareStream(transformStream, streamController, o
  * @param {Response} providerResponse - Response from provider
  * @param {TransformStream} transformStream - Transform stream for SSE
  * @param {object} streamController - Stream controller from createStreamController
+ * @param {function|null} reconnect - Opens another provider response before any byte was forwarded
  */
-export function pipeWithDisconnect({ providerResponse, transformStream, streamController, onAbortTerminal = null, stallTimeoutMs = STREAM_STALL_TIMEOUT_MS }) {
+export function pipeWithDisconnect({ providerResponse, transformStream, streamController, onAbortTerminal = null, stallTimeoutMs = STREAM_STALL_TIMEOUT_MS, reconnect = null }) {
   let stallTimer = null;
   let chunkCount = 0;
   let totalBytes = 0;
@@ -242,7 +246,7 @@ export function pipeWithDisconnect({ providerResponse, transformStream, streamCo
     flush() { dbg(tag, `upstream EOF | chunks=${chunkCount} | bytes=${totalBytes} | dur=${Date.now() - t0}ms`); clearStall(); }
   });
 
-  const transformedBody = providerResponse.body
+  const transformedBody = reconnectBeforeFirstByte(providerResponse, reconnect)
     .pipeThrough(upstreamTap)
     .pipeThrough(transformStream);
 
@@ -251,4 +255,49 @@ export function pipeWithDisconnect({ providerResponse, transformStream, streamCo
     wrappedController,
     onAbortTerminal
   );
+}
+function reconnectBeforeFirstByte(providerResponse, reconnect) {
+  if (!reconnect) return providerResponse.body;
+  let reader = providerResponse.body.getReader();
+  let retries = 0;
+  let forwarded = false;
+
+  return new ReadableStream({
+    async pull(controller) {
+      for (;;) {
+        try {
+          const { done, value } = await reader.read();
+          if (!done) {
+            forwarded = true;
+            controller.enqueue(value);
+            return;
+          }
+          if (forwarded || retries >= EMPTY_STREAM_MAX_RECONNECTS) {
+            controller.close();
+            return;
+          }
+        } catch (error) {
+          if (forwarded || retries >= EMPTY_STREAM_MAX_RECONNECTS) {
+            controller.error(error);
+            return;
+          }
+        }
+
+        retries++;
+        try {
+          const response = await reconnect(retries);
+          if (!response?.ok || !response.body) throw new Error(`stream reconnect returned ${response?.status || "no response"}`);
+          reader = response.body.getReader();
+        } catch (error) {
+          if (retries >= EMPTY_STREAM_MAX_RECONNECTS) {
+            controller.error(error);
+            return;
+          }
+        }
+      }
+    },
+    cancel(reason) {
+      return reader.cancel(reason);
+    },
+  });
 }
