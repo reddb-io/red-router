@@ -63,10 +63,20 @@ jobs:
       - name: Boot smoke test
         run: node cli/scripts/smoke-server.js
 
-      - name: Real TypeSafe AI System One smoke
+      - name: Real JEV System One smoke
         run: pnpm smoke:system-one
         env:
+          SYSTEM_ONE_SMOKE_PROVIDER: ${{ vars.SYSTEM_ONE_SMOKE_PROVIDER }}
+          SYSTEM_ONE_SMOKE_BASE_URL: ${{ vars.SYSTEM_ONE_SMOKE_BASE_URL }}
+          SYSTEM_ONE_SMOKE_MODEL: ${{ vars.SYSTEM_ONE_SMOKE_MODEL }}
+          SYSTEM_ONE_SMOKE_API_KEY: ${{ secrets.SYSTEM_ONE_SMOKE_API_KEY }}
           TYPESAFE_AI_API_KEY: ${{ secrets.TYPESAFE_AI_API_KEY }}
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_GATEWAY_ID: ${{ vars.CLOUDFLARE_GATEWAY_ID }}
+          VIVGRID_API_KEY: ${{ secrets.VIVGRID_API_KEY }}
+          NANO_GPT_API_KEY: ${{ secrets.NANO_GPT_API_KEY }}
 
       - name: Verify tag matches package
         run: node -e "const version=require('./cli/package.json').version; if (process.env.RELEASE_TAG !== 'v' + version) throw new Error('tag/package mismatch')"
