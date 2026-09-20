@@ -1,5 +1,11 @@
 # @reddb-io/red-router
 
+## 0.8.1
+
+### Patch Changes
+
+- d0f746e: Expose native System One model discovery through `/v1/models/systemone` and classify System One catalog entries separately from generative chat models for Redcode role setup.
+
 ## 0.8.0
 
 ### Minor Changes
