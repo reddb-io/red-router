@@ -9,6 +9,7 @@ const KIND_SLUG_MAP = {
   "embedding": ["embedding"],
   "image-to-text": ["imageToText"],
   "web": ["webSearch", "webFetch"],
+  "systemone": ["systemOne"],
 };
 
 const LLM_KIND = "llm";

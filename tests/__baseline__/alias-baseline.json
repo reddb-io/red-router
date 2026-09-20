@@ -116,7 +116,10 @@
     "devin": "devin",
     "devin-cli": "devin-cli",
     "morph": "morph",
-    "morphllm": "morph"
+    "morphllm": "morph",
+    "jev": "typesafe-ai",
+    "typesafe": "typesafe-ai",
+    "typesafe-ai": "typesafe-ai"
   },
   "idToAlias": {
     "alicode": "alicode",
@@ -290,6 +293,7 @@
     "stability-ai",
     "together",
     "tokenrouter",
+    "typesafe-ai",
     "venice",
     "vertex",
     "vertex-partner",

@@ -1,3 +1,8 @@
+# Unreleased
+
+## Features
+- **TypeSafe AI / JEV**: add the native `POST /v1/systemone` endpoint with stored API-key routing, multi-account fallback, proxy support, exact upstream response/error propagation, usage tracking and non-consuming `/v1/models` connection checks.
+
 # v0.4.0 (2026-09-18)
 
 Port of the PentatonicDev/9router fork (32 product commits; the fork's own CI workflows excluded).

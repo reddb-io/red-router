@@ -160,6 +160,7 @@ const MODEL_TYPE_TO_KIND = {
   stt: "stt",
   imageToText: "imageToText",
   video: "video",
+  systemOne: "systemOne",
 };
 
 function modelKind(model) {

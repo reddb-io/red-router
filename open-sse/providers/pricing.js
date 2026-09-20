@@ -157,6 +157,10 @@ export const MODEL_PRICING = {
   "gpt-oss-120b-medium":          { input: 0.50,  output: 2.00,  cached: 0.25,  reasoning: 3.00,   cache_creation: 0.50  },
   "vision-model":                 { input: 1.50,  output: 6.00,  cached: 0.75,  reasoning: 9.00,   cache_creation: 1.50  },
   "coder-model":                  { input: 1.50,  output: 6.00,  cached: 0.75,  reasoning: 9.00,   cache_creation: 1.50  },
+  // TypeSafe AI bills JEV input only; output tokens are currently free.
+  "jev-latest":                   { input: 0.042, output: 0.00 },
+  "jev-preview":                  { input: 0.042, output: 0.00 },
+  "jev-1.13.0":                   { input: 0.042, output: 0.00 },
 };
 
 /**

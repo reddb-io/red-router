@@ -56,6 +56,14 @@ describe("GET /v1/models/{id}", () => {
     expect(mocks.buildModelsList).toHaveBeenCalledWith(["image"], { apiKey: null });
   });
 
+  it("discovers native System One models with the client key and no chat translation", async () => {
+    const evaluator = { id: "jev/jev-1.13.0", object: "model", owned_by: "jev" };
+    mocks.buildModelsList.mockResolvedValue([evaluator]);
+    const response = await GET(new Request("https://router.test/v1/models/systemone", { headers: { Authorization: "Bearer test-client-key" } }), params(["systemone"]));
+    expect(await response.json()).toEqual({ object: "list", data: [evaluator] });
+    expect(mocks.buildModelsList).toHaveBeenCalledWith(["systemOne"], { apiKey: "test-client-key" });
+  });
+
   it("returns an OpenAI-style model_not_found response for an unknown model", async () => {
     mocks.buildModelsList.mockResolvedValue([chatModel]);
 
