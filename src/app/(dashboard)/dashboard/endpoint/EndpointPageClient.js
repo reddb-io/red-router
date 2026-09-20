@@ -816,6 +816,15 @@ export default function APIPageClient({ machineId }) {
             copied={copied}
             onCopy={copy}
           />
+        </div>
+
+        <details className="mt-5 border-t border-border-subtle pt-4">
+          <summary className="flex min-h-11 items-center justify-between gap-3 text-sm font-medium text-text-main">
+            <span><span className="material-symbols-outlined mr-2 align-middle text-[18px] text-text-muted">public</span>Advanced exposure</span>
+            <span className="text-xs font-normal text-text-muted">Cloudflare, Tailscale and dashboard access</span>
+          </summary>
+          <div className="pt-4">
+          <div className="flex flex-col gap-2">
           {/* Cloudflare Tunnel — exposing the instance publicly is an admin action */}
           {isAdmin && (<>
           <div className="flex items-center gap-2">
@@ -994,7 +1003,7 @@ export default function APIPageClient({ machineId }) {
             )}
           </div>
           </>)}
-        </div>
+          </div>
 
         {/* Pre-enable security gate banner */}
         {isLoginUnsafe && !tunnelEnabled && !tsEnabled && (
@@ -1044,10 +1053,12 @@ export default function APIPageClient({ machineId }) {
             </div>
           </div>
         )}
+          </div>
+        </details>
       </Card>
 
       {/* API Keys */}
-      <Card id="require-api-key">
+      <Card id="api-keys">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold flex items-center gap-2">
             <span className="material-symbols-outlined text-primary">vpn_key</span>
@@ -1089,7 +1100,7 @@ export default function APIPageClient({ machineId }) {
           </div>
         </div>
 
-        <div className="flex items-center justify-between pb-4 mb-4 border-b border-border">
+        <div id="require-api-key" className="flex items-center justify-between pb-4 mb-4 border-b border-border">
           <div>
             <p className="font-medium">Require API key</p>
             <p className="text-sm text-text-muted">

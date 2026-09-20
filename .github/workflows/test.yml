@@ -1,0 +1,52 @@
+name: RedRouter gates
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: red-router-gates-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Install application dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Install test dependencies
+        run: npm install --prefix tests --no-audit --no-fund
+      - name: Prepare clean main baseline
+        run: |
+          git worktree add --detach ../red-router-base "${{ github.event.pull_request.base.sha }}"
+          pnpm --dir ../red-router-base install --frozen-lockfile
+          npm install --prefix ../red-router-base/tests --no-audit --no-fund
+      - name: Lint changed subsystems
+        run: pnpm exec eslint open-sse/handlers/chatCore.js open-sse/handlers/chatCore/streamResponse.js open-sse/handlers/chatCore/streamingHandler.js open-sse/services/combo.js src/app src/shared/components gitbook/components/LanguageSwitcher.js
+      - name: Run main baseline suite
+        continue-on-error: true
+        run: mkdir -p "$GITHUB_WORKSPACE/.artifacts" && cd ../red-router-base/tests && npx vitest run --retry=1 --reporter=json --outputFile="$GITHUB_WORKSPACE/.artifacts/baseline-results.json"
+      - name: Run candidate suite
+        continue-on-error: true
+        run: mkdir -p .artifacts && cd tests && npx vitest run --retry=1 --reporter=json --outputFile=../.artifacts/results.json
+      - name: Reject unknown regressions
+        run: node tests/__baseline__/verify-no-regression.mjs .artifacts/results.json .artifacts/baseline-results.json
+      - name: Build application
+        run: pnpm run build
+      - name: Install GitBook dependencies
+        run: npm install --prefix gitbook --no-audit --no-fund
+      - name: Build GitBook
+        run: npm run build --prefix gitbook

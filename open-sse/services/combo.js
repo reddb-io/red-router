@@ -78,10 +78,11 @@ export function reorderByCapabilities(models, required) {
   };
 
   // Stable sort by tier (Array.prototype.sort is stable in modern engines).
-  return models
+  const reordered = models
     .map((m, i) => ({ m, i, t: tierOf(m) }))
     .sort((a, b) => a.t - b.t || a.i - b.i)
     .map((x) => x.m);
+  return reordered.every((model, index) => model === models[index]) ? models : reordered;
 }
 
 /**
@@ -181,7 +182,17 @@ export function detectRequiredCapabilities(body) {
   const contents = body.contents || body.request?.contents;                      // gemini / antigravity
   for (const c of trailingUserItems(contents)) scanContent(c.parts);
 
-  // search: temporarily disabled in auto-switch (feature not wired yet).
+  // Search is request-wide and may be represented as a hosted tool type, a
+  // named tool, or an OpenAI function tool depending on the client.
+  const tools = [body.tools, body.request?.tools].filter(Array.isArray).flat();
+  for (const tool of tools) {
+    const type = String(tool?.type || "").toLowerCase();
+    const name = String(tool?.name || tool?.function?.name || "").toLowerCase();
+    if (type === "web_search" || type.startsWith("web_search_") || name === "web_search" || name.startsWith("web_search_")) {
+      required.add("search");
+      break;
+    }
+  }
 
   return required;
 }

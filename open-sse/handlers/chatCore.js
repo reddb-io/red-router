@@ -31,6 +31,11 @@ import { stripUnsupportedModalities } from "../translator/concerns/modality.js";
 import { prefetchRemoteImages } from "../translator/concerns/prefetch.js";
 import { defaultClaudeToolType, shouldDefaultClaudeToolType } from "../translator/concerns/toolCall.js";
 import { resolveSessionId } from "../utils/sessionManager.js";
+import { prepareStreamingResponse } from "./chatCore/streamResponse.js";
+
+export function executeProviderRequest(executor, options) {
+  return executor.execute(options);
+}
 
 /**
  * Core chat handler - shared between SSE and Worker
@@ -378,7 +383,7 @@ export async function handleChatCore({ body, modelInfo, credentials, log, errorC
   // exception: it is decoded by the executor into OpenAI-compatible output.
   let providerResponseFormat = targetFormat;
   try {
-    const result = await executor.execute({
+    const result = await executeProviderRequest(executor, {
       model,
       body: translatedBody,
       stream,
@@ -443,7 +448,7 @@ export async function handleChatCore({ body, modelInfo, credentials, log, errorC
           try { await onCredentialsRefreshed(newCredentials); } catch (e) { log?.warn?.("TOKEN", `onCredentialsRefreshed failed: ${e.message}`); }
         }
         try {
-          const retryResult = await executor.execute({
+          const retryResult = await executeProviderRequest(executor, {
             model,
             body: translatedBody,
             stream,
@@ -492,6 +497,52 @@ export async function handleChatCore({ body, modelInfo, credentials, log, errorC
     }
     reqLogger.logError(new Error(message), finalBody || translatedBody);
     return createErrorResult(statusCode, errMsg, resetsAtMs, { ...errorContext, provider, model });
+  }
+
+  // Acquire and validate the first upstream byte before committing a streaming
+  // response. This also covers providers that force SSE for JSON clients.
+  if (stream) {
+    try {
+      const prepared = await prepareStreamingResponse({
+        initialResult: { response: providerResponse, url: providerUrl, headers: providerHeaders, transformedBody: finalBody, responseFormat: providerResponseFormat },
+        execute: () => executeProviderRequest(executor, {
+          model,
+          body: translatedBody,
+          stream,
+          credentials,
+          providerSessionId: sessionSeed,
+          clientTool,
+          signal: streamController.signal,
+          log,
+          proxyOptions,
+          sourceFormat,
+        }),
+        executor,
+        targetFormat: providerResponseFormat,
+        signal: streamController.signal,
+        log,
+        provider,
+        model,
+      });
+      if (prepared.error) {
+        const { statusCode, message, resetsAtMs } = prepared.error;
+        trackPendingRequest(model, provider, connectionId, false, true);
+        appendRequestLog({ model, provider, connectionId, status: `FAILED ${statusCode}` }).catch(() => {});
+        return createErrorResult(statusCode, formatProviderError(new Error(message), provider, model, statusCode), resetsAtMs, { ...errorContext, provider, model });
+      }
+      providerResponse = prepared.response;
+      providerUrl = prepared.url || providerUrl;
+      providerHeaders = prepared.headers || providerHeaders;
+      finalBody = prepared.transformedBody || finalBody;
+      providerResponseFormat = prepared.responseFormat || providerResponseFormat;
+    } catch (error) {
+      trackPendingRequest(model, provider, connectionId, false, true);
+      if (error?.name === "AbortError") {
+        streamController.handleError(error);
+        return createErrorResult(499, "Request aborted", undefined, errorContext);
+      }
+      return createErrorResult(HTTP_STATUS.BAD_GATEWAY, formatProviderError(error, provider, model, HTTP_STATUS.BAD_GATEWAY), undefined, errorContext);
+    }
   }
 
   const sharedCtx = { provider, model, body, stream, errorContext, translatedBody, finalBody, requestStartTime, connectionId, apiKey, clientRawRequest, onRequestSuccess, pxpipe: pxpipeSummary, reqTag, log };

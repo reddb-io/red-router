@@ -59,6 +59,12 @@ export const STREAM_STALL_TIMEOUT_MS = envMs("STREAM_STALL_TIMEOUT_MS", 360 * 10
 // Time-to-first-token timeout (prompt prefill). Env: STREAM_FIRST_CHUNK_TIMEOUT_MS.
 export const STREAM_FIRST_CHUNK_TIMEOUT_MS = envMs("STREAM_FIRST_CHUNK_TIMEOUT_MS", 200 * 1000);
 
+// A successful streaming response that closes before producing any bytes is
+// normally a transient upstream edge/proxy failure. Retry before committing a
+// downstream response so JSON clients and SSE clients observe the same result.
+// Env: STREAM_EMPTY_RESPONSE_MAX_RETRIES.
+export const STREAM_EMPTY_RESPONSE_MAX_RETRIES = envMs("STREAM_EMPTY_RESPONSE_MAX_RETRIES", 3);
+
 // Fetch connect timeout: abort if upstream doesn't return response headers within this duration
 export const FETCH_CONNECT_TIMEOUT_MS = envMs("FETCH_CONNECT_TIMEOUT_MS", 60 * 1000);
 
