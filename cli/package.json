@@ -1,6 +1,6 @@
 {
   "name": "@reddb-io/red-router",
-  "version": "0.9.1",
+  "version": "0.10.0",
   "description": "RedRouter CLI - Start and manage the RedRouter (RedRouter) server",
   "bin": {
     "red-router": "./cli.js"

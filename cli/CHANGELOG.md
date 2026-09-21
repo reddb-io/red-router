@@ -1,5 +1,15 @@
 # @reddb-io/red-router
 
+## 0.10.0
+
+### Minor Changes
+
+- Harden provider routing and translation across OpenCode, Antigravity, CommandCode, Kiro, Codex, DeepSeek and OpenAI Responses. Add JEV-powered Smart combo routing through the native System One provider cascade, registry-driven OpenCode Go Responses routing, model-scoped thought signatures, strict proxy propagation, safer retry and account cooldown behavior, richer model capabilities and bounded usage overlays.
+
+### Patch Changes
+
+- 216c4ee: Reconnect streaming provider requests up to three times when the upstream connection closes before forwarding its first byte.
+
 ## 0.9.1
 
 ### Patch Changes
