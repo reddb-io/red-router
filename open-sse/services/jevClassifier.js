@@ -104,7 +104,8 @@ export function buildJevState(body, charBudget = JEV_STATE_CHAR_BUDGET) {
  * @param {object} opts
  * @param {object} opts.body - client request body
  * @param {object} [opts.log] - logger ({info,warn,debug}); optional
- * @param {string} [opts.apiKey] - TypeSafe key; defaults to process.env.TYPESAFE_API_KEY
+ * @param {string} [opts.apiKey] - direct TypeSafe key; used only when requestImpl is absent
+ * @param {function} [opts.requestImpl] - native System One cascade adapter
  * @param {string} [opts.baseUrl] - defaults to process.env.TYPESAFE_API_BASE or JEV_DEFAULT_BASE
  * @param {string} [opts.model] - defaults to JEV_DEFAULT_MODEL
  * @param {object} [opts.criteria] - tier criteria; defaults to JEV_DEFAULT_CRITERIA
@@ -129,13 +130,14 @@ export async function classifyTier(opts = {}) {
     timeoutMs = JEV_TIMEOUT_MS,
     minConfidence = JEV_MIN_CONFIDENCE,
     breakerEnabled = true,
+    requestImpl = null,
     fetchImpl = (...a) => fetch(...a),
     now = () => Date.now(),
   } = opts;
 
   const t0 = now();
 
-  if (!apiKey) {
+  if (!requestImpl && !apiKey) {
     log.debug?.("JEV", "no TYPESAFE_API_KEY — skipping classifier (fail-open)");
     return null;
   }
@@ -161,12 +163,14 @@ export async function classifyTier(opts = {}) {
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), timeoutMs);
   try {
-    res = await fetchImpl(`${baseUrl}${JEV_ENDPOINT_PATH}`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-      signal: ctl.signal,
-    });
+    res = requestImpl
+      ? await requestImpl(payload, { signal: ctl.signal })
+      : await fetchImpl(`${baseUrl}${JEV_ENDPOINT_PATH}`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        signal: ctl.signal,
+      });
   } catch (e) {
     const isTimeout = e?.name === "AbortError";
     if (isTimeout && breakerEnabled) tripBreaker(now(), JEV_BREAKER_COOLDOWN_MS);

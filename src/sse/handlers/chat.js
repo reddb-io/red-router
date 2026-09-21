@@ -27,6 +27,7 @@ import * as log from "../utils/logger.js";
 import { updateProviderCredentials, checkAndRefreshToken } from "../services/tokenRefresh.js";
 import { getProjectIdForConnection } from "open-sse/services/projectId.js";
 import { stripModelContextMarker } from "open-sse/utils/modelMarkers.js";
+import { handleSystemOne } from "./systemOne.js";
 
 /**
  * Handle chat completion request
@@ -155,6 +156,19 @@ export async function handleChat(request, clientRawRequest = null, options = {})
         instructions: smartCfg.smartInstructions,
         minConfidence: smartCfg.smartMinConfidence,
         timeoutMs: smartCfg.smartTimeoutMs,
+        // Route through RedRouter's native System One cascade (TypeSafe,
+        // OpenRouter, and any future compatible provider) instead of binding
+        // smart routing to a process-level TypeSafe environment key.
+        requestImpl: (payload, { signal }) => {
+          const headers = { "Content-Type": "application/json" };
+          if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
+          return handleSystemOne(new Request("http://red-router.internal/v1/systemone", {
+            method: "POST",
+            headers,
+            body: JSON.stringify(payload),
+            signal,
+          }));
+        },
       });
       if (classified && tierMap) {
         const reordered = reorderModelsForTier(augmentedModels, classified.tier, tierMap);

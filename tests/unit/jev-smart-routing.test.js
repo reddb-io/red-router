@@ -127,6 +127,21 @@ describe("classifyTier", () => {
     expect(JSON.parse(init.body).questions.tier.type).toBe("choice");
   });
 
+  it("uses the native System One adapter without requiring a TypeSafe env key", async () => {
+    const requestImpl = vi.fn(async () => jevOk({ choice: "COMPLEX", confidence: 0.91 }));
+    const r = await classifyTier({
+      body: baseOpts.body,
+      log,
+      apiKey: undefined,
+      requestImpl,
+    });
+    expect(r).toMatchObject({ tier: "COMPLEX", confidence: 0.91 });
+    expect(requestImpl).toHaveBeenCalledWith(
+      expect.objectContaining({ model: "jev-latest", questions: expect.any(Object) }),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+  });
+
   it("fails open (null) when no API key is configured", async () => {
     const r = await classifyTier({ ...baseOpts, apiKey: undefined, fetchImpl: vi.fn() });
     expect(r).toBeNull();
