@@ -1,5 +1,11 @@
 # @reddb-io/red-router
 
+## 0.11.1
+
+### Patch Changes
+
+- 12bb452: Use the RedDB mark consistently for the browser favicon, PWA icons, dashboard branding, and system tray.
+
 ## 0.11.0
 
 ### Minor Changes
