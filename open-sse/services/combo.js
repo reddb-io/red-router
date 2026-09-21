@@ -86,6 +86,42 @@ export function reorderByCapabilities(models, required) {
 }
 
 /**
+ * Reorder combo models so the model chosen for a complexity tier leads.
+ *
+ * Pure + network-free (unit-testable). The rest of the combo keeps its existing
+ * order as the fallback ladder, so the availability/quota path is untouched — we
+ * only change which model is tried FIRST.
+ *
+ * tierMap is an explicit per-combo policy: { SIMPLE, MEDIUM, COMPLEX, REASONING }
+ * → model string (see config/jev.js). Resolution:
+ *   - candidate already in models → stable-move to front (rest keep order);
+ *   - candidate is a new model string → prepend it (primary), rest stay as fallback;
+ *   - no candidate for the tier → models unchanged (fail-open).
+ *
+ * Capability auto-switch (reorderByCapabilities) runs AFTER this in handleComboChat,
+ * so a hard capability (vision/pdf) still outranks a tier preference — correct
+ * precedence, since picking a non-vision model would drop image data.
+ *
+ * @param {string[]} models - combo models (ordered fallback chain)
+ * @param {string} tier - one of JEV_TIERS
+ * @param {Record<string,string>} [tierMap] - tier → model policy
+ * @returns {string[]} reordered models (never drops a model)
+ */
+export function reorderModelsForTier(models, tier, tierMap) {
+  if (!Array.isArray(models) || models.length === 0 || !tier || !tierMap) return models;
+  const candidate = tierMap[tier];
+  if (typeof candidate !== "string" || !candidate.trim()) return models;
+
+  const idx = models.indexOf(candidate);
+  if (idx === 0) return models;                 // already leads
+  if (idx > 0) {                                // stable-move to front
+    const rest = models.filter((_, i) => i !== idx);
+    return [candidate, ...rest];
+  }
+  return [candidate, ...models];                // new primary, rest as fallback
+}
+
+/**
  * Track rotation state per combo (for round-robin strategy)
  * @type {Map<string, { index: number, consecutiveUseCount: number }>}
  */
@@ -95,7 +131,7 @@ const comboRotationState = new Map();
 // turn. It may span several messages (e.g. text + image split across blocks),
 // so we return all of them. History media (older turns) must not pin the combo
 // to a vision model — those get stripped + placeholdered downstream instead.
-function trailingUserItems(arr) {
+export function trailingUserItems(arr) {
   if (!Array.isArray(arr) || arr.length === 0) return [];
   const isAssistant = (r) => r === "assistant" || r === "model";
   let i = arr.length - 1;

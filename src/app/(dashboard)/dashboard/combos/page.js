@@ -372,6 +372,7 @@ const STRATEGY_OPTIONS = [
   { value: "fallback", label: "Fallback — try in order" },
   { value: "round-robin", label: "Round Robin — rotate" },
   { value: "fusion", label: "Fusion — panel + judge" },
+  { value: "smart", label: "Smart — Jev complexity routing" },
 ];
 
 function ComboCard({ combo, getCaps, activeProviders = [], copied, onCopy, onEdit, onDelete, onHide = null, strategy = {}, onSetStrategy }) {
