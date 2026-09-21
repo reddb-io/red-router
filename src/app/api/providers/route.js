@@ -12,6 +12,7 @@ import { normalizeProviderId, normalizeProviderSpecificData } from "@/lib/provid
 import { getScopeFilter, getRequestIdentity, isScopeEnabled, ownerForCreate, scopeVisible } from "@/lib/auth/resourceScope";
 import { getDisabledAccountIds } from "@/lib/db/repos/disabledAccountsRepo.js";
 import { getSettings } from "@/lib/localDb";
+import { RED_ROUTER_PROVIDER_ID } from "open-sse/config/redRouter.js";
 
 export const dynamic = "force-dynamic";
 
@@ -139,6 +140,22 @@ export async function POST(request) {
     }
 
     let providerSpecificData = normalizeProviderSpecificData(provider, body, body.providerSpecificData);
+
+    if (provider === RED_ROUTER_PROVIDER_ID) {
+      const baseUrl = providerSpecificData?.baseUrl;
+      let parsedUrl;
+      try {
+        parsedUrl = new URL(baseUrl);
+      } catch {
+        return NextResponse.json({ error: "A valid remote RedRouter URL is required" }, { status: 400 });
+      }
+      if (!["http:", "https:"].includes(parsedUrl.protocol)) {
+        return NextResponse.json({ error: "Remote RedRouter URL must use HTTP or HTTPS" }, { status: 400 });
+      }
+      if (!defaultModel?.trim()) {
+        return NextResponse.json({ error: "Default model is required for a remote RedRouter" }, { status: 400 });
+      }
+    }
 
     // Compatible LLM nodes support multiple API-key connections (key pool); runtime
     // rotates/fails over via getProviderCredentials. Embedding nodes stay single-connection.

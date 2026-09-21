@@ -4,6 +4,12 @@ import { proxyAwareFetch } from "../utils/proxyFetch.js";
 import { dbg } from "../utils/debugLog.js";
 import { ANTHROPIC_API_VERSION, OPENAI_COMPAT_BASE, ANTHROPIC_COMPAT_BASE } from "../providers/shared.js";
 import { resolveOpenAICompatibleApiType } from "../services/provider.js";
+import {
+  RED_ROUTER_CHAIN_HEADER,
+  RED_ROUTER_PROVIDER_ID,
+  appendRedRouterHop,
+  redRouterEndpoint,
+} from "../config/redRouter.js";
 
 /**
  * BaseExecutor - Base class for provider executors
@@ -28,6 +34,11 @@ export class BaseExecutor {
   }
 
   buildUrl(model, stream, urlIndex = 0, credentials = null) {
+    if (this.provider === RED_ROUTER_PROVIDER_ID) {
+      const baseUrl = credentials?.providerSpecificData?.baseUrl;
+      if (!baseUrl) throw new Error("RedRouter remote URL is not configured");
+      return redRouterEndpoint(baseUrl, "chat/completions");
+    }
     if (this.provider?.startsWith?.("openai-compatible-")) {
       const baseUrl = credentials?.providerSpecificData?.baseUrl || OPENAI_COMPAT_BASE;
       const normalized = baseUrl.replace(/\/$/, "");
@@ -70,6 +81,11 @@ export class BaseExecutor {
 
     if (stream) {
       headers["Accept"] = "text/event-stream";
+    }
+
+    if (this.provider === RED_ROUTER_PROVIDER_ID) {
+      const incomingChain = credentials?.rawHeaders?.[RED_ROUTER_CHAIN_HEADER];
+      headers[RED_ROUTER_CHAIN_HEADER] = appendRedRouterHop(incomingChain);
     }
 
     return headers;

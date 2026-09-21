@@ -155,7 +155,7 @@ export default function Sidebar({ onClose }) {
                 {APP_CONFIG.name}
               </h1>
               <span className="text-xs text-text-muted">
-                v{runtimeVersion} <span aria-hidden="true">·</span> by GSouza Tecnologia
+                v{runtimeVersion}
               </span>
             </div>
           </Link>

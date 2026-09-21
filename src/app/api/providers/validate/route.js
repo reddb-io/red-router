@@ -7,6 +7,7 @@ import { openaiToCommandCodeRequest } from "open-sse/translator/request/openai-t
 import { resolveQoderCredentials, resolveQoderModels } from "open-sse/services/qoderModels.js";
 import { normalizeProviderId } from "@/lib/providerNormalization";
 import { SYSTEM_ONE_MODELS_ENDPOINT, SYSTEM_ONE_PROVIDER_ID } from "open-sse/config/systemOne.js";
+import { RED_ROUTER_PROVIDER_ID, redRouterEndpoint } from "open-sse/config/redRouter.js";
 
 // Probe a webSearch/webFetch provider using its searchConfig/fetchConfig.
 // Returns true if API key is accepted (status !== 401 && !== 403).
@@ -99,6 +100,21 @@ export async function POST(request) {
 
     // Validate with each provider
     try {
+      if (provider === RED_ROUTER_PROVIDER_ID) {
+        const baseUrl = providerSpecificData?.baseUrl;
+        if (!baseUrl) {
+          return NextResponse.json({ valid: false, error: "Remote RedRouter URL is required" });
+        }
+        const res = await fetch(redRouterEndpoint(baseUrl, "models"), {
+          headers: { "Authorization": `Bearer ${apiKey}` },
+          signal: AbortSignal.timeout(10000),
+        });
+        return NextResponse.json({
+          valid: res.ok,
+          error: res.ok ? null : `Remote RedRouter rejected the connection (${res.status})`,
+        });
+      }
+
       if (isOpenAICompatibleProvider(provider)) {
         const node = await getProviderNodeById(provider);
         if (!node) {

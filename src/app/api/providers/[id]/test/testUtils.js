@@ -20,6 +20,7 @@ import {
 } from "@/lib/oauth/constants/oauth";
 import { buildClineHeaders } from "@/shared/utils/clineAuth";
 import { SYSTEM_ONE_MODELS_ENDPOINT, SYSTEM_ONE_PROVIDER_ID } from "open-sse/config/systemOne.js";
+import { RED_ROUTER_PROVIDER_ID, redRouterEndpoint } from "open-sse/config/redRouter.js";
 
 // OAuth provider test endpoints
 const OAUTH_TEST_CONFIG = {
@@ -474,6 +475,22 @@ async function fetchWithConnectionProxy(url, options = {}, effectiveProxy = null
 }
 
 async function testApiKeyConnection(connection, effectiveProxy = null) {
+  if (connection.provider === RED_ROUTER_PROVIDER_ID) {
+    const baseUrl = connection.providerSpecificData?.baseUrl;
+    if (!baseUrl) return { valid: false, error: "Missing remote RedRouter URL" };
+    try {
+      const res = await fetchWithConnectionProxy(redRouterEndpoint(baseUrl, "models"), {
+        headers: { "Authorization": `Bearer ${connection.apiKey}` },
+      }, effectiveProxy);
+      return {
+        valid: res.ok,
+        error: res.ok ? null : `Remote RedRouter rejected the connection (${res.status})`,
+      };
+    } catch (err) {
+      return { valid: false, error: err.message };
+    }
+  }
+
   if (isOpenAICompatibleProvider(connection.provider)) {
     const modelsBase = connection.providerSpecificData?.baseUrl;
     if (!modelsBase) return { valid: false, error: "Missing base URL" };

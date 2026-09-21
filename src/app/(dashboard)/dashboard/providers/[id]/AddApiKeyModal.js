@@ -11,6 +11,8 @@ const BULK_PLACEHOLDER = `name1|sk-key1\nname2|sk-key2\nsk-key-only-auto-named`;
 export default function AddApiKeyModal({ isOpen, provider, providerName, isCompatible, isAnthropic, authType, authHint, website, proxyPools, error, existingNames, onSave, onBulkDone, onClose }) {
   const NONE_PROXY_POOL_VALUE = "__none__";
   const isOllamaLocal = provider === "ollama-local";
+  const isRedRouter = provider === "red-router";
+  const requiresDefaultModel = isCompatible || isRedRouter;
   const isCookie = authType === "cookie";
   const isXaiApiKey = provider === "xai" && !isCookie;
   const credentialLabel = isCookie ? "Cookie Value" : provider === "qoder" ? "Personal Access Token (PAT)" : "API Key";
@@ -30,6 +32,7 @@ export default function AddApiKeyModal({ isOpen, provider, providerName, isCompa
     priority: 1,
     proxyPoolId: NONE_PROXY_POOL_VALUE,
     ollamaHostUrl: "",
+    redRouterBaseUrl: "",
   });
   const [azureData, setAzureData] = useState({
     azureEndpoint: "",
@@ -53,6 +56,9 @@ export default function AddApiKeyModal({ isOpen, provider, providerName, isCompa
   const [bulkResult, setBulkResult] = useState(null); // { success, failed }
 
   const buildProviderSpecificData = () => {
+    if (isRedRouter && formData.redRouterBaseUrl.trim()) {
+      return { baseUrl: formData.redRouterBaseUrl.trim() };
+    }
     if (isOllamaLocal && formData.ollamaHostUrl.trim()) {
       return { baseUrl: formData.ollamaHostUrl.trim() };
     }
@@ -97,7 +103,8 @@ export default function AddApiKeyModal({ isOpen, provider, providerName, isCompa
       // Non-ollama providers require a name
       if (!formData.name) return;
     }
-    if (isCompatible && !formData.defaultModel.trim()) return;
+    if (isRedRouter && !formData.redRouterBaseUrl.trim()) return;
+    if (requiresDefaultModel && !formData.defaultModel.trim()) return;
 
     setSaving(true);
     try {
@@ -122,7 +129,7 @@ export default function AddApiKeyModal({ isOpen, provider, providerName, isCompa
       await onSave({
         name: formData.name || (isOllamaLocal ? "Ollama Local" : ""),
         apiKey: formData.apiKey,
-        defaultModel: isCompatible ? formData.defaultModel.trim() : undefined,
+        defaultModel: requiresDefaultModel ? formData.defaultModel.trim() : undefined,
         priority: formData.priority,
         proxyPoolId: formData.proxyPoolId === NONE_PROXY_POOL_VALUE ? null : formData.proxyPoolId,
         testStatus: isValid ? "active" : "unknown",
@@ -191,10 +198,10 @@ export default function AddApiKeyModal({ isOpen, provider, providerName, isCompa
     <Modal isOpen={isOpen} title={`Add ${providerName || provider} ${credentialLabel}`} onClose={onClose}>
       <div className="flex flex-col gap-4">
         {/* Mode switcher */}
-        <div className="flex gap-2">
+        {!isRedRouter && <div className="flex gap-2">
           <Button size="sm" variant={mode === "single" ? "primary" : "ghost"} onClick={() => { setMode("single"); setBulkResult(null); }}>Single</Button>
           <Button size="sm" variant={mode === "bulk" ? "primary" : "ghost"} onClick={() => { setMode("bulk"); setBulkResult(null); }}>Bulk Add</Button>
-        </div>
+        </div>}
 
         {mode === "bulk" && (
           <div className="flex flex-col gap-3">
@@ -233,6 +240,20 @@ export default function AddApiKeyModal({ isOpen, provider, providerName, isCompa
           onChange={(e) => setFormData({ ...formData, name: e.target.value })}
           placeholder={isOllamaLocal ? "Ollama Local" : "Production Key"}
         />
+        {isRedRouter && (
+          <>
+            <Input
+              label="Remote RedRouter URL"
+              value={formData.redRouterBaseUrl}
+              onChange={(e) => setFormData({ ...formData, redRouterBaseUrl: e.target.value })}
+              placeholder="https://router.example.com/v1"
+              hint="Use the reachable URL of the second RedRouter. /v1 is added automatically when omitted."
+            />
+            <p className="text-xs text-text-muted">
+              Create an API key on the remote RedRouter and bind it to the accounts that this machine may use. Provider credentials never need to be copied here.
+            </p>
+          </>
+        )}
         {isOllamaLocal && (
           <div className="flex gap-2">
             <Input
@@ -260,7 +281,7 @@ export default function AddApiKeyModal({ isOpen, provider, providerName, isCompa
               className="flex-1"
             />
             <div className="pt-6">
-              <Button onClick={handleValidate} disabled={!formData.apiKey || validating || saving} variant="secondary">
+              <Button onClick={handleValidate} disabled={!formData.apiKey || (isRedRouter && !formData.redRouterBaseUrl.trim()) || validating || saving} variant="secondary">
                 {validating ? "Checking..." : "Check"}
               </Button>
             </div>
@@ -292,12 +313,12 @@ export default function AddApiKeyModal({ isOpen, provider, providerName, isCompa
             options={providerRegions.map((r) => ({ value: r.id, label: r.label }))}
           />
         )}
-        {isCompatible && (
+        {requiresDefaultModel && (
           <Input
             label="Default Model"
             value={formData.defaultModel}
             onChange={(e) => setFormData({ ...formData, defaultModel: e.target.value })}
-            placeholder={isAnthropic ? "claude-3-5-sonnet-latest" : "gpt-4o-mini"}
+            placeholder={isRedRouter ? "openrouter/anthropic/claude-sonnet-4.6" : isAnthropic ? "claude-3-5-sonnet-latest" : "gpt-4o-mini"}
           />
         )}
         {isOllamaLocal && (
@@ -313,9 +334,9 @@ export default function AddApiKeyModal({ isOpen, provider, providerName, isCompa
         {error && (
           <p className="text-xs text-red-500 break-words">{error}</p>
         )}
-        {isCompatible && (
+        {requiresDefaultModel && (
           <p className="text-xs text-text-muted">
-            Enter the model ID exactly as your compatible endpoint expects it. This model will be saved as the connection default.
+            Enter the model ID exactly as the remote endpoint exposes it. This model will be saved as the connection default.
           </p>
         )}
         {isCloudflareAi && (
@@ -393,7 +414,7 @@ export default function AddApiKeyModal({ isOpen, provider, providerName, isCompa
         </p>
 
         <div className="flex gap-2">
-          <Button onClick={handleSubmit} fullWidth disabled={saving || (!isOllamaLocal && (!formData.name || !formData.apiKey)) || (isCompatible && !formData.defaultModel.trim()) || (isAzure && (!azureData.azureEndpoint || !azureData.deployment || !azureData.organization)) || (isCloudflareAi && !cloudflareData.accountId)}>
+          <Button onClick={handleSubmit} fullWidth disabled={saving || (!isOllamaLocal && (!formData.name || !formData.apiKey)) || (isRedRouter && !formData.redRouterBaseUrl.trim()) || (requiresDefaultModel && !formData.defaultModel.trim()) || (isAzure && (!azureData.azureEndpoint || !azureData.deployment || !azureData.organization)) || (isCloudflareAi && !cloudflareData.accountId)}>
             {saving ? "Saving..." : "Save"}
           </Button>
           <Button onClick={onClose} variant="ghost" fullWidth>
