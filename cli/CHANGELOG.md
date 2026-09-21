@@ -1,5 +1,11 @@
 # @reddb-io/red-router
 
+## 0.11.0
+
+### Minor Changes
+
+- d5aee6f: Add RedRouter as a first-class upstream provider. A restricted machine can connect to a second RedRouter by URL and API key, discover its models, preserve remote account isolation, and reject cyclic router chains. Remove the legacy vendor signature from the sidebar.
+
 ## 0.10.0
 
 ### Minor Changes
