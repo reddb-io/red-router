@@ -12,6 +12,7 @@ import { DATA_DIR } from "@/lib/dataDir.js";
 export const CATALOG_FILE = path.join(DATA_DIR, "model-catalog.json");
 // Trimmed upstream catalog, read by the add-models skill (not by the router).
 export const CATALOG_RAW_FILE = path.join(DATA_DIR, "model-catalog-raw.json");
+export const CATALOG_VERSION = 2;
 
 const EMPTY = { models: {}, providers: {}, modelLimits: {} };
 let cache = EMPTY;
@@ -45,10 +46,10 @@ function load() {
   return cache;
 }
 
-// Modality is a property of the model itself — any gateway serving it inherits
-// the same image/video/pdf support, so this is keyed by model id alone.
-export function getCatalogModalities(model) {
-  return load().models[baseId(model)] || null;
+// Gateways can expose different modalities for the same model weights.
+export function getCatalogModalities(provider, model) {
+  if (!provider) return null;
+  return load().models[`${provider}:${baseId(model)}`] || null;
 }
 
 // Context and output limits are a property of the gateway, not the model: each

@@ -126,6 +126,7 @@ export const MODEL_CAPABILITIES = {
   // temporary routes are removed upstream.
   "deepseek-v4-flash": { vision: true, reasoning: true, thinkingFormat: "deepseek", contextWindow: 1000000, maxOutput: 384000 },
   "deepseek-v4-flash-vision-exp": { vision: true, reasoning: true, thinkingFormat: "deepseek", contextWindow: 1000000, maxOutput: 384000 },
+  "deepseek-v4.1-flash": { vision: true, reasoning: true, thinkingFormat: "deepseek", thinkingEffortSupported: true, contextWindow: 1000000, maxOutput: 384000 },
 
   // Qwen plain coder/text (no vision) — registry "vision-model" / "coder-model" aliases
   "vision-model":      { vision: true, reasoning: true, thinkingFormat: "qwen", contextWindow: 1000000 },
@@ -481,6 +482,13 @@ let catalogSource = null;
  */
 export function setCatalogSource(source) {
   catalogSource = source;
+  if (typeof globalThis !== "undefined") globalThis.__9rCatalogSource = source;
+}
+
+function getCatalogSource() {
+  if (catalogSource) return catalogSource;
+  if (typeof globalThis === "undefined") return null;
+  return (catalogSource = globalThis.__9rCatalogSource || null);
 }
 
 // Apply the synced catalog + name heuristic on top of a table-resolved result.
@@ -489,8 +497,9 @@ export function setCatalogSource(source) {
 function refine(base, provider, model) {
   const result = { ...DEFAULT_CAPABILITIES, ...base };
 
-  if (catalogSource) {
-    const modalities = catalogSource.getModalities(model);
+  const source = getCatalogSource();
+  if (source) {
+    const modalities = source.getModalities(provider, model);
     if (modalities) {
       for (const key of MODALITY_KEYS) {
         if (modalities[key] === true) result[key] = true;
@@ -499,8 +508,8 @@ function refine(base, provider, model) {
 
     // Gateway numbers win; the model-agnostic models.dev entry only fills the
     // gap when the gateway's own limits are unknown (unaliased providers).
-    const limits = catalogSource.getLimits(provider, model)
-      || catalogSource.getLimitsByModel?.(model);
+    const limits = source.getLimits(provider, model)
+      || source.getLimitsByModel?.(model);
     if (limits) {
       if (limits.contextWindow > 0) result.contextWindow = limits.contextWindow;
       if (limits.maxOutput > 0) result.maxOutput = limits.maxOutput;
