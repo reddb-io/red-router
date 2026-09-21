@@ -34,6 +34,6 @@ describe("applyThinking (openai-responses): large budgets map to max effort", ()
   it("budget 98304 → reasoning_effort \"max\" for gpt-5.6-sol (openai wire)", () => {
     const body = { thinking: { type: "enabled", budget_tokens: 98304 } };
     const out = applyThinking(FORMATS.OPENAI_RESPONSES, "gpt-5.6-sol", body, "codex");
-    expect(out?.reasoning_effort).toBe("max");
+    expect(out?.reasoning?.effort).toBe("max");
   });
 });

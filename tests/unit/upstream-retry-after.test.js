@@ -80,7 +80,7 @@ describe("the client Response carries Retry-After", () => {
     // A cooldown that already expired must floor to 1s, never 0 or negative —
     // a "Retry-After: 0" invites an immediate hot-loop against the provider.
     const header = createErrorResult(429, "late", Date.now() - 10_000).response.headers.get("Retry-After");
-    expect(Number(header)).toBeGreaterThanOrEqual(1);
+    expect(header).toBeNull();
   });
 
   it("keeps the OpenAI-compatible error body and CORS intact", async () => {

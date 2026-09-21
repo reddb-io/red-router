@@ -170,7 +170,7 @@ export function kiroToClaudeResponse(chunk, state) {
         const toolBlockIndex = state.nextBlockIndex++;
         state.toolCalls.set(idx, {
           id: tc.id,
-          name: tc.function?.name || "",
+          name: restoreToolName(state, tc.function?.name),
           blockIndex: toolBlockIndex,
         });
         results.push({
@@ -179,7 +179,7 @@ export function kiroToClaudeResponse(chunk, state) {
           content_block: {
             type: "tool_use",
             id: tc.id,
-            name: tc.function?.name || "",
+            name: restoreToolName(state, tc.function?.name),
             input: {},
           },
         });

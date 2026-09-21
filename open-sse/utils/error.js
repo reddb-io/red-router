@@ -239,15 +239,27 @@ export async function parseUpstreamError(response, executor = null) {
   }
 
   let message;
+  let bodyResetsAtMs;
   try {
     const json = JSON.parse(bodyText);
     message = json?.error?.message ?? json?.message;
+    const rawRetry = json?.error?.retry_after ?? json?.error?.retryAfter ?? json?.error?.retryDelay
+      ?? json?.retry_after ?? json?.retryAfter ?? json?.retryDelay;
+    if (rawRetry !== undefined && rawRetry !== null && rawRetry !== "") {
+      const numeric = Number(rawRetry);
+      if (Number.isFinite(numeric) && numeric > 0) {
+        bodyResetsAtMs = numeric > 1e12 ? numeric : Date.now() + numeric * 1000;
+      } else {
+        const parsed = Date.parse(String(rawRetry));
+        if (Number.isFinite(parsed) && parsed > Date.now()) bodyResetsAtMs = parsed;
+      }
+    }
   } catch {}
 
   return {
     statusCode: response.status,
     message: sanitizePublicMessage(message, DEFAULT_ERROR_MESSAGES[response.status] || `Upstream error: ${response.status}`),
-    resetsAtMs: headerResetsAtMs,
+    resetsAtMs: headerResetsAtMs ?? bodyResetsAtMs,
   };
 }
 

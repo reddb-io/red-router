@@ -7,6 +7,7 @@ const { getProviderConnections, getSettings, resolveConnectionProxyConfig } = vi
 }));
 
 vi.mock("@/lib/localDb", () => ({
+  getApiKeyAllowedConnectionIds: vi.fn(async () => null),
   getProviderConnections,
   getProxyPools: vi.fn(),
   getSettings,

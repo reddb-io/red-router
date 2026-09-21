@@ -438,6 +438,12 @@ export function openaiToKiroRequest(model, body, stream, credentials) {
     enumerable: false
   });
 
+  const restoredToolNames = new Map();
+  for (const [original, sanitized] of nameMap) {
+    if (original !== sanitized) restoredToolNames.set(sanitized, original);
+  }
+  if (restoredToolNames.size) payload._toolNameMap = restoredToolNames;
+
   return payload;
 }
 
