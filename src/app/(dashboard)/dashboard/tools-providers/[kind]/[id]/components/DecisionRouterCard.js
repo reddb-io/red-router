@@ -2,21 +2,24 @@
 
 import { useEffect, useState } from "react";
 import { Card, Button, Input, Select, SegmentedControl } from "@/shared/components";
+import { getProvidersByKind } from "@/shared/constants/providers";
 import ModelSelectModal from "@/shared/components/ModelSelectModal";
 
 // Three states in one field, not an `enabled` flag plus a mode string: "shadow"
 // is the only way to measure what the router would have done without letting it
 // act, which is the baseline the savings claim has to be measured against.
 const MODES = [
-  { value: "off", label: "Off", desc: "Never asks jev. Routing is exactly as it was." },
-  { value: "shadow", label: "Shadow", desc: "Asks jev and logs the verdict, applies nothing — the baseline you compare against." },
-  { value: "enforce", label: "Enforce", desc: "Asks jev and applies the verdict." },
+  { value: "off", label: "Off", desc: "Never asks the decision model. Routing is exactly as it was." },
+  { value: "shadow", label: "Shadow", desc: "Asks and logs the verdict, applies nothing — the baseline you compare against." },
+  { value: "enforce", label: "Enforce", desc: "Asks and applies the verdict." },
 ];
 
+// Narrowest first: each value is a strict superset of the one above it, so the
+// list reads as the ceiling it is rather than as three unrelated options.
 const TOOL_MODES = [
-  { value: "hint", label: "hint (default)" },
-  { value: "forced", label: "forced" },
-  { value: "none", label: "none" },
+  { value: "hint", label: "hint — suggest only (default)" },
+  { value: "none", label: "none — also allow “call nothing”" },
+  { value: "forced", label: "forced — also allow pinning a tool" },
 ];
 
 export default function DecisionRouterCard({ provider }) {
@@ -44,6 +47,15 @@ export default function DecisionRouterCard({ provider }) {
   const briefs = config.briefs || {};
   const activeMode = MODES.find((m) => m.value === config.mode) || MODES[0];
 
+  // The gateways that can serve a decision model, read from the same registry
+  // the rest of the dashboard reads, so a gateway added there needs no second
+  // list kept in sync.
+  const gateways = getProvidersByKind("decision");
+  const gateway = gateways.find((g) => g.id === config.provider || g.alias === config.provider) || null;
+  const gatewayId = gateway?.id || config.provider;
+  const conn = activeProviders.find((c) => c.provider === gatewayId);
+  const connBroken = conn?.testStatus === "unavailable";
+
   // Optimistic autosave, same shape as the Vision Adapter in the combos page:
   // state first, fire-and-forget PATCH after, no Save button.
   const patch = (next) => {
@@ -55,6 +67,20 @@ export default function DecisionRouterCard({ provider }) {
     }).catch(() => {});
   };
   const set = (key, value) => patch({ ...config, [key]: value });
+
+  // The new gateway's default model comes along only while the current model is
+  // still the old gateway's default. A model the operator typed is their pick,
+  // not a value to overwrite.
+  const setGateway = (id) => {
+    const next = gateways.find((g) => g.id === id);
+    const untouched = !gateway?.decisionConfig?.defaultModel
+      || config.model === gateway.decisionConfig.defaultModel;
+    patch({
+      ...config,
+      provider: id,
+      model: untouched ? (next?.decisionConfig?.defaultModel || config.model) : config.model,
+    });
+  };
 
   const valueOf = (m) => m?.value || m?.name || m;
   const addModel = (m) => {
@@ -71,7 +97,7 @@ export default function DecisionRouterCard({ provider }) {
       const res = await fetch("/api/providers/validate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ provider: provider?.id || "jev" }),
+        body: JSON.stringify({ provider: gatewayId }),
       });
       const data = await res.json().catch(() => ({}));
       setProbe(res.ok && data?.valid
@@ -86,13 +112,60 @@ export default function DecisionRouterCard({ provider }) {
     <Card padding="sm">
       <h2 className="text-base font-semibold mb-1">Decision router</h2>
       <p className="text-xs text-text-muted mb-4">
-        jev picks which model of a combo serves a turn, and which tool the model should call.
-        It only ever routes to the models listed below.
+        The decision model picks which model of a combo serves a turn, and which tool the
+        model should call. It only ever routes to the models listed below.
       </p>
       <div className="flex flex-col gap-5">
+        {/* The gateway has no decision credential of its own — the decision route
+            borrows the connection its chat traffic already uses. So an empty
+            Connections card above is expected, and this is where the credential
+            actually in use has to be visible, or the panel reads as unconfigured. */}
+        <div className="flex flex-col gap-2">
+          <p className="text-sm font-medium">Credential</p>
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <span className="rounded bg-black/5 px-1.5 py-0.5 dark:bg-white/5">
+              {gateway?.name || gatewayId}
+            </span>
+            <span className="text-text-muted">borrows its own chat connection</span>
+            <a
+              href={`/dashboard/providers/${gatewayId}`}
+              className="underline decoration-dotted underline-offset-2 hover:text-primary"
+            >
+              {gatewayId}
+            </a>
+            {conn ? (
+              <span className={connBroken ? "text-amber-600 dark:text-amber-500" : "text-text-muted"}>
+                — {conn.name || "connection"}
+                {connBroken ? " (marked unavailable by the last health check; decisions still resolve its key)" : ""}
+              </span>
+            ) : (
+              <span className="text-amber-600 dark:text-amber-500">
+                — no connection yet, so the decision model cannot be asked
+              </span>
+            )}
+          </div>
+        </div>
+
         <div className="flex flex-col gap-2">
           <SegmentedControl options={MODES} value={config.mode} onChange={(v) => set("mode", v)} size="sm" />
           <p className="text-xs text-text-muted">{activeMode.desc}</p>
+        </div>
+
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <Select
+            label="Gateway"
+            options={gateways.map((g) => ({ value: g.id, label: g.name }))}
+            value={gatewayId}
+            onChange={(e) => setGateway(e.target.value)}
+            hint="The gateway that serves the decision model, and where the credential for it comes from."
+          />
+          <Input
+            label="Model"
+            value={config.model ?? ""}
+            onChange={(e) => set("model", e.target.value)}
+            placeholder={defaults.defaultModel || ""}
+            hint={`Swapping to a better System-1 model is editing this one field. Decision models sit in the gateway catalog with type "${defaults.modelType || "evaluation"}" and max_tokens: 0, which is how you check there which one to use.`}
+          />
         </div>
 
         <div className="flex flex-col gap-2">
@@ -161,7 +234,7 @@ export default function DecisionRouterCard({ provider }) {
             options={TOOL_MODES}
             value={config.toolMode}
             onChange={(e) => set("toolMode", e.target.value)}
-            hint="How a tool verdict is applied. Only `forced` differs today: the text hint is allowed for every value but it — `hint` and `none` are still treated alike."
+            hint="Ceiling on what a tool verdict may do, widest last. `hint` appends a suggestion and never touches tool_choice; `none` also allows pinning “call nothing”; `forced` also allows pinning a specific tool. A verdict above the ceiling is downgraded to a hint, not dropped."
           />
           <Input
             label="Min confidence"
