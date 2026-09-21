@@ -3,7 +3,7 @@ import { translateRequest } from "../translator/index.js";
 import { applyThinking, extractThinking, stripThinkingSuffix } from "../translator/concerns/thinkingUnified.js";
 import { FORMATS } from "../translator/formats.js";
 import { normalizeClaudePassthrough, anchorClaudeCache } from "../translator/formats/claude.js";
-import { createStreamController } from "../utils/streamHandler.js";
+import { createStreamController, EMPTY_STREAM_MAX_RECONNECTS } from "../utils/streamHandler.js";
 import { refreshWithRetry } from "../services/tokenRefresh.js";
 import { createRequestLogger } from "../utils/requestLogger.js";
 import { getModelTargetFormat, getModelSupportedFormats, getModelStrip, getModelUpstreamId, getModelType, PROVIDER_ID_TO_ALIAS } from "../config/providerModels.js";
@@ -564,7 +564,23 @@ export async function handleChatCore({ body, modelInfo, credentials, log, errorC
 
   // Streaming response
   const { onStreamComplete, streamDetailId } = buildOnStreamComplete({ ...sharedCtx });
-  return handleStreamingResponse({ ...sharedCtx, providerResponse, sourceFormat, targetFormat: providerResponseFormat, userAgent, reqLogger, toolNameMap, customToolNames, streamController, onStreamComplete, streamDetailId, credentials });
+  const reconnect = async (attempt) => {
+    log?.warn?.("STREAM", `reconnecting empty stream ${attempt}/${EMPTY_STREAM_MAX_RECONNECTS} · ${provider}/${model}`);
+    const result = await executor.execute({
+      model,
+      body: translatedBody,
+      stream,
+      credentials,
+      providerSessionId: sessionSeed,
+      clientTool,
+      signal: streamController.signal,
+      log,
+      proxyOptions,
+      sourceFormat,
+    });
+    return result.response;
+  };
+  return handleStreamingResponse({ ...sharedCtx, providerResponse, reconnect, sourceFormat, targetFormat: providerResponseFormat, userAgent, reqLogger, toolNameMap, customToolNames, streamController, onStreamComplete, streamDetailId, credentials });
 }
 
 export function isTokenExpiringSoon(expiresAt, bufferMs = 5 * 60 * 1000) {
