@@ -1,5 +1,11 @@
 # @reddb-io/red-router
 
+## 0.11.4
+
+### Patch Changes
+
+- c3a2bd8: Use the canonical RedRouter product name consistently in the dashboard.
+
 ## 0.11.3
 
 ### Patch Changes
