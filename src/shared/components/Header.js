@@ -84,7 +84,7 @@ const getPageInfo = (pathname) => {
       icon: "layers",
       breadcrumbs: [],
     };
-  if (pathname.includes("/usage"))
+  if (pathname.includes("/usage") || pathname === "/dashboard")
     return {
       title: "Usage & Analytics",
       description:
@@ -169,11 +169,11 @@ const getPageInfo = (pathname) => {
       icon: "monitor",
       breadcrumbs: [],
     };
-  if (pathname === "/dashboard")
+  if (pathname === "/dashboard/setup")
     return {
-      title: "Endpoint",
-      description: "API endpoint configuration",
-      icon: "api",
+      title: "Setup",
+      description: "Connect providers, create a key, and validate the endpoint",
+      icon: "route",
       breadcrumbs: [],
     };
   return { title: "", description: "", breadcrumbs: [] };

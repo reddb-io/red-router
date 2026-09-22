@@ -289,7 +289,7 @@ export async function saveRequestUsage(entry) {
         connectionId: entry.connectionId || null, apiKey: entry.apiKey || null,
         endpoint: entry.endpoint || null, promptTokens, completionTokens,
         cost: entry.cost || 0, status: entry.status || "ok",
-        tokens: stringifyJson(tokens), meta: stringifyJson({}),
+        tokens: stringifyJson(tokens), meta: stringifyJson(entry.meta || {}),
       }).execute();
 
       const dateKey = getLocalDateKey(entry.timestamp);
@@ -325,7 +325,7 @@ export async function saveRequestUsage(entry) {
 export async function getUsageHistory(filter = {}) {
   const db = await getDb();
   let q = db.selectFrom("usageHistory")
-    .select(["timestamp", "provider", "model", "connectionId", "apiKey", "endpoint", "cost", "status", "tokens"]);
+    .select(["timestamp", "provider", "model", "connectionId", "apiKey", "endpoint", "cost", "status", "tokens", "meta"]);
 
   if (filter.provider) q = q.where("provider", "=", filter.provider);
   if (filter.model) q = q.where("model", "=", filter.model);
@@ -338,6 +338,7 @@ export async function getUsageHistory(filter = {}) {
     timestamp: r.timestamp, provider: r.provider, model: r.model,
     connectionId: r.connectionId, apiKeyMasked: maskApiKey(r.apiKey), endpoint: r.endpoint,
     cost: r.cost, status: r.status, tokens: parseJson(r.tokens, {}),
+    ...(Object.keys(parseJson(r.meta, {})).length ? { meta: parseJson(r.meta, {}) } : {}),
   }));
 }
 

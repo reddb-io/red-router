@@ -6,7 +6,7 @@ import { getCapabilitiesForModel } from "../../providers/capabilities.js";
 import { getThinkingLevels } from "../../providers/thinkingLevels.js";
 import { PROVIDERS } from "../../providers/index.js";
 import { FORMATS } from "../formats.js";
-import { LEVEL_TO_BUDGET, budgetToLevel, effortToBudget, effortToThinkingLevel } from "./thinking.js";
+import { LEVEL_TO_BUDGET, THINKING_ORDER, budgetToLevel, effortToBudget, effortToThinkingLevel } from "./thinking.js";
 
 // Map a target wire-format to its native thinking format (when capability has none).
 const FORMAT_TO_NATIVE = {
@@ -149,6 +149,14 @@ function toLevel(cfg) {
   if (cfg.mode === "budget") return budgetToLevel(cfg.budget) || "medium";
   if (cfg.mode === "auto") return "auto";
   return null;
+}
+
+function clampToMax(cfg, maxLevel) {
+  if (!maxLevel || cfg.mode === "auto" || cfg.mode === "none") return cfg;
+  const current = THINKING_ORDER.indexOf(toLevel(cfg));
+  const ceiling = THINKING_ORDER.indexOf(maxLevel);
+  if (current === -1 || ceiling === -1 || current <= ceiling) return cfg;
+  return { mode: "level", level: maxLevel };
 }
 
 function normalizeOpenAILevel(level, supportedLevels) {
@@ -371,11 +379,11 @@ function applyFormat(fmt, body, cfg, caps, supportedLevels) {
 // Mutates and returns body. No-op when model has no reasoning capability.
 // `intent` is a pre-captured config (from captureThinking on the original body);
 // falls back to extracting from the current body when omitted.
-export function applyThinking(targetFormat, model, body, provider = null, intent = undefined, transportThinkingFormat = null) {
+export function applyThinking(targetFormat, model, body, provider = null, intent = undefined, transportThinkingFormat = null, maxLevel = null) {
   if (!body || typeof body !== "object") return body;
 
   const { cleanModel, override } = parseSuffix(model);
-  const cfg = override || intent || extractThinking(body);
+  let cfg = override || intent || extractThinking(body);
   const caps = getCapabilitiesForModel(provider, cleanModel);
 
   // Model cannot reason → strip any stray thinking fields.
@@ -384,6 +392,7 @@ export function applyThinking(targetFormat, model, body, provider = null, intent
     return body;
   }
   if (!cfg) return body;
+  cfg = clampToMax(cfg, maxLevel);
 
   const fmt = resolveFormat(targetFormat, cleanModel, provider, transportThinkingFormat);
   const supportedLevels = getThinkingLevels(provider, cleanModel);

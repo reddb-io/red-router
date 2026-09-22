@@ -23,6 +23,7 @@ import EditCompatibleNodeModal from "./EditCompatibleNodeModal";
 import AddCustomModelModal from "./AddCustomModelModal";
 import BulkImportCodexModal from "./BulkImportCodexModal";
 import BulkImportGrokCliModal from "./BulkImportGrokCliModal";
+import DecisionRouterCard from "@/shared/components/DecisionRouterCard";
 
 const ONE_BY_ONE_DELAY_MS = 1000;
 
@@ -473,6 +474,8 @@ export default function ProviderDetailPage() {
   };
 
   useEffect(() => {
+    // Legacy provider loaders update their independent local state asynchronously.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchConnections();
     fetchAliases();
     fetchCustomModels();
@@ -484,6 +487,8 @@ export default function ProviderDetailPage() {
   // registry remains the fallback while the request is pending or unavailable.
   useEffect(() => {
     if (providerId !== "cursor" && providerId !== "red-router") {
+      // Clear account-specific results when this page has no live catalog.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setLiveModels([]);
       return;
     }
@@ -939,6 +944,8 @@ export default function ProviderDetailPage() {
   };
 
   useEffect(() => {
+    // Keep the bulk selection constrained to connections still present.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setSelectedConnectionIds((prev) => prev.filter((id) => connections.some((conn) => conn.id === id)));
   }, [connections]);
 
@@ -1466,6 +1473,10 @@ export default function ProviderDetailPage() {
             </a>
           )}
         </div>
+      )}
+
+      {providerInfo.decisionConfig && (
+        <DecisionRouterCard provider={providerInfo} />
       )}
 
       {isCompatible && providerNode && (

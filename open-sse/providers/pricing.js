@@ -4,6 +4,7 @@
 //   1. PROVIDER_PRICING[provider][model]  — provider-specific override
 //   2. MODEL_PRICING[model]               — canonical model price (provider-agnostic)
 //   3. PATTERN_PRICING                    — glob pattern match (e.g. "codex-*")
+import { resolveProviderAlias } from "../services/model.js";
 
 /**
  * Canonical model pricing — provider-agnostic.
@@ -161,6 +162,8 @@ export const MODEL_PRICING = {
   "jev-latest":                   { input: 0.042, output: 0.00 },
   "jev-preview":                  { input: 0.042, output: 0.00 },
   "jev-1.13.0":                   { input: 0.042, output: 0.00 },
+  "jev":                          { input: 0.042, output: 0.00 },
+  "typesafe-ai/jev":              { input: 0.042, output: 0.00 },
 };
 
 /**
@@ -393,6 +396,7 @@ export function matchPattern(pattern, model) {
  */
 export function getPricingForModel(provider, model) {
   if (!model) return null;
+  provider = resolveProviderAlias(provider);
 
   // 1. Provider-specific override
   if (provider && PROVIDER_PRICING[provider]?.[model]) {

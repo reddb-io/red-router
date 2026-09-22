@@ -73,6 +73,18 @@ const DEFAULT_SETTINGS = {
   pxpipeAutoInstall: true,
   pxpipeMinChars: 25000,
   pxpipeTimeoutMs: 15000,
+  decisionRouter: {
+    mode: "off",
+    provider: "vercel-ai-gateway",
+    model: "typesafe-ai/jev",
+    models: [],
+    effort: false,
+    toolMode: "hint",
+    minStrength: 0.35,
+    switchStrength: 0.6,
+    minConfidence: 0.7,
+    timeoutMs: 1500,
+  },
 };
 
 async function readRaw() {
@@ -84,6 +96,9 @@ async function readRaw() {
 // Merge raw settings with defaults; backward-compat for missing keys
 export function mergeWithDefaults(raw) {
   const merged = { ...DEFAULT_SETTINGS, ...(raw || {}) };
+  if (merged.decisionRouter && typeof merged.decisionRouter === "object" && !Array.isArray(merged.decisionRouter)) {
+    merged.decisionRouter = { ...DEFAULT_SETTINGS.decisionRouter, ...merged.decisionRouter };
+  }
   for (const [key, defVal] of Object.entries(DEFAULT_SETTINGS)) {
     if (merged[key] === undefined) {
       if (

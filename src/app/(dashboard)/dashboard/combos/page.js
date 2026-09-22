@@ -59,8 +59,10 @@ export default function CombosPage() {
   const [hiddenShared, setHiddenShared] = useState([]);
 
   useEffect(() => {
+    // Legacy loader mutates local component state after its requests resolve.
+    // eslint-disable-next-line react-hooks/immutability
     fetchData();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   const fetchData = async () => {
     try {
@@ -373,6 +375,7 @@ const STRATEGY_OPTIONS = [
   { value: "round-robin", label: "Round Robin — rotate" },
   { value: "fusion", label: "Fusion — panel + judge" },
   { value: "smart", label: "Smart — Jev complexity routing" },
+  { value: "auto", label: "Auto — decision model picks per turn" },
 ];
 
 function ComboCard({ combo, getCaps, activeProviders = [], copied, onCopy, onEdit, onDelete, onHide = null, strategy = {}, onSetStrategy }) {
@@ -786,6 +789,8 @@ function ComboFormModal({ isOpen, combo, onClose, onSave, activeProviders, kindF
   };
 
   useEffect(() => {
+    // Legacy modal loader owns the modal's local form state.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (isOpen) fetchModalData();
   }, [isOpen]);
 
