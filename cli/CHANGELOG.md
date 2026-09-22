@@ -1,5 +1,11 @@
 # @reddb-io/red-router
 
+## 0.11.6
+
+### Patch Changes
+
+- 4eee213: Redesign the Usage and Skills dashboards as compact operational workbenches with clearer navigation, metrics, filters, and accessible controls.
+
 ## 0.11.5
 
 ### Patch Changes
