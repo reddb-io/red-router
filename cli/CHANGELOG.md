@@ -1,5 +1,11 @@
 # @reddb-io/red-router
 
+## 0.11.2
+
+### Patch Changes
+
+- d237284: Keep the sidebar focused on navigation: remove the product-logo treatment, version metadata, and update banner. Move version and update controls into Settings.
+
 ## 0.11.1
 
 ### Patch Changes
