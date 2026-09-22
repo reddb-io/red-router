@@ -61,7 +61,7 @@ describe("GET /v1/models/{id}", () => {
     mocks.buildModelsList.mockResolvedValue([evaluator]);
     const response = await GET(new Request("https://router.test/v1/models/systemone", { headers: { Authorization: "Bearer test-client-key" } }), params(["systemone"]));
     expect(await response.json()).toEqual({ object: "list", data: [evaluator] });
-    expect(mocks.buildModelsList).toHaveBeenCalledWith(["systemOne"], { apiKey: "test-client-key" });
+    expect(mocks.buildModelsList).toHaveBeenCalledWith(["textClassification"], { apiKey: "test-client-key" });
   });
 
   it("returns an OpenAI-style model_not_found response for an unknown model", async () => {

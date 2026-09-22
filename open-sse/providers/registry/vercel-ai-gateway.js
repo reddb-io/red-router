@@ -32,7 +32,10 @@ export default {
   // so it is one of the providers the Decisions tool lists. The decision model is
   // a field, not a provider identity — when a better System-1 model ships, change
   // the model and nothing else.
-  serviceKinds: ["llm","embedding","image","imageToText","webSearch","decision"],
+  serviceKinds: ["llm","embedding","image","imageToText","webSearch","decision","textClassification"],
+  models: [
+    { id: "typesafe-ai/jev", name: "TypeSafe JEV", kind: "textClassification" },
+  ],
   embeddingConfig: { baseUrl: "https://ai-gateway.vercel.sh/v1/embeddings" },
   imageConfig: { baseUrl: "https://ai-gateway.vercel.sh/v1/images/generations" },
   searchViaChat: { defaultModel: "openai/gpt-4o-mini", pricingUrl: "https://vercel.com/docs/ai-gateway/pricing" },

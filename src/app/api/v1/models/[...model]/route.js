@@ -9,7 +9,8 @@ const KIND_SLUG_MAP = {
   "embedding": ["embedding"],
   "image-to-text": ["imageToText"],
   "web": ["webSearch", "webFetch"],
-  "systemone": ["systemOne"],
+  "systemone": ["textClassification"],
+  "text-classification": ["textClassification"],
 };
 
 const LLM_KIND = "llm";
@@ -37,7 +38,7 @@ function json(data, options = {}) {
 /**
  * GET /v1/models/{kind} - OpenAI-compatible models list filtered by capability.
  * GET /v1/models/{provider}/{model} - OpenAI-compatible single model lookup.
- * Supported kinds: image, tts, stt, embedding, image-to-text, web.
+ * Supported kinds: image, tts, stt, embedding, image-to-text, web, text-classification.
  */
 export async function GET(request, { params }) {
   try {

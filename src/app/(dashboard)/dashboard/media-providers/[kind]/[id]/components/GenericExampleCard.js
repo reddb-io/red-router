@@ -39,7 +39,7 @@ export function GenericExampleCard({ providerId, kind }) {
   // Get models for this kind (e.g., type="image")
   const kindModels = getModelsByProviderId(providerId).filter((m) => getModelKind(m) === kind);
   // Kinds that need a model identifier in the request (image/video/music)
-  const KIND_NEEDS_MODEL = new Set(["image", "video", "music", "imageToText"]);
+  const KIND_NEEDS_MODEL = new Set(["image", "video", "music", "imageToText", "textClassification"]);
   const needsModel = KIND_NEEDS_MODEL.has(kind);
   const allowManualModel = needsModel && kindModels.length === 0;
   const [selectedModel, setSelectedModel] = useState(kindModels[0]?.id ?? "");
@@ -55,7 +55,7 @@ export function GenericExampleCard({ providerId, kind }) {
   );
   const [apiKey, setApiKey] = useState("");
   const [useTunnel, setUseTunnel] = useState(false);
-  const [localEndpoint, setLocalEndpoint] = useState("");
+  const [localEndpoint] = useState(() => typeof window === "undefined" ? "" : window.location.origin);
   const [tunnelEndpoint, setTunnelEndpoint] = useState("");
   const [result, setResult] = useState(null);
   const [progress, setProgress] = useState(null); // { stage, bytesReceived }
@@ -70,7 +70,6 @@ export function GenericExampleCard({ providerId, kind }) {
   const { copied: copiedRes, copy: copyRes } = useCopyToClipboard();
 
   useEffect(() => {
-    setLocalEndpoint(window.location.origin);
     fetch("/api/keys")
       .then((r) => r.json())
       .then((d) => { setApiKey((d.keys || []).find((k) => k.isActive !== false)?.key || ""); })
@@ -304,12 +303,22 @@ export function GenericExampleCard({ providerId, kind }) {
         {/* Input */}
         <Row label={exConfig.inputLabel}>
           <div className="relative">
-            <input
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder={exConfig.inputPlaceholder}
-              className="w-full px-3 py-1.5 pr-7 text-sm border border-border rounded-lg bg-background focus:outline-none focus:border-primary"
-            />
+            {exConfig.multiline ? (
+              <textarea
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                placeholder={exConfig.inputPlaceholder}
+                rows={4}
+                className="w-full resize-y px-3 py-2 pr-7 text-sm border border-border rounded-lg bg-background focus:outline-none focus:border-primary"
+              />
+            ) : (
+              <input
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                placeholder={exConfig.inputPlaceholder}
+                className="w-full px-3 py-1.5 pr-7 text-sm border border-border rounded-lg bg-background focus:outline-none focus:border-primary"
+              />
+            )}
             {input && (
               <button
                 type="button"

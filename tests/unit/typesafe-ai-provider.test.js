@@ -5,12 +5,12 @@ import { resolveProviderAlias } from "../../open-sse/services/model.js";
 import { getPricingForModel } from "../../open-sse/providers/pricing.js";
 
 describe("TypeSafe AI provider registry", () => {
-  it("registers JEV as a native System One provider, not a chat transport", () => {
+  it("registers JEV as a native text classification provider, not a chat transport", () => {
     const entry = REGISTRY.find((provider) => provider.id === "typesafe-ai");
 
     expect(entry).toMatchObject({
       category: "apikey",
-      serviceKinds: ["systemOne"],
+      serviceKinds: ["textClassification"],
     });
     expect(entry).not.toHaveProperty("transport");
     expect(PROVIDER_MEDIA["typesafe-ai"].systemOneConfig.baseUrl).toBe(

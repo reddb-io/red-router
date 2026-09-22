@@ -36,7 +36,6 @@ function useLiveProviderModels(isOpen, connectionIds, label) {
   useEffect(() => {
     const ids = idsKey ? idsKey.split("|") : [];
     if (!isOpen || ids.length === 0) {
-      setModels([]);
       return undefined;
     }
 
@@ -65,7 +64,7 @@ function useLiveProviderModels(isOpen, connectionIds, label) {
     return () => { cancelled = true; };
   }, [isOpen, idsKey, label]);
 
-  return models;
+  return isOpen && idsKey ? models : [];
 }
 
 export default function ModelSelectModal({
@@ -131,6 +130,7 @@ export default function ModelSelectModal({
   };
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (isOpen) fetchCombos();
   }, [isOpen]);
 
@@ -147,6 +147,7 @@ export default function ModelSelectModal({
   };
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (isOpen) fetchProviderNodes();
   }, [isOpen]);
 
@@ -163,6 +164,7 @@ export default function ModelSelectModal({
   };
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (isOpen) fetchCustomModels();
   }, [isOpen]);
 
@@ -179,6 +181,7 @@ export default function ModelSelectModal({
   };
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (isOpen) fetchDisabledModels();
   }, [isOpen]);
 
@@ -191,7 +194,7 @@ export default function ModelSelectModal({
     // Kinds where the provider IS the model (no per-model selection needed)
     const PROVIDER_AS_MODEL_KINDS = new Set(["webSearch", "webFetch"]);
     // Kinds that map directly to model.type field
-    const TYPED_KINDS = new Set(["image", "tts", "stt", "embedding", "imageToText"]);
+    const TYPED_KINDS = new Set(["image", "tts", "stt", "embedding", "imageToText", "textClassification"]);
     // For these kinds, providers without hardcoded models can still be picked (provider-as-model fallback)
     const ALLOW_PROVIDER_FALLBACK_KINDS = new Set(["tts", "image", "webFetch"]);
 

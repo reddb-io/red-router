@@ -17,13 +17,14 @@ export const OPENROUTER_SYSTEM_ONE_MODEL_MAP = {
 };
 
 export const SYSTEM_ONE_MODELS = [
-  { id: "jev-latest", name: "JEV Latest", kind: "systemOne" },
-  { id: "jev-preview", name: "JEV Preview", kind: "systemOne" },
-  { id: "jev-1.13.0", name: "JEV 1.13.0", kind: "systemOne" },
+  { id: "jev-latest", name: "JEV Latest", kind: "textClassification" },
+  { id: "jev-preview", name: "JEV Preview", kind: "textClassification" },
+  { id: "jev-1.13.0", name: "JEV 1.13.0", kind: "textClassification" },
 ];
 
 export const SYSTEM_ONE_MODEL_PREFIXES = [
   "vercel-ai-gateway/",
+  "vercel/",
   "openrouter/typesafe/",
   "typesafe-ai/",
   "openrouter/",

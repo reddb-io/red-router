@@ -5,8 +5,9 @@ import {
   isValidApiKey,
   markAccountUnavailable,
 } from "../services/auth.js";
-import { getSettings } from "@/lib/localDb";
+import { getApiKeyOwner, getSettings } from "@/lib/localDb";
 import { saveRequestUsage } from "@/lib/usageDb.js";
+import { getComboModels } from "../services/model.js";
 import {
   handleSystemOneCore,
   getSystemOneProviderOrder,
@@ -15,6 +16,7 @@ import {
   validateSystemOneRequest,
 } from "open-sse/handlers/systemOneCore.js";
 import { errorResponse, responseFromRoutingCandidate } from "open-sse/utils/error.js";
+import { handleComboChat } from "open-sse/services/combo.js";
 import * as log from "../utils/logger.js";
 
 function exactSystemOneUsage(raw) {
@@ -36,15 +38,9 @@ export async function handleSystemOne(request) {
     return errorResponse(400, "Invalid JSON body");
   }
 
-  const validationError = validateSystemOneRequest(body);
-  if (validationError) return errorResponse(400, validationError);
-
   const url = new URL(request.url);
-  const model = normalizeSystemOneModel(body.model);
   const clientApiKey = extractApiKey(request);
   const settings = await getSettings();
-
-  log.request("POST", `${url.pathname} | ${model}`);
 
   if (settings.requireApiKey) {
     if (!clientApiKey) return errorResponse(401, "Missing API key");
@@ -52,6 +48,48 @@ export async function handleSystemOne(request) {
   }
 
   const preferredConnectionId = request.headers.get("x-connection-id") || null;
+  const comboOwner = settings.scopeResourcesByUser === true
+    ? await getApiKeyOwner(clientApiKey || null)
+    : undefined;
+  const comboModels = typeof body.model === "string"
+    ? await getComboModels(body.model, comboOwner)
+    : null;
+  const validationError = validateSystemOneRequest(
+    comboModels ? { ...body, model: comboModels[0] } : body,
+  );
+  if (validationError) return errorResponse(400, validationError);
+
+  log.request("POST", `${url.pathname} | ${body.model || "jev-latest"}`);
+
+  if (comboModels) {
+    const comboStrategies = settings.comboStrategies || {};
+    const comboStrategy = comboStrategies[body.model]?.fallbackStrategy || settings.comboStrategy || "fallback";
+    const comboStickyLimit = settings.comboStickyRoundRobinLimit;
+    log.info("SYSTEM_ONE", `Combo "${body.model}" with ${comboModels.length} models (strategy: ${comboStrategy}, sticky: ${comboStickyLimit})`);
+    return handleComboChat({
+      body,
+      models: comboModels,
+      handleSingleModel: (candidateBody, candidateModel) => handleSingleSystemOne({
+        body: { ...candidateBody, model: candidateModel },
+        request,
+        url,
+        clientApiKey,
+        preferredConnectionId,
+      }),
+      log,
+      comboName: body.model,
+      comboStrategy,
+      comboStickyLimit,
+      autoSwitch: false,
+    });
+  }
+
+  return handleSingleSystemOne({ body, request, url, clientApiKey, preferredConnectionId });
+}
+
+async function handleSingleSystemOne({ body, request, url, clientApiKey, preferredConnectionId }) {
+  const model = normalizeSystemOneModel(body.model);
+  if (!model) return errorResponse(400, "Invalid JEV model");
   let lastUpstreamResponse = null;
   let lastRoutingCandidate = null;
 
