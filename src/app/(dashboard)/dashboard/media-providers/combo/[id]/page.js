@@ -184,6 +184,7 @@ export default function ComboDetailPage() {
     setTestError("");
     if (testResult?.audioUrl) { try { URL.revokeObjectURL(testResult.audioUrl); } catch {} }
     if (testResult?.imageUrl?.startsWith("blob:")) { try { URL.revokeObjectURL(testResult.imageUrl); } catch {} }
+    // eslint-disable-next-line react-hooks/purity
     const start = Date.now();
     try {
       const path = EXAMPLE_PATHS[combo.kind];
@@ -191,6 +192,7 @@ export default function ComboDetailPage() {
       const headers = { "Content-Type": "application/json" };
       if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
       const res = await fetch(`/api${path}`, { method: "POST", headers, body: JSON.stringify(body) });
+      // eslint-disable-next-line react-hooks/purity
       const latencyMs = Date.now() - start;
       if (!res.ok) {
         const d = await res.json().catch(() => ({}));
