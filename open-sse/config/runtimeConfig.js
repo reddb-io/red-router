@@ -88,6 +88,18 @@ export const SERVED_MODEL_HEADER = "X-RedRouter-Served-Model";
 export const COST_HEADER = "X-RedRouter-Cost-USD";
 export const REQUEST_ID_HEADER = "X-Request-Id";
 
+// Per-session combo member stickiness (open-sse/services/sessionAffinity.js): the
+// member that last served a session leads its next request until it fails or the
+// session stays idle for ttlMs. In-process and LRU-bounded, like combo rotation.
+export const SESSION_AFFINITY_CONFIG = {
+  ttlMs: envMs("SESSION_AFFINITY_TTL_MS", 30 * 60 * 1000),
+  maxEntries: 5000,
+};
+
+// Upstreams that accept OpenAI's `prompt_cache_key`. A strict OpenAI-compatible
+// server may reject unknown fields, so the session is mapped only for these.
+export const PROMPT_CACHE_KEY_PROVIDERS = ["openai"];
+
 // Retry config for 429 responses (legacy - kept for backward compatibility)
 export const RETRY_CONFIG = {
   maxAttempts: 2,

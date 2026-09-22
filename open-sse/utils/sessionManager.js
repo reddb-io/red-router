@@ -91,14 +91,48 @@ const ASSISTANT_CAP_LEN = 50;
 const MAX_ASSISTANT_SESSIONS = 5000;
 const MAX_CONTINUATION_SESSIONS = 5000;
 
+// Session affinity: the client's own session, and the session that spawned it
+// (a subagent). Both are session keys; the parent groups subagents for combo
+// member stickiness.
+const SESSION_AFFINITY_HEADER = "x-session-affinity";
+const PARENT_SESSION_HEADER = "x-parent-session-id";
+
 // Client headers/body fields that carry an upstream session id (priority order)
-const SESSION_HEADER_KEYS = ["x-session-id", "session-id", "session_id", "x-amp-thread-id"];
+const SESSION_HEADER_KEYS = ["x-session-id", SESSION_AFFINITY_HEADER, PARENT_SESSION_HEADER, "session-id", "session_id", "x-amp-thread-id"];
 const CLAUDE_CODE_SESSION_RE = /_session_([a-f0-9-]+)$/;
 const CLAUDE_CODE_SESSION_HEADER = "x-claude-code-session-id";
 const CLIENT_REQUEST_ID_HEADER = "x-client-request-id";
 
 // Every request header read as a session id, in priority order (advertised by /v1/capabilities).
 export const SESSION_HEADERS = [CLAUDE_CODE_SESSION_HEADER, ...SESSION_HEADER_KEYS, CLIENT_REQUEST_ID_HEADER];
+
+// The headers that opt a request into combo member stickiness, in priority order.
+// Only these do: clients that send other session headers today keep the per-combo
+// rotation they already get.
+export const AFFINITY_HEADERS = [PARENT_SESSION_HEADER, SESSION_AFFINITY_HEADER];
+
+/**
+ * The session a combo keeps its member for: the parent session when the request
+ * comes from a subagent, so a parent and its subagents stay on one member; else
+ * the client's own affinity session. Null when the client sent neither.
+ */
+export function resolveAffinityKey(headers) {
+    for (const key of AFFINITY_HEADERS) {
+        const value = headerValue(headers, key);
+        if (value) return value;
+    }
+    return null;
+}
+
+/**
+ * The `prompt_cache_key` for a request that carries an affinity session: the
+ * request's own session first (its prefix is its own), else its parent. Hashed,
+ * so the upstream never sees the raw id and the value stays short. Null without one.
+ */
+export function promptCacheKeyFor(headers) {
+    const session = headerValue(headers, SESSION_AFFINITY_HEADER) || headerValue(headers, PARENT_SESSION_HEADER);
+    return session ? `rr-${crypto.createHash("sha256").update(session).digest("hex").slice(0, 32)}` : null;
+}
 
 function sha16(text) {
     return crypto.createHash("sha256").update(text).digest("hex").slice(0, 16);
