@@ -379,7 +379,10 @@ function applyFormat(fmt, body, cfg, caps, supportedLevels) {
 // Mutates and returns body. No-op when model has no reasoning capability.
 // `intent` is a pre-captured config (from captureThinking on the original body);
 // falls back to extracting from the current body when omitted.
-export function applyThinking(targetFormat, model, body, provider = null, intent = undefined, transportThinkingFormat = null, maxLevel = null) {
+// `goal` is either a level string (legacy ceiling) or { mode: "ceiling" | "set", level }:
+// "ceiling" only lowers the client's level, "set" replaces it — injecting thinking
+// even when the client sent none (reasoning autopilot).
+export function applyThinking(targetFormat, model, body, provider = null, intent = undefined, transportThinkingFormat = null, goal = null) {
   if (!body || typeof body !== "object") return body;
 
   const { cleanModel, override } = parseSuffix(model);
@@ -391,8 +394,12 @@ export function applyThinking(targetFormat, model, body, provider = null, intent
     stripAll(body);
     return body;
   }
+  const target = typeof goal === "string" ? { mode: "ceiling", level: goal } : goal;
+  if (target?.mode === "set" && THINKING_ORDER.includes(target.level)) {
+    cfg = target.level === "none" ? { mode: "none" } : { mode: "level", level: target.level };
+  }
   if (!cfg) return body;
-  cfg = clampToMax(cfg, maxLevel);
+  if (target?.mode === "ceiling") cfg = clampToMax(cfg, target.level);
 
   const fmt = resolveFormat(targetFormat, cleanModel, provider, transportThinkingFormat);
   const supportedLevels = getThinkingLevels(provider, cleanModel);

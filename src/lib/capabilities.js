@@ -13,7 +13,8 @@ import { buildModelsList } from "@/app/api/v1/models/route.js";
 import { SYSTEM_ONE_PROVIDER_IDS } from "open-sse/config/systemOne.js";
 import { COMBO_STRATEGIES } from "open-sse/services/combo.js";
 import { SESSION_HEADERS } from "open-sse/utils/sessionManager.js";
-import { COST_HEADER, DECISION_HEADER, REQUEST_ID_HEADER, SERVED_MODEL_HEADER, TOKEN_SAVER_HEADER } from "open-sse/config/runtimeConfig.js";
+import { COST_HEADER, DECISION_HEADER, REASONING_HEADER, REASONING_RESPONSE_HEADER, REQUEST_ID_HEADER, SERVED_MODEL_HEADER, TOKEN_SAVER_HEADER } from "open-sse/config/runtimeConfig.js";
+import { normalizeAutopilotConfig } from "open-sse/decision/reasoningAutopilot.js";
 
 export const PRODUCT = "red-router";
 export const SYSTEM_ONE_PATH = "/v1/systemone";
@@ -33,6 +34,7 @@ export const RESPONSE_HEADERS = {
 export async function buildCapabilities({ apiKey = null } = {}) {
   const settings = await readSettings(apiKey);
   const decision = normalizeDecisionConfig(settings?.decisionRouter);
+  const reasoning = normalizeAutopilotConfig(settings?.reasoningAutopilot);
   return {
     product: PRODUCT,
     version: cliPkg.version,
@@ -45,6 +47,11 @@ export async function buildCapabilities({ apiKey = null } = {}) {
       effort: decision.effort === true,
       header: DECISION_HEADER,
       accepts_hint: false,
+    },
+    reasoning: {
+      mode: reasoning.mode,
+      header: REASONING_HEADER,
+      response_header: REASONING_RESPONSE_HEADER,
     },
     session: {
       headers: [...SESSION_HEADERS],

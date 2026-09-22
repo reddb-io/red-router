@@ -21,6 +21,13 @@ export const DELIBERATION_KEY = "needs_reasoning";
 export const TOOL_KEY = "tool";
 export const NEEDS_TOOL_KEY = "needs_tool";
 
+const DELIBERATION_QUESTION = {
+  type: "noul",
+  instructions:
+    "Does this next step need real deliberation (multi-step reasoning, " +
+    "architecture, non-obvious debugging), or is it mechanical?",
+};
+
 /** Descriptions lead with what the tool is for; the tail is usage detail. */
 function toolCriteria(tools) {
   const limit = Math.max(80, Math.min(MAX_DESCRIPTION_CHARS, Math.floor(QUESTION_CHAR_BUDGET / tools.length)));
@@ -127,14 +134,14 @@ export function buildModelQuestions(models, criteriaFor) {
           "pick the one whose description matches what the step actually needs.",
         criteria,
       },
-      [DELIBERATION_KEY]: {
-        type: "noul",
-        instructions:
-          "Does this next step need real deliberation (multi-step reasoning, " +
-          "architecture, non-obvious debugging), or is it mechanical?",
-      },
+      [DELIBERATION_KEY]: DELIBERATION_QUESTION,
     },
   };
+}
+
+/** Deliberation alone: the reasoning autopilot's question when no model decision ran. */
+export function buildReasoningQuestions() {
+  return { questions: { [DELIBERATION_KEY]: DELIBERATION_QUESTION } };
 }
 
 /** Tools kept for jev when a roster is too big to judge well. */

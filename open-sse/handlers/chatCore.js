@@ -2,7 +2,7 @@ import { detectFormat, getTargetFormat, resolveTransport } from "../services/pro
 import { translateRequest } from "../translator/index.js";
 import { applyThinking, extractThinking, stripThinkingSuffix } from "../translator/concerns/thinkingUnified.js";
 import { FORMATS } from "../translator/formats.js";
-import { normalizeClaudePassthrough, anchorClaudeCache } from "../translator/formats/claude.js";
+import { normalizeClaudePassthrough, anchorClaudeCache, applyClaudeThinkingTarget } from "../translator/formats/claude.js";
 import { createStreamController, EMPTY_STREAM_MAX_RECONNECTS } from "../utils/streamHandler.js";
 import { refreshWithRetry } from "../services/tokenRefresh.js";
 import { createRequestLogger } from "../utils/requestLogger.js";
@@ -68,7 +68,9 @@ export function stripContinuityFields(body) {
   return body;
 }
 
-export async function handleChatCore({ body, modelInfo, credentials, log, errorContext = {}, onCredentialsRefreshed, onRequestSuccess, onDisconnect, clientRawRequest, connectionId, userAgent, apiKey, ccFilterNaming, rtkEnabled, headroomEnabled, headroomUrl, headroomCompressUserMessages, headroomTimeoutMs, cavemanEnabled, cavemanLevel, ponytailEnabled, ponytailLevel, pxpipeEnabled, pxpipeMinChars, pxpipeTimeoutMs, pxpipeTransform, onPxpipeEvent, sourceFormatOverride, providerThinking, maxThinkingLevel = null, decideTool = null, decision = null }) {
+export async function handleChatCore({ body, modelInfo, credentials, log, errorContext = {}, onCredentialsRefreshed, onRequestSuccess, onDisconnect, clientRawRequest, connectionId, userAgent, apiKey, ccFilterNaming, rtkEnabled, headroomEnabled, headroomUrl, headroomCompressUserMessages, headroomTimeoutMs, cavemanEnabled, cavemanLevel, ponytailEnabled, ponytailLevel, pxpipeEnabled, pxpipeMinChars, pxpipeTimeoutMs, pxpipeTransform, onPxpipeEvent, sourceFormatOverride, providerThinking, maxThinkingLevel = null, thinkingTarget = null, reasoning = null, decideTool = null, decision = null }) {
+  // Reasoning level to apply: the autopilot/header sets it, the legacy effort toggle caps it.
+  const thinkingGoal = thinkingTarget || (maxThinkingLevel ? { mode: "ceiling", level: maxThinkingLevel } : null);
   const { provider, model } = modelInfo;
   const requestStartTime = Date.now();
   // Stable per-session color so all lines of one CLI conversation share a tag
@@ -199,7 +201,7 @@ export async function handleChatCore({ body, modelInfo, credentials, log, errorC
       // off the scratch object and nests it itself, so applyThinking must not nest.
       // Passing sourceFormat here would hand back {reasoning:{effort}} for a Responses
       // client and the suffix would silently stop applying.
-      applyThinking(FORMATS.OPENAI, upstreamModel, suffixThinking, provider, undefined, null, maxThinkingLevel);
+      applyThinking(FORMATS.OPENAI, upstreamModel, suffixThinking, provider, undefined, null, thinkingGoal);
       if (suffixThinking.reasoning_effort) {
         const reasoning = translatedBody.reasoning;
         translatedBody.reasoning = {
@@ -208,6 +210,10 @@ export async function handleChatCore({ body, modelInfo, credentials, log, errorC
         };
         delete translatedBody.reasoning_effort;
       }
+    }
+    // A set reasoning level rewrites the client's own thinking config on the native wire too.
+    if (clientTool === "claude" && thinkingGoal?.mode === "set") {
+      applyClaudeThinkingTarget(translatedBody, thinkingGoal, provider);
     }
     // Normalize newer Cowork/CC beta shapes (adaptive thinking, mid-conversation system) the API rejects
     if (clientTool === "claude") normalizeClaudePassthrough(translatedBody, translatedBody.model);
@@ -221,8 +227,8 @@ export async function handleChatCore({ body, modelInfo, credentials, log, errorC
       if (Object.keys(translatedBody.output_config).length === 0) delete translatedBody.output_config;
     }
   } else {
-    translatedBody = maxThinkingLevel
-      ? translateRequest(sourceFormat, targetFormat, upstreamModel, body, stream, credentials, provider, reqLogger, stripList, connectionId, clientTool, maxThinkingLevel)
+    translatedBody = thinkingGoal
+      ? translateRequest(sourceFormat, targetFormat, upstreamModel, body, stream, credentials, provider, reqLogger, stripList, connectionId, clientTool, thinkingGoal)
       : translateRequest(sourceFormat, targetFormat, upstreamModel, body, stream, credentials, provider, reqLogger, stripList, connectionId, clientTool);
     if (!translatedBody) {
       trackPendingRequest(model, provider, connectionId, false, true);
@@ -369,8 +375,8 @@ export async function handleChatCore({ body, modelInfo, credentials, log, errorC
       log?.warn?.("DECISION", `tool decision failed: ${error.message}`);
     }
   }
-  const decisionDetail = decision || toolDecision
-    ? buildDecisionDetail(decision, toolDecision)
+  const decisionDetail = decision || toolDecision || reasoning
+    ? buildDecisionDetail(decision, toolDecision, reasoning)
     : null;
 
   if (xf.length && log?.line) log.line(reqTag, "⚙", xf.join(" · "));

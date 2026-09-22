@@ -70,8 +70,17 @@ export function extractUsageFromResponse(responseBody) {
  * the core itself. Either can be absent, and a request with neither gets no block at all
  * rather than an empty one.
  */
-export function buildDecisionDetail(modelDecision, toolDecision) {
+export function buildDecisionDetail(modelDecision, toolDecision, reasoning = null) {
   const parts = {};
+  if (reasoning?.level) {
+    parts.reasoning = {
+      level: reasoning.level,
+      from: reasoning.from || null,
+      cause: reasoning.cause || null,
+      applied: !!reasoning.target,
+      deliberation: num(reasoning.deliberation),
+    };
+  }
   if (modelDecision) {
     parts.model = {
       chosen: modelDecision.model || null,

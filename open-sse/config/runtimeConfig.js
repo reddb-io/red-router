@@ -81,6 +81,13 @@ export const TOKEN_SAVER_HEADER = "x-red-router-token-saver";
 // TOKEN_SAVER_HEADER: the header value "off" disables it for that one request.
 export const DECISION_HEADER = "x-red-router-decision";
 
+// Per-request reasoning override: "off" leaves the client's own thinking config
+// untouched, a level (none…max) forces it, "auto" defers to the autopilot.
+export const REASONING_HEADER = "x-red-router-reasoning";
+// Set on successful chat responses when the autopilot or the header chose a level:
+// "<client level or ->-><level>; cause=<cause>[; shadow]".
+export const REASONING_RESPONSE_HEADER = "X-RedRouter-Reasoning";
+
 // Set on successful chat responses: the provider/model that actually answered (the
 // combo member, after fallback) and, when computable before the body is sent, its
 // USD cost. Streams carry the cost as `usage.cost` in their final usage event.

@@ -9,14 +9,21 @@ import REGISTRY from "open-sse/providers/registry/index.js";
 import { getProviderCredentials } from "./auth.js";
 import { askJev, decisionUrlFor } from "open-sse/decision/jev.js";
 import { buildState } from "open-sse/decision/state.js";
-import { signalsMeta } from "open-sse/decision/signals.js";
-import { buildModelQuestions, buildToolQuestions, shortlistTools } from "open-sse/decision/questions.js";
+import { extractSignals, signalsMeta } from "open-sse/decision/signals.js";
+import {
+  autopilotApplies,
+  decideReasoningLevel,
+  normalizeAutopilotConfig,
+  parseReasoningHeader,
+} from "open-sse/decision/reasoningAutopilot.js";
+import { buildModelQuestions, buildReasoningQuestions, buildToolQuestions, shortlistTools, DELIBERATION_KEY } from "open-sse/decision/questions.js";
 import { resolveModelDecision, resolveToolDecision } from "open-sse/decision/decide.js";
 import { getPricingForModel } from "open-sse/providers/pricing.js";
 import { resolveCriteria } from "open-sse/decision/modelBriefs.js";
 import { rankByCost } from "open-sse/decision/decide.js";
 import { proxyAwareFetch } from "open-sse/utils/proxyFetch.js";
-import { MEMORY_CONFIG } from "open-sse/config/runtimeConfig.js";
+import { MEMORY_CONFIG, REASONING_HEADER } from "open-sse/config/runtimeConfig.js";
+import { createHash } from "node:crypto";
 
 export const DEFAULT_DECISION = {
   mode: "off",
@@ -334,21 +341,112 @@ async function saveDecisionDetail({ response, verdict, target }) {
   }
 }
 
+/**
+ * Reasoning autopilot for one request: the level to apply, or null when the
+ * autopilot does not cover it. Deliberation comes from the auto-combo decision
+ * when one ran; otherwise one noul question is asked, memoized per human turn so
+ * tool continuations of the same ask do not pay for it again.
+ *
+ * @returns {Promise<null|{mode:string, level:string, cause:string, from:string|null,
+ *   deliberation:number|null, target:null|{mode:"set", level:string}}>}
+ */
+export async function planReasoning({ body, settings, apiKey = null, apiKeyId = null, comboName = null, sessionId = null, headers = null, userAgent = "", deliberation = null, log }) {
+  const override = parseReasoningHeader(headers?.[REASONING_HEADER]);
+  if (override?.mode === "off") return null;
+  if (override?.mode === "force") {
+    log?.info?.("REASONING", `forced ${override.level} by header`);
+    return { mode: "enforce", level: override.level, cause: "header", from: null, deliberation: null, target: { mode: "set", level: override.level } };
+  }
+
+  const config = normalizeAutopilotConfig(settings?.reasoningAutopilot);
+  if (!autopilotApplies(config, { apiKeyId, comboName })) return null;
+
+  const signals = extractSignals(body, { userAgent });
+  const key = createHash("sha256").update(`${apiKey || "local"}:${sessionId || "ephemeral"}`).digest("hex").slice(0, 24);
+  const session = reasoningSessions.read(key);
+  const turnHash = createHash("sha256").update(signals.humanText || "").digest("hex").slice(0, 16);
+
+  let measured = typeof deliberation === "number" ? deliberation : null;
+  let response = null;
+  let target = null;
+  if (measured === null && !signals.housekeeping && config.askJevDirect) {
+    if (session?.memo?.hash === turnHash) {
+      measured = session.memo.deliberation;
+    } else {
+      const decisionConfig = { ...normalizeDecisionConfig(settings?.decisionRouter), ...(config.provider ? { provider: config.provider } : {}), timeoutMs: config.timeoutMs };
+      target = await resolveDecisionTarget(decisionConfig, { apiKey, log });
+      if (target) {
+        const { questions } = buildReasoningQuestions();
+        const state = buildState(body, { maxStateChars: 24000, dropSystem: signals.harnessSystem });
+        response = await ask(target, decisionConfig, state, questions, log);
+        const answer = response?.answers?.[DELIBERATION_KEY];
+        measured = answer?.type === "noul" && Number.isFinite(answer.noul) ? answer.noul : null;
+      }
+    }
+  }
+
+  const result = decideReasoningLevel({ signals, deliberation: measured, previous: session?.state || null, config });
+  const memo = measured !== null && typeof deliberation !== "number" ? { hash: turnHash, deliberation: measured } : session?.memo || null;
+  if (result.state || memo) reasoningSessions.write(key, { state: result.state, memo });
+
+  const verdict = { kind: "reasoning", mode: config.mode, level: result.level, from: result.from, cause: result.cause, deliberation: measured, signals: signalsMeta(signals) };
+  if (response) await recordUsage({ response, log, target, verdict });
+  log?.info?.("REASONING", `${result.from || "-"}→${result.level} (${result.cause}${measured !== null ? `, deliberar ${fmt(measured)}` : ""}${config.mode === "shadow" ? ", shadow" : ""})`);
+
+  return {
+    mode: config.mode,
+    level: result.level,
+    cause: result.cause,
+    from: result.from,
+    deliberation: measured,
+    target: config.mode === "enforce" ? { mode: "set", level: result.level } : null,
+  };
+}
+
+/** A bounded in-process map whose entries expire with the session TTL. Routing
+ *  state stays in-process, like comboRotationState; move it to the shared store
+ *  together with them if routing state becomes distributed. */
+function sessionStore(max) {
+  const entries = new Map();
+  return {
+    read(key) {
+      const entry = entries.get(key);
+      if (!entry) return null;
+      if (entry.expiresAt <= Date.now()) {
+        entries.delete(key);
+        return null;
+      }
+      return entry.value;
+    },
+    write(key, value) {
+      if (!key) return;
+      if (!entries.has(key) && entries.size >= max) entries.delete(entries.keys().next().value);
+      entries.delete(key);
+      entries.set(key, { value, expiresAt: Date.now() + MEMORY_CONFIG.sessionTtlMs });
+    },
+    delete(key) {
+      entries.delete(key);
+    },
+    clear() {
+      entries.clear();
+    },
+  };
+}
+
+const reasoningSessions = sessionStore(5000);
+
+export function resetReasoningSessions() {
+  reasoningSessions.clear();
+}
+
 /** The last verdict per conversation and combo, so a repeated answer can unlock
  *  the ambiguous band without one conversation influencing another. Entries use
  *  the session-store TTL. This remains in-process, like comboRotationState; move
  *  both to the shared store together if routing state becomes distributed. */
-const lastVerdicts = new Map();
-const MAX_LAST_VERDICTS = 5000;
+const lastVerdicts = sessionStore(5000);
 
 export function readPreviousVerdict(key) {
-  const entry = lastVerdicts.get(key);
-  if (!entry) return null;
-  if (entry.expiresAt <= Date.now()) {
-    lastVerdicts.delete(key);
-    return null;
-  }
-  return entry.model;
+  return lastVerdicts.read(key)?.model || null;
 }
 
 export function rememberVerdict(key, decision) {
@@ -357,14 +455,7 @@ export function rememberVerdict(key, decision) {
     lastVerdicts.delete(key);
     return;
   }
-  if (!lastVerdicts.has(key) && lastVerdicts.size >= MAX_LAST_VERDICTS) {
-    lastVerdicts.delete(lastVerdicts.keys().next().value);
-  }
-  lastVerdicts.delete(key);
-  lastVerdicts.set(key, {
-    model: decision.model,
-    expiresAt: Date.now() + MEMORY_CONFIG.sessionTtlMs,
-  });
+  lastVerdicts.write(key, { model: decision.model });
 }
 
 export function resetVerdicts() {

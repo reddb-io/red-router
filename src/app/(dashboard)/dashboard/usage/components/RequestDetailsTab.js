@@ -653,6 +653,25 @@ export default function RequestDetailsTab() {
                     </div>
                   </div>
                 )}
+                {selectedDetail.decision.reasoning && (
+                  <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-4 mt-2">
+                    <div>
+                      <span className="text-text-muted block text-xs">Reasoning</span>
+                      <span className="font-mono">
+                        {selectedDetail.decision.reasoning.from || "-"} → {selectedDetail.decision.reasoning.level}
+                        {selectedDetail.decision.reasoning.applied ? "" : " (shadow)"}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-text-muted block text-xs">Cause</span>
+                      <span className="font-mono">{selectedDetail.decision.reasoning.cause || "-"}</span>
+                    </div>
+                    <div>
+                      <span className="text-text-muted block text-xs">Deliberation</span>
+                      <span className="font-mono">{selectedDetail.decision.reasoning.deliberation ?? "-"}</span>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
