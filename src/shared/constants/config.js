@@ -2,7 +2,7 @@ import pkg from "../../../cli/package.json" with { type: "json" };
 
 // App configuration
 export const APP_CONFIG = {
-  name: "Red Router",
+  name: "RedRouter",
   description: "AI Infrastructure Management",
   version: pkg.version,
 };
