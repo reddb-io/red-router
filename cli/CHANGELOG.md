@@ -1,5 +1,11 @@
 # @reddb-io/red-router
 
+## 0.11.5
+
+### Patch Changes
+
+- 031a4c1: Redesign the Providers dashboard with a denser responsive grid, connection summaries, clearer filters, and refined provider controls.
+
 ## 0.11.4
 
 ### Patch Changes
