@@ -1,5 +1,11 @@
 # @reddb-io/red-router
 
+## 0.12.1
+
+### Patch Changes
+
+- 0a958fc: Publish the current named tray and predictable diagnostic-log contract, and keep build-time databases, secrets, and machine identity out of the CLI package.
+
 ## 0.12.0
 
 ### Minor Changes
