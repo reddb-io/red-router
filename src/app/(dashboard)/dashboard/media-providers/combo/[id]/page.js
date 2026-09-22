@@ -22,6 +22,7 @@ const KIND_LABELS = {
   webFetch: "Web Fetch",
   image: "Text to Image",
   tts: "Text To Speech",
+  textClassification: "Text classification",
 };
 
 const EXAMPLE_PATHS = {
@@ -29,6 +30,7 @@ const EXAMPLE_PATHS = {
   webFetch: "/v1/web/fetch",
   image: "/v1/images/generations",
   tts: "/v1/audio/speech",
+  textClassification: "/v1/systemone",
 };
 
 const EXAMPLE_BODIES = {
@@ -36,6 +38,13 @@ const EXAMPLE_BODIES = {
   webFetch: (n) => ({ model: n, url: "https://example.com", format: "markdown" }),
   image: (n) => ({ model: n, prompt: "A cute cat playing piano", n: 1, size: "1024x1024" }),
   tts: (n) => ({ model: n, input: "Hello, this is a test.", voice: "alloy" }),
+  textClassification: (n) => ({
+    model: n,
+    state: "The deployment checks passed and the release is available.",
+    questions: {
+      release_ready: { type: "noul", instructions: "Is the release ready?" },
+    },
+  }),
 };
 
 // Map combo.kind → listing route to go back to

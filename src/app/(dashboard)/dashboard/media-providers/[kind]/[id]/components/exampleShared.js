@@ -10,6 +10,29 @@ export function Row({ label, children }) {
 }
 
 export const KIND_EXAMPLE_CONFIG = {
+  textClassification: {
+    inputLabel: "State",
+    inputPlaceholder: "The deployment checks passed and the release is available.",
+    defaultInput: "The deployment checks passed and the release is available.",
+    bodyKey: "state",
+    multiline: true,
+    extraBody: {
+      questions: {
+        release_ready: {
+          type: "noul",
+          instructions: "Is the release ready?",
+        },
+      },
+    },
+    defaultResponse: `{
+  "answers": {
+    "release_ready": {
+      "type": "noul",
+      "noul": 0.98
+    }
+  }
+}`,
+  },
   webSearch: {
     inputLabel: "Query",
     inputPlaceholder: "What is the latest news about AI?",

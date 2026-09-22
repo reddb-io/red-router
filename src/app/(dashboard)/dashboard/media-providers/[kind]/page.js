@@ -9,8 +9,8 @@ import { MEDIA_PROVIDER_KINDS, AI_PROVIDERS, getProvidersByKind } from "@/shared
 
 // Kinds that support combos (currently disabled for image/tts — temporarily hidden).
 // webSearch/webFetch handled by /web page.
-const COMBO_KINDS = new Set([]);
-const COMBO_BASE_NAMES = { image: "image-combo", tts: "tts-combo" };
+const COMBO_KINDS = new Set(["textClassification"]);
+const COMBO_BASE_NAMES = { textClassification: "classification-combo" };
 
 function getEffectiveStatus(conn) {
   const isCooldown = Object.entries(conn).some(
@@ -229,6 +229,19 @@ export default function MediaProviderKindPage() {
 
   return (
     <div className="flex flex-col gap-6">
+      {kind === "textClassification" && (
+        <Card padding="sm" className="border-primary/20 bg-primary/[0.03]">
+          <div className="flex items-start gap-3">
+            <span className="material-symbols-outlined text-primary text-[20px]">rule</span>
+            <div>
+              <h2 className="text-sm font-semibold">Classify textual state</h2>
+              <p className="mt-1 text-xs leading-relaxed text-text-muted">
+                Send text, JSON objects, or arrays with typed questions. JEV evaluates the supplied state through the native System One contract.
+              </p>
+            </div>
+          </div>
+        </Card>
+      )}
       {(isEmbedding || supportsCombo) && (
         <div className="flex items-center justify-end gap-2">
           {supportsCombo && (
