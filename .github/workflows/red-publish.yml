@@ -105,6 +105,11 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
+      - name: Deprecate unsafe v0.12.0 package
+        run: npm deprecate "@reddb-io/red-router@0.12.0" "Contains build-time runtime artifacts; upgrade to 0.12.1 or newer."
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
       - name: Create GitHub release
         run: gh release create "$RELEASE_TAG" release-artifacts/* --verify-tag --generate-notes --title "$RELEASE_TAG"
         env:
