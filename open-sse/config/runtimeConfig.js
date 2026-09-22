@@ -81,6 +81,13 @@ export const TOKEN_SAVER_HEADER = "x-red-router-token-saver";
 // TOKEN_SAVER_HEADER: the header value "off" disables it for that one request.
 export const DECISION_HEADER = "x-red-router-decision";
 
+// Set on successful chat responses: the provider/model that actually answered (the
+// combo member, after fallback) and, when computable before the body is sent, its
+// USD cost. Streams carry the cost as `usage.cost` in their final usage event.
+export const SERVED_MODEL_HEADER = "X-RedRouter-Served-Model";
+export const COST_HEADER = "X-RedRouter-Cost-USD";
+export const REQUEST_ID_HEADER = "X-Request-Id";
+
 // Retry config for 429 responses (legacy - kept for backward compatibility)
 export const RETRY_CONFIG = {
   maxAttempts: 2,

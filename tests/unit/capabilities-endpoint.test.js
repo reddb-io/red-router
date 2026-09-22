@@ -72,8 +72,10 @@ describe("GET /v1/capabilities", () => {
     expect(caps.combos.strategies).toEqual(["fallback", "round-robin", "fusion", "smart", "auto"]);
     expect(caps.session.per_session_stickiness).toBe(false);
     expect(caps.session.headers).toEqual(expect.arrayContaining(["x-session-id", "x-claude-code-session-id"]));
-    expect(caps).toHaveProperty("served_model_header");
-    expect(caps).toHaveProperty("cost_header");
+    expect(caps.served_model_header).toBe("X-RedRouter-Served-Model");
+    expect(caps.cost_header).toBe("X-RedRouter-Cost-USD");
+    expect(caps.request_id_header).toBe("X-Request-Id");
+    expect(caps.stream_usage_cost).toBe(true);
   });
 
   it("marks System One unavailable without an account, available with one", async () => {
