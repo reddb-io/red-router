@@ -36,6 +36,7 @@ import { resolveSessionId, promptCacheKeyFor } from "../utils/sessionManager.js"
 import { prepareStreamingResponse } from "./chatCore/streamResponse.js";
 import { injectHint } from "../decision/injectHint.js";
 import { applyToolChoice } from "../decision/tools.js";
+import { HINT_SOURCE } from "../decision/clientHint.js";
 
 export function executeProviderRequest(executor, options) {
   return executor.execute(options);
@@ -86,7 +87,7 @@ export function applyPromptCacheKey(translatedBody, { provider, format, headers,
   return true;
 }
 
-export async function handleChatCore({ body, modelInfo, credentials, log, errorContext = {}, onCredentialsRefreshed, onRequestSuccess, onDisconnect, clientRawRequest, connectionId, userAgent, apiKey, ccFilterNaming, rtkEnabled, headroomEnabled, headroomUrl, headroomCompressUserMessages, headroomTimeoutMs, cavemanEnabled, cavemanLevel, ponytailEnabled, ponytailLevel, pxpipeEnabled, pxpipeMinChars, pxpipeTimeoutMs, pxpipeTransform, onPxpipeEvent, sourceFormatOverride, providerThinking, maxThinkingLevel = null, decideTool = null, decision = null }) {
+export async function handleChatCore({ body, modelInfo, credentials, log, errorContext = {}, onCredentialsRefreshed, onRequestSuccess, onDisconnect, clientRawRequest, connectionId, userAgent, apiKey, ccFilterNaming, rtkEnabled, headroomEnabled, headroomUrl, headroomCompressUserMessages, headroomTimeoutMs, cavemanEnabled, cavemanLevel, ponytailEnabled, ponytailLevel, pxpipeEnabled, pxpipeMinChars, pxpipeTimeoutMs, pxpipeTransform, onPxpipeEvent, sourceFormatOverride, providerThinking, maxThinkingLevel = null, decideTool = null, decision = null, hint = null }) {
   const { provider, model } = modelInfo;
   const requestStartTime = Date.now();
   // Stable per-session color so all lines of one CLI conversation share a tag
@@ -394,8 +395,12 @@ export async function handleChatCore({ body, modelInfo, credentials, log, errorC
       log?.warn?.("DECISION", `tool decision failed: ${error.message}`);
     }
   }
-  const decisionDetail = decision || toolDecision
-    ? buildDecisionDetail(decision, toolDecision)
+  // The tool step is the last one a client hint can replace; it is known only here.
+  const hintRecord = hint && toolDecision?.source === HINT_SOURCE
+    ? { ...hint, used_for: [...new Set([...(hint.used_for || []), "needs_tool"])] }
+    : hint;
+  const decisionDetail = decision || toolDecision || hintRecord
+    ? buildDecisionDetail(decision, toolDecision, hintRecord)
     : null;
 
   if (xf.length && log?.line) log.line(reqTag, "⚙", xf.join(" · "));

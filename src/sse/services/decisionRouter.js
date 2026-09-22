@@ -10,7 +10,8 @@ import { getProviderCredentials } from "./auth.js";
 import { askJev, decisionUrlFor } from "open-sse/decision/jev.js";
 import { buildState } from "open-sse/decision/state.js";
 import { signalsMeta } from "open-sse/decision/signals.js";
-import { buildModelQuestions, buildToolQuestions, shortlistTools } from "open-sse/decision/questions.js";
+import { buildModelQuestions, buildToolQuestions, shortlistTools, DELIBERATION_KEY } from "open-sse/decision/questions.js";
+import { HINT_SOURCE } from "open-sse/decision/clientHint.js";
 import { resolveModelDecision, resolveToolDecision } from "open-sse/decision/decide.js";
 import { getPricingForModel } from "open-sse/providers/pricing.js";
 import { resolveCriteria } from "open-sse/decision/modelBriefs.js";
@@ -182,8 +183,13 @@ const ask = (target, config, state, questions, log) =>
  * Returns the pool reordered with the pick first, or the pool unchanged. An
  * unapplied decision is not an error: the caller's fallback loop walks the rest of
  * the list, so a wrong pick costs one attempt rather than a failure.
+ *
+ * `hintedDeliberation` is the deliberation the client already stated
+ * (x-red-router-hint). When it is a number the `needs_reasoning` question is not
+ * asked and that value answers it; jev is still asked which model fits, because
+ * the hint names no model.
  */
-export async function decideComboModel({ body, models, comboName, config, target, log, previousVerdict = null, ranked = null, signals = null }) {
+export async function decideComboModel({ body, models, comboName, config, target, log, previousVerdict = null, ranked = null, signals = null, hintedDeliberation = null }) {
   // Cheapest first, and the list both the question and the verdict are served from.
   // The question MUST be built over this pool: for a combo-of-combos `models` holds
   // tier names, so asking with those and validating against the expanded pool has
@@ -200,7 +206,8 @@ export async function decideComboModel({ body, models, comboName, config, target
     return { models: [pool[0], ...pool.slice(1)], decision };
   }
 
-  const { questions } = buildModelQuestions(pool, criteriaResolver(config));
+  const hinted = typeof hintedDeliberation === "number" && Number.isFinite(hintedDeliberation);
+  const { questions } = buildModelQuestions(pool, criteriaResolver(config), { deliberation: !hinted });
   const state = buildState(body, { maxStateChars: 24000, dropSystem: signals?.harnessSystem === true });
   const response = await ask(target, config, state, questions, log);
 
@@ -209,8 +216,11 @@ export async function decideComboModel({ body, models, comboName, config, target
     return { models, decision: null, reason: "ask_failed" };
   }
 
-  const decision = resolveModelDecision({
-    answers: response.answers,
+  const answers = hinted
+    ? { ...response.answers, [DELIBERATION_KEY]: { type: "noul", noul: Math.max(0, Math.min(1, hintedDeliberation)) } }
+    : response.answers;
+  const resolved = resolveModelDecision({
+    answers,
     models: pool,
     priceOf,
     minStrength: config.minStrength,
@@ -218,6 +228,7 @@ export async function decideComboModel({ body, models, comboName, config, target
     previousVerdict,
     needsDeliberation: signals?.planMode === true || signals?.stall === true,
   });
+  const decision = hinted ? { ...resolved, deliberationSource: HINT_SOURCE } : resolved;
   const cause = deliberationCause(signals);
   if (cause) decision.cause = cause;
   if (signals) decision.signals = signalsMeta(signals);
@@ -399,6 +410,7 @@ function verdictMeta(decision, extra = {}) {
     deliberation: round(decision.deliberation),
     cause: decision.cause || null,
     signals: decision.signals || null,
+    ...(decision.deliberationSource ? { deliberationSource: decision.deliberationSource } : {}),
   };
 }
 

@@ -66,7 +66,9 @@ describe("GET /v1/capabilities", () => {
       tool_mode: "hint",
       effort: true,
       header: "x-red-router-decision",
-      accepts_hint: false,
+      accepts_hint: true,
+      hint_header: "x-red-router-hint",
+      hint_keys: ["complexity", "deliberation", "needs_tool", "tier"],
     });
     expect(caps.token_saver_header).toBe("x-red-router-token-saver");
     expect(caps.combos.strategies).toEqual(["fallback", "round-robin", "fusion", "smart", "auto"]);

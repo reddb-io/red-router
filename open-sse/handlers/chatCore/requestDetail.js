@@ -70,7 +70,7 @@ export function extractUsageFromResponse(responseBody) {
  * the core itself. Either can be absent, and a request with neither gets no block at all
  * rather than an empty one.
  */
-export function buildDecisionDetail(modelDecision, toolDecision) {
+export function buildDecisionDetail(modelDecision, toolDecision, hint = null) {
   const parts = {};
   if (modelDecision) {
     parts.model = {
@@ -79,6 +79,7 @@ export function buildDecisionDetail(modelDecision, toolDecision) {
       reason: modelDecision.reason || null,
       confidence: num(modelDecision.confidence),
       deliberation: num(modelDecision.deliberation),
+      ...(modelDecision.deliberationSource ? { deliberation_source: modelDecision.deliberationSource } : {}),
     };
   }
   if (toolDecision) {
@@ -90,6 +91,8 @@ export function buildDecisionDetail(modelDecision, toolDecision) {
       latencyMs: num(toolDecision.latencyMs),
     };
   }
+  // A classification the client sent (x-red-router-hint), and what it replaced.
+  if (hint) parts.hint = hint;
   return Object.keys(parts).length ? parts : undefined;
 }
 
