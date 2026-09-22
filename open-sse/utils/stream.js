@@ -661,6 +661,9 @@ export function createSSEStream(options = {}) {
     ? () => (clientTerminalSeen || streamDoneSent ? null : buildAbortedOpenAITerminalBytes(model))
     : null;
 
+  // Latest upstream usage this stream has tracked (unbuffered), for pricing the turn.
+  stream.currentUsage = () => (mode === STREAM_MODE.PASSTHROUGH ? usage : state?.usage) || null;
+
   return stream;
 }
 

@@ -9,6 +9,10 @@ import { createErrorResult, sanitizePublicMessage } from "../../utils/error.js";
 import { buildRequestDetail, extractRequestConfig, saveUsageStats, formatDoneLine } from "./requestDetail.js";
 import { saveRequestDetail } from "@/lib/usageDb.js";
 import { SSE_HEADERS_CORS as SSE_HEADERS } from "../../utils/sseConstants.js";
+import { createUsageCostStream, resolvePricing } from "../../utils/servedHeaders.js";
+
+// Client formats whose final usage event can carry `usage.cost`.
+const COST_STREAM_FORMATS = new Set([FORMATS.OPENAI, FORMATS.CLAUDE, FORMATS.OPENAI_RESPONSES]);
 
 // Codex returns Responses API SSE → which client format to translate INTO, by request sourceFormat.
 // Gemini-family all map to ANTIGRAVITY decoder; unknown sources fall back to OPENAI.
@@ -154,9 +158,18 @@ export async function handleStreamingResponse({ providerResponse, reconnect, pro
     console.error("[RequestDetail] Failed to save streaming request:", err.message);
   });
 
+  // The cost is only known once the stream ends, so it rides in the final usage
+  // event rather than a header.
+  const clientBody = COST_STREAM_FORMATS.has(sourceFormat)
+    ? transformedBody.pipeThrough(createUsageCostStream({
+      pricing: resolvePricing(provider, model),
+      currentUsage: transformStream.currentUsage,
+    }))
+    : transformedBody;
+
   return {
     success: true,
-    response: new Response(transformedBody, { headers: SSE_HEADERS })
+    response: new Response(clientBody, { headers: SSE_HEADERS })
   };
 }
 

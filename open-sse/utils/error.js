@@ -1,5 +1,6 @@
 import { ERROR_TYPES, DEFAULT_ERROR_MESSAGES } from "../config/errorConfig.js";
 import { FORMATS } from "../translator/formats.js";
+import { COST_HEADER, REQUEST_ID_HEADER, SERVED_MODEL_HEADER } from "../config/runtimeConfig.js";
 
 const EXPOSED_HEADERS = [
   "Retry-After",
@@ -8,7 +9,9 @@ const EXPOSED_HEADERS = [
   "X-9Router-Provider",
   "X-9Router-Model",
   "request-id",
-  "X-Request-Id",
+  REQUEST_ID_HEADER,
+  SERVED_MODEL_HEADER,
+  COST_HEADER,
 ].join(", ");
 
 const QUOTA_PATTERN = /rate[ _-]?limit|too many requests|quota|usage[_ -]?limit|monthly_request_count/i;
@@ -173,10 +176,16 @@ export function responseFromRoutingCandidate(candidate, options = {}) {
   return responseFromErrorDescriptor(descriptor, options.errorFormat || FORMATS.OPENAI);
 }
 
-export function withRequestId(response, context) {
+/**
+ * Stamp the request id (and, on success, the served model) on a response. Anthropic
+ * clients read `request-id`; every client also gets `X-Request-Id`.
+ */
+export function withRequestId(response, context, { servedModel = null } = {}) {
   if (!(response instanceof Response) || !context?.requestId) return response;
   const headers = new Headers(response.headers);
-  headers.set(context.errorFormat === FORMATS.CLAUDE ? "request-id" : "X-Request-Id", context.requestId);
+  if (context.errorFormat === FORMATS.CLAUDE) headers.set("request-id", context.requestId);
+  headers.set(REQUEST_ID_HEADER, context.requestId);
+  if (servedModel && response.ok) headers.set(SERVED_MODEL_HEADER, headerValue(servedModel));
   headers.set("Access-Control-Expose-Headers", EXPOSED_HEADERS);
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }

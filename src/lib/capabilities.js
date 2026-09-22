@@ -13,18 +13,20 @@ import { buildModelsList } from "@/app/api/v1/models/route.js";
 import { SYSTEM_ONE_PROVIDER_IDS } from "open-sse/config/systemOne.js";
 import { COMBO_STRATEGIES } from "open-sse/services/combo.js";
 import { SESSION_HEADERS } from "open-sse/utils/sessionManager.js";
-import { DECISION_HEADER, TOKEN_SAVER_HEADER } from "open-sse/config/runtimeConfig.js";
+import { COST_HEADER, DECISION_HEADER, REQUEST_ID_HEADER, SERVED_MODEL_HEADER, TOKEN_SAVER_HEADER } from "open-sse/config/runtimeConfig.js";
 
 export const PRODUCT = "red-router";
 export const SYSTEM_ONE_PATH = "/v1/systemone";
 
 /**
- * Response headers this build sets on successful chat responses. Null until the
- * gateway emits them, so clients never wait on a header that will not come.
+ * Response headers this build sets on successful chat responses. The cost header
+ * is only present when the cost is known before the body is sent (non-streaming);
+ * streams carry it as `usage.cost` in their final usage event instead.
  */
 export const RESPONSE_HEADERS = {
-  servedModel: null,
-  cost: null,
+  servedModel: SERVED_MODEL_HEADER,
+  cost: COST_HEADER,
+  requestId: REQUEST_ID_HEADER,
 };
 
 /** Build the GET /v1/capabilities document for the calling API key. */
@@ -51,6 +53,8 @@ export async function buildCapabilities({ apiKey = null } = {}) {
     token_saver_header: TOKEN_SAVER_HEADER,
     served_model_header: RESPONSE_HEADERS.servedModel,
     cost_header: RESPONSE_HEADERS.cost,
+    request_id_header: RESPONSE_HEADERS.requestId,
+    stream_usage_cost: true,
   };
 }
 

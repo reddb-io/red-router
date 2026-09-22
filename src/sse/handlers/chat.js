@@ -39,6 +39,7 @@ import { updateProviderCredentials, checkAndRefreshToken } from "../services/tok
 import { getProjectIdForConnection } from "open-sse/services/projectId.js";
 import { stripModelContextMarker } from "open-sse/utils/modelMarkers.js";
 import { resolveSessionId } from "open-sse/utils/sessionManager.js";
+import { servedModelId } from "open-sse/utils/servedHeaders.js";
 import { handleSystemOne } from "./systemOne.js";
 
 export function effortCeilingForDeliberation(deliberation) {
@@ -546,7 +547,7 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
       }
     });
 
-    if (result.success) return withRequestId(result.response, errorContext);
+    if (result.success) return withRequestId(result.response, errorContext, { servedModel: servedModelId(modelStr, provider, model) });
 
     // Antigravity 409/429: refresh live quota to get exact resetAt before locking
     let quotaResetMs = null;

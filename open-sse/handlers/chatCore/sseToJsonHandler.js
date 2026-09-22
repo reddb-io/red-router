@@ -1,5 +1,6 @@
 import { convertResponsesStreamToJson } from "../../transformer/streamToJsonConverter.js";
 import { restoreToolNames } from "../../utils/opencodeFingerprint.js";
+import { costHeaders } from "../../utils/servedHeaders.js";
 import { createErrorResult } from "../../utils/error.js";
 import { HTTP_STATUS } from "../../config/runtimeConfig.js";
 import { FORMATS } from "../../translator/formats.js";
@@ -165,7 +166,7 @@ export async function handleForcedSSEToJson({ providerResponse, sourceFormat, ta
 
       // Client is Responses API → return as-is
       if (sourceFormat === FORMATS.OPENAI_RESPONSES) {
-        return { success: true, response: new Response(JSON.stringify(restoreToolNames(jsonResponse, toolNameMap)), { headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } }) };
+        return { success: true, response: new Response(JSON.stringify(restoreToolNames(jsonResponse, toolNameMap)), { headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", ...(await costHeaders(provider, model, usage)) } }) };
       }
 
       // Build client-format response.
@@ -226,7 +227,7 @@ export async function handleForcedSSEToJson({ providerResponse, sourceFormat, ta
       // not a Message"). Responses clients returned earlier; gemini has its
       // own arm above; openai passes through unchanged.
       finalResp = shapeCompletionForClient(finalResp, sourceFormat, customToolNames);
-      return { success: true, response: new Response(JSON.stringify(restoreToolNames(finalResp, toolNameMap)), { headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } }) };
+      return { success: true, response: new Response(JSON.stringify(restoreToolNames(finalResp, toolNameMap)), { headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", ...(await costHeaders(provider, model, usage)) } }) };
     } catch (err) {
       console.error("[ChatCore] Responses API SSE→JSON failed:", err);
       return createErrorResult(HTTP_STATUS.BAD_GATEWAY, "Failed to convert streaming response to JSON", undefined, errorContext);
@@ -305,7 +306,7 @@ export async function handleForcedSSEToJson({ providerResponse, sourceFormat, ta
     // Shape for the client format (claude → Message, responses → output items).
     const finalBody = shapeCompletionForClient(parsed, sourceFormat, customToolNames);
 
-    return { success: true, response: new Response(JSON.stringify(restoreToolNames(finalBody, toolNameMap)), { headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } }) };
+    return { success: true, response: new Response(JSON.stringify(restoreToolNames(finalBody, toolNameMap)), { headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", ...(await costHeaders(provider, model, usage)) } }) };
   } catch (err) {
     console.error("[ChatCore] Chat Completions SSE→JSON failed:", err);
     return createErrorResult(HTTP_STATUS.BAD_GATEWAY, "Failed to convert streaming response to JSON", undefined, errorContext);
