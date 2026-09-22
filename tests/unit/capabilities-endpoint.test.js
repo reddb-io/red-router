@@ -83,7 +83,8 @@ describe("GET /v1/capabilities", () => {
     await db.createProviderConnection({ provider: "typesafe-ai", authType: "apikey", name: "jev", apiKey: "k-jev" });
     const after = await getCapabilities();
     expect(after.systemone.available).toBe(true);
-    expect(after.systemone.models).toContain("typesafe-ai/jev-latest");
+    // Same ids as /v1/models/systemone (provider display alias + model).
+    expect(after.systemone.models.some((id) => id.endsWith("/jev-latest"))).toBe(true);
   });
 });
 
