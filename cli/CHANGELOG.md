@@ -1,5 +1,11 @@
 # @reddb-io/red-router
 
+## 0.11.3
+
+### Patch Changes
+
+- 4042251: Read the running version from the published CLI package and use the scoped npm package in every dashboard update command.
+
 ## 0.11.2
 
 ### Patch Changes
