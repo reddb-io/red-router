@@ -95,6 +95,10 @@ const MAX_CONTINUATION_SESSIONS = 5000;
 const SESSION_HEADER_KEYS = ["x-session-id", "session-id", "session_id", "x-amp-thread-id"];
 const CLAUDE_CODE_SESSION_RE = /_session_([a-f0-9-]+)$/;
 const CLAUDE_CODE_SESSION_HEADER = "x-claude-code-session-id";
+const CLIENT_REQUEST_ID_HEADER = "x-client-request-id";
+
+// Every request header read as a session id, in priority order (advertised by /v1/capabilities).
+export const SESSION_HEADERS = [CLAUDE_CODE_SESSION_HEADER, ...SESSION_HEADER_KEYS, CLIENT_REQUEST_ID_HEADER];
 
 function sha16(text) {
     return crypto.createHash("sha256").update(text).digest("hex").slice(0, 16);
@@ -147,7 +151,7 @@ function extractClientSessionId(headers, body, scope = "") {
         const v = headerValue(headers, key);
         if (v) return v;
     }
-    const requestId = scope === "kiro" ? null : headerValue(headers, "x-client-request-id");
+    const requestId = scope === "kiro" ? null : headerValue(headers, CLIENT_REQUEST_ID_HEADER);
     if (requestId) return requestId;
     const fromBody =
         normalizeSessionId(body?.prompt_cache_key) ||

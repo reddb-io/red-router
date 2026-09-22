@@ -121,6 +121,14 @@ export function reorderModelsForTier(models, tier, tierMap) {
   return [candidate, ...models];                // new primary, rest as fallback
 }
 
+// Every combo strategy the chat path understands. Unknown values behave as "fallback".
+export const COMBO_STRATEGIES = ["fallback", "round-robin", "fusion", "smart", "auto"];
+
+/** The strategy a combo runs with: its own override, else the global default. */
+export function comboStrategyFor(settings, comboName) {
+  return settings?.comboStrategies?.[comboName]?.fallbackStrategy || settings?.comboStrategy || "fallback";
+}
+
 /**
  * Track rotation state per combo (for round-robin strategy)
  * @type {Map<string, { index: number, consecutiveUseCount: number }>}

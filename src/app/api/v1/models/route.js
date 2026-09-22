@@ -21,7 +21,7 @@ import { updateProviderCredentials } from "@/sse/services/tokenRefresh";
 import { resolveConnectionProxyConfig } from "@/lib/network/connectionProxy";
 import { capabilitiesFromServiceKind, getCapabilitiesForModel, DEFAULT_CAPABILITIES } from "open-sse/providers/capabilities.js";
 import { getThinkingLevelsForId } from "open-sse/providers/thinkingLevels.js";
-import { comboThinkingLevels } from "open-sse/services/combo.js";
+import { comboThinkingLevels, comboStrategyFor } from "open-sse/services/combo.js";
 import { stripThinkingSuffix } from "open-sse/translator/concerns/thinkingUnified.js";
 import { extractApiKey } from "@/sse/services/auth.js";
 
@@ -348,8 +348,10 @@ export async function buildModelsList(kindFilter, options = {}) {
   // Ownership: the catalog must not reveal accounts or combos of other users.
   let keyOwner = null;
   let scoped = false;
+  let settings = null;
   try {
-    scoped = (await getSettings())?.scopeResourcesByUser === true;
+    settings = await getSettings();
+    scoped = settings?.scopeResourcesByUser === true;
     if (scoped) {
       keyOwner = await getApiKeyOwner(options.apiKey || null);
       connections = connections.filter((c) => !c.owner || c.owner === keyOwner);
@@ -411,6 +413,8 @@ export async function buildModelsList(kindFilter, options = {}) {
       id: combo.name,
       object: "model",
       owned_by: "combo",
+      // How the gateway walks the members (fallback, round-robin, fusion, smart, auto).
+      strategy: comboStrategyFor(settings, combo.name),
     };
     if (combo.kind === "webSearch" || combo.kind === "webFetch") {
       entry.kind = combo.kind;
