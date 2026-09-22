@@ -203,7 +203,7 @@ function initUnixTray(options) {
       // template icon: macOS would then render it as a solid white square
       // because template mode only uses the alpha channel.
       isTemplateIcon: false,
-      title: "",
+      title: "RedRouter",
       tooltip: `RedRouter - Port ${port}`,
       items
     };
