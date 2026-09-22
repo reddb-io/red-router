@@ -18,8 +18,8 @@ import { translate } from "@/i18n/runtime";
 const getPageInfo = (pathname) => {
   if (!pathname) return { title: "", description: "", breadcrumbs: [] };
 
-  // Tools provider detail: /dashboard/tools-providers/[kind]/[id]
-  const mediaDetailMatch = pathname.match(/\/tools-providers\/([^/]+)\/([^/]+)$/);
+  // Media provider detail: /dashboard/media-providers/[kind]/[id]
+  const mediaDetailMatch = pathname.match(/\/media-providers\/([^/]+)\/([^/]+)$/);
   if (mediaDetailMatch) {
     const kindId = mediaDetailMatch[1];
     const providerId = mediaDetailMatch[2];
@@ -29,15 +29,15 @@ const getPageInfo = (pathname) => {
       title: provider?.name || providerId,
       description: "",
       breadcrumbs: [
-        { label: "Tools Providers", href: `/dashboard/tools-providers/${kindId}` },
-        { label: kindConfig?.label || kindId, href: `/dashboard/tools-providers/${kindId}` },
+        { label: "Media Providers", href: `/dashboard/media-providers/${kindId}` },
+        { label: kindConfig?.label || kindId, href: `/dashboard/media-providers/${kindId}` },
         { label: provider?.name || providerId, image: getProviderIconSrc(providerId) },
       ],
     };
   }
 
-  // Tools provider kind: /dashboard/tools-providers/[kind]
-  const mediaKindMatch = pathname.match(/\/tools-providers\/([^/]+)$/);
+  // Media provider kind: /dashboard/media-providers/[kind]
+  const mediaKindMatch = pathname.match(/\/media-providers\/([^/]+)$/);
   if (mediaKindMatch) {
     const kindId = mediaKindMatch[1];
     const kindConfig = MEDIA_PROVIDER_KINDS.find((k) => k.id === kindId);
@@ -70,7 +70,7 @@ const getPageInfo = (pathname) => {
     }
   }
 
-  if (pathname.includes("/providers") && !pathname.includes("/tools-providers"))
+  if (pathname.includes("/providers") && !pathname.includes("/media-providers"))
     return {
       title: "Providers",
       description: "Manage your AI provider connections",
@@ -84,7 +84,7 @@ const getPageInfo = (pathname) => {
       icon: "layers",
       breadcrumbs: [],
     };
-  if (pathname.includes("/usage"))
+  if (pathname.includes("/usage") || pathname === "/dashboard")
     return {
       title: "Usage & Analytics",
       description:
@@ -169,11 +169,11 @@ const getPageInfo = (pathname) => {
       icon: "monitor",
       breadcrumbs: [],
     };
-  if (pathname === "/dashboard")
+  if (pathname === "/dashboard/setup")
     return {
-      title: "Endpoint",
-      description: "API endpoint configuration",
-      icon: "api",
+      title: "Setup",
+      description: "Connect providers, create a key, and validate the endpoint",
+      icon: "route",
       breadcrumbs: [],
     };
   return { title: "", description: "", breadcrumbs: [] };

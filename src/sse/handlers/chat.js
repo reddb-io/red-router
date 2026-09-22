@@ -1,4 +1,5 @@
 import "open-sse/index.js";
+import { createHash } from "node:crypto";
 
 import {
   getProviderCredentials,
@@ -19,6 +20,16 @@ import { appendPxpipeEvent } from "@/lib/pxpipe/events.js";
 import { createErrorContext, errorResponse, responseFromRoutingCandidate, withRequestId } from "open-sse/utils/error.js";
 import { handleComboChat, handleFusionChat, detectRequiredCapabilities, reorderModelsForTier } from "open-sse/services/combo.js";
 import { classifyTier } from "open-sse/services/jevClassifier.js";
+import {
+  normalizeDecisionConfig,
+  resolveDecisionTarget,
+  decideComboModel,
+  rankPool,
+  decideTool as decideToolCore,
+  readPreviousVerdict,
+  rememberVerdict,
+} from "../services/decisionRouter.js";
+import { extractTools, hasPinnedToolChoice, supportsToolChoice, UNSUPPORTED_EXECUTORS } from "open-sse/decision/tools.js";
 import { augmentModelsWithCapacityAdapter, withCapacityAdapterStripping, getActiveAdapterStrategy } from "open-sse/services/capacityAdapter.js";
 import { handleBypassRequest } from "open-sse/utils/bypassHandler.js";
 import { HTTP_STATUS } from "open-sse/config/runtimeConfig.js";
@@ -27,7 +38,104 @@ import * as log from "../utils/logger.js";
 import { updateProviderCredentials, checkAndRefreshToken } from "../services/tokenRefresh.js";
 import { getProjectIdForConnection } from "open-sse/services/projectId.js";
 import { stripModelContextMarker } from "open-sse/utils/modelMarkers.js";
+import { resolveSessionId } from "open-sse/utils/sessionManager.js";
 import { handleSystemOne } from "./systemOne.js";
+
+export function effortCeilingForDeliberation(deliberation) {
+  if (typeof deliberation !== "number") return null;
+  if (deliberation < 0.3) return "low";
+  if (deliberation < 0.7) return "medium";
+  return null;
+}
+
+async function orderComboModels({ body, models, comboName, strategy, settings, apiKey, comboOwner, sessionId }) {
+  const unchanged = { models, deliberation: null, decision: null };
+  if (strategy !== "auto" || models.length < 2) return unchanged;
+  const config = normalizeDecisionConfig(settings.decisionRouter);
+  if (config.mode === "off") return unchanged;
+  if (!Array.isArray(config.models) || config.models.length === 0) return unchanged;
+
+  const target = await resolveDecisionTarget(config, { apiKey, log });
+  if (!target) return unchanged;
+  const ranked = await rankPool(models, async (name) => {
+    const nested = await resolveComboModels(name, comboOwner);
+    return nested?.models || [];
+  });
+  const eligible = config.models.includes(comboName)
+    ? ranked
+    : ranked.filter((model) => config.models.includes(model));
+  if (eligible.length < 2) return unchanged;
+  const scope = createHash("sha256")
+    .update(`${apiKey || "local"}:${comboOwner || "shared"}:${comboName}:${sessionId || "ephemeral"}`)
+    .digest("hex")
+    .slice(0, 24);
+
+  try {
+    const result = await decideComboModel({
+      body,
+      models: eligible,
+      ranked: eligible,
+      comboName,
+      config,
+      target,
+      log,
+      previousVerdict: readPreviousVerdict(scope),
+    });
+    rememberVerdict(scope, result.decision);
+    if (config.mode === "shadow") {
+      log.info("DECISION", `shadow: "${comboName}" would use ${result.decision?.model || "(unchanged)"}`);
+      return { ...unchanged, decision: result.decision || null };
+    }
+    return {
+      models: [...result.models, ...ranked.filter((model) => !result.models.includes(model))],
+      deliberation: result.decision?.deliberation ?? null,
+      decision: result.decision || null,
+    };
+  } catch (error) {
+    log.warn("DECISION", `model decision failed, pool order unchanged: ${error.message}`);
+    return unchanged;
+  }
+}
+
+function createToolDecider({ settings, apiKey }) {
+  const config = normalizeDecisionConfig(settings.decisionRouter);
+  if (config.mode === "off" || config.toolMode === "off") return null;
+
+  let credentialPromise = null;
+  const memo = new Map();
+  return async ({ body, format, provider, model }) => {
+    if (UNSUPPORTED_EXECUTORS.has(provider) || !supportsToolChoice(format)) {
+      return { mode: "passthrough", reason: "executor_unsupported" };
+    }
+    if (hasPinnedToolChoice(body, format)) {
+      return { mode: "passthrough", reason: "client_tool_choice" };
+    }
+    const tools = extractTools(body, format);
+    if (tools.length === 0) return { mode: "passthrough", reason: "no_tools" };
+
+    const signature = createHash("sha256")
+      .update(JSON.stringify({ messages: body.messages, input: body.input, contents: body.contents, tools }))
+      .digest("hex");
+    const memoKey = `${provider}/${model}|${signature}`;
+    if (memo.has(memoKey)) return memo.get(memoKey);
+
+    credentialPromise ||= resolveDecisionTarget(config, { apiKey, log });
+    const target = await credentialPromise;
+    if (!target) return { mode: "passthrough", reason: "no_credential" };
+
+    let result = null;
+    try {
+      result = await decideToolCore({ body, tools, plans: tools, config, target, log });
+    } catch (error) {
+      log.warn("DECISION", `tool decision failed: ${error.message}`);
+    }
+    const decision = config.mode === "shadow" && result && result.mode !== "passthrough"
+      ? { mode: "passthrough", reason: "shadow", wouldBe: `${result.mode}:${result.tool || "-"}`, confidence: result.confidence }
+      : result || { mode: "passthrough", reason: "no_answer" };
+    memo.set(memoKey, decision);
+    return decision;
+  };
+}
 
 /**
  * Handle chat completion request
@@ -81,6 +189,19 @@ export async function handleChat(request, clientRawRequest = null, options = {})
   // Enforce API key if enabled in settings
   const settings = await resolveScopedSettings(await getSettings(), apiKey);
   const comboOwner = await resolveComboOwner(apiKey);
+  const sessionId = resolveSessionId({
+    headers: clientRawRequest?.headers,
+    body,
+    scope: "decision",
+  });
+  const routingContext = {
+    settings,
+    comboOwner,
+    sessionId,
+    decision: null,
+    deliberation: null,
+    toolDecider: createToolDecider({ settings, apiKey }),
+  };
   if (settings.requireApiKey) {
     if (!apiKey) {
       log.warn("AUTH", "Missing API key (requireApiKey=true)");
@@ -130,7 +251,7 @@ export async function handleChat(request, clientRawRequest = null, options = {})
             const { tools, tool_choice, ...cleanBody } = clientRawRequest.body || {};
             cleanRawReq = { ...clientRawRequest, body: cleanBody };
           }
-          return handleSingleModelChat(b, m, cleanRawReq, request, apiKey, errorContext);
+          return handleSingleModelChat(b, m, cleanRawReq, request, apiKey, errorContext, routingContext);
         },
         log,
         comboName: cleanComboName,
@@ -184,12 +305,30 @@ export async function handleChat(request, clientRawRequest = null, options = {})
       effectiveStrategy = "fallback";
     }
 
-    log.info("CHAT", `Combo "${cleanComboName}" with ${augmentedModels.length} models (strategy: ${comboStrategy}${effectiveStrategy !== comboStrategy ? `→${effectiveStrategy}` : ""}, sticky: ${comboStickyLimit})`);
+    let orderedModels = augmentedModels;
+    if (comboStrategy === "auto") {
+      const ordered = await orderComboModels({
+        body,
+        models: augmentedModels,
+        comboName: cleanComboName,
+        strategy: comboStrategy,
+        settings,
+        apiKey,
+        comboOwner,
+        sessionId: routingContext.sessionId,
+      });
+      orderedModels = ordered.models;
+      routingContext.decision = ordered.decision;
+      routingContext.deliberation = ordered.deliberation;
+      effectiveStrategy = "fallback";
+    }
+
+    log.info("CHAT", `Combo "${cleanComboName}" with ${orderedModels.length} models (strategy: ${comboStrategy}${effectiveStrategy !== comboStrategy ? `→${effectiveStrategy}` : ""}, sticky: ${comboStickyLimit})`);
     return handleComboChat({
       body,
-      models: augmentedModels,
+      models: orderedModels,
       handleSingleModel: withCapacityAdapterStripping(
-        (b, m) => handleSingleModelChat(b, m, clientRawRequest, request, apiKey, errorContext),
+        (b, m) => handleSingleModelChat(b, m, clientRawRequest, request, apiKey, errorContext, routingContext),
         adapterAdded
       ),
       log,
@@ -210,7 +349,7 @@ export async function handleChat(request, clientRawRequest = null, options = {})
       body,
       models: soloAugmented,
       handleSingleModel: withCapacityAdapterStripping(
-        (b, m) => handleSingleModelChat(b, m, clientRawRequest, request, apiKey, errorContext),
+        (b, m) => handleSingleModelChat(b, m, clientRawRequest, request, apiKey, errorContext, routingContext),
         adapterAdded
       ),
       log,
@@ -220,13 +359,27 @@ export async function handleChat(request, clientRawRequest = null, options = {})
     });
   }
 
-  return handleSingleModelChat(body, modelStr, clientRawRequest, request, apiKey, errorContext);
+  return handleSingleModelChat(body, modelStr, clientRawRequest, request, apiKey, errorContext, routingContext);
 }
 
 /**
  * Handle single model chat request
  */
-async function handleSingleModelChat(body, modelStr, clientRawRequest = null, request = null, apiKey = null, errorContext = {}) {
+async function handleSingleModelChat(body, modelStr, clientRawRequest = null, request = null, apiKey = null, errorContext = {}, routingContext = null) {
+  routingContext ||= {
+    settings: await getSettings(),
+    comboOwner: await resolveComboOwner(apiKey),
+    sessionId: resolveSessionId({
+      headers: clientRawRequest?.headers,
+      body,
+      scope: "decision",
+    }),
+    decision: null,
+    deliberation: null,
+  };
+  if (routingContext.toolDecider === undefined) {
+    routingContext.toolDecider = createToolDecider({ settings: routingContext.settings, apiKey });
+  }
   // Combo names are unique per owner, so resolution needs to know whose key this is.
   const comboOwner = await resolveComboOwner(apiKey);
   const modelInfo = await getModelInfo(modelStr, comboOwner);
@@ -256,7 +409,7 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
               const { tools, tool_choice, ...cleanBody } = clientRawRequest.body || {};
               cleanRawReq = { ...clientRawRequest, body: cleanBody };
             }
-            return handleSingleModelChat(b, m, cleanRawReq, request, apiKey, errorContext);
+            return handleSingleModelChat(b, m, cleanRawReq, request, apiKey, errorContext, routingContext);
           },
           log,
           comboName: cleanComboName,
@@ -267,17 +420,35 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
       }
 
       const comboStickyLimit = chatSettings.comboStickyRoundRobinLimit;
-      log.info("CHAT", `Combo "${cleanComboName}" with ${augmentedModels.length} models (strategy: ${comboStrategy}, sticky: ${comboStickyLimit})`);
+      let orderedModels = augmentedModels;
+      let effectiveStrategy = comboStrategy;
+      if (comboStrategy === "auto") {
+        const ordered = await orderComboModels({
+          body,
+          models: augmentedModels,
+          comboName: cleanComboName,
+          strategy: comboStrategy,
+          settings: chatSettings,
+          apiKey,
+          comboOwner,
+          sessionId: routingContext.sessionId,
+        });
+        orderedModels = ordered.models;
+        routingContext.decision = ordered.decision;
+        routingContext.deliberation = ordered.deliberation;
+        effectiveStrategy = "fallback";
+      }
+      log.info("CHAT", `Combo "${cleanComboName}" with ${orderedModels.length} models (strategy: ${comboStrategy}${effectiveStrategy !== comboStrategy ? `→${effectiveStrategy}` : ""}, sticky: ${comboStickyLimit})`);
       return handleComboChat({
         body,
-        models: augmentedModels,
+        models: orderedModels,
         handleSingleModel: withCapacityAdapterStripping(
-          (b, m) => handleSingleModelChat(b, m, clientRawRequest, request, apiKey, errorContext),
+          (b, m) => handleSingleModelChat(b, m, clientRawRequest, request, apiKey, errorContext, routingContext),
           adapterAdded
         ),
         log,
         comboName: cleanComboName,
-        comboStrategy,
+        comboStrategy: effectiveStrategy,
         comboStickyLimit,
         errorContext,
       });
@@ -324,6 +495,9 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
     // Use shared chatCore
     const chatSettings = await getSettings();
     const providerThinking = (chatSettings.providerThinking || {})[provider] || null;
+    const maxThinkingLevel = chatSettings.decisionRouter?.effort
+      ? effortCeilingForDeliberation(routingContext.deliberation)
+      : null;
     const result = await handleChatCore({
       body: { ...body, model: `${provider}/${model}` },
       modelInfo: { provider, model },
@@ -352,6 +526,9 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
       pxpipeTransform: chatSettings.pxpipeEnabled ? await getPxpipeTransform() : null,
       onPxpipeEvent: appendPxpipeEvent,
       providerThinking,
+      maxThinkingLevel,
+      decideTool: routingContext.toolDecider,
+      decision: routingContext.decision,
       errorContext,
       // Detect source format by endpoint + body
       sourceFormatOverride: request?.url ? detectFormatByEndpoint(new URL(request.url).pathname, body) : null,

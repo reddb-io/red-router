@@ -13,14 +13,8 @@ const VISIBLE_MEDIA_KINDS = ["embedding", "image", "video", "tts", "stt"];
 // Combined entry: webSearch + webFetch share one page at /dashboard/media-providers/web
 const COMBINED_WEB_ITEM = { id: "web", label: "Web Fetch & Search", icon: "travel_explore", href: "/dashboard/media-providers/web" };
 
-const setupItems = [
-  { href: "/dashboard", label: "Setup", icon: "route" },
-  { href: "/dashboard/providers", label: "Providers", icon: "dns" },
-  { href: "/dashboard/endpoint", label: "Endpoint & Keys", icon: "api" },
-];
-
 const operateItems = [
-  { href: "/dashboard/usage", label: "Usage", icon: "bar_chart" },
+  { href: "/dashboard", label: "Usage", icon: "bar_chart" },
   { href: "/dashboard/quota", label: "Quota Tracker", icon: "data_usage" },
   { href: "/dashboard/combos", label: "Routing Combos", icon: "layers" },
   { href: "/dashboard/token-saver", label: "Token Saver", icon: "savings" },
@@ -36,6 +30,12 @@ const debugItems = [
 ];
 
 const systemItems = [
+  { href: "/dashboard/setup", label: "Setup", icon: "route" },
+  { href: "/dashboard/providers", label: "Providers", icon: "dns" },
+  { href: "/dashboard/endpoint", label: "Endpoint & Keys", icon: "api" },
+];
+
+const adminSystemItems = [
   { href: "/dashboard/proxy-pools", label: "Proxy Pools", icon: "lan" },
   { href: "/dashboard/skills", label: "Skills", icon: "extension" },
 ];
@@ -101,9 +101,7 @@ export default function Sidebar({ onClose }) {
 
         {/* Navigation */}
         <nav className="flex-1 px-3 py-5 overflow-y-auto custom-scrollbar" aria-label="Primary navigation">
-          {renderLinks("Setup", setupItems)}
           {renderLinks("Operate", operateItems)}
-          {renderLinks("Tools", toolItems)}
 
           {/* System section */}
           <div className="pt-3 mt-2 space-y-0.5">
@@ -164,7 +162,7 @@ export default function Sidebar({ onClose }) {
             )}
             </>)}
 
-            {(showAdminItems ? systemItems : []).map((item) => (
+            {systemItems.map((item) => (
               <Link
                 key={item.href}
                 href={item.href}
@@ -184,6 +182,23 @@ export default function Sidebar({ onClose }) {
                 >
                   {item.icon}
                 </span>
+                <span className="text-[13px] font-medium">{item.label}</span>
+              </Link>
+            ))}
+
+            {(showAdminItems ? adminSystemItems : []).map((item) => (
+              <Link
+                key={item.href}
+                href={item.href}
+                onClick={onClose}
+                className={cn(
+                  "flex min-h-11 items-center gap-3 px-3 rounded-md transition-colors group",
+                  isActive(item.href)
+                    ? "bg-primary/10 text-primary"
+                    : "text-text-muted hover:bg-surface-2 hover:text-text-main"
+                )}
+              >
+                <span className={cn("material-symbols-outlined text-[18px]", isActive(item.href) ? "fill-1" : "group-hover:text-primary transition-colors")}>{item.icon}</span>
                 <span className="text-[13px] font-medium">{item.label}</span>
               </Link>
             ))}
@@ -240,6 +255,8 @@ export default function Sidebar({ onClose }) {
             </Link>
             )}
           </div>
+
+          {renderLinks("Tools", toolItems)}
         </nav>
 
     </aside>

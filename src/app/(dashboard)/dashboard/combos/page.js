@@ -78,7 +78,7 @@ export default function CombosPage() {
       const providersData = await providersRes.json();
       const settingsData = settingsRes.ok ? await settingsRes.json() : {};
       
-      // Only LLM combos here - webSearch/webFetch combos belong to tools-providers/web
+      // Only LLM combos here - webSearch/webFetch combos belong to media-providers/web
       if (combosRes.ok) {
         setCombos((combosData.combos || []).filter(c => !c.kind || c.kind === "llm"));
         setHiddenShared(combosData.hiddenSharedCombos || []);
@@ -373,6 +373,7 @@ const STRATEGY_OPTIONS = [
   { value: "round-robin", label: "Round Robin — rotate" },
   { value: "fusion", label: "Fusion — panel + judge" },
   { value: "smart", label: "Smart — Jev complexity routing" },
+  { value: "auto", label: "Auto — decision model picks per turn" },
 ];
 
 function ComboCard({ combo, getCaps, activeProviders = [], copied, onCopy, onEdit, onDelete, onHide = null, strategy = {}, onSetStrategy }) {

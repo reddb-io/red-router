@@ -33,10 +33,15 @@ export function normalizeSystemOneModel(value) {
     }
   }
 
+  if (model === "jev" || model === "typesafe-ai/jev") return SYSTEM_ONE_DEFAULT_MODEL;
+
   return /^jev-[A-Za-z0-9][A-Za-z0-9._-]*$/.test(model) ? model : null;
 }
 
 export function getSystemOneProviderOrder(value) {
+  if (typeof value === "string" && value.trim().startsWith("vercel-ai-gateway/")) {
+    return ["vercel-ai-gateway", ...SYSTEM_ONE_PROVIDER_IDS.filter((providerId) => providerId !== "vercel-ai-gateway")];
+  }
   if (typeof value !== "string" || !value.trim().startsWith("openrouter/")) {
     return [...SYSTEM_ONE_PROVIDER_IDS];
   }
@@ -89,10 +94,27 @@ async function responseMetadata(response, providerId) {
 export function resolveSystemOneProviderModel(providerId, model) {
   const normalized = normalizeSystemOneModel(model);
   if (!normalized) return null;
-  const config = PROVIDER_MEDIA[providerId]?.systemOneConfig;
+  const media = PROVIDER_MEDIA[providerId];
+  const config = media?.systemOneConfig || derivedDecisionConfig(media);
   if (!config?.baseUrl) return null;
+  if (config.defaultModel) return config.defaultModel;
   if (!config.modelMap) return normalized;
   return config.modelMap[normalized] || (config.passthroughModels ? normalized : null);
+}
+
+function derivedDecisionConfig(provider) {
+  const decision = provider?.decisionConfig;
+  const transportBase = provider?.transport?.baseUrl;
+  if (!decision?.path || !transportBase) return null;
+  try {
+    return {
+      baseUrl: new URL(decision.path, transportBase).toString(),
+      defaultModel: decision.defaultModel,
+      timeoutMs: decision.timeoutMs,
+    };
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -123,7 +145,8 @@ export async function handleSystemOneCore({
     return { success: false, status: 401, error: message, response: errorResponse(401, message) };
   }
 
-  const config = PROVIDER_MEDIA[providerId]?.systemOneConfig;
+  const media = PROVIDER_MEDIA[providerId];
+  const config = media?.systemOneConfig || derivedDecisionConfig(media);
   if (!config?.baseUrl) {
     const message = `System One endpoint is not configured for provider: ${providerId}`;
     return { success: false, status: 500, error: message, response: errorResponse(500, message) };

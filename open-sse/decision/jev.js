@@ -28,16 +28,21 @@ export function normalizeAnswers(answers) {
   for (const [name, answer] of Object.entries(answers || {})) {
     if (!answer || typeof answer !== "object") continue;
     if (answer.type === "noul") {
-      out[name] = { type: "noul", noul: Number(answer.noul) || 0 };
+      const value = Number(answer.noul);
+      out[name] = { type: "noul", noul: Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0 };
       continue;
     }
-    const probs = answer.probabilities && typeof answer.probabilities === "object"
-      ? Object.values(answer.probabilities).filter((v) => typeof v === "number")
-      : [];
+    const probabilities = {};
+    for (const [option, value] of Object.entries(answer.probabilities || {})) {
+      if (typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1) {
+        probabilities[option] = value;
+      }
+    }
+    const probs = Object.values(probabilities);
     const confidence = typeof answer.confidence === "number"
       ? answer.confidence
       : (probs.length ? Math.max(...probs) : 0);
-    out[name] = { ...answer, confidence };
+    out[name] = { ...answer, probabilities, confidence };
   }
   return out;
 }

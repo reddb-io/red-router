@@ -23,6 +23,7 @@ import EditCompatibleNodeModal from "./EditCompatibleNodeModal";
 import AddCustomModelModal from "./AddCustomModelModal";
 import BulkImportCodexModal from "./BulkImportCodexModal";
 import BulkImportGrokCliModal from "./BulkImportGrokCliModal";
+import DecisionRouterCard from "@/shared/components/DecisionRouterCard";
 
 const ONE_BY_ONE_DELAY_MS = 1000;
 
@@ -1189,7 +1190,7 @@ export default function ProviderDetailPage() {
       );
     }
     // Combine hardcoded models with Kilo free models (deduplicated)
-    // Exclude non-llm models (embedding, tts, etc.) — they have dedicated pages under tools-providers
+    // Exclude non-llm models (embedding, tts, etc.) — they have dedicated pages under media-providers
     const allModels = [
       ...models,
       ...kiloFreeModels.filter((fm) => !models.some((m) => m.id === fm.id)),
@@ -1466,6 +1467,10 @@ export default function ProviderDetailPage() {
             </a>
           )}
         </div>
+      )}
+
+      {providerInfo.decisionConfig && (
+        <DecisionRouterCard provider={providerInfo} />
       )}
 
       {isCompatible && providerNode && (

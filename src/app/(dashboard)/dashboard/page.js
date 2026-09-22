@@ -1,5 +1,5 @@
-import SetupWorkbench from "./SetupWorkbench";
+import UsagePage from "./usage/page";
 
 export default function DashboardPage() {
-  return <SetupWorkbench />;
+  return <UsagePage />;
 }

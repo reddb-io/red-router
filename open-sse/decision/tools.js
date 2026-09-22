@@ -94,6 +94,7 @@ export function supportsToolChoice(format) {
 /** Writes the decision into the target body. Returns true when it changed. */
 export function applyToolChoice(body, format, decision) {
   if (!body || typeof body !== "object" || !decision) return false;
+  if (hasPinnedToolChoice(body, format)) return false;
   try {
     if (decision.mode === "none") {
       if (format === FORMATS.CLAUDE) body.tool_choice = { type: "none" };
@@ -106,6 +107,8 @@ export function applyToolChoice(body, format, decision) {
       if (format === FORMATS.CLAUDE) body.tool_choice = { type: "tool", name: decision.tool };
       else if (format === FORMATS.BEDROCK_CONVERSE) {
         body.toolConfig = { ...(body.toolConfig || {}), toolChoice: { tool: { name: decision.tool } } };
+      } else if (format === FORMATS.OPENAI_RESPONSES || format === FORMATS.OPENAI_RESPONSE) {
+        body.tool_choice = { type: "function", name: decision.tool };
       } else body.tool_choice = { type: "function", function: { name: decision.tool } };
       return true;
     }
@@ -113,6 +116,18 @@ export function applyToolChoice(body, format, decision) {
     // A decision is an optimisation; never let it break the request.
   }
   return false;
+}
+
+/** A caller's explicit prohibition or pin has higher authority than the router. */
+export function hasPinnedToolChoice(body, format) {
+  if (format === FORMATS.BEDROCK_CONVERSE) {
+    const choice = body.toolConfig?.toolChoice;
+    return !!choice && !choice.auto;
+  }
+  const choice = body.tool_choice;
+  if (choice == null || choice === "auto") return false;
+  if (typeof choice === "object" && choice.type === "auto") return false;
+  return true;
 }
 
 const asArray = (value) => (Array.isArray(value) ? value : []);

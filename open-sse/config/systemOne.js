@@ -1,5 +1,5 @@
 export const SYSTEM_ONE_PROVIDER_ID = "typesafe-ai";
-export const SYSTEM_ONE_PROVIDER_IDS = [SYSTEM_ONE_PROVIDER_ID, "openrouter"];
+export const SYSTEM_ONE_PROVIDER_IDS = [SYSTEM_ONE_PROVIDER_ID, "vercel-ai-gateway", "openrouter"];
 
 export const SYSTEM_ONE_ENDPOINT = "https://api.typesafe.ai/v1/systemone";
 export const SYSTEM_ONE_MODELS_ENDPOINT = "https://api.typesafe.ai/v1/models";
@@ -23,6 +23,7 @@ export const SYSTEM_ONE_MODELS = [
 ];
 
 export const SYSTEM_ONE_MODEL_PREFIXES = [
+  "vercel-ai-gateway/",
   "openrouter/typesafe/",
   "typesafe-ai/",
   "openrouter/",

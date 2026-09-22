@@ -8,6 +8,58 @@ import { resolveQoderCredentials, resolveQoderModels } from "open-sse/services/q
 import { normalizeProviderId } from "@/lib/providerNormalization";
 import { SYSTEM_ONE_MODELS_ENDPOINT, SYSTEM_ONE_PROVIDER_ID } from "open-sse/config/systemOne.js";
 import { RED_ROUTER_PROVIDER_ID, redRouterEndpoint } from "open-sse/config/redRouter.js";
+import { getSettings, getProviderConnections } from "@/lib/localDb";
+import { getScopeFilter, scopeVisible } from "@/lib/auth/resourceScope";
+import REGISTRY from "open-sse/providers/registry/index.js";
+import { decisionUrlFor } from "open-sse/decision/jev.js";
+
+async function probeDecisionRoute(provider, bodyApiKey) {
+  const entry = REGISTRY.find((candidate) => candidate.id === provider || candidate.alias === provider);
+  const url = decisionUrlFor(entry);
+  if (!url) return null;
+
+  const label = entry.display?.name || provider;
+  const settings = await getSettings().catch(() => ({}));
+  const model = settings?.decisionRouter?.model || entry.decisionConfig?.defaultModel;
+  if (!model) return { ok: false, error: `${label} has no decision model configured.` };
+
+  let apiKey = bodyApiKey;
+  if (!apiKey) {
+    const connections = scopeVisible(
+      await getProviderConnections({ provider: entry.id, isActive: true }),
+      await getScopeFilter(),
+    );
+    apiKey = connections[0]?.apiKey || connections[0]?.accessToken;
+  }
+  if (!apiKey) {
+    return { ok: false, error: `${label} has no active connection for the decision route.` };
+  }
+
+  let response;
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model,
+        state: {},
+        questions: { ping: { type: "noul", instructions: "Is this a ping?" } },
+      }),
+      signal: AbortSignal.timeout(15000),
+    });
+  } catch (error) {
+    const code = error?.cause?.code || error?.name || "error";
+    return { ok: false, error: `${label} decision route is unreachable (${code}).` };
+  }
+
+  if (response.ok || response.status === 429 || response.status === 529) {
+    return { ok: true, error: null };
+  }
+  if (response.status === 401 || response.status === 403) {
+    return { ok: false, error: `${label} rejected its credential (${response.status}).` };
+  }
+  return { ok: false, error: `${label} decision route answered HTTP ${response.status}.` };
+}
 
 // Probe a webSearch/webFetch provider using its searchConfig/fetchConfig.
 // Returns true if API key is accepted (status !== 401 && !== 403).
@@ -91,7 +143,8 @@ export async function POST(request) {
     const { apiKey, providerSpecificData } = body;
 
     const isNoAuth = AI_PROVIDERS[provider]?.noAuth === true;
-    if (!provider || (!apiKey && provider !== "ollama-local" && !isNoAuth)) {
+    const hasDecisionRoute = !!decisionUrlFor(REGISTRY.find((entry) => entry.id === provider || entry.alias === provider));
+    if (!provider || (!apiKey && provider !== "ollama-local" && !isNoAuth && !hasDecisionRoute)) {
       return NextResponse.json({ error: "Provider and API key required" }, { status: 400 });
     }
 
@@ -113,6 +166,11 @@ export async function POST(request) {
           valid: res.ok,
           error: res.ok ? null : `Remote RedRouter rejected the connection (${res.status})`,
         });
+      }
+
+      const decisionResult = await probeDecisionRoute(provider, apiKey);
+      if (decisionResult) {
+        return NextResponse.json({ valid: decisionResult.ok, error: decisionResult.error });
       }
 
       if (isOpenAICompatibleProvider(provider)) {

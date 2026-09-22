@@ -16,6 +16,7 @@ export const NO_TOOL = "no_tool_needed";
  *  make the tool roster's own scaling measured, and this number stays where it was
  *  until it is. */
 export const DEFAULT_MIN_CONFIDENCE = 0.7;
+export const DEFAULT_SWITCH_CONFIDENCE = 0.85;
 
 /** The model gate, in WINNER-STRENGTH units: how far the winner's probability sits
  *  above the uniform baseline (1/options), rescaled to 0..1. Absolute confidence
@@ -86,13 +87,14 @@ const cheapestOf = (models, priceOf) => (priceOf ? rankByCost(models, priceOf)[0
  * probability — the ones it did not meaningfully separate — the cheapest wins.
  * A clear verdict has no one else in the band and is left untouched.
  */
-export function cheapestWithinBand(pick, probabilities, priceOf, band = TIE_BAND) {
+export function cheapestWithinBand(pick, probabilities, priceOf, band = TIE_BAND, allowedModels = null) {
   const top = probabilities?.[pick];
   if (typeof top !== "number") return pick;
   let best = pick;
   let bestPrice = priceOf(pick);
   if (bestPrice === null) return pick;
   for (const [model, p] of Object.entries(probabilities)) {
+    if (allowedModels && !allowedModels.includes(model)) continue;
     if (typeof p !== "number" || top - p > band) continue;
     const price = priceOf(model);
     // An unpriced model never wins a tie-break: unknown is not cheap.
@@ -131,13 +133,22 @@ export function resolveModelDecision({
   if (!deliberation || deliberation.type !== "noul") {
     return { apply: false, reason: "no_deliberation_signal" };
   }
+  const probabilities = Object.fromEntries(
+    Object.entries(pick.probabilities || {}).filter(([model, value]) => (
+      models.includes(model) && typeof value === "number" && Number.isFinite(value)
+    )),
+  );
+  const sanitizedPick = { ...pick, probabilities };
 
   // Among the models jev did not meaningfully separate, take the cheapest. This
   // only moves sideways inside its own verdict — never past a model it rated lower.
   const chosen = priceOf
-    ? cheapestWithinBand(pick.choice, pick.probabilities, priceOf)
+    ? cheapestWithinBand(pick.choice, probabilities, priceOf, TIE_BAND, models)
     : pick.choice;
-  const strength = winnerStrength(pick);
+  if (!models.includes(chosen)) {
+    return { apply: false, reason: "pick_outside_pool" };
+  }
+  const strength = winnerStrength(sanitizedPick);
 
   // Reported even when not applied: the caller tracks the previous verdict.
   const usable = {

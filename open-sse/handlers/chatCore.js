@@ -10,12 +10,12 @@ import { getModelTargetFormat, getModelSupportedFormats, getModelStrip, getModel
 import { PROVIDERS } from "../config/providers.js";
 import { createErrorResult, parseUpstreamError, formatProviderError } from "../utils/error.js";
 import { checkFallbackError } from "../services/accountFallback.js";
-import { HTTP_STATUS, TOKEN_SAVER_HEADER } from "../config/runtimeConfig.js";
+import { HTTP_STATUS, TOKEN_SAVER_HEADER, DECISION_HEADER } from "../config/runtimeConfig.js";
 import { handleBypassRequest } from "../utils/bypassHandler.js";
 import { trackPendingRequest, appendRequestLog, saveRequestDetail } from "@/lib/usageDb.js";
 import { getExecutor } from "../executors/index.js";
 import { supportsGrokCliReasoningEffort } from "../config/grokCli.js";
-import { buildRequestDetail, extractRequestConfig } from "./chatCore/requestDetail.js";
+import { buildDecisionDetail, buildRequestDetail, extractRequestConfig } from "./chatCore/requestDetail.js";
 import { handleForcedSSEToJson } from "./chatCore/sseToJsonHandler.js";
 import { clientRequestedStreaming as requestedStreaming } from "./chatCore/streamMode.js";
 import { handleNonStreamingResponse } from "./chatCore/nonStreamingHandler.js";
@@ -33,6 +33,8 @@ import { prefetchRemoteImages } from "../translator/concerns/prefetch.js";
 import { defaultClaudeToolType, shouldDefaultClaudeToolType } from "../translator/concerns/toolCall.js";
 import { resolveSessionId } from "../utils/sessionManager.js";
 import { prepareStreamingResponse } from "./chatCore/streamResponse.js";
+import { injectHint } from "../decision/injectHint.js";
+import { applyToolChoice } from "../decision/tools.js";
 
 export function executeProviderRequest(executor, options) {
   return executor.execute(options);
@@ -65,7 +67,7 @@ export function stripContinuityFields(body) {
   return body;
 }
 
-export async function handleChatCore({ body, modelInfo, credentials, log, errorContext = {}, onCredentialsRefreshed, onRequestSuccess, onDisconnect, clientRawRequest, connectionId, userAgent, apiKey, ccFilterNaming, rtkEnabled, headroomEnabled, headroomUrl, headroomCompressUserMessages, headroomTimeoutMs, cavemanEnabled, cavemanLevel, ponytailEnabled, ponytailLevel, pxpipeEnabled, pxpipeMinChars, pxpipeTimeoutMs, pxpipeTransform, onPxpipeEvent, sourceFormatOverride, providerThinking }) {
+export async function handleChatCore({ body, modelInfo, credentials, log, errorContext = {}, onCredentialsRefreshed, onRequestSuccess, onDisconnect, clientRawRequest, connectionId, userAgent, apiKey, ccFilterNaming, rtkEnabled, headroomEnabled, headroomUrl, headroomCompressUserMessages, headroomTimeoutMs, cavemanEnabled, cavemanLevel, ponytailEnabled, ponytailLevel, pxpipeEnabled, pxpipeMinChars, pxpipeTimeoutMs, pxpipeTransform, onPxpipeEvent, sourceFormatOverride, providerThinking, maxThinkingLevel = null, decideTool = null, decision = null }) {
   const { provider, model } = modelInfo;
   const requestStartTime = Date.now();
   // Stable per-session color so all lines of one CLI conversation share a tag
@@ -181,7 +183,7 @@ export async function handleChatCore({ body, modelInfo, credentials, log, errorC
       // off the scratch object and nests it itself, so applyThinking must not nest.
       // Passing sourceFormat here would hand back {reasoning:{effort}} for a Responses
       // client and the suffix would silently stop applying.
-      applyThinking(FORMATS.OPENAI, upstreamModel, suffixThinking, provider);
+      applyThinking(FORMATS.OPENAI, upstreamModel, suffixThinking, provider, undefined, null, maxThinkingLevel);
       if (suffixThinking.reasoning_effort) {
         const reasoning = translatedBody.reasoning;
         translatedBody.reasoning = {
@@ -203,7 +205,7 @@ export async function handleChatCore({ body, modelInfo, credentials, log, errorC
       if (Object.keys(translatedBody.output_config).length === 0) delete translatedBody.output_config;
     }
   } else {
-    translatedBody = translateRequest(sourceFormat, targetFormat, upstreamModel, body, stream, credentials, provider, reqLogger, stripList, connectionId, clientTool);
+    translatedBody = translateRequest(sourceFormat, targetFormat, upstreamModel, body, stream, credentials, provider, reqLogger, stripList, connectionId, clientTool, maxThinkingLevel);
     if (!translatedBody) {
       trackPendingRequest(model, provider, connectionId, false, true);
       return createErrorResult(HTTP_STATUS.BAD_REQUEST, `Failed to translate request for ${sourceFormat} → ${targetFormat}`, undefined, errorContext);
@@ -323,6 +325,31 @@ export async function handleChatCore({ body, modelInfo, credentials, log, errorC
     try { onPxpipeEvent?.({ provider, model, ...pxpipeSummary }); } catch { /* stats must not break requests */ }
   }
 
+  let toolDecision = null;
+  if (typeof decideTool === "function"
+      && clientRawRequest?.headers?.[DECISION_HEADER]?.toLowerCase() !== "off") {
+    try {
+      const result = await decideTool({
+        body: translatedBody,
+        format: finalFormat,
+        provider,
+        model: upstreamModel,
+      });
+      toolDecision = result || null;
+      if (result?.mode && result.mode !== "passthrough") {
+        const applied = result.mode === "hint"
+          ? injectHint(translatedBody, finalFormat, result.tool)
+          : applyToolChoice(translatedBody, finalFormat, result);
+        xf.push(`DECISION:${result.mode}:${result.tool || "-"}:${applied ? "applied" : "noop"}`);
+      } else if (result) {
+        xf.push(`DECISION:skip:${result.reason || "-"}`);
+      }
+    } catch (error) {
+      log?.warn?.("DECISION", `tool decision failed: ${error.message}`);
+    }
+  }
+  const decisionDetail = buildDecisionDetail(decision, toolDecision);
+
   if (xf.length && log?.line) log.line(reqTag, "⚙", xf.join(" · "));
 
   // Pin cache breakpoints to the final body — every saver above can reshape
@@ -414,6 +441,7 @@ export async function handleChatCore({ body, modelInfo, credentials, log, errorC
       providerRequest: translatedBody || null,
       response: { error: error.message || String(error), status: error.name === "AbortError" ? 499 : 502, thinking: null },
       pxpipe: pxpipeSummary,
+      decision: decisionDetail,
       status: "error"
     })).catch(() => { });
 
@@ -489,6 +517,7 @@ export async function handleChatCore({ body, modelInfo, credentials, log, errorC
       providerRequest: finalBody || translatedBody || null,
       response: { error: message, status: statusCode, thinking: null },
       pxpipe: pxpipeSummary,
+      decision: decisionDetail,
       status: "error"
     })).catch(() => { });
 
@@ -559,7 +588,7 @@ export async function handleChatCore({ body, modelInfo, credentials, log, errorC
     }
   }
 
-  const sharedCtx = { provider, model, body, stream, errorContext, translatedBody, finalBody, requestStartTime, connectionId, apiKey, clientRawRequest, onRequestSuccess, pxpipe: pxpipeSummary, reqTag, log };
+  const sharedCtx = { provider, model, body, stream, errorContext, translatedBody, finalBody, requestStartTime, connectionId, apiKey, clientRawRequest, onRequestSuccess, pxpipe: pxpipeSummary, decision: decisionDetail, reqTag, log };
   const appendLog = (extra) => appendRequestLog({ model, provider, connectionId, ...extra }).catch(() => { });
   const trackDone = () => trackPendingRequest(model, provider, connectionId, false);
 

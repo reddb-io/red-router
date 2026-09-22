@@ -14,6 +14,8 @@ import { resolveModelDecision, resolveToolDecision } from "open-sse/decision/dec
 import { getPricingForModel } from "open-sse/providers/pricing.js";
 import { resolveCriteria } from "open-sse/decision/modelBriefs.js";
 import { rankByCost } from "open-sse/decision/decide.js";
+import { proxyAwareFetch } from "open-sse/utils/proxyFetch.js";
+import { MEMORY_CONFIG } from "open-sse/config/runtimeConfig.js";
 
 export const DEFAULT_DECISION = {
   mode: "off",
@@ -74,6 +76,13 @@ export async function resolveDecisionTarget(config, { apiKey = null, log } = {})
     const key = credentials?.apiKey || credentials?.accessToken || null;
     if (!key) return null;
     log?.info?.("DECISION", `using ${entry.id} credential for the decision route`);
+    const providerData = credentials?.providerSpecificData || {};
+    const proxyOptions = {
+      connectionProxyEnabled: providerData.connectionProxyEnabled === true,
+      connectionProxyUrl: providerData.connectionProxyUrl || "",
+      connectionNoProxy: providerData.connectionNoProxy || "",
+      vercelRelayUrl: providerData.vercelRelayUrl || "",
+    };
     return {
       url,
       apiKey: key,
@@ -82,6 +91,7 @@ export async function resolveDecisionTarget(config, { apiKey = null, log } = {})
       // under them instead of reading as an unattributed local call.
       connectionId: credentials?.connectionId || null,
       callerApiKey: apiKey,
+      fetchImpl: (url, options) => proxyAwareFetch(url, options, proxyOptions),
     };
   } catch (error) {
     log?.warn?.("DECISION", `credential lookup failed: ${error.message}`);
@@ -155,6 +165,7 @@ const ask = (target, config, state, questions, log) =>
     state,
     questions,
     timeoutMs: config.timeoutMs,
+    fetchImpl: target.fetchImpl,
     onFailure: (reason) => log?.info?.("DECISION", `decision model returned nothing (${reason})`),
   }).then((response) => (response ? { ...response, state, questions } : response));
 
@@ -308,19 +319,37 @@ async function saveDecisionDetail({ response, verdict, target }) {
   }
 }
 
-/** The last verdict per combo, so a repeated answer can unlock the ambiguous band.
- *  ponytail: in-process, so the streak is per instance — same ceiling as
- *  comboRotationState. Move both to the shared store together, not separately. */
+/** The last verdict per conversation and combo, so a repeated answer can unlock
+ *  the ambiguous band without one conversation influencing another. Entries use
+ *  the session-store TTL. This remains in-process, like comboRotationState; move
+ *  both to the shared store together if routing state becomes distributed. */
 const lastVerdicts = new Map();
+const MAX_LAST_VERDICTS = 5000;
 
 export function readPreviousVerdict(key) {
-  return lastVerdicts.get(key) || null;
+  const entry = lastVerdicts.get(key);
+  if (!entry) return null;
+  if (entry.expiresAt <= Date.now()) {
+    lastVerdicts.delete(key);
+    return null;
+  }
+  return entry.model;
 }
 
 export function rememberVerdict(key, decision) {
   if (!key) return;
-  if (decision?.model) lastVerdicts.set(key, decision.model);
-  else lastVerdicts.delete(key);
+  if (!decision?.model) {
+    lastVerdicts.delete(key);
+    return;
+  }
+  if (!lastVerdicts.has(key) && lastVerdicts.size >= MAX_LAST_VERDICTS) {
+    lastVerdicts.delete(lastVerdicts.keys().next().value);
+  }
+  lastVerdicts.delete(key);
+  lastVerdicts.set(key, {
+    model: decision.model,
+    expiresAt: Date.now() + MEMORY_CONFIG.sessionTtlMs,
+  });
 }
 
 export function resetVerdicts() {

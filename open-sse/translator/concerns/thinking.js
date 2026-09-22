@@ -5,6 +5,8 @@
 // Discrete effort levels, ordered low→high.
 export const EFFORT_LEVELS = ["minimal", "low", "medium", "high", "xhigh", "max"];
 
+export const THINKING_ORDER = ["none", "minimal", "low", "medium", "high", "xhigh", "max"];
+
 // Web-standard level → budget_tokens (Anthropic/Gemini docs).
 export const LEVEL_TO_BUDGET = {
   none: 0,

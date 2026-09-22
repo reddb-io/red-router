@@ -11,7 +11,7 @@ import ModelSelectModal from "@/shared/components/ModelSelectModal";
 // act, which is the baseline the savings claim has to be measured against.
 const MODES = [
   { value: "off", label: "Off", desc: "Never asks the decision model. Routing is exactly as it was." },
-  { value: "shadow", label: "Shadow", desc: "Asks and logs the verdict, applies nothing — the baseline you compare against." },
+  { value: "shadow", label: "Shadow", desc: "Asks and logs the verdict. Applies nothing; this is the baseline you compare against." },
   { value: "enforce", label: "Enforce", desc: "Asks and applies the verdict." },
 ];
 
@@ -24,28 +24,28 @@ const PRESETS = [
     value: "cautious",
     label: "Cautious",
     desc: "Acts only on near-certain verdicts. Fewest switches, lowest risk of a wrong route.",
-    minConfidence: 0.8,
-    switchConfidence: 0.9,
+    minStrength: 0.55,
+    switchStrength: 0.75,
   },
   {
     value: "balanced",
     label: "Balanced",
     desc: "Acts on clear verdicts. The measured default.",
-    minConfidence: 0.7,
-    switchConfidence: 0.85,
+    minStrength: 0.35,
+    switchStrength: 0.6,
   },
   {
     value: "eager",
     label: "Eager",
     desc: "Also acts on weaker verdicts, in the ambiguous band. More switches, more chances to route wrong.",
-    minConfidence: 0.6,
-    switchConfidence: 0.75,
+    minStrength: 0.2,
+    switchStrength: 0.4,
   },
 ];
 
 function presetOf(config) {
   return PRESETS.find(
-    (p) => p.minConfidence === config.minConfidence && p.switchConfidence === config.switchConfidence,
+    (p) => p.minStrength === config.minStrength && p.switchStrength === config.switchStrength,
   )?.value || "custom";
 }
 
@@ -55,9 +55,9 @@ function presetOf(config) {
 // every coding task fail — the model writes its tool call as text the client cannot
 // run, so the work silently never happens (0/3, in 2.9s each, fixture untouched).
 const TOOL_MODES = [
-  { value: "off", label: "Off — models only, no tool routing" },
-  { value: "hint", label: "Hint — suggest the tool, never pin it" },
-  { value: "forced", label: "Forced — also allow pinning a tool" },
+  { value: "off", label: "Off: models only, no tool routing" },
+  { value: "hint", label: "Hint: suggest the tool, never pin it" },
+  { value: "forced", label: "Forced: also allow pinning a tool" },
 ];
 
 export default function DecisionRouterCard({ provider }) {
@@ -106,7 +106,7 @@ export default function DecisionRouterCard({ provider }) {
   const setPreset = (value) => {
     const preset = PRESETS.find((p) => p.value === value);
     if (!preset) return;
-    patch({ ...config, minConfidence: preset.minConfidence, switchConfidence: preset.switchConfidence });
+    patch({ ...config, minStrength: preset.minStrength, switchStrength: preset.switchStrength });
   };
 
   // The new gateway's default model comes along only while the current model is
@@ -170,7 +170,9 @@ export default function DecisionRouterCard({ provider }) {
           </div>
           <div className="flex flex-wrap gap-2">
             {models.length === 0 ? (
-              <span className="text-xs text-text-muted italic">{translate("Nothing selected — routing is off.")}</span>
+              <span className="text-xs text-text-muted italic">
+                {translate("No model scope selected. Model routing is off; tool routing follows the mode below.")}
+              </span>
             ) : models.map((value) => (
               <span key={value} className="inline-flex items-center gap-1 rounded bg-black/5 px-1.5 py-0.5 dark:bg-white/5">
                 <span className="material-symbols-outlined text-[12px] text-text-muted">
@@ -200,7 +202,7 @@ export default function DecisionRouterCard({ provider }) {
           />
           <p className="text-xs text-text-muted">
             {activePreset === "custom"
-              ? translate("Custom thresholds — calibrated in Advanced.")
+              ? translate("Custom thresholds, calibrated in Advanced.")
               : translate(PRESETS.find((p) => p.value === activePreset).desc)}
           </p>
         </div>
@@ -246,27 +248,38 @@ export default function DecisionRouterCard({ provider }) {
                 />
                 <div className="flex flex-col gap-3">
                   <Input
-                    label={translate("Min confidence")}
+                    label={translate("Minimum model strength")}
                     type="number"
                     step="0.05"
                     min="0"
                     max="1"
-                    value={config.minConfidence}
-                    onChange={(e) => { const n = Number(e.target.value); if (Number.isFinite(n)) set("minConfidence", n); }}
-                    hint={translate("Below this the verdict is discarded.")}
+                    value={config.minStrength}
+                    onChange={(e) => { const n = Number(e.target.value); if (Number.isFinite(n)) set("minStrength", n); }}
+                    hint={translate("Below this normalized strength, the model verdict is discarded.")}
                   />
                   <Input
-                    label={translate("Switch confidence")}
+                    label={translate("Immediate switch strength")}
                     type="number"
                     step="0.05"
                     min="0"
                     max="1"
-                    value={config.switchConfidence}
-                    onChange={(e) => { const n = Number(e.target.value); if (Number.isFinite(n)) set("switchConfidence", n); }}
-                    hint={translate("At or above this it switches this turn; below, it needs two agreeing verdicts.")}
+                    value={config.switchStrength}
+                    onChange={(e) => { const n = Number(e.target.value); if (Number.isFinite(n)) set("switchStrength", n); }}
+                    hint={translate("At or above this strength it switches immediately; below, it needs two agreeing verdicts.")}
                   />
                 </div>
               </div>
+
+              <Input
+                label={translate("Minimum tool confidence")}
+                type="number"
+                step="0.05"
+                min="0"
+                max="1"
+                value={config.minConfidence}
+                onChange={(e) => { const n = Number(e.target.value); if (Number.isFinite(n)) set("minConfidence", n); }}
+                hint={translate("Tool verdicts below this confidence are ignored.")}
+              />
 
               <div className="flex flex-col gap-2">
                 <div className="flex items-center justify-between gap-3">
@@ -284,12 +297,12 @@ export default function DecisionRouterCard({ provider }) {
                   <span className="text-text-muted">{translate("borrows its own chat connection")}</span>
                   {conn ? (
                     <span className={connBroken ? "text-amber-600 dark:text-amber-500" : "text-text-muted"}>
-                      — {conn.name || translate("connection")}
+                      · {conn.name || translate("connection")}
                       {connBroken ? translate(" (marked unavailable by the last health check)") : ""}
                     </span>
                   ) : (
                     <span className="text-amber-600 dark:text-amber-500">
-                      — {translate("no connection yet, so the decision model cannot be asked")}
+                      · {translate("no connection yet, so the decision model cannot be asked")}
                     </span>
                   )}
                 </div>
