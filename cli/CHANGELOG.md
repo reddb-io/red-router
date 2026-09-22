@@ -1,5 +1,19 @@
 # @reddb-io/red-router
 
+## 0.13.0
+
+### Minor Changes
+
+- 8db5cc4: Add dynamic RedRouter configuration for Pi, Oh My Pi, Crush, ForgeCode, Smelt, and CodeWhale through one registry-backed settings endpoint.
+- de5d1a7: Add the keyed OpenCode Zen PAYG provider with shared fingerprint handling and usage reporting, and map Ollama free-plan monthly quota resets from the signup date.
+- f3a7789: Add request-aware usage charts with all-time and provider/model breakdowns, plus scoped Cursor and Claude combo presets and bulk combo operations.
+
+### Patch Changes
+
+- 9947145: Add Text classification provider management, model selection, routing combos, and native JEV examples backed by `/v1/systemone`.
+- e64adae: Harden Qoder billing and signed-stream error handling, Cursor AgentService tool and context negotiation, and OpenCode Zen request fingerprinting across streaming and JSON responses.
+- d104eeb: Unify System One configuration across the native endpoint, model routing, tool routing, and provider UI; add OpenCode Zen as a JEV gateway; and keep legacy classification routes and combos compatible.
+
 ## 0.12.1
 
 ### Patch Changes
