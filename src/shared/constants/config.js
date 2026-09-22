@@ -1,4 +1,4 @@
-import pkg from "../../../package.json" with { type: "json" };
+import pkg from "../../../cli/package.json" with { type: "json" };
 
 // App configuration
 export const APP_CONFIG = {
@@ -15,9 +15,9 @@ export const GITHUB_CONFIG = {
 
 // Updater configuration
 export const UPDATER_CONFIG = {
-  npmPackageName: "red-router",
-  installCmd: "npm i -g red-router",
-  installCmdLatest: "npm i -g red-router@latest --prefer-online",
+  npmPackageName: "@reddb-io/red-router",
+  installCmd: "npm i -g @reddb-io/red-router",
+  installCmdLatest: "npm i -g @reddb-io/red-router@latest --prefer-online",
   shutdownCountdownSec: 3,
   exitDelayMs: 500,
   statusPort: 20129,
