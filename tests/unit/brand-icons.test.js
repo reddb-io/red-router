@@ -17,4 +17,10 @@ describe("RedDB brand icons", () => {
       read("../../cli/src/cli/tray/icon.ico"),
     );
   });
+
+  it("shows the RedRouter name beside its system tray icon", () => {
+    expect(read("../../cli/src/cli/tray/tray.js").toString()).toContain(
+      'title: "RedRouter"',
+    );
+  });
 });
