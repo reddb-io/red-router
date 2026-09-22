@@ -291,10 +291,14 @@ export default function RequestDetailsTab() {
   }, [pagination.page, pagination.pageSize, filters]);
 
   useEffect(() => {
+    // Existing async loader hydrates filter options when the view mounts.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchProviders();
   }, [fetchProviders]);
 
   useEffect(() => {
+    // Existing async loader refreshes rows when pagination or filters change.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchDetails();
   }, [fetchDetails]);
 
