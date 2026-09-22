@@ -70,8 +70,14 @@ describe("GET /v1/capabilities", () => {
     });
     expect(caps.token_saver_header).toBe("x-red-router-token-saver");
     expect(caps.combos.strategies).toEqual(["fallback", "round-robin", "fusion", "smart", "auto"]);
-    expect(caps.session.per_session_stickiness).toBe(false);
+    expect(caps.session.per_session_stickiness).toBe(true);
+    expect(caps.session.prompt_cache_key).toBe(true);
+    expect(caps.session.affinity_headers).toEqual(["x-parent-session-id", "x-session-affinity"]);
+    expect(caps.session.affinity_ttl_ms).toBe(30 * 60 * 1000);
     expect(caps.session.headers).toEqual(expect.arrayContaining(["x-session-id", "x-claude-code-session-id"]));
+    const headers = caps.session.headers;
+    expect(headers.indexOf("x-session-affinity")).toBe(headers.indexOf("x-session-id") + 1);
+    expect(headers.indexOf("x-parent-session-id")).toBe(headers.indexOf("x-session-id") + 2);
     expect(caps.served_model_header).toBe("X-RedRouter-Served-Model");
     expect(caps.cost_header).toBe("X-RedRouter-Cost-USD");
     expect(caps.request_id_header).toBe("X-Request-Id");

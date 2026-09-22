@@ -10,7 +10,7 @@ import { getModelTargetFormat, getModelSupportedFormats, getModelStrip, getModel
 import { PROVIDERS } from "../config/providers.js";
 import { createErrorResult, parseUpstreamError, formatProviderError } from "../utils/error.js";
 import { checkFallbackError } from "../services/accountFallback.js";
-import { HTTP_STATUS, TOKEN_SAVER_HEADER, DECISION_HEADER } from "../config/runtimeConfig.js";
+import { HTTP_STATUS, TOKEN_SAVER_HEADER, DECISION_HEADER, PROMPT_CACHE_KEY_PROVIDERS } from "../config/runtimeConfig.js";
 import { handleBypassRequest } from "../utils/bypassHandler.js";
 import { trackPendingRequest, appendRequestLog, saveRequestDetail } from "@/lib/usageDb.js";
 import { getExecutor } from "../executors/index.js";
@@ -32,7 +32,7 @@ import { getCapabilitiesForModel } from "../providers/capabilities.js";
 import { stripUnsupportedModalities } from "../translator/concerns/modality.js";
 import { prefetchRemoteImages } from "../translator/concerns/prefetch.js";
 import { defaultClaudeToolType, shouldDefaultClaudeToolType } from "../translator/concerns/toolCall.js";
-import { resolveSessionId } from "../utils/sessionManager.js";
+import { resolveSessionId, promptCacheKeyFor } from "../utils/sessionManager.js";
 import { prepareStreamingResponse } from "./chatCore/streamResponse.js";
 import { injectHint } from "../decision/injectHint.js";
 import { applyToolChoice } from "../decision/tools.js";
@@ -66,6 +66,24 @@ export function stripContinuityFields(body) {
     }
   }
   return body;
+}
+
+/**
+ * Map the client's affinity session to OpenAI's `prompt_cache_key`, so requests of
+ * one session land on the same prompt cache. Only for upstreams known to accept
+ * the field, only on the OpenAI wire formats, and never over a key the client set
+ * (even one the translator dropped: the client's choice stands). Returns whether
+ * the body changed.
+ */
+export function applyPromptCacheKey(translatedBody, { provider, format, headers, clientBody }) {
+  if (!translatedBody || typeof translatedBody !== "object") return false;
+  if (!PROMPT_CACHE_KEY_PROVIDERS.includes(provider)) return false;
+  if (format !== FORMATS.OPENAI && format !== FORMATS.OPENAI_RESPONSES) return false;
+  if (translatedBody.prompt_cache_key != null || clientBody?.prompt_cache_key != null) return false;
+  const key = promptCacheKeyFor(headers);
+  if (!key) return false;
+  translatedBody.prompt_cache_key = key;
+  return true;
 }
 
 export async function handleChatCore({ body, modelInfo, credentials, log, errorContext = {}, onCredentialsRefreshed, onRequestSuccess, onDisconnect, clientRawRequest, connectionId, userAgent, apiKey, ccFilterNaming, rtkEnabled, headroomEnabled, headroomUrl, headroomCompressUserMessages, headroomTimeoutMs, cavemanEnabled, cavemanLevel, ponytailEnabled, ponytailLevel, pxpipeEnabled, pxpipeMinChars, pxpipeTimeoutMs, pxpipeTransform, onPxpipeEvent, sourceFormatOverride, providerThinking, maxThinkingLevel = null, decideTool = null, decision = null }) {
@@ -248,6 +266,13 @@ export async function handleChatCore({ body, modelInfo, credentials, log, errorC
   // Token savers: applied at the final body just before dispatch
   // Covers both passthrough (source shape) and translated (target shape) flows
   const finalFormat = passthrough ? sourceFormat : targetFormat;
+
+  applyPromptCacheKey(translatedBody, {
+    provider,
+    format: finalFormat,
+    headers: clientRawRequest?.headers,
+    clientBody: clientRawRequest?.body ?? body,
+  });
 
   // Request line: one correlated summary (fmt + thinking + counts + account)
   if (log?.line) {

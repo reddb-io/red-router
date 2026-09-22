@@ -12,8 +12,8 @@ import { normalizeDecisionConfig } from "@/sse/services/decisionRouter.js";
 import { buildModelsList } from "@/app/api/v1/models/route.js";
 import { SYSTEM_ONE_PROVIDER_IDS } from "open-sse/config/systemOne.js";
 import { COMBO_STRATEGIES } from "open-sse/services/combo.js";
-import { SESSION_HEADERS } from "open-sse/utils/sessionManager.js";
-import { COST_HEADER, DECISION_HEADER, REQUEST_ID_HEADER, SERVED_MODEL_HEADER, TOKEN_SAVER_HEADER } from "open-sse/config/runtimeConfig.js";
+import { SESSION_HEADERS, AFFINITY_HEADERS } from "open-sse/utils/sessionManager.js";
+import { COST_HEADER, DECISION_HEADER, REQUEST_ID_HEADER, SERVED_MODEL_HEADER, SESSION_AFFINITY_CONFIG, TOKEN_SAVER_HEADER } from "open-sse/config/runtimeConfig.js";
 
 export const PRODUCT = "red-router";
 export const SYSTEM_ONE_PATH = "/v1/systemone";
@@ -48,7 +48,11 @@ export async function buildCapabilities({ apiKey = null } = {}) {
     },
     session: {
       headers: [...SESSION_HEADERS],
-      per_session_stickiness: false,
+      // Combo member stickiness is keyed on these headers only (parent first).
+      per_session_stickiness: true,
+      affinity_headers: [...AFFINITY_HEADERS],
+      affinity_ttl_ms: SESSION_AFFINITY_CONFIG.ttlMs,
+      prompt_cache_key: true,
     },
     token_saver_header: TOKEN_SAVER_HEADER,
     served_model_header: RESPONSE_HEADERS.servedModel,

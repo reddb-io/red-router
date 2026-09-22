@@ -8,6 +8,7 @@ import { getCapabilitiesForModel } from "../providers/capabilities.js";
 import { getThinkingLevels } from "../providers/thinkingLevels.js";
 import { stripThinkingSuffix } from "../translator/concerns/thinkingUnified.js";
 import { extractTextContent } from "../translator/formats/gemini.js";
+import { getSessionMember, rememberSessionMember, forgetSessionMember, preferSessionMember } from "./sessionAffinity.js";
 
 // Hard capabilities = input modalities; missing one drops request data (e.g. image
 // stripped). Must be prioritized. Soft (e.g. search) only degrades a feature.
@@ -517,10 +518,25 @@ export function comboThinkingLevels(members) {
  * @param {string} [options.comboName] - Name of the combo (for round-robin tracking)
  * @param {string} [options.comboStrategy] - Strategy: "fallback" or "round-robin"
  * @param {number|string} [options.comboStickyLimit=1] - Requests per combo model before switching
+ * @param {string|null} [options.sessionKey] - Session affinity key; the member that last
+ *   served it leads (round-robin does not advance), and each success is remembered
+ * @param {boolean} [options.routedLead=false] - This request's lead was chosen by the
+ *   combo's own routing (a smart tier or an applied auto decision); it outranks the
+ *   remembered member, and the member that serves is remembered as usual
  * @returns {Promise<Response>}
  */
-export async function handleComboChat({ body, models, handleSingleModel, log, comboName, comboStrategy, comboStickyLimit = 1, autoSwitch = true, errorContext = {} }) {
-  let rotatedModels = getRotatedModels(models, comboName, comboStrategy, comboStickyLimit);
+export async function handleComboChat({ body, models, handleSingleModel, log, comboName, comboStrategy, comboStickyLimit = 1, autoSwitch = true, errorContext = {}, sessionKey = null, routedLead = false }) {
+  const sessionMember = sessionKey && !routedLead ? getSessionMember(comboName, sessionKey) : null;
+  const stickyMember = sessionMember && Array.isArray(models) && models.includes(sessionMember) ? sessionMember : null;
+  let rotatedModels = stickyMember
+    ? preferSessionMember(models, stickyMember)
+    : getRotatedModels(models, comboName, comboStrategy, comboStickyLimit);
+  if (stickyMember) log.info("COMBO", `session affinity → ${stickyMember}`);
+  // A member that fails stops being the session's preference; the next success
+  // replaces it.
+  const forget = (modelStr) => {
+    if (sessionKey) forgetSessionMember(comboName, sessionKey, modelStr);
+  };
 
   if (autoSwitch) {
     const required = detectRequiredCapabilities(body);
@@ -558,11 +574,13 @@ export async function handleComboChat({ body, models, handleSingleModel, log, co
       const result = await handleSingleModel(body, modelStr);
       if (result.ok) {
         log.info("COMBO", `Model ${modelStr} succeeded`);
+        if (sessionKey) rememberSessionMember(comboName, sessionKey, modelStr);
         return result;
       }
 
       const reason = result.headers.get("X-9Router-Reason");
       if (reason === "no_active_credentials") {
+        forget(modelStr);
         noCredentialsCount++;
         log.warn("COMBO", `Model ${modelStr} skipped: no active credentials`);
         continue;
@@ -588,6 +606,7 @@ export async function handleComboChat({ body, models, handleSingleModel, log, co
         return result;
       }
       if (!firstFallbackError) firstFallbackError = result;
+      forget(modelStr);
 
       if (cooldownMs > 0 && cooldownMs <= 5000 && [502, 503, 504].includes(result.status)) {
         log.info("COMBO", `Model ${modelStr} transient ${result.status}, waiting ${cooldownMs}ms before next`);
@@ -595,6 +614,7 @@ export async function handleComboChat({ body, models, handleSingleModel, log, co
       }
       log.warn("COMBO", `Model ${modelStr} failed, trying next`, { status: result.status });
     } catch (error) {
+      forget(modelStr);
       log.warn("COMBO", `Model ${modelStr} threw error, trying next`, { error: error.message || String(error) });
     }
   }

@@ -41,7 +41,7 @@ import * as log from "../utils/logger.js";
 import { updateProviderCredentials, checkAndRefreshToken } from "../services/tokenRefresh.js";
 import { getProjectIdForConnection } from "open-sse/services/projectId.js";
 import { stripModelContextMarker } from "open-sse/utils/modelMarkers.js";
-import { resolveSessionId } from "open-sse/utils/sessionManager.js";
+import { resolveSessionId, resolveAffinityKey } from "open-sse/utils/sessionManager.js";
 import { servedModelId } from "open-sse/utils/servedHeaders.js";
 import { handleSystemOne } from "./systemOne.js";
 
@@ -112,6 +112,7 @@ async function orderComboModels({ body, models, comboName, strategy, settings, a
       models: [...result.models, ...ranked.filter((model) => !result.models.includes(model))],
       deliberation: result.decision?.deliberation ?? null,
       decision: result.decision || null,
+      routed: result.decision?.apply === true,
     };
   } catch (error) {
     log.warn("DECISION", `model decision failed, pool order unchanged: ${error.message}`);
@@ -171,6 +172,20 @@ async function resolveComboOwner(apiKey) {
   return await getApiKeyOwner(apiKey || null);
 }
 
+/**
+ * The combo member stickiness key for this request, scoped to the caller so two
+ * keys reusing one session id never share a member. Null without an affinity
+ * header, which keeps the combo's own rotation.
+ */
+function sessionAffinityKey(headers, apiKey, comboOwner) {
+  const session = resolveAffinityKey(headers);
+  if (!session) return null;
+  return createHash("sha256")
+    .update(`${apiKey || "local"}:${comboOwner || "shared"}:${session}`)
+    .digest("hex")
+    .slice(0, 24);
+}
+
 export async function handleChat(request, clientRawRequest = null, options = {}) {
   const errorContext = createErrorContext(request, options);
   let body;
@@ -222,6 +237,7 @@ export async function handleChat(request, clientRawRequest = null, options = {})
     sessionId,
     decision: null,
     deliberation: null,
+    affinityKey: sessionAffinityKey(clientRawRequest?.headers, apiKey, comboOwner),
     toolDecider: createToolDecider({ settings, apiKey }),
   };
   if (settings.requireApiKey) {
@@ -289,6 +305,9 @@ export async function handleChat(request, clientRawRequest = null, options = {})
     // miss we keep `augmentedModels` as-is and fall through to normal fallback.
     // The availability/quota ladder + capability auto-switch below are untouched.
     let effectiveStrategy = comboStrategy;
+    // Set when this request's own routing picked the lead; it then outranks the
+    // member the session was last served by.
+    let routedLead = false;
     if (comboStrategy === "smart") {
       const smartCfg = comboStrategies[cleanComboName] || {};
       const tierMap = smartCfg.smartTiers;
@@ -315,6 +334,7 @@ export async function handleChat(request, clientRawRequest = null, options = {})
       });
       if (classified && tierMap) {
         const reordered = reorderModelsForTier(augmentedModels, classified.tier, tierMap);
+        routedLead = typeof tierMap[classified.tier] === "string" && tierMap[classified.tier].trim() !== "";
         if (reordered[0] !== augmentedModels[0]) {
           log.info("CHAT", `Combo "${cleanComboName}" smart-routing tier=${classified.tier} → ${reordered[0]}`);
         }
@@ -344,6 +364,7 @@ export async function handleChat(request, clientRawRequest = null, options = {})
       orderedModels = ordered.models;
       routingContext.decision = ordered.decision;
       routingContext.deliberation = ordered.deliberation;
+      routedLead = ordered.routed === true;
       effectiveStrategy = "fallback";
     }
 
@@ -360,6 +381,8 @@ export async function handleChat(request, clientRawRequest = null, options = {})
       comboStrategy: effectiveStrategy,
       comboStickyLimit,
       errorContext,
+      sessionKey: routingContext.affinityKey,
+      routedLead,
     });
   }
 
@@ -446,6 +469,7 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
       const comboStickyLimit = chatSettings.comboStickyRoundRobinLimit;
       let orderedModels = augmentedModels;
       let effectiveStrategy = comboStrategy;
+      let nestedRoutedLead = false;
       if (comboStrategy === "auto") {
         const ordered = await orderComboModels({
           body,
@@ -462,6 +486,7 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
         orderedModels = ordered.models;
         routingContext.decision = ordered.decision;
         routingContext.deliberation = ordered.deliberation;
+        nestedRoutedLead = ordered.routed === true;
         effectiveStrategy = "fallback";
       }
       log.info("CHAT", `Combo "${cleanComboName}" with ${orderedModels.length} models (strategy: ${comboStrategy}${effectiveStrategy !== comboStrategy ? `→${effectiveStrategy}` : ""}, sticky: ${comboStickyLimit})`);
@@ -477,6 +502,8 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
         comboStrategy: effectiveStrategy,
         comboStickyLimit,
         errorContext,
+        sessionKey: routingContext.affinityKey || null,
+        routedLead: nestedRoutedLead,
       });
     }
     log.warn("CHAT", "Invalid model format", { model: modelStr });
