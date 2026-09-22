@@ -44,12 +44,20 @@ function UsageContent() {
   };
 
   return (
-    <div className="flex min-w-0 flex-col gap-6 px-1 sm:px-0">
-      {/* Tabs + period selector on same row */}
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+    <div className="usage-workbench">
+      <header className="usage-heading">
+        <div>
+          <h1>Usage</h1>
+          <p>Inspect traffic, token volume, estimated cost, and individual requests.</p>
+        </div>
+        <span className="usage-context">Router telemetry</span>
+      </header>
+
+      <div className="usage-command-bar">
         <SegmentedControl
           options={[
             { value: "overview", label: "Overview" },
+            { value: "logs", label: "Logs" },
             { value: "details", label: "Details" },
           ]}
           value={activeTab}
@@ -57,13 +65,13 @@ function UsageContent() {
           className="w-full sm:w-auto"
         />
         {activeTab === "overview" && (
-          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+          <div className="usage-filter-group">
             {apiKeyOptions.length > 0 && (
               <select
                 value={apiKeyId}
                 onChange={(e) => setApiKeyId(e.target.value)}
                 aria-label="Filter usage by API key"
-                className="h-8 w-full rounded-lg border border-border bg-surface px-2 text-xs text-text-main focus:outline-none focus:ring-2 focus:ring-primary/50 sm:w-auto"
+                className="usage-key-filter"
                 style={{ colorScheme: "auto" }}
               >
                 <option value="all">All API keys</option>

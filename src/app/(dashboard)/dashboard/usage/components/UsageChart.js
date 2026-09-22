@@ -12,7 +12,6 @@ import {
   ResponsiveContainer,
   Legend,
 } from "recharts";
-import Card from "@/shared/components/Card";
 
 const fmtTokens = (n) => {
   if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`;
@@ -43,30 +42,38 @@ export default function UsageChart({ period = "7d" }) {
   }, [period]);
 
   useEffect(() => {
-    fetchData();
+    queueMicrotask(fetchData);
   }, [fetchData]);
 
   const hasData = data.some((d) => d.tokens > 0 || d.cost > 0);
 
   return (
-    <Card className="flex min-w-0 flex-col gap-3 p-3 sm:p-4">
-      <div className="grid w-full grid-cols-2 items-center gap-1 rounded-lg border border-border bg-bg-subtle p-1 sm:w-auto sm:self-start">
+    <section className="usage-chart" aria-labelledby="usage-chart-title">
+      <div className="usage-section-head">
+        <div>
+          <h2 id="usage-chart-title">Traffic over time</h2>
+          <p>Token volume and estimated cost for the selected period.</p>
+        </div>
+        <div className="usage-mode-switch" role="group" aria-label="Chart metric">
         <button
+          type="button"
           onClick={() => setViewMode("tokens")}
-          className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${viewMode === "tokens" ? "bg-primary text-white shadow-sm" : "text-text-muted hover:text-text hover:bg-bg-hover"}`}
+          aria-pressed={viewMode === "tokens"}
         >
           Tokens
         </button>
         <button
+          type="button"
           onClick={() => setViewMode("cost")}
-          className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${viewMode === "cost" ? "bg-primary text-white shadow-sm" : "text-text-muted hover:text-text hover:bg-bg-hover"}`}
+          aria-pressed={viewMode === "cost"}
         >
           Cost
         </button>
+        </div>
       </div>
 
       {loading ? (
-        <div className="h-48 flex items-center justify-center text-text-muted text-sm">Loading...</div>
+        <div className="h-48 flex items-center justify-center text-text-muted text-sm">Loading…</div>
       ) : !hasData ? (
         <div className="h-48 flex items-center justify-center text-text-muted text-sm">No data for this period</div>
       ) : (
@@ -74,12 +81,12 @@ export default function UsageChart({ period = "7d" }) {
           <AreaChart data={data} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
             <defs>
               <linearGradient id="gradTokens" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#6366f1" stopOpacity={0.25} />
-                <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
+                <stop offset="5%" stopColor="var(--color-primary)" stopOpacity={0.22} />
+                <stop offset="95%" stopColor="var(--color-primary)" stopOpacity={0} />
               </linearGradient>
               <linearGradient id="gradCost" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.25} />
-                <stop offset="95%" stopColor="#f59e0b" stopOpacity={0} />
+                <stop offset="5%" stopColor="var(--color-warning)" stopOpacity={0.22} />
+                <stop offset="95%" stopColor="var(--color-warning)" stopOpacity={0} />
               </linearGradient>
             </defs>
             <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.1} />
@@ -101,8 +108,8 @@ export default function UsageChart({ period = "7d" }) {
               contentStyle={{
                 backgroundColor: "var(--color-bg)",
                 border: "1px solid var(--color-border)",
-                borderRadius: "8px",
-                fontSize: "12px",
+                borderRadius: "var(--reddb-radius-md)",
+                fontSize: "var(--reddb-font-size-xs)",
               }}
               formatter={(value, name) =>
                 name === "tokens" ? [fmtTokens(value), "Tokens"] : [fmtCost(value), "Cost"]
@@ -112,7 +119,7 @@ export default function UsageChart({ period = "7d" }) {
               <Area
                 type="monotone"
                 dataKey="tokens"
-                stroke="#6366f1"
+                stroke="var(--color-primary)"
                 strokeWidth={2}
                 fill="url(#gradTokens)"
                 dot={false}
@@ -122,7 +129,7 @@ export default function UsageChart({ period = "7d" }) {
               <Area
                 type="monotone"
                 dataKey="cost"
-                stroke="#f59e0b"
+                stroke="var(--color-warning)"
                 strokeWidth={2}
                 fill="url(#gradCost)"
                 dot={false}
@@ -132,7 +139,7 @@ export default function UsageChart({ period = "7d" }) {
           </AreaChart>
         </ResponsiveContainer>
       )}
-    </Card>
+    </section>
   );
 }
 

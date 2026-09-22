@@ -17,18 +17,21 @@ export default function SegmentedControl({
 
   return (
     <div
+      role="group"
       className={cn(
-        "inline-flex items-center p-1 rounded-[10px] overflow-x-auto",
+        "segmented-control inline-flex items-center p-1 rounded-[10px] overflow-x-auto",
         "bg-surface-2",
         className
       )}
     >
       {options.map((option) => (
         <button
+          type="button"
           key={option.value}
           onClick={() => onChange(option.value)}
+          aria-pressed={value === option.value}
           className={cn(
-            "shrink-0 px-4 rounded-[8px] font-medium transition-all",
+            "segmented-control__button shrink-0 px-4 rounded-[8px] font-medium",
             sizes[size],
             value === option.value
               ? "bg-surface text-text-main shadow-sm"

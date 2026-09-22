@@ -41,7 +41,7 @@ function TimeAgo({ timestamp }) {
 
 function RecentRequests({ requests = [] }) {
   return (
-    <Card className="flex min-w-0 flex-col overflow-hidden" padding="sm" style={{ height: 480 }}>
+    <Card className="usage-recent-requests" padding="sm">
       {/* Header */}
       <div className="px-1 py-2 border-b border-border shrink-0">
         <span className="text-xs font-semibold text-text-muted uppercase tracking-wide">Recent Requests</span>
@@ -457,7 +457,7 @@ export default function UsageStats({ period: periodProp, setPeriod: setPeriodPro
   );
 
   return (
-    <div className="flex min-w-0 flex-col gap-6">
+    <div className="usage-overview">
       {/* Period selector (hidden when controlled by parent) */}
       {!hidePeriodSelector && (
         <div className="flex w-full items-center gap-2 sm:w-auto sm:self-end">
@@ -484,7 +484,7 @@ export default function UsageStats({ period: periodProp, setPeriod: setPeriodPro
 
       {/* Provider topology + Recent Requests */}
       {loading ? spinner : (
-        <div className="grid min-w-0 grid-cols-1 items-stretch gap-2 lg:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)]">
+        <section className="usage-live-grid" aria-label="Live provider traffic">
           <ProviderTopology
             providers={providers}
             activeRequests={stats.activeRequests || []}
@@ -492,38 +492,46 @@ export default function UsageStats({ period: periodProp, setPeriod: setPeriodPro
             errorProvider={stats.errorProvider || ""}
           />
           <RecentRequests requests={stats.recentRequests || []} />
-        </div>
+        </section>
       )}
 
       {/* Token / Cost chart - sync period */}
       {loading ? spinner : <UsageChart period={period} />}
 
       {/* Table with dropdown selector */}
-      <div className="flex flex-col gap-3">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+      <section className="usage-breakdown" aria-labelledby="usage-breakdown-title">
+        <div className="usage-section-head">
+          <div>
+            <h2 id="usage-breakdown-title">Breakdown</h2>
+            <p>Group recorded traffic by model, account, API key, or endpoint.</p>
+          </div>
+          <div className="usage-breakdown-controls">
           <select
             value={tableView}
             onChange={(e) => setTableView(e.target.value)}
-            className="w-full rounded-lg border border-border bg-surface px-3 py-1.5 text-sm font-medium text-text-main focus:outline-none focus:ring-2 focus:ring-primary/50 sm:w-auto"
+            className="usage-breakdown-select"
             style={{ colorScheme: 'auto' }}
           >
             {TABLE_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value}>{opt.label}</option>
             ))}
           </select>
-          <div className="grid grid-cols-2 items-center gap-1 rounded-lg border border-border bg-bg-subtle p-1 sm:flex">
+          <div className="usage-mode-switch" role="group" aria-label="Breakdown metric">
             <button
+              type="button"
               onClick={() => setViewMode("costs")}
-              className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${viewMode === "costs" ? "bg-primary text-white shadow-sm" : "text-text-muted hover:text-text hover:bg-bg-hover"}`}
+              aria-pressed={viewMode === "costs"}
             >
               Costs
             </button>
             <button
+              type="button"
               onClick={() => setViewMode("tokens")}
-              className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${viewMode === "tokens" ? "bg-primary text-white shadow-sm" : "text-text-muted hover:text-text hover:bg-bg-hover"}`}
+              aria-pressed={viewMode === "tokens"}
             >
               Tokens
             </button>
+          </div>
           </div>
         </div>
         {loading ? spinner : activeTableConfig && (
@@ -542,7 +550,7 @@ export default function UsageStats({ period: periodProp, setPeriod: setPeriodPro
             emptyMessage={activeTableConfig.emptyMessage}
           />
         )}
-      </div>
+      </section>
     </div>
   );
 }
