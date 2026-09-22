@@ -39,15 +39,20 @@ export function normalizeSystemOneModel(value) {
 }
 
 export function getSystemOneProviderOrder(value) {
-  if (typeof value === "string" && value.trim().startsWith("vercel-ai-gateway/")) {
-    return ["vercel-ai-gateway", ...SYSTEM_ONE_PROVIDER_IDS.filter((providerId) => providerId !== "vercel-ai-gateway")];
-  }
-  if (typeof value !== "string" || !value.trim().startsWith("openrouter/")) {
+  const requested = typeof value === "string" ? value.trim() : "";
+  const explicitProvider = requested.startsWith("vercel-ai-gateway/") || requested.startsWith("vercel/")
+    ? "vercel-ai-gateway"
+    : requested.startsWith("openrouter/")
+      ? "openrouter"
+      : requested.startsWith("opencode-zen/") || requested.startsWith("ocz/")
+        ? "opencode-zen"
+        : null;
+  if (!explicitProvider) {
     return [...SYSTEM_ONE_PROVIDER_IDS];
   }
-  // An explicitly qualified OpenRouter model belongs to that catalog. Keep the
-  // native TypeSafe endpoint as its fallback without silently changing resellers.
-  return ["openrouter", SYSTEM_ONE_PROVIDER_ID];
+  // An explicitly qualified model belongs to that gateway. Keep native TypeSafe
+  // as the only fallback instead of silently switching between resellers.
+  return [explicitProvider, SYSTEM_ONE_PROVIDER_ID];
 }
 
 export function validateSystemOneRequest(body) {
@@ -97,26 +102,11 @@ export function resolveSystemOneProviderModel(providerId, model) {
   const normalized = normalizeSystemOneModel(model);
   if (!normalized) return null;
   const media = PROVIDER_MEDIA[providerId];
-  const config = media?.systemOneConfig || derivedDecisionConfig(media);
+  const config = media?.systemOneConfig;
   if (!config?.baseUrl) return null;
   if (config.defaultModel) return config.defaultModel;
   if (!config.modelMap) return normalized;
   return config.modelMap[normalized] || (config.passthroughModels ? normalized : null);
-}
-
-function derivedDecisionConfig(provider) {
-  const decision = provider?.decisionConfig;
-  const transportBase = provider?.transport?.baseUrl;
-  if (!decision?.path || !transportBase) return null;
-  try {
-    return {
-      baseUrl: new URL(decision.path, transportBase).toString(),
-      defaultModel: decision.defaultModel,
-      timeoutMs: decision.timeoutMs,
-    };
-  } catch {
-    return null;
-  }
 }
 
 /**
@@ -148,7 +138,7 @@ export async function handleSystemOneCore({
   }
 
   const media = PROVIDER_MEDIA[providerId];
-  const config = media?.systemOneConfig || derivedDecisionConfig(media);
+  const config = media?.systemOneConfig;
   if (!config?.baseUrl) {
     const message = `System One endpoint is not configured for provider: ${providerId}`;
     return { success: false, status: 500, error: message, response: errorResponse(500, message) };

@@ -44,4 +44,7 @@ export const CAPACITY_META = {
   vision: { icon: "visibility", label: "Vision", desc: "Supports image input", color: "text-blue-500" },
   // search: temporarily hidden (feature not wired yet)
   reasoning: { icon: "neurology", label: "Reasoning", desc: "Supports reasoning / thinking", color: "text-amber-500" },
+  evaluation: { icon: "rule", label: "Evaluation", desc: "Answers typed questions through System One, not chat", color: "text-violet-500" },
 };
+
+export const EXCLUSIVE_CAPACITIES = ["evaluation"];

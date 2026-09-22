@@ -37,19 +37,19 @@ export function normalizeDecisionConfig(raw) {
   return config;
 }
 
-/** The raw registry entry, which carries `transport` and `decisionConfig`. */
+/** The raw registry entry, which carries `transport` and `systemOneConfig`. */
 function registryEntry(providerId) {
   return REGISTRY.find((entry) => entry.id === providerId || entry.alias === providerId) || null;
 }
 
 /** Gateways that can serve a decision model. */
 export function decisionProviders() {
-  return REGISTRY.filter((entry) => entry.decisionConfig && entry.transport)
+  return REGISTRY.filter((entry) => entry.systemOneConfig)
     .map((entry) => ({
       id: entry.id,
       name: entry.display?.name || entry.id,
-      defaultModel: entry.decisionConfig.defaultModel || null,
-      modelType: entry.decisionConfig.modelType || null,
+      defaultModel: entry.systemOneConfig.defaultModel || null,
+      modelType: entry.systemOneConfig.modelType || null,
     }));
 }
 
@@ -87,6 +87,7 @@ export async function resolveDecisionTarget(config, { apiKey = null, log } = {})
       url,
       apiKey: key,
       provider: entry.id,
+      headers: entry.systemOneConfig?.headers || {},
       // The account and the caller that caused the decision, so its usage row lands
       // under them instead of reading as an unattributed local call.
       connectionId: credentials?.connectionId || null,
@@ -164,6 +165,7 @@ const ask = (target, config, state, questions, log) =>
     apiKey: target.apiKey,
     state,
     questions,
+    headers: target.headers,
     timeoutMs: config.timeoutMs,
     fetchImpl: target.fetchImpl,
     onFailure: (reason) => log?.info?.("DECISION", `decision model returned nothing (${reason})`),

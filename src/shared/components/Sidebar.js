@@ -9,9 +9,9 @@ import { APP_CONFIG } from "@/shared/constants/config";
 import { MEDIA_PROVIDER_KINDS } from "@/shared/constants/providers";
 
 // const VISIBLE_MEDIA_KINDS = ["embedding", "image", "imageToText", "tts", "stt", "webSearch", "webFetch", "video", "music"];
-const VISIBLE_MEDIA_KINDS = ["textClassification", "embedding", "image", "video", "tts", "stt"];
-// Combined entry: webSearch + webFetch share one page at /dashboard/media-providers/web
-const COMBINED_WEB_ITEM = { id: "web", label: "Web Fetch & Search", icon: "travel_explore", href: "/dashboard/media-providers/web" };
+const VISIBLE_MEDIA_KINDS = ["systemone", "embedding", "image", "video", "tts", "stt"];
+// Combined entry: webSearch + webFetch share one page at /dashboard/tools-providers/web
+const COMBINED_WEB_ITEM = { id: "web", label: "Web Fetch & Search", icon: "travel_explore", href: "/dashboard/tools-providers/web" };
 
 const operateItems = [
   { href: "/dashboard", label: "Usage", icon: "bar_chart" },
@@ -109,19 +109,19 @@ export default function Sidebar({ onClose }) {
               System
             </p>
 
-            {/* Media Providers accordion */}
+            {/* Tools Providers accordion */}
             {showAdminItems && (<>
             <button
               onClick={() => setMediaOpen((v) => !v)}
               className={cn(
                 "w-full flex min-h-11 items-center gap-3 px-3 rounded-md transition-colors group",
-                pathname.startsWith("/dashboard/media-providers")
+                pathname.startsWith("/dashboard/tools-providers")
                   ? "bg-primary/10 text-primary"
                   : "text-text-muted hover:bg-surface-2 hover:text-text-main"
               )}
             >
               <span className="material-symbols-outlined text-[18px]">perm_media</span>
-              <span className="text-[13px] font-medium flex-1 text-left">Media Providers</span>
+              <span className="text-[13px] font-medium flex-1 text-left">Tools Providers</span>
               <span className="material-symbols-outlined text-[14px] transition-transform" style={{ transform: mediaOpen ? "rotate(180deg)" : "rotate(0deg)" }}>
                 expand_more
               </span>
@@ -131,11 +131,11 @@ export default function Sidebar({ onClose }) {
                 {MEDIA_PROVIDER_KINDS.filter((k) => VISIBLE_MEDIA_KINDS.includes(k.id)).map((kind) => (
                   <Link
                     key={kind.id}
-                    href={`/dashboard/media-providers/${kind.id}`}
+                    href={`/dashboard/tools-providers/${kind.id}`}
                     onClick={onClose}
                     className={cn(
                       "flex min-h-11 items-center gap-3 px-4 rounded-md transition-colors group",
-                      pathname.startsWith(`/dashboard/media-providers/${kind.id}`)
+                      pathname.startsWith(`/dashboard/tools-providers/${kind.id}`)
                         ? "bg-primary/10 text-primary"
                         : "text-text-muted hover:bg-surface-2 hover:text-text-main"
                     )}

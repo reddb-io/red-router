@@ -20,7 +20,7 @@ async function probeDecisionRoute(provider, bodyApiKey) {
 
   const label = entry.display?.name || provider;
   const settings = await getSettings().catch(() => ({}));
-  const model = settings?.decisionRouter?.model || entry.decisionConfig?.defaultModel;
+  const model = settings?.decisionRouter?.model || entry.systemOneConfig?.defaultModel;
   if (!model) return { ok: false, error: `${label} has no decision model configured.` };
 
   let apiKey = bodyApiKey;
@@ -39,7 +39,11 @@ async function probeDecisionRoute(provider, bodyApiKey) {
   try {
     response = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+        ...(entry.systemOneConfig?.headers || {}),
+      },
       body: JSON.stringify({
         model,
         state: {},

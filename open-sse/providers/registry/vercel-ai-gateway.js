@@ -28,24 +28,19 @@ export default {
       url: "https://ai-gateway.vercel.sh/v1/credits",
     },
   },
-  // "decision": this gateway answers System One typed questions as well as chat,
-  // so it is one of the providers the Decisions tool lists. The decision model is
+  // This gateway answers System One typed questions as well as chat. The decision model is
   // a field, not a provider identity — when a better System-1 model ships, change
   // the model and nothing else.
-  serviceKinds: ["llm","embedding","image","imageToText","webSearch","decision","textClassification"],
+  serviceKinds: ["llm","embedding","image","imageToText","webSearch","systemone"],
   models: [
-    { id: "typesafe-ai/jev", name: "TypeSafe JEV", kind: "textClassification" },
+    { id: "typesafe-ai/jev", name: "TypeSafe JEV", kind: "systemone" },
   ],
   embeddingConfig: { baseUrl: "https://ai-gateway.vercel.sh/v1/embeddings" },
   imageConfig: { baseUrl: "https://ai-gateway.vercel.sh/v1/images/generations" },
   searchViaChat: { defaultModel: "openai/gpt-4o-mini", pricingUrl: "https://vercel.com/docs/ai-gateway/pricing" },
-  // Decision routing through this gateway. `path` is resolved against the chat
-  // transport's origin, so the route moves with the gateway rather than being a
-  // second hardcoded host. Decision models are advertised in the gateway's own
-  // catalog with `type: "evaluation"` (and `max_tokens: 0`), which is how the
-  // panel tells them apart from chat models.
-  decisionConfig: {
-    path: "/typesafe/v1/systemone",
+  // One route definition serves /v1/systemone, model routing and tool routing.
+  systemOneConfig: {
+    baseUrl: "https://ai-gateway.vercel.sh/typesafe/v1/systemone",
     modelType: "evaluation",
     defaultModel: "typesafe-ai/jev",
     timeoutMs: 1500,

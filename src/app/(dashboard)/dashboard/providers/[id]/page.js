@@ -1475,7 +1475,7 @@ export default function ProviderDetailPage() {
         </div>
       )}
 
-      {providerInfo.decisionConfig && (
+      {providerInfo.systemOneConfig && (
         <DecisionRouterCard provider={providerInfo} />
       )}
 
@@ -1944,7 +1944,7 @@ export default function ProviderDetailPage() {
           providerAlias={providerStorageAlias}
           providerDisplayAlias={providerDisplayAlias}
           onSave={async (modelId, caps) => {
-            await handleAddCustomModel(modelId, "llm", providerStorageAlias, caps);
+            await handleAddCustomModel(modelId, caps?.evaluation ? "systemone" : "llm", providerStorageAlias, caps);
             setShowAddCustomModel(false);
           }}
           onClose={() => setShowAddCustomModel(false)}

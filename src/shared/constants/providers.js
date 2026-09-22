@@ -6,7 +6,7 @@ const MEDIA_ENTRY_KEYS = [
   "serviceKinds", "ttsConfig", "sttConfig", "embeddingConfig",
   "imageConfig", "imageToTextConfig", "videoConfig", "musicConfig",
   "searchViaChat", "searchConfig", "fetchConfig", "credentialFallback",
-  "systemOneConfig", "decisionConfig",
+  "systemOneConfig",
   "modelsFetcher", "mediaPriority", "hiddenKinds",
 ];
 
@@ -71,7 +71,7 @@ export const WEB_COOKIE_PROVIDERS = byCategory("webCookie");
 
 // Media provider kinds — each kind maps to a route and endpoint config
 export const MEDIA_PROVIDER_KINDS = [
-  { id: "textClassification", label: "Text classification", icon: "rule", endpoint: { method: "POST", path: "/v1/systemone" } },
+  { id: "systemone", label: "System One", icon: "psychology", endpoint: { method: "POST", path: "/v1/systemone" }, isNew: true },
   { id: "embedding",   label: "Embedding",      icon: "data_array",        endpoint: { method: "POST", path: "/v1/embeddings" } },
   { id: "image",       label: "Text to Image",  icon: "brush",             endpoint: { method: "POST", path: "/v1/images/generations" } },
   { id: "imageToText", label: "Image to Text",  icon: "image_search",      endpoint: { method: "POST", path: "/v1/images/understanding" } },
@@ -146,12 +146,13 @@ export const ID_TO_ALIAS = Object.values(AI_PROVIDERS).reduce((acc, p) => {
 // Helper: Get providers by service kind (e.g. "tts", "embedding", "image")
 // Providers without serviceKinds default to ["llm"]
 export function getProvidersByKind(kind) {
+  const canonicalKind = kind === "textClassification" || kind === "systemOne" ? "systemone" : kind;
   return Object.values(AI_PROVIDERS)
     .filter((p) => {
       const kinds = p.serviceKinds ?? ["llm"];
-      if (!kinds.includes(kind)) return false;
+      if (!kinds.includes(canonicalKind)) return false;
       if (p.hidden) return false;
-      if (p.hiddenKinds?.includes(kind)) return false;
+      if (p.hiddenKinds?.includes(canonicalKind)) return false;
       return true;
     })
     .sort((a, b) => (a.priority ?? a.mediaPriority ?? 999) - (b.priority ?? b.mediaPriority ?? 999));

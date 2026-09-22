@@ -49,7 +49,7 @@ export default {
     },
   ],
   models: [
-    { id: OPENROUTER_SYSTEM_ONE_MODEL, name: "TypeSafe JEV 1.13", kind: "textClassification" },
+    { id: OPENROUTER_SYSTEM_ONE_MODEL, name: "TypeSafe JEV 1.13", kind: "systemone" },
     { id: "openai/text-embedding-3-large", name: "OpenAI Text Embedding 3 Large", kind: "embedding" },
     { id: "openai/text-embedding-3-small", name: "OpenAI Text Embedding 3 Small", kind: "embedding" },
     { id: "openai/text-embedding-ada-002", name: "OpenAI Text Embedding Ada 002", kind: "embedding" },
@@ -68,10 +68,12 @@ export default {
     { id: "openai/sora-2-pro", name: "Sora 2 Pro (via OpenRouter)", params: ["duration","aspect_ratio","resolution"], kind: "video" },
     { id: "bytedance/seedance-2.0", name: "Seedance 2.0 (via OpenRouter)", params: ["duration","aspect_ratio","resolution"], kind: "video" },
   ],
-  serviceKinds: ["llm","embedding","tts","imageToText","video","textClassification"],
+  serviceKinds: ["llm","embedding","tts","imageToText","video","systemone"],
   systemOneConfig: {
     baseUrl: OPENROUTER_SYSTEM_ONE_ENDPOINT,
     defaultModel: OPENROUTER_SYSTEM_ONE_MODEL,
+    modelType: "evaluation",
+    headers: {"HTTP-Referer":"https://endpoint-proxy.local","X-Title":"Endpoint Proxy"},
     modelMap: OPENROUTER_SYSTEM_ONE_MODEL_MAP,
     contextWindow: 32000,
     maxStateAndQuestionTokens: 32000,
