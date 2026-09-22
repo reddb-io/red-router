@@ -343,12 +343,14 @@ export async function getUsageHistory(filter = {}) {
 }
 
 async function loadDaysInRange(db, maxDays) {
-  const q = db.selectFrom("usageDaily").select(["dateKey", "data"]);
-  if (maxDays == null) return q.execute();
-  const today = new Date();
-  const cutoff = new Date(today.getFullYear(), today.getMonth(), today.getDate() - maxDays + 1);
-  const cutoffKey = `${cutoff.getFullYear()}-${String(cutoff.getMonth() + 1).padStart(2, "0")}-${String(cutoff.getDate()).padStart(2, "0")}`;
-  return q.where("dateKey", ">=", cutoffKey).execute();
+  let q = db.selectFrom("usageDaily").select(["dateKey", "data"]);
+  if (maxDays != null) {
+    const today = new Date();
+    const cutoff = new Date(today.getFullYear(), today.getMonth(), today.getDate() - maxDays + 1);
+    const cutoffKey = `${cutoff.getFullYear()}-${String(cutoff.getMonth() + 1).padStart(2, "0")}-${String(cutoff.getDate()).padStart(2, "0")}`;
+    q = q.where("dateKey", ">=", cutoffKey);
+  }
+  return q.orderBy("dateKey", "asc").execute();
 }
 
 export async function getUsageStats(period = "all", options = {}) {
@@ -690,9 +692,61 @@ export async function getUsageStats(period = "all", options = {}) {
   return stats;
 }
 
-export async function getChartData(period = "7d") {
+export async function getChartData(period = "7d", options = {}) {
   const db = await getDb();
   const now = Date.now();
+  const apiKey = typeof options.apiKey === "string" && options.apiKey ? options.apiKey : null;
+  const visible = typeof options.visible === "function" ? options.visible : null;
+
+  // Daily rollups intentionally have no owner/key dimension. Scoped and
+  // key-filtered charts therefore use request rows so they cannot leak totals
+  // from another user or API key.
+  if (apiKey || visible) {
+    const isHourly = period === "today" || period === "24h";
+    let startTime;
+    if (period === "today") {
+      const start = new Date();
+      start.setHours(0, 0, 0, 0);
+      startTime = start.getTime();
+    } else if (period !== "all") {
+      const days = period === "24h" ? 1 : period === "7d" ? 7 : period === "30d" ? 30 : 60;
+      startTime = isHourly ? now - 24 * 3600000 : new Date(new Date().setHours(0, 0, 0, 0)) - (days - 1) * 86400000;
+    }
+
+    let q = db.selectFrom("usageHistory")
+      .select(["timestamp", "promptTokens", "completionTokens", "cost", "connectionId", "apiKey"]);
+    if (startTime != null) q = q.where("timestamp", ">=", new Date(startTime).toISOString());
+    if (apiKey) q = q.where("apiKey", "=", apiKey);
+    const rows = (await q.orderBy("timestamp", "asc").execute()).filter((row) => !visible || visible(row));
+
+    if (period === "all" && rows.length === 0) return [];
+    if (period === "all") {
+      const first = new Date(rows[0].timestamp);
+      first.setHours(0, 0, 0, 0);
+      startTime = first.getTime();
+    }
+
+    const bucketMs = isHourly ? 3600000 : 86400000;
+    const bucketCount = period === "today" || period === "24h"
+      ? 24
+      : period === "all"
+        ? Math.max(1, Math.floor((new Date().setHours(0, 0, 0, 0) - startTime) / bucketMs) + 1)
+        : period === "7d" ? 7 : period === "30d" ? 30 : 60;
+    const label = isHourly
+      ? (ts) => new Date(ts).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false })
+      : (ts) => new Date(ts).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    const buckets = Array.from({ length: bucketCount }, (_, index) => ({
+      label: label(startTime + index * bucketMs), tokens: 0, cost: 0, requests: 0,
+    }));
+    for (const row of rows) {
+      const index = Math.floor((new Date(row.timestamp).getTime() - startTime) / bucketMs);
+      if (index < 0 || index >= buckets.length) continue;
+      buckets[index].tokens += (row.promptTokens || 0) + (row.completionTokens || 0);
+      buckets[index].cost += row.cost || 0;
+      buckets[index].requests += 1;
+    }
+    return buckets;
+  }
 
   if (period === "today") {
     const bucketCount = 24;
@@ -702,7 +756,7 @@ export async function getChartData(period = "7d") {
     const startTime = startOfDay.getTime();
     const endTime = startTime + bucketCount * bucketMs;
     const labelFn = (ts) => new Date(ts).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false });
-    const buckets = Array.from({ length: bucketCount }, (_, i) => ({ label: labelFn(startTime + i * bucketMs), tokens: 0, cost: 0 }));
+    const buckets = Array.from({ length: bucketCount }, (_, i) => ({ label: labelFn(startTime + i * bucketMs), tokens: 0, cost: 0, requests: 0 }));
 
     const rows = await db.selectFrom("usageHistory")
       .select(["timestamp", "promptTokens", "completionTokens", "cost"])
@@ -715,6 +769,7 @@ export async function getChartData(period = "7d") {
       if (idx >= 0 && idx < bucketCount) {
         buckets[idx].tokens += (r.promptTokens || 0) + (r.completionTokens || 0);
         buckets[idx].cost += r.cost || 0;
+        buckets[idx].requests += 1;
       }
     }
     return buckets;
@@ -725,7 +780,7 @@ export async function getChartData(period = "7d") {
     const bucketMs = 3600000;
     const labelFn = (ts) => new Date(ts).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false });
     const startTime = now - bucketCount * bucketMs;
-    const buckets = Array.from({ length: bucketCount }, (_, i) => ({ label: labelFn(startTime + i * bucketMs), tokens: 0, cost: 0 }));
+    const buckets = Array.from({ length: bucketCount }, (_, i) => ({ label: labelFn(startTime + i * bucketMs), tokens: 0, cost: 0, requests: 0 }));
 
     const rows = await db.selectFrom("usageHistory")
       .select(["timestamp", "promptTokens", "completionTokens", "cost"])
@@ -737,13 +792,40 @@ export async function getChartData(period = "7d") {
       const idx = Math.min(Math.floor((t - startTime) / bucketMs), bucketCount - 1);
       buckets[idx].tokens += (r.promptTokens || 0) + (r.completionTokens || 0);
       buckets[idx].cost += r.cost || 0;
+      buckets[idx].requests += 1;
     }
     return buckets;
   }
 
+  const labelFn = (d) => d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+
+  if (period === "all") {
+    const dayRows = await loadDaysInRange(db, null);
+    if (!dayRows.length) return [];
+    const dayMap = {};
+    for (const r of dayRows) dayMap[r.dateKey] = parseJson(r.data, {});
+
+    const earliest = new Date(dayRows[0].dateKey + "T00:00:00");
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const diffDays = Math.max(1, Math.round((today - earliest) / 86400000) + 1);
+
+    return Array.from({ length: diffDays }, (_, i) => {
+      const d = new Date(earliest);
+      d.setDate(d.getDate() + i);
+      const dateKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      const dayData = dayMap[dateKey];
+      return {
+        label: labelFn(d),
+        tokens: dayData ? (dayData.promptTokens || 0) + (dayData.completionTokens || 0) : 0,
+        cost: dayData ? (dayData.cost || 0) : 0,
+        requests: dayData ? (dayData.requests || 0) : 0,
+      };
+    });
+  }
+
   const bucketCount = period === "7d" ? 7 : period === "30d" ? 30 : 60;
   const today = new Date();
-  const labelFn = (d) => d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 
   // Build map of dateKey → day data
   const dayRows = await loadDaysInRange(db, bucketCount);
@@ -759,6 +841,7 @@ export async function getChartData(period = "7d") {
       label: labelFn(d),
       tokens: dayData ? (dayData.promptTokens || 0) + (dayData.completionTokens || 0) : 0,
       cost: dayData ? (dayData.cost || 0) : 0,
+      requests: dayData ? (dayData.requests || 0) : 0,
     };
   });
 }
