@@ -15,6 +15,25 @@ export function buildUsage({ promptTokens, completionTokens, totalTokens, cached
 
 const n = (v) => (typeof v === "number" ? v : 0);
 
+// Chat Completions (or already-Responses) usage → Responses API usage shape.
+// Without it /v1/responses never reports usage, so Responses clients (Codex CLI)
+// keep their context gauge at 0 and never auto-compact.
+export function toResponsesUsage(usage) {
+  if (!usage || typeof usage !== "object") return null;
+  const input = [usage.input_tokens, usage.prompt_tokens].find(Number.isFinite) ?? 0;
+  const output = [usage.output_tokens, usage.completion_tokens].find(Number.isFinite) ?? 0;
+  const out = {
+    input_tokens: input,
+    output_tokens: output,
+    total_tokens: Number.isFinite(usage.total_tokens) ? usage.total_tokens : input + output,
+  };
+  const cached = [usage.input_tokens_details?.cached_tokens, usage.prompt_tokens_details?.cached_tokens].find(Number.isFinite);
+  const reasoning = [usage.output_tokens_details?.reasoning_tokens, usage.completion_tokens_details?.reasoning_tokens].find(Number.isFinite);
+  if (Number.isFinite(cached)) out.input_tokens_details = { cached_tokens: cached };
+  if (Number.isFinite(reasoning)) out.output_tokens_details = { reasoning_tokens: reasoning };
+  return out;
+}
+
 // Per-provider raw token field-map + math. Returns buildUsage() args (NOT the usage object).
 // Keeps each provider's exact semantics: claude/gemini fold cache+reasoning, others don't.
 const USAGE_EXTRACTORS = {

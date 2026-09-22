@@ -3,6 +3,7 @@ import {
   getSystemOneProviderOrder,
   handleSystemOneCore,
   normalizeSystemOneModel,
+  resolveSystemOneProviderModel,
   validateSystemOneRequest,
 } from "../../open-sse/handlers/systemOneCore.js";
 
@@ -105,5 +106,23 @@ describe("System One core", () => {
     expect(result.response.headers.get("retry-after")).toBe("17");
     expect(result.response.headers.get("content-encoding")).toBeNull();
     expect(await result.response.json()).toEqual(upstreamBody);
+  });
+});
+
+describe("resolveSystemOneProviderModel", () => {
+  it("honors the requested model before the provider default", () => {
+    expect(resolveSystemOneProviderModel("typesafe-ai", "jev-1.13")).toBe("jev-1.13.0");
+    expect(resolveSystemOneProviderModel("typesafe-ai", "jev-preview")).toBe("jev-preview");
+    expect(resolveSystemOneProviderModel("typesafe-ai", undefined)).toBe("jev-latest");
+  });
+
+  it("maps OpenRouter ids and falls back to its default for unmapped models", () => {
+    expect(resolveSystemOneProviderModel("openrouter", "jev-1.13.0")).toBe("typesafe/jev-1.13");
+    expect(resolveSystemOneProviderModel("openrouter", "jev-preview")).toBe("typesafe/jev-1.13");
+  });
+
+  it("keeps fixed-model gateways on their default", () => {
+    expect(resolveSystemOneProviderModel("vercel-ai-gateway", "jev-1.13")).toBe("typesafe-ai/jev");
+    expect(resolveSystemOneProviderModel("opencode-zen", "jev-latest")).toBe("jev-1.13-free");
   });
 });
