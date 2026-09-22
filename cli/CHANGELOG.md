@@ -1,5 +1,11 @@
 # @reddb-io/red-router
 
+## 0.11.7
+
+### Patch Changes
+
+- c96e27d: Show the RedRouter name beside its icon in desktop system trays.
+
 ## 0.11.6
 
 ### Patch Changes
