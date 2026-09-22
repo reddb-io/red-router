@@ -1,3 +1,4 @@
+import { RED_ROUTER_PROVIDER_ID } from "../config/redRouter.js";
 import { createHash } from "node:crypto";
 import { BaseExecutor } from "./base.js";
 import { PROVIDERS, PROVIDER_OAUTH } from "../config/providers.js";
@@ -199,6 +200,9 @@ export class DefaultExecutor extends BaseExecutor {
   }
 
   buildUrl(model, stream, urlIndex = 0, credentials = null) {
+    if (this.provider === RED_ROUTER_PROVIDER_ID) {
+      return super.buildUrl(model, stream, urlIndex, credentials);
+    }
     // Runtime transport (multi-endpoint providers): use the sourceFormat-matched endpoint
     const rt = credentials?.runtimeTransport;
     if (rt?.baseUrl) {
@@ -244,6 +248,9 @@ export class DefaultExecutor extends BaseExecutor {
   }
 
   buildHeaders(credentials, stream = true, url, model) {
+    if (this.provider === RED_ROUTER_PROVIDER_ID) {
+      return super.buildHeaders(credentials, stream);
+    }
     const rt = credentials?.runtimeTransport;
     const headers = { "Content-Type": "application/json", ...(rt ? rt.headers : this.config.headers) };
     const desc = rt?.auth || AUTH_DESCRIPTORS[this.provider] || this.resolveAuthDescriptor();

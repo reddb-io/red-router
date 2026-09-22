@@ -3,6 +3,7 @@
 // Mock proxyFetch + uuid-heavy executors KHÔNG cần ở đây vì chỉ gọi buildUrl/buildHeaders (pure).
 import { describe, it, expect } from "vitest";
 import { PROVIDERS } from "../../open-sse/config/providers.js";
+import { RED_ROUTER_INSTANCE_ID } from "../../open-sse/config/redRouter.js";
 import { DefaultExecutor } from "../../open-sse/executors/default.js";
 
 // Credentials mẫu cố định (deterministic) — KHÔNG dùng Date.now/random.
@@ -28,7 +29,7 @@ function sanitize(headers) {
   const out = {};
   for (const [k, v] of Object.entries(headers)) {
     out[k] = typeof v === "string"
-      ? v.replace(/Bearer .+/, "Bearer <TOK>")
+      ? v.replace(RED_ROUTER_INSTANCE_ID, "<ROUTER_INSTANCE>").replace(/Bearer .+/, "Bearer <TOK>")
           .replace(/sk-test-APIKEY|tok-test-ACCESS/g, "<CRED>")
           .replace(/kimi-\d{10,}/g, "kimi-<TS>")
       : v;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BaseExecutor } from "open-sse/executors/base.js";
+import { getExecutor } from "open-sse/executors/index.js";
 import {
   RED_ROUTER_CHAIN_HEADER,
   RED_ROUTER_INSTANCE_ID,
@@ -39,7 +39,7 @@ describe("RedRouter provider", () => {
   });
 
   it("routes chat requests to the configured remote RedRouter", () => {
-    const executor = new BaseExecutor("red-router", {});
+    const executor = getExecutor("red-router");
     const credentials = {
       apiKey: "rr_test",
       providerSpecificData: { baseUrl: "https://router.example.com" },
@@ -61,7 +61,7 @@ describe("RedRouter provider", () => {
     expect(() => appendRedRouterHop(fullChain, "router-next"))
       .toThrow("hop limit exceeded");
 
-    const executor = new BaseExecutor("red-router", {});
+    const executor = getExecutor("red-router");
     expect(() => executor.buildHeaders({
       apiKey: "rr_test",
       rawHeaders: { [RED_ROUTER_CHAIN_HEADER]: RED_ROUTER_INSTANCE_ID },

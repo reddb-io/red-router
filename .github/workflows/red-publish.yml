@@ -63,6 +63,9 @@ jobs:
       - name: Boot smoke test
         run: node cli/scripts/smoke-server.js
 
+      - name: Remote RedRouter integration smoke
+        run: node cli/scripts/smoke-remote-router.mjs
+
       - name: Real JEV System One smoke
         run: pnpm smoke:system-one
         env:

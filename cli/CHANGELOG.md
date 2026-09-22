@@ -1,5 +1,11 @@
 # @reddb-io/red-router
 
+## 0.11.9
+
+### Patch Changes
+
+- Fix the runtime RedRouter executor to honor the configured remote URL and forward loop-protection headers. Verify catalog discovery and chat forwarding against the built package before publishing.
+
 ## 0.11.8
 
 ### Patch Changes

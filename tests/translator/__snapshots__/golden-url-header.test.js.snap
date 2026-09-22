@@ -1164,6 +1164,28 @@ exports[`GOLDEN buildHeaders (default executor providers) > poolside → headers
 }
 `;
 
+exports[`GOLDEN buildHeaders (default executor providers) > red-router → headers (apiKey / oauth) 1`] = `
+{
+  "apiKey": {
+    "Accept": "text/event-stream",
+    "Authorization": "Bearer <TOK>",
+    "Content-Type": "application/json",
+    "x-red-router-chain": "<ROUTER_INSTANCE>",
+  },
+  "nonStream": {
+    "Authorization": "Bearer <TOK>",
+    "Content-Type": "application/json",
+    "x-red-router-chain": "<ROUTER_INSTANCE>",
+  },
+  "oauth": {
+    "Accept": "text/event-stream",
+    "Authorization": "Bearer <TOK>",
+    "Content-Type": "application/json",
+    "x-red-router-chain": "<ROUTER_INSTANCE>",
+  },
+}
+`;
+
 exports[`GOLDEN buildHeaders (default executor providers) > sambanova → headers (apiKey / oauth) 1`] = `
 {
   "apiKey": {
@@ -1730,6 +1752,13 @@ exports[`GOLDEN buildUrl (default executor providers) > poolside → url (stream
 {
   "nonStream": "https://inference.poolside.ai/v1/chat/completions",
   "stream": "https://inference.poolside.ai/v1/chat/completions",
+}
+`;
+
+exports[`GOLDEN buildUrl (default executor providers) > red-router → url (stream + non-stream) 1`] = `
+{
+  "nonStream": "https://custom.example.com/v1/chat/completions",
+  "stream": "https://custom.example.com/v1/chat/completions",
 }
 `;
 

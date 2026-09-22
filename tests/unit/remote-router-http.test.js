@@ -5,7 +5,7 @@ vi.mock("@/models", () => ({ getProviderConnectionById: vi.fn(), updateProviderC
 vi.mock("@/lib/network/connectionProxy", () => ({ resolveConnectionProxyConfig: async () => ({}) }));
 const { syncRemoteRouterCatalog } = await import("@/lib/remoteRouterCatalog");
 const { parseModel } = await import("open-sse/services/model.js");
-const { BaseExecutor } = await import("open-sse/executors/base.js");
+const { getExecutor } = await import("open-sse/executors/index.js");
 
 let server;
 let baseUrl;
@@ -41,7 +41,7 @@ describe("RedRouter HTTP discovery and forwarding", () => {
     expect(catalog.models).toEqual(remoteModels);
     const selected = parseModel(`red-router/${catalog.models[0].id}`);
     expect(selected).toMatchObject({ provider: "red-router", model: "cc/claude-fable-5.1" });
-    const executor = new BaseExecutor(selected.provider, {});
+    const executor = getExecutor(selected.provider);
     const { response } = await executor.execute({
       model: selected.model,
       body: { model: selected.model, messages: [{ role: "user", content: "hello" }], stream: false },
