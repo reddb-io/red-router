@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 const fs = require("fs");
+const os = require("os");
 const path = require("path");
 const { execSync } = require("child_process");
 
@@ -8,7 +9,10 @@ const cliDir = path.resolve(__dirname, "..");
 const appDir = path.resolve(cliDir, "..");
 const rootDir = path.resolve(appDir, "..");
 const cliAppDir = process.env.REDROUTER_CLI_APP_DIR || path.join(cliDir, "app");
-const buildHomeDir = path.join(cliDir, ".build-home");
+// Keep build-time state outside the workspace. Next standalone tracing follows
+// files below the project root, so a HOME inside cli/ can otherwise copy the
+// generated database, JWT secret and machine id into the published tarball.
+let buildHomeDir = null;
 const buildDistDirName = ".next-cli-build";
 const buildDistDir = path.join(appDir, buildDistDirName);
 
@@ -23,6 +27,9 @@ const EXCLUDE_PATTERNS = [
   "*.log",          // Log files
   "tmp",            // Temp files
   ".DS_Store",      // macOS files
+  ".build-home",    // build-only HOME; must never enter the package
+  ".red",           // runtime data (database, secrets, machine identity)
+  "AppData",        // Windows build HOME runtime data
 ];
 
 function shouldExclude(name) {
@@ -180,6 +187,7 @@ function assertRequiredApiArtifacts(cliAppDir) {
 function buildCliPackage() {
   console.log("📦 Building RedRouter CLI package with Next.js...\n");
 
+  buildHomeDir = fs.mkdtempSync(path.join(os.tmpdir(), "red-router-build-"));
   fs.mkdirSync(buildHomeDir, { recursive: true });
   fs.mkdirSync(path.join(buildHomeDir, "AppData", "Roaming"), { recursive: true });
   fs.mkdirSync(path.join(buildHomeDir, "AppData", "Local"), { recursive: true });
@@ -380,5 +388,11 @@ module.exports = {
 };
 
 if (require.main === module) {
+  const cleanupBuildHome = () => {
+    if (!buildHomeDir) return;
+    try { fs.rmSync(buildHomeDir, { recursive: true, force: true }); } catch {}
+  };
+  process.once("exit", cleanupBuildHome);
   buildCliPackage();
+  cleanupBuildHome();
 }
