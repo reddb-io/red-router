@@ -113,7 +113,19 @@ export default {
     // Free tier on the keyed lane (responses)
     { id: "muse-spark-1.3-contributor-free", name: "Muse Spark 1.3 Contributor Free", targetFormat: "openai-responses", supportedFormats: ["openai-responses"] },
     { id: "muse-spark-1.2-contributor-free", name: "Muse Spark 1.2 Contributor Free", targetFormat: "openai-responses", supportedFormats: ["openai-responses"] },
+    { id: "jev-1.13", name: "JEV 1.13", kind: "systemone" },
+    { id: "jev-1.13-free", name: "JEV 1.13 Free", kind: "systemone" },
   ],
+  serviceKinds: ["llm", "systemone"],
+  systemOneConfig: {
+    baseUrl: "https://opencode.ai/zen/v1/systemone",
+    defaultModel: "jev-1.13-free",
+    modelType: "evaluation",
+    headers: {
+      "x-opencode-client": "desktop",
+      "User-Agent": "opencode/1.18.31",
+    },
+  },
   modelsFetcher: { url: "https://opencode.ai/zen/v1/models", type: "opencode-free" },
   passthroughModels: true,
   features: {

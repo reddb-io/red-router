@@ -162,8 +162,10 @@ const MODEL_TYPE_TO_KIND = {
   stt: "stt",
   imageToText: "imageToText",
   video: "video",
-  systemOne: "textClassification",
-  textClassification: "textClassification",
+  systemOne: "systemone",
+  systemone: "systemone",
+  textClassification: "systemone",
+  evaluation: "systemone",
 };
 
 function modelKind(model) {

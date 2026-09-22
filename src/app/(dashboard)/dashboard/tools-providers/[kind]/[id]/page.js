@@ -25,7 +25,7 @@ export default function MediaProviderDetailPage() {
     if (!confirm("Delete this Custom Embedding node?")) return;
     try {
       const res = await fetch(`/api/provider-nodes/${id}`, { method: "DELETE" });
-      if (res.ok) router.push(`/dashboard/media-providers/${kind}`);
+      if (res.ok) router.push(`/dashboard/tools-providers/${kind}`);
     } catch (error) {
       console.log("Error deleting custom embedding node:", error);
     }
@@ -73,7 +73,7 @@ export default function MediaProviderDetailPage() {
       {/* Back */}
       <div>
         <Link
-          href={`/dashboard/media-providers/${kind}`}
+          href={`/dashboard/tools-providers/${kind}`}
           className="inline-flex items-center gap-1 text-sm text-text-muted hover:text-primary transition-colors mb-4"
         >
           <span className="material-symbols-outlined text-lg">arrow_back</span>
@@ -172,14 +172,14 @@ export default function MediaProviderDetailPage() {
       )}
 
       {/* Provider Info — config-driven, supports searchConfig, fetchConfig, ttsConfig, embeddingConfig, searchViaChat */}
-      {!isCustom && (provider.searchConfig || provider.fetchConfig || provider.ttsConfig || provider.sttConfig || provider.embeddingConfig || provider.systemOneConfig || provider.decisionConfig || provider.searchViaChat) && (
+      {!isCustom && (provider.searchConfig || provider.fetchConfig || provider.ttsConfig || provider.sttConfig || provider.embeddingConfig || provider.systemOneConfig || provider.searchViaChat) && (
         <ProviderInfoCard
           config={
             kind === "webFetch" ? provider.fetchConfig
               : kind === "tts" ? provider.ttsConfig
               : kind === "stt" ? provider.sttConfig
               : kind === "embedding" ? provider.embeddingConfig
-              : kind === "textClassification" ? provider.systemOneConfig || provider.decisionConfig
+              : kind === "systemone" ? provider.systemOneConfig
               : provider.searchConfig || { mode: "chat-completions", defaultModel: provider.searchViaChat?.defaultModel, pricingUrl: provider.searchViaChat?.pricingUrl, freeTier: provider.searchViaChat?.freeTier }
           }
           provider={provider}

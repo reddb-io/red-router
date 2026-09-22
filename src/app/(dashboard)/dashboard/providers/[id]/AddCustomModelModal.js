@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import PropTypes from "prop-types";
 import { Button, Modal, Toggle } from "@/shared/components";
-import { CAPACITY_META } from "@/shared/constants/models";
+import { CAPACITY_META, EXCLUSIVE_CAPACITIES } from "@/shared/constants/models";
 
 const defaultCaps = () => Object.fromEntries(Object.keys(CAPACITY_META).map((key) => [key, false]));
 
@@ -16,6 +16,7 @@ export default function AddCustomModelModal({ isOpen, providerAlias, providerDis
 
   // Reset state when modal opens
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (isOpen) { setModelId(""); setCaps(defaultCaps()); setTestStatus(null); setTestError(""); }
   }, [isOpen]);
 
@@ -31,6 +32,17 @@ export default function AddCustomModelModal({ isOpen, providerAlias, providerDis
     setTestStatus("testing");
     setTestError("");
     try {
+      if (caps.evaluation) {
+        const res = await fetch("/api/providers/validate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ provider: providerAlias }),
+        });
+        const data = await res.json();
+        setTestStatus(data.valid ? "ok" : "error");
+        setTestError(data.valid ? "" : (data.error || "Evaluation endpoint not reachable"));
+        return;
+      }
       const res = await fetch("/api/models/test", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -97,7 +109,13 @@ export default function AddCustomModelModal({ isOpen, providerAlias, providerDis
               <Toggle
                 key={key}
                 checked={!!caps[key]}
-                onChange={(v) => setCaps((prev) => ({ ...prev, [key]: v }))}
+                disabled={EXCLUSIVE_CAPACITIES.some((exclusive) => exclusive !== key && caps[exclusive])}
+                onChange={(value) => setCaps((previous) => {
+                  if (value && EXCLUSIVE_CAPACITIES.includes(key)) {
+                    return { ...defaultCaps(), [key]: true };
+                  }
+                  return { ...previous, [key]: value };
+                })}
                 label={meta.label}
                 description={meta.desc}
                 size="sm"

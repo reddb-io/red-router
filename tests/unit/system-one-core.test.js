@@ -80,7 +80,7 @@ describe("System One core", () => {
 
     expect(result.success).toBe(true);
     const [url, options] = fetchImpl.mock.calls[0];
-    expect(url).toBe("https://openrouter.ai/api/alpha/decisions");
+    expect(url).toBe("https://openrouter.ai/api/v1/systemone");
     expect(options.headers.Authorization).toBe("Bearer stored-openrouter-secret");
     expect(JSON.parse(options.body)).toEqual({
       ...requestBody,

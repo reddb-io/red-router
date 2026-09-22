@@ -27,7 +27,7 @@ const typesafeAi = {
   authType: "apikey",
   mediaPriority: 1,
   models: SYSTEM_ONE_MODELS,
-  serviceKinds: ["textClassification"],
+  serviceKinds: ["systemone"],
   systemOneConfig: {
     baseUrl: SYSTEM_ONE_ENDPOINT,
     validateUrl: SYSTEM_ONE_MODELS_ENDPOINT,

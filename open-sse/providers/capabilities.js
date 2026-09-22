@@ -52,6 +52,7 @@ export const DEFAULT_CAPABILITIES = {
   search: false,        // built-in web search tool / grounding
   tools: true,          // function / tool calling
   reasoning: false,     // thinking / reasoning
+  evaluation: false,    // typed state evaluation through System One, not chat
   // thinking wire format (only meaningful when reasoning:true). null → derive from transport.format.
   // enum: openai|claude-adaptive|claude-budget|gemini-level|gemini-budget|zai|qwen|deepseek|kimi|minimax|hunyuan|step
   thinkingFormat: null,
@@ -72,6 +73,8 @@ const SERVICE_KIND_CAPABILITIES = {
   stt: { audioInput: true },
   tts: { audioOutput: true },
   embedding: { tools: false },
+  systemone: { tools: false, evaluation: true },
+  evaluation: { tools: false, evaluation: true },
 };
 
 export function capabilitiesFromServiceKind(kind) {

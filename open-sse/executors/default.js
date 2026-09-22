@@ -7,6 +7,8 @@ import { resolveOpenAICompatibleApiType } from "../services/provider.js";
 import { OAUTH_ENDPOINTS, buildKimiHeaders } from "../config/appConstants.js";
 import { buildClineHeaders } from "../shared/clineAuth.js";
 import { proxyAwareFetch } from "../utils/proxyFetch.js";
+import REGISTRY from "../providers/registry/index.js";
+import { getCapabilitiesForModel } from "../providers/capabilities.js";
 import { injectReasoningContent } from "../utils/reasoningContentInjector.js";
 import { detectClientTool } from "../utils/clientDetector.js";
 import { stripUnsupportedParams } from "../translator/concerns/paramSupport.js";
@@ -199,9 +201,32 @@ export class DefaultExecutor extends BaseExecutor {
     return { ...body, messages, response_format: { type: "json_object" } };
   }
 
+  /** Resolve the provider's canonical System One route for evaluation models. */
+  evaluationUrl(credentials = null) {
+    const entry = REGISTRY.find((candidate) => candidate.id === this.provider || candidate.alias === this.provider);
+    const raw = entry?.systemOneConfig?.baseUrl;
+    if (!raw) return null;
+    try {
+      return new URL(raw, credentials?.runtimeTransport?.baseUrl || entry?.transport?.baseUrl || this.config?.baseUrl).toString();
+    } catch {
+      return null;
+    }
+  }
+
+  isEvaluationModel(model) {
+    const id = String(model || "").replace(/\([^()]+\)\s*$/, "").trim();
+    if (getCapabilitiesForModel(this.provider, id)?.evaluation === true) return true;
+    const entry = REGISTRY.find((candidate) => candidate.id === this.provider || candidate.alias === this.provider);
+    return !!entry?.systemOneConfig?.defaultModel && entry.systemOneConfig.defaultModel === id;
+  }
+
   buildUrl(model, stream, urlIndex = 0, credentials = null) {
     if (this.provider === RED_ROUTER_PROVIDER_ID) {
       return super.buildUrl(model, stream, urlIndex, credentials);
+    }
+    if (this.isEvaluationModel(model)) {
+      const url = this.evaluationUrl(credentials);
+      if (url) return url;
     }
     // Runtime transport (multi-endpoint providers): use the sourceFormat-matched endpoint
     const rt = credentials?.runtimeTransport;
@@ -253,6 +278,10 @@ export class DefaultExecutor extends BaseExecutor {
     }
     const rt = credentials?.runtimeTransport;
     const headers = { "Content-Type": "application/json", ...(rt ? rt.headers : this.config.headers) };
+    if (this.isEvaluationModel(model)) {
+      const entry = REGISTRY.find((candidate) => candidate.id === this.provider || candidate.alias === this.provider);
+      Object.assign(headers, entry?.systemOneConfig?.headers || {});
+    }
     const desc = rt?.auth || AUTH_DESCRIPTORS[this.provider] || this.resolveAuthDescriptor();
     // Hooks run BEFORE auth so dynamic overlays can't clobber the token.
     for (const hook of desc.hooks || []) HEADER_HOOKS[hook]?.(headers, credentials);

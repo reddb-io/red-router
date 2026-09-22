@@ -39,7 +39,7 @@ describe("System One release smoke provider selection", () => {
     ]);
 
     expect(candidates[2]).toEqual(expect.objectContaining({
-      endpoint: "https://openrouter.ai/api/alpha/decisions",
+      endpoint: "https://openrouter.ai/api/v1/systemone",
       model: "typesafe/jev-1.13",
       token: "openrouter-secret",
     }));

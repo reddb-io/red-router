@@ -80,12 +80,12 @@ export default function DecisionRouterCard({ provider }) {
 
   if (!config) return null;
 
-  const defaults = provider?.decisionConfig || {};
+  const defaults = provider?.systemOneConfig || {};
   const models = config.models || [];
   const activeMode = MODES.find((m) => m.value === config.mode) || MODES[0];
   const activePreset = presetOf(config);
 
-  const gateways = getProvidersByKind("decision");
+  const gateways = getProvidersByKind("systemone");
   const gateway = gateways.find((g) => g.id === config.provider || g.alias === config.provider) || null;
   const gatewayId = gateway?.id || config.provider;
   const conn = activeProviders.find((c) => c.provider === gatewayId);
@@ -114,12 +114,12 @@ export default function DecisionRouterCard({ provider }) {
   // not a value to overwrite.
   const setGateway = (id) => {
     const next = gateways.find((g) => g.id === id);
-    const untouched = !gateway?.decisionConfig?.defaultModel
-      || config.model === gateway.decisionConfig.defaultModel;
+    const untouched = !gateway?.systemOneConfig?.defaultModel
+      || config.model === gateway.systemOneConfig.defaultModel;
     patch({
       ...config,
       provider: id,
-      model: untouched ? (next?.decisionConfig?.defaultModel || config.model) : config.model,
+      model: untouched ? (next?.systemOneConfig?.defaultModel || config.model) : config.model,
     });
   };
 

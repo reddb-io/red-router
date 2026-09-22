@@ -10,7 +10,7 @@ export function Row({ label, children }) {
 }
 
 export const KIND_EXAMPLE_CONFIG = {
-  textClassification: {
+  systemone: {
     inputLabel: "State",
     inputPlaceholder: "The deployment checks passed and the release is available.",
     defaultInput: "The deployment checks passed and the release is available.",

@@ -103,6 +103,10 @@ describe("System One app handler", () => {
         candidate: { status: 503, message: "No TypeSafe credentials" },
       })
       .mockResolvedValueOnce({
+        noActiveCredentials: true,
+        candidate: { status: 503, message: "No Vercel credentials" },
+      })
+      .mockResolvedValueOnce({
         apiKey: "stored-openrouter-key",
         connectionId: "openrouter-connection",
         connectionName: "OpenRouter production",
@@ -113,7 +117,7 @@ describe("System One app handler", () => {
 
     expect(response.status).toBe(200);
     expect(mocks.getProviderCredentials).toHaveBeenNthCalledWith(
-      2,
+      3,
       "openrouter",
       expect.any(Set),
       "typesafe/jev-1.13",
@@ -163,7 +167,15 @@ describe("System One app handler", () => {
       })
       .mockResolvedValueOnce({
         noActiveCredentials: true,
+        candidate: { status: 503, message: "No Vercel credentials", provider: "vercel-ai-gateway", model: "typesafe-ai/jev" },
+      })
+      .mockResolvedValueOnce({
+        noActiveCredentials: true,
         candidate: { status: 503, message: "No OpenRouter credentials", provider: "openrouter", model: "typesafe/jev-1.13" },
+      })
+      .mockResolvedValueOnce({
+        noActiveCredentials: true,
+        candidate: { status: 503, message: "No OpenCode credentials", provider: "opencode-zen", model: "jev-1.13-free" },
       });
 
     const response = await handleSystemOne(makeRequest());

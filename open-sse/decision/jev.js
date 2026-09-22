@@ -7,13 +7,12 @@ const RETRYABLE = new Set([408, 429, 500, 502, 503, 504, 529]);
 /** Decision models are advertised in a gateway's catalog with this type. */
 export const DECISION_MODEL_TYPE = "evaluation";
 
-/** The decision path resolved against the gateway's own transport origin. */
+/** Resolve the same System One route used by the public endpoint and UI. */
 export function decisionUrlFor(providerEntry) {
-  const config = providerEntry?.decisionConfig;
-  const base = providerEntry?.transport?.baseUrl;
-  if (!config?.path || !base) return null;
+  const raw = providerEntry?.systemOneConfig?.baseUrl;
+  if (!raw) return null;
   try {
-    return new URL(config.path, base).toString();
+    return new URL(raw, providerEntry?.transport?.baseUrl).toString();
   } catch {
     return null;
   }
@@ -54,6 +53,7 @@ export async function askJev({
   apiKey,
   state,
   questions,
+  headers = {},
   timeoutMs = 3000,
   fetchImpl = fetch,
   onFailure = null,
@@ -78,6 +78,7 @@ export async function askJev({
       headers: {
         authorization: `Bearer ${apiKey}`,
         "content-type": "application/json",
+        ...headers,
       },
       body: JSON.stringify({ model, state, questions }),
       signal: AbortSignal.timeout(timeoutMs),

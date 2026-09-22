@@ -9,8 +9,8 @@ import { MEDIA_PROVIDER_KINDS, AI_PROVIDERS, getProvidersByKind } from "@/shared
 
 // Kinds that support combos (currently disabled for image/tts — temporarily hidden).
 // webSearch/webFetch handled by /web page.
-const COMBO_KINDS = new Set(["textClassification"]);
-const COMBO_BASE_NAMES = { textClassification: "classification-combo" };
+const COMBO_KINDS = new Set(["systemone"]);
+const COMBO_BASE_NAMES = { systemone: "classification-combo" };
 
 function getEffectiveStatus(conn) {
   const isCooldown = Object.entries(conn).some(
@@ -49,7 +49,7 @@ function MediaProviderCard({ provider, kind, connections, isCustom, onToggle }) 
   };
 
   return (
-    <Link href={`/dashboard/media-providers/${kind}/${provider.id}`} className="group">
+    <Link href={`/dashboard/tools-providers/${kind}/${provider.id}`} className="group">
       <Card
         padding="xs"
         className={`h-full hover:bg-black/[0.01] dark:hover:bg-white/[0.01] transition-colors cursor-pointer ${allDisabled ? "opacity-50" : ""}`}
@@ -101,7 +101,7 @@ function ComboList({ combos }) {
   return (
     <div className="flex flex-col gap-2">
       {combos.map((combo) => (
-        <Link key={combo.id} href={`/dashboard/media-providers/combo/${combo.id}`}>
+        <Link key={combo.id} href={`/dashboard/tools-providers/combo/${combo.id}`}>
           <Card padding="xs" className="hover:bg-black/[0.02] dark:hover:bg-white/[0.02] transition-colors cursor-pointer">
             <div className="flex min-w-0 items-center gap-3">
               <span className="material-symbols-outlined text-primary text-[18px]">layers</span>
@@ -148,7 +148,7 @@ export default function MediaProviderKindPage() {
   // webSearch/webFetch listing pages are merged into /web
   useEffect(() => {
     if (kind === "webSearch" || kind === "webFetch") {
-      router.replace("/dashboard/media-providers/web");
+      router.replace("/dashboard/tools-providers/web");
     }
   }, [kind, router]);
 
@@ -179,7 +179,9 @@ export default function MediaProviderKindPage() {
   if (!kindConfig) return notFound();
 
   const providers = getProvidersByKind(kind);
-  const kindCombos = combos.filter((c) => c.kind === kind);
+  const kindCombos = combos.filter((c) => (
+    c.kind === kind || (kind === "systemone" && c.kind === "textClassification")
+  ));
 
   // Map custom nodes to MediaProviderCard shape
   const customProviders = customNodes.map((n) => ({
@@ -220,7 +222,7 @@ export default function MediaProviderKindPage() {
     });
     if (res.ok) {
       const created = await res.json();
-      router.push(`/dashboard/media-providers/combo/${created.id}`);
+      router.push(`/dashboard/tools-providers/combo/${created.id}`);
     } else {
       const err = await res.json();
       alert(err.error || "Failed to create combo");
@@ -229,7 +231,7 @@ export default function MediaProviderKindPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      {kind === "textClassification" && (
+      {kind === "systemone" && (
         <Card padding="sm" className="border-primary/20 bg-primary/[0.03]">
           <div className="flex items-start gap-3">
             <span className="material-symbols-outlined text-primary text-[20px]">rule</span>

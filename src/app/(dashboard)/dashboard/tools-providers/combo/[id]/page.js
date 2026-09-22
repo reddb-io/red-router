@@ -15,6 +15,8 @@ function parseModelEntry(entry) {
   return { providerId: entry.slice(0, idx), model: entry.slice(idx + 1) };
 }
 
+const canonicalKind = (kind) => kind === "textClassification" ? "systemone" : kind;
+
 const VALID_NAME_REGEX = /^[a-zA-Z0-9_.\-]+$/;
 
 const KIND_LABELS = {
@@ -22,7 +24,7 @@ const KIND_LABELS = {
   webFetch: "Web Fetch",
   image: "Text to Image",
   tts: "Text To Speech",
-  textClassification: "Text classification",
+  systemone: "System One",
 };
 
 const EXAMPLE_PATHS = {
@@ -30,7 +32,7 @@ const EXAMPLE_PATHS = {
   webFetch: "/v1/web/fetch",
   image: "/v1/images/generations",
   tts: "/v1/audio/speech",
-  textClassification: "/v1/systemone",
+  systemone: "/v1/systemone",
 };
 
 const EXAMPLE_BODIES = {
@@ -38,7 +40,7 @@ const EXAMPLE_BODIES = {
   webFetch: (n) => ({ model: n, url: "https://example.com", format: "markdown" }),
   image: (n) => ({ model: n, prompt: "A cute cat playing piano", n: 1, size: "1024x1024" }),
   tts: (n) => ({ model: n, input: "Hello, this is a test.", voice: "alloy" }),
-  textClassification: (n) => ({
+  systemone: (n) => ({
     model: n,
     state: "The deployment checks passed and the release is available.",
     questions: {
@@ -49,8 +51,9 @@ const EXAMPLE_BODIES = {
 
 // Map combo.kind → listing route to go back to
 function getListingHref(kind) {
-  if (kind === "webSearch" || kind === "webFetch") return "/dashboard/media-providers/web";
-  return `/dashboard/media-providers/${kind}`;
+  kind = canonicalKind(kind);
+  if (kind === "webSearch" || kind === "webFetch") return "/dashboard/tools-providers/web";
+  return `/dashboard/tools-providers/${kind}`;
 }
 
 export default function ComboDetailPage() {
@@ -175,7 +178,7 @@ export default function ComboDetailPage() {
   const handleDelete = async () => {
     if (!confirm(`Delete combo "${combo.name}"?`)) return;
     const res = await fetch(`/api/combos/${id}`, { method: "DELETE" });
-    if (res.ok) router.push(getListingHref(combo.kind));
+    if (res.ok) router.push(getListingHref(canonicalKind(combo.kind)));
   };
 
   const handleTest = async () => {
@@ -187,8 +190,9 @@ export default function ComboDetailPage() {
     // eslint-disable-next-line react-hooks/purity
     const start = Date.now();
     try {
-      const path = EXAMPLE_PATHS[combo.kind];
-      const body = EXAMPLE_BODIES[combo.kind](combo.name);
+      const kind = canonicalKind(combo.kind);
+      const path = EXAMPLE_PATHS[kind];
+      const body = EXAMPLE_BODIES[kind](combo.name);
       const headers = { "Content-Type": "application/json" };
       if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
       const res = await fetch(`/api${path}`, { method: "POST", headers, body: JSON.stringify(body) });
@@ -242,13 +246,14 @@ export default function ComboDetailPage() {
   if (loading) return <div className="text-text-muted text-sm">Loading...</div>;
   if (!combo) return notFound();
 
-  const kindLabel = KIND_LABELS[combo.kind] || MEDIA_PROVIDER_KINDS.find((k) => k.id === combo.kind)?.label || "Combo";
-  const examplePath = EXAMPLE_PATHS[combo.kind];
-  const exampleBody = combo.kind && EXAMPLE_BODIES[combo.kind] ? EXAMPLE_BODIES[combo.kind](combo.name) : null;
+  const kind = canonicalKind(combo.kind);
+  const kindLabel = KIND_LABELS[kind] || MEDIA_PROVIDER_KINDS.find((k) => k.id === kind)?.label || "Combo";
+  const examplePath = EXAMPLE_PATHS[kind];
+  const exampleBody = kind && EXAMPLE_BODIES[kind] ? EXAMPLE_BODIES[kind](combo.name) : null;
   const curlExample = examplePath
     ? `curl -X POST http://localhost:25050${examplePath} \\\n  -H "Content-Type: application/json" \\\n  -H "Authorization: Bearer ${apiKey || "YOUR_KEY"}" \\\n  -d '${JSON.stringify(exampleBody)}'`
     : "";
-  const backHref = getListingHref(combo.kind);
+  const backHref = getListingHref(kind);
 
   return (
     <div className="flex flex-col gap-6">
@@ -413,7 +418,7 @@ export default function ComboDetailPage() {
           activeProviders={connections}
           modelAliases={modelAliases}
           title={`Add ${kindLabel} Model`}
-          kindFilter={combo.kind}
+          kindFilter={kind}
           addedModelValues={providers}
           closeOnSelect={false}
         />

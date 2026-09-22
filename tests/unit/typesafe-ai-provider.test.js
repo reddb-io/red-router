@@ -10,7 +10,7 @@ describe("TypeSafe AI provider registry", () => {
 
     expect(entry).toMatchObject({
       category: "apikey",
-      serviceKinds: ["textClassification"],
+      serviceKinds: ["systemone"],
     });
     expect(entry).not.toHaveProperty("transport");
     expect(PROVIDER_MEDIA["typesafe-ai"].systemOneConfig.baseUrl).toBe(
