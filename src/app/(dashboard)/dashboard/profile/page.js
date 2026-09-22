@@ -5,11 +5,10 @@ import { Card, Button, Toggle, Input } from "@/shared/components";
 import Modal, { ConfirmModal } from "@/shared/components/Modal";
 import LanguageSwitcher from "@/shared/components/LanguageSwitcher";
 import { useTheme } from "@/shared/hooks/useTheme";
-import { useRuntimeVersion } from "@/shared/hooks/useRuntimeVersion";
 import { cn } from "@/shared/utils/cn";
-import { APP_CONFIG } from "@/shared/constants/config";
 import { LOCALE_COOKIE, normalizeLocale } from "@/i18n/config";
 import { LOCALE_FLAGS } from "@/shared/constants/locales";
+import UpdateSection from "./UpdateSection";
 
 function getLocaleFromCookie() {
   if (typeof document === "undefined") return "en";
@@ -35,7 +34,6 @@ export default function ProfilePage() {
   const [dbStatus, setDbStatus] = useState({ type: "", message: "" });
   const [dbAuth, setDbAuth] = useState({ open: false, mode: "", password: "" });
   const pendingImportRef = useRef(null);
-  const runtimeVersion = useRuntimeVersion();
   const [oidcForm, setOidcForm] = useState({
     authMode: "password",
     oidcIssuerUrl: "",
@@ -87,12 +85,6 @@ export default function ProfilePage() {
   const [proxyStatus, setProxyStatus] = useState({ type: "", message: "" });
   const [proxyLoading, setProxyLoading] = useState(false);
   const [proxyTestLoading, setProxyTestLoading] = useState(false);
-
-  const [isRemoteHost, setIsRemoteHost] = useState(false);
-  useEffect(() => {
-    if (typeof window !== "undefined")
-      setIsRemoteHost(!["localhost", "127.0.0.1", "::1"].includes(window.location.hostname));
-  }, []);
 
   useEffect(() => {
     fetch("/api/settings/database-mode")
@@ -916,6 +908,8 @@ export default function ProfilePage() {
             )}
           </div>
         </Card>
+
+        <UpdateSection />
 
         {/* Language */}
         <Card>
@@ -1772,11 +1766,6 @@ export default function ProfilePage() {
           </Button>
         </div>
 
-        {/* App Info */}
-        <div className="text-center text-xs sm:text-sm text-text-muted py-4">
-          <p>{APP_CONFIG.name} v{runtimeVersion}</p>
-          <p className="mt-1">{isRemoteHost ? "Remote Mode" : "Local Mode - All data stored on your machine"}</p>
-        </div>
       </div>
 
       <LanguageSwitcher
