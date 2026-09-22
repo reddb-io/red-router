@@ -45,7 +45,9 @@ export function getSystemOneProviderOrder(value) {
   if (typeof value !== "string" || !value.trim().startsWith("openrouter/")) {
     return [...SYSTEM_ONE_PROVIDER_IDS];
   }
-  return ["openrouter", ...SYSTEM_ONE_PROVIDER_IDS.filter((providerId) => providerId !== "openrouter")];
+  // An explicitly qualified OpenRouter model belongs to that catalog. Keep the
+  // native TypeSafe endpoint as its fallback without silently changing resellers.
+  return ["openrouter", SYSTEM_ONE_PROVIDER_ID];
 }
 
 export function validateSystemOneRequest(body) {

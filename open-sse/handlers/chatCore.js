@@ -205,7 +205,9 @@ export async function handleChatCore({ body, modelInfo, credentials, log, errorC
       if (Object.keys(translatedBody.output_config).length === 0) delete translatedBody.output_config;
     }
   } else {
-    translatedBody = translateRequest(sourceFormat, targetFormat, upstreamModel, body, stream, credentials, provider, reqLogger, stripList, connectionId, clientTool, maxThinkingLevel);
+    translatedBody = maxThinkingLevel
+      ? translateRequest(sourceFormat, targetFormat, upstreamModel, body, stream, credentials, provider, reqLogger, stripList, connectionId, clientTool, maxThinkingLevel)
+      : translateRequest(sourceFormat, targetFormat, upstreamModel, body, stream, credentials, provider, reqLogger, stripList, connectionId, clientTool);
     if (!translatedBody) {
       trackPendingRequest(model, provider, connectionId, false, true);
       return createErrorResult(HTTP_STATUS.BAD_REQUEST, `Failed to translate request for ${sourceFormat} → ${targetFormat}`, undefined, errorContext);
@@ -348,7 +350,9 @@ export async function handleChatCore({ body, modelInfo, credentials, log, errorC
       log?.warn?.("DECISION", `tool decision failed: ${error.message}`);
     }
   }
-  const decisionDetail = buildDecisionDetail(decision, toolDecision);
+  const decisionDetail = decision || toolDecision
+    ? buildDecisionDetail(decision, toolDecision)
+    : null;
 
   if (xf.length && log?.line) log.line(reqTag, "⚙", xf.join(" · "));
 
