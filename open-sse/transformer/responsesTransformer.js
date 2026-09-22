@@ -7,6 +7,7 @@
 import fs from "fs";
 import path from "path";
 import { sanitizePublicMessage } from "../utils/error.js";
+import { toResponsesUsage } from "../translator/concerns/usage.js";
 
 // Create log directory for responses (Node.js only)
 export function createResponsesLogger(model, logsDir = null) {
@@ -75,7 +76,8 @@ export function createResponsesApiTransformStream(logger = null) {
     funcItemDone: {},
     buffer: "",
     completedSent: false,
-    failedSent: false
+    failedSent: false,
+    usage: null
   };
 
   const encoder = new TextEncoder();
@@ -235,7 +237,8 @@ export function createResponsesApiTransformStream(logger = null) {
           created_at: state.created,
           status: "completed",
           background: false,
-          error: null
+          error: null,
+          ...(state.usage ? { usage: state.usage } : {})
         }
       });
     }
@@ -295,6 +298,7 @@ export function createResponsesApiTransformStream(logger = null) {
           sendFailed(controller, streamError);
           continue;
         }
+        if (parsed.usage) state.usage = toResponsesUsage(parsed.usage);
         if (state.failedSent || !parsed.choices?.length) continue;
         
         const choice = parsed.choices[0];
@@ -450,7 +454,8 @@ export function createResponsesApiTransformStream(logger = null) {
           for (const i in state.msgItemAdded) closeMessage(controller, i);
           closeReasoning(controller);
           for (const i in state.funcCallIds) closeToolCall(controller, i);
-          sendCompleted(controller);
+          // Usage may arrive on a trailing empty-choices chunk; flush() completes then.
+          if (state.usage) sendCompleted(controller);
         }
       }
     },

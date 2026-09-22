@@ -2,6 +2,7 @@
 // to be echoed back on assistant messages. Clients in OpenAI format don't send it,
 // so we inject a non-empty placeholder to satisfy upstream validation.
 import { PROVIDERS } from "../config/providers.js";
+import { dropsMessageField } from "../translator/concerns/paramSupport.js";
 
 const PLACEHOLDER = " ";
 
@@ -70,7 +71,8 @@ function applyDeepSeekV4ProAlias({ provider, model, body }) {
 export function injectReasoningContent({ provider, model, body }) {
   const providerRule = providerRuleFor(provider);
   const modelRule = MODEL_RULES.find(r => r.match(model));
-  const rule = providerRule || modelRule;
+  // Model rules (deepseek/kimi ids) must not re-add a field the provider rejects.
+  const rule = providerRule || (dropsMessageField(provider, "reasoning_content") ? null : modelRule);
   const nextBody = applyDeepSeekV4ProAlias({ provider, model, body });
   return applyRule(nextBody, rule);
 }

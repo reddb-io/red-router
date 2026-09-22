@@ -5,7 +5,7 @@
 import { register } from "../index.js";
 import { FORMATS } from "../formats.js";
 import { buildChunk } from "../concerns/chunk.js";
-import { buildUsage } from "../concerns/usage.js";
+import { buildUsage, toResponsesUsage } from "../concerns/usage.js";
 import { fallbackToolCallId } from "../concerns/toolCall.js";
 import { reasoningDelta, extractReasoningText } from "../concerns/reasoning.js";
 import { ROLE, OPENAI_BLOCK, RESPONSES_ITEM, OPENAI_FINISH, MODEL_FALLBACK } from "../schema/index.js";
@@ -18,9 +18,14 @@ export function openaiToOpenAIResponsesResponse(chunk, state) {
   if (!chunk) {
     return flushEvents(state);
   }
-  
+
+  // Capture usage before the choices guard: OpenAI sends it on a trailing chunk
+  // with an empty choices array. Kept apart from state.usage, which the stream
+  // layer owns in normalizeUsage() shape for logging and cost accounting.
+  if (chunk.usage) state.responsesUsage = toResponsesUsage(chunk.usage);
+
   if (!chunk.choices?.length) return [];
-  
+
   const events = [];
   const nextSeq = () => ++state.seq;
   
@@ -112,7 +117,11 @@ export function openaiToOpenAIResponsesResponse(chunk, state) {
     for (const i in state.msgItemAdded) closeMessage(state, emit, i);
     closeReasoning(state, emit);
     for (const i in state.funcCallIds) closeToolCall(state, emit, i);
-    sendCompleted(state, emit);
+    // Usage may still arrive on a trailing chunk; defer completion to flushEvents()
+    // when it is unknown. Only the direct openai → openai-responses route reaches
+    // flush — a pivoted stream drops the terminal null chunk — so never defer there.
+    const flushReachesUs = state.targetFormat === FORMATS.OPENAI;
+    if (state.responsesUsage || !flushReachesUs) sendCompleted(state, emit);
   }
 
   return events;
@@ -376,7 +385,8 @@ function sendCompleted(state, emit) {
         created_at: state.created,
         status: "completed",
         background: false,
-        error: null
+        error: null,
+        ...(state.responsesUsage ? { usage: state.responsesUsage } : {})
       }
     });
   }

@@ -28,6 +28,14 @@ const STRIP_RULES = [
   // "integer above maximum value, expected <= 32768". Pin an explicit endpoint cap;
   // min() with the model ceiling still applies if a variant's own limit is lower.
   { provider: "volcengine-ark", match: /kimi/i, maxOutputCap: 32768, clampToModelMaxOutput: true },
+  // Strict OpenAI-compatible validators reject unknown assistant-message fields:
+  // Groq 400, Mistral 422 ("extra_forbidden"), Cerebras 400. Reasoning clients
+  // replay the prior turn's reasoning on every assistant message, which knocks
+  // these providers out of every multi-turn combo. Providers that require the
+  // field (DeepSeek, Kimi) are handled by reasoningContentInjector instead.
+  { provider: "groq", dropMessageFields: ["reasoning_content", "reasoning", "reasoning_details"] },
+  { provider: "mistral", dropMessageFields: ["reasoning_content", "reasoning", "reasoning_details"] },
+  { provider: "cerebras", dropMessageFields: ["reasoning_content", "reasoning", "reasoning_details"] },
 ];
 
 // Test a rule's match (regex or predicate) against the model id.
@@ -42,6 +50,12 @@ function clampNumber(body, key, ceiling) {
   }
 }
 
+// True when a provider-level rule strips `field` from assistant messages, so no
+// later pass (reasoningContentInjector) re-adds what the upstream rejects.
+export function dropsMessageField(provider, field) {
+  return STRIP_RULES.some((rule) => rule.provider === provider && !rule.match && rule.dropMessageFields?.includes(field));
+}
+
 // Remove unsupported params from body in place; returns body.
 export function stripUnsupportedParams(provider, model, body) {
   if (!model || !body || typeof body !== "object") return body;
@@ -50,6 +64,15 @@ export function stripUnsupportedParams(provider, model, body) {
     if (!matches(rule, model)) continue;
     for (const key of rule.drop || []) {
       if (body[key] !== undefined) delete body[key];
+    }
+    // Per-message drop, assistant turns only: that is where clients replay reasoning.
+    if (Array.isArray(rule.dropMessageFields) && Array.isArray(body.messages)) {
+      for (const msg of body.messages) {
+        if (msg?.role !== "assistant") continue;
+        for (const key of rule.dropMessageFields) {
+          if (msg[key] !== undefined) delete msg[key];
+        }
+      }
     }
     // CF Workers AI oneOf root schema only accepts content as plain string (#1926)
     if (rule.flattenContent && Array.isArray(body.messages)) {

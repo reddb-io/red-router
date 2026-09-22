@@ -104,9 +104,13 @@ export function resolveSystemOneProviderModel(providerId, model) {
   const media = PROVIDER_MEDIA[providerId];
   const config = media?.systemOneConfig;
   if (!config?.baseUrl) return null;
+  // The requested model wins when the provider can serve it; defaultModel only
+  // covers requests this provider has no mapping or passthrough for.
+  const mapped = config.modelMap?.[normalized];
+  if (mapped) return mapped;
+  if (config.passthroughModels) return normalized;
   if (config.defaultModel) return config.defaultModel;
-  if (!config.modelMap) return normalized;
-  return config.modelMap[normalized] || (config.passthroughModels ? normalized : null);
+  return config.modelMap ? null : normalized;
 }
 
 /**

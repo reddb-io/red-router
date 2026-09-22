@@ -138,7 +138,10 @@ export function createSSEStream(options = {}) {
   const decoder = new TextDecoder("utf-8", { fatal: false });
 
   const state = mode === STREAM_MODE.TRANSLATE
-    ? { ...initState(sourceFormat), provider, toolNameMap, customToolNames: new Set(customToolNames || []), model, sessionId: credentials?._clientSessionId || null }
+    ? { ...initState(sourceFormat), provider, toolNameMap, customToolNames: new Set(customToolNames || []), model, sessionId: credentials?._clientSessionId || null,
+        // Upstream format of this stream: lets a response translator tell a direct
+        // route (flush reaches it) from a pivot hop (terminal null chunk is dropped).
+        targetFormat }
     : null;
 
   let totalContentLength = 0;
