@@ -9,6 +9,7 @@ import REGISTRY from "open-sse/providers/registry/index.js";
 import { getProviderCredentials } from "./auth.js";
 import { askJev, decisionUrlFor } from "open-sse/decision/jev.js";
 import { buildState } from "open-sse/decision/state.js";
+import { signalsMeta } from "open-sse/decision/signals.js";
 import { buildModelQuestions, buildToolQuestions, shortlistTools } from "open-sse/decision/questions.js";
 import { resolveModelDecision, resolveToolDecision } from "open-sse/decision/decide.js";
 import { getPricingForModel } from "open-sse/providers/pricing.js";
@@ -182,7 +183,7 @@ const ask = (target, config, state, questions, log) =>
  * unapplied decision is not an error: the caller's fallback loop walks the rest of
  * the list, so a wrong pick costs one attempt rather than a failure.
  */
-export async function decideComboModel({ body, models, comboName, config, target, log, previousVerdict = null, ranked = null }) {
+export async function decideComboModel({ body, models, comboName, config, target, log, previousVerdict = null, ranked = null, signals = null }) {
   // Cheapest first, and the list both the question and the verdict are served from.
   // The question MUST be built over this pool: for a combo-of-combos `models` holds
   // tier names, so asking with those and validating against the expanded pool has
@@ -191,8 +192,16 @@ export async function decideComboModel({ body, models, comboName, config, target
   const pool = ranked?.length ? ranked : rankByCost(models, priceOf);
   if (pool.length < 2) return { models, decision: null };
 
+  // Bookkeeping (session titles): the cheapest member, no decision call. Asking
+  // spends a call on it, and a title prompt quoting the session reads as hard work.
+  if (signals?.housekeeping) {
+    const decision = { apply: true, reason: "housekeeping", cause: "housekeeping", model: pool[0], deliberation: 0, signals: signalsMeta(signals) };
+    log?.info?.("DECISION", `model: ${pool[0]} for "${comboName}" (housekeeping, no decision call)`);
+    return { models: [pool[0], ...pool.slice(1)], decision };
+  }
+
   const { questions } = buildModelQuestions(pool, criteriaResolver(config));
-  const state = buildState(body, { maxStateChars: 24000 });
+  const state = buildState(body, { maxStateChars: 24000, dropSystem: signals?.harnessSystem === true });
   const response = await ask(target, config, state, questions, log);
 
   if (!response) {
@@ -207,7 +216,11 @@ export async function decideComboModel({ body, models, comboName, config, target
     minStrength: config.minStrength,
     switchStrength: config.switchStrength,
     previousVerdict,
+    needsDeliberation: signals?.planMode === true || signals?.stall === true,
   });
+  const cause = deliberationCause(signals);
+  if (cause) decision.cause = cause;
+  if (signals) decision.signals = signalsMeta(signals);
 
   await recordUsage({ response, log, target, verdict: verdictMeta(decision, { kind: "model", comboName }) });
 
@@ -362,6 +375,13 @@ export function resetVerdicts() {
  * What a decision row records about itself. Small and flat: it lands in a JSON column
  * read per row, so it carries the answer and the reason, never the whole pool.
  */
+/** Which deterministic signal forced deliberation, for the decision log. */
+function deliberationCause(signals) {
+  if (signals?.stall) return "stall";
+  if (signals?.planMode) return "plan_mode";
+  return null;
+}
+
 function verdictMeta(decision, extra = {}) {
   if (!decision) return undefined;
   const round = (v) => (typeof v === "number" ? Number(v.toFixed(3)) : null);
@@ -377,6 +397,8 @@ function verdictMeta(decision, extra = {}) {
     mode: decision.mode || null,
     confidence: round(decision.confidence),
     deliberation: round(decision.deliberation),
+    cause: decision.cause || null,
+    signals: decision.signals || null,
   };
 }
 

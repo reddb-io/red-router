@@ -18,7 +18,10 @@ import { DEFAULT_HEADROOM_URL } from "@/lib/headroom/detect";
 import { getTransform as getPxpipeTransform } from "@/lib/pxpipe/loader.js";
 import { appendPxpipeEvent } from "@/lib/pxpipe/events.js";
 import { createErrorContext, errorResponse, responseFromRoutingCandidate, withRequestId } from "open-sse/utils/error.js";
-import { handleComboChat, handleFusionChat, detectRequiredCapabilities, reorderModelsForTier } from "open-sse/services/combo.js";
+import { handleComboChat, handleFusionChat, detectRequiredCapabilities, filterModelsByContext, reorderModelsForTier } from "open-sse/services/combo.js";
+import { getCapabilitiesForModel } from "open-sse/providers/capabilities.js";
+import { stripThinkingSuffix } from "open-sse/translator/concerns/thinkingUnified.js";
+import { extractSignals } from "open-sse/decision/signals.js";
 import { classifyTier } from "open-sse/services/jevClassifier.js";
 import {
   normalizeDecisionConfig,
@@ -32,7 +35,7 @@ import {
 import { extractTools, hasPinnedToolChoice, supportsToolChoice, UNSUPPORTED_EXECUTORS } from "open-sse/decision/tools.js";
 import { augmentModelsWithCapacityAdapter, withCapacityAdapterStripping, getActiveAdapterStrategy } from "open-sse/services/capacityAdapter.js";
 import { handleBypassRequest } from "open-sse/utils/bypassHandler.js";
-import { HTTP_STATUS } from "open-sse/config/runtimeConfig.js";
+import { DECISION_HEADER, HTTP_STATUS } from "open-sse/config/runtimeConfig.js";
 import { detectFormatByEndpoint } from "open-sse/translator/formats.js";
 import * as log from "../utils/logger.js";
 import { updateProviderCredentials, checkAndRefreshToken } from "../services/tokenRefresh.js";
@@ -49,11 +52,24 @@ export function effortCeilingForDeliberation(deliberation) {
   return null;
 }
 
-async function orderComboModels({ body, models, comboName, strategy, settings, apiKey, comboOwner, sessionId }) {
+/** Members that fit the request's context window and required modalities. */
+function servableMembers(models, body) {
+  const fitting = filterModelsByContext(models, body).models;
+  const required = [...detectRequiredCapabilities(body)].filter((cap) => cap === "vision" || cap === "pdf");
+  if (required.length === 0) return fitting;
+  return fitting.filter((model) => {
+    const slash = model.indexOf("/");
+    const caps = getCapabilitiesForModel(slash > 0 ? model.slice(0, slash) : "", stripThinkingSuffix(slash > 0 ? model.slice(slash + 1) : model));
+    return required.every((cap) => caps[cap] === true);
+  });
+}
+
+async function orderComboModels({ body, models, comboName, strategy, settings, apiKey, comboOwner, sessionId, headers = null, userAgent = "" }) {
   const unchanged = { models, deliberation: null, decision: null };
   if (strategy !== "auto" || models.length < 2) return unchanged;
   const config = normalizeDecisionConfig(settings.decisionRouter);
   if (config.mode === "off") return unchanged;
+  if (headers?.[DECISION_HEADER]?.toLowerCase() === "off") return unchanged;
   if (!Array.isArray(config.models) || config.models.length === 0) return unchanged;
 
   const target = await resolveDecisionTarget(config, { apiKey, log });
@@ -62,10 +78,14 @@ async function orderComboModels({ body, models, comboName, strategy, settings, a
     const nested = await resolveComboModels(name, comboOwner);
     return nested?.models || [];
   });
-  const eligible = config.models.includes(comboName)
+  const allowed = config.models.includes(comboName)
     ? ranked
     : ranked.filter((model) => config.models.includes(model));
+  // Only ask about members that can serve this request: one whose window cannot
+  // hold it, or that lacks a modality it carries, would be picked and then skipped.
+  const eligible = servableMembers(allowed, body);
   if (eligible.length < 2) return unchanged;
+  const signals = extractSignals(body, { userAgent });
   const scope = createHash("sha256")
     .update(`${apiKey || "local"}:${comboOwner || "shared"}:${comboName}:${sessionId || "ephemeral"}`)
     .digest("hex")
@@ -81,6 +101,7 @@ async function orderComboModels({ body, models, comboName, strategy, settings, a
       target,
       log,
       previousVerdict: readPreviousVerdict(scope),
+      signals,
     });
     rememberVerdict(scope, result.decision);
     if (config.mode === "shadow") {
@@ -317,6 +338,8 @@ export async function handleChat(request, clientRawRequest = null, options = {})
         apiKey,
         comboOwner,
         sessionId: routingContext.sessionId,
+        headers: clientRawRequest?.headers,
+        userAgent,
       });
       orderedModels = ordered.models;
       routingContext.decision = ordered.decision;
@@ -433,6 +456,8 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
           apiKey,
           comboOwner,
           sessionId: routingContext.sessionId,
+          headers: clientRawRequest?.headers,
+          userAgent: request?.headers?.get?.("user-agent") || clientRawRequest?.headers?.["user-agent"] || "",
         });
         orderedModels = ordered.models;
         routingContext.decision = ordered.decision;

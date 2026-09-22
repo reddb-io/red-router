@@ -4,7 +4,18 @@
 // ponytail: generic and lossy, unrecognised shapes degrade to truncated JSON.
 // Upgrade path: per-format extractors if the bench shows fidelity costs decisions.
 
+import { HARNESS_BLOCK_PATTERNS } from "../config/decisionSignals.js";
+
 const TRUNCATION_MARK = " …[truncated]… ";
+
+/** Drop harness-injected blocks (system reminders, environment context, AGENTS.md):
+ *  they describe the agent harness, not the task the decision is about. */
+export function stripHarnessNoise(text) {
+  if (typeof text !== "string" || !text) return text || "";
+  let out = text;
+  for (const pattern of HARNESS_BLOCK_PATTERNS) out = out.replace(pattern, "");
+  return out.replace(/\n{3,}/g, "\n\n").trim();
+}
 
 /** Head and tail; the middle of a long blob matters least. */
 export function truncate(text, max) {
@@ -42,7 +53,7 @@ export function textOf(content) {
 }
 
 /** The message-shaped array, whichever known shape the client used. */
-function turnsOf(body) {
+export function turnsOf(body) {
   if (Array.isArray(body?.messages)) return body.messages;
   if (Array.isArray(body?.input)) {
     // OpenAI Responses: `instructions` carries the system text, input[] the turns.
@@ -65,9 +76,13 @@ function systemTextOf(body) {
   return parts.filter(Boolean).join("\n\n");
 }
 
-/** @param {object} body the client's body, before translation */
-export function buildState(body, { maxStateChars = 24000, maxMessageChars = 4000 } = {}) {
-  const systemText = truncate(systemTextOf(body), maxMessageChars);
+/**
+ * @param {object} body the client's body, before translation
+ * @param {object} [opts]
+ * @param {boolean} [opts.dropSystem] omit the system prompt (harness boilerplate)
+ */
+export function buildState(body, { maxStateChars = 24000, maxMessageChars = 4000, dropSystem = false } = {}) {
+  const systemText = dropSystem ? "" : truncate(systemTextOf(body), maxMessageChars);
   const turns = turnsOf(body);
 
   if (!turns) {
@@ -83,7 +98,7 @@ export function buildState(body, { maxStateChars = 24000, maxMessageChars = 4000
     if (!msg || typeof msg !== "object") continue;
     const entry = {
       role: typeof msg.role === "string" ? msg.role : "user",
-      text: truncate(textOf(msg.content) || textOf(msg.parts), maxMessageChars),
+      text: truncate(stripHarnessNoise(textOf(msg.content) || textOf(msg.parts)), maxMessageChars),
     };
     const tools = Array.isArray(msg.tool_calls) ? msg.tool_calls : null;
     if (tools?.length) {
