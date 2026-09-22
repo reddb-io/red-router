@@ -74,6 +74,8 @@ export default function ProviderDetailPage() {
   const [autoPing, setAutoPing] = useState({ enabled: false, connections: {} });
   const [suggestedModels, setSuggestedModels] = useState([]);
   const [liveModels, setLiveModels] = useState([]);
+  const [catalogWarning, setCatalogWarning] = useState(null);
+  const [catalogLoading, setCatalogLoading] = useState(false);
   const [kiloFreeModels, setKiloFreeModels] = useState([]);
   const [disabledModelIds, setDisabledModelIds] = useState([]);
   const [confirmState, setConfirmState] = useState(null);
@@ -156,7 +158,7 @@ export default function ProviderDetailPage() {
   const supportsApiKeyAuth = !!APIKEY_PROVIDERS[providerId] || authModes.includes("apikey");
   const isFreeNoAuth = !!FREE_PROVIDERS[providerId]?.noAuth;
   const staticModels = getModelsByProviderId(providerId);
-  const models = providerId === "cursor" && liveModels.length > 0
+  const models = (providerId === "red-router" || (providerId === "cursor" && liveModels.length > 0))
     ? liveModels
     : staticModels;
   const providerAlias = getProviderAlias(providerId);
@@ -481,7 +483,7 @@ export default function ProviderDetailPage() {
   // Load the active account's live catalog for the dashboard; the static
   // registry remains the fallback while the request is pending or unavailable.
   useEffect(() => {
-    if (providerId !== "cursor") {
+    if (providerId !== "cursor" && providerId !== "red-router") {
       setLiveModels([]);
       return;
     }
@@ -492,15 +494,19 @@ export default function ProviderDetailPage() {
       return;
     }
 
+    setLiveModels(connection.providerSpecificData?.discoveredModels || []);
+    setCatalogWarning(null);
+    setCatalogLoading(true);
     let cancelled = false;
     fetch(`/api/providers/${connection.id}/models`, { cache: "no-store" })
       .then(async (res) => ({ ok: res.ok, data: await res.json() }))
       .then(({ ok, data }) => {
-        if (!cancelled && ok && Array.isArray(data.models) && data.models.length > 0) {
-          setLiveModels(data.models);
-        }
+        if (cancelled) return;
+        if (ok && Array.isArray(data.models)) setLiveModels(data.models);
+        setCatalogWarning(data.warning || data.error || null);
       })
-      .catch(() => {});
+      .catch(() => { if (!cancelled) setCatalogWarning("Unable to sync models"); })
+      .finally(() => { if (!cancelled) setCatalogLoading(false); });
 
     return () => { cancelled = true; };
   }, [providerId, connections]);
@@ -1828,6 +1834,13 @@ export default function ProviderDetailPage() {
                 </div>
               );
             })()}
+          </div>
+        )}
+        {providerId === "red-router" && (
+          <div className="mb-3 text-sm text-text-muted" role="status">
+            {catalogLoading ? "Syncing remote models…" : `${models.length} remote models available. Catalog saved locally and refreshed automatically when used.`}
+            {catalogWarning && <p>{catalogWarning}. Showing the last saved catalog.</p>}
+            {!catalogLoading && !catalogWarning && models.length === 0 && connections.length > 0 && <p>The remote key exposes no models. Check its account access on the remote RedRouter.</p>}
           </div>
         )}
         {renderModelsSection()}

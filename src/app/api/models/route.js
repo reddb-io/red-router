@@ -1,5 +1,7 @@
+import { syncRemoteRouterCatalog } from "@/lib/remoteRouterCatalog";
+import { getScopeFilter, scopeVisible } from "@/lib/auth/resourceScope";
 import { NextResponse } from "next/server";
-import { getModelAliases, setModelAlias, getCustomModels } from "@/models";
+import { getModelAliases, setModelAlias, getCustomModels, getProviderConnections } from "@/models";
 import { getDisabledModels } from "@/lib/disabledModelsDb";
 import { AI_MODELS } from "@/shared/constants/config";
 import { getProviderAlias } from "@/shared/constants/providers";
@@ -45,6 +47,7 @@ export async function GET() {
     });
     for (const m of customModels) {
       const fullModel = `${m.providerAlias}/${m.id}`;
+      seenFull.add(fullModel);
       const c = getCapabilitiesForModel(m.providerAlias, m.id);
       models.push({
         provider: m.providerAlias,
@@ -62,6 +65,22 @@ export async function GET() {
           ...(m.caps || {}),
         },
       });
+    }
+
+    const remoteConnections = scopeVisible(await getProviderConnections(), await getScopeFilter())
+      .filter((c) => c.provider === "red-router" && c.isActive !== false);
+    const catalogs = await Promise.all(remoteConnections.map((c) => syncRemoteRouterCatalog(c)));
+    for (const { models: discovered } of catalogs) {
+      for (const m of discovered) {
+        const fullModel = `red-router/${m.id}`;
+        if (seenFull.has(fullModel) || disabled["red-router"]?.includes(m.id)) continue;
+        seenFull.add(fullModel);
+        models.push({
+          provider: "red-router", model: m.id, name: m.name || m.id,
+          fullModel, routedModel: fullModel, alias: m.id,
+          caps: m.capabilities || {},
+        });
+      }
     }
 
     return NextResponse.json({ models });

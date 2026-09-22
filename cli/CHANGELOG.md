@@ -1,5 +1,11 @@
 # @reddb-io/red-router
 
+## 0.11.8
+
+### Patch Changes
+
+- Automatically discover and persist remote RedRouter models, expose them in the local catalog and model picker, and refresh saved catalogs without per-model setup. Keep the last catalog available offline and resync when the remote URL or key changes.
+
 ## 0.11.7
 
 ### Patch Changes

@@ -87,6 +87,14 @@ Claude Code · Codex · Cursor · OpenCode · Cline · OpenClaw · GitHub Copilo
 - **Cheap** — GLM (~$0.6/1M), MiniMax (~$0.2/1M), Kimi, Qwen, DeepSeek…
 - **Free** — OpenCode Free, Vertex AI ($300 credits), Kiro free tier, free-model gateways — plus self-hosted (Ollama, LM Studio, LiteLLM).
 
+### Connect another RedRouter
+
+Add **RedRouter** under Providers with the remote URL and a key created on that router. Its exposed models are imported and saved locally automatically, including provider-qualified IDs and combos. No default model or per-model registration is required. The remote key's account bindings determine which providers are visible.
+
+The saved catalog appears in the dashboard, model picker and local `/v1/models`. Catalog reads refresh it after five minutes; if the remote is unavailable, the last saved list remains available with a sync warning in the provider dashboard. Existing RedRouter connections are imported on their next catalog read. Changing the remote URL or key fetches a new catalog before saving.
+
+For example, a remote model `cc/claude-fable-5.1` is selected locally as `red-router/cc/claude-fable-5.1`. Requests use the remote router's key; Claude credentials stay on the remote machine. The ID must be one actually exposed by that remote router. Reciprocal catalog requests skip further RedRouter discovery to avoid loops.
+
 ## 📡 API
 
 One endpoint, your client's dialect:

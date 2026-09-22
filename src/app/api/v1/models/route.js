@@ -1,3 +1,4 @@
+import { syncRemoteRouterCatalog } from "@/lib/remoteRouterCatalog";
 import { PROVIDER_MODELS, PROVIDER_ID_TO_ALIAS, getModelKind } from "@/shared/constants/models";
 import {
   AI_PROVIDERS,
@@ -28,6 +29,7 @@ import { extractApiKey } from "@/sse/services/auth.js";
 // returns { models: [{ id, name? }, ...] } | null on failure.
 // Adding a provider here makes /v1/models prefer the live catalog for it.
 const LIVE_MODEL_RESOLVERS = {
+  "red-router": syncRemoteRouterCatalog,
   kiro: async (conn) => {
     const result = await resolveKiroModels({
       accessToken: conn.accessToken,
@@ -504,11 +506,13 @@ export async function buildModelsList(kindFilter, options = {}) {
       // Config-driven live catalog override (e.g. Kiro returns dynamic
       // -thinking/-agentic variants per account). On failure, fall back to
       // whatever rawModelIds already holds.
-      const liveResolver = LIVE_MODEL_RESOLVERS[providerId];
+      const liveResolver = providerId === "red-router" && skipDynamicFetch
+        ? async () => ({ models: [] })
+        : LIVE_MODEL_RESOLVERS[providerId];
       if (liveResolver && !hasExplicitEnabledModels) {
         try {
           const live = await liveResolver(conn);
-          if (live?.models?.length) {
+          if (live?.models?.length || (providerId === "red-router" && Array.isArray(live?.models))) {
             rawModelIds = live.models.map((m) => m.id);
             liveModelKindById = new Map(
               live.models
@@ -528,6 +532,7 @@ export async function buildModelsList(kindFilter, options = {}) {
 
       const modelIds = rawModelIds
         .map((modelId) => {
+          if (providerId === "red-router") return modelId;
           if (modelId.startsWith(`${outputAlias}/`)) {
             return modelId.slice(outputAlias.length + 1);
           }

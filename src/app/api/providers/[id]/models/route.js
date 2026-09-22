@@ -1,3 +1,5 @@
+import { canSee, getScopeFilter } from "@/lib/auth/resourceScope";
+import { syncRemoteRouterCatalog } from "@/lib/remoteRouterCatalog";
 import { NextResponse } from "next/server";
 import { getProviderConnectionById } from "@/models";
 import { isOpenAICompatibleProvider, isAnthropicCompatibleProvider } from "@/shared/constants/providers";
@@ -12,7 +14,7 @@ import { resolveGrokCliModels } from "open-sse/services/grokCliModels.js";
 import { resolveConnectionProxyConfig } from "@/lib/network/connectionProxy";
 import { resolveCursorModels } from "open-sse/services/cursorModels.js";
 import { resolveClineModels, resolveClinepassModels } from "open-sse/services/clinepassModels.js";
-import { RED_ROUTER_PROVIDER_ID, redRouterEndpoint } from "open-sse/config/redRouter.js";
+import { RED_ROUTER_PROVIDER_ID } from "open-sse/config/redRouter.js";
 
 const GEMINI_CLI_MODELS_URL = "https://cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels";
 
@@ -477,32 +479,16 @@ export async function GET(request, { params }) {
     const { id } = await params;
     const connection = await getProviderConnectionById(id);
 
-    if (!connection) {
+    if (!connection || !canSee(connection, await getScopeFilter())) {
       return NextResponse.json({ error: "Connection not found" }, { status: 404 });
     }
 
     if (connection.provider === RED_ROUTER_PROVIDER_ID) {
-      const baseUrl = connection.providerSpecificData?.baseUrl;
-      if (!baseUrl) {
-        return NextResponse.json({ error: "No remote RedRouter URL configured" }, { status: 400 });
-      }
-      const response = await fetch(redRouterEndpoint(baseUrl, "models"), {
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${connection.apiKey}`,
-        },
-      });
-      if (!response.ok) {
-        return NextResponse.json(
-          { error: `Failed to fetch remote RedRouter models: ${response.status}` },
-          { status: response.status },
-        );
-      }
-      const data = await response.json();
+      const catalog = await syncRemoteRouterCatalog(connection);
       return NextResponse.json({
         provider: connection.provider,
         connectionId: connection.id,
-        models: parseOpenAIStyleModels(data),
+        ...catalog,
       });
     }
 

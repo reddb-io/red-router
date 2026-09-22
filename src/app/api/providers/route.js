@@ -1,3 +1,4 @@
+import { syncRemoteRouterCatalog } from "@/lib/remoteRouterCatalog";
 import { NextResponse } from "next/server";
 import {
   getProviderConnections,
@@ -152,9 +153,6 @@ export async function POST(request) {
       if (!["http:", "https:"].includes(parsedUrl.protocol)) {
         return NextResponse.json({ error: "Remote RedRouter URL must use HTTP or HTTPS" }, { status: 400 });
       }
-      if (!defaultModel?.trim()) {
-        return NextResponse.json({ error: "Default model is required for a remote RedRouter" }, { status: 400 });
-      }
     }
 
     // Compatible LLM nodes support multiple API-key connections (key pool); runtime
@@ -201,6 +199,13 @@ export async function POST(request) {
 
     if (proxyPoolId !== null) {
       mergedProviderSpecificData.proxyPoolId = proxyPoolId;
+    }
+
+    if (provider === RED_ROUTER_PROVIDER_ID) {
+      const catalog = await syncRemoteRouterCatalog({ apiKey, providerSpecificData: mergedProviderSpecificData }, { persist: false, force: true });
+      if (catalog.warning) return NextResponse.json({ error: catalog.warning }, { status: 502 });
+      mergedProviderSpecificData.discoveredModels = catalog.models;
+      mergedProviderSpecificData.modelsSyncedAt = catalog.modelsSyncedAt;
     }
 
     const newConnection = await createProviderConnection({

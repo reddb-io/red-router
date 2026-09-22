@@ -34,6 +34,17 @@ describe("RedRouter provider API", () => {
   });
 
   it("stores a remote router, validates it, and discovers its models", async () => {
+    const remoteModels = {
+      object: "list",
+      data: [{ id: "openrouter/anthropic/claude-sonnet-4.6", object: "model" }],
+    };
+    const fetchMock = vi.fn().mockImplementation(async () => new Response(JSON.stringify(remoteModels), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+
     const { POST: createConnection } = await import("@/app/api/providers/route.js");
     const createResponse = await createConnection(new Request("https://local.test/api/providers", {
       method: "POST",
@@ -42,7 +53,6 @@ describe("RedRouter provider API", () => {
         provider: "red-router",
         name: "Office Router",
         apiKey: "rr_remote_key",
-        defaultModel: "openrouter/anthropic/claude-sonnet-4.6",
         providerSpecificData: { baseUrl: "https://remote-router.test/" },
       }),
     }));
@@ -52,19 +62,9 @@ describe("RedRouter provider API", () => {
     expect(created.connection).toMatchObject({
       provider: "red-router",
       name: "Office Router",
-      defaultModel: "openrouter/anthropic/claude-sonnet-4.6",
       providerSpecificData: { baseUrl: "https://remote-router.test/v1" },
     });
 
-    const remoteModels = {
-      object: "list",
-      data: [{ id: "openrouter/anthropic/claude-sonnet-4.6", object: "model" }],
-    };
-    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(remoteModels), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    }));
-    vi.stubGlobal("fetch", fetchMock);
 
     const { POST: validateConnection } = await import("@/app/api/providers/validate/route.js");
     const validationResponse = await validateConnection(new Request("https://local.test/api/providers/validate", {
@@ -87,15 +87,53 @@ describe("RedRouter provider API", () => {
 
     expect(modelsResponse.status).toBe(200);
     expect(models.models).toEqual(remoteModels.data);
+    const { GET: getLocalCatalog } = await import("@/app/api/models/route.js");
+    const localCatalog = await (await getLocalCatalog()).json();
+    expect(localCatalog.models).toContainEqual(expect.objectContaining({
+      fullModel: "red-router/openrouter/anthropic/claude-sonnet-4.6",
+    }));
+    const { buildModelsList } = await import("@/app/api/v1/models/route.js");
+    expect(await buildModelsList(["llm"])).toContainEqual(expect.objectContaining({
+      id: "red-router/openrouter/anthropic/claude-sonnet-4.6",
+    }));
+    const { getProviderConnectionById } = await import("@/models");
+    expect((await getProviderConnectionById(created.connection.id)).providerSpecificData.discoveredModels).toEqual(remoteModels.data);
     expect(fetchMock).toHaveBeenCalledWith(
       "https://remote-router.test/v1/models",
       expect.objectContaining({
         headers: expect.objectContaining({ Authorization: "Bearer rr_remote_key" }),
       }),
     );
+
+    fetchMock.mockImplementation(async () => new Response(JSON.stringify({ data: [{ id: "cc/new-access" }] })));
+    const { PUT: updateConnection } = await import("@/app/api/providers/[id]/route.js");
+    const updateResponse = await updateConnection(new Request("https://local.test/api/providers/remote", {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ apiKey: "replacement-key" }),
+    }), { params: Promise.resolve({ id: created.connection.id }) });
+    expect(updateResponse.status).toBe(200);
+    expect((await getProviderConnectionById(created.connection.id)).providerSpecificData.discoveredModels)
+      .toEqual([{ id: "cc/new-access" }]);
+    expect(fetchMock).toHaveBeenLastCalledWith("https://remote-router.test/v1/models", expect.objectContaining({
+      headers: expect.objectContaining({ Authorization: "Bearer replacement-key" }),
+    }));
   });
 
-  it("rejects missing remote URL and default model", async () => {
+  it("reports discovery failure without saving a partially configured connection", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("Unauthorized", { status: 401 })));
+    const { POST } = await import("@/app/api/providers/route.js");
+    const { getProviderConnections } = await import("@/models");
+    const before = await getProviderConnections();
+    const response = await POST(new Request("https://local.test/api/providers", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ provider: "red-router", name: "Remote", apiKey: "bad-key", providerSpecificData: { baseUrl: "https://remote.test" } }),
+    }));
+    expect(response.status).toBe(502);
+    expect((await response.json()).error).toContain("401");
+    expect(await getProviderConnections()).toEqual(before);
+  });
+
+  it("rejects a missing remote URL", async () => {
     const { POST } = await import("@/app/api/providers/route.js");
     const response = await POST(new Request("https://local.test/api/providers", {
       method: "POST",

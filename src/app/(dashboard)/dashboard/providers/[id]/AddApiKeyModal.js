@@ -12,7 +12,7 @@ export default function AddApiKeyModal({ isOpen, provider, providerName, isCompa
   const NONE_PROXY_POOL_VALUE = "__none__";
   const isOllamaLocal = provider === "ollama-local";
   const isRedRouter = provider === "red-router";
-  const requiresDefaultModel = isCompatible || isRedRouter;
+  const requiresDefaultModel = isCompatible;
   const isCookie = authType === "cookie";
   const isXaiApiKey = provider === "xai" && !isCookie;
   const credentialLabel = isCookie ? "Cookie Value" : provider === "qoder" ? "Personal Access Token (PAT)" : "API Key";
@@ -250,7 +250,7 @@ export default function AddApiKeyModal({ isOpen, provider, providerName, isCompa
               hint="Use the reachable URL of the second RedRouter. /v1 is added automatically when omitted."
             />
             <p className="text-xs text-text-muted">
-              Create an API key on the remote RedRouter and bind it to the accounts that this machine may use. Provider credentials never need to be copied here.
+              Create an API key on the remote RedRouter and bind it to the accounts that this machine may use. Models are discovered and saved locally automatically. Provider credentials never need to be copied here.
             </p>
           </>
         )}

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   getProviderConnections: vi.fn(),
@@ -39,6 +39,8 @@ beforeEach(() => {
   mocks.getProviderConnections.mockResolvedValue([conn("a", "claude"), conn("b", "openai")]);
 });
 
+afterEach(() => vi.unstubAllGlobals());
+
 const providersOf = (models) => [...new Set(models.map((m) => m.owned_by))].sort();
 
 describe("/v1/models — account binding", () => {
@@ -75,5 +77,46 @@ describe("/v1/models — account binding", () => {
     const models = await buildModelsList(["llm"], { apiKey: null, skipDynamicFetch: true });
 
     expect(models.length).toBeGreaterThan(0);
+  });
+});
+
+
+describe("remote RedRouter catalog exposure", () => {
+  it("publishes saved remote models with intact upstream IDs and capabilities", async () => {
+    mocks.getApiKeyAllowedConnectionIds.mockResolvedValue(null);
+    mocks.getProviderConnections.mockResolvedValue([{
+      id: "remote", provider: "red-router", isActive: true,
+      providerSpecificData: {
+        modelsSyncedAt: new Date().toISOString(),
+        discoveredModels: [
+          { id: "cc/claude-fable-5.1", capabilities: { tools: true, contextWindow: 200000 } },
+          { id: "openai/gpt-example" }, { id: "remote-combo" },
+        ],
+      },
+    }]);
+    const result = await buildModelsList(["llm"]);
+    expect(result.map((m) => m.id)).toEqual([
+      "red-router/cc/claude-fable-5.1", "red-router/openai/gpt-example", "red-router/remote-combo",
+    ]);
+    expect(result[0]).toMatchObject({ capabilities: { tools: true }, context_length: 200000 });
+  });
+
+  it("does not query or expose remote accounts excluded by the local client key", async () => {
+    mocks.getApiKeyAllowedConnectionIds.mockResolvedValue(["local"]);
+    mocks.getProviderConnections.mockResolvedValue([conn("local", "claude"), { id: "remote", provider: "red-router", isActive: true }]);
+    vi.stubGlobal("fetch", vi.fn());
+    expect(providersOf(await buildModelsList(["llm"], { apiKey: "bound" }))).toEqual(["cc"]);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("breaks reciprocal catalog discovery without recursively advertising saved remote catalogs", async () => {
+    mocks.getApiKeyAllowedConnectionIds.mockResolvedValue(null);
+    mocks.getProviderConnections.mockResolvedValue([{
+      id: "remote", provider: "red-router", isActive: true,
+      providerSpecificData: { discoveredModels: [{ id: "red-router/cc/claude-fable-5.1" }] },
+    }]);
+    vi.stubGlobal("fetch", vi.fn());
+    expect(await buildModelsList(["llm"], { skipDynamicFetch: true })).toEqual([]);
+    expect(fetch).not.toHaveBeenCalled();
   });
 });

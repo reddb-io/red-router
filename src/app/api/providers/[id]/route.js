@@ -1,3 +1,4 @@
+import { syncRemoteRouterCatalog } from "@/lib/remoteRouterCatalog";
 import { NextResponse } from "next/server";
 import { canSee, getRequestIdentity, getScopeFilter, normalizeOwnerInput } from "@/lib/auth/resourceScope";
 import { isScopeEnabled } from "@/lib/auth/resourceScope";
@@ -187,6 +188,13 @@ export async function PUT(request, { params }) {
       }
     }
 
+    if (existing.provider === "red-router" && (updateData.apiKey || providerSpecificData?.baseUrl)) {
+      const next = { ...existing, ...updateData };
+      next.providerSpecificData = { ...(next.providerSpecificData || {}), discoveredModels: [], modelsSyncedAt: null };
+      const catalog = await syncRemoteRouterCatalog(next, { persist: false, force: true });
+      if (catalog.warning) return NextResponse.json({ error: catalog.warning }, { status: 502 });
+      updateData.providerSpecificData = { ...next.providerSpecificData, discoveredModels: catalog.models, modelsSyncedAt: catalog.modelsSyncedAt };
+    }
     const updated = await updateProviderConnection(id, updateData);
 
     // Hide sensitive fields
