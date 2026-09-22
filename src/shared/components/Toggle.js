@@ -10,6 +10,8 @@ export default function Toggle({
   disabled = false,
   size = "md",
   className,
+  ariaLabel,
+  title,
 }) {
   const sizes = {
     sm: { track: "w-8 h-4", thumb: "size-3", translate: "translate-x-4" },
@@ -33,12 +35,15 @@ export default function Toggle({
         type="button"
         role="switch"
         aria-checked={checked}
+        aria-label={ariaLabel || label}
+        title={title}
         disabled={disabled}
         onClick={handleClick}
         className={cn(
-          "relative inline-flex shrink-0 cursor-pointer rounded-full",
-          "transition-colors duration-200 ease-in-out",
-          "focus:outline-none focus:ring-2 focus:ring-brand-500/30",
+          "relative inline-flex shrink-0 cursor-pointer rounded-full before:absolute before:-inset-3 before:content-['']",
+          "transition-[background-color,transform] duration-150 ease-[var(--reddb-easing-standard)]",
+          "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary",
+          "active:translate-y-px disabled:active:translate-y-0",
           checked ? "bg-brand-500" : "bg-surface-3",
           sizes[size].track,
           disabled && "cursor-not-allowed"
@@ -46,8 +51,8 @@ export default function Toggle({
       >
         <span
           className={cn(
-            "pointer-events-none inline-block rounded-full bg-white shadow-sm",
-            "transform transition duration-200 ease-in-out",
+            "pointer-events-none inline-block rounded-full bg-surface shadow-sm",
+            "transform transition-transform duration-150 ease-[var(--reddb-easing-standard)]",
             checked ? sizes[size].translate : "translate-x-0.5",
             sizes[size].thumb,
             "mt-0.5"
