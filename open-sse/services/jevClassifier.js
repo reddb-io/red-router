@@ -13,6 +13,7 @@
  */
 
 import { trailingUserItems } from "./combo.js";
+import { stripHarnessNoise } from "../decision/state.js";
 import { extractTextContent } from "../translator/formats/gemini.js";
 import {
   JEV_ENDPOINT_PATH,
@@ -80,8 +81,10 @@ export function buildJevState(body, charBudget = JEV_STATE_CHAR_BUDGET) {
   if (!body || typeof body !== "object") return "";
   const parts = [];
 
+  // Harness reminders describe the agent, not the ask being classified.
   const pushText = (t) => {
-    if (typeof t === "string" && t.trim()) parts.push(t.trim());
+    const clean = typeof t === "string" ? stripHarnessNoise(t) : "";
+    if (clean) parts.push(clean);
   };
 
   // OpenAI / Claude / Hermes / Ollama

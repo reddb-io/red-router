@@ -124,6 +124,9 @@ export function resolveModelDecision({
   minStrength = DEFAULT_MIN_STRENGTH,
   switchStrength = DEFAULT_SWITCH_STRENGTH,
   previousVerdict = null,
+  // Deterministic evidence the turn needs deliberation (plan mode, a stalled
+  // agent): treated like a high needs_reasoning for the cheapest-model guard.
+  needsDeliberation = false,
 } = {}) {
   const pick = answers?.model;
   const deliberation = answers?.needs_reasoning;
@@ -172,7 +175,7 @@ export function resolveModelDecision({
   // the cheapest model loses quality silently. Mechanical work on an expensive model
   // is only a cost miss, which confidence already covers.
   const cheapest = cheapestOf(models, priceOf);
-  const hard = deliberation.noul >= 0.7;
+  const hard = deliberation.noul >= 0.7 || needsDeliberation === true;
   if (hard && cheapest && chosen === cheapest) {
     return { apply: false, reason: "signals_disagree", ...usable };
   }
