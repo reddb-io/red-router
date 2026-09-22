@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { decideComboModel } from "../../src/sse/services/decisionRouter.js";
 import { extractSignals, toolCallsOf, detectStall, signalsMeta } from "../../open-sse/decision/signals.js";
 import { buildState, stripHarnessNoise } from "../../open-sse/decision/state.js";
 import { resolveModelDecision } from "../../open-sse/decision/decide.js";
@@ -129,7 +130,6 @@ describe("resolveModelDecision needsDeliberation", () => {
 
 describe("decideComboModel housekeeping", () => {
   it("routes title generation to the cheapest member without a decision call", async () => {
-    const { decideComboModel } = await import("../../src/sse/services/decisionRouter.js");
     const body = { system: "You are coming up with a succinct title for a coding session.", messages: [{ role: "user", content: "…" }] };
     let asked = false;
     const target = { url: "http://jev.invalid", fetchImpl: async () => { asked = true; throw new Error("must not be called"); } };

@@ -31,6 +31,7 @@ import {
   decideTool as decideToolCore,
   readPreviousVerdict,
   rememberVerdict,
+  planReasoning,
 } from "../services/decisionRouter.js";
 import { extractTools, hasPinnedToolChoice, supportsToolChoice, UNSUPPORTED_EXECUTORS } from "open-sse/decision/tools.js";
 import { augmentModelsWithCapacityAdapter, withCapacityAdapterStripping, getActiveAdapterStrategy } from "open-sse/services/capacityAdapter.js";
@@ -302,6 +303,7 @@ export async function handleChat(request, clientRawRequest = null, options = {})
   const comboResolution = await resolveComboModels(modelStr, comboOwner);
   if (comboResolution) {
     const { models: comboModels, comboName: cleanComboName } = comboResolution;
+    routingContext.comboName = cleanComboName;
     // Check for combo-specific strategy first, fallback to global
     const comboStrategies = settings.comboStrategies || {};
     const comboSpecificStrategy = comboStrategies[cleanComboName]?.fallbackStrategy;
@@ -473,6 +475,7 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
     const comboResolution = await resolveComboModels(modelStr, comboOwner);
     if (comboResolution) {
       const { models: comboModels, comboName: cleanComboName } = comboResolution;
+      routingContext.comboName ||= cleanComboName;
       const chatSettings = await getSettings();
       // Check for combo-specific strategy first, fallback to global
       const comboStrategies = chatSettings.comboStrategies || {};
@@ -585,12 +588,36 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
     // Use shared chatCore
     const chatSettings = await getSettings();
     const providerThinking = (chatSettings.providerThinking || {})[provider] || null;
-    const effortEnabled = !!chatSettings.decisionRouter?.effort;
+    // Planned once per request: combo members share routingContext.
+    if (routingContext.reasoning === undefined) {
+      routingContext.reasoning = await planReasoning({
+        body,
+        settings: routingContext.settings || chatSettings,
+        apiKey,
+        apiKeyId: apiKey ? (await getApiKeyIdentity(apiKey)).id : null,
+        comboName: routingContext.comboName || null,
+        sessionId: routingContext.sessionId,
+        headers: clientRawRequest?.headers,
+        userAgent,
+        deliberation: routingContext.decision?.deliberation ?? routingContext.deliberation ?? null,
+        log,
+      }).catch((error) => {
+        log.warn("REASONING", `autopilot failed, client thinking kept: ${error.message}`);
+        return null;
+      });
+    }
+    const reasoning = routingContext.reasoning;
+    // The autopilot (or header) sets the level; otherwise the legacy effort toggle caps it.
+    const effortEnabled = !reasoning?.target && !!chatSettings.decisionRouter?.effort;
     const maxThinkingLevel = effortEnabled
       ? effortCeilingForDeliberation(routingContext.deliberation)
       : null;
-    const hintUses = effortEnabled && routingContext.deliberationSource === HINT_SOURCE
-      ? [...routingContext.hintUses, "effort"]
+    // The client hint's deliberation stood in for the effort ceiling or the autopilot's question.
+    const hintDeliberationUsed = routingContext.deliberationSource === HINT_SOURCE
+      && routingContext.decision?.deliberation == null;
+    const hintStep = effortEnabled ? "effort" : typeof reasoning?.deliberation === "number" ? "reasoning" : null;
+    const hintUses = hintDeliberationUsed && hintStep
+      ? [...routingContext.hintUses, hintStep]
       : routingContext.hintUses;
     const result = await handleChatCore({
       body: { ...body, model: `${provider}/${model}` },
@@ -621,6 +648,8 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
       onPxpipeEvent: appendPxpipeEvent,
       providerThinking,
       maxThinkingLevel,
+      thinkingTarget: reasoning?.target || null,
+      reasoning,
       decideTool: routingContext.toolDecider,
       decision: routingContext.decision,
       hint: hintDetail(routingContext.hint, hintUses),
@@ -641,7 +670,9 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
       }
     });
 
-    if (result.success) return withRequestId(result.response, errorContext, { servedModel: servedModelId(modelStr, provider, model) });
+    if (result.success) {
+      return withRequestId(result.response, errorContext, { servedModel: servedModelId(modelStr, provider, model), reasoning });
+    }
 
     // Antigravity 409/429: refresh live quota to get exact resetAt before locking
     let quotaResetMs = null;

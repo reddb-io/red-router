@@ -158,10 +158,10 @@ export async function getApiKeyAllowedConnectionIds(key) {
  * One lookup, since the router needs both on every request.
  */
 export async function getApiKeyIdentity(key) {
-  if (!key) return { owner: null, name: null };
+  if (!key) return { id: null, owner: null, name: null };
   const db = await getDb();
-  const row = await db.selectFrom("apiKeys").select(["owner", "name"]).where("key", "=", key).executeTakeFirst();
-  return { owner: row?.owner ?? null, name: row?.name ?? null };
+  const row = await db.selectFrom("apiKeys").select(["id", "owner", "name"]).where("key", "=", key).executeTakeFirst();
+  return { id: row?.id ?? null, owner: row?.owner ?? null, name: row?.name ?? null };
 }
 
 export async function getApiKeyOwner(key) {
