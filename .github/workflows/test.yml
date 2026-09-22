@@ -42,6 +42,9 @@ jobs:
           if (( ${#lint_files[@]} > 0 )); then
             pnpm exec eslint "${lint_files[@]}"
           fi
+      - name: Verify diagnostic logging contract
+        working-directory: tests
+        run: npx vitest run unit/cli-diagnostics.test.js unit/cli-tray-log.test.js --reporter=verbose
       - name: Run main baseline suite
         continue-on-error: true
         run: mkdir -p "$GITHUB_WORKSPACE/.artifacts" && cd ../red-router-base/tests && npx vitest run --retry=1 --reporter=json --outputFile="$GITHUB_WORKSPACE/.artifacts/baseline-results.json"

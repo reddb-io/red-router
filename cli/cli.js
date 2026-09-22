@@ -67,6 +67,20 @@ const { ensureSqliteRuntime, buildEnvWithRuntime } = require("./hooks/sqliteRunt
 const { ensureTrayRuntime } = require("./hooks/trayRuntime");
 const args = process.argv.slice(2);
 
+// Pure discovery also works when the server/runtime is broken. In particular,
+// --path must not install dependencies, start services, or create files.
+if (args[0] === "logs") {
+  const { logPath, openLog } = require("./src/cli/diagnostics");
+  if (args.length === 1 || (args.length === 2 && args[1] === "--path")) console.log(logPath());
+  else if (args.length === 2 && args[1] === "--open") {
+    openLog().catch((error) => { console.error(error.message); process.exitCode = 1; });
+  } else {
+    console.error("Usage: red-router logs [--path | --open]");
+    process.exitCode = 1;
+  }
+  return;
+}
+
 // Subcommands (`red-router xai video …`) run against an already-running gateway
 // and bypass the launcher flow (no runtime self-heal, no server spawn).
 if (args[0] === "xai" && args[1] === "video") {
@@ -118,14 +132,6 @@ if (args[0] === "service") {
   }
   process.exit(result.ok ? 0 : 1);
 }
-
-// Self-heal SQLite runtime deps (sql.js + better-sqlite3) into ~/.red/router/runtime
-// so the server can resolve them via NODE_PATH. Best-effort — sql.js is required,
-// better-sqlite3 is optional. Logs to stderr only on failure.
-try { ensureSqliteRuntime({ silent: true }); } catch {}
-
-// Self-heal tray runtime (systray for macOS/Linux only). Windows skipped.
-try { ensureTrayRuntime({ silent: true }); } catch {}
 
 // Configuration constants
 const APP_NAME = pkg.name; // Use from package.json
@@ -187,13 +193,14 @@ Options:
   -p, --port <port>   Port to run the server (default: ${DEFAULT_PORT})
   -H, --host <host>   Host to bind (default: ${DEFAULT_HOST})
   -n, --no-browser    Don't open browser automatically
-  -l, --log           Show server logs (default: hidden)
+  -l, --log           Also show server logs in terminal (always saved privately)
   -t, --tray          Run in system tray mode (background)
   --skip-update       Skip auto-update check
   -h, --help          Show this help message
   -v, --version       Show version
 
 Commands:
+  logs --path|--open  Locate or open the rotating diagnostic log.
   service install|status|uninstall
                       Run as a background service (systemd --user / launchd).
                       Binds 127.0.0.1 unless --expose or -H 0.0.0.0 is given.
@@ -207,6 +214,17 @@ Commands:
     process.exit(0);
   }
 }
+
+const { getDiagnostics, captureServerOutput, observeRuntime } = require("./src/cli/diagnostics");
+const diagnostics = getDiagnostics();
+diagnostics.append("launcher", `Starting RedRouter v${pkg.version} port=${port} host=${host}`);
+process.on("uncaughtExceptionMonitor", (error, origin) => diagnostics.append("crash", `${origin}: ${error.stack || error.message}`));
+process.once("exit", (code) => diagnostics.append("launcher", `Stopped exit=${code}`));
+
+// Initialize diagnostics before best-effort runtime repair, so failed
+// dependency installation is not silently lost. Help/discovery exits above.
+observeRuntime("SQLite", () => ensureSqliteRuntime({ silent: true }), diagnostics);
+observeRuntime("tray", () => ensureTrayRuntime({ silent: true }), diagnostics);
 
 // Auto-relaunch after update: detached process has no TTY → fallback to tray
 if (skipUpdate && !trayMode && !process.stdin.isTTY) {
@@ -576,6 +594,7 @@ const serverPath = fs.existsSync(customServerPath)
   : path.join(standaloneDir, "server.js");
 
 if (!fs.existsSync(serverPath)) {
+  diagnostics.append("crash", `Server bundle not found: ${serverPath}`);
   console.error("Error: Standalone build not found.");
   console.error("Please run 'npm run build:cli' first.");
   process.exit(1);
@@ -657,7 +676,7 @@ function startServer(updatePromise) {
     crashLog = [];
     const child = spawn(RUNTIME, ["--dns-result-order=ipv4first", "--max-old-space-size=6144", serverPath], {
       cwd: standaloneDir,
-      stdio: showLog ? "inherit" : ["ignore", "ignore", "pipe"],
+      stdio: ["ignore", "pipe", "pipe"],
       detached: true,
       windowsHide: true,
       env: {
@@ -666,13 +685,16 @@ function startServer(updatePromise) {
         HOSTNAME: host
       }
     });
-    if (!showLog && child.stderr) {
-      child.stderr.on("data", (data) => {
+    diagnostics.append("launcher", `Server spawned pid=${child.pid || "unavailable"}`);
+    captureServerOutput(child, {
+      diagnostics,
+      showLog,
+      onStderr: (data) => {
         const lines = data.toString().split("\n").filter(Boolean);
         crashLog.push(...lines);
         if (crashLog.length > CRASH_LOG_LINES) crashLog = crashLog.slice(-CRASH_LOG_LINES);
-      });
-    }
+      },
+    });
     return child;
   }
 
@@ -683,6 +705,7 @@ function startServer(updatePromise) {
   function cleanup() {
     if (isCleaningUp) return;
     isCleaningUp = true;
+    diagnostics.append("launcher", "Stopping server and tray");
     try {
       // Kill tray if running
       try {
@@ -713,6 +736,7 @@ function startServer(updatePromise) {
   process.on("SIGINT", () => {
     if (isShuttingDown) return;
     isShuttingDown = true;
+    diagnostics.append("launcher", "Received SIGINT");
     console.log("\nExiting...");
     cleanup();
     setTimeout(() => process.exit(0), 100);
@@ -720,12 +744,14 @@ function startServer(updatePromise) {
   process.on("SIGTERM", () => {
     if (isShuttingDown) return;
     isShuttingDown = true;
+    diagnostics.append("launcher", "Received SIGTERM");
     cleanup();
     setTimeout(() => process.exit(0), 100);
   });
   process.on("SIGHUP", () => {
     if (isShuttingDown) return;
     isShuttingDown = true;
+    diagnostics.append("launcher", "Received SIGHUP");
     cleanup();
     setTimeout(() => process.exit(0), 100);
   });
@@ -746,8 +772,12 @@ function startServer(updatePromise) {
       });
     } catch (err) {
       // Tray not available - continue without it
+      diagnostics.append("tray", `Initialization failed: ${err.stack || err.message}`);
     }
   };
+
+  // The tray-only branch returns below but still needs crash observation.
+  attachServerEvents();
 
   // Tray-only mode: no TUI, just tray icon
   if (trayMode) {
@@ -859,12 +889,14 @@ function startServer(updatePromise) {
 
   function attachServerEvents() {
     server.on("error", (err) => {
+      diagnostics.append("crash", `Failed to spawn server: ${err.stack || err.message}`);
       console.error("Failed to start server:", err.message);
       if (!isShuttingDown) tryRestart();
       else { cleanup(); process.exit(1); }
     });
 
-    server.on("close", (code) => {
+    server.on("close", (code, signal) => {
+      diagnostics.append("launcher", `Server exited code=${code} signal=${signal || "none"}`);
       if (isShuttingDown || code === 0) {
         process.exit(code || 0);
         return;
@@ -874,6 +906,7 @@ function startServer(updatePromise) {
   }
 
   function tryRestart(code) {
+    diagnostics.append("launcher", `Restart requested code=${code ?? "unknown"} attempt=${restartCount + 1}`);
     const aliveMs = Date.now() - serverStartTime;
     // Reset counter if last run was stable
     if (aliveMs >= RESTART_RESET_MS) restartCount = 0;
@@ -909,5 +942,4 @@ function startServer(updatePromise) {
     }, delay);
   }
 
-  attachServerEvents();
 }
