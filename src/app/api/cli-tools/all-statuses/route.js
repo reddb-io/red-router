@@ -1,6 +1,7 @@
 "use server";
 
 import { NextResponse } from "next/server";
+import { getDynamicCliToolAdapter } from "@/lib/cliTools/adapters";
 import { GET as claudeGet } from "../claude-settings/route";
 import { GET as codexGet } from "../codex-settings/route";
 import { GET as opencodeGet } from "../opencode-settings/route";
@@ -29,6 +30,12 @@ const STATUS_GETTERS = {
   jcode: jcodeGet,
   "grok-build": grokBuildGet,
   devin: devinGet,
+  pi: getDynamicCliToolAdapter("pi").GET,
+  omp: getDynamicCliToolAdapter("omp").GET,
+  crush: getDynamicCliToolAdapter("crush").GET,
+  forge: getDynamicCliToolAdapter("forge").GET,
+  smelt: getDynamicCliToolAdapter("smelt").GET,
+  codewhale: getDynamicCliToolAdapter("codewhale").GET,
 };
 
 // Batch endpoint: gather all CLI tool statuses in one round-trip
