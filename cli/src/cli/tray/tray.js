@@ -1,6 +1,7 @@
 const { exec } = require("child_process");
 const fs = require("fs");
 const path = require("path");
+const { openLog, logPath, getDiagnostics } = require("../diagnostics");
 
 let trayInstance = null;
 let isWinTray = false;
@@ -60,6 +61,7 @@ function buildMenuItems(port, autostartEnabled) {
   return [
     { title: `RedRouter (Port ${port})`, tooltip: "Server is running", enabled: false },
     { title: "Open Dashboard", tooltip: "Open in browser", enabled: true },
+    { title: "Open log", tooltip: logPath(), enabled: true },
     {
       title: autostartEnabled ? "✓ Auto-start Enabled" : "Enable Auto-start",
       tooltip: "Run on OS startup",
@@ -70,7 +72,7 @@ function buildMenuItems(port, autostartEnabled) {
 }
 
 // Menu item indexes
-const MENU_INDEX = { STATUS: 0, DASHBOARD: 1, AUTOSTART: 2, QUIT: 3 };
+const MENU_INDEX = { STATUS: 0, DASHBOARD: 1, LOG: 2, AUTOSTART: 3, QUIT: 4 };
 
 /**
  * Get current autostart state
@@ -92,6 +94,11 @@ function handleClick(index, options, onAutostartToggle) {
   if (index === MENU_INDEX.DASHBOARD) {
     if (onOpenDashboard) onOpenDashboard();
     else openBrowser(`http://localhost:${port}/dashboard`);
+  } else if (index === MENU_INDEX.LOG) {
+    return Promise.resolve().then(() => (options.onOpenLog || openLog)()).catch((error) => {
+      getDiagnostics().append("tray", `Cannot open log: ${error.message}`);
+      process.stderr.write(`[red-router] Cannot open log: ${error.message}\n`);
+    });
   } else if (index === MENU_INDEX.AUTOSTART) {
     const enabled = getAutostartEnabled();
     try {
@@ -134,6 +141,7 @@ function initWindowsTray(options) {
     isWinTray = true;
     return trayInstance;
   } catch (err) {
+    getDiagnostics().append("tray", `Windows initialization error: ${err.stack || err.message}`);
     return null;
   }
 }
@@ -230,15 +238,17 @@ function initUnixTray(options) {
       // failures (binary crash, EACCES, etc.) so users can see why the icon
       // didn't appear instead of getting a misleading "running in tray" log.
       trayInstance.ready().catch((err) => {
+        getDiagnostics().append("tray", `Failed to start: ${err && err.message ? err.message : err}`);
         process.stderr.write(`[red-router] tray failed to start: ${err && err.message ? err.message : err}\n`);
       });
     } else {
       trayInstance.onReady(() => {});
-      trayInstance.onError(() => {});
+      trayInstance.onError((err) => getDiagnostics().append("tray", `Failed to start: ${err && err.message ? err.message : err}`));
     }
 
     return trayInstance;
   } catch (err) {
+    getDiagnostics().append("tray", `Initialization error: ${err.stack || err.message}`);
     process.stderr.write(`[red-router] tray init error: ${err.message}\n`);
     return null;
   }
@@ -318,5 +328,8 @@ function openBrowser(url) {
 
 module.exports = {
   initTray,
-  killTray
+  killTray,
+  buildMenuItems,
+  handleClick,
+  MENU_INDEX,
 };

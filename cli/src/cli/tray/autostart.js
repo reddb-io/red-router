@@ -181,10 +181,6 @@ function enableMacOS(cliPath) {
     <true/>
     <key>KeepAlive</key>
     <false/>
-    <key>StandardOutPath</key>
-    <string>/tmp/red-router.log</string>
-    <key>StandardErrorPath</key>
-    <string>/tmp/red-router.error.log</string>
 </dict>
 </plist>`;
 

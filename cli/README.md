@@ -27,6 +27,46 @@ red-router
 
 Dashboard opens at **http://localhost:25050/dashboard**.
 
+## Operational diagnostics
+
+`red-router logs --path` prints the current diagnostic file without starting the
+server or installing dependencies. `red-router logs --open` and **Open log** in
+the tray's right-click menu launch that same file in the default application.
+Opening acknowledges the OS launch; it does not wait for the editor to close.
+
+| Platform | Current file |
+| --- | --- |
+| Linux | `${XDG_STATE_HOME:-~/.local/state}/red-router/logs/red-router.log` |
+| Windows | `%LOCALAPPDATA%\red-router\logs\red-router.log` |
+| macOS | `~/Library/Logs/red-router/red-router.log` |
+
+Relative/empty state-root variables are ignored; Linux falls back to
+`~/.local/state`, Windows to `~/AppData/Local`. The launcher records startup,
+shutdown, crashes, server stdout/stderr and tray failures. `--log` also shows
+server output in the terminal; file logging does not depend on that flag.
+Interactive CLI output is never copied because credential screens can display
+complete API keys.
+
+Each file is limited to **10 MiB**, with **five files total**: `red-router.log`
+and `.1` through `.4` (newest backup first). Rotation runs during writing and
+survives restarts. Oversized existing current/archive files are adopted as bounded
+recent complete-line tails. Directories/files are private (0700/0600 on Unix); simultaneous
+launchers serialize writes. Lines above 64 KiB are omitted, not split into
+potentially sensitive fragments. Credentials and body/prompt fields in diagnostic
+lines are redacted. Pretty JSON/payload dumps and multiline secret continuations
+are omitted until a new timestamped/leveled diagnostic record; this deliberately
+prefers privacy over preserving unframed debug text. Inspect logs before sharing because arbitrary upstream text
+can still contain private information. A file-system error warns once on stderr
+without taking down the gateway.
+
+This contract covers the **CLI-managed operational log**, not optional request
+captures (`ENABLE_REQUEST_LOGS=true`), MITM debug dumps, updater/install logs or
+independently launched helper processes. Those legacy facilities retain their
+existing paths/policies and can include sensitive request/response content.
+They are not enabled or copied by this feature. Legacy logs at other locations
+are not moved or deleted. macOS autostart no longer adds unbounded duplicate
+files in `/tmp`.
+
 ## Service (background)
 
 Keep the gateway always on — survives reboots and crashes (`systemd --user` on Linux, `launchd` on macOS):

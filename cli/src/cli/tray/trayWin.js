@@ -1,6 +1,7 @@
 const { spawn } = require("child_process");
 const path = require("path");
 const readline = require("readline");
+const { getDiagnostics } = require("../diagnostics");
 
 // PowerShell-based tray for Windows (AV-safe, zero binary deps)
 
@@ -44,6 +45,7 @@ function initWinTray(options) {
       { windowsHide: true, stdio: ["pipe", "pipe", "pipe"] }
     );
   } catch (err) {
+    getDiagnostics().append("tray", `PowerShell spawn failed: ${err.message}`);
     return null;
   }
 
@@ -57,8 +59,12 @@ function initWinTray(options) {
     } catch (e) {}
   });
 
-  psProcess.on("error", () => {});
-  psProcess.stderr.on("data", () => {});
+  const diagnostics = getDiagnostics();
+  const errors = diagnostics.stream("tray.stderr");
+  psProcess.on("error", (error) => diagnostics.append("tray", `PowerShell failed: ${error.message}`));
+  psProcess.stderr.on("data", (chunk) => errors.write(chunk));
+  psProcess.stderr.once("end", () => errors.end());
+  psProcess.once("exit", (code, signal) => diagnostics.append("tray", `PowerShell exited code=${code} signal=${signal || "none"}`));
 
   // Send initial menu items
   items.forEach((item, index) => {
