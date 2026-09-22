@@ -90,6 +90,14 @@ jobs:
           mkdir -p release-artifacts
           pnpm --dir cli pack --pack-destination ../release-artifacts
           cd release-artifacts
+          tar -tzf *.tgz > package-contents.txt
+          if grep -E '(^|/)(\.build-home|\.red|\.9router|AppData)(/|$)|(^|/)(data\.sqlite|jwt-secret|machine-id|\.env($|\.))' package-contents.txt; then
+            echo "Refusing to publish runtime data or build identity files" >&2
+            exit 1
+          fi
+          grep -q '^package/cli.js$' package-contents.txt
+          grep -q '^package/app/custom-server.js$' package-contents.txt
+          rm package-contents.txt
           sha256sum *.tgz > SHA256SUMS
 
       - name: Publish to npm
