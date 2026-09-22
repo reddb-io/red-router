@@ -35,7 +35,8 @@ import {
 import { extractTools, hasPinnedToolChoice, supportsToolChoice, UNSUPPORTED_EXECUTORS } from "open-sse/decision/tools.js";
 import { augmentModelsWithCapacityAdapter, withCapacityAdapterStripping, getActiveAdapterStrategy } from "open-sse/services/capacityAdapter.js";
 import { handleBypassRequest } from "open-sse/utils/bypassHandler.js";
-import { DECISION_HEADER, HTTP_STATUS } from "open-sse/config/runtimeConfig.js";
+import { DECISION_HEADER, HINT_HEADER, HTTP_STATUS } from "open-sse/config/runtimeConfig.js";
+import { parseClassificationHint, hintTier, hintDeliberation, hintDetail, HINT_SOURCE } from "open-sse/decision/clientHint.js";
 import { detectFormatByEndpoint } from "open-sse/translator/formats.js";
 import * as log from "../utils/logger.js";
 import { updateProviderCredentials, checkAndRefreshToken } from "../services/tokenRefresh.js";
@@ -64,7 +65,7 @@ function servableMembers(models, body) {
   });
 }
 
-async function orderComboModels({ body, models, comboName, strategy, settings, apiKey, comboOwner, sessionId, headers = null, userAgent = "" }) {
+async function orderComboModels({ body, models, comboName, strategy, settings, apiKey, comboOwner, sessionId, headers = null, userAgent = "", hint = null }) {
   const unchanged = { models, deliberation: null, decision: null };
   if (strategy !== "auto" || models.length < 2) return unchanged;
   const config = normalizeDecisionConfig(settings.decisionRouter);
@@ -91,6 +92,10 @@ async function orderComboModels({ body, models, comboName, strategy, settings, a
     .digest("hex")
     .slice(0, 24);
 
+  // A client-stated deliberation replaces the needs_reasoning question; jev is
+  // still asked which model fits, since the hint names none.
+  const hintedDeliberation = hintDeliberation(hint);
+  const hintUsed = hintedDeliberation !== null;
   try {
     const result = await decideComboModel({
       body,
@@ -102,17 +107,19 @@ async function orderComboModels({ body, models, comboName, strategy, settings, a
       log,
       previousVerdict: readPreviousVerdict(scope),
       signals,
+      hintedDeliberation,
     });
     rememberVerdict(scope, result.decision);
     if (config.mode === "shadow") {
       log.info("DECISION", `shadow: "${comboName}" would use ${result.decision?.model || "(unchanged)"}`);
-      return { ...unchanged, decision: result.decision || null };
+      return { ...unchanged, decision: result.decision || null, hintUsed };
     }
     return {
       models: [...result.models, ...ranked.filter((model) => !result.models.includes(model))],
       deliberation: result.decision?.deliberation ?? null,
       decision: result.decision || null,
       routed: result.decision?.apply === true,
+      hintUsed,
     };
   } catch (error) {
     log.warn("DECISION", `model decision failed, pool order unchanged: ${error.message}`);
@@ -120,7 +127,7 @@ async function orderComboModels({ body, models, comboName, strategy, settings, a
   }
 }
 
-function createToolDecider({ settings, apiKey }) {
+function createToolDecider({ settings, apiKey, hint = null }) {
   const config = normalizeDecisionConfig(settings.decisionRouter);
   if (config.mode === "off" || config.toolMode === "off") return null;
 
@@ -132,6 +139,11 @@ function createToolDecider({ settings, apiKey }) {
     }
     if (hasPinnedToolChoice(body, format)) {
       return { mode: "passthrough", reason: "client_tool_choice" };
+    }
+    // The client says no tool is needed: nothing for a tool verdict to steer, so
+    // the decision call is skipped and the request goes through untouched.
+    if (hint?.needsTool === false) {
+      return { mode: "passthrough", reason: "client_hint_no_tool", source: HINT_SOURCE };
     }
     const tools = extractTools(body, format);
     if (tools.length === 0) return { mode: "passthrough", reason: "no_tools" };
@@ -158,6 +170,19 @@ function createToolDecider({ settings, apiKey }) {
     memo.set(memoKey, decision);
     return decision;
   };
+}
+
+/**
+ * Carry an auto-combo verdict into the routing context. A decision without its own
+ * deliberation (shadow mode, no verdict) keeps the one the client hint stated.
+ */
+function applyOrderedDecision(routingContext, ordered) {
+  routingContext.decision = ordered.decision;
+  if (ordered.hintUsed) routingContext.hintUses.push("needs_reasoning");
+  if (typeof ordered.deliberation === "number" && !ordered.hintUsed) {
+    routingContext.deliberation = ordered.deliberation;
+    routingContext.deliberationSource = "jev";
+  }
 }
 
 /**
@@ -231,14 +256,20 @@ export async function handleChat(request, clientRawRequest = null, options = {})
     body,
     scope: "decision",
   });
+  const hint = parseClassificationHint(clientRawRequest?.headers?.[HINT_HEADER], {
+    onInvalid: (reason) => log.debug("HINT", `${HINT_HEADER} ignored (${reason})`),
+  });
   const routingContext = {
     settings,
     comboOwner,
     sessionId,
     decision: null,
-    deliberation: null,
+    deliberation: hintDeliberation(hint),
+    deliberationSource: hintDeliberation(hint) === null ? null : HINT_SOURCE,
+    hint,
+    hintUses: [],
     affinityKey: sessionAffinityKey(clientRawRequest?.headers, apiKey, comboOwner),
-    toolDecider: createToolDecider({ settings, apiKey }),
+    toolDecider: createToolDecider({ settings, apiKey, hint }),
   };
   if (settings.requireApiKey) {
     if (!apiKey) {
@@ -311,7 +342,9 @@ export async function handleChat(request, clientRawRequest = null, options = {})
     if (comboStrategy === "smart") {
       const smartCfg = comboStrategies[cleanComboName] || {};
       const tierMap = smartCfg.smartTiers;
-      const classified = await classifyTier({
+      // A tier the client already classified replaces the classifier call.
+      const hintedTier = hintTier(hint);
+      const classified = hintedTier ? { tier: hintedTier, source: HINT_SOURCE } : await classifyTier({
         body,
         log,
         criteria: smartCfg.smartCriteria,
@@ -335,8 +368,9 @@ export async function handleChat(request, clientRawRequest = null, options = {})
       if (classified && tierMap) {
         const reordered = reorderModelsForTier(augmentedModels, classified.tier, tierMap);
         routedLead = typeof tierMap[classified.tier] === "string" && tierMap[classified.tier].trim() !== "";
+        if (classified.source === HINT_SOURCE) routingContext.hintUses.push("tier");
         if (reordered[0] !== augmentedModels[0]) {
-          log.info("CHAT", `Combo "${cleanComboName}" smart-routing tier=${classified.tier} → ${reordered[0]}`);
+          log.info("CHAT", `Combo "${cleanComboName}" smart-routing tier=${classified.tier}${classified.source === HINT_SOURCE ? " (client hint)" : ""} → ${reordered[0]}`);
         }
         augmentedModels.length = 0;
         augmentedModels.push(...reordered);
@@ -360,10 +394,10 @@ export async function handleChat(request, clientRawRequest = null, options = {})
         sessionId: routingContext.sessionId,
         headers: clientRawRequest?.headers,
         userAgent,
+        hint,
       });
       orderedModels = ordered.models;
-      routingContext.decision = ordered.decision;
-      routingContext.deliberation = ordered.deliberation;
+      applyOrderedDecision(routingContext, ordered);
       routedLead = ordered.routed === true;
       effectiveStrategy = "fallback";
     }
@@ -423,6 +457,9 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
     }),
     decision: null,
     deliberation: null,
+    deliberationSource: null,
+    hint: null,
+    hintUses: [],
   };
   if (routingContext.toolDecider === undefined) {
     routingContext.toolDecider = createToolDecider({ settings: routingContext.settings, apiKey });
@@ -482,10 +519,10 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
           sessionId: routingContext.sessionId,
           headers: clientRawRequest?.headers,
           userAgent: request?.headers?.get?.("user-agent") || clientRawRequest?.headers?.["user-agent"] || "",
+          hint: routingContext.hint,
         });
         orderedModels = ordered.models;
-        routingContext.decision = ordered.decision;
-        routingContext.deliberation = ordered.deliberation;
+        applyOrderedDecision(routingContext, ordered);
         nestedRoutedLead = ordered.routed === true;
         effectiveStrategy = "fallback";
       }
@@ -548,9 +585,13 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
     // Use shared chatCore
     const chatSettings = await getSettings();
     const providerThinking = (chatSettings.providerThinking || {})[provider] || null;
-    const maxThinkingLevel = chatSettings.decisionRouter?.effort
+    const effortEnabled = !!chatSettings.decisionRouter?.effort;
+    const maxThinkingLevel = effortEnabled
       ? effortCeilingForDeliberation(routingContext.deliberation)
       : null;
+    const hintUses = effortEnabled && routingContext.deliberationSource === HINT_SOURCE
+      ? [...routingContext.hintUses, "effort"]
+      : routingContext.hintUses;
     const result = await handleChatCore({
       body: { ...body, model: `${provider}/${model}` },
       modelInfo: { provider, model },
@@ -582,6 +623,7 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
       maxThinkingLevel,
       decideTool: routingContext.toolDecider,
       decision: routingContext.decision,
+      hint: hintDetail(routingContext.hint, hintUses),
       errorContext,
       // Detect source format by endpoint + body
       sourceFormatOverride: request?.url ? detectFormatByEndpoint(new URL(request.url).pathname, body) : null,

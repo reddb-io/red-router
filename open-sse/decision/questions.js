@@ -112,29 +112,32 @@ export function readShortlist(answers, shards) {
  * decision model, and measured here as the difference between a 0.62 verdict and
  * a 0.82 one. Cost decides only among the models it already judged fit, in code.
  */
-export function buildModelQuestions(models, criteriaFor) {
+export function buildModelQuestions(models, criteriaFor, { deliberation = true } = {}) {
   const criteria = {};
   for (const model of models) {
     const text = criteriaFor(model);
     if (text) criteria[model] = text;
   }
-  return {
-    questions: {
-      [MODEL_KEY]: {
-        type: "choice",
-        instructions:
-          "Which model should handle the next step? Judge only fitness for the task: " +
-          "pick the one whose description matches what the step actually needs.",
-        criteria,
-      },
-      [DELIBERATION_KEY]: {
-        type: "noul",
-        instructions:
-          "Does this next step need real deliberation (multi-step reasoning, " +
-          "architecture, non-obvious debugging), or is it mechanical?",
-      },
+  const questions = {
+    [MODEL_KEY]: {
+      type: "choice",
+      instructions:
+        "Which model should handle the next step? Judge only fitness for the task: " +
+        "pick the one whose description matches what the step actually needs.",
+      criteria,
     },
   };
+  // Left out when the client already stated it (x-red-router-hint): the caller
+  // supplies that answer itself instead of paying for the question.
+  if (deliberation) {
+    questions[DELIBERATION_KEY] = {
+      type: "noul",
+      instructions:
+        "Does this next step need real deliberation (multi-step reasoning, " +
+        "architecture, non-obvious debugging), or is it mechanical?",
+    };
+  }
+  return { questions };
 }
 
 /** Tools kept for jev when a roster is too big to judge well. */

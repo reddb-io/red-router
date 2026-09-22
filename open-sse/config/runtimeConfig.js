@@ -81,6 +81,11 @@ export const TOKEN_SAVER_HEADER = "x-red-router-token-saver";
 // TOKEN_SAVER_HEADER: the header value "off" disables it for that one request.
 export const DECISION_HEADER = "x-red-router-decision";
 
+// A classification the client already made (see open-sse/decision/clientHint.js):
+// `complexity`, `deliberation`, `needs_tool` and `tier` stand in for the questions
+// smart and auto routing would otherwise ask the decision model. Invalid → ignored.
+export const HINT_HEADER = "x-red-router-hint";
+
 // Set on successful chat responses: the provider/model that actually answered (the
 // combo member, after fallback) and, when computable before the body is sent, its
 // USD cost. Streams carry the cost as `usage.cost` in their final usage event.
