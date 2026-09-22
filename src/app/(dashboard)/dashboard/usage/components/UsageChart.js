@@ -10,7 +10,6 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-  Legend,
 } from "recharts";
 
 const fmtTokens = (n) => {
@@ -20,8 +19,21 @@ const fmtTokens = (n) => {
 };
 
 const fmtCost = (n) => `$${(n || 0).toFixed(4)}`;
+const fmtRequests = (n) => String(n || 0);
 
-export default function UsageChart({ period = "7d" }) {
+const VIEW_MODES = [
+  { value: "tokens", label: "Tokens" },
+  { value: "requests", label: "Requests" },
+  { value: "cost", label: "Cost" },
+];
+
+const VIEW_CONFIG = {
+  tokens:   { dataKey: "tokens",   color: "var(--color-primary)", gradId: "gradTokens", formatter: fmtTokens, label: "Tokens" },
+  requests: { dataKey: "requests", color: "#14b8a6", gradId: "gradRequests", formatter: fmtRequests, label: "Requests" },
+  cost:     { dataKey: "cost",     color: "var(--color-warning)", gradId: "gradCost", formatter: fmtCost, label: "Cost" },
+};
+
+export default function UsageChart({ period = "7d", apiKeyId = "all" }) {
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState("tokens");
@@ -29,7 +41,9 @@ export default function UsageChart({ period = "7d" }) {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/usage/chart?period=${period}`);
+      const params = new URLSearchParams({ period });
+      if (apiKeyId && apiKeyId !== "all") params.set("apiKeyId", apiKeyId);
+      const res = await fetch(`/api/usage/chart?${params.toString()}`);
       if (res.ok) {
         const json = await res.json();
         setData(json);
@@ -39,36 +53,33 @@ export default function UsageChart({ period = "7d" }) {
     } finally {
       setLoading(false);
     }
-  }, [period]);
+  }, [period, apiKeyId]);
 
   useEffect(() => {
     queueMicrotask(fetchData);
   }, [fetchData]);
 
-  const hasData = data.some((d) => d.tokens > 0 || d.cost > 0);
+  const cfg = VIEW_CONFIG[viewMode];
+  const hasData = data.some((d) => (d[cfg.dataKey] || 0) > 0);
 
   return (
     <section className="usage-chart" aria-labelledby="usage-chart-title">
       <div className="usage-section-head">
         <div>
           <h2 id="usage-chart-title">Traffic over time</h2>
-          <p>Token volume and estimated cost for the selected period.</p>
+          <p>Requests, token volume, and estimated cost for the selected period.</p>
         </div>
         <div className="usage-mode-switch" role="group" aria-label="Chart metric">
-        <button
-          type="button"
-          onClick={() => setViewMode("tokens")}
-          aria-pressed={viewMode === "tokens"}
-        >
-          Tokens
-        </button>
-        <button
-          type="button"
-          onClick={() => setViewMode("cost")}
-          aria-pressed={viewMode === "cost"}
-        >
-          Cost
-        </button>
+        {VIEW_MODES.map((m) => (
+          <button
+            type="button"
+            key={m.value}
+            onClick={() => setViewMode(m.value)}
+            aria-pressed={viewMode === m.value}
+          >
+            {m.label}
+          </button>
+        ))}
         </div>
       </div>
 
@@ -83,6 +94,10 @@ export default function UsageChart({ period = "7d" }) {
               <linearGradient id="gradTokens" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="5%" stopColor="var(--color-primary)" stopOpacity={0.22} />
                 <stop offset="95%" stopColor="var(--color-primary)" stopOpacity={0} />
+              </linearGradient>
+              <linearGradient id="gradRequests" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor="#14b8a6" stopOpacity={0.25} />
+                <stop offset="95%" stopColor="#14b8a6" stopOpacity={0} />
               </linearGradient>
               <linearGradient id="gradCost" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="5%" stopColor="var(--color-warning)" stopOpacity={0.22} />
@@ -101,7 +116,7 @@ export default function UsageChart({ period = "7d" }) {
               tick={{ fontSize: 10, fill: "currentColor", fillOpacity: 0.5 }}
               tickLine={false}
               axisLine={false}
-              tickFormatter={viewMode === "tokens" ? fmtTokens : fmtCost}
+              tickFormatter={cfg.formatter}
               width={50}
             />
             <Tooltip
@@ -111,31 +126,17 @@ export default function UsageChart({ period = "7d" }) {
                 borderRadius: "var(--reddb-radius-md)",
                 fontSize: "var(--reddb-font-size-xs)",
               }}
-              formatter={(value, name) =>
-                name === "tokens" ? [fmtTokens(value), "Tokens"] : [fmtCost(value), "Cost"]
-              }
+              formatter={(value) => [cfg.formatter(value), cfg.label]}
             />
-            {viewMode === "tokens" ? (
-              <Area
-                type="monotone"
-                dataKey="tokens"
-                stroke="var(--color-primary)"
-                strokeWidth={2}
-                fill="url(#gradTokens)"
-                dot={false}
-                activeDot={{ r: 4 }}
-              />
-            ) : (
-              <Area
-                type="monotone"
-                dataKey="cost"
-                stroke="var(--color-warning)"
-                strokeWidth={2}
-                fill="url(#gradCost)"
-                dot={false}
-                activeDot={{ r: 4 }}
-              />
-            )}
+            <Area
+              type="monotone"
+              dataKey={cfg.dataKey}
+              stroke={cfg.color}
+              strokeWidth={2}
+              fill={`url(#${cfg.gradId})`}
+              dot={false}
+              activeDot={{ r: 4 }}
+            />
           </AreaChart>
         </ResponsiveContainer>
       )}
@@ -145,4 +146,5 @@ export default function UsageChart({ period = "7d" }) {
 
 UsageChart.propTypes = {
   period: PropTypes.string,
+  apiKeyId: PropTypes.string,
 };
