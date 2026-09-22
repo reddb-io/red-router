@@ -20,6 +20,7 @@ if (!global._statsEmitter) {
 if (!global._pendingTimers) global._pendingTimers = {};
 if (!global._recentRing) global._recentRing = { items: [], initialized: false };
 if (!global._connectionMapCache) global._connectionMapCache = { map: {}, ts: 0 };
+if (!global._apiKeyNameCache) global._apiKeyNameCache = { map: {}, ts: 0 };
 if (!global._statsEmitTimers) global._statsEmitTimers = { pending: null, update: null };
 
 const pendingRequests = global._pendingRequests;
@@ -27,6 +28,7 @@ const lastErrorProvider = global._lastErrorProvider;
 const pendingTimers = global._pendingTimers;
 const recentRing = global._recentRing;
 const connCache = global._connectionMapCache;
+const apiKeyNameCache = global._apiKeyNameCache;
 const statsEmitTimers = global._statsEmitTimers;
 
 export const statsEmitter = global._statsEmitter;
@@ -111,6 +113,19 @@ async function getConnectionMapCached() {
     connCache.ts = Date.now();
   } catch {}
   return connCache.map;
+}
+
+async function getApiKeyNameMapCached() {
+  if (Date.now() - apiKeyNameCache.ts < CONN_CACHE_TTL_MS) return apiKeyNameCache.map;
+  try {
+    const { getApiKeys } = await import("./apiKeysRepo.js");
+    const all = await getApiKeys();
+    const map = {};
+    for (const k of all) if (k.key) map[k.key] = k.name || maskApiKey(k.key);
+    apiKeyNameCache.map = map;
+    apiKeyNameCache.ts = Date.now();
+  } catch {}
+  return apiKeyNameCache.map;
 }
 
 async function ensureRingInitialized() {
@@ -220,6 +235,7 @@ export async function getActiveRequests(filter = null) {
   }
 
   await ensureRingInitialized();
+  const apiKeyNameMap = await getApiKeyNameMapCached();
   const seen = new Set();
   const recentRequests = [...recentRing.items]
     .filter((e) => isVisible(e) && matchesKey(e))
@@ -228,6 +244,7 @@ export async function getActiveRequests(filter = null) {
       const t = e.tokens || {};
       return {
         timestamp: e.timestamp, model: e.model, provider: e.provider || "",
+        keyName: (e.apiKey && apiKeyNameMap[e.apiKey]) || (e.apiKey ? maskApiKey(e.apiKey) : null),
         promptTokens: t.prompt_tokens || t.input_tokens || 0,
         completionTokens: t.completion_tokens || t.output_tokens || 0,
         status: e.status || "ok",
