@@ -1,5 +1,11 @@
 # @reddb-io/red-router
 
+## 0.18.0
+
+### Minor Changes
+
+- b89bfca: New "ADHD-friendly answers" output mode on the Token Saver page, next to Caveman and Ponytail, adapted from the MIT-licensed [i-have-adhd](https://github.com/ayghri/i-have-adhd) skill. When on, RedRouter adds a system instruction that asks the model to lead with the next action, number multi-step work in the fewest steps, and end with one concrete next action that takes under two minutes. `lite` covers those rules; `full` (the default) also suppresses tangents, restates progress every turn ("Step 3 of 5 done…"), gives specific time estimates, makes finished work visible, and runs a pre-send check. The instruction works for every wire format (Chat, Responses, Claude, Gemini, Kiro) and stays active until the user says "stop adhd mode" or "normal mode" in the conversation. It is off by default. It can be set globally or per API key (`adhdEnabled`, `adhdLevel`), it is added after Caveman and Ponytail when those are also on, it is skipped when a request sends `x-red-router-token-saver: off`, and it appears as `ADHD:<level>` in the request's token-saver log line.
+
 ## 0.17.0
 
 ### Minor Changes
