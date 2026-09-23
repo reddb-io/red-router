@@ -56,3 +56,14 @@ export function providerIdentity(providerId) {
     subscription: SUBSCRIPTION_CATEGORIES.has(entry.category),
   };
 }
+
+/**
+ * The model prefix a user gave one connection of a built-in provider ("codex-work"),
+ * or "" when it has none. Custom-node connections carry their node prefix in the same
+ * field; that prefix belongs to the node, so it is not a connection prefix.
+ */
+export function connectionModelPrefix(connection) {
+  if (!connection || !BY_ID.has(connection.provider)) return "";
+  const prefix = connection.providerSpecificData?.prefix;
+  return typeof prefix === "string" ? prefix.trim() : "";
+}

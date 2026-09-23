@@ -14,6 +14,8 @@ import { getScopeFilter, getRequestIdentity, isScopeEnabled, ownerForCreate, sco
 import { getDisabledAccountIds } from "@/lib/db/repos/disabledAccountsRepo.js";
 import { getSettings } from "@/lib/localDb";
 import { RED_ROUTER_PROVIDER_ID } from "open-sse/config/redRouter.js";
+import { validateConnectionPrefix } from "@/lib/connectionPrefix";
+import { providerIdentity } from "open-sse/providers/identity.js";
 
 export const dynamic = "force-dynamic";
 
@@ -141,6 +143,14 @@ export async function POST(request) {
     }
 
     let providerSpecificData = normalizeProviderSpecificData(provider, body, body.providerSpecificData);
+
+    // A built-in provider's connection may be created with its own model prefix.
+    if (providerIdentity(provider) && providerSpecificData && Object.prototype.hasOwnProperty.call(providerSpecificData, "prefix")) {
+      const prefixResult = await validateConnectionPrefix({ prefix: providerSpecificData.prefix, providerId: provider });
+      if (prefixResult.error) return NextResponse.json({ error: prefixResult.error }, { status: 400 });
+      if (prefixResult.prefix) providerSpecificData.prefix = prefixResult.prefix;
+      else delete providerSpecificData.prefix;
+    }
 
     if (provider === RED_ROUTER_PROVIDER_ID) {
       const baseUrl = providerSpecificData?.baseUrl;

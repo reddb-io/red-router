@@ -4,6 +4,8 @@ import { canSee, getRequestIdentity, getScopeFilter, normalizeOwnerInput } from 
 import { isScopeEnabled } from "@/lib/auth/resourceScope";
 import { getSettings } from "@/lib/localDb";
 import { setAccountDisabled } from "@/lib/db/repos/disabledAccountsRepo.js";
+import { validateConnectionPrefix } from "@/lib/connectionPrefix";
+import { providerIdentity } from "open-sse/providers/identity.js";
 
 // A shared account (no owner) is the admin's to change. Everyone else may use
 // it and switch it off for themselves, but editing or deleting it would affect
@@ -68,6 +70,19 @@ async function normalizeProxyPoolUpdate(proxyPoolIdInput) {
   }
 
   return { hasProxyPoolField: true, proxyPoolId };
+}
+
+async function normalizePrefixUpdate(existing, providerSpecificData) {
+  if (!providerIdentity(existing.provider)) return { hasPrefixField: false };
+  if (!providerSpecificData || !Object.prototype.hasOwnProperty.call(providerSpecificData, "prefix")) {
+    return { hasPrefixField: false };
+  }
+  const result = await validateConnectionPrefix({
+    prefix: providerSpecificData.prefix,
+    providerId: existing.provider,
+    connectionId: existing.id,
+  });
+  return result.error ? result : { hasPrefixField: true, prefix: result.prefix };
 }
 
 function shouldMergeProviderSpecificData(existing, incoming, hasLegacyProxy, hasProxyPoolField) {
@@ -145,6 +160,13 @@ export async function PUT(request, { params }) {
       return NextResponse.json({ error: proxyPoolResult.error }, { status: 400 });
     }
 
+    // A model prefix on a built-in provider's connection is the user's own name for
+    // it; custom nodes keep theirs in sync from the node and are not checked here.
+    const prefixUpdate = await normalizePrefixUpdate(existing, providerSpecificData);
+    if (prefixUpdate.error) {
+      return NextResponse.json({ error: prefixUpdate.error }, { status: 400 });
+    }
+
     const updateData = {};
     if (name !== undefined) updateData.name = name;
     if (priority !== undefined) updateData.priority = priority;
@@ -185,6 +207,11 @@ export async function PUT(request, { params }) {
         } else {
           updateData.providerSpecificData.proxyPoolId = proxyPoolResult.proxyPoolId;
         }
+      }
+
+      if (prefixUpdate.hasPrefixField) {
+        if (prefixUpdate.prefix) updateData.providerSpecificData.prefix = prefixUpdate.prefix;
+        else delete updateData.providerSpecificData.prefix;
       }
     }
 

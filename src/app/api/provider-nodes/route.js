@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { connectionUsingPrefix, connectionLabel } from "@/lib/connectionPrefix";
 import { createProviderNode, getProviderNodes } from "@/models";
 import { OPENAI_COMPATIBLE_PREFIX, ANTHROPIC_COMPATIBLE_PREFIX, CUSTOM_EMBEDDING_PREFIX } from "@/shared/constants/providers";
 import { generateId } from "@/shared/utils";
@@ -40,6 +41,12 @@ export async function POST(request) {
 
     if (!prefix?.trim()) {
       return NextResponse.json({ error: "Prefix is required" }, { status: 400 });
+    }
+
+    // A prefix a built-in provider connection already uses cannot also name a node.
+    const prefixOwner = await connectionUsingPrefix(prefix);
+    if (prefixOwner) {
+      return NextResponse.json({ error: `"${prefix.trim()}" is already the model prefix of the connection "${connectionLabel(prefixOwner)}"` }, { status: 400 });
     }
 
     // Determine type

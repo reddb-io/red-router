@@ -95,7 +95,7 @@ async function resolveVideoProvider(parsedBody) {
     }
     return { error: errorResponse(HTTP_STATUS.BAD_REQUEST, `Provider '${modelInfo.provider}' does not support video generation`) };
   }
-  return { provider: modelInfo.provider, model: modelInfo.model };
+  return { provider: modelInfo.provider, model: modelInfo.model, connectionIds: modelInfo.connectionIds };
 }
 
 function withConnectionHeader(response, connectionId) {
@@ -121,7 +121,7 @@ export async function handleVideoCreate(request, action) {
 
   const resolved = await resolveVideoProvider(bodyInfo.parsed);
   if (resolved.error) return resolved.error;
-  const { provider, model } = resolved;
+  const { provider, model, connectionIds } = resolved;
   const accessDenial = await checkModelAccess({ apiKey: auth.apiKey, providerId: provider, model, requested: bodyInfo.parsed?.model ?? null });
   if (accessDenial) return responseFromRoutingCandidate(accessDenial);
 
@@ -138,7 +138,7 @@ export async function handleVideoCreate(request, action) {
   const excludeConnectionIds = new Set();
 
   while (true) {
-    const credentials = await getProviderCredentials(provider, excludeConnectionIds, model, { preferredConnectionId, apiKey: auth.apiKey });
+    const credentials = await getProviderCredentials(provider, excludeConnectionIds, model, { preferredConnectionId, apiKey: auth.apiKey, connectionIds });
 
     if (credentials?.noActiveCredentials || credentials?.allRateLimited) {
       return responseFromRoutingCandidate(credentials.candidate);
