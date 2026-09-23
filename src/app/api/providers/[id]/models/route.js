@@ -67,7 +67,6 @@ const appendCodexReviewModels = (models) => models.flatMap((model) => {
       id: `${id}-review`,
       name: `${name} Review`,
       upstreamModelId: id,
-      quotaFamily: "review",
     },
   ];
 });

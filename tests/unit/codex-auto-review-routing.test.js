@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import {
   getDefaultModel,
-  getModelQuotaFamily,
   getModelUpstreamId,
   getProviderModels,
 } from "../../open-sse/config/providerModels.js";
@@ -19,14 +18,13 @@ describe("codex auto-review routing (#1398)", () => {
     });
   });
 
-  it("exposes Codex auto-review as a review-quota Codex model", () => {
+  it("exposes Codex auto-review as a Codex model", () => {
     const autoReview = getProviderModels("cx").find(
       (model) => model.id === "codex-auto-review",
     );
 
     expect(autoReview).toBeTruthy();
     expect(autoReview.name).toBe("Codex Auto Review");
-    expect(getModelQuotaFamily("cx", "codex-auto-review")).toBe("review");
   });
 
   // getModelUpstreamId strips CODEX_REVIEW_SUFFIX from unregistered "cx" ids, which would send

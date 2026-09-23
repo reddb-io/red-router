@@ -15,6 +15,7 @@ const SETTINGS_RESPONSE_HEADERS = {
 };
 
 const CATALOG_PREFIX_STYLES = ["slug", "short"];
+const CATALOG_VARIANT_MODES = ["collapse", "expand"];
 
 // Secrets must never be mass-assigned from request body (CWE-915)
 const PROTECTED_SETTING_KEYS = ["password", "mitmSudoEncrypted"];
@@ -176,6 +177,9 @@ export async function PATCH(request) {
       }
       if (catalog.prefixStyle !== undefined && !CATALOG_PREFIX_STYLES.includes(catalog.prefixStyle)) {
         return NextResponse.json({ error: `catalog.prefixStyle must be one of: ${CATALOG_PREFIX_STYLES.join(", ")}` }, { status: 400 });
+      }
+      if (catalog.variants !== undefined && !CATALOG_VARIANT_MODES.includes(catalog.variants)) {
+        return NextResponse.json({ error: `catalog.variants must be one of: ${CATALOG_VARIANT_MODES.join(", ")}` }, { status: 400 });
       }
       body.catalog = { ...(current.catalog || {}), ...catalog };
     }

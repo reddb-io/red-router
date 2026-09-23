@@ -1,5 +1,3 @@
-import { withCodexReviewModels } from "../models/helpers.js";
-
 // Codex CLI version seen by OpenAI's backend — single source for the Version /
 // User-Agent identity headers and the /models client_version query. The backend
 // serves GPT-6 Sol and Luna only to clients at 0.155.1 or newer. Bump when the
@@ -60,22 +58,22 @@ export default {
     { id: "gpt-6-sol", name: "GPT 6.0 Sol" },
     { id: "gpt-6-luna", name: "GPT 6.0 Luna" },
     { id: "gpt-5.6-sol", name: "GPT 5.6 Sol" },
-    { id: "gpt-5.6-sol-review", name: "GPT 5.6 Sol Review", upstreamModelId: "gpt-5.6-sol", quotaFamily: "review" },
+    { id: "gpt-5.6-sol-review", name: "GPT 5.6 Sol Review", upstreamModelId: "gpt-5.6-sol" },
     { id: "gpt-5.6-terra", name: "GPT 5.6 Terra" },
-    { id: "gpt-5.6-terra-review", name: "GPT 5.6 Terra Review", upstreamModelId: "gpt-5.6-terra", quotaFamily: "review" },
+    { id: "gpt-5.6-terra-review", name: "GPT 5.6 Terra Review", upstreamModelId: "gpt-5.6-terra" },
     { id: "gpt-5.6-luna", name: "GPT 5.6 Luna" },
-    { id: "gpt-5.6-luna-review", name: "GPT 5.6 Luna Review", upstreamModelId: "gpt-5.6-luna", quotaFamily: "review" },
+    { id: "gpt-5.6-luna-review", name: "GPT 5.6 Luna Review", upstreamModelId: "gpt-5.6-luna" },
     { id: "gpt-5.5", name: "GPT 5.5" },
-    { id: "gpt-5.5-review", name: "GPT 5.5 Review", upstreamModelId: "gpt-5.5", quotaFamily: "review" },
+    { id: "gpt-5.5-review", name: "GPT 5.5 Review", upstreamModelId: "gpt-5.5" },
     { id: "gpt-5.4", name: "GPT 5.4" },
-    { id: "gpt-5.4-review", name: "GPT 5.4 Review", upstreamModelId: "gpt-5.4", quotaFamily: "review" },
+    { id: "gpt-5.4-review", name: "GPT 5.4 Review", upstreamModelId: "gpt-5.4" },
     { id: "gpt-5.4-mini", name: "GPT 5.4 Mini" },
-    { id: "gpt-5.4-mini-review", name: "GPT 5.4 Mini Review", upstreamModelId: "gpt-5.4-mini", quotaFamily: "review" },
+    { id: "gpt-5.4-mini-review", name: "GPT 5.4 Mini Review", upstreamModelId: "gpt-5.4-mini" },
     { id: "gpt-5.3-codex-spark", name: "GPT 5.3 Codex Spark" },
-    { id: "gpt-5.3-codex-spark-review", name: "GPT 5.3 Codex Spark Review", upstreamModelId: "gpt-5.3-codex-spark", quotaFamily: "review" },
+    { id: "gpt-5.3-codex-spark-review", name: "GPT 5.3 Codex Spark Review", upstreamModelId: "gpt-5.3-codex-spark" },
     // Codex CLI's auto-review virtual model. Unlike the "-review" variants above it is not derived
     // from a base model, so it is forwarded verbatim instead of having "-review" stripped (#1398).
-    { id: "codex-auto-review", name: "Codex Auto Review", upstreamModelId: "codex-auto-review", quotaFamily: "review" },
+    { id: "codex-auto-review", name: "Codex Auto Review", upstreamModelId: "codex-auto-review" },
     { id: "gpt-image-2.5", name: "GPT Image 2.5", capabilities: ["text2img","edit","multiImage"], params: ["size","quality","background","image_detail","output_format"], kind: "image" },
     { id: "gpt-image-2.5-flare", name: "GPT Image 2.5 Flare", capabilities: ["text2img","edit","multiImage"], params: ["size","quality","background","image_detail","output_format"], kind: "image" },
     { id: "gpt-image-2.5-sunburst", name: "GPT Image 2.5 Sunburst", capabilities: ["text2img","edit","multiImage"], params: ["size","quality","background","image_detail","output_format"], kind: "image" },

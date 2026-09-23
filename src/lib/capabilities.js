@@ -98,6 +98,10 @@ export async function buildCapabilities({ apiKey = null } = {}) {
       model_names: true,
       model_providers: true,
       model_aliases: true,
+      // Level/mode variant ids ("gpt-5.5-review") fold into their base entry's
+      // thinking_levels, parameters.modes and `variants`; ?variants=expand lists them.
+      variants: settings?.catalog?.variants === "expand" ? "expand" : "collapse",
+      variants_query: "variants",
     },
   };
 }
