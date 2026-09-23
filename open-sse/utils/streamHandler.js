@@ -98,10 +98,48 @@ export function createStreamController({ onDisconnect, onError, log, provider, m
  * for long periods while raw bytes still flow (e.g. Kiro EventStream
  * binary frames buffering, Claude reasoning streams).
  */
-export function createDisconnectAwareStream(transformStream, streamController, onAbortTerminal = null) {
+const KEEPALIVE_BYTES = new TextEncoder().encode(": keepalive\n\n");
+const KEEPALIVE_TICK = Symbol("keepalive");
+
+// Whether the bytes sent so far end on an SSE event boundary, where a comment
+// line can go without splitting an event.
+function endsAtEventBoundary(chunk) {
+  if (!chunk) return true;
+  if (typeof chunk === "string") return chunk.endsWith("\n\n");
+  const n = chunk.byteLength;
+  return n >= 2 && chunk[n - 1] === 10 && chunk[n - 2] === 10;
+}
+
+/**
+ * @param {object} [options]
+ * @param {number} [options.keepaliveMs] - send an SSE comment when the upstream is silent this long (0 = off)
+ * @param {function} [options.onTerminate] - called once when the client goes away or the stream errors,
+ *   so usage read so far can still be recorded
+ */
+export function createDisconnectAwareStream(transformStream, streamController, onAbortTerminal = null, { keepaliveMs = 0, onTerminate = null } = {}) {
   const reader = transformStream.readable.getReader();
   const writer = transformStream.writable.getWriter();
   let terminalEmitted = false;
+  let pendingRead = null;
+  let atBoundary = true;
+  let terminated = false;
+  const terminate = () => {
+    if (terminated || !onTerminate) return;
+    terminated = true;
+    try { onTerminate(); } catch { /* best-effort usage */ }
+  };
+  const nextRead = () => {
+    const read = pendingRead || reader.read();
+    pendingRead = null;
+    if (!keepaliveMs || !atBoundary) return read;
+    let timer;
+    const tick = new Promise((resolve) => { timer = setTimeout(() => resolve(KEEPALIVE_TICK), keepaliveMs); });
+    return Promise.race([read, tick]).then((result) => {
+      clearTimeout(timer);
+      if (result === KEEPALIVE_TICK) pendingRead = read;
+      return result;
+    }, (error) => { clearTimeout(timer); throw error; });
+  };
 
   // Emit a synthesized terminal payload (e.g. Responses response.failed + [DONE]) once
   const emitTerminal = (controller) => {
@@ -116,21 +154,29 @@ export function createDisconnectAwareStream(transformStream, streamController, o
   return new ReadableStream({
     async pull(controller) {
       if (!streamController.isConnected()) {
+        terminate();
         emitTerminal(controller);
         controller.close();
         return;
       }
 
       try {
-        const { done, value } = await reader.read();
+        const result = await nextRead();
+        if (result === KEEPALIVE_TICK) {
+          controller.enqueue(KEEPALIVE_BYTES);
+          return;
+        }
+        const { done, value } = result;
 
         if (done) {
           streamController.handleComplete();
           controller.close();
           return;
         }
+        atBoundary = endsAtEventBoundary(value);
         controller.enqueue(value);
       } catch (error) {
+        terminate();
         const wasConnected = streamController.isConnected();
         // Controller already closed = downstream ended; not an upstream error, skip noisy log.
         const msg0 = error?.message || "";
@@ -170,6 +216,7 @@ export function createDisconnectAwareStream(transformStream, streamController, o
 
     cancel(reason) {
       streamController.handleDisconnect(reason || "cancelled");
+      terminate();
       reader.cancel();
       writer.abort();
     }
@@ -193,7 +240,7 @@ export function createDisconnectAwareStream(transformStream, streamController, o
  * @param {object} streamController - Stream controller from createStreamController
  * @param {function|null} reconnect - Opens another provider response before any byte was forwarded
  */
-export function pipeWithDisconnect({ providerResponse, transformStream, streamController, onAbortTerminal = null, stallTimeoutMs = STREAM_STALL_TIMEOUT_MS, reconnect = null }) {
+export function pipeWithDisconnect({ providerResponse, transformStream, streamController, onAbortTerminal = null, stallTimeoutMs = STREAM_STALL_TIMEOUT_MS, reconnect = null, keepaliveMs = 0, onTerminate = null }) {
   let stallTimer = null;
   let chunkCount = 0;
   let totalBytes = 0;
@@ -253,7 +300,8 @@ export function pipeWithDisconnect({ providerResponse, transformStream, streamCo
   return createDisconnectAwareStream(
     { readable: transformedBody, writable: { getWriter: () => ({ abort: () => Promise.resolve() }) } },
     wrappedController,
-    onAbortTerminal
+    onAbortTerminal,
+    { keepaliveMs, onTerminate }
   );
 }
 function reconnectBeforeFirstByte(providerResponse, reconnect) {

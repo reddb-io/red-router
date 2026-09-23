@@ -3,7 +3,7 @@ import { needsTranslation } from "../../translator/index.js";
 import { createSSETransformStreamWithLogger, createPassthroughStreamWithLogger } from "../../utils/stream.js";
 import { pipeWithDisconnect } from "../../utils/streamHandler.js";
 import { PROVIDERS } from "../../config/providers.js";
-import { HTTP_STATUS, STREAM_STALL_TIMEOUT_MS } from "../../config/runtimeConfig.js";
+import { HTTP_STATUS, STREAM_KEEPALIVE_MS, STREAM_STALL_TIMEOUT_MS } from "../../config/runtimeConfig.js";
 import { buildAbortedResponsesTerminalBytes } from "../../utils/responsesStreamHelpers.js";
 import { createErrorResult, sanitizePublicMessage } from "../../utils/error.js";
 import { buildRequestDetail, extractRequestConfig, saveUsageStats, formatDoneLine } from "./requestDetail.js";
@@ -141,6 +141,9 @@ export async function handleStreamingResponse({ providerResponse, reconnect, pro
     onAbortTerminal,
     stallTimeoutMs,
     reconnect,
+    // NDJSON (Ollama) clients cannot take an SSE comment line.
+    keepaliveMs: sourceFormat === FORMATS.OLLAMA ? 0 : STREAM_KEEPALIVE_MS,
+    onTerminate: () => transformStream.finalizeAborted?.(),
   });
 
   saveRequestDetail(buildRequestDetail({
@@ -179,7 +182,7 @@ export async function handleStreamingResponse({ providerResponse, reconnect, pro
 export function buildOnStreamComplete({ provider, model, connectionId, apiKey, requestStartTime, body, stream, finalBody, translatedBody, clientRawRequest, pxpipe, decision, reqTag, log }) {
   const streamDetailId = `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
 
-  const onStreamComplete = (contentObj, usage, ttftAt) => {
+  const onStreamComplete = (contentObj, usage, ttftAt, { aborted = false } = {}) => {
     const latency = {
       ttft: ttftAt ? ttftAt - requestStartTime : Date.now() - requestStartTime,
       total: Date.now() - requestStartTime
@@ -201,7 +204,8 @@ export function buildOnStreamComplete({ provider, model, connectionId, apiKey, r
       response: { content: safeContent, thinking: safeThinking, tool_calls: toolCalls, type: "streaming" },
       pxpipe,
       decision,
-      status: "success"
+      // The client disconnected (or the upstream broke) before the stream ended.
+      status: aborted ? "aborted" : "success"
     }, { id: streamDetailId })).catch(err => {
       console.error("[RequestDetail] Failed to update streaming content:", err.message);
     });

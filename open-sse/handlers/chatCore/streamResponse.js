@@ -1,6 +1,7 @@
-import { HTTP_STATUS, STREAM_EMPTY_RESPONSE_MAX_RETRIES } from "../../config/runtimeConfig.js";
+import { HTTP_STATUS, STREAM_EMPTY_RESPONSE_MAX_RETRIES, STREAM_READ_AHEAD_MAX_BYTES, STREAM_READ_AHEAD_MS } from "../../config/runtimeConfig.js";
 import { parseUpstreamError, sanitizePublicMessage } from "../../utils/error.js";
 import { FORMATS } from "../../translator/formats.js";
+import { createStreamProbe, looksLikeSSE } from "./streamProbe.js";
 
 const EXTRA_STREAM_CONTENT_TYPES = {
   [FORMATS.OLLAMA]: ["application/x-ndjson"],
@@ -12,17 +13,21 @@ function isStreamContentType(contentType, targetFormat) {
   return (EXTRA_STREAM_CONTENT_TYPES[targetFormat] || []).some((type) => contentType.includes(type));
 }
 
-function responseWithReader(response, reader, firstChunk) {
-  let first = firstChunk;
+// Replays the chunks read ahead, then a read left pending by the read-ahead
+// deadline, then the rest of the upstream body.
+function responseWithReader(response, reader, heldChunks, pendingRead = null) {
+  const held = [...heldChunks];
+  let pending = pendingRead;
   const body = new ReadableStream({
     async pull(controller) {
-      if (first !== undefined) {
-        controller.enqueue(first);
-        first = undefined;
+      if (held.length) {
+        controller.enqueue(held.shift());
         return;
       }
       try {
-        const { done, value } = await reader.read();
+        const read = pending || reader.read();
+        pending = null;
+        const { done, value } = await read;
         if (done) controller.close();
         else controller.enqueue(value);
       } catch (error) {
@@ -78,6 +83,45 @@ async function validateStreamingResponse(response, { executor, targetFormat }) {
   return { response };
 }
 
+const READ_AHEAD_TIMEOUT = Symbol("read-ahead timeout");
+
+function readWithin(read, ms) {
+  let timer;
+  const timeout = new Promise((resolve) => { timer = setTimeout(() => resolve(READ_AHEAD_TIMEOUT), ms); });
+  return Promise.race([read, timeout]).finally(() => clearTimeout(timer));
+}
+
+/**
+ * Read an SSE body until its first event that answers something. Returns the
+ * chunks read (to replay), and a verdict: "answer" (release), "error" (an in-band
+ * failure) or "empty" (EOF before any answer). Non-SSE bodies, the byte cap and
+ * the deadline all release the stream as is.
+ */
+async function readAhead(reader, firstChunk, { readAheadMs, maxBytes, signal }) {
+  const chunks = [firstChunk];
+  const decoder = new TextDecoder();
+  const textOf = (chunk) => (typeof chunk === "string" ? chunk : decoder.decode(chunk, { stream: true }));
+  const firstText = textOf(firstChunk);
+  if (!looksLikeSSE(firstText)) return { kind: "answer", chunks };
+  const probe = createStreamProbe();
+  let verdict = probe.push(firstText);
+  let bytes = firstChunk.byteLength ?? firstChunk.length ?? 0;
+  const deadline = Date.now() + readAheadMs;
+  while (verdict.kind === "pending") {
+    const remaining = deadline - Date.now();
+    if (bytes > maxBytes || remaining <= 0) return { kind: "answer", chunks };
+    const read = reader.read();
+    const result = await readWithin(read, remaining);
+    if (result === READ_AHEAD_TIMEOUT) return { kind: "answer", chunks, pendingRead: read };
+    if (signal?.aborted) throw new DOMException("Request aborted", "AbortError");
+    if (result.done) return { kind: "empty", chunks };
+    chunks.push(result.value);
+    bytes += result.value?.byteLength ?? result.value?.length ?? 0;
+    verdict = probe.push(textOf(result.value));
+  }
+  return { ...verdict, chunks };
+}
+
 /**
  * Validate a streaming response and acquire its first byte before callers
  * commit status/headers. Empty/read-failed bodies are retried; HTTP and JSON
@@ -90,6 +134,8 @@ export async function prepareStreamingResponse({
   targetFormat,
   signal,
   maxRetries = STREAM_EMPTY_RESPONSE_MAX_RETRIES,
+  readAheadMs = STREAM_READ_AHEAD_MS,
+  maxReadAheadBytes = STREAM_READ_AHEAD_MAX_BYTES,
   log,
   provider,
   model,
@@ -108,9 +154,21 @@ export async function prepareStreamingResponse({
     }
 
     const reader = response.body.getReader();
+    let emptyMessage = "Upstream stream ended before its first byte";
     try {
       const { done, value } = await reader.read();
-      if (!done) return { ...result, response: responseWithReader(response, reader, value) };
+      if (!done) {
+        const ahead = await readAhead(reader, value, { readAheadMs, maxBytes: maxReadAheadBytes, signal });
+        if (ahead.kind === "answer") return { ...result, response: responseWithReader(response, reader, ahead.chunks, ahead.pendingRead) };
+        if (ahead.kind === "error") {
+          await reader.cancel("in-band upstream error").catch(() => {});
+          log?.warn?.("STREAM", `in-band error before any answer · ${provider}/${model} · ${ahead.statusCode} ${ahead.message}`);
+          return { ...result, error: { statusCode: ahead.statusCode, message: ahead.message } };
+        }
+        // EOF after only preamble events (role chunk, choices:null, message_start):
+        // the same transient failure as an empty body.
+        emptyMessage = "Upstream stream ended without any content";
+      }
     } catch (error) {
       await reader.cancel(error).catch(() => {});
       if (signal?.aborted) throw new DOMException("Request aborted", "AbortError");
@@ -124,7 +182,7 @@ export async function prepareStreamingResponse({
 
     await reader.cancel("empty upstream stream").catch(() => {});
     if (attempt >= maxRetries) {
-      return { ...result, error: { statusCode: HTTP_STATUS.BAD_GATEWAY, message: "Upstream stream ended before its first byte" } };
+      return { ...result, error: { statusCode: HTTP_STATUS.BAD_GATEWAY, message: emptyMessage } };
     }
     log?.warn?.("STREAM", `retrying empty stream ${attempt + 1}/${maxRetries} · ${provider}/${model}`);
     result = await execute();
