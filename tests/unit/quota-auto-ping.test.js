@@ -47,7 +47,11 @@ vi.mock("@/shared/constants/config", () => ({
 }));
 
 vi.mock("open-sse/providers/shared.js", () => ({
-  CLAUDE_CLI_SPOOF_HEADERS: { "anthropic-version": "2023-06-01" },
+  CLAUDE_CLI_VERSION: "2.1.0",
+  CLAUDE_CLI_SPOOF_HEADERS: {
+    "anthropic-version": "2023-06-01",
+    "User-Agent": "claude-cli/2.1.0 (external, sdk-cli)",
+  },
 }));
 
 vi.mock("open-sse/services/usage/shared.js", () => ({
@@ -82,6 +86,8 @@ describe("quota auto-ping", () => {
 
   beforeEach(async () => {
     vi.resetModules();
+    vi.unstubAllEnvs();
+    vi.stubEnv("RED_ROUTER_CLAUDE_CODE_VERSION", "");
     vi.clearAllMocks();
     vi.useRealTimers();
     delete global.__quotaAutoPing;
@@ -368,5 +374,45 @@ describe("quota auto-ping", () => {
       max_tokens: 1,
       messages: [{ role: "user", content: "hi" }],
     });
+  });
+
+  function claudePingUserAgent() {
+    return deps.proxyAwareFetch.mock.calls[0][1].headers["User-Agent"];
+  }
+
+  async function runClaudePing() {
+    deps.getSettings.mockResolvedValue({ claudeAutoPing: { connections: { "claude-1": true } } });
+    deps.getProviderConnections.mockImplementation(async ({ provider }) => (
+      provider === "claude" ? [{ id: "claude-1", provider: "claude", authType: "oauth", accessToken: "token" }] : []
+    ));
+    getClaudeUsage.mockResolvedValue({
+      quotas: { "session (5h)": { resetAt: "2026-01-01T11:59:00.000Z" } },
+    });
+    await runQuotaAutoPingTick(deps, state);
+    expect(deps.proxyAwareFetch).toHaveBeenCalledTimes(1);
+  }
+
+  it("advertises the built-in Claude Code version when nothing was adopted", async () => {
+    await runClaudePing();
+    expect(claudePingUserAgent()).toBe("claude-cli/2.1.0 (external, sdk-cli)");
+  });
+
+  it("advertises the Claude Code version adopted from an upstream error", async () => {
+    const { adoptClaudeCodeVersion } = await import("open-sse/utils/claudeCodeVersion.js");
+    expect(adoptClaudeCodeVersion("2.9.3")).toBe(true);
+
+    await runClaudePing();
+
+    expect(claudePingUserAgent()).toBe("claude-cli/2.9.3 (external, sdk-cli)");
+  });
+
+  it("lets the RED_ROUTER_CLAUDE_CODE_VERSION pin win over an adopted version", async () => {
+    const { adoptClaudeCodeVersion } = await import("open-sse/utils/claudeCodeVersion.js");
+    adoptClaudeCodeVersion("2.9.3");
+    vi.stubEnv("RED_ROUTER_CLAUDE_CODE_VERSION", "2.5.0");
+
+    await runClaudePing();
+
+    expect(claudePingUserAgent()).toBe("claude-cli/2.5.0 (external, sdk-cli)");
   });
 });
