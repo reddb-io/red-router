@@ -30,6 +30,8 @@ export const UNSUPPORTED_SCHEMA_CONSTRAINTS = [
   "dependencies", "dependentSchemas", "dependentRequired",
   // Other unsupported keywords
   "title", "optional", "deprecated", "if", "then", "else", "contentMediaType", "contentEncoding",
+  // ajv-errors' custom message keyword (upstream #4283: "Unknown name errorMessage")
+  "errorMessage",
   // UI/Styling properties (from Cursor tools - NOT JSON Schema standard)
   "cornerRadius", "fillColor", "fontFamily", "fontSize", "fontWeight",
   "gap", "padding", "strokeColor", "strokeThickness", "textColor"
@@ -136,8 +138,10 @@ export function generateProjectId() {
 }
 
 // Helper: Remove unsupported keywords recursively from object/array
-// Also strips all vendor extension fields (x- prefixed) not supported by Gemini
-function removeUnsupportedKeywords(obj, keywords) {
+// Also strips all vendor extension fields (x- prefixed) not supported by Gemini.
+// The keys of a `properties` map are parameter NAMES, not keywords: a tool
+// parameter called `title`, `format`, `default` or `errorMessage` must survive.
+function removeUnsupportedKeywords(obj, keywords, isPropertiesMap = false) {
   if (!obj || typeof obj !== "object") return;
 
   if (Array.isArray(obj)) {
@@ -148,14 +152,15 @@ function removeUnsupportedKeywords(obj, keywords) {
   }
 
   for (const key of Object.keys(obj)) {
-    if (keywords.includes(key) || key.startsWith("x-")) {
+    if (!isPropertiesMap && (keywords.includes(key) || key.startsWith("x-"))) {
       delete obj[key];
       continue;
     }
 
     const value = obj[key];
     if (value && typeof value === "object") {
-      removeUnsupportedKeywords(value, keywords);
+      const nestedIsMap = !isPropertiesMap && key === "properties" && !Array.isArray(value);
+      removeUnsupportedKeywords(value, keywords, nestedIsMap);
     }
   }
 }
