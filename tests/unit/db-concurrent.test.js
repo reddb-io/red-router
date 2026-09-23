@@ -34,19 +34,19 @@ describe("DB Concurrency — atomic safety", () => {
     const promises = [];
     for (let i = 0; i < N; i++) {
       promises.push(db.saveRequestUsage({
-        provider: "openai", model: "gpt-4", connectionId: "c1",
+        provider: "conc-usage", model: "gpt-4", connectionId: "c1",
         tokens: { prompt_tokens: 10, completion_tokens: 5 },
         endpoint: "/v1/chat", status: "ok", timestamp: distinctTs(),
       }));
     }
     await Promise.all(promises);
 
+    // Own provider id: other tests in this file write usage to the same DB.
     const stats = await db.getUsageStats("24h");
-    expect(stats.totalRequests).toBe(N);
-    expect(stats.byProvider.openai.requests).toBe(N);
-    expect(stats.byProvider.openai.promptTokens).toBe(N * 10);
+    expect(stats.byProvider["conc-usage"].requests).toBe(N);
+    expect(stats.byProvider["conc-usage"].promptTokens).toBe(N * 10);
 
-    const hist = await db.getUsageHistory({ provider: "openai" });
+    const hist = await db.getUsageHistory({ provider: "conc-usage" });
     expect(hist.length).toBe(N);
   });
 

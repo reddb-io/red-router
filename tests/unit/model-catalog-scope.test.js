@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -27,22 +27,38 @@ const entries = [
   { provider: "kimi", model: "kimi-k3", current: { contextWindow: 128000, maxOutput: 32000 } },
 ];
 
-let build, getCatalogModalities, invalidateCatalog, syncModelCatalog, startModelCatalogSync, capabilities;
+let build, getCatalogModalities, invalidateCatalog, syncModelCatalog, startModelCatalogSync, stopModelCatalogSync, capabilities;
 
 beforeAll(async () => {
-  ({ build, syncModelCatalog, startModelCatalogSync } = await import("../../src/lib/modelCatalog/sync.js"));
+  ({ build, syncModelCatalog, startModelCatalogSync, stopModelCatalogSync } = await import("../../src/lib/modelCatalog/sync.js"));
   // the builder is exercised directly; a missing export must fail loudly here
   // rather than skip every case below
   expect(typeof build).toBe("function");
-  const { models, providers } = build(upstream, entries);
-  fs.writeFileSync(catalogFile, JSON.stringify({ v: 2, models, providers }));
   ({ getCatalogModalities, invalidateCatalog } = await import("../../open-sse/providers/catalogOverride.js"));
   capabilities = await import("../../open-sse/providers/capabilities.js");
 });
 
+// Every test starts from the same scoped file, whatever an earlier one wrote.
+function writeCurrentCatalog(extra = {}) {
+  const { models, providers } = build(upstream, entries);
+  fs.writeFileSync(catalogFile, JSON.stringify({ v: 2, models, providers, ...extra }));
+  invalidateCatalog();
+}
+
+beforeEach(() => {
+  writeCurrentCatalog();
+});
+
 afterAll(() => {
+  stopModelCatalogSync();
   fs.rmSync(dataDir, { recursive: true, force: true });
 });
+
+// Re-read the file's etag and schema the way a restart does.
+function restartSync() {
+  stopModelCatalogSync();
+  startModelCatalogSync();
+}
 
 describe("model catalog", () => {
   it("keys modalities by gateway and writes no model-only key", () => {
@@ -138,7 +154,7 @@ describe("catalog schema", () => {
   it("rebuilds an older-schema file instead of trusting its etag", async () => {
     fs.writeFileSync(catalogFile, JSON.stringify({ v: 1, etag: 'W/"old"', models: {}, providers: {} }));
     invalidateCatalog();
-    startModelCatalogSync();   // picks the file's etag + schema version back up
+    restartSync();   // picks the file's etag + schema version back up
 
     const sent = [];
     const realFetch = globalThis.fetch;
@@ -158,6 +174,8 @@ describe("catalog schema", () => {
   });
 
   it("asks upstream for a 304 once the file is current", async () => {
+    writeCurrentCatalog({ etag: 'W/"new"' });
+    restartSync();
     const sent = [];
     const realFetch = globalThis.fetch;
     globalThis.fetch = async (_url, options) => {

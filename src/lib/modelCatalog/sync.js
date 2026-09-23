@@ -323,6 +323,12 @@ function restoreEtag() {
   }
 }
 
+/** Cancel the scheduled sync (shutdown, tests). A later start re-reads the file's etag. */
+export function stopModelCatalogSync() {
+  if (timer) clearTimeout(timer);
+  timer = null;
+}
+
 // Schedule the recurring sync. Disable entirely with MODEL_CATALOG_SYNC=off.
 export function startModelCatalogSync() {
   if (timer) return;
