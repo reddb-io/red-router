@@ -1,5 +1,36 @@
 # @reddb-io/red-router
 
+## 0.21.1
+
+### Patch Changes
+
+- 32fa7ac: Dashboard fixes.
+  
+  - **Request details.** The request-details view no longer crashes when a response's content or thinking is an array of blocks.
+  - **Account order.** Reordering the accounts of a provider now saves the whole order at once, with priorities starting at 1. Before, it wrote two 0-based priorities in parallel, so whichever landed last won. With the owner filter active, it also moved the wrong rows. Accounts the user cannot see keep their place, and shared accounts stay admin-managed.
+- 46ff592: Gemini, Gemini CLI, Vertex and Antigravity fixes.
+  
+  - **Reused tool-call ids.** A client that reuses a tool-call id across turns no longer breaks the request. Each result is paired with its own call, and a repeated id is sent to Gemini as `<id>#<n>`. Before, every earlier turn got the last turn's result and name, and Gemini rejected the request.
+  - **`errorMessage` in tool schemas.** It is now removed from tool schemas, where Gemini rejected it with "Unknown name errorMessage".
+  - **Parameters named like schema keywords.** Tool parameters named `title`, `format`, `default` or `errorMessage` are no longer deleted as if they were schema keywords.
+- 6fe1efa: Provider fixes.
+  
+  - **Kiro IDC.** IDC accounts find their profile again, in their own AWS region. The old lookup used a retired endpoint pinned to us-east-1, which failed with "profileArn is required".
+  - **Proxy relay.** Relay and DNS-bypass requests no longer drop request headers (auth, content type) when they arrive as a `Headers` object.
+  - **DNS bypass.** The bypass for MITM-intercepted hosts runs only when the system DNS actually redirects the host to a local address. The Google DNS lookup has a 2 s timeout, the bypass connection a 10 s connect timeout, and any failure falls back to a normal fetch. This fixes hangs on networks that block 8.8.8.8 or use split-horizon DNS.
+  - **Cline.** Cline and ClinePass now always stream, and the older `{data:{choices}}` reply shape is unwrapped.
+  - **Xiaomi MiMo.**
+    - The retired `mimo-x-*-preview` models are replaced by `mimo-v2.6-pro`, `mimo-v2.6-flash` and `mimo-v2.6-pro-ultraspeed`, served through the account route.
+    - The old preview ids still work: they map to their v2.6 successors.
+- d0bafc1: Security and routing fixes.
+  
+  - **`/v1/systemone` now enforces the API key's rules.** It applies the key's request/token/spend limits (429 with Retry-After) and its model allow/deny rules (403); before, any valid key could bypass both. The router's own smart-combo classifier call is exempt, since its chat request already passed them.
+  - **Usage statistics no longer expose API keys.** The 7-day, 30-day and "all" views sent the full key inside `/api/usage/stats`, `/history` and `/stream`. Rows are now identified by the key's id (or a hash). Two keys whose masked forms match are no longer merged into one row.
+  - **A combo tries its next member when the model itself is the problem.** Status 410, 406, or a 400/404/422 saying the model is not found, not supported, retired or not served on this endpoint, no longer end the combo. A request error that every member would repeat, such as a context overflow or a bad parameter, still ends it.
+  - **Account cooldowns escalate as intended.** A streak of 429s now backs off further each time; before, every 429 locked the account for the same 2 s. A single 5xx right after a success locks the model for 5 s instead of 30 s, and repeated 5xx still get the full cooldown.
+  - **Auto combos no longer ask JEV about unusable members.** A member whose accounts are all locked, missing, or outside the calling key is left out of the decision, and stays at the back as a fallback.
+  - **Subscription accounts count as free in the auto-combo cost ranking.** A member served by a subscription account (OAuth, web cookie, free) costs 0 there.
+
 ## 0.21.0
 
 ### Minor Changes
