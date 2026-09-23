@@ -189,6 +189,8 @@ describe("bounded private rotating log", () => {
     expect(fs.readFileSync(path.join(`${file}.lock.recovery`, "owner"), "utf8")).toBe(String(process.pid));
   });
 
+  // What is under test is serialization, not speed: the default 200 ms wait drops
+  // a line on a loaded machine by design, so the writers here wait as long as needed.
   it("serializes concurrent processes without interleaved or dropped records", async () => {
     const file = path.join(temporary(), "red-router.log");
     // All contenders initially observe the same abandoned writer/recovery guard.
@@ -197,7 +199,7 @@ describe("bounded private rotating log", () => {
       fs.writeFileSync(path.join(`${file}${suffix}`, "owner"), "2147483646");
     }
     await Promise.all(Array.from({ length: 4 }, (_, index) => new Promise((resolve, reject) => {
-      const program = `const {createDiagnostics}=require(${JSON.stringify(modulePath)});const log=createDiagnostics({file:${JSON.stringify(file)}});for(let n=0;n<100;n++)if(!log.append("worker",${JSON.stringify(`worker-${index}:`)}+n))process.exitCode=1;`;
+      const program = `const {createDiagnostics}=require(${JSON.stringify(modulePath)});const log=createDiagnostics({file:${JSON.stringify(file)},lockWaitMs:60000});for(let n=0;n<100;n++)if(!log.append("worker",${JSON.stringify(`worker-${index}:`)}+n))process.exitCode=1;`;
       const child = spawn(process.execPath, ["-e", program], { stdio: ["ignore", "ignore", "pipe"] });
       let errors = "";
       child.stderr.on("data", (data) => { errors += data; });
