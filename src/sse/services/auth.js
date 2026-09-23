@@ -5,7 +5,8 @@ import { classifyRoutingReason, publicStatusForReason, sanitizePublicMessage } f
 import { resolveProviderId, FREE_PROVIDERS } from "@/shared/constants/providers.js";
 import { getAntigravityQuotaCache } from "./antigravityQuota.js";
 import { orderByQuota } from "./quotaSnapshot.js";
-import { rankByHealth, recordFailure } from "open-sse/services/providerHealth.js";
+import { rankByHealth, recordFailure, consecutiveFailuresOf } from "open-sse/services/providerHealth.js";
+import { FIRST_5XX_COOLDOWN_MS } from "open-sse/config/errorConfig.js";
 import * as log from "../utils/logger.js";
 
 // Share of `health` picks that try another healthy account, so one that got
@@ -362,6 +363,12 @@ export async function markAccountUnavailable(connectionId, status, errorText, pr
     ({ shouldFallback, cooldownMs, newBackoffLevel } = checkFallbackError(status, errorText, backoffLevel));
   }
   if (!shouldFallback) return { shouldFallback: false, cooldownMs: 0 };
+  // A 5xx right after a success is usually a blip: a short lock, escalating only
+  // when it repeats (the health entry counts failures since the last success).
+  if (Number(status) >= 500 && !githubResetAtMs && !(resetsAtMs && resetsAtMs > Date.now())
+    && consecutiveFailuresOf(connectionId, model) === 0) {
+    cooldownMs = Math.min(cooldownMs, FIRST_5XX_COOLDOWN_MS);
+  }
   // Request-scoped errors returned above; this one counts against the account.
   recordFailure({ provider, connectionId, model });
 

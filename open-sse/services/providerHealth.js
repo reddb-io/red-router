@@ -81,6 +81,11 @@ export function breakerState(entry, now = Date.now()) {
   return entry.openUntil > now ? "open" : "half-open";
 }
 
+/** Failures in a row on this account/model since its last success (0 when unknown). */
+export function consecutiveFailuresOf(connectionId, model = null) {
+  return state.entries.get(keyOf(connectionId, model))?.consecutiveFailures || 0;
+}
+
 export function getHealth(connectionId, model = null, now = Date.now()) {
   const entry = state.entries.get(keyOf(connectionId, model));
   if (!entry) return null;

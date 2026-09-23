@@ -610,7 +610,13 @@ export async function handleChatCore({ body, modelInfo, credentials, log, errorC
         cooldownAtMs = Date.now() + cooldownMs;
       }
     }
-    return createErrorResult(statusCode, errMsg, cooldownAtMs, { ...errorContext, provider, model });
+    const errorResult = createErrorResult(statusCode, errMsg, cooldownAtMs, { ...errorContext, provider, model });
+    // The locally computed cooldown is only the client's Retry-After. The account
+    // lock gets the upstream's own reset or nothing, so markAccountUnavailable
+    // applies the account's backoff level (a 429 streak escalates; before, this
+    // value overrode it and every 429 locked for the same 2 s).
+    errorResult.resetsAtMs = Number.isFinite(resetsAtMs) ? resetsAtMs : null;
+    return errorResult;
   }
 
   // Acquire and validate the first upstream byte before committing a streaming

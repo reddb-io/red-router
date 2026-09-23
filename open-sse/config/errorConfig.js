@@ -41,6 +41,9 @@ export const BACKOFF_CONFIG = {
 };
 
 export const TRANSIENT_COOLDOWN_MS = 30 * 1000;
+// The first 5xx after a success locks the model this long instead of the full
+// transient cooldown; repeats escalate. One upstream blip should not cost 30 s.
+export const FIRST_5XX_COOLDOWN_MS = 5 * 1000;
 export const MAX_RATE_LIMIT_COOLDOWN_MS = 8 * 24 * 60 * 60 * 1000;
 
 const COOLDOWN = {

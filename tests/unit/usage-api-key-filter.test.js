@@ -50,8 +50,20 @@ describe("usage stats — API key filter", () => {
     expect(keyNames(stats)).toEqual(["sk-bbbbb***bbbb"]);
   });
 
-  it("never returns the raw key", async () => {
-    const stats = await usageRepo.getUsageStats("today", { apiKey: KEY_A });
-    expect(JSON.stringify(stats)).not.toContain(KEY_A);
+  // The rollup periods keyed byApiKey rows by the raw key, so the full key went
+  // out in the stats JSON as an object key. Every period, filtered or not.
+  it.each(["today", "24h", "7d", "30d", "60d", "all"])("never returns a raw key (%s)", async (period) => {
+    for (const options of [{}, { apiKey: KEY_A }]) {
+      const json = JSON.stringify(await usageRepo.getUsageStats(period, options));
+      expect(json).not.toContain(KEY_A);
+      expect(json).not.toContain(KEY_B);
+    }
+  });
+
+  it("keys rows by an opaque reference that keeps two keys apart", async () => {
+    const stats = await usageRepo.getUsageStats("7d");
+    const keys = Object.keys(stats.byApiKey);
+    expect(keys.every((k) => k.startsWith("key_") || k.startsWith("local-no-key"))).toBe(true);
+    expect(new Set(keys.map((k) => k.split("|")[0])).size).toBe(2);
   });
 });

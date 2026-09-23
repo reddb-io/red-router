@@ -23,6 +23,26 @@ export function getQuotaCooldown(backoffLevel = 0) {
  *   ``terminal`` marks a state retrying cannot fix (billing/credit exhausted) —
  *   callers should surface it instead of advertising a retry.
  */
+// Wording upstreams use when the MODEL is the problem (unknown, retired, not
+// served on this endpoint) — as opposed to the request (a bad parameter, a
+// context overflow), which another model would fail the same way.
+const MODEL_SCOPED_PATTERN = /model[_ ]not[_ ]found|model[^.]{0,60}\b(?:is not supported|not supported|does not exist|not available|has been deprecated|is deprecated|was removed|no longer (?:available|supported))|requested model is not supported|not accessible via|model service info not found|unknown model|invalid model|no such model/i;
+const REQUEST_SCOPED_PATTERN = /prefill|reasoning_effort|unsupported parameter|context[_ ]length|context window|maximum context|too many tokens|prompt is too long/i;
+
+/**
+ * Whether a failure belongs to the model, so a combo should try its next member
+ * instead of returning the error. Status 410 (gone) and 406 (not acceptable) are
+ * model-level on their own; 400/404/422 only with model wording. The accounts are
+ * not locked for it: the model is wrong, not the account.
+ */
+export function isModelScopedError(status, errorText) {
+  const text = typeof errorText === "string" ? errorText : (() => { try { return JSON.stringify(errorText); } catch { return ""; } })();
+  if (REQUEST_SCOPED_PATTERN.test(text)) return false;
+  if (status === 410 || status === 406) return true;
+  if ([400, 404, 422].includes(status)) return MODEL_SCOPED_PATTERN.test(text);
+  return false;
+}
+
 export function checkFallbackError(status, errorText, backoffLevel = 0) {
   const lowerError = errorText
     ? (typeof errorText === "string" ? errorText : JSON.stringify(errorText)).toLowerCase()
