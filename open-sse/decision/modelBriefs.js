@@ -27,6 +27,8 @@ export const MODEL_BRIEFS = {
     "Strong reasoning. Use for architecture, root-cause debugging of non-obvious bugs, race conditions, intermittent production faults, and design decisions with trade-offs.",
   "claude-opus-4.6":
     "Strong reasoning. Use for architecture, root-cause debugging of non-obvious bugs, race conditions, intermittent production faults, and design decisions with trade-offs.",
+  "claude-opus-5-5":
+    "Strong reasoning. Use for architecture, root-cause debugging of non-obvious bugs, race conditions, intermittent production faults, and design decisions with trade-offs.",
   "claude-opus-5":
     "Strong reasoning. Use for architecture, root-cause debugging of non-obvious bugs, race conditions, intermittent production faults, and design decisions with trade-offs.",
   "claude-fable-5":
