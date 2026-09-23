@@ -10,6 +10,7 @@ import { resolveProviderAlias } from "./model.js";
 import { stripThinkingSuffix } from "../translator/concerns/thinkingUnified.js";
 import { extractTextContent } from "../translator/formats/gemini.js";
 import { getSessionMember, rememberSessionMember, forgetSessionMember, preferSessionMember } from "./sessionAffinity.js";
+import { isProviderModelOpen } from "./providerHealth.js";
 
 // Hard capabilities = input modalities; missing one drops request data (e.g. image
 // stripped). Must be prioritized. Soft (e.g. search) only degrades a feature.
@@ -527,6 +528,24 @@ export function comboThinkingLevels(members) {
  *   remembered member, and the member that serves is remembered as usual
  * @returns {Promise<Response>}
  */
+/**
+ * Members whose provider/model is failing across all its accounts (its health
+ * breaker is open) move to the back, in order, so a combo stops paying a failed
+ * round-trip on them first. They stay in the chain as a last resort. A lead the
+ * request's own routing chose (`keepLead`) keeps its place.
+ */
+export function demoteFailingMembers(models, { keepLead = false, now = Date.now() } = {}) {
+  const healthy = [];
+  const failing = [];
+  models.forEach((member, index) => {
+    const slash = member.indexOf("/");
+    const failingNow = slash > 0 && !(keepLead && index === 0)
+      && isProviderModelOpen(resolveProviderAlias(member.slice(0, slash)), stripThinkingSuffix(member.slice(slash + 1)), now);
+    (failingNow ? failing : healthy).push(member);
+  });
+  return { models: healthy.length ? [...healthy, ...failing] : models, moved: healthy.length ? failing : [] };
+}
+
 export async function handleComboChat({ body, models, handleSingleModel, log, comboName, comboStrategy, comboStickyLimit = 1, autoSwitch = true, errorContext = {}, sessionKey = null, routedLead = false }) {
   const sessionMember = sessionKey && !routedLead ? getSessionMember(comboName, sessionKey) : null;
   const stickyMember = sessionMember && Array.isArray(models) && models.includes(sessionMember) ? sessionMember : null;
@@ -563,6 +582,10 @@ export async function handleComboChat({ body, models, handleSingleModel, log, co
     return contextOverflowResponse(comboName, contextFilter);
   }
   rotatedModels = contextFilter.models;
+
+  const demoted = demoteFailingMembers(rotatedModels, { keepLead: routedLead });
+  if (demoted.moved.length) log.info("COMBO", `failing providers moved last: ${demoted.moved.join(", ")}`);
+  rotatedModels = demoted.models;
 
   let bestRetry = null;
   let firstFallbackError = null;

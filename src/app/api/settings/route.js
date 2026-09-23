@@ -207,6 +207,12 @@ export async function PATCH(request) {
       resetComboRotation();
     }
 
+    if (Object.prototype.hasOwnProperty.call(body, "quotaAwareRouting")) {
+      import("@/shared/services/quotaSnapshotScheduler")
+        .then(({ configureQuotaSnapshots }) => configureQuotaSnapshots(settings))
+        .catch((error) => console.warn("[QuotaSnapshot] settings update failed:", error.message));
+    }
+
     if (
       Object.prototype.hasOwnProperty.call(body, "claudeAutoPing") ||
       Object.prototype.hasOwnProperty.call(body, "codexAutoPing")

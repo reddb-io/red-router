@@ -11,6 +11,7 @@ import { APIKEY_PROVIDERS } from "@/shared/constants/config";
 import { AI_PROVIDERS, FREE_TIER_PROVIDERS, WEB_COOKIE_PROVIDERS, isOpenAICompatibleProvider, isAnthropicCompatibleProvider, isCustomEmbeddingProvider } from "@/shared/constants/providers";
 import { normalizeProviderId, normalizeProviderSpecificData } from "@/lib/providerNormalization";
 import { getScopeFilter, getRequestIdentity, isScopeEnabled, ownerForCreate, scopeVisible } from "@/lib/auth/resourceScope";
+import { summarizeConnectionHealth } from "open-sse/services/providerHealth.js";
 import { getDisabledAccountIds } from "@/lib/db/repos/disabledAccountsRepo.js";
 import { getSettings } from "@/lib/localDb";
 import { RED_ROUTER_PROVIDER_ID } from "open-sse/config/redRouter.js";
@@ -85,6 +86,8 @@ export async function GET() {
         shared,
         readOnly: scoped && shared,
         disabledForMe: disabledForMe.has(c.id),
+        // Measured by this server since it started (see open-sse/services/providerHealth.js).
+        health: summarizeConnectionHealth(c.id),
         apiKey: undefined,
         accessToken: undefined,
         refreshToken: undefined,

@@ -4,7 +4,13 @@ import { formatRetryAfter, checkFallbackError, isModelLockActive, buildModelLock
 import { classifyRoutingReason, publicStatusForReason, sanitizePublicMessage } from "open-sse/utils/error.js";
 import { resolveProviderId, FREE_PROVIDERS } from "@/shared/constants/providers.js";
 import { getAntigravityQuotaCache } from "./antigravityQuota.js";
+import { orderByQuota } from "./quotaSnapshot.js";
+import { rankByHealth, recordFailure } from "open-sse/services/providerHealth.js";
 import * as log from "../utils/logger.js";
+
+// Share of `health` picks that try another healthy account, so one that got
+// faster again is noticed.
+const HEALTH_EXPLORE_RATE = 0.05;
 
 // Mutex to prevent race conditions during account selection
 let selectionMutex = Promise.resolve();
@@ -219,8 +225,16 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
     const providerOverride = (settings.providerStrategies || {})[providerId] || {};
     const strategy = providerOverride.fallbackStrategy || settings.fallbackStrategy || "fill-first";
 
+    // Quota-aware routing (opt-in): drop accounts whose reported quota is used up,
+    // keep the reserve, and lead with the window that resets first.
+    let candidates = availableConnections;
+    if (settings.quotaAwareRouting === true) {
+      candidates = orderByQuota(candidates, model, { reservePercent: settings.quotaReservePercent });
+    }
+
     let connection;
-    // Pin to preferred connection if specified and available
+    // Pin to preferred connection if specified and available. Pins are
+    // account-bound (e.g. polling a video job), so quota ordering does not apply.
     if (preferredConnectionId) {
       connection = availableConnections.find((c) => c.id === preferredConnectionId);
       if (connection) {
@@ -233,7 +247,7 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
       const stickyLimit = providerOverride.stickyRoundRobinLimit || settings.stickyRoundRobinLimit || 3;
 
       // Sort by lastUsed (most recent first) to find current candidate
-      const byRecency = [...availableConnections].sort((a, b) => {
+      const byRecency = [...candidates].sort((a, b) => {
         if (!a.lastUsedAt && !b.lastUsedAt) return (a.priority || 999) - (b.priority || 999);
         if (!a.lastUsedAt) return 1;
         if (!b.lastUsedAt) return -1;
@@ -253,7 +267,7 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
         });
       } else {
         // Pick the least recently used (excluding current if possible)
-        const sortedByOldest = [...availableConnections].sort((a, b) => {
+        const sortedByOldest = [...candidates].sort((a, b) => {
           if (!a.lastUsedAt && !b.lastUsedAt) return (a.priority || 999) - (b.priority || 999);
           if (!a.lastUsedAt) return -1;
           if (!b.lastUsedAt) return 1;
@@ -268,9 +282,13 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
           consecutiveUseCount: 1
         });
       }
+    } else if (strategy === "health") {
+      // Untried accounts first, then breaker, error rate and time to first token;
+      // ties keep the configured priority. 5% of picks explore another healthy one.
+      connection = rankByHealth(candidates, model, { explore: HEALTH_EXPLORE_RATE })[0];
     } else {
       // Default: fill-first (already sorted by priority in getProviderConnections)
-      connection = availableConnections[0];
+      connection = candidates[0];
     }
 
     const resolvedProxy = await resolveConnectionProxyConfig(connection.providerSpecificData || {});
@@ -341,6 +359,8 @@ export async function markAccountUnavailable(connectionId, status, errorText, pr
     ({ shouldFallback, cooldownMs, newBackoffLevel } = checkFallbackError(status, errorText, backoffLevel));
   }
   if (!shouldFallback) return { shouldFallback: false, cooldownMs: 0 };
+  // Request-scoped errors returned above; this one counts against the account.
+  recordFailure({ provider, connectionId, model });
 
   const reason = sanitizePublicMessage(errorText, "Provider temporarily unavailable");
   const retryAtMs = Date.now() + cooldownMs;

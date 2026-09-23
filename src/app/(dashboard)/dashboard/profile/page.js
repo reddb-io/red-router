@@ -307,6 +307,19 @@ export default function ProfilePage() {
     }
   };
 
+  const patchRoutingSetting = async (patch) => {
+    try {
+      const res = await fetch("/api/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+      if (res.ok) setSettings(prev => ({ ...prev, ...patch }));
+    } catch (err) {
+      console.error("Failed to update routing setting:", err);
+    }
+  };
+
   const updateComboStrategy = async (strategy) => {
     try {
       const res = await fetch("/api/settings", {
@@ -1597,6 +1610,58 @@ export default function ProfilePage() {
                   max="10"
                   value={settings.stickyRoundRobinLimit || 3}
                   onChange={(e) => updateStickyLimit(e.target.value)}
+                  disabled={loading}
+                  className="w-16 sm:w-20 text-center shrink-0"
+                />
+              </div>
+            )}
+
+            {/* Health-ranked accounts */}
+            <div className="flex items-start sm:items-center justify-between gap-4 pt-4 border-t border-border/50">
+              <div className="flex-1 min-w-0">
+                <p className="font-medium text-sm sm:text-base">Prefer Healthy Accounts</p>
+                <p className="text-xs sm:text-sm text-text-muted">
+                  Lead with the account that answers fastest and fails least for the model, measured from recent requests
+                </p>
+              </div>
+              <Toggle
+                checked={settings.fallbackStrategy === "health"}
+                onChange={() => updateFallbackStrategy(settings.fallbackStrategy === "health" ? "fill-first" : "health")}
+                disabled={loading}
+              />
+            </div>
+
+            {/* Quota-aware routing */}
+            <div className="flex items-start sm:items-center justify-between gap-4 pt-4 border-t border-border/50">
+              <div className="flex-1 min-w-0">
+                <p className="font-medium text-sm sm:text-base">Quota-Aware Routing</p>
+                <p className="text-xs sm:text-sm text-text-muted">
+                  Read each account&apos;s quota every 5 min, skip accounts that ran out, and use first the quota that resets soonest
+                </p>
+              </div>
+              <Toggle
+                checked={settings.quotaAwareRouting === true}
+                onChange={() => patchRoutingSetting({ quotaAwareRouting: settings.quotaAwareRouting !== true })}
+                disabled={loading}
+              />
+            </div>
+            {settings.quotaAwareRouting === true && (
+              <div className="flex items-start sm:items-center justify-between gap-4 pt-2 border-t border-border/50">
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium text-sm sm:text-base">Quota Reserve (%)</p>
+                  <p className="text-xs sm:text-sm text-text-muted">
+                    Accounts with less than this left are used only after the others
+                  </p>
+                </div>
+                <Input
+                  type="number"
+                  min="0"
+                  max="90"
+                  value={settings.quotaReservePercent ?? 0}
+                  onChange={(e) => {
+                    const value = Math.max(0, Math.min(90, Number(e.target.value) || 0));
+                    patchRoutingSetting({ quotaReservePercent: value });
+                  }}
                   disabled={loading}
                   className="w-16 sm:w-20 text-center shrink-0"
                 />
