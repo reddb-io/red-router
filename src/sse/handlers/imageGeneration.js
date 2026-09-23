@@ -101,7 +101,7 @@ async function handleSingleModelImage(body, modelStr, { wantsStream, binaryOutpu
   let lastStatus = null;
 
   while (true) {
-    const credentials = await getProviderCredentials(provider, excludeConnectionIds, model, { preferredConnectionId, apiKey });
+    const credentials = await getProviderCredentials(provider, excludeConnectionIds, model, { preferredConnectionId, apiKey, connectionIds: modelInfo.connectionIds });
 
     if (credentials?.noActiveCredentials || credentials?.allRateLimited) {
       return responseFromRoutingCandidate(credentials.candidate);

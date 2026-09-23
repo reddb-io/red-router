@@ -106,6 +106,13 @@ export async function buildCapabilities({ apiKey = null } = {}) {
       // recommended for the connected accounts (default, fast, review, systemone, vision).
       catalog_endpoint: "/v1/catalog",
       recommendations: true,
+      // A connection of a built-in provider may carry the user's own model prefix
+      // ("codex-work/<model>" routes to that account only); /v1/models lists the
+      // provider's models under each one, with `provider.connection` naming the account.
+      custom_prefixes: true,
+      // User model aliases are entries of their own: `owned_by: "alias"`, `alias_of`
+      // the target's id, and the target's provider, limits and parameters.
+      model_aliases_listed: true,
     },
   };
 }

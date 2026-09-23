@@ -5,6 +5,7 @@ import { getStatusVariant as getConnectionStatusVariant } from "@/shared/utils/c
 import PropTypes from "prop-types";
 import { Badge, Toggle, Tooltip } from "@/shared/components";
 import CooldownTimer from "./CooldownTimer";
+import { connectionModelPrefix } from "open-sse/providers/identity.js";
 
 export default function ConnectionRow({ connection, proxyPools, isOAuth, isFirst, isLast, onMoveUp, onMoveDown, onToggleActive, onUpdateProxy, onEdit, onDelete, oneByOneStatus = null, autoPing = null }) {
   const [showProxyDropdown, setShowProxyDropdown] = useState(false);
@@ -170,6 +171,13 @@ export default function ConnectionRow({ connection, proxyPools, isOAuth, isFirst
             <Badge variant="default" size="sm">
               {authLabel}
             </Badge>
+            {connectionModelPrefix(connection) && (
+              <span title="Model prefix: requests to this prefix use only this account">
+                <Badge variant="primary" size="sm">
+                  {connectionModelPrefix(connection)}/
+                </Badge>
+              </span>
+            )}
             {connection.owner && (
               <Badge variant="default" size="sm">
                 {connection.owner === "@admin" ? "Admin only" : connection.owner}

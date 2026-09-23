@@ -591,7 +591,7 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
   const excludeConnectionIds = new Set();
 
   while (true) {
-    const credentials = await getProviderCredentials(provider, excludeConnectionIds, model, { apiKey });
+    const credentials = await getProviderCredentials(provider, excludeConnectionIds, model, { apiKey, connectionIds: modelInfo.connectionIds });
 
     if (credentials?.noActiveCredentials) {
       log.warn("AUTH", credentials.candidate.message);

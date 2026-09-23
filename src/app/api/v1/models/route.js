@@ -5,10 +5,12 @@ import {
   isAnthropicCompatibleProvider,
   isOpenAICompatibleProvider,
 } from "@/shared/constants/providers";
-import { providerIdentity, providerLegacyPrefix, providerSlug } from "open-sse/providers/identity.js";
+import { connectionModelPrefix, providerIdentity, providerLegacyPrefix, providerSlug } from "open-sse/providers/identity.js";
 import { resolveProviderAlias } from "open-sse/services/model.js";
 import { groupModelVariants, mergeVariantLevels, variantBaseName } from "open-sse/providers/modelVariants.js";
-import { getProviderConnections, getCombos, getCustomModels, getModelAliases, getApiKeyAllowedConnectionIds, getApiKeyOwner, getSettings } from "@/lib/localDb";
+import { getProviderConnections, getCombos, getCustomModels, getModelAliases, getModelAliasNames, getModelDisplayNames, getApiKeyAllowedConnectionIds, getApiKeyOwner, getSettings } from "@/lib/localDb";
+import { connectionLabel } from "@/lib/connectionPrefix";
+import { catalogEntryFor } from "@/lib/catalogEntry";
 import { parseModel } from "@/sse/services/model.js";
 import { getDisabledModels } from "@/lib/disabledModelsDb";
 import { getApiKeyPolicy } from "@/lib/localDb";
@@ -222,6 +224,41 @@ function listingPrefixes(providerId, prefixStyle, customPrefix = "") {
   const legacy = providerLegacyPrefix(providerId);
   const prefix = prefixStyle === "short" ? legacy : slug;
   return { prefix, others: [...new Set([slug, legacy])].filter((p) => p !== prefix) };
+}
+
+/**
+ * The prefixes one provider's models are listed under, each with the accounts it routes
+ * to. A built-in provider lists its models once per distinct connection model prefix,
+ * and once under its default prefix when some account has none. The slug and legacy
+ * forms are offered as `aliases` of a connection prefix only when they reach the same
+ * accounts, i.e. when every account carries that prefix. Custom nodes keep one listing
+ * under the node prefix.
+ * @returns {{ conn: object, prefixes: { prefix: string, others: string[] }, connections: object[] }[]}
+ */
+function providerListings(providerId, providerConnections, prefixStyle) {
+  if (!providerIdentity(providerId)) {
+    const conn = providerConnections[0];
+    const customPrefix = typeof conn?.providerSpecificData?.prefix === "string" ? conn.providerSpecificData.prefix.trim() : "";
+    return [{ conn, prefixes: listingPrefixes(providerId, prefixStyle, customPrefix), connections: [] }];
+  }
+  const byPrefix = new Map();
+  const unprefixed = [];
+  for (const conn of providerConnections) {
+    const prefix = connectionModelPrefix(conn);
+    if (!prefix) unprefixed.push(conn);
+    else byPrefix.set(prefix, [...(byPrefix.get(prefix) || []), conn]);
+  }
+  const defaults = listingPrefixes(providerId, prefixStyle);
+  const listings = [...byPrefix].map(([prefix, connections]) => ({
+    conn: connections[0],
+    prefixes: {
+      prefix,
+      others: connections.length === providerConnections.length ? [defaults.prefix, ...defaults.others] : [],
+    },
+    connections,
+  }));
+  if (unprefixed.length) listings.push({ conn: unprefixed[0], prefixes: defaults, connections: [] });
+  return listings;
 }
 
 /** The `provider` block: registry identity, or the custom node the prefix belongs to. */
@@ -574,12 +611,22 @@ export async function buildModelsList(kindFilter, options = {}) {
   }
   const isDisabled = (alias, modelId) => Array.isArray(disabledByAlias[alias]) && disabledByAlias[alias].includes(modelId);
 
-  const activeConnectionByProvider = new Map();
-  for (const conn of connections) {
-    if (!activeConnectionByProvider.has(conn.provider)) {
-      activeConnectionByProvider.set(conn.provider, conn);
-    }
+  let displayNames = {};
+  try {
+    displayNames = (await getModelDisplayNames()) || {};
+  } catch (e) {
+    console.log("Could not fetch model display names");
   }
+  // A user's name for a provider model outranks the catalog's.
+  const displayNameOf = (providerId, modelId, fallback) => displayNames[`${providerId}/${modelId}`] || fallback;
+
+  const connectionsByProvider = new Map();
+  for (const conn of connections) {
+    connectionsByProvider.set(conn.provider, [...(connectionsByProvider.get(conn.provider) || []), conn]);
+  }
+  const listings = [...connectionsByProvider].flatMap(([providerId, providerConnections]) => (
+    providerListings(providerId, providerConnections, prefixStyle).map((listing) => ({ providerId, ...listing }))
+  ));
 
   const models = [];
 
@@ -640,7 +687,7 @@ export async function buildModelsList(kindFilter, options = {}) {
       const nameOf = (id) => listedModels.find((m) => m.id === id)?.name || variantBaseName(providerId, id) || id;
       const collapsed = collapseVariants(providerId, listedModels.map((model) => model.id), variantsMode);
       for (const modelId of collapsed.ids) {
-        const entry = providerModelEntry({ prefixes, modelId, name: nameOf(modelId), provider });
+        const entry = providerModelEntry({ prefixes, modelId, name: displayNameOf(providerId, modelId, nameOf(modelId)), provider });
         const variants = collapsed.groups.get(modelId);
         if (variants) entry.variants = variantEntries(prefixes, variants, nameOf);
         models.push(entry);
@@ -663,14 +710,17 @@ export async function buildModelsList(kindFilter, options = {}) {
       models.push(providerModelEntry({ prefixes, modelId, name: customModel.name, provider }));
     }
   } else {
-    for (const [providerId, conn] of activeConnectionByProvider.entries()) {
+    for (const { providerId, conn, prefixes, connections: prefixConnections } of listings) {
       if (!providerMatchesKinds(providerId, kindFilter)) continue;
 
       const staticAlias = PROVIDER_ID_TO_ALIAS[providerId] || providerId;
-      const customPrefix = typeof conn?.providerSpecificData?.prefix === "string" ? conn.providerSpecificData.prefix.trim() : "";
-      const prefixes = listingPrefixes(providerId, prefixStyle, customPrefix);
       const outputAlias = prefixes.prefix;
       const provider = listingProvider(providerId, outputAlias, conn);
+      // A prefix one account carries names that account; a prefix several accounts
+      // share is a pool and names none of them.
+      if (prefixConnections.length === 1) {
+        provider.connection = { id: prefixConnections[0].id, name: connectionLabel(prefixConnections[0]) };
+      }
       // Every prefix this provider's ids may carry in live catalogs, custom models,
       // model aliases and the disabled-models table (keyed by the dashboard's code).
       const ownPrefixes = [...new Set([outputAlias, staticAlias, providerId, providerSlug(providerId), providerLegacyPrefix(providerId)])];
@@ -788,7 +838,7 @@ export async function buildModelsList(kindFilter, options = {}) {
 
         const model = providerId === REMOTE_ROUTER_ID
           ? remoteRouterEntry(prefixes, modelId, liveModelById.get(modelId), conn)
-          : providerModelEntry({ prefixes, modelId, name: nameOf(modelId), provider });
+          : providerModelEntry({ prefixes, modelId, name: displayNameOf(providerId, modelId, nameOf(modelId)), provider });
         if (variants) model.variants = variantEntries(prefixes, variants, nameOf);
         // Live-catalog resolvers (kiro/qoder/github/clinepass) mostly only return
         // { id, name } — no per-model capability data. Fall back to the same
@@ -850,6 +900,37 @@ export async function buildModelsList(kindFilter, options = {}) {
     }
   }
 
+  // User aliases ("fast" -> "codex/gpt-5.5") are entries of their own, listed when the
+  // model they point at is in this catalog. A combo of the same name wins at routing
+  // time, so dedupe below keeps the combo.
+  let aliasNames = {};
+  try {
+    aliasNames = (await getModelAliasNames()) || {};
+  } catch (e) {
+    console.log("Could not fetch model alias names");
+  }
+  const providerEntries = models.filter((entry) => entry.provider?.id !== COMBO_PROVIDER.id);
+  for (const [alias, target] of Object.entries(modelAliases || {})) {
+    if (typeof target !== "string" || !target.includes("/") || alias.includes("/")) continue;
+    const targetEntry = catalogEntryFor(providerEntries, target);
+    if (targetEntry) {
+      models.push(aliasEntry(alias, aliasNames[alias], targetEntry, target));
+      continue;
+    }
+    // A target saved under a prefix no longer listed ("codex/<model>" once every Codex
+    // account has its own prefix) still routes to the whole provider: describe it with
+    // any listing of that model, without naming one account, and keep the saved id.
+    const { provider: targetProvider, model: targetModel } = parseModel(target);
+    const sameModel = providerEntries.find((entry) => entry.provider?.id === targetProvider
+      && entry.id === `${entry.owned_by}/${targetModel}`);
+    if (sameModel) {
+      const entry = aliasEntry(alias, aliasNames[alias], sameModel, sameModel.id);
+      if (entry.provider) delete entry.provider.connection;
+      entry.alias_of = target;
+      models.push(entry);
+    }
+  }
+
   const dedupedModels = [];
   const seenModelIds = new Set();
   for (const model of models) {
@@ -892,6 +973,28 @@ async function filterByKeyModelAccess(models, apiKey) {
     }
   }
   return allowed;
+}
+
+/**
+ * A user alias as its own /v1/models entry: the target's provider, limits, levels and
+ * parameters under the alias id, with `alias_of` naming the target's catalog id (the
+ * variant's id when the alias points at a folded variant).
+ */
+function aliasEntry(alias, name, target, targetId) {
+  const variant = target.id === targetId || target.aliases?.includes(targetId)
+    ? null
+    : target.variants?.find((v) => v.id === targetId || v.aliases?.includes(targetId));
+  const entry = {
+    id: alias,
+    object: "model",
+    owned_by: "alias",
+    name: (typeof name === "string" && name.trim()) || alias,
+    alias_of: variant?.id || target.id,
+  };
+  for (const key of ["provider", "capabilities", "context_length", "max_completion_tokens", "thinking_levels", "parameters"]) {
+    if (target[key] !== undefined) entry[key] = structuredClone(target[key]);
+  }
+  return entry;
 }
 
 /**

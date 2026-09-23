@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
@@ -23,6 +23,8 @@ import EditCompatibleNodeModal from "./EditCompatibleNodeModal";
 import AddCustomModelModal from "./AddCustomModelModal";
 import BulkImportCodexModal from "./BulkImportCodexModal";
 import BulkImportGrokCliModal from "./BulkImportGrokCliModal";
+import ModelNamingModal from "./ModelNamingModal";
+import { connectionModelPrefix, providerSlug } from "open-sse/providers/identity.js";
 import DecisionRouterCard from "@/shared/components/DecisionRouterCard";
 import ReasoningAutopilotCard from "@/shared/components/ReasoningAutopilotCard";
 
@@ -61,6 +63,9 @@ export default function ProviderDetailPage() {
   const [showBulkProxyModal, setShowBulkProxyModal] = useState(false);
   const [selectedConnection, setSelectedConnection] = useState(null);
   const [modelAliases, setModelAliases] = useState({});
+  const [aliasNames, setAliasNames] = useState({});
+  const [modelNames, setModelNames] = useState({});
+  const [namingModel, setNamingModel] = useState(null);
   const [customModels, setCustomModels] = useState([]);
   const [headerImgError, setHeaderImgError] = useState(false);
   const [modelTestResults, setModelTestResults] = useState({});
@@ -209,6 +214,29 @@ export default function ProviderDetailPage() {
   const providerDisplayAlias = isCompatible
     ? (providerNode?.prefix || providerId)
     : providerAlias;
+  // Where an alias may route: the provider's default prefix (every account) or one of
+  // the model prefixes its connections carry (those accounts only).
+  const aliasRoutePrefixes = useMemo(() => {
+    const byPrefix = new Map();
+    for (const conn of connections) {
+      const prefix = connectionModelPrefix(conn);
+      if (prefix) byPrefix.set(prefix, [...(byPrefix.get(prefix) || []), conn.name || conn.email || conn.displayName || conn.id]);
+    }
+    return [
+      { value: providerStorageAlias, label: `${providerStorageAlias}/ (all accounts)` },
+      ...[...byPrefix].map(([prefix, names]) => ({ value: prefix, label: `${prefix}/ (${names.join(", ")})` })),
+    ];
+  }, [connections, providerStorageAlias]);
+  // The alias whose target is this model under any prefix that reaches it.
+  const aliasForModel = (modelId) => {
+    const targets = new Set([providerStorageAlias, providerId, providerSlug(providerId), ...aliasRoutePrefixes.map((p) => p.value)]
+      .map((prefix) => `${prefix}/${modelId}`));
+    return Object.entries(modelAliases).find(([, target]) => targets.has(target)) || null;
+  };
+  const namedModel = (model) => {
+    const name = modelNames[`${providerId}/${model.id}`];
+    return name ? { ...model, name } : model;
+  };
 
   const fetchDisabledModels = useCallback(async () => {
     try {
@@ -279,9 +307,20 @@ export default function ProviderDetailPage() {
       const data = await res.json();
       if (res.ok) {
         setModelAliases(data.aliases || {});
+        setAliasNames(data.names || {});
       }
     } catch (error) {
       console.log("Error fetching aliases:", error);
+    }
+  }, []);
+
+  const fetchModelNames = useCallback(async () => {
+    try {
+      const res = await fetch("/api/models/names", { cache: "no-store" });
+      const data = await res.json();
+      if (res.ok) setModelNames(data.names || {});
+    } catch (error) {
+      console.log("Error fetching model names:", error);
     }
   }, []);
 
@@ -479,9 +518,10 @@ export default function ProviderDetailPage() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchConnections();
     fetchAliases();
+    fetchModelNames();
     fetchCustomModels();
     fetchDisabledModels();
-  }, [fetchConnections, fetchAliases, fetchCustomModels, fetchDisabledModels]);
+  }, [fetchConnections, fetchAliases, fetchModelNames, fetchCustomModels, fetchDisabledModels]);
 
   // Cursor's model availability is account-specific and changes frequently.
   // Load the active account's live catalog for the dashboard; the static
@@ -1219,9 +1259,9 @@ export default function ProviderDetailPage() {
         {customModelRows.map((model) => (
           <ModelRow
             key={`${model.source}-${model.fullModel}`}
-            model={{ id: model.id, name: model.name }}
+            model={namedModel({ id: model.id, name: model.name })}
             fullModel={`${providerDisplayAlias}/${model.id}`}
-            alias={model.alias}
+            alias={model.alias || aliasForModel(model.id)?.[0]}
             copied={copied}
             onCopy={copy}
             onSetAlias={() => {}}
@@ -1235,6 +1275,7 @@ export default function ProviderDetailPage() {
             testStatus={modelTestResults[model.id]}
             onTest={connections.length > 0 || isFreeNoAuth ? () => handleTestModel(model.id) : undefined}
             isTesting={testingModelIds.has(model.id)}
+            onRename={() => setNamingModel({ id: model.id, name: model.name })}
             isCustom
             isFree={false}
             caps={getCaps(`${providerId}/${model.id}`)}
@@ -1243,15 +1284,11 @@ export default function ProviderDetailPage() {
         ))}
 
         {displayModels.map((model) => {
-          const fullModel = `${providerStorageAlias}/${model.id}`;
-          const oldFormatModel = `${providerId}/${model.id}`;
-          const existingAlias = Object.entries(modelAliases).find(
-            ([, m]) => m === fullModel || m === oldFormatModel
-          )?.[0];
+          const existingAlias = aliasForModel(model.id)?.[0];
           return (
             <ModelRow
               key={model.id}
-              model={model}
+              model={namedModel(model)}
               fullModel={`${providerDisplayAlias}/${model.id}`}
               alias={existingAlias}
               copied={copied}
@@ -1263,6 +1300,7 @@ export default function ProviderDetailPage() {
               isTesting={testingModelIds.has(model.id)}
               isFree={model.isFree}
               onDisable={() => handleDisableModel(model.id)}
+              onRename={() => setNamingModel(model)}
               caps={getCaps(`${providerId}/${model.id}`)}
               thinkingSuffix={resolveThinkingSuffix(model.id)}
             />
@@ -1933,6 +1971,22 @@ export default function ProviderDetailPage() {
         onSave={handleUpdateConnection}
         onClose={() => setShowEditModal(false)}
       />
+      {!isCompatible && (
+        <ModelNamingModal
+          isOpen={!!namingModel}
+          model={namingModel}
+          storagePrefix={providerStorageAlias}
+          routePrefixes={aliasRoutePrefixes}
+          displayName={namingModel ? modelNames[`${providerId}/${namingModel.id}`] || "" : ""}
+          alias={namingModel ? aliasForModel(namingModel.id)?.[0] || "" : ""}
+          aliasName={namingModel ? aliasNames[aliasForModel(namingModel.id)?.[0]] || "" : ""}
+          aliasTarget={namingModel ? aliasForModel(namingModel.id)?.[1] || "" : ""}
+          onClose={() => setNamingModel(null)}
+          onSaved={async () => {
+            await Promise.all([fetchAliases(), fetchModelNames()]);
+          }}
+        />
+      )}
       {isCompatible && (
         <EditCompatibleNodeModal
           isOpen={showEditNodeModal}

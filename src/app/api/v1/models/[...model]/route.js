@@ -1,4 +1,5 @@
 import { buildModelsList } from "../route.js";
+import { catalogEntryFor } from "@/lib/catalogEntry";
 import { extractApiKey } from "@/sse/services/auth.js";
 import { getCatalogVersion } from "@/lib/catalogVersion";
 import { CATALOG_VERSION_HEADER } from "open-sse/config/runtimeConfig.js";
@@ -60,13 +61,10 @@ export async function GET(request, { params }) {
     // Match the same LLM catalog exposed by GET /v1/models. A catch-all
     // parameter is required because provider-prefixed IDs contain a slash.
     const models = await buildModelsList([LLM_KIND], { apiKey, variants });
-    // A legacy id ("cc/<model>") still finds its entry through `aliases`, and a variant
-    // id ("codex/gpt-5.5-review") the base entry it is folded into.
-    const matchedModel = models.find((candidate) => candidate.id === identifier)
-      || models.find((candidate) => Array.isArray(candidate.aliases) && candidate.aliases.includes(identifier))
-      || models.find((candidate) => Array.isArray(candidate.variants) && candidate.variants.some(
-        (variant) => variant.id === identifier || (Array.isArray(variant.aliases) && variant.aliases.includes(identifier)),
-      ));
+    // A legacy id ("cc/<model>") still finds its entry through `aliases`, a variant
+    // id ("codex/gpt-5.5-review") the base entry it is folded into, and a user alias
+    // ("fast") its own entry.
+    const matchedModel = catalogEntryFor(models, identifier);
 
     if (!matchedModel) {
       return json(

@@ -5,6 +5,10 @@ import { makeKv } from "../helpers/kvStore.js";
 const aliasKv = makeKv("modelAliases");
 const customKv = makeKv("customModels");
 const mitmKv = makeKv("mitmAlias");
+// The name /v1/models shows for a user alias: key=alias, value=name.
+const aliasNameKv = makeKv("modelAliasNames");
+// A user's display name for a provider model: key=`${providerId}/${modelId}`, value=name.
+const modelNameKv = makeKv("modelNames");
 
 // modelAliases: key=alias, value=modelString
 export async function getModelAliases() {
@@ -17,6 +21,29 @@ export async function setModelAlias(alias, model) {
 
 export async function deleteModelAlias(alias) {
   await aliasKv.remove(alias);
+  await aliasNameKv.remove(alias);
+}
+
+export async function getModelAliasNames() {
+  return await aliasNameKv.getAll();
+}
+
+/** An empty name removes it: the alias then shows under its own id. */
+export async function setModelAliasName(alias, name) {
+  const value = typeof name === "string" ? name.trim() : "";
+  if (value) await aliasNameKv.set(alias, value);
+  else await aliasNameKv.remove(alias);
+}
+
+export async function getModelDisplayNames() {
+  return await modelNameKv.getAll();
+}
+
+/** An empty name removes the override: the model shows its catalog name again. */
+export async function setModelDisplayName(modelKey, name) {
+  const value = typeof name === "string" ? name.trim() : "";
+  if (value) await modelNameKv.set(modelKey, value);
+  else await modelNameKv.remove(modelKey);
 }
 
 // customModels: key=`${providerAlias}|${id}|${type}`, value=full model object

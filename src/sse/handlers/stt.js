@@ -65,7 +65,7 @@ export async function handleStt(request) {
   let lastStatus = null;
 
   while (true) {
-    const credentials = await getProviderCredentials(provider, excludeConnectionIds, model, { apiKey });
+    const credentials = await getProviderCredentials(provider, excludeConnectionIds, model, { apiKey, connectionIds: modelInfo.connectionIds });
 
     if (credentials?.noActiveCredentials || credentials?.allRateLimited) {
       return responseFromRoutingCandidate(credentials.candidate);

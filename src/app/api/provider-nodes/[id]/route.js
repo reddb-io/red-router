@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { connectionUsingPrefix, connectionLabel } from "@/lib/connectionPrefix";
 import { deleteProviderConnectionsByProvider, deleteProviderNode, getProviderConnections, getProviderNodeById, updateProviderConnection, updateProviderNode } from "@/models";
 
 // PUT /api/provider-nodes/[id] - Update provider node
@@ -19,6 +20,12 @@ export async function PUT(request, { params }) {
 
     if (!prefix?.trim()) {
       return NextResponse.json({ error: "Prefix is required" }, { status: 400 });
+    }
+
+    // A prefix a built-in provider connection already uses cannot also name a node.
+    const prefixOwner = await connectionUsingPrefix(prefix);
+    if (prefixOwner) {
+      return NextResponse.json({ error: `"${prefix.trim()}" is already the model prefix of the connection "${connectionLabel(prefixOwner)}"` }, { status: 400 });
     }
 
     // Only validate apiType for OpenAI Compatible nodes

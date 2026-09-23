@@ -102,7 +102,7 @@ export async function handleEmbeddings(request) {
   let lastStatus = null;
 
   while (true) {
-    const credentials = await getProviderCredentials(provider, excludeConnectionIds, model, { apiKey });
+    const credentials = await getProviderCredentials(provider, excludeConnectionIds, model, { apiKey, connectionIds: modelInfo.connectionIds });
 
     // All accounts unavailable
     if (credentials?.noActiveCredentials || credentials?.allRateLimited) {

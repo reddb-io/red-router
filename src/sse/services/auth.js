@@ -96,6 +96,9 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
     // accounts. No binding (or no key) leaves the pool untouched.
     const allowedConnectionIds = await getApiKeyAllowedConnectionIds(options?.apiKey || null);
     if (allowedConnectionIds) connections = connections.filter(c => allowedConnectionIds.includes(c.id));
+    // A connection model prefix ("codex-work/<model>") pins the request to the
+    // accounts that carry it; the provider's other accounts are not a fallback.
+    if (Array.isArray(options?.connectionIds)) connections = connections.filter(c => options.connectionIds.includes(c.id));
     log.debug("AUTH", `${provider} | total connections: ${connections.length}, excludeIds: ${excludeSet.size > 0 ? [...excludeSet].join(",") : "none"}, model: ${model || "any"}`);
 
     if (connections.length === 0) {

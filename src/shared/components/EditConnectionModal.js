@@ -8,6 +8,10 @@ import Button from "@/shared/components/Button";
 import Badge from "@/shared/components/Badge";
 import { isOpenAICompatibleProvider, isAnthropicCompatibleProvider, AI_PROVIDERS } from "@/shared/constants/providers";
 import Select from "@/shared/components/Select";
+import { providerIdentity } from "open-sse/providers/identity.js";
+
+// Same rule the server applies (src/lib/connectionPrefix.js); the server has the final say.
+const MODEL_PREFIX_PATTERN = /^[a-z0-9][a-z0-9._-]*$/;
 
 export default function EditConnectionModal({ isOpen, connection, proxyPools, onSave, onClose }) {
   const [formData, setFormData] = useState({
@@ -31,6 +35,8 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
   // "" = shared, "@admin" = password login only, otherwise the owner's e-mail.
   const [owner, setOwner] = useState("");
   const [canAssignOwner, setCanAssignOwner] = useState(false);
+  const [modelPrefix, setModelPrefix] = useState("");
+  const [prefixError, setPrefixError] = useState("");
 
   useEffect(() => {
     if (!isOpen) return;
@@ -43,6 +49,10 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
   useEffect(() => {
     if (connection) {
       setOwner(connection.owner || "");
+      setModelPrefix(providerIdentity(connection.provider) && typeof connection.providerSpecificData?.prefix === "string"
+        ? connection.providerSpecificData.prefix
+        : "");
+      setPrefixError("");
       setFormData({
         name: connection.name || "",
         priority: connection.priority || 1,
@@ -78,6 +88,29 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
     ? (isOpenAICompatibleProvider(connection.provider) || isAnthropicCompatibleProvider(connection.provider))
     : false;
   const providerRegions = connection ? (AI_PROVIDERS?.[connection.provider]?.regions || null) : null;
+  // Built-in providers only: a custom node's prefix is set on the node.
+  const identity = connection ? providerIdentity(connection.provider) : null;
+  const savedPrefix = identity && typeof connection?.providerSpecificData?.prefix === "string" ? connection.providerSpecificData.prefix : "";
+
+  // Checked before saving so the reason a name is taken shows here, not as a failed save.
+  const checkModelPrefix = async (value) => {
+    if (!value) return "";
+    if (!MODEL_PREFIX_PATTERN.test(value)) {
+      return "Use lowercase letters, digits, \".\", \"_\" and \"-\", starting with a letter or digit.";
+    }
+    try {
+      const res = await fetch(`/api/providers/${connection.id}/prefix`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prefix: value }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.valid === false) return data.error || "This model prefix is not available.";
+      return "";
+    } catch {
+      return "Could not check the model prefix. Try again.";
+    }
+  };
 
   // Build providerSpecificData for region-aware providers
   const buildRegionSpecificData = () => {
@@ -129,6 +162,13 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
     if (!connection) return;
     setSaving(true);
     try {
+      const nextPrefix = modelPrefix.trim();
+      const prefixChanged = !!identity && nextPrefix !== savedPrefix;
+      if (prefixChanged) {
+        const error = await checkModelPrefix(nextPrefix);
+        setPrefixError(error);
+        if (error) return;
+      }
       const updates = {
         name: formData.name,
         priority: formData.priority,
@@ -184,6 +224,10 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
         updates.providerSpecificData = buildRegionSpecificData();
       }
       
+      if (prefixChanged) {
+        updates.providerSpecificData = { ...(updates.providerSpecificData || {}), prefix: nextPrefix };
+      }
+
       if (canAssignOwner) updates.owner = owner || null;
 
       await onSave(updates);
@@ -215,6 +259,22 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
           value={formData.priority}
           onChange={(e) => setFormData({ ...formData, priority: Number.parseInt(e.target.value, 10) || 1 })}
         />
+
+        {identity && (
+          <Input
+            label="Model prefix"
+            value={modelPrefix}
+            onChange={(e) => {
+              setModelPrefix(e.target.value);
+              setPrefixError("");
+            }}
+            placeholder={identity.slug}
+            error={prefixError || undefined}
+            hint={prefixError ? undefined : modelPrefix.trim()
+              ? `Requests to "${modelPrefix.trim()}/<model>" use only this account, and /v1/models lists ${identity.name} models under this prefix.`
+              : `Give this account its own prefix (e.g. "${identity.slug}-work") to call it directly. Empty keeps "${identity.slug}/<model>", shared by all ${identity.name} accounts.`}
+          />
+        )}
 
         {canAssignOwner && (
           <Input

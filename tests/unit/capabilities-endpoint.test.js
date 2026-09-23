@@ -128,6 +128,8 @@ describe("GET /v1/capabilities", () => {
       combo_members: true,
       catalog_endpoint: "/v1/catalog",
       recommendations: true,
+      custom_prefixes: true,
+      model_aliases_listed: true,
     });
     expect(caps.catalog.version).toMatch(/^[0-9a-f]{16}$/);
   });
