@@ -167,7 +167,8 @@ jobs:
               ;;
           esac
 
-          tarballs=(release-artifacts/*.tgz)
+          # A leading ./ keeps npm from reading `release-artifacts/<file>` as a GitHub owner/repo spec.
+          tarballs=(./release-artifacts/*.tgz)
           log="$RUNNER_TEMP/npm-publish.log"
           if npm publish "${tarballs[0]}" --access public --provenance 2>&1 | tee "$log"; then
             echo "::notice::$spec accepted by npm"
