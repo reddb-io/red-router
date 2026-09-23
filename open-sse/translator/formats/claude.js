@@ -8,6 +8,8 @@ import { isValidClaudeSignature } from "../../utils/claudeSignature.js";
 import { PROVIDERS } from "../../providers/index.js";
 import { getCapabilitiesForModel } from "../../providers/capabilities.js";
 import { DEFAULT_MAX_TOKENS } from "../../config/runtimeConfig.js";
+import { applyThinking } from "../concerns/thinkingUnified.js";
+import { FORMATS } from "../formats.js";
 
 const CACHE_CONTROL_5M = { type: "ephemeral" };
 const CACHE_CONTROL_1H = { type: "ephemeral", ttl: "1h" };
@@ -201,6 +203,42 @@ function hasForeignServerToolUseId(block) {
 // 3. bare content-block objects (content: {block} instead of [{block}]) → wrapped first
 // 4. role "system" messages (mid-conversation-system beta) → only top-level system is allowed
 // 5. server_tool_use blocks carrying a foreign (non-srvtoolu_) id → rejected outright
+/**
+ * Clamp max_tokens to the model's real output ceiling (Opus 4.8 / Sonnet 4.6 =
+ * 128000, others the conservative default) and reconcile it with the thinking
+ * budget. applyThinking runs AFTER adjustMaxTokens capped max_tokens, and max
+ * effort maps to budget_tokens 128000 — larger than the clamped max_tokens, while
+ * Anthropic requires max_tokens strictly greater than budget_tokens (else 400).
+ * Prefer raising max_tokens to keep the requested depth; when the budget alone
+ * meets the ceiling, cap output and shrink the budget so the answer has room.
+ */
+export function reconcileThinkingBudget(body, provider = null) {
+  if (!body?.max_tokens) return body;
+  const ceiling = getCapabilitiesForModel(provider, body.model).maxOutput || DEFAULT_MAX_TOKENS;
+  if (body.max_tokens > ceiling) body.max_tokens = ceiling;
+  if (body.thinking?.type === "enabled" && body.thinking.budget_tokens && body.thinking.budget_tokens >= body.max_tokens) {
+    body.max_tokens = Math.min(body.thinking.budget_tokens + 1024, ceiling);
+    if (body.thinking.budget_tokens >= body.max_tokens) {
+      body.thinking.budget_tokens = Math.max(1024, body.max_tokens - 1024);
+    }
+  }
+  return body;
+}
+
+/**
+ * Apply a reasoning target to a native Claude body (Claude Code passthrough).
+ * applyThinking rewrites thinking/output_config.effort; other output_config
+ * fields (structured-output `format`) are kept, and max_tokens is reconciled.
+ */
+export function applyClaudeThinkingTarget(body, target, provider = null) {
+  if (!body || typeof body !== "object") return body;
+  const kept = body.output_config && typeof body.output_config === "object" ? { ...body.output_config } : null;
+  if (kept) delete kept.effort;
+  applyThinking(FORMATS.CLAUDE, body.model, body, provider, undefined, null, target);
+  if (kept && Object.keys(kept).length) body.output_config = { ...kept, ...(body.output_config || {}) };
+  return reconcileThinkingBudget(body, provider);
+}
+
 export function normalizeClaudePassthrough(body, model = "") {
   if (!body || typeof body !== "object") return body;
 
@@ -440,24 +478,7 @@ export function prepareClaudeRequest(body, provider = null, apiKey = null, conne
   // declare a higher maxOutput (e.g. Opus 4.8 / Sonnet 4.6 = 128000) are allowed
   // up to it, so max-effort thinking gets full budget; others fall back to the
   // conservative 64000 default.
-  if (body.max_tokens) {
-    const ceiling = getCapabilitiesForModel(provider, body.model).maxOutput || DEFAULT_MAX_TOKENS;
-    if (body.max_tokens > ceiling) body.max_tokens = ceiling;
-
-    // Reconcile against thinking budget. applyThinking (thinkingUnified.js) runs
-    // AFTER adjustMaxTokens capped max_tokens, and the claude-budget format maps
-    // max effort → budget_tokens 128000 — larger than the clamped max_tokens.
-    // Anthropic requires max_tokens strictly greater than budget_tokens (else 400).
-    // Prefer raising max_tokens to preserve the requested thinking depth; if the
-    // budget alone meets/exceeds the ceiling, cap output and shrink the budget so
-    // some tokens remain for the answer.
-    if (body.thinking?.type === "enabled" && body.thinking.budget_tokens && body.thinking.budget_tokens >= body.max_tokens) {
-      body.max_tokens = Math.min(body.thinking.budget_tokens + 1024, ceiling);
-      if (body.thinking.budget_tokens >= body.max_tokens) {
-        body.thinking.budget_tokens = Math.max(1024, body.max_tokens - 1024);
-      }
-    }
-  }
+  reconcileThinkingBudget(body, provider);
 
   // 1. System: remove all cache_control, add only to last block with ttl 1h
   if (body.system && Array.isArray(body.system)) {

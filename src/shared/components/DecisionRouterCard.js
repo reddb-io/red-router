@@ -287,7 +287,7 @@ export default function DecisionRouterCard({ provider }) {
                   <Toggle size="sm" checked={config.effort === true} onChange={() => set("effort", config.effort !== true)} />
                 </div>
                 <p className="text-xs text-text-muted">
-                  {translate("The same verdict that picks the model also caps the reasoning budget; a hard turn is left as the client asked.")}
+                  {translate("The same verdict that picks the model also caps the reasoning budget; a hard turn is left as the client asked. Ignored where the reasoning autopilot applies.")}
                 </p>
               </div>
 

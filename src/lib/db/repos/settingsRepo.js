@@ -1,5 +1,6 @@
 import { getDb } from "../kysely.js";
 import { parseJson, stringifyJson } from "../helpers/jsonCol.js";
+import { DEFAULT_AUTOPILOT } from "open-sse/decision/reasoningAutopilot.js";
 
 const DEFAULT_MITM_ROUTER_BASE = "http://localhost:25050";
 const DEFAULT_HEADROOM_URL = process.env.HEADROOM_URL || "http://localhost:8787";
@@ -85,6 +86,7 @@ const DEFAULT_SETTINGS = {
     minConfidence: 0.7,
     timeoutMs: 1500,
   },
+  reasoningAutopilot: { ...DEFAULT_AUTOPILOT },
 };
 
 async function readRaw() {
@@ -98,6 +100,9 @@ export function mergeWithDefaults(raw) {
   const merged = { ...DEFAULT_SETTINGS, ...(raw || {}) };
   if (merged.decisionRouter && typeof merged.decisionRouter === "object" && !Array.isArray(merged.decisionRouter)) {
     merged.decisionRouter = { ...DEFAULT_SETTINGS.decisionRouter, ...merged.decisionRouter };
+  }
+  if (merged.reasoningAutopilot && typeof merged.reasoningAutopilot === "object" && !Array.isArray(merged.reasoningAutopilot)) {
+    merged.reasoningAutopilot = { ...DEFAULT_SETTINGS.reasoningAutopilot, ...merged.reasoningAutopilot };
   }
   for (const [key, defVal] of Object.entries(DEFAULT_SETTINGS)) {
     if (merged[key] === undefined) {

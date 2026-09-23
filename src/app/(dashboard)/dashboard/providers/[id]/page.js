@@ -24,6 +24,7 @@ import AddCustomModelModal from "./AddCustomModelModal";
 import BulkImportCodexModal from "./BulkImportCodexModal";
 import BulkImportGrokCliModal from "./BulkImportGrokCliModal";
 import DecisionRouterCard from "@/shared/components/DecisionRouterCard";
+import ReasoningAutopilotCard from "@/shared/components/ReasoningAutopilotCard";
 
 const ONE_BY_ONE_DELAY_MS = 1000;
 
@@ -1476,7 +1477,10 @@ export default function ProviderDetailPage() {
       )}
 
       {providerInfo.systemOneConfig && (
-        <DecisionRouterCard provider={providerInfo} />
+        <>
+          <DecisionRouterCard provider={providerInfo} />
+          <ReasoningAutopilotCard />
+        </>
       )}
 
       {isCompatible && providerNode && (
