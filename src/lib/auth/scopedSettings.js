@@ -11,6 +11,7 @@ export const TOKEN_SAVER_KEYS = [
   "ponytailEnabled", "ponytailLevel",
   "adhdEnabled", "adhdLevel",
   "pxpipeEnabled",
+  "rtkRelevanceEnabled",
 ];
 
 /**

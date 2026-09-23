@@ -127,6 +127,10 @@ export function resolveModelDecision({
   // Deterministic evidence the turn needs deliberation (plan mode, a stalled
   // agent): treated like a high needs_reasoning for the cheapest-model guard.
   needsDeliberation = false,
+  // The member whose prompt cache is warm for this session, and the strength a
+  // verdict needs to move off it (a switch re-pays the whole prompt).
+  warmMember = null,
+  cacheSwitchStrength = null,
 } = {}) {
   const pick = answers?.model;
   const deliberation = answers?.needs_reasoning;
@@ -162,14 +166,20 @@ export function resolveModelDecision({
     ...(chosen !== pick.choice ? { downgradedFrom: pick.choice } : {}),
   };
 
+  const leavesWarmCache = warmMember && models.includes(warmMember) && chosen !== warmMember
+    && Number.isFinite(cacheSwitchStrength) && cacheSwitchStrength > switchStrength;
   const gate = decideStrength({
     strength,
     verdict: chosen,
     previousVerdict,
     minStrength,
-    switchStrength,
+    switchStrength: leavesWarmCache ? cacheSwitchStrength : switchStrength,
   });
-  if (!gate.change) return { apply: false, reason: gate.reason, ...usable };
+  if (!gate.change) {
+    // Held back only by the warm cache: say so, so the log explains the stay.
+    const cacheHeld = leavesWarmCache && strength >= switchStrength;
+    return { apply: false, reason: cacheHeld ? "cache_affinity" : gate.reason, ...usable };
+  }
 
   // The one contradiction worth blocking: a step that needs deliberation routed to
   // the cheapest model loses quality silently. Mechanical work on an expensive model

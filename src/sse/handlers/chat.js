@@ -22,6 +22,7 @@ import { DEFAULT_HEADROOM_URL } from "@/lib/headroom/detect";
 import { getTransform as getPxpipeTransform } from "@/lib/pxpipe/loader.js";
 import { appendPxpipeEvent } from "@/lib/pxpipe/events.js";
 import { createErrorContext, errorResponse, responseFromRoutingCandidate, withRequestId } from "open-sse/utils/error.js";
+import { getSessionMember } from "open-sse/services/sessionAffinity.js";
 import { handleComboChat, handleFusionChat, detectRequiredCapabilities, filterModelsByContext, reorderModelsForTier } from "open-sse/services/combo.js";
 import { getCapabilitiesForModel } from "open-sse/providers/capabilities.js";
 import { stripThinkingSuffix } from "open-sse/translator/concerns/thinkingUnified.js";
@@ -36,11 +37,13 @@ import {
   readPreviousVerdict,
   rememberVerdict,
   planReasoning,
+  relevanceAsker,
 } from "../services/decisionRouter.js";
 import { extractTools, hasPinnedToolChoice, supportsToolChoice, UNSUPPORTED_EXECUTORS } from "open-sse/decision/tools.js";
 import { augmentModelsWithCapacityAdapter, withCapacityAdapterStripping, getActiveAdapterStrategy } from "open-sse/services/capacityAdapter.js";
 import { handleBypassRequest } from "open-sse/utils/bypassHandler.js";
-import { DECISION_HEADER, HINT_HEADER, HTTP_STATUS } from "open-sse/config/runtimeConfig.js";
+import { DECISION_HEADER, HINT_HEADER, HTTP_STATUS, TOKEN_SAVER_HEADER } from "open-sse/config/runtimeConfig.js";
+import { compactByRelevance } from "open-sse/rtk/relevance.js";
 import { parseClassificationHint, hintTier, hintDeliberation, hintDetail, decisionOptOut, HINT_SOURCE } from "open-sse/decision/clientHint.js";
 import { detectFormatByEndpoint } from "open-sse/translator/formats.js";
 import * as log from "../utils/logger.js";
@@ -71,7 +74,7 @@ function servableMembers(models, body) {
   });
 }
 
-async function orderComboModels({ body, models, comboName, strategy, settings, apiKey, comboOwner, sessionId, headers = null, userAgent = "", hint = null }) {
+async function orderComboModels({ body, models, comboName, strategy, settings, apiKey, comboOwner, sessionId, headers = null, userAgent = "", hint = null, affinityKey = null }) {
   const unchanged = { models, deliberation: null, decision: null };
   if (strategy !== "auto" || models.length < 2) return unchanged;
   const config = normalizeDecisionConfig(settings.decisionRouter);
@@ -114,6 +117,8 @@ async function orderComboModels({ body, models, comboName, strategy, settings, a
       previousVerdict: readPreviousVerdict(scope),
       signals,
       hintedDeliberation,
+      // The member that served this session last: its prompt cache is warm.
+      warmMember: affinityKey ? getSessionMember(comboName, affinityKey) : null,
     });
     rememberVerdict(scope, result.decision);
     if (config.mode === "shadow") {
@@ -368,6 +373,9 @@ export async function handleChat(request, clientRawRequest = null, options = {})
         instructions: smartCfg.smartInstructions,
         minConfidence: smartCfg.smartMinConfidence,
         timeoutMs: smartCfg.smartTimeoutMs,
+        // jev | hybrid | heuristic_first; a failed jev call falls back to the local score.
+        mode: smartCfg.smartMode || "jev",
+        localFallback: true,
         // Route through RedRouter's native System One cascade (TypeSafe,
         // OpenRouter, and any future compatible provider) instead of binding
         // smart routing to a process-level TypeSafe environment key.
@@ -387,7 +395,7 @@ export async function handleChat(request, clientRawRequest = null, options = {})
         routedLead = typeof tierMap[classified.tier] === "string" && tierMap[classified.tier].trim() !== "";
         if (classified.source === HINT_SOURCE) routingContext.hintUses.push("tier");
         if (reordered[0] !== augmentedModels[0]) {
-          log.info("CHAT", `Combo "${cleanComboName}" smart-routing tier=${classified.tier}${classified.source === HINT_SOURCE ? " (client hint)" : ""} → ${reordered[0]}`);
+          log.info("CHAT", `Combo "${cleanComboName}" smart-routing tier=${classified.tier}${classified.source === HINT_SOURCE ? " (client hint)" : classified.source === "local" ? " (local score)" : ""} → ${reordered[0]}`);
         }
         augmentedModels.length = 0;
         augmentedModels.push(...reordered);
@@ -412,6 +420,7 @@ export async function handleChat(request, clientRawRequest = null, options = {})
         headers: clientRawRequest?.headers,
         userAgent,
         hint,
+        affinityKey: routingContext.affinityKey,
       });
       orderedModels = ordered.models;
       applyOrderedDecision(routingContext, ordered);
@@ -541,6 +550,7 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
           headers: clientRawRequest?.headers,
           userAgent: request?.headers?.get?.("user-agent") || clientRawRequest?.headers?.["user-agent"] || "",
           hint: routingContext.hint,
+          affinityKey: routingContext.affinityKey || null,
         });
         orderedModels = ordered.models;
         applyOrderedDecision(routingContext, ordered);
@@ -612,6 +622,17 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
         refreshedCredentials.projectId = pid;
         // Persist to DB in background so subsequent requests have it immediately
         updateProviderCredentials(credentials.connectionId, { projectId: pid }).catch(() => { });
+      }
+    }
+
+    // Relevance compaction (opt-in saver): once per request, before the first
+    // attempt, so every account and combo member gets the same compacted body.
+    if (routingContext.relevanceDone !== true) {
+      routingContext.relevanceDone = true;
+      const saverOn = clientRawRequest?.headers?.[TOKEN_SAVER_HEADER]?.toLowerCase() !== "off";
+      if (saverOn && routingContext.settings?.rtkRelevanceEnabled === true) {
+        const askRelevance = await relevanceAsker(routingContext.settings, { apiKey, log });
+        if (askRelevance) await compactByRelevance(body, { ask: askRelevance, log });
       }
     }
 

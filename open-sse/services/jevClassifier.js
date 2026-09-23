@@ -15,6 +15,8 @@
 import { trailingUserItems } from "./combo.js";
 import { stripHarnessNoise } from "../decision/state.js";
 import { extractTextContent } from "../translator/formats/gemini.js";
+import { extractSignals } from "../decision/signals.js";
+import { localDeliberation, tierForScore, tierMargin } from "../decision/localScorer.js";
 import {
   JEV_ENDPOINT_PATH,
   JEV_DEFAULT_BASE,
@@ -37,6 +39,10 @@ import {
  * @type {{ openUntil: number, halfOpen: boolean }}
  */
 const breaker = { openUntil: 0, halfOpen: false };
+
+// In "hybrid" mode a local score at least this far from every tier edge is
+// trusted without asking jev.
+const HYBRID_MARGIN = 0.1;
 
 /** Test/reset hook: clear breaker state. */
 export function resetJevBreaker() {
@@ -118,6 +124,12 @@ export function buildJevState(body, charBudget = JEV_STATE_CHAR_BUDGET) {
  * @param {boolean} [opts.breakerEnabled=true]
  * @param {function} [opts.fetchImpl=fetch] - injectable for tests
  * @param {function} [opts.now=Date.now] - injectable for tests
+ * @param {"jev"|"hybrid"|"heuristic_first"} [opts.mode="jev"] - "hybrid" asks jev only when
+ *   the local score sits near a tier edge; "heuristic_first" asks jev only when the
+ *   local score has no evidence at all
+ * @param {boolean} [opts.localFallback=false] - answer with the local score's tier
+ *   when jev was asked and failed (timeout, HTTP error, open breaker, bad reply)
+ * @param {object} [opts.signals] - extractSignals() output; computed from body when absent
  * @returns {Promise<{tier:string,confidence:number,probabilities:object,model:string,spendUsd:number,source:"jev"}|null>}
  *          null on ANY failure / low confidence / open breaker (fail-open).
  */
@@ -136,9 +148,32 @@ export async function classifyTier(opts = {}) {
     requestImpl = null,
     fetchImpl = (...a) => fetch(...a),
     now = () => Date.now(),
+    mode = "jev",
+    localFallback = false,
+    signals = null,
   } = opts;
 
   const t0 = now();
+
+  // The deterministic score, computed lazily: only the heuristic modes and the
+  // fallback read it.
+  let local = null;
+  const localTier = () => {
+    if (!local) {
+      const { score, reasons } = localDeliberation(signals || extractSignals(body));
+      local = { tier: tierForScore(score), confidence: null, probabilities: null, model: "local", spendUsd: 0, source: "local", score, reasons };
+    }
+    return local;
+  };
+  const failOpen = (reason) => {
+    if (!localFallback) return null;
+    const answer = localTier();
+    log.info?.("JEV", `${reason} — local tier=${answer.tier} (score ${answer.score})`);
+    return answer;
+  };
+
+  if (mode === "heuristic_first" && localTier().reasons.length > 0) return localTier();
+  if (mode === "hybrid" && tierMargin(localTier().score) >= HYBRID_MARGIN) return localTier();
 
   if (!requestImpl && !apiKey) {
     log.debug?.("JEV", "no TYPESAFE_API_KEY — skipping classifier (fail-open)");
@@ -153,7 +188,7 @@ export async function classifyTier(opts = {}) {
 
   if (breakerEnabled && breakerOpen(t0)) {
     log.debug?.("JEV", "circuit breaker open — skipping classifier (fail-open)");
-    return null;
+    return failOpen("breaker open");
   }
 
   const payload = {
@@ -178,14 +213,14 @@ export async function classifyTier(opts = {}) {
     const isTimeout = e?.name === "AbortError";
     if (isTimeout && breakerEnabled) tripBreaker(now(), JEV_BREAKER_COOLDOWN_MS);
     log.warn?.("JEV", isTimeout ? "classifier timed out — fail-open" : `classifier fetch error — fail-open: ${e?.message || e}`);
-    return null;
+    return failOpen(isTimeout ? "timed out" : "fetch error");
   } finally {
     clearTimeout(timer);
   }
 
   if (!res || res.status !== 200) {
     log.warn?.("JEV", `classifier HTTP ${res?.status} — fail-open`);
-    return null;
+    return failOpen(`HTTP ${res?.status}`);
   }
 
   let json;
@@ -193,7 +228,7 @@ export async function classifyTier(opts = {}) {
     json = await res.json();
   } catch (e) {
     log.warn?.("JEV", `classifier unparseable response — fail-open: ${e?.message || e}`);
-    return null;
+    return failOpen("unparseable response");
   }
 
   const ans = json?.answers?.tier;
@@ -204,7 +239,7 @@ export async function classifyTier(opts = {}) {
   // Validate: known tier + sufficient confidence.
   if (!tier || !JEV_TIERS.includes(tier)) {
     log.warn?.("JEV", `unknown tier "${tier}" — fail-open`);
-    return null;
+    return failOpen("unknown tier");
   }
   if (confidence == null || confidence < minConfidence) {
     log.info?.("JEV", `low confidence (${confidence}) for tier ${tier} — keeping existing order`);

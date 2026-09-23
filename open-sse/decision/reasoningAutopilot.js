@@ -104,6 +104,8 @@ const clamp = (level, floor, ceiling) => LADDER[Math.max(indexOf(floor), Math.mi
  * @param {object} args.signals       extractSignals() output
  * @param {number|null} args.deliberation needs_reasoning from jev, when measured
  * @param {boolean} [args.jevFailed]  jev was asked and answered nothing: keep the previous level
+ * @param {number|null} [args.localDeliberation] deterministic 0..1 score (localScorer), used
+ *   when jev failed and there is no previous level to keep
  * @param {string|null} [args.turnId] identity of the human turn this request belongs
  *   to; null treats every request as a new turn
  * @param {number|null} [args.contextWindow] the serving model's context window
@@ -111,7 +113,7 @@ const clamp = (level, floor, ceiling) => LADDER[Math.max(indexOf(floor), Math.mi
  * @param {object} args.config        normalizeAutopilotConfig() output
  * @returns {{level:string, cause:string, from:string|null, base:string, state:object}}
  */
-export function decideReasoningLevel({ signals = {}, deliberation = null, jevFailed = false, turnId = null, contextWindow = null, previous = null, config = DEFAULT_AUTOPILOT }) {
+export function decideReasoningLevel({ signals = {}, deliberation = null, jevFailed = false, localDeliberation = null, turnId = null, contextWindow = null, previous = null, config = DEFAULT_AUTOPILOT }) {
   const from = clientLevel(signals.clientEffort);
 
   // Bookkeeping never needs thought, whatever the floor says for real work.
@@ -126,8 +128,9 @@ export function decideReasoningLevel({ signals = {}, deliberation = null, jevFai
   const turn = (previous?.turn ?? 0) + 1;
   const measured = levelFromDeliberation(deliberation);
   const kept = !measured && jevFailed && known;
-  let level = measured || (kept ? previous.level : null) || from || "medium";
-  let cause = measured ? "jev" : kept ? "kept" : from ? "client" : "default";
+  const local = !measured && !kept && jevFailed && typeof localDeliberation === "number" ? levelFromDeliberation(localDeliberation) : null;
+  let level = measured || (kept ? previous.level : null) || local || from || "medium";
+  let cause = measured ? "jev" : kept ? "kept" : local ? "local" : from ? "client" : "default";
   const base = level;
 
   const trouble = troubleCause(signals);

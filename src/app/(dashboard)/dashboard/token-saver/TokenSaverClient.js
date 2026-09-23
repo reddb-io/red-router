@@ -41,6 +41,7 @@ function ResetLink({ keys, scoped, inherited, onReset }) {
 
 export default function TokenSaverClient() {
   const [rtkEnabled, setRtkEnabledState] = useState(true);
+  const [relevanceEnabled, setRelevanceEnabled] = useState(false);
   const [headroomEnabled, setHeadroomEnabled] = useState(false);
   const [headroomUrl, setHeadroomUrl] = useState("http://localhost:8787");
   const [headroomTimeoutMs, setHeadroomTimeoutMs] = useState(3000);
@@ -472,6 +473,7 @@ export default function TokenSaverClient() {
         if (res.ok) {
           const data = await res.json();
           setRtkEnabledState(data.rtkEnabled !== false);
+          setRelevanceEnabled(data.rtkRelevanceEnabled === true);
           setHeadroomEnabled(!!data.headroomEnabled);
           setHeadroomUrl(data.headroomUrl || "http://localhost:8787");
           if (typeof data.headroomTimeoutMs === "number") setHeadroomTimeoutMs(data.headroomTimeoutMs);
@@ -575,6 +577,28 @@ export default function TokenSaverClient() {
           <Toggle
             checked={rtkEnabled}
             onChange={() => handleRtkEnabled(!rtkEnabled)}
+          />
+        </div>
+        <div className="flex items-center justify-between py-4 border-b border-border gap-4">
+          <div className="min-w-0 flex-1">
+            <p className="font-medium">
+              Drop irrelevant tool output{" "}
+              <DefaultBadge keys={["rtkRelevanceEnabled"]} scoped={scoped} inherited={inherited} />
+              <ResetLink keys={["rtkRelevanceEnabled"]} scoped={scoped} inherited={inherited} onReset={resetToDefault} />
+            </p>
+            <p className="text-sm text-text-muted">
+              Asks the decision model (JEV) which older tool outputs the current request still needs and replaces
+              the rest with a one-line note. Each output is judged once; errors and the latest outputs are always kept.
+              Needs a decision gateway configured, and costs one small decision call per request with new outputs.
+            </p>
+          </div>
+          <Toggle
+            checked={relevanceEnabled}
+            onChange={() => {
+              const next = !relevanceEnabled;
+              setRelevanceEnabled(next);
+              patchSetting({ rtkRelevanceEnabled: next });
+            }}
           />
         </div>
         {showHeadroomRow && (
