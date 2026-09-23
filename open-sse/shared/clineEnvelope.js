@@ -14,6 +14,11 @@ import { PROVIDERS } from "../providers/index.js";
 export function unwrapClineEnvelope(body, provider) {
   if (!provider || !PROVIDERS[provider]?.quirks?.clineEnvelope) return body;
   const { success, data } = body || {};
-  if (success !== true || !data || typeof data !== "object" || Array.isArray(data)) return body;
-  return data;
+  if (!data || typeof data !== "object" || Array.isArray(data)) return body;
+  if (success === true) return data;
+  // The older shape has no `success` field: {"data":{"choices":[…]}} (upstream
+  // 9router #4267). Unwrap it only when the inner body is a completion, so an
+  // error envelope ({"success":false,…}) still passes through untouched.
+  if (success === undefined && Array.isArray(data.choices) && !body.choices) return data;
+  return body;
 }

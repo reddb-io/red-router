@@ -50,21 +50,16 @@ function extractEmailFromAccessToken(accessToken) {
   return payload.email || payload.preferred_username || payload.sub || undefined;
 }
 
-export async function fetchKiroProfileArn(accessToken) {
+// The account's profile ARN, from the CodeWhisperer endpoint of its own region.
+// The path-style "/ListAvailableProfiles" call pinned to us-east-1 is retired, so
+// IDC accounts failed with "profileArn is required" (PentatonicDev d4c20d89).
+// Fail-soft: null on any error, as before.
+export async function fetchKiroProfileArn(accessToken, region = "us-east-1") {
   if (!accessToken) return null;
   try {
-    const response = await fetch("https://codewhisperer.us-east-1.amazonaws.com/ListAvailableProfiles", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-        Authorization: `Bearer ${accessToken}`,
-      },
-      body: JSON.stringify({ maxResults: 10 }),
-    });
-    if (!response.ok) return null;
-    const data = await response.json();
-    return data.profiles?.find((p) => p.arn?.trim())?.arn?.trim() || null;
+    const { KiroService } = await import("./services/kiro.js");
+    const arn = await new KiroService().listAvailableProfiles(accessToken, region?.trim() || "us-east-1");
+    return typeof arn === "string" && arn.trim() ? arn.trim() : null;
   } catch {
     return null;
   }

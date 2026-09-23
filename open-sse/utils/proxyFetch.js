@@ -108,6 +108,49 @@ const MITM_BYPASS_HOSTS = [
   "api2.cursor.sh",
 ];
 const GOOGLE_DNS_SERVERS = ["8.8.8.8", "8.8.4.4"];
+const DNS_TIMEOUT_MS = 2000;
+const BYPASS_CONNECT_TIMEOUT_MS = 10000;
+
+/** Request headers as a plain object: spreading a Headers instance yields {}. */
+export function toPlainHeaders(headers) {
+  if (!headers) return {};
+  if (headers instanceof Headers) return Object.fromEntries(headers.entries());
+  if (Array.isArray(headers)) return Object.fromEntries(headers);
+  return { ...headers };
+}
+
+/** Loopback, private or unspecified: what a local /etc/hosts MITM redirect answers. */
+export function isLocalAddress(address) {
+  if (typeof address !== "string") return false;
+  const a = address.toLowerCase();
+  if (a === "::1" || a === "::" || a === "0.0.0.0" || a.startsWith("127.")) return true;
+  if (a.startsWith("10.") || a.startsWith("192.168.") || a.startsWith("169.254.")) return true;
+  const m = a.match(/^172\.(\d+)\./);
+  if (m && Number(m[1]) >= 16 && Number(m[1]) <= 31) return true;
+  return a.startsWith("fc") || a.startsWith("fd") || a.startsWith("fe80:") || a.startsWith("::ffff:127.");
+}
+
+const withTimeout = (promise, ms, label) => Promise.race([
+  promise,
+  new Promise((_, reject) => setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms).unref?.()),
+]);
+
+/**
+ * Whether the system resolver sends this host to a local address — the sign of
+ * a MITM redirect in /etc/hosts, the only case the manual bypass is for. When the
+ * system answers a public address the normal fetch path is right (and the bypass,
+ * which forces Google DNS, hangs on split-horizon or 8.8.8.8-blocking networks;
+ * upstream 9router #4261). A failed lookup keeps the old behaviour.
+ */
+async function systemResolvesLocally(hostname) {
+  try {
+    const { lookup } = await import("dns/promises");
+    const { address } = await withTimeout(lookup(hostname), DNS_TIMEOUT_MS, "system DNS");
+    return isLocalAddress(address);
+  } catch {
+    return true;
+  }
+}
 const HTTPS_PORT = 443;
 const HTTP_SUCCESS_MIN = 200;
 const HTTP_SUCCESS_MAX = 300;
@@ -127,7 +170,7 @@ async function resolveRealIP(hostname) {
   try {
     const dns = await import("dns");
     const { promisify } = await import("util");
-    const resolver = new dns.Resolver();
+    const resolver = new dns.Resolver({ timeout: DNS_TIMEOUT_MS, tries: 1 });
     resolver.setServers(GOOGLE_DNS_SERVERS);
     const resolve4 = promisify(resolver.resolve4.bind(resolver));
     const addresses = await resolve4(hostname);
@@ -244,8 +287,16 @@ async function createBypassRequest(parsedUrl, realIP, options) {
 
   return new Promise((resolve, reject) => {
     const socket = new net.Socket();
+    const fail = (error) => { socket.destroy(); reject(error); };
+    // Bounded connect: an unreachable address must not hang until the OS gives up.
+    socket.setTimeout(BYPASS_CONNECT_TIMEOUT_MS, () => fail(new Error(`bypass connect to ${realIP} timed out`)));
+    if (options.signal) {
+      if (options.signal.aborted) return fail(new DOMException("Request aborted", "AbortError"));
+      options.signal.addEventListener("abort", () => fail(new DOMException("Request aborted", "AbortError")), { once: true });
+    }
 
     socket.connect(HTTPS_PORT, realIP, () => {
+      socket.setTimeout(0); // connected: the response may stream for a long time
       const reqOptions = {
         socket,
         // SNI + cert hostname are validated against the hostname the caller
@@ -258,7 +309,7 @@ async function createBypassRequest(parsedUrl, realIP, options) {
         path: parsedUrl.pathname + parsedUrl.search,
         method: options.method || "POST",
         headers: {
-          ...options.headers,
+          ...toPlainHeaders(options.headers),
           Host: parsedUrl.hostname,
         },
       };
@@ -299,7 +350,7 @@ export async function proxyAwareFetch(url, options = {}, proxyOptions = null) {
   if (vercelRelayUrl) {
     const parsed = new URL(targetUrl);
     const relayHeaders = {
-      ...options.headers,
+      ...toPlainHeaders(options.headers),
       "x-relay-target": `${parsed.protocol}//${parsed.host}`,
       "x-relay-path": `${parsed.pathname}${parsed.search}`,
     };
@@ -324,11 +375,14 @@ export async function proxyAwareFetch(url, options = {}, proxyOptions = null) {
         console.warn(`[ProxyFetch] Proxy failed, falling back to direct bypass: ${proxyError.message}`);
       }
     }
-    // No proxy — manually resolve real IP to bypass DNS spoof
+    // No proxy — manually resolve real IP to bypass DNS spoof, but only when the
+    // system resolver is actually being redirected to a local address.
     try {
       const parsedUrl = new URL(targetUrl);
-      const realIP = await resolveRealIP(parsedUrl.hostname);
-      if (realIP) return await createBypassRequest(parsedUrl, realIP, options);
+      if (await systemResolvesLocally(parsedUrl.hostname)) {
+        const realIP = await resolveRealIP(parsedUrl.hostname);
+        if (realIP) return await createBypassRequest(parsedUrl, realIP, options);
+      }
     } catch (error) {
       console.warn(`[ProxyFetch] MITM bypass failed: ${error.message}`);
     }

@@ -4,7 +4,11 @@ import { getMimoAccountCookie, invalidateMimoAccountCookieCache, MIMO_API_BASE, 
 // Desktop-exclusive Preview models. These are served by the account service's
 // /api/route proxy, authorized by the Xiaomi account session (NOT the sk- key).
 // See shared/mimoAccount.js for the session handshake.
-const PREVIEW_MODELS = new Set(["mimo-x-pro-preview", "mimo-x-flash-preview"]);
+// The account route serves the v2.6 models now (upstream 9router 910db749). The
+// retired preview ids are rewritten to their v2.6 successors so saved combos and
+// clients that still name them keep working.
+const RETIRED_PREVIEW_MODELS = { "mimo-x-pro-preview": "mimo-v2.6-pro", "mimo-x-flash-preview": "mimo-v2.6-flash" };
+const PREVIEW_MODELS = new Set(["mimo-v2.6-pro", "mimo-v2.6-flash", "mimo-v2.6-pro-ultraspeed", ...Object.keys(RETIRED_PREVIEW_MODELS)]);
 
 // Session cookie resolved in execute() (async) and read back by buildHeaders()
 // (sync — BaseExecutor.execute does not await it). Carried on the per-request
@@ -55,6 +59,8 @@ export class XiaomiMimoExecutor extends DefaultExecutor {
     // super runs stripUnsupportedParams, which flattens Preview content-part
     // arrays (see the xiaomi-mimo rule in translator/concerns/paramSupport.js).
     const out = super.transformRequest(model, body, stream, credentials);
+    const successor = RETIRED_PREVIEW_MODELS[bareModel(model)];
+    if (successor && out && typeof out === "object") out.model = `xiaomi/${successor}`;
 
     // Preview models: thinking/params get defaults only — never override what the
     // caller set explicitly. (body.model is already `xiaomi/<id>` via upstreamModelId.)
@@ -94,6 +100,6 @@ export class XiaomiMimoExecutor extends DefaultExecutor {
   }
 }
 
-export const __test__ = { PREVIEW_MODELS, bareModel, COOKIE_KEY };
+export const __test__ = { PREVIEW_MODELS, RETIRED_PREVIEW_MODELS, bareModel, COOKIE_KEY };
 
 export default XiaomiMimoExecutor;
