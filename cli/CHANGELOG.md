@@ -1,5 +1,29 @@
 # @reddb-io/red-router
 
+## 0.21.0
+
+### Minor Changes
+
+- 4f8c006: In `/v1/models`, a combo's `parameters` now follow its routing strategy.
+  
+  - **`fallback` combos** state their lead member's parameters. The lead is who serves unless it fails, so its context window, output limit and thinking settings are the ones to plan for.
+  - **Other strategies** (`round-robin`, `smart`, `auto`, `fusion`) may land on any member, so they keep the strictest member's parameters.
+  - **New fields:**
+    - `parameters_basis` (`"lead"` or `"strictest"`) says which basis applies.
+    - `parameters_strict` keeps the strictest parameters next to the lead's.
+    - `member_parameters: [{ id, parameters }]` gives every member its own parameters.
+  - **When another member serves:** `X-RedRouter-Served-Model` names it. A client can switch to that member's entry in `member_parameters` without fetching the catalog again.
+  - **Unchanged:** `members` and the top-level `context_length`, `max_completion_tokens` and `capabilities` still describe the safe floor.
+
+### Patch Changes
+
+- 0739c78: OpenAI API conformance. Every `/v1` answer now matches OpenAI's own OpenAPI schemas, which are now checked in CI.
+  
+  - **`/v1/models`:** entries carry the required `created`, a combo's creation time and a fixed value for everything else, so the catalog version stays stable.
+  - **Error bodies:** every `/v1` error has `param` and `code`.
+  - **Chat Completions answers translated from Claude, Gemini and other upstreams:** the JSON answer now has `logprobs`, `refusal`, and `content: null` on a tool-call message, and the stream now ends with `data: [DONE]`. Clients that wait for that sentinel no longer hang until the connection closes.
+  - **Responses API JSON answers:** they now echo the request settings OpenAI requires (`instructions`, `tools`, `tool_choice`, `parallel_tool_calls`, `temperature`, `top_p`, `metadata`), set `error` and `incomplete_details`, give every output item an `id` and `status`, and include the usage detail blocks.
+
 ## 0.20.0
 
 ### Minor Changes
