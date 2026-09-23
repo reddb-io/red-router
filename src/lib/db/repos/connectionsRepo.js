@@ -116,7 +116,8 @@ async function reorderInTx(db, providerId) {
   const list = (await db.selectFrom("providerConnections").selectAll()
     .where("provider", "=", providerId).execute()).map(rowToConn);
   list.sort((a, b) => {
-    const pDiff = (a.priority || 0) - (b.priority || 0);
+    // Same reading as getProviderConnections: a missing or 0 priority goes last.
+    const pDiff = (a.priority || 999) - (b.priority || 999);
     if (pDiff !== 0) return pDiff;
     return new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0);
   });
@@ -307,6 +308,26 @@ export async function deleteProviderConnectionsByProvider(providerId) {
     deleted = rows.length;
   });
   return deleted;
+}
+
+/**
+ * Set a provider's account order in one transaction: `orderedIds` first, in that
+ * order, then any account not listed, keeping its current place. Priorities are
+ * written 1..N. Replaces per-account priority writes that raced each other.
+ */
+export async function setConnectionOrder(providerId, orderedIds) {
+  const db = await getDb();
+  await db.transaction().execute(async (trx) => {
+    const list = (await trx.selectFrom("providerConnections").selectAll()
+      .where("provider", "=", providerId).execute()).map(rowToConn);
+    list.sort((a, b) => (a.priority || 999) - (b.priority || 999));
+    const byId = new Map(list.map((c) => [c.id, c]));
+    const first = [...new Set(orderedIds)].filter((id) => byId.has(id));
+    const rest = list.map((c) => c.id).filter((id) => !first.includes(id));
+    for (const [i, id] of [...first, ...rest].entries()) {
+      await trx.updateTable("providerConnections").set({ priority: i + 1 }).where("id", "=", id).execute();
+    }
+  });
 }
 
 export async function reorderProviderConnections(providerId) {
