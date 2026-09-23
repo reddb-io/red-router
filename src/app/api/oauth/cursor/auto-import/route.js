@@ -72,50 +72,52 @@ const normalize = (value) => {
   }
 };
 
+// better-sqlite3's native addon SIGSEGVs on load on Node >= 24, a process crash no
+// try/catch can stop (same rule as src/lib/db/driver.js). There, the built-in
+// node:sqlite reads the file instead.
+function canLoadBetterSqlite() {
+  if (process.versions.bun) return false;
+  return Number(process.versions.node.split(".")[0]) < 24;
+}
+
+async function openReadOnly(dbPath) {
+  if (canLoadBetterSqlite()) {
+    const { default: Database } = await import("better-sqlite3");
+    const db = new Database(dbPath, { readonly: true, fileMustExist: true });
+    return { get: (sql, key) => db.prepare(sql).get(key), close: () => db.close() };
+  }
+  const { DatabaseSync } = await import("node:sqlite");
+  const db = new DatabaseSync(dbPath, { readOnly: true });
+  return { get: (sql, key) => db.prepare(sql).get(key), close: () => db.close() };
+}
+
 /**
- * Extract tokens via better-sqlite3 (bundled dependency).
+ * Extract tokens with an in-process SQLite reader (better-sqlite3 or node:sqlite).
  * This is the preferred strategy — no external CLI required.
  */
-function extractTokensViaBetterSqlite(dbPath) {
-  // Dynamic require so the route stays importable even if native bindings fail
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const Database = require("better-sqlite3");
-  const db = new Database(dbPath, { readonly: true, fileMustExist: true });
-
-  const query = (key) => {
-    const row = db.prepare("SELECT value FROM itemTable WHERE key=? LIMIT 1").get(key);
-    return row?.value || null;
-  };
-
-  const normalize = (value) => {
-    if (typeof value !== "string") return value;
-    try {
-      const parsed = JSON.parse(value);
-      return typeof parsed === "string" ? parsed : value;
-    } catch {
-      return value;
+async function extractTokensViaSqlite(dbPath) {
+  const db = await openReadOnly(dbPath);
+  try {
+    const query = (key) => db.get("SELECT value FROM itemTable WHERE key=? LIMIT 1", key)?.value || null;
+    let accessToken = null;
+    for (const key of ACCESS_TOKEN_KEYS) {
+      const raw = query(key);
+      if (raw) { accessToken = normalize(raw); break; }
     }
-  };
-
-  let accessToken = null;
-  for (const key of ACCESS_TOKEN_KEYS) {
-    const raw = query(key);
-    if (raw) { accessToken = normalize(raw); break; }
+    let machineId = null;
+    for (const key of MACHINE_ID_KEYS) {
+      const raw = query(key);
+      if (raw) { machineId = normalize(raw); break; }
+    }
+    return { accessToken, machineId };
+  } finally {
+    db.close();
   }
-
-  let machineId = null;
-  for (const key of MACHINE_ID_KEYS) {
-    const raw = query(key);
-    if (raw) { machineId = normalize(raw); break; }
-  }
-
-  db.close();
-  return { accessToken, machineId };
 }
 
 /**
  * Extract tokens via sqlite3 CLI.
- * Fallback when better-sqlite3 native bindings are unavailable.
+ * Fallback when no in-process SQLite reader can open the file.
  */
 async function extractTokensViaCLI(dbPath) {
   const normalize = (raw) => {
@@ -172,7 +174,7 @@ async function extractTokensViaCLI(dbPath) {
 /**
  * GET /api/oauth/cursor/auto-import
  * Auto-detect and extract Cursor tokens from local SQLite database.
- * Strategy: better-sqlite3 → sqlite3 CLI → manual fallback
+ * Strategy: in-process SQLite (better-sqlite3 / node:sqlite) → sqlite3 CLI → manual fallback
  */
 export async function GET() {
   try {
@@ -218,9 +220,9 @@ export async function GET() {
       }
     }
 
-    // Strategy 1: better-sqlite3 (bundled — no external tools required)
+    // Strategy 1: in-process SQLite (no external tools required)
     try {
-      const tokens = extractTokensViaBetterSqlite(dbPath);
+      const tokens = await extractTokensViaSqlite(dbPath);
       if (tokens.accessToken && tokens.machineId) {
         return NextResponse.json({
           found: true,
