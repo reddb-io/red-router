@@ -188,6 +188,10 @@ export const PROVIDER_CAPABILITIES = {
   // must clamp to the minimum instead of disabling. #4031
   "codex": {
     "gpt-6-astra":               { vision: true, reasoning: true, search: true, thinkingFormat: "openai", thinkingCanDisable: false, contextWindow: 272000, maxOutput: 128000 },
+    // GPT-6 Sol and Luna accept reasoning effort "none" (Astra does not). Codex
+    // serves them with a 272K window by default; the API itself goes to 1.05M.
+    "gpt-6-sol":                 { vision: true, reasoning: true, search: true, thinkingFormat: "openai", contextWindow: 272000, maxOutput: 128000 },
+    "gpt-6-luna":                { vision: true, reasoning: true, search: true, thinkingFormat: "openai", contextWindow: 272000, maxOutput: 128000 },
     "gpt-5.6-sol":               CODEX_GPT_56_SOL_CAPS,
     "gpt-5.6-sol-review":        CODEX_GPT_56_SOL_CAPS,
     "gpt-5.6-terra":             CODEX_GPT_56_DEFAULT_CAPS,
@@ -338,6 +342,8 @@ export const PATTERN_CAPABILITIES = [
   { pattern: "*nanobanana*",    caps: { vision: true, imageOutput: true } },
 
   // ── OpenAI GPT-6.x (vision + thinking + web search) ──────────────
+  // Astra is the one GPT-6 model that rejects reasoning effort "none".
+  { pattern: "*gpt-6-astra*",   caps: { vision: true, reasoning: true, search: true, thinkingFormat: "openai", thinkingCanDisable: false, contextWindow: 272000, maxOutput: 128000 } },
   { pattern: "*gpt-6*",         caps: { vision: true, reasoning: true, search: true, thinkingFormat: "openai", contextWindow: 272000, maxOutput: 128000 } },
 
   // ── OpenAI GPT-5.x (vision + thinking + web search) ──────────────

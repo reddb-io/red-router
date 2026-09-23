@@ -2,7 +2,7 @@ import { RED_ROUTER_PROVIDER_ID } from "../config/redRouter.js";
 import { createHash } from "node:crypto";
 import { BaseExecutor } from "./base.js";
 import { PROVIDERS, PROVIDER_OAUTH } from "../config/providers.js";
-import { ANTHROPIC_API_VERSION, OPENAI_COMPAT_BASE, ANTHROPIC_COMPAT_BASE, selectAnthropicBeta } from "../providers/shared.js";
+import { ANTHROPIC_API_VERSION, OPENAI_COMPAT_BASE, ANTHROPIC_COMPAT_BASE, CLAUDE_CLI_VERSION, selectAnthropicBeta } from "../providers/shared.js";
 import { resolveOpenAICompatibleApiType } from "../services/provider.js";
 import { OAUTH_ENDPOINTS, buildKimiHeaders } from "../config/appConstants.js";
 import { buildClineHeaders } from "../shared/clineAuth.js";
@@ -12,6 +12,17 @@ import { getCapabilitiesForModel } from "../providers/capabilities.js";
 import { injectReasoningContent } from "../utils/reasoningContentInjector.js";
 import { detectClientTool } from "../utils/clientDetector.js";
 import { stripUnsupportedParams } from "../translator/concerns/paramSupport.js";
+import {
+  adoptClaudeCodeVersion,
+  advertisesClaudeCodeVersion,
+  claudeCodeUserAgent,
+  parseRequiredClaudeCodeVersion,
+  withCurrentBillingVersion,
+} from "../utils/claudeCodeVersion.js";
+
+// The Claude Code User-Agent the registry ships; buildHeaders swaps it for the
+// version advertised now. A forwarded client UA (OpenRouter attribution) is left alone.
+const BUILT_IN_CLAUDE_UA = `claude-cli/${CLAUDE_CLI_VERSION} (external, sdk-cli)`;
 
 // Auth header descriptors — derived from registry transport.auth, fallback to hardcoded defaults.
 const BEARER = { combined: true, header: "Authorization", scheme: "bearer" };
@@ -335,8 +346,34 @@ export class DefaultExecutor extends BaseExecutor {
       }
     }
 
+    // The Claude Code identity is computed per request: a version adopted from an
+    // upstream `claude_code_version_too_old` answer must reach the very next call.
+    if (headers["User-Agent"] === BUILT_IN_CLAUDE_UA) headers["User-Agent"] = claudeCodeUserAgent();
+
     if (stream) headers["Accept"] = "text/event-stream";
     return headers;
+  }
+
+  /**
+   * Anthropic answers a Claude Code identity older than a model needs with 400
+   * `claude_code_version_too_old` naming the minimum version. Adopt it (upward
+   * only; RED_ROUTER_CLAUDE_CODE_VERSION wins) and hand back the body to resend,
+   * its billing header rewritten to the new version. BaseExecutor.execute retries
+   * once, before any output reached the client. null → no retry.
+   */
+  async retryBodyForClientVersion(response, body, log) {
+    if (response?.status !== 400 || typeof response.clone !== "function") return null;
+    if (this.provider !== "claude" && !this.provider?.startsWith?.("anthropic-compatible-")) return null;
+    const text = await response.clone().text().catch(() => "");
+    const required = parseRequiredClaudeCodeVersion(response.status, text);
+    if (!required) return null;
+    const adopted = adoptClaudeCodeVersion(required);
+    if (!advertisesClaudeCodeVersion(required)) {
+      log?.warn?.("CLAUDE", `upstream requires Claude Code ${required}; the advertised version is pinned lower`);
+      return null;
+    }
+    log?.info?.("CLAUDE", `upstream requires Claude Code ${required}${adopted ? "; adopted" : ""}, retrying once`);
+    return withCurrentBillingVersion(body);
   }
 
   // Generic OAuth refresh for the common {grant_type, refresh_token, client_id[, ...]} shape.

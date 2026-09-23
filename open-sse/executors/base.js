@@ -118,6 +118,7 @@ export class BaseExecutor {
     let lastError = null;
     let lastStatus = 0;
     const retryAttemptsByUrl = {};
+    let clientVersionRetried = false;
 
     // Merge default retry config with provider-specific config
     const retryConfig = { ...DEFAULT_RETRY_CONFIG, ...this.config.retry };
@@ -169,6 +170,19 @@ export class BaseExecutor {
         dbg("FETCH", `${this.provider.toUpperCase()} ← ${response.status} | ttft=${Date.now() - fetchT0}ms | ct=${ct} | cl=${cl}`);
 
         if (await tryRetry(urlIndex, response.status, `status ${response.status}`, response)) { urlIndex--; continue; }
+
+        // One resend when the upstream rejects the advertised client version and
+        // the executor could adopt the one it asks for (see DefaultExecutor).
+        if (!clientVersionRetried && this.retryBodyForClientVersion) {
+          const retryBody = await this.retryBodyForClientVersion(response, body, log);
+          if (retryBody) {
+            clientVersionRetried = true;
+            Promise.resolve(response.body?.cancel?.()).catch(() => {});
+            body = retryBody;
+            urlIndex--;
+            continue;
+          }
+        }
 
         if (this.shouldRetry(response.status, urlIndex)) {
           log?.debug?.("RETRY", `${response.status} on ${url}, trying fallback ${urlIndex + 1}`);

@@ -34,9 +34,29 @@ const FORMAT_LEVELS = {
 
 const CODEX_GPT_5_6_LEVELS = ["none", "minimal", "low", "medium", "high", "xhigh", "max"];
 
+// GPT-6 takes low..max on every provider (Codex included) and no "minimal";
+// "none" is filtered for Astra, which declares thinkingCanDisable: false.
+const GPT_6_LEVELS = ["none", "low", "medium", "high", "xhigh", "max"];
+
+// Adaptive Claude models that take output_config.effort "xhigh" (added with Opus
+// 4.7). Opus 4.6 / Sonnet 4.6 stop at high→max, so they keep the format default.
+const CLAUDE_XHIGH_LEVELS = ["none", "low", "medium", "high", "xhigh", "max"];
+const CLAUDE_XHIGH_PATTERNS = [
+  "*claude-opus-5*",
+  "*claude-fable-5*",
+  "*claude-mythos-5*",
+  "*claude-sonnet-5*",
+  "*claude-opus-4.7*",
+  "*claude-opus-4-7*",
+  "*claude-opus-4.8*",
+  "*claude-opus-4-8*",
+];
+
 // Model-name pattern overrides (glob, first match wins) — more precise than format default.
+// `format` limits an entry to models whose capability thinkingFormat matches.
 const PATTERN_THINKING = [
-  { provider: "codex", pattern: "*gpt-6*", levels: CODEX_GPT_5_6_LEVELS },
+  { pattern: "*gpt-6*", levels: GPT_6_LEVELS },
+  ...CLAUDE_XHIGH_PATTERNS.map((pattern) => ({ format: "claude-adaptive", pattern, levels: CLAUDE_XHIGH_LEVELS })),
   { provider: "codex", pattern: "*gpt-5.6-sol*", levels: [...CODEX_GPT_5_6_LEVELS, "ultra"] },
   { provider: "codex", pattern: "*gpt-5.6-terra*", levels: [...CODEX_GPT_5_6_LEVELS, "ultra"] },
   { provider: "codex", pattern: "*gpt-5.6-luna*", levels: CODEX_GPT_5_6_LEVELS },
@@ -67,7 +87,9 @@ export function getThinkingLevels(provider, model) {
   const caps = getCapabilitiesForModel(provider, model);
   if (!caps.reasoning) return null;
   const hit = PATTERN_THINKING.find((entry) =>
-    (!entry.provider || entry.provider === provider) && matchPattern(entry.pattern, model)
+    (!entry.provider || entry.provider === provider)
+    && (!entry.format || entry.format === caps.thinkingFormat)
+    && matchPattern(entry.pattern, model)
   );
   let levels = hit?.levels || FORMAT_LEVELS[caps.thinkingFormat] || L.base;
   if (caps.thinkingCanDisable === false) levels = levels.filter((l) => l !== "none");

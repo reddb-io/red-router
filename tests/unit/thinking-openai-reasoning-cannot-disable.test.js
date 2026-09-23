@@ -9,22 +9,24 @@ import { getThinkingLevels } from "../../open-sse/providers/thinkingLevels.js";
 // applyThinking wrote "none" for them. The mechanism to avoid that already
 // existed -- `thinkingCanDisable: false` clamps to the minimum instead of
 // disabling -- and these models simply did not declare it.
+// The clamp lands on each model's lowest effort: "minimal" where it exists,
+// "low" for GPT-6, whose effort list starts there.
 const REASONING_MODELS = [
-  ["codex", "gpt-6-astra"],
-  ["codex", "gpt-5.6-sol"],
-  ["codex", "gpt-5.6-terra"],
-  ["codex", "gpt-5.6-luna"],
-  ["codex", "gpt-5.6-sol-review"],
-  ["kiro", "gpt-5.6-sol"],
-  ["kiro", "gpt-5.6-terra-thinking"],
-  ["kiro", "gpt-5.6-luna-agentic"],
+  ["codex", "gpt-6-astra", "low"],
+  ["codex", "gpt-5.6-sol", "minimal"],
+  ["codex", "gpt-5.6-terra", "minimal"],
+  ["codex", "gpt-5.6-luna", "minimal"],
+  ["codex", "gpt-5.6-sol-review", "minimal"],
+  ["kiro", "gpt-5.6-sol", "minimal"],
+  ["kiro", "gpt-5.6-terra-thinking", "minimal"],
+  ["kiro", "gpt-5.6-luna-agentic", "minimal"],
 ];
 
 describe("#4031 OpenAI reasoning models cannot disable thinking", () => {
-  it.each(REASONING_MODELS)("%s/%s never sends reasoning_effort:none", (provider, model) => {
+  it.each(REASONING_MODELS)("%s/%s never sends reasoning_effort:none", (provider, model, floor) => {
     const out = applyThinking(FORMATS.OPENAI, model, { reasoning_effort: "none" }, provider);
     expect(out.reasoning_effort).not.toBe("none");
-    expect(out.reasoning_effort).toBe("minimal");
+    expect(out.reasoning_effort).toBe(floor);
   });
 
   it.each(REASONING_MODELS)("%s/%s does not advertise none as a level", (provider, model) => {
