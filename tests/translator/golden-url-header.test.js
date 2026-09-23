@@ -32,9 +32,13 @@ const SPECIALIZED = new Set([
 ]);
 
 // Sanitize header: khử token + field thời gian động (kimi X-Msh-Device-Id) để snapshot ổn định.
+// Headers that describe the machine the test runs on (kimi sends the hostname).
+const MACHINE_HEADERS = new Set(["x-msh-device-name", "x-msh-device-model"]);
+
 function sanitize(headers) {
   const out = {};
   for (const [k, v] of Object.entries(headers)) {
+    if (MACHINE_HEADERS.has(k.toLowerCase())) { out[k] = "<MACHINE>"; continue; }
     out[k] = typeof v === "string"
       ? v.replace(RED_ROUTER_INSTANCE_ID, "<ROUTER_INSTANCE>").replace(/Bearer .+/, "Bearer <TOK>")
           .replace(/sk-test-APIKEY|tok-test-ACCESS/g, "<CRED>")

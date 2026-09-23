@@ -21,6 +21,10 @@ process.env.TZ = "UTC";
 const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), "rr-test-"));
 process.env.HOME = sandbox;
 process.env.USERPROFILE = sandbox;
+// XDG dirs from the host (CI runners set XDG_CONFIG_HOME) would point outside the sandbox.
+for (const name of ["XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "XDG_STATE_HOME", "XDG_RUNTIME_DIR"]) {
+  delete process.env[name];
+}
 process.env.DATA_DIR = path.join(sandbox, "data");
 fs.mkdirSync(process.env.DATA_DIR, { recursive: true });
 afterAll(() => {
