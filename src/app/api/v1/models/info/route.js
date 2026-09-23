@@ -95,14 +95,14 @@ export async function GET(request) {
   const kind = searchParams.get("kind");
   if (!id) {
     return Response.json(
-      { error: { message: "Missing required query param: id (e.g. ?id=openai/dall-e-3)", type: "invalid_request_error" } },
+      { error: { message: "Missing required query param: id (e.g. ?id=openai/dall-e-3)", type: "invalid_request_error", param: null, code: "invalid_request" } },
       { status: 400, headers: { "Access-Control-Allow-Origin": "*" } },
     );
   }
   const info = lookup(id, kind);
   if (!info) {
     return Response.json(
-      { error: { message: `Model not found: ${id}`, type: "not_found" } },
+      { error: { message: `Model not found: ${id}`, type: "invalid_request_error", param: null, code: "model_not_found" } },
       { status: 404, headers: { "Access-Control-Allow-Origin": "*" } },
     );
   }

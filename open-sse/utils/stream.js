@@ -632,6 +632,15 @@ export function createSSEStream(options = {}) {
           clientTerminalSeen = true;
         }
 
+        // A translated upstream (Claude, Gemini, …) has no `[DONE]` of its own, but an
+        // OpenAI stream ends with one: clients waiting for it would otherwise hang
+        // until the socket closes.
+        if (sourceFormat === FORMATS.OPENAI && !streamDoneSent && !streamErrored) {
+          reqLogger?.appendConvertedChunk?.(SSE_DONE);
+          controller.enqueue(sharedEncoder.encode(SSE_DONE));
+          streamDoneSent = true;
+        }
+
         // Synthesize response.failed if a Responses passthrough stream never reached a terminal event
         const keepsOpenAIResponsesFormat = targetFormat === FORMATS.OPENAI_RESPONSES && sourceFormat === FORMATS.OPENAI_RESPONSES;
         if (keepsOpenAIResponsesFormat && !openAIResponsesTerminalSeen) {

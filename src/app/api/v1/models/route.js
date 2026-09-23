@@ -943,12 +943,13 @@ export async function buildModelsList(kindFilter, options = {}) {
     }
   }
 
+  const comboCreated = new Map(combos.map((c) => [c.name, Math.floor(Date.parse(c.createdAt) / 1000)]));
   const dedupedModels = [];
   const seenModelIds = new Set();
   for (const model of models) {
     if (!model?.id || seenModelIds.has(model.id)) continue;
     seenModelIds.add(model.id);
-    dedupedModels.push(model);
+    dedupedModels.push(withCreated(model, comboCreated));
   }
 
   return filterByKeyModelAccess(dedupedModels, options.apiKey);
@@ -985,6 +986,18 @@ async function filterByKeyModelAccess(models, apiKey) {
     }
   }
   return allowed;
+}
+
+// OpenAI's Model object requires `created` (unix seconds). Provider catalogs carry no
+// creation date, so everything but a combo gets one fixed instant: a clock value would
+// change /v1/models, and with it X-RedRouter-Catalog-Version, on every call.
+const CATALOG_CREATED = 1735689600; // 2025-01-01T00:00:00Z
+
+function withCreated(entry, comboCreated) {
+  if (Number.isInteger(entry.created)) return entry;
+  const fromCombo = entry.owned_by === "combo" ? comboCreated.get(entry.id) : null;
+  const { id, object, ...rest } = entry;
+  return { id, object, created: Number.isInteger(fromCombo) && fromCombo > 0 ? fromCombo : CATALOG_CREATED, ...rest };
 }
 
 /**
@@ -1044,7 +1057,7 @@ export async function GET(request) {
   } catch (error) {
     console.log("Error fetching models:", error);
     return Response.json(
-      { error: { message: error.message, type: "server_error" } },
+      { error: { message: error.message, type: "server_error", param: null, code: "internal_server_error" } },
       { status: 500 }
     );
   }

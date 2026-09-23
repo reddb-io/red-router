@@ -13,6 +13,7 @@ import { decloakToolNames } from "../../utils/claudeCloaking.js";
 import { costHeaders } from "../../utils/servedHeaders.js";
 import { restoreToolNames } from "../../utils/opencodeFingerprint.js";
 import { nonStreamFailure } from "./streamProbe.js";
+import { conformForClient } from "./openaiShape.js";
 import { recordSuccess } from "../../services/providerHealth.js";
 
 /**
@@ -294,7 +295,7 @@ export async function handleNonStreamingResponse({ providerResponse, provider, e
 
   return {
     success: true,
-    response: new Response(JSON.stringify(restoreToolNames(translatedResponse, toolNameMap)), {
+    response: new Response(JSON.stringify(restoreToolNames(conformForClient(translatedResponse, sourceFormat, body), toolNameMap)), {
       headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", ...(await costHeaders(provider, model, usage)) }
     })
   };
