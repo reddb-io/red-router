@@ -189,7 +189,9 @@ export function responseFromRoutingCandidate(candidate, options = {}) {
 export function withRequestId(response, context, { servedModel = null, reasoning = null, catalogVersion = null } = {}) {
   if (!(response instanceof Response) || !context?.requestId) return response;
   const headers = new Headers(response.headers);
-  if (context.errorFormat === FORMATS.CLAUDE) headers.set("request-id", context.requestId);
+  // Anthropic's own request-id, when the upstream sent one, is the one to keep:
+  // it is what Anthropic support and Claude Code's diagnostics refer to.
+  if (context.errorFormat === FORMATS.CLAUDE && !headers.has("request-id")) headers.set("request-id", context.requestId);
   headers.set(REQUEST_ID_HEADER, context.requestId);
   if (servedModel && response.ok) headers.set(SERVED_MODEL_HEADER, headerValue(servedModel));
   if (catalogVersion && response.ok) headers.set(CATALOG_VERSION_HEADER, headerValue(catalogVersion));

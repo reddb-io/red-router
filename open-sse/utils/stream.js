@@ -546,7 +546,9 @@ export function createSSEStream(options = {}) {
             clientTerminalSeen = true;
           }
 
-          if (!streamDoneSent && !isGeminiFamily) {
+          // Anthropic's own stream has no [DONE] sentinel; a Claude client gets its
+          // events as the upstream sent them.
+          if (!streamDoneSent && !isGeminiFamily && sourceFormat !== FORMATS.CLAUDE) {
             // If the last data line was emitted without its blank line, insert one
             // so [DONE] starts a new event instead of extending that one.
             const separator = passthroughAtEventBoundary ? "" : "\n";

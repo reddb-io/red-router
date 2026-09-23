@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { BaseExecutor } from "./base.js";
 import { PROVIDERS, PROVIDER_OAUTH } from "../config/providers.js";
 import { ANTHROPIC_API_VERSION, OPENAI_COMPAT_BASE, ANTHROPIC_COMPAT_BASE, CLAUDE_CLI_VERSION, selectAnthropicBeta, mergeAnthropicBeta } from "../providers/shared.js";
+import { faithfulAnthropicBeta } from "../utils/claudeFidelity.js";
 import { resolveOpenAICompatibleApiType } from "../services/provider.js";
 import { OAUTH_ENDPOINTS, buildKimiHeaders } from "../config/appConstants.js";
 import { buildClineHeaders } from "../shared/clineAuth.js";
@@ -186,7 +187,9 @@ export class DefaultExecutor extends BaseExecutor {
       if (this.config.quirks?.dropClientMetadata) {
         delete transformed.client_metadata;
       }
-      stripUnsupportedParams(this.provider, model, transformed);
+      // Claude Code to Anthropic itself: its fields (temperature, diagnostics, …)
+      // are what Anthropic expects, and the protocol asks for them unchanged.
+      if (!credentials?.claudeFaithful) stripUnsupportedParams(this.provider, model, transformed);
     }
 
     return injectReasoningContent({ provider: this.provider, model, body: transformed });
@@ -308,7 +311,21 @@ export class DefaultExecutor extends BaseExecutor {
     // a node fronting Kimi or GLM answers on its own ids and never matches, so
     // gateways that would choke on unknown beta flags are left untouched.
     const isClaudeModel = typeof model === "string" && /^claude-/.test(model);
-    if (model && (this.provider === "claude"
+    if (credentials?.claudeFaithful) {
+      // Claude Code to Anthropic itself: the client's anthropic-beta and
+      // anthropic-version verbatim (an open list — pinning ours strips the next
+      // capability), plus only what the credential requires.
+      const raw = credentials.rawHeaders || {};
+      const clientBeta = raw["anthropic-beta"] || raw["Anthropic-Beta"] || "";
+      const clientVersion = raw["anthropic-version"] || raw["Anthropic-Version"] || "";
+      for (const key of Object.keys(headers)) {
+        const lower = key.toLowerCase();
+        if (lower === "anthropic-beta" || (clientVersion && lower === "anthropic-version")) delete headers[key];
+      }
+      const beta = faithfulAnthropicBeta(clientBeta, { oauth: !credentials.apiKey && !!credentials.accessToken });
+      if (beta) headers["anthropic-beta"] = beta;
+      if (clientVersion) headers["anthropic-version"] = clientVersion;
+    } else if (model && (this.provider === "claude"
       || (this.provider?.startsWith?.("anthropic-compatible-") && isClaudeModel))) {
       const clientBeta = credentials?.rawHeaders?.["anthropic-beta"] || credentials?.rawHeaders?.["Anthropic-Beta"] || "";
       headers["Anthropic-Beta"] = mergeAnthropicBeta(selectAnthropicBeta(model), clientBeta);

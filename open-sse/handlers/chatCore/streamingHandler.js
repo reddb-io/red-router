@@ -2,6 +2,7 @@ import { FORMATS } from "../../translator/formats.js";
 import { needsTranslation } from "../../translator/index.js";
 import { createSSETransformStreamWithLogger, createPassthroughStreamWithLogger } from "../../utils/stream.js";
 import { pipeWithDisconnect } from "../../utils/streamHandler.js";
+import { forwardedResponseHeaders } from "../../utils/claudeFidelity.js";
 import { PROVIDERS } from "../../config/providers.js";
 import { HTTP_STATUS, STREAM_KEEPALIVE_MS, STREAM_STALL_TIMEOUT_MS } from "../../config/runtimeConfig.js";
 import { buildAbortedResponsesTerminalBytes } from "../../utils/responsesStreamHelpers.js";
@@ -77,7 +78,7 @@ function isStreamableUpstreamContentType(contentType, targetFormat) {
 /**
  * Handle streaming response — pipe provider SSE through transform stream to client.
  */
-export async function handleStreamingResponse({ providerResponse, reconnect, provider, model, errorContext, sourceFormat, targetFormat, userAgent, body, stream, translatedBody, finalBody, requestStartTime, connectionId, apiKey, clientRawRequest, onRequestSuccess, reqLogger, toolNameMap, customToolNames, streamController, onStreamComplete, streamDetailId, pxpipe, decision, reqTag, log, credentials }) {
+export async function handleStreamingResponse({ claudeFaithful = false, providerResponse, reconnect, provider, model, errorContext, sourceFormat, targetFormat, userAgent, body, stream, translatedBody, finalBody, requestStartTime, connectionId, apiKey, clientRawRequest, onRequestSuccess, reqLogger, toolNameMap, customToolNames, streamController, onStreamComplete, streamDetailId, pxpipe, decision, reqTag, log, credentials }) {
   // When upstream returns HTML/text instead of SSE (e.g. Cloudflare 5xx error
   // page), piping it through the SSE transform stream causes Next.js
   // "failed to pipe response" and crashes the chat router. Read the body,
@@ -164,7 +165,8 @@ export async function handleStreamingResponse({ providerResponse, reconnect, pro
 
   // The cost is only known once the stream ends, so it rides in the final usage
   // event rather than a header.
-  const clientBody = COST_STREAM_FORMATS.has(sourceFormat)
+  // Claude Code to Anthropic itself gets Anthropic's events unchanged (no cost field).
+  const clientBody = COST_STREAM_FORMATS.has(sourceFormat) && !claudeFaithful
     ? transformedBody.pipeThrough(createUsageCostStream({
       pricing: resolvePricing(provider, model),
       currentUsage: transformStream.currentUsage,
@@ -173,7 +175,10 @@ export async function handleStreamingResponse({ providerResponse, reconnect, pro
 
   return {
     success: true,
-    response: new Response(clientBody, { headers: SSE_HEADERS })
+    response: new Response(clientBody, {
+      // Plan-limit and retry headers Claude Code reads (anthropic-ratelimit-unified-*, …).
+      headers: claudeFaithful ? { ...SSE_HEADERS, ...forwardedResponseHeaders(providerResponse) } : SSE_HEADERS,
+    })
   };
 }
 

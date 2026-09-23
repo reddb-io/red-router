@@ -136,6 +136,9 @@ export async function prepareStreamingResponse({
   maxRetries = STREAM_EMPTY_RESPONSE_MAX_RETRIES,
   readAheadMs = STREAM_READ_AHEAD_MS,
   maxReadAheadBytes = STREAM_READ_AHEAD_MAX_BYTES,
+  // false: release the stream right after its first byte, events untouched (the
+  // Claude Code faithful path: an in-band error reaches the client as sent).
+  probeInBand = true,
   log,
   provider,
   model,
@@ -157,6 +160,7 @@ export async function prepareStreamingResponse({
     let emptyMessage = "Upstream stream ended before its first byte";
     try {
       const { done, value } = await reader.read();
+      if (!done && !probeInBand) return { ...result, response: responseWithReader(response, reader, [value]) };
       if (!done) {
         const ahead = await readAhead(reader, value, { readAheadMs, maxBytes: maxReadAheadBytes, signal });
         if (ahead.kind === "answer") return { ...result, response: responseWithReader(response, reader, ahead.chunks, ahead.pendingRead) };

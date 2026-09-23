@@ -13,6 +13,7 @@ import { decloakToolNames } from "../../utils/claudeCloaking.js";
 import { costHeaders } from "../../utils/servedHeaders.js";
 import { restoreToolNames } from "../../utils/opencodeFingerprint.js";
 import { nonStreamFailure } from "./streamProbe.js";
+import { forwardedResponseHeaders } from "../../utils/claudeFidelity.js";
 import { conformForClient } from "./openaiShape.js";
 import { recordSuccess } from "../../services/providerHealth.js";
 
@@ -167,7 +168,7 @@ function toOpenAICompletion(responseBody, targetFormat) {
 /**
  * Handle non-streaming response from provider.
  */
-export async function handleNonStreamingResponse({ providerResponse, provider, errorContext, model, sourceFormat, targetFormat, body, stream, translatedBody, finalBody, requestStartTime, connectionId, apiKey, clientRawRequest, onRequestSuccess, reqLogger, toolNameMap, customToolNames, trackDone, appendLog, pxpipe, decision, reqTag, log }) {
+export async function handleNonStreamingResponse({ claudeFaithful = false, providerResponse, provider, errorContext, model, sourceFormat, targetFormat, body, stream, translatedBody, finalBody, requestStartTime, connectionId, apiKey, clientRawRequest, onRequestSuccess, reqLogger, toolNameMap, customToolNames, trackDone, appendLog, pxpipe, decision, reqTag, log }) {
   trackDone();
   const contentType = providerResponse.headers.get("content-type") || "";
   let responseBody;
@@ -256,7 +257,9 @@ export async function handleNonStreamingResponse({ providerResponse, provider, e
     }
   }
 
-  if (translatedResponse?.usage) {
+  // The faithful path returns Anthropic's usage as reported (the buffer and the
+  // key filter are for clients of translated answers).
+  if (translatedResponse?.usage && !claudeFaithful) {
     translatedResponse.usage = filterUsageForFormat(addBufferToUsage(translatedResponse.usage), sourceFormat);
   }
 
@@ -296,7 +299,7 @@ export async function handleNonStreamingResponse({ providerResponse, provider, e
   return {
     success: true,
     response: new Response(JSON.stringify(restoreToolNames(conformForClient(translatedResponse, sourceFormat, body), toolNameMap)), {
-      headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", ...(await costHeaders(provider, model, usage)) }
+      headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", ...(await costHeaders(provider, model, usage)), ...(claudeFaithful ? forwardedResponseHeaders(providerResponse) : {}) }
     })
   };
 }
