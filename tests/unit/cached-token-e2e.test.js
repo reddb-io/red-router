@@ -36,6 +36,8 @@ describe("cached-token end-to-end (persist + aggregate + cost)", () => {
     });
     expect(canonical.prompt_tokens).toBe(330); // inclusive
 
+    // Totals are measured as a delta: other tests in this file write to the same DB.
+    const before = await db.getUsageStats("24h");
     await db.saveRequestUsage({
       provider: "anthropic",
       model: "claude-sonnet-4-6",
@@ -46,8 +48,8 @@ describe("cached-token end-to-end (persist + aggregate + cost)", () => {
     });
 
     const stats = await db.getUsageStats("24h");
-    expect(stats.totalCachedTokens).toBe(200);
-    expect(stats.totalPromptTokens).toBe(330);
+    expect(stats.totalCachedTokens - (before.totalCachedTokens || 0)).toBe(200);
+    expect(stats.totalPromptTokens - (before.totalPromptTokens || 0)).toBe(330);
     expect(stats.byProvider.anthropic.cachedTokens).toBe(200);
 
     // Cost: nonCached=330-200-30=100 @3 + cached 200 @0.30 + creation 30 @3.75 + output 50 @15

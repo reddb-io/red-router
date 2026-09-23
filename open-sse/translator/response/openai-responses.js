@@ -422,6 +422,19 @@ function computeFinishReason(state) {
  * Translate OpenAI Responses API chunk to OpenAI Chat Completions format
  * This is for when Codex returns data and we need to send it to an OpenAI-compatible client
  */
+// Which chat tool_calls index an event belongs to: by output item id (fc_…),
+// then by call id embedded in legacy fc_<call_id> ids, then the latest call.
+function toolCallIndexFor(state, rawItemId) {
+  const itemId = typeof rawItemId === "string" ? rawItemId : "";
+  if (itemId && state.toolItemIdToIndex?.[itemId] !== undefined) return state.toolItemIdToIndex[itemId];
+  const legacyCallId = itemId.replace(/^(fc|ctc)_/, "");
+  if (legacyCallId && state.toolCallIdToIndex?.[legacyCallId] !== undefined) return state.toolCallIdToIndex[legacyCallId];
+  if (state.currentToolCallId && state.toolCallIdToIndex?.[state.currentToolCallId] !== undefined) {
+    return state.toolCallIdToIndex[state.currentToolCallId];
+  }
+  return state.toolCallIndex;
+}
+
 export function openaiResponsesToOpenAIResponse(chunk, state) {
   if (!chunk) {
     // Flush: send final chunk with finish_reason
@@ -490,6 +503,9 @@ export function openaiResponsesToOpenAIResponse(chunk, state) {
       state.toolCallIdToIndex[callId] = callIndex;
       state.toolCallIndex++;
     }
+    // Deltas name their call by the output item id (fc_…), which is independent
+    // of call_id — remember both.
+    if (item.id) (state.toolItemIdToIndex ??= {})[item.id] = callIndex;
 
     return buildChunk(
       { id: state.chatId, created: state.created, model: state.model || MODEL_FALLBACK },
@@ -511,32 +527,33 @@ export function openaiResponsesToOpenAIResponse(chunk, state) {
 
     // Route the delta to its own call via item_id (fc_<call_id>/ctc_<call_id)).
     // Falls back to the most recent call, then to legacy shared-index behavior.
-    let callIndex = state.toolCallIndex;
-    const rawItemId = typeof data.item_id === "string" ? data.item_id : "";
-    const deltaCallId = rawItemId.replace(/^(fc|ctc)_/, "");
-    if (deltaCallId && state.toolCallIdToIndex?.[deltaCallId] !== undefined) {
-      callIndex = state.toolCallIdToIndex[deltaCallId];
-    } else if (state.currentToolCallId && state.toolCallIdToIndex?.[state.currentToolCallId] !== undefined) {
-      callIndex = state.toolCallIdToIndex[state.currentToolCallId];
-    }
-
+    const callIndex = toolCallIndexFor(state, data.item_id);
+    (state.toolArgsStreamed ??= {})[callIndex] = true;
     return buildChunk(
       { id: state.chatId, created: state.created, model: state.model || MODEL_FALLBACK },
       { tool_calls: [{ index: callIndex, function: { arguments: argsDelta } }] }
     );
   }
 
-  // Function call done (standard or custom_tool_call variant).
-  // Index was already assigned at added time; done is a no-op for indexing so
-  // batched parallel dones cannot shift later calls.
-  if (eventType === "response.output_item.done" && (data.item?.type === RESPONSES_ITEM.FUNCTION_CALL || data.item?.type === "custom_tool_call")) {
-    return null;
-  }
-
-  // Arguments-done arrives per call ahead of output_item.done on strict
-  // Responses streams; also a no-op for indexing.
-  if (eventType === "response.function_call_arguments.done" || eventType === "response.custom_tool_call_input.done") {
-    return null;
+  // Arguments-done (strict streams, ahead of output_item.done) and output_item.done.
+  // The index was assigned at added time, so batched dones cannot shift later calls.
+  // Upstreams that skip deltas carry the whole arguments here: emit them once,
+  // only when nothing was streamed for that call.
+  const isArgsDone = eventType === "response.function_call_arguments.done" || eventType === "response.custom_tool_call_input.done";
+  const isItemDone = eventType === "response.output_item.done" && (data.item?.type === RESPONSES_ITEM.FUNCTION_CALL || data.item?.type === "custom_tool_call");
+  if (isArgsDone || isItemDone) {
+    const itemId = isItemDone ? data.item?.id : data.item_id;
+    const callId = isItemDone ? data.item?.call_id : null;
+    const callIndex = callId && state.toolCallIdToIndex?.[callId] !== undefined
+      ? state.toolCallIdToIndex[callId]
+      : toolCallIndexFor(state, itemId);
+    const fullArgs = isItemDone ? (data.item?.arguments ?? data.item?.input) : (data.arguments ?? data.input);
+    if (typeof fullArgs !== "string" || !fullArgs || state.toolArgsStreamed?.[callIndex]) return null;
+    (state.toolArgsStreamed ??= {})[callIndex] = true;
+    return buildChunk(
+      { id: state.chatId, created: state.created, model: state.model || MODEL_FALLBACK },
+      { tool_calls: [{ index: callIndex, function: { arguments: fullArgs } }] }
+    );
   }
 
   // Response completed

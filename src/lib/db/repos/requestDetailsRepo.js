@@ -57,7 +57,8 @@ async function getObservabilityConfig() {
 
 let writeBuffer = [];
 let flushTimer = null;
-let isFlushing = false;
+// The flush in progress, so callers can wait for it instead of returning early.
+let currentFlush = null;
 
 function sanitizeHeaders(headers) {
   if (!headers || typeof headers !== "object") return {};
@@ -86,10 +87,16 @@ function truncateField(obj, maxSize) {
   return obj || {};
 }
 
-async function flushToDatabase() {
-  if (isFlushing) return;
-  if (writeBuffer.length === 0) return;
-  isFlushing = true;
+function flushToDatabase() {
+  if (currentFlush) return currentFlush;
+  if (writeBuffer.length === 0) return Promise.resolve();
+  currentFlush = drainWriteBuffer().finally(() => {
+    currentFlush = null;
+  });
+  return currentFlush;
+}
+
+async function drainWriteBuffer() {
   try {
     // Drain entire buffer (loop in case more pushed during await)
     while (writeBuffer.length > 0) {
@@ -162,9 +169,13 @@ async function flushToDatabase() {
     }
   } catch (e) {
     console.error("[requestDetailsRepo] Batch write failed:", e);
-  } finally {
-    isFlushing = false;
   }
+}
+
+/** Write every buffered detail now and wait until it is stored (shutdown, tests). */
+export async function flushRequestDetails() {
+  if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
+  while (currentFlush || writeBuffer.length > 0) await flushToDatabase();
 }
 
 export async function saveRequestDetail(detail) {
@@ -241,10 +252,7 @@ export async function getRequestDetailById(id) {
   return row ? parseJson(row.data, null) : null;
 }
 
-const _shutdownHandler = async () => {
-  if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
-  if (writeBuffer.length > 0) await flushToDatabase();
-};
+const _shutdownHandler = () => flushRequestDetails();
 
 function ensureShutdownHandler() {
   process.off("beforeExit", _shutdownHandler);

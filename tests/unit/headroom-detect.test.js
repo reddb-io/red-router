@@ -17,8 +17,10 @@ vi.mock("child_process", () => ({
 
 import { findPython310, getHeadroomStatus, getInstalledHeadroomExtras, isLoopbackHeadroomUrl } from "../../src/lib/headroom/detect.js";
 
+// resetAllMocks restores each vi.fn's original implementation, so a
+// mockImplementation set by one test never leaks into the next one.
 afterEach(() => {
-  vi.clearAllMocks();
+  vi.resetAllMocks();
 });
 
 describe("headroom detect", () => {

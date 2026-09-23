@@ -15,6 +15,9 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  // doMock outlives the test that set it; undo it so no case depends on order.
+  vi.doUnmock("@/lib/db/adapters/betterSqliteAdapter.js");
+  vi.doUnmock("@/lib/db/adapters/nodeSqliteAdapter.js");
   try { global._dbAdapter?.instance?.close?.(); } catch {}
   delete global._dbAdapter;
   if (tempDir) fs.rmSync(tempDir, { recursive: true, force: true });

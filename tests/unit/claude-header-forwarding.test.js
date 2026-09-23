@@ -236,35 +236,36 @@ describe("proxyAwareFetch — api.anthropic.com routing", () => {
     vi.restoreAllMocks();
   });
 
-  it("routes api.anthropic.com to gotScraping (non-streaming) and returns ok response", async () => {
-    // Mock got-scraping before module load
-    vi.doMock("got-scraping", () => {
-      const mockGotScraping = vi.fn().mockResolvedValue({
-        statusCode: 200,
-        statusMessage: "OK",
-        headers: { "content-type": "application/json" },
-        rawBody: Buffer.from(JSON.stringify({ id: "msg_test" })),
+  // got-scraping routing is disabled in proxyFetch (kept commented out for per-host
+  // re-enabling), so api.anthropic.com goes through the native fetch.
+  it("sends api.anthropic.com through native fetch while got-scraping routing is disabled", async () => {
+    const gotScrapingMock = vi.fn();
+    vi.doMock("got-scraping", () => ({ gotScraping: gotScrapingMock }));
+    const originalFetch = globalThis.fetch;
+    // proxyFetch wraps the fetch it finds at import time, so keep our own handle.
+    const nativeFetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ id: "msg_test" }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    }));
+    globalThis.fetch = nativeFetch;
+
+    try {
+      vi.resetModules();
+      const { proxyAwareFetch } = await import("open-sse/utils/proxyFetch.js");
+      const res = await proxyAwareFetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model: "claude-opus-5", messages: [] }),
       });
-      mockGotScraping.stream = vi.fn();
-      return { gotScraping: mockGotScraping };
-    });
 
-    vi.resetModules();
-    const { proxyAwareFetch } = await import("open-sse/utils/proxyFetch.js");
-    const { gotScraping } = await import("got-scraping");
-
-    const res = await proxyAwareFetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      // No Accept: text/event-stream → non-streaming path
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model: "claude-3-5-sonnet-20241022", messages: [] }),
-    });
-
-    expect(gotScraping).toHaveBeenCalledOnce();
-    expect(res.ok).toBe(true);
-    expect(res.status).toBe(200);
-    const data = await res.json();
-    expect(data.id).toBe("msg_test");
+      expect(gotScrapingMock).not.toHaveBeenCalled();
+      expect(nativeFetch).toHaveBeenCalledOnce();
+      expect(String(nativeFetch.mock.calls[0][0])).toBe("https://api.anthropic.com/v1/messages");
+      expect(res.status).toBe(200);
+      expect((await res.json()).id).toBe("msg_test");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 
   it("falls back gracefully when got-scraping throws on non-streaming path", async () => {

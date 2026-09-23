@@ -85,21 +85,20 @@ describe("database startup integrity gate", () => {
     fs.mkdirSync(dbDir, { recursive: true });
     fs.writeFileSync(path.join(dbDir, "data.sqlite"), "damaged sqlite database");
 
-    const nodeFactory = vi.fn();
-    const sqlJsFactory = vi.fn();
-    vi.doMock("@/lib/db/adapters/betterSqliteAdapter.js", () => ({
-      createBetterSqliteAdapter() {
-        const error = new Error("database disk image is malformed");
-        error.code = "SQLITE_CORRUPT";
-        throw error;
-      },
-    }));
-    vi.doMock("@/lib/db/adapters/nodeSqliteAdapter.js", () => ({
-      createNodeSqliteAdapter: nodeFactory,
-    }));
-    vi.doMock("@/lib/db/adapters/sqljsAdapter.js", () => ({
-      createSqlJsAdapter: sqlJsFactory,
-    }));
+    // Whichever driver this runtime tries first reports corruption; no other driver
+    // may be tried after it. (Which one is first depends on the runtime: Node >= 24
+    // skips better-sqlite3, Bun uses bun:sqlite.)
+    const calls = [];
+    const corrupt = (name) => () => {
+      calls.push(name);
+      const error = new Error("database disk image is malformed");
+      error.code = "SQLITE_CORRUPT";
+      throw error;
+    };
+    vi.doMock("@/lib/db/adapters/betterSqliteAdapter.js", () => ({ createBetterSqliteAdapter: corrupt("better") }));
+    vi.doMock("@/lib/db/adapters/nodeSqliteAdapter.js", () => ({ createNodeSqliteAdapter: corrupt("node") }));
+    vi.doMock("@/lib/db/adapters/sqljsAdapter.js", () => ({ createSqlJsAdapter: corrupt("sqljs") }));
+    vi.doMock("@/lib/db/adapters/bunSqliteAdapter.js", () => ({ createBunSqliteAdapter: corrupt("bun") }));
 
     const { getAdapter } = await import("@/lib/db/driver.js");
 
@@ -107,7 +106,6 @@ describe("database startup integrity gate", () => {
       name: "DatabaseCorruptionError",
       code: "SQLITE_CORRUPT",
     });
-    expect(nodeFactory).not.toHaveBeenCalled();
-    expect(sqlJsFactory).not.toHaveBeenCalled();
+    expect(calls).toHaveLength(1);
   });
 });

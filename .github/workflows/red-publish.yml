@@ -100,8 +100,22 @@ jobs:
           rm package-contents.txt
           sha256sum *.tgz > SHA256SUMS
 
+      # Idempotent: npm stages large packages for several minutes before the version is
+      # visible, and a retried upload of a staged version answers 409 "previously
+      # staged" even though the first one went through. A version already on npm is
+      # skipped; a failed upload succeeds only if the version then shows up.
       - name: Publish to npm
-        run: pnpm --dir cli publish --access public --no-git-checks
+        run: |
+          version=$(node -p "require('./cli/package.json').version")
+          published() { npm view "@reddb-io/red-router@${version}" version >/dev/null 2>&1; }
+          if published; then echo "@reddb-io/red-router@${version} is already on npm; skipping publish"; exit 0; fi
+          if pnpm --dir cli publish --access public --no-git-checks; then exit 0; fi
+          for attempt in $(seq 1 40); do
+            if published; then echo "@reddb-io/red-router@${version} became visible after staging"; exit 0; fi
+            sleep 30
+          done
+          echo "@reddb-io/red-router@${version} did not publish" >&2
+          exit 1
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 

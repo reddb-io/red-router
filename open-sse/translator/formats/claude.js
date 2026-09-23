@@ -11,6 +11,10 @@ import { DEFAULT_MAX_TOKENS } from "../../config/runtimeConfig.js";
 import { applyThinking } from "../concerns/thinkingUnified.js";
 import { FORMATS } from "../formats.js";
 
+// Providers that talk to api.anthropic.com itself (API key and Claude Code OAuth):
+// the only upstreams that accept Anthropic-only request fields.
+const ANTHROPIC_FIRST_PARTY = new Set(["anthropic", "claude"]);
+
 const CACHE_CONTROL_5M = { type: "ephemeral" };
 const CACHE_CONTROL_1H = { type: "ephemeral", ttl: "1h" };
 
@@ -465,7 +469,7 @@ export function prepareClaudeRequest(body, provider = null, apiKey = null, conne
   // quirk: MiniMax's Claude-compatible endpoint rejects Anthropic's output_config (400 invalid params)
   if (PROVIDERS[provider]?.quirks?.dropOutputConfig) {
     delete body.output_config;
-  } else if (body.output_config?.format && provider !== "anthropic") {
+  } else if (body.output_config?.format && !ANTHROPIC_FIRST_PARTY.has(provider)) {
     // output_config.format (structured output) is an official-Anthropic-only feature.
     // Claude-compatible gateways (e.g. Alibaba MaaS apps/anthropic) reject it with
     // "response_format type is unavailable now" — which locks the connection for
