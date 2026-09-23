@@ -1,5 +1,6 @@
 export default {
   id: "ollama-search",
+  slug: "ollama-search",
   alias: "ollama-search",
   display: {
     name: "Ollama Search",

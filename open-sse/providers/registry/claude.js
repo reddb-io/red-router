@@ -2,6 +2,7 @@ import { CLAUDE_CLI_VERSION } from "../shared.js";
 
 export default {
   id: "claude",
+  slug: "claude-code",
   priority: 10,
   alias: "cc",
   uiAlias: "cc",

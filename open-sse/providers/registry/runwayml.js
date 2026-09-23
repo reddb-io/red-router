@@ -1,5 +1,6 @@
 export default {
   id: "runwayml",
+  slug: "runwayml",
   priority: 80,
   alias: "runwayml",
   aliases: [

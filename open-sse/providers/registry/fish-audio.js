@@ -2,6 +2,7 @@
 // JSON body, and the voice is a reference_id (a cloned or preset voice model).
 export default {
   id: "fish-audio",
+  slug: "fish-audio",
   alias: "fish",
   display: {
     name: "Fish Audio",

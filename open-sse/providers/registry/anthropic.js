@@ -1,5 +1,6 @@
 export default {
   id: "anthropic",
+  slug: "anthropic",
   priority: 30,
   alias: "anthropic",
   display: {

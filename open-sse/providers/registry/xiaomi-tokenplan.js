@@ -2,6 +2,7 @@ import { CLAUDE_API_HEADERS } from "../shared.js";
 
 export default {
   id: "xiaomi-tokenplan",
+  slug: "xiaomi-tokenplan",
   priority: 300,
   alias: "xiaomi-tokenplan",
   aliases: [

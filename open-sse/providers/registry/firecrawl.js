@@ -1,5 +1,6 @@
 export default {
   id: "firecrawl",
+  slug: "firecrawl",
   alias: "firecrawl",
   display: {
     name: "Firecrawl",

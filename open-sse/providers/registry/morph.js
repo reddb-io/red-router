@@ -1,5 +1,6 @@
 export default {
   id: "morph",
+  slug: "morph",
   alias: "morph",
   aliases: ["morphllm"],
   uiAlias: "morph",

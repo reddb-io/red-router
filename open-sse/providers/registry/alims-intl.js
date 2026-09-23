@@ -2,6 +2,7 @@
 // Sibling of alicode-intl (Coding Plan). Two key types use two different hosts.
 export default {
   id: "alims-intl",
+  slug: "alims-intl",
   priority: 11,
   alias: "alims-intl",
   display: {

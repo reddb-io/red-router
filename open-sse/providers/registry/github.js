@@ -1,5 +1,6 @@
 export default {
   id: "github",
+  slug: "copilot",
   priority: 40,
   alias: "gh",
   uiAlias: "gh",

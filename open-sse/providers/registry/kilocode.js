@@ -1,5 +1,6 @@
 export default {
   id: "kilocode",
+  slug: "kilo-code",
   priority: 70,
   alias: "kc",
   uiAlias: "kc",

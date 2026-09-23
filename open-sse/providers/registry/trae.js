@@ -5,6 +5,10 @@
 //   Auth: Authorization: Cloud-IDE-JWT <jwt>
 export default {
   id: "trae",
+  slug: "trae",
+  // `tr` is also a TokenRouter alias. Trae is disabled (see registry/index.js), so
+  // TokenRouter owns `tr` today; re-enabling Trae makes the registry token-uniqueness
+  // test fail until one of them gives `tr` up. Its slug `trae` never collides.
   alias: "tr",
   uiAlias: "tr",
   aliases: ["marscode"],

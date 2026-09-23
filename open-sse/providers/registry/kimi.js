@@ -5,6 +5,7 @@ import { CLAUDE_API_HEADERS } from "../shared.js";
 // CLIProxyAPI parity: client_id, auth.kimi.com device+token, X-Msh-* headers, device_id.
 export default {
   id: "kimi",
+  slug: "kimi",
   priority: 170,
   alias: "kimi",
   // Legacy id + short alias from former kimi-coding registry entry

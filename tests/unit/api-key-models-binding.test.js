@@ -57,7 +57,7 @@ describe("/v1/models — account binding", () => {
 
     const models = await buildModelsList(["llm"], { apiKey: "sk-free", skipDynamicFetch: true });
 
-    expect(providersOf(models)).toEqual(["cc", "openai"]);
+    expect(providersOf(models)).toEqual(["claude-code", "openai"]);
   });
 
   // The static-catalog fallback exists for an unreachable DB. A key whose
@@ -105,7 +105,7 @@ describe("remote RedRouter catalog exposure", () => {
     mocks.getApiKeyAllowedConnectionIds.mockResolvedValue(["local"]);
     mocks.getProviderConnections.mockResolvedValue([conn("local", "claude"), { id: "remote", provider: "red-router", isActive: true }]);
     vi.stubGlobal("fetch", vi.fn());
-    expect(providersOf(await buildModelsList(["llm"], { apiKey: "bound" }))).toEqual(["cc"]);
+    expect(providersOf(await buildModelsList(["llm"], { apiKey: "bound" }))).toEqual(["claude-code"]);
     expect(fetch).not.toHaveBeenCalled();
   });
 

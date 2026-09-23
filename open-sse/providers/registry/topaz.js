@@ -1,5 +1,6 @@
 export default {
   id: "topaz",
+  slug: "topaz",
   alias: "topaz",
   display: {
     name: "Topaz",

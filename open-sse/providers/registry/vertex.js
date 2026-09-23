@@ -1,5 +1,6 @@
 export default {
   id: "vertex",
+  slug: "vertex",
   priority: 40,
   alias: "vertex",
   aliases: [

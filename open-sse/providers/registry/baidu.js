@@ -1,5 +1,6 @@
 export default {
   id: "baidu",
+  slug: "baidu",
   alias: "qianfan",
   aliases: ["qianfan", "ernie", "baidu-qianfan"],
   uiAlias: "qianfan",

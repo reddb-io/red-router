@@ -1,5 +1,6 @@
 export default {
   id: "google-tts",
+  slug: "google-tts",
   alias: "google-tts",
   display: {
     name: "Google TTS",

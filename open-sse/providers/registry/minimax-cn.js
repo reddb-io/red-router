@@ -2,6 +2,7 @@ import { CLAUDE_API_HEADERS } from "../shared.js";
 
 export default {
   id: "minimax-cn",
+  slug: "minimax-cn",
   priority: 190,
   alias: "minimax-cn",
   display: {

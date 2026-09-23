@@ -18,6 +18,7 @@ import {
 
 export default {
   id: "grok-cli",
+  slug: "grok-cli",
   priority: 275,
   alias: "gcli",
   aliases: ["grok-build", "gb"],

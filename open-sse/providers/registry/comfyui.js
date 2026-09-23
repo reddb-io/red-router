@@ -1,5 +1,6 @@
 export default {
   id: "comfyui",
+  slug: "comfyui",
   priority: 120,
   alias: "comfyui",
   display: {

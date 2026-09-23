@@ -1,5 +1,6 @@
 export default {
   id: "mistral",
+  slug: "mistral",
   priority: 80,
   alias: "mistral",
   display: {

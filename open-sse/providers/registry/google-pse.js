@@ -1,5 +1,6 @@
 export default {
   id: "google-pse",
+  slug: "google-pse",
   alias: "gpse",
   display: {
     name: "Google PSE",

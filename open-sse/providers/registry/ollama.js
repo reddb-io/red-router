@@ -1,5 +1,6 @@
 export default {
   id: "ollama",
+  slug: "ollama",
   priority: 30,
   hasFree: true,
   alias: "ollama",

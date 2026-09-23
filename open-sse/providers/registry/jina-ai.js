@@ -1,5 +1,6 @@
 export default {
   id: "jina-ai",
+  slug: "jina-ai",
   alias: "jina",
   display: {
     name: "Jina AI",

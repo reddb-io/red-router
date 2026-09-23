@@ -1,5 +1,6 @@
 export default {
   id: "kiro",
+  slug: "kiro",
   priority: 10,
   alias: "kr",
   uiAlias: "kr",

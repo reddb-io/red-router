@@ -1,4 +1,4 @@
-import { PROVIDER_MODELS } from "open-sse/config/providerModels.js";
+import { PROVIDER_MODELS, PROVIDER_ID_TO_ALIAS } from "open-sse/config/providerModels.js";
 import { AI_PROVIDERS, ALIAS_TO_ID } from "@/shared/constants/providers";
 import { getModelKind } from "@/shared/constants/models";
 import { getThinkingLevelsForId } from "open-sse/providers/thinkingLevels.js";
@@ -55,8 +55,9 @@ function lookup(fullId, requestedKind) {
   const providerId = ALIAS_TO_ID[alias] || alias;
   const providerInfo = AI_PROVIDERS[providerId];
 
-  // PROVIDER_MODELS lookup (by alias key, fallback to providerId)
-  const list = PROVIDER_MODELS[alias] || PROVIDER_MODELS[providerId] || [];
+  // PROVIDER_MODELS lookup (by alias key, then the provider's model key — a slug is
+  // not a PROVIDER_MODELS key — then providerId)
+  const list = PROVIDER_MODELS[alias] || PROVIDER_MODELS[PROVIDER_ID_TO_ALIAS[providerId]] || PROVIDER_MODELS[providerId] || [];
   const m = requestedKind
     ? list.find((x) => x.id === modelId && getModelKind(x, "llm") === requestedKind)
     : list.find((x) => x.id === modelId);

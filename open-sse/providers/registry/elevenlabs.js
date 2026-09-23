@@ -1,5 +1,6 @@
 export default {
   id: "elevenlabs",
+  slug: "elevenlabs",
   alias: "el",
   display: {
     name: "ElevenLabs",

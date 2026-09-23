@@ -1,5 +1,6 @@
 export default {
   id: "serper",
+  slug: "serper",
   alias: "serper",
   display: {
     name: "Serper",

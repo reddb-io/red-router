@@ -1,5 +1,6 @@
 export default {
   id: "cline",
+  slug: "cline",
   priority: 80,
   alias: "cl",
   uiAlias: "cl",

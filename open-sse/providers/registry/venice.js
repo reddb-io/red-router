@@ -1,5 +1,6 @@
 export default {
   id: "venice",
+  slug: "venice",
   priority: 115,
   alias: "venice",
   aliases: [

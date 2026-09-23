@@ -1,5 +1,6 @@
 export default {
   id: "xquik",
+  slug: "xquik",
   alias: "xquik",
   display: {
     name: "Xquik",

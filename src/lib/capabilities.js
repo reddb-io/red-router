@@ -85,12 +85,19 @@ export async function buildCapabilities({ apiKey = null } = {}) {
     stream_usage_cost: true,
     // /v1/models entries carry `parameters` (combos: `members` too); a response's
     // version header tells a client when its cached catalog is out of date.
+    // Ids are "<prefix_style>/<model>"; every entry names its provider and lists the
+    // other ids that route to it under `aliases` (legacy short codes), so a client can
+    // migrate ids it saved before slugs.
     catalog: {
       version: await getCatalogVersion(apiKey),
       version_header: CATALOG_VERSION_HEADER,
       model_endpoint: "/v1/models/{id}",
       model_parameters: true,
       combo_members: true,
+      prefix_style: settings?.catalog?.prefixStyle === "short" ? "short" : "slug",
+      model_names: true,
+      model_providers: true,
+      model_aliases: true,
     },
   };
 }

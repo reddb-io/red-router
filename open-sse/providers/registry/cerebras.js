@@ -1,5 +1,6 @@
 export default {
   id: "cerebras",
+  slug: "cerebras",
   priority: 60,
   alias: "cerebras",
   display: {

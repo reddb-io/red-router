@@ -4,6 +4,7 @@
 //   Service: exa.language_server_pb.LanguageServerService / GetChatMessage
 export default {
   id: "windsurf",
+  slug: "windsurf",
   alias: "ws",
   uiAlias: "ws",
   display: {

@@ -1,5 +1,6 @@
 export default {
   id: "playht",
+  slug: "playht",
   alias: "playht",
   display: {
     name: "PlayHT",

@@ -1,5 +1,6 @@
 export default {
   id: "together",
+  slug: "together",
   priority: 60,
   alias: "together",
   display: {

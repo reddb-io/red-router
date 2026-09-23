@@ -1,5 +1,6 @@
 export default {
   id: "ollama-local",
+  slug: "ollama-local",
   priority: 50,
   hasFree: true,
   alias: "ollama-local",

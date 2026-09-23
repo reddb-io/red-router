@@ -6,6 +6,7 @@ import { checkFallbackError } from "./accountFallback.js";
 import { errorResponse } from "../utils/error.js";
 import { getCapabilitiesForModel } from "../providers/capabilities.js";
 import { getThinkingLevels } from "../providers/thinkingLevels.js";
+import { resolveProviderAlias } from "./model.js";
 import { stripThinkingSuffix } from "../translator/concerns/thinkingUnified.js";
 import { extractTextContent } from "../translator/formats/gemini.js";
 import { getSessionMember, rememberSessionMember, forgetSessionMember, preferSessionMember } from "./sessionAffinity.js";
@@ -494,7 +495,8 @@ export function comboThinkingLevels(members) {
   for (const member of list) {
     if (typeof member !== "string" || !member.trim()) continue;
     const slash = member.indexOf("/");
-    const provider = slash > 0 ? member.slice(0, slash) : "";
+    // Slug and legacy short code resolve to one provider id, so both list the same levels.
+    const provider = slash > 0 ? resolveProviderAlias(member.slice(0, slash)) : "";
     const model = stripThinkingSuffix(slash > 0 ? member.slice(slash + 1) : member);
     const memberLevels = getThinkingLevels(provider, model);
     if (!memberLevels || memberLevels.length === 0) return null;

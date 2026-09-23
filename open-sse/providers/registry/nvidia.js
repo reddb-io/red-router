@@ -1,5 +1,6 @@
 export default {
   id: "nvidia",
+  slug: "nvidia",
   priority: 20,
   hasFree: true,
   alias: "nvidia",

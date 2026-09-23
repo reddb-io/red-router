@@ -1,5 +1,6 @@
 export default {
   id: "assemblyai",
+  slug: "assemblyai",
   priority: 30,
   alias: "assemblyai",
   aliases: [

@@ -1,5 +1,6 @@
 export default {
   id: "jina-reader",
+  slug: "jina-reader",
   alias: "jina-reader",
   display: {
     name: "Jina Reader",

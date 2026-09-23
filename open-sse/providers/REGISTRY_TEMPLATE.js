@@ -16,6 +16,7 @@
 export default {
   // ── identity ────────────────────────────────────────────────────────────
   id: "example",                 // REQUIRED. kebab-case, unique.
+  slug: "example",               // REQUIRED. readable /v1/models prefix; unique across ids/aliases.
   alias: "ex",                   // short key for PROVIDER_MODELS (defaults to id if omitted).
   aliases: ["example-ai"],       // optional extra lookup tokens.
   uiAlias: "ex",                 // optional UI badge token.

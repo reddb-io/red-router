@@ -2,9 +2,12 @@
 // Hidden until/unless a replacement (OAuth MiMo Platform) is wired.
 export default {
   id: "mimo-free",
+  slug: "mimo-free",
   hidden: true,
   priority: 50,
   hasFree: true,
+  // `mmf` is this provider's own short code. It used to also be the id of a hidden
+  // duplicate entry that won resolution, so "mmf/..." never reached mimo-free.
   alias: "mmf",
   uiAlias: "mmf",
   display: {

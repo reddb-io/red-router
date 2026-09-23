@@ -1,11 +1,12 @@
 import { syncRemoteRouterCatalog } from "@/lib/remoteRouterCatalog";
-import { PROVIDER_MODELS, PROVIDER_ID_TO_ALIAS, getModelKind } from "@/shared/constants/models";
+import { PROVIDER_MODELS, PROVIDER_ID_TO_ALIAS, getModelKind, findModelName } from "@/shared/constants/models";
 import {
   AI_PROVIDERS,
-  getProviderAlias,
   isAnthropicCompatibleProvider,
   isOpenAICompatibleProvider,
 } from "@/shared/constants/providers";
+import { providerIdentity, providerLegacyPrefix, providerSlug } from "open-sse/providers/identity.js";
+import { resolveProviderAlias } from "open-sse/services/model.js";
 import { getProviderConnections, getCombos, getCustomModels, getModelAliases, getApiKeyAllowedConnectionIds, getApiKeyOwner, getSettings } from "@/lib/localDb";
 import { parseModel } from "@/sse/services/model.js";
 import { getDisabledModels } from "@/lib/disabledModelsDb";
@@ -155,6 +156,76 @@ const INTERNAL_MODELS_FETCH_HEADER = "x-rr-internal-models-fetch";
 
 // LLM kind sentinel — combos/models with no explicit kind default to LLM
 const LLM_KIND = "llm";
+
+// settings.catalog.prefixStyle: "slug" lists "<slug>/<model>" (readable, the default);
+// "short" keeps the legacy short codes ("cc/<model>") for clients that cannot migrate.
+const PREFIX_STYLES = new Set(["slug", "short"]);
+const COMBO_PROVIDER = { id: "combo", name: "Combo" };
+const REMOTE_ROUTER_ID = "red-router";
+
+function catalogPrefixStyle(settings) {
+  const style = settings?.catalog?.prefixStyle;
+  return PREFIX_STYLES.has(style) ? style : "slug";
+}
+
+/**
+ * The prefix a provider's models are listed under, and the other prefixes that route
+ * to the same provider — emitted as `aliases` so clients can migrate saved ids. A
+ * user-chosen prefix (custom nodes) is listed as is.
+ */
+function listingPrefixes(providerId, prefixStyle, customPrefix = "") {
+  if (customPrefix) return { prefix: customPrefix, others: [] };
+  const slug = providerSlug(providerId);
+  const legacy = providerLegacyPrefix(providerId);
+  const prefix = prefixStyle === "short" ? legacy : slug;
+  return { prefix, others: [...new Set([slug, legacy])].filter((p) => p !== prefix) };
+}
+
+/** The `provider` block: registry identity, or the custom node the prefix belongs to. */
+function listingProvider(providerId, prefix, conn) {
+  return providerIdentity(providerId) || {
+    id: providerId,
+    slug: prefix,
+    prefix,
+    name: conn?.providerSpecificData?.nodeName || prefix,
+    category: "custom",
+    subscription: false,
+  };
+}
+
+/** id, owned_by, name, provider and aliases shared by every provider-model entry. */
+function providerModelEntry({ prefixes, modelId, name, provider, extra = {} }) {
+  const entry = {
+    id: `${prefixes.prefix}/${modelId}`,
+    object: "model",
+    ...extra,
+    owned_by: prefixes.prefix,
+    name: name || modelId,
+  };
+  if (provider) entry.provider = provider;
+  if (prefixes.others.length) entry.aliases = prefixes.others.map((p) => `${p}/${modelId}`);
+  return entry;
+}
+
+/**
+ * A model served by a remote RedRouter keeps the remote's own name and provider;
+ * `via` says it is reached through this instance's red-router account.
+ */
+function remoteRouterEntry(prefixes, remoteId, remote, conn) {
+  const entry = providerModelEntry({
+    prefixes,
+    modelId: remoteId,
+    name: typeof remote?.name === "string" && remote.name ? remote.name : remoteId,
+    provider: remote?.provider && typeof remote.provider === "object"
+      ? remote.provider
+      : listingProvider(REMOTE_ROUTER_ID, prefixes.prefix, conn),
+  });
+  const remoteAliases = Array.isArray(remote?.aliases) ? remote.aliases.filter((a) => typeof a === "string" && a) : [];
+  const aliases = [...(entry.aliases || []), ...remoteAliases.map((a) => `${prefixes.prefix}/${a}`)];
+  if (aliases.length) entry.aliases = aliases;
+  entry.via = REMOTE_ROUTER_ID;
+  return entry;
+}
 
 // Map per-model `type` field (in PROVIDER_MODELS) to service kind.
 // Models without `type` are treated as LLM.
@@ -401,6 +472,8 @@ export async function buildModelsList(kindFilter, options = {}) {
     }
   } catch { }
 
+  const prefixStyle = catalogPrefixStyle(settings);
+
   let combos = [];
   try {
     combos = await getCombos();
@@ -449,6 +522,8 @@ export async function buildModelsList(kindFilter, options = {}) {
       id: combo.name,
       object: "model",
       owned_by: "combo",
+      name: combo.name,
+      provider: COMBO_PROVIDER,
       // How the gateway walks the members (fallback, round-robin, fusion, smart, auto).
       strategy: comboStrategyFor(settings, combo.name),
     };
@@ -489,14 +564,12 @@ export async function buildModelsList(kindFilter, options = {}) {
     for (const [alias, providerModels] of Object.entries(PROVIDER_MODELS)) {
       const providerId = aliasToProviderId[alias] || alias;
       if (!providerMatchesKinds(providerId, kindFilter)) continue;
+      const prefixes = listingPrefixes(providerId, prefixStyle);
+      const provider = providerIdentity(providerId);
       for (const model of providerModels) {
         if (!kindFilter.includes(modelKind(model))) continue;
-        if (isDisabled(alias, model.id)) continue;
-        models.push({
-          id: `${alias}/${model.id}`,
-          object: "model",
-          owned_by: alias,
-        });
+        if ([alias, prefixes.prefix, providerLegacyPrefix(providerId)].some((prefix) => isDisabled(prefix, model.id))) continue;
+        models.push(providerModelEntry({ prefixes, modelId: model.id, name: model.name, provider }));
       }
     }
 
@@ -510,22 +583,27 @@ export async function buildModelsList(kindFilter, options = {}) {
       const modelId = String(customModel.id).trim();
       if (!modelId) continue;
 
-      models.push({
-        id: `${providerAlias}/${modelId}`,
-        object: "model",
-        owned_by: providerAlias,
-      });
+      const providerId = resolveProviderAlias(providerAlias);
+      const provider = providerIdentity(providerId);
+      const prefixes = provider ? listingPrefixes(providerId, prefixStyle) : { prefix: providerAlias, others: [] };
+      models.push(providerModelEntry({ prefixes, modelId, name: customModel.name, provider }));
     }
   } else {
     for (const [providerId, conn] of activeConnectionByProvider.entries()) {
       if (!providerMatchesKinds(providerId, kindFilter)) continue;
 
       const staticAlias = PROVIDER_ID_TO_ALIAS[providerId] || providerId;
-      const outputAlias = (
-        conn?.providerSpecificData?.prefix
-        || getProviderAlias(providerId)
-        || staticAlias
-      ).trim();
+      const customPrefix = typeof conn?.providerSpecificData?.prefix === "string" ? conn.providerSpecificData.prefix.trim() : "";
+      const prefixes = listingPrefixes(providerId, prefixStyle, customPrefix);
+      const outputAlias = prefixes.prefix;
+      const provider = listingProvider(providerId, outputAlias, conn);
+      // Every prefix this provider's ids may carry in live catalogs, custom models,
+      // model aliases and the disabled-models table (keyed by the dashboard's code).
+      const ownPrefixes = [...new Set([outputAlias, staticAlias, providerId, providerSlug(providerId), providerLegacyPrefix(providerId)])];
+      const stripOwnPrefix = (fullId) => {
+        const slash = fullId.indexOf("/");
+        return slash > 0 && ownPrefixes.includes(fullId.slice(0, slash)) ? fullId.slice(slash + 1) : fullId;
+      };
       const providerModels = PROVIDER_MODELS[staticAlias] || [];
       const enabledModels = conn?.providerSpecificData?.enabledModels;
       const hasExplicitEnabledModels =
@@ -539,6 +617,7 @@ export async function buildModelsList(kindFilter, options = {}) {
       );
       let liveModelKindById = new Map();
       let liveCapabilitiesById = new Map();
+      let liveModelById = new Map();
 
       let rawModelIds = hasExplicitEnabledModels
         ? Array.from(
@@ -575,6 +654,7 @@ export async function buildModelsList(kindFilter, options = {}) {
                 .filter((m) => m?.id && m.capabilities)
                 .map((m) => [m.id, m.capabilities])
             );
+            liveModelById = new Map(live.models.filter((m) => m?.id).map((m) => [m.id, m]));
           }
         } catch (err) {
           console.log(`Live model fetch failed for ${providerId}: ${err?.message || err}`);
@@ -582,22 +662,11 @@ export async function buildModelsList(kindFilter, options = {}) {
       }
 
       const modelIds = rawModelIds
-        .map((modelId) => {
-          if (providerId === "red-router") return modelId;
-          if (modelId.startsWith(`${outputAlias}/`)) {
-            return modelId.slice(outputAlias.length + 1);
-          }
-          if (modelId.startsWith(`${staticAlias}/`)) {
-            return modelId.slice(staticAlias.length + 1);
-          }
-          if (modelId.startsWith(`${providerId}/`)) {
-            return modelId.slice(providerId.length + 1);
-          }
-          return modelId;
-        })
+        .map((modelId) => (providerId === REMOTE_ROUTER_ID ? modelId : stripOwnPrefix(modelId)))
         .filter((modelId) => typeof modelId === "string" && modelId.trim() !== "");
 
       const customModelKindById = new Map();
+      const customModelNameById = new Map();
       const customModelIds = customModels
         .filter((m) => {
           if (!m?.id) return false;
@@ -605,37 +674,19 @@ export async function buildModelsList(kindFilter, options = {}) {
           // imageToText custom models are vision-capable chat models: expose them
           // both in the default LLM list and in /v1/models/image-to-text.
           if (!kindFilter.includes(kind) && !(kind === "imageToText" && kindFilter.includes(LLM_KIND))) return false;
-          const alias = m.providerAlias;
-          return alias === staticAlias || alias === outputAlias || alias === providerId;
+          return ownPrefixes.includes(m.providerAlias);
         })
         .map((m) => {
           const modelId = String(m.id).trim();
           if (modelId) customModelKindById.set(modelId, getModelKind(m) || LLM_KIND);
+          if (modelId && m.name) customModelNameById.set(modelId, m.name);
           return modelId;
         })
         .filter((modelId) => modelId !== "");
 
       const aliasModelIds = Object.values(modelAliases || {})
-        .filter((fullModel) => {
-          if (typeof fullModel !== "string" || !fullModel.includes("/")) return false;
-          return (
-            fullModel.startsWith(`${outputAlias}/`) ||
-            fullModel.startsWith(`${staticAlias}/`) ||
-            fullModel.startsWith(`${providerId}/`)
-          );
-        })
-        .map((fullModel) => {
-          if (fullModel.startsWith(`${outputAlias}/`)) {
-            return fullModel.slice(outputAlias.length + 1);
-          }
-          if (fullModel.startsWith(`${staticAlias}/`)) {
-            return fullModel.slice(staticAlias.length + 1);
-          }
-          if (fullModel.startsWith(`${providerId}/`)) {
-            return fullModel.slice(providerId.length + 1);
-          }
-          return fullModel;
-        })
+        .filter((fullModel) => typeof fullModel === "string" && fullModel.includes("/") && stripOwnPrefix(fullModel) !== fullModel)
+        .map(stripOwnPrefix)
         .filter((modelId) => typeof modelId === "string" && modelId.trim() !== "");
 
       const mergedModelIds = Array.from(new Set([...modelIds, ...customModelIds, ...aliasModelIds]));
@@ -648,13 +699,16 @@ export async function buildModelsList(kindFilter, options = {}) {
         // imageToText custom models stay in the LLM list (vision-capable chat models)
         const allowAsLlm = kind === "imageToText" && kindFilter.includes(LLM_KIND);
         if (!kindFilter.includes(kind) && !allowAsLlm) continue;
-        if (isDisabled(outputAlias, modelId) || isDisabled(staticAlias, modelId)) continue;
+        if (ownPrefixes.some((prefix) => isDisabled(prefix, modelId))) continue;
 
-        const model = {
-          id: `${outputAlias}/${modelId}`,
-          object: "model",
-          owned_by: outputAlias,
-        };
+        const model = providerId === REMOTE_ROUTER_ID
+          ? remoteRouterEntry(prefixes, modelId, liveModelById.get(modelId), conn)
+          : providerModelEntry({
+            prefixes,
+            modelId,
+            name: liveModelById.get(modelId)?.name || customModelNameById.get(modelId) || findModelName(staticAlias, modelId),
+            provider,
+          });
         // Live-catalog resolvers (kiro/qoder/github/clinepass) mostly only return
         // { id, name } — no per-model capability data. Fall back to the same
         // pattern-matched capabilities the dashboard uses (useModelCaps.js) so
@@ -702,20 +756,10 @@ export async function buildModelsList(kindFilter, options = {}) {
       // Web search/fetch — provider IS the model, expose as {alias}/search and/or {alias}/fetch with explicit kind
       const providerInfo = AI_PROVIDERS[providerId];
       if (kindFilter.includes("webSearch") && providerInfo?.searchConfig) {
-        models.push({
-          id: `${outputAlias}/search`,
-          object: "model",
-          kind: "webSearch",
-          owned_by: outputAlias,
-        });
+        models.push(providerModelEntry({ prefixes, modelId: "search", name: `${provider.name} Search`, provider, extra: { kind: "webSearch" } }));
       }
       if (kindFilter.includes("webFetch") && providerInfo?.fetchConfig) {
-        models.push({
-          id: `${outputAlias}/fetch`,
-          object: "model",
-          kind: "webFetch",
-          owned_by: outputAlias,
-        });
+        models.push(providerModelEntry({ prefixes, modelId: "fetch", name: `${provider.name} Fetch`, provider, extra: { kind: "webFetch" } }));
       }
     }
   }

@@ -87,6 +87,9 @@ const DEFAULT_SETTINGS = {
     timeoutMs: 1500,
   },
   reasoningAutopilot: { ...DEFAULT_AUTOPILOT },
+  // /v1/models listing. prefixStyle "slug" lists readable ids ("claude-code/<model>");
+  // "short" keeps the legacy short codes ("cc/<model>"). Both always route.
+  catalog: { prefixStyle: "slug" },
 };
 
 async function readRaw() {
@@ -103,6 +106,9 @@ export function mergeWithDefaults(raw) {
   }
   if (merged.reasoningAutopilot && typeof merged.reasoningAutopilot === "object" && !Array.isArray(merged.reasoningAutopilot)) {
     merged.reasoningAutopilot = { ...DEFAULT_SETTINGS.reasoningAutopilot, ...merged.reasoningAutopilot };
+  }
+  if (merged.catalog && typeof merged.catalog === "object" && !Array.isArray(merged.catalog)) {
+    merged.catalog = { ...DEFAULT_SETTINGS.catalog, ...merged.catalog };
   }
   for (const [key, defVal] of Object.entries(DEFAULT_SETTINGS)) {
     if (merged[key] === undefined) {

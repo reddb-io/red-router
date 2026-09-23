@@ -1,5 +1,6 @@
 export default {
   id: "fireworks",
+  slug: "fireworks",
   priority: 50,
   alias: "fireworks",
   display: {

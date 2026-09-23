@@ -1,5 +1,6 @@
 export default {
   id: "clinepass",
+  slug: "clinepass",
   priority: 85,
   alias: "clinepass",
   uiAlias: "clinepass",

@@ -1,5 +1,6 @@
 export default {
   id: "commandcode",
+  slug: "commandcode",
   priority: 100,
   alias: "commandcode",
   aliases: [

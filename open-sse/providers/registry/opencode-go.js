@@ -1,5 +1,6 @@
 export default {
   id: "opencode-go",
+  slug: "opencode-go",
   priority: 210,
   alias: "opencode-go",
   aliases: [

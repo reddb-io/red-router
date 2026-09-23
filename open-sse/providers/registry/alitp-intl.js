@@ -6,6 +6,7 @@
 // authorized for this plan, so OpenAI-compatible mode is the only transport.
 export default {
   id: "alitp-intl",
+  slug: "alitp-intl",
   priority: 11,
   alias: "alitp-intl",
   display: {

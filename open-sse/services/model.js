@@ -1,7 +1,8 @@
-import REGISTRY from "../providers/registry/index.js";
+import { PROVIDER_TOKEN_TO_ID } from "../providers/identity.js";
 
-// Alias→id derived from registry single-source: id→id, alias→id, aliases[]→id.
-// Media-only providers without a registry transport entry keep explicit aliases here.
+// Provider token -> id, from the registry (id, slug, alias, aliases[], uiAlias; see
+// providers/identity.js for the precedence). Media-only providers without a registry
+// transport entry keep explicit aliases here, below every registry token.
 const MEDIA_ONLY_ALIASES = {
   el: "elevenlabs",
   jina: "jina-ai",
@@ -10,26 +11,25 @@ const MEDIA_ONLY_ALIASES = {
   "aws-polly": "aws-polly",
 };
 
-const ALIAS_TO_PROVIDER_ID = { ...MEDIA_ONLY_ALIASES };
-for (const entry of REGISTRY) {
-  ALIAS_TO_PROVIDER_ID[entry.id] = entry.id;
-  if (entry.alias) ALIAS_TO_PROVIDER_ID[entry.alias] = entry.id;
-  for (const a of entry.aliases || []) ALIAS_TO_PROVIDER_ID[a] = entry.id;
+const ALIAS_TO_PROVIDER_ID = new Map(PROVIDER_TOKEN_TO_ID);
+for (const [alias, id] of Object.entries(MEDIA_ONLY_ALIASES)) {
+  if (!ALIAS_TO_PROVIDER_ID.has(alias)) ALIAS_TO_PROVIDER_ID.set(alias, id);
 }
 
 const BUILTIN_MODEL_ALIASES = {
-  "grok-build": "gcli/grok-build",
+  "grok-build": "grok-cli/grok-build",
 };
 
 /**
  * Resolve provider alias to provider ID
  */
 export function resolveProviderAlias(aliasOrId) {
-  return ALIAS_TO_PROVIDER_ID[aliasOrId] || aliasOrId;
+  return ALIAS_TO_PROVIDER_ID.get(aliasOrId) || aliasOrId;
 }
 
 /**
- * Parse model string: "alias/model" or "provider/model" or just alias
+ * Parse model string: "slug/model", "alias/model", "provider/model" or just alias.
+ * Every provider token resolves (legacy short codes included, forever).
  */
 export function parseModel(modelStr) {
   if (!modelStr) {
