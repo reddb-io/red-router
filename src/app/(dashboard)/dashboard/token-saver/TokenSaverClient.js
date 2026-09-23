@@ -128,15 +128,6 @@ export default function TokenSaverClient() {
     }
   };
 
-  // Wenyan levels are hidden outside Chinese locales; move a saved one to ultra,
-  // updating the page once the setting is stored.
-  useEffect(() => {
-    const current = CAVEMAN_LEVELS.find((lvl) => lvl.id === cavemanLevel);
-    if (current?.wenyan && !isWenyanLocale) {
-      patchSetting({ cavemanLevel: "ultra" }).then(() => setCavemanLevel("ultra"));
-    }
-  }, [isWenyanLocale, cavemanLevel]);
-
   // Back to the admin's value: null clears the override server-side.
   const resetToDefault = (keys) => patchSetting(Object.fromEntries(keys.map((k) => [k, null])));
 
@@ -492,7 +483,12 @@ export default function TokenSaverClient() {
           setCodeAware(data.headroomCodeAware === true);
           setKompress(data.headroomKompress !== false);
           setCavemanEnabled(!!data.cavemanEnabled);
-          setCavemanLevel(data.cavemanLevel || "full");
+          // Wenyan levels are hidden outside Chinese locales; a saved one moves to ultra.
+          const savedCavemanLevel = data.cavemanLevel || "full";
+          const hiddenWenyan = !WENYAN_LOCALES.includes(getCurrentLocale())
+            && CAVEMAN_LEVELS.find((lvl) => lvl.id === savedCavemanLevel)?.wenyan;
+          setCavemanLevel(hiddenWenyan ? "ultra" : savedCavemanLevel);
+          if (hiddenWenyan) patchSetting({ cavemanLevel: "ultra" });
           setPonytailEnabled(!!data.ponytailEnabled);
           setPonytailLevel(data.ponytailLevel || "full");
           setAdhdEnabled(!!data.adhdEnabled);
