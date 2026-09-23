@@ -1,5 +1,21 @@
 # @reddb-io/red-router
 
+## 0.14.0
+
+### Minor Changes
+
+- 17e2069: Add `GET /v1/capabilities` so clients can detect RedRouter and read its System One availability, combo strategies, decision routing mode, session headers and routing headers; `/v1/models` combo entries now carry their `strategy`.
+- 16a4fd5: Accept a client-side classification in the `x-red-router-hint` request header (`complexity`, `deliberation`, `needs_tool`, `tier`). Smart combos take the hinted tier instead of calling the classifier, auto combos take the hinted deliberation instead of asking System One for it, the effort ceiling uses it, and `needs_tool=false` skips the tool decision. Invalid hints are ignored whole; the request detail records what the hint replaced. `/v1/capabilities` now reports `decision.accepts_hint: true`, `decision.hint_header` and `decision.hint_keys`.
+- 0bd911b: Read deterministic request signals before asking the decision model: session-title calls go to the cheapest auto-combo member with no decision call, plan mode and stalled tool loops never land on the cheapest member, harness reminders and Codex/Claude Code boilerplate are stripped from the decision state, members that cannot hold the request's context or modality are left out of the question, and `x-red-router-decision: off` now also skips the model decision.
+- 1a29822: Successful chat responses now carry `X-RedRouter-Served-Model` (the provider/model that answered, including the combo member) and `X-Request-Id`; non-streaming responses add `X-RedRouter-Cost-USD` when the model is priced, and OpenAI chat, Anthropic Messages and Responses streams add `usage.cost` (USD) to their final usage event. `/v1/capabilities` advertises the header names.
+- 6720706: Add per-session combo member stickiness. Requests carrying `x-session-affinity` or `x-parent-session-id` (a subagent is grouped with its parent) are served by the combo member that last served that session, for fallback, round-robin, smart and auto combos, until the member fails or the session is idle for 30 minutes; requests without them keep the combo's own rotation. Both headers are now read as session ids right after `x-session-id`, and OpenAI upstreams receive the session as `prompt_cache_key` when the client did not set one. `/v1/capabilities` reports `session.per_session_stickiness: true`, `session.affinity_headers`, `session.affinity_ttl_ms` and `session.prompt_cache_key: true`.
+- d7c6738: Add the reasoning autopilot: per turn it raises or lowers how much the model thinks, from the decision model's deliberation verdict plus request signals (plan mode, stalled or failing tool loops, explicit "think hard", tool continuations, session titles), within a configurable floor and ceiling, with per-session hysteresis to protect prompt caching. Opt in per API key or combo — direct model requests included — in off/shadow/enforce modes; applies on translated routes and the Claude Code passthrough; `x-red-router-reasoning` forces a level or opts out per request, and `X-RedRouter-Reasoning` reports the choice.
+
+### Patch Changes
+
+- 0f71fe8: Advertise Claude Code 2.1.280, the build Claude Opus 5.5 requires, and add Claude Opus 5.5 to the Claude provider with its capabilities (1M context, 128K output, always-on adaptive thinking) and pricing; forced `tool_choice` is downgraded to `auto` on Opus 5.5 and Fable 5.1, which reject it.
+- d7f06d7: Keep `tool_choice: "none"` and parallel-tool-call limits across OpenAI↔Claude translation, honor the requested JEV model before a System One provider's default, report usage on Responses `response.completed` so Codex can auto-compact, and stop replaying reasoning fields to Groq, Mistral, and Cerebras.
+
 ## 0.13.0
 
 ### Minor Changes
