@@ -56,6 +56,9 @@ import { partitionUsable } from "../services/memberEligibility.js";
 import { internalCallHeaders } from "../services/internalCall.js";
 import { handleSystemOne } from "./systemOne.js";
 
+// Anthropic's own API: Claude Code traffic to it is passed through (utils/claudeFidelity.js).
+const ANTHROPIC_FIRST_PARTY_PROVIDERS = new Set(["claude", "anthropic"]);
+
 export function effortCeilingForDeliberation(deliberation) {
   if (typeof deliberation !== "number") return null;
   if (deliberation < 0.3) return "low";
@@ -308,7 +311,11 @@ export async function handleChat(request, clientRawRequest = null, options = {})
 
   // Bypass naming/warmup requests before combo rotation to avoid wasting rotation slots
   const userAgent = request?.headers?.get("user-agent") || "";
-  const bypassResponse = handleBypassRequest(body, modelStr, userAgent, !!settings.ccFilterNaming);
+  // Claude Code to Anthropic itself is passed through (utils/claudeFidelity.js):
+  // no locally fabricated answers — a prefill request could be a safety check.
+  const directTarget = await getModelInfo(modelStr, comboOwner).catch(() => null);
+  const faithfulTarget = ANTHROPIC_FIRST_PARTY_PROVIDERS.has(directTarget?.provider);
+  const bypassResponse = faithfulTarget ? null : handleBypassRequest(body, modelStr, userAgent, !!settings.ccFilterNaming);
   if (bypassResponse) return bypassResponse.response || bypassResponse;
 
   const overLimit = await checkApiKeyLimits(apiKey);
@@ -640,7 +647,10 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
     // attempt, so every account and combo member gets the same compacted body.
     if (routingContext.relevanceDone !== true) {
       routingContext.relevanceDone = true;
-      const saverOn = clientRawRequest?.headers?.[TOKEN_SAVER_HEADER]?.toLowerCase() !== "off";
+      const saverHeader = clientRawRequest?.headers?.[TOKEN_SAVER_HEADER]?.toLowerCase();
+      // Claude Code to Anthropic itself keeps its history unchanged unless it asks.
+      const faithful = ANTHROPIC_FIRST_PARTY_PROVIDERS.has(provider) && /claude-cli/i.test(userAgent);
+      const saverOn = faithful ? saverHeader === "on" : saverHeader !== "off";
       if (saverOn && routingContext.settings?.rtkRelevanceEnabled === true) {
         const askRelevance = await relevanceAsker(routingContext.settings, { apiKey, log });
         if (askRelevance) await compactByRelevance(body, { ask: askRelevance, log });

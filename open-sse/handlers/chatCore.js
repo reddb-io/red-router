@@ -20,6 +20,7 @@ import { handleForcedSSEToJson } from "./chatCore/sseToJsonHandler.js";
 import { clientRequestedStreaming as requestedStreaming } from "./chatCore/streamMode.js";
 import { handleNonStreamingResponse } from "./chatCore/nonStreamingHandler.js";
 import { handleStreamingResponse, buildOnStreamComplete } from "./chatCore/streamingHandler.js";
+import { isClaudeFaithful, forwardedResponseHeaders } from "../utils/claudeFidelity.js";
 import { detectClientTool, isNativePassthrough } from "../utils/clientDetector.js";
 import { dedupeTools } from "../utils/toolDeduper.js";
 import { takeRenamedToolNames } from "../utils/opencodeFingerprint.js";
@@ -148,7 +149,7 @@ export async function handleChatCore({ body, modelInfo, credentials, log, errorC
   }
 
   // Per-request opt-out: client can bypass all token savers via header
-  const tokenSaverEnabled = clientRawRequest?.headers?.[TOKEN_SAVER_HEADER]?.toLowerCase() !== "off";
+  let tokenSaverEnabled = clientRawRequest?.headers?.[TOKEN_SAVER_HEADER]?.toLowerCase() !== "off";
 
   // Cursor's translator rewrites tool_result into user text, so RTK must run on
   // the source body before translation. Every other pair translates the tool
@@ -192,9 +193,17 @@ export async function handleChatCore({ body, modelInfo, credentials, log, errorC
   // Skip all translation/normalization — only model and Bearer are swapped
   const clientTool = detectClientTool(clientRawRequest?.headers || {}, body);
   const passthrough = isNativePassthrough(clientTool, provider);
+  // Claude Code to Anthropic itself: request and answer pass through unchanged
+  // (see utils/claudeFidelity.js). Token savers rewrite the body, so there they
+  // run only when the request asks for them explicitly.
+  const claudeFaithful = isClaudeFaithful({ passthrough, clientTool, provider, credentials });
+  if (claudeFaithful) tokenSaverEnabled = clientRawRequest?.headers?.[TOKEN_SAVER_HEADER]?.toLowerCase() === "on";
 
   // Expose raw client headers to translators/executors for session-id resolution
-  if (credentials) credentials.rawHeaders = clientRawRequest?.headers || {};
+  if (credentials) {
+    credentials.rawHeaders = clientRawRequest?.headers || {};
+    credentials.claudeFaithful = claudeFaithful;
+  }
 
   // Auto-strip media blocks the model can't read (vision/audio/pdf) before translation.
   if (!passthrough) {
@@ -235,14 +244,16 @@ export async function handleChatCore({ body, modelInfo, credentials, log, errorC
     if (clientTool === "claude" && thinkingGoal?.mode === "set") {
       applyClaudeThinkingTarget(translatedBody, thinkingGoal, provider);
     }
-    // Normalize newer Cowork/CC beta shapes (adaptive thinking, mid-conversation system) the API rejects
-    if (clientTool === "claude") normalizeClaudePassthrough(translatedBody, translatedBody.model);
+    // Normalize newer Cowork/CC beta shapes (adaptive thinking, mid-conversation system)
+    // for Anthropic-format gateways that reject them. Anthropic itself accepts them,
+    // and rewriting earlier messages breaks preserved thinking there.
+    if (clientTool === "claude" && !claudeFaithful) normalizeClaudePassthrough(translatedBody, translatedBody.model);
     // Strip structured-output format for Claude-compatible passthrough targets.
     // output_config.format is an Anthropic-only feature; Claude Code sends it on
     // title-gen requests and non-anthropic gateways (e.g. Alibaba MaaS) reject it
     // with 400, locking the account for every subsequent request. Mirrors the
     // prepareClaudeRequest strip on the translated (non-passthrough) path.
-    if (clientTool === "claude" && provider !== "anthropic" && translatedBody.output_config?.format) {
+    if (clientTool === "claude" && !claudeFaithful && translatedBody.output_config?.format) {
       delete translatedBody.output_config.format;
       if (Object.keys(translatedBody.output_config).length === 0) delete translatedBody.output_config;
     }
@@ -263,7 +274,7 @@ export async function handleChatCore({ body, modelInfo, credentials, log, errorC
   }
 
   // Dedupe duplicate built-in tools when equivalent MCP tools are present (Claude clients only).
-  if (clientTool === "claude" && Array.isArray(translatedBody.tools)) {
+  if (clientTool === "claude" && !claudeFaithful && Array.isArray(translatedBody.tools)) {
     const { tools: deduped, stripped } = dedupeTools(translatedBody.tools);
     if (stripped.length > 0) {
       translatedBody.tools = deduped;
@@ -375,7 +386,7 @@ export async function handleChatCore({ body, modelInfo, credentials, log, errorC
 
   // PXPIPE: image bulky context (Claude-format bodies only), last saver before dispatch
   let pxpipeSummary = null;
-  if (pxpipeEnabled) {
+  if (pxpipeEnabled && (!claudeFaithful || tokenSaverEnabled)) {
     const pxpipeResult = await compressWithPxpipe(translatedBody, {
       enabled: true, format: finalFormat, model: upstreamModel,
       minChars: pxpipeMinChars, timeoutMs: pxpipeTimeoutMs, transform: pxpipeTransform,
@@ -421,7 +432,9 @@ export async function handleChatCore({ body, modelInfo, credentials, log, errorC
 
   // Pin cache breakpoints to the final body — every saver above can reshape
   // system/tools/messages, and a stale anchor costs a full prefix rewrite.
-  if (passthrough && clientTool === "claude") anchorClaudeCache(translatedBody);
+  // On the faithful path the client's own breakpoints and TTLs stand, unless an
+  // opted-in saver changed the body.
+  if (passthrough && clientTool === "claude" && (!claudeFaithful || xf.length > 0)) anchorClaudeCache(translatedBody);
 
   const executor = getExecutor(provider);
   trackPendingRequest(model, provider, connectionId, true);
@@ -578,6 +591,9 @@ export async function handleChatCore({ body, modelInfo, credentials, log, errorC
   // Provider returned error
   if (!providerResponse.ok) {
     trackPendingRequest(model, provider, connectionId, false, true);
+    // Claude Code matches upstream error wording to recover (thinking, advisor,
+    // cache_control rejections): keep the exact body for the faithful path.
+    const rawErrorBody = claudeFaithful ? await providerResponse.clone().text().catch(() => null) : null;
     const { statusCode, message, resetsAtMs } = await parseUpstreamError(providerResponse, executor);
     appendRequestLog({ model, provider, connectionId, status: `FAILED ${statusCode}` }).catch(() => { });
     saveRequestDetail(buildRequestDetail({
@@ -616,6 +632,16 @@ export async function handleChatCore({ body, modelInfo, credentials, log, errorC
     // applies the account's backoff level (a 429 streak escalates; before, this
     // value overrode it and every 429 locked for the same 2 s).
     errorResult.resetsAtMs = Number.isFinite(resetsAtMs) ? resetsAtMs : null;
+    if (claudeFaithful && rawErrorBody !== null) {
+      // The upstream's status, body and rate-limit headers, unchanged; our routing
+      // headers ride along so account and combo fallback still work.
+      const headers = new Headers({ "Content-Type": providerResponse.headers.get("content-type") || "application/json" });
+      errorResult.response.headers.forEach((value, name) => {
+        if (/^x-9router-/i.test(name) || name.toLowerCase() === "access-control-expose-headers") headers.set(name, value);
+      });
+      for (const [name, value] of Object.entries(forwardedResponseHeaders(providerResponse))) headers.set(name, value);
+      errorResult.response = new Response(rawErrorBody, { status: providerResponse.status, headers });
+    }
     return errorResult;
   }
 
@@ -641,6 +667,7 @@ export async function handleChatCore({ body, modelInfo, credentials, log, errorC
         targetFormat: providerResponseFormat,
         signal: streamController.signal,
         log,
+        probeInBand: !claudeFaithful,
         provider,
         model,
       });
@@ -665,7 +692,7 @@ export async function handleChatCore({ body, modelInfo, credentials, log, errorC
     }
   }
 
-  const sharedCtx = { provider, model, body, stream, errorContext, translatedBody, finalBody, requestStartTime, connectionId, apiKey, clientRawRequest, onRequestSuccess, pxpipe: pxpipeSummary, decision: decisionDetail, reqTag, log };
+  const sharedCtx = { provider, model, body, stream, errorContext, translatedBody, finalBody, requestStartTime, connectionId, apiKey, clientRawRequest, onRequestSuccess, pxpipe: pxpipeSummary, decision: decisionDetail, reqTag, log, claudeFaithful };
   const appendLog = (extra) => appendRequestLog({ model, provider, connectionId, ...extra }).catch(() => { });
   const trackDone = () => trackPendingRequest(model, provider, connectionId, false);
 
