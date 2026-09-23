@@ -29,11 +29,6 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Install test dependencies
         run: pnpm --dir tests install --ignore-workspace --lockfile=false
-      - name: Prepare clean main baseline
-        run: |
-          git worktree add --detach ../red-router-base "${{ github.event.pull_request.base.sha }}"
-          pnpm --dir ../red-router-base install --frozen-lockfile
-          pnpm --dir ../red-router-base/tests install --ignore-workspace --lockfile=false
       - name: Lint changed subsystems
         run: |
           # EndpointPageClient has five pre-existing React compiler lint errors;
@@ -45,14 +40,11 @@ jobs:
       - name: Verify diagnostic logging contract
         working-directory: tests
         run: npx vitest run unit/cli-diagnostics.test.js unit/cli-tray-log.test.js --reporter=verbose
-      - name: Run main baseline suite
-        continue-on-error: true
-        run: mkdir -p "$GITHUB_WORKSPACE/.artifacts" && cd ../red-router-base/tests && npx vitest run --retry=1 --reporter=json --outputFile="$GITHUB_WORKSPACE/.artifacts/baseline-results.json"
-      - name: Run candidate suite
-        continue-on-error: true
-        run: mkdir -p .artifacts && cd tests && npx vitest run --retry=1 --reporter=json --outputFile=../.artifacts/results.json
-      - name: Reject unknown regressions
-        run: node tests/__baseline__/verify-no-regression.mjs .artifacts/results.json .artifacts/baseline-results.json
+      # The suite is deterministic (tests/setup/deterministic.js: no network, sandboxed
+      # HOME/DATA_DIR, UTC) and fully green, so any failure fails the gate — no retries.
+      - name: Run test suite
+        working-directory: tests
+        run: npx vitest run
       - name: Build application
         run: pnpm run build
       - name: Install GitBook dependencies
