@@ -478,16 +478,13 @@ function memberParameters(member) {
 }
 
 /**
- * Build OpenAI-format models list filtered by service kinds.
- * @param {string[]} kindFilter - List of service kinds to include (e.g. ["llm"], ["webSearch","webFetch"]).
- * @param {object} options - { skipDynamicFetch, apiKey } — `apiKey` narrows the
- *   catalog to the providers of the accounts it is bound to (unbound = all).
+ * The active accounts one caller's catalog is built from: those an API key is bound
+ * to, and, when resources are scoped by user, those its owner may use. A dashboard
+ * caller passes its `scopeFilter` (null sees everything, `{ owner }` that owner's and
+ * the shared pool) in place of an API key.
+ * @param {object} options - { apiKey, scopeFilter }
  */
-export async function buildModelsList(kindFilter, options = {}) {
-  // When this header is present, the /v1/models request came from another
-  // red-router instance's fetchCompatibleModelIds — skip dynamic fetch to break
-  // cross-instance recursive loops.
-  const skipDynamicFetch = options.skipDynamicFetch === true;
+export async function catalogConnections(options = {}) {
   let connections = [];
   try {
     connections = await getProviderConnections();
@@ -506,11 +503,12 @@ export async function buildModelsList(kindFilter, options = {}) {
   let keyOwner = null;
   let scoped = false;
   let settings = null;
+  const viewer = options.scopeFilter;
   try {
     settings = await getSettings();
-    scoped = settings?.scopeResourcesByUser === true;
+    scoped = viewer === undefined ? settings?.scopeResourcesByUser === true : viewer !== null;
     if (scoped) {
-      keyOwner = await getApiKeyOwner(options.apiKey || null);
+      keyOwner = viewer === undefined ? await getApiKeyOwner(options.apiKey || null) : viewer.owner ?? null;
       connections = connections.filter((c) => !c.owner || c.owner === keyOwner);
       // A shared account the user switched off for themselves must not show up
       // in their catalogue either, or it would advertise models they cannot reach.
@@ -521,6 +519,23 @@ export async function buildModelsList(kindFilter, options = {}) {
       }
     }
   } catch { }
+
+  return { connections, allowedConnectionIds, settings, scoped, keyOwner };
+}
+
+/**
+ * Build OpenAI-format models list filtered by service kinds.
+ * @param {string[]} kindFilter - List of service kinds to include (e.g. ["llm"], ["webSearch","webFetch"]).
+ * @param {object} options - { skipDynamicFetch, apiKey, scopeFilter, variants } — `apiKey`
+ *   narrows the catalog to the providers of the accounts it is bound to (unbound = all);
+ *   see catalogConnections for `scopeFilter`.
+ */
+export async function buildModelsList(kindFilter, options = {}) {
+  // When this header is present, the /v1/models request came from another
+  // red-router instance's fetchCompatibleModelIds — skip dynamic fetch to break
+  // cross-instance recursive loops.
+  const skipDynamicFetch = options.skipDynamicFetch === true;
+  const { connections, allowedConnectionIds, settings, scoped, keyOwner } = await catalogConnections(options);
 
   const prefixStyle = catalogPrefixStyle(settings);
   const variantsMode = catalogVariantsMode(settings, options.variants);

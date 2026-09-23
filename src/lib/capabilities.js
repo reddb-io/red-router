@@ -102,6 +102,10 @@ export async function buildCapabilities({ apiKey = null } = {}) {
       // thinking_levels, parameters.modes and `variants`; ?variants=expand lists them.
       variants: settings?.catalog?.variants === "expand" ? "expand" : "collapse",
       variants_query: "variants",
+      // GET /v1/catalog: the same entries grouped by provider, plus the models
+      // recommended for the connected accounts (default, fast, review, systemone, vision).
+      catalog_endpoint: "/v1/catalog",
+      recommendations: true,
     },
   };
 }
