@@ -106,6 +106,17 @@ describe("GET /v1/capabilities", () => {
     expect(caps.stream_usage_cost).toBe(true);
   });
 
+  it("advertises the catalog version and the model parameters endpoint", async () => {
+    const caps = await getCapabilities();
+    expect(caps.catalog).toMatchObject({
+      version_header: "X-RedRouter-Catalog-Version",
+      model_endpoint: "/v1/models/{id}",
+      model_parameters: true,
+      combo_members: true,
+    });
+    expect(caps.catalog.version).toMatch(/^[0-9a-f]{16}$/);
+  });
+
   it("marks System One unavailable without an account, available with one", async () => {
     const before = await getCapabilities();
     expect(before.systemone).toEqual({ endpoint: "/v1/systemone", available: false, models: [] });

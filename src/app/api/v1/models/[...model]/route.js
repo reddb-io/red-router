@@ -1,5 +1,7 @@
 import { buildModelsList } from "../route.js";
 import { extractApiKey } from "@/sse/services/auth.js";
+import { getCatalogVersion } from "@/lib/catalogVersion";
+import { CATALOG_VERSION_HEADER } from "open-sse/config/runtimeConfig.js";
 
 // URL slug → service kind(s). `web` covers both webSearch and webFetch.
 const KIND_SLUG_MAP = {
@@ -72,7 +74,10 @@ export async function GET(request, { params }) {
       );
     }
 
-    return json(matchedModel);
+    // One model's full parameters (a combo's include its members); the version lets a
+    // client tell whether what it cached from /v1/models is still current.
+    const catalogVersion = await getCatalogVersion(apiKey);
+    return json(matchedModel, catalogVersion ? { headers: { [CATALOG_VERSION_HEADER]: catalogVersion } } : {});
   } catch (error) {
     console.log("Error fetching model:", error);
     return json(

@@ -21,9 +21,12 @@ import { updateProviderCredentials } from "@/sse/services/tokenRefresh";
 import { resolveConnectionProxyConfig } from "@/lib/network/connectionProxy";
 import { capabilitiesFromServiceKind, getCapabilitiesForModel, DEFAULT_CAPABILITIES } from "open-sse/providers/capabilities.js";
 import { getThinkingLevelsForId } from "open-sse/providers/thinkingLevels.js";
+import { modelParameters, mergeModelParameters } from "open-sse/providers/modelParameters.js";
 import { comboThinkingLevels, comboStrategyFor } from "open-sse/services/combo.js";
 import { stripThinkingSuffix } from "open-sse/translator/concerns/thinkingUnified.js";
 import { extractApiKey } from "@/sse/services/auth.js";
+import { getCatalogVersion } from "@/lib/catalogVersion";
+import { CATALOG_VERSION_HEADER } from "open-sse/config/runtimeConfig.js";
 
 // Per-provider live model resolvers. Each receives a connection record and
 // returns { models: [{ id, name? }, ...] } | null on failure.
@@ -262,9 +265,11 @@ function comboMatchesKinds(combo, kindFilter) {
 // available to the combo if any member supports it.
 const COMBO_BOOLEAN_CAPS = [
   "vision", "pdf", "audioInput", "videoInput", "imageOutput",
-  "audioOutput", "search", "tools", "reasoning",
-  "thinkingCanDisable", "thinkingEffortSupported",
+  "audioOutput", "search", "tools", "reasoning", "thinkingEffortSupported",
 ];
+// Restrictions hold for the combo as soon as one member has them (AND of the
+// permission): any member may serve the request.
+const COMBO_ALL_MEMBERS_CAPS = ["thinkingCanDisable", "forcedToolChoice"];
 
 /**
  * Aggregate capabilities across a combo's member models so the /v1/models entry
@@ -305,6 +310,9 @@ function mergeComboCapabilities(memberStrings, comboByName, seen = new Set()) {
     for (const key of COMBO_BOOLEAN_CAPS) {
       if (caps[key]) merged[key] = true;
     }
+    for (const key of COMBO_ALL_MEMBERS_CAPS) {
+      if (caps[key] === false) merged[key] = false;
+    }
     if (merged.thinkingFormat === null && caps.thinkingFormat != null) merged.thinkingFormat = caps.thinkingFormat;
     if (merged.thinkingRange === null && caps.thinkingRange != null) merged.thinkingRange = caps.thinkingRange;
     if (Number.isFinite(caps.contextWindow)) {
@@ -318,6 +326,34 @@ function mergeComboCapabilities(memberStrings, comboByName, seen = new Set()) {
   }
 
   return resolvedAny ? merged : null;
+}
+
+/**
+ * The provider/model members a combo can route to, nested combos expanded, in order
+ * and without duplicates. A thinking suffix ("model(high)") is kept: it is part of
+ * the member the router calls.
+ */
+function comboMembers(memberStrings, comboByName, seen = new Set()) {
+  const out = [];
+  for (const member of Array.isArray(memberStrings) ? memberStrings : []) {
+    if (typeof member !== "string" || !member) continue;
+    if (member.includes("/")) {
+      if (!out.includes(member)) out.push(member);
+    } else if (comboByName.has(member) && !seen.has(member)) {
+      seen.add(member);
+      for (const nested of comboMembers(comboByName.get(member).models, comboByName, seen)) {
+        if (!out.includes(nested)) out.push(nested);
+      }
+    }
+  }
+  return out;
+}
+
+/** parameters of one provider/model member (thinking suffix resolved to the clean id). */
+function memberParameters(member) {
+  const { provider, model } = parseModel(member);
+  const clean = stripThinkingSuffix(model);
+  return modelParameters(getCapabilitiesForModel(provider, clean), getThinkingLevelsForId(provider, model));
 }
 
 /**
@@ -433,6 +469,14 @@ export async function buildModelsList(kindFilter, options = {}) {
     if ((combo?.kind || LLM_KIND) === LLM_KIND) {
       const comboLevels = comboThinkingLevels(combo.models);
       if (comboLevels) entry.thinking_levels = comboLevels;
+      // What the router may call, and the parameters a client must respect for
+      // whichever member serves (strictest member; see mergeModelParameters).
+      const members = comboMembers(combo.models, comboByName);
+      if (members.length) {
+        entry.members = members;
+        const parameters = mergeModelParameters(members.map(memberParameters));
+        if (parameters) entry.parameters = parameters;
+      }
     }
     models.push(entry);
   }
@@ -646,6 +690,11 @@ export async function buildModelsList(kindFilter, options = {}) {
             model.thinking_levels = levels;
             if (model.capabilities) model.capabilities.thinkingLevels = levels;
           }
+          const parameters = modelParameters(
+            { ...getCapabilitiesForModel(providerId, modelId), ...(caps || {}), contextWindow, maxOutput },
+            levels,
+          );
+          if (parameters) model.parameters = parameters;
         }
         models.push(model);
       }
@@ -703,9 +752,14 @@ export async function GET(request) {
   try {
     // Detect cross-instance recursive /models fetch (another red-router fetching our /models)
     const skipDynamicFetch = request?.headers?.get(INTERNAL_MODELS_FETCH_HEADER) === "1";
-    const data = await buildModelsList([LLM_KIND], { skipDynamicFetch, apiKey: extractApiKey(request) });
+    const apiKey = extractApiKey(request);
+    const data = await buildModelsList([LLM_KIND], { skipDynamicFetch, apiKey });
+    const catalogVersion = await getCatalogVersion(apiKey);
     return Response.json({ object: "list", data }, {
-      headers: { "Access-Control-Allow-Origin": "*" },
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+        ...(catalogVersion ? { [CATALOG_VERSION_HEADER]: catalogVersion } : {}),
+      },
     });
   } catch (error) {
     console.log("Error fetching models:", error);
