@@ -9,6 +9,21 @@ name: red-publish
 #   3. Commit, tag vX.Y.Z and push the tag.
 #
 # This workflow owns everything downstream of the tag and never touches main.
+#
+# npm authentication: npm trusted publishing (OIDC), no stored token. The npm
+# package @reddb-io/red-router must have a Trusted Publisher configured on
+# npmjs.com (package Settings -> Trusted Publisher -> GitHub Actions):
+#   organization/user: reddb-io
+#   repository:        red-router
+#   workflow filename: red-publish.yml
+#   environment:       npm-release
+# The repository variable NPM_PUBLISH_MODE picks the path: unset or "oidc" uses
+# trusted publishing; "token" falls back to the NPM_TOKEN secret until the
+# Trusted Publisher exists. npm stages token publishes and makes them public a
+# few minutes later on its own, answering 422/409 "staged" meanwhile.
+#
+# Reruns are safe: a version npm already serves or has staged is not published
+# again, and the GitHub release is created only when it does not exist yet.
 
 on:
   push:
@@ -21,7 +36,7 @@ on:
         required: true
 
 permissions:
-  contents: write
+  contents: read
 
 env:
   RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
@@ -37,6 +52,11 @@ jobs:
     # Repository settings must protect the npm-release environment with
     # required reviewers — approval is the gate before npm publish.
     environment: npm-release
+    permissions:
+      # gh release create
+      contents: write
+      # npm trusted publishing and provenance exchange the GitHub OIDC token
+      id-token: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -52,7 +72,14 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          registry-url: https://registry.npmjs.org
+
+      # Trusted publishing needs npm 11.5.1+ (https://docs.npmjs.com/trusted-publishers);
+      # Node 22 ships npm 10. Same pin as the redcode publish workflow.
+      - name: Install npm with trusted publishing support
+        run: |
+          set -euo pipefail
+          npm install -g npm@11.19.1
+          npm --version | grep -Fx 11.19.1
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -100,31 +127,77 @@ jobs:
           rm package-contents.txt
           sha256sum *.tgz > SHA256SUMS
 
-      # Idempotent: npm stages large packages for several minutes before the version is
-      # visible, and a retried upload of a staged version answers 409 "previously
-      # staged" even though the first one went through. A version already on npm is
-      # skipped; a failed upload succeeds only if the version then shows up.
+      # Publishes the exact tarball SHA256SUMS describes, with provenance.
+      # Idempotent: a version npm already serves is skipped. npm stages a new
+      # version for a few minutes before `npm view` shows it; meanwhile a retry
+      # answers 409 "previously staged" and some writes answer 422. Both mean
+      # npm holds the version, so the job continues to the GitHub release.
       - name: Publish to npm
+        env:
+          NPM_PUBLISH_MODE: ${{ vars.NPM_PUBLISH_MODE }}
+          NPM_TOKEN: ${{ vars.NPM_PUBLISH_MODE == 'token' && secrets.NPM_TOKEN || '' }}
         run: |
+          set -euo pipefail
           version=$(node -p "require('./cli/package.json').version")
-          published() { npm view "@reddb-io/red-router@${version}" version >/dev/null 2>&1; }
-          if published; then echo "@reddb-io/red-router@${version} is already on npm; skipping publish"; exit 0; fi
-          if pnpm --dir cli publish --access public --no-git-checks; then exit 0; fi
-          for attempt in $(seq 1 40); do
-            if published; then echo "@reddb-io/red-router@${version} became visible after staging"; exit 0; fi
-            sleep 30
-          done
-          echo "@reddb-io/red-router@${version} did not publish" >&2
+          spec="@reddb-io/red-router@${version}"
+          visible() { npm view "$spec" version >/dev/null 2>&1; }
+          if visible; then echo "::notice::$spec is already on npm; skipping publish"; exit 0; fi
+
+          case "${NPM_PUBLISH_MODE:-oidc}" in
+            oidc)
+              if [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ]; then
+                echo "::error::trusted publishing needs the id-token: write permission"
+                exit 1
+              fi
+              # npm exchanges the GitHub OIDC token itself; make sure no stale token wins.
+              unset NODE_AUTH_TOKEN
+              npm config delete //registry.npmjs.org/:_authToken || true
+              ;;
+            token)
+              if [ -z "${NPM_TOKEN:-}" ]; then
+                echo "::error::NPM_PUBLISH_MODE=token but the NPM_TOKEN secret is absent"
+                exit 1
+              fi
+              echo "::warning::publishing $spec with NPM_TOKEN; configure the npm Trusted Publisher and unset NPM_PUBLISH_MODE"
+              npm config set //registry.npmjs.org/:_authToken "$NPM_TOKEN"
+              ;;
+            *)
+              echo "::error::NPM_PUBLISH_MODE must be unset, oidc, or token (got ${NPM_PUBLISH_MODE})"
+              exit 1
+              ;;
+          esac
+
+          tarballs=(release-artifacts/*.tgz)
+          log="$RUNNER_TEMP/npm-publish.log"
+          if npm publish "${tarballs[0]}" --access public --provenance 2>&1 | tee "$log"; then
+            echo "::notice::$spec accepted by npm"
+            exit 0
+          fi
+          if grep -qiE 'E409|previously (published|staged)|cannot publish over' "$log"; then
+            echo "::notice::npm already holds $spec (published or staged); continuing"
+            exit 0
+          fi
+          if grep -qE 'E422' "$log"; then
+            for attempt in $(seq 1 20); do
+              if visible; then echo "::notice::$spec became visible on npm"; exit 0; fi
+              sleep 30
+            done
+            if grep -qi 'staged' "$log"; then
+              echo "::warning::npm staged $spec and has not served it after 10 minutes; it goes public on its own"
+              exit 0
+            fi
+          fi
+          echo "::error::$spec did not publish"
           exit 1
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - name: Deprecate unsafe v0.12.0 package
-        run: npm deprecate "@reddb-io/red-router@0.12.0" "Contains build-time runtime artifacts; upgrade to 0.12.1 or newer."
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
+      # Rerun-safe: an existing release (for example from a partial earlier run) is left alone.
       - name: Create GitHub release
-        run: gh release create "$RELEASE_TAG" release-artifacts/* --verify-tag --generate-notes --title "$RELEASE_TAG"
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" --json tagName >/dev/null 2>&1; then
+            echo "::notice::GitHub release $RELEASE_TAG already exists; leaving it untouched"
+            exit 0
+          fi
+          gh release create "$RELEASE_TAG" release-artifacts/* --verify-tag --generate-notes --title "$RELEASE_TAG"
         env:
           GH_TOKEN: ${{ github.token }}
