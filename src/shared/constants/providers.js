@@ -1,6 +1,7 @@
 // Provider definitions
 import REGISTRY from "open-sse/providers/registry/index.js";
 import { RISK_NOTICE } from "@/shared/constants/providersDisplay";
+import { PROVIDER_TOKEN_TO_ID } from "open-sse/providers/identity.js";
 
 const MEDIA_ENTRY_KEYS = [
   "serviceKinds", "ttsConfig", "sttConfig", "embeddingConfig",
@@ -22,6 +23,7 @@ function buildProviderEntry(r) {
   return {
     ...display,
     id: r.id,
+    slug: r.slug || r.id,
     alias: r.uiAlias || r.alias,
     ...(r.hidden ? { hidden: true } : {}),
     ...mediaFields,
@@ -109,8 +111,10 @@ export const AUTH_METHODS = {
   cookie: { id: "cookie" },
 };
 
-// Helper: Get provider by alias
+// Helper: Get provider by any token (id, slug, alias, aliases[], uiAlias)
 export function getProviderByAlias(alias) {
+  const byToken = AI_PROVIDERS[PROVIDER_TOKEN_TO_ID.get(alias)];
+  if (byToken) return byToken;
   for (const provider of Object.values(AI_PROVIDERS)) {
     if (provider.alias === alias || provider.id === alias) {
       return provider;
@@ -131,11 +135,14 @@ export function getProviderAlias(providerId) {
   return provider?.alias || providerId;
 }
 
-// Alias to ID mapping (for quick lookup)
+// Alias to ID mapping (for quick lookup). Holds every provider token, slugs included.
 export const ALIAS_TO_ID = Object.values(AI_PROVIDERS).reduce((acc, p) => {
   acc[p.alias] = p.id;
   return acc;
 }, {});
+for (const [token, id] of PROVIDER_TOKEN_TO_ID) {
+  if (AI_PROVIDERS[id] && !Object.hasOwn(ALIAS_TO_ID, token)) ALIAS_TO_ID[token] = id;
+}
 
 // ID to Alias mapping
 export const ID_TO_ALIAS = Object.values(AI_PROVIDERS).reduce((acc, p) => {

@@ -1,5 +1,6 @@
 export default {
   id: "perplexity-web",
+  slug: "perplexity-web",
   priority: 220,
   alias: "perplexity-web",
   aliases: [

@@ -1,5 +1,6 @@
 export default {
   id: "bazaarlink",
+  slug: "bazaarlink",
   alias: "bzl",
   aliases: ["bazaar-link"],
   uiAlias: "bzl",

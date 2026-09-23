@@ -8,6 +8,7 @@ import { CLAUDE_API_HEADERS } from "../shared.js";
 // Endpoint is picked per model in the executor, same as opencode-go's /responses split.
 export default {
   id: "xiaomi-mimo",
+  slug: "xiaomi-mimo",
   priority: 290,
   alias: "xiaomi-mimo",
   aliases: [

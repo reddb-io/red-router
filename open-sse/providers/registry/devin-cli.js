@@ -1,5 +1,6 @@
 export default {
   id: "devin-cli",
+  slug: "devin-cli",
   alias: "dv",
   aliases: ["devin"],
   uiAlias: "dv",

@@ -1,5 +1,6 @@
 export default {
   id: "byteplus",
+  slug: "byteplus",
   priority: 70,
   alias: "byteplus",
   aliases: [

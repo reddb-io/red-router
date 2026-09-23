@@ -1,5 +1,6 @@
 export default {
   id: "local-device",
+  slug: "local-device",
   alias: "local-device",
   display: {
     name: "Local Device",

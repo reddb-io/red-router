@@ -1,5 +1,6 @@
 export default {
   id: "cartesia",
+  slug: "cartesia",
   alias: "cartesia",
   display: {
     name: "Cartesia",

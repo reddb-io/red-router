@@ -2,6 +2,7 @@ import { CLAUDE_API_HEADERS } from "../shared.js";
 
 export default {
   id: "deepseek",
+  slug: "deepseek",
   priority: 110,
   alias: "deepseek",
   aliases: [

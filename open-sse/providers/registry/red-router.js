@@ -1,5 +1,6 @@
 export default {
   id: "red-router",
+  slug: "red-router",
   alias: "red-router",
   priority: 1,
   category: "apikey",

@@ -1,5 +1,6 @@
 export default {
   id: "opencode",
+  slug: "opencode",
   priority: 40,
   hasFree: true,
   alias: "oc",

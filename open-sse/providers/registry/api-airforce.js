@@ -1,5 +1,6 @@
 export default {
   id: "api-airforce",
+  slug: "api-airforce",
   alias: "af",
   aliases: [
     "airforce",

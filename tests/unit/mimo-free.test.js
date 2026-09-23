@@ -22,6 +22,7 @@ import { getExecutor } from "../../open-sse/executors/index.js";
 import { PROVIDERS } from "../../open-sse/config/providers.js";
 import { PROVIDER_MODELS, PROVIDER_ID_TO_ALIAS } from "../../open-sse/config/providerModels.js";
 import { FREE_PROVIDERS } from "../../src/shared/constants/providers.js";
+import { parseModel } from "../../open-sse/services/model.js";
 
 const {
   generateFingerprint, generateSessionId, bootstrapJwt, resetJwtCache, parseJwtExp,
@@ -232,7 +233,12 @@ describe("MiMo Free provider registration", () => {
 
   it("registers mimo-free as a no-auth provider in open-sse config", () => {
     expect(PROVIDERS["mimo-free"]?.noAuth).toBe(true);
-    expect(PROVIDERS.mmf?.noAuth).toBe(true);
+  });
+
+  it("routes the mmf short code to mimo-free (no duplicate provider shadows it)", () => {
+    expect(PROVIDERS.mmf).toBeUndefined();
+    expect(parseModel("mmf/mimo-auto").provider).toBe("mimo-free");
+    expect(parseModel("mimo-free/mimo-auto").provider).toBe("mimo-free");
   });
 
   it("exposes only mimo-auto (the sole free-channel model)", () => {

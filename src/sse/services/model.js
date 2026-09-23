@@ -2,7 +2,7 @@
 import { getModelAliases, getComboByName, getProviderNodes } from "@/lib/localDb";
 import { parseModel as parseModelCore, resolveModelAliasFromMap, getModelInfoCore } from "open-sse/services/model.js";
 import { withThinkingSuffix } from "open-sse/services/combo.js";
-import REGISTRY from "open-sse/providers/registry/index.js";
+import { PROVIDER_TOKEN_TO_ID } from "open-sse/providers/identity.js";
 
 // Local provider alias overrides (HMR-friendly, applied on top of open-sse map)
 const LOCAL_PROVIDER_ALIASES = {
@@ -10,12 +10,9 @@ const LOCAL_PROVIDER_ALIASES = {
   "xiaomi-tokenplan": "xiaomi-tokenplan",
 };
 
-const RESERVED_PROVIDER_PREFIXES = new Set(Object.keys(LOCAL_PROVIDER_ALIASES));
-for (const entry of REGISTRY) {
-  RESERVED_PROVIDER_PREFIXES.add(entry.id);
-  if (entry.alias) RESERVED_PROVIDER_PREFIXES.add(entry.alias);
-  for (const alias of entry.aliases || []) RESERVED_PROVIDER_PREFIXES.add(alias);
-}
+// Every built-in provider token (id, slug, alias, aliases[], uiAlias) outranks a
+// user-defined provider-node prefix: /v1/models lists built-in models under these.
+const RESERVED_PROVIDER_PREFIXES = new Set([...Object.keys(LOCAL_PROVIDER_ALIASES), ...PROVIDER_TOKEN_TO_ID.keys()]);
 
 export function parseModel(modelStr) {
   const parsed = parseModelCore(modelStr);

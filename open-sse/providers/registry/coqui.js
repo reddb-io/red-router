@@ -1,5 +1,6 @@
 export default {
   id: "coqui",
+  slug: "coqui",
   alias: "coqui",
   display: {
     name: "Coqui TTS",

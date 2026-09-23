@@ -1,5 +1,6 @@
 export default {
   id: "kilo-gateway",
+  slug: "kilo-gateway",
   alias: "kgw",
   aliases: [
     "kilo-gateway",

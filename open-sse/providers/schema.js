@@ -7,7 +7,9 @@ import { DEFAULT_RETRY_CONFIG, FETCH_CONNECT_TIMEOUT_MS } from "../config/runtim
  *
  * @typedef {Object} RegistryEntry
  * @property {string}   id            Unique provider id (kebab-case). REQUIRED.
- * @property {string}  [alias]        Short key for PROVIDER_MODELS (defaults to id).
+ * @property {string}   slug          Readable, kebab-case prefix /v1/models lists ids under
+ *                                    ("<slug>/<model>"). Unique across every provider token. REQUIRED.
+ * @property {string}  [alias]        Short key for PROVIDER_MODELS (defaults to id). Stays routable.
  * @property {string[]}[aliases]      Extra lookup tokens resolving to this provider.
  * @property {string}  [uiAlias]      Token shown in UI badges.
  * @property {string}   category      "apikey"|"oauth"|"freeTier"|... drives UI grouping. REQUIRED.

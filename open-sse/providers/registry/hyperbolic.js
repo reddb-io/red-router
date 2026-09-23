@@ -1,5 +1,6 @@
 export default {
   id: "hyperbolic",
+  slug: "hyperbolic",
   priority: 160,
   alias: "hyperbolic",
   aliases: [

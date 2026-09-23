@@ -1,5 +1,6 @@
 export default {
   id: "iflow",
+  slug: "iflow",
   hidden: true,
   priority: 110,
   alias: "if",

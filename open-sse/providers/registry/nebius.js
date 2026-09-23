@@ -1,5 +1,6 @@
 export default {
   id: "nebius",
+  slug: "nebius",
   priority: 70,
   alias: "nebius",
   display: {

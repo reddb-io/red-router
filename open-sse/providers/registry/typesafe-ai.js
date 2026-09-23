@@ -9,6 +9,7 @@ import {
 
 const typesafeAi = {
   id: SYSTEM_ONE_PROVIDER_ID,
+  slug: "jev",
   alias: SYSTEM_ONE_PROVIDER_ID,
   aliases: ["jev", "typesafe"],
   uiAlias: "jev",

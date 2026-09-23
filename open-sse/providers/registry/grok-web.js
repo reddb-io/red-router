@@ -1,5 +1,6 @@
 export default {
   id: "grok-web",
+  slug: "grok-web",
   priority: 150,
   alias: "grok-web",
   aliases: [

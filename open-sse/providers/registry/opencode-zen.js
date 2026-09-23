@@ -1,5 +1,6 @@
 export default {
   id: "opencode-zen",
+  slug: "opencode-zen",
   priority: 205,
   alias: "ocz",
   aliases: [

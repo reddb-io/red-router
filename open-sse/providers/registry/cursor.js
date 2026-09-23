@@ -1,5 +1,6 @@
 export default {
   id: "cursor",
+  slug: "cursor",
   priority: 50,
   alias: "cu",
   uiAlias: "cu",

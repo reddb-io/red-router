@@ -1,5 +1,6 @@
 export default {
   id: "poolside",
+  slug: "poolside",
   priority: 60,
   alias: "poolside",
   aliases: [

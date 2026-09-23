@@ -1,5 +1,6 @@
 export default {
   id: "fal-ai",
+  slug: "fal-ai",
   priority: 90,
   hasFree: true,
   alias: "fal-ai",

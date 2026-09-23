@@ -1,5 +1,6 @@
 export default {
   id: "featherless",
+  slug: "featherless",
   priority: 65,
   alias: "featherless",
   aliases: [

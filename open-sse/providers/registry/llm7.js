@@ -1,5 +1,6 @@
 export default {
   id: "llm7",
+  slug: "llm7",
   alias: "llm7",
   aliases: [
     "llm-7",

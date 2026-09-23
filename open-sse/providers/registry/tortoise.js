@@ -1,5 +1,6 @@
 export default {
   id: "tortoise",
+  slug: "tortoise",
   alias: "tortoise",
   display: {
     name: "Tortoise TTS",

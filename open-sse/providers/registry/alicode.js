@@ -1,5 +1,6 @@
 export default {
   id: "alicode",
+  slug: "alicode",
   priority: 20,
   alias: "alicode",
   display: {

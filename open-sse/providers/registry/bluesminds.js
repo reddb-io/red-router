@@ -1,5 +1,6 @@
 export default {
   id: "bluesminds",
+  slug: "bluesminds",
   alias: "bm",
   aliases: ["blue-sminds"],
   uiAlias: "bm",

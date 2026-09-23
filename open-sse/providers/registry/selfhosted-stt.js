@@ -17,6 +17,7 @@
 // servers ignore the key itself; any non-empty value works.
 export default {
   id: "selfhosted-stt",
+  slug: "selfhosted-stt",
   priority: 50,
   hasFree: true,
   alias: "selfhosted-stt",

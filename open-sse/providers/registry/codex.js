@@ -8,6 +8,7 @@ const CODEX_CLI_VERSION = "0.155.1";
 
 export default {
   id: "codex",
+  slug: "codex",
   priority: 30,
   alias: "cx",
   uiAlias: "cx",

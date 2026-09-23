@@ -1,5 +1,6 @@
 export default {
   id: "brave-search",
+  slug: "brave-search",
   alias: "brave",
   display: {
     name: "Brave Search",

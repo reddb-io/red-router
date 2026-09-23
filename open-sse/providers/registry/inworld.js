@@ -1,5 +1,6 @@
 export default {
   id: "inworld",
+  slug: "inworld",
   alias: "inworld",
   display: {
     name: "Inworld TTS",

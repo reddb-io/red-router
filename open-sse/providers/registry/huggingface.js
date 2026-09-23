@@ -1,5 +1,6 @@
 export default {
   id: "huggingface",
+  slug: "huggingface",
   priority: 70,
   hasFree: true,
   alias: "huggingface",

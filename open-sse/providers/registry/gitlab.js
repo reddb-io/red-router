@@ -1,5 +1,6 @@
 export default {
   id: "gitlab",
+  slug: "gitlab",
   hidden: true,
   priority: 100,
   display: {

@@ -1,5 +1,6 @@
 export default {
   id: "searchapi",
+  slug: "searchapi",
   alias: "searchapi",
   display: {
     name: "SearchAPI",

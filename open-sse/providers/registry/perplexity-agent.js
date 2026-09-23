@@ -1,5 +1,6 @@
 export default {
   id: "perplexity-agent",
+  slug: "perplexity-agent",
   priority: 181,
   alias: "perplexity-agent",
   aliases: [

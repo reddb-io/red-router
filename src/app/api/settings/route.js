@@ -5,6 +5,7 @@ import { resetComboRotation } from "open-sse/services/combo.js";
 import bcrypt from "bcryptjs";
 import { getRequestIdentity, isScopeEnabled, isSsoOnly, parseAdminEmails } from "@/lib/auth/resourceScope";
 import { TOKEN_SAVER_KEYS, resolveTokenSaverFor } from "@/lib/auth/scopedSettings";
+import { resetCatalogVersions } from "@/lib/catalogVersion";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -12,6 +13,8 @@ export const revalidate = 0;
 const SETTINGS_RESPONSE_HEADERS = {
   "Cache-Control": "no-store"
 };
+
+const CATALOG_PREFIX_STYLES = ["slug", "short"];
 
 // Secrets must never be mass-assigned from request body (CWE-915)
 const PROTECTED_SETTING_KEYS = ["password", "mitmSudoEncrypted"];
@@ -165,7 +168,22 @@ export async function PATCH(request) {
       }
     }
 
+    // The catalog block is merged, so setting one listing option keeps the others.
+    if (body.catalog !== undefined) {
+      const catalog = body.catalog;
+      if (!catalog || typeof catalog !== "object" || Array.isArray(catalog)) {
+        return NextResponse.json({ error: "catalog must be an object" }, { status: 400 });
+      }
+      if (catalog.prefixStyle !== undefined && !CATALOG_PREFIX_STYLES.includes(catalog.prefixStyle)) {
+        return NextResponse.json({ error: `catalog.prefixStyle must be one of: ${CATALOG_PREFIX_STYLES.join(", ")}` }, { status: 400 });
+      }
+      body.catalog = { ...(current.catalog || {}), ...catalog };
+    }
+
     const settings = await updateSettings(body);
+
+    // A new listing option changes /v1/models now, not when the cached version expires.
+    if (body.catalog !== undefined) resetCatalogVersions();
 
     // Apply outbound proxy settings immediately (no restart required)
     if (

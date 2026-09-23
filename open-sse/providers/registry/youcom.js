@@ -1,5 +1,6 @@
 export default {
   id: "youcom",
+  slug: "youcom",
   alias: "youcom",
   display: {
     name: "You.com Search",

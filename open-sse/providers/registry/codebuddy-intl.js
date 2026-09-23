@@ -3,6 +3,7 @@
 // use the /v2/plugin prefix with platform=ide (CN uses platform=CLI).
 export default {
   id: "codebuddy-intl",
+  slug: "codebuddy-intl",
   alias: "cbai",
   uiAlias: "cbai",
   hidden: false,

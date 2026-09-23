@@ -6,6 +6,7 @@ import {
 
 export default {
   id: "openrouter",
+  slug: "openrouter",
   priority: 10,
   hasFree: true,
   alias: "openrouter",

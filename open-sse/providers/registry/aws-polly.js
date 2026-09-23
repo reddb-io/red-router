@@ -1,5 +1,6 @@
 export default {
   id: "aws-polly",
+  slug: "aws-polly",
   alias: "polly",
   display: {
     name: "AWS Polly",

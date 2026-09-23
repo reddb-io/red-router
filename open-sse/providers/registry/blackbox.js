@@ -1,5 +1,6 @@
 export default {
   id: "blackbox",
+  slug: "blackbox",
   priority: 50,
   alias: "blackbox",
   aliases: [

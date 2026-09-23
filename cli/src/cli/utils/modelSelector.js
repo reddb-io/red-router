@@ -2,13 +2,14 @@ const api = require("../api/client");
 const { prompt } = require("./input");
 const { clearScreen } = require("./display");
 
-// Provider alias order: OAuth first, then API Key (matches ModelSelectModal)
+// Provider prefix order: OAuth first, then API Key (matches ModelSelectModal).
+// Readable slugs (the default /v1/models prefix) and legacy short codes both sort.
 const PROVIDER_ALIAS_ORDER = [
-  "cc", "ag", "cx", "if", "qw", "gc", "gh", "kr",
+  "claude-code", "cc", "antigravity", "ag", "codex", "cx", "if", "qw", "gemini-cli", "gc", "copilot", "gh", "kiro", "kr",
   "openrouter", "glm", "kimi", "minimax", "openai", "anthropic", "gemini"
 ];
 
-// Alias to display name mapping
+// Legacy short code to display name, for servers whose entries carry no `provider`
 const PROVIDER_ALIAS_NAMES = {
   cc: "Claude Code",
   ag: "Antigravity", 
@@ -38,6 +39,7 @@ async function getAvailableModelsGrouped() {
   const models = result.data?.data || [];
   const combos = [];
   const groups = {};
+  const names = {};
   
   models.forEach(m => {
     if (m.owned_by === "combo") {
@@ -48,10 +50,11 @@ async function getAvailableModelsGrouped() {
         groups[provider] = [];
       }
       groups[provider].push(m.id);
+      if (m.provider?.name && !names[provider]) names[provider] = m.provider.name;
     }
   });
   
-  return { combos, groups };
+  return { combos, groups, names };
 }
 
 /**
@@ -63,7 +66,7 @@ async function getAvailableModelsGrouped() {
  */
 async function selectModelFromList(title, currentValue = "", options = {}) {
   const { excludeCombos = false } = options;
-  const { combos: rawCombos, groups } = await getAvailableModelsGrouped();
+  const { combos: rawCombos, groups, names } = await getAvailableModelsGrouped();
   const combos = excludeCombos ? [] : rawCombos;
 
   const totalModels = combos.length + Object.values(groups).flat().length;
@@ -94,7 +97,7 @@ async function selectModelFromList(title, currentValue = "", options = {}) {
   });
 
   sortedProviders.forEach((provider) => {
-    const providerName = PROVIDER_ALIAS_NAMES[provider] || provider;
+    const providerName = names[provider] || PROVIDER_ALIAS_NAMES[provider] || provider;
     categories.push({
       id: provider,
       name: providerName,

@@ -1,5 +1,6 @@
 export default {
   id: "linkup",
+  slug: "linkup",
   alias: "linkup",
   display: {
     name: "Linkup",

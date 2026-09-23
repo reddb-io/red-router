@@ -1,5 +1,6 @@
 export default {
   id: "edge-tts",
+  slug: "edge-tts",
   alias: "edge-tts",
   display: {
     name: "Edge TTS",

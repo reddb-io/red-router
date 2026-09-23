@@ -1,5 +1,6 @@
 export default {
   id: "sambanova",
+  slug: "sambanova",
   alias: "samba",
   aliases: ["sambanova-ai"],
   uiAlias: "samba",

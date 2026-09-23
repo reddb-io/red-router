@@ -29,6 +29,7 @@
 // any non-empty value works.
 export default {
   id: "selfhosted-embedding",
+  slug: "selfhosted-embedding",
   priority: 50,
   hasFree: true,
   alias: "selfhosted-embedding",

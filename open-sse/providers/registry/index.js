@@ -60,7 +60,6 @@ import p57 from "./mimo-free.js";
 import p58 from "./minimax-cn.js";
 import p59 from "./minimax.js";
 import p60 from "./mistral.js";
-import p61 from "./mmf.js";
 import p62 from "./nanobanana.js";
 import p63 from "./nebius.js";
 import p64 from "./nvidia.js";
@@ -188,7 +187,6 @@ export default [
   p58,
   p59,
   p60,
-  p61,
   p62,
   p63,
   p64,

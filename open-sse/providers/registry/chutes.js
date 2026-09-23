@@ -1,5 +1,6 @@
 export default {
   id: "chutes",
+  slug: "chutes",
   priority: 70,
   alias: "chutes",
   aliases: [

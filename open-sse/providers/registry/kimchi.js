@@ -1,5 +1,6 @@
 export default {
   id: "kimchi",
+  slug: "kimchi",
   priority: 95,
   alias: "kimchi",
   uiAlias: "kimchi",

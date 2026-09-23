@@ -13,7 +13,7 @@ import { getExhaustedQuotaResetMs } from "../services/quotaReset.js";
 import { getSettings, getApiKeyOwner, getApiKeyIdentity } from "@/lib/localDb";
 import { peekCatalogVersion } from "@/lib/catalogVersion";
 import { resolveScopedSettings, headroomProjectUrl } from "@/lib/auth/scopedSettings";
-import { getModelInfo, resolveComboModels } from "../services/model.js";
+import { getModelInfo, parseModel, resolveComboModels } from "../services/model.js";
 import { handleChatCore } from "open-sse/handlers/chatCore.js";
 import { DEFAULT_HEADROOM_URL } from "@/lib/headroom/detect";
 import { getTransform as getPxpipeTransform } from "@/lib/pxpipe/loader.js";
@@ -61,8 +61,9 @@ function servableMembers(models, body) {
   const required = [...detectRequiredCapabilities(body)].filter((cap) => cap === "vision" || cap === "pdf");
   if (required.length === 0) return fitting;
   return fitting.filter((model) => {
-    const slash = model.indexOf("/");
-    const caps = getCapabilitiesForModel(slash > 0 ? model.slice(0, slash) : "", stripThinkingSuffix(slash > 0 ? model.slice(slash + 1) : model));
+    // Any provider token (slug or legacy short code) resolves to the same capabilities.
+    const parsed = parseModel(model);
+    const caps = getCapabilitiesForModel(parsed.provider || "", stripThinkingSuffix(parsed.model));
     return required.every((cap) => caps[cap] === true);
   });
 }

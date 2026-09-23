@@ -1,5 +1,6 @@
 export default {
   id: "tencent",
+  slug: "tencent",
   alias: "hunyuan",
   aliases: ["hunyuan", "tencent-hunyuan"],
   uiAlias: "hunyuan",

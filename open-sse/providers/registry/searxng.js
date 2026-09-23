@@ -2,6 +2,7 @@ import { SEARXNG_URL } from "../../config/runtimeConfig.js";
 
 export default {
   id: "searxng",
+  slug: "searxng",
   alias: "searxng",
   display: {
     name: "SearXNG",

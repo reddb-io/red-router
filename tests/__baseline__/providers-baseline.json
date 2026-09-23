@@ -691,11 +691,6 @@
     },
     "format": "openai"
   },
-  "mmf": {
-    "baseUrl": "https://api.xiaomimimo.com/api/free-ai/openai/chat",
-    "noAuth": true,
-    "format": "openai"
-  },
   "nanobanana": {
     "baseUrl": "https://api.nanobananaapi.ai/v1/chat/completions",
     "validateUrl": "https://api.nanobananaapi.ai/v1/models",

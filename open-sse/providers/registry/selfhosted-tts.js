@@ -11,6 +11,7 @@
 // lives. Local servers ignore the key; any non-empty value works.
 export default {
   id: "selfhosted-tts",
+  slug: "selfhosted-tts",
   priority: 50,
   hasFree: true,
   alias: "selfhosted-tts",
