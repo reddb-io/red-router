@@ -10,6 +10,9 @@ const MAX_BYTES = 10 * 1024 * 1024;
 const TOTAL_FILES = 5; // Current plus .1 through .4, not five backups.
 const MAX_LINE_BYTES = 64 * 1024;
 const LOCK_GRACE_MS = 30000;
+// How long an append waits for the lock before dropping its line: logging must
+// never stall the launcher.
+const LOCK_WAIT_MS = 200;
 const PAYLOAD = /(?:["']?(?:body|messages|prompt|content|request[-_ ]?body|response[-_ ]?body)["']?\s*[:=]|\bprovider error\b[^\n]*:|^\s*\{\s*(?:["']|$)|^\s*\[\s*$)/i;
 const SECRET_CONTINUATION = /["']?(?:authorization|proxy-authorization|set-cookie|cookie|[\w-]*(?:token|secret|password|api[-_]?key))["']?\s*[:=]\s*(?:[\{\[])?\s*$/i;
 const RECORD_START = /^(?:\[\d{2}:\d{2}:\d{2}\]|\d{4}-\d{2}-\d{2}T|timestamp=|\[(?:INFO|WARN|ERROR|DEBUG)\]|(?:INFO|WARN|ERROR|DEBUG)\s)/;
@@ -89,11 +92,11 @@ function removeLock(dir) {
 // All appends reopen the canonical filename under this same-host lock. Two
 // launchers may briefly coexist during upgrades/tray handoff. A recovery guard
 // serializes cleanup of a dead owner's lock; a live PID is never evicted.
-function withLock(file, action) {
+function withLock(file, action, waitMs = LOCK_WAIT_MS) {
   const lock = `${file}.lock`;
   const recovery = `${lock}.recovery`;
   const owner = path.join(lock, "owner");
-  const deadline = Date.now() + 200;
+  const deadline = Date.now() + waitMs;
   const pause = new Int32Array(new SharedArrayBuffer(4));
   while (true) {
     let acquired = false;
@@ -150,7 +153,7 @@ function capExisting(file, maxBytes) {
   } finally { fs.closeSync(fd); }
 }
 
-function createDiagnostics({ file = logPath(), maxBytes = MAX_BYTES, totalFiles = TOTAL_FILES, maxLineBytes = MAX_LINE_BYTES, warn = (message) => process.stderr.write(`${message}\n`), secrets = Object.entries(process.env).filter(([key]) => /token|secret|password|api_?key/i.test(key)).map(([, value]) => value) } = {}) {
+function createDiagnostics({ file = logPath(), lockWaitMs = LOCK_WAIT_MS, maxBytes = MAX_BYTES, totalFiles = TOTAL_FILES, maxLineBytes = MAX_LINE_BYTES, warn = (message) => process.stderr.write(`${message}\n`), secrets = Object.entries(process.env).filter(([key]) => /token|secret|password|api_?key/i.test(key)).map(([, value]) => value) } = {}) {
   if (!Number.isSafeInteger(maxBytes) || maxBytes < 128 || !Number.isSafeInteger(totalFiles) || totalFiles < 1 || !Number.isSafeInteger(maxLineBytes) || maxLineBytes < 32) throw new Error("invalid diagnostic log limits");
   let warned = false;
   function append(source, message) {
@@ -177,7 +180,7 @@ function createDiagnostics({ file = logPath(), maxBytes = MAX_BYTES, totalFiles 
         }
         const fd = fs.openSync(file, fs.constants.O_WRONLY | fs.constants.O_APPEND | fs.constants.O_CREAT | (fs.constants.O_NOFOLLOW || 0), 0o600);
         try { fs.fchmodSync(fd, 0o600); fs.writeFileSync(fd, entry); } finally { fs.closeSync(fd); }
-      });
+      }, lockWaitMs);
       return true;
     } catch {
       if (!warned) {
