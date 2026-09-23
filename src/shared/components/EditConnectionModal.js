@@ -48,6 +48,8 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
 
   useEffect(() => {
     if (connection) {
+      // The form is reseeded from the connection being edited each time it changes.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setOwner(connection.owner || "");
       setModelPrefix(providerIdentity(connection.provider) && typeof connection.providerSpecificData?.prefix === "string"
         ? connection.providerSpecificData.prefix
