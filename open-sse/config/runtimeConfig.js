@@ -99,6 +99,9 @@ export const REASONING_RESPONSE_HEADER = "X-RedRouter-Reasoning";
 // USD cost. Streams carry the cost as `usage.cost` in their final usage event.
 export const SERVED_MODEL_HEADER = "X-RedRouter-Served-Model";
 export const COST_HEADER = "X-RedRouter-Cost-USD";
+// Digest of the LLM catalog the caller's key sees (/v1/models): a client that cached
+// the catalog re-reads it when this differs from the version it cached.
+export const CATALOG_VERSION_HEADER = "X-RedRouter-Catalog-Version";
 export const REQUEST_ID_HEADER = "X-Request-Id";
 
 // Per-session combo member stickiness (open-sse/services/sessionAffinity.js): the

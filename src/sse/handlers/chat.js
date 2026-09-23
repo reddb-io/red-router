@@ -11,6 +11,7 @@ import {
 import { handleAntigravityQuotaError, clearAntigravityStrikes } from "../services/antigravityQuota.js";
 import { getExhaustedQuotaResetMs } from "../services/quotaReset.js";
 import { getSettings, getApiKeyOwner, getApiKeyIdentity } from "@/lib/localDb";
+import { peekCatalogVersion } from "@/lib/catalogVersion";
 import { resolveScopedSettings, headroomProjectUrl } from "@/lib/auth/scopedSettings";
 import { getModelInfo, resolveComboModels } from "../services/model.js";
 import { handleChatCore } from "open-sse/handlers/chatCore.js";
@@ -671,7 +672,11 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
     });
 
     if (result.success) {
-      return withRequestId(result.response, errorContext, { servedModel: servedModelId(modelStr, provider, model), reasoning });
+      return withRequestId(result.response, errorContext, {
+        servedModel: servedModelId(modelStr, provider, model),
+        reasoning,
+        catalogVersion: peekCatalogVersion(apiKey),
+      });
     }
 
     // Antigravity 409/429: refresh live quota to get exact resetAt before locking

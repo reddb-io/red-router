@@ -6,6 +6,7 @@ import { createHash } from "node:crypto";
 import cliPkg from "../../cli/package.json" with { type: "json" };
 import { getSettings, getProviderConnections, getApiKeyAllowedConnectionIds, getApiKeyOwner } from "@/lib/localDb";
 import { resolveScopedSettings } from "@/lib/auth/scopedSettings";
+import { getCatalogVersion } from "@/lib/catalogVersion";
 import { DATA_DIR } from "@/lib/db/paths.js";
 import { getConsistentMachineId } from "@/shared/utils/machineId";
 import { normalizeDecisionConfig } from "@/sse/services/decisionRouter.js";
@@ -13,7 +14,7 @@ import { buildModelsList } from "@/app/api/v1/models/route.js";
 import { SYSTEM_ONE_PROVIDER_IDS } from "open-sse/config/systemOne.js";
 import { COMBO_STRATEGIES } from "open-sse/services/combo.js";
 import { SESSION_HEADERS, AFFINITY_HEADERS } from "open-sse/utils/sessionManager.js";
-import { COST_HEADER, DECISION_HEADER, HINT_HEADER, REASONING_HEADER, REASONING_RESPONSE_HEADER, REQUEST_ID_HEADER, SERVED_MODEL_HEADER, SESSION_AFFINITY_CONFIG, TOKEN_SAVER_HEADER } from "open-sse/config/runtimeConfig.js";
+import { COST_HEADER, DECISION_HEADER, HINT_HEADER, REASONING_HEADER, REASONING_RESPONSE_HEADER, REQUEST_ID_HEADER, SERVED_MODEL_HEADER, SESSION_AFFINITY_CONFIG, TOKEN_SAVER_HEADER, CATALOG_VERSION_HEADER } from "open-sse/config/runtimeConfig.js";
 import { HINT_KEYS } from "open-sse/decision/clientHint.js";
 import { normalizeAutopilotConfig } from "open-sse/decision/reasoningAutopilot.js";
 
@@ -71,6 +72,15 @@ export async function buildCapabilities({ apiKey = null } = {}) {
     cost_header: RESPONSE_HEADERS.cost,
     request_id_header: RESPONSE_HEADERS.requestId,
     stream_usage_cost: true,
+    // /v1/models entries carry `parameters` (combos: `members` too); a response's
+    // version header tells a client when its cached catalog is out of date.
+    catalog: {
+      version: await getCatalogVersion(apiKey),
+      version_header: CATALOG_VERSION_HEADER,
+      model_endpoint: "/v1/models/{id}",
+      model_parameters: true,
+      combo_members: true,
+    },
   };
 }
 

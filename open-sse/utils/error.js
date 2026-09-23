@@ -1,6 +1,6 @@
 import { ERROR_TYPES, DEFAULT_ERROR_MESSAGES } from "../config/errorConfig.js";
 import { FORMATS } from "../translator/formats.js";
-import { COST_HEADER, REASONING_RESPONSE_HEADER, REQUEST_ID_HEADER, SERVED_MODEL_HEADER } from "../config/runtimeConfig.js";
+import { CATALOG_VERSION_HEADER, COST_HEADER, REASONING_RESPONSE_HEADER, REQUEST_ID_HEADER, SERVED_MODEL_HEADER } from "../config/runtimeConfig.js";
 
 const EXPOSED_HEADERS = [
   "Retry-After",
@@ -12,6 +12,7 @@ const EXPOSED_HEADERS = [
   REQUEST_ID_HEADER,
   SERVED_MODEL_HEADER,
   REASONING_RESPONSE_HEADER,
+  CATALOG_VERSION_HEADER,
   COST_HEADER,
 ].join(", ");
 
@@ -181,12 +182,13 @@ export function responseFromRoutingCandidate(candidate, options = {}) {
  * Stamp the request id (and, on success, the served model) on a response. Anthropic
  * clients read `request-id`; every client also gets `X-Request-Id`.
  */
-export function withRequestId(response, context, { servedModel = null, reasoning = null } = {}) {
+export function withRequestId(response, context, { servedModel = null, reasoning = null, catalogVersion = null } = {}) {
   if (!(response instanceof Response) || !context?.requestId) return response;
   const headers = new Headers(response.headers);
   if (context.errorFormat === FORMATS.CLAUDE) headers.set("request-id", context.requestId);
   headers.set(REQUEST_ID_HEADER, context.requestId);
   if (servedModel && response.ok) headers.set(SERVED_MODEL_HEADER, headerValue(servedModel));
+  if (catalogVersion && response.ok) headers.set(CATALOG_VERSION_HEADER, headerValue(catalogVersion));
   if (reasoning?.level && response.ok) {
     const applied = reasoning.target ? "" : "; shadow";
     headers.set(REASONING_RESPONSE_HEADER, headerValue(`${reasoning.from || "-"}->${reasoning.level}; cause=${reasoning.cause}${applied}`));

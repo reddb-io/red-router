@@ -4,7 +4,7 @@
 // a change that breaks them breaks a shipped client.
 import { describe, it, expect } from "vitest";
 import { decisionOptOut, parseClassificationHint, hintDeliberation } from "../../open-sse/decision/clientHint.js";
-import { DECISION_HEADER, HINT_HEADER, TOKEN_SAVER_HEADER, SERVED_MODEL_HEADER, COST_HEADER } from "../../open-sse/config/runtimeConfig.js";
+import { DECISION_HEADER, HINT_HEADER, TOKEN_SAVER_HEADER, SERVED_MODEL_HEADER, COST_HEADER, CATALOG_VERSION_HEADER } from "../../open-sse/config/runtimeConfig.js";
 
 // What redcode's runner sends on a turn where its System One chose a skill or MCP tool.
 const REDCODE_TURN = {
@@ -21,6 +21,7 @@ describe("redcode cooperation headers", () => {
     expect(TOKEN_SAVER_HEADER.toLowerCase()).toBe("x-red-router-token-saver");
     expect(SERVED_MODEL_HEADER.toLowerCase()).toBe("x-redrouter-served-model");
     expect(COST_HEADER.toLowerCase()).toBe("x-redrouter-cost-usd");
+    expect(CATALOG_VERSION_HEADER.toLowerCase()).toBe("x-redrouter-catalog-version");
   });
 
   it("parses the hint redcode builds", () => {
