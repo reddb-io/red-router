@@ -7,6 +7,7 @@ import { getCodexUsage } from "open-sse/services/usage/codex.js";
 import { isQuotaExhausted } from "open-sse/services/usage/quota.js";
 import { getExecutor } from "open-sse/executors/index.js";
 import { CLAUDE_CLI_SPOOF_HEADERS } from "open-sse/providers/shared.js";
+import { claudeCodeUserAgent } from "open-sse/utils/claudeCodeVersion.js";
 import { proxyAwareFetch } from "open-sse/utils/proxyFetch.js";
 import { resolveConnectionProxyConfig } from "@/lib/network/connectionProxy";
 import { refreshAndUpdateCredentials } from "@/app/api/usage/[connectionId]/route.js";
@@ -90,6 +91,9 @@ async function sendClaudePing(connection, providerConfig, proxyOptions, deps) {
     method: "POST",
     headers: {
       ...CLAUDE_CLI_SPOOF_HEADERS,
+      // Resolved per ping: the env pin, else a version adopted from an upstream
+      // `claude_code_version_too_old` answer, else the built-in one.
+      "User-Agent": claudeCodeUserAgent(),
       "Authorization": `Bearer ${connection.accessToken}`,
       "content-type": "application/json",
     },
