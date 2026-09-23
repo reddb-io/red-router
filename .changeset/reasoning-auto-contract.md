@@ -1,5 +1,0 @@
----
-"@reddb-io/red-router": minor
----
-
-`x-red-router-reasoning: auto` now runs the reasoning autopilot for that request, enforced, even when the autopilot is off or does not cover the key, within the configured floor and ceiling. `x-red-router-hint` gains `effort` (a level the client already chose, applied like the header without a decision call), `stall`, `feedback` (`agrees|corrects|rejects|neutral`) and `frustration` (0..1). The autopilot reads human feedback and frustration from the newest message (Portuguese and English), steps up when the request fills more than half of the serving model's context window, keeps the last level when the decision model does not answer, and changes the level only when a new human message arrives, apart from one step up per human turn when the tool loop stalls or a tool fails. redcode title calls drop to the minimum level. `/v1/capabilities` reports `reasoning.applies`, `floor`, `ceiling`, `min_dwell_turns`, `context_fraction`, `accepts` and `ladder`.

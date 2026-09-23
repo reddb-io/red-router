@@ -1,5 +1,12 @@
 # @reddb-io/red-router
 
+## 0.16.0
+
+### Minor Changes
+
+- 60f295f: `/v1/models` entries now carry a `parameters` block with every setting a client must respect (context and output limits, reasoning, accepted thinking levels, whether thinking can be disabled, whether a forced `tool_choice` is accepted, tools, search, input/output modalities). Combos add `members`, with nested combos expanded, and their parameters come from the strictest member. A combo with one member that cannot disable thinking no longer reports that it can. Chat and `/v1/models` responses carry `X-RedRouter-Catalog-Version`, and `/v1/capabilities` advertises it under `catalog`, so clients know when to re-read a cached catalog.
+- d7b3f5d: `x-red-router-reasoning: auto` now runs the reasoning autopilot for that request, enforced, even when the autopilot is off or does not cover the key, within the configured floor and ceiling. `x-red-router-hint` gains `effort` (a level the client already chose, applied like the header without a decision call), `stall`, `feedback` (`agrees|corrects|rejects|neutral`) and `frustration` (0..1). The autopilot reads human feedback and frustration from the newest message (Portuguese and English), steps up when the request fills more than half of the serving model's context window, keeps the last level when the decision model does not answer, and changes the level only when a new human message arrives, apart from one step up per human turn when the tool loop stalls or a tool fails. redcode title calls drop to the minimum level. `/v1/capabilities` reports `reasoning.applies`, `floor`, `ceiling`, `min_dwell_turns`, `context_fraction`, `accepts` and `ladder`.
+
 ## 0.15.0
 
 ### Minor Changes
