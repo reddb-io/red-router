@@ -101,3 +101,5 @@ red-router-*
 .start-dev.ps1
 start-dev-silent.cjs
 debug.log
+.red/state/
+.red/tmp/
