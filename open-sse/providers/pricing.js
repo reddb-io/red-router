@@ -165,6 +165,10 @@ export const MODEL_PRICING = {
   "jev-1.13.0":                   { input: 0.042, output: 0.00 },
   "jev":                          { input: 0.042, output: 0.00 },
   "typesafe-ai/jev":              { input: 0.042, output: 0.00 },
+  // OpenRouter serves JEV as typesafe/jev-1.13; OpenCode Zen's jev-1.13-free is free.
+  "typesafe/jev-1.13":            { input: 0.042, output: 0.00 },
+  "jev-1.13":                     { input: 0.042, output: 0.00 },
+  "jev-1.13-free":                { input: 0.00,  output: 0.00 },
 };
 
 /**

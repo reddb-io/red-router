@@ -111,6 +111,22 @@ function trailingText(turns) {
 const includesAny = (text, sentinels) => sentinels.some((s) => text.includes(s));
 
 /**
+ * A delegated agent task whose content is encrypted (Codex subagents receive an
+ * `agent_message` with an `encrypted_content` part). The decision model would only
+ * see ciphertext, so routing falls back to the deterministic signals.
+ */
+export function isEncryptedTask(body) {
+  const turns = turnsOf(body) || [];
+  for (let i = turns.length - 1; i >= 0; i--) {
+    const item = turns[i];
+    if (isToolResultItem(item) || TOOL_CALL_TYPES.has(item?.type)) continue;
+    if (item?.type !== "agent_message" || !Array.isArray(item.content)) return false;
+    return item.content.some((part) => part?.type === "encrypted_content" && part.encrypted_content);
+  }
+  return false;
+}
+
+/**
  * @param {object} body raw client body (before translation)
  * @param {object} [ctx]
  * @param {string} [ctx.userAgent]
@@ -143,6 +159,7 @@ export function extractSignals(body, { userAgent = "" } = {}) {
     toolCalls: calls.length,
     clientEffort: clientEffort || null,
     harnessSystem: HARNESS_SYSTEM_UA.test(userAgent || ""),
+    encryptedTask: isEncryptedTask(body),
   };
 }
 
