@@ -14,6 +14,10 @@ beforeAll(async () => {
   await db.initDb();
   await db.createCombo({ name: "opus-mix", models: ["cc/claude-opus-5-5", "cc/claude-opus-5"] });
   await db.createCombo({ name: "outer", models: ["opus-mix", "gh/gpt-4o"] });
+  // Lead can turn thinking off; its fallback cannot.
+  await db.createCombo({ name: "lenient-lead", models: ["cc/claude-opus-5", "cc/claude-opus-5-5"] });
+  await db.createCombo({ name: "rotating", models: ["cc/claude-opus-5", "cc/claude-opus-5-5"] });
+  await db.updateSettings({ comboStrategies: { rotating: { fallbackStrategy: "round-robin" } } });
   ({ buildModelsList } = await import("../../src/app/api/v1/models/route.js"));
   catalog = await import("../../src/lib/catalogVersion.js");
 });
@@ -76,6 +80,33 @@ describe("/v1/models combos", () => {
     // Was OR'd before: one member that cannot disable thinking makes the combo unable to.
     expect(entry.capabilities.thinkingCanDisable).toBe(false);
     expect(entry.capabilities.forcedToolChoice).toBe(false);
+  });
+});
+
+describe("/v1/models combo parameters by strategy", () => {
+  it("a fallback combo states its lead's parameters and keeps the strictest alongside", async () => {
+    const entry = await combo("lenient-lead");
+    expect(entry.strategy).toBe("fallback");
+    expect(entry.parameters_basis).toBe("lead");
+    expect(entry.parameters).toEqual(entry.member_parameters[0].parameters);
+    expect(entry.parameters.thinking_can_disable).toBe(true);
+    expect(entry.parameters_strict.thinking_can_disable).toBe(false);
+    // The fields generic OpenAI clients read stay the safe floor.
+    expect(entry.capabilities.thinkingCanDisable).toBe(false);
+  });
+
+  it("lists every member's own parameters, so a client can switch when another member serves", async () => {
+    const entry = await combo("lenient-lead");
+    expect(entry.member_parameters.map((m) => m.id)).toEqual(entry.members);
+    expect(entry.member_parameters[1].parameters.thinking_can_disable).toBe(false);
+  });
+
+  it("a combo that may land on any member states the strictest", async () => {
+    const entry = await combo("rotating");
+    expect(entry.strategy).toBe("round-robin");
+    expect(entry.parameters_basis).toBe("strictest");
+    expect(entry.parameters.thinking_can_disable).toBe(false);
+    expect(entry.parameters_strict).toBeUndefined();
   });
 });
 

@@ -664,8 +664,20 @@ export async function buildModelsList(kindFilter, options = {}) {
       const members = comboMembers(combo.models, comboByName);
       if (members.length) {
         entry.members = members;
-        const parameters = mergeModelParameters(members.map(memberParameters));
-        if (parameters) entry.parameters = parameters;
+        const perMember = members.map((id) => ({ id, parameters: memberParameters(id) }));
+        const strict = mergeModelParameters(perMember.map((m) => m.parameters));
+        // A fallback combo is served by its lead unless the lead fails, so the lead's
+        // parameters are what a client should plan for; X-RedRouter-Served-Model says
+        // when another member answered, and member_parameters has that member's. Any
+        // other strategy may land on any member: the strictest member's apply.
+        const lead = entry.strategy === "fallback" ? perMember[0].parameters : null;
+        const parameters = lead || strict;
+        if (parameters) {
+          entry.parameters = parameters;
+          entry.parameters_basis = lead ? "lead" : "strictest";
+          if (lead && strict) entry.parameters_strict = strict;
+        }
+        entry.member_parameters = perMember;
       }
     }
     models.push(entry);
