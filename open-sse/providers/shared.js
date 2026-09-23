@@ -68,6 +68,16 @@ export function selectAnthropicBeta(model = "") {
   return flags.join(",");
 }
 
+/**
+ * Our beta flags plus the ones the client asked for (e.g. Claude Code's
+ * `context-1m-2025-08-07` for a `[1m]` model), each once, ours first. The client's
+ * header used to be replaced outright, which silently dropped 1M context.
+ */
+export function mergeAnthropicBeta(ours = "", client = "") {
+  const split = (value) => String(value || "").split(",").map((flag) => flag.trim()).filter(Boolean);
+  return [...new Set([...split(ours), ...split(client)])].join(",");
+}
+
 // Shared baseUrls
 export const KIMI_CODING_BASE_URL = "https://api.kimi.com/coding/v1/messages";
 

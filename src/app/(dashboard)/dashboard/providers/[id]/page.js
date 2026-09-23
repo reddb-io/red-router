@@ -24,6 +24,7 @@ import AddCustomModelModal from "./AddCustomModelModal";
 import BulkImportCodexModal from "./BulkImportCodexModal";
 import BulkImportGrokCliModal from "./BulkImportGrokCliModal";
 import ModelNamingModal from "./ModelNamingModal";
+import CapabilitiesModal from "./CapabilitiesModal";
 import { connectionModelPrefix, providerSlug } from "open-sse/providers/identity.js";
 import DecisionRouterCard from "@/shared/components/DecisionRouterCard";
 import ReasoningAutopilotCard from "@/shared/components/ReasoningAutopilotCard";
@@ -66,6 +67,7 @@ export default function ProviderDetailPage() {
   const [aliasNames, setAliasNames] = useState({});
   const [modelNames, setModelNames] = useState({});
   const [namingModel, setNamingModel] = useState(null);
+  const [capabilitiesModel, setCapabilitiesModel] = useState(null);
   const [customModels, setCustomModels] = useState([]);
   const [headerImgError, setHeaderImgError] = useState(false);
   const [modelTestResults, setModelTestResults] = useState({});
@@ -1276,6 +1278,7 @@ export default function ProviderDetailPage() {
             onTest={connections.length > 0 || isFreeNoAuth ? () => handleTestModel(model.id) : undefined}
             isTesting={testingModelIds.has(model.id)}
             onRename={() => setNamingModel({ id: model.id, name: model.name })}
+            onEditCapabilities={() => setCapabilitiesModel(model.id)}
             isCustom
             isFree={false}
             caps={getCaps(`${providerId}/${model.id}`)}
@@ -1301,6 +1304,7 @@ export default function ProviderDetailPage() {
               isFree={model.isFree}
               onDisable={() => handleDisableModel(model.id)}
               onRename={() => setNamingModel(model)}
+              onEditCapabilities={() => setCapabilitiesModel(model.id)}
               caps={getCaps(`${providerId}/${model.id}`)}
               thinkingSuffix={resolveThinkingSuffix(model.id)}
             />
@@ -1970,6 +1974,12 @@ export default function ProviderDetailPage() {
         proxyPools={proxyPools}
         onSave={handleUpdateConnection}
         onClose={() => setShowEditModal(false)}
+      />
+      <CapabilitiesModal
+        isOpen={!!capabilitiesModel}
+        provider={providerId}
+        model={capabilitiesModel}
+        onClose={() => setCapabilitiesModel(null)}
       />
       {!isCompatible && (
         <ModelNamingModal
