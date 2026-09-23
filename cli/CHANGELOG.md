@@ -1,5 +1,23 @@
 # @reddb-io/red-router
 
+## 0.17.0
+
+### Minor Changes
+
+- fb804fb: `GET /v1/catalog` returns the `/v1/models` catalog grouped by provider, the combos, and the models RedRouter recommends for the connected accounts: `{ version, groups: [{ provider: { id, slug, prefix, name, category, subscription, connections }, models }], combos, recommended: { default, fast, review, systemone, vision? } }`. Each recommendation is `{ id, name, provider: { slug, name }, reason }` (or `null` when nothing connected fits). `default` is the strongest connected coding model and `fast` the cheapest capable fast model, from documented ranking tables by model family (Claude Fable > Claude Opus > GPT-6 Sol > … for `default`; GPT-6 Luna > Gemini Flash > Claude Haiku > … for `fast`), newest version first, a subscription or free account before a metered API key serving the same model. `review` is the review variant of a model with `parameters.modes: ["review"]`, otherwise the default; `systemone` is the first JEV model on `/v1/systemone`; `vision` is present when a connected model reads images. The endpoint uses the same API-key scoping and catalog version (`X-RedRouter-Catalog-Version`) as `/v1/models`, and accepts `?for=redcode` and `?variants=expand`. `GET /v1/capabilities` advertises it under `catalog.catalog_endpoint` and `catalog.recommendations`.
+  
+  The dashboard gains a "Recommended setup" (Combos page, and a new "Organize models" step in the setup wizard) that previews and creates `default`, `fast` and `review` combos from those recommendations, with fallbacks across the connected providers. Running it again updates those combos in place instead of duplicating them. The Cursor and Claude presets stay available.
+- b6f4cb2: `/v1/models` lists one entry per base model. Codex `-review` ids fold into their base entry as `parameters.modes: ["review"]`. Antigravity (`gemini-3.8/3.7/3.6-flash-low|medium|high`), Grok CLI (`grok-4.5-low|medium|high`), Kiro (`-thinking`, `-agentic`, `-thinking-agentic`) and Cursor (`-thinking`) variant ids fold into the base entry's `thinking_levels` (Kiro's `agentic` becomes a mode). Each base entry lists what it absorbed under `variants: [{ id, name, level?, mode?, aliases? }]`, and `/v1/models/{id}` resolves a variant id to that base entry.
+  
+  Variant ids keep routing. A base id with a level now routes to the variant that serves it, through an explicit per-model table where the upstream models differ: `gemini-3.8-flash(high)` calls `gemini-3.8-flash-high`, `grok-4.5(low)` calls `grok-4.5-low`, `claude-sonnet-4.5(thinking)` on Kiro calls `claude-sonnet-4.5-thinking`, and a bare `gemini-3.7-flash` calls its medium variant.
+  
+  Older clients can list every variant as its own entry with `GET /v1/models?variants=expand` or the `catalog.variants: "expand"` setting (default `collapse`); `GET /v1/capabilities` reports it under `catalog.variants`. The unused `quotaFamily` model field and the dead `withCodexReviewModels` helper are removed.
+- 4d082cf: `/v1/models` lists readable ids: `<slug>/<model>` (for example `claude-code/claude-opus-5`, `copilot/gpt-4o`, `codex/gpt-5.5`) instead of the short codes (`cc/`, `gh/`, `cx/`). Every entry now carries `name` (the model's display name), `provider` (`id`, `slug`, legacy `prefix`, display `name`, `category`, `subscription`) and `aliases` (the legacy id, for example `cc/claude-opus-5`, so clients can migrate saved ids); `owned_by` is the slug. Combos add `name` and `provider: { id: "combo", name: "Combo" }`; models from a remote RedRouter keep the remote's `name` and `provider` and add `via: "red-router"`. `/v1/models/{id}` also finds an entry by a legacy id.
+  
+  Every provider token routes: slug, id, alias, extra aliases and the dashboard badge code. Legacy short codes keep working forever. This fixes `pa/` (Perplexity Agent) and `voyage/` (Voyage AI), which were listed but fell through to the OpenAI upstream, and `mmf/`, which a hidden duplicate provider shadowed so it never reached MiMo Free. Built-in tokens, slugs included, take precedence over a custom node prefix that uses the same name.
+  
+  Clients that must keep the old ids can set `catalog.prefixStyle: "short"` (`PATCH /api/settings`); `GET /v1/capabilities` reports the active style under `catalog.prefix_style`.
+
 ## 0.16.1
 
 ### Patch Changes
