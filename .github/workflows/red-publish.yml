@@ -93,6 +93,9 @@ jobs:
       - name: Remote RedRouter integration smoke
         run: node cli/scripts/smoke-remote-router.mjs
 
+      - name: End-to-end routing (fixture upstreams)
+        run: node cli/scripts/e2e-routing.mjs
+
       - name: Real JEV System One smoke
         run: pnpm smoke:system-one
         env:

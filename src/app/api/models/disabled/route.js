@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { resetCatalogVersions } from "@/lib/catalogVersion";
 import { getDisabledModels, disableModels, enableModels } from "@/lib/disabledModelsDb";
 
 export const dynamic = "force-dynamic";
@@ -25,6 +26,8 @@ export async function POST(request) {
       return NextResponse.json({ error: "providerAlias and ids[] required" }, { status: 400 });
     }
     await disableModels(providerAlias, ids);
+    // /v1/models changed: clients that watch X-RedRouter-Catalog-Version see it now.
+    resetCatalogVersions();
     return NextResponse.json({ success: true });
   } catch (error) {
     console.log("Error disabling models:", error);
@@ -42,6 +45,8 @@ export async function DELETE(request) {
       return NextResponse.json({ error: "providerAlias required" }, { status: 400 });
     }
     await enableModels(providerAlias, id ? [id] : []);
+    // /v1/models changed: clients that watch X-RedRouter-Catalog-Version see it now.
+    resetCatalogVersions();
     return NextResponse.json({ success: true });
   } catch (error) {
     console.log("Error enabling models:", error);

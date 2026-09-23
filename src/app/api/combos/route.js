@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { resetCatalogVersions } from "@/lib/catalogVersion";
 import { getCombos, createCombo, getComboByName } from "@/lib/localDb";
 import { getHiddenComboNames } from "@/lib/db/repos/hiddenCombosRepo.js";
 import { getRequestIdentity, getScopeFilter, ownerForCreate, scopeVisible } from "@/lib/auth/resourceScope";
@@ -67,6 +68,8 @@ export async function POST(request) {
       owner: await ownerForCreate(body.owner),
     });
 
+    // /v1/models changed: clients that watch X-RedRouter-Catalog-Version see it now.
+    resetCatalogVersions();
     return NextResponse.json(combo, { status: 201 });
   } catch (error) {
     console.log("Error creating combo:", error);

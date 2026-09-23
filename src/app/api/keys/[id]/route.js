@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { resetCatalogVersions } from "@/lib/catalogVersion";
 import { deleteApiKey, getApiKeyById, updateApiKey, getProviderConnections } from "@/lib/localDb";
 import { canSee, getRequestIdentity, getScopeFilter, normalizeOwnerInput, scopeVisible } from "@/lib/auth/resourceScope";
 import { MODEL_ACCESS_MODES } from "@/lib/apiKeyPolicy.js";
@@ -95,6 +96,8 @@ export async function PUT(request, { params }) {
 
     const updated = await updateApiKey(id, updateData);
 
+    // /v1/models changed: clients that watch X-RedRouter-Catalog-Version see it now.
+    resetCatalogVersions();
     return NextResponse.json({ key: updated });
   } catch (error) {
     console.log("Error updating key:", error);

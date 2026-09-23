@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { resetCatalogVersions } from "@/lib/catalogVersion";
 import { getComboById, updateCombo, deleteCombo, getComboByName } from "@/lib/localDb";
 import { resetComboRotation } from "open-sse/services/combo.js";
 import { canSee, getRequestIdentity, getScopeFilter, normalizeOwnerInput } from "@/lib/auth/resourceScope";
@@ -71,6 +72,8 @@ export async function PUT(request, { params }) {
     // Invalidate rotation state (models/strategy/name may have changed)
     if (prev?.name) resetComboRotation(prev.name);
     if (combo.name && combo.name !== prev?.name) resetComboRotation(combo.name);
+    // /v1/models changed: clients that watch X-RedRouter-Catalog-Version see it now.
+    resetCatalogVersions();
 
     return NextResponse.json(combo);
   } catch (error) {
@@ -94,7 +97,8 @@ export async function DELETE(request, { params }) {
     }
 
     if (prev?.name) resetComboRotation(prev.name);
-    
+    // /v1/models changed: clients that watch X-RedRouter-Catalog-Version see it now.
+    resetCatalogVersions();
     return NextResponse.json({ success: true });
   } catch (error) {
     console.log("Error deleting combo:", error);
