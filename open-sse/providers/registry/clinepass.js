@@ -28,6 +28,9 @@ export default {
     },
     // Non-stream chat completions come back wrapped in {"success":true,"data":{...}}
     quirks: { clineEnvelope: true },
+    // Stream always: the JSON path answers in the envelope above, in more than one
+    // shape; the stream has none (upstream 9router #4267).
+    forceStream: true,
     auth: {
       combined: true,
       header: "Authorization",
