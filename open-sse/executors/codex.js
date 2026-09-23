@@ -140,11 +140,15 @@ function resolveCacheSessionId(body, credentials) {
   });
 }
 
+// Clamp an effort to the model's level list. Models that list "max" (GPT-5.6,
+// GPT-6) keep it; only models without it fall back to xhigh. GPT-6 has no
+// "minimal", so it rises to the lowest level the model serves.
 function normalizeReasoningEffort(model, value) {
   const supportedLevels = getThinkingLevels("codex", model);
   if (supportedLevels?.includes(value)) return value;
   if (value === "ultra" && supportedLevels?.includes("max")) return "max";
   if (value === "max" || value === "ultra") return "xhigh";
+  if (value === "minimal" && supportedLevels?.includes("low")) return "low";
   return value;
 }
 

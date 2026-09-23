@@ -1,8 +1,10 @@
 import { withCodexReviewModels } from "../models/helpers.js";
 
 // Codex CLI version seen by OpenAI's backend — single source for the Version /
-// User-Agent identity headers. Bump when the installed codex CLI is upgraded.
-const CODEX_CLI_VERSION = "0.154.0";
+// User-Agent identity headers and the /models client_version query. The backend
+// serves GPT-6 Sol and Luna only to clients at 0.155.1 or newer. Bump when the
+// installed codex CLI is upgraded.
+const CODEX_CLI_VERSION = "0.155.1";
 
 export default {
   id: "codex",
@@ -42,6 +44,9 @@ export default {
     headers: {
       originator: "codex_cli_rs",
       "User-Agent": `codex_cli_rs/${CODEX_CLI_VERSION}`,
+      // codex-rs sends its package version on every request to the built-in
+      // OpenAI provider; the backend reads it to decide which models to serve.
+      version: CODEX_CLI_VERSION,
     },
     usage: {
       url: "https://chatgpt.com/backend-api/wham/usage",
@@ -51,6 +56,8 @@ export default {
   },
   models: [
     { id: "gpt-6-astra", name: "GPT 6.0 Astra" },
+    { id: "gpt-6-sol", name: "GPT 6.0 Sol" },
+    { id: "gpt-6-luna", name: "GPT 6.0 Luna" },
     { id: "gpt-5.6-sol", name: "GPT 5.6 Sol" },
     { id: "gpt-5.6-sol-review", name: "GPT 5.6 Sol Review", upstreamModelId: "gpt-5.6-sol", quotaFamily: "review" },
     { id: "gpt-5.6-terra", name: "GPT 5.6 Terra" },

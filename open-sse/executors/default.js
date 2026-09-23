@@ -12,6 +12,13 @@ import { getCapabilitiesForModel } from "../providers/capabilities.js";
 import { injectReasoningContent } from "../utils/reasoningContentInjector.js";
 import { detectClientTool } from "../utils/clientDetector.js";
 import { stripUnsupportedParams } from "../translator/concerns/paramSupport.js";
+import {
+  adoptClaudeCodeVersion,
+  advertisesClaudeCodeVersion,
+  claudeCodeUserAgent,
+  parseRequiredClaudeCodeVersion,
+  withCurrentBillingVersion,
+} from "../utils/claudeCodeVersion.js";
 
 // Auth header descriptors — derived from registry transport.auth, fallback to hardcoded defaults.
 const BEARER = { combined: true, header: "Authorization", scheme: "bearer" };
@@ -335,8 +342,34 @@ export class DefaultExecutor extends BaseExecutor {
       }
     }
 
+    // The Claude Code identity is computed per request: a version adopted from an
+    // upstream `claude_code_version_too_old` answer must reach the very next call.
+    if (/^claude-cli\//.test(headers["User-Agent"] || "")) headers["User-Agent"] = claudeCodeUserAgent();
+
     if (stream) headers["Accept"] = "text/event-stream";
     return headers;
+  }
+
+  /**
+   * Anthropic answers a Claude Code identity older than a model needs with 400
+   * `claude_code_version_too_old` naming the minimum version. Adopt it (upward
+   * only; RED_ROUTER_CLAUDE_CODE_VERSION wins) and hand back the body to resend,
+   * its billing header rewritten to the new version. BaseExecutor.execute retries
+   * once, before any output reached the client. null → no retry.
+   */
+  async retryBodyForClientVersion(response, body, log) {
+    if (response?.status !== 400 || typeof response.clone !== "function") return null;
+    if (this.provider !== "claude" && !this.provider?.startsWith?.("anthropic-compatible-")) return null;
+    const text = await response.clone().text().catch(() => "");
+    const required = parseRequiredClaudeCodeVersion(response.status, text);
+    if (!required) return null;
+    const adopted = adoptClaudeCodeVersion(required);
+    if (!advertisesClaudeCodeVersion(required)) {
+      log?.warn?.("CLAUDE", `upstream requires Claude Code ${required}; the advertised version is pinned lower`);
+      return null;
+    }
+    log?.info?.("CLAUDE", `upstream requires Claude Code ${required}${adopted ? "; adopted" : ""}, retrying once`);
+    return withCurrentBillingVersion(body);
   }
 
   // Generic OAuth refresh for the common {grant_type, refresh_token, client_id[, ...]} shape.

@@ -1,16 +1,17 @@
 import { createHash, randomBytes, randomUUID } from "crypto";
 import { CLAUDE_TOOL_SUFFIX, CC_DEFAULT_TOOLS } from "../config/appConstants.js";
-import { CLAUDE_CLI_VERSION } from "../providers/shared.js";
+import { getClaudeCodeVersion } from "./claudeCodeVersion.js";
 
 const CC_ENTRYPOINT = "sdk-cli";
 
-// Generate the billing header expected from current Claude Code clients.
+// Generate the billing header expected from current Claude Code clients. The
+// version is read per request so an adopted upstream minimum applies at once.
 // x-anthropic-billing-header: cc_version=<ver>.<build>; cc_entrypoint=sdk-cli; cch=<hash>;
 function generateBillingHeader(payload) {
   const content = JSON.stringify(payload);
   const cch = createHash("sha256").update(content).digest("hex").slice(0, 5);
   const buildHash = randomBytes(2).toString("hex").slice(0, 3);
-  return `x-anthropic-billing-header: cc_version=${CLAUDE_CLI_VERSION}.${buildHash}; cc_entrypoint=${CC_ENTRYPOINT}; cch=${cch};`;
+  return `x-anthropic-billing-header: cc_version=${getClaudeCodeVersion()}.${buildHash}; cc_entrypoint=${CC_ENTRYPOINT}; cch=${cch};`;
 }
 
 // Derive a deterministic UUID-v4-shaped string from a seed (stable per account)

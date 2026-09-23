@@ -160,10 +160,38 @@ function clampToMax(cfg, maxLevel) {
 }
 
 function normalizeOpenAILevel(level, supportedLevels) {
+  if (level === "minimal") return lowestLevel(supportedLevels);
   if (level !== "max" && level !== "ultra") return level;
   if (supportedLevels?.includes(level)) return level;
   if (level === "ultra" && supportedLevels?.includes("max")) return "max";
   return "xhigh";
+}
+
+// The floor a model that cannot disable thinking is clamped to: "minimal", unless
+// its level list skips minimal and starts at low (GPT-6, adaptive Claude), which
+// would otherwise receive an effort value it rejects.
+function lowestLevel(supportedLevels) {
+  if (!supportedLevels || supportedLevels.includes("minimal") || !supportedLevels.includes("low")) return "minimal";
+  return "low";
+}
+
+// Claude output_config.effort takes low|medium|high|max, plus xhigh on the models
+// whose level list carries it (Opus 4.7+, Opus 5.x, Sonnet 5, Fable 5.x).
+function toClaudeEffort(level, supportedLevels) {
+  if (level === "auto") return "high";
+  if (level === "minimal") return "low";
+  if (level === "xhigh") return supportedLevels?.includes("xhigh") ? "xhigh" : "high";
+  return level;
+}
+
+// Adaptive thinking block. Claude 4.7+ omits thinking text unless the request
+// asks for display "summarized", so a client's own display is always kept, and
+// models that cannot turn thinking off (Fable 5.1, Opus 5.5) get "summarized"
+// when the client sent none.
+function adaptiveThinking(canDisable, display) {
+  if (display) return { type: "adaptive", display };
+  if (canDisable) return { type: "adaptive" };
+  return { type: "adaptive", display: "summarized" };
 }
 
 function toGeminiThinkingLevel(cfg) {
@@ -249,11 +277,11 @@ function stripAll(body) {
 }
 
 // Apply unified thinking config to body in the resolved provider-native format.
-function applyFormat(fmt, body, cfg, caps, supportedLevels) {
+function applyFormat(fmt, body, cfg, caps, supportedLevels, thinkingDisplay) {
   const none = cfg.mode === "none";
   const canDisable = caps.thinkingCanDisable !== false;
-  // Model cannot disable thinking → clamp "none" to minimal effort instead.
-  const eff = none && !canDisable ? { mode: "level", level: "minimal" } : cfg;
+  // Model cannot disable thinking → clamp "none" to its lowest effort instead.
+  const eff = none && !canDisable ? { mode: "level", level: lowestLevel(supportedLevels) } : cfg;
 
   switch (fmt) {
     case "openai": {
@@ -264,12 +292,11 @@ function applyFormat(fmt, body, cfg, caps, supportedLevels) {
     }
     case "claude-adaptive": {
       if (none && canDisable) { body.thinking = { type: "disabled" }; break; }
-      // Models that can disable thinking need the explicit adaptive switch.
-      // Permanently adaptive models such as Fable 5.1 accept effort directly.
-      if (canDisable) body.thinking = { type: "adaptive" };
-      else delete body.thinking;
-      const level = toLevel(eff);
-      body.output_config = { effort: level === "xhigh" || level === "auto" ? "high" : level };
+      // Models that can disable thinking need the explicit adaptive switch, and
+      // permanently adaptive ones (Fable 5.1, Opus 5.5) accept it too, which is
+      // the only place display "summarized" can be asked for.
+      body.thinking = adaptiveThinking(canDisable, thinkingDisplay);
+      body.output_config = { effort: toClaudeEffort(toLevel(eff), supportedLevels) };
       break;
     }
     case "claude-budget": {
@@ -405,8 +432,9 @@ export function applyThinking(targetFormat, model, body, provider = null, intent
   const supportedLevels = getThinkingLevels(provider, cleanModel);
   const prior = body.reasoning;
   const priorReasoning = prior && typeof prior === "object" ? prior : null;
+  const thinkingDisplay = typeof body.thinking?.display === "string" ? body.thinking.display : null;
   stripAll(body);
-  applyFormat(fmt, body, cfg, caps, supportedLevels);
+  applyFormat(fmt, body, cfg, caps, supportedLevels, thinkingDisplay);
   if (RESPONSES_TARGETS.has(targetFormat)) nestReasoningEffort(body, priorReasoning);
   return body;
 }

@@ -251,6 +251,15 @@ export function normalizeClaudePassthrough(body, model = "") {
     body.thinking = { type: "enabled", budget_tokens: 10000 };
   }
 
+  // 1b. Models whose thinking cannot be disabled (Opus 5.5, Fable 5.1) return empty
+  // thinking text unless the request asks for a summary. Keep a client's own
+  // display; add "summarized" only when none was sent (copy-on-write: the body is
+  // reused across account-fallback attempts).
+  if (body.thinking?.type === "adaptive" && !body.thinking.display
+    && getCapabilitiesForModel(null, model).thinkingCanDisable === false) {
+    body.thinking = { ...body.thinking, display: "summarized" };
+  }
+
   // 2. Strip effort param for models that don't support it (keep other output_config fields)
   if (ADAPTIVE_THINKING_UNSUPPORTED.test(model) && body.output_config?.effort != null) {
     delete body.output_config.effort;

@@ -51,6 +51,10 @@ export const MODEL_BRIEFS = {
     "Strong and expensive. Use for difficult reasoning, architecture, and debugging at the same tier as the top Claude models.",
   "gpt-6-astra":
     "Strong generalist. Use when the task mixes code and broad reasoning without being deep debugging.",
+  "gpt-6-sol":
+    "Strong and mid-priced. Use for implementation, refactors and debugging that need solid reasoning without the top-tier price.",
+  "gpt-6-luna":
+    "Very cheap and fast. Use for mechanical edits, lookups and short, well-specified tasks.",
 };
 
 /**
