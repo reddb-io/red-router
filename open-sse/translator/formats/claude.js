@@ -416,6 +416,14 @@ export function anchorClaudeCache(body) {
 // - Fix tool_use/tool_result ordering
 // - Apply cloaking (billing header + fake user ID) for OAuth tokens
 export function prepareClaudeRequest(body, provider = null, apiKey = null, connectionId = null, rawHeaders = null, sessionId = null) {
+  // Fable 5.1 / Opus 5.5 reject forced tool_choice (any/tool) with a 400: fall back
+  // to auto, keeping disable_parallel_tool_use. "none" is unaffected.
+  const forcedType = body.tool_choice?.type;
+  if ((forcedType === "any" || forcedType === "tool")
+    && getCapabilitiesForModel(provider, body.model).forcedToolChoice === false) {
+    const { type, name, ...rest } = body.tool_choice;
+    body.tool_choice = { ...rest, type: "auto" };
+  }
   // quirk: MiniMax's Claude-compatible endpoint rejects Anthropic's output_config (400 invalid params)
   if (PROVIDERS[provider]?.quirks?.dropOutputConfig) {
     delete body.output_config;
