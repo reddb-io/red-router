@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
-import { Button, Input } from "@/shared/components";
+import { Button, Input, RecommendedSetup } from "@/shared/components";
 
 const EMPTY = { connections: [], keys: [] };
 
@@ -26,6 +26,7 @@ export default function SetupWorkbench() {
   const [validation, setValidation] = useState(null);
   const [validating, setValidating] = useState(false);
   const [copied, setCopied] = useState("");
+  const [organized, setOrganized] = useState(false);
   const baseUrl = useSyncExternalStore(
     () => () => {},
     () => `${globalThis.location.origin}/v1`,
@@ -59,7 +60,7 @@ export default function SetupWorkbench() {
   const hasKey = data.keys.some((item) => item.isActive !== false) || !!createdKey;
   const isReady = validation?.status === "ready";
   const configCopied = copied === "snippet";
-  const currentStep = !hasProvider ? 1 : !hasKey ? 2 : !configCopied && !isReady ? 3 : 4;
+  const currentStep = !hasProvider ? 1 : !hasKey ? 2 : !configCopied && !isReady ? 3 : !isReady ? 4 : 5;
   const secret = createdKey?.key || "YOUR_API_KEY";
   const snippet = `export OPENAI_BASE_URL=${baseUrl}\nexport OPENAI_API_KEY=${secret}`;
 
@@ -118,7 +119,7 @@ export default function SetupWorkbench() {
         </div>
         <div className={`setup-readiness ${isReady ? "is-ready" : ""}`} role="status">
           <span className="status-dot" aria-hidden="true" />
-          {isReady ? "Ready" : loading ? "Checking" : `Step ${currentStep} of 4`}
+          {isReady ? "Ready" : loading ? "Checking" : `Step ${currentStep} of 5`}
         </div>
       </header>
 
@@ -188,6 +189,18 @@ export default function SetupWorkbench() {
               {validation.checks?.map((check) => <li key={check.id} className={check.status === "pass" ? "is-pass" : "is-fail"}><span className="material-symbols-outlined" aria-hidden="true">{check.status === "pass" ? "check_circle" : "error"}</span>{check.message}</li>)}
             </ul>
           ) : null}
+        </li>
+
+        <li className={currentStep === 5 ? "is-current" : ""}>
+          <StepStatus done={organized} active={currentStep === 5} />
+          <div className="setup-step-copy">
+            <span className="setup-step-number">05</span>
+            <h2>Organize models</h2>
+            <p>Create <code>default</code>, <code>fast</code> and <code>review</code> combos from the models RedRouter recommends for your connected providers. Running it again updates them.</p>
+          </div>
+          <div className="setup-organize">
+            {hasProvider ? <RecommendedSetup onApplied={() => setOrganized(true)} /> : <p>Connect a provider first.</p>}
+          </div>
         </li>
       </ol>
 

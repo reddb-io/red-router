@@ -5,7 +5,7 @@ import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, us
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { restrictToVerticalAxis, restrictToParentElement } from "@dnd-kit/modifiers";
-import { Card, Button, Modal, Input, CardSkeleton, ModelSelectModal, ConfirmModal, CapacityBadges, Select, Toggle } from "@/shared/components";
+import { Card, Button, Modal, Input, CardSkeleton, ModelSelectModal, ConfirmModal, CapacityBadges, Select, Toggle, RecommendedSetup } from "@/shared/components";
 import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
 import { useModelCaps } from "@/shared/hooks/useModelCaps";
 import { isOpenAICompatibleProvider, isAnthropicCompatibleProvider } from "@/shared/constants/providers";
@@ -63,6 +63,7 @@ export default function CombosPage() {
   const { getCaps } = useModelCaps();
   const [confirmState, setConfirmState] = useState(null);
   const [presetLoading, setPresetLoading] = useState(null);
+  const [showRecommended, setShowRecommended] = useState(false);
   const [selectedIds, setSelectedIds] = useState([]);
   const [bulkBusy, setBulkBusy] = useState(false);
   const { copied, copy } = useCopyToClipboard();
@@ -398,12 +399,18 @@ export default function CombosPage() {
             <li><span className="font-medium text-text-main">Fusion</span> — queries all models in parallel, then a judge synthesizes one answer. Best quality, but costs the most: every request bills all panel models + the judge (N+1 calls)</li>
           </ul>
           <p className="text-xs text-text-muted mt-3 max-w-2xl">
+            <span className="font-medium text-text-main">Recommended setup</span> builds <code className="font-mono">default</code>, <code className="font-mono">fast</code> and <code className="font-mono">review</code> combos from your connected providers, with fallbacks across accounts. Run it again after connecting a provider: it updates those combos instead of duplicating them.
+          </p>
+          <p className="text-xs text-text-muted mt-2 max-w-2xl">
             <span className="font-medium text-text-main">Cursor / Claude Default</span> create combos named exactly like those clients&apos; model IDs (e.g. <code className="font-mono">composer-2.5</code>, <code className="font-mono">opus</code>), seeded with the matching <code className="font-mono">cu/…</code> or <code className="font-mono">cc/…</code> route so traffic can hit RedRouter without the prefix.
             {" "}Note: Cursor IDE itself often blocks built-in Composer / Grok from Override OpenAI Base URL (&quot;model does not support custom API&quot;); add them via Cursor&apos;s <span className="font-medium text-text-main">Add Custom Model</span> using the combo name, or pick a model Cursor allows through the custom endpoint.
           </p>
         </div>
         <div className="flex w-full flex-col gap-2 sm:w-auto sm:items-stretch">
-          <Button icon="add" onClick={() => setShowCreateModal(true)} className="w-full sm:w-auto whitespace-nowrap">
+          <Button icon="auto_awesome" onClick={() => setShowRecommended(true)} className="w-full sm:w-auto whitespace-nowrap">
+            Recommended setup
+          </Button>
+          <Button variant="secondary" icon="add" onClick={() => setShowCreateModal(true)} className="w-full sm:w-auto whitespace-nowrap">
             Create Combo
           </Button>
           <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-col">
@@ -441,10 +448,15 @@ export default function CombosPage() {
               <span className="material-symbols-outlined text-[32px]">layers</span>
             </div>
             <p className="text-text-main font-medium mb-1">No combos yet</p>
-            <p className="text-sm text-text-muted mb-4">Create model combos with fallback support</p>
-            <Button icon="add" onClick={() => setShowCreateModal(true)} className="w-full sm:w-auto">
-              Create Combo
-            </Button>
+            <p className="text-sm text-text-muted mb-4">Start from the recommended combos for your connected providers, or build one yourself</p>
+            <div className="flex flex-col justify-center gap-2 sm:flex-row">
+              <Button icon="auto_awesome" onClick={() => setShowRecommended(true)} className="w-full sm:w-auto">
+                Recommended setup
+              </Button>
+              <Button variant="secondary" icon="add" onClick={() => setShowCreateModal(true)} className="w-full sm:w-auto">
+                Create Combo
+              </Button>
+            </div>
           </div>
         </Card>
       ) : (
@@ -572,6 +584,15 @@ export default function CombosPage() {
           canAssignOwner={identity.scoped && identity.isAdmin}
         />
       )}
+
+      <Modal
+        isOpen={showRecommended}
+        onClose={() => setShowRecommended(false)}
+        title="Recommended setup"
+        size="lg"
+      >
+        {showRecommended ? <RecommendedSetup autoLoad onApplied={fetchData} /> : null}
+      </Modal>
 
       {/* Confirm (delete / generate presets) */}
       <ConfirmModal

@@ -346,6 +346,8 @@ body {
 .setup-checks .material-symbols-outlined { font-size: 1.125rem; margin-top: .1rem; }
 .setup-checks .is-pass { color: var(--color-success); }
 .setup-checks .is-fail { color: var(--color-danger); }
+.setup-organize { grid-column: 2 / -1; min-width: 0; }
+.setup-organize > p { color: var(--color-text-muted); font-size: var(--reddb-font-size-sm); }
 .setup-success {
   display: grid;
   grid-template-columns: auto 1fr auto;
@@ -366,7 +368,8 @@ body {
   .setup-steps > li { grid-template-columns: 2.75rem minmax(0, 1fr); }
   .setup-step-action,
   .setup-code-wrap,
-  .setup-checks { grid-column: 2; justify-content: flex-start; }
+  .setup-checks,
+  .setup-organize { grid-column: 2; justify-content: flex-start; }
   .setup-step-action { align-items: stretch; flex-direction: column; }
   .setup-step-action select { max-width: none; width: 100%; }
   .setup-success { grid-template-columns: auto minmax(0, 1fr); }

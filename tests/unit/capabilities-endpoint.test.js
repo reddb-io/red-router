@@ -126,6 +126,8 @@ describe("GET /v1/capabilities", () => {
       model_endpoint: "/v1/models/{id}",
       model_parameters: true,
       combo_members: true,
+      catalog_endpoint: "/v1/catalog",
+      recommendations: true,
     });
     expect(caps.catalog.version).toMatch(/^[0-9a-f]{16}$/);
   });
