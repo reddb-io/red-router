@@ -7,7 +7,7 @@ import cliPkg from "../../cli/package.json" with { type: "json" };
 import { getSettings, getProviderConnections, getApiKeyAllowedConnectionIds, getApiKeyOwner, getApiKeyIdentity } from "@/lib/localDb";
 import { resolveScopedSettings } from "@/lib/auth/scopedSettings";
 import { getCatalogVersion } from "@/lib/catalogVersion";
-import { DATA_DIR } from "@/lib/db/paths.js";
+import { DATA_DIR } from "@/lib/dataDir.js";
 import { getConsistentMachineId } from "@/shared/utils/machineId";
 import { normalizeDecisionConfig } from "@/sse/services/decisionRouter.js";
 import { buildModelsList } from "@/app/api/v1/models/route.js";
