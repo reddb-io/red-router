@@ -30,3 +30,8 @@ export const PONYTAIL_LEVELS = [
   { id: "full", label: "Full", desc: "Ladder enforced: stdlib/native first" },
   { id: "ultra", label: "Ultra", desc: "YAGNI extremist, deletion first" },
 ];
+
+export const ADHD_LEVELS = [
+  { id: "lite", label: "Lite", desc: "Next action first, numbered steps" },
+  { id: "full", label: "Full", desc: "Plus progress recap, time estimates, no tangents" },
+];

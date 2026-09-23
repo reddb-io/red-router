@@ -25,6 +25,7 @@ import { dedupeTools } from "../utils/toolDeduper.js";
 import { takeRenamedToolNames } from "../utils/opencodeFingerprint.js";
 import { injectCaveman } from "../rtk/caveman.js";
 import { injectPonytail } from "../rtk/ponytail.js";
+import { injectAdhd } from "../rtk/adhd.js";
 import { compressMessages, compressDeferred, formatRtkLog } from "../rtk/index.js";
 import { compressWithHeadroom, formatHeadroomLog, formatHeadroomSizeLog, isHeadroomPhantomSavings } from "../rtk/headroom.js";
 import { compressWithPxpipe } from "../rtk/pxpipe.js";
@@ -87,7 +88,7 @@ export function applyPromptCacheKey(translatedBody, { provider, format, headers,
   return true;
 }
 
-export async function handleChatCore({ body, modelInfo, credentials, log, errorContext = {}, onCredentialsRefreshed, onRequestSuccess, onDisconnect, clientRawRequest, connectionId, userAgent, apiKey, ccFilterNaming, rtkEnabled, headroomEnabled, headroomUrl, headroomCompressUserMessages, headroomTimeoutMs, cavemanEnabled, cavemanLevel, ponytailEnabled, ponytailLevel, pxpipeEnabled, pxpipeMinChars, pxpipeTimeoutMs, pxpipeTransform, onPxpipeEvent, sourceFormatOverride, providerThinking, maxThinkingLevel = null, thinkingTarget = null, reasoning = null, decideTool = null, decision = null, hint = null }) {
+export async function handleChatCore({ body, modelInfo, credentials, log, errorContext = {}, onCredentialsRefreshed, onRequestSuccess, onDisconnect, clientRawRequest, connectionId, userAgent, apiKey, ccFilterNaming, rtkEnabled, headroomEnabled, headroomUrl, headroomCompressUserMessages, headroomTimeoutMs, cavemanEnabled, cavemanLevel, ponytailEnabled, ponytailLevel, adhdEnabled, adhdLevel, pxpipeEnabled, pxpipeMinChars, pxpipeTimeoutMs, pxpipeTransform, onPxpipeEvent, sourceFormatOverride, providerThinking, maxThinkingLevel = null, thinkingTarget = null, reasoning = null, decideTool = null, decision = null, hint = null }) {
   // Reasoning level to apply: the autopilot/header sets it, the legacy effort toggle caps it.
   const thinkingGoal = thinkingTarget || (maxThinkingLevel ? { mode: "ceiling", level: maxThinkingLevel } : null);
   const { provider, model } = modelInfo;
@@ -363,6 +364,13 @@ export async function handleChatCore({ body, modelInfo, credentials, log, errorC
   if (tokenSaverEnabled && ponytailEnabled && ponytailLevel) {
     injectPonytail(translatedBody, finalFormat, ponytailLevel);
     xf.push(`PONYTAIL:${ponytailLevel}`);
+  }
+
+  // ADHD: inject output-shaping system prompt (next action first, numbered steps).
+  // Appended after caveman/ponytail so the three compose in a fixed order.
+  if (tokenSaverEnabled && adhdEnabled && adhdLevel) {
+    injectAdhd(translatedBody, finalFormat, adhdLevel);
+    xf.push(`ADHD:${adhdLevel}`);
   }
 
   // PXPIPE: image bulky context (Claude-format bodies only), last saver before dispatch

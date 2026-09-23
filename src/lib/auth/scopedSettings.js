@@ -9,6 +9,7 @@ export const TOKEN_SAVER_KEYS = [
   "headroomCompressUserMessages",
   "cavemanEnabled", "cavemanLevel",
   "ponytailEnabled", "ponytailLevel",
+  "adhdEnabled", "adhdLevel",
   "pxpipeEnabled",
 ];
 

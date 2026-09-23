@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useSyncExternalStore } from "react";
 import { Card, Button, Input, Modal, Toggle, ConfirmModal } from "@/shared/components";
 import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
 import { getCurrentLocale, onLocaleChange } from "@/i18n/runtime";
@@ -8,6 +8,7 @@ import {
   WENYAN_LOCALES,
   CAVEMAN_LEVELS,
   PONYTAIL_LEVELS,
+  ADHD_LEVELS,
 } from "../endpoint/endpointConstants";
 
 // Defined at module level: components created inside a render are new types on
@@ -81,6 +82,8 @@ export default function TokenSaverClient() {
   const [cavemanLevel, setCavemanLevel] = useState("full");
   const [ponytailEnabled, setPonytailEnabled] = useState(false);
   const [ponytailLevel, setPonytailLevel] = useState("full");
+  const [adhdEnabled, setAdhdEnabled] = useState(false);
+  const [adhdLevel, setAdhdLevel] = useState("full");
   const [pxpipeEnabled, setPxpipeEnabled] = useState(false);
   const [pxpipeMinChars, setPxpipeMinChars] = useState(25000);
   const [pxpipeStatus, setPxpipeStatus] = useState({
@@ -94,27 +97,15 @@ export default function TokenSaverClient() {
   const [showPxpipeModal, setShowPxpipeModal] = useState(false);
   const [pxpipeActionLoading, setPxpipeActionLoading] = useState(false);
   const [pxpipeActionError, setPxpipeActionError] = useState("");
-  const [locale, setLocale] = useState("en");
+  // The server render has no locale; "en" matches what the page first showed.
+  const locale = useSyncExternalStore(onLocaleChange, getCurrentLocale, () => "en");
 
   const { copied, copy } = useCopyToClipboard();
-
-  useEffect(() => {
-    setLocale(getCurrentLocale());
-    return onLocaleChange(() => setLocale(getCurrentLocale()));
-  }, []);
 
   const isWenyanLocale = WENYAN_LOCALES.includes(locale);
   const visibleCavemanLevels = isWenyanLocale
     ? CAVEMAN_LEVELS
     : CAVEMAN_LEVELS.filter((lvl) => !lvl.wenyan);
-
-  useEffect(() => {
-    const current = CAVEMAN_LEVELS.find((lvl) => lvl.id === cavemanLevel);
-    if (current?.wenyan && !isWenyanLocale) {
-      setCavemanLevel("ultra");
-      patchSetting({ cavemanLevel: "ultra" });
-    }
-  }, [isWenyanLocale, cavemanLevel]);
 
   const patchSetting = async (patch) => {
     try {
@@ -404,6 +395,16 @@ export default function TokenSaverClient() {
     patchSetting({ ponytailLevel: level });
   };
 
+  const handleAdhdEnabled = (value) => {
+    setAdhdEnabled(value);
+    patchSetting({ adhdEnabled: value });
+  };
+
+  const handleAdhdLevel = (level) => {
+    setAdhdLevel(level);
+    patchSetting({ adhdLevel: level });
+  };
+
   const refreshPxpipeStatus = useCallback(async () => {
     setPxpipeStatus((s) => ({ ...s, loading: true }));
     try {
@@ -482,9 +483,16 @@ export default function TokenSaverClient() {
           setCodeAware(data.headroomCodeAware === true);
           setKompress(data.headroomKompress !== false);
           setCavemanEnabled(!!data.cavemanEnabled);
-          setCavemanLevel(data.cavemanLevel || "full");
+          // Wenyan levels are hidden outside Chinese locales; a saved one moves to ultra.
+          const savedCavemanLevel = data.cavemanLevel || "full";
+          const hiddenWenyan = !WENYAN_LOCALES.includes(getCurrentLocale())
+            && CAVEMAN_LEVELS.find((lvl) => lvl.id === savedCavemanLevel)?.wenyan;
+          setCavemanLevel(hiddenWenyan ? "ultra" : savedCavemanLevel);
+          if (hiddenWenyan) patchSetting({ cavemanLevel: "ultra" });
           setPonytailEnabled(!!data.ponytailEnabled);
           setPonytailLevel(data.ponytailLevel || "full");
+          setAdhdEnabled(!!data.adhdEnabled);
+          setAdhdLevel(data.adhdLevel || "full");
           setPxpipeEnabled(!!data.pxpipeEnabled);
           if (typeof data.pxpipeMinChars === "number") setPxpipeMinChars(data.pxpipeMinChars);
           refreshHeadroomStatus();
@@ -818,6 +826,61 @@ export default function TokenSaverClient() {
             <Toggle
               checked={ponytailEnabled}
               onChange={() => handlePonytailEnabled(!ponytailEnabled)}
+            />
+          </div>
+        </div>
+        <div className="flex items-center justify-between pt-4 mt-4 border-t border-border gap-4 flex-wrap">
+          <div className="min-w-0 flex-1">
+            <p className="font-medium">
+              ADHD-friendly answers{" "}
+              <DefaultBadge keys={["adhdEnabled", "adhdLevel"]} scoped={scoped} inherited={inherited} />
+              <ResetLink keys={["adhdEnabled", "adhdLevel"]} scoped={scoped} inherited={inherited} onReset={resetToDefault} />
+              <a
+                href="https://github.com/ayghri/i-have-adhd"
+                target="_blank"
+                rel="noreferrer"
+                className="text-xs font-normal text-primary underline hover:opacity-80"
+              >
+                (i-have-adhd, MIT)
+              </a>
+            </p>
+            <p className="text-sm text-text-muted">
+              Asks the model to lead with the next action, number the steps, say
+              where you are every turn and end with one small thing to do now.
+              Changes how answers are shaped, not the size of the request. Say
+              &quot;stop adhd mode&quot; in a chat to turn it off there.
+            </p>
+          </div>
+          <div className="flex items-center gap-3 shrink-0">
+            {adhdEnabled && (
+              <div className="flex flex-col items-end gap-1">
+                <div className="flex items-center gap-1.5">
+                  {ADHD_LEVELS.map((lvl) => (
+                    <button
+                      key={lvl.id}
+                      onClick={() => handleAdhdLevel(lvl.id)}
+                      className={`px-3 py-1.5 rounded text-xs font-medium border transition-colors ${
+                        adhdLevel === lvl.id
+                          ? "bg-primary text-white border-primary"
+                          : "bg-transparent border-border text-text-muted hover:bg-surface-2"
+                      }`}
+                      title={lvl.desc}
+                    >
+                      {lvl.label}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-xs text-primary">
+                  {
+                    ADHD_LEVELS.find((lvl) => lvl.id === adhdLevel)
+                      ?.desc
+                  }
+                </p>
+              </div>
+            )}
+            <Toggle
+              checked={adhdEnabled}
+              onChange={() => handleAdhdEnabled(!adhdEnabled)}
             />
           </div>
         </div>
