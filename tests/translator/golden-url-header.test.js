@@ -5,6 +5,13 @@ import { describe, it, expect } from "vitest";
 import { PROVIDERS } from "../../open-sse/config/providers.js";
 import { RED_ROUTER_INSTANCE_ID } from "../../open-sse/config/redRouter.js";
 import { DefaultExecutor } from "../../open-sse/executors/default.js";
+import { createRequire } from "node:module";
+
+// Values that follow the machine or the release, not the executor: the Node
+// runtime and the app version. Masked so the snapshot is the same everywhere.
+const APP_VERSION = createRequire(import.meta.url)("../../package.json").version;
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const APP_VERSION_RE = new RegExp(`(^|[^\\d.])${escapeRe(APP_VERSION)}(?![\\d.])`, "g");
 
 // Credentials mẫu cố định (deterministic) — KHÔNG dùng Date.now/random.
 const API_KEY_CRED = { apiKey: "sk-test-APIKEY", providerSpecificData: {} };
@@ -32,6 +39,8 @@ function sanitize(headers) {
       ? v.replace(RED_ROUTER_INSTANCE_ID, "<ROUTER_INSTANCE>").replace(/Bearer .+/, "Bearer <TOK>")
           .replace(/sk-test-APIKEY|tok-test-ACCESS/g, "<CRED>")
           .replace(/kimi-\d{10,}/g, "kimi-<TS>")
+          .replace(process.version, "<NODE_VERSION>")
+          .replace(APP_VERSION_RE, "$1<APP_VERSION>")
       : v;
   }
   return out;
