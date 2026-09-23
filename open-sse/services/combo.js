@@ -2,7 +2,7 @@
  * Shared combo (model combo) handling with fallback support
  */
 
-import { checkFallbackError } from "./accountFallback.js";
+import { checkFallbackError, isModelScopedError } from "./accountFallback.js";
 import { errorResponse, ACCESS_DENIED_REASONS } from "../utils/error.js";
 import { getCapabilitiesForModel } from "../providers/capabilities.js";
 import { getThinkingLevels } from "../providers/thinkingLevels.js";
@@ -673,6 +673,14 @@ export async function handleComboChat({ body, models, handleSingleModel, log, co
         try { errorText = JSON.stringify(errorText); } catch { errorText = String(errorText); }
       }
 
+      // The model is unknown, retired or not served here: another member may be fine.
+      if (isModelScopedError(result.status, errorText)) {
+        if (!firstFallbackError) firstFallbackError = result;
+        forget(modelStr);
+        log.warn("COMBO", `Model ${modelStr} unavailable (${result.status}), trying next`);
+        continue;
+      }
+
       const { shouldFallback, cooldownMs } = checkFallbackError(result.status, errorText);
       if (!shouldFallback) {
         log.warn("COMBO", `Model ${modelStr} failed (no fallback)`, { status: result.status });
@@ -682,8 +690,10 @@ export async function handleComboChat({ body, models, handleSingleModel, log, co
       forget(modelStr);
 
       if (cooldownMs > 0 && cooldownMs <= 5000 && [502, 503, 504].includes(result.status)) {
-        log.info("COMBO", `Model ${modelStr} transient ${result.status}, waiting ${cooldownMs}ms before next`);
-        await new Promise(resolve => setTimeout(resolve, cooldownMs));
+        // A breath, not the cooldown: the next member is another model.
+        const waitMs = Math.min(cooldownMs, 1000);
+        log.info("COMBO", `Model ${modelStr} transient ${result.status}, waiting ${waitMs}ms before next`);
+        await new Promise(resolve => setTimeout(resolve, waitMs));
       }
       log.warn("COMBO", `Model ${modelStr} failed, trying next`, { status: result.status });
     } catch (error) {

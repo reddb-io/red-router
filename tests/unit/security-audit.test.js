@@ -71,10 +71,13 @@ describe("AUDIT-002: API key masking", () => {
       path.resolve(REPO_ROOT, "src/lib/db/repos/usageRepo.js"),
       "utf-8"
     );
-    // The 24h path should use apiKeyMasked in the akKey template
-    expect(source).toContain("${apiKeyMasked}|${r.model}|${r.provider");
-    // Should NOT use raw r.apiKey in the key
+    // Rows are keyed by an opaque reference (key id or hash), never the raw key —
+    // the masked form merged two keys that share it (#4242 upstream).
+    expect(source).toContain("${apiKeyRef(r.apiKey)}|${r.model}|${r.provider");
+    expect(source).toContain("${apiKeyRef(e.apiKey)}|${e.model}|${e.provider");
+    // Should NOT use raw keys in any grouping key
     expect(source).not.toContain("${r.apiKey}|${r.model}|${r.provider");
+    expect(source).not.toContain("${e.apiKey}|${e.model}|${e.provider");
   });
 });
 

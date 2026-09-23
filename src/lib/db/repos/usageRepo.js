@@ -4,6 +4,7 @@ import { sql } from "kysely";
 import { parseJson, stringifyJson } from "../helpers/jsonCol.js";
 import { getMeta, setMeta } from "../helpers/metaStore.js";
 import { maskApiKey } from "../helpers/maskKey.js";
+import { createHash } from "node:crypto";
 
 const PENDING_TIMEOUT_MS = 60 * 1000;
 const RING_CAP = 50;
@@ -408,6 +409,14 @@ export async function getUsageStats(period = "all", options = {}) {
   try { allApiKeys = await getApiKeys(); } catch {}
   const apiKeyMap = {};
   for (const k of allApiKeys) apiKeyMap[k.key] = { name: k.name, id: k.id, createdAt: k.createdAt };
+  // byApiKey rows are keyed by an opaque reference, never the key itself: these
+  // stats are served to the dashboard, and a masked key can be shared by two keys.
+  // A known key goes by its id; a deleted or unknown one by a short hash.
+  const apiKeyRef = (key) => {
+    if (!key || typeof key !== "string") return "local-no-key";
+    const id = apiKeyMap[key]?.id;
+    return id ? `key_${id}` : `key_${createHash("sha256").update(key).digest("hex").slice(0, 12)}`;
+  };
 
   // recentRequests from live history (last 100 entries enough for 20 deduped)
   let recentQ = db.selectFrom("usageHistory")
@@ -547,7 +556,7 @@ export async function getUsageStats(period = "all", options = {}) {
         if (dateKey > (stats.byAccount[accountKey].lastUsed || "")) stats.byAccount[accountKey].lastUsed = dateKey;
       }
 
-      for (const [akKey, ak] of Object.entries(day.byApiKey || {})) {
+      for (const [rollupKey, ak] of Object.entries(day.byApiKey || {})) {
         const rawModel = ak.rawModel || "";
         const provider = ak.provider || "";
         const providerDisplayName = providerNodeNameMap[provider] || provider;
@@ -556,6 +565,7 @@ export async function getUsageStats(period = "all", options = {}) {
         const keyName = keyInfo?.name || (apiKeyVal ? apiKeyVal.slice(0, 8) + "..." : "Local (No API Key)");
         const apiKeyMasked = maskApiKey(apiKeyVal);
         const apiKeyKey = apiKeyMasked || "local-no-key";
+        const akKey = `${apiKeyRef(apiKeyVal)}|${rawModel || rollupKey.split("|")[1] || ""}|${provider || "unknown"}`;
         if (!stats.byApiKey[akKey]) {
           stats.byApiKey[akKey] = { requests: 0, promptTokens: 0, completionTokens: 0, cachedTokens: 0, cost: 0, rawModel, provider: providerDisplayName, apiKeyMasked, keyName, apiKeyKey, lastUsed: dateKey };
         }
@@ -608,9 +618,7 @@ export async function getUsageStats(period = "all", options = {}) {
         if (stats.byAccount[accountKey] && new Date(ts) > new Date(stats.byAccount[accountKey].lastUsed)) stats.byAccount[accountKey].lastUsed = ts;
       }
 
-      const apiKeyKey = (e.apiKey && typeof e.apiKey === "string")
-        ? `${e.apiKey}|${e.model}|${e.provider || "unknown"}`
-        : "local-no-key";
+      const apiKeyKey = `${apiKeyRef(e.apiKey)}|${e.model}|${e.provider || "unknown"}`;
       if (stats.byApiKey[apiKeyKey] && new Date(ts) > new Date(stats.byApiKey[apiKeyKey].lastUsed)) stats.byApiKey[apiKeyKey].lastUsed = ts;
 
       const endpoint = e.endpoint || "Unknown";
@@ -686,7 +694,7 @@ export async function getUsageStats(period = "all", options = {}) {
         const keyInfo = apiKeyMap[r.apiKey];
         const keyName = keyInfo?.name || r.apiKey.slice(0, 8) + "...";
         const apiKeyMasked = maskApiKey(r.apiKey);
-        const akKey = `${apiKeyMasked}|${r.model}|${r.provider || "unknown"}`;
+        const akKey = `${apiKeyRef(r.apiKey)}|${r.model}|${r.provider || "unknown"}`;
         if (!stats.byApiKey[akKey]) {
           stats.byApiKey[akKey] = { requests: 0, promptTokens: 0, completionTokens: 0, cachedTokens: 0, cost: 0, rawModel: r.model, provider: providerDisplayName, apiKeyMasked, keyName, apiKeyKey: apiKeyMasked, lastUsed: r.timestamp };
         }

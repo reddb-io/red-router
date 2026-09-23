@@ -18,6 +18,9 @@ import {
 import { errorResponse, responseFromRoutingCandidate } from "open-sse/utils/error.js";
 import { handleComboChat } from "open-sse/services/combo.js";
 import * as log from "../utils/logger.js";
+import { checkModelAccess, checkComboAccess } from "@/lib/modelAccess";
+import { checkApiKeyLimits } from "@/lib/apiKeyLimits";
+import { isInternalCall } from "../services/internalCall.js";
 
 function exactSystemOneUsage(raw) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
@@ -47,6 +50,14 @@ export async function handleSystemOne(request) {
     if (!(await isValidApiKey(clientApiKey))) return errorResponse(401, "Invalid API key");
   }
 
+  // The router's own classifier calls come from a request that already passed
+  // these checks; everything else is held to the key's limits and model rules.
+  const enforceKey = !isInternalCall(request);
+  if (enforceKey) {
+    const overLimit = await checkApiKeyLimits(clientApiKey);
+    if (overLimit) return responseFromRoutingCandidate(overLimit);
+  }
+
   const preferredConnectionId = request.headers.get("x-connection-id") || null;
   const comboOwner = settings.scopeResourcesByUser === true
     ? await getApiKeyOwner(clientApiKey || null)
@@ -62,6 +73,8 @@ export async function handleSystemOne(request) {
   log.request("POST", `${url.pathname} | ${body.model || "jev-latest"}`);
 
   if (comboModels) {
+    const comboAccess = enforceKey ? await checkComboAccess(clientApiKey, body.model) : { denial: null, granted: false };
+    if (comboAccess.denial) return responseFromRoutingCandidate(comboAccess.denial);
     const comboStrategies = settings.comboStrategies || {};
     const comboStrategy = comboStrategies[body.model]?.fallbackStrategy || settings.comboStrategy || "fallback";
     const comboStickyLimit = settings.comboStickyRoundRobinLimit;
@@ -75,6 +88,8 @@ export async function handleSystemOne(request) {
         url,
         clientApiKey,
         preferredConnectionId,
+        enforceKey,
+        grantedByCombo: comboAccess.granted,
       }),
       log,
       comboName: body.model,
@@ -84,10 +99,10 @@ export async function handleSystemOne(request) {
     });
   }
 
-  return handleSingleSystemOne({ body, request, url, clientApiKey, preferredConnectionId });
+  return handleSingleSystemOne({ body, request, url, clientApiKey, preferredConnectionId, enforceKey });
 }
 
-async function handleSingleSystemOne({ body, request, url, clientApiKey, preferredConnectionId }) {
+async function handleSingleSystemOne({ body, request, url, clientApiKey, preferredConnectionId, enforceKey = true, grantedByCombo = false }) {
   const model = normalizeSystemOneModel(body.model);
   if (!model) return errorResponse(400, "Invalid JEV model");
   let lastUpstreamResponse = null;
@@ -96,6 +111,13 @@ async function handleSingleSystemOne({ body, request, url, clientApiKey, preferr
   for (const providerId of getSystemOneProviderOrder(body.model)) {
     const providerModel = resolveSystemOneProviderModel(providerId, model);
     if (!providerModel) continue;
+    if (enforceKey) {
+      const denial = await checkModelAccess({ apiKey: clientApiKey, providerId, model: providerModel, requested: body.model, grantedByCombo });
+      if (denial) {
+        lastRoutingCandidate = denial;
+        continue;
+      }
+    }
     const excluded = new Set();
 
     while (true) {

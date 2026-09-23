@@ -52,6 +52,8 @@ import { getProjectIdForConnection } from "open-sse/services/projectId.js";
 import { stripModelContextMarker } from "open-sse/utils/modelMarkers.js";
 import { resolveSessionId, resolveAffinityKey } from "open-sse/utils/sessionManager.js";
 import { servedModelId } from "open-sse/utils/servedHeaders.js";
+import { partitionUsable } from "../services/memberEligibility.js";
+import { internalCallHeaders } from "../services/internalCall.js";
 import { handleSystemOne } from "./systemOne.js";
 
 export function effortCeilingForDeliberation(deliberation) {
@@ -74,7 +76,7 @@ function servableMembers(models, body) {
   });
 }
 
-async function orderComboModels({ body, models, comboName, strategy, settings, apiKey, comboOwner, sessionId, headers = null, userAgent = "", hint = null, affinityKey = null }) {
+async function orderComboModels({ body, models, comboName, strategy, settings, apiKey, comboOwner, sessionId, headers = null, userAgent = "", hint = null, affinityKey = null, comboAccessGranted = false }) {
   const unchanged = { models, deliberation: null, decision: null };
   if (strategy !== "auto" || models.length < 2) return unchanged;
   const config = normalizeDecisionConfig(settings.decisionRouter);
@@ -93,7 +95,11 @@ async function orderComboModels({ body, models, comboName, strategy, settings, a
     : ranked.filter((model) => config.models.includes(model));
   // Only ask about members that can serve this request: one whose window cannot
   // hold it, or that lacks a modality it carries, would be picked and then skipped.
-  const eligible = servableMembers(allowed, body);
+  // …and that have an account to serve them now: jev must not pick a member whose
+  // accounts are all locked, missing, or outside the key. Those stay at the back.
+  const { usable: eligible } = await partitionUsable(servableMembers(allowed, body), {
+    apiKey, comboOwner, grantedByCombo: comboAccessGranted,
+  });
   if (eligible.length < 2) return unchanged;
   const signals = extractSignals(body, { userAgent, hint });
   const scope = createHash("sha256")
@@ -381,7 +387,7 @@ export async function handleChat(request, clientRawRequest = null, options = {})
         // OpenRouter, and any future compatible provider) instead of binding
         // smart routing to a process-level TypeSafe environment key.
         requestImpl: (payload, { signal }) => {
-          const headers = { "Content-Type": "application/json" };
+          const headers = { "Content-Type": "application/json", ...internalCallHeaders() };
           if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
           return handleSystemOne(new Request("http://red-router.internal/v1/systemone", {
             method: "POST",
@@ -422,6 +428,7 @@ export async function handleChat(request, clientRawRequest = null, options = {})
         userAgent,
         hint,
         affinityKey: routingContext.affinityKey,
+        comboAccessGranted: routingContext.comboAccessGranted === true,
       });
       orderedModels = ordered.models;
       applyOrderedDecision(routingContext, ordered);
@@ -553,6 +560,7 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
           userAgent: request?.headers?.get?.("user-agent") || clientRawRequest?.headers?.["user-agent"] || "",
           hint: routingContext.hint,
           affinityKey: routingContext.affinityKey || null,
+          comboAccessGranted: routingContext.comboAccessGranted === true,
         });
         orderedModels = ordered.models;
         applyOrderedDecision(routingContext, ordered);

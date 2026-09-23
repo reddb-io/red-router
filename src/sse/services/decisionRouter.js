@@ -22,6 +22,8 @@ import { HINT_SOURCE, hintEffort } from "open-sse/decision/clientHint.js";
 import { modelContextWindow, estimateRequestTokens } from "open-sse/services/combo.js";
 import { resolveModelDecision, resolveToolDecision } from "open-sse/decision/decide.js";
 import { getPricingForModel } from "open-sse/providers/pricing.js";
+import { providerIdentity } from "open-sse/providers/identity.js";
+import { resolveProviderAlias } from "open-sse/services/model.js";
 import { resolveCriteria } from "open-sse/decision/modelBriefs.js";
 import { rankByCost } from "open-sse/decision/decide.js";
 import { proxyAwareFetch } from "open-sse/utils/proxyFetch.js";
@@ -157,6 +159,9 @@ export function requestCostOf(body, { inputTokens = null, warmMember = null } = 
   return (model) => {
     const slash = model.indexOf("/");
     if (slash <= 0) return null;
+    // A subscription account (OAuth, web cookie, free) bills no tokens: this
+    // request costs nothing extra there, whatever the model's list price.
+    if (providerIdentity(resolveProviderAlias(model.slice(0, slash)))?.subscription) return 0;
     const price = getPricingForModel(model.slice(0, slash), model.slice(slash + 1));
     if (typeof price?.input !== "number") return null;
     const outputPrice = typeof price.output === "number" ? price.output : price.input;
@@ -261,7 +266,7 @@ export async function decideComboModel({ body, models, comboName, config, target
   const response = await ask(target, config, state, questions, log);
 
   if (!response) {
-    const local = localComboPick(pool, signals, costOf);
+    const local = localComboPick(pool, signals);
     if (local) {
       log?.info?.("DECISION", `model: ${local.model} for "${comboName}" (jev unavailable, local score ${fmt(local.score)})`);
       return { models: [local.model, ...pool.filter((m) => m !== local.model)], decision: local.decision };
@@ -313,10 +318,12 @@ const LOCAL_EASY = 0.2;
  * (the pool's strongest, by the only measure available), a clearly easy one to the
  * cheapest; anything in between leaves the order alone.
  */
-function localComboPick(pool, signals, costOf) {
+function localComboPick(pool, signals) {
   if (!signals || signals.encryptedTask) return null;
   const { score, reasons } = localDeliberation(signals);
-  const priced = pool.filter((m) => costOf(m) !== null);
+  // List price stands in for capability here — not what the request would cost,
+  // which is zero on a subscription account whatever the model.
+  const priced = rankByCost(pool.filter((m) => priceOf(m) !== null), priceOf);
   if (priced.length < 2) return null;
   const model = score >= LOCAL_HARD ? priced[priced.length - 1] : score <= LOCAL_EASY ? priced[0] : null;
   if (!model) return null;
