@@ -1,4 +1,6 @@
 import { handleChat } from "@/sse/handlers/chat.js";
+import { checkModelAccess } from "@/lib/modelAccess";
+import { checkApiKeyLimits } from "@/lib/apiKeyLimits";
 import {
   clearAccountError,
   getProviderCredentials,
@@ -253,6 +255,11 @@ async function forwardGeminiNativeRequest(request, body, model, action, errorCon
   if (!GEMINI_NATIVE_MODEL_PATTERN.test(modelId)) {
     return errorResponse(400, "Invalid model", errorContext);
   }
+  const clientApiKey = extractGeminiClientApiKey(request);
+  const overLimit = await checkApiKeyLimits(clientApiKey);
+  if (overLimit) return responseFromRoutingCandidate(overLimit, errorContext);
+  const accessDenial = await checkModelAccess({ apiKey: clientApiKey, providerId: "gemini", model: modelId, requested: model });
+  if (accessDenial) return responseFromRoutingCandidate(accessDenial, errorContext);
   const excludeConnectionIds = new Set();
   const bodyText = JSON.stringify(body);
   while (true) {

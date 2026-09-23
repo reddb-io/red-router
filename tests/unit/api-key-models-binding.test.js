@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   getCustomModels: vi.fn(),
   getModelAliases: vi.fn(),
   getDisabledModels: vi.fn(),
+  getApiKeyPolicy: vi.fn(),
 }));
 
 vi.mock("@/lib/localDb", () => ({
@@ -15,6 +16,7 @@ vi.mock("@/lib/localDb", () => ({
   getCombos: mocks.getCombos,
   getCustomModels: mocks.getCustomModels,
   getModelAliases: mocks.getModelAliases,
+  getApiKeyPolicy: mocks.getApiKeyPolicy,
 }));
 
 vi.mock("@/lib/disabledModelsDb", () => ({ getDisabledModels: mocks.getDisabledModels }));
@@ -36,6 +38,7 @@ beforeEach(() => {
   mocks.getCustomModels.mockResolvedValue([]);
   mocks.getModelAliases.mockResolvedValue({});
   mocks.getDisabledModels.mockResolvedValue({});
+  mocks.getApiKeyPolicy.mockResolvedValue({ id: null, modelAccess: null, limits: null });
   mocks.getProviderConnections.mockResolvedValue([conn("a", "claude"), conn("b", "openai")]);
 });
 
@@ -118,5 +121,28 @@ describe("remote RedRouter catalog exposure", () => {
     vi.stubGlobal("fetch", vi.fn());
     expect(await buildModelsList(["llm"], { skipDynamicFetch: true })).toEqual([]);
     expect(fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe("/v1/models — key model rules", () => {
+  beforeEach(() => mocks.getApiKeyAllowedConnectionIds.mockResolvedValue(null));
+
+  it("lists only what an allow-list key may call, matched by any prefix spelling", async () => {
+    mocks.getApiKeyPolicy.mockResolvedValue({ modelAccess: { mode: "allow", patterns: ["cc/*"] } });
+
+    const models = await buildModelsList(["llm"], { apiKey: "sk-allow", skipDynamicFetch: true });
+
+    expect(providersOf(models)).toEqual(["claude-code"]);
+  });
+
+  it("hides denied models and keeps combos a key may call", async () => {
+    mocks.getCombos.mockResolvedValue([{ name: "team-fast", models: ["openai/openai-model-1"] }, { name: "blocked", models: [] }]);
+    mocks.getApiKeyPolicy.mockResolvedValue({ modelAccess: { mode: "deny", patterns: ["openai/*", "blocked"] } });
+
+    const models = await buildModelsList(["llm"], { apiKey: "sk-deny", skipDynamicFetch: true });
+
+    expect(models.map((m) => m.id)).toContain("team-fast");
+    expect(models.map((m) => m.id)).not.toContain("blocked");
+    expect(models.some((m) => m.owned_by === "openai")).toBe(false);
   });
 });

@@ -9,6 +9,8 @@ import { getSettings } from "@/lib/localDb";
 import { getModelInfo } from "../services/model.js";
 import { handleEmbeddingsCore } from "open-sse/handlers/embeddingsCore.js";
 import { errorResponse, responseFromRoutingCandidate } from "open-sse/utils/error.js";
+import { checkModelAccess } from "@/lib/modelAccess";
+import { checkApiKeyLimits } from "@/lib/apiKeyLimits";
 import { HTTP_STATUS } from "open-sse/config/runtimeConfig.js";
 import * as log from "../utils/logger.js";
 import { updateProviderCredentials, checkAndRefreshToken } from "../services/tokenRefresh.js";
@@ -75,6 +77,9 @@ export async function handleEmbeddings(request) {
     return errorResponse(HTTP_STATUS.BAD_REQUEST, "Missing required field: input");
   }
 
+  const overLimit = await checkApiKeyLimits(apiKey);
+  if (overLimit) return responseFromRoutingCandidate(overLimit);
+
   const modelInfo = await getModelInfo(modelStr);
   if (!modelInfo.provider) {
     log.warn("EMBEDDINGS", "Invalid model format", { model: modelStr });
@@ -82,6 +87,8 @@ export async function handleEmbeddings(request) {
   }
 
   const { provider, model } = modelInfo;
+  const accessDenial = await checkModelAccess({ apiKey, providerId: provider, model, requested: modelStr });
+  if (accessDenial) return responseFromRoutingCandidate(accessDenial);
 
   if (modelStr !== `${provider}/${model}`) {
     log.info("ROUTING", `${modelStr} → ${provider}/${model}`);

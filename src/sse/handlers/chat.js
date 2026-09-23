@@ -12,6 +12,8 @@ import { handleAntigravityQuotaError, clearAntigravityStrikes } from "../service
 import { getExhaustedQuotaResetMs } from "../services/quotaReset.js";
 import { getSettings, getApiKeyOwner, getApiKeyIdentity } from "@/lib/localDb";
 import { peekCatalogVersion } from "@/lib/catalogVersion";
+import { checkModelAccess, checkComboAccess } from "@/lib/modelAccess";
+import { checkApiKeyLimits } from "@/lib/apiKeyLimits";
 import { resolveScopedSettings, headroomProjectUrl } from "@/lib/auth/scopedSettings";
 import { getModelInfo, parseModel, resolveComboModels } from "../services/model.js";
 import { resolveVariantRequest } from "open-sse/providers/modelVariants.js";
@@ -297,6 +299,12 @@ export async function handleChat(request, clientRawRequest = null, options = {})
   const bypassResponse = handleBypassRequest(body, modelStr, userAgent, !!settings.ccFilterNaming);
   if (bypassResponse) return bypassResponse.response || bypassResponse;
 
+  const overLimit = await checkApiKeyLimits(apiKey);
+  if (overLimit) {
+    log.warn("AUTH", `API key over limit: ${overLimit.message}`);
+    return responseFromRoutingCandidate(overLimit, errorContext);
+  }
+
   const requiredCapabilities = detectRequiredCapabilities(body);
 
   // Check if model is a combo (has multiple models with fallback). The name may
@@ -307,6 +315,10 @@ export async function handleChat(request, clientRawRequest = null, options = {})
   if (comboResolution) {
     const { models: comboModels, comboName: cleanComboName } = comboResolution;
     routingContext.comboName = cleanComboName;
+    const comboAccess = await checkComboAccess(apiKey, cleanComboName);
+    if (comboAccess.denial) return responseFromRoutingCandidate(comboAccess.denial, errorContext);
+    // A key allowed to call the combo may call what the combo calls.
+    routingContext.comboAccessGranted = comboAccess.granted;
     // Check for combo-specific strategy first, fallback to global
     const comboStrategies = settings.comboStrategies || {};
     const comboSpecificStrategy = comboStrategies[cleanComboName]?.fallbackStrategy;
@@ -479,6 +491,9 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
     if (comboResolution) {
       const { models: comboModels, comboName: cleanComboName } = comboResolution;
       routingContext.comboName ||= cleanComboName;
+      const comboAccess = await checkComboAccess(apiKey, cleanComboName);
+      if (comboAccess.denial) return responseFromRoutingCandidate(comboAccess.denial, errorContext);
+      routingContext.comboAccessGranted ||= comboAccess.granted;
       const chatSettings = await getSettings();
       // Check for combo-specific strategy first, fallback to global
       const comboStrategies = chatSettings.comboStrategies || {};
@@ -557,6 +572,15 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
   // A base id with a level ("gemini-3.8-flash(high)") calls the variant model that
   // serves that level; variant ids pass through unchanged.
   const model = resolveVariantRequest(provider, modelInfo.model);
+
+  // Disabled models and the key's model rules; combos skip a denied member.
+  const accessDenial = await checkModelAccess({
+    apiKey, providerId: provider, model, requested: modelStr, grantedByCombo: routingContext.comboAccessGranted === true,
+  });
+  if (accessDenial) {
+    log.warn("CHAT", `[${provider}/${model}] ${accessDenial.message}`);
+    return responseFromRoutingCandidate(accessDenial, errorContext);
+  }
 
   // Routing shown in the unified "▶" line (client model → provider/model)
 

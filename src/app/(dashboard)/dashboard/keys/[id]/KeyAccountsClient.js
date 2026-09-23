@@ -5,6 +5,7 @@ import PropTypes from "prop-types";
 import Link from "next/link";
 import { Card, Button, Input, CardSkeleton, Toggle } from "@/shared/components";
 import ProviderIcon from "@/shared/components/ProviderIcon";
+import KeyPolicyCard from "./KeyPolicyCard";
 
 function connectionLabel(connection) {
   return connection.displayName || connection.name || connection.email || connection.id.slice(0, 8);
@@ -132,6 +133,11 @@ export default function KeyAccountsClient({ keyId }) {
         </div>
         {error && <p className="mt-3 text-sm text-red-500">{error}</p>}
       </Card>
+
+      {apiKey && (
+        // Remounts on save so the form shows the rules as the server normalized them.
+        <KeyPolicyCard key={JSON.stringify([apiKey.modelAccess, apiKey.limits])} apiKey={apiKey} onSaved={setApiKey} />
+      )}
 
       <Card padding="lg">
         <Input

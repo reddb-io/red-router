@@ -3,7 +3,7 @@
  */
 
 import { checkFallbackError } from "./accountFallback.js";
-import { errorResponse } from "../utils/error.js";
+import { errorResponse, ACCESS_DENIED_REASONS } from "../utils/error.js";
 import { getCapabilitiesForModel } from "../providers/capabilities.js";
 import { getThinkingLevels } from "../providers/thinkingLevels.js";
 import { resolveProviderAlias } from "./model.js";
@@ -566,6 +566,7 @@ export async function handleComboChat({ body, models, handleSingleModel, log, co
 
   let bestRetry = null;
   let firstFallbackError = null;
+  let firstAccessDenial = null;
   let noCredentialsCount = 0;
 
   for (let i = 0; i < rotatedModels.length; i++) {
@@ -585,6 +586,13 @@ export async function handleComboChat({ body, models, handleSingleModel, log, co
         forget(modelStr);
         noCredentialsCount++;
         log.warn("COMBO", `Model ${modelStr} skipped: no active credentials`);
+        continue;
+      }
+      // Disabled in the dashboard or outside the calling key's model rules.
+      if (ACCESS_DENIED_REASONS.has(reason)) {
+        forget(modelStr);
+        firstAccessDenial ||= result;
+        log.warn("COMBO", `Model ${modelStr} skipped: ${reason}`);
         continue;
       }
 
@@ -623,6 +631,7 @@ export async function handleComboChat({ body, models, handleSingleModel, log, co
 
   if (bestRetry) return bestRetry.response;
   if (firstFallbackError) return firstFallbackError;
+  if (firstAccessDenial) return firstAccessDenial;
 
   const allMissing = rotatedModels.length > 0 && noCredentialsCount === rotatedModels.length;
   const message = allMissing ? `No active credentials for combo: ${comboName || "unknown"}` : "All combo models unavailable";

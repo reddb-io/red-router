@@ -11,6 +11,8 @@ import { groupModelVariants, mergeVariantLevels, variantBaseName } from "open-ss
 import { getProviderConnections, getCombos, getCustomModels, getModelAliases, getApiKeyAllowedConnectionIds, getApiKeyOwner, getSettings } from "@/lib/localDb";
 import { parseModel } from "@/sse/services/model.js";
 import { getDisabledModels } from "@/lib/disabledModelsDb";
+import { getApiKeyPolicy } from "@/lib/localDb";
+import { modelAccessAllows, modelAccessNames } from "@/lib/modelAccess";
 import { resolveKiroModels } from "open-sse/services/kiroModels.js";
 import { resolveKimchiModels } from "open-sse/services/kimchiModels.js";
 import { resolveQoderModels, routableQoderModels } from "open-sse/services/qoderModels.js";
@@ -856,7 +858,40 @@ export async function buildModelsList(kindFilter, options = {}) {
     dedupedModels.push(model);
   }
 
-  return dedupedModels;
+  return filterByKeyModelAccess(dedupedModels, options.apiKey);
+}
+
+/** Every name a listed entry may be matched by in a key's model rules. */
+function entryAccessNames(entry) {
+  if (entry.owned_by === "combo") return [entry.id];
+  const names = new Set();
+  for (const id of [entry.id, ...(entry.aliases || [])]) {
+    const slash = id.indexOf("/");
+    if (slash <= 0) { names.add(id); continue; }
+    const providerId = resolveProviderAlias(id.slice(0, slash));
+    for (const name of modelAccessNames({ providerId, model: id.slice(slash + 1), requested: id })) names.add(name);
+  }
+  return [...names];
+}
+
+// A key with model rules only sees what it may call. Members of a combo it may
+// call stay unlisted unless allowed on their own; the combo entry covers them.
+async function filterByKeyModelAccess(models, apiKey) {
+  if (!apiKey) return models;
+  let modelAccess = null;
+  try { ({ modelAccess } = await getApiKeyPolicy(apiKey)); } catch { return models; }
+  if (!modelAccess) return models;
+  const allowed = [];
+  for (const entry of models) {
+    if (!modelAccessAllows(modelAccess, entryAccessNames(entry))) continue;
+    if (Array.isArray(entry.variants)) {
+      const variants = entry.variants.filter((v) => !v?.id || modelAccessAllows(modelAccess, entryAccessNames({ id: v.id, aliases: v.aliases })));
+      allowed.push(variants.length === entry.variants.length ? entry : { ...entry, variants });
+    } else {
+      allowed.push(entry);
+    }
+  }
+  return allowed;
 }
 
 /**

@@ -1188,6 +1188,17 @@ export default function APIPageClient({ machineId }) {
                   {key.isActive === false && (
                     <p className="text-xs text-orange-500 mt-1.5">Paused</p>
                   )}
+                  {(key.modelAccess || key.limits) && (
+                    <p className="mt-1.5 flex items-center gap-1 text-xs text-text-muted">
+                      <span className="material-symbols-outlined text-[12px]">policy</span>
+                      {[
+                        key.modelAccess && (key.modelAccess.mode === "allow" ? `${key.modelAccess.patterns.length} allowed model pattern(s)` : `${key.modelAccess.patterns.length} blocked model pattern(s)`),
+                        key.limits?.rpm && `${key.limits.rpm} req/min`,
+                        key.limits?.tokensPerDay && `${key.limits.tokensPerDay.toLocaleString()} tokens/day`,
+                        key.limits?.usdPerMonth && `$${key.limits.usdPerMonth}/month`,
+                      ].filter(Boolean).join(" · ")}
+                    </p>
+                  )}
                   {key.allowedConnectionIds?.length > 0 && (
                     <div className="mt-2 flex flex-wrap items-center gap-1.5">
                       {key.allowedConnectionIds.map((connId) => (
@@ -1214,7 +1225,7 @@ export default function APIPageClient({ machineId }) {
                   <Link
                     href={`/dashboard/keys/${key.id}`}
                     className="p-2 hover:bg-black/5 dark:hover:bg-white/5 rounded text-text-muted hover:text-primary transition-all"
-                    title="Link accounts to this key"
+                    title="Accounts, models and limits of this key"
                   >
                     <span className="material-symbols-outlined text-[18px]">link</span>
                   </Link>

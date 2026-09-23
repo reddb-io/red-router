@@ -22,6 +22,10 @@ const TRANSPORT_PATTERN = /UND_ERR_|ECONN|EPIPE|socket|headers timeout|fetch fai
 const SECRET_PATTERN = /(bearer\s+)[^\s,;]+|\b(?:sk|key|token)-[A-Za-z0-9._-]{8,}|\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/gi;
 const EMAIL_PATTERN = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
 
+// Routing reasons meaning "this model may not be called here" (disabled in the
+// dashboard, or outside the API key's model rules): a combo skips the member.
+export const ACCESS_DENIED_REASONS = new Set(["model_disabled", "model_not_allowed"]);
+
 function statusInfo(statusCode) {
   return ERROR_TYPES[statusCode] || (statusCode >= 500
     ? { type: "api_error", code: "internal_server_error" }
