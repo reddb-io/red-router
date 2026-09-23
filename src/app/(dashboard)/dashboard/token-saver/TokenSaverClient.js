@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useSyncExternalStore } from "react";
 import { Card, Button, Input, Modal, Toggle, ConfirmModal } from "@/shared/components";
 import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
 import { getCurrentLocale, onLocaleChange } from "@/i18n/runtime";
@@ -97,27 +97,15 @@ export default function TokenSaverClient() {
   const [showPxpipeModal, setShowPxpipeModal] = useState(false);
   const [pxpipeActionLoading, setPxpipeActionLoading] = useState(false);
   const [pxpipeActionError, setPxpipeActionError] = useState("");
-  const [locale, setLocale] = useState("en");
+  // The server render has no locale; "en" matches what the page first showed.
+  const locale = useSyncExternalStore(onLocaleChange, getCurrentLocale, () => "en");
 
   const { copied, copy } = useCopyToClipboard();
-
-  useEffect(() => {
-    setLocale(getCurrentLocale());
-    return onLocaleChange(() => setLocale(getCurrentLocale()));
-  }, []);
 
   const isWenyanLocale = WENYAN_LOCALES.includes(locale);
   const visibleCavemanLevels = isWenyanLocale
     ? CAVEMAN_LEVELS
     : CAVEMAN_LEVELS.filter((lvl) => !lvl.wenyan);
-
-  useEffect(() => {
-    const current = CAVEMAN_LEVELS.find((lvl) => lvl.id === cavemanLevel);
-    if (current?.wenyan && !isWenyanLocale) {
-      setCavemanLevel("ultra");
-      patchSetting({ cavemanLevel: "ultra" });
-    }
-  }, [isWenyanLocale, cavemanLevel]);
 
   const patchSetting = async (patch) => {
     try {
@@ -139,6 +127,15 @@ export default function TokenSaverClient() {
       console.log("Error updating setting:", error);
     }
   };
+
+  // Wenyan levels are hidden outside Chinese locales; move a saved one to ultra,
+  // updating the page once the setting is stored.
+  useEffect(() => {
+    const current = CAVEMAN_LEVELS.find((lvl) => lvl.id === cavemanLevel);
+    if (current?.wenyan && !isWenyanLocale) {
+      patchSetting({ cavemanLevel: "ultra" }).then(() => setCavemanLevel("ultra"));
+    }
+  }, [isWenyanLocale, cavemanLevel]);
 
   // Back to the admin's value: null clears the override server-side.
   const resetToDefault = (keys) => patchSetting(Object.fromEntries(keys.map((k) => [k, null])));
