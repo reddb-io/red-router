@@ -6,6 +6,11 @@ import path from "node:path";
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 
 const originalDataDir = process.env.DATA_DIR;
+// Identical entries with the same timestamp are one request retried (saveRequestUsage
+// dedupes them on purpose), so parallel writes that must all count get distinct ones.
+const BASE_TS = Date.parse("2026-01-01T12:00:00.000Z");
+let seq = 0;
+const distinctTs = () => new Date(Date.now() - 60_000 + (seq++)).toISOString();
 let tempDir;
 let db;
 
@@ -31,7 +36,7 @@ describe("DB Concurrency — atomic safety", () => {
       promises.push(db.saveRequestUsage({
         provider: "openai", model: "gpt-4", connectionId: "c1",
         tokens: { prompt_tokens: 10, completion_tokens: 5 },
-        endpoint: "/v1/chat", status: "ok",
+        endpoint: "/v1/chat", status: "ok", timestamp: distinctTs(),
       }));
     }
     await Promise.all(promises);
@@ -58,20 +63,18 @@ describe("DB Concurrency — atomic safety", () => {
       }));
     }
     await Promise.all(promises);
-
-    // Wait for any timer-based flush
-    await new Promise((r) => setTimeout(r, 6000));
+    await db.flushRequestDetails();
 
     const list = await db.getRequestDetails({ provider: "openai", pageSize: 500 });
     expect(list.pagination.totalItems).toBeGreaterThanOrEqual(N);
-  }, 15000);
+  });
 
   it("mixed concurrent: usage + details + connections + aliases", async () => {
     const ops = [];
     for (let i = 0; i < 50; i++) {
       ops.push(db.saveRequestUsage({
         provider: "anthropic", model: `m-${i % 3}`, connectionId: "c2",
-        tokens: { prompt_tokens: 20 }, status: "ok",
+        tokens: { prompt_tokens: 20 }, status: "ok", timestamp: distinctTs(),
       }));
       ops.push(db.setModelAlias(`a-${i}`, `target-${i}`));
       ops.push(db.disableModels("openai", [`d-${i}`]));
@@ -156,7 +159,7 @@ describe("DB Concurrency — atomic safety", () => {
       promises.push(db.saveRequestUsage({
         provider: "google", model: "gemini-pro", connectionId: "cG",
         tokens: { prompt_tokens: 100, completion_tokens: 50 },
-        status: "ok",
+        status: "ok", timestamp: distinctTs(),
       }));
     }
     await Promise.all(promises);
@@ -167,5 +170,16 @@ describe("DB Concurrency — atomic safety", () => {
     expect(g.requests).toBe(N);
     expect(g.promptTokens).toBe(N * 100);
     expect(g.completionTokens).toBe(N * 50);
+  });
+
+  it("identical entries with the same timestamp count once (retry dedupe)", async () => {
+    const entry = () => ({
+      provider: "dedupe", model: "m", connectionId: "cD",
+      tokens: { prompt_tokens: 7, completion_tokens: 3 }, status: "ok",
+      timestamp: new Date(BASE_TS).toISOString(),
+    });
+    await Promise.all(Array.from({ length: 10 }, () => db.saveRequestUsage(entry())));
+    const hist = await db.getUsageHistory({ provider: "dedupe" });
+    expect(hist.length).toBe(1);
   });
 });
