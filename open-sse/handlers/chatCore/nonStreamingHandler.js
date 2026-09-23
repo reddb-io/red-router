@@ -13,6 +13,7 @@ import { decloakToolNames } from "../../utils/claudeCloaking.js";
 import { costHeaders } from "../../utils/servedHeaders.js";
 import { restoreToolNames } from "../../utils/opencodeFingerprint.js";
 import { nonStreamFailure } from "./streamProbe.js";
+import { recordSuccess } from "../../services/providerHealth.js";
 
 /**
  * Translate a non-streaming response body: provider format → OpenAI Chat
@@ -217,6 +218,9 @@ export async function handleNonStreamingResponse({ providerResponse, provider, e
   const usage = extractUsageFromResponse(responseBody);
   appendLog({ tokens: usage, status: "200 OK" });
   saveUsageStats({ provider, model, tokens: usage, connectionId, apiKey, endpoint: clientRawRequest?.endpoint, silent: true });
+  // Without a stream the whole answer arrives at once: first token = total latency.
+  const latencyMs = Date.now() - requestStartTime;
+  recordSuccess({ provider, connectionId, model, ttftMs: latencyMs, latencyMs });
   if (log?.line) log.line(reqTag, "📊", formatDoneLine({ usage, latency: { total: Date.now() - requestStartTime } }));
 
   const translatedResponse = needsTranslation(targetFormat, sourceFormat)

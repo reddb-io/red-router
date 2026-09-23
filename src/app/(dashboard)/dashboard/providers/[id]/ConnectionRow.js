@@ -195,6 +195,17 @@ export default function ConnectionRow({ connection, proxyPools, isOAuth, isFirst
               </span>
             )}
             <span className="text-xs text-text-muted">#{connection.priority}</span>
+            {connection.health && (
+              <span
+                className={`text-xs ${connection.health.openModels ? "text-orange-500" : "text-text-muted"}`}
+                title={`${connection.health.samples} requests measured since the server started${connection.health.openModels ? ` · failing on ${connection.health.openModels} model(s)` : ""}`}
+              >
+                {[
+                  connection.health.ttftMs !== null && `TTFT ${(connection.health.ttftMs / 1000).toFixed(1)}s`,
+                  `${Math.round(connection.health.errorRate * 100)}% errors`,
+                ].filter(Boolean).join(" · ")}
+              </span>
+            )}
             {connection.globalPriority && (
               <span className="text-xs text-text-muted">Auto: {connection.globalPriority}</span>
             )}
@@ -303,6 +314,12 @@ ConnectionRow.propTypes = {
     lastError: PropTypes.string,
     priority: PropTypes.number,
     globalPriority: PropTypes.number,
+    health: PropTypes.shape({
+      samples: PropTypes.number,
+      ttftMs: PropTypes.number,
+      errorRate: PropTypes.number,
+      openModels: PropTypes.number,
+    }),
   }).isRequired,
   proxyPools: PropTypes.arrayOf(PropTypes.shape({
     id: PropTypes.string,

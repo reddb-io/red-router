@@ -4,6 +4,7 @@ import "open-sse/index.js";
 import { getProviderConnectionById, updateProviderConnection } from "@/lib/localDb";
 import { canSee, getScopeFilter } from "@/lib/auth/resourceScope";
 import { getUsageForProvider } from "open-sse/services/usage.js";
+import { recordQuotaSnapshot } from "@/sse/services/quotaSnapshot.js";
 import { getExecutor } from "open-sse/executors/index.js";
 import { resolveConnectionProxyConfig } from "@/lib/network/connectionProxy";
 import { USAGE_APIKEY_PROVIDERS } from "@/shared/constants/providers";
@@ -184,6 +185,9 @@ export async function GET(request, { params }) {
         console.warn(`[Usage] ${connection.provider}: force refresh failed: ${retryError.message}`);
       }
     }
+
+    // Quota-aware routing reads the same report; a dashboard view refreshes it for free.
+    recordQuotaSnapshot(connection.id, usage);
 
     // The quota we just fetched is the freshest evidence available: if it says the
     // account is free while a quota lock is still standing, drop the lock now.

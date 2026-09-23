@@ -70,6 +70,11 @@ const USAGE_HANDLERS = {
   commandcode: (c) => getCommandCodeUsage(c.apiKey, c.proxyOptions),
 };
 
+/** Whether RedRouter can read this provider's quota from its usage API. */
+export function hasUsageHandler(provider) {
+  return Object.prototype.hasOwnProperty.call(USAGE_HANDLERS, provider);
+}
+
 export async function getUsageForProvider(connection, proxyOptions = null, options = {}) {
   const { provider, accessToken, apiKey, providerSpecificData, projectId } = connection;
   const providerDataWithProjectId = {

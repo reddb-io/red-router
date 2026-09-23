@@ -116,6 +116,12 @@ async function runHeavyStartup() {
   import("@/shared/services/quotaUnlock")
     .then(({ startQuotaUnlock }) => startQuotaUnlock())
     .catch((e) => console.log("[QuotaUnlock] scheduler start failed:", e.message));
+
+  if (settings.quotaAwareRouting === true) {
+    import("@/shared/services/quotaSnapshotScheduler")
+      .then(({ configureQuotaSnapshots }) => configureQuotaSnapshots(settings))
+      .catch((e) => console.log("[QuotaSnapshot] scheduler start failed:", e.message));
+  }
 }
 
 function hasQuotaAutoPingEnabled(settings) {
