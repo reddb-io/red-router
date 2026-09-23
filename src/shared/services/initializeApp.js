@@ -113,6 +113,10 @@ async function runHeavyStartup() {
       .catch((e) => console.log("[AutoPing] scheduler start failed:", e.message));
   }
 
+  import("@/lib/capabilityOverrides")
+    .then(({ loadCapabilityOverrides }) => loadCapabilityOverrides())
+    .catch((e) => console.log("[Capabilities] overrides not loaded:", e.message));
+
   import("@/shared/services/quotaUnlock")
     .then(({ startQuotaUnlock }) => startQuotaUnlock())
     .catch((e) => console.log("[QuotaUnlock] scheduler start failed:", e.message));

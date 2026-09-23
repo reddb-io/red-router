@@ -1,7 +1,7 @@
 import PropTypes from "prop-types";
 import { CapacityBadges } from "@/shared/components";
 
-export default function ModelRow({ model, fullModel, alias, copied, onCopy, testStatus, isCustom, isFree, onDeleteAlias, onTest, isTesting, onDisable, onRename, caps, thinkingSuffix }) {
+export default function ModelRow({ model, fullModel, alias, copied, onCopy, testStatus, isCustom, isFree, onDeleteAlias, onTest, isTesting, onDisable, onRename, onEditCapabilities, caps, thinkingSuffix }) {
   const displayModel = thinkingSuffix ? `${fullModel}(${thinkingSuffix})` : fullModel;
   const borderColor = testStatus === "ok"
     ? "border-green-500/40"
@@ -62,6 +62,20 @@ export default function ModelRow({ model, fullModel, alias, copied, onCopy, test
             </span>
           </div>
         )}
+        {onEditCapabilities && (
+          <div className="relative shrink-0 group/btn">
+            <button
+              onClick={onEditCapabilities}
+              className="rounded p-0.5 text-text-muted opacity-100 transition-opacity hover:bg-sidebar hover:text-primary sm:opacity-0 sm:group-hover:opacity-100"
+              aria-label="Capabilities"
+            >
+              <span className="material-symbols-outlined text-sm">tune</span>
+            </button>
+            <span className="pointer-events-none absolute mt-1 top-5 left-1/2 -translate-x-1/2 text-[10px] text-text-muted whitespace-nowrap opacity-0 group-hover/btn:opacity-100 transition-opacity">
+              Capabilities
+            </span>
+          </div>
+        )}
         <div className="relative shrink-0 group/btn">
           <button
             onClick={() => onCopy(displayModel, `model-${model.id}`)}
@@ -113,6 +127,7 @@ ModelRow.propTypes = {
   isTesting: PropTypes.bool,
   onDisable: PropTypes.func,
   onRename: PropTypes.func,
+  onEditCapabilities: PropTypes.func,
   caps: PropTypes.object,
   thinkingSuffix: PropTypes.string,
 };

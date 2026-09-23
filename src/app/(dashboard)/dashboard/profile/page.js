@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { Card, Button, Toggle, Input } from "@/shared/components";
+import { Card, Button, Toggle, Input, Select } from "@/shared/components";
 import Modal, { ConfirmModal } from "@/shared/components/Modal";
 import LanguageSwitcher from "@/shared/components/LanguageSwitcher";
 import { useTheme } from "@/shared/hooks/useTheme";
@@ -1667,6 +1667,27 @@ export default function ProfilePage() {
                 />
               </div>
             )}
+
+            {/* Combo fallback across cost classes */}
+            <div className="flex items-start sm:items-center justify-between gap-4 pt-4 border-t border-border/50">
+              <div className="flex-1 min-w-0">
+                <p className="font-medium text-sm sm:text-base">Combo Fallback Across Plans and API Keys</p>
+                <p className="text-xs sm:text-sm text-text-muted">
+                  Whether a combo led by a subscription account may fall back to a pay-per-token API key, and the reverse
+                </p>
+              </div>
+              <Select
+                options={[
+                  { value: "allow", label: "Always allow" },
+                  { value: "no-metered", label: "Never from a plan to an API key" },
+                  { value: "same-class", label: "Stay in the lead's class" },
+                ]}
+                value={settings.costClassFallback || "allow"}
+                onChange={(e) => patchRoutingSetting({ costClassFallback: e.target.value })}
+                disabled={loading}
+                className="w-56 shrink-0"
+              />
+            </div>
 
             {/* Combo Round Robin */}
             <div className="flex items-start sm:items-center justify-between gap-4 pt-4 border-t border-border/50">

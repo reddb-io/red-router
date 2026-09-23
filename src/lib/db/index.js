@@ -56,6 +56,9 @@ export {
   getPricing, getPricingForModel, updatePricing, resetPricing, resetAllPricing,
 } from "./repos/pricingRepo.js";
 
+// Capability overrides
+export { getCapabilityOverrides, setCapabilityOverride } from "./repos/capabilityOverridesRepo.js";
+
 // Disabled models
 export {
   getDisabledModels, getDisabledByProvider, disableModels, enableModels,

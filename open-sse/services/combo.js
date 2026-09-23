@@ -10,6 +10,7 @@ import { resolveProviderAlias } from "./model.js";
 import { stripThinkingSuffix } from "../translator/concerns/thinkingUnified.js";
 import { extractTextContent } from "../translator/formats/gemini.js";
 import { getSessionMember, rememberSessionMember, forgetSessionMember, preferSessionMember } from "./sessionAffinity.js";
+import { providerIdentity } from "../providers/identity.js";
 import { isProviderModelOpen } from "./providerHealth.js";
 
 // Hard capabilities = input modalities; missing one drops request data (e.g. image
@@ -546,7 +547,42 @@ export function demoteFailingMembers(models, { keepLead = false, now = Date.now(
   return { models: healthy.length ? [...healthy, ...failing] : models, moved: healthy.length ? failing : [] };
 }
 
-export async function handleComboChat({ body, models, handleSingleModel, log, comboName, comboStrategy, comboStickyLimit = 1, autoSwitch = true, errorContext = {}, sessionKey = null, routedLead = false }) {
+export const COST_CLASS_POLICIES = ["allow", "no-metered", "same-class"];
+
+/**
+ * "plan" for a subscription account (OAuth, web cookie, free: no per-token bill),
+ * "metered" for an API key, null when the member's provider is unknown (a custom
+ * node or a nested combo), which no policy restricts.
+ */
+export function costClassOf(member) {
+  const slash = typeof member === "string" ? member.indexOf("/") : -1;
+  if (slash <= 0) return null;
+  const identity = providerIdentity(resolveProviderAlias(member.slice(0, slash)));
+  if (!identity) return null;
+  return identity.subscription ? "plan" : "metered";
+}
+
+/**
+ * Members a combo may fall back to, given the lead's cost class. "allow" (the
+ * default) keeps every member; "no-metered" stops a plan-led combo from falling
+ * back to metered API keys, so a subscription outage never turns into a bill;
+ * "same-class" keeps fallback inside the lead's class in both directions.
+ */
+export function applyCostClassPolicy(models, policy = "allow") {
+  if (!COST_CLASS_POLICIES.includes(policy) || policy === "allow" || models.length < 2) return { models, skipped: [] };
+  const lead = costClassOf(models[0]);
+  if (!lead) return { models, skipped: [] };
+  const kept = [models[0]];
+  const skipped = [];
+  for (const member of models.slice(1)) {
+    const cls = costClassOf(member);
+    const blocked = cls !== null && cls !== lead && (policy === "same-class" || (lead === "plan" && cls === "metered"));
+    (blocked ? skipped : kept).push(member);
+  }
+  return { models: kept, skipped };
+}
+
+export async function handleComboChat({ body, models, handleSingleModel, log, comboName, comboStrategy, comboStickyLimit = 1, autoSwitch = true, errorContext = {}, sessionKey = null, routedLead = false, costClassPolicy = "allow" }) {
   const sessionMember = sessionKey && !routedLead ? getSessionMember(comboName, sessionKey) : null;
   const stickyMember = sessionMember && Array.isArray(models) && models.includes(sessionMember) ? sessionMember : null;
   let rotatedModels = stickyMember
@@ -583,7 +619,11 @@ export async function handleComboChat({ body, models, handleSingleModel, log, co
   }
   rotatedModels = contextFilter.models;
 
-  const demoted = demoteFailingMembers(rotatedModels, { keepLead: routedLead });
+  // After every reordering, so the policy judges against the member that leads.
+  const classed = applyCostClassPolicy(rotatedModels, costClassPolicy);
+  if (classed.skipped.length) log.info("COMBO", `cost class (${costClassPolicy}) excludes: ${classed.skipped.join(", ")}`);
+
+  const demoted = demoteFailingMembers(classed.models, { keepLead: routedLead });
   if (demoted.moved.length) log.info("COMBO", `failing providers moved last: ${demoted.moved.join(", ")}`);
   rotatedModels = demoted.models;
 

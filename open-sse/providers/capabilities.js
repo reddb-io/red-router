@@ -569,7 +569,38 @@ function isCommandCodeTextOnly(model) {
   }
   return false;
 }
+// User overrides (dashboard), installed by the server like the catalog source.
+// Applied last, over every table and heuristic, so a correction always wins.
+let overrideSource = null;
+
+/**
+ * Install the override lookup (server only).
+ * @param {((provider: string, model: string) => object|null) | null} source
+ */
+export function setCapabilityOverrideSource(source) {
+  overrideSource = source;
+  if (typeof globalThis !== "undefined") globalThis.__rrCapabilityOverrides = source;
+}
+
+function getOverrideSource() {
+  if (overrideSource) return overrideSource;
+  if (typeof globalThis === "undefined") return null;
+  return (overrideSource = globalThis.__rrCapabilityOverrides || null);
+}
+
 export function getCapabilitiesForModel(provider, model) {
+  const caps = resolveCapabilities(provider, model);
+  if (!model) return caps;
+  const override = getOverrideSource()?.(provider, model);
+  return override ? { ...caps, ...override } : caps;
+}
+
+/** Capabilities before user overrides: what the tables and catalog say. */
+export function getBaseCapabilitiesForModel(provider, model) {
+  return resolveCapabilities(provider, model);
+}
+
+function resolveCapabilities(provider, model) {
   if (!model) return { ...DEFAULT_CAPABILITIES };
 
   // Canonical exact lookup strips vendor prefix: "anthropic/claude-opus-4.7" -> "claude-opus-4.7".
