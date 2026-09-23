@@ -10,6 +10,7 @@ import { getProviderCredentials } from "./auth.js";
 import { askJev, decisionUrlFor } from "open-sse/decision/jev.js";
 import { buildState } from "open-sse/decision/state.js";
 import { extractSignals, isEncryptedTask, signalsMeta } from "open-sse/decision/signals.js";
+import { localDeliberation } from "open-sse/decision/localScorer.js";
 import {
   autopilotApplies,
   decideReasoningLevel,
@@ -18,7 +19,7 @@ import {
 } from "open-sse/decision/reasoningAutopilot.js";
 import { buildModelQuestions, buildReasoningQuestions, buildToolQuestions, shortlistTools, DELIBERATION_KEY } from "open-sse/decision/questions.js";
 import { HINT_SOURCE, hintEffort } from "open-sse/decision/clientHint.js";
-import { modelContextWindow } from "open-sse/services/combo.js";
+import { modelContextWindow, estimateRequestTokens } from "open-sse/services/combo.js";
 import { resolveModelDecision, resolveToolDecision } from "open-sse/decision/decide.js";
 import { getPricingForModel } from "open-sse/providers/pricing.js";
 import { resolveCriteria } from "open-sse/decision/modelBriefs.js";
@@ -38,6 +39,9 @@ export const DEFAULT_DECISION = {
   // pool of 12. Calibrated on 383 production verdicts over the 12-model pool.
   minStrength: 0.35,
   switchStrength: 0.6,
+  // Switching away from the member whose prompt cache is warm needs a clearer
+  // verdict (or a second agreeing one), since the switch re-pays the prompt.
+  cacheSwitchStrength: 0.75,
   timeoutMs: 1500,
 };
 
@@ -132,6 +136,36 @@ export function priceOf(model) {
   return typeof price?.input === "number" ? price.input : null;
 }
 
+// Expected answer length when the request does not say: most turns are short,
+// and a max_tokens is a ceiling, not a forecast, so it is capped.
+const DEFAULT_OUTPUT_TOKENS = 1000;
+const MAX_EXPECTED_OUTPUT_TOKENS = 4000;
+// Share of the prompt a warm session reads from the provider's cache.
+const WARM_CACHE_SHARE = 0.9;
+
+/**
+ * What one request would cost on each model, in dollars: the prompt at the input
+ * price (most of it at the cached price on the member whose cache is warm), plus
+ * the expected answer at the output price. Null for an unpriced model. Replaces
+ * the input price alone, which ranked a cheap-input, expensive-output model first
+ * and ignored that switching away from a warm cache pays the prompt in full.
+ */
+export function requestCostOf(body, { inputTokens = null, warmMember = null } = {}) {
+  const prompt = Number.isFinite(inputTokens) ? inputTokens : estimateRequestTokens(body || {});
+  const limit = Number(body?.max_tokens ?? body?.max_completion_tokens ?? body?.max_output_tokens ?? body?.generationConfig?.maxOutputTokens);
+  const output = Number.isFinite(limit) && limit > 0 ? Math.min(limit, MAX_EXPECTED_OUTPUT_TOKENS) : DEFAULT_OUTPUT_TOKENS;
+  return (model) => {
+    const slash = model.indexOf("/");
+    if (slash <= 0) return null;
+    const price = getPricingForModel(model.slice(0, slash), model.slice(slash + 1));
+    if (typeof price?.input !== "number") return null;
+    const outputPrice = typeof price.output === "number" ? price.output : price.input;
+    const cachedShare = model === warmMember && typeof price.cached === "number" ? WARM_CACHE_SHARE : 0;
+    const inputCost = prompt * ((1 - cachedShare) * price.input + cachedShare * (price.cached ?? price.input));
+    return (inputCost + output * outputPrice) / 1e6;
+  };
+}
+
 /**
  * The decision pool: every model the combo can really reach, cheapest first.
  *
@@ -197,13 +231,14 @@ const ask = (target, config, state, questions, log) =>
  * asked and that value answers it; jev is still asked which model fits, because
  * the hint names no model.
  */
-export async function decideComboModel({ body, models, comboName, config, target, log, previousVerdict = null, ranked = null, signals = null, hintedDeliberation = null }) {
-  // Cheapest first, and the list both the question and the verdict are served from.
-  // The question MUST be built over this pool: for a combo-of-combos `models` holds
-  // tier names, so asking with those and validating against the expanded pool has
-  // jev answer a tier name the pool does not contain — every verdict discarded as
-  // `no_usable_pick`, measured at 243 of 243 calls.
-  const pool = ranked?.length ? ranked : rankByCost(models, priceOf);
+export async function decideComboModel({ body, models, comboName, config, target, log, previousVerdict = null, ranked = null, signals = null, hintedDeliberation = null, warmMember = null }) {
+  // Cheapest first by what this request would cost, and the list both the question
+  // and the verdict are served from. The question MUST be built over this pool: for
+  // a combo-of-combos `models` holds tier names, so asking with those and validating
+  // against the expanded pool has jev answer a tier name the pool does not contain —
+  // every verdict discarded as `no_usable_pick`, measured at 243 of 243 calls.
+  const costOf = requestCostOf(body, { inputTokens: signals?.contextTokens ?? null, warmMember });
+  const pool = rankByCost(ranked?.length ? ranked : models, costOf);
   if (pool.length < 2) return { models, decision: null };
 
   // Bookkeeping (session titles): the cheapest member, no decision call. Asking
@@ -226,6 +261,11 @@ export async function decideComboModel({ body, models, comboName, config, target
   const response = await ask(target, config, state, questions, log);
 
   if (!response) {
+    const local = localComboPick(pool, signals, costOf);
+    if (local) {
+      log?.info?.("DECISION", `model: ${local.model} for "${comboName}" (jev unavailable, local score ${fmt(local.score)})`);
+      return { models: [local.model, ...pool.filter((m) => m !== local.model)], decision: local.decision };
+    }
     log?.info?.("DECISION", "model: verdict discarded, pool order unchanged");
     return { models, decision: null, reason: "ask_failed" };
   }
@@ -236,9 +276,12 @@ export async function decideComboModel({ body, models, comboName, config, target
   const resolved = resolveModelDecision({
     answers,
     models: pool,
-    priceOf,
+    priceOf: costOf,
     minStrength: config.minStrength,
     switchStrength: config.switchStrength,
+    // Leaving the member whose prompt cache is warm pays the whole prompt again.
+    warmMember,
+    cacheSwitchStrength: config.cacheSwitchStrength,
     previousVerdict,
     needsDeliberation: signals?.planMode === true || signals?.stall === true,
   });
@@ -259,6 +302,43 @@ export async function decideComboModel({ body, models, comboName, config, target
     `model: ${decision.model} for "${comboName}" (conf ${fmt(decision.confidence)}, deliberar ${fmt(decision.deliberation)}, ${response.latencyMs}ms)`
   );
   return { models: [decision.model, ...pool.filter((m) => m !== decision.model)], decision };
+}
+
+// Local fallback bands: only a clear score moves the pool when jev is silent.
+const LOCAL_HARD = 0.7;
+const LOCAL_EASY = 0.2;
+
+/**
+ * When jev cannot answer: a clearly hard turn goes to the priciest priced member
+ * (the pool's strongest, by the only measure available), a clearly easy one to the
+ * cheapest; anything in between leaves the order alone.
+ */
+function localComboPick(pool, signals, costOf) {
+  if (!signals || signals.encryptedTask) return null;
+  const { score, reasons } = localDeliberation(signals);
+  const priced = pool.filter((m) => costOf(m) !== null);
+  if (priced.length < 2) return null;
+  const model = score >= LOCAL_HARD ? priced[priced.length - 1] : score <= LOCAL_EASY ? priced[0] : null;
+  if (!model) return null;
+  // No deliberation is handed on: the reasoning autopilot scores the turn itself.
+  return { model, score, decision: { apply: true, reason: "local_score", cause: "local", model, deliberation: null, localScore: score, localReasons: reasons, signals: signalsMeta(signals) } };
+}
+
+/**
+ * An `ask(state, questions)` for the relevance saver, bound to the configured
+ * decision gateway, or null when none is reachable. Its usage row is recorded like
+ * any other decision.
+ */
+export async function relevanceAsker(settings, { apiKey = null, log } = {}) {
+  const config = normalizeDecisionConfig(settings?.decisionRouter);
+  const target = await resolveDecisionTarget(config, { apiKey, log });
+  if (!target) return null;
+  return async (state, questions) => {
+    const response = await ask(target, config, state, questions, log);
+    if (!response) return null;
+    await recordUsage({ response, log, target, verdict: { kind: "relevance", questions: Object.keys(questions).length } });
+    return response.answers;
+  };
 }
 
 /**
@@ -425,8 +505,10 @@ export async function planReasoning({ body, settings, apiKey = null, apiKeyId = 
   const result = decideReasoningLevel({
     signals,
     deliberation: measured,
-    // No answer from jev: keep the level the session already has rather than guess.
+    // No answer from jev: keep the level the session already has rather than guess,
+    // and only on a session's first turn fall back to the deterministic score.
     jevFailed: wantsJev && measured === null,
+    localDeliberation: wantsJev && measured === null ? localDeliberation(signals).score : null,
     turnId,
     contextWindow: model ? modelContextWindow(model) : null,
     previous: session?.state || null,
