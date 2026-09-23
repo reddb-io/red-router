@@ -2,6 +2,7 @@ import { v4 as uuidv4 } from "uuid";
 import { getDb } from "../kysely.js";
 import { parseJson, stringifyJson } from "../helpers/jsonCol.js";
 import { normalizeOwnerInput, resolveDefaultOwner } from "@/lib/auth/resourceScope";
+import { normalizeModelAccess, normalizeKeyLimits } from "@/lib/apiKeyPolicy.js";
 
 // An empty binding list means "no restriction": the key reaches every account.
 // Callers rely on null (not []) to express that, so normalize both ways here.
@@ -43,6 +44,8 @@ function rowToKey(row) {
     isActive: row.isActive === 1 || row.isActive === true,
     allowedConnectionIds: normalizeAllowed(parseJson(row.allowedConnectionIds, null)),
     tags: normalizeTags(parseJson(row.tags, null)) || [],
+    modelAccess: normalizeModelAccess(parseJson(row.modelAccess, null)),
+    limits: normalizeKeyLimits(parseJson(row.limits, null)),
     owner: row.owner ?? null,
     createdAt: row.createdAt,
   };
@@ -73,6 +76,8 @@ export async function createApiKey(name, machineId, tags = null, owner = undefin
     isActive: true,
     allowedConnectionIds: null,
     tags: normalizeTags(tags) || [],
+    modelAccess: null,
+    limits: null,
     owner: owner === undefined ? await resolveDefaultOwner() : normalizeOwnerInput(owner),
     createdAt: new Date().toISOString(),
   };
@@ -117,11 +122,15 @@ export async function updateApiKey(id, data) {
     }
     const tags = normalizeTags(merged.tags);
     merged.tags = tags || [];
+    merged.modelAccess = normalizeModelAccess(merged.modelAccess);
+    merged.limits = normalizeKeyLimits(merged.limits);
     await trx.updateTable("apiKeys").set({
       key: merged.key, name: merged.name, machineId: merged.machineId,
       isActive: merged.isActive ? 1 : 0,
       allowedConnectionIds: merged.allowedConnectionIds ? stringifyJson(merged.allowedConnectionIds) : null,
       tags: tags ? stringifyJson(tags) : null,
+      modelAccess: merged.modelAccess ? stringifyJson(merged.modelAccess) : null,
+      limits: merged.limits ? stringifyJson(merged.limits) : null,
       owner: merged.owner ?? null,
     }).where("id", "=", id).execute();
     result = merged;
@@ -162,6 +171,24 @@ export async function getApiKeyIdentity(key) {
   const db = await getDb();
   const row = await db.selectFrom("apiKeys").select(["id", "owner", "name"]).where("key", "=", key).executeTakeFirst();
   return { id: row?.id ?? null, owner: row?.owner ?? null, name: row?.name ?? null };
+}
+
+const NO_POLICY = Object.freeze({ id: null, modelAccess: null, limits: null });
+
+/**
+ * What the router enforces for a key: its model rules and usage limits. An
+ * unknown key has none, matching validateApiKey being a separate check.
+ */
+export async function getApiKeyPolicy(key) {
+  if (!key) return NO_POLICY;
+  const db = await getDb();
+  const row = await db.selectFrom("apiKeys").select(["id", "modelAccess", "limits"]).where("key", "=", key).executeTakeFirst();
+  if (!row) return NO_POLICY;
+  return {
+    id: row.id,
+    modelAccess: normalizeModelAccess(parseJson(row.modelAccess, null)),
+    limits: normalizeKeyLimits(parseJson(row.limits, null)),
+  };
 }
 
 export async function getApiKeyOwner(key) {

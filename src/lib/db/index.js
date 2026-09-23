@@ -1,6 +1,7 @@
 // Public API barrel — all DB functions
 import { getDb } from "./kysely.js";
 import { stringifyJson, parseJson } from "./helpers/jsonCol.js";
+import { normalizeModelAccess, normalizeKeyLimits } from "@/lib/apiKeyPolicy.js";
 
 // Settings
 export {
@@ -33,6 +34,7 @@ export {
   getApiKeyAllowedConnectionIds,
   getApiKeyOwner,
   getApiKeyIdentity,
+  getApiKeyPolicy,
 } from "./repos/apiKeysRepo.js";
 
 // Combos
@@ -61,7 +63,7 @@ export {
 // Usage
 export {
   statsEmitter, trackPendingRequest, getActiveRequests,
-  saveRequestUsage, getUsageHistory, getUsageStats, getChartData,
+  saveRequestUsage, getUsageHistory, getUsageStats, getChartData, getApiKeyUsageTotals,
   appendRequestLog, getRecentLogs,
 } from "./repos/usageRepo.js";
 
@@ -80,7 +82,7 @@ export async function exportDb() {
     providerConnections: (await db.selectFrom("providerConnections").selectAll().execute()).map((r) => ({ ...parseJson(r.data, {}), id: r.id, provider: r.provider, authType: r.authType, name: r.name, email: r.email, priority: r.priority, isActive: r.isActive === 1, owner: r.owner ?? null, createdAt: r.createdAt, updatedAt: r.updatedAt })),
     providerNodes: (await db.selectFrom("providerNodes").selectAll().execute()).map((r) => ({ ...parseJson(r.data, {}), id: r.id, type: r.type, name: r.name, createdAt: r.createdAt, updatedAt: r.updatedAt })),
     proxyPools: (await db.selectFrom("proxyPools").selectAll().execute()).map((r) => ({ ...parseJson(r.data, {}), id: r.id, isActive: r.isActive === 1, testStatus: r.testStatus, createdAt: r.createdAt, updatedAt: r.updatedAt })),
-    apiKeys: (await db.selectFrom("apiKeys").selectAll().execute()).map((r) => ({ id: r.id, key: r.key, name: r.name, machineId: r.machineId, isActive: r.isActive === 1, allowedConnectionIds: parseJson(r.allowedConnectionIds, null), tags: parseJson(r.tags, null), owner: r.owner ?? null, createdAt: r.createdAt })),
+    apiKeys: (await db.selectFrom("apiKeys").selectAll().execute()).map((r) => ({ id: r.id, key: r.key, name: r.name, machineId: r.machineId, isActive: r.isActive === 1, allowedConnectionIds: parseJson(r.allowedConnectionIds, null), tags: parseJson(r.tags, null), modelAccess: parseJson(r.modelAccess, null), limits: parseJson(r.limits, null), owner: r.owner ?? null, createdAt: r.createdAt })),
     combos: (await db.selectFrom("combos").selectAll().execute()).map((r) => ({ id: r.id, name: r.name, kind: r.kind, models: parseJson(r.models, []), owner: r.owner ?? null, createdAt: r.createdAt, updatedAt: r.updatedAt })),
     modelAliases: {},
     customModels: [],
@@ -182,6 +184,8 @@ export async function importDb(payload) {
         isActive: k.isActive === false ? 0 : 1,
         allowedConnectionIds: Array.isArray(k.allowedConnectionIds) && k.allowedConnectionIds.length ? stringifyJson(k.allowedConnectionIds) : null,
         tags: Array.isArray(k.tags) && k.tags.length ? stringifyJson(k.tags) : null,
+        modelAccess: normalizeModelAccess(k.modelAccess) ? stringifyJson(normalizeModelAccess(k.modelAccess)) : null,
+        limits: normalizeKeyLimits(k.limits) ? stringifyJson(normalizeKeyLimits(k.limits)) : null,
         owner: k.owner ?? null, createdAt: k.createdAt || new Date().toISOString(),
       });
     }

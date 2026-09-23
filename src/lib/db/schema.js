@@ -91,6 +91,11 @@ export const TABLES = {
       allowedConnectionIds: "TEXT",
       // JSON array of free-form labels, for grouping/filtering keys only.
       tags: "TEXT",
+      // JSON { mode: "allow"|"deny", patterns: [glob] } — which models the key may
+      // call. NULL = every model (see src/lib/apiKeyPolicy.js).
+      modelAccess: "TEXT",
+      // JSON { rpm?, tokensPerDay?, usdPerMonth? }. NULL = no limits.
+      limits: "TEXT",
       // See providerConnections.owner. A key's owner also caps which accounts it
       // may route to at runtime.
       owner: "TEXT",

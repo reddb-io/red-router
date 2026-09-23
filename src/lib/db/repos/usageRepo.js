@@ -353,6 +353,31 @@ async function loadDaysInRange(db, maxDays) {
   return q.orderBy("dateKey", "asc").execute();
 }
 
+/**
+ * One key's usage for limit checks: tokens (prompt + completion) on the local day
+ * of `now`, and cost over its calendar month. Reads the daily rollups, where
+ * byApiKey entries are keyed "<apiKey>|<model>|<provider>".
+ */
+export async function getApiKeyUsageTotals(apiKey, now = new Date()) {
+  const totals = { tokensToday: 0, costThisMonth: 0 };
+  if (!apiKey) return totals;
+  const db = await getDb();
+  const todayKey = getLocalDateKey(now);
+  const monthStart = `${todayKey.slice(0, 7)}-01`;
+  const rows = await db.selectFrom("usageDaily").select(["dateKey", "data"])
+    .where("dateKey", ">=", monthStart).where("dateKey", "<=", todayKey).execute();
+  const prefix = `${apiKey}|`;
+  for (const row of rows) {
+    const byApiKey = parseJson(row.data, {})?.byApiKey || {};
+    for (const [key, entry] of Object.entries(byApiKey)) {
+      if (!key.startsWith(prefix)) continue;
+      totals.costThisMonth += entry.cost || 0;
+      if (row.dateKey === todayKey) totals.tokensToday += (entry.promptTokens || 0) + (entry.completionTokens || 0);
+    }
+  }
+  return totals;
+}
+
 export async function getUsageStats(period = "all", options = {}) {
   const db = await getDb();
   // Filtering by key forces the per-request path: the daily rollups aggregate

@@ -9,6 +9,8 @@ import { getSettings, getProviderConnectionById } from "@/lib/localDb";
 import { getModelInfo } from "../services/model.js";
 import { handleVideoProxyCore, getVideoConfig, sanitizeSecrets } from "open-sse/handlers/videoCore.js";
 import { errorResponse, responseFromRoutingCandidate } from "open-sse/utils/error.js";
+import { checkModelAccess } from "@/lib/modelAccess";
+import { checkApiKeyLimits } from "@/lib/apiKeyLimits";
 import { HTTP_STATUS } from "open-sse/config/runtimeConfig.js";
 import { updateProviderCredentials, checkAndRefreshToken } from "../services/tokenRefresh.js";
 import * as log from "../utils/logger.js";
@@ -111,6 +113,8 @@ function withConnectionHeader(response, connectionId) {
 export async function handleVideoCreate(request, action) {
   const auth = await requireValidApiKey(request);
   if (auth.error) return auth.error;
+  const overLimit = await checkApiKeyLimits(auth.apiKey);
+  if (overLimit) return responseFromRoutingCandidate(overLimit);
 
   const bodyInfo = await readForwardableBody(request);
   if (bodyInfo.error) return bodyInfo.error;
@@ -118,6 +122,8 @@ export async function handleVideoCreate(request, action) {
   const resolved = await resolveVideoProvider(bodyInfo.parsed);
   if (resolved.error) return resolved.error;
   const { provider, model } = resolved;
+  const accessDenial = await checkModelAccess({ apiKey: auth.apiKey, providerId: provider, model, requested: bodyInfo.parsed?.model ?? null });
+  if (accessDenial) return responseFromRoutingCandidate(accessDenial);
 
   // Strip the provider prefix (e.g. "xai/grok-imagine-video") before forwarding;
   // otherwise forward the original bytes untouched.

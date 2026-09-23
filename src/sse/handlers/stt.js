@@ -6,6 +6,8 @@ import { getSettings } from "@/lib/localDb";
 import { getModelInfo } from "../services/model.js";
 import { handleSttCore } from "open-sse/handlers/sttCore.js";
 import { errorResponse, responseFromRoutingCandidate } from "open-sse/utils/error.js";
+import { checkModelAccess } from "@/lib/modelAccess";
+import { checkApiKeyLimits } from "@/lib/apiKeyLimits";
 import { HTTP_STATUS } from "open-sse/config/runtimeConfig.js";
 import { AI_PROVIDERS } from "@/shared/constants/providers";
 import * as log from "../utils/logger.js";
@@ -39,10 +41,15 @@ export async function handleStt(request) {
   if (!modelStr) return errorResponse(HTTP_STATUS.BAD_REQUEST, "Missing model");
   if (!formData.get("file")) return errorResponse(HTTP_STATUS.BAD_REQUEST, "Missing required field: file");
 
+  const overLimit = await checkApiKeyLimits(apiKey);
+  if (overLimit) return responseFromRoutingCandidate(overLimit);
+
   const modelInfo = await getModelInfo(modelStr);
   if (!modelInfo.provider) return errorResponse(HTTP_STATUS.BAD_REQUEST, "Invalid model format");
 
   const { provider, model } = modelInfo;
+  const accessDenial = await checkModelAccess({ apiKey, providerId: provider, model, requested: modelStr });
+  if (accessDenial) return responseFromRoutingCandidate(accessDenial);
   log.info("ROUTING", `Provider: ${provider}, Model: ${model}`);
 
   // noAuth providers

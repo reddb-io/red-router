@@ -6,6 +6,8 @@ import { getSettings } from "@/lib/localDb";
 import { getModelInfo, getComboModels } from "../services/model.js";
 import { handleTtsCore } from "open-sse/handlers/ttsCore.js";
 import { errorResponse, responseFromRoutingCandidate } from "open-sse/utils/error.js";
+import { checkModelAccess, checkComboAccess } from "@/lib/modelAccess";
+import { checkApiKeyLimits } from "@/lib/apiKeyLimits";
 import { HTTP_STATUS } from "open-sse/config/runtimeConfig.js";
 import { AI_PROVIDERS } from "@/shared/constants/providers";
 import { handleComboChat } from "open-sse/services/combo.js";
@@ -44,9 +46,14 @@ export async function handleTts(request) {
   if (!modelStr) return errorResponse(HTTP_STATUS.BAD_REQUEST, "Missing model");
   if (!body.input) return errorResponse(HTTP_STATUS.BAD_REQUEST, "Missing required field: input");
 
+  const overLimit = await checkApiKeyLimits(apiKey);
+  if (overLimit) return responseFromRoutingCandidate(overLimit);
+
   // Combo expansion: model may be a combo name → run fallback/round-robin across models
   const comboModels = await getComboModels(modelStr);
   if (comboModels) {
+    const comboAccess = await checkComboAccess(apiKey, modelStr);
+    if (comboAccess.denial) return responseFromRoutingCandidate(comboAccess.denial);
     const comboStrategies = settings.comboStrategies || {};
     const comboStrategy = comboStrategies[modelStr]?.fallbackStrategy || settings.comboStrategy || "fallback";
     const comboStickyLimit = settings.comboStickyRoundRobinLimit;
@@ -54,7 +61,7 @@ export async function handleTts(request) {
     return handleComboChat({
       body,
       models: comboModels,
-      handleSingleModel: (b, m) => handleSingleModelTts(b, m, responseFormat, language, style, apiKey),
+      handleSingleModel: (b, m) => handleSingleModelTts(b, m, responseFormat, language, style, apiKey, comboAccess.granted),
       log,
       comboName: modelStr,
       comboStrategy,
@@ -65,11 +72,13 @@ export async function handleTts(request) {
   return handleSingleModelTts(body, modelStr, responseFormat, language, style, apiKey);
 }
 
-async function handleSingleModelTts(body, modelStr, responseFormat, language, style, apiKey = null) {
+async function handleSingleModelTts(body, modelStr, responseFormat, language, style, apiKey = null, comboAccessGranted = false) {
   const modelInfo = await getModelInfo(modelStr);
   if (!modelInfo.provider) return errorResponse(HTTP_STATUS.BAD_REQUEST, "Invalid model format");
 
   const { provider, model } = modelInfo;
+  const accessDenial = await checkModelAccess({ apiKey, providerId: provider, model, requested: modelStr, grantedByCombo: comboAccessGranted });
+  if (accessDenial) return responseFromRoutingCandidate(accessDenial);
   log.info("ROUTING", `Provider: ${provider}, Voice: ${model}`);
 
   // noAuth providers — no credential needed
