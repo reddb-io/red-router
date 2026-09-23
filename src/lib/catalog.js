@@ -13,7 +13,7 @@ const REMOTE_ROUTER_ID = "red-router";
 /**
  * The catalog document for one caller.
  * @param {object} [options] - { apiKey, scopeFilter, variants } as for buildModelsList
- * @returns {Promise<{ version: string|null, groups: object[], combos: object[], recommended: object }>}
+ * @returns {Promise<{ version: string|null, groups: object[], combos: object[], aliases: object[], recommended: object }>}
  */
 export async function buildCatalog(options = {}) {
   const sources = await loadCatalogSources(options);

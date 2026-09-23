@@ -255,6 +255,6 @@ describe("GET /v1/catalog", () => {
     const body = await response.json();
     expect(body.version).toMatch(/^[0-9a-f]{16}$/);
     expect(response.headers.get("X-RedRouter-Catalog-Version")).toBe(body.version);
-    expect(Object.keys(body)).toEqual(["version", "groups", "combos", "recommended"]);
+    expect(Object.keys(body)).toEqual(["version", "groups", "combos", "aliases", "recommended"]);
   });
 });
