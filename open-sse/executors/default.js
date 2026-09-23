@@ -2,7 +2,7 @@ import { RED_ROUTER_PROVIDER_ID } from "../config/redRouter.js";
 import { createHash } from "node:crypto";
 import { BaseExecutor } from "./base.js";
 import { PROVIDERS, PROVIDER_OAUTH } from "../config/providers.js";
-import { ANTHROPIC_API_VERSION, OPENAI_COMPAT_BASE, ANTHROPIC_COMPAT_BASE, selectAnthropicBeta } from "../providers/shared.js";
+import { ANTHROPIC_API_VERSION, OPENAI_COMPAT_BASE, ANTHROPIC_COMPAT_BASE, CLAUDE_CLI_VERSION, selectAnthropicBeta } from "../providers/shared.js";
 import { resolveOpenAICompatibleApiType } from "../services/provider.js";
 import { OAUTH_ENDPOINTS, buildKimiHeaders } from "../config/appConstants.js";
 import { buildClineHeaders } from "../shared/clineAuth.js";
@@ -19,6 +19,10 @@ import {
   parseRequiredClaudeCodeVersion,
   withCurrentBillingVersion,
 } from "../utils/claudeCodeVersion.js";
+
+// The Claude Code User-Agent the registry ships; buildHeaders swaps it for the
+// version advertised now. A forwarded client UA (OpenRouter attribution) is left alone.
+const BUILT_IN_CLAUDE_UA = `claude-cli/${CLAUDE_CLI_VERSION} (external, sdk-cli)`;
 
 // Auth header descriptors — derived from registry transport.auth, fallback to hardcoded defaults.
 const BEARER = { combined: true, header: "Authorization", scheme: "bearer" };
@@ -344,7 +348,7 @@ export class DefaultExecutor extends BaseExecutor {
 
     // The Claude Code identity is computed per request: a version adopted from an
     // upstream `claude_code_version_too_old` answer must reach the very next call.
-    if (/^claude-cli\//.test(headers["User-Agent"] || "")) headers["User-Agent"] = claudeCodeUserAgent();
+    if (headers["User-Agent"] === BUILT_IN_CLAUDE_UA) headers["User-Agent"] = claudeCodeUserAgent();
 
     if (stream) headers["Accept"] = "text/event-stream";
     return headers;
