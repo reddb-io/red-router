@@ -115,46 +115,29 @@ describe("commandcode-to-openai — finish", () => {
   });
 });
 
+// An upstream error event throws (0a8797cb): emitting it as content with
+// finish_reason "stop" made a failed turn look like a finished one. The stream
+// handler catches the throw and marks the stream errored, which is what lets the
+// transient-error retry run.
 describe("commandcode-to-openai — error event", () => {
-  it("stringifies object errors so client sees readable message", () => {
-    const { chunks } = feed([
-      { type: "error", error: { type: "server_error", message: "Boom" } },
-    ]);
-    const text = chunks[0].choices[0].delta.content;
-    expect(text).toContain("Boom");
-    expect(text).not.toContain("[object Object]");
+  it("throws with a readable message for object errors", () => {
+    expect(() => feed([{ type: "error", error: { type: "server_error", message: "Boom" } }]))
+      .toThrow(/CommandCode error: .*Boom/);
+    expect(() => feed([{ type: "error", error: { type: "server_error", message: "Boom" } }]))
+      .not.toThrow(/\[object Object\]/);
   });
 
-  // An upstream error is routinely the FIRST event on the stream -- a 503 arrives
-  // before any token. Every other content branch opens with `role: "assistant"`;
-  // this one did not, so the only delta a client received for a failed turn had no
-  // role on it.
-  it("opens with the assistant role when the error is the first event", () => {
-    const { chunks } = feed([
+  it("throws when the error is the first event, before any token", () => {
+    expect(() => feed([
       { type: "error", error: { type: "server_error", message: "Service temporarily unavailable", statusCode: 503 } },
-    ]);
-    expect(chunks[0].choices[0].delta.role).toBe("assistant");
-    expect(chunks[0].choices[0].delta.content).toContain("Service temporarily unavailable");
+    ])).toThrow(/Service temporarily unavailable/);
   });
 
-  it("does not open with a role when content already went out", () => {
-    const { chunks } = feed([
-      { type: "text-delta", text: "Hello" },
-      { type: "error", error: "boom" },
-    ]);
-    expect(chunks[0].choices[0].delta.role).toBe("assistant");
-    expect(chunks[1].choices[0].delta.role).toBeUndefined();
-  });
-
-  // The branch used to leave chunkIndex at 0, so text arriving after the error still
-  // believed it was the opening chunk and sent a second role delta.
-  it("sends the role exactly once when text follows the error", () => {
-    const { chunks } = feed([
-      { type: "error", error: "boom" },
-      { type: "text-delta", text: "recovered" },
-    ]);
-    const withRole = chunks.filter((c) => c.choices[0].delta.role === "assistant");
-    expect(withRole).toHaveLength(1);
-    expect(chunks[0].choices[0].delta.role).toBe("assistant");
+  it("keeps content that already went out before the error", () => {
+    const state = {};
+    const first = commandCodeToOpenAIResponse(JSON.stringify({ type: "text-delta", text: "Hello" }), state);
+    expect(first[0].choices[0].delta).toMatchObject({ role: "assistant", content: "Hello" });
+    expect(() => commandCodeToOpenAIResponse(JSON.stringify({ type: "error", error: "boom" }), state))
+      .toThrow(/CommandCode error: boom/);
   });
 });

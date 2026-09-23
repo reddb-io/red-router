@@ -193,7 +193,12 @@ describe("openaiToClaudeResponse", () => {
       }]
     };
 
-    const result = openaiToClaudeResponse(chunk, state);
+    // Arguments are buffered and sanitized once the call is complete (finish_reason),
+    // so a bad parameter can be dropped before any input delta reaches the client.
+    const streamed = openaiToClaudeResponse(chunk, state) || [];
+    expect(streamed.find(event => event.delta?.type === "input_json_delta")).toBeUndefined();
+    const finished = openaiToClaudeResponse({ id: "chatcmpl-test", model: "gpt-test", choices: [{ delta: {}, finish_reason: "tool_calls" }] }, state);
+    const result = [...streamed, ...finished];
     const inputDelta = result.find(event => event.delta?.type === "input_json_delta");
 
     expect(inputDelta).toBeDefined();
