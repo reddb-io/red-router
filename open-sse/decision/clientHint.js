@@ -107,6 +107,18 @@ export function hintDeliberation(hint) {
 }
 
 /**
+ * What `x-red-router-decision: off` turns off for one request. It always stops the
+ * router's own tool routing. It stops the model decision too, unless the same request
+ * carries a hint with a deliberation: a client that states its classification is asking
+ * an auto combo to pick its member from it. Redcode sends both once its own System One
+ * has chosen the turn's tools.
+ */
+export function decisionOptOut(headerValue, hint) {
+  const off = typeof headerValue === "string" && headerValue.trim().toLowerCase() === "off";
+  return { tools: off, model: off && hintDeliberation(hint) === null };
+}
+
+/**
  * What a request's detail row records about the hint: the parsed values and which
  * routing steps used them instead of asking the decision model.
  */

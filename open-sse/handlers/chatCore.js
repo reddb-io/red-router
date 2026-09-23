@@ -36,7 +36,7 @@ import { resolveSessionId, promptCacheKeyFor } from "../utils/sessionManager.js"
 import { prepareStreamingResponse } from "./chatCore/streamResponse.js";
 import { injectHint } from "../decision/injectHint.js";
 import { applyToolChoice } from "../decision/tools.js";
-import { HINT_SOURCE } from "../decision/clientHint.js";
+import { HINT_SOURCE, decisionOptOut } from "../decision/clientHint.js";
 
 export function executeProviderRequest(executor, options) {
   return executor.execute(options);
@@ -380,7 +380,7 @@ export async function handleChatCore({ body, modelInfo, credentials, log, errorC
 
   let toolDecision = null;
   if (typeof decideTool === "function"
-      && clientRawRequest?.headers?.[DECISION_HEADER]?.toLowerCase() !== "off") {
+      && !decisionOptOut(clientRawRequest?.headers?.[DECISION_HEADER]).tools) {
     try {
       const result = await decideTool({
         body: translatedBody,

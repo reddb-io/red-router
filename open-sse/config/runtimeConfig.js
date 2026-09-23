@@ -77,8 +77,9 @@ export const DEFAULT_MIN_TOKENS = 32000;
 
 export const TOKEN_SAVER_HEADER = "x-red-router-token-saver";
 
-// Per-request opt-out for decision routing (System One), same semantics as
-// TOKEN_SAVER_HEADER: the header value "off" disables it for that one request.
+// Per-request opt-out for decision routing (System One): "off" disables the router's
+// tool routing and model decision for that one request. A request that also carries
+// a hint with a deliberation keeps the hinted model decision (see decisionOptOut).
 export const DECISION_HEADER = "x-red-router-decision";
 
 // A classification the client already made (see open-sse/decision/clientHint.js):

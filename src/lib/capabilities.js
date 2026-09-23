@@ -50,6 +50,8 @@ export async function buildCapabilities({ apiKey = null } = {}) {
       accepts_hint: true,
       hint_header: HINT_HEADER,
       hint_keys: [...HINT_KEYS],
+      // `off` plus a hint still lets an auto combo pick its member from the hint.
+      off_keeps_hinted_model: true,
     },
     reasoning: {
       mode: reasoning.mode,
