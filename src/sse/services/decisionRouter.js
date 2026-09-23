@@ -17,7 +17,8 @@ import {
   parseReasoningHeader,
 } from "open-sse/decision/reasoningAutopilot.js";
 import { buildModelQuestions, buildReasoningQuestions, buildToolQuestions, shortlistTools, DELIBERATION_KEY } from "open-sse/decision/questions.js";
-import { HINT_SOURCE } from "open-sse/decision/clientHint.js";
+import { HINT_SOURCE, hintEffort } from "open-sse/decision/clientHint.js";
+import { modelContextWindow } from "open-sse/services/combo.js";
 import { resolveModelDecision, resolveToolDecision } from "open-sse/decision/decide.js";
 import { getPricingForModel } from "open-sse/providers/pricing.js";
 import { resolveCriteria } from "open-sse/decision/modelBriefs.js";
@@ -360,35 +361,53 @@ async function saveDecisionDetail({ response, verdict, target }) {
 }
 
 /**
- * Reasoning autopilot for one request: the level to apply, or null when the
- * autopilot does not cover it. Deliberation comes from the auto-combo decision
- * when one ran; otherwise one noul question is asked, memoized per human turn so
- * tool continuations of the same ask do not pay for it again.
+ * Reasoning for one request, or null when the router leaves the client's thinking
+ * alone. Whoever pays for the decision decides:
+ *
+ *   1. `x-red-router-reasoning: off`      → null, the client's own config is kept.
+ *   2. `x-red-router-reasoning: <level>`  → that level (cause "header").
+ *   3. hint `effort=<level>`              → that level (cause "hint"), no jev call.
+ *   4. `x-red-router-reasoning: auto`     → the autopilot, enforced for this request
+ *      even when the configured mode is off or the key is not covered.
+ *   5. otherwise the configured autopilot, when it covers the key or combo.
+ *
+ * Deliberation comes from the auto-combo decision or the hint when either has one;
+ * otherwise one noul question is asked per human turn, and only at the turn's first
+ * request, since the level holds through the turn's tool loop.
  *
  * @returns {Promise<null|{mode:string, level:string, cause:string, from:string|null,
  *   deliberation:number|null, target:null|{mode:"set", level:string}}>}
  */
-export async function planReasoning({ body, settings, apiKey = null, apiKeyId = null, comboName = null, sessionId = null, headers = null, userAgent = "", deliberation = null, log }) {
+export async function planReasoning({ body, settings, apiKey = null, apiKeyId = null, comboName = null, sessionId = null, headers = null, userAgent = "", deliberation = null, hint = null, model = null, log }) {
   const override = parseReasoningHeader(headers?.[REASONING_HEADER]);
   if (override?.mode === "off") return null;
   if (override?.mode === "force") {
     log?.info?.("REASONING", `forced ${override.level} by header`);
     return { mode: "enforce", level: override.level, cause: "header", from: null, deliberation: null, target: { mode: "set", level: override.level } };
   }
+  const effort = hintEffort(hint);
+  if (effort) {
+    log?.info?.("REASONING", `forced ${effort} by hint`);
+    return { mode: "enforce", level: effort, cause: "hint", from: null, deliberation: null, target: { mode: "set", level: effort } };
+  }
 
-  const config = normalizeAutopilotConfig(settings?.reasoningAutopilot);
-  if (!autopilotApplies(config, { apiKeyId, comboName })) return null;
+  const configured = normalizeAutopilotConfig(settings?.reasoningAutopilot);
+  const requested = override?.mode === "auto";
+  if (!requested && !autopilotApplies(configured, { apiKeyId, comboName })) return null;
+  const config = requested ? { ...configured, mode: "enforce" } : configured;
 
-  const signals = extractSignals(body, { userAgent });
+  const signals = extractSignals(body, { userAgent, hint });
   const key = createHash("sha256").update(`${apiKey || "local"}:${sessionId || "ephemeral"}`).digest("hex").slice(0, 24);
   const session = reasoningSessions.read(key);
-  const turnHash = createHash("sha256").update(signals.humanText || "").digest("hex").slice(0, 16);
+  const turnId = createHash("sha256").update(`${signals.humanTurns}:${signals.humanText || ""}`).digest("hex").slice(0, 16);
+  const withinTurn = session?.state?.humanTurn === turnId;
 
   let measured = typeof deliberation === "number" ? deliberation : null;
   let response = null;
   let target = null;
-  if (measured === null && !signals.housekeeping && !signals.encryptedTask && config.askJevDirect) {
-    if (session?.memo?.hash === turnHash) {
+  const wantsJev = measured === null && !withinTurn && !signals.housekeeping && !signals.encryptedTask && config.askJevDirect;
+  if (wantsJev) {
+    if (session?.memo?.hash === turnId) {
       measured = session.memo.deliberation;
     } else {
       const decisionConfig = { ...normalizeDecisionConfig(settings?.decisionRouter), ...(config.provider ? { provider: config.provider } : {}), timeoutMs: config.timeoutMs };
@@ -403,13 +422,22 @@ export async function planReasoning({ body, settings, apiKey = null, apiKeyId = 
     }
   }
 
-  const result = decideReasoningLevel({ signals, deliberation: measured, previous: session?.state || null, config });
-  const memo = measured !== null && typeof deliberation !== "number" ? { hash: turnHash, deliberation: measured } : session?.memo || null;
+  const result = decideReasoningLevel({
+    signals,
+    deliberation: measured,
+    // No answer from jev: keep the level the session already has rather than guess.
+    jevFailed: wantsJev && measured === null,
+    turnId,
+    contextWindow: model ? modelContextWindow(model) : null,
+    previous: session?.state || null,
+    config,
+  });
+  const memo = measured !== null && typeof deliberation !== "number" ? { hash: turnId, deliberation: measured } : session?.memo || null;
   if (result.state || memo) reasoningSessions.write(key, { state: result.state, memo });
 
-  const verdict = { kind: "reasoning", mode: config.mode, level: result.level, from: result.from, cause: result.cause, deliberation: measured, signals: signalsMeta(signals) };
+  const verdict = { kind: "reasoning", mode: config.mode, requested, level: result.level, from: result.from, cause: result.cause, deliberation: measured, signals: signalsMeta(signals) };
   if (response) await recordUsage({ response, log, target, verdict });
-  log?.info?.("REASONING", `${result.from || "-"}→${result.level} (${result.cause}${measured !== null ? `, deliberar ${fmt(measured)}` : ""}${config.mode === "shadow" ? ", shadow" : ""})`);
+  log?.info?.("REASONING", `${result.from || "-"}→${result.level} (${result.cause}${measured !== null ? `, deliberar ${fmt(measured)}` : ""}${requested ? ", auto" : ""}${config.mode === "shadow" ? ", shadow" : ""})`);
 
   return {
     mode: config.mode,

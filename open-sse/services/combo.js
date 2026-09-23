@@ -336,7 +336,7 @@ function requestedOutputTokens(body) {
 // capability tables (hand-written patterns plus the models.dev sync). Always
 // finite in practice: unknown members resolve to the default window and stay
 // in the rotation.
-function modelContextWindow(modelStr) {
+export function modelContextWindow(modelStr) {
   const slash = typeof modelStr === "string" ? modelStr.indexOf("/") : -1;
   // Members may carry a thinking suffix ("model(high)") — resolve via clean id.
   const caps = getCapabilitiesForModel(

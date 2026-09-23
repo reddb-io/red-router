@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { decideComboModel } from "../../src/sse/services/decisionRouter.js";
-import { extractSignals, toolCallsOf, detectStall, signalsMeta } from "../../open-sse/decision/signals.js";
+import { extractSignals, toolCallsOf, detectStall, signalsMeta, detectFeedback, detectFrustration } from "../../open-sse/decision/signals.js";
 import { buildState, stripHarnessNoise } from "../../open-sse/decision/state.js";
 import { resolveModelDecision } from "../../open-sse/decision/decide.js";
 
@@ -106,6 +106,105 @@ describe("extractSignals", () => {
     const signals = extractSignals({ messages: [{ role: "user", content: "hi" }] }, { userAgent: "claude-cli/2.1.0 (external, cli)" });
     expect(signals.harnessSystem).toBe(true);
     expect(signalsMeta(signals)).not.toHaveProperty("humanText");
+  });
+});
+
+describe("detectFeedback", () => {
+  it.each([
+    ["não era isso que eu pedi", "rejects"],
+    ["Nao era isso", "rejects"],
+    ["that's not what i asked for", "rejects"],
+    ["That\u2019s wrong, revert it", "rejects"],
+    ["de novo não, para com isso", "rejects"],
+    ["no, i meant the other file", "corrects"],
+    ["No I meant the parser", "corrects"],
+    ["ainda está quebrado", "corrects"],
+    ["ainda quebrado depois do fix", "corrects"],
+    ["still broken after your change", "corrects"],
+    ["like i said, use pnpm", "corrects"],
+    ["como eu disse, sem mocks", "corrects"],
+    ["perfeito, segue pro próximo", "agrees"],
+    ["isso mesmo", "agrees"],
+    ["ok, segue", "agrees"],
+    ["Ótimo! agora os testes", "agrees"],
+    ["great, now add the docs", "agrees"],
+    ["Exactly.", "agrees"],
+    ["lgtm", "agrees"],
+    ["perfeito, mas ainda quebrado no CI", "corrects"],
+    ["this is great but ship it tomorrow", null],
+    ["segue o log do erro", null],
+    ["show me the config", null],
+    ["refactor the parser to stream", null],
+    ["rename the `still broken` test to `flaky`", null],
+    ["", null],
+  ])("%j → %s", (text, expected) => {
+    expect(detectFeedback(text)).toBe(expected);
+  });
+});
+
+describe("detectFrustration", () => {
+  it.each([
+    ["refactor the parser", 0],
+    ["run the tests again", 0.3],
+    ["wtf", 0.4],
+    ["why?!", 0.2],
+    ["wtf, again?!", 0.9],
+    ["PORRA, DE NOVO ESSE ERRO", 1],
+    ["PARA DE MEXER NESSE ARQUIVO!!!", 0.6],
+    ["how many times do I need to say this, fuck", 0.7],
+    ["```\nERROR: FAILED TO CONNECT TO DATABASE AGAIN\n```\nwhat does this mean?", 0],
+    ["OK", 0],
+  ])("%j → %d", (text, expected) => {
+    expect(detectFrustration(text)).toBe(expected);
+  });
+});
+
+describe("extractSignals: feedback, frustration and the human turn", () => {
+  it("reads feedback and frustration from the newest human message only", () => {
+    const body = {
+      messages: [
+        { role: "user", content: "wtf, not what i asked!!!" },
+        { role: "assistant", content: "sorry" },
+        { role: "user", content: `perfeito, segue\n${reminder("todo list is empty")}` },
+      ],
+    };
+    expect(extractSignals(body)).toMatchObject({ userFeedback: "agrees", frustration: 0, humanTurns: 2 });
+  });
+
+  it("lets the client hint replace the regexes and the stall detector", () => {
+    const body = { messages: [{ role: "user", content: "wtf, still broken again!!!" }] };
+    expect(extractSignals(body)).toMatchObject({ userFeedback: "corrects", frustration: 0.9, stall: false });
+    expect(extractSignals(body, { hint: { feedback: "neutral", frustration: 0.1, stall: true } }))
+      .toMatchObject({ userFeedback: "neutral", frustration: 0.1, stall: true });
+  });
+
+  it("treats tool results carrying only harness reminders as a continuation, not a human turn", () => {
+    const body = {
+      messages: [
+        { role: "user", content: "fix it" },
+        { role: "assistant", content: [{ type: "tool_use", id: "t0", name: "Bash", input: {} }] },
+        { role: "user", content: [{ type: "tool_result", tool_use_id: "t0", content: "ok" }, { type: "text", text: reminder("todo list") }] },
+      ],
+    };
+    expect(extractSignals(body)).toMatchObject({ turnKind: "tool_continuation", humanTurns: 1, humanText: "fix it" });
+
+    body.messages[2].content.push({ type: "text", text: "actually, stop" });
+    expect(extractSignals(body)).toMatchObject({ turnKind: "human", humanTurns: 2 });
+  });
+
+  it("flags redcode's title prompt as housekeeping", () => {
+    const body = {
+      system: "You are a title generator. You output ONLY a thread title. Nothing else.",
+      messages: [{ role: "user", content: "Generate a title for this conversation:\n" }, { role: "user", content: "debug 500 errors" }],
+    };
+    expect(extractSignals(body).housekeeping).toBe(true);
+    const inline = { messages: [{ role: "user", content: "Generate a brief title that would help the user find this conversation later.\n\ndebug 500 errors" }] };
+    expect(extractSignals(inline).housekeeping).toBe(true);
+  });
+
+  it("keeps feedback and frustration in the persisted meta", () => {
+    const meta = signalsMeta(extractSignals({ messages: [{ role: "user", content: "no, i meant the other one" }] }));
+    expect(meta).toMatchObject({ userFeedback: "corrects", frustration: 0, humanTurns: 1 });
   });
 });
 

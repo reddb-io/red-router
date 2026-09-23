@@ -10,7 +10,7 @@ import { translate } from "@/i18n/runtime";
 const MODES = [
   { value: "off", label: "Off", desc: "Reasoning is exactly what the client asked for." },
   { value: "shadow", label: "Shadow", desc: "Picks and logs a level per turn. Applies nothing." },
-  { value: "enforce", label: "Enforce", desc: "Raises and lowers the reasoning level every turn, within the floor and ceiling." },
+  { value: "enforce", label: "Enforce", desc: "Raises and lowers the reasoning level when the human writes, within the floor and ceiling. Clients can also opt a request in with x-red-router-reasoning: auto." },
 ];
 
 const LEVELS = ["none", "minimal", "low", "medium", "high", "xhigh", "max"];

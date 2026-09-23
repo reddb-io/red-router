@@ -37,6 +37,21 @@ describe("parseClassificationHint", () => {
     expect(parseClassificationHint("deliberation=0")).toEqual({ deliberation: 0 });
   });
 
+  it("parses the reasoning keys: effort, stall, feedback and frustration", () => {
+    expect(parseClassificationHint("effort=XHigh;stall=true;feedback=rejects;frustration=0.7")).toEqual({
+      effort: "xhigh",
+      stall: true,
+      feedback: "rejects",
+      frustration: 0.7,
+    });
+    expect(parseClassificationHint("effort=none;stall=false;feedback=neutral;frustration=0")).toEqual({
+      effort: "none",
+      stall: false,
+      feedback: "neutral",
+      frustration: 0,
+    });
+  });
+
   it("skips unknown keys but keeps the known ones", () => {
     expect(parseClassificationHint("future_key=whatever;deliberation=0.4")).toEqual({ deliberation: 0.4 });
   });
@@ -56,6 +71,12 @@ describe("parseClassificationHint", () => {
     ["deliberation=0.5e0", "invalid_value:deliberation"],
     ["needs_tool=yes", "invalid_value:needs_tool"],
     ["tier=huge", "invalid_value:tier"],
+    ["effort=auto", "invalid_value:effort"],
+    ["effort=ultra", "invalid_value:effort"],
+    ["stall=1", "invalid_value:stall"],
+    ["feedback=angry", "invalid_value:feedback"],
+    ["frustration=2", "invalid_value:frustration"],
+    ["frustration=high", "invalid_value:frustration"],
     ["complexity=0.2;complexity=0.3", "duplicate_key:complexity"],
     ["complexity", "malformed_pair:complexity"],
     ["complexity=0.2;;tier=simple", "malformed_pair:"],
@@ -111,7 +132,16 @@ describe("hint signals", () => {
       deliberation: 0.2,
       needs_tool: false,
       tier: "SIMPLE",
+      effort: null,
+      stall: null,
+      feedback: null,
+      frustration: null,
       used_for: ["tier", "effort"],
+    });
+    expect(hintDetail(parseClassificationHint("effort=high;feedback=corrects"), ["reasoning"])).toMatchObject({
+      effort: "high",
+      feedback: "corrects",
+      used_for: ["reasoning"],
     });
     expect(hintDetail(null)).toBeNull();
   });
@@ -126,7 +156,7 @@ describe("hint signals", () => {
 
   it("exposes the header name and the keys capabilities advertises", () => {
     expect(HINT_HEADER).toBe("x-red-router-hint");
-    expect(HINT_KEYS).toEqual(["complexity", "deliberation", "needs_tool", "tier"]);
+    expect(HINT_KEYS).toEqual(["complexity", "deliberation", "needs_tool", "tier", "effort", "stall", "feedback", "frustration"]);
   });
 });
 

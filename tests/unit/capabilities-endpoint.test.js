@@ -68,8 +68,21 @@ describe("GET /v1/capabilities", () => {
       header: "x-red-router-decision",
       accepts_hint: true,
       hint_header: "x-red-router-hint",
-      hint_keys: ["complexity", "deliberation", "needs_tool", "tier"],
+      hint_keys: ["complexity", "deliberation", "needs_tool", "tier", "effort", "stall", "feedback", "frustration"],
       off_keeps_hinted_model: true,
+    });
+    // The contract redcode reads to decide between `auto`, `off` and a level.
+    expect(caps.reasoning).toEqual({
+      mode: "off",
+      header: "x-red-router-reasoning",
+      response_header: "X-RedRouter-Reasoning",
+      applies: false,
+      floor: "low",
+      ceiling: "high",
+      min_dwell_turns: 2,
+      context_fraction: 0.5,
+      accepts: ["off", "auto", "none", "minimal", "low", "medium", "high", "xhigh", "max"],
+      ladder: ["none", "minimal", "low", "medium", "high", "xhigh", "max"],
     });
     expect(caps.token_saver_header).toBe("x-red-router-token-saver");
     expect(caps.combos.strategies).toEqual(["fallback", "round-robin", "fusion", "smart", "auto"]);

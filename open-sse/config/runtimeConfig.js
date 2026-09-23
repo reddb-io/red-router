@@ -84,11 +84,14 @@ export const DECISION_HEADER = "x-red-router-decision";
 
 // A classification the client already made (see open-sse/decision/clientHint.js):
 // `complexity`, `deliberation`, `needs_tool` and `tier` stand in for the questions
-// smart and auto routing would otherwise ask the decision model. Invalid → ignored.
+// smart and auto routing would otherwise ask the decision model; `effort` sets the
+// reasoning level outright; `stall`, `feedback` and `frustration` replace the
+// autopilot's transcript signals. Invalid → ignored.
 export const HINT_HEADER = "x-red-router-hint";
 
 // Per-request reasoning override: "off" leaves the client's own thinking config
-// untouched, a level (none…max) forces it, "auto" defers to the autopilot.
+// untouched, a level (none…max) forces it, "auto" runs the autopilot (enforced) for
+// that request even when it is off or does not cover the key.
 export const REASONING_HEADER = "x-red-router-reasoning";
 // Set on successful chat responses when the autopilot or the header chose a level:
 // "<client level or ->-><level>; cause=<cause>[; shadow]".
