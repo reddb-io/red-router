@@ -57,6 +57,19 @@ npx -y @reddb-io/red-router@latest service uninstall
 
 Services bind **127.0.0.1 by default**. Use `--expose` (or `-H 0.0.0.0`) only when other machines on your network need to reach it — set API keys and a strong dashboard password first. On Windows, run `red-router -t` for tray-background mode.
 
+### Run it in Docker
+
+Each release also ships a container image (`linux/amd64`) built from the same npm package:
+
+```bash
+docker run -d --name red-router -p 25050:25050 \
+  -e INITIAL_PASSWORD='choose-a-strong-one' \
+  -v red-router-data:/data \
+  ghcr.io/reddb-io/red-router:latest
+```
+
+Everything RedRouter stores lives in `/data`. A [`docker-compose.yml`](docker-compose.yml) is included (`INITIAL_PASSWORD=… docker compose up -d`). The container listens on all interfaces, so set API keys (Settings → Require API key) before exposing it.
+
 Run from source instead:
 
 ```bash

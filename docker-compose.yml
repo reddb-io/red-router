@@ -1,0 +1,14 @@
+# docker compose up -d   →  dashboard at http://localhost:25050/dashboard, API at /v1
+services:
+  red-router:
+    image: ghcr.io/reddb-io/red-router:latest
+    restart: unless-stopped
+    ports:
+      - "25050:25050"
+    environment:
+      INITIAL_PASSWORD: ${INITIAL_PASSWORD:?set INITIAL_PASSWORD (dashboard login)}
+      JWT_SECRET: ${JWT_SECRET:-}
+    volumes:
+      - red-router-data:/data
+volumes:
+  red-router-data:
