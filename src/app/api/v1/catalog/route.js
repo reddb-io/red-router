@@ -35,7 +35,7 @@ export async function GET(request) {
   } catch (error) {
     console.log("Error building catalog:", error);
     return Response.json(
-      { error: { message: error.message, type: "server_error" } },
+      { error: { message: error.message, type: "server_error", param: null, code: "internal_server_error" } },
       { status: 500 },
     );
   }

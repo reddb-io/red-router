@@ -25,7 +25,7 @@ export async function GET(request) {
 
     if (!provider || !PROVIDER_API[provider]) {
       return Response.json(
-        { error: { message: `provider must be one of: ${Object.keys(PROVIDER_API).join(", ")}`, type: "invalid_request_error" } },
+        { error: { message: `provider must be one of: ${Object.keys(PROVIDER_API).join(", ")}`, type: "invalid_request_error", param: null, code: "invalid_request" } },
         { status: 400, headers: { "Access-Control-Allow-Origin": "*" } },
       );
     }
@@ -36,7 +36,7 @@ export async function GET(request) {
     const data = await res.json();
     if (!res.ok || data.error) {
       return Response.json(
-        { error: { message: data.error || `Upstream ${res.status}`, type: "server_error" } },
+        { error: { message: data.error || `Upstream ${res.status}`, type: "server_error", param: null, code: "internal_server_error" } },
         { status: res.status, headers: { "Access-Control-Allow-Origin": "*" } },
       );
     }
@@ -61,7 +61,7 @@ export async function GET(request) {
     });
   } catch (err) {
     return Response.json(
-      { error: { message: err.message || "Failed", type: "server_error" } },
+      { error: { message: err.message || "Failed", type: "server_error", param: null, code: "internal_server_error" } },
       { status: 502, headers: { "Access-Control-Allow-Origin": "*" } },
     );
   }

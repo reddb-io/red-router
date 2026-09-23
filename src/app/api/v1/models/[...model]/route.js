@@ -72,6 +72,7 @@ export async function GET(request, { params }) {
           error: {
             message: `The model '${identifier}' does not exist or you do not have access to it.`,
             type: "invalid_request_error",
+            param: null,
             code: "model_not_found",
           },
         },
@@ -86,7 +87,7 @@ export async function GET(request, { params }) {
   } catch (error) {
     console.log("Error fetching model:", error);
     return json(
-      { error: { message: error.message, type: "server_error" } },
+      { error: { message: error.message, type: "server_error", param: null, code: "internal_server_error" } },
       { status: 500 },
     );
   }
