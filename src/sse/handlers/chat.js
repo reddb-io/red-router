@@ -37,7 +37,7 @@ import { extractTools, hasPinnedToolChoice, supportsToolChoice, UNSUPPORTED_EXEC
 import { augmentModelsWithCapacityAdapter, withCapacityAdapterStripping, getActiveAdapterStrategy } from "open-sse/services/capacityAdapter.js";
 import { handleBypassRequest } from "open-sse/utils/bypassHandler.js";
 import { DECISION_HEADER, HINT_HEADER, HTTP_STATUS } from "open-sse/config/runtimeConfig.js";
-import { parseClassificationHint, hintTier, hintDeliberation, hintDetail, HINT_SOURCE } from "open-sse/decision/clientHint.js";
+import { parseClassificationHint, hintTier, hintDeliberation, hintDetail, decisionOptOut, HINT_SOURCE } from "open-sse/decision/clientHint.js";
 import { detectFormatByEndpoint } from "open-sse/translator/formats.js";
 import * as log from "../utils/logger.js";
 import { updateProviderCredentials, checkAndRefreshToken } from "../services/tokenRefresh.js";
@@ -71,7 +71,7 @@ async function orderComboModels({ body, models, comboName, strategy, settings, a
   if (strategy !== "auto" || models.length < 2) return unchanged;
   const config = normalizeDecisionConfig(settings.decisionRouter);
   if (config.mode === "off") return unchanged;
-  if (headers?.[DECISION_HEADER]?.toLowerCase() === "off") return unchanged;
+  if (decisionOptOut(headers?.[DECISION_HEADER], hint).model) return unchanged;
   if (!Array.isArray(config.models) || config.models.length === 0) return unchanged;
 
   const target = await resolveDecisionTarget(config, { apiKey, log });

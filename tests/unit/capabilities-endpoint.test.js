@@ -69,6 +69,7 @@ describe("GET /v1/capabilities", () => {
       accepts_hint: true,
       hint_header: "x-red-router-hint",
       hint_keys: ["complexity", "deliberation", "needs_tool", "tier"],
+      off_keeps_hinted_model: true,
     });
     expect(caps.token_saver_header).toBe("x-red-router-token-saver");
     expect(caps.combos.strategies).toEqual(["fallback", "round-robin", "fusion", "smart", "auto"]);
@@ -83,6 +84,25 @@ describe("GET /v1/capabilities", () => {
     expect(caps.served_model_header).toBe("X-RedRouter-Served-Model");
     expect(caps.cost_header).toBe("X-RedRouter-Cost-USD");
     expect(caps.request_id_header).toBe("X-Request-Id");
+    expect(caps.stream_usage_cost).toBe(true);
+  });
+
+  // redcode (packages/core/src/provider/router.ts fromCapabilities) turns these into
+  // features; each must keep its name and type.
+  it("exposes every field redcode reads, with the types it checks", async () => {
+    const caps = await getCapabilities();
+    expect(caps.product).toBe("red-router");
+    expect(typeof caps.version).toBe("string");
+    expect(typeof caps.instance_id).toBe("string");
+    expect(typeof caps.systemone.available).toBe("boolean");
+    expect(Array.isArray(caps.systemone.models)).toBe(true);
+    expect(Array.isArray(caps.combos.strategies)).toBe(true);
+    expect(typeof caps.decision.header).toBe("string");
+    expect(caps.decision.accepts_hint).toBe(true);
+    expect(typeof caps.token_saver_header).toBe("string");
+    expect(caps.session.per_session_stickiness === true || Array.isArray(caps.session.affinity_headers)).toBe(true);
+    expect(typeof caps.served_model_header).toBe("string");
+    expect(typeof caps.cost_header).toBe("string");
     expect(caps.stream_usage_cost).toBe(true);
   });
 
