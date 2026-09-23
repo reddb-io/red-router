@@ -88,7 +88,7 @@ async function orderComboModels({ body, models, comboName, strategy, settings, a
   // hold it, or that lacks a modality it carries, would be picked and then skipped.
   const eligible = servableMembers(allowed, body);
   if (eligible.length < 2) return unchanged;
-  const signals = extractSignals(body, { userAgent });
+  const signals = extractSignals(body, { userAgent, hint });
   const scope = createHash("sha256")
     .update(`${apiKey || "local"}:${comboOwner || "shared"}:${comboName}:${sessionId || "ephemeral"}`)
     .digest("hex")
@@ -601,6 +601,9 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
         headers: clientRawRequest?.headers,
         userAgent,
         deliberation: routingContext.decision?.deliberation ?? routingContext.deliberation ?? null,
+        hint: routingContext.hint,
+        // The first member tried: its context window decides the heavy-context step.
+        model: `${provider}/${model}`,
         log,
       }).catch((error) => {
         log.warn("REASONING", `autopilot failed, client thinking kept: ${error.message}`);
@@ -616,8 +619,11 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
     // The client hint's deliberation stood in for the effort ceiling or the autopilot's question.
     const hintDeliberationUsed = routingContext.deliberationSource === HINT_SOURCE
       && routingContext.decision?.deliberation == null;
-    const hintStep = effortEnabled ? "effort" : typeof reasoning?.deliberation === "number" ? "reasoning" : null;
-    const hintUses = hintDeliberationUsed && hintStep
+    // Or its `effort` set the level outright.
+    const hintStep = reasoning?.cause === "hint"
+      ? "reasoning"
+      : effortEnabled ? "effort" : typeof reasoning?.deliberation === "number" ? "reasoning" : null;
+    const hintUses = (hintDeliberationUsed || reasoning?.cause === "hint") && hintStep
       ? [...routingContext.hintUses, hintStep]
       : routingContext.hintUses;
     const result = await handleChatCore({

@@ -9,15 +9,26 @@
 //   deliberation = unit
 //   needs_tool  = "true" | "false"
 //   tier        = "simple" | "medium" | "complex" | "reasoning"
+//   effort      = "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max"
+//                 (the reasoning level the client already chose: applied like
+//                 `x-red-router-reasoning: <level>`, without asking the decision model)
+//   stall       = "true" | "false"          (the agent loop is stuck)
+//   feedback    = "agrees" | "corrects" | "rejects" | "neutral"
+//                 (how the human judged the previous answer)
+//   frustration = unit                       (how frustrated the human reads)
 //   unit     = a decimal in [0, 1] with at most 6 fraction digits: 0, 1, 0.25, .5
 // The whole value is at most 512 characters.
 // Unknown keys are skipped. A malformed pair, a repeated known key, an out-of-range
 // value, or a hint with no known key invalidates the whole header.
 
 import { JEV_TIERS } from "../config/jev.js";
+import { THINKING_ORDER } from "../translator/concerns/thinking.js";
 
 /** The keys this build understands, in the order capabilities lists them. */
-export const HINT_KEYS = ["complexity", "deliberation", "needs_tool", "tier"];
+export const HINT_KEYS = ["complexity", "deliberation", "needs_tool", "tier", "effort", "stall", "feedback", "frustration"];
+
+/** Values of the `feedback` key. "neutral" states that the message judged nothing. */
+export const HINT_FEEDBACK = ["agrees", "corrects", "rejects", "neutral"];
 
 /** Recorded wherever a routing input came from the hint instead of the decision model. */
 export const HINT_SOURCE = "client_hint";
@@ -37,7 +48,8 @@ const LABEL_COMPLEXITY = { simple: 0.125, medium: 0.375, complex: 0.625, reasoni
  * Parse a header value. Returns null when the header is absent or invalid;
  * `onInvalid(reason)` hears why an invalid one was dropped.
  *
- * @returns {{ complexity?: number, deliberation?: number, needsTool?: boolean, tier?: string } | null}
+ * @returns {{ complexity?: number, deliberation?: number, needsTool?: boolean, tier?: string,
+ *   effort?: string, stall?: boolean, feedback?: string, frustration?: number } | null}
  */
 export function parseClassificationHint(raw, { onInvalid = null } = {}) {
   if (raw === undefined || raw === null) return null;
@@ -76,12 +88,14 @@ export function parseClassificationHint(raw, { onInvalid = null } = {}) {
 }
 
 function parseValue(key, value) {
-  if (key === "needs_tool") {
+  if (key === "needs_tool" || key === "stall") {
     if (value === "true") return true;
     if (value === "false") return false;
     return undefined;
   }
   if (key === "tier") return LABELS.includes(value) ? value.toUpperCase() : undefined;
+  if (key === "effort") return THINKING_ORDER.includes(value) ? value : undefined;
+  if (key === "feedback") return HINT_FEEDBACK.includes(value) ? value : undefined;
   if (key === "complexity" && LABELS.includes(value)) return LABEL_COMPLEXITY[value];
   if (!UNIT.test(value)) return undefined;
   const number = Number(value);
@@ -99,6 +113,11 @@ export function hintTier(hint) {
   if (typeof hint.complexity !== "number") return null;
   const index = Math.min(JEV_TIERS.length - 1, Math.floor(hint.complexity * JEV_TIERS.length));
   return JEV_TIERS[index];
+}
+
+/** The reasoning level the client already chose (`effort`), or null. */
+export function hintEffort(hint) {
+  return typeof hint?.effort === "string" ? hint.effort : null;
 }
 
 /** The deliberation the hint states, or null. Only the `deliberation` key feeds it. */
@@ -130,6 +149,10 @@ export function hintDetail(hint, usedFor = []) {
     deliberation: hintDeliberation(hint),
     needs_tool: typeof hint.needsTool === "boolean" ? hint.needsTool : null,
     tier: hintTier(hint),
+    effort: hintEffort(hint),
+    stall: typeof hint.stall === "boolean" ? hint.stall : null,
+    feedback: typeof hint.feedback === "string" ? hint.feedback : null,
+    frustration: typeof hint.frustration === "number" ? hint.frustration : null,
     used_for: [...new Set(usedFor)],
   };
 }

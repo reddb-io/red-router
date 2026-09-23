@@ -128,6 +128,27 @@ curl http://localhost:25050/v1/systemone \
   }'
 ```
 
+### Reasoning level per request
+
+Whoever pays for the decision decides. `GET /v1/capabilities` lists what this
+instance accepts under `reasoning` (`accepts`, `ladder`, `floor`, `ceiling`,
+`applies`).
+
+| `x-red-router-reasoning` | Effect |
+|---|---|
+| `off` | The client's own thinking config is kept |
+| `none` … `max` | That level, mapped onto the model's own knob |
+| `auto` | The reasoning autopilot for this request, even when it is off for the key, within the configured floor and ceiling |
+
+A client that already chose a level can send it as a hint instead
+(`x-red-router-hint: effort=high`); an explicit header level beats it, and both
+beat `auto`. The hint can also state `stall=true|false`,
+`feedback=agrees|corrects|rejects|neutral` and `frustration=0..1`, which replace
+the router's own reading of the transcript. The autopilot only changes the level
+when a new human message arrives, apart from one step up per human turn when the
+tool loop stalls or fails, so a provider's prompt cache survives the loop. Each
+response reports the choice in `X-RedRouter-Reasoning: <from>-><level>; cause=<cause>`.
+
 ## 📚 Docs
 
 - **Architecture** — [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md): request lifecycle, fallback, OAuth, data model

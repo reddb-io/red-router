@@ -4,6 +4,11 @@
 
 import {
   EXPLICIT_THINK_PATTERN,
+  FEEDBACK_AGREES_PATTERN,
+  FEEDBACK_CORRECTS_PATTERN,
+  FEEDBACK_REJECTS_PATTERN,
+  FRUSTRATION_MARKERS,
+  FRUSTRATION_SHOUT,
   HARNESS_SYSTEM_UA,
   HOUSEKEEPING_SENTINELS,
   PLAN_MODE_SENTINELS,
@@ -34,7 +39,10 @@ function isToolResultItem(item) {
   if (item.role === "tool" || item.role === "function") return true;
   if (TOOL_RESULT_TYPES.has(item.type)) return true;
   const content = Array.isArray(item.content) ? item.content : null;
-  return !!content?.length && content.every((b) => TOOL_RESULT_TYPES.has(b?.type));
+  if (!content?.some((b) => TOOL_RESULT_TYPES.has(b?.type))) return false;
+  // Harnesses append reminders next to the results (Claude Code's <system-reminder>);
+  // a message carrying nothing else is still a tool continuation, not a human turn.
+  return content.every((b) => TOOL_RESULT_TYPES.has(b?.type) || (b?.type === "text" && !stripHarnessNoise(b.text)));
 }
 
 function isHumanItem(item) {
@@ -97,6 +105,35 @@ function lastHumanRaw(turns) {
   return "";
 }
 
+/** The human's own words: code and pasted output say nothing about their mood. */
+function proseOf(text) {
+  return text.replace(/```[\s\S]*?```/g, " ").replace(/`[^`\n]*`/g, " ").replace(/[\u2018\u2019]/g, "'");
+}
+
+/**
+ * How the human judged the previous answer: "rejects", "corrects", "agrees", or
+ * null when the message says nothing either way. Corrections win over agreement.
+ */
+export function detectFeedback(text) {
+  if (typeof text !== "string" || !text) return null;
+  const normalized = proseOf(text);
+  if (FEEDBACK_REJECTS_PATTERN.test(normalized)) return "rejects";
+  if (FEEDBACK_CORRECTS_PATTERN.test(normalized)) return "corrects";
+  if (FEEDBACK_AGREES_PATTERN.test(normalized)) return "agrees";
+  return null;
+}
+
+/** Frustration markers in a human message (profanity, repetition, shouting, "?!"), 0..1. */
+export function detectFrustration(text) {
+  if (typeof text !== "string" || !text) return 0;
+  const normalized = proseOf(text);
+  const markers = FRUSTRATION_MARKERS.reduce((sum, marker) => sum + (marker.pattern.test(normalized) ? marker.weight : 0), 0);
+  const upper = (normalized.match(/\p{Lu}/gu) || []).length;
+  const letters = upper + (normalized.match(/\p{Ll}/gu) || []).length;
+  const shouting = letters >= FRUSTRATION_SHOUT.minLetters && upper / letters >= FRUSTRATION_SHOUT.ratio ? FRUSTRATION_SHOUT.weight : 0;
+  return Math.min(1, Number((markers + shouting).toFixed(2)));
+}
+
 /** Everything after the newest assistant turn: where per-turn reminders are injected. */
 function trailingText(turns) {
   const parts = [];
@@ -130,8 +167,10 @@ export function isEncryptedTask(body) {
  * @param {object} body raw client body (before translation)
  * @param {object} [ctx]
  * @param {string} [ctx.userAgent]
+ * @param {object|null} [ctx.hint] parsed x-red-router-hint: its stall, feedback and
+ *   frustration replace what the transcript regexes read.
  */
-export function extractSignals(body, { userAgent = "" } = {}) {
+export function extractSignals(body, { userAgent = "", hint = null } = {}) {
   const turns = turnsOf(body) || [];
   const tools = Array.isArray(body?.tools) ? body.tools : [];
   const calls = toolCallsOf(body);
@@ -148,10 +187,14 @@ export function extractSignals(body, { userAgent = "" } = {}) {
   return {
     housekeeping,
     planMode,
-    stall: detectStall(calls),
+    stall: typeof hint?.stall === "boolean" ? hint.stall : detectStall(calls),
     lastToolError: calls.length > 0 && calls[calls.length - 1].error,
     explicitThink: EXPLICIT_THINK_PATTERN.test(humanText),
     turnKind: isToolResultItem(last) ? "tool_continuation" : "human",
+    // Human messages so far: with humanText it identifies the human turn a request belongs to.
+    humanTurns: turns.filter(isHumanItem).length,
+    userFeedback: typeof hint?.feedback === "string" ? hint.feedback : detectFeedback(humanText),
+    frustration: typeof hint?.frustration === "number" ? hint.frustration : detectFrustration(humanText),
     humanText,
     contextTokens: estimateRequestTokens(body),
     hasMedia: [...detectRequiredCapabilities(body)].some((cap) => cap === "vision" || cap === "pdf"),

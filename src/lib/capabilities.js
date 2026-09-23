@@ -4,7 +4,7 @@
 
 import { createHash } from "node:crypto";
 import cliPkg from "../../cli/package.json" with { type: "json" };
-import { getSettings, getProviderConnections, getApiKeyAllowedConnectionIds, getApiKeyOwner } from "@/lib/localDb";
+import { getSettings, getProviderConnections, getApiKeyAllowedConnectionIds, getApiKeyOwner, getApiKeyIdentity } from "@/lib/localDb";
 import { resolveScopedSettings } from "@/lib/auth/scopedSettings";
 import { getCatalogVersion } from "@/lib/catalogVersion";
 import { DATA_DIR } from "@/lib/db/paths.js";
@@ -16,7 +16,7 @@ import { COMBO_STRATEGIES } from "open-sse/services/combo.js";
 import { SESSION_HEADERS, AFFINITY_HEADERS } from "open-sse/utils/sessionManager.js";
 import { COST_HEADER, DECISION_HEADER, HINT_HEADER, REASONING_HEADER, REASONING_RESPONSE_HEADER, REQUEST_ID_HEADER, SERVED_MODEL_HEADER, SESSION_AFFINITY_CONFIG, TOKEN_SAVER_HEADER, CATALOG_VERSION_HEADER } from "open-sse/config/runtimeConfig.js";
 import { HINT_KEYS } from "open-sse/decision/clientHint.js";
-import { normalizeAutopilotConfig } from "open-sse/decision/reasoningAutopilot.js";
+import { autopilotApplies, normalizeAutopilotConfig, REASONING_HEADER_VALUES, REASONING_LADDER } from "open-sse/decision/reasoningAutopilot.js";
 
 export const PRODUCT = "red-router";
 export const SYSTEM_ONE_PATH = "/v1/systemone";
@@ -58,6 +58,17 @@ export async function buildCapabilities({ apiKey = null } = {}) {
       mode: reasoning.mode,
       header: REASONING_HEADER,
       response_header: REASONING_RESPONSE_HEADER,
+      // Whether the configured autopilot covers the calling key without the header.
+      // Combo coverage is per request and not reflected here.
+      applies: await autopilotAppliesToKey(reasoning, apiKey),
+      floor: reasoning.floor,
+      ceiling: reasoning.ceiling,
+      min_dwell_turns: reasoning.minDwellTurns,
+      context_fraction: reasoning.contextFraction,
+      // `off` keeps the client's thinking, `auto` runs the autopilot for that request
+      // whatever the configured mode, a level forces it.
+      accepts: [...REASONING_HEADER_VALUES],
+      ladder: [...REASONING_LADDER],
     },
     session: {
       headers: [...SESSION_HEADERS],
@@ -82,6 +93,15 @@ export async function buildCapabilities({ apiKey = null } = {}) {
       combo_members: true,
     },
   };
+}
+
+async function autopilotAppliesToKey(config, apiKey) {
+  try {
+    const apiKeyId = apiKey ? (await getApiKeyIdentity(apiKey)).id : null;
+    return autopilotApplies(config, { apiKeyId });
+  } catch {
+    return false;
+  }
 }
 
 async function readSettings(apiKey) {
