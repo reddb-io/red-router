@@ -165,7 +165,7 @@ export function createSSEStream(options = {}) {
 
   // Usage/logging tail, callable from transform() as well as flush(): a client that
   // closes right after the terminal event cancels the reader, and flush() never runs.
-  const finalizeStream = () => {
+  const finalizeStream = ({ aborted = false } = {}) => {
     if (finalized) return;
     finalized = true;
 
@@ -188,7 +188,7 @@ export function createSSEStream(options = {}) {
         content: accumulatedContent,
         thinking: accumulatedThinking,
         toolCalls: [...toolCallStore.values()].filter((call) => call.name || call.arguments)
-      }, finalUsage, ttftAt);
+      }, finalUsage, ttftAt, { aborted });
     }
   };
 
@@ -663,6 +663,10 @@ export function createSSEStream(options = {}) {
   stream.abortTerminalBytes = sourceFormat === FORMATS.OPENAI
     ? () => (clientTerminalSeen || streamDoneSent ? null : buildAbortedOpenAITerminalBytes(model))
     : null;
+
+  // The client went away (or the upstream failed) before EOF: flush() never runs,
+  // so record what was read so far, with usage estimated when none arrived.
+  stream.finalizeAborted = () => finalizeStream({ aborted: true });
 
   // Latest upstream usage this stream has tracked (unbuffered), for pricing the turn.
   stream.currentUsage = () => (mode === STREAM_MODE.PASSTHROUGH ? usage : state?.usage) || null;

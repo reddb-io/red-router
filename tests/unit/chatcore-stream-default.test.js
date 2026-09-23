@@ -64,7 +64,7 @@ describe("chatCore stream mode when the client omits `stream`", () => {
     vi.clearAllMocks();
     const ok = { success: true, response: new Response("{}", { status: 200 }) };
     executeMock.mockImplementation(async ({ stream }) => ({
-      response: new Response(stream ? "data: {\"choices\":[]}\n\n" : "{}", {
+      response: new Response(stream ? "data: {\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}\n\n" : "{}", {
         status: 200,
         headers: { "content-type": stream ? "text/event-stream" : "application/json" },
       }),
@@ -107,7 +107,7 @@ describe("chatCore stream mode when the client omits `stream`", () => {
         headers: {},
       })
       .mockResolvedValueOnce({
-        response: new Response("data: {\"choices\":[]}\n\n", { status: 200, headers: { "content-type": "text/event-stream" } }),
+        response: new Response("data: {\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}\n\n", { status: 200, headers: { "content-type": "text/event-stream" } }),
         url: "https://upstream/v1/chat/completions",
         headers: {},
       });

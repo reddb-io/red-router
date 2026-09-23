@@ -12,6 +12,7 @@ import { appendRequestLog, saveRequestDetail } from "@/lib/usageDb.js";
 import { decloakToolNames } from "../../utils/claudeCloaking.js";
 import { costHeaders } from "../../utils/servedHeaders.js";
 import { restoreToolNames } from "../../utils/opencodeFingerprint.js";
+import { nonStreamFailure } from "./streamProbe.js";
 
 /**
  * Translate a non-streaming response body: provider format → OpenAI Chat
@@ -191,6 +192,15 @@ export async function handleNonStreamingResponse({ providerResponse, provider, e
   // bare OpenAI body and usage tracking sees data.usage. No-op unless the
   // provider opts in via transport.quirks.clineEnvelope.
   responseBody = unwrapClineEnvelope(responseBody, provider);
+
+  // HTTP 200 with an error inside (an error envelope, `choices: null`, a
+  // finish_reason that means failure) is a failure: the caller can still fall back.
+  const inBand = nonStreamFailure(responseBody);
+  if (inBand) {
+    appendLog({ status: `FAILED ${inBand.statusCode}` });
+    if (log?.warn) log.warn("CHAT", `in-band error in 200 response · ${provider}/${model} · ${inBand.statusCode} ${inBand.message}`);
+    return createErrorResult(inBand.statusCode, inBand.message, undefined, { ...errorContext, provider, model });
+  }
 
   reqLogger.logProviderResponse(providerResponse.status, providerResponse.statusText, providerResponse.headers, responseBody);
   if (onRequestSuccess) {

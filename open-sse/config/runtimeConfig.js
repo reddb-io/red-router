@@ -65,6 +65,17 @@ export const STREAM_FIRST_CHUNK_TIMEOUT_MS = envMs("STREAM_FIRST_CHUNK_TIMEOUT_M
 // Env: STREAM_EMPTY_RESPONSE_MAX_RETRIES.
 export const STREAM_EMPTY_RESPONSE_MAX_RETRIES = envMs("STREAM_EMPTY_RESPONSE_MAX_RETRIES", 3);
 
+// How long a streaming response is held back while waiting for its first event
+// that carries an answer, so a failure that arrives with HTTP 200 can still fall
+// back. After this the stream is released as is. Env: STREAM_READ_AHEAD_MS.
+export const STREAM_READ_AHEAD_MS = envMs("STREAM_READ_AHEAD_MS", 15 * 1000);
+// Byte cap on that read-ahead; past it the stream is released as is.
+export const STREAM_READ_AHEAD_MAX_BYTES = 256 * 1024;
+
+// SSE comment sent to the client while the upstream is silent, so proxies and
+// clients with idle timeouts keep the connection. Env: STREAM_KEEPALIVE_MS (0 = off).
+export const STREAM_KEEPALIVE_MS = envMs("STREAM_KEEPALIVE_MS", 15 * 1000);
+
 // Fetch connect timeout: abort if upstream doesn't return response headers within this duration
 export const FETCH_CONNECT_TIMEOUT_MS = envMs("FETCH_CONNECT_TIMEOUT_MS", 60 * 1000);
 
