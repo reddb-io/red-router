@@ -937,29 +937,28 @@ export default function ProviderDetailPage() {
     }
   };
 
+  // Indexes are positions in the list on screen (visibleConnections, which the
+  // owner filter narrows), not in `connections`. The new order is saved in one
+  // request; the server keeps hidden accounts where they were.
   const handleSwapPriority = async (index1, index2) => {
-    // Optimistic update state
-    const newConnections = [...connections];
-    [newConnections[index1], newConnections[index2]] = [newConnections[index2], newConnections[index1]];
-    setConnections(newConnections);
+    const shown = [...visibleConnections];
+    if (!shown[index1] || !shown[index2]) return;
+    [shown[index1], shown[index2]] = [shown[index2], shown[index1]];
+    const shownIds = new Set(shown.map((c) => c.id));
+    const queue = [...shown];
+    setConnections((prev) => prev.map((c) => (shownIds.has(c.id) ? queue.shift() : c)));
 
     try {
-      await Promise.all([
-        fetch(`/api/providers/${newConnections[index1].id}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ priority: index1 }),
-        }),
-        fetch(`/api/providers/${newConnections[index2].id}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ priority: index2 }),
-        }),
-      ]);
+      const res = await fetch("/api/providers/reorder", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider: providerId, orderedIds: shown.map((c) => c.id) }),
+      });
+      if (!res.ok) throw new Error(`reorder failed (${res.status})`);
     } catch (error) {
       console.log("Error swapping priority:", error);
-      await fetchConnections();
     }
+    await fetchConnections();
   };
 
   const selectedConnections = connections.filter((conn) => selectedConnectionIds.includes(conn.id));
