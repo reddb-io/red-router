@@ -1,5 +1,33 @@
 # @reddb-io/red-router
 
+## 0.20.0
+
+### Minor Changes
+
+- 2e626ee: Account selection now uses measured health and reported quota.
+  
+  - **Health tracking.** RedRouter measures each account and model: time to first token, latency and error rate, with a circuit breaker that opens after 3 straight failures. The provider page shows each account's TTFT and error rate.
+  - **"Prefer healthy accounts"** (Settings, the `health` fallback strategy). The account that answers fastest and fails least leads; accounts not yet measured are tried first, and a few requests explore the others.
+  - **Combos.** Combos move a member to the back while its provider is failing on every account, unless the request's own routing chose it.
+  - **"Quota-aware routing"** (opt-in). It reads each account's quota every 5 min from the provider's usage API, skips accounts that ran out, keeps a configurable reserve, and uses first the quota that resets soonest. Reports older than 30 min count as unknown, and when every account is exhausted the upstream has the last word.
+- beb2b7e: Routing decisions no longer stall when JEV is unavailable.
+  
+  - **Local score fallback.** A deterministic local score (built from explicit "think" requests, plan mode, stalls, tool errors, feedback, hard or trivial wording, ask length and context size) stands in whenever JEV times out, errors, or has its breaker open:
+    - **smart combos** pick a tier from it;
+    - **auto combos** send a clearly hard turn to their priciest member and a clearly easy one to the cheapest;
+    - **the reasoning autopilot** uses it on a session's first turn.
+  - **New smart-combo modes.** `smartMode: "hybrid"` asks JEV only when the local score sits near a tier edge. `"heuristic_first"` asks JEV only when no signal fired.
+  - **Total-cost tie-break.** Auto-combo ties are broken by what the whole request would cost (prompt plus expected answer, with the warm-cache discount), not by input price alone.
+  - **Cache affinity.** Moving away from the member whose prompt cache is warm needs a clearer verdict (`cacheSwitchStrength`, 0.75 by default).
+  - **New Token Saver option: "Drop irrelevant tool output"** (opt-in). JEV judges which older tool outputs the current request still needs, and replaces the rest with a one-line note. Each output is judged once; errors and the two latest outputs are always kept.
+- 2fd73ac: - **Client beta flags are kept.** The client's `anthropic-beta` flags now reach Anthropic, merged with RedRouter's own. Before, they were replaced, so a Claude Code `[1m]` model silently lost its 1M context flag. The Claude Code identity flag is still stripped for third-party gateways.
+  - **Capability overrides.** You can correct a model's capabilities (images, PDFs, tools, reasoning, whether thinking can be turned off, forced tool choice, web search, context window, max output) from the new "Capabilities" button on each model of a provider page. An override wins over every built-in table and the synced catalog, and applies to routing, `/v1/models` and `parameters`.
+  - **Cost-class fallback policy.** A new setting, "Combo Fallback Across Plans and API Keys", decides whether a combo led by a subscription account may fall back to a pay-per-token API key. `no-metered` never falls back to one; `same-class` stays in the lead's class both ways. It can also be set per combo (`costClassFallback`). The default, `allow`, keeps today's behavior.
+
+### Patch Changes
+
+- 079c2d8: `X-RedRouter-Catalog-Version` now changes as soon as a combo is created, edited or deleted, a model is disabled or re-enabled, or an API key's rules change. Before, it could stay stale for up to 15 s, so clients watching it kept an outdated model list. Releases now also run an end-to-end routing check against fixture upstreams (`cli/scripts/e2e-routing.mjs`).
+
 ## 0.19.0
 
 ### Minor Changes
