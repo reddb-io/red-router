@@ -14,6 +14,7 @@ import { getSettings, getApiKeyOwner, getApiKeyIdentity } from "@/lib/localDb";
 import { peekCatalogVersion } from "@/lib/catalogVersion";
 import { resolveScopedSettings, headroomProjectUrl } from "@/lib/auth/scopedSettings";
 import { getModelInfo, parseModel, resolveComboModels } from "../services/model.js";
+import { resolveVariantRequest } from "open-sse/providers/modelVariants.js";
 import { handleChatCore } from "open-sse/handlers/chatCore.js";
 import { DEFAULT_HEADROOM_URL } from "@/lib/headroom/detect";
 import { getTransform as getPxpipeTransform } from "@/lib/pxpipe/loader.js";
@@ -552,7 +553,10 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
     return errorResponse(HTTP_STATUS.BAD_REQUEST, "Invalid model format", errorContext);
   }
 
-  const { provider, model } = modelInfo;
+  const provider = modelInfo.provider;
+  // A base id with a level ("gemini-3.8-flash(high)") calls the variant model that
+  // serves that level; variant ids pass through unchanged.
+  const model = resolveVariantRequest(provider, modelInfo.model);
 
   // Routing shown in the unified "▶" line (client model → provider/model)
 

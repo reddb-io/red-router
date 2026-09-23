@@ -88,8 +88,9 @@ const DEFAULT_SETTINGS = {
   },
   reasoningAutopilot: { ...DEFAULT_AUTOPILOT },
   // /v1/models listing. prefixStyle "slug" lists readable ids ("claude-code/<model>");
-  // "short" keeps the legacy short codes ("cc/<model>"). Both always route.
-  catalog: { prefixStyle: "slug" },
+  // "short" keeps the legacy short codes ("cc/<model>"). Both always route. variants
+  // "collapse" folds level/mode variant ids into their base entry; "expand" lists each.
+  catalog: { prefixStyle: "slug", variants: "collapse" },
 };
 
 async function readRaw() {

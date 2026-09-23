@@ -2,7 +2,7 @@ import { PROVIDERS } from "./providers.js";
 import REGISTRY from "../providers/registry/index.js";
 // PROVIDER_MODELS now built from providers/registry (transport + models co-located)
 import { PROVIDER_MODELS } from "../providers/index.js";
-import { modelQuotaFamily, modelStrip, modelTargetFormat, modelSupportedFormats, normalizeModelId } from "../providers/models/schema.js";
+import { modelStrip, modelTargetFormat, modelSupportedFormats, normalizeModelId } from "../providers/models/schema.js";
 import { CODEX_REVIEW_SUFFIX, isMuseSparkModel } from "../providers/models/helpers.js";
 import { FORMATS } from "../translator/formats.js";
 export { PROVIDER_MODELS };
@@ -95,11 +95,6 @@ export function getModelUpstreamId(aliasOrId, modelId) {
     return baseId.slice(0, -CODEX_REVIEW_SUFFIX.length) + suffix;
   }
   return baseId + suffix;
-}
-
-export function getModelQuotaFamily(aliasOrId, modelId) {
-  const models = PROVIDER_MODELS[aliasOrId];
-  return modelQuotaFamily(findModel(models, modelId, aliasOrId));
 }
 
 // OAuth short aliases — derived from registry `alias` (single source). everything else: alias = id.

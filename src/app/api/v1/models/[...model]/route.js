@@ -50,18 +50,23 @@ export async function GET(request, { params }) {
     const kindFilter = path.length === 1 ? KIND_SLUG_MAP[identifier] : null;
 
     const apiKey = extractApiKey(request);
+    const variants = request?.url ? new URL(request.url).searchParams.get("variants") || undefined : undefined;
 
     if (kindFilter) {
-      const data = await buildModelsList(kindFilter, { apiKey });
+      const data = await buildModelsList(kindFilter, { apiKey, variants });
       return json({ object: "list", data });
     }
 
     // Match the same LLM catalog exposed by GET /v1/models. A catch-all
     // parameter is required because provider-prefixed IDs contain a slash.
-    const models = await buildModelsList([LLM_KIND], { apiKey });
-    // A legacy id ("cc/<model>") still finds its entry through `aliases`.
+    const models = await buildModelsList([LLM_KIND], { apiKey, variants });
+    // A legacy id ("cc/<model>") still finds its entry through `aliases`, and a variant
+    // id ("codex/gpt-5.5-review") the base entry it is folded into.
     const matchedModel = models.find((candidate) => candidate.id === identifier)
-      || models.find((candidate) => Array.isArray(candidate.aliases) && candidate.aliases.includes(identifier));
+      || models.find((candidate) => Array.isArray(candidate.aliases) && candidate.aliases.includes(identifier))
+      || models.find((candidate) => Array.isArray(candidate.variants) && candidate.variants.some(
+        (variant) => variant.id === identifier || (Array.isArray(variant.aliases) && variant.aliases.includes(identifier)),
+      ));
 
     if (!matchedModel) {
       return json(

@@ -7,6 +7,7 @@ import {
 } from "@/shared/constants/providers";
 import { providerIdentity, providerLegacyPrefix, providerSlug } from "open-sse/providers/identity.js";
 import { resolveProviderAlias } from "open-sse/services/model.js";
+import { groupModelVariants, mergeVariantLevels, variantBaseName } from "open-sse/providers/modelVariants.js";
 import { getProviderConnections, getCombos, getCustomModels, getModelAliases, getApiKeyAllowedConnectionIds, getApiKeyOwner, getSettings } from "@/lib/localDb";
 import { parseModel } from "@/sse/services/model.js";
 import { getDisabledModels } from "@/lib/disabledModelsDb";
@@ -163,6 +164,46 @@ const PREFIX_STYLES = new Set(["slug", "short"]);
 const COMBO_PROVIDER = { id: "combo", name: "Combo" };
 const REMOTE_ROUTER_ID = "red-router";
 
+// settings.catalog.variants (or ?variants=): "collapse" folds level/mode variant ids
+// ("gpt-5.5-review", "gemini-3.8-flash-high") into their base entry, "expand" lists
+// each one as its own entry the way older clients expect.
+const VARIANT_MODES = new Set(["collapse", "expand"]);
+
+function catalogVariantsMode(settings, requested) {
+  if (VARIANT_MODES.has(requested)) return requested;
+  const configured = settings?.catalog?.variants;
+  return VARIANT_MODES.has(configured) ? configured : "collapse";
+}
+
+/**
+ * Fold one provider's variant ids into their base. Returns the ids to list (a table
+ * base that is not a model of its own takes its first variant's place) and the
+ * variants of each listed base.
+ */
+function collapseVariants(providerId, ids, mode) {
+  const groups = mode === "expand" ? new Map() : groupModelVariants(providerId, ids);
+  if (groups.size === 0) return { ids, groups };
+  const baseOf = new Map([...groups].flatMap(([base, variants]) => variants.map((v) => [v.id, base])));
+  const listed = [];
+  for (const id of ids) {
+    const base = baseOf.get(id);
+    const next = base === undefined ? id : ids.includes(base) ? null : base;
+    if (next && !listed.includes(next)) listed.push(next);
+  }
+  return { ids: listed, groups };
+}
+
+/** The `variants` block of a base entry: each legacy variant id and what it selects. */
+function variantEntries(prefixes, variants, nameOf) {
+  return variants.map((variant) => ({
+    id: `${prefixes.prefix}/${variant.id}`,
+    name: nameOf(variant.id),
+    ...(variant.level ? { level: variant.level } : {}),
+    ...(variant.mode ? { mode: variant.mode } : {}),
+    ...(prefixes.others.length ? { aliases: prefixes.others.map((p) => `${p}/${variant.id}`) } : {}),
+  }));
+}
+
 function catalogPrefixStyle(settings) {
   const style = settings?.catalog?.prefixStyle;
   return PREFIX_STYLES.has(style) ? style : "slug";
@@ -223,6 +264,15 @@ function remoteRouterEntry(prefixes, remoteId, remote, conn) {
   const remoteAliases = Array.isArray(remote?.aliases) ? remote.aliases.filter((a) => typeof a === "string" && a) : [];
   const aliases = [...(entry.aliases || []), ...remoteAliases.map((a) => `${prefixes.prefix}/${a}`)];
   if (aliases.length) entry.aliases = aliases;
+  if (Array.isArray(remote?.variants)) {
+    entry.variants = remote.variants
+      .filter((v) => typeof v?.id === "string" && v.id)
+      .map((v) => ({
+        ...v,
+        id: `${prefixes.prefix}/${v.id}`,
+        ...(Array.isArray(v.aliases) ? { aliases: v.aliases.map((a) => `${prefixes.prefix}/${a}`) } : {}),
+      }));
+  }
   entry.via = REMOTE_ROUTER_ID;
   return entry;
 }
@@ -473,6 +523,7 @@ export async function buildModelsList(kindFilter, options = {}) {
   } catch { }
 
   const prefixStyle = catalogPrefixStyle(settings);
+  const variantsMode = catalogVariantsMode(settings, options.variants);
 
   let combos = [];
   try {
@@ -566,10 +617,16 @@ export async function buildModelsList(kindFilter, options = {}) {
       if (!providerMatchesKinds(providerId, kindFilter)) continue;
       const prefixes = listingPrefixes(providerId, prefixStyle);
       const provider = providerIdentity(providerId);
-      for (const model of providerModels) {
-        if (!kindFilter.includes(modelKind(model))) continue;
-        if ([alias, prefixes.prefix, providerLegacyPrefix(providerId)].some((prefix) => isDisabled(prefix, model.id))) continue;
-        models.push(providerModelEntry({ prefixes, modelId: model.id, name: model.name, provider }));
+      const listedModels = providerModels
+        .filter((model) => kindFilter.includes(modelKind(model)))
+        .filter((model) => ![alias, prefixes.prefix, providerLegacyPrefix(providerId)].some((prefix) => isDisabled(prefix, model.id)));
+      const nameOf = (id) => listedModels.find((m) => m.id === id)?.name || variantBaseName(providerId, id) || id;
+      const collapsed = collapseVariants(providerId, listedModels.map((model) => model.id), variantsMode);
+      for (const modelId of collapsed.ids) {
+        const entry = providerModelEntry({ prefixes, modelId, name: nameOf(modelId), provider });
+        const variants = collapsed.groups.get(modelId);
+        if (variants) entry.variants = variantEntries(prefixes, variants, nameOf);
+        models.push(entry);
       }
     }
 
@@ -689,26 +746,33 @@ export async function buildModelsList(kindFilter, options = {}) {
         .map(stripOwnPrefix)
         .filter((modelId) => typeof modelId === "string" && modelId.trim() !== "");
 
-      const mergedModelIds = Array.from(new Set([...modelIds, ...customModelIds, ...aliasModelIds]));
+      const mergedModelIds = Array.from(new Set([...modelIds, ...customModelIds, ...aliasModelIds]))
+        .filter((modelId) => !ownPrefixes.some((prefix) => isDisabled(prefix, modelId)));
+      const collapsed = providerId === REMOTE_ROUTER_ID
+        ? { ids: mergedModelIds, groups: new Map() }
+        : collapseVariants(providerId, mergedModelIds, variantsMode);
+      const nameOf = (modelId) => liveModelById.get(modelId)?.name
+        || customModelNameById.get(modelId)
+        || (staticModelKindById.has(modelId) ? findModelName(staticAlias, modelId) : null)
+        || variantBaseName(providerId, modelId)
+        || modelId;
 
-      for (const modelId of mergedModelIds) {
+      for (const modelId of collapsed.ids) {
+        const variants = collapsed.groups.get(modelId);
+        // A base listed in place of its variants takes their kind.
+        const kindId = variants && !mergedModelIds.includes(modelId) ? variants[0].id : modelId;
         // Resolve kind: prefer custom/live metadata, then static, then ID heuristics.
-        const customKind = customModelKindById.get(modelId);
-        const liveKind = liveModelKindById.get(modelId);
-        const kind = customKind || liveKind || staticModelKindById.get(modelId) || inferKindFromUnknownModelId(modelId);
+        const customKind = customModelKindById.get(kindId);
+        const liveKind = liveModelKindById.get(kindId);
+        const kind = customKind || liveKind || staticModelKindById.get(kindId) || inferKindFromUnknownModelId(kindId);
         // imageToText custom models stay in the LLM list (vision-capable chat models)
         const allowAsLlm = kind === "imageToText" && kindFilter.includes(LLM_KIND);
         if (!kindFilter.includes(kind) && !allowAsLlm) continue;
-        if (ownPrefixes.some((prefix) => isDisabled(prefix, modelId))) continue;
 
         const model = providerId === REMOTE_ROUTER_ID
           ? remoteRouterEntry(prefixes, modelId, liveModelById.get(modelId), conn)
-          : providerModelEntry({
-            prefixes,
-            modelId,
-            name: liveModelById.get(modelId)?.name || customModelNameById.get(modelId) || findModelName(staticAlias, modelId),
-            provider,
-          });
+          : providerModelEntry({ prefixes, modelId, name: nameOf(modelId), provider });
+        if (variants) model.variants = variantEntries(prefixes, variants, nameOf);
         // Live-catalog resolvers (kiro/qoder/github/clinepass) mostly only return
         // { id, name } — no per-model capability data. Fall back to the same
         // pattern-matched capabilities the dashboard uses (useModelCaps.js) so
@@ -739,15 +803,20 @@ export async function buildModelsList(kindFilter, options = {}) {
           if (Number.isFinite(maxOutput)) model.max_completion_tokens = maxOutput;
           // Levels a client may request (resolves via the clean id when the
           // entry carries a "(level)" suffix). Mirrored under capabilities.
-          const levels = getThinkingLevelsForId(providerId, modelId);
+          // A base entry also offers the levels its variant ids select, and the
+          // modes (e.g. Codex review) only a variant id reaches.
+          const variantLevels = variants?.some((v) => v.level) === true;
+          const ownLevels = getThinkingLevelsForId(providerId, modelId);
+          const levels = variants ? mergeVariantLevels(ownLevels, variants) : ownLevels;
           if (levels) {
             model.thinking_levels = levels;
             if (model.capabilities) model.capabilities.thinkingLevels = levels;
           }
-          const parameters = modelParameters(
-            { ...getCapabilitiesForModel(providerId, modelId), ...(caps || {}), contextWindow, maxOutput },
-            levels,
-          );
+          const baseCaps = { ...getCapabilitiesForModel(providerId, modelId), ...(caps || {}), contextWindow, maxOutput };
+          if (variantLevels) baseCaps.reasoning = true;
+          const parameters = modelParameters(baseCaps, levels);
+          const modes = [...new Set((variants || []).map((v) => v.mode).filter(Boolean))];
+          if (parameters && modes.length) parameters.modes = modes;
           if (parameters) model.parameters = parameters;
         }
         models.push(model);
@@ -797,7 +866,9 @@ export async function GET(request) {
     // Detect cross-instance recursive /models fetch (another red-router fetching our /models)
     const skipDynamicFetch = request?.headers?.get(INTERNAL_MODELS_FETCH_HEADER) === "1";
     const apiKey = extractApiKey(request);
-    const data = await buildModelsList([LLM_KIND], { skipDynamicFetch, apiKey });
+    // ?variants=expand lists every variant id as its own entry (older clients).
+    const variants = request?.url ? new URL(request.url).searchParams.get("variants") || undefined : undefined;
+    const data = await buildModelsList([LLM_KIND], { skipDynamicFetch, apiKey, variants });
     const catalogVersion = await getCatalogVersion(apiKey);
     return Response.json({ object: "list", data }, {
       headers: {

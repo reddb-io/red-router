@@ -9,10 +9,9 @@ export function normalizeModelId(modelId) {
   return modelId.replace(/(\d)-(\d)/g, "$1.$2");
 }
 
-// Model defaults centralized (was scattered as `m.kind || "llm"`, `quotaFamily || "normal"`, etc.)
+// Model defaults centralized (was scattered as `m.kind || "llm"`, etc.)
 export const MODEL_DEFAULTS = {
   kind: "llm",
-  quotaFamily: "normal",
   strip: [],
   targetFormat: null
 };
@@ -28,9 +27,6 @@ export function normalizeModel(raw) {
 // Resolve model kind with default (accepts legacy `type` field)
 export function modelKind(model) {
   return model?.kind || model?.type || MODEL_DEFAULTS.kind;
-}
-export function modelQuotaFamily(model) {
-  return model?.quotaFamily || MODEL_DEFAULTS.quotaFamily;
 }
 export function modelStrip(model) {
   return model?.strip || [];
