@@ -9,7 +9,7 @@ import REGISTRY from "open-sse/providers/registry/index.js";
 import { getProviderCredentials } from "./auth.js";
 import { askJev, decisionUrlFor } from "open-sse/decision/jev.js";
 import { buildState } from "open-sse/decision/state.js";
-import { extractSignals, signalsMeta } from "open-sse/decision/signals.js";
+import { extractSignals, isEncryptedTask, signalsMeta } from "open-sse/decision/signals.js";
 import {
   autopilotApplies,
   decideReasoningLevel,
@@ -213,6 +213,12 @@ export async function decideComboModel({ body, models, comboName, config, target
     return { models: [pool[0], ...pool.slice(1)], decision };
   }
 
+  // An encrypted delegated task gives the decision model nothing but ciphertext.
+  if (signals?.encryptedTask) {
+    log?.info?.("DECISION", `model: no decision for "${comboName}" (encrypted agent task)`);
+    return { models, decision: null, reason: "encrypted_task" };
+  }
+
   const hinted = typeof hintedDeliberation === "number" && Number.isFinite(hintedDeliberation);
   const { questions } = buildModelQuestions(pool, criteriaResolver(config), { deliberation: !hinted });
   const state = buildState(body, { maxStateChars: 24000, dropSystem: signals?.harnessSystem === true });
@@ -260,6 +266,7 @@ export async function decideComboModel({ body, models, comboName, config, target
  */
 export async function decideTool({ body, tools, plans = [], config, target, log }) {
   if (tools.length === 0) return null;
+  if (isEncryptedTask(body)) return null;
 
   const kept = shortlistTools(tools, body);
   const { questions } = buildToolQuestions(kept);
@@ -380,7 +387,7 @@ export async function planReasoning({ body, settings, apiKey = null, apiKeyId = 
   let measured = typeof deliberation === "number" ? deliberation : null;
   let response = null;
   let target = null;
-  if (measured === null && !signals.housekeeping && config.askJevDirect) {
+  if (measured === null && !signals.housekeeping && !signals.encryptedTask && config.askJevDirect) {
     if (session?.memo?.hash === turnHash) {
       measured = session.memo.deliberation;
     } else {
