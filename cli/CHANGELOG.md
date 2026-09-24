@@ -1,5 +1,22 @@
 # @reddb-io/red-router
 
+## 0.24.4
+
+### Patch Changes
+
+- 49aec10: The dashboard follows design system v2026.09.
+  
+  - **Navigation**: the current page in the sidebar is marked by a neutral background, medium weight and a thin red edge, not red text on a red tint. Brand red now marks the primary action, not every selected thing.
+  - **Fields**: text inputs and selects have a visible border that holds 3:1 contrast against the page in light and dark, and an invalid field shows the danger border.
+  - **Buttons**: danger and success buttons are filled, so a destructive action looks like one. Small controls never go below 24px.
+  - **Dialogs and drawers** dim the page with the design system's scrim, without blur.
+- 00f9bee: Editing a connection now shows and saves every field it was created with. A RedRouter connection's remote URL and an Ollama connection's host URL can be changed after creation, and so can a compatible connection's default model. Before, the edit dialog didn't show those fields at all, so the only way to change them was to delete the connection and create it again.
+  
+  - A changed RedRouter URL is checked and normalized exactly like a new one (HTTP or HTTPS, `/v1` added when missing), and the remote router's model list is refreshed from the new address.
+  - Validating a new API key checks it against the URL in the form, not the old one.
+- 5849fdc: The Donate button is gone from the dashboard's top bar. Its dialog loaded donation info from a URL that doesn't exist, so it only ever showed an error.
+- 5e32ce9: The sidebar's **Endpoint & Keys** entry moved from System to the end of the Operate section, next to Usage, Quota Tracker, Routing Combos and Token Saver.
+
 ## 0.24.3
 
 ### Patch Changes
