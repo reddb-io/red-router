@@ -50,20 +50,15 @@ export default function JcodeToolCard({
 
   useEffect(() => {
     if (apiKeys?.length > 0 && !selectedApiKey) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSelectedApiKey(apiKeys[0].key);
     }
   }, [apiKeys, selectedApiKey]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (initialStatus) setJcodeStatus(initialStatus);
   }, [initialStatus]);
-
-  useEffect(() => {
-    if (isExpanded) {
-      if (!jcodeStatus) checkJcodeStatus();
-      fetchModelAliases();
-    }
-  }, [isExpanded]);
 
   const fetchModelAliases = async () => {
     try {
@@ -81,6 +76,7 @@ export default function JcodeToolCard({
       const provider = jcodeStatus.config?.providers?.["red-router"];
       if (provider) {
         if (provider.default_model) {
+          // eslint-disable-next-line react-hooks/set-state-in-effect
           setSelectedModel(provider.default_model);
         }
         // Try to match API key from env file
@@ -104,6 +100,14 @@ export default function JcodeToolCard({
       setCheckingJcode(false);
     }
   };
+
+  useEffect(() => {
+    if (isExpanded) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      if (!jcodeStatus) checkJcodeStatus();
+      fetchModelAliases();
+    }
+  }, [isExpanded]);
 
   const normalizeLocalhost = (url) => url.replace("://localhost", "://127.0.0.1");
 
@@ -194,11 +198,11 @@ base_url = "${getEffectiveBaseUrl()}"
 auth = "bearer"
 api_key_env = "JCODE_RED_ROUTER_API_KEY"
 env_file = "provider-red-router.env"
-default_model = "${selectedModel || "cc/claude-opus-4-7"}"
+default_model = "${selectedModel || "claude-code/claude-opus-4-7"}"
 requires_api_key = true
 
 [[providers.red-router.models]]
-id = "${selectedModel || "cc/claude-opus-4-7"}"`;
+id = "${selectedModel || "claude-code/claude-opus-4-7"}"`;
 
     const envContent = `JCODE_RED_ROUTER_API_KEY="${keyToUse}"`;
 
@@ -327,7 +331,7 @@ id = "${selectedModel || "cc/claude-opus-4-7"}"`;
                   <span className="text-xs font-semibold text-text-main sm:text-right sm:text-sm">Default Model</span>
                   <span className="material-symbols-outlined hidden text-text-muted text-[14px] sm:inline">arrow_forward</span>
                   <div className="relative w-full min-w-0">
-                    <input type="text" value={selectedModel} onChange={(e) => setSelectedModel(e.target.value)} placeholder="cc/claude-opus-4-7" className="w-full min-w-0 pl-2 pr-7 py-2 bg-surface rounded border border-border text-xs focus:outline-none focus:ring-1 focus:ring-primary/50 sm:py-1.5" />
+                    <input type="text" value={selectedModel} onChange={(e) => setSelectedModel(e.target.value)} placeholder="claude-code/claude-opus-4-7" className="w-full min-w-0 pl-2 pr-7 py-2 bg-surface rounded border border-border text-xs focus:outline-none focus:ring-1 focus:ring-primary/50 sm:py-1.5" />
                     {selectedModel && <button onClick={() => setSelectedModel("")} className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 text-text-muted hover:text-red-500 rounded transition-colors" title="Clear"><span className="material-symbols-outlined text-[14px]">close</span></button>}
                   </div>
                   <button onClick={() => setModalOpen(true)} disabled={!hasActiveProviders} className={`w-full sm:w-auto rounded border px-2 py-2 text-xs transition-colors sm:py-1.5 whitespace-nowrap sm:shrink-0 ${hasActiveProviders ? "bg-surface border-border text-text-main hover:border-primary cursor-pointer" : "opacity-50 cursor-not-allowed border-border"}`}>Select</button>
@@ -337,7 +341,7 @@ id = "${selectedModel || "cc/claude-opus-4-7"}"`;
                 <div className="flex flex-col gap-1 p-3 bg-blue-500/5 border border-blue-500/20 rounded-lg">
                   <p className="text-xs font-medium text-blue-600 dark:text-blue-400">Usage:</p>
                   <code className="text-xs font-mono text-text-muted">jcode --provider-profile red-router</code>
-                  <code className="text-xs font-mono text-text-muted">jcode --provider-profile red-router --model {selectedModel || "cc/claude-opus-4-7"}</code>
+                  <code className="text-xs font-mono text-text-muted">jcode --provider-profile red-router --model {selectedModel || "claude-code/claude-opus-4-7"}</code>
                 </div>
               </div>
 

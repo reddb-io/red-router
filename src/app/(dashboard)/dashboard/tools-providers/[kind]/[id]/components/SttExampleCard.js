@@ -10,7 +10,7 @@ import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
 import { Row } from "./exampleShared";
 
 export function SttExampleCard({ providerId }) {
-  const providerAlias = getProviderAlias(providerId);
+  const providerAlias = providerSlug(providerId);
   const builtinSttModels = getModelsByProviderId(providerId).filter((m) => getModelKind(m) === "stt");
   const [customSttModels, setCustomSttModels] = useState([]);
   const sttModels = [...builtinSttModels, ...customSttModels];

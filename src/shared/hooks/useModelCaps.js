@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { getCapabilitiesForModel } from "open-sse/providers/capabilities.js";
+import { providerIdOfToken } from "@/shared/utils/modelRef";
 
 // Module cache: one /api/models fetch shared by every useModelCaps instance.
 let cache = null; // { byFull, byId } | null
@@ -42,8 +43,12 @@ function resolveCaps(byFull, byId, key) {
   if (!key) return null;
   if (byFull[key]) return byFull[key];
   const bare = key.includes("/") ? key.slice(key.indexOf("/") + 1) : key;
+  // Any provider token ("claude-code/x", "cc/x") finds the entry listed under the provider id.
+  const token = key.includes("/") ? key.slice(0, key.indexOf("/")) : null;
+  const providerId = providerIdOfToken(token);
+  if (providerId && byFull[`${providerId}/${bare}`]) return byFull[`${providerId}/${bare}`];
   if (byId[bare]) return byId[bare];
-  const provider = key.includes("/") ? key.slice(0, key.indexOf("/")) : null;
+  const provider = providerId || token;
   const c = getCapabilitiesForModel(provider, bare);
   return {
     vision: c.vision,

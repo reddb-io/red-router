@@ -8,6 +8,7 @@ import CapacityBadges from "./CapacityBadges";
 import { useModelCaps } from "@/shared/hooks/useModelCaps";
 import { getModelsByProviderId, getModelKind } from "@/shared/constants/models";
 import { OAUTH_PROVIDERS, APIKEY_PROVIDERS, FREE_PROVIDERS, FREE_TIER_PROVIDERS, AI_PROVIDERS, isOpenAICompatibleProvider, isAnthropicCompatibleProvider, getProviderAlias } from "@/shared/constants/providers";
+import { providerIdOfToken, publicModelId, publicModelRef } from "@/shared/utils/modelRef";
 
 // Provider order: OAuth first, then Free Tier, then API Key (matches dashboard/providers)
 const PROVIDER_ORDER = [
@@ -230,7 +231,18 @@ export default function ModelSelectModal({
     });
 
     sortedProviderIds.forEach((providerId) => {
+      // `alias` is the storage key (custom models, aliases, disabled models); what the
+      // picker emits and shows is the readable "<slug>/<model>" (publicModelId).
       const alias = getProviderAlias(providerId);
+      const idOf = (modelId) => publicModelId(providerId, modelId);
+      // The model id of a saved "<token>/<model>" reference to this provider, whichever
+      // token it was saved under ("cx/x" and "codex/x" both belong to codex).
+      const ownModelId = (fullModel) => {
+        const slash = typeof fullModel === "string" ? fullModel.indexOf("/") : -1;
+        if (slash <= 0) return null;
+        const token = fullModel.slice(0, slash);
+        return token === alias || providerIdOfToken(token) === providerId ? fullModel.slice(slash + 1) : null;
+      };
       const providerInfo = allProviders[providerId] || { name: providerId, color: "#666" };
       const isCustomProvider = isOpenAICompatibleProvider(providerId) || isAnthropicCompatibleProvider(providerId);
 
@@ -247,18 +259,18 @@ export default function ModelSelectModal({
 
       if (providerInfo.passthroughModels) {
         const aliasModels = Object.entries(modelAliases)
-          .filter(([, fullModel]) => fullModel.startsWith(`${alias}/`))
+          .filter(([, fullModel]) => ownModelId(fullModel) !== null)
           .map(([aliasName, fullModel]) => ({
-            id: fullModel.replace(`${alias}/`, ""),
+            id: ownModelId(fullModel),
             name: aliasName,
-            value: fullModel,
+            value: idOf(ownModelId(fullModel)),
           }));
         const customRegisteredModels = customModels
           .filter((m) => m.providerAlias === alias)
           .map((m) => ({
             id: m.id,
             name: m.name || m.id,
-            value: `${alias}/${m.id}`,
+            value: idOf(m.id),
             kind: getModelKind(m),
             isCustom: true,
           }));
@@ -271,7 +283,7 @@ export default function ModelSelectModal({
             ...registeredTyped,
             ...getModelsByProviderId(providerId)
             .filter((m) => getModelKind(m) === kindFilter)
-            .map((m) => ({ id: m.id, name: m.name, value: `${alias}/${m.id}`, kind: getModelKind(m) }))
+            .map((m) => ({ id: m.id, name: m.name, value: idOf(m.id), kind: getModelKind(m) }))
             .filter((m) => !registeredTyped.some((registered) => registered.value === m.value)),
           ];
           // Fallback: provider-as-model when no hardcoded models match (tts/image/webFetch only)
@@ -285,7 +297,7 @@ export default function ModelSelectModal({
           const seen = new Set([...aliasModels, ...registeredLlms].map((m) => m.value));
           const hardcoded = getModelsByProviderId(providerId)
             .filter((m) => !getModelKind(m) || getModelKind(m) === "llm")
-            .map((m) => ({ id: m.id, name: m.name, value: `${alias}/${m.id}`, kind: getModelKind(m) }))
+            .map((m) => ({ id: m.id, name: m.name, value: idOf(m.id), kind: getModelKind(m) }))
             .filter((m) => !seen.has(m.value));
           combined = [...registeredLlms, ...aliasModels.filter((m) => !registeredLlms.some((registered) => registered.value === m.value)), ...hardcoded];
         }
@@ -293,8 +305,8 @@ export default function ModelSelectModal({
         if (providerId === "red-router") {
           const seen = new Set(combined.map((m) => m.value));
           combined = [...combined, ...remoteRouterModels
-            .filter((m) => !seen.has(`${alias}/${m.id}`))
-            .map((m) => ({ ...m, value: `${alias}/${m.id}` }))];
+            .filter((m) => !seen.has(idOf(m.id)))
+            .map((m) => ({ ...m, value: idOf(m.id) }))];
         }
         if (combined.length > 0) {
           // Check for custom name from providerNodes (for compatible providers)
@@ -368,24 +380,23 @@ export default function ModelSelectModal({
         // Otherwise only show aliases where aliasName === modelId ("Add Model" button pattern)
         const hasHardcoded = hardcodedModels.length > 0;
         const customAliasModels = Object.entries(modelAliases)
-          .filter(([aliasName, fullModel]) =>
-            fullModel.startsWith(`${alias}/`) &&
-            (hasHardcoded ? aliasName === fullModel.replace(`${alias}/`, "") : true) &&
-            !hardcodedIds.has(fullModel.replace(`${alias}/`, ""))
-          )
+          .filter(([aliasName, fullModel]) => {
+            const modelId = ownModelId(fullModel);
+            return modelId !== null && (hasHardcoded ? aliasName === modelId : true) && !hardcodedIds.has(modelId);
+          })
           .map(([aliasName, fullModel]) => {
-            const modelId = fullModel.replace(`${alias}/`, "");
-            return { id: modelId, name: aliasName, value: fullModel, isCustom: true };
+            const modelId = ownModelId(fullModel);
+            return { id: modelId, name: aliasName, value: idOf(modelId), isCustom: true };
           });
 
         // Custom models registered via /api/models/custom (provider "Add Model" button)
         const customAliasIds = new Set(customAliasModels.map((m) => m.id));
         const customRegisteredModels = customModels
           .filter((m) => m.providerAlias === alias && !hardcodedIds.has(m.id) && !customAliasIds.has(m.id))
-          .map((m) => ({ id: m.id, name: m.name || m.id, value: `${alias}/${m.id}`, isCustom: true }));
+          .map((m) => ({ id: m.id, name: m.name || m.id, value: idOf(m.id), isCustom: true }));
 
         const merged = [
-          ...hardcodedModels.map((m) => ({ id: m.id, name: m.name, value: `${alias}/${m.id}`, kind: getModelKind(m) })),
+          ...hardcodedModels.map((m) => ({ id: m.id, name: m.name, value: idOf(m.id), kind: getModelKind(m) })),
           ...customAliasModels,
           ...customRegisteredModels,
         ];
@@ -440,10 +451,19 @@ export default function ModelSelectModal({
     return combos.filter(c => c.name.toLowerCase().includes(query));
   }, [combos, searchQuery, kindFilter]);
 
+  // Saved values may use any provider token ("cx/x" from before readable ids): match them
+  // by their readable form, and hand callers back the value exactly as they stored it.
+  const addedByPublic = useMemo(
+    () => new Map(addedModelValues.map((v) => [publicModelRef(v), v])),
+    [addedModelValues]
+  );
+  const isAddedValue = (value) => addedByPublic.has(publicModelRef(value));
+  const selectedPublic = publicModelRef(selectedModel);
+
   // Sort models alphabetically, with added models floated to top
   const sortModels = (models) => {
-    const added = models.filter(m => addedModelValues.includes(m.value)).sort((a, b) => a.name.localeCompare(b.name));
-    const rest = models.filter(m => !addedModelValues.includes(m.value)).sort((a, b) => a.name.localeCompare(b.name));
+    const added = models.filter(m => isAddedValue(m.value)).sort((a, b) => a.name.localeCompare(b.name));
+    const rest = models.filter(m => !isAddedValue(m.value)).sort((a, b) => a.name.localeCompare(b.name));
     return [...added, ...rest];
   };
 
@@ -479,10 +499,11 @@ export default function ModelSelectModal({
 
   const handleSelect = (model) => {
     const value = model?.value || model?.name || model;
-    const isAdded = addedModelValues.includes(value);
+    const isAdded = isAddedValue(value);
 
     if (isAdded && onDeselect) {
-      onDeselect(model);
+      const stored = addedByPublic.get(publicModelRef(value));
+      onDeselect(stored && stored !== value && typeof model === "object" ? { ...model, value: stored } : model);
     } else {
       onSelect(model);
     }
@@ -587,7 +608,7 @@ export default function ModelSelectModal({
 
             <div className="flex flex-wrap gap-1.5">
               {group.models.map((model) => {
-                const isSelected = selectedModel === model.value;
+                const isSelected = selectedPublic === publicModelRef(model.value);
                 const isPlaceholder = model.isPlaceholder;
                 return (
                   <button
@@ -600,14 +621,14 @@ export default function ModelSelectModal({
                         ? "border-dashed border-border text-text-muted hover:border-primary/50 hover:text-primary bg-surface italic"
                         : isSelected
                           ? "bg-primary text-white border-primary"
-                          : addedModelValues.includes(model.value)
+                          : isAddedValue(model.value)
                             ? "bg-primary border-primary text-white hover:bg-primary-hover"
                             : "bg-surface border-border text-text-main hover:border-primary/50 hover:bg-primary/5"
                       }
                     `}
                   >
                     <span className="flex items-center gap-1">
-                      {addedModelValues.includes(model.value) && !isPlaceholder && (
+                      {isAddedValue(model.value) && !isPlaceholder && (
                         <span className="material-symbols-outlined leading-none" style={{ fontSize: "10px" }}>check</span>
                       )}
                       {isPlaceholder ? (

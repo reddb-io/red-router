@@ -214,9 +214,11 @@ export default function ProviderDetailPage() {
     }
     return set.size ? ["auto", ...[...set]] : null;
   })();
+  // What people copy and see: the readable "<slug>/<model>" that /v1/models lists.
+  // providerStorageAlias stays the key custom models and aliases are stored under.
   const providerDisplayAlias = isCompatible
     ? (providerNode?.prefix || providerId)
-    : providerAlias;
+    : providerSlug(providerId);
   // Where an alias may route: the provider's default prefix (every account) or one of
   // the model prefixes its connections carry (those accounts only).
   const aliasRoutePrefixes = useMemo(() => {
@@ -226,10 +228,10 @@ export default function ProviderDetailPage() {
       if (prefix) byPrefix.set(prefix, [...(byPrefix.get(prefix) || []), conn.name || conn.email || conn.displayName || conn.id]);
     }
     return [
-      { value: providerStorageAlias, label: `${providerStorageAlias}/ (all accounts)` },
+      { value: providerDisplayAlias, label: `${providerDisplayAlias}/ (all accounts)` },
       ...[...byPrefix].map(([prefix, names]) => ({ value: prefix, label: `${prefix}/ (${names.join(", ")})` })),
     ];
-  }, [connections, providerStorageAlias]);
+  }, [connections, providerDisplayAlias]);
   // The alias whose target is this model under any prefix that reaches it.
   const aliasForModel = (modelId) => {
     const targets = new Set([providerStorageAlias, providerId, providerSlug(providerId), ...aliasRoutePrefixes.map((p) => p.value)]
@@ -1296,7 +1298,7 @@ export default function ProviderDetailPage() {
               alias={existingAlias}
               copied={copied}
               onCopy={copy}
-              onSetAlias={(alias) => handleSetAlias(model.id, alias, providerStorageAlias)}
+              onSetAlias={(alias) => handleSetAlias(model.id, alias, providerDisplayAlias)}
               onDeleteAlias={() => handleDeleteAlias(existingAlias)}
               testStatus={modelTestResults[model.id]}
               onTest={connections.length > 0 || isFreeNoAuth ? () => handleTestModel(model.id) : undefined}

@@ -21,7 +21,7 @@ const DEFAULT_RESPONSE_EXAMPLE = `{
 
 export function EmbeddingExampleCard({ providerId, customAlias }) {
   const isCustom = isCustomEmbeddingProvider(providerId);
-  const providerAlias = isCustom ? (customAlias || providerId) : getProviderAlias(providerId);
+  const providerAlias = isCustom ? (customAlias || providerId) : providerSlug(providerId);
   const embeddingModels = isCustom ? [] : getModelsByProviderId(providerId).filter((m) => getModelKind(m) === "embedding");
 
   const [selectedModel, setSelectedModel] = useState(embeddingModels[0]?.id ?? "");

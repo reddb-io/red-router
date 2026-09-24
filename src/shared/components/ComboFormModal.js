@@ -5,6 +5,7 @@ import Modal from "./Modal";
 import Input from "./Input";
 import Button from "./Button";
 import ModelSelectModal from "./ModelSelectModal";
+import { publicModelRef } from "@/shared/utils/modelRef";
 
 const VALID_NAME_REGEX = /^[a-zA-Z0-9_.\-]+$/;
 
@@ -56,7 +57,8 @@ export default function ComboFormModal({ isOpen, combo, onClose, onSave, activeP
     ? (forcePrefix && combo.name.startsWith(forcePrefix) ? combo.name.slice(forcePrefix.length) : combo.name)
     : "";
   const [name, setName] = useState(initialName);
-  const [models, setModels] = useState(combo?.models || []);
+  // Members saved under a legacy short code ("cx/x") open, and save, in their readable form.
+  const [models, setModels] = useState(() => (combo?.models || []).map(publicModelRef));
   const [showModelSelect, setShowModelSelect] = useState(false);
   const [saving, setSaving] = useState(false);
   const [nameError, setNameError] = useState("");

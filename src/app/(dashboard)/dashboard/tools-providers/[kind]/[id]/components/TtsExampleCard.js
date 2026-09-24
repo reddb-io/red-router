@@ -20,7 +20,7 @@ const DEFAULT_TTS_RESPONSE_EXAMPLE = `// Audio will appear here after running.
 }`;
 
 export function TtsExampleCard({ providerId }) {
-  const providerAlias = getProviderAlias(providerId);
+  const providerAlias = providerSlug(providerId);
   const config = TTS_PROVIDER_CONFIG[providerId] || TTS_PROVIDER_CONFIG["edge-tts"];
 
   // Voice state
