@@ -5,6 +5,7 @@ import { Card, Button, Input, Select, SegmentedControl, Toggle } from "@/shared/
 import { translate } from "@/i18n/runtime";
 import { getProvidersByKind } from "@/shared/constants/providers";
 import ModelSelectModal from "@/shared/components/ModelSelectModal";
+import { publicModelRef } from "@/shared/utils/modelRef";
 
 // Three states in one field, not an `enabled` flag plus a mode string: "shadow"
 // is the only way to measure what the router would have done without letting it
@@ -179,7 +180,7 @@ export default function DecisionRouterCard({ provider }) {
                 <span className="material-symbols-outlined text-[12px] text-text-muted">
                   {value.includes("/") ? "smart_toy" : "layers"}
                 </span>
-                <span className="font-mono text-xs text-text-muted">{value}</span>
+                <span className="font-mono text-xs text-text-muted">{publicModelRef(value)}</span>
                 <button
                   type="button"
                   onClick={() => removeModel(value)}

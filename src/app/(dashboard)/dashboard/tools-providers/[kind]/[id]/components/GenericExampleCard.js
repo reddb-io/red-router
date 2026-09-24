@@ -29,7 +29,7 @@ function toImagePreviewSrc(value) {
 }
 
 export function GenericExampleCard({ providerId, kind }) {
-  const providerAlias = getProviderAlias(providerId);
+  const providerAlias = providerSlug(providerId);
   const resolvedId = resolveProviderId(providerAlias);
   const safeProviderAlias = resolvedId === providerId ? providerAlias : providerId;
   const kindConfig = MEDIA_PROVIDER_KINDS.find((k) => k.id === kind);

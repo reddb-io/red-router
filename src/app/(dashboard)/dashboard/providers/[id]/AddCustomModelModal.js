@@ -20,10 +20,12 @@ export default function AddCustomModelModal({ isOpen, providerAlias, providerDis
     if (isOpen) { setModelId(""); setCaps(defaultCaps()); setTestStatus(null); setTestError(""); }
   }, [isOpen]);
 
-  // Strip provider's own alias prefix (e.g. "cc/model" -> "model" for cc provider)
+  // Strip the provider's own prefix, short or readable ("cc/model" or "claude-code/model" -> "model")
   const stripAlias = (id) => {
-    const prefix = `${providerAlias}/`;
-    return id.startsWith(prefix) ? id.slice(prefix.length) : id;
+    for (const p of new Set([providerAlias, providerDisplayAlias].filter(Boolean))) {
+      if (id.startsWith(`${p}/`)) return id.slice(p.length + 1);
+    }
+    return id;
   };
 
   const handleTest = async () => {

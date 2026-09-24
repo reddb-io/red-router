@@ -6,6 +6,7 @@ import { Card, Button, Modal } from "@/shared/components";
 import { getModelsByProviderId, getModelKind } from "@/shared/constants/models";
 import { getProviderAlias } from "@/shared/constants/providers";
 import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
+import { providerSlug } from "open-sse/providers/identity.js";
 
 // ── ModelRow ───────────────────────────────────────────────────
 export function ModelRow({ model, fullModel, copied, onCopy, testStatus, isCustom, isFree, onDeleteAlias, onTest, isTesting }) {
@@ -118,6 +119,8 @@ export default function ModelsCard({ providerId, kindFilter, providerAliasOverri
   const [showAddCustomModel, setShowAddCustomModel] = useState(false);
 
   const providerAlias = providerAliasOverride || getProviderAlias(providerId);
+  // Shown and copied: the readable "<slug>/<model>"; providerAlias stays the storage key.
+  const displayPrefix = providerAliasOverride || providerSlug(providerId);
   const effectiveType = kindFilter || "llm";
 
   const fetchData = useCallback(async () => {
@@ -231,7 +234,7 @@ export default function ModelsCard({ providerId, kindFilter, providerAliasOverri
               <ModelRow
                 key={model.id}
                 model={model}
-                fullModel={`${providerAlias}/${model.id}`}
+                fullModel={`${displayPrefix}/${model.id}`}
                 alias={existingAlias}
                 copied={copied}
                 onCopy={copy}
@@ -249,7 +252,7 @@ export default function ModelsCard({ providerId, kindFilter, providerAliasOverri
             <ModelRow
               key={`${model.id}-${model.type}`}
               model={{ id: model.id, name: model.name }}
-              fullModel={`${providerAlias}/${model.id}`}
+              fullModel={`${displayPrefix}/${model.id}`}
               copied={copied}
               onCopy={copy}
               onSetAlias={() => {}}
