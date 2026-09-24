@@ -507,7 +507,7 @@ export function GenericExampleCard({ providerId, kind }) {
         )}
 
         {/* Error */}
-        {error && <p className="text-xs text-red-500 break-words">{error}</p>}
+        {error && <p className="text-xs text-[var(--reddb-color-feedback-danger-foreground)] break-words">{error}</p>}
 
         {/* Response */}
         <div>

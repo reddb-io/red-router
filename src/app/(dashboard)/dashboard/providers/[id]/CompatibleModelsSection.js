@@ -6,9 +6,9 @@ import { Button } from "@/shared/components";
 import { getProviderCustomModelRows } from "@/shared/utils/providerCustomModels";
 function CompatibleModelRow({ modelId, fullModel, copied, onCopy, onDeleteAlias, onTest, testStatus, isTesting }) {
   const borderColor = testStatus === "ok"
-    ? "border-green-500/40"
+    ? "border-[var(--reddb-color-feedback-success-border)]"
     : testStatus === "error"
-    ? "border-red-500/40"
+    ? "border-[var(--reddb-color-feedback-danger-border)]"
     : "border-border";
 
   const iconColor = testStatus === "ok"
@@ -62,7 +62,7 @@ function CompatibleModelRow({ modelId, fullModel, copied, onCopy, onDeleteAlias,
       </div>
       <button
         onClick={onDeleteAlias}
-        className="p-1 hover:bg-red-50 rounded text-red-500"
+        className="p-1 hover:bg-[var(--reddb-color-feedback-danger-surface)] rounded text-[var(--reddb-color-feedback-danger-foreground)]"
         title="Remove model"
       >
         <span className="material-symbols-outlined text-sm">delete</span>

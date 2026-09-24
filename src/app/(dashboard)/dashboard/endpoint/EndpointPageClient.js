@@ -836,13 +836,13 @@ export default function APIPageClient({ machineId }) {
                 <Input value={`${tunnelPublicUrl || tunnelUrl}/v1`} readOnly className="flex-1 font-mono text-sm" />
                 <button
                   onClick={() => copy(`${tunnelPublicUrl || tunnelUrl}/v1`, "tunnel_url")}
-                  className="p-2 hover:bg-black/5 dark:hover:bg-white/5 rounded text-text-muted hover:text-primary transition-colors shrink-0"
+                  className="p-2 hover:bg-muted/50 rounded text-text-muted hover:text-primary transition-colors shrink-0"
                 >
                   <span className="material-symbols-outlined text-[18px]">{copied === "tunnel_url" ? "check" : "content_copy"}</span>
                 </button>
                 <button
                   onClick={() => setShowDisableTunnelModal(true)}
-                  className="p-2 hover:bg-red-500/10 rounded text-red-500 transition-colors shrink-0"
+                  className="p-2 hover:bg-[var(--reddb-color-feedback-danger-surface)] rounded text-[var(--reddb-color-feedback-danger-foreground)] transition-colors shrink-0"
                   title="Disable Tunnel"
                 >
                   <span className="material-symbols-outlined text-[18px]">power_settings_new</span>
@@ -850,13 +850,13 @@ export default function APIPageClient({ machineId }) {
               </>
             ) : tunnelEnabled && !tunnelLoading && !tunnelReachable ? (
               <>
-                <div className="flex-1 flex items-center gap-2 px-3 py-1.5 rounded border border-amber-300 dark:border-amber-800 bg-amber-500/5 text-sm text-amber-600 dark:text-amber-400">
+                <div className="flex-1 flex items-center gap-2 px-3 py-1.5 rounded border border-[var(--reddb-color-feedback-warning-border)] bg-[var(--reddb-color-feedback-warning-surface)] text-sm text-[var(--reddb-color-feedback-warning-foreground)]">
                   <span className="material-symbols-outlined animate-spin text-sm">progress_activity</span>
                   {tunnelEverReachable ? "Tunnel reconnecting..." : "Tunnel checking..."}
                 </div>
                 <button
                   onClick={() => setShowDisableTunnelModal(true)}
-                  className="p-2 hover:bg-red-500/10 rounded text-red-500 transition-colors shrink-0"
+                  className="p-2 hover:bg-[var(--reddb-color-feedback-danger-surface)] rounded text-[var(--reddb-color-feedback-danger-foreground)] transition-colors shrink-0"
                   title="Disable Tunnel"
                 >
                   <span className="material-symbols-outlined text-[18px]">power_settings_new</span>
@@ -870,7 +870,7 @@ export default function APIPageClient({ machineId }) {
                 </div>
                 <button
                   onClick={() => { setTunnelLoading(false); setTunnelProgress(""); }}
-                  className="p-2 hover:bg-red-500/10 rounded text-red-500 transition-colors shrink-0"
+                  className="p-2 hover:bg-[var(--reddb-color-feedback-danger-surface)] rounded text-[var(--reddb-color-feedback-danger-foreground)] transition-colors shrink-0"
                   title="Stop"
                 >
                   <span className="material-symbols-outlined text-[18px]">power_settings_new</span>
@@ -878,7 +878,7 @@ export default function APIPageClient({ machineId }) {
               </>
             ) : tunnelStatus?.type === "error" ? (
               <>
-                <div className="flex-1 flex items-center gap-2 px-3 py-1.5 rounded border border-red-300 dark:border-red-800 bg-red-500/5 text-sm text-red-600 dark:text-red-400">
+                <div className="flex-1 flex items-center gap-2 px-3 py-1.5 rounded border border-[var(--reddb-color-feedback-danger-border)] bg-[var(--reddb-color-feedback-danger-surface)] text-sm text-[var(--reddb-color-feedback-danger-foreground)]">
                   <span className="material-symbols-outlined text-sm">error</span>
                   {tunnelStatus.message}
                 </div>
@@ -892,7 +892,7 @@ export default function APIPageClient({ machineId }) {
                 </div>
                 <button
                   onClick={() => setTunnelChecking(false)}
-                  className="p-2 hover:bg-red-500/10 rounded text-red-500 transition-colors shrink-0"
+                  className="p-2 hover:bg-[var(--reddb-color-feedback-danger-surface)] rounded text-[var(--reddb-color-feedback-danger-foreground)] transition-colors shrink-0"
                   title="Stop"
                 >
                   <span className="material-symbols-outlined text-[18px]">power_settings_new</span>
@@ -928,13 +928,13 @@ export default function APIPageClient({ machineId }) {
                 <Input value={`${tsUrl}/v1`} readOnly className="flex-1 font-mono text-sm" />
                 <button
                   onClick={() => copy(`${tsUrl}/v1`, "ts_url")}
-                  className="p-2 hover:bg-black/5 dark:hover:bg-white/5 rounded text-text-muted hover:text-primary transition-colors shrink-0"
+                  className="p-2 hover:bg-muted/50 rounded text-text-muted hover:text-primary transition-colors shrink-0"
                 >
                   <span className="material-symbols-outlined text-[18px]">{copied === "ts_url" ? "check" : "content_copy"}</span>
                 </button>
                 <button
                   onClick={() => setShowDisableTsModal(true)}
-                  className="p-2 hover:bg-red-500/10 rounded text-red-500 transition-colors shrink-0"
+                  className="p-2 hover:bg-[var(--reddb-color-feedback-danger-surface)] rounded text-[var(--reddb-color-feedback-danger-foreground)] transition-colors shrink-0"
                   title="Disable Tailscale"
                 >
                   <span className="material-symbols-outlined text-[18px]">power_settings_new</span>
@@ -942,13 +942,13 @@ export default function APIPageClient({ machineId }) {
               </>
             ) : tsEnabled && !tsLoading && !tsReachable ? (
               <>
-                <div className="flex-1 flex items-center gap-2 px-3 py-1.5 rounded border border-amber-300 dark:border-amber-800 bg-amber-500/5 text-sm text-amber-600 dark:text-amber-400">
+                <div className="flex-1 flex items-center gap-2 px-3 py-1.5 rounded border border-[var(--reddb-color-feedback-warning-border)] bg-[var(--reddb-color-feedback-warning-surface)] text-sm text-[var(--reddb-color-feedback-warning-foreground)]">
                   <span className="material-symbols-outlined animate-spin text-sm">progress_activity</span>
                   {tsEverReachable ? "Tailscale reconnecting..." : "Tailscale checking..."}
                 </div>
                 <button
                   onClick={() => setShowDisableTsModal(true)}
-                  className="p-2 hover:bg-red-500/10 rounded text-red-500 transition-colors shrink-0"
+                  className="p-2 hover:bg-[var(--reddb-color-feedback-danger-surface)] rounded text-[var(--reddb-color-feedback-danger-foreground)] transition-colors shrink-0"
                   title="Disable Tailscale"
                 >
                   <span className="material-symbols-outlined text-[18px]">power_settings_new</span>
@@ -971,7 +971,7 @@ export default function APIPageClient({ machineId }) {
                 )}
                 <button
                   onClick={() => { setTsLoading(false); setTsConnecting(false); setTsProgress(""); clearUserAuth(); }}
-                  className="p-2 hover:bg-red-500/10 rounded text-red-500 transition-colors shrink-0"
+                  className="p-2 hover:bg-[var(--reddb-color-feedback-danger-surface)] rounded text-[var(--reddb-color-feedback-danger-foreground)] transition-colors shrink-0"
                   title="Stop"
                 >
                   <span className="material-symbols-outlined text-[18px]">power_settings_new</span>
@@ -979,7 +979,7 @@ export default function APIPageClient({ machineId }) {
               </>
             ) : tsStatus?.type === "error" ? (
               <>
-                <div className="flex-1 flex items-center gap-2 px-3 py-1.5 rounded border border-red-300 dark:border-red-800 bg-red-500/5 text-sm text-red-600 dark:text-red-400">
+                <div className="flex-1 flex items-center gap-2 px-3 py-1.5 rounded border border-[var(--reddb-color-feedback-danger-border)] bg-[var(--reddb-color-feedback-danger-surface)] text-sm text-[var(--reddb-color-feedback-danger-foreground)]">
                   <span className="material-symbols-outlined text-sm">error</span>
                   {tsStatus.message}
                 </div>
@@ -1140,14 +1140,14 @@ export default function APIPageClient({ machineId }) {
             {visibleKeyList.map((key) => (
               <div
                 key={key.id}
-                className={`group flex items-center justify-between py-3 border-b border-black/[0.03] dark:border-white/[0.03] last:border-b-0 ${key.isActive === false ? "opacity-60" : ""}`}
+                className={`group flex items-center justify-between py-3 border-b border-muted last:border-b-0 ${key.isActive === false ? "opacity-60" : ""}`}
               >
                 <div className="flex-1 min-w-0">
                   <div className="flex flex-wrap items-center gap-1.5">
                     <p className="text-sm font-medium">{key.name}</p>
                     <span className="text-[11px] text-text-muted">{`Created ${new Date(key.createdAt).toLocaleDateString()}`}</span>
                     {key.owner ? (
-                      <span className="rounded-full bg-black/5 px-2 py-0.5 text-[11px] text-text-muted dark:bg-white/10">
+                      <span className="rounded-full bg-muted/50 px-2 py-0.5 text-[11px] text-text-muted">
                         {key.owner === "@admin" ? "Admin only" : key.owner}
                       </span>
                     ) : null}
@@ -1169,7 +1169,7 @@ export default function APIPageClient({ machineId }) {
                     </code>
                     <button
                       onClick={() => toggleKeyVisibility(key.id)}
-                      className="p-1 hover:bg-black/5 dark:hover:bg-white/5 rounded text-text-muted hover:text-primary transition-all"
+                      className="p-1 hover:bg-muted/50 rounded text-text-muted hover:text-primary transition-all"
                       title={visibleKeys.has(key.id) ? "Hide key" : "Show key"}
                     >
                       <span className="material-symbols-outlined text-[14px]">
@@ -1178,7 +1178,7 @@ export default function APIPageClient({ machineId }) {
                     </button>
                     <button
                       onClick={() => copy(key.key, key.id)}
-                      className="p-1 hover:bg-black/5 dark:hover:bg-white/5 rounded text-text-muted hover:text-primary transition-all"
+                      className="p-1 hover:bg-muted/50 rounded text-text-muted hover:text-primary transition-all"
                     >
                       <span className="material-symbols-outlined text-[14px]">
                         {copied === key.id ? "check" : "content_copy"}
@@ -1186,7 +1186,7 @@ export default function APIPageClient({ machineId }) {
                     </button>
                   </div>
                   {key.isActive === false && (
-                    <p className="text-xs text-orange-500 mt-1.5">Paused</p>
+                    <p className="text-xs text-[var(--reddb-color-feedback-warning-foreground)] mt-1.5">Paused</p>
                   )}
                   {(key.modelAccess || key.limits) && (
                     <p className="mt-1.5 flex items-center gap-1 text-xs text-text-muted">
@@ -1204,7 +1204,7 @@ export default function APIPageClient({ machineId }) {
                       {key.allowedConnectionIds.map((connId) => (
                         <span
                           key={connId}
-                          className="inline-flex items-center gap-1 rounded-full bg-black/5 px-2 py-0.5 text-[11px] text-text-muted dark:bg-white/10"
+                          className="inline-flex items-center gap-1 rounded-full bg-muted/50 px-2 py-0.5 text-[11px] text-text-muted"
                           title={connectionLabel(connId, connections)}
                         >
                           <span className="material-symbols-outlined text-[12px]">link</span>
@@ -1217,14 +1217,14 @@ export default function APIPageClient({ machineId }) {
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => setEditKeyState({ id: key.id, name: key.name || "", tags: (key.tags || []).join(", "), owner: key.owner || "", error: null })}
-                    className="p-2 hover:bg-black/5 dark:hover:bg-white/5 rounded text-text-muted hover:text-primary transition-all"
+                    className="p-2 hover:bg-muted/50 rounded text-text-muted hover:text-primary transition-all"
                     title="Rename and edit tags"
                   >
                     <span className="material-symbols-outlined text-[18px]">edit</span>
                   </button>
                   <Link
                     href={`/dashboard/keys/${key.id}`}
-                    className="p-2 hover:bg-black/5 dark:hover:bg-white/5 rounded text-text-muted hover:text-primary transition-all"
+                    className="p-2 hover:bg-muted/50 rounded text-text-muted hover:text-primary transition-all"
                     title="Accounts, models and limits of this key"
                   >
                     <span className="material-symbols-outlined text-[18px]">link</span>
@@ -1250,7 +1250,7 @@ export default function APIPageClient({ machineId }) {
                   />
                   <button
                     onClick={() => handleDeleteKey(key.id)}
-                    className="p-2 hover:bg-red-500/10 rounded text-red-500 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-all"
+                    className="p-2 hover:bg-[var(--reddb-color-feedback-danger-surface)] rounded text-[var(--reddb-color-feedback-danger-foreground)] opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-all"
                   >
                     <span className="material-symbols-outlined text-[18px]">delete</span>
                   </button>
@@ -1337,7 +1337,7 @@ export default function APIPageClient({ machineId }) {
               </p>
             </>
           )}
-          {editKeyState?.error && <p className="text-sm text-red-500">{editKeyState.error}</p>}
+          {editKeyState?.error && <p className="text-sm text-[var(--reddb-color-feedback-danger-foreground)]">{editKeyState.error}</p>}
           <div className="flex gap-2">
             <Button onClick={handleSaveKeyEdit} fullWidth disabled={!editKeyState?.name?.trim()}>
               Save
@@ -1356,11 +1356,11 @@ export default function APIPageClient({ machineId }) {
         onClose={() => setCreatedKey(null)}
       >
         <div className="flex flex-col gap-4">
-          <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4">
-            <p className="text-sm text-yellow-800 dark:text-yellow-200 mb-2 font-medium">
+          <div className="bg-[var(--reddb-color-feedback-warning-surface)] border border-[var(--reddb-color-feedback-warning-border)] rounded-lg p-4">
+            <p className="text-sm text-[var(--reddb-color-feedback-warning-foreground)] mb-2 font-medium">
               Save this key now!
             </p>
-            <p className="text-sm text-yellow-700 dark:text-yellow-300">
+            <p className="text-sm text-[var(--reddb-color-feedback-warning-foreground)]">
               This is the only time you will see this key. Store it securely.
             </p>
           </div>
@@ -1481,7 +1481,7 @@ export default function APIPageClient({ machineId }) {
                 Installing Tailscale...
               </div>
               {tsInstallLog.length > 0 && (
-                <div ref={tsLogRef} className="bg-black/5 dark:bg-white/5 rounded p-2 max-h-40 overflow-y-auto font-mono text-xs text-text-muted">
+                <div ref={tsLogRef} className="bg-muted/50 rounded p-2 max-h-40 overflow-y-auto font-mono text-xs text-text-muted">
                   {tsInstallLog.map((line, i) => (
                     <div key={i}>{line}</div>
                   ))}
@@ -1493,7 +1493,7 @@ export default function APIPageClient({ machineId }) {
           {/* Installed: show Connect button */}
           {tsInstalled === true && !tsInstalling && (
             <div className="flex flex-col gap-3">
-              <div className="flex items-center gap-2 text-sm text-green-600 dark:text-green-400">
+              <div className="flex items-center gap-2 text-sm text-[var(--reddb-color-feedback-success-foreground)]">
                 <span className="material-symbols-outlined text-[16px]">check_circle</span>
                 Tailscale installed
               </div>

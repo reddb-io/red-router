@@ -23,14 +23,14 @@ const SOURCE_LABELS = {
   "openrouter+models.dev": "OpenRouter + models.dev",
 };
 
-const selectClass = "rounded-lg border border-black/10 dark:border-white/10 bg-surface-2 px-2 py-1.5 text-xs text-text-main focus:outline-none focus:ring-2 focus:ring-primary/30";
+const selectClass = "rounded-lg border border-muted bg-surface-2 px-2 py-1.5 text-xs text-text-main focus:outline-none focus:ring-2 focus:ring-primary/30";
 
 function chipClass(active) {
   return cn(
     "flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs transition-colors",
     active
       ? "border-primary/50 bg-primary/10 text-primary"
-      : "border-black/10 dark:border-white/10 text-text-muted hover:border-primary/40 hover:text-primary"
+      : "border-muted text-text-muted hover:border-primary/40 hover:text-primary"
   );
 }
 
@@ -89,7 +89,7 @@ export default function ModelCatalogBrowser({ providerId, addedIds, onAdd, onEmp
 
   if (loading) {
     return (
-      <div className="w-full mt-3 rounded-lg border border-black/10 dark:border-white/10 p-3 text-xs text-text-muted">
+      <div className="w-full mt-3 rounded-lg border border-muted p-3 text-xs text-text-muted">
         Loading the model catalog…
       </div>
     );
@@ -127,9 +127,9 @@ export default function ModelCatalogBrowser({ providerId, addedIds, onAdd, onEmp
   const selectedIds = [...selected].filter((id) => !addedIds.has(id));
 
   return (
-    <div className="w-full mt-3 rounded-lg border border-black/10 dark:border-white/10">
+    <div className="w-full mt-3 rounded-lg border border-muted">
       {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-black/5 dark:border-white/5 px-3 py-2.5">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-muted px-3 py-2.5">
         <div className="flex items-center gap-2">
           <span className="material-symbols-outlined text-[18px] text-primary">travel_explore</span>
           <div>
@@ -209,13 +209,13 @@ export default function ModelCatalogBrowser({ providerId, addedIds, onAdd, onEmp
         {shown.length === 0 ? (
           <p className="py-4 text-center text-xs text-text-muted">No model matches these filters.</p>
         ) : (
-          <ul className="divide-y divide-black/5 dark:divide-white/5 rounded-lg border border-black/5 dark:border-white/5">
+          <ul className="divide-y divide-muted rounded-lg border border-muted">
             {shown.map((m) => {
               const isAdded = addedIds.has(m.id);
               const cost = formatCost(m);
               const ctx = formatTokens(m.contextWindow);
               return (
-                <li key={m.id} className="flex items-center gap-2.5 px-2.5 py-2 hover:bg-black/[0.02] dark:hover:bg-white/[0.02]">
+                <li key={m.id} className="flex items-center gap-2.5 px-2.5 py-2 hover:bg-muted/50">
                   <input
                     type="checkbox"
                     checked={isAdded || selected.has(m.id)}
@@ -242,10 +242,10 @@ export default function ModelCatalogBrowser({ providerId, addedIds, onAdd, onEmp
                   </div>
                   <div className="hidden shrink-0 text-right text-[11px] text-text-muted sm:block">
                     {ctx && <div>{ctx} ctx</div>}
-                    {cost && <div className={m.free ? "text-green-600 dark:text-green-400" : undefined}>{cost}</div>}
+                    {cost && <div className={m.free ? "text-[var(--reddb-color-feedback-success-foreground)]" : undefined}>{cost}</div>}
                   </div>
                   {isAdded ? (
-                    <span className="flex shrink-0 items-center gap-0.5 text-[11px] text-green-600 dark:text-green-400">
+                    <span className="flex shrink-0 items-center gap-0.5 text-[11px] text-[var(--reddb-color-feedback-success-foreground)]">
                       <span className="material-symbols-outlined text-[14px]">check</span>Added
                     </span>
                   ) : (

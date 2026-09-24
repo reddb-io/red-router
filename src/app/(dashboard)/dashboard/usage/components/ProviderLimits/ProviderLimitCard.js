@@ -92,7 +92,7 @@ export default function ProviderLimitCard({
         <button
           onClick={handleRefresh}
           disabled={refreshing || loading}
-          className="p-2 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          className="p-2 rounded-lg hover:bg-muted/50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           title="Refresh quota"
         >
           <span
@@ -109,36 +109,36 @@ export default function ProviderLimitCard({
       {loading && (
         <div className="space-y-4">
           <div className="space-y-2">
-            <div className="h-4 bg-black/5 dark:bg-white/5 rounded animate-pulse" />
-            <div className="h-2 bg-black/5 dark:bg-white/5 rounded animate-pulse" />
+            <div className="h-4 bg-muted/50 rounded animate-pulse" />
+            <div className="h-2 bg-muted/50 rounded animate-pulse" />
           </div>
           <div className="space-y-2">
-            <div className="h-4 bg-black/5 dark:bg-white/5 rounded animate-pulse" />
-            <div className="h-2 bg-black/5 dark:bg-white/5 rounded animate-pulse" />
+            <div className="h-4 bg-muted/50 rounded animate-pulse" />
+            <div className="h-2 bg-muted/50 rounded animate-pulse" />
           </div>
         </div>
       )}
 
       {/* Error State */}
       {!loading && error && (
-        <div className="p-4 rounded-lg bg-red-500/10 border border-red-500/20">
+        <div className="p-4 rounded-lg bg-[var(--reddb-color-feedback-danger-surface)] border border-[var(--reddb-color-feedback-danger-border)]">
           <div className="flex items-start gap-2">
-            <span className="material-symbols-outlined text-red-500 text-[20px]">
+            <span className="material-symbols-outlined text-[var(--reddb-color-feedback-danger-foreground)] text-[20px]">
               error
             </span>
-            <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+            <p className="text-sm text-[var(--reddb-color-feedback-danger-foreground)]">{error}</p>
           </div>
         </div>
       )}
 
       {/* Info Message (for providers without API) */}
       {!loading && !error && message && (
-        <div className="p-4 rounded-lg bg-blue-500/10 border border-blue-500/20">
+        <div className="p-4 rounded-lg bg-[var(--reddb-color-feedback-info-surface)] border border-[var(--reddb-color-feedback-info-border)]">
           <div className="flex items-start gap-2">
-            <span className="material-symbols-outlined text-blue-500 text-[20px]">
+            <span className="material-symbols-outlined text-[var(--reddb-color-feedback-info-foreground)] text-[20px]">
               info
             </span>
-            <p className="text-sm text-blue-600 dark:text-blue-400">
+            <p className="text-sm text-[var(--reddb-color-feedback-info-foreground)]">
               {message}
             </p>
           </div>

@@ -88,7 +88,7 @@ export default function KeyAccountsClient({ keyId }) {
   if (error && !apiKey) {
     return (
       <Card padding="lg">
-        <p className="text-sm text-red-500">{error}</p>
+        <p className="text-sm text-[var(--reddb-color-feedback-danger-foreground)]">{error}</p>
         <Link href="/dashboard/endpoint" className="mt-4 inline-block text-sm text-primary">
           Back to API keys
         </Link>
@@ -131,7 +131,7 @@ export default function KeyAccountsClient({ keyId }) {
             </Button>
           </div>
         </div>
-        {error && <p className="mt-3 text-sm text-red-500">{error}</p>}
+        {error && <p className="mt-3 text-sm text-[var(--reddb-color-feedback-danger-foreground)]">{error}</p>}
       </Card>
 
       {apiKey && (
@@ -167,7 +167,7 @@ export default function KeyAccountsClient({ keyId }) {
                   {providerConnections.map((conn) => (
                     <div
                       key={conn.id}
-                      className="flex items-center justify-between border-b border-black/[0.03] py-2.5 last:border-b-0 dark:border-white/[0.03]"
+                      className="flex items-center justify-between border-b border-muted py-2.5 last:border-b-0"
                     >
                       <div className="min-w-0">
                         <p className="truncate text-sm text-text-primary">{connectionLabel(conn)}</p>

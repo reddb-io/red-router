@@ -21,7 +21,7 @@ export default function Select({
       {label && (
         <label className="text-sm font-medium text-text-main">
           {label}
-          {required && <span className="text-red-500 ml-1">*</span>}
+          {required && <span className="text-[var(--reddb-color-feedback-danger-foreground)] ml-1">*</span>}
         </label>
       )}
       <div className="relative">
@@ -35,7 +35,7 @@ export default function Select({
             "focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500/40",
             "transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed",
             "text-[16px] sm:text-sm",
-            error && "ring-1 ring-red-500 focus:ring-2 focus:ring-red-500/40 border-red-500/40",
+            error && "ring-1 ring-[var(--reddb-color-feedback-danger-border)] focus:ring-2 focus:ring-[var(--reddb-color-feedback-danger-border)] border-[var(--reddb-color-feedback-danger-border)]",
             selectClassName
           )}
           {...props}
@@ -54,7 +54,7 @@ export default function Select({
         </div>
       </div>
       {error && (
-        <p className="text-xs text-red-500 flex items-center gap-1">
+        <p className="text-xs text-[var(--reddb-color-feedback-danger-foreground)] flex items-center gap-1">
           <span className="material-symbols-outlined text-[14px]">error</span>
           {error}
         </p>

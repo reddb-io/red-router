@@ -112,7 +112,7 @@ export default function ModelNamingModal({ isOpen, model, storagePrefix, routePr
             hint="Optional. The name /v1/models shows for the alias."
           />
         )}
-        {error && <p className="text-xs text-red-500">{error}</p>}
+        {error && <p className="text-xs text-[var(--reddb-color-feedback-danger-foreground)]">{error}</p>}
         <div className="flex gap-2">
           <Button onClick={handleSave} fullWidth disabled={saving}>{saving ? "Saving..." : "Save"}</Button>
           <Button onClick={onClose} variant="ghost" fullWidth>Cancel</Button>

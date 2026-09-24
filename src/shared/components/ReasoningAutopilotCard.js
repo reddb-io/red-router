@@ -20,12 +20,12 @@ function Chips({ values, labelOf, onRemove, empty }) {
   return (
     <div className="flex flex-wrap gap-2">
       {values.map((value) => (
-        <span key={value} className="inline-flex items-center gap-1 rounded bg-black/5 px-1.5 py-0.5 dark:bg-white/5">
+        <span key={value} className="inline-flex items-center gap-1 rounded bg-muted/50 px-1.5 py-0.5">
           <span className="font-mono text-xs text-text-muted">{labelOf(value)}</span>
           <button
             type="button"
             onClick={() => onRemove(value)}
-            className="leading-none text-text-muted hover:text-red-500"
+            className="leading-none text-text-muted hover:text-[var(--reddb-color-feedback-danger-foreground)]"
             aria-label={`${translate("Remove")} ${labelOf(value)}`}
           >
             <span className="material-symbols-outlined text-[12px]">close</span>

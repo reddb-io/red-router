@@ -5,17 +5,17 @@ import { Card, Button } from "@/shared/components";
 import { CONSOLE_LOG_CONFIG } from "@/shared/constants/config";
 
 const LOG_LEVEL_COLORS = {
-  LOG: "text-green-400",
-  INFO: "text-blue-400",
-  WARN: "text-yellow-400",
-  ERROR: "text-red-400",
+  LOG: "text-[var(--reddb-color-feedback-success-foreground)]",
+  INFO: "text-[var(--reddb-color-feedback-info-foreground)]",
+  WARN: "text-[var(--reddb-color-feedback-warning-foreground)]",
+  ERROR: "text-[var(--reddb-color-feedback-danger-foreground)]",
   DEBUG: "text-purple-400",
 };
 
 function colorLine(line) {
   const match = line.match(/\[(\w+)\]/g);
   const levelTag = match ? match[1]?.replace(/\[|\]/g, "") : null;
-  const color = LOG_LEVEL_COLORS[levelTag] || "text-green-400";
+  const color = LOG_LEVEL_COLORS[levelTag] || "text-[var(--reddb-color-feedback-success-foreground)]";
   return <span className={color}>{line}</span>;
 }
 

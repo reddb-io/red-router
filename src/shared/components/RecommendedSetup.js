@@ -73,7 +73,7 @@ export default function RecommendedSetup({ autoLoad = false, onApplied }) {
   if (!preview) {
     return (
       <div className="flex flex-col gap-2">
-        {error ? <p className="text-sm text-red-500" role="alert">{error}</p> : null}
+        {error ? <p className="text-sm text-[var(--reddb-color-feedback-danger-foreground)]" role="alert">{error}</p> : null}
         <Button variant="secondary" size="sm" icon="auto_awesome" loading={loading} onClick={load}>
           Preview recommended setup
         </Button>
@@ -92,7 +92,7 @@ export default function RecommendedSetup({ autoLoad = false, onApplied }) {
       ) : (
         <dl className="grid min-w-0 gap-2 sm:grid-cols-2">
           {picks.map(([role, pick]) => (
-            <div key={role} className="min-w-0 rounded-lg border border-black/5 px-3 py-2 dark:border-white/5">
+            <div key={role} className="min-w-0 rounded-lg border border-muted px-3 py-2">
               <dt className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">{ROLE_LABELS[role] || role}</dt>
               <dd className="min-w-0">
                 <code className="block truncate font-mono text-sm text-text-main" title={pick.id}>{pick.id}</code>
@@ -108,7 +108,7 @@ export default function RecommendedSetup({ autoLoad = false, onApplied }) {
           {items.map((item) => {
             const action = ACTIONS[item.action] || ACTIONS.unchanged;
             return (
-              <li key={item.name} className="min-w-0 rounded-lg bg-black/[0.02] px-3 py-2 dark:bg-white/[0.03]">
+              <li key={item.name} className="min-w-0 rounded-lg bg-muted/50 px-3 py-2">
                 <div className="flex min-w-0 items-center justify-between gap-2">
                   <code className="truncate font-mono text-sm font-medium">{item.name}</code>
                   <Badge size="sm" variant={action.variant}>{action.label}</Badge>
@@ -126,7 +126,7 @@ export default function RecommendedSetup({ autoLoad = false, onApplied }) {
         </ul>
       ) : null}
 
-      {error ? <p className="text-sm text-red-500" role="alert">{error}</p> : null}
+      {error ? <p className="text-sm text-[var(--reddb-color-feedback-danger-foreground)]" role="alert">{error}</p> : null}
       {applied ? (
         <p className="text-sm text-text-muted" role="status">
           {applied.created || applied.updated

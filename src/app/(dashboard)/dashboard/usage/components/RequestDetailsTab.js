@@ -14,7 +14,7 @@ import { AI_PROVIDERS, getProviderByAlias } from "@/shared/constants/providers";
 // streaming relay, derived here rather than stored so the segments always sum to the
 // measured total. A key absent from `phases` means the stage did not run.
 const PHASE_LADDER = [
-  ["parse_ms", "Parse", "bg-slate-400"],
+  ["parse_ms", "Parse", "bg-muted"],
   ["auth_ms", "Auth", "bg-sky-500"],
   ["routing_ms", "Routing", "bg-indigo-500"],
   ["translate_ms", "Translate", "bg-violet-500"],
@@ -47,7 +47,7 @@ function DecisionAnswers({ answers }) {
         const scalar = typeof answer?.noul === "number" ? `noul ${answer.noul}`
           : typeof answer?.score === "number" ? `score ${answer.score}` : null;
         return (
-          <div key={name} className="rounded border border-black/5 dark:border-white/5 p-2">
+          <div key={name} className="rounded border border-muted p-2">
             <div className="flex items-center gap-2 text-xs">
               <span className="font-semibold text-text-main">{name}</span>
               <span className="text-text-muted">{answer?.type}</span>
@@ -55,9 +55,9 @@ function DecisionAnswers({ answers }) {
               {typeof answer?.confidence === "number" && (
                 <span className={cn(
                   "ml-auto font-mono px-1.5 py-0.5 rounded",
-                  answer.confidence >= 0.85 ? "bg-green-500/15 text-green-600"
-                    : answer.confidence >= 0.7 ? "bg-amber-500/15 text-amber-600"
-                    : "bg-red-500/15 text-red-500"
+                  answer.confidence >= 0.85 ? "bg-[var(--reddb-color-feedback-success-surface)] text-[var(--reddb-color-feedback-success-foreground)]"
+                    : answer.confidence >= 0.7 ? "bg-[var(--reddb-color-feedback-warning-surface)] text-[var(--reddb-color-feedback-warning-foreground)]"
+                    : "bg-[var(--reddb-color-feedback-danger-surface)] text-[var(--reddb-color-feedback-danger-foreground)]"
                 )}>{answer.confidence.toFixed(3)}</span>
               )}
               {scalar && <span className="font-mono text-text-muted">{scalar}</span>}
@@ -67,7 +67,7 @@ function DecisionAnswers({ answers }) {
                 {probs.map(([opt, p]) => (
                   <div key={opt} className="flex items-center gap-2 font-mono text-[11px]">
                     <span className="w-48 truncate text-text-muted" title={opt}>{opt}</span>
-                    <div className="h-1.5 flex-1 rounded bg-black/5 dark:bg-white/10">
+                    <div className="h-1.5 flex-1 rounded bg-muted/50">
                       <div className="h-full rounded bg-primary" style={{ width: `${Math.max(1, p * 100)}%` }} />
                     </div>
                     <span className="w-12 text-right text-text-main">{p.toFixed(3)}</span>
@@ -179,11 +179,11 @@ function CollapsibleSection({ title, children, defaultOpen = false, icon = null 
   const [isOpen, setIsOpen] = useState(defaultOpen);
   
   return (
-    <div className="border border-black/5 dark:border-white/5 rounded-lg overflow-hidden">
+    <div className="border border-muted rounded-lg overflow-hidden">
       <button 
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className="w-full flex items-center justify-between p-3 bg-black/[0.02] dark:bg-white/[0.02] hover:bg-black/[0.04] dark:hover:bg-white/[0.04] transition-colors"
+        className="w-full flex items-center justify-between p-3 bg-muted/50 hover:bg-muted/50 transition-colors"
       >
         <div className="flex items-center gap-2">
           {icon && <span className="material-symbols-outlined text-[18px] text-text-muted">{icon}</span>}
@@ -198,7 +198,7 @@ function CollapsibleSection({ title, children, defaultOpen = false, icon = null 
       </button>
       
       {isOpen && (
-        <div className="p-4 border-t border-black/5 dark:border-white/5">
+        <div className="p-4 border-t border-muted">
           {children}
         </div>
       )}
@@ -331,7 +331,7 @@ export default function RequestDetailsTab() {
               value={filters.provider}
               onChange={(e) => setFilters({ ...filters, provider: e.target.value })}
               className={cn(
-                "h-9 px-3 rounded-lg border border-black/10 dark:border-white/10 bg-surface",
+                "h-9 px-3 rounded-lg border border-muted bg-surface",
                 "text-sm text-text-main focus:outline-none focus:ring-2 focus:ring-primary/20",
                 "w-full min-w-0 cursor-pointer"
               )}
@@ -353,7 +353,7 @@ export default function RequestDetailsTab() {
               value={filters.apiKeyId}
               onChange={(e) => setFilters({ ...filters, apiKeyId: e.target.value })}
               className={cn(
-                "h-9 px-3 rounded-lg border border-black/10 dark:border-white/10 bg-surface",
+                "h-9 px-3 rounded-lg border border-muted bg-surface",
                 "text-sm text-text-main focus:outline-none focus:ring-2 focus:ring-primary/20",
                 "w-full min-w-0 cursor-pointer"
               )}
@@ -376,7 +376,7 @@ export default function RequestDetailsTab() {
               value={filters.startDate}
               onChange={(e) => setFilters({ ...filters, startDate: e.target.value })}
               className={cn(
-                "h-9 px-3 rounded-lg border border-black/10 dark:border-white/10 bg-surface",
+                "h-9 px-3 rounded-lg border border-muted bg-surface",
                 "w-full min-w-0 text-sm text-text-main focus:outline-none focus:ring-2 focus:ring-primary/20"
               )}
             />
@@ -390,7 +390,7 @@ export default function RequestDetailsTab() {
               value={filters.endDate}
               onChange={(e) => setFilters({ ...filters, endDate: e.target.value })}
               className={cn(
-                "h-9 px-3 rounded-lg border border-black/10 dark:border-white/10 bg-surface",
+                "h-9 px-3 rounded-lg border border-muted bg-surface",
                 "w-full min-w-0 text-sm text-text-main focus:outline-none focus:ring-2 focus:ring-primary/20"
               )}
             />
@@ -414,7 +414,7 @@ export default function RequestDetailsTab() {
         <div className="overflow-x-auto">
           <table className="w-full min-w-[1000px]">
             <thead>
-              <tr className="border-b border-black/5 dark:border-white/5">
+              <tr className="border-b border-muted">
                 <th className="text-left p-4 text-sm font-semibold text-text-main">Timestamp</th>
                 <th className="text-left p-4 text-sm font-semibold text-text-main">Model</th>
                 <th className="text-left p-4 text-sm font-semibold text-text-main">Provider</th>
@@ -447,7 +447,7 @@ export default function RequestDetailsTab() {
                 details.map((detail, index) => (
                   <tr
                     key={`${detail.id}-${index}`}
-                    className="border-b border-black/5 dark:border-white/5 last:border-b-0 hover:bg-black/[0.02] dark:hover:bg-white/[0.02] transition-colors"
+                    className="border-b border-muted last:border-b-0 hover:bg-muted/50 transition-colors"
                   >
                     <td className="whitespace-nowrap p-4 text-sm text-text-main">
                       {new Date(detail.timestamp).toLocaleString()}
@@ -498,7 +498,7 @@ export default function RequestDetailsTab() {
         </div>
 
         {!loading && details.length > 0 && (
-          <div className="border-t border-black/5 dark:border-white/5">
+          <div className="border-t border-muted">
             <Pagination
               currentPage={pagination.page}
               pageSize={pagination.pageSize}
@@ -539,7 +539,7 @@ export default function RequestDetailsTab() {
                 <span className="text-text-muted">Status:</span>{" "}
                 <span className={cn(
                   "font-medium",
-                  selectedDetail.status === "success" ? "text-green-600" : "text-red-600"
+                  selectedDetail.status === "success" ? "text-[var(--reddb-color-feedback-success-foreground)]" : "text-[var(--reddb-color-feedback-danger-foreground)]"
                 )}>
                   {selectedDetail.status}
                 </span>
@@ -599,7 +599,7 @@ export default function RequestDetailsTab() {
             </div>
 
             {selectedDetail.decision && (
-              <div className="rounded-lg border border-black/5 dark:border-white/5 p-4">
+              <div className="rounded-lg border border-muted p-4">
                 <div className="flex items-center gap-2 mb-2">
                   <span className="material-symbols-outlined text-[18px] text-text-muted">rule</span>
                   <span className="font-semibold text-sm text-text-main">Decision</span>
@@ -607,8 +607,8 @@ export default function RequestDetailsTab() {
                     <span className={cn(
                       "text-xs px-2 py-0.5 rounded",
                       selectedDetail.decision.model.applied
-                        ? "bg-green-500/15 text-green-600"
-                        : "bg-amber-500/15 text-amber-600"
+                        ? "bg-[var(--reddb-color-feedback-success-surface)] text-[var(--reddb-color-feedback-success-foreground)]"
+                        : "bg-[var(--reddb-color-feedback-warning-surface)] text-[var(--reddb-color-feedback-warning-foreground)]"
                     )}>
                       {selectedDetail.decision.model.applied ? "Applied" : "Not applied"}
                     </span>
@@ -677,7 +677,7 @@ export default function RequestDetailsTab() {
             )}
 
             {selectedDetail.providerResponse?.answers && (
-              <div className="rounded-lg border border-black/5 dark:border-white/5 p-4">
+              <div className="rounded-lg border border-muted p-4">
                 <div className="flex items-center gap-2 mb-2">
                   <span className="material-symbols-outlined text-[18px] text-text-muted">bar_chart</span>
                   <span className="font-semibold text-sm text-text-main">Answers</span>
@@ -689,7 +689,7 @@ export default function RequestDetailsTab() {
 
             {selectedDetail.request?.questions && (
               <CollapsibleSection title="Questions sent" icon="help">
-                <pre className="max-h-[300px] max-w-full overflow-auto rounded-lg border border-black/5 bg-black/5 p-3 font-mono text-xs text-text-main dark:border-white/5 dark:bg-white/5 sm:p-4">
+                <pre className="max-h-[300px] max-w-full overflow-auto rounded-lg border border-muted bg-muted/50 p-3 font-mono text-xs text-text-main sm:p-4">
                   {JSON.stringify(selectedDetail.request.questions, null, 2)}
                 </pre>
               </CollapsibleSection>
@@ -697,22 +697,22 @@ export default function RequestDetailsTab() {
 
             {selectedDetail.decisionState && (
               <CollapsibleSection title="State shown to the decision model" icon="visibility">
-                <pre className="max-h-[300px] max-w-full overflow-auto rounded-lg border border-black/5 bg-black/5 p-3 font-mono text-xs text-text-main dark:border-white/5 dark:bg-white/5 sm:p-4">
+                <pre className="max-h-[300px] max-w-full overflow-auto rounded-lg border border-muted bg-muted/50 p-3 font-mono text-xs text-text-main sm:p-4">
                   {JSON.stringify(selectedDetail.decisionState, null, 2)}
                 </pre>
               </CollapsibleSection>
             )}
 
             {selectedDetail.pxpipe && (
-              <div className="rounded-lg border border-black/5 dark:border-white/5 p-4">
+              <div className="rounded-lg border border-muted p-4">
                 <div className="flex items-center gap-2 mb-2">
                   <span className="material-symbols-outlined text-[18px] text-text-muted">image</span>
                   <span className="font-semibold text-sm text-text-main">PXPIPE</span>
                   <span className={cn(
                     "text-xs px-2 py-0.5 rounded",
                     selectedDetail.pxpipe.applied
-                      ? "bg-green-500/15 text-green-600"
-                      : "bg-amber-500/15 text-amber-600"
+                      ? "bg-[var(--reddb-color-feedback-success-surface)] text-[var(--reddb-color-feedback-success-foreground)]"
+                      : "bg-[var(--reddb-color-feedback-warning-surface)] text-[var(--reddb-color-feedback-warning-foreground)]"
                   )}>
                     {selectedDetail.pxpipe.applied ? "Activated" : "Skipped"}
                   </span>
@@ -729,7 +729,7 @@ export default function RequestDetailsTab() {
                     </div>
                     <div>
                       <span className="text-text-muted block text-xs">Saved</span>
-                      <span className="font-mono text-green-600">{selectedDetail.pxpipe.savedPct || 0}%</span>
+                      <span className="font-mono text-[var(--reddb-color-feedback-success-foreground)]">{selectedDetail.pxpipe.savedPct || 0}%</span>
                     </div>
                     <div>
                       <span className="text-text-muted block text-xs">Images</span>
@@ -747,14 +747,14 @@ export default function RequestDetailsTab() {
 
             <div className="space-y-4">
               <CollapsibleSection title="1. Client Request (Input)" defaultOpen={true} icon="input">
-                <pre className="max-h-[300px] max-w-full overflow-auto rounded-lg border border-black/5 bg-black/5 p-3 font-mono text-xs text-text-main dark:border-white/5 dark:bg-white/5 sm:p-4">
+                <pre className="max-h-[300px] max-w-full overflow-auto rounded-lg border border-muted bg-muted/50 p-3 font-mono text-xs text-text-main sm:p-4">
                   {JSON.stringify(selectedDetail.request, null, 2)}
                 </pre>
               </CollapsibleSection>
 
               {selectedDetail.providerRequest && (
                 <CollapsibleSection title="2. Provider Request (Translated)" icon="translate">
-                  <pre className="max-h-[300px] max-w-full overflow-auto rounded-lg border border-black/5 bg-black/5 p-3 font-mono text-xs text-text-main dark:border-white/5 dark:bg-white/5 sm:p-4">
+                  <pre className="max-h-[300px] max-w-full overflow-auto rounded-lg border border-muted bg-muted/50 p-3 font-mono text-xs text-text-main sm:p-4">
                     {JSON.stringify(selectedDetail.providerRequest, null, 2)}
                   </pre>
                 </CollapsibleSection>
@@ -762,7 +762,7 @@ export default function RequestDetailsTab() {
 
               {selectedDetail.providerResponse && (
                 <CollapsibleSection title="3. Provider Response (Raw)" icon="data_object">
-                  <pre className="max-h-[300px] max-w-full overflow-auto rounded-lg border border-black/5 bg-black/5 p-3 font-mono text-xs text-text-main dark:border-white/5 dark:bg-white/5 sm:p-4">
+                  <pre className="max-h-[300px] max-w-full overflow-auto rounded-lg border border-muted bg-muted/50 p-3 font-mono text-xs text-text-main sm:p-4">
                     {typeof selectedDetail.providerResponse === 'object'
                       ? JSON.stringify(selectedDetail.providerResponse, null, 2)
                       : selectedDetail.providerResponse
@@ -778,7 +778,7 @@ export default function RequestDetailsTab() {
                       <span className="material-symbols-outlined text-[16px]">psychology</span>
                       Thinking Process
                     </h4>
-                    <pre className="max-h-[200px] max-w-full overflow-auto rounded-lg border border-amber-200 bg-amber-50 p-3 font-mono text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100 sm:p-4">
+                    <pre className="max-h-[200px] max-w-full overflow-auto rounded-lg border border-[var(--reddb-color-feedback-warning-border)] bg-[var(--reddb-color-feedback-warning-surface)] p-3 font-mono text-xs text-[var(--reddb-color-feedback-warning-foreground)] sm:p-4">
                       {safeText(selectedDetail.response.thinking)}
                     </pre>
                   </div>
@@ -787,7 +787,7 @@ export default function RequestDetailsTab() {
                 <h4 className="font-semibold text-text-main mb-2 text-xs uppercase tracking-wide opacity-70">
                   Content
                 </h4>
-                <pre className="max-h-[300px] max-w-full overflow-auto rounded-lg border border-black/5 bg-black/5 p-3 font-mono text-xs text-text-main dark:border-white/5 dark:bg-white/5 sm:p-4">
+                <pre className="max-h-[300px] max-w-full overflow-auto rounded-lg border border-muted bg-muted/50 p-3 font-mono text-xs text-text-main sm:p-4">
                   {safeText(selectedDetail.response?.content) || "[No content]"}
                 </pre>
               </CollapsibleSection>

@@ -85,7 +85,7 @@ export default function KeyPolicyCard({ apiKey, onSaved }) {
       </div>
 
       {!requireApiKey && (
-        <p className="mt-3 rounded-lg bg-orange-500/10 px-3 py-2 text-xs text-orange-600 dark:text-orange-400">
+        <p className="mt-3 rounded-lg bg-[var(--reddb-color-feedback-warning-surface)] px-3 py-2 text-xs text-[var(--reddb-color-feedback-warning-foreground)]">
           &quot;Require API key&quot; is off, so requests sent without a key skip these rules and limits.
         </p>
       )}
@@ -127,7 +127,7 @@ export default function KeyPolicyCard({ apiKey, onSaved }) {
           <p className="text-xs text-text-muted">Days and months follow this server&apos;s local time. Leave a field empty for no limit.</p>
         </div>
       </div>
-      {error && <p className="mt-3 text-sm text-red-500">{error}</p>}
+      {error && <p className="mt-3 text-sm text-[var(--reddb-color-feedback-danger-foreground)]">{error}</p>}
     </Card>
   );
 }
