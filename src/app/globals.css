@@ -11,6 +11,7 @@
 @import "../../vendor/ds/theme-application.css";
 @import "../../vendor/ds/scheme-light.css";
 @import "../../vendor/ds/scheme-dark.css";
+@import "../../vendor/ds/theme.css";
 @import "../../vendor/ds/density-compact.css";
 
 @custom-variant dark (&:where(.dark, .dark *));
@@ -58,7 +59,8 @@
   --color-text: var(--reddb-color-foreground);
   --color-text-main: var(--reddb-color-foreground);
   --color-text-muted: var(--reddb-color-ink-muted);
-  --color-text-subtle: var(--reddb-color-muted);
+  /* --reddb-color-muted is a surface/border role; text never uses it. */
+  --color-text-subtle: var(--reddb-color-ink-muted);
 
   /* Status */
   --color-danger: var(--reddb-color-feedback-danger-on-light);
@@ -66,19 +68,17 @@
   --color-warning: var(--reddb-color-feedback-warning-on-light);
   --color-info: var(--reddb-color-feedback-info-on-light);
 
-  /* Radius */
-  --radius-brand: 10px;
-  --radius-brand-lg: 14px;
+  /* Radius and elevation follow the DS: buttons/controls are rounded-md,
+     cards rounded-lg, and surfaces stay flat unless raised. The DS shadow
+     roles already resolve per data-color-scheme, so .dark needs no copy. */
+  --radius-brand: var(--reddb-radius-md);
+  --radius-brand-lg: var(--reddb-radius-lg);
 
-  /* Shadows */
-  --shadow-soft: 0 1px 2px 0 rgba(0,0,0,0.04);
-  --shadow-warm: 0 2px 12px -2px rgba(229, 106, 74, 0.18);
-  --shadow-elevated: 0 12px 28px -4px rgba(60, 50, 45, 0.06);
-  --shadow-elev:
-    inset 0 1px 0 0 rgba(255,255,255,0.8),
-    0 1px 2px rgba(15,23,42,0.04),
-    0 12px 36px -8px rgba(15,23,42,0.10);
-  --shadow-focus: 0 0 0 3px rgba(229,106,74,0.18);
+  --shadow-soft: 0 0 #0000;
+  --shadow-warm: var(--reddb-shadow-elevation-raised);
+  --shadow-elevated: var(--reddb-shadow-elevation-raised);
+  --shadow-elev: var(--reddb-shadow-elevation-raised);
+  --shadow-focus: 0 0 0 3px color-mix(in srgb, var(--reddb-color-primary) 18%, transparent);
 
   color-scheme: light;
 }
@@ -108,21 +108,13 @@
   --color-text: var(--reddb-color-foreground);
   --color-text-main: var(--reddb-color-foreground);
   --color-text-muted: var(--reddb-color-ink-muted);
-  --color-text-subtle: var(--reddb-color-muted);
+  /* --reddb-color-muted is a surface/border role; text never uses it. */
+  --color-text-subtle: var(--reddb-color-ink-muted);
 
   --color-danger: var(--reddb-color-feedback-danger-on-dark);
   --color-success: var(--reddb-color-feedback-success-on-dark);
   --color-warning: var(--reddb-color-feedback-warning-on-dark);
   --color-info: var(--reddb-color-feedback-info-on-dark);
-
-  --shadow-soft: 0 1px 2px 0 rgba(0,0,0,0.3);
-  --shadow-warm: 0 2px 12px -2px rgba(229, 106, 74, 0.25);
-  --shadow-elevated: 0 12px 28px -4px rgba(0, 0, 0, 0.45);
-  --shadow-elev:
-    inset 0 1px 0 0 rgba(255,255,255,0.06),
-    0 1px 2px rgba(0,0,0,0.4),
-    0 16px 48px -8px rgba(0,0,0,0.55);
-  --shadow-focus: 0 0 0 3px rgba(229, 106, 74, 0.18);
 
   color-scheme: dark;
 }
@@ -178,20 +170,6 @@ select {
   --color-success: var(--color-success);
   --color-warning: var(--color-warning);
   --color-info: var(--color-info);
-
-  /* Static fallbacks (explicit per-mode usage if needed) */
-  --color-bg-light: #FCFBF9;
-  --color-bg-dark: #1a1a1a;
-  --color-surface-light: #ffffff;
-  --color-surface-dark: #262626;
-  --color-sidebar-light: #F4F1EC;
-  --color-sidebar-dark: #1F1F1E;
-  --color-border-light: #e5e7eb;
-  --color-border-dark: #333333;
-  --color-text-main-light: #0a0a0a;
-  --color-text-main-dark: #ededed;
-  --color-text-muted-light: #6B7280;
-  --color-text-muted-dark: #9ca3af;
 
   /* Radius */
   --radius-brand: var(--radius-brand);
@@ -1055,11 +1033,11 @@ body {
 
 /* Selection - brand-tinted */
 ::selection {
-  background-color: rgba(229, 106, 74, 0.25);
+  background-color: color-mix(in srgb, var(--reddb-color-primary) 25%, transparent);
   color: var(--color-primary);
 }
 .dark ::selection {
-  background-color: rgba(229, 106, 74, 0.3);
+  background-color: color-mix(in srgb, var(--reddb-color-primary) 30%, transparent);
   color: var(--color-brand-300);
 }
 
@@ -1086,19 +1064,19 @@ input, textarea {
 /* Thin horizontal scrollbar - brand colored */
 .scroll-thin-x {
   scrollbar-width: thin;
-  scrollbar-color: rgba(229, 106, 74, 0.55) transparent;
+  scrollbar-color: color-mix(in srgb, var(--reddb-color-primary) 55%, transparent) transparent;
 }
 .dark .scroll-thin-x {
-  scrollbar-color: rgba(229, 106, 74, 0.55) transparent;
+  scrollbar-color: color-mix(in srgb, var(--reddb-color-primary) 55%, transparent) transparent;
 }
 .scroll-thin-x::-webkit-scrollbar { height: 3px; }
 .scroll-thin-x::-webkit-scrollbar-track { background: transparent; }
 .scroll-thin-x::-webkit-scrollbar-thumb {
-  background: rgba(229, 106, 74, 0.55);
+  background: color-mix(in srgb, var(--reddb-color-primary) 55%, transparent);
   border-radius: 3px;
 }
 .dark .scroll-thin-x::-webkit-scrollbar-thumb {
-  background: rgba(229, 106, 74, 0.55);
+  background: color-mix(in srgb, var(--reddb-color-primary) 55%, transparent);
 }
 
 /* Global thin mac-like scrollbars (overrides clunky Windows/Linux default) */
@@ -1232,12 +1210,12 @@ button:disabled,
 
 @keyframes border-glow {
   0%, 100% {
-    box-shadow: 0 0 5px rgba(229, 106, 74, 0.3), 0 0 10px rgba(229, 106, 74, 0.2);
-    border-color: rgba(229, 106, 74, 0.5);
+    box-shadow: 0 0 5px color-mix(in srgb, var(--reddb-color-primary) 30%, transparent), 0 0 10px color-mix(in srgb, var(--reddb-color-primary) 20%, transparent);
+    border-color: color-mix(in srgb, var(--reddb-color-primary) 50%, transparent);
   }
   50% {
-    box-shadow: 0 0 10px rgba(229, 106, 74, 0.5), 0 0 20px rgba(229, 106, 74, 0.3);
-    border-color: rgba(229, 106, 74, 0.8);
+    box-shadow: 0 0 10px color-mix(in srgb, var(--reddb-color-primary) 50%, transparent), 0 0 20px color-mix(in srgb, var(--reddb-color-primary) 30%, transparent);
+    border-color: color-mix(in srgb, var(--reddb-color-primary) 80%, transparent);
   }
 }
 .animate-border-glow { animation: border-glow 2s ease-in-out infinite; }
@@ -1270,8 +1248,8 @@ button:disabled,
   100% { transform: translateX(220%) skewX(-20deg); }
 }
 @keyframes ctaGlowPulse {
-  0%, 100% { box-shadow: 0 8px 24px -8px rgba(229, 106, 74, 0.45), 0 0 0 0 rgba(229, 106, 74, 0.5); }
-  50% { box-shadow: 0 12px 32px -8px rgba(229, 106, 74, 0.6), 0 0 0 8px rgba(229, 106, 74, 0); }
+  0%, 100% { box-shadow: 0 8px 24px -8px color-mix(in srgb, var(--reddb-color-primary) 45%, transparent), 0 0 0 0 color-mix(in srgb, var(--reddb-color-primary) 50%, transparent); }
+  50% { box-shadow: 0 12px 32px -8px color-mix(in srgb, var(--reddb-color-primary) 60%, transparent), 0 0 0 8px transparent; }
 }
 .btn-cta {
   position: relative;
@@ -1297,13 +1275,13 @@ button:disabled,
 .dot-grid-bg {
   background-color: var(--color-bg);
   background-image:
-    radial-gradient(circle at 15% 20%, rgba(229, 106, 74, 0.10) 0%, transparent 40%),
-    radial-gradient(circle at 85% 80%, rgba(229, 106, 74, 0.06) 0%, transparent 40%);
+    radial-gradient(circle at 15% 20%, color-mix(in srgb, var(--reddb-color-primary) 10%, transparent) 0%, transparent 40%),
+    radial-gradient(circle at 85% 80%, color-mix(in srgb, var(--reddb-color-primary) 6%, transparent) 0%, transparent 40%);
 }
 .dark .dot-grid-bg {
   background-image:
-    radial-gradient(circle at 15% 20%, rgba(229, 106, 74, 0.18) 0%, transparent 40%),
-    radial-gradient(circle at 85% 80%, rgba(229, 106, 74, 0.10) 0%, transparent 40%);
+    radial-gradient(circle at 15% 20%, color-mix(in srgb, var(--reddb-color-primary) 18%, transparent) 0%, transparent 40%),
+    radial-gradient(circle at 85% 80%, color-mix(in srgb, var(--reddb-color-primary) 10%, transparent) 0%, transparent 40%);
 }
 
 /* Landing-style faint grid overlay (use absolute pos inside relative parent) */

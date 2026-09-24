@@ -102,7 +102,7 @@ export default function KeyPolicyCard({ apiKey, onSaved }) {
                 onChange={update("patterns")}
                 rows={5}
                 placeholder={"claude-code/claude-*\nopenai/gpt-5*\nmy-combo"}
-                className="w-full rounded-[10px] bg-surface-2 px-3 py-2.5 font-mono text-sm text-text-main focus:outline-none focus:ring-2 focus:ring-brand-500/30"
+                className="w-full rounded-md bg-surface-2 px-3 py-2.5 font-mono text-sm text-text-main focus:outline-none focus:ring-2 focus:ring-brand-500/30"
               />
               <p className="text-xs text-text-muted">
                 One per line. <code>*</code> matches anything, <code>?</code> one character; case does not matter.
