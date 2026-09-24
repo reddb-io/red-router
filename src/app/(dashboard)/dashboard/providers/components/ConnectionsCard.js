@@ -393,8 +393,13 @@ export default function ConnectionsCard({ providerId, isOAuth }) {
   const handleUpdateConnection = async (formData) => {
     try {
       const res = await fetch(`/api/providers/${selectedConnection.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(formData) });
-      if (res.ok) { await fetch_(); setShowEditModal(false); }
-    } catch (e) { console.log("update connection error:", e); }
+      if (res.ok) { await fetch_(); setShowEditModal(false); return null; }
+      const data = await res.json().catch(() => ({}));
+      return { error: data.error || `Save failed (HTTP ${res.status})` };
+    } catch (e) {
+      console.log("update connection error:", e);
+      return { error: e?.message || "Save failed" };
+    }
   };
 
   if (loading) return <Card><div className="h-20 animate-pulse bg-muted/50 rounded-lg" /></Card>;

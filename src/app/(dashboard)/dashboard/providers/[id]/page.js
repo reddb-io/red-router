@@ -919,9 +919,14 @@ export default function ProviderDetailPage() {
       if (res.ok) {
         await fetchConnections();
         setShowEditModal(false);
+        return null;
       }
+      // The dialog shows why the server refused the change (e.g. an unreachable RedRouter URL).
+      const data = await res.json().catch(() => ({}));
+      return { error: data.error || `Save failed (HTTP ${res.status})` };
     } catch (error) {
       console.log("Error updating connection:", error);
+      return { error: error?.message || "Save failed" };
     }
   };
 

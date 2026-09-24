@@ -453,9 +453,13 @@ export default function ProviderLimits() {
           if (USAGE_SUPPORTED_PROVIDERS.includes(provider)) {
             await fetchQuota(connectionId, provider);
           }
+          return null;
         }
+        const data = await res.json().catch(() => ({}));
+        return { error: data.error || `Save failed (HTTP ${res.status})` };
       } catch (error) {
         console.error("Error saving connection:", error);
+        return { error: error?.message || "Save failed" };
       }
     },
     [selectedConnection, fetchConnections, fetchQuota],

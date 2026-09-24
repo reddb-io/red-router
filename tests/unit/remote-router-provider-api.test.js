@@ -150,6 +150,34 @@ describe("RedRouter provider API", () => {
     expect((await getProviderConnectionById(created.connection.id)).providerSpecificData.baseUrl).toBe("https://moved-router.test/v1");
   });
 
+  it("tests an edited URL as typed, without saving its result", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url) => (String(url).includes("wrong-router")
+      ? new Response("Not Found", { status: 404 })
+      : new Response(JSON.stringify({ data: [{ id: "first/model" }] })))));
+    const { POST: createConnection } = await import("@/app/api/providers/route.js");
+    const created = await (await createConnection(new Request("https://local.test/api/providers", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ provider: "red-router", name: "Office", apiKey: "rr_key", providerSpecificData: { baseUrl: "https://first-router.test" } }),
+    }))).json();
+    const { POST: testConnection } = await import("@/app/api/providers/[id]/test/route.js");
+    const test = async (body) => (await testConnection(new Request("https://local.test/api/providers/x/test", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+    }), { params: Promise.resolve({ id: created.connection.id }) })).json();
+
+    expect((await test({})).valid).toBe(true);
+
+    const wrong = await test({ providerSpecificData: { baseUrl: "https://wrong-router.test" } });
+    expect(wrong.valid).toBe(false);
+    expect(wrong.error).toBeTruthy();
+    const malformed = await test({ providerSpecificData: { baseUrl: "definitely not a url" } });
+    expect(malformed).toMatchObject({ valid: false, error: "A valid remote RedRouter URL is required" });
+
+    const { getProviderConnectionById } = await import("@/models");
+    const stored = await getProviderConnectionById(created.connection.id);
+    expect(stored.providerSpecificData.baseUrl).toBe("https://first-router.test/v1");
+    expect(stored.testStatus).toBe("active");
+  });
+
   it("reports discovery failure without saving a partially configured connection", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("Unauthorized", { status: 401 })));
     const { POST } = await import("@/app/api/providers/route.js");
