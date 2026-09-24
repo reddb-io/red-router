@@ -176,7 +176,7 @@ export default function DecisionRouterCard({ provider }) {
                 {translate("No model scope selected. Model routing is off; tool routing follows the mode below.")}
               </span>
             ) : models.map((value) => (
-              <span key={value} className="inline-flex items-center gap-1 rounded bg-black/5 px-1.5 py-0.5 dark:bg-white/5">
+              <span key={value} className="inline-flex items-center gap-1 rounded bg-muted/50 px-1.5 py-0.5">
                 <span className="material-symbols-outlined text-[12px] text-text-muted">
                   {value.includes("/") ? "smart_toy" : "layers"}
                 </span>
@@ -184,7 +184,7 @@ export default function DecisionRouterCard({ provider }) {
                 <button
                   type="button"
                   onClick={() => removeModel(value)}
-                  className="leading-none text-text-muted hover:text-red-500"
+                  className="leading-none text-text-muted hover:text-[var(--reddb-color-feedback-danger-foreground)]"
                   aria-label={`${translate("Remove")} ${value}`}
                 >
                   <span className="material-symbols-outlined text-[12px]">close</span>
@@ -222,7 +222,7 @@ export default function DecisionRouterCard({ provider }) {
           </button>
 
           {advanced && (
-            <div className="flex flex-col gap-4 rounded-lg border border-black/5 p-3 dark:border-white/5">
+            <div className="flex flex-col gap-4 rounded-lg border border-muted p-3">
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <Select
                   label={translate("Gateway")}
@@ -295,15 +295,15 @@ export default function DecisionRouterCard({ provider }) {
 
               <div className="flex flex-col gap-2 text-xs">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="rounded bg-black/5 px-1.5 py-0.5 dark:bg-white/5">{gateway?.name || gatewayId}</span>
+                  <span className="rounded bg-muted/50 px-1.5 py-0.5">{gateway?.name || gatewayId}</span>
                   <span className="text-text-muted">{translate("borrows its own chat connection")}</span>
                   {conn ? (
-                    <span className={connBroken ? "text-amber-600 dark:text-amber-500" : "text-text-muted"}>
+                    <span className={connBroken ? "text-[var(--reddb-color-feedback-warning-foreground)]" : "text-text-muted"}>
                       · {conn.name || translate("connection")}
                       {connBroken ? translate(" (marked unavailable by the last health check)") : ""}
                     </span>
                   ) : (
-                    <span className="text-amber-600 dark:text-amber-500">
+                    <span className="text-[var(--reddb-color-feedback-warning-foreground)]">
                       · {translate("no connection yet, so the decision model cannot be asked")}
                     </span>
                   )}

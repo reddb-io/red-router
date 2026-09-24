@@ -1089,7 +1089,7 @@ export default function ProviderDetailPage() {
   ) : null;
 
   const connectionsList = (
-    <div className="flex min-w-0 flex-col divide-y divide-black/[0.03] dark:divide-white/[0.03] max-h-[500px] overflow-y-auto pr-1">
+    <div className="flex min-w-0 flex-col divide-y divide-muted max-h-[500px] overflow-y-auto pr-1">
       {ownerFilterControl && (
         <div className="flex justify-end pb-2">{ownerFilterControl}</div>
       )}
@@ -1101,7 +1101,7 @@ export default function ProviderDetailPage() {
                 type="checkbox"
                 checked={isSelected(conn.id)}
                 onChange={() => toggleSelectConnection(conn.id)}
-                className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                className="h-4 w-4 rounded border-muted text-primary focus:ring-primary"
               />
             </div>
             <div className="flex-1 min-w-0">
@@ -1163,7 +1163,7 @@ export default function ProviderDetailPage() {
           <button
             onClick={handleApplyOneToOne}
             disabled={bulkUpdatingProxy || activePools.length === 0}
-            className="flex items-center gap-2 rounded-lg px-3 py-2 text-left transition-colors hover:bg-black/[0.04] dark:hover:bg-white/[0.04] disabled:cursor-not-allowed disabled:opacity-50"
+            className="flex items-center gap-2 rounded-lg px-3 py-2 text-left transition-colors hover:bg-muted/50 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <span className="material-symbols-outlined text-text-muted text-[18px]">sync_alt</span>
             <span className="text-sm text-text-main">One-to-one (rotate)</span>
@@ -1171,7 +1171,7 @@ export default function ProviderDetailPage() {
           <button
             onClick={() => handleApplySinglePool(null)}
             disabled={bulkUpdatingProxy}
-            className="flex items-center gap-2 rounded-lg px-3 py-2 text-left transition-colors hover:bg-black/[0.04] dark:hover:bg-white/[0.04] disabled:cursor-not-allowed disabled:opacity-50"
+            className="flex items-center gap-2 rounded-lg px-3 py-2 text-left transition-colors hover:bg-muted/50 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <span className="material-symbols-outlined text-text-muted text-[18px]">link_off</span>
             <span className="text-sm text-text-main">None (unbind all)</span>
@@ -1181,7 +1181,7 @@ export default function ProviderDetailPage() {
               key={pool.id}
               onClick={() => handleApplySinglePool(pool.id)}
               disabled={bulkUpdatingProxy || pool.isActive !== true}
-              className="flex items-center gap-2 rounded-lg px-3 py-2 text-left transition-colors hover:bg-black/[0.04] dark:hover:bg-white/[0.04] disabled:cursor-not-allowed disabled:opacity-50"
+              className="flex items-center gap-2 rounded-lg px-3 py-2 text-left transition-colors hover:bg-muted/50 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <span className="material-symbols-outlined text-text-muted text-[18px]">lan</span>
               <span className="truncate text-sm text-text-main">{pool.name}</span>
@@ -1327,7 +1327,7 @@ export default function ProviderDetailPage() {
           <button
             onClick={handleImportQoderModels}
             disabled={importingQoderModels}
-            className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-blue-500/40 px-3 py-2 text-xs text-blue-600 dark:text-blue-400 transition-colors hover:border-blue-500 hover:bg-blue-500/5 sm:w-auto disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-[var(--reddb-color-feedback-info-border)] px-3 py-2 text-xs text-[var(--reddb-color-feedback-info-foreground)] transition-colors hover:border-[var(--reddb-color-feedback-info-border)] hover:bg-[var(--reddb-color-feedback-info-surface)] sm:w-auto disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <span className="material-symbols-outlined text-sm" style={importingQoderModels ? { animation: "spin 1s linear infinite" } : undefined}>
               {importingQoderModels ? "progress_activity" : "download"}
@@ -1341,7 +1341,7 @@ export default function ProviderDetailPage() {
           <button
             onClick={handleImportClineModels}
             disabled={importingClineModels}
-            className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-blue-500/40 px-3 py-2 text-xs text-blue-600 dark:text-blue-400 transition-colors hover:border-blue-500 hover:bg-blue-500/5 sm:w-auto disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-[var(--reddb-color-feedback-info-border)] px-3 py-2 text-xs text-[var(--reddb-color-feedback-info-foreground)] transition-colors hover:border-[var(--reddb-color-feedback-info-border)] hover:bg-[var(--reddb-color-feedback-info-surface)] sm:w-auto disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <span className="material-symbols-outlined text-sm" style={importingClineModels ? { animation: "spin 1s linear infinite" } : undefined}>
               {importingClineModels ? "progress_activity" : "download"}
@@ -1382,7 +1382,7 @@ export default function ProviderDetailPage() {
                     onClick={async () => {
                       await handleAddCustomModel(m.id, "llm", providerStorageAlias);
                     }}
-                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-black/10 dark:border-white/10 text-xs text-text-muted hover:text-primary hover:border-primary/40 hover:bg-primary/5 transition-colors"
+                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-muted text-xs text-text-muted hover:text-primary hover:border-primary/40 hover:bg-primary/5 transition-colors"
                     title={`${m.name} · ${(m.contextLength / 1000).toFixed(0)}k ctx`}
                   >
                     <span className="material-symbols-outlined text-[13px]">add</span>
@@ -1403,7 +1403,7 @@ export default function ProviderDetailPage() {
                 <button
                   key={m.id}
                   onClick={() => handleEnableModel(m.id)}
-                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-dashed border-black/10 dark:border-white/10 text-xs text-text-muted hover:text-primary hover:border-primary/40 hover:bg-primary/5 transition-colors"
+                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-dashed border-muted text-xs text-text-muted hover:text-primary hover:border-primary/40 hover:bg-primary/5 transition-colors"
                   title="Restore model"
                 >
                   <span className="material-symbols-outlined text-[13px]">add</span>
@@ -1508,16 +1508,16 @@ export default function ProviderDetailPage() {
       </div>
 
       {providerInfo.deprecated && (
-        <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-yellow-500/10 border border-yellow-500/30">
-          <span className="material-symbols-outlined text-[16px] text-yellow-500 mt-0.5 shrink-0">warning</span>
-          <p className="text-xs text-red-600 dark:text-yellow-400 leading-relaxed">{providerInfo.deprecationNotice}</p>
+        <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-[var(--reddb-color-feedback-warning-surface)] border border-[var(--reddb-color-feedback-warning-border)]">
+          <span className="material-symbols-outlined text-[16px] text-[var(--reddb-color-feedback-warning-foreground)] mt-0.5 shrink-0">warning</span>
+          <p className="text-xs text-[var(--reddb-color-feedback-danger-foreground)] text-[var(--reddb-color-feedback-warning-foreground)] leading-relaxed">{providerInfo.deprecationNotice}</p>
         </div>
       )}
 
       {providerInfo.notice?.text && !providerInfo.deprecated && (
-        <div className="flex flex-col gap-2 rounded-lg border border-blue-500/30 bg-blue-500/10 px-3 py-2 sm:flex-row sm:items-center">
-          <span className="material-symbols-outlined text-[16px] text-blue-500 shrink-0">info</span>
-          <p className="min-w-0 flex-1 text-xs leading-relaxed text-blue-600 dark:text-blue-400">{providerInfo.notice.text}</p>
+        <div className="flex flex-col gap-2 rounded-lg border border-[var(--reddb-color-feedback-info-border)] bg-[var(--reddb-color-feedback-info-surface)] px-3 py-2 sm:flex-row sm:items-center">
+          <span className="material-symbols-outlined text-[16px] text-[var(--reddb-color-feedback-info-foreground)] shrink-0">info</span>
+          <p className="min-w-0 flex-1 text-xs leading-relaxed text-[var(--reddb-color-feedback-info-foreground)]">{providerInfo.notice.text}</p>
           {providerInfo.notice.apiKeyUrl && (
             <a
               href={providerInfo.notice.apiKeyUrl}
@@ -1663,14 +1663,14 @@ export default function ProviderDetailPage() {
           ) : (
             <>
               {oneByOneSummary && (
-                <div className="mb-4 rounded-lg border border-black/10 bg-black/[0.02] px-3 py-2 text-xs text-text-muted dark:border-white/10 dark:bg-white/[0.03]">
+                <div className="mb-4 rounded-lg border border-muted bg-muted/50 px-3 py-2 text-xs text-text-muted">
                   <div className="flex flex-wrap items-center gap-3">
                     <span>Total: {oneByOneSummary.total}</span>
                     <span>Completed: {oneByOneSummary.completed}</span>
                     <span>Passed: {oneByOneSummary.passed}</span>
                     <span>Failed: {oneByOneSummary.failed}</span>
                     {oneByOneSummary.stopped && (
-                      <span className="text-amber-600 dark:text-amber-400">Stopped</span>
+                      <span className="text-[var(--reddb-color-feedback-warning-foreground)]">Stopped</span>
                     )}
                     {oneByOneRunning && oneByOneCurrentConnectionId && (
                       <span>Running: {connections.find((conn) => conn.id === oneByOneCurrentConnectionId)?.name || oneByOneCurrentConnectionId}</span>
@@ -1679,13 +1679,13 @@ export default function ProviderDetailPage() {
                 </div>
               )}
               {connections.length > 0 && (
-                <div className="mb-3 flex items-center gap-2 border-b border-black/[0.03] pb-2 dark:border-white/[0.03]">
+                <div className="mb-3 flex items-center gap-2 border-b border-muted pb-2">
                   <label className="flex cursor-pointer items-center gap-1.5 text-xs text-text-muted hover:text-primary">
                     <input
                       type="checkbox"
                       checked={allSelected}
                       onChange={toggleSelectAllConnections}
-                      className="h-3.5 w-3.5 rounded border-gray-300 text-primary focus:ring-primary"
+                      className="h-3.5 w-3.5 rounded border-muted text-primary focus:ring-primary"
                     />
                     Select All
                   </label>
@@ -1811,7 +1811,7 @@ export default function ProviderDetailPage() {
         </div>
         {!!modelsTestError && (
           <div className="mb-3">
-            <p className="text-xs text-red-500 break-words">{modelsTestError}</p>
+            <p className="text-xs text-[var(--reddb-color-feedback-danger-foreground)] break-words">{modelsTestError}</p>
             {/RegionError|hosted in China|regionNotAllowed/i.test(modelsTestError) && (() => {
               const str = typeof modelsTestError === "string" ? modelsTestError : JSON.stringify(modelsTestError);
               const linkMatch = str.match(/https:\/\/opencode\.ai\/workspace\/[^\s"')]+/);
@@ -1828,7 +1828,7 @@ export default function ProviderDetailPage() {
                     href={targetUrl}
                     target="_blank"
                     rel="noreferrer"
-                    className="inline-flex items-center gap-1 rounded-md bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-600 hover:bg-amber-500/20 dark:text-amber-400 transition-colors"
+                    className="inline-flex items-center gap-1 rounded-md bg-[var(--reddb-color-feedback-warning-surface)] px-2 py-0.5 text-xs font-medium text-[var(--reddb-color-feedback-warning-foreground)] hover:bg-[var(--reddb-color-feedback-warning-surface)] transition-colors"
                   >
                     <span>Allow China-hosted models</span>
                     <span className="material-symbols-outlined text-[13px]">open_in_new</span>

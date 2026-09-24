@@ -17,7 +17,7 @@ function DefaultBadge({ keys, scoped, inherited }) {
   if (!scoped || !keys.every((k) => inherited.includes(k))) return null;
   return (
     <span
-      className="ml-2 rounded-full bg-black/5 px-2 py-0.5 text-[10px] font-medium text-text-muted align-middle dark:bg-white/10"
+      className="ml-2 rounded-full bg-muted/50 px-2 py-0.5 text-[10px] font-medium text-text-muted align-middle"
       title="Using the admin's default. Changing it here creates your own setting."
     >
       default
@@ -1067,7 +1067,7 @@ export default function TokenSaverClient() {
             <div className="flex flex-col gap-1">
               <p className="text-sm font-medium">Install then click Start:</p>
               <div className="flex items-center gap-2">
-                <pre className="flex-1 rounded bg-black/5 dark:bg-white/5 p-2 text-xs font-mono overflow-x-auto">
+                <pre className="flex-1 rounded bg-muted/50 p-2 text-xs font-mono overflow-x-auto">
                   {`pip install "headroom-ai[proxy]"`}
                 </pre>
                 <Button

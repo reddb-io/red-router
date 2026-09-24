@@ -920,10 +920,10 @@ function ProviderTestResultsView({ results }) {
   if (results.error && !results.results) {
     return (
       <div className="text-center py-6">
-        <span className="material-symbols-outlined text-red-500 text-[32px] mb-2 block">
+        <span className="material-symbols-outlined text-[var(--reddb-color-feedback-danger-foreground)] text-[32px] mb-2 block">
           error
         </span>
-        <p className="text-sm text-red-400">{results.error}</p>
+        <p className="text-sm text-[var(--reddb-color-feedback-danger-foreground)]">{results.error}</p>
       </div>
     );
   }
@@ -944,11 +944,11 @@ function ProviderTestResultsView({ results }) {
       {summary && (
         <div className="flex flex-wrap items-center gap-2 text-xs mb-1 sm:gap-3">
           <span className="text-text-muted">{modeLabel} Test</span>
-          <span className="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 font-medium">
+          <span className="px-2 py-0.5 rounded bg-[var(--reddb-color-feedback-success-surface)] text-[var(--reddb-color-feedback-success-foreground)] font-medium">
             {summary.passed} passed
           </span>
           {summary.failed > 0 && (
-            <span className="px-2 py-0.5 rounded bg-red-500/15 text-red-400 font-medium">
+            <span className="px-2 py-0.5 rounded bg-[var(--reddb-color-feedback-danger-surface)] text-[var(--reddb-color-feedback-danger-foreground)] font-medium">
               {summary.failed} failed
             </span>
           )}
@@ -960,10 +960,10 @@ function ProviderTestResultsView({ results }) {
       {items.map((r, i) => (
         <div
           key={r.connectionId || i}
-          className="flex min-w-0 flex-wrap items-center gap-2 rounded-lg bg-black/[0.03] px-3 py-2 text-xs dark:bg-white/[0.03] sm:flex-nowrap"
+          className="flex min-w-0 flex-wrap items-center gap-2 rounded-lg bg-muted/50 px-3 py-2 text-xs sm:flex-nowrap"
         >
           <span
-            className={`material-symbols-outlined text-[16px] ${r.valid ? "text-emerald-500" : "text-red-500"}`}
+            className={`material-symbols-outlined text-[16px] ${r.valid ? "text-[var(--reddb-color-feedback-success-foreground)]" : "text-[var(--reddb-color-feedback-danger-foreground)]"}`}
           >
             {r.valid ? "check_circle" : "error"}
           </span>
@@ -983,8 +983,8 @@ function ProviderTestResultsView({ results }) {
           <span
             className={`shrink-0 text-[10px] uppercase font-bold px-1.5 py-0.5 rounded ${
               r.valid
-                ? "bg-emerald-500/15 text-emerald-400"
-                : "bg-red-500/15 text-red-400"
+                ? "bg-[var(--reddb-color-feedback-success-surface)] text-[var(--reddb-color-feedback-success-foreground)]"
+                : "bg-[var(--reddb-color-feedback-danger-surface)] text-[var(--reddb-color-feedback-danger-foreground)]"
             }`}
           >
             {r.valid ? "OK" : r.diagnosis?.type || "ERROR"}

@@ -137,7 +137,7 @@ export default function ConnectionRow({ connection, proxyPools, isOAuth, isFirst
   };
 
   return (
-    <div className={`group flex min-w-0 flex-col gap-3 rounded-lg p-2 transition-colors hover:bg-black/[0.02] dark:hover:bg-white/[0.02] sm:flex-row sm:items-center sm:justify-between ${connection.isActive === false ? "opacity-60" : ""}`}>
+    <div className={`group flex min-w-0 flex-col gap-3 rounded-lg p-2 transition-colors hover:bg-muted/50 sm:flex-row sm:items-center sm:justify-between ${connection.isActive === false ? "opacity-60" : ""}`}>
       <div className="flex min-w-0 flex-1 items-start gap-2 sm:items-center sm:gap-3">
         {/* Priority arrows */}
         <div className="flex shrink-0 flex-col">
@@ -190,14 +190,14 @@ export default function ConnectionRow({ connection, proxyPools, isOAuth, isFirst
             )}
             {isCooldown && connection.isActive !== false && <CooldownTimer until={modelLockUntil} />}
             {connection.lastError && connection.isActive !== false && (
-              <span className="max-w-full truncate text-xs text-red-500 sm:max-w-[300px]" title={connection.lastError}>
+              <span className="max-w-full truncate text-xs text-[var(--reddb-color-feedback-danger-foreground)] sm:max-w-[300px]" title={connection.lastError}>
                 {connection.lastError}
               </span>
             )}
             <span className="text-xs text-text-muted">#{connection.priority}</span>
             {connection.health && (
               <span
-                className={`text-xs ${connection.health.openModels ? "text-orange-500" : "text-text-muted"}`}
+                className={`text-xs ${connection.health.openModels ? "text-[var(--reddb-color-feedback-warning-foreground)]" : "text-text-muted"}`}
                 title={`${connection.health.samples} requests measured since the server started${connection.health.openModels ? ` · failing on ${connection.health.openModels} model(s)` : ""}`}
               >
                 {[
@@ -221,7 +221,7 @@ export default function ConnectionRow({ connection, proxyPools, isOAuth, isFirst
                 {proxyDisplayText}
               </span>
               {maskedProxyUrl && (
-                <code className="max-w-full truncate rounded bg-black/5 px-1 py-0.5 font-mono text-[10px] text-text-muted dark:bg-white/5 sm:max-w-[260px]">
+                <code className="max-w-full truncate rounded bg-muted/50 px-1 py-0.5 font-mono text-[10px] text-text-muted sm:max-w-[260px]">
                   {maskedProxyUrl}
                 </code>
               )}
@@ -241,7 +241,7 @@ export default function ConnectionRow({ connection, proxyPools, isOAuth, isFirst
             <div className="relative" ref={proxyDropdownRef}>
               <button
                 onClick={() => setShowProxyDropdown((v) => !v)}
-                className={`flex w-full flex-col items-center rounded px-2 py-1 transition-colors hover:bg-black/5 dark:hover:bg-white/5 ${hasAnyProxy ? "text-primary" : "text-text-muted hover:text-primary"}`}
+                className={`flex w-full flex-col items-center rounded px-2 py-1 transition-colors hover:bg-muted/50 ${hasAnyProxy ? "text-primary" : "text-text-muted hover:text-primary"}`}
                 disabled={updatingProxy}
               >
                 <span className="material-symbols-outlined text-[18px]">
@@ -253,7 +253,7 @@ export default function ConnectionRow({ connection, proxyPools, isOAuth, isFirst
                 <div className="absolute right-0 top-full z-50 mt-1 max-w-[78vw] min-w-[160px] rounded-lg border border-border bg-bg py-1 shadow-lg">
                   <button
                     onClick={() => handleSelectProxy("__none__")}
-                    className={`w-full text-left px-3 py-1.5 text-sm hover:bg-black/5 dark:hover:bg-white/5 ${!boundProxyPoolId ? "text-primary font-medium" : "text-text-main"}`}
+                    className={`w-full text-left px-3 py-1.5 text-sm hover:bg-muted/50 ${!boundProxyPoolId ? "text-primary font-medium" : "text-text-main"}`}
                   >
                     None
                   </button>
@@ -261,7 +261,7 @@ export default function ConnectionRow({ connection, proxyPools, isOAuth, isFirst
                     <button
                       key={pool.id}
                       onClick={() => handleSelectProxy(pool.id)}
-                      className={`w-full text-left px-3 py-1.5 text-sm hover:bg-black/5 dark:hover:bg-white/5 ${boundProxyPoolId === pool.id ? "text-primary font-medium" : "text-text-main"}`}
+                      className={`w-full text-left px-3 py-1.5 text-sm hover:bg-muted/50 ${boundProxyPoolId === pool.id ? "text-primary font-medium" : "text-text-main"}`}
                     >
                       {pool.name}
                     </button>
@@ -274,18 +274,18 @@ export default function ConnectionRow({ connection, proxyPools, isOAuth, isFirst
             <Tooltip text={autoPingTooltip}>
               <button
                 onClick={() => autoPing.onToggle(!autoPing.on)}
-                className={`flex w-full flex-col items-center rounded px-2 py-1 transition-colors hover:bg-black/5 dark:hover:bg-white/5 ${autoPing.on ? "text-primary" : "text-text-muted hover:text-primary"}`}
+                className={`flex w-full flex-col items-center rounded px-2 py-1 transition-colors hover:bg-muted/50 ${autoPing.on ? "text-primary" : "text-text-muted hover:text-primary"}`}
               >
                 <span className="material-symbols-outlined text-[18px]">bolt</span>
                 <span className="text-[10px] leading-tight">Auto-ping</span>
               </button>
             </Tooltip>
           )}
-          <button onClick={onEdit} className="flex flex-col items-center rounded px-2 py-1 text-text-muted hover:bg-black/5 hover:text-primary dark:hover:bg-white/5">
+          <button onClick={onEdit} className="flex flex-col items-center rounded px-2 py-1 text-text-muted hover:bg-muted/50 hover:text-primary">
             <span className="material-symbols-outlined text-[18px]">edit</span>
             <span className="text-[10px] leading-tight">Edit</span>
           </button>
-          <button onClick={onDelete} className="flex flex-col items-center rounded px-2 py-1 text-red-500 hover:bg-red-500/10">
+          <button onClick={onDelete} className="flex flex-col items-center rounded px-2 py-1 text-[var(--reddb-color-feedback-danger-foreground)] hover:bg-[var(--reddb-color-feedback-danger-surface)]">
             <span className="material-symbols-outlined text-[18px]">delete</span>
             <span className="text-[10px] leading-tight">Delete</span>
           </button>
