@@ -26,8 +26,6 @@ import BulkImportGrokCliModal from "./BulkImportGrokCliModal";
 import ModelNamingModal from "./ModelNamingModal";
 import CapabilitiesModal from "./CapabilitiesModal";
 import { connectionModelPrefix, providerSlug } from "open-sse/providers/identity.js";
-import DecisionRouterCard from "@/shared/components/DecisionRouterCard";
-import ReasoningAutopilotCard from "@/shared/components/ReasoningAutopilotCard";
 
 const ONE_BY_ONE_DELAY_MS = 1000;
 
@@ -1517,74 +1515,6 @@ export default function ProviderDetailPage() {
         </div>
       )}
 
-      {providerInfo.systemOneConfig && (
-        <>
-          <DecisionRouterCard provider={providerInfo} />
-          <ReasoningAutopilotCard />
-        </>
-      )}
-
-      {isCompatible && providerNode && (
-        <Card>
-          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div className="min-w-0">
-              <h2 className="text-lg font-semibold">{isAnthropicCompatible ? "Anthropic Compatible Details" : "OpenAI Compatible Details"}</h2>
-              <p className="break-all text-sm text-text-muted">
-                {isAnthropicCompatible ? "Messages API" : (providerNode.apiType === "responses" ? "Responses API" : "Chat Completions")} · {(providerNode.baseUrl || "").replace(/\/$/, "")}/
-                {isAnthropicCompatible ? "messages" : (providerNode.apiType === "responses" ? "responses" : "chat/completions")}
-              </p>
-            </div>
-            <div className="grid grid-cols-1 gap-2 sm:flex sm:items-center">
-              <Button
-                size="sm"
-                icon="add"
-                onClick={() => {
-                  setAddConnectionError("");
-                  setShowAddApiKeyModal(true);
-                }}
-                className="w-full sm:w-auto"
-              >
-                Add API Key
-              </Button>
-              <Button
-                size="sm"
-                variant="secondary"
-                icon="edit"
-                onClick={() => setShowEditNodeModal(true)}
-                className="w-full sm:w-auto"
-              >
-                Edit
-              </Button>
-              <Button
-                size="sm"
-                variant="secondary"
-                icon="delete"
-                onClick={async () => {
-                  setConfirmState({
-                    title: "Delete Compatible Node",
-                    message: `Delete this ${isAnthropicCompatible ? "Anthropic" : "OpenAI"} Compatible node?`,
-                    onConfirm: async () => {
-                      setConfirmState(null);
-                      try {
-                        const res = await fetch(`/api/provider-nodes/${providerId}`, { method: "DELETE" });
-                        if (res.ok) {
-                          router.push("/dashboard/providers");
-                        }
-                      } catch (error) {
-                        console.log("Error deleting provider node:", error);
-                      }
-                    }
-                  });
-                }}
-                className="w-full sm:w-auto"
-              >
-                Delete
-              </Button>
-            </div>
-          </div>
-        </Card>
-      )}
-
       {/* Connections */}
       {isFreeNoAuth ? (
         <NoAuthProxyCard providerId={providerId} />
@@ -1901,6 +1831,85 @@ export default function ProviderDetailPage() {
         )}
         {renderModelsSection()}
       </Card>
+
+      {/* Advanced: node settings, then what this provider can serve beyond chat */}
+      {isCompatible && providerNode && (
+        <Card>
+          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0">
+              <h2 className="text-lg font-semibold">{isAnthropicCompatible ? "Anthropic Compatible Details" : "OpenAI Compatible Details"}</h2>
+              <p className="break-all text-sm text-text-muted">
+                {isAnthropicCompatible ? "Messages API" : (providerNode.apiType === "responses" ? "Responses API" : "Chat Completions")} · {(providerNode.baseUrl || "").replace(/\/$/, "")}/
+                {isAnthropicCompatible ? "messages" : (providerNode.apiType === "responses" ? "responses" : "chat/completions")}
+              </p>
+            </div>
+            <div className="grid grid-cols-1 gap-2 sm:flex sm:items-center">
+              <Button
+                size="sm"
+                icon="add"
+                onClick={() => {
+                  setAddConnectionError("");
+                  setShowAddApiKeyModal(true);
+                }}
+                className="w-full sm:w-auto"
+              >
+                Add API Key
+              </Button>
+              <Button
+                size="sm"
+                variant="secondary"
+                icon="edit"
+                onClick={() => setShowEditNodeModal(true)}
+                className="w-full sm:w-auto"
+              >
+                Edit
+              </Button>
+              <Button
+                size="sm"
+                variant="secondary"
+                icon="delete"
+                onClick={async () => {
+                  setConfirmState({
+                    title: "Delete Compatible Node",
+                    message: `Delete this ${isAnthropicCompatible ? "Anthropic" : "OpenAI"} Compatible node?`,
+                    onConfirm: async () => {
+                      setConfirmState(null);
+                      try {
+                        const res = await fetch(`/api/provider-nodes/${providerId}`, { method: "DELETE" });
+                        if (res.ok) {
+                          router.push("/dashboard/providers");
+                        }
+                      } catch (error) {
+                        console.log("Error deleting provider node:", error);
+                      }
+                    }
+                  });
+                }}
+                className="w-full sm:w-auto"
+              >
+                Delete
+              </Button>
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {providerInfo.systemOneConfig && (
+        <Card>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <h2 className="text-base font-semibold">Decision model (JEV)</h2>
+              <p className="text-sm text-text-muted">
+                This provider can also serve the decision model that routes <code>auto</code> combos and sets reasoning levels.
+                That is configured once for all providers, under Routing Combos.
+              </p>
+            </div>
+            <Link href="/dashboard/combos#intelligent-routing" className="shrink-0 text-sm font-medium text-primary hover:underline">
+              Open intelligent routing →
+            </Link>
+          </div>
+        </Card>
+      )}
 
       {bulkActionModal}
 
