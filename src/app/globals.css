@@ -99,7 +99,11 @@
   --color-sidebar: color-mix(in srgb, var(--reddb-color-elevation-raised-surface) 85%, transparent);
 
   --color-border: var(--reddb-color-elevation-base-border);
-  --color-border-subtle: var(--reddb-color-border-subtle);
+  /* The DS ships --reddb-color-border-subtle as a fixed light-scheme value
+     (neutral-200, near white) with no dark counterpart, which drew bright
+     lines around every card in dark mode. Subtle here is the dark base
+     border, softened so it still sits below --color-border. */
+  --color-border-subtle: color-mix(in srgb, var(--reddb-color-elevation-base-border) 70%, transparent);
 
   --color-text: var(--reddb-color-foreground);
   --color-text-main: var(--reddb-color-foreground);
@@ -207,6 +211,18 @@ select {
 }
 
 /* Base */
+/* Tailwind v4 draws a bare `border` in currentColor (white text in dark mode).
+   Default every border to the DS subtle border; color utilities still win. */
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--color-border-subtle, currentColor);
+  }
+}
+
 body {
   background-color: var(--color-bg);
   color: var(--color-text-main);
