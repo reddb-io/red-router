@@ -1,5 +1,14 @@
 # @reddb-io/red-router
 
+## 0.24.5
+
+### Patch Changes
+
+- Fixed two problems in the Edit Connection dialog, found on RedRouter connections:
+  
+  - **Test Connection tests what you typed.** It used to test the saved connection, so a wrong new URL still showed "Valid". An edited endpoint is now tested as typed, against the saved key, and the reason is shown when it fails. Nothing is saved until you press Save.
+  - **Save explains a refusal.** When the server refuses a change (for example an unreachable or malformed RedRouter URL), the dialog stays open and shows the server's error, instead of silently doing nothing.
+
 ## 0.24.4
 
 ### Patch Changes
