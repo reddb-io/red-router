@@ -50,20 +50,15 @@ export default function JcodeToolCard({
 
   useEffect(() => {
     if (apiKeys?.length > 0 && !selectedApiKey) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSelectedApiKey(apiKeys[0].key);
     }
   }, [apiKeys, selectedApiKey]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (initialStatus) setJcodeStatus(initialStatus);
   }, [initialStatus]);
-
-  useEffect(() => {
-    if (isExpanded) {
-      if (!jcodeStatus) checkJcodeStatus();
-      fetchModelAliases();
-    }
-  }, [isExpanded]);
 
   const fetchModelAliases = async () => {
     try {
@@ -81,6 +76,7 @@ export default function JcodeToolCard({
       const provider = jcodeStatus.config?.providers?.["red-router"];
       if (provider) {
         if (provider.default_model) {
+          // eslint-disable-next-line react-hooks/set-state-in-effect
           setSelectedModel(provider.default_model);
         }
         // Try to match API key from env file
@@ -104,6 +100,14 @@ export default function JcodeToolCard({
       setCheckingJcode(false);
     }
   };
+
+  useEffect(() => {
+    if (isExpanded) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      if (!jcodeStatus) checkJcodeStatus();
+      fetchModelAliases();
+    }
+  }, [isExpanded]);
 
   const normalizeLocalhost = (url) => url.replace("://localhost", "://127.0.0.1");
 
