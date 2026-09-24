@@ -5,28 +5,40 @@ import { usePathname } from "next/navigation";
 import { useNotificationStore } from "@/store/notificationStore";
 import Sidebar from "../Sidebar";
 import Header from "../Header";
+import PageHeading from "../PageHeading";
+import Breadcrumbs from "../Breadcrumbs";
+import { getPageInfo, hasOwnHeading } from "@/shared/utils/pageInfo";
+
+// Toasts use the DS feedback roles (surface / foreground / border per status).
+// Literal class strings, so Tailwind's scanner generates every one of them.
+const FEEDBACK = {
+  success: "border-[var(--reddb-color-feedback-success-border)] bg-[var(--reddb-color-feedback-success-surface)] text-[var(--reddb-color-feedback-success-foreground)]",
+  danger: "border-[var(--reddb-color-feedback-danger-border)] bg-[var(--reddb-color-feedback-danger-surface)] text-[var(--reddb-color-feedback-danger-foreground)]",
+  warning: "border-[var(--reddb-color-feedback-warning-border)] bg-[var(--reddb-color-feedback-warning-surface)] text-[var(--reddb-color-feedback-warning-foreground)]",
+  info: "border-[var(--reddb-color-feedback-info-border)] bg-[var(--reddb-color-feedback-info-surface)] text-[var(--reddb-color-feedback-info-foreground)]",
+};
 
 function getToastStyle(type) {
   if (type === "success") {
     return {
-      wrapper: "border-green-500/30 bg-green-500/10 text-green-600 dark:text-green-400",
+      wrapper: FEEDBACK.success,
       icon: "check_circle",
     };
   }
   if (type === "error") {
     return {
-      wrapper: "border-red-500/30 bg-red-500/10 text-red-600 dark:text-red-400",
+      wrapper: FEEDBACK.danger,
       icon: "error",
     };
   }
   if (type === "warning") {
     return {
-      wrapper: "border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400",
+      wrapper: FEEDBACK.warning,
       icon: "warning",
     };
   }
   return {
-    wrapper: "border-blue-500/30 bg-blue-500/10 text-blue-600 dark:text-blue-400",
+    wrapper: FEEDBACK.info,
     icon: "info",
   };
 }
@@ -36,6 +48,22 @@ export default function DashboardLayout({ children }) {
   const pathname = usePathname();
   const notifications = useNotificationStore((state) => state.notifications);
   const removeNotification = useNotificationStore((state) => state.removeNotification);
+  const isChat = pathname === "/dashboard/basic-chat";
+  const pageInfo = getPageInfo(pathname);
+  const crumbs = pageInfo.breadcrumbs?.length ? <Breadcrumbs items={pageInfo.breadcrumbs} /> : null;
+  let heading = null;
+  if (!isChat && hasOwnHeading(pathname)) {
+    heading = crumbs && <div className="mb-[var(--reddb-spatial-gap-lg)]">{crumbs}</div>;
+  } else if (!isChat && pageInfo.title) {
+    heading = (
+      <PageHeading
+        title={pageInfo.title}
+        description={pageInfo.description}
+        context={crumbs}
+        className="mb-[var(--reddb-spatial-inset-lg)]"
+      />
+    );
+  }
 
   return (
     <div className="flex h-screen w-full overflow-hidden bg-bg">
@@ -94,7 +122,10 @@ export default function DashboardLayout({ children }) {
       <main className="flex flex-col flex-1 h-full min-w-0 relative transition-colors duration-300 isolate">
         <Header key={pathname} onMenuClick={() => setSidebarOpen(true)} />
         <div className={`flex-1 overflow-y-auto custom-scrollbar ${pathname === "/dashboard/basic-chat" ? "" : "p-4 sm:p-6 lg:p-8"} ${pathname === "/dashboard/basic-chat" ? "flex flex-col overflow-hidden" : ""}`}>
-          <div className={`${pathname === "/dashboard/basic-chat" ? "flex-1 w-full h-full flex flex-col" : "max-w-7xl mx-auto"}`}>{children}</div>
+          <div className={`${isChat ? "flex-1 w-full h-full flex flex-col" : "max-w-7xl mx-auto"}`}>
+            {heading}
+            {children}
+          </div>
         </div>
       </main>
     </div>

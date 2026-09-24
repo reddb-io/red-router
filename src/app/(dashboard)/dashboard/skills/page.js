@@ -70,13 +70,6 @@ export default function SkillsPage() {
 
   return (
     <div className="skills-workbench">
-      <header className="skills-heading">
-        <div>
-          <h1>Skills</h1>
-          <p>Give an AI client precise instructions for configuring and operating RedRouter.</p>
-        </div>
-        <span>{SKILLS.length} available</span>
-      </header>
 
       <section className="skills-start" aria-labelledby="skills-start-title">
         <div>

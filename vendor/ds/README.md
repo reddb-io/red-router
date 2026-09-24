@@ -14,13 +14,15 @@ Extracted from the bundle (paths inside it):
 - scheme-light.css — packages/theme/dist/scheme-light.css
 - scheme-dark.css — packages/theme/dist/scheme-dark.css
 - favicon.svg — packages/assets/dist/platform/favicon.svg
-- kits/base/{button,card,badge}.variants.ts — kits/base/dist/src/ (the DS
-  appearance contracts: `tailwind-variants` definitions with no Svelte in them)
+- kits/base/{button,card,badge,breadcrumbs}.variants.ts — kits/base/dist/src/
+- kits/app/{page-heading,application-shell}.variants.ts — kits/app/dist/src/composites/
+  (the DS appearance contracts: `tailwind-variants` definitions with no Svelte in them)
 
 The dashboard is plain JavaScript, so `node scripts/sync-ds-variants.mjs`
-strips the TypeScript syntax from `kits/base/*.variants.ts` into
+strips the TypeScript syntax from `kits/{base,app}/*.variants.ts` into
 `src/shared/ds/*.variants.js`. The React primitives in `src/shared/components`
-(Button, Card, Badge) render those contracts, so their appearance comes from
+(Button, Card, Badge, Breadcrumbs, PageHeading, and the Header's shell bar)
+render those contracts, so their appearance comes from
 the DS rather than from local class lists. `tests/unit/ds-variants-sync.test.js`
 fails when a generated file drifts from its vendored source.
 

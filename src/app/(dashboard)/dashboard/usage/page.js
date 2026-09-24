@@ -46,13 +46,6 @@ function UsageContent() {
 
   return (
     <div className="usage-workbench">
-      <header className="usage-heading">
-        <div>
-          <h1>Usage</h1>
-          <p>Inspect traffic, token volume, estimated cost, and individual requests.</p>
-        </div>
-        <span className="usage-context">Router telemetry</span>
-      </header>
 
       <div className="usage-command-bar">
         <SegmentedControl
