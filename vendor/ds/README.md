@@ -10,6 +10,7 @@ Extracted from the bundle (paths inside it):
 - density-compact.css — packages/tokens/dist/density-compact.css
 - theme-base.css — packages/theme/dist/theme-base.css
 - theme-application.css — packages/theme/dist/theme-application.css
+- theme.css — packages/theme/dist/theme.css (Tailwind 4 `@theme` surface: palette, radius, shadow, spacing, type and motion utilities resolve to `--reddb-*` tokens)
 - scheme-light.css — packages/theme/dist/scheme-light.css
 - scheme-dark.css — packages/theme/dist/scheme-dark.css
 - favicon.svg — packages/assets/dist/platform/favicon.svg
@@ -17,7 +18,10 @@ Extracted from the bundle (paths inside it):
 These compiled CSS files are imported by src/app/globals.css. The theme applies
 under `[data-theme="application"]` and the color scheme under
 `[data-color-scheme]`; src/store/themeStore.js and the root layout pre-paint
-script keep both in sync with the Tailwind `.dark` class. A bridge block in
+script keep both in sync with the Tailwind `.dark` class. The density applies
+under `[data-density="compact"]`, set on the root element in src/app/layout.js.
+theme.css is imported before the dashboard's own `@theme inline` block, so the
+dashboard's font and border bridges keep precedence. A bridge block in
 globals.css maps the dashboard's existing `--color-*` variables onto the
 vendored `--reddb-*` tokens, so existing Tailwind utilities pick up the DS
 palette without touching the vendor files. The release ships Svelte Kit source,

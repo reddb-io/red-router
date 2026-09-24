@@ -19,7 +19,7 @@ export default function SegmentedControl({
     <div
       role="group"
       className={cn(
-        "segmented-control inline-flex items-center p-1 rounded-[10px] overflow-x-auto",
+        "segmented-control inline-flex items-center p-1 rounded-md overflow-x-auto",
         "bg-surface-2",
         className
       )}
@@ -31,7 +31,7 @@ export default function SegmentedControl({
           onClick={() => onChange(option.value)}
           aria-pressed={value === option.value}
           className={cn(
-            "segmented-control__button shrink-0 px-4 rounded-[8px] font-medium",
+            "segmented-control__button shrink-0 px-4 rounded-md font-medium",
             sizes[size],
             value === option.value
               ? "bg-surface text-text-main shadow-sm"
