@@ -236,7 +236,7 @@ export default function BulkImportGrokCliModal({ isOpen, onClose, onSuccess }) {
         </div>
 
         {fileCountInfo && (
-          <div className="flex items-center gap-1.5 text-xs text-[var(--reddb-color-feedback-success-foreground)] font-medium bg-[var(--reddb-color-feedback-success-surface)] border border-[var(--reddb-color-feedback-success-border)] px-2.5 py-1.5 rounded">
+          <div className="flex items-center gap-1.5 text-xs text-feedback-success-foreground font-medium bg-feedback-success-surface border border-feedback-success-border px-2.5 py-1.5 rounded">
             <span className="material-symbols-outlined text-sm">check_circle</span>
             <span>
               {translate("Loaded")} {fileCountInfo.accountsCount} {translate("account(s) from")}{" "}
@@ -246,18 +246,18 @@ export default function BulkImportGrokCliModal({ isOpen, onClose, onSuccess }) {
         )}
 
         {parseError && (
-          <p className="text-xs text-[var(--reddb-color-feedback-danger-foreground)] break-words">{parseError}</p>
+          <p className="text-xs text-feedback-danger-foreground break-words">{parseError}</p>
         )}
 
         {result && result.failed > 0 && (
           <div className="flex flex-col gap-2">
-            <div className="text-sm font-medium text-[var(--reddb-color-feedback-warning-foreground)]">
+            <div className="text-sm font-medium text-feedback-warning-foreground">
               ✗ {result.failed} {translate("failed")}
             </div>
             {failedItems.length > 0 && (
               <ul className="rounded border border-accent/20 bg-sidebar/50 p-2 text-xs font-mono max-h-40 overflow-y-auto">
                 {failedItems.map((item) => (
-                  <li key={item.index} className="text-[var(--reddb-color-feedback-danger-foreground)]">
+                  <li key={item.index} className="text-feedback-danger-foreground">
                     [{item.index}] {item.error}
                   </li>
                 ))}

@@ -43,7 +43,7 @@ function ModelItem({ index, model, isFirst, isLast, onEdit, onMoveUp, onMoveDown
           <span className="material-symbols-outlined text-[12px]">arrow_downward</span>
         </button>
       </div>
-      <button onClick={onRemove} className="p-0.5 hover:bg-[var(--reddb-color-feedback-danger-surface)] rounded text-text-muted hover:text-[var(--reddb-color-feedback-danger-foreground)] transition-all" title="Remove">
+      <button onClick={onRemove} className="p-0.5 hover:bg-feedback-danger-surface rounded text-text-muted hover:text-feedback-danger-foreground transition-all" title="Remove">
         <span className="material-symbols-outlined text-[12px]">close</span>
       </button>
     </div>
@@ -123,7 +123,7 @@ export default function ComboFormModal({ isOpen, combo, onClose, onSave, activeP
                   <input value={name} onChange={handleNameChange} placeholder="my-combo"
                     className="flex-1 min-w-0 rounded-r border border-muted bg-white px-2 py-1.5 font-mono text-sm outline-none focus:border-primary" />
                 </div>
-                {nameError && <p className="text-[11px] text-[var(--reddb-color-feedback-danger-foreground)] mt-0.5">{nameError}</p>}
+                {nameError && <p className="text-[11px] text-feedback-danger-foreground mt-0.5">{nameError}</p>}
               </>
             ) : (
               <Input label="Combo Name" value={name} onChange={handleNameChange} placeholder="my-combo" error={nameError} />

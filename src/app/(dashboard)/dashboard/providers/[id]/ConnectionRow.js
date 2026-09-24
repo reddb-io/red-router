@@ -190,14 +190,14 @@ export default function ConnectionRow({ connection, proxyPools, isOAuth, isFirst
             )}
             {isCooldown && connection.isActive !== false && <CooldownTimer until={modelLockUntil} />}
             {connection.lastError && connection.isActive !== false && (
-              <span className="max-w-full truncate text-xs text-[var(--reddb-color-feedback-danger-foreground)] sm:max-w-[300px]" title={connection.lastError}>
+              <span className="max-w-full truncate text-xs text-feedback-danger-foreground sm:max-w-[300px]" title={connection.lastError}>
                 {connection.lastError}
               </span>
             )}
             <span className="text-xs text-text-muted">#{connection.priority}</span>
             {connection.health && (
               <span
-                className={`text-xs ${connection.health.openModels ? "text-[var(--reddb-color-feedback-warning-foreground)]" : "text-text-muted"}`}
+                className={`text-xs ${connection.health.openModels ? "text-feedback-warning-foreground" : "text-text-muted"}`}
                 title={`${connection.health.samples} requests measured since the server started${connection.health.openModels ? ` · failing on ${connection.health.openModels} model(s)` : ""}`}
               >
                 {[
@@ -285,7 +285,7 @@ export default function ConnectionRow({ connection, proxyPools, isOAuth, isFirst
             <span className="material-symbols-outlined text-[18px]">edit</span>
             <span className="text-[10px] leading-tight">Edit</span>
           </button>
-          <button onClick={onDelete} className="flex flex-col items-center rounded px-2 py-1 text-[var(--reddb-color-feedback-danger-foreground)] hover:bg-[var(--reddb-color-feedback-danger-surface)]">
+          <button onClick={onDelete} className="flex flex-col items-center rounded px-2 py-1 text-feedback-danger-foreground hover:bg-feedback-danger-surface">
             <span className="material-symbols-outlined text-[18px]">delete</span>
             <span className="text-[10px] leading-tight">Delete</span>
           </button>

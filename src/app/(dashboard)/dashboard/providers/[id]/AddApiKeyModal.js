@@ -220,7 +220,7 @@ export default function AddApiKeyModal({ isOpen, provider, providerName, isCompa
               onChange={(e) => setBulkText(e.target.value)}
             />
             {bulkResult && (
-              <div className={`text-sm font-medium ${bulkResult.failed > 0 ? "text-[var(--reddb-color-feedback-warning-foreground)]" : "text-[var(--reddb-color-feedback-success-foreground)]"}`}>
+              <div className={`text-sm font-medium ${bulkResult.failed > 0 ? "text-feedback-warning-foreground" : "text-feedback-success-foreground"}`}>
                 ✓ {bulkResult.success} added{bulkResult.failed > 0 ? `, ✗ ${bulkResult.failed} failed` : ""}
               </div>
             )}
@@ -332,7 +332,7 @@ export default function AddApiKeyModal({ isOpen, provider, providerName, isCompa
           </Badge>
         )}
         {error && (
-          <p className="text-xs text-[var(--reddb-color-feedback-danger-foreground)] break-words">{error}</p>
+          <p className="text-xs text-feedback-danger-foreground break-words">{error}</p>
         )}
         {requiresDefaultModel && (
           <p className="text-xs text-text-muted">

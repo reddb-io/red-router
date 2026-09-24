@@ -126,7 +126,7 @@ export default function McpMarketplaceModal({ isOpen, onClose, onAdd, addedNames
         </div>
 
         {error && (
-          <div className="px-2 py-1.5 rounded text-xs bg-[var(--reddb-color-feedback-danger-surface)] text-[var(--reddb-color-feedback-danger-foreground)]">{error}</div>
+          <div className="px-2 py-1.5 rounded text-xs bg-feedback-danger-surface text-feedback-danger-foreground">{error}</div>
         )}
 
         {loading && (
@@ -162,9 +162,9 @@ export default function McpMarketplaceModal({ isOpen, onClose, onAdd, addedNames
                       <div className="flex items-center gap-1.5 flex-wrap">
                         <span className="font-medium text-xs">{s.title}</span>
                         {s.oauth ? (
-                          <span className="px-1 py-0.5 text-[9px] rounded bg-[var(--reddb-color-feedback-warning-surface)] text-[var(--reddb-color-feedback-warning-foreground)]">OAuth</span>
+                          <span className="px-1 py-0.5 text-[9px] rounded bg-feedback-warning-surface text-feedback-warning-foreground">OAuth</span>
                         ) : (
-                          <span className="px-1 py-0.5 text-[9px] rounded bg-[var(--reddb-color-feedback-success-surface)] text-[var(--reddb-color-feedback-success-foreground)]">Authless</span>
+                          <span className="px-1 py-0.5 text-[9px] rounded bg-feedback-success-surface text-feedback-success-foreground">Authless</span>
                         )}
                         {s.toolCount > 0 && (
                           <span className="text-[10px] text-text-muted">{s.toolCount} tools</span>
@@ -179,7 +179,7 @@ export default function McpMarketplaceModal({ isOpen, onClose, onAdd, addedNames
                       disabled={added}
                       className={`shrink-0 px-2 py-1 rounded text-[10px] font-medium transition-colors ${
                         added
-                          ? "bg-[var(--reddb-color-feedback-success-surface)] text-[var(--reddb-color-feedback-success-foreground)] cursor-default"
+                          ? "bg-feedback-success-surface text-feedback-success-foreground cursor-default"
                           : expanded
                           ? "bg-surface border border-border text-text-muted hover:bg-muted/50"
                           : "bg-primary/10 border border-primary/40 text-primary hover:bg-primary/20"
@@ -197,12 +197,12 @@ export default function McpMarketplaceModal({ isOpen, onClose, onAdd, addedNames
                         </div>
                       )}
                       {!isLoadingTools && cache?.requiresAuth && (
-                        <p className="text-[10px] text-[var(--reddb-color-feedback-warning-foreground)] bg-[var(--reddb-color-feedback-warning-surface)] px-2 py-1 rounded">
+                        <p className="text-[10px] text-feedback-warning-foreground bg-feedback-warning-surface px-2 py-1 rounded">
                           🔐 OAuth required. Add now and authenticate after Apply; tool list will be discovered after first connect.
                         </p>
                       )}
                       {!isLoadingTools && cache?.error && !cache?.requiresAuth && (
-                        <p className="text-[10px] text-[var(--reddb-color-feedback-danger-foreground)] bg-[var(--reddb-color-feedback-danger-surface)] px-2 py-1 rounded">Probe failed: {cache.error}</p>
+                        <p className="text-[10px] text-feedback-danger-foreground bg-feedback-danger-surface px-2 py-1 rounded">Probe failed: {cache.error}</p>
                       )}
                       {!isLoadingTools && toolKeys.length === 0 && !cache?.requiresAuth && !cache?.error && (
                         <p className="text-[10px] text-text-muted">No tools advertised by server.</p>

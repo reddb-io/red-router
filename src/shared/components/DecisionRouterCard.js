@@ -184,7 +184,7 @@ export default function DecisionRouterCard({ provider }) {
                 <button
                   type="button"
                   onClick={() => removeModel(value)}
-                  className="leading-none text-text-muted hover:text-[var(--reddb-color-feedback-danger-foreground)]"
+                  className="leading-none text-text-muted hover:text-feedback-danger-foreground"
                   aria-label={`${translate("Remove")} ${value}`}
                 >
                   <span className="material-symbols-outlined text-[12px]">close</span>
@@ -298,12 +298,12 @@ export default function DecisionRouterCard({ provider }) {
                   <span className="rounded bg-muted/50 px-1.5 py-0.5">{gateway?.name || gatewayId}</span>
                   <span className="text-text-muted">{translate("borrows its own chat connection")}</span>
                   {conn ? (
-                    <span className={connBroken ? "text-[var(--reddb-color-feedback-warning-foreground)]" : "text-text-muted"}>
+                    <span className={connBroken ? "text-feedback-warning-foreground" : "text-text-muted"}>
                       · {conn.name || translate("connection")}
                       {connBroken ? translate(" (marked unavailable by the last health check)") : ""}
                     </span>
                   ) : (
-                    <span className="text-[var(--reddb-color-feedback-warning-foreground)]">
+                    <span className="text-feedback-warning-foreground">
                       · {translate("no connection yet, so the decision model cannot be asked")}
                     </span>
                   )}

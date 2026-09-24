@@ -994,7 +994,7 @@ export default function ProviderLimits() {
             type="button"
             onClick={() => setExpiringFirst((prev) => !prev)}
             aria-pressed={expiringFirst}
-            className={`flex h-8 shrink-0 items-center gap-1 rounded-lg border px-2 text-xs transition-colors ${expiringFirst ? "border-[var(--reddb-color-feedback-warning-border)] bg-[var(--reddb-color-feedback-warning-surface)] text-[var(--reddb-color-feedback-warning-foreground)]" : "border-muted text-text-primary hover:bg-muted/50"}`}
+            className={`flex h-8 shrink-0 items-center gap-1 rounded-lg border px-2 text-xs transition-colors ${expiringFirst ? "border-feedback-warning-border bg-feedback-warning-surface text-feedback-warning-foreground" : "border-muted text-text-primary hover:bg-muted/50"}`}
             title="Sort accounts by earliest quota reset time"
           >
             <span className="material-symbols-outlined text-[14px]">
@@ -1008,7 +1008,7 @@ export default function ProviderLimits() {
             type="button"
             onClick={handleDisableDepleted}
             disabled={bulkToggling}
-            className="flex h-8 shrink-0 items-center gap-1 rounded-lg border border-[var(--reddb-color-feedback-danger-border)] px-2 text-xs text-[var(--reddb-color-feedback-danger-foreground)] transition-colors hover:bg-[var(--reddb-color-feedback-danger-surface)] disabled:opacity-50"
+            className="flex h-8 shrink-0 items-center gap-1 rounded-lg border border-feedback-danger-border px-2 text-xs text-feedback-danger-foreground transition-colors hover:bg-feedback-danger-surface disabled:opacity-50"
             title="Disable connections with depleted quota on the current page"
           >
             <span className="material-symbols-outlined text-[14px]">block</span>
@@ -1020,7 +1020,7 @@ export default function ProviderLimits() {
             type="button"
             onClick={handleEnableAvailable}
             disabled={bulkToggling}
-            className="flex h-8 shrink-0 items-center gap-1 rounded-lg border border-[var(--reddb-color-feedback-success-border)] px-2 text-xs text-[var(--reddb-color-feedback-success-foreground)] transition-colors hover:bg-[var(--reddb-color-feedback-success-surface)] disabled:opacity-50"
+            className="flex h-8 shrink-0 items-center gap-1 rounded-lg border border-feedback-success-border px-2 text-xs text-feedback-success-foreground transition-colors hover:bg-feedback-success-surface disabled:opacity-50"
             title="Enable connections that still have quota on the current page"
           >
             <span className="material-symbols-outlined text-[14px]">
@@ -1072,7 +1072,7 @@ export default function ProviderLimits() {
 
       {/* Provider cards: 2 columns, compact */}
       {expiringFirst && (
-        <div className="rounded-xl border border-[var(--reddb-color-feedback-warning-border)] bg-[var(--reddb-color-feedback-warning-surface)] px-3 py-2 text-xs text-[var(--reddb-color-feedback-warning-foreground)]">
+        <div className="rounded-xl border border-feedback-warning-border bg-feedback-warning-surface px-3 py-2 text-xs text-feedback-warning-foreground">
           Expiring-first currently reorders accounts inside the current page.
           Cross-page ordering still follows backend pagination.
         </div>
@@ -1134,7 +1134,7 @@ export default function ProviderLimits() {
                             {kiroMethodLabel(conn)}
                           </span>
                           {kiroRegion(conn) && (
-                            <span className="rounded-full bg-[var(--reddb-color-feedback-info-surface)] px-2 py-0.5 text-[10px] font-semibold text-[var(--reddb-color-feedback-info-foreground)]">
+                            <span className="rounded-full bg-feedback-info-surface px-2 py-0.5 text-[10px] font-semibold text-feedback-info-foreground">
                               {kiroRegion(conn)}
                             </span>
                           )}
@@ -1143,9 +1143,9 @@ export default function ProviderLimits() {
                               isInactive
                                 ? "bg-surface-2 text-text-muted"
                                 : conn.testStatus === "active" || conn.testStatus === "success"
-                                  ? "bg-[var(--reddb-color-feedback-success-surface)] text-[var(--reddb-color-feedback-success-foreground)]"
+                                  ? "bg-feedback-success-surface text-feedback-success-foreground"
                                   : conn.testStatus === "error" || conn.testStatus === "expired" || conn.testStatus === "unavailable"
-                                    ? "bg-[var(--reddb-color-feedback-danger-surface)] text-[var(--reddb-color-feedback-danger-foreground)]"
+                                    ? "bg-feedback-danger-surface text-feedback-danger-foreground"
                                     : "bg-surface-2 text-text-muted"
                             }`}
                           >
@@ -1264,7 +1264,7 @@ export default function ProviderLimits() {
                         onClick={() => handleDeleteConnection(conn.id)}
                         disabled={rowBusy}
                         aria-label="Delete connection"
-                        className="flex h-8 w-8 items-center justify-center rounded-lg hover:bg-[var(--reddb-color-feedback-danger-surface)] text-[var(--reddb-color-feedback-danger-foreground)] transition-colors disabled:opacity-50"
+                        className="flex h-8 w-8 items-center justify-center rounded-lg hover:bg-feedback-danger-surface text-feedback-danger-foreground transition-colors disabled:opacity-50"
                       >
                         <span
                           className={`material-symbols-outlined text-[18px] ${deletingId === conn.id ? "animate-pulse" : ""}`}
@@ -1303,7 +1303,7 @@ export default function ProviderLimits() {
                   </div>
                 ) : error ? (
                   <div className="text-center py-5">
-                    <span className="material-symbols-outlined text-[28px] text-[var(--reddb-color-feedback-danger-foreground)]">
+                    <span className="material-symbols-outlined text-[28px] text-feedback-danger-foreground">
                       error
                     </span>
                     <p className="mt-1.5 text-xs text-text-muted">{error}</p>
@@ -1524,7 +1524,7 @@ export default function ProviderLimits() {
                   Loading reset credits...
                 </div>
               ) : resetCreditsState.error ? (
-                <div className="rounded-xl border border-[var(--reddb-color-feedback-danger-border)] bg-[var(--reddb-color-feedback-danger-surface)] px-3 py-2 text-sm text-[var(--reddb-color-feedback-danger-foreground)]">
+                <div className="rounded-xl border border-feedback-danger-border bg-feedback-danger-surface px-3 py-2 text-sm text-feedback-danger-foreground">
                   {resetCreditsState.error}
                 </div>
               ) : resetCreditsState.data?.credits?.length ? (

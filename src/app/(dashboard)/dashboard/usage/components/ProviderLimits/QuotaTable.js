@@ -45,26 +45,26 @@ function formatResetTimeDisplay(resetTime) {
 function getColorClasses(remainingPercentage) {
   if (remainingPercentage > 70) {
     return {
-      text: "text-[var(--reddb-color-feedback-success-foreground)]",
+      text: "text-feedback-success-foreground",
       bg: "bg-green-500",
-      bgLight: "bg-[var(--reddb-color-feedback-success-surface)]",
+      bgLight: "bg-feedback-success-surface",
       emoji: "🟢",
     };
   }
 
   if (remainingPercentage >= 30) {
     return {
-      text: "text-[var(--reddb-color-feedback-warning-foreground)]",
+      text: "text-feedback-warning-foreground",
       bg: "bg-yellow-500",
-      bgLight: "bg-[var(--reddb-color-feedback-warning-surface)]",
+      bgLight: "bg-feedback-warning-surface",
       emoji: "🟡",
     };
   }
 
   return {
-    text: "text-[var(--reddb-color-feedback-danger-foreground)]",
+    text: "text-feedback-danger-foreground",
     bg: "bg-red-500",
-    bgLight: "bg-[var(--reddb-color-feedback-danger-surface)]",
+    bgLight: "bg-feedback-danger-surface",
     emoji: "🔴",
   };
 }
@@ -155,7 +155,7 @@ export default function QuotaTable({
           const isUnlimited = quota.unlimited === true;
           const isCreditBalance = quota.isCreditBalance === true;
           const colors = isCreditBalance
-            ? { text: "text-[var(--reddb-color-feedback-info-foreground)]", bg: "bg-blue-500", bgLight: "bg-[var(--reddb-color-feedback-info-surface)]", emoji: "💰" }
+            ? { text: "text-feedback-info-foreground", bg: "bg-blue-500", bgLight: "bg-feedback-info-surface", emoji: "💰" }
             : getColorClasses(quota.remaining);
           const countdown = formatResetTime(quota.resetAt);
           const resetDisplay = formatResetTimeDisplay(quota.resetAt);
@@ -208,7 +208,7 @@ export default function QuotaTable({
                       ? `Credit: ${quota.total.toFixed(2)} ${quota.currency || ""}`
                       : `${quota.used.toLocaleString()} / ${quota.total > 0 ? quota.total.toLocaleString() : "∞"}`}
                   </span>
-                  <span className={`font-medium ${isUnlimited ? "text-[var(--reddb-color-feedback-success-foreground)]" : isCreditBalance ? "text-[var(--reddb-color-feedback-info-foreground)]" : colors.text} shrink-0`}>
+                  <span className={`font-medium ${isUnlimited ? "text-feedback-success-foreground" : isCreditBalance ? "text-feedback-info-foreground" : colors.text} shrink-0`}>
                     {isUnlimited ? "Unlimited" : isCreditBalance ? "" : `${quota.remaining}%`}
                   </span>
                 </div>

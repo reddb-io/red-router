@@ -131,7 +131,7 @@ export default function MediaProviderDetailPage() {
 
       {/* Kind-specific notice (e.g. codex/image requires Plus) */}
       {!isCustom && provider.kindNotice?.[kind] && (
-        <div className="flex items-start gap-3 px-4 py-3 rounded-lg bg-[var(--reddb-color-feedback-warning-surface)] border border-[var(--reddb-color-feedback-warning-border)] text-[var(--reddb-color-feedback-warning-foreground)]">
+        <div className="flex items-start gap-3 px-4 py-3 rounded-lg bg-feedback-warning-surface border border-feedback-warning-border text-feedback-warning-foreground">
           <span className="material-symbols-outlined text-[20px] mt-0.5">warning</span>
           <p className="text-sm">{provider.kindNotice[kind]}</p>
         </div>
@@ -139,9 +139,9 @@ export default function MediaProviderDetailPage() {
 
       {/* Provider notice text (only when there's actual text content) */}
       {!isCustom && provider.notice?.text && !provider.deprecated && (
-        <div className="flex flex-col gap-2 rounded-lg border border-[var(--reddb-color-feedback-info-border)] bg-[var(--reddb-color-feedback-info-surface)] px-3 py-2 sm:flex-row sm:items-center">
-          <span className="material-symbols-outlined text-[16px] text-[var(--reddb-color-feedback-info-foreground)] shrink-0">info</span>
-          <p className="min-w-0 flex-1 text-xs leading-relaxed text-[var(--reddb-color-feedback-info-foreground)]">{provider.notice.text}</p>
+        <div className="flex flex-col gap-2 rounded-lg border border-feedback-info-border bg-feedback-info-surface px-3 py-2 sm:flex-row sm:items-center">
+          <span className="material-symbols-outlined text-[16px] text-feedback-info-foreground shrink-0">info</span>
+          <p className="min-w-0 flex-1 text-xs leading-relaxed text-feedback-info-foreground">{provider.notice.text}</p>
           {provider.notice.apiKeyUrl && (
             <a
               href={provider.notice.apiKeyUrl}

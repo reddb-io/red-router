@@ -311,7 +311,7 @@ export default function KiroAuthModal({ isOpen, onMethodSelect, onClose }) {
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium mb-2">
-                IDC Start URL <span className="text-[var(--reddb-color-feedback-danger-foreground)]">*</span>
+                IDC Start URL <span className="text-feedback-danger-foreground">*</span>
               </label>
               <Input
                 value={idcStartUrl}
@@ -340,7 +340,7 @@ export default function KiroAuthModal({ isOpen, onMethodSelect, onClose }) {
             </div>
 
             {error && (
-              <p className="text-sm text-[var(--reddb-color-feedback-danger-foreground)]">{error}</p>
+              <p className="text-sm text-feedback-danger-foreground">{error}</p>
             )}
 
             <div className="flex gap-2">
@@ -357,10 +357,10 @@ export default function KiroAuthModal({ isOpen, onMethodSelect, onClose }) {
         {/* API Key */}
         {selectedMethod === "api-key" && (
           <div className="space-y-4">
-            <div className="bg-[var(--reddb-color-feedback-info-surface)] p-3 rounded-lg border border-[var(--reddb-color-feedback-info-border)]">
+            <div className="bg-feedback-info-surface p-3 rounded-lg border border-feedback-info-border">
               <div className="flex gap-2">
-                <span className="material-symbols-outlined text-[var(--reddb-color-feedback-info-foreground)]">info</span>
-                <p className="text-sm text-[var(--reddb-color-feedback-info-foreground)]">
+                <span className="material-symbols-outlined text-feedback-info-foreground">info</span>
+                <p className="text-sm text-feedback-info-foreground">
                   Paste a long-lived Kiro/CodeWhisperer API key. It is validated
                   against AWS and stored directly as a bearer credential (no refresh).
                 </p>
@@ -369,7 +369,7 @@ export default function KiroAuthModal({ isOpen, onMethodSelect, onClose }) {
 
             <div>
               <label className="block text-sm font-medium mb-2">
-                API Key <span className="text-[var(--reddb-color-feedback-danger-foreground)]">*</span>
+                API Key <span className="text-feedback-danger-foreground">*</span>
               </label>
               <Input
                 value={apiKey}
@@ -395,8 +395,8 @@ export default function KiroAuthModal({ isOpen, onMethodSelect, onClose }) {
             </div>
 
             {error && (
-              <div className="bg-[var(--reddb-color-feedback-danger-surface)] p-3 rounded-lg border border-[var(--reddb-color-feedback-danger-border)]">
-                <p className="text-sm text-[var(--reddb-color-feedback-danger-foreground)]">{error}</p>
+              <div className="bg-feedback-danger-surface p-3 rounded-lg border border-feedback-danger-border">
+                <p className="text-sm text-feedback-danger-foreground">{error}</p>
               </div>
             )}
 
@@ -414,14 +414,14 @@ export default function KiroAuthModal({ isOpen, onMethodSelect, onClose }) {
         {/* Social Login Info (Google) */}
         {selectedMethod === "social-google" && (
           <div className="space-y-4">
-            <div className="bg-[var(--reddb-color-feedback-warning-surface)] p-4 rounded-lg border border-[var(--reddb-color-feedback-warning-border)]">
+            <div className="bg-feedback-warning-surface p-4 rounded-lg border border-feedback-warning-border">
               <div className="flex gap-2">
-                <span className="material-symbols-outlined text-[var(--reddb-color-feedback-warning-foreground)]">info</span>
+                <span className="material-symbols-outlined text-feedback-warning-foreground">info</span>
                 <div className="flex-1 text-sm">
-                  <p className="font-medium text-[var(--reddb-color-feedback-warning-foreground)] mb-1">
+                  <p className="font-medium text-feedback-warning-foreground mb-1">
                     Manual Callback Required
                   </p>
-                  <p className="text-[var(--reddb-color-feedback-warning-foreground)]">
+                  <p className="text-feedback-warning-foreground">
                     After login, you&apos;ll need to copy the callback URL from your browser and paste it back here.
                   </p>
                 </div>
@@ -442,14 +442,14 @@ export default function KiroAuthModal({ isOpen, onMethodSelect, onClose }) {
         {/* Social Login Info (GitHub) */}
         {selectedMethod === "social-github" && (
           <div className="space-y-4">
-            <div className="bg-[var(--reddb-color-feedback-warning-surface)] p-4 rounded-lg border border-[var(--reddb-color-feedback-warning-border)]">
+            <div className="bg-feedback-warning-surface p-4 rounded-lg border border-feedback-warning-border">
               <div className="flex gap-2">
-                <span className="material-symbols-outlined text-[var(--reddb-color-feedback-warning-foreground)]">info</span>
+                <span className="material-symbols-outlined text-feedback-warning-foreground">info</span>
                 <div className="flex-1 text-sm">
-                  <p className="font-medium text-[var(--reddb-color-feedback-warning-foreground)] mb-1">
+                  <p className="font-medium text-feedback-warning-foreground mb-1">
                     Manual Callback Required
                   </p>
-                  <p className="text-[var(--reddb-color-feedback-warning-foreground)]">
+                  <p className="text-feedback-warning-foreground">
                     After login, you&apos;ll need to copy the callback URL from your browser and paste it back here.
                   </p>
                 </div>
@@ -490,10 +490,10 @@ export default function KiroAuthModal({ isOpen, onMethodSelect, onClose }) {
               <>
                 {/* Success message if auto-detected */}
                 {autoDetected && (
-                  <div className="bg-[var(--reddb-color-feedback-success-surface)] p-3 rounded-lg border border-[var(--reddb-color-feedback-success-border)]">
+                  <div className="bg-feedback-success-surface p-3 rounded-lg border border-feedback-success-border">
                     <div className="flex gap-2">
-                      <span className="material-symbols-outlined text-[var(--reddb-color-feedback-success-foreground)]">check_circle</span>
-                      <p className="text-sm text-[var(--reddb-color-feedback-success-foreground)]">
+                      <span className="material-symbols-outlined text-feedback-success-foreground">check_circle</span>
+                      <p className="text-sm text-feedback-success-foreground">
                         Token auto-detected from Kiro IDE successfully!
                       </p>
                     </div>
@@ -502,10 +502,10 @@ export default function KiroAuthModal({ isOpen, onMethodSelect, onClose }) {
 
                 {/* Info message if not auto-detected */}
                 {!autoDetected && !error && (
-                  <div className="bg-[var(--reddb-color-feedback-info-surface)] p-3 rounded-lg border border-[var(--reddb-color-feedback-info-border)]">
+                  <div className="bg-feedback-info-surface p-3 rounded-lg border border-feedback-info-border">
                     <div className="flex gap-2">
-                      <span className="material-symbols-outlined text-[var(--reddb-color-feedback-info-foreground)]">info</span>
-                      <p className="text-sm text-[var(--reddb-color-feedback-info-foreground)]">
+                      <span className="material-symbols-outlined text-feedback-info-foreground">info</span>
+                      <p className="text-sm text-feedback-info-foreground">
                         Kiro IDE not detected. Please paste your refresh token manually.
                       </p>
                     </div>
@@ -514,7 +514,7 @@ export default function KiroAuthModal({ isOpen, onMethodSelect, onClose }) {
 
                 <div>
                   <label className="block text-sm font-medium mb-2">
-                    Refresh Token <span className="text-[var(--reddb-color-feedback-danger-foreground)]">*</span>
+                    Refresh Token <span className="text-feedback-danger-foreground">*</span>
                   </label>
                   <Input
                     value={refreshToken}
@@ -525,8 +525,8 @@ export default function KiroAuthModal({ isOpen, onMethodSelect, onClose }) {
                 </div>
 
                 {error && (
-                  <div className="bg-[var(--reddb-color-feedback-danger-surface)] p-3 rounded-lg border border-[var(--reddb-color-feedback-danger-border)]">
-                    <p className="text-sm text-[var(--reddb-color-feedback-danger-foreground)]">{error}</p>
+                  <div className="bg-feedback-danger-surface p-3 rounded-lg border border-feedback-danger-border">
+                    <p className="text-sm text-feedback-danger-foreground">{error}</p>
                   </div>
                 )}
 
@@ -546,10 +546,10 @@ export default function KiroAuthModal({ isOpen, onMethodSelect, onClose }) {
         {/* Import CLIProxyAPI JSON */}
         {selectedMethod === "import-cli-proxy" && (
           <div className="space-y-4">
-            <div className="bg-[var(--reddb-color-feedback-info-surface)] p-3 rounded-lg border border-[var(--reddb-color-feedback-info-border)]">
+            <div className="bg-feedback-info-surface p-3 rounded-lg border border-feedback-info-border">
               <div className="flex gap-2">
-                <span className="material-symbols-outlined text-[var(--reddb-color-feedback-info-foreground)]">info</span>
-                <p className="text-sm text-[var(--reddb-color-feedback-info-foreground)]">
+                <span className="material-symbols-outlined text-feedback-info-foreground">info</span>
+                <p className="text-sm text-feedback-info-foreground">
                   Paste the Kiro CLIProxyAPI auth JSON containing auth_method=external_idp. Only Microsoft login token endpoints are accepted.
                 </p>
               </div>
@@ -557,7 +557,7 @@ export default function KiroAuthModal({ isOpen, onMethodSelect, onClose }) {
 
             <div>
               <label className="block text-sm font-medium mb-2">
-                CLIProxyAPI Auth JSON <span className="text-[var(--reddb-color-feedback-danger-foreground)]">*</span>
+                CLIProxyAPI Auth JSON <span className="text-feedback-danger-foreground">*</span>
               </label>
               <textarea
                 value={cliProxyJson}
@@ -568,8 +568,8 @@ export default function KiroAuthModal({ isOpen, onMethodSelect, onClose }) {
             </div>
 
             {error && (
-              <div className="bg-[var(--reddb-color-feedback-danger-surface)] p-3 rounded-lg border border-[var(--reddb-color-feedback-danger-border)]">
-                <p className="text-sm text-[var(--reddb-color-feedback-danger-foreground)]">{error}</p>
+              <div className="bg-feedback-danger-surface p-3 rounded-lg border border-feedback-danger-border">
+                <p className="text-sm text-feedback-danger-foreground">{error}</p>
               </div>
             )}
 

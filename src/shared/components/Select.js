@@ -22,7 +22,7 @@ export default function Select({
       {label && (
         <label className="text-sm font-medium text-text-main">
           {label}
-          {required && <span className="text-[var(--reddb-color-feedback-danger-foreground)] ml-1">*</span>}
+          {required && <span className="text-feedback-danger-foreground ml-1">*</span>}
         </label>
       )}
       <div className="relative">
@@ -55,7 +55,7 @@ export default function Select({
         </div>
       </div>
       {error && (
-        <p className="text-xs text-[var(--reddb-color-feedback-danger-foreground)] flex items-center gap-1">
+        <p className="text-xs text-feedback-danger-foreground flex items-center gap-1">
           <span className="material-symbols-outlined text-[14px]">error</span>
           {error}
         </p>

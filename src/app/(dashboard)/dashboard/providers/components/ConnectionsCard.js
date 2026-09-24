@@ -24,7 +24,7 @@ function CooldownTimer({ until }) {
   }, [until]);
 
   if (!remaining) return null;
-  return <span className="text-xs text-[var(--reddb-color-feedback-warning-foreground)] font-mono">⏱ {remaining}</span>;
+  return <span className="text-xs text-feedback-warning-foreground font-mono">⏱ {remaining}</span>;
 }
 
 CooldownTimer.propTypes = { until: PropTypes.string.isRequired };
@@ -120,7 +120,7 @@ function ConnectionRow({ connection, proxyPools, isOAuth, isFirst, isLast, onMov
             {hasAnyProxy && <Badge variant={proxyBadgeVariant} size="sm">Proxy</Badge>}
             {isCooldown && connection.isActive !== false && <CooldownTimer until={modelLockUntil} />}
             {connection.lastError && connection.isActive !== false && (
-              <span className="text-xs text-[var(--reddb-color-feedback-danger-foreground)] truncate max-w-[300px]" title={connection.lastError}>{connection.lastError}</span>
+              <span className="text-xs text-feedback-danger-foreground truncate max-w-[300px]" title={connection.lastError}>{connection.lastError}</span>
             )}
             <span className="text-xs text-text-muted">#{connection.priority}</span>
           </div>
@@ -159,7 +159,7 @@ function ConnectionRow({ connection, proxyPools, isOAuth, isFirst, isLast, onMov
             <span className="material-symbols-outlined text-[18px]">edit</span>
             <span className="text-[10px] leading-tight">Edit</span>
           </button>
-          <button onClick={onDelete} className="flex flex-col items-center px-2 py-1 rounded hover:bg-[var(--reddb-color-feedback-danger-surface)] text-[var(--reddb-color-feedback-danger-foreground)]">
+          <button onClick={onDelete} className="flex flex-col items-center px-2 py-1 rounded hover:bg-feedback-danger-surface text-feedback-danger-foreground">
             <span className="material-symbols-outlined text-[18px]">delete</span>
             <span className="text-[10px] leading-tight">Delete</span>
           </button>

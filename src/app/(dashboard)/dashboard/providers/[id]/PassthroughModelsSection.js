@@ -7,9 +7,9 @@ import { getProviderCustomModelRows } from "@/shared/utils/providerCustomModels"
 
 function PassthroughModelRow({ modelId, fullModel, copied, onCopy, onDeleteAlias, onTest, testStatus, isTesting }) {
   const borderColor = testStatus === "ok"
-    ? "border-[var(--reddb-color-feedback-success-border)]"
+    ? "border-feedback-success-border"
     : testStatus === "error"
-    ? "border-[var(--reddb-color-feedback-danger-border)]"
+    ? "border-feedback-danger-border"
     : "border-border";
 
   const iconColor = testStatus === "ok"
@@ -67,7 +67,7 @@ function PassthroughModelRow({ modelId, fullModel, copied, onCopy, onDeleteAlias
       {/* Delete button */}
       <button
         onClick={onDeleteAlias}
-        className="p-1 hover:bg-[var(--reddb-color-feedback-danger-surface)] rounded text-[var(--reddb-color-feedback-danger-foreground)]"
+        className="p-1 hover:bg-feedback-danger-surface rounded text-feedback-danger-foreground"
         title="Remove model"
       >
         <span className="material-symbols-outlined text-sm">delete</span>

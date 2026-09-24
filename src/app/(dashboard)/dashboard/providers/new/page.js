@@ -113,7 +113,7 @@ export default function NewProviderPage() {
           {/* Auth Method */}
           <div className="flex flex-col gap-3">
             <label className="text-sm font-medium">
-              Authentication Method <span className="text-[var(--reddb-color-feedback-danger-foreground)]">*</span>
+              Authentication Method <span className="text-feedback-danger-foreground">*</span>
             </label>
             <div className="flex gap-3">
               {authMethodOptions.map((method) => (
@@ -181,7 +181,7 @@ export default function NewProviderPage() {
 
           {/* Error Message */}
           {errors.submit && (
-            <div className="p-4 rounded-lg bg-[var(--reddb-color-feedback-danger-surface)] border border-[var(--reddb-color-feedback-danger-border)] text-[var(--reddb-color-feedback-danger-foreground)] text-sm">
+            <div className="p-4 rounded-lg bg-feedback-danger-surface border border-feedback-danger-border text-feedback-danger-foreground text-sm">
               {errors.submit}
             </div>
           )}

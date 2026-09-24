@@ -87,7 +87,7 @@ export default function DefaultToolCard({ toolId, tool, isExpanded, onToggle, ba
             </button>
             <button
               onClick={() => setModelValue("")}
-              className="p-2 text-text-muted hover:text-[var(--reddb-color-feedback-danger-foreground)] rounded transition-colors"
+              className="p-2 text-text-muted hover:text-feedback-danger-foreground rounded transition-colors"
               title="Clear"
             >
               <span className="material-symbols-outlined text-lg">close</span>
@@ -110,20 +110,20 @@ export default function DefaultToolCard({ toolId, tool, isExpanded, onToggle, ba
           const isWarning = note.type === "warning";
           const isError = note.type === "cloudCheck" && !cloudEnabled && !tunnelEnabled;
           
-          let bgClass = "bg-[var(--reddb-color-feedback-info-surface)] border-[var(--reddb-color-feedback-info-border)]";
-          let textClass = "text-[var(--reddb-color-feedback-info-foreground)]";
-          let iconClass = "text-[var(--reddb-color-feedback-info-foreground)]";
+          let bgClass = "bg-feedback-info-surface border-feedback-info-border";
+          let textClass = "text-feedback-info-foreground";
+          let iconClass = "text-feedback-info-foreground";
           let icon = "info";
           
           if (isWarning) {
-            bgClass = "bg-[var(--reddb-color-feedback-warning-surface)] border-[var(--reddb-color-feedback-warning-border)]";
-            textClass = "text-[var(--reddb-color-feedback-warning-foreground)]";
-            iconClass = "text-[var(--reddb-color-feedback-warning-foreground)]";
+            bgClass = "bg-feedback-warning-surface border-feedback-warning-border";
+            textClass = "text-feedback-warning-foreground";
+            iconClass = "text-feedback-warning-foreground";
             icon = "warning";
           } else if (isError) {
-            bgClass = "bg-[var(--reddb-color-feedback-danger-surface)] border-[var(--reddb-color-feedback-danger-border)]";
-            textClass = "text-[var(--reddb-color-feedback-danger-foreground)]";
-            iconClass = "text-[var(--reddb-color-feedback-danger-foreground)]";
+            bgClass = "bg-feedback-danger-surface border-feedback-danger-border";
+            textClass = "text-feedback-danger-foreground";
+            iconClass = "text-feedback-danger-foreground";
             icon = "error";
           }
           

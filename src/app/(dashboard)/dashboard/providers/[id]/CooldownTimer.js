@@ -31,7 +31,7 @@ export default function CooldownTimer({ until }) {
   if (!remaining) return null;
 
   return (
-    <span className="text-xs text-[var(--reddb-color-feedback-warning-foreground)] font-mono">
+    <span className="text-xs text-feedback-warning-foreground font-mono">
       ⏱ {remaining}
     </span>
   );

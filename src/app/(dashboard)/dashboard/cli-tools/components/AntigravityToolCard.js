@@ -276,11 +276,11 @@ export default function AntigravityToolCard({
                     {isLoading ? (
                       <span className="material-symbols-outlined text-[14px] text-primary animate-spin">progress_activity</span>
                     ) : (
-                      <span className={`material-symbols-outlined text-[14px] ${ok ? "text-[var(--reddb-color-feedback-success-foreground)]" : "text-text-muted"}`}>
+                      <span className={`material-symbols-outlined text-[14px] ${ok ? "text-feedback-success-foreground" : "text-text-muted"}`}>
                         {ok ? "check_circle" : "radio_button_unchecked"}
                       </span>
                     )}
-                    <span className={`text-xs font-medium ${isLoading ? "text-primary" : ok ? "text-[var(--reddb-color-feedback-success-foreground)]" : "text-text-muted"}`}>
+                    <span className={`text-xs font-medium ${isLoading ? "text-primary" : ok ? "text-feedback-success-foreground" : "text-text-muted"}`}>
                       {label}
                     </span>
                   </div>
@@ -296,7 +296,7 @@ export default function AntigravityToolCard({
               <button
                 onClick={handleStop}
                 disabled={loading}
-                className="px-4 py-2 rounded-lg bg-[var(--reddb-color-feedback-danger-surface)] border border-[var(--reddb-color-feedback-danger-border)] text-[var(--reddb-color-feedback-danger-foreground)] font-medium text-sm flex items-center gap-2 hover:bg-[var(--reddb-color-feedback-danger-surface)] transition-colors disabled:opacity-50"
+                className="px-4 py-2 rounded-lg bg-feedback-danger-surface border border-feedback-danger-border text-feedback-danger-foreground font-medium text-sm flex items-center gap-2 hover:bg-feedback-danger-surface transition-colors disabled:opacity-50"
               >
                 <span className="material-symbols-outlined text-[18px]">stop_circle</span>
                 Stop MITM
@@ -314,7 +314,7 @@ export default function AntigravityToolCard({
           </div>
 
           {message?.type === "error" && (
-            <div className="flex items-center gap-2 px-2 py-1.5 rounded text-xs bg-[var(--reddb-color-feedback-danger-surface)] text-[var(--reddb-color-feedback-danger-foreground)]">
+            <div className="flex items-center gap-2 px-2 py-1.5 rounded text-xs bg-feedback-danger-surface text-feedback-danger-foreground">
               <span className="material-symbols-outlined text-[14px]">error</span>
               <span>{message.text}</span>
             </div>
@@ -356,7 +356,7 @@ export default function AntigravityToolCard({
                     {modelMappings[model.alias] && (
                       <button
                         onClick={() => handleModelMappingChange(model.alias, "")}
-                        className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 text-text-muted hover:text-[var(--reddb-color-feedback-danger-foreground)] rounded transition-colors"
+                        className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 text-text-muted hover:text-feedback-danger-foreground rounded transition-colors"
                         title="Clear"
                       >
                         <span className="material-symbols-outlined text-[14px]">close</span>
@@ -389,7 +389,7 @@ export default function AntigravityToolCard({
 
           {/* Windows admin warning */}
           {!isRunning && serverIsWindows && (
-            <div className="flex items-center gap-2 px-2 py-1.5 rounded text-xs bg-[var(--reddb-color-feedback-warning-surface)] text-[var(--reddb-color-feedback-warning-foreground)] border border-[var(--reddb-color-feedback-warning-border)]">
+            <div className="flex items-center gap-2 px-2 py-1.5 rounded text-xs bg-feedback-warning-surface text-feedback-warning-foreground border border-feedback-warning-border">
               <span className="material-symbols-outlined text-[14px]">warning</span>
               <span>Windows: Run terminal (RedRouter) as Administrator to enable MITM</span>
             </div>
@@ -423,8 +423,8 @@ export default function AntigravityToolCard({
         size="sm"
       >
         <div className="flex flex-col gap-4">
-          <div className="flex items-start gap-3 p-3 bg-[var(--reddb-color-feedback-warning-surface)] border border-[var(--reddb-color-feedback-warning-border)] rounded-lg">
-            <span className="material-symbols-outlined text-[var(--reddb-color-feedback-warning-foreground)] text-[20px]">warning</span>
+          <div className="flex items-start gap-3 p-3 bg-feedback-warning-surface border border-feedback-warning-border rounded-lg">
+            <span className="material-symbols-outlined text-feedback-warning-foreground text-[20px]">warning</span>
             <p className="text-xs text-text-muted">Required for SSL certificate and DNS configuration</p>
           </div>
 
@@ -439,7 +439,7 @@ export default function AntigravityToolCard({
           />
 
           {message && (
-            <div className={`flex items-center gap-2 px-2 py-1.5 rounded text-xs ${message.type === "success" ? "bg-[var(--reddb-color-feedback-success-surface)] text-[var(--reddb-color-feedback-success-foreground)]" : "bg-[var(--reddb-color-feedback-danger-surface)] text-[var(--reddb-color-feedback-danger-foreground)]"}`}>
+            <div className={`flex items-center gap-2 px-2 py-1.5 rounded text-xs ${message.type === "success" ? "bg-feedback-success-surface text-feedback-success-foreground" : "bg-feedback-danger-surface text-feedback-danger-foreground"}`}>
               <span className="material-symbols-outlined text-[14px]">{message.type === "success" ? "check_circle" : "error"}</span>
               <span>{message.text}</span>
             </div>

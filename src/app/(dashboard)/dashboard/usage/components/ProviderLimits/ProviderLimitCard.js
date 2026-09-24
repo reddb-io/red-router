@@ -121,24 +121,24 @@ export default function ProviderLimitCard({
 
       {/* Error State */}
       {!loading && error && (
-        <div className="p-4 rounded-lg bg-[var(--reddb-color-feedback-danger-surface)] border border-[var(--reddb-color-feedback-danger-border)]">
+        <div className="p-4 rounded-lg bg-feedback-danger-surface border border-feedback-danger-border">
           <div className="flex items-start gap-2">
-            <span className="material-symbols-outlined text-[var(--reddb-color-feedback-danger-foreground)] text-[20px]">
+            <span className="material-symbols-outlined text-feedback-danger-foreground text-[20px]">
               error
             </span>
-            <p className="text-sm text-[var(--reddb-color-feedback-danger-foreground)]">{error}</p>
+            <p className="text-sm text-feedback-danger-foreground">{error}</p>
           </div>
         </div>
       )}
 
       {/* Info Message (for providers without API) */}
       {!loading && !error && message && (
-        <div className="p-4 rounded-lg bg-[var(--reddb-color-feedback-info-surface)] border border-[var(--reddb-color-feedback-info-border)]">
+        <div className="p-4 rounded-lg bg-feedback-info-surface border border-feedback-info-border">
           <div className="flex items-start gap-2">
-            <span className="material-symbols-outlined text-[var(--reddb-color-feedback-info-foreground)] text-[20px]">
+            <span className="material-symbols-outlined text-feedback-info-foreground text-[20px]">
               info
             </span>
-            <p className="text-sm text-[var(--reddb-color-feedback-info-foreground)]">
+            <p className="text-sm text-feedback-info-foreground">
               {message}
             </p>
           </div>

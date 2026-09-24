@@ -815,7 +815,7 @@ export default function ProfilePage() {
             <div className="flex items-center gap-3 sm:gap-4">
               <div className={cn(
                 "size-10 sm:size-12 rounded-lg flex items-center justify-center shrink-0",
-                dbInfo?.mode === "distributed" ? "bg-[var(--reddb-color-feedback-info-surface)] text-[var(--reddb-color-feedback-info-foreground)]" : "bg-[var(--reddb-color-feedback-success-surface)] text-[var(--reddb-color-feedback-success-foreground)]",
+                dbInfo?.mode === "distributed" ? "bg-feedback-info-surface text-feedback-info-foreground" : "bg-feedback-success-surface text-feedback-success-foreground",
               )}>
                 <span className="material-symbols-outlined text-xl sm:text-2xl">
                   {dbInfo?.mode === "distributed" ? "database" : "computer"}
@@ -860,7 +860,7 @@ export default function ProfilePage() {
                 {dbInfo?.mode === "distributed" ? (
                   <div className="text-xs sm:text-sm text-text-muted font-mono break-all">
                     {dbInfo.invalid ? (
-                      <span className="text-[var(--reddb-color-feedback-danger-foreground)]">DATABASE_URL is set but could not be parsed</span>
+                      <span className="text-feedback-danger-foreground">DATABASE_URL is set but could not be parsed</span>
                     ) : (
                       <>
                         <span>{dbInfo.driver}://{dbInfo.host}:{dbInfo.port}/{dbInfo.database}</span>
@@ -876,7 +876,7 @@ export default function ProfilePage() {
                 )}
               </div>
               {dbInfo?.mode === "distributed" && (
-                <span className="shrink-0 rounded-full bg-[var(--reddb-color-feedback-info-surface)] px-2 py-0.5 text-[11px] font-medium text-[var(--reddb-color-feedback-info-foreground)]">
+                <span className="shrink-0 rounded-full bg-feedback-info-surface px-2 py-0.5 text-[11px] font-medium text-feedback-info-foreground">
                   shared
                 </span>
               )}
@@ -915,7 +915,7 @@ export default function ProfilePage() {
               />
             </div>
             {dbStatus.message && (
-              <p className={`text-sm ${dbStatus.type === "error" ? "text-[var(--reddb-color-feedback-danger-foreground)]" : "text-[var(--reddb-color-feedback-success-foreground)]"}`}>
+              <p className={`text-sm ${dbStatus.type === "error" ? "text-feedback-danger-foreground" : "text-feedback-success-foreground"}`}>
                 {dbStatus.message}
               </p>
             )}
@@ -927,7 +927,7 @@ export default function ProfilePage() {
         {/* Language */}
         <Card>
           <div className="flex items-center gap-3 mb-4">
-            <div className="size-10 rounded-lg bg-[var(--reddb-color-feedback-info-surface)] text-[var(--reddb-color-feedback-info-foreground)] flex items-center justify-center shrink-0">
+            <div className="size-10 rounded-lg bg-feedback-info-surface text-feedback-info-foreground flex items-center justify-center shrink-0">
               <span className="material-symbols-outlined text-[20px]">language</span>
             </div>
             <h3 className="text-base sm:text-lg font-semibold">Language</h3>
@@ -979,9 +979,9 @@ export default function ProfilePage() {
                   </div>
                 )}
                 {/* {!settings.hasPassword && (
-                  <div className="p-3 rounded-lg bg-[var(--reddb-color-feedback-info-surface)] border border-[var(--reddb-color-feedback-info-border)]">
-                    <p className="text-sm text-[var(--reddb-color-feedback-info-foreground)]">
-                      Setting password for the first time. Leave current password empty or use default: <code className="bg-[var(--reddb-color-feedback-info-surface)] px-1 rounded">123456</code>
+                  <div className="p-3 rounded-lg bg-feedback-info-surface border border-feedback-info-border">
+                    <p className="text-sm text-feedback-info-foreground">
+                      Setting password for the first time. Leave current password empty or use default: <code className="bg-feedback-info-surface px-1 rounded">123456</code>
                     </p>
                   </div>
                 )} */}
@@ -1009,7 +1009,7 @@ export default function ProfilePage() {
                 </div>
 
                 {passStatus.message && (
-                  <p className={`text-xs sm:text-sm ${passStatus.type === "error" ? "text-[var(--reddb-color-feedback-danger-foreground)]" : "text-[var(--reddb-color-feedback-success-foreground)]"}`}>
+                  <p className={`text-xs sm:text-sm ${passStatus.type === "error" ? "text-feedback-danger-foreground" : "text-feedback-success-foreground"}`}>
                     {passStatus.message}
                   </p>
                 )}
@@ -1031,7 +1031,7 @@ export default function ProfilePage() {
             onClick={() => setOidcExpanded((v) => !v)}
             className="w-full flex items-center gap-3 text-left"
           >
-            <div className="p-2 rounded-lg bg-[var(--reddb-color-feedback-info-surface)] text-[var(--reddb-color-feedback-info-foreground)] shrink-0">
+            <div className="p-2 rounded-lg bg-feedback-info-surface text-feedback-info-foreground shrink-0">
               <span className="material-symbols-outlined text-[20px]">lock_open</span>
             </div>
             <div className="flex-1 min-w-0">
@@ -1407,13 +1407,13 @@ export default function ProfilePage() {
                   </div>
 
                   {samlTestStatus.message && (
-                    <p className={`text-xs sm:text-sm ${samlTestStatus.type === "error" ? "text-[var(--reddb-color-feedback-danger-foreground)]" : "text-[var(--reddb-color-feedback-success-foreground)]"}`}>
+                    <p className={`text-xs sm:text-sm ${samlTestStatus.type === "error" ? "text-feedback-danger-foreground" : "text-feedback-success-foreground"}`}>
                       {samlTestStatus.message}
                     </p>
                   )}
 
                   {samlStatus.message && (
-                    <p className={`text-xs sm:text-sm ${samlStatus.type === "error" ? "text-[var(--reddb-color-feedback-danger-foreground)]" : "text-[var(--reddb-color-feedback-success-foreground)]"}`}>
+                    <p className={`text-xs sm:text-sm ${samlStatus.type === "error" ? "text-feedback-danger-foreground" : "text-feedback-success-foreground"}`}>
                       {samlStatus.message}
                     </p>
                   )}
@@ -1490,13 +1490,13 @@ export default function ProfilePage() {
                   </div>
 
                   {oidcTestStatus.message && (
-                    <p className={`text-xs sm:text-sm ${oidcTestStatus.type === "error" ? "text-[var(--reddb-color-feedback-danger-foreground)]" : "text-[var(--reddb-color-feedback-success-foreground)]"}`}>
+                    <p className={`text-xs sm:text-sm ${oidcTestStatus.type === "error" ? "text-feedback-danger-foreground" : "text-feedback-success-foreground"}`}>
                       {oidcTestStatus.message}
                     </p>
                   )}
 
                   {oidcStatus.message && (
-                    <p className={`text-xs sm:text-sm ${oidcStatus.type === "error" ? "text-[var(--reddb-color-feedback-danger-foreground)]" : "text-[var(--reddb-color-feedback-success-foreground)]"}`}>
+                    <p className={`text-xs sm:text-sm ${oidcStatus.type === "error" ? "text-feedback-danger-foreground" : "text-feedback-success-foreground"}`}>
                       {oidcStatus.message}
                     </p>
                   )}
@@ -1524,7 +1524,7 @@ export default function ProfilePage() {
                 {isSsoOnly && (
                   <div className="flex flex-col gap-2">
                     <label className="font-medium text-sm sm:text-base">
-                      Admin e-mails <span className="text-[var(--reddb-color-feedback-danger-foreground)]">*</span>
+                      Admin e-mails <span className="text-feedback-danger-foreground">*</span>
                     </label>
                     <p className="text-xs sm:text-sm text-text-muted">
                       With SSO as the only login, password login is unavailable — these users
@@ -1551,20 +1551,20 @@ export default function ProfilePage() {
                 )}
 
                 {scopeStatus.message && (
-                  <p className={`text-xs sm:text-sm ${scopeStatus.type === "error" ? "text-[var(--reddb-color-feedback-danger-foreground)]" : "text-[var(--reddb-color-feedback-success-foreground)]"}`}>
+                  <p className={`text-xs sm:text-sm ${scopeStatus.type === "error" ? "text-feedback-danger-foreground" : "text-feedback-success-foreground"}`}>
                     {scopeStatus.message}
                   </p>
                 )}
               </div>
 
               {settings.authMode === "oidc" || settings.authMode === "saml" || settings.authMode === "sso" ? (
-                <p className="text-xs sm:text-sm text-[var(--reddb-color-feedback-warning-foreground)]">
+                <p className="text-xs sm:text-sm text-feedback-warning-foreground">
                   SSO login ({settings.ssoType === "saml" ? "SAML 2.0" : "OIDC"}) is currently active. Password login is disabled until you switch back.
                 </p>
               ) : null}
 
               {settings.authMode === "both" && (
-                <p className="text-xs sm:text-sm text-[var(--reddb-color-feedback-warning-foreground)]">
+                <p className="text-xs sm:text-sm text-feedback-warning-foreground">
                   Password and SSO login ({settings.ssoType === "saml" ? "SAML 2.0" : "OIDC"}) are both active.
                 </p>
               )}
@@ -1575,7 +1575,7 @@ export default function ProfilePage() {
         {/* Routing Preferences */}
         <Card>
           <div className="flex items-center gap-3 mb-4">
-            <div className="p-2 rounded-lg bg-[var(--reddb-color-feedback-info-surface)] text-[var(--reddb-color-feedback-info-foreground)] shrink-0">
+            <div className="p-2 rounded-lg bg-feedback-info-surface text-feedback-info-foreground shrink-0">
               <span className="material-symbols-outlined text-[20px]">route</span>
             </div>
             <h3 className="text-base sm:text-lg font-semibold">Routing Strategy</h3>
@@ -1801,7 +1801,7 @@ export default function ProfilePage() {
             )}
 
             {proxyStatus.message && (
-              <p className={`text-xs sm:text-sm ${proxyStatus.type === "error" ? "text-[var(--reddb-color-feedback-danger-foreground)]" : "text-[var(--reddb-color-feedback-success-foreground)]"} pt-2 border-t border-border/50`}>
+              <p className={`text-xs sm:text-sm ${proxyStatus.type === "error" ? "text-feedback-danger-foreground" : "text-feedback-success-foreground"} pt-2 border-t border-border/50`}>
                 {proxyStatus.message}
               </p>
             )}
@@ -1811,7 +1811,7 @@ export default function ProfilePage() {
         {/* Observability Settings */}
         <Card>
           <div className="flex items-center gap-3 mb-4">
-            <div className="p-2 rounded-lg bg-[var(--reddb-color-feedback-warning-surface)] text-[var(--reddb-color-feedback-warning-foreground)] shrink-0">
+            <div className="p-2 rounded-lg bg-feedback-warning-surface text-feedback-warning-foreground shrink-0">
               <span className="material-symbols-outlined text-[20px]">monitoring</span>
             </div>
             <h3 className="text-base sm:text-lg font-semibold">Observability</h3>
@@ -1838,7 +1838,7 @@ export default function ProfilePage() {
             fullWidth
             icon="power_settings_new"
             onClick={() => setShutdownOpen(true)}
-            className="text-[var(--reddb-color-feedback-danger-foreground)] border-[var(--reddb-color-feedback-danger-border)] hover:bg-[var(--reddb-color-feedback-danger-surface)] hover:border-[var(--reddb-color-feedback-danger-border)]"
+            className="text-feedback-danger-foreground border-feedback-danger-border hover:bg-feedback-danger-surface hover:border-feedback-danger-border"
           >
             Shutdown
           </Button>

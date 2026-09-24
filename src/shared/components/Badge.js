@@ -10,10 +10,10 @@ const statusBadge = tv({
   extend: badge,
   variants: {
     variant: {
-      success: "border-[var(--reddb-color-feedback-success-border)] bg-[var(--reddb-color-feedback-success-surface)] text-[var(--reddb-color-feedback-success-foreground)]",
-      warning: "border-[var(--reddb-color-feedback-warning-border)] bg-[var(--reddb-color-feedback-warning-surface)] text-[var(--reddb-color-feedback-warning-foreground)]",
-      danger: "border-[var(--reddb-color-feedback-danger-border)] bg-[var(--reddb-color-feedback-danger-surface)] text-[var(--reddb-color-feedback-danger-foreground)]",
-      info: "border-[var(--reddb-color-feedback-info-border)] bg-[var(--reddb-color-feedback-info-surface)] text-[var(--reddb-color-feedback-info-foreground)]",
+      success: "border-feedback-success-border bg-feedback-success-surface text-feedback-success-foreground",
+      warning: "border-feedback-warning-border bg-feedback-warning-surface text-feedback-warning-foreground",
+      danger: "border-feedback-danger-border bg-feedback-danger-surface text-feedback-danger-foreground",
+      info: "border-feedback-info-border bg-feedback-info-surface text-feedback-info-foreground",
     },
     size: {
       sm: "",

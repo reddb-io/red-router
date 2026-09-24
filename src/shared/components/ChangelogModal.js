@@ -77,7 +77,7 @@ export default function ChangelogModal({ isOpen, onClose }) {
             </div>
           )}
           {error && (
-            <div className="text-[var(--reddb-color-feedback-danger-foreground)] py-4">Failed to load changelog: {error}</div>
+            <div className="text-feedback-danger-foreground py-4">Failed to load changelog: {error}</div>
           )}
           {!loading && !error && html && (
             <div

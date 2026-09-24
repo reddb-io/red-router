@@ -55,9 +55,9 @@ function DecisionAnswers({ answers }) {
               {typeof answer?.confidence === "number" && (
                 <span className={cn(
                   "ml-auto font-mono px-1.5 py-0.5 rounded",
-                  answer.confidence >= 0.85 ? "bg-[var(--reddb-color-feedback-success-surface)] text-[var(--reddb-color-feedback-success-foreground)]"
-                    : answer.confidence >= 0.7 ? "bg-[var(--reddb-color-feedback-warning-surface)] text-[var(--reddb-color-feedback-warning-foreground)]"
-                    : "bg-[var(--reddb-color-feedback-danger-surface)] text-[var(--reddb-color-feedback-danger-foreground)]"
+                  answer.confidence >= 0.85 ? "bg-feedback-success-surface text-feedback-success-foreground"
+                    : answer.confidence >= 0.7 ? "bg-feedback-warning-surface text-feedback-warning-foreground"
+                    : "bg-feedback-danger-surface text-feedback-danger-foreground"
                 )}>{answer.confidence.toFixed(3)}</span>
               )}
               {scalar && <span className="font-mono text-text-muted">{scalar}</span>}
@@ -539,7 +539,7 @@ export default function RequestDetailsTab() {
                 <span className="text-text-muted">Status:</span>{" "}
                 <span className={cn(
                   "font-medium",
-                  selectedDetail.status === "success" ? "text-[var(--reddb-color-feedback-success-foreground)]" : "text-[var(--reddb-color-feedback-danger-foreground)]"
+                  selectedDetail.status === "success" ? "text-feedback-success-foreground" : "text-feedback-danger-foreground"
                 )}>
                   {selectedDetail.status}
                 </span>
@@ -607,8 +607,8 @@ export default function RequestDetailsTab() {
                     <span className={cn(
                       "text-xs px-2 py-0.5 rounded",
                       selectedDetail.decision.model.applied
-                        ? "bg-[var(--reddb-color-feedback-success-surface)] text-[var(--reddb-color-feedback-success-foreground)]"
-                        : "bg-[var(--reddb-color-feedback-warning-surface)] text-[var(--reddb-color-feedback-warning-foreground)]"
+                        ? "bg-feedback-success-surface text-feedback-success-foreground"
+                        : "bg-feedback-warning-surface text-feedback-warning-foreground"
                     )}>
                       {selectedDetail.decision.model.applied ? "Applied" : "Not applied"}
                     </span>
@@ -711,8 +711,8 @@ export default function RequestDetailsTab() {
                   <span className={cn(
                     "text-xs px-2 py-0.5 rounded",
                     selectedDetail.pxpipe.applied
-                      ? "bg-[var(--reddb-color-feedback-success-surface)] text-[var(--reddb-color-feedback-success-foreground)]"
-                      : "bg-[var(--reddb-color-feedback-warning-surface)] text-[var(--reddb-color-feedback-warning-foreground)]"
+                      ? "bg-feedback-success-surface text-feedback-success-foreground"
+                      : "bg-feedback-warning-surface text-feedback-warning-foreground"
                   )}>
                     {selectedDetail.pxpipe.applied ? "Activated" : "Skipped"}
                   </span>
@@ -729,7 +729,7 @@ export default function RequestDetailsTab() {
                     </div>
                     <div>
                       <span className="text-text-muted block text-xs">Saved</span>
-                      <span className="font-mono text-[var(--reddb-color-feedback-success-foreground)]">{selectedDetail.pxpipe.savedPct || 0}%</span>
+                      <span className="font-mono text-feedback-success-foreground">{selectedDetail.pxpipe.savedPct || 0}%</span>
                     </div>
                     <div>
                       <span className="text-text-muted block text-xs">Images</span>
@@ -778,7 +778,7 @@ export default function RequestDetailsTab() {
                       <span className="material-symbols-outlined text-[16px]">psychology</span>
                       Thinking Process
                     </h4>
-                    <pre className="max-h-[200px] max-w-full overflow-auto rounded-lg border border-[var(--reddb-color-feedback-warning-border)] bg-[var(--reddb-color-feedback-warning-surface)] p-3 font-mono text-xs text-[var(--reddb-color-feedback-warning-foreground)] sm:p-4">
+                    <pre className="max-h-[200px] max-w-full overflow-auto rounded-lg border border-feedback-warning-border bg-feedback-warning-surface p-3 font-mono text-xs text-feedback-warning-foreground sm:p-4">
                       {safeText(selectedDetail.response.thinking)}
                     </pre>
                   </div>

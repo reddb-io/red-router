@@ -6,11 +6,11 @@ import { Card } from "@/shared/components";
 
 // Derive simple connected/configured/not-installed status from API payload
 function getStatus(status, tool) {
-  if (tool?.configType === "guide") return { label: "Guide", cls: "bg-[var(--reddb-color-feedback-info-surface)] text-[var(--reddb-color-feedback-info-foreground)]" };
+  if (tool?.configType === "guide") return { label: "Guide", cls: "bg-feedback-info-surface text-feedback-info-foreground" };
   if (!status) return { label: "Unknown", cls: "bg-muted text-ink-muted" };
   if (!status.installed) return { label: "Not installed", cls: "bg-muted text-ink-muted" };
-  if (status.hasRedRouter) return { label: "Connected", cls: "bg-[var(--reddb-color-feedback-success-surface)] text-[var(--reddb-color-feedback-success-foreground)]" };
-  return { label: "Not configured", cls: "bg-[var(--reddb-color-feedback-warning-surface)] text-[var(--reddb-color-feedback-warning-foreground)]" };
+  if (status.hasRedRouter) return { label: "Connected", cls: "bg-feedback-success-surface text-feedback-success-foreground" };
+  return { label: "Not configured", cls: "bg-feedback-warning-surface text-feedback-warning-foreground" };
 }
 
 export default function ToolSummaryCard({ toolId, tool, status }) {

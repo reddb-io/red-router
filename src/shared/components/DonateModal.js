@@ -67,7 +67,7 @@ export default function DonateModal({ isOpen, onClose }) {
             </div>
           )}
           {error && (
-            <div className="text-[var(--reddb-color-feedback-danger-foreground)] py-4">Failed to load donate info: {error}</div>
+            <div className="text-feedback-danger-foreground py-4">Failed to load donate info: {error}</div>
           )}
           {!loading && !error && data && (
             <>
