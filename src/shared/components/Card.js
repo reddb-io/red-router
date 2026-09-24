@@ -1,6 +1,18 @@
 "use client";
 
 import { cn } from "@/shared/utils/cn";
+import { card } from "@/shared/ds/card.variants";
+
+// Root padding follows the DS density insets. The DS Card pads its header /
+// body / footer slots; this Card keeps padding on the root so existing layouts
+// that style the root as a flex/grid container keep their direct children.
+const PADDINGS = {
+  none: "p-0",
+  xs: "p-[var(--reddb-spatial-inset-sm)]",
+  sm: "p-[var(--reddb-spatial-inset-md)]",
+  md: "p-[var(--reddb-spatial-inset-md)]",
+  lg: "p-[var(--reddb-spatial-inset-lg)]",
+};
 
 export default function Card({
   children,
@@ -14,40 +26,31 @@ export default function Card({
   className,
   ...props
 }) {
-  const paddings = {
-    none: "",
-    xs: "p-3",
-    sm: "p-4",
-    md: "p-6",
-    lg: "p-8",
-  };
+  const slots = card({ raised: elev });
 
   return (
     <div
-      className={cn(
-        "bg-surface border border-border-subtle",
-        elev ? "rounded-lg shadow-[var(--shadow-elev)]" : "rounded-lg shadow-[var(--shadow-soft)]",
-        hover && "hover:border-ink-muted transition-colors cursor-pointer",
-        paddings[padding],
-        className
-      )}
+      className={slots.root({
+        class: [
+          // The DS root is a flex column that clips its media; dashboard cards
+          // hold menus and popovers, so they stay block-level and unclipped.
+          "block overflow-visible",
+          PADDINGS[padding] ?? PADDINGS.md,
+          hover && "cursor-pointer transition-colors hover:border-ink-muted",
+          className,
+        ],
+      })}
       {...props}
     >
       {(title || action) && (
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-3">
+        <div className="mb-[var(--reddb-spatial-gap-lg)] flex items-center justify-between gap-[var(--reddb-spatial-gap-md)]">
+          <div className={slots.titleRow()}>
             {icon && (
-              <div className="p-2 rounded-md bg-bg text-text-muted">
-                <span className="material-symbols-outlined text-[20px]">{icon}</span>
-              </div>
+              <span className="material-symbols-outlined shrink-0 text-[length:var(--reddb-spatial-icon-size-md)] text-ink-muted" aria-hidden="true">{icon}</span>
             )}
-            <div>
-              {title && (
-                <h3 className="text-text-main font-semibold">{title}</h3>
-              )}
-              {subtitle && (
-                <p className="text-sm text-text-muted">{subtitle}</p>
-              )}
+            <div className="flex min-w-0 flex-col gap-[var(--reddb-spatial-gap-sm)]">
+              {title && <h3 className={slots.title()}>{title}</h3>}
+              {subtitle && <p className={slots.description()}>{subtitle}</p>}
             </div>
           </div>
           {action}
@@ -62,7 +65,7 @@ Card.Section = function CardSection({ children, className, ...props }) {
   return (
     <div
       className={cn(
-        "py-4 border-t border-border-subtle first:border-t-0",
+        "py-[var(--reddb-spatial-inset-md)] border-t border-muted first:border-t-0",
         className
       )}
       {...props}
@@ -77,8 +80,8 @@ Card.Row = function CardRow({ children, className, ...props }) {
     <div
       className={cn(
         "p-3 -mx-3 px-3 transition-colors",
-        "border-b border-border-subtle last:border-b-0",
-        "hover:bg-surface-2/50",
+        "border-b border-muted last:border-b-0",
+        "hover:bg-muted/50",
         className
       )}
       {...props}
@@ -98,8 +101,8 @@ Card.ListItem = function CardListItem({
     <div
       className={cn(
         "group flex items-center justify-between p-3 -mx-3 px-3",
-        "border-b border-border-subtle last:border-b-0",
-        "hover:bg-surface-2/50 transition-colors",
+        "border-b border-muted last:border-b-0",
+        "hover:bg-muted/50 transition-colors",
         className
       )}
       {...props}
