@@ -119,6 +119,37 @@ describe("RedRouter provider API", () => {
     }));
   });
 
+  it("moves a remote router to a new URL when its endpoint is edited", async () => {
+    const fetchMock = vi.fn(async (url) => new Response(JSON.stringify({
+      data: [{ id: String(url).includes("moved-router") ? "moved/model" : "first/model" }],
+    })));
+    vi.stubGlobal("fetch", fetchMock);
+    const { POST: createConnection } = await import("@/app/api/providers/route.js");
+    const created = await (await createConnection(new Request("https://local.test/api/providers", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ provider: "red-router", name: "Office", apiKey: "rr_key", providerSpecificData: { baseUrl: "https://first-router.test" } }),
+    }))).json();
+    const { PUT: updateConnection } = await import("@/app/api/providers/[id]/route.js");
+    const put = (providerSpecificData) => updateConnection(new Request("https://local.test/api/providers/x", {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ providerSpecificData }),
+    }), { params: Promise.resolve({ id: created.connection.id }) });
+
+    const moved = await put({ baseUrl: " https://moved-router.test/ " });
+    expect(moved.status).toBe(200);
+    const { getProviderConnectionById } = await import("@/models");
+    const stored = (await getProviderConnectionById(created.connection.id)).providerSpecificData;
+    expect(stored.baseUrl).toBe("https://moved-router.test/v1");
+    expect(stored.discoveredModels).toEqual([{ id: "moved/model" }]);
+    expect(fetchMock).toHaveBeenLastCalledWith("https://moved-router.test/v1/models", expect.anything());
+
+    for (const baseUrl of ["not a url", "ftp://moved-router.test"]) {
+      const rejected = await put({ baseUrl });
+      expect(rejected.status, baseUrl).toBe(400);
+    }
+    expect((await getProviderConnectionById(created.connection.id)).providerSpecificData.baseUrl).toBe("https://moved-router.test/v1");
+  });
+
   it("reports discovery failure without saving a partially configured connection", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("Unauthorized", { status: 401 })));
     const { POST } = await import("@/app/api/providers/route.js");
