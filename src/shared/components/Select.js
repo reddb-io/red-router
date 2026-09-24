@@ -1,6 +1,7 @@
 "use client";
 
 import { cn } from "@/shared/utils/cn";
+import { select } from "@/shared/ds/select.variants";
 
 export default function Select({
   label,
@@ -29,15 +30,15 @@ export default function Select({
           value={value}
           onChange={onChange}
           disabled={disabled}
-          className={cn(
-            "w-full py-2.5 px-3 pr-10 text-sm text-text-main",
-            "bg-surface-2 border border-transparent rounded-md appearance-none",
-            "focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500/40",
-            "transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed",
-            "text-[16px] sm:text-sm",
-            error && "ring-1 ring-[var(--reddb-color-feedback-danger-border)] focus:ring-2 focus:ring-[var(--reddb-color-feedback-danger-border)] border-[var(--reddb-color-feedback-danger-border)]",
-            selectClassName
-          )}
+          aria-invalid={error ? true : undefined}
+          className={select({
+            class: [
+              // design.md: 44px targets on touch; iOS zooms into fields under 16px
+              "appearance-none pr-10 pointer-coarse:min-h-11 transition-[border-color,box-shadow,opacity] duration-150",
+              "text-[16px] sm:text-sm",
+              selectClassName,
+            ],
+          })}
           {...props}
         >
           <option value="" disabled>

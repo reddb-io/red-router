@@ -1,6 +1,7 @@
 "use client";
 
 import { cn } from "@/shared/utils/cn";
+import { input } from "@/shared/ds/input.variants";
 
 export default function Input({
   label,
@@ -37,17 +38,16 @@ export default function Input({
           value={value}
           onChange={onChange}
           disabled={disabled}
-          className={cn(
-            "w-full min-h-11 py-2.5 px-3 text-sm text-text-main bg-surface-2 rounded-md",
-            "border border-transparent placeholder-text-muted/70",
-            "focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500/40",
-            "transition-[background-color,border-color,box-shadow,opacity] duration-150 ease-out disabled:opacity-50 disabled:cursor-not-allowed",
-            // iOS zoom fix
-            "text-[16px] sm:text-sm",
-            icon && "pl-10",
-            error && "ring-1 ring-[var(--reddb-color-feedback-danger-border)] focus:ring-2 focus:ring-[var(--reddb-color-feedback-danger-border)] border-[var(--reddb-color-feedback-danger-border)]",
-            inputClassName
-          )}
+          aria-invalid={error ? true : undefined}
+          className={input({
+            class: [
+              // design.md: 44px targets on touch; iOS zooms into fields under 16px
+              "pointer-coarse:min-h-11 transition-[border-color,box-shadow,opacity] duration-150 ease-out",
+              "text-[16px] sm:text-sm",
+              icon && "pl-10",
+              inputClassName,
+            ],
+          })}
           {...props}
         />
       </div>

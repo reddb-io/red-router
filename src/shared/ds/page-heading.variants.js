@@ -8,7 +8,9 @@ export const pageHeading = tv({
       "gap-[var(--reddb-spatial-gap-lg)]",
       "border-b border-elevation-sunken-border bg-transparent pb-[var(--reddb-spatial-inset-md)]",
     ].join(" "),
-    identity: "min-w-0 flex-1",
+    // A 20rem basis lets the actions wrap below the title before the identity
+    // column is squeezed into a word-per-line strip on a phone.
+    identity: "min-w-0 flex-[1_1_20rem]",
     context: "text-sm text-ink-muted",
     title: "text-3xl font-semibold leading-tight text-foreground",
     description: "max-w-prose text-sm text-ink-muted",

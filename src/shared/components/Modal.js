@@ -46,7 +46,7 @@ export default function Modal({
       aria-labelledby={title ? titleId : undefined}
       onCancel={(event) => { event.preventDefault(); onClose(); }}
       onClick={(event) => { if (closeOnOverlay && event.target === event.currentTarget) onClose(); }}
-      className="m-auto w-[calc(100%-2rem)] max-w-none bg-transparent p-0 text-text-main backdrop:bg-black/50"
+      className="m-auto w-[calc(100%-2rem)] max-w-none bg-transparent p-0 text-text-main backdrop:bg-scrim/60"
     >
       <div
         className={cn(

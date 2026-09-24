@@ -1498,7 +1498,7 @@ export default function ProviderLimits() {
       />
 
       {resetCreditsState && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 backdrop-blur-sm">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-scrim/60 px-4">
           <div className="w-full max-w-2xl overflow-hidden rounded-2xl border border-muted bg-elevation-overlay-surface shadow-2xl ring-1 ring-black/10">
             <div className="flex items-start justify-between gap-3 border-b border-muted bg-muted/50 px-4 py-3">
               <div className="min-w-0">

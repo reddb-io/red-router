@@ -1,8 +1,8 @@
 # RedDB Design System distribution
 
-Vendored byte-for-byte from reddb-io/design-system v2026.08.5, bundle.tar.gz.
-Release: https://github.com/reddb-io/design-system/releases/tag/v2026.08.5
-Bundle SHA-256: f2d29e20cb7decbcd2d7cc045100d6429fb5f9c4acbf06ce9c330e4aa6003a30
+Vendored byte-for-byte from reddb-io/design-system v2026.09, bundle.tar.gz.
+Release: https://github.com/reddb-io/design-system/releases/tag/v2026.09
+Bundle SHA-256: cef1be704aa74aa921dd1bcfdf307b32840bf6d90bee4aa0f3e302ed0f6ebea9
 
 Extracted from the bundle (paths inside it):
 
@@ -14,8 +14,9 @@ Extracted from the bundle (paths inside it):
 - scheme-light.css — packages/theme/dist/scheme-light.css
 - scheme-dark.css — packages/theme/dist/scheme-dark.css
 - favicon.svg — packages/assets/dist/platform/favicon.svg
-- kits/base/{button,card,badge,breadcrumbs}.variants.ts — kits/base/dist/src/
+- kits/base/{button,card,badge,breadcrumbs,input,select}.variants.ts — kits/base/dist/src/
 - kits/app/{page-heading,application-shell}.variants.ts — kits/app/dist/src/composites/
+- kits/app/nav-item.variants.ts — kits/app/dist/src/primitives/
   (the DS appearance contracts: `tailwind-variants` definitions with no Svelte in them)
 
 The dashboard is plain JavaScript, so `node scripts/sync-ds-variants.mjs`

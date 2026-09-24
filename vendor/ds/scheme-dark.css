@@ -4,6 +4,7 @@
 /* Semantics only (ADR 0008): every value is a --reddb-theme-* material the active Theme set. */
 [data-color-scheme="dark"] {
   --reddb-color-background: var(--reddb-theme-surface-dark);
+  --reddb-color-control-edge: var(--reddb-theme-edge-dark);
   --reddb-color-elevation-base-border: var(--reddb-theme-elevation-base-border-dark);
   --reddb-color-elevation-base-foreground: var(--reddb-theme-elevation-base-foreground-dark);
   --reddb-color-elevation-base-surface: var(--reddb-theme-elevation-base-surface-dark);
@@ -31,10 +32,12 @@
   --reddb-color-foreground: var(--reddb-theme-ink-dark);
   --reddb-color-ink-muted: var(--reddb-theme-ink-muted-dark);
   --reddb-color-muted: var(--reddb-theme-muted-dark);
+  --reddb-color-on-feedback: var(--reddb-theme-on-feedback-dark);
   --reddb-color-on-muted: var(--reddb-theme-on-muted-dark);
   --reddb-color-on-primary: var(--reddb-theme-on-accent-dark);
   --reddb-color-primary: var(--reddb-theme-accent-dark);
   --reddb-color-primary-text: var(--reddb-theme-accent-text-dark);
+  --reddb-color-scrim: var(--reddb-theme-scrim-dark);
   --reddb-color-series-1: var(--reddb-theme-series-1-dark);
   --reddb-color-series-2: var(--reddb-theme-series-2-dark);
   --reddb-color-series-3: var(--reddb-theme-series-3-dark);
