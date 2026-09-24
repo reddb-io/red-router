@@ -1,5 +1,36 @@
 # @reddb-io/red-router
 
+## 0.24.3
+
+### Patch Changes
+
+- 1cb4fdd: The rest of the dashboard's status colors now use the design system's feedback roles too: the CLI tool cards, MITM, quota and topology views, provider connection dialogs, and the shared modals. Raw Tailwind palette classes in the dashboard went from about 1,100 to 62, and hand-written dark-mode color overrides from 486 to 6.
+- c0a99f9: Status colors across the dashboard now come from the design system's feedback roles instead of raw Tailwind colors: errors, warnings, successes and notices use the RedDB danger, warning, success and info colors in both light and dark mode.
+  
+  - Tinted status boxes, status text, borders and focus rings use the feedback surface, foreground and border colors.
+  - The dark-mode-only duplicates (`dark:text-green-400` and the like) are gone, because the design system colors already follow the color scheme.
+  - Grays and translucent black/white borders and backgrounds use the neutral roles (`ink-muted`, `muted`), and floating menus use the overlay surface.
+- 770f959: The dashboard now takes the design system's Tailwind 4 theme (`vendor/ds/theme.css`, from design-system v2026.08.5), so palette, radius, shadow, spacing, type and motion utilities resolve to the RedDB tokens instead of Tailwind's defaults.
+  
+  - Surfaces are flat: the soft shadow under every card is gone, and raised surfaces use the design system's elevation shadow.
+  - The leftover orange from the 9router palette is gone: card hover, text selection, scrollbars, glows and focus rings now use the RedDB primary color.
+  - Corners follow the design system: controls `rounded-md`, cards and modals `rounded-lg`, replacing the one-off 10px and 14px radii in the shared components.
+  - Secondary text never uses the surface color `muted`; it uses `ink-muted`.
+  - The root element sets `data-density="compact"`, so the design system's spacing tokens apply.
+- 4f9a50b: Every dashboard page now opens with the design system's page heading: breadcrumbs, one H1 title, a description, and a divider below. The top bar is the design system's shell header.
+  
+  - The title moved out of the top bar into the page. Before, the top bar carried an H1 and ten pages added a second one of their own.
+  - Usage, Skills, Translator, Proxy Pools and Add Provider drop their own headings, and their titles and descriptions move into the shared heading. Detail pages (a provider, a tool, an API key, Setup) keep their richer headings and show breadcrumbs above them.
+  - The top bar is a flat sunken bar with no glass blur. The pink Donate button is now a quiet ghost button.
+  - Toast notifications use the design system's feedback colors.
+- a69d1e1: Buttons, cards and badges now render the design system's own appearance contracts (`button`, `card` and `badge` from design-system v2026.08.5) instead of local class lists.
+  
+  - **Buttons**: the secondary button is outlined instead of filled, the ghost button is text only, and the weight is medium. Heights come from the compact density, so `sm`, `md` and `lg` differ again. On touch screens every button keeps at least a 44px target.
+  - **Danger and success buttons** use the design system's feedback colors instead of a solid red or green. Red now only ever means danger, and it is the feedback red, not the brand accent.
+  - **Loading** uses the design system's spinner and sets `aria-busy`.
+  - **Cards** sit flat on the page background with a thin border and density-based padding, and their title and subtitle use the design system's type.
+  - **Badges** are small rounded rectangles instead of pills. Status badges (success, warning, error, info) use the design system's feedback colors. The `neutral` variant, which some pages used but which had no style, now renders.
+
 ## 0.24.2
 
 ### Patch Changes
