@@ -12,6 +12,9 @@ import { DATA_DIR } from "@/lib/dataDir.js";
 export const CATALOG_FILE = path.join(DATA_DIR, "model-catalog.json");
 // Trimmed upstream catalog, read by the add-models skill (not by the router).
 export const CATALOG_RAW_FILE = path.join(DATA_DIR, "model-catalog-raw.json");
+// Per-provider browse catalog (names, dates, prices, capabilities) for the
+// dashboard's model browser. Written by the same sync; read by src/lib/modelCatalog/browse.js.
+export const CATALOG_BROWSE_FILE = path.join(DATA_DIR, "model-catalog-browse.json");
 export const CATALOG_VERSION = 2;
 
 const EMPTY = { models: {}, providers: {}, modelLimits: {} };
