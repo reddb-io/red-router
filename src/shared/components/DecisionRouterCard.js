@@ -80,7 +80,6 @@ export default function DecisionRouterCard({ provider }) {
 
   if (!config) return null;
 
-  const defaults = provider?.systemOneConfig || {};
   const models = config.models || [];
   const activeMode = MODES.find((m) => m.value === config.mode) || MODES[0];
   const activePreset = presetOf(config);
@@ -90,6 +89,8 @@ export default function DecisionRouterCard({ provider }) {
   const gatewayId = gateway?.id || config.provider;
   const conn = activeProviders.find((c) => c.provider === gatewayId);
   const connBroken = conn?.testStatus === "unavailable";
+  // Placeholders come from the gateway in use (or the page's provider, when given).
+  const defaults = provider?.systemOneConfig || gateway?.systemOneConfig || {};
 
   // Optimistic autosave, same shape as the Vision Adapter in the combos page:
   // state first, fire-and-forget PATCH after, no Save button.
