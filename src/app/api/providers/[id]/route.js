@@ -1,4 +1,5 @@
 import { syncRemoteRouterCatalog } from "@/lib/remoteRouterCatalog";
+import { RED_ROUTER_PROVIDER_ID, normalizeRedRouterBaseUrl } from "open-sse/config/redRouter.js";
 import { NextResponse } from "next/server";
 import { canSee, getRequestIdentity, getScopeFilter, normalizeOwnerInput } from "@/lib/auth/resourceScope";
 import { isScopeEnabled } from "@/lib/auth/resourceScope";
@@ -128,9 +129,9 @@ export async function PUT(request, { params }) {
       testStatus,
       lastError,
       lastErrorAt,
-      providerSpecificData,
       owner
     } = body;
+    let { providerSpecificData } = body;
 
     const existing = await getProviderConnectionById(id);
     if (!existing || !canSee(existing, await getScopeFilter())) {
@@ -165,6 +166,25 @@ export async function PUT(request, { params }) {
     const prefixUpdate = await normalizePrefixUpdate(existing, providerSpecificData);
     if (prefixUpdate.error) {
       return NextResponse.json({ error: prefixUpdate.error }, { status: 400 });
+    }
+
+    // An edited endpoint is held to the same rules as a new connection: a remote
+    // RedRouter needs an HTTP(S) URL, normalized the same way (…/v1).
+    if (providerSpecificData && Object.prototype.hasOwnProperty.call(providerSpecificData, "baseUrl")) {
+      if (existing.provider === RED_ROUTER_PROVIDER_ID) {
+        let parsedUrl;
+        try {
+          parsedUrl = new URL(providerSpecificData.baseUrl);
+        } catch {
+          return NextResponse.json({ error: "A valid remote RedRouter URL is required" }, { status: 400 });
+        }
+        if (!["http:", "https:"].includes(parsedUrl.protocol)) {
+          return NextResponse.json({ error: "Remote RedRouter URL must use HTTP or HTTPS" }, { status: 400 });
+        }
+        providerSpecificData = { ...providerSpecificData, baseUrl: normalizeRedRouterBaseUrl(providerSpecificData.baseUrl.trim()) };
+      } else if (typeof providerSpecificData.baseUrl === "string") {
+        providerSpecificData = { ...providerSpecificData, baseUrl: providerSpecificData.baseUrl.trim() };
+      }
     }
 
     const updateData = {};
@@ -215,7 +235,7 @@ export async function PUT(request, { params }) {
       }
     }
 
-    if (existing.provider === "red-router" && (updateData.apiKey || providerSpecificData?.baseUrl)) {
+    if (existing.provider === RED_ROUTER_PROVIDER_ID && (updateData.apiKey || providerSpecificData?.baseUrl)) {
       const next = { ...existing, ...updateData };
       next.providerSpecificData = { ...(next.providerSpecificData || {}), discoveredModels: [], modelsSyncedAt: null };
       const catalog = await syncRemoteRouterCatalog(next, { persist: false, force: true });

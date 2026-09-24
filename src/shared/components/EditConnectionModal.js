@@ -10,6 +10,22 @@ import { isOpenAICompatibleProvider, isAnthropicCompatibleProvider, AI_PROVIDERS
 import Select from "@/shared/components/Select";
 import { providerIdentity } from "open-sse/providers/identity.js";
 
+// Providers whose connection carries its own endpoint in providerSpecificData.baseUrl.
+const BASE_URL_FIELDS = {
+  "red-router": {
+    label: "Remote RedRouter URL",
+    placeholder: "https://router.example.com/v1",
+    hint: "Use the reachable URL of the second RedRouter. /v1 is added automatically when omitted.",
+    required: true,
+  },
+  "ollama-local": {
+    label: "Ollama Host URL",
+    placeholder: "http://localhost:11434",
+    hint: "Leave blank to use the default local Ollama host.",
+    required: false,
+  },
+};
+
 // Same rule the server applies (src/lib/connectionPrefix.js); the server has the final say.
 const MODEL_PREFIX_PATTERN = /^[a-z0-9][a-z0-9._-]*$/;
 
@@ -18,6 +34,8 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
     name: "",
     priority: 1,
     apiKey: "",
+    baseUrl: "",
+    defaultModel: "",
   });
   const [azureData, setAzureData] = useState({
     azureEndpoint: "",
@@ -59,6 +77,8 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
         name: connection.name || "",
         priority: connection.priority || 1,
         apiKey: "",
+        baseUrl: typeof connection.providerSpecificData?.baseUrl === "string" ? connection.providerSpecificData.baseUrl : "",
+        defaultModel: connection.defaultModel || "",
       });
       // Load Azure-specific data if present
       if (connection.provider === "azure" && connection.providerSpecificData) {
@@ -90,6 +110,21 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
     ? (isOpenAICompatibleProvider(connection.provider) || isAnthropicCompatibleProvider(connection.provider))
     : false;
   const providerRegions = connection ? (AI_PROVIDERS?.[connection.provider]?.regions || null) : null;
+  // Any connection that stores its own endpoint can change it, known provider or not.
+  const baseUrlField = connection
+    ? (BASE_URL_FIELDS[connection.provider]
+      || (typeof connection.providerSpecificData?.baseUrl === "string"
+        ? { label: "Base URL", placeholder: "https://api.example.com/v1", hint: "", required: true }
+        : null))
+    : null;
+  const savedBaseUrl = typeof connection?.providerSpecificData?.baseUrl === "string" ? connection.providerSpecificData.baseUrl : "";
+  const nextBaseUrl = formData.baseUrl.trim();
+  const baseUrlChanged = !!baseUrlField && nextBaseUrl !== savedBaseUrl;
+  // Compatible connections route to one default model; any connection that has one can change it.
+  const hasDefaultModel = isCompatible || !!connection?.defaultModel;
+  const nextDefaultModel = formData.defaultModel.trim();
+  const defaultModelChanged = hasDefaultModel && nextDefaultModel !== (connection?.defaultModel || "");
+  const missingRequired = (baseUrlField?.required && !nextBaseUrl) || (isCompatible && !nextDefaultModel);
   // Built-in providers only: a custom node's prefix is set on the node.
   const identity = connection ? providerIdentity(connection.provider) : null;
   const savedPrefix = identity && typeof connection?.providerSpecificData?.prefix === "string" ? connection.providerSpecificData.prefix : "";
@@ -149,6 +184,7 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
           ...(isAzure ? { providerSpecificData: azureData } : {}),
           ...(isCloudflareAi ? { providerSpecificData: cloudflareData } : {}),
           ...(providerRegions ? { providerSpecificData: buildRegionSpecificData() } : {}),
+          ...(baseUrlField ? { providerSpecificData: { ...(connection.providerSpecificData || {}), baseUrl: nextBaseUrl } } : {}),
         }),
       });
       const data = await res.json();
@@ -161,7 +197,7 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
   };
 
   const handleSubmit = async () => {
-    if (!connection) return;
+    if (!connection || missingRequired) return;
     setSaving(true);
     try {
       const nextPrefix = modelPrefix.trim();
@@ -191,6 +227,7 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
                 ...(isAzure ? { providerSpecificData: azureData } : {}),
                 ...(isCloudflareAi ? { providerSpecificData: cloudflareData } : {}),
                 ...(providerRegions ? { providerSpecificData: buildRegionSpecificData() } : {}),
+                ...(baseUrlField ? { providerSpecificData: { ...(connection.providerSpecificData || {}), baseUrl: nextBaseUrl } } : {}),
               }),
             });
             const data = await res.json();
@@ -229,6 +266,12 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
       if (prefixChanged) {
         updates.providerSpecificData = { ...(updates.providerSpecificData || {}), prefix: nextPrefix };
       }
+      // The server merges providerSpecificData, so only the changed key is sent;
+      // a new RedRouter URL also re-syncs that router's model catalog server-side.
+      if (baseUrlChanged) {
+        updates.providerSpecificData = { ...(updates.providerSpecificData || {}), baseUrl: nextBaseUrl };
+      }
+      if (defaultModelChanged) updates.defaultModel = nextDefaultModel;
 
       if (canAssignOwner) updates.owner = owner || null;
 
@@ -261,6 +304,27 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
           value={formData.priority}
           onChange={(e) => setFormData({ ...formData, priority: Number.parseInt(e.target.value, 10) || 1 })}
         />
+
+        {baseUrlField && (
+          <Input
+            label={baseUrlField.label}
+            value={formData.baseUrl}
+            onChange={(e) => setFormData({ ...formData, baseUrl: e.target.value })}
+            placeholder={baseUrlField.placeholder}
+            hint={baseUrlField.hint || undefined}
+            error={baseUrlField.required && !nextBaseUrl ? "Required" : undefined}
+          />
+        )}
+
+        {hasDefaultModel && (
+          <Input
+            label="Default Model"
+            value={formData.defaultModel}
+            onChange={(e) => setFormData({ ...formData, defaultModel: e.target.value })}
+            placeholder="gpt-4o-mini"
+            error={isCompatible && !nextDefaultModel ? "Required" : undefined}
+          />
+        )}
 
         {identity && (
           <Input
@@ -373,7 +437,7 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
         )}
 
         <div className="flex gap-2">
-          <Button onClick={handleSubmit} fullWidth disabled={saving}>{saving ? "Saving..." : "Save"}</Button>
+          <Button onClick={handleSubmit} fullWidth disabled={saving || missingRequired}>{saving ? "Saving..." : "Save"}</Button>
           <Button onClick={onClose} variant="ghost" fullWidth>Cancel</Button>
         </div>
       </div>
