@@ -47,6 +47,8 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
   const [region, setRegion] = useState("");
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState(null);
+  const [testError, setTestError] = useState("");
+  const [saveError, setSaveError] = useState("");
   const [validating, setValidating] = useState(false);
   const [validationResult, setValidationResult] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -99,6 +101,8 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
         setRegion(savedRegion);
       }
       setTestResult(null);
+      setTestError("");
+      setSaveError("");
       setValidationResult(null);
     }
   }, [connection]);
@@ -159,12 +163,21 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
     if (!connection?.provider) return;
     setTesting(true);
     setTestResult(null);
+    setTestError("");
     try {
-      const res = await fetch(`/api/providers/${connection.id}/test`, { method: "POST" });
-      const data = await res.json();
-      setTestResult(data.valid ? "success" : "failed");
-    } catch {
+      // An edited endpoint is tested as typed (with the saved key), not the saved one.
+      const res = await fetch(`/api/providers/${connection.id}/test`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(baseUrlChanged ? { providerSpecificData: { baseUrl: nextBaseUrl } } : {}),
+      });
+      const data = await res.json().catch(() => ({}));
+      const valid = res.ok && data.valid === true;
+      setTestResult(valid ? "success" : "failed");
+      if (!valid) setTestError(data.error || `Test failed (HTTP ${res.status})`);
+    } catch (error) {
       setTestResult("failed");
+      setTestError(error?.message || "Test failed");
     } finally {
       setTesting(false);
     }
@@ -275,7 +288,11 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
 
       if (canAssignOwner) updates.owner = owner || null;
 
-      await onSave(updates);
+      // onSave resolves to { error } when the server refuses the change (an
+      // unreachable RedRouter URL, an invalid one); keep the dialog open and say why.
+      setSaveError("");
+      const result = await onSave(updates);
+      if (result?.error) setSaveError(result.error);
     } finally {
       setSaving(false);
     }
@@ -434,6 +451,15 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
               </Badge>
             )}
           </div>
+        )}
+        {testError && (
+          <p className="text-xs text-feedback-danger-foreground" role="alert">{testError}</p>
+        )}
+
+        {saveError && (
+          <p className="rounded-md border border-feedback-danger-border bg-feedback-danger-surface px-3 py-2 text-sm text-feedback-danger-foreground" role="alert">
+            {saveError}
+          </p>
         )}
 
         <div className="flex gap-2">

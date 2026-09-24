@@ -20,7 +20,7 @@ import {
 } from "@/lib/oauth/constants/oauth";
 import { buildClineHeaders } from "@/shared/utils/clineAuth";
 import { SYSTEM_ONE_MODELS_ENDPOINT, SYSTEM_ONE_PROVIDER_ID } from "open-sse/config/systemOne.js";
-import { RED_ROUTER_PROVIDER_ID, redRouterEndpoint } from "open-sse/config/redRouter.js";
+import { RED_ROUTER_PROVIDER_ID, redRouterEndpoint, normalizeRedRouterBaseUrl } from "open-sse/config/redRouter.js";
 
 // OAuth provider test endpoints
 const OAUTH_TEST_CONFIG = {
@@ -859,9 +859,37 @@ case "llm7": {
 /**
  * Test a single connection by ID, update DB, and return result.
  */
-export async function testSingleConnection(id) {
-  const connection = await getProviderConnectionById(id);
-  if (!connection) return { valid: false, error: "Connection not found", latencyMs: 0, testedAt: new Date().toISOString() };
+// The rule a remote RedRouter URL is held to when created or edited.
+function invalidRedRouterUrl(value) {
+  let parsed;
+  try {
+    parsed = new URL(String(value ?? "").trim());
+  } catch {
+    return "A valid remote RedRouter URL is required";
+  }
+  if (!["http:", "https:"].includes(parsed.protocol)) return "Remote RedRouter URL must use HTTP or HTTPS";
+  return null;
+}
+
+/**
+ * Test one saved connection. With `providerSpecificData`, test the stored
+ * credentials against those unsaved values instead (the edit form's Test
+ * button) and leave the connection's saved status untouched.
+ */
+export async function testSingleConnection(id, { providerSpecificData: draft } = {}) {
+  const stored = await getProviderConnectionById(id);
+  if (!stored) return { valid: false, error: "Connection not found", latencyMs: 0, testedAt: new Date().toISOString() };
+  const isDraft = !!draft && typeof draft === "object";
+  let connection = stored;
+  if (isDraft) {
+    const next = { ...draft };
+    if (stored.provider === RED_ROUTER_PROVIDER_ID && Object.prototype.hasOwnProperty.call(next, "baseUrl")) {
+      const invalid = invalidRedRouterUrl(next.baseUrl);
+      if (invalid) return { valid: false, error: invalid, latencyMs: 0, testedAt: new Date().toISOString() };
+      next.baseUrl = normalizeRedRouterBaseUrl(String(next.baseUrl).trim());
+    }
+    connection = { ...stored, providerSpecificData: { ...(stored.providerSpecificData || {}), ...next } };
+  }
 
   const effectiveProxy = await resolveConnectionProxyConfig(connection.providerSpecificData || {});
 
@@ -869,11 +897,13 @@ export async function testSingleConnection(id) {
     const proxyResult = await testProxyUrl({ proxyUrl: effectiveProxy.connectionProxyUrl });
     if (!proxyResult.ok) {
       const proxyError = proxyResult.error || `Proxy test failed with status ${proxyResult.status}`;
-      await updateProviderConnection(id, {
-        testStatus: "error",
-        lastError: proxyError,
-        lastErrorAt: new Date().toISOString(),
-      });
+      if (!isDraft) {
+        await updateProviderConnection(id, {
+          testStatus: "error",
+          lastError: proxyError,
+          lastErrorAt: new Date().toISOString(),
+        });
+      }
       return { valid: false, error: proxyError, latencyMs: 0, testedAt: new Date().toISOString() };
     }
   }
@@ -888,6 +918,11 @@ export async function testSingleConnection(id) {
   }
 
   const latencyMs = Date.now() - start;
+
+  // A draft test reports on values that are not saved yet; the saved status stays.
+  if (isDraft) {
+    return { valid: result.valid, error: result.error, refreshed: false, latencyMs, testedAt: new Date().toISOString() };
+  }
 
   // Soft success (e.g. Grok CLI 402 spending-limit): credentials are good, account is
   // out of credits. Keep testStatus active; surface the message as lastError so the

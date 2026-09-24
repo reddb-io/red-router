@@ -12,7 +12,12 @@ export async function POST(request, { params }) {
     if (!connection || !canSee(connection, await getScopeFilter())) {
       return NextResponse.json({ error: "Connection not found" }, { status: 404 });
     }
-    const result = await testSingleConnection(id);
+    // Optional unsaved values from the edit form, tested without being stored.
+    const body = await request.json().catch(() => ({}));
+    const draft = body && typeof body.providerSpecificData === "object" && body.providerSpecificData !== null
+      ? body.providerSpecificData
+      : undefined;
+    const result = await testSingleConnection(id, { providerSpecificData: draft });
 
     if (result.error === "Connection not found") {
       return NextResponse.json({ error: "Connection not found" }, { status: 404 });
