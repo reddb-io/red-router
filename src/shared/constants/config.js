@@ -10,7 +10,6 @@ export const APP_CONFIG = {
 // GitHub configuration
 export const GITHUB_CONFIG = {
   changelogUrl: "https://raw.githubusercontent.com/ghcr.io/reddb-io/red-router/refs/heads/master/CHANGELOG.md",
-  donateUrl: "https://github.com/reddb-io/red-router/api/donate",
 };
 
 // Updater configuration

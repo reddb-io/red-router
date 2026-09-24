@@ -5,15 +5,12 @@ import PropTypes from "prop-types";
 import HeaderMenu from "@/shared/components/HeaderMenu";
 import HeaderLanguage from "@/shared/components/HeaderLanguage";
 import ThemeToggle from "@/shared/components/ThemeToggle";
-import DonateModal from "@/shared/components/DonateModal";
-import Button from "@/shared/components/Button";
 import { applicationShell } from "@/shared/ds/application-shell.variants";
 import { useHeaderSearchStore } from "@/store/headerSearchStore";
 
 export default function Header({ onMenuClick, showMenuButton = true }) {
   const [displayName, setDisplayName] = useState("");
   const [loginMethod, setLoginMethod] = useState("");
-  const [donateOpen, setDonateOpen] = useState(false);
 
   const shell = applicationShell();
 
@@ -86,14 +83,10 @@ export default function Header({ onMenuClick, showMenuButton = true }) {
           </div>
         )}
         <HeaderSearch />
-        <Button variant="ghost" size="sm" icon="volunteer_activism" onClick={() => setDonateOpen(true)} aria-label="Donate">
-          <span className="hidden sm:inline">Donate</span>
-        </Button>
         <ThemeToggle />
         <HeaderLanguage />
         <HeaderMenu onLogout={handleLogout} />
       </div>
-      <DonateModal isOpen={donateOpen} onClose={() => setDonateOpen(false)} />
     </header>
   );
 }
