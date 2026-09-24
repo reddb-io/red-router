@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import DecisionRouterCard from "@/shared/components/DecisionRouterCard";
 import ReasoningAutopilotCard from "@/shared/components/ReasoningAutopilotCard";
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors } from "@dnd-kit/core";
@@ -53,6 +53,21 @@ const STRATEGY_OPTIONS = [
   { value: "fusion", label: "Fusion — panel + judge" },
   { value: "smart", label: "Smart — Jev complexity routing" },
   { value: "auto", label: "Auto — decision model picks per turn" },
+];
+
+// One card per strategy in the page header; order follows STRATEGY_OPTIONS.
+const STRATEGY_SUMMARY = [
+  { key: "fallback", label: "Fallback", icon: "low_priority", desc: "Tries models in order; the next one runs when one fails." },
+  { key: "round-robin", label: "Round Robin", icon: "autorenew", desc: "Rotates models across requests to spread load." },
+  { key: "fusion", label: "Fusion", icon: "hub", desc: "Queries every model in parallel and a judge merges one answer. Bills N+1 calls." },
+  { key: "smart", label: "Smart", icon: "psychology", desc: "Classifies task complexity and leads with the matching tier's model." },
+  { key: "auto", label: "Auto", icon: "alt_route", desc: "A decision model picks which member leads, per turn." },
+];
+
+// Client presets: combos named like a client's built-in model IDs.
+const CLIENT_PRESETS = [
+  { source: "cursor", label: "Cursor Default", icon: "edit_note", desc: "Named like Cursor model IDs, seeded with cu/…" },
+  { source: "claude", label: "Claude Default", icon: "smart_toy", desc: "Named like Claude Code model IDs, seeded with cc/…" },
 ];
 
 export default function CombosPage() {
@@ -123,7 +138,7 @@ export default function CombosPage() {
 
       setConfirmState({
         title: `Generate ${label}`,
-        message: `Create ${toCreate} combo${toCreate === 1 ? "" : "s"} named like ${source === "cursor" ? "Cursor" : "Claude"} model IDs (seeded with cu/… or cc/…). ${toSkip} already exist and will be skipped. You can edit any combo afterward to add fallbacks.`,
+        message: `Create ${toCreate} combo${toCreate === 1 ? "" : "s"} named like ${source === "cursor" ? "Cursor" : "Claude"} model IDs (seeded with ${source === "cursor" ? "cu/…" : "cc/…"}). ${toSkip} already exist and will be skipped. You can edit any combo afterward to add fallbacks.${source === "cursor" ? " Note: Cursor often blocks built-in Composer / Grok on a custom OpenAI base URL (\"model does not support custom API\"); add them via Cursor's Add Custom Model using the combo name." : ""}`,
         confirmText: "Generate",
         variant: "primary",
         onConfirm: async () => {
@@ -391,55 +406,31 @@ export default function CombosPage() {
   return (
     <div className="flex min-w-0 flex-col gap-6 px-1 sm:px-0">
       {/* Header */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0">
-          <p className="text-sm text-text-muted mt-1">
-            Group models under one name, then pick a strategy per combo:
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="max-w-xl text-sm text-text-muted">
+            Clients call one combo name; RedRouter picks the model behind it using the combo&apos;s strategy.
           </p>
-          <ul className="text-sm text-text-muted mt-2 flex flex-col gap-1">
-            <li><span className="font-medium text-text-main">Fallback</span> — tries models in order (next on failure)</li>
-            <li><span className="font-medium text-text-main">Round Robin</span> — rotates models across requests to spread load</li>
-            <li><span className="font-medium text-text-main">Fusion</span> — queries all models in parallel, then a judge synthesizes one answer. Best quality, but costs the most: every request bills all panel models + the judge (N+1 calls)</li>
-          </ul>
-          <p className="text-xs text-text-muted mt-3 max-w-2xl">
-            <span className="font-medium text-text-main">Recommended setup</span> builds <code className="font-mono">default</code>, <code className="font-mono">fast</code> and <code className="font-mono">review</code> combos from your connected providers, with fallbacks across accounts. Run it again after connecting a provider: it updates those combos instead of duplicating them.
-          </p>
-          <p className="text-xs text-text-muted mt-2 max-w-2xl">
-            <span className="font-medium text-text-main">Cursor / Claude Default</span> create combos named exactly like those clients&apos; model IDs (e.g. <code className="font-mono">composer-2.5</code>, <code className="font-mono">opus</code>), seeded with the matching <code className="font-mono">cu/…</code> or <code className="font-mono">cc/…</code> route so traffic can hit RedRouter without the prefix.
-            {" "}Note: Cursor IDE itself often blocks built-in Composer / Grok from Override OpenAI Base URL (&quot;model does not support custom API&quot;); add them via Cursor&apos;s <span className="font-medium text-text-main">Add Custom Model</span> using the combo name, or pick a model Cursor allows through the custom endpoint.
-          </p>
-        </div>
-        <div className="flex w-full flex-col gap-2 sm:w-auto sm:items-stretch">
-          <Button icon="auto_awesome" onClick={() => setShowRecommended(true)} className="w-full sm:w-auto whitespace-nowrap">
-            Recommended setup
-          </Button>
-          <Button variant="secondary" icon="add" onClick={() => setShowCreateModal(true)} className="w-full sm:w-auto whitespace-nowrap">
-            Create Combo
-          </Button>
-          <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-col">
-            <Button
-              variant="secondary"
-              size="sm"
-              icon="edit_note"
-              loading={presetLoading === "cursor"}
-              disabled={!!presetLoading}
-              onClick={() => handleGeneratePresets("cursor")}
-              className="w-full whitespace-nowrap"
-            >
-              Cursor Default
+          <div className="grid grid-cols-1 gap-2 sm:flex sm:flex-shrink-0 sm:items-center">
+            <ClientPresetsMenu presetLoading={presetLoading} onGenerate={handleGeneratePresets} />
+            <Button variant="secondary" icon="add" onClick={() => setShowCreateModal(true)} className="whitespace-nowrap">
+              Create Combo
             </Button>
-            <Button
-              variant="secondary"
-              size="sm"
-              icon="smart_toy"
-              loading={presetLoading === "claude"}
-              disabled={!!presetLoading}
-              onClick={() => handleGeneratePresets("claude")}
-              className="w-full whitespace-nowrap"
-            >
-              Claude Default
+            <Button icon="auto_awesome" onClick={() => setShowRecommended(true)} className="whitespace-nowrap">
+              Recommended setup
             </Button>
           </div>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          {STRATEGY_SUMMARY.map((s) => (
+            <div key={s.key} className="rounded-lg border border-border bg-surface-2 px-4 py-3">
+              <div className="flex items-center gap-2 text-sm font-medium text-text-main">
+                <span className="material-symbols-outlined text-[18px] text-primary">{s.icon}</span>
+                {s.label}
+              </div>
+              <p className="mt-1 text-xs text-text-muted">{s.desc}</p>
+            </div>
+          ))}
         </div>
       </div>
 
@@ -451,15 +442,9 @@ export default function CombosPage() {
               <span className="material-symbols-outlined text-[32px]">layers</span>
             </div>
             <p className="text-text-main font-medium mb-1">No combos yet</p>
-            <p className="text-sm text-text-muted mb-4">Start from the recommended combos for your connected providers, or build one yourself</p>
-            <div className="flex flex-col justify-center gap-2 sm:flex-row">
-              <Button icon="auto_awesome" onClick={() => setShowRecommended(true)} className="w-full sm:w-auto">
-                Recommended setup
-              </Button>
-              <Button variant="secondary" icon="add" onClick={() => setShowCreateModal(true)} className="w-full sm:w-auto">
-                Create Combo
-              </Button>
-            </div>
+            <p className="text-sm text-text-muted">
+              Use <span className="font-medium text-text-main">Recommended setup</span> to build combos from your connected providers, or create one yourself.
+            </p>
           </div>
         </Card>
       ) : (
@@ -608,6 +593,9 @@ export default function CombosPage() {
         title="Recommended setup"
         size="lg"
       >
+        <p className="mb-4 text-sm text-text-muted">
+          Builds <code className="font-mono">default</code>, <code className="font-mono">fast</code> and <code className="font-mono">review</code> combos from your connected providers, with fallbacks across accounts. Run it again after connecting a provider: it updates those combos instead of duplicating them.
+        </p>
         {showRecommended ? <RecommendedSetup autoLoad onApplied={fetchData} /> : null}
       </Modal>
 
@@ -622,6 +610,60 @@ export default function CombosPage() {
         variant={confirmState?.variant || "danger"}
         loading={!!confirmState?.loading}
       />
+    </div>
+  );
+}
+
+function ClientPresetsMenu({ presetLoading, onGenerate }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const close = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    const onKey = (e) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", close);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", close);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  return (
+    <div className="relative" ref={ref}>
+      <Button
+        variant="secondary"
+        icon="devices"
+        iconRight={open ? "expand_less" : "expand_more"}
+        loading={!!presetLoading}
+        disabled={!!presetLoading}
+        onClick={() => setOpen((v) => !v)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        className="w-full whitespace-nowrap"
+      >
+        Client presets
+      </Button>
+      {open && (
+        <div role="menu" className="absolute left-0 top-full z-50 mt-1 w-72 rounded-lg border border-border bg-surface p-1 shadow-xl sm:left-auto sm:right-0">
+          {CLIENT_PRESETS.map((p) => (
+            <button
+              key={p.source}
+              type="button"
+              role="menuitem"
+              onClick={() => { setOpen(false); onGenerate(p.source); }}
+              className="flex w-full items-start gap-3 rounded-md px-3 py-2 text-left transition-colors hover:bg-surface-2"
+            >
+              <span className="material-symbols-outlined mt-0.5 text-[20px] text-text-muted">{p.icon}</span>
+              <span className="min-w-0">
+                <span className="block text-sm font-medium text-text-main">{p.label}</span>
+                <span className="block text-xs text-text-muted">{p.desc}</span>
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

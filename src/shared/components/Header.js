@@ -80,7 +80,7 @@ const getPageInfo = (pathname) => {
   if (pathname.includes("/combos"))
     return {
       title: "Combos",
-      description: "Model combos with fallback",
+      description: "One model name, several models behind it",
       icon: "layers",
       breadcrumbs: [],
     };
