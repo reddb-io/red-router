@@ -644,52 +644,6 @@ body {
 .usage-workbench { gap: var(--reddb-spacing-6); }
 .skills-workbench { gap: var(--reddb-spacing-8); }
 
-.usage-heading,
-.skills-heading {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: var(--reddb-spacing-4);
-  align-items: start;
-  border-bottom: 1px solid var(--color-border);
-  padding-block: var(--reddb-spacing-2) var(--reddb-spacing-6);
-}
-
-.usage-heading h1,
-.skills-heading h1 {
-  min-width: 0;
-  overflow-wrap: anywhere;
-  color: var(--color-text-main);
-  font-size: clamp(1.875rem, 4vw, 2.5rem);
-  font-weight: var(--reddb-font-weight-bold);
-  letter-spacing: var(--reddb-letter-spacing-tight);
-  line-height: var(--reddb-line-height-tight);
-}
-
-.usage-heading p,
-.skills-heading p {
-  max-width: 60ch;
-  margin-top: var(--reddb-spacing-2);
-  color: var(--color-text-muted);
-  font-size: var(--reddb-font-size-sm);
-  line-height: var(--reddb-line-height-relaxed);
-}
-
-.usage-context,
-.skills-heading > span {
-  display: inline-flex;
-  min-height: 2.75rem;
-  align-items: center;
-  gap: var(--reddb-spacing-2);
-  border: 1px solid var(--color-border);
-  border-radius: var(--reddb-radius-full);
-  background: var(--color-surface);
-  padding-inline: var(--reddb-spacing-4);
-  color: var(--color-text-muted);
-  font-family: var(--font-mono);
-  font-size: var(--reddb-font-size-xs);
-  white-space: nowrap;
-}
-
 .usage-command-bar {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -1000,13 +954,6 @@ body {
 
 @media (min-width: 60rem) {
   .usage-live-grid { grid-template-columns: minmax(0, 2fr) minmax(18rem, 1fr); }
-}
-
-@media (max-width: 39.999rem) {
-  .usage-heading,
-  .skills-heading { grid-template-columns: minmax(0, 1fr); }
-  .usage-context,
-  .skills-heading > span { justify-self: start; }
 }
 
 .segmented-control__button {

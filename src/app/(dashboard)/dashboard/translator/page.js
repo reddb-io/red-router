@@ -213,11 +213,7 @@ export default function TranslatorPage() {
   return (
     <div className="p-8 space-y-3">
       {/* Header */}
-      <div className="flex items-center justify-between mb-2">
-        <div>
-          <h1 className="text-2xl font-bold text-text-main">Translator Debug</h1>
-          <p className="text-sm text-text-muted mt-1">Replay request flow — matches log files</p>
-        </div>
+      <div className="flex items-center justify-end mb-2">
         {meta && (
           <div className="flex items-center gap-2 flex-wrap justify-end">
             <MetaBadge label="src" value={meta.sourceFormat} color="blue" />
