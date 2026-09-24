@@ -95,7 +95,8 @@ export async function POST(request) {
           latencyMs: data.latencyMs || 0,
           error: data.error || null,
           diagnosis: data.diagnosis || null,
-          statusCode: data.statusCode || null,
+          statusCode: data.statusCode || data.probe?.status || null,
+          probe: data.probe || null,
           testedAt: data.testedAt || new Date().toISOString(),
         });
       } catch (error) {

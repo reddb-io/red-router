@@ -71,6 +71,8 @@ describe("provider test connection surfaces why it failed (#4015)", () => {
     const body = await res.json();
 
     expect(res.status).toBe(200);
-    expect(body).toEqual({ valid: false, error: "Token invalid or revoked", refreshed: false });
+    expect(body).toMatchObject({ valid: false, error: "Token invalid or revoked", refreshed: false });
+    // A result without a trace still has the wire-detail fields, empty.
+    expect(body).toMatchObject({ latencyMs: null, probe: null, requests: [] });
   });
 });

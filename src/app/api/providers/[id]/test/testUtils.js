@@ -1,6 +1,7 @@
 import { getProviderConnectionById, updateProviderConnection } from "@/lib/localDb";
 import { resolveConnectionProxyConfig } from "@/lib/network/connectionProxy";
 import { testProxyUrl } from "@/lib/network/proxyTest";
+import { tracedFetch, runWithProbeTrace, decisiveRequest } from "./probeTrace.js";
 import { isOpenAICompatibleProvider, isAnthropicCompatibleProvider } from "@/shared/constants/providers";
 import { getDefaultModel } from "open-sse/config/providerModels.js";
 import { resolveOllamaLocalHost, PROVIDERS } from "open-sse/config/providers.js";
@@ -161,7 +162,7 @@ export function classifyOAuthProbeResult(res, config, bodyText = "") {
 }
 
 async function probeClineAccessToken(accessToken) {
-  const res = await fetch("https://api.cline.bot/api/v1/users/me", {
+  const res = await tracedFetch(fetch, "https://api.cline.bot/api/v1/users/me", {
     method: "GET",
     headers: buildClineHeaders(accessToken, {
       Accept: "application/json",
@@ -226,7 +227,7 @@ async function refreshOAuthToken(connection) {
   try {
     if (provider === "gemini-cli" || provider === "antigravity") {
       const config = provider === "gemini-cli" ? GEMINI_CONFIG : ANTIGRAVITY_CONFIG;
-      const response = await fetch("https://oauth2.googleapis.com/token", {
+      const response = await tracedFetch(fetch, "https://oauth2.googleapis.com/token", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({
@@ -246,7 +247,7 @@ async function refreshOAuthToken(connection) {
     }
 
     if (provider === "claude") {
-      const response = await fetch(CLAUDE_CONFIG.tokenUrl, {
+      const response = await tracedFetch(fetch, CLAUDE_CONFIG.tokenUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json", "Accept": "application/json" },
         body: JSON.stringify({
@@ -267,7 +268,7 @@ async function refreshOAuthToken(connection) {
       const region = psd.region || connection.region;
       if (clientId && clientSecret) {
         const endpoint = `https://oidc.${region || "us-east-1"}.amazonaws.com/token`;
-        const response = await fetch(endpoint, {
+        const response = await tracedFetch(fetch, endpoint, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ clientId, clientSecret, refreshToken, grantType: "refresh_token" }),
@@ -276,7 +277,7 @@ async function refreshOAuthToken(connection) {
         const data = await response.json();
         return { accessToken: data.accessToken, expiresIn: data.expiresIn || 3600, refreshToken: data.refreshToken || refreshToken };
       }
-      const response = await fetch(KIRO_CONFIG.socialRefreshUrl, {
+      const response = await tracedFetch(fetch, KIRO_CONFIG.socialRefreshUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json", "User-Agent": "kiro-cli/1.0.0" },
         body: JSON.stringify({ refreshToken }),
@@ -287,7 +288,7 @@ async function refreshOAuthToken(connection) {
     }
 
     if (provider === "cline") {
-      const response = await fetch(CLINE_CONFIG.refreshUrl, {
+      const response = await tracedFetch(fetch, CLINE_CONFIG.refreshUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "application/json" },
         body: JSON.stringify({
@@ -447,7 +448,12 @@ async function testOAuthConnection(connection, effectiveProxy = null) {
   }
 }
 
-async function fetchWithConnectionProxy(url, options = {}, effectiveProxy = null) {
+// Every upstream call a test makes goes through here, so the test can report it.
+function fetchWithConnectionProxy(url, options = {}, effectiveProxy = null) {
+  return tracedFetch((u, o) => fetchThroughConnectionProxy(u, o, effectiveProxy), url, options);
+}
+
+async function fetchThroughConnectionProxy(url, options = {}, effectiveProxy = null) {
   // Add a 15-second timeout to prevent connection testing from hanging indefinitely
   // and exhausting the browser/Node.js connection pools.
   if (!options.signal) {
@@ -715,12 +721,12 @@ async function testApiKeyConnection(connection, effectiveProxy = null) {
         return { valid: res.ok, error: res.ok ? null : "Invalid API key" };
       }
       case "ollama": {
-        const res = await fetch("https://ollama.com/api/tags", { headers: { Authorization: `Bearer ${connection.apiKey}` } });
+        const res = await tracedFetch(fetch, "https://ollama.com/api/tags", { headers: { Authorization: `Bearer ${connection.apiKey}` } });
         return { valid: res.ok, error: res.ok ? null : "Invalid API key" };
       }
       case "ollama-local": {
         const host = resolveOllamaLocalHost(connection);
-        const res = await fetch(`${host}/api/tags`);
+        const res = await tracedFetch(fetch, `${host}/api/tags`);
         return { valid: res.ok, error: res.ok ? null : `Ollama not reachable at ${host}` };
       }
       case "deepgram": {
@@ -911,17 +917,21 @@ export async function testSingleConnection(id, { providerSpecificData: draft } =
   const start = Date.now();
   let result;
 
-  if (connection.authType === "apikey" || connection.authType === "cookie") {
-    result = await testApiKeyConnection(connection, effectiveProxy);
-  } else {
-    result = await testOAuthConnection(connection, effectiveProxy);
-  }
+  // The trace records every upstream request the test makes (status, time, size).
+  const trace = await runWithProbeTrace(() => (
+    connection.authType === "apikey" || connection.authType === "cookie"
+      ? testApiKeyConnection(connection, effectiveProxy)
+      : testOAuthConnection(connection, effectiveProxy)
+  ));
+  result = trace.result;
+  const requests = trace.requests;
+  const probe = decisiveRequest(requests);
 
   const latencyMs = Date.now() - start;
 
   // A draft test reports on values that are not saved yet; the saved status stays.
   if (isDraft) {
-    return { valid: result.valid, error: result.error, refreshed: false, latencyMs, testedAt: new Date().toISOString() };
+    return { valid: result.valid, error: result.error, refreshed: false, latencyMs, probe, requests, testedAt: new Date().toISOString() };
   }
 
   // Soft success (e.g. Grok CLI 402 spending-limit): credentials are good, account is
@@ -959,5 +969,5 @@ export async function testSingleConnection(id, { providerSpecificData: draft } =
 
   await updateProviderConnection(id, updateData);
 
-  return { valid: result.valid, error: result.error, refreshed: !!result.refreshed, latencyMs, testedAt: new Date().toISOString() };
+  return { valid: result.valid, error: result.error, refreshed: !!result.refreshed, latencyMs, probe, requests, testedAt: new Date().toISOString() };
 }

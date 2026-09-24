@@ -10,6 +10,7 @@ import {
   Toggle,
 } from "@/shared/components";
 import ProviderIcon from "@/shared/components/ProviderIcon";
+import ConnectionTestResult from "@/shared/components/ConnectionTestResult";
 import { getProviderIconSrc } from "@/shared/utils/providerIcon";
 import { OAUTH_PROVIDERS, APIKEY_PROVIDERS } from "@/shared/constants/config";
 import {
@@ -960,35 +961,23 @@ function ProviderTestResultsView({ results }) {
       {items.map((r, i) => (
         <div
           key={r.connectionId || i}
-          className="flex min-w-0 flex-wrap items-center gap-2 rounded-lg bg-muted/50 px-3 py-2 text-xs sm:flex-nowrap"
+          className="flex min-w-0 flex-col gap-1.5 rounded-lg bg-muted/50 px-3 py-2 text-xs"
         >
-          <span
-            className={`material-symbols-outlined text-[16px] ${r.valid ? "text-feedback-success-foreground" : "text-feedback-danger-foreground"}`}
-          >
-            {r.valid ? "check_circle" : "error"}
-          </span>
-          <div className="min-w-0 flex-[1_1_160px]">
-            <span className="block truncate font-medium sm:inline">
-              {r.connectionName}
+          <div className="flex min-w-0 items-center gap-2">
+            <span
+              className={`material-symbols-outlined shrink-0 text-[16px] ${r.valid ? "text-feedback-success-foreground" : "text-feedback-danger-foreground"}`}
+            >
+              {r.valid ? "check_circle" : "error"}
             </span>
-            <span className="block truncate text-text-muted sm:ml-1.5 sm:inline">
-              ({r.provider})
-            </span>
+            <span className="min-w-0 truncate font-medium">{r.connectionName}</span>
+            <span className="min-w-0 truncate text-text-muted">({r.provider})</span>
+            {!r.valid && r.diagnosis?.type && (
+              <span className="ml-auto shrink-0 rounded bg-feedback-danger-surface px-1.5 py-0.5 text-[10px] font-bold uppercase text-feedback-danger-foreground">
+                {r.diagnosis.type}
+              </span>
+            )}
           </div>
-          {r.latencyMs !== undefined && (
-            <span className="shrink-0 text-text-muted font-mono tabular-nums">
-              {r.latencyMs}ms
-            </span>
-          )}
-          <span
-            className={`shrink-0 text-[10px] uppercase font-bold px-1.5 py-0.5 rounded ${
-              r.valid
-                ? "bg-feedback-success-surface text-feedback-success-foreground"
-                : "bg-feedback-danger-surface text-feedback-danger-foreground"
-            }`}
-          >
-            {r.valid ? "OK" : r.diagnosis?.type || "ERROR"}
-          </span>
+          <ConnectionTestResult result={r} />
         </div>
       ))}
       {items.length === 0 && (

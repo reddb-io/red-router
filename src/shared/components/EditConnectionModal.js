@@ -6,6 +6,7 @@ import Modal from "@/shared/components/Modal";
 import Input from "@/shared/components/Input";
 import Button from "@/shared/components/Button";
 import Badge from "@/shared/components/Badge";
+import ConnectionTestResult from "@/shared/components/ConnectionTestResult";
 import { isOpenAICompatibleProvider, isAnthropicCompatibleProvider, AI_PROVIDERS } from "@/shared/constants/providers";
 import Select from "@/shared/components/Select";
 import { providerIdentity } from "open-sse/providers/identity.js";
@@ -47,7 +48,6 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
   const [region, setRegion] = useState("");
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState(null);
-  const [testError, setTestError] = useState("");
   const [saveError, setSaveError] = useState("");
   const [validating, setValidating] = useState(false);
   const [validationResult, setValidationResult] = useState(null);
@@ -101,7 +101,6 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
         setRegion(savedRegion);
       }
       setTestResult(null);
-      setTestError("");
       setSaveError("");
       setValidationResult(null);
     }
@@ -163,7 +162,6 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
     if (!connection?.provider) return;
     setTesting(true);
     setTestResult(null);
-    setTestError("");
     try {
       // An edited endpoint is tested as typed (with the saved key), not the saved one.
       const res = await fetch(`/api/providers/${connection.id}/test`, {
@@ -173,11 +171,9 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
       });
       const data = await res.json().catch(() => ({}));
       const valid = res.ok && data.valid === true;
-      setTestResult(valid ? "success" : "failed");
-      if (!valid) setTestError(data.error || `Test failed (HTTP ${res.status})`);
+      setTestResult({ ...data, valid, error: valid ? null : (data.error || `Test failed (HTTP ${res.status})`) });
     } catch (error) {
-      setTestResult("failed");
-      setTestError(error?.message || "Test failed");
+      setTestResult({ valid: false, error: error?.message || "Test failed" });
     } finally {
       setTesting(false);
     }
@@ -445,16 +441,9 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
             <Button onClick={handleTest} variant="secondary" disabled={testing}>
               {testing ? "Testing..." : "Test Connection"}
             </Button>
-            {testResult && (
-              <Badge variant={testResult === "success" ? "success" : "error"}>
-                {testResult === "success" ? "Valid" : "Failed"}
-              </Badge>
-            )}
           </div>
         )}
-        {testError && (
-          <p className="text-xs text-feedback-danger-foreground" role="alert">{testError}</p>
-        )}
+        <ConnectionTestResult result={testResult} testing={testing} />
 
         {saveError && (
           <p className="rounded-md border border-feedback-danger-border bg-feedback-danger-surface px-3 py-2 text-sm text-feedback-danger-foreground" role="alert">
