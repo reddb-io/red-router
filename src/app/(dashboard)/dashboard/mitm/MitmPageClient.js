@@ -14,13 +14,6 @@ export default function MitmPageClient() {
   const [expandedTool, setExpandedTool] = useState(null);
   const [mitmStatus, setMitmStatus] = useState({ running: false, certExists: false, dnsStatus: {}, hasCachedPassword: false });
 
-  useEffect(() => {
-    fetchConnections();
-    fetchApiKeys();
-    fetchAliases();
-    fetchCloudSettings();
-  }, []);
-
   const fetchConnections = async () => {
     try {
       const res = await fetch("/api/providers");
@@ -74,11 +67,19 @@ export default function MitmPageClient() {
 
   const mitmTools = Object.entries(MITM_TOOLS);
 
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    fetchConnections();
+    fetchApiKeys();
+    fetchAliases();
+    fetchCloudSettings();
+  }, []);
+
   return (
     <div className="flex w-full flex-col gap-6">
-      <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-yellow-500/10 border border-yellow-500/30">
-        <span className="material-symbols-outlined text-[16px] text-yellow-500 mt-0.5 shrink-0">warning</span>
-        <p className="text-xs text-red-600 dark:text-yellow-400 leading-relaxed">
+      <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-[var(--reddb-color-feedback-warning-surface)] border border-[var(--reddb-color-feedback-warning-border)]">
+        <span className="material-symbols-outlined text-[16px] text-[var(--reddb-color-feedback-warning-foreground)] mt-0.5 shrink-0">warning</span>
+        <p className="text-xs text-[var(--reddb-color-feedback-danger-foreground)] text-[var(--reddb-color-feedback-warning-foreground)] leading-relaxed">
           ⚠️ MITM intercepts HTTPS traffic of IDE tools (Antigravity, GitHub Copilot, Kiro) via local CA to redirect requests to your providers. May violate ToS → account ban. Use at your own risk.
         </p>
       </div>

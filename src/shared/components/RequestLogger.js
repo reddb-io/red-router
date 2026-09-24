@@ -8,20 +8,6 @@ export default function RequestLogger() {
   const [loading, setLoading] = useState(true);
   const [autoRefresh, setAutoRefresh] = useState(true);
 
-  useEffect(() => {
-    fetchLogs();
-  }, []);
-
-  useEffect(() => {
-    let interval;
-    if (autoRefresh) {
-      interval = setInterval(() => {
-        fetchLogs(false);
-      }, 3000);
-    }
-    return () => clearInterval(interval);
-  }, [autoRefresh]);
-
   const fetchLogs = async (showLoading = true) => {
     if (showLoading) setLoading(true);
     try {
@@ -36,6 +22,21 @@ export default function RequestLogger() {
       if (showLoading) setLoading(false);
     }
   };
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    fetchLogs();
+  }, []);
+
+  useEffect(() => {
+    let interval;
+    if (autoRefresh) {
+      interval = setInterval(() => {
+        fetchLogs(false);
+      }, 3000);
+    }
+    return () => clearInterval(interval);
+  }, [autoRefresh]);
 
   return (
     <div className="flex flex-col gap-4">
@@ -58,7 +59,7 @@ export default function RequestLogger() {
         </div>
       </div>
 
-      <Card className="overflow-hidden bg-black/5 dark:bg-black/20">
+      <Card className="overflow-hidden bg-muted/50">
         <div className="p-0 overflow-x-auto max-h-[600px] overflow-y-auto font-mono text-xs">
           {loading && logs.length === 0 ? (
             <div className="p-8 text-center text-text-muted">Loading logs...</div>

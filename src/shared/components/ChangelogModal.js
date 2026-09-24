@@ -16,6 +16,7 @@ export default function ChangelogModal({ isOpen, onClose }) {
 
   useEffect(() => {
     if (!isOpen || html) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true);
     setError("");
     fetch(GITHUB_CONFIG.changelogUrl)
@@ -53,14 +54,14 @@ export default function ChangelogModal({ isOpen, onClose }) {
       {/* Modal content */}
       <div
         ref={modalRef}
-        className="relative w-full bg-surface border border-black/10 dark:border-white/10 rounded-xl shadow-2xl animate-in fade-in zoom-in-95 duration-200 max-w-3xl flex flex-col max-h-[85vh]"
+        className="relative w-full bg-surface border border-muted rounded-xl shadow-2xl animate-in fade-in zoom-in-95 duration-200 max-w-3xl flex flex-col max-h-[85vh]"
       >
         {/* Header */}
-        <div className="flex items-center justify-between p-3 border-b border-black/5 dark:border-white/5">
+        <div className="flex items-center justify-between p-3 border-b border-muted">
           <h2 className="text-lg font-semibold text-text-main">Change Log</h2>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg text-text-muted hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
+            className="p-1.5 rounded-lg text-text-muted hover:bg-muted/50 transition-colors"
             aria-label="Close"
           >
             <span className="material-symbols-outlined text-[20px]">close</span>
@@ -76,7 +77,7 @@ export default function ChangelogModal({ isOpen, onClose }) {
             </div>
           )}
           {error && (
-            <div className="text-red-500 py-4">Failed to load changelog: {error}</div>
+            <div className="text-[var(--reddb-color-feedback-danger-foreground)] py-4">Failed to load changelog: {error}</div>
           )}
           {!loading && !error && html && (
             <div

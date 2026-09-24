@@ -19,6 +19,7 @@ export default function HeaderLanguage() {
   const [locale, setLocale] = useState("en");
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLocale(getLocaleFromCookie());
   }, [open]);
 
@@ -26,7 +27,7 @@ export default function HeaderLanguage() {
     <>
       <button
         onClick={() => setOpen(true)}
-        className="flex items-center justify-center p-2 rounded-lg text-text-muted hover:text-text-main hover:bg-black/5 dark:hover:bg-white/5 transition-all"
+        className="flex items-center justify-center p-2 rounded-lg text-text-muted hover:text-text-main hover:bg-muted/50 transition-all"
         title="Language"
         data-i18n-skip="true"
       >
