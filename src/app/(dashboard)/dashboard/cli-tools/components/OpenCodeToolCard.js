@@ -235,9 +235,9 @@ export default function OpenCodeToolCard({ tool, isExpanded, onToggle, baseUrl, 
           <div className="min-w-0">
             <div className="flex min-w-0 flex-wrap items-center gap-2">
               <h3 className="font-medium text-sm">{tool.name}</h3>
-              {configStatus === "configured" && <span className="px-1.5 py-0.5 text-[10px] font-medium bg-green-500/10 text-green-600 dark:text-green-400 rounded-full">Connected</span>}
-              {configStatus === "not_configured" && <span className="px-1.5 py-0.5 text-[10px] font-medium bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 rounded-full">Not configured</span>}
-              {configStatus === "other" && <span className="px-1.5 py-0.5 text-[10px] font-medium bg-blue-500/10 text-blue-600 dark:text-blue-400 rounded-full">Other</span>}
+              {configStatus === "configured" && <span className="px-1.5 py-0.5 text-[10px] font-medium bg-[var(--reddb-color-feedback-success-surface)] text-[var(--reddb-color-feedback-success-foreground)] rounded-full">Connected</span>}
+              {configStatus === "not_configured" && <span className="px-1.5 py-0.5 text-[10px] font-medium bg-[var(--reddb-color-feedback-warning-surface)] text-[var(--reddb-color-feedback-warning-foreground)] rounded-full">Not configured</span>}
+              {configStatus === "other" && <span className="px-1.5 py-0.5 text-[10px] font-medium bg-[var(--reddb-color-feedback-info-surface)] text-[var(--reddb-color-feedback-info-foreground)] rounded-full">Other</span>}
             </div>
             <p className="text-xs text-text-muted truncate">{tool.description}</p>
           </div>
@@ -256,16 +256,16 @@ export default function OpenCodeToolCard({ tool, isExpanded, onToggle, baseUrl, 
 
           {!checking && status && !status.installed && (
             <div className="flex flex-col gap-4">
-              <div className="flex flex-col gap-3 p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
+              <div className="flex flex-col gap-3 p-4 bg-[var(--reddb-color-feedback-warning-surface)] border border-[var(--reddb-color-feedback-warning-border)] rounded-lg">
                 <div className="flex items-start gap-3">
-                  <span className="material-symbols-outlined text-yellow-500">warning</span>
+                  <span className="material-symbols-outlined text-[var(--reddb-color-feedback-warning-foreground)]">warning</span>
                   <div className="flex-1">
-                    <p className="font-medium text-yellow-600 dark:text-yellow-400">OpenCode CLI not detected locally</p>
+                    <p className="font-medium text-[var(--reddb-color-feedback-warning-foreground)]">OpenCode CLI not detected locally</p>
                     <p className="text-sm text-text-muted">Manual configuration is still available if red-router is deployed on a remote server.</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2 pl-9">
-                  <Button variant="secondary" size="sm" onClick={() => setShowManualConfigModal(true)} className="!bg-yellow-500/20 !border-yellow-500/40 !text-yellow-700 dark:!text-yellow-300 hover:!bg-yellow-500/30">
+                  <Button variant="secondary" size="sm" onClick={() => setShowManualConfigModal(true)} className="!bg-[var(--reddb-color-feedback-warning-surface)] !border-[var(--reddb-color-feedback-warning-border)] !text-[var(--reddb-color-feedback-warning-foreground)] dark:!text-[var(--reddb-color-feedback-warning-foreground)] hover:!bg-[var(--reddb-color-feedback-warning-surface)]">
                     <span className="material-symbols-outlined text-[18px] mr-1">content_copy</span>
                     Manual Config
                   </Button>
@@ -281,9 +281,9 @@ export default function OpenCodeToolCard({ tool, isExpanded, onToggle, baseUrl, 
                   <div className="space-y-3 text-sm">
                     <div>
                       <p className="text-text-muted mb-1">macOS / Linux:</p>
-                      <code className="block px-3 py-2 bg-black/5 dark:bg-white/5 rounded font-mono text-xs">npm install -g opencode-ai</code>
+                      <code className="block px-3 py-2 bg-muted/50 rounded font-mono text-xs">npm install -g opencode-ai</code>
                     </div>
-                    <p className="text-text-muted">After installation, run <code className="px-1 bg-black/5 dark:bg-white/5 rounded">opencode</code> to verify.</p>
+                    <p className="text-text-muted">After installation, run <code className="px-1 bg-muted/50 rounded">opencode</code> to verify.</p>
                   </div>
                 </div>
               )}
@@ -362,7 +362,7 @@ export default function OpenCodeToolCard({ tool, isExpanded, onToggle, baseUrl, 
                             className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs cursor-pointer transition-colors ${
                               model === activeModel
                                 ? "bg-primary/10 text-primary border border-primary"
-                                : "bg-black/5 dark:bg-white/5 text-text-muted border border-transparent hover:border-border"
+                                : "bg-muted/50 text-text-muted border border-transparent hover:border-border"
                             }`}
                             title={model === activeModel ? "Click to clear active model" : "Click to set as active"}
                           >
@@ -385,7 +385,7 @@ export default function OpenCodeToolCard({ tool, isExpanded, onToggle, baseUrl, 
                                   console.log("Error removing model:", error);
                                 }
                               }}
-                              className="ml-0.5 hover:text-red-500"
+                              className="ml-0.5 hover:text-[var(--reddb-color-feedback-danger-foreground)]"
                             >
                               <span className="material-symbols-outlined text-[12px]">close</span>
                             </button>
@@ -399,7 +399,7 @@ export default function OpenCodeToolCard({ tool, isExpanded, onToggle, baseUrl, 
                         {selectedModels.length > 0 && activeModel ? (
                           <>Active: <span className="text-primary">{activeModel}</span></>
                         ) : selectedModels.length > 0 ? (
-                          <span className="text-yellow-500">Click a model to set/clear active</span>
+                          <span className="text-[var(--reddb-color-feedback-warning-foreground)]">Click a model to set/clear active</span>
                         ) : (
                           "Select models to add"
                         )}
@@ -429,7 +429,7 @@ export default function OpenCodeToolCard({ tool, isExpanded, onToggle, baseUrl, 
                   {subagentModel && (
                     <button
                       onClick={() => setSubagentModel("")}
-                      className="p-1 text-text-muted hover:text-red-500 rounded transition-colors"
+                      className="p-1 text-text-muted hover:text-[var(--reddb-color-feedback-danger-foreground)] rounded transition-colors"
                       title="Clear (will use main model)"
                     >
                       <span className="material-symbols-outlined text-[14px]">close</span>
@@ -439,7 +439,7 @@ export default function OpenCodeToolCard({ tool, isExpanded, onToggle, baseUrl, 
               </div>
 
               {message && (
-                <div className={`flex items-center gap-2 px-2 py-1.5 rounded text-xs ${message.type === "success" ? "bg-green-500/10 text-green-600" : "bg-red-500/10 text-red-600"}`}>
+                <div className={`flex items-center gap-2 px-2 py-1.5 rounded text-xs ${message.type === "success" ? "bg-[var(--reddb-color-feedback-success-surface)] text-[var(--reddb-color-feedback-success-foreground)]" : "bg-[var(--reddb-color-feedback-danger-surface)] text-[var(--reddb-color-feedback-danger-foreground)]"}`}>
                   <span className="material-symbols-outlined text-[14px]">{message.type === "success" ? "check_circle" : "error"}</span>
                   <span>{message.text}</span>
                 </div>

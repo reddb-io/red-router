@@ -263,9 +263,9 @@ export default function CoworkToolCard({
           <div className="min-w-0">
             <div className="flex min-w-0 flex-wrap items-center gap-2">
               <h3 className="font-medium text-sm">{tool.name}</h3>
-              {configStatus === "configured" && <span className="px-1.5 py-0.5 text-[10px] font-medium bg-green-500/10 text-green-600 dark:text-green-400 rounded-full">Connected</span>}
-              {configStatus === "not_configured" && <span className="px-1.5 py-0.5 text-[10px] font-medium bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 rounded-full">Not configured</span>}
-              {configStatus === "other" && <span className="px-1.5 py-0.5 text-[10px] font-medium bg-blue-500/10 text-blue-600 dark:text-blue-400 rounded-full">Other</span>}
+              {configStatus === "configured" && <span className="px-1.5 py-0.5 text-[10px] font-medium bg-[var(--reddb-color-feedback-success-surface)] text-[var(--reddb-color-feedback-success-foreground)] rounded-full">Connected</span>}
+              {configStatus === "not_configured" && <span className="px-1.5 py-0.5 text-[10px] font-medium bg-[var(--reddb-color-feedback-warning-surface)] text-[var(--reddb-color-feedback-warning-foreground)] rounded-full">Not configured</span>}
+              {configStatus === "other" && <span className="px-1.5 py-0.5 text-[10px] font-medium bg-[var(--reddb-color-feedback-info-surface)] text-[var(--reddb-color-feedback-info-foreground)] rounded-full">Other</span>}
             </div>
             <p className="text-xs text-text-muted truncate">{tool.description}</p>
           </div>
@@ -283,16 +283,16 @@ export default function CoworkToolCard({
           )}
 
           {!checking && status && !status.installed && (
-            <div className="flex flex-col gap-3 p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
+            <div className="flex flex-col gap-3 p-4 bg-[var(--reddb-color-feedback-warning-surface)] border border-[var(--reddb-color-feedback-warning-border)] rounded-lg">
               <div className="flex items-start gap-3">
-                <span className="material-symbols-outlined text-yellow-500">warning</span>
+                <span className="material-symbols-outlined text-[var(--reddb-color-feedback-warning-foreground)]">warning</span>
                 <div className="flex-1">
-                  <p className="font-medium text-yellow-600 dark:text-yellow-400">Claude Desktop (Cowork mode) not detected</p>
+                  <p className="font-medium text-[var(--reddb-color-feedback-warning-foreground)]">Claude Desktop (Cowork mode) not detected</p>
                   <p className="text-sm text-text-muted">Open Claude Desktop → Help → Troubleshooting → Enable Developer mode → Configure third-party inference, then return here.</p>
                 </div>
               </div>
               <div className="pl-9">
-                <Button variant="secondary" size="sm" onClick={() => setShowManualConfigModal(true)} className="!bg-yellow-500/20 !border-yellow-500/40 !text-yellow-700 dark:!text-yellow-300 hover:!bg-yellow-500/30">
+                <Button variant="secondary" size="sm" onClick={() => setShowManualConfigModal(true)} className="!bg-[var(--reddb-color-feedback-warning-surface)] !border-[var(--reddb-color-feedback-warning-border)] !text-[var(--reddb-color-feedback-warning-foreground)] dark:!text-[var(--reddb-color-feedback-warning-foreground)] hover:!bg-[var(--reddb-color-feedback-warning-surface)]">
                   <span className="material-symbols-outlined text-[18px] mr-1">content_copy</span>
                   Manual Config
                 </Button>
@@ -344,9 +344,9 @@ export default function CoworkToolCard({
                         <span className="text-xs text-text-muted">No models selected</span>
                       ) : (
                         selectedModels.map((m) => (
-                          <span key={m} className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-black/5 dark:bg-white/5 text-text-muted border border-transparent hover:border-border">
+                          <span key={m} className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-muted/50 text-text-muted border border-transparent hover:border-border">
                             {m}
-                            <button onClick={() => handleRemoveModel(m)} className="ml-0.5 hover:text-red-500">
+                            <button onClick={() => handleRemoveModel(m)} className="ml-0.5 hover:text-[var(--reddb-color-feedback-danger-foreground)]">
                               <span className="material-symbols-outlined text-[12px]">close</span>
                             </button>
                           </span>
@@ -365,16 +365,16 @@ export default function CoworkToolCard({
                     {plugins.filter((p) => p.name !== "exa").map((p) => (
                       <div key={p.name} className="flex items-center gap-2 px-2 py-1 bg-surface rounded border border-border">
                         <span className="text-xs font-medium min-w-0 truncate flex-shrink-0">{p.title || p.name}</span>
-                        {p.oauth && <span className="text-[8px] text-amber-600 shrink-0">OAuth</span>}
+                        {p.oauth && <span className="text-[8px] text-[var(--reddb-color-feedback-warning-foreground)] shrink-0">OAuth</span>}
                         <div className="flex-1 flex flex-wrap gap-1 overflow-hidden" style={{ maxHeight: "1.5rem" }}>
                           {Array.isArray(p.toolNames) && p.toolNames.slice(0, 6).map((t) => (
-                            <span key={t} className="text-[9px] px-1 py-0.5 rounded bg-black/5 dark:bg-white/5 text-text-muted whitespace-nowrap">{t}</span>
+                            <span key={t} className="text-[9px] px-1 py-0.5 rounded bg-muted/50 text-text-muted whitespace-nowrap">{t}</span>
                           ))}
                           {Array.isArray(p.toolNames) && p.toolNames.length > 6 && (
-                            <span className="text-[9px] px-1 py-0.5 rounded bg-black/5 dark:bg-white/5 text-text-muted whitespace-nowrap">+{p.toolNames.length - 6}</span>
+                            <span className="text-[9px] px-1 py-0.5 rounded bg-muted/50 text-text-muted whitespace-nowrap">+{p.toolNames.length - 6}</span>
                           )}
                         </div>
-                        <button onClick={() => removePlugin(p.name)} className="shrink-0 hover:text-red-500 ml-auto">
+                        <button onClick={() => removePlugin(p.name)} className="shrink-0 hover:text-[var(--reddb-color-feedback-danger-foreground)] ml-auto">
                           <span className="material-symbols-outlined text-[12px]">close</span>
                         </button>
                       </div>
@@ -383,9 +383,9 @@ export default function CoworkToolCard({
                     {customPlugins.map((p) => (
                       <div key={p.name} className="flex items-center gap-2 px-2 py-1 bg-surface rounded border border-border">
                         <span className="text-xs font-medium min-w-0 truncate flex-shrink-0">{p.name}</span>
-                        <span className="text-[8px] px-1 py-0.5 rounded bg-blue-500/10 text-blue-500 shrink-0">custom</span>
+                        <span className="text-[8px] px-1 py-0.5 rounded bg-[var(--reddb-color-feedback-info-surface)] text-[var(--reddb-color-feedback-info-foreground)] shrink-0">custom</span>
                         <span className="flex-1 text-[9px] text-text-muted truncate">{p.url}</span>
-                        <button onClick={() => setCustomPlugins(customPlugins.filter((x) => x.name !== p.name))} className="shrink-0 hover:text-red-500 ml-auto">
+                        <button onClick={() => setCustomPlugins(customPlugins.filter((x) => x.name !== p.name))} className="shrink-0 hover:text-[var(--reddb-color-feedback-danger-foreground)] ml-auto">
                           <span className="material-symbols-outlined text-[12px]">close</span>
                         </button>
                       </div>
@@ -475,7 +475,7 @@ export default function CoworkToolCard({
                               <div className="flex-1 min-w-0">
                                 <div className="flex flex-wrap items-center gap-1.5">
                                   <span className="text-xs font-medium">{p.title}</span>
-                                  <span className="text-[8px] text-amber-600">stdio</span>
+                                  <span className="text-[8px] text-[var(--reddb-color-feedback-warning-foreground)]">stdio</span>
                                 </div>
                                 <p className="text-[10px] text-text-muted leading-snug">{p.description}</p>
                                 {p.extensionUrl && (
@@ -487,7 +487,7 @@ export default function CoworkToolCard({
                         })}
                       </div>
                       <p className="text-[10px] text-text-muted leading-snug">
-                        ⚠️ Local plugins run as subprocess via <code className="px-1 py-0.5 rounded bg-black/5 dark:bg-white/5">npx</code>. Requires Node.js installed.
+                        ⚠️ Local plugins run as subprocess via <code className="px-1 py-0.5 rounded bg-muted/50">npx</code>. Requires Node.js installed.
                       </p>
                     </div>
                   </div>
@@ -495,7 +495,7 @@ export default function CoworkToolCard({
               </div>
 
               {message && (
-                <div className={`flex items-center gap-2 px-2 py-1.5 rounded text-xs ${message.type === "success" ? "bg-green-500/10 text-green-600" : "bg-red-500/10 text-red-600"}`}>
+                <div className={`flex items-center gap-2 px-2 py-1.5 rounded text-xs ${message.type === "success" ? "bg-[var(--reddb-color-feedback-success-surface)] text-[var(--reddb-color-feedback-success-foreground)]" : "bg-[var(--reddb-color-feedback-danger-surface)] text-[var(--reddb-color-feedback-danger-foreground)]"}`}>
                   <span className="material-symbols-outlined text-[14px]">{message.type === "success" ? "check_circle" : "error"}</span>
                   <span>{message.text}</span>
                 </div>

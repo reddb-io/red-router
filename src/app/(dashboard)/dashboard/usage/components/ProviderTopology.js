@@ -101,7 +101,7 @@ function RouterNode({ data }) {
     <div
       className={`relative z-[1] flex items-center justify-center px-5 py-3 rounded-xl border-2 min-w-[130px] ${
         powering
-          ? "topology-router-core border-yellow-300 bg-gradient-to-br from-primary/30 via-yellow-400/20 to-cyan-400/25"
+          ? "topology-router-core border-[var(--reddb-color-feedback-warning-border)] bg-gradient-to-br from-primary/30 via-yellow-400/20 to-cyan-400/25"
           : "border-primary bg-primary/5 shadow-md"
       }`}
     >
@@ -117,7 +117,7 @@ function RouterNode({ data }) {
         loading="lazy"
         decoding="async"
       />
-      <span className={`text-sm font-bold ${powering ? "topology-router-label text-yellow-300" : "text-primary"}`}>
+      <span className={`text-sm font-bold ${powering ? "topology-router-label text-[var(--reddb-color-feedback-warning-foreground)]" : "text-primary"}`}>
         RedRouter
       </span>
       {data.activeCount > 0 && (
