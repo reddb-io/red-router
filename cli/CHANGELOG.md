@@ -1,5 +1,21 @@
 # @reddb-io/red-router
 
+## 0.24.1
+
+### Patch Changes
+
+- eaf3786: Dark mode: fixed the bright white lines around cards, sections and the sidebar. The design system defines `border-subtle` only as a light-scheme color (neutral-200, almost white). The dashboard used it in dark mode too. It now uses the dark base border, softened. Borders with no color class also follow the design system now, instead of Tailwind v4's default `currentColor`, which is white in dark mode.
+- ad106d8: The dashboard now shows and saves readable model ids (`codex/gpt-5.5`, `opencode-go/glm-5.3-flash`, `claude-code/claude-opus-5`) instead of short codes (`cx/`, `ocg/`, `cc/`). `/v1/models` already listed them this way.
+  
+  Where it changes:
+  - the provider page: the copy button, and the alias target;
+  - the model picker for combos, CLI tools and the decision router;
+  - the combos list;
+  - the media and tools cards and their examples;
+  - the defaults and examples for CLI tools and API key policies.
+  
+  Saved references in either form keep working: short codes still route, and the picker recognizes `cx/x` and `codex/x` as the same model. When you edit a combo, its members switch to the readable form. Custom models, aliases and disabled models keep their internal storage key, so no data migration is needed.
+
 ## 0.24.0
 
 ### Minor Changes
