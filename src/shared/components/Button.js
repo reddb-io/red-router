@@ -1,20 +1,23 @@
 "use client";
 
-import { cn } from "@/shared/utils/cn";
+import { button, buttonSpinner } from "@/shared/ds/button.variants";
 
-const variants = {
-  primary: "bg-brand-500 hover:bg-brand-600 text-white shadow-sm disabled:bg-surface-3 disabled:text-text-muted",
-  secondary: "bg-surface-2 hover:bg-surface-3 text-text-main border border-border disabled:opacity-50",
-  outline: "border border-border text-text-main hover:bg-surface-2 hover:border-brand-500/40",
-  ghost: "text-text-muted hover:bg-surface-2 hover:text-text-main",
-  danger: "bg-red-500 hover:bg-red-600 text-white shadow-sm disabled:bg-surface-3 disabled:text-text-muted",
-  success: "bg-green-600 hover:bg-green-700 text-white shadow-sm disabled:bg-surface-3 disabled:text-text-muted",
+// The dashboard's variant names mapped onto the DS Button contract: the DS has
+// three appearances (primary / secondary / ghost) and a separate intent axis for
+// feedback colors, so danger and success are primary with that intent.
+const VARIANTS = {
+  primary: { variant: "primary", intent: "neutral" },
+  secondary: { variant: "secondary", intent: "neutral" },
+  outline: { variant: "secondary", intent: "neutral" },
+  ghost: { variant: "ghost", intent: "neutral" },
+  danger: { variant: "primary", intent: "danger" },
+  success: { variant: "primary", intent: "success" },
 };
 
-const sizes = {
-  sm: "min-h-11 px-3 text-xs rounded-md",
-  md: "min-h-11 px-4 text-sm rounded-md",
-  lg: "min-h-12 px-6 text-sm rounded-md",
+const ICON_SIZES = {
+  sm: "text-[length:var(--reddb-spatial-icon-size-sm)]",
+  md: "text-[length:var(--reddb-spatial-icon-size-md)]",
+  lg: "text-[length:var(--reddb-spatial-icon-size-lg)]",
 };
 
 export default function Button({
@@ -29,27 +32,38 @@ export default function Button({
   className,
   ...props
 }) {
+  const appearance = VARIANTS[variant] || VARIANTS.primary;
+  const iconClass = `material-symbols-outlined leading-none ${ICON_SIZES[size] || ICON_SIZES.md}`;
+  const spinner = buttonSpinner({ size });
+  // An icon-only button is named by its ligature text until icons move to a
+  // labelled wrapper, so the glyph is hidden from assistive tech only beside text.
+  const iconHidden = children ? "true" : undefined;
+
   return (
     <button
-      className={cn(
-        "inline-flex items-center justify-center gap-2 font-semibold transition-[background-color,border-color,color,opacity,transform] duration-150 ease-out cursor-pointer",
-        "active:translate-y-px disabled:opacity-50 disabled:cursor-not-allowed disabled:active:translate-y-0",
-        variants[variant],
-        sizes[size],
-        fullWidth && "w-full",
-        className
-      )}
+      className={button({
+        ...appearance,
+        size,
+        block: fullWidth,
+        // DS heights under compact density are below 44px; design.md keeps 44px
+        // targets for touch, so coarse pointers get the minimum height.
+        class: ["cursor-pointer pointer-coarse:min-h-11", className],
+      })}
       disabled={disabled || loading}
+      aria-busy={loading ? "true" : undefined}
       {...props}
     >
       {loading ? (
-        <span className="material-symbols-outlined animate-spin text-[18px]">progress_activity</span>
+        <svg className={spinner.root()} viewBox="0 0 24 24" aria-hidden="true">
+          <circle className={spinner.track()} cx="12" cy="12" r="9" strokeWidth="3" />
+          <path className={spinner.head()} d="M21 12a9 9 0 0 0-9-9" strokeWidth="3" strokeLinecap="round" />
+        </svg>
       ) : icon ? (
-        <span className="material-symbols-outlined text-[18px]">{icon}</span>
+        <span className={iconClass} aria-hidden={iconHidden}>{icon}</span>
       ) : null}
       {children}
       {iconRight && !loading && (
-        <span className="material-symbols-outlined text-[18px]">{iconRight}</span>
+        <span className={iconClass} aria-hidden={iconHidden}>{iconRight}</span>
       )}
     </button>
   );
