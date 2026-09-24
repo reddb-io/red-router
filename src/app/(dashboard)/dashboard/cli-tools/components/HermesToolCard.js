@@ -52,20 +52,15 @@ export default function HermesToolCard({
 
   useEffect(() => {
     if (apiKeys?.length > 0 && !selectedApiKey) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSelectedApiKey(apiKeys[0].key);
     }
   }, [apiKeys, selectedApiKey]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (initialStatus) setHermesStatus(initialStatus);
   }, [initialStatus]);
-
-  useEffect(() => {
-    if (isExpanded) {
-      if (!hermesStatus) checkStatus();
-      fetchModelAliases();
-    }
-  }, [isExpanded]);
 
   const fetchModelAliases = async () => {
     try {
@@ -81,6 +76,7 @@ export default function HermesToolCard({
     if (hermesStatus?.installed && !hasInitializedModel.current) {
       hasInitializedModel.current = true;
       const cfg = hermesStatus.settings?.model;
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       if (cfg?.default) setSelectedModel(cfg.default);
     }
   }, [hermesStatus]);
@@ -183,6 +179,14 @@ export default function HermesToolCard({
       { filename: "~/.hermes/.env", content: envContent },
     ];
   };
+
+  useEffect(() => {
+    if (isExpanded) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      if (!hermesStatus) checkStatus();
+      fetchModelAliases();
+    }
+  }, [isExpanded]);
 
   return (
     <Card padding="xs" className="overflow-hidden">

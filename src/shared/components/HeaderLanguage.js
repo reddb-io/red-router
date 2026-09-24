@@ -19,6 +19,7 @@ export default function HeaderLanguage() {
   const [locale, setLocale] = useState("en");
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLocale(getLocaleFromCookie());
   }, [open]);
 

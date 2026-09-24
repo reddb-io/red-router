@@ -13,6 +13,7 @@ export default function DonateModal({ isOpen, onClose }) {
 
   useEffect(() => {
     if (!isOpen || data) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true);
     setError("");
     fetch(GITHUB_CONFIG.donateUrl, { cache: "no-store" })

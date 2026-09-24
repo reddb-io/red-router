@@ -53,17 +53,15 @@ export default function CoworkToolCard({
 
   useEffect(() => {
     if (apiKeys?.length > 0 && !selectedApiKey) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSelectedApiKey(apiKeys[0].key);
     }
   }, [apiKeys, selectedApiKey]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (initialStatus) setStatus(initialStatus);
   }, [initialStatus]);
-
-  useEffect(() => {
-    if (isExpanded && !status) checkStatus();
-  }, [isExpanded]);
 
   useEffect(() => {
     if (!isExpanded) return;
@@ -77,6 +75,7 @@ export default function CoworkToolCard({
 
   useEffect(() => {
     if (status?.cowork?.models?.length) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSelectedModels(status.cowork.models);
     }
     if (status?.cowork?.baseUrl && !customBaseUrl) {
@@ -248,6 +247,11 @@ export default function CoworkToolCard({
       content: JSON.stringify(cfg, null, 2),
     }];
   };
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (isExpanded && !status) checkStatus();
+  }, [isExpanded]);
 
   return (
     <Card padding="xs" className="overflow-hidden">

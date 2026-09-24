@@ -76,6 +76,7 @@ export default function BaseUrlSelect({
       });
     };
     sync();
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setPresetsLoaded(true);
     return subscribePresets(sync);
   }, []);
@@ -96,6 +97,7 @@ export default function BaseUrlSelect({
       : null;
     const target = matched || options.find((o) => o.value !== CUSTOM_VALUE);
     if (target) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setMode(target.value);
       onChange(target.url);
     } else {

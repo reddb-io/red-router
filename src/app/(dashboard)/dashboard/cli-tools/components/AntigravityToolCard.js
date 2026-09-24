@@ -29,20 +29,15 @@ export default function AntigravityToolCard({
 
   useEffect(() => {
     if (apiKeys?.length > 0 && !selectedApiKey) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSelectedApiKey(apiKeys[0].key);
     }
   }, [apiKeys, selectedApiKey]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (initialStatus) setStatus(initialStatus);
   }, [initialStatus]);
-
-  useEffect(() => {
-    if (!isExpanded) return;
-    if (!status) fetchStatus();
-    loadSavedMappings();
-    fetchModelAliases();
-  }, [isExpanded]);
 
   const loadSavedMappings = async () => {
     try {
@@ -224,6 +219,14 @@ export default function AntigravityToolCard({
   };
 
   const isRunning = status?.running;
+
+  useEffect(() => {
+    if (!isExpanded) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (!status) fetchStatus();
+    loadSavedMappings();
+    fetchModelAliases();
+  }, [isExpanded]);
 
   return (
     <Card padding="xs" className="overflow-hidden">

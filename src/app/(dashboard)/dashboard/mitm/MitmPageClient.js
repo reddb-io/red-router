@@ -14,13 +14,6 @@ export default function MitmPageClient() {
   const [expandedTool, setExpandedTool] = useState(null);
   const [mitmStatus, setMitmStatus] = useState({ running: false, certExists: false, dnsStatus: {}, hasCachedPassword: false });
 
-  useEffect(() => {
-    fetchConnections();
-    fetchApiKeys();
-    fetchAliases();
-    fetchCloudSettings();
-  }, []);
-
   const fetchConnections = async () => {
     try {
       const res = await fetch("/api/providers");
@@ -73,6 +66,14 @@ export default function MitmPageClient() {
   };
 
   const mitmTools = Object.entries(MITM_TOOLS);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    fetchConnections();
+    fetchApiKeys();
+    fetchAliases();
+    fetchCloudSettings();
+  }, []);
 
   return (
     <div className="flex w-full flex-col gap-6">

@@ -8,12 +8,6 @@ export default function PricingModal({ isOpen, onClose, onSave }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
-    if (isOpen) {
-      loadPricing();
-    }
-  }, [isOpen]);
-
   const loadPricing = async () => {
     setLoading(true);
     try {
@@ -86,6 +80,13 @@ export default function PricingModal({ isOpen, onClose, onSave }) {
       alert("Failed to reset pricing");
     }
   };
+
+  useEffect(() => {
+    if (isOpen) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      loadPricing();
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 

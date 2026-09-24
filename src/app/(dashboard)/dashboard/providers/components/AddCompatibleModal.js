@@ -53,6 +53,7 @@ function AddCompatibleModal({ variant, isOpen, onClose, onCreated }) {
   // openai: reset baseUrl when apiType changes; anthropic: reset checks when opened
   useEffect(() => {
     if (config.hasApiType) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setFormData((prev) => ({ ...prev, baseUrl: config.defaultBaseUrl }));
     } else if (isOpen) {
       setValidationResult(null);

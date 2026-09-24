@@ -33,24 +33,20 @@ export default function OpenCodeToolCard({ tool, isExpanded, onToggle, baseUrl, 
 
   useEffect(() => {
     if (apiKeys?.length > 0 && !selectedApiKey) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSelectedApiKey(apiKeys[0].key);
     }
   }, [apiKeys, selectedApiKey]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (initialStatus) setStatus(initialStatus);
   }, [initialStatus]);
-
-  useEffect(() => {
-    if (isExpanded) {
-      if (!status) checkStatus();
-      fetchModelAliases();
-    }
-  }, [isExpanded]);
 
   // Sync models from existing config
   useEffect(() => {
     if (status?.opencode?.models) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSelectedModels(status.opencode.models);
     }
     if (status?.opencode?.activeModel) {
@@ -220,6 +216,14 @@ export default function OpenCodeToolCard({ tool, isExpanded, onToggle, baseUrl, 
       }, null, 2),
     }];
   };
+
+  useEffect(() => {
+    if (isExpanded) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      if (!status) checkStatus();
+      fetchModelAliases();
+    }
+  }, [isExpanded]);
 
   return (
     <Card padding="xs" className="overflow-hidden">

@@ -23,21 +23,17 @@ export default function ClineToolCard({ tool, isExpanded, onToggle, baseUrl, api
   const [customBaseUrl, setCustomBaseUrl] = useState("");
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (apiKeys?.length > 0 && !selectedApiKey) setSelectedApiKey(apiKeys[0].key);
   }, [apiKeys, selectedApiKey]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (initialStatus) setStatus(initialStatus);
   }, [initialStatus]);
 
   useEffect(() => {
-    if (isExpanded) {
-      if (!status) checkStatus();
-      fetchModelAliases();
-    }
-  }, [isExpanded]);
-
-  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (status?.settings?.openAiModelId) setSelectedModel(status.settings.openAiModelId);
   }, [status]);
 
@@ -155,6 +151,14 @@ export default function ClineToolCard({ tool, isExpanded, onToggle, baseUrl, api
       },
     ];
   };
+
+  useEffect(() => {
+    if (isExpanded) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      if (!status) checkStatus();
+      fetchModelAliases();
+    }
+  }, [isExpanded]);
 
   return (
     <Card padding="xs" className="overflow-hidden">

@@ -51,20 +51,15 @@ export default function OpenClawToolCard({
 
   useEffect(() => {
     if (apiKeys?.length > 0 && !selectedApiKey) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSelectedApiKey(apiKeys[0].key);
     }
   }, [apiKeys, selectedApiKey]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (initialStatus) setOpenclawStatus(initialStatus);
   }, [initialStatus]);
-
-  useEffect(() => {
-    if (isExpanded) {
-      if (!openclawStatus) checkOpenclawStatus();
-      fetchModelAliases();
-    }
-  }, [isExpanded]);
 
   const fetchModelAliases = async () => {
     try {
@@ -82,6 +77,7 @@ export default function OpenClawToolCard({
       const provider = openclawStatus.settings?.models?.providers?.["red-router"];
       if (provider) {
         const primaryModel = openclawStatus.settings?.agents?.defaults?.model?.primary;
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         if (primaryModel) setSelectedModel(primaryModel.replace("red-router/", ""));
         if (provider.apiKey && apiKeys?.some(k => k.key === provider.apiKey)) {
           setSelectedApiKey(provider.apiKey);
@@ -231,6 +227,14 @@ export default function OpenClawToolCard({
       },
     ];
   };
+
+  useEffect(() => {
+    if (isExpanded) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      if (!openclawStatus) checkOpenclawStatus();
+      fetchModelAliases();
+    }
+  }, [isExpanded]);
 
   return (
     <Card padding="xs" className="overflow-hidden">

@@ -22,6 +22,7 @@ export default function AddCustomEmbeddingModal({ isOpen, onClose, onCreated, on
 
   useEffect(() => {
     if (!isOpen) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setValidationResult(null);
     setCheckKey("");
     setCheckModelId("");

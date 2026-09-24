@@ -54,20 +54,15 @@ export default function DroidToolCard({
 
   useEffect(() => {
     if (apiKeys?.length > 0 && !selectedApiKey) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSelectedApiKey(apiKeys[0].key);
     }
   }, [apiKeys, selectedApiKey]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (initialStatus) setDroidStatus(initialStatus);
   }, [initialStatus]);
-
-  useEffect(() => {
-    if (isExpanded) {
-      if (!droidStatus) checkDroidStatus();
-      fetchModelAliases();
-    }
-  }, [isExpanded]);
 
   const fetchModelAliases = async () => {
     try {
@@ -88,6 +83,7 @@ export default function DroidToolCard({
         .sort((a, b) => (a.index || 0) - (b.index || 0))
         .map(m => m.model);
       if (existingModels.length > 0) {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setModelList(existingModels);
       } else {
         // Legacy: single model stored as custom:RedRouter-0
@@ -223,6 +219,14 @@ export default function DroidToolCard({
       },
     ];
   };
+
+  useEffect(() => {
+    if (isExpanded) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      if (!droidStatus) checkDroidStatus();
+      fetchModelAliases();
+    }
+  }, [isExpanded]);
 
   return (
     <Card padding="xs" className="overflow-hidden">

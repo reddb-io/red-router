@@ -389,10 +389,12 @@ export default function ProviderTopology({ providers = [], activeRequests = [], 
   }, [rawActiveSet]);
 
   const activeSet = useMemo(() => {
+    // eslint-disable-next-line react-hooks/purity -- time-based memo: Date.now() is the point, tick re-runs it
     const now = Date.now();
     const filtered = new Set();
     for (const p of rawActiveSet) {
       const ts = firstSeenRef.current[p];
+      // eslint-disable-next-line react-hooks/refs -- time-based memo: firstSeenRef is read on purpose, tick re-runs it
       if (!ts || now - ts < FE_ACTIVE_TIMEOUT_MS) filtered.add(p);
     }
     return filtered;

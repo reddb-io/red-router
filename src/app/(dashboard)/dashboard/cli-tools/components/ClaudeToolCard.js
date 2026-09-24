@@ -93,12 +93,14 @@ export default function ClaudeToolCard({
 
   useEffect(() => {
     if (apiKeys?.length > 0 && !selectedApiKey) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSelectedApiKey(apiKeys[0].key);
     }
   }, [apiKeys, selectedApiKey]);
 
   useEffect(() => {
     if (initialStatus) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setClaudeStatus(initialStatus);
       setExaMcpEnabled(!!initialStatus.exaMcpEnabled);
     }
@@ -106,21 +108,16 @@ export default function ClaudeToolCard({
 
   useEffect(() => {
     const v = claudeStatus?.settings?.env?.CLAUDE_CODE_AUTO_COMPACT_WINDOW;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setAutoCompactWindow(v || "");
   }, [claudeStatus?.settings?.env?.CLAUDE_CODE_AUTO_COMPACT_WINDOW]);
 
   useEffect(() => {
     const env = claudeStatus?.settings?.env;
     if (!env) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setOneMContext(tool.defaultModels.some((model) => env[model.envKey]?.endsWith("[1m]")));
   }, [claudeStatus?.settings?.env, tool.defaultModels]);
-
-  useEffect(() => {
-    if (isExpanded) {
-      if (!claudeStatus) checkClaudeStatus();
-      fetchModelAliases();
-    }
-  }, [isExpanded]);
 
   useEffect(() => {
     fetch("/api/settings").then(r => r.json()).then(data => {
@@ -167,6 +164,7 @@ export default function ClaudeToolCard({
       // Restore key from settings.json; ApiKeySelect matches it against saved presets
       const tokenFromFile = env.ANTHROPIC_AUTH_TOKEN;
       if (tokenFromFile) {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setSelectedApiKey(tokenFromFile);
       }
     }
@@ -294,6 +292,14 @@ export default function ClaudeToolCard({
       },
     ];
   };
+
+  useEffect(() => {
+    if (isExpanded) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      if (!claudeStatus) checkClaudeStatus();
+      fetchModelAliases();
+    }
+  }, [isExpanded]);
 
   return (
     <Card padding="xs" className="overflow-hidden">

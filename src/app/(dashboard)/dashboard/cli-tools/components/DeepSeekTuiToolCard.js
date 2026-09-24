@@ -52,20 +52,15 @@ export default function DeepSeekTuiToolCard({
 
   useEffect(() => {
     if (apiKeys?.length > 0 && !selectedApiKey) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSelectedApiKey(apiKeys[0].key);
     }
   }, [apiKeys, selectedApiKey]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (initialStatus) setDeepseekStatus(initialStatus);
   }, [initialStatus]);
-
-  useEffect(() => {
-    if (isExpanded) {
-      if (!deepseekStatus) checkStatus();
-      fetchModelAliases();
-    }
-  }, [isExpanded]);
 
   const fetchModelAliases = async () => {
     try {
@@ -81,6 +76,7 @@ export default function DeepSeekTuiToolCard({
     if (deepseekStatus?.installed && !hasInitializedModel.current) {
       hasInitializedModel.current = true;
       const openaiSection = deepseekStatus.settings?.["providers.openai"];
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       if (openaiSection?.model) setSelectedModel(openaiSection.model);
     }
   }, [deepseekStatus]);
@@ -185,6 +181,14 @@ model = "${selectedModel || "provider/model-id"}"
       { filename: "~/.deepseek/config.toml", content: tomlContent },
     ];
   };
+
+  useEffect(() => {
+    if (isExpanded) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      if (!deepseekStatus) checkStatus();
+      fetchModelAliases();
+    }
+  }, [isExpanded]);
 
   return (
     <Card padding="xs" className="overflow-hidden">

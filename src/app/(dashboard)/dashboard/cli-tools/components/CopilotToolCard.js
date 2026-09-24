@@ -28,26 +28,22 @@ export default function CopilotToolCard({ tool, isExpanded, onToggle, baseUrl, a
 
   useEffect(() => {
     if (apiKeys?.length > 0 && !selectedApiKey) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSelectedApiKey(apiKeys[0].key);
     }
   }, [apiKeys, selectedApiKey]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (initialStatus) setStatus(initialStatus);
   }, [initialStatus]);
-
-  useEffect(() => {
-    if (isExpanded) {
-      if (!status) checkStatus();
-      fetchModelAliases();
-    }
-  }, [isExpanded]);
 
   // Pre-fill from existing config
   useEffect(() => {
     if (status?.config && Array.isArray(status.config) && selectedModels.length === 0) {
       const entry = status.config.find((e) => e.name === "RedRouter");
       if (entry?.models?.length > 0) {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setSelectedModels(entry.models.map((m) => m.id));
       }
     }
@@ -182,6 +178,14 @@ export default function CopilotToolCard({ tool, isExpanded, onToggle, baseUrl, a
       }], null, 2),
     }];
   };
+
+  useEffect(() => {
+    if (isExpanded) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      if (!status) checkStatus();
+      fetchModelAliases();
+    }
+  }, [isExpanded]);
 
   return (
     <Card padding="xs" className="overflow-hidden">

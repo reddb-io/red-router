@@ -325,6 +325,7 @@ export default function ConnectionsCard({ providerId, isOAuth }) {
     finally { setLoading(false); }
   }, [providerId]);
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { fetch_(); }, [fetch_]);
 
   const saveStrategy = async (strategy, stickyLimit) => {

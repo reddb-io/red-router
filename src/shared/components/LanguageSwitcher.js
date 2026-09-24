@@ -73,6 +73,7 @@ export default function LanguageSwitcher({ className = "", isOpen: controlledOpe
   };
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLocale(getLocaleFromCookie());
   }, []);
 

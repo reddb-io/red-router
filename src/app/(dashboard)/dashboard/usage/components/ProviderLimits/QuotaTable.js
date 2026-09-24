@@ -110,10 +110,12 @@ export default function QuotaTable({
   const totalPages = Math.max(1, Math.ceil(sortedQuotas.length / PAGE_SIZE));
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setPage(1);
   }, [sortMode, quotas]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setPage((currentPage) => Math.min(currentPage, totalPages));
   }, [totalPages]);
 

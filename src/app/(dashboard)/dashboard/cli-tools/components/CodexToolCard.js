@@ -26,20 +26,15 @@ export default function CodexToolCard({ tool, isExpanded, onToggle, baseUrl, api
 
   useEffect(() => {
     if (apiKeys?.length > 0 && !selectedApiKey) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSelectedApiKey(apiKeys[0].key);
     }
   }, [apiKeys, selectedApiKey]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (initialStatus) setCodexStatus(initialStatus);
   }, [initialStatus]);
-
-  useEffect(() => {
-    if (isExpanded) {
-      if (!codexStatus) checkCodexStatus();
-      fetchModelAliases();
-    }
-  }, [isExpanded]);
 
   const fetchModelAliases = async () => {
     try {
@@ -55,6 +50,7 @@ export default function CodexToolCard({ tool, isExpanded, onToggle, baseUrl, api
   useEffect(() => {
     if (codexStatus?.config) {
       const modelMatch = codexStatus.config.match(/^model\s*=\s*"([^"]+)"/m);
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       if (modelMatch) setSelectedModel(modelMatch[1]);
 
       // Parse subagent settings
@@ -194,6 +190,14 @@ default_subagent_model = "${effectiveSubagentModel}"
       },
     ];
   };
+
+  useEffect(() => {
+    if (isExpanded) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      if (!codexStatus) checkCodexStatus();
+      fetchModelAliases();
+    }
+  }, [isExpanded]);
 
   return (
     <Card padding="xs" className="overflow-hidden">
