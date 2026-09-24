@@ -158,10 +158,10 @@ export default function XiaomiMimoAuthModal({ isOpen, onSuccess, onClose }) {
         {/* Found — one-click import */}
         {phase === "found" && detectResult && (
           <>
-            <div className="bg-[var(--reddb-color-feedback-success-surface)] p-3 rounded-lg border border-[var(--reddb-color-feedback-success-border)]">
+            <div className="bg-feedback-success-surface p-3 rounded-lg border border-feedback-success-border">
               <div className="flex gap-2">
-                <span className="material-symbols-outlined text-[var(--reddb-color-feedback-success-foreground)]">check_circle</span>
-                <div className="text-sm text-[var(--reddb-color-feedback-success-foreground)]">
+                <span className="material-symbols-outlined text-feedback-success-foreground">check_circle</span>
+                <div className="text-sm text-feedback-success-foreground">
                   <p className="font-medium">Xiaomi MiMo Desktop credentials found!</p>
                   <p className="mt-1 opacity-80">
                     UID: {detectResult.uid || "—"} · Source: {detectResult.source?.split(/[\\/]/).pop()}
@@ -171,8 +171,8 @@ export default function XiaomiMimoAuthModal({ isOpen, onSuccess, onClose }) {
             </div>
 
             {error && (
-              <div className="bg-[var(--reddb-color-feedback-danger-surface)] p-3 rounded-lg border border-[var(--reddb-color-feedback-danger-border)]">
-                <p className="text-sm text-[var(--reddb-color-feedback-danger-foreground)]">{error}</p>
+              <div className="bg-feedback-danger-surface p-3 rounded-lg border border-feedback-danger-border">
+                <p className="text-sm text-feedback-danger-foreground">{error}</p>
               </div>
             )}
 
@@ -202,10 +202,10 @@ export default function XiaomiMimoAuthModal({ isOpen, onSuccess, onClose }) {
         {/* Not found — offer OAuth fallback */}
         {phase === "not-found" && (
           <>
-            <div className="bg-[var(--reddb-color-feedback-warning-surface)] p-3 rounded-lg border border-[var(--reddb-color-feedback-warning-border)]">
+            <div className="bg-feedback-warning-surface p-3 rounded-lg border border-feedback-warning-border">
               <div className="flex gap-2 items-start">
-                <span className="material-symbols-outlined text-[var(--reddb-color-feedback-warning-foreground)]">info</span>
-                <div className="text-sm text-[var(--reddb-color-feedback-warning-foreground)]">
+                <span className="material-symbols-outlined text-feedback-warning-foreground">info</span>
+                <div className="text-sm text-feedback-warning-foreground">
                   <p className="font-medium">Local credentials not found</p>
                   <p className="mt-1 opacity-80">{error}</p>
                   <p className="mt-2 opacity-80">
@@ -246,8 +246,8 @@ export default function XiaomiMimoAuthModal({ isOpen, onSuccess, onClose }) {
               </div>
             ) : (
               <div className="flex flex-col gap-2">
-                <div className="bg-[var(--reddb-color-feedback-info-surface)] p-3 rounded-lg border border-[var(--reddb-color-feedback-info-border)]">
-                  <p className="text-sm text-[var(--reddb-color-feedback-info-foreground)]">
+                <div className="bg-feedback-info-surface p-3 rounded-lg border border-feedback-info-border">
+                  <p className="text-sm text-feedback-info-foreground">
                     Browser opened. Complete the Xiaomi sign-in, then click{" "}
                     <strong>Check Again</strong>.
                   </p>

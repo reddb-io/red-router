@@ -228,9 +228,9 @@ id = "${selectedModel || "claude-code/claude-opus-4-7"}"`;
           <div className="min-w-0">
             <div className="flex min-w-0 flex-wrap items-center gap-2">
               <h3 className="font-medium text-sm">{tool.name}</h3>
-              {configStatus === "configured" && <span className="px-1.5 py-0.5 text-[10px] font-medium bg-[var(--reddb-color-feedback-success-surface)] text-[var(--reddb-color-feedback-success-foreground)] rounded-full">Connected</span>}
-              {configStatus === "not_configured" && <span className="px-1.5 py-0.5 text-[10px] font-medium bg-[var(--reddb-color-feedback-warning-surface)] text-[var(--reddb-color-feedback-warning-foreground)] rounded-full">Not configured</span>}
-              {configStatus === "other" && <span className="px-1.5 py-0.5 text-[10px] font-medium bg-[var(--reddb-color-feedback-info-surface)] text-[var(--reddb-color-feedback-info-foreground)] rounded-full">Other</span>}
+              {configStatus === "configured" && <span className="px-1.5 py-0.5 text-[10px] font-medium bg-feedback-success-surface text-feedback-success-foreground rounded-full">Connected</span>}
+              {configStatus === "not_configured" && <span className="px-1.5 py-0.5 text-[10px] font-medium bg-feedback-warning-surface text-feedback-warning-foreground rounded-full">Not configured</span>}
+              {configStatus === "other" && <span className="px-1.5 py-0.5 text-[10px] font-medium bg-feedback-info-surface text-feedback-info-foreground rounded-full">Other</span>}
             </div>
             <p className="text-xs text-text-muted truncate">{tool.description}</p>
           </div>
@@ -249,11 +249,11 @@ id = "${selectedModel || "claude-code/claude-opus-4-7"}"`;
 
           {!checkingJcode && jcodeStatus && !jcodeStatus.installed && (
             <div className="flex flex-col gap-4">
-              <div className="flex flex-col gap-3 p-4 bg-[var(--reddb-color-feedback-warning-surface)] border border-[var(--reddb-color-feedback-warning-border)] rounded-lg">
+              <div className="flex flex-col gap-3 p-4 bg-feedback-warning-surface border border-feedback-warning-border rounded-lg">
                 <div className="flex items-start gap-3">
-                  <span className="material-symbols-outlined text-[var(--reddb-color-feedback-warning-foreground)]">warning</span>
+                  <span className="material-symbols-outlined text-feedback-warning-foreground">warning</span>
                   <div className="flex-1">
-                    <p className="font-medium text-[var(--reddb-color-feedback-warning-foreground)]">jcode CLI not detected locally</p>
+                    <p className="font-medium text-feedback-warning-foreground">jcode CLI not detected locally</p>
                     <p className="text-sm text-text-muted mt-1">Install jcode to enable automatic configuration:</p>
                     <code className="block mt-2 p-2 bg-black/20 rounded text-xs font-mono">
                       curl -fsSL https://raw.githubusercontent.com/1jehuang/jcode/master/scripts/install.sh | bash
@@ -262,7 +262,7 @@ id = "${selectedModel || "claude-code/claude-opus-4-7"}"`;
                   </div>
                 </div>
                 <div className="flex items-center gap-2 pl-9">
-                  <Button variant="secondary" size="sm" onClick={() => setShowManualConfigModal(true)} className="!bg-[var(--reddb-color-feedback-warning-surface)] !border-[var(--reddb-color-feedback-warning-border)] !text-[var(--reddb-color-feedback-warning-foreground)] dark:!text-[var(--reddb-color-feedback-warning-foreground)] hover:!bg-[var(--reddb-color-feedback-warning-surface)]">
+                  <Button variant="secondary" size="sm" onClick={() => setShowManualConfigModal(true)} className="!bg-feedback-warning-surface !border-feedback-warning-border !text-feedback-warning-foreground dark:!text-feedback-warning-foreground hover:!bg-feedback-warning-surface">
                     <span className="material-symbols-outlined text-[18px] mr-1">content_copy</span>
                     Manual Config
                   </Button>
@@ -279,8 +279,8 @@ id = "${selectedModel || "claude-code/claude-opus-4-7"}"`;
                   <div className="flex flex-col gap-2 mb-2">
                     {tool.notes.map((note, idx) => (
                       <div key={idx} className={`flex items-start gap-2 p-2 rounded text-xs ${
-                        note.type === "info" ? "bg-[var(--reddb-color-feedback-info-surface)] text-[var(--reddb-color-feedback-info-foreground)]" :
-                        note.type === "warning" ? "bg-[var(--reddb-color-feedback-warning-surface)] text-[var(--reddb-color-feedback-warning-foreground)]" :
+                        note.type === "info" ? "bg-feedback-info-surface text-feedback-info-foreground" :
+                        note.type === "warning" ? "bg-feedback-warning-surface text-feedback-warning-foreground" :
                         "bg-muted text-text-muted"
                       }`}>
                         <span className="material-symbols-outlined text-[14px] mt-0.5">
@@ -332,21 +332,21 @@ id = "${selectedModel || "claude-code/claude-opus-4-7"}"`;
                   <span className="material-symbols-outlined hidden text-text-muted text-[14px] sm:inline">arrow_forward</span>
                   <div className="relative w-full min-w-0">
                     <input type="text" value={selectedModel} onChange={(e) => setSelectedModel(e.target.value)} placeholder="claude-code/claude-opus-4-7" className="w-full min-w-0 pl-2 pr-7 py-2 bg-surface rounded border border-border text-xs focus:outline-none focus:ring-1 focus:ring-primary/50 sm:py-1.5" />
-                    {selectedModel && <button onClick={() => setSelectedModel("")} className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 text-text-muted hover:text-[var(--reddb-color-feedback-danger-foreground)] rounded transition-colors" title="Clear"><span className="material-symbols-outlined text-[14px]">close</span></button>}
+                    {selectedModel && <button onClick={() => setSelectedModel("")} className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 text-text-muted hover:text-feedback-danger-foreground rounded transition-colors" title="Clear"><span className="material-symbols-outlined text-[14px]">close</span></button>}
                   </div>
                   <button onClick={() => setModalOpen(true)} disabled={!hasActiveProviders} className={`w-full sm:w-auto rounded border px-2 py-2 text-xs transition-colors sm:py-1.5 whitespace-nowrap sm:shrink-0 ${hasActiveProviders ? "bg-surface border-border text-text-main hover:border-primary cursor-pointer" : "opacity-50 cursor-not-allowed border-border"}`}>Select</button>
                 </div>
 
                 {/* Usage hint */}
-                <div className="flex flex-col gap-1 p-3 bg-[var(--reddb-color-feedback-info-surface)] border border-[var(--reddb-color-feedback-info-border)] rounded-lg">
-                  <p className="text-xs font-medium text-[var(--reddb-color-feedback-info-foreground)]">Usage:</p>
+                <div className="flex flex-col gap-1 p-3 bg-feedback-info-surface border border-feedback-info-border rounded-lg">
+                  <p className="text-xs font-medium text-feedback-info-foreground">Usage:</p>
                   <code className="text-xs font-mono text-text-muted">jcode --provider-profile red-router</code>
                   <code className="text-xs font-mono text-text-muted">jcode --provider-profile red-router --model {selectedModel || "claude-code/claude-opus-4-7"}</code>
                 </div>
               </div>
 
               {message && (
-                <div className={`flex items-center gap-2 px-2 py-1.5 rounded text-xs ${message.type === "success" ? "bg-[var(--reddb-color-feedback-success-surface)] text-[var(--reddb-color-feedback-success-foreground)]" : "bg-[var(--reddb-color-feedback-danger-surface)] text-[var(--reddb-color-feedback-danger-foreground)]"}`}>
+                <div className={`flex items-center gap-2 px-2 py-1.5 rounded text-xs ${message.type === "success" ? "bg-feedback-success-surface text-feedback-success-foreground" : "bg-feedback-danger-surface text-feedback-danger-foreground"}`}>
                   <span className="material-symbols-outlined text-[14px]">{message.type === "success" ? "check_circle" : "error"}</span>
                   <span>{message.text}</span>
                 </div>

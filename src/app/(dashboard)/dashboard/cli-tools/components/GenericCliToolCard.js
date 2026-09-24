@@ -353,17 +353,17 @@ export default function GenericCliToolCard({
             <div className="flex min-w-0 flex-wrap items-center gap-2">
               <h3 className="font-medium text-sm">{tool.name}</h3>
               {configStatus === "configured" && (
-                <span className="px-1.5 py-0.5 text-[10px] font-medium bg-[var(--reddb-color-feedback-success-surface)] text-[var(--reddb-color-feedback-success-foreground)] rounded-full">
+                <span className="px-1.5 py-0.5 text-[10px] font-medium bg-feedback-success-surface text-feedback-success-foreground rounded-full">
                   Connected
                 </span>
               )}
               {configStatus === "not_configured" && (
-                <span className="px-1.5 py-0.5 text-[10px] font-medium bg-[var(--reddb-color-feedback-warning-surface)] text-[var(--reddb-color-feedback-warning-foreground)] rounded-full">
+                <span className="px-1.5 py-0.5 text-[10px] font-medium bg-feedback-warning-surface text-feedback-warning-foreground rounded-full">
                   Not configured
                 </span>
               )}
               {configStatus === "other" && (
-                <span className="px-1.5 py-0.5 text-[10px] font-medium bg-[var(--reddb-color-feedback-info-surface)] text-[var(--reddb-color-feedback-info-foreground)] rounded-full">
+                <span className="px-1.5 py-0.5 text-[10px] font-medium bg-feedback-info-surface text-feedback-info-foreground rounded-full">
                   Other
                 </span>
               )}
@@ -387,11 +387,11 @@ export default function GenericCliToolCard({
 
           {!checking && status && !status.installed && (
             <div className="flex flex-col gap-4">
-              <div className="flex flex-col gap-3 p-4 bg-[var(--reddb-color-feedback-warning-surface)] border border-[var(--reddb-color-feedback-warning-border)] rounded-lg">
+              <div className="flex flex-col gap-3 p-4 bg-feedback-warning-surface border border-feedback-warning-border rounded-lg">
                 <div className="flex items-start gap-3">
-                  <span className="material-symbols-outlined text-[var(--reddb-color-feedback-warning-foreground)]">warning</span>
+                  <span className="material-symbols-outlined text-feedback-warning-foreground">warning</span>
                   <div className="flex-1">
-                    <p className="font-medium text-[var(--reddb-color-feedback-warning-foreground)]">{tool.name} not detected locally</p>
+                    <p className="font-medium text-feedback-warning-foreground">{tool.name} not detected locally</p>
                     <p className="text-sm text-text-muted">Manual configuration is still available if red-router is deployed on a remote server.</p>
                   </div>
                 </div>
@@ -400,7 +400,7 @@ export default function GenericCliToolCard({
                     variant="secondary"
                     size="sm"
                     onClick={() => setShowManualConfigModal(true)}
-                    className="!bg-[var(--reddb-color-feedback-warning-surface)] !border-[var(--reddb-color-feedback-warning-border)] !text-[var(--reddb-color-feedback-warning-foreground)] dark:!text-[var(--reddb-color-feedback-warning-foreground)] hover:!bg-[var(--reddb-color-feedback-warning-surface)]"
+                    className="!bg-feedback-warning-surface !border-feedback-warning-border !text-feedback-warning-foreground dark:!text-feedback-warning-foreground hover:!bg-feedback-warning-surface"
                   >
                     <span className="material-symbols-outlined text-[18px] mr-1">content_copy</span>
                     Manual Config
@@ -486,7 +486,7 @@ export default function GenericCliToolCard({
                               <button
                                 type="button"
                                 onClick={() => handleRemoveModel(modelId)}
-                                className="text-text-muted hover:text-[var(--reddb-color-feedback-danger-foreground)] rounded p-0.5"
+                                className="text-text-muted hover:text-feedback-danger-foreground rounded p-0.5"
                               >
                                 <span className="material-symbols-outlined text-[12px]">close</span>
                               </button>
@@ -520,7 +520,7 @@ export default function GenericCliToolCard({
                           <button
                             type="button"
                             onClick={() => setSelectedModels([])}
-                            className="text-xs text-text-muted hover:text-[var(--reddb-color-feedback-danger-foreground)] ml-auto"
+                            className="text-xs text-text-muted hover:text-feedback-danger-foreground ml-auto"
                           >
                             Clear all
                           </button>
@@ -546,7 +546,7 @@ export default function GenericCliToolCard({
                       {selectedModel && (
                         <button
                           onClick={() => setSelectedModel("")}
-                          className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 text-text-muted hover:text-[var(--reddb-color-feedback-danger-foreground)] rounded transition-colors"
+                          className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 text-text-muted hover:text-feedback-danger-foreground rounded transition-colors"
                           title="Clear"
                         >
                           <span className="material-symbols-outlined text-[14px]">close</span>
@@ -573,8 +573,8 @@ export default function GenericCliToolCard({
                 <div
                   className={`p-3 rounded-lg text-sm ${
                     message.type === "success"
-                      ? "bg-[var(--reddb-color-feedback-success-surface)] text-[var(--reddb-color-feedback-success-foreground)] border border-[var(--reddb-color-feedback-success-border)]"
-                      : "bg-[var(--reddb-color-feedback-danger-surface)] text-[var(--reddb-color-feedback-danger-foreground)] border border-[var(--reddb-color-feedback-danger-border)]"
+                      ? "bg-feedback-success-surface text-feedback-success-foreground border border-feedback-success-border"
+                      : "bg-feedback-danger-surface text-feedback-danger-foreground border border-feedback-danger-border"
                   }`}
                 >
                   {message.text}
@@ -598,7 +598,7 @@ export default function GenericCliToolCard({
                       size="sm"
                       onClick={handleRestore}
                       disabled={restoring || checking}
-                      className="text-[var(--reddb-color-feedback-danger-foreground)] hover:text-[var(--reddb-color-feedback-danger-foreground)] hover:border-[var(--reddb-color-feedback-danger-border)]"
+                      className="text-feedback-danger-foreground hover:text-feedback-danger-foreground hover:border-feedback-danger-border"
                     >
                       {restoring ? "Removing..." : "Remove from Tool"}
                     </Button>

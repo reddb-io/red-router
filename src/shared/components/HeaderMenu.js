@@ -12,7 +12,7 @@ function MenuItem({ icon, label, onClick, trailing, danger }) {
       onClick={onClick}
       className={`flex items-center gap-3 w-full px-4 py-2.5 text-sm transition-colors ${
         danger
-          ? "text-[var(--reddb-color-feedback-danger-foreground)] hover:bg-[var(--reddb-color-feedback-danger-surface)]"
+          ? "text-feedback-danger-foreground hover:bg-feedback-danger-surface"
           : "text-text-main hover:bg-muted/50"
       }`}
     >

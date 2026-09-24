@@ -15,6 +15,7 @@
   --color-brand-hover: var(--reddb-color-brand-hover);
   --color-brand-on-primary: var(--reddb-color-brand-on-primary);
   --color-brand-primary: var(--reddb-color-brand-primary);
+  --color-control-edge: var(--reddb-color-control-edge);
   --color-cyan-400: var(--reddb-color-cyan-400);
   --color-cyan-600: var(--reddb-color-cyan-600);
   --color-elevation-base-border: var(--reddb-color-elevation-base-border);
@@ -68,6 +69,7 @@
   --color-neutral-800: var(--reddb-color-neutral-800);
   --color-neutral-900: var(--reddb-color-neutral-900);
   --color-neutral-950: var(--reddb-color-neutral-950);
+  --color-on-feedback: var(--reddb-color-on-feedback);
   --color-on-muted: var(--reddb-color-on-muted);
   --color-on-primary: var(--reddb-color-on-primary);
   --color-paper: var(--reddb-color-paper);
@@ -77,6 +79,7 @@
   --color-red-500: var(--reddb-color-red-500);
   --color-red-600: var(--reddb-color-red-600);
   --color-red-700: var(--reddb-color-red-700);
+  --color-scrim: var(--reddb-color-scrim);
   --color-series-1: var(--reddb-color-series-1);
   --color-series-1-on-dark: var(--reddb-color-series-1-on-dark);
   --color-series-1-on-light: var(--reddb-color-series-1-on-light);

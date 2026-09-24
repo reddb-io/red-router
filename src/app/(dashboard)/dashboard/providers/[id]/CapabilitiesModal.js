@@ -104,7 +104,7 @@ export default function CapabilitiesModal({ isOpen, provider, model, onClose }) 
             placeholder="Default"
           />
         ))}
-        {error && <p className="text-sm text-[var(--reddb-color-feedback-danger-foreground)]">{error}</p>}
+        {error && <p className="text-sm text-feedback-danger-foreground">{error}</p>}
         <div className="flex justify-end gap-2 pt-2">
           <Button variant="secondary" onClick={() => save(true)} disabled={saving}>Reset to default</Button>
           <Button onClick={() => save(false)} disabled={saving}>{saving ? "Saving..." : "Save"}</Button>

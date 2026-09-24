@@ -4,9 +4,9 @@ import { CapacityBadges } from "@/shared/components";
 export default function ModelRow({ model, fullModel, alias, copied, onCopy, testStatus, isCustom, isFree, onDeleteAlias, onTest, isTesting, onDisable, onRename, onEditCapabilities, caps, thinkingSuffix }) {
   const displayModel = thinkingSuffix ? `${fullModel}(${thinkingSuffix})` : fullModel;
   const borderColor = testStatus === "ok"
-    ? "border-[var(--reddb-color-feedback-success-border)]"
+    ? "border-feedback-success-border"
     : testStatus === "error"
-    ? "border-[var(--reddb-color-feedback-danger-border)]"
+    ? "border-feedback-danger-border"
     : "border-border";
 
   const iconColor = testStatus === "ok"
@@ -92,7 +92,7 @@ export default function ModelRow({ model, fullModel, alias, copied, onCopy, test
         {isCustom ? (
           <button
             onClick={onDeleteAlias}
-            className="ml-auto rounded p-0.5 text-text-muted opacity-100 transition-opacity hover:bg-[var(--reddb-color-feedback-danger-surface)] hover:text-[var(--reddb-color-feedback-danger-foreground)] sm:opacity-0 sm:group-hover:opacity-100"
+            className="ml-auto rounded p-0.5 text-text-muted opacity-100 transition-opacity hover:bg-feedback-danger-surface hover:text-feedback-danger-foreground sm:opacity-0 sm:group-hover:opacity-100"
             title="Remove custom model"
           >
             <span className="material-symbols-outlined text-sm">close</span>
@@ -100,7 +100,7 @@ export default function ModelRow({ model, fullModel, alias, copied, onCopy, test
         ) : onDisable ? (
           <button
             onClick={onDisable}
-            className="ml-auto rounded p-0.5 text-text-muted opacity-100 transition-opacity hover:bg-[var(--reddb-color-feedback-danger-surface)] hover:text-[var(--reddb-color-feedback-danger-foreground)] sm:opacity-0 sm:group-hover:opacity-100"
+            className="ml-auto rounded p-0.5 text-text-muted opacity-100 transition-opacity hover:bg-feedback-danger-surface hover:text-feedback-danger-foreground sm:opacity-0 sm:group-hover:opacity-100"
             title="Disable this model"
           >
             <span className="material-symbols-outlined text-sm">close</span>

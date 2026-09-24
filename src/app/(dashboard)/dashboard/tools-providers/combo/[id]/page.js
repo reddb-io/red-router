@@ -271,7 +271,7 @@ export default function ComboDetailPage() {
             <code className="text-lg font-semibold font-mono">{combo.name}</code>
           </div>
         </div>
-        <Button variant="outline" icon="delete" onClick={handleDelete} className="text-[var(--reddb-color-feedback-danger-foreground)] border-[var(--reddb-color-feedback-danger-border)] hover:bg-[var(--reddb-color-feedback-danger-surface)]">
+        <Button variant="outline" icon="delete" onClick={handleDelete} className="text-feedback-danger-foreground border-feedback-danger-border hover:bg-feedback-danger-surface">
           Delete
         </Button>
       </div>
@@ -334,7 +334,7 @@ export default function ComboDetailPage() {
                     <button onClick={() => handleMove(idx, 1)} disabled={idx === providers.length - 1} className={`p-1 rounded ${idx === providers.length - 1 ? "text-text-muted/20" : "text-text-muted hover:text-primary hover:bg-muted/50"}`} title="Move down">
                       <span className="material-symbols-outlined text-[16px]">arrow_downward</span>
                     </button>
-                    <button onClick={() => handleRemoveProvider(idx)} className="p-1 rounded text-text-muted hover:text-[var(--reddb-color-feedback-danger-foreground)] hover:bg-[var(--reddb-color-feedback-danger-surface)]" title="Remove">
+                    <button onClick={() => handleRemoveProvider(idx)} className="p-1 rounded text-text-muted hover:text-feedback-danger-foreground hover:bg-feedback-danger-surface" title="Remove">
                       <span className="material-symbols-outlined text-[16px]">close</span>
                     </button>
                   </div>
@@ -358,7 +358,7 @@ export default function ComboDetailPage() {
             {curlExample}
           </pre>
           {testError && (
-            <p className="mt-3 text-xs text-[var(--reddb-color-feedback-danger-foreground)] break-words">{testError}</p>
+            <p className="mt-3 text-xs text-feedback-danger-foreground break-words">{testError}</p>
           )}
           {testResult && (
             <div className="mt-3 flex flex-col gap-3">

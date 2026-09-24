@@ -25,7 +25,7 @@ function Chips({ values, labelOf, onRemove, empty }) {
           <button
             type="button"
             onClick={() => onRemove(value)}
-            className="leading-none text-text-muted hover:text-[var(--reddb-color-feedback-danger-foreground)]"
+            className="leading-none text-text-muted hover:text-feedback-danger-foreground"
             aria-label={`${translate("Remove")} ${labelOf(value)}`}
           >
             <span className="material-symbols-outlined text-[12px]">close</span>

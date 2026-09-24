@@ -2,7 +2,7 @@
 @import "tailwindcss" source("../../");
 
 /* RedDB Design System distribution — vendored byte-for-byte from
-   reddb-io/design-system v2026.08.5 (see vendor/ds/README.md). The theme
+   reddb-io/design-system v2026.09 (see vendor/ds/README.md). The theme
    applies under [data-theme="application"], the scheme under
    [data-color-scheme]; src/store/themeStore.js and the root layout script
    keep both in sync with the Tailwind `.dark` class. */

@@ -5,6 +5,7 @@
 :where(:root),
 [data-color-scheme="light"] {
   --reddb-color-background: var(--reddb-theme-surface-light);
+  --reddb-color-control-edge: var(--reddb-theme-edge-light);
   --reddb-color-elevation-base-border: var(--reddb-theme-elevation-base-border-light);
   --reddb-color-elevation-base-foreground: var(--reddb-theme-elevation-base-foreground-light);
   --reddb-color-elevation-base-surface: var(--reddb-theme-elevation-base-surface-light);
@@ -32,10 +33,12 @@
   --reddb-color-foreground: var(--reddb-theme-ink-light);
   --reddb-color-ink-muted: var(--reddb-theme-ink-muted-light);
   --reddb-color-muted: var(--reddb-theme-muted-light);
+  --reddb-color-on-feedback: var(--reddb-theme-on-feedback-light);
   --reddb-color-on-muted: var(--reddb-theme-on-muted-light);
   --reddb-color-on-primary: var(--reddb-theme-on-accent-light);
   --reddb-color-primary: var(--reddb-theme-accent-light);
   --reddb-color-primary-text: var(--reddb-theme-accent-text-light);
+  --reddb-color-scrim: var(--reddb-theme-scrim-light);
   --reddb-color-series-1: var(--reddb-theme-series-1-light);
   --reddb-color-series-2: var(--reddb-theme-series-2-light);
   --reddb-color-series-3: var(--reddb-theme-series-3-light);

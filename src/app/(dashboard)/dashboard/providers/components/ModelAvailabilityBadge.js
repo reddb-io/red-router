@@ -98,8 +98,8 @@ export default function ModelAvailabilityBadge() {
         onClick={() => setExpanded(!expanded)}
         className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${
           isHealthy
-            ? "bg-[var(--reddb-color-feedback-success-surface)] border-[var(--reddb-color-feedback-success-border)] text-[var(--reddb-color-feedback-success-foreground)] hover:bg-[var(--reddb-color-feedback-success-surface)]"
-            : "bg-[var(--reddb-color-feedback-warning-surface)] border-[var(--reddb-color-feedback-warning-border)] text-[var(--reddb-color-feedback-warning-foreground)] hover:bg-[var(--reddb-color-feedback-warning-surface)]"
+            ? "bg-feedback-success-surface border-feedback-success-border text-feedback-success-foreground hover:bg-feedback-success-surface"
+            : "bg-feedback-warning-surface border-feedback-warning-border text-feedback-warning-foreground hover:bg-feedback-warning-surface"
         }`}
       >
         <span className="material-symbols-outlined text-[14px]">

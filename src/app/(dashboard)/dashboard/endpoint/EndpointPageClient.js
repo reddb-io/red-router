@@ -842,7 +842,7 @@ export default function APIPageClient({ machineId }) {
                 </button>
                 <button
                   onClick={() => setShowDisableTunnelModal(true)}
-                  className="p-2 hover:bg-[var(--reddb-color-feedback-danger-surface)] rounded text-[var(--reddb-color-feedback-danger-foreground)] transition-colors shrink-0"
+                  className="p-2 hover:bg-feedback-danger-surface rounded text-feedback-danger-foreground transition-colors shrink-0"
                   title="Disable Tunnel"
                 >
                   <span className="material-symbols-outlined text-[18px]">power_settings_new</span>
@@ -850,13 +850,13 @@ export default function APIPageClient({ machineId }) {
               </>
             ) : tunnelEnabled && !tunnelLoading && !tunnelReachable ? (
               <>
-                <div className="flex-1 flex items-center gap-2 px-3 py-1.5 rounded border border-[var(--reddb-color-feedback-warning-border)] bg-[var(--reddb-color-feedback-warning-surface)] text-sm text-[var(--reddb-color-feedback-warning-foreground)]">
+                <div className="flex-1 flex items-center gap-2 px-3 py-1.5 rounded border border-feedback-warning-border bg-feedback-warning-surface text-sm text-feedback-warning-foreground">
                   <span className="material-symbols-outlined animate-spin text-sm">progress_activity</span>
                   {tunnelEverReachable ? "Tunnel reconnecting..." : "Tunnel checking..."}
                 </div>
                 <button
                   onClick={() => setShowDisableTunnelModal(true)}
-                  className="p-2 hover:bg-[var(--reddb-color-feedback-danger-surface)] rounded text-[var(--reddb-color-feedback-danger-foreground)] transition-colors shrink-0"
+                  className="p-2 hover:bg-feedback-danger-surface rounded text-feedback-danger-foreground transition-colors shrink-0"
                   title="Disable Tunnel"
                 >
                   <span className="material-symbols-outlined text-[18px]">power_settings_new</span>
@@ -870,7 +870,7 @@ export default function APIPageClient({ machineId }) {
                 </div>
                 <button
                   onClick={() => { setTunnelLoading(false); setTunnelProgress(""); }}
-                  className="p-2 hover:bg-[var(--reddb-color-feedback-danger-surface)] rounded text-[var(--reddb-color-feedback-danger-foreground)] transition-colors shrink-0"
+                  className="p-2 hover:bg-feedback-danger-surface rounded text-feedback-danger-foreground transition-colors shrink-0"
                   title="Stop"
                 >
                   <span className="material-symbols-outlined text-[18px]">power_settings_new</span>
@@ -878,7 +878,7 @@ export default function APIPageClient({ machineId }) {
               </>
             ) : tunnelStatus?.type === "error" ? (
               <>
-                <div className="flex-1 flex items-center gap-2 px-3 py-1.5 rounded border border-[var(--reddb-color-feedback-danger-border)] bg-[var(--reddb-color-feedback-danger-surface)] text-sm text-[var(--reddb-color-feedback-danger-foreground)]">
+                <div className="flex-1 flex items-center gap-2 px-3 py-1.5 rounded border border-feedback-danger-border bg-feedback-danger-surface text-sm text-feedback-danger-foreground">
                   <span className="material-symbols-outlined text-sm">error</span>
                   {tunnelStatus.message}
                 </div>
@@ -892,7 +892,7 @@ export default function APIPageClient({ machineId }) {
                 </div>
                 <button
                   onClick={() => setTunnelChecking(false)}
-                  className="p-2 hover:bg-[var(--reddb-color-feedback-danger-surface)] rounded text-[var(--reddb-color-feedback-danger-foreground)] transition-colors shrink-0"
+                  className="p-2 hover:bg-feedback-danger-surface rounded text-feedback-danger-foreground transition-colors shrink-0"
                   title="Stop"
                 >
                   <span className="material-symbols-outlined text-[18px]">power_settings_new</span>
@@ -934,7 +934,7 @@ export default function APIPageClient({ machineId }) {
                 </button>
                 <button
                   onClick={() => setShowDisableTsModal(true)}
-                  className="p-2 hover:bg-[var(--reddb-color-feedback-danger-surface)] rounded text-[var(--reddb-color-feedback-danger-foreground)] transition-colors shrink-0"
+                  className="p-2 hover:bg-feedback-danger-surface rounded text-feedback-danger-foreground transition-colors shrink-0"
                   title="Disable Tailscale"
                 >
                   <span className="material-symbols-outlined text-[18px]">power_settings_new</span>
@@ -942,13 +942,13 @@ export default function APIPageClient({ machineId }) {
               </>
             ) : tsEnabled && !tsLoading && !tsReachable ? (
               <>
-                <div className="flex-1 flex items-center gap-2 px-3 py-1.5 rounded border border-[var(--reddb-color-feedback-warning-border)] bg-[var(--reddb-color-feedback-warning-surface)] text-sm text-[var(--reddb-color-feedback-warning-foreground)]">
+                <div className="flex-1 flex items-center gap-2 px-3 py-1.5 rounded border border-feedback-warning-border bg-feedback-warning-surface text-sm text-feedback-warning-foreground">
                   <span className="material-symbols-outlined animate-spin text-sm">progress_activity</span>
                   {tsEverReachable ? "Tailscale reconnecting..." : "Tailscale checking..."}
                 </div>
                 <button
                   onClick={() => setShowDisableTsModal(true)}
-                  className="p-2 hover:bg-[var(--reddb-color-feedback-danger-surface)] rounded text-[var(--reddb-color-feedback-danger-foreground)] transition-colors shrink-0"
+                  className="p-2 hover:bg-feedback-danger-surface rounded text-feedback-danger-foreground transition-colors shrink-0"
                   title="Disable Tailscale"
                 >
                   <span className="material-symbols-outlined text-[18px]">power_settings_new</span>
@@ -971,7 +971,7 @@ export default function APIPageClient({ machineId }) {
                 )}
                 <button
                   onClick={() => { setTsLoading(false); setTsConnecting(false); setTsProgress(""); clearUserAuth(); }}
-                  className="p-2 hover:bg-[var(--reddb-color-feedback-danger-surface)] rounded text-[var(--reddb-color-feedback-danger-foreground)] transition-colors shrink-0"
+                  className="p-2 hover:bg-feedback-danger-surface rounded text-feedback-danger-foreground transition-colors shrink-0"
                   title="Stop"
                 >
                   <span className="material-symbols-outlined text-[18px]">power_settings_new</span>
@@ -979,7 +979,7 @@ export default function APIPageClient({ machineId }) {
               </>
             ) : tsStatus?.type === "error" ? (
               <>
-                <div className="flex-1 flex items-center gap-2 px-3 py-1.5 rounded border border-[var(--reddb-color-feedback-danger-border)] bg-[var(--reddb-color-feedback-danger-surface)] text-sm text-[var(--reddb-color-feedback-danger-foreground)]">
+                <div className="flex-1 flex items-center gap-2 px-3 py-1.5 rounded border border-feedback-danger-border bg-feedback-danger-surface text-sm text-feedback-danger-foreground">
                   <span className="material-symbols-outlined text-sm">error</span>
                   {tsStatus.message}
                 </div>
@@ -1186,7 +1186,7 @@ export default function APIPageClient({ machineId }) {
                     </button>
                   </div>
                   {key.isActive === false && (
-                    <p className="text-xs text-[var(--reddb-color-feedback-warning-foreground)] mt-1.5">Paused</p>
+                    <p className="text-xs text-feedback-warning-foreground mt-1.5">Paused</p>
                   )}
                   {(key.modelAccess || key.limits) && (
                     <p className="mt-1.5 flex items-center gap-1 text-xs text-text-muted">
@@ -1250,7 +1250,7 @@ export default function APIPageClient({ machineId }) {
                   />
                   <button
                     onClick={() => handleDeleteKey(key.id)}
-                    className="p-2 hover:bg-[var(--reddb-color-feedback-danger-surface)] rounded text-[var(--reddb-color-feedback-danger-foreground)] opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-all"
+                    className="p-2 hover:bg-feedback-danger-surface rounded text-feedback-danger-foreground opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-all"
                   >
                     <span className="material-symbols-outlined text-[18px]">delete</span>
                   </button>
@@ -1337,7 +1337,7 @@ export default function APIPageClient({ machineId }) {
               </p>
             </>
           )}
-          {editKeyState?.error && <p className="text-sm text-[var(--reddb-color-feedback-danger-foreground)]">{editKeyState.error}</p>}
+          {editKeyState?.error && <p className="text-sm text-feedback-danger-foreground">{editKeyState.error}</p>}
           <div className="flex gap-2">
             <Button onClick={handleSaveKeyEdit} fullWidth disabled={!editKeyState?.name?.trim()}>
               Save
@@ -1356,11 +1356,11 @@ export default function APIPageClient({ machineId }) {
         onClose={() => setCreatedKey(null)}
       >
         <div className="flex flex-col gap-4">
-          <div className="bg-[var(--reddb-color-feedback-warning-surface)] border border-[var(--reddb-color-feedback-warning-border)] rounded-lg p-4">
-            <p className="text-sm text-[var(--reddb-color-feedback-warning-foreground)] mb-2 font-medium">
+          <div className="bg-feedback-warning-surface border border-feedback-warning-border rounded-lg p-4">
+            <p className="text-sm text-feedback-warning-foreground mb-2 font-medium">
               Save this key now!
             </p>
-            <p className="text-sm text-[var(--reddb-color-feedback-warning-foreground)]">
+            <p className="text-sm text-feedback-warning-foreground">
               This is the only time you will see this key. Store it securely.
             </p>
           </div>
@@ -1493,7 +1493,7 @@ export default function APIPageClient({ machineId }) {
           {/* Installed: show Connect button */}
           {tsInstalled === true && !tsInstalling && (
             <div className="flex flex-col gap-3">
-              <div className="flex items-center gap-2 text-sm text-[var(--reddb-color-feedback-success-foreground)]">
+              <div className="flex items-center gap-2 text-sm text-feedback-success-foreground">
                 <span className="material-symbols-outlined text-[16px]">check_circle</span>
                 Tailscale installed
               </div>

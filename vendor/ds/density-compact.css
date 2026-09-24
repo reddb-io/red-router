@@ -5,7 +5,7 @@
 [data-density="compact"] {
   --reddb-spatial-control-height-lg: calc((var(--reddb-spacing-8) + var(--reddb-spacing-10)) / 2);
   --reddb-spatial-control-height-md: calc((var(--reddb-spacing-6) + var(--reddb-spacing-8)) / 2);
-  --reddb-spatial-control-height-sm: calc((var(--reddb-spacing-5) + var(--reddb-spacing-6)) / 2);
+  --reddb-spatial-control-height-sm: var(--reddb-spacing-6);
   --reddb-spatial-gap-lg: calc((var(--reddb-spacing-2) + var(--reddb-spacing-3)) / 2);
   --reddb-spatial-gap-md: calc((var(--reddb-spacing-1) + var(--reddb-spacing-2)) / 2);
   --reddb-spatial-gap-sm: calc((var(--reddb-spacing-0_5) + var(--reddb-spacing-1)) / 2);

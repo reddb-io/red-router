@@ -186,7 +186,7 @@ export default function MitmToolCard({
             <div className="flex flex-col gap-0.5 text-[11px] text-text-muted px-1">
               <p>Toggle DNS to redirect {tool.name} traffic through RedRouter via MITM.</p>
               {!dnsActive && (
-                <p className="text-[var(--reddb-color-feedback-warning-foreground)] text-[10px] mt-1">
+                <p className="text-feedback-warning-foreground text-[10px] mt-1">
                   ⚠️ Enable DNS to edit model mappings
                 </p>
               )}
@@ -215,7 +215,7 @@ export default function MitmToolCard({
                             handleModelMappingChange(model.alias, "");
                             saveMappings({ ...modelMappings, [model.alias]: "" });
                           }}
-                          className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 text-text-muted hover:text-[var(--reddb-color-feedback-danger-foreground)] rounded transition-colors"
+                          className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 text-text-muted hover:text-feedback-danger-foreground rounded transition-colors"
                           title="Clear"
                         >
                           <span className="material-symbols-outlined text-[14px]">close</span>
@@ -244,7 +244,7 @@ export default function MitmToolCard({
                 <button
                   onClick={handleDnsToggle}
                   disabled={!serverRunning || loading}
-                  className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-[var(--reddb-color-feedback-danger-border)] bg-[var(--reddb-color-feedback-danger-surface)] px-4 py-2 text-xs font-medium text-[var(--reddb-color-feedback-danger-foreground)] transition-colors hover:bg-[var(--reddb-color-feedback-danger-surface)] disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto sm:py-1.5"
+                  className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-feedback-danger-border bg-feedback-danger-surface px-4 py-2 text-xs font-medium text-feedback-danger-foreground transition-colors hover:bg-feedback-danger-surface disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto sm:py-1.5"
                 >
                   <span className="material-symbols-outlined text-[16px]">stop_circle</span>
                   Stop DNS
@@ -262,7 +262,7 @@ export default function MitmToolCard({
 
               {/* Warning below button */}
               {warning && (
-                <div className="flex items-center gap-2 px-2 py-1.5 rounded text-xs text-[var(--reddb-color-feedback-warning-foreground)]">
+                <div className="flex items-center gap-2 px-2 py-1.5 rounded text-xs text-feedback-warning-foreground">
                   <span className="material-symbols-outlined text-[14px]">warning</span>
                   <span>{warning}</span>
                 </div>
@@ -274,11 +274,11 @@ export default function MitmToolCard({
 
       {/* Password Modal */}
       {showPasswordModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-scrim/60">
           <div className="mx-4 flex w-full max-w-sm flex-col gap-4 rounded-xl border border-border bg-surface p-5 shadow-xl sm:p-6">
             <h3 className="font-semibold text-text-main">Sudo Password Required</h3>
-            <div className="flex items-start gap-3 p-3 bg-[var(--reddb-color-feedback-warning-surface)] border border-[var(--reddb-color-feedback-warning-border)] rounded-lg">
-              <span className="material-symbols-outlined text-[var(--reddb-color-feedback-warning-foreground)] text-[20px]">warning</span>
+            <div className="flex items-start gap-3 p-3 bg-feedback-warning-surface border border-feedback-warning-border rounded-lg">
+              <span className="material-symbols-outlined text-feedback-warning-foreground text-[20px]">warning</span>
               <p className="text-xs text-text-muted">Required to modify /etc/hosts and flush DNS cache</p>
             </div>
             <Input
@@ -289,7 +289,7 @@ export default function MitmToolCard({
               onKeyDown={(e) => { if (e.key === "Enter" && !loading) handleConfirmPassword(); }}
             />
             {modalError && (
-              <div className="flex items-center gap-2 px-2 py-1.5 rounded text-xs bg-[var(--reddb-color-feedback-danger-surface)] text-[var(--reddb-color-feedback-danger-foreground)]">
+              <div className="flex items-center gap-2 px-2 py-1.5 rounded text-xs bg-feedback-danger-surface text-feedback-danger-foreground">
                 <span className="material-symbols-outlined text-[14px]">error</span>
                 <span>{modalError}</span>
               </div>

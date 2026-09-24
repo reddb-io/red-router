@@ -363,10 +363,10 @@ export function TtsExampleCard({ providerId }) {
                     {v.language ? ` · ${v.language}` : ""}
                     {v.gender ? ` · ${v.gender[0].toUpperCase()}` : ""}
                     {v.free_users_allowed === true && (
-                      <span className="ml-1.5 px-1 py-0.5 text-[9px] font-semibold rounded bg-[var(--reddb-color-feedback-success-surface)] text-[var(--reddb-color-feedback-success-foreground)] border border-[var(--reddb-color-feedback-success-border)]">Free</span>
+                      <span className="ml-1.5 px-1 py-0.5 text-[9px] font-semibold rounded bg-feedback-success-surface text-feedback-success-foreground border border-feedback-success-border">Free</span>
                     )}
                     {v.free_users_allowed === false && (
-                      <span className="ml-1.5 px-1 py-0.5 text-[9px] font-semibold rounded bg-[var(--reddb-color-feedback-warning-surface)] text-[var(--reddb-color-feedback-warning-foreground)] border border-[var(--reddb-color-feedback-warning-border)]">Paid</span>
+                      <span className="ml-1.5 px-1 py-0.5 text-[9px] font-semibold rounded bg-feedback-warning-surface text-feedback-warning-foreground border border-feedback-warning-border">Paid</span>
                     )}
                   </button>
                 ))}
@@ -504,7 +504,7 @@ export function TtsExampleCard({ providerId }) {
             <pre className="bg-sidebar rounded-lg px-3 py-2.5 text-xs font-mono text-text-main overflow-x-auto whitespace-pre-wrap break-all">{curlSnippet}</pre>
           </div>
 
-          {error && <p className="text-xs text-[var(--reddb-color-feedback-danger-foreground)] break-words">{error}</p>}
+          {error && <p className="text-xs text-feedback-danger-foreground break-words">{error}</p>}
 
           {/* Audio player */}
           {audioUrl ? (
@@ -577,7 +577,7 @@ export function TtsExampleCard({ providerId }) {
 
             {/* Language list */}
             <div className="overflow-y-auto flex-1 p-2">
-              {modalError && <p className="text-xs text-[var(--reddb-color-feedback-danger-foreground)] px-2 py-1">{modalError}</p>}
+              {modalError && <p className="text-xs text-feedback-danger-foreground px-2 py-1">{modalError}</p>}
               {modalLoading ? (
                 <p className="text-xs text-text-muted px-2 py-3">Loading...</p>
               ) : (

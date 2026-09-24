@@ -103,7 +103,7 @@ export default function AddCustomEmbeddingModal({ isOpen, onClose, onCreated, on
     return (
       <div className="flex flex-col gap-1">
         <Badge variant="error">Invalid</Badge>
-        {error && <span className="text-sm text-[var(--reddb-color-feedback-danger-foreground)]">{error}</span>}
+        {error && <span className="text-sm text-feedback-danger-foreground">{error}</span>}
       </div>
     );
   };

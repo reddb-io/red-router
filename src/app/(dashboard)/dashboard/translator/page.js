@@ -242,7 +242,7 @@ export default function TranslatorPage() {
                   <span className="text-xs font-mono text-text-muted/60 w-4">{step.id}</span>
                   <h3 className="text-sm font-semibold text-text-main">{step.label}</h3>
                   <span className="text-xs text-text-muted/60 font-mono">{step.file}</span>
-                  {content && <span className="text-xs text-[var(--reddb-color-feedback-success-foreground)]">({content.length} chars)</span>}
+                  {content && <span className="text-xs text-feedback-success-foreground">({content.length} chars)</span>}
                 </button>
                 {!isExpanded && (
                   <div className="flex gap-1 shrink-0">
@@ -286,9 +286,9 @@ export default function TranslatorPage() {
 
 function MetaBadge({ label, value, color }) {
   const colors = {
-    blue: "bg-[var(--reddb-color-feedback-info-surface)] text-[var(--reddb-color-feedback-info-foreground)]",
-    orange: "bg-[var(--reddb-color-feedback-warning-surface)] text-[var(--reddb-color-feedback-warning-foreground)]",
-    green: "bg-[var(--reddb-color-feedback-success-surface)] text-[var(--reddb-color-feedback-success-foreground)]",
+    blue: "bg-feedback-info-surface text-feedback-info-foreground",
+    orange: "bg-feedback-warning-surface text-feedback-warning-foreground",
+    green: "bg-feedback-success-surface text-feedback-success-foreground",
     purple: "bg-purple-500/10 text-purple-500",
   };
   return (

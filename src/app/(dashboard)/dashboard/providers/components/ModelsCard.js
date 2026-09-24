@@ -10,7 +10,7 @@ import { providerSlug } from "open-sse/providers/identity.js";
 
 // ── ModelRow ───────────────────────────────────────────────────
 export function ModelRow({ model, fullModel, copied, onCopy, testStatus, isCustom, isFree, onDeleteAlias, onTest, isTesting }) {
-  const borderColor = testStatus === "ok" ? "border-[var(--reddb-color-feedback-success-border)]" : testStatus === "error" ? "border-[var(--reddb-color-feedback-danger-border)]" : "border-border";
+  const borderColor = testStatus === "ok" ? "border-feedback-success-border" : testStatus === "error" ? "border-feedback-danger-border" : "border-border";
   const iconColor = testStatus === "ok" ? "#22c55e" : testStatus === "error" ? "#ef4444" : undefined;
 
   return (
@@ -43,9 +43,9 @@ export function ModelRow({ model, fullModel, copied, onCopy, testStatus, isCusto
             {copied === `model-${model.id}` ? "Copied!" : "Copy"}
           </span>
         </div>
-        {isFree && <span className="text-[10px] font-bold text-[var(--reddb-color-feedback-success-foreground)] bg-[var(--reddb-color-feedback-success-surface)] px-1.5 py-0.5 rounded">FREE</span>}
+        {isFree && <span className="text-[10px] font-bold text-feedback-success-foreground bg-feedback-success-surface px-1.5 py-0.5 rounded">FREE</span>}
         {isCustom && (
-          <button onClick={onDeleteAlias} className="p-0.5 hover:bg-[var(--reddb-color-feedback-danger-surface)] rounded text-text-muted hover:text-[var(--reddb-color-feedback-danger-foreground)] opacity-0 group-hover:opacity-100 transition-opacity ml-auto" title="Remove custom model">
+          <button onClick={onDeleteAlias} className="p-0.5 hover:bg-feedback-danger-surface rounded text-text-muted hover:text-feedback-danger-foreground opacity-0 group-hover:opacity-100 transition-opacity ml-auto" title="Remove custom model">
             <span className="material-symbols-outlined text-sm">close</span>
           </button>
         )}
@@ -225,7 +225,7 @@ export default function ModelsCard({ providerId, kindFilter, providerAliasOverri
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold">Models{kindFilter ? ` — ${kindFilter.toUpperCase()}` : ""}</h2>
         </div>
-        {testError && <p className="text-xs text-[var(--reddb-color-feedback-danger-foreground)] mb-3 break-words">{testError}</p>}
+        {testError && <p className="text-xs text-feedback-danger-foreground mb-3 break-words">{testError}</p>}
 
         <div className="flex flex-wrap gap-3">
           {displayModels.map((model) => {

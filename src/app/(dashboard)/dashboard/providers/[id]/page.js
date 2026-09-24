@@ -1327,7 +1327,7 @@ export default function ProviderDetailPage() {
           <button
             onClick={handleImportQoderModels}
             disabled={importingQoderModels}
-            className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-[var(--reddb-color-feedback-info-border)] px-3 py-2 text-xs text-[var(--reddb-color-feedback-info-foreground)] transition-colors hover:border-[var(--reddb-color-feedback-info-border)] hover:bg-[var(--reddb-color-feedback-info-surface)] sm:w-auto disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-feedback-info-border px-3 py-2 text-xs text-feedback-info-foreground transition-colors hover:border-feedback-info-border hover:bg-feedback-info-surface sm:w-auto disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <span className="material-symbols-outlined text-sm" style={importingQoderModels ? { animation: "spin 1s linear infinite" } : undefined}>
               {importingQoderModels ? "progress_activity" : "download"}
@@ -1341,7 +1341,7 @@ export default function ProviderDetailPage() {
           <button
             onClick={handleImportClineModels}
             disabled={importingClineModels}
-            className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-[var(--reddb-color-feedback-info-border)] px-3 py-2 text-xs text-[var(--reddb-color-feedback-info-foreground)] transition-colors hover:border-[var(--reddb-color-feedback-info-border)] hover:bg-[var(--reddb-color-feedback-info-surface)] sm:w-auto disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-feedback-info-border px-3 py-2 text-xs text-feedback-info-foreground transition-colors hover:border-feedback-info-border hover:bg-feedback-info-surface sm:w-auto disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <span className="material-symbols-outlined text-sm" style={importingClineModels ? { animation: "spin 1s linear infinite" } : undefined}>
               {importingClineModels ? "progress_activity" : "download"}
@@ -1508,16 +1508,16 @@ export default function ProviderDetailPage() {
       </div>
 
       {providerInfo.deprecated && (
-        <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-[var(--reddb-color-feedback-warning-surface)] border border-[var(--reddb-color-feedback-warning-border)]">
-          <span className="material-symbols-outlined text-[16px] text-[var(--reddb-color-feedback-warning-foreground)] mt-0.5 shrink-0">warning</span>
-          <p className="text-xs text-[var(--reddb-color-feedback-danger-foreground)] text-[var(--reddb-color-feedback-warning-foreground)] leading-relaxed">{providerInfo.deprecationNotice}</p>
+        <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-feedback-warning-surface border border-feedback-warning-border">
+          <span className="material-symbols-outlined text-[16px] text-feedback-warning-foreground mt-0.5 shrink-0">warning</span>
+          <p className="text-xs text-feedback-danger-foreground text-feedback-warning-foreground leading-relaxed">{providerInfo.deprecationNotice}</p>
         </div>
       )}
 
       {providerInfo.notice?.text && !providerInfo.deprecated && (
-        <div className="flex flex-col gap-2 rounded-lg border border-[var(--reddb-color-feedback-info-border)] bg-[var(--reddb-color-feedback-info-surface)] px-3 py-2 sm:flex-row sm:items-center">
-          <span className="material-symbols-outlined text-[16px] text-[var(--reddb-color-feedback-info-foreground)] shrink-0">info</span>
-          <p className="min-w-0 flex-1 text-xs leading-relaxed text-[var(--reddb-color-feedback-info-foreground)]">{providerInfo.notice.text}</p>
+        <div className="flex flex-col gap-2 rounded-lg border border-feedback-info-border bg-feedback-info-surface px-3 py-2 sm:flex-row sm:items-center">
+          <span className="material-symbols-outlined text-[16px] text-feedback-info-foreground shrink-0">info</span>
+          <p className="min-w-0 flex-1 text-xs leading-relaxed text-feedback-info-foreground">{providerInfo.notice.text}</p>
           {providerInfo.notice.apiKeyUrl && (
             <a
               href={providerInfo.notice.apiKeyUrl}
@@ -1670,7 +1670,7 @@ export default function ProviderDetailPage() {
                     <span>Passed: {oneByOneSummary.passed}</span>
                     <span>Failed: {oneByOneSummary.failed}</span>
                     {oneByOneSummary.stopped && (
-                      <span className="text-[var(--reddb-color-feedback-warning-foreground)]">Stopped</span>
+                      <span className="text-feedback-warning-foreground">Stopped</span>
                     )}
                     {oneByOneRunning && oneByOneCurrentConnectionId && (
                       <span>Running: {connections.find((conn) => conn.id === oneByOneCurrentConnectionId)?.name || oneByOneCurrentConnectionId}</span>
@@ -1811,7 +1811,7 @@ export default function ProviderDetailPage() {
         </div>
         {!!modelsTestError && (
           <div className="mb-3">
-            <p className="text-xs text-[var(--reddb-color-feedback-danger-foreground)] break-words">{modelsTestError}</p>
+            <p className="text-xs text-feedback-danger-foreground break-words">{modelsTestError}</p>
             {/RegionError|hosted in China|regionNotAllowed/i.test(modelsTestError) && (() => {
               const str = typeof modelsTestError === "string" ? modelsTestError : JSON.stringify(modelsTestError);
               const linkMatch = str.match(/https:\/\/opencode\.ai\/workspace\/[^\s"')]+/);
@@ -1828,7 +1828,7 @@ export default function ProviderDetailPage() {
                     href={targetUrl}
                     target="_blank"
                     rel="noreferrer"
-                    className="inline-flex items-center gap-1 rounded-md bg-[var(--reddb-color-feedback-warning-surface)] px-2 py-0.5 text-xs font-medium text-[var(--reddb-color-feedback-warning-foreground)] hover:bg-[var(--reddb-color-feedback-warning-surface)] transition-colors"
+                    className="inline-flex items-center gap-1 rounded-md bg-feedback-warning-surface px-2 py-0.5 text-xs font-medium text-feedback-warning-foreground hover:bg-feedback-warning-surface transition-colors"
                   >
                     <span>Allow China-hosted models</span>
                     <span className="material-symbols-outlined text-[13px]">open_in_new</span>

@@ -57,7 +57,7 @@ export default function UpdateSection() {
             </p>
           </div>
           {!hasUpdate && !checking && !error && (
-            <span className="inline-flex min-h-7 items-center rounded-full bg-[var(--reddb-color-feedback-success-surface)] px-2.5 text-xs font-medium text-[var(--reddb-color-feedback-success-foreground)]">
+            <span className="inline-flex min-h-7 items-center rounded-full bg-feedback-success-surface px-2.5 text-xs font-medium text-feedback-success-foreground">
               Up to date
             </span>
           )}
@@ -67,7 +67,7 @@ export default function UpdateSection() {
 
         {error && (
           <div className="flex items-center justify-between gap-4 border-t border-border pt-4">
-            <p className="text-sm text-[var(--reddb-color-feedback-danger-foreground)]">{error}</p>
+            <p className="text-sm text-feedback-danger-foreground">{error}</p>
             <Button variant="outline" size="sm" onClick={checkForUpdates}>Retry</Button>
           </div>
         )}
@@ -106,7 +106,7 @@ export default function UpdateSection() {
                     onClick={shutdownForUpdate}
                     disabled={!copied || shuttingDown}
                     loading={shuttingDown}
-                    className="text-[var(--reddb-color-feedback-danger-foreground)]"
+                    className="text-feedback-danger-foreground"
                   >
                     Shut down for update
                   </Button>

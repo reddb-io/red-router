@@ -10,9 +10,9 @@ import { tv,                   } from "tailwind-variants";
 
 const VARIANT = {
   /** The affirmative action of a view — at most one per view. */
-  primary: "bg-primary text-on-primary hover:opacity-90 focus-visible:ring-on-primary",
+  primary: "bg-primary text-on-primary hover:opacity-90 focus-visible:ring-foreground",
   /** Everything else that is still an action: outlined, not filled. */
-  secondary: "border-muted bg-transparent text-foreground hover:border-foreground focus-visible:ring-foreground",
+  secondary: "border-control-edge bg-transparent text-foreground hover:border-foreground focus-visible:ring-foreground",
   /** An action that should not compete for attention. */
   ghost: "bg-transparent text-ink-muted hover:text-foreground focus-visible:ring-foreground",
 }         ;
@@ -49,86 +49,70 @@ export const button = tv({
     "aria-disabled:pointer-events-none aria-disabled:opacity-50",
   ].join(" "),
   variants: { variant: VARIANT, intent: INTENT, size: SIZE, block: BLOCK },
+  // Each intent keeps the variant's hierarchy: primary fills with the role's
+  // text-grade stop, secondary outlines in the role's border, ghost carries
+  // only the role's ink. A danger primary is therefore a filled destructive
+  // action, distinct from its secondary and ghost forms (ADR 0009).
   compoundVariants: [
     {
       intent: "danger",
-      variant: ["primary", "secondary", "ghost"],
-      class: "bg-[var(--reddb-color-feedback-danger-surface)] text-[var(--reddb-color-feedback-danger-foreground)] focus-visible:ring-[var(--reddb-color-feedback-danger-foreground)]",
-    },
-    {
-      intent: "danger",
       variant: "primary",
-      class: "border-[var(--reddb-color-feedback-danger-border)]",
+      class: "bg-feedback-danger-foreground text-on-feedback focus-visible:ring-foreground",
     },
     {
       intent: "danger",
       variant: "secondary",
-      class: "border-[var(--reddb-color-feedback-danger-border)] hover:bg-[var(--reddb-color-feedback-danger-surface)]",
+      class: "border-feedback-danger-border text-feedback-danger-foreground hover:border-feedback-danger-foreground hover:bg-feedback-danger-surface focus-visible:ring-feedback-danger-foreground",
     },
     {
       intent: "danger",
       variant: "ghost",
-      class: "hover:bg-[var(--reddb-color-feedback-danger-surface)]",
-    },
-    {
-      intent: "success",
-      variant: ["primary", "secondary", "ghost"],
-      class: "bg-[var(--reddb-color-feedback-success-surface)] text-[var(--reddb-color-feedback-success-foreground)] focus-visible:ring-[var(--reddb-color-feedback-success-foreground)]",
+      class: "text-feedback-danger-foreground hover:text-feedback-danger-foreground hover:bg-feedback-danger-surface focus-visible:ring-feedback-danger-foreground",
     },
     {
       intent: "success",
       variant: "primary",
-      class: "border-[var(--reddb-color-feedback-success-border)]",
+      class: "bg-feedback-success-foreground text-on-feedback focus-visible:ring-foreground",
     },
     {
       intent: "success",
       variant: "secondary",
-      class: "border-[var(--reddb-color-feedback-success-border)] hover:bg-[var(--reddb-color-feedback-success-surface)]",
+      class: "border-feedback-success-border text-feedback-success-foreground hover:border-feedback-success-foreground hover:bg-feedback-success-surface focus-visible:ring-feedback-success-foreground",
     },
     {
       intent: "success",
       variant: "ghost",
-      class: "hover:bg-[var(--reddb-color-feedback-success-surface)]",
-    },
-    {
-      intent: "warning",
-      variant: ["primary", "secondary", "ghost"],
-      class: "bg-[var(--reddb-color-feedback-warning-surface)] text-[var(--reddb-color-feedback-warning-foreground)] focus-visible:ring-[var(--reddb-color-feedback-warning-foreground)]",
+      class: "text-feedback-success-foreground hover:text-feedback-success-foreground hover:bg-feedback-success-surface focus-visible:ring-feedback-success-foreground",
     },
     {
       intent: "warning",
       variant: "primary",
-      class: "border-[var(--reddb-color-feedback-warning-border)]",
+      class: "bg-feedback-warning-foreground text-on-feedback focus-visible:ring-foreground",
     },
     {
       intent: "warning",
       variant: "secondary",
-      class: "border-[var(--reddb-color-feedback-warning-border)] hover:bg-[var(--reddb-color-feedback-warning-surface)]",
+      class: "border-feedback-warning-border text-feedback-warning-foreground hover:border-feedback-warning-foreground hover:bg-feedback-warning-surface focus-visible:ring-feedback-warning-foreground",
     },
     {
       intent: "warning",
       variant: "ghost",
-      class: "hover:bg-[var(--reddb-color-feedback-warning-surface)]",
-    },
-    {
-      intent: "info",
-      variant: ["primary", "secondary", "ghost"],
-      class: "bg-[var(--reddb-color-muted)] text-[var(--reddb-color-foreground)] focus-visible:ring-[var(--reddb-color-foreground)]",
+      class: "text-feedback-warning-foreground hover:text-feedback-warning-foreground hover:bg-feedback-warning-surface focus-visible:ring-feedback-warning-foreground",
     },
     {
       intent: "info",
       variant: "primary",
-      class: "border-[var(--reddb-color-foreground)]",
+      class: "bg-feedback-info-foreground text-on-feedback focus-visible:ring-foreground",
     },
     {
       intent: "info",
       variant: "secondary",
-      class: "border-[var(--reddb-color-foreground)] hover:bg-[var(--reddb-color-muted)]",
+      class: "border-feedback-info-border text-feedback-info-foreground hover:border-feedback-info-foreground hover:bg-feedback-info-surface focus-visible:ring-feedback-info-foreground",
     },
     {
       intent: "info",
       variant: "ghost",
-      class: "hover:bg-[var(--reddb-color-muted)]",
+      class: "text-feedback-info-foreground hover:text-feedback-info-foreground hover:bg-feedback-info-surface focus-visible:ring-feedback-info-foreground",
     },
   ],
   defaultVariants: { variant: "primary", intent: "neutral", size: "md", block: false },
@@ -137,7 +121,7 @@ export const button = tv({
 /** The loading indicator, inheriting the Button variant's current colour. */
 export const buttonSpinner = tv({
   slots: {
-    root: "shrink-0 animate-spin",
+    root: "shrink-0 motion-safe:animate-spin motion-reduce:animate-pulse",
     track: "fill-none stroke-current opacity-25",
     head: "fill-none stroke-current",
   },

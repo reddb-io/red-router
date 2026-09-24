@@ -12,10 +12,10 @@ import { getPageInfo, hasOwnHeading } from "@/shared/utils/pageInfo";
 // Toasts use the DS feedback roles (surface / foreground / border per status).
 // Literal class strings, so Tailwind's scanner generates every one of them.
 const FEEDBACK = {
-  success: "border-[var(--reddb-color-feedback-success-border)] bg-[var(--reddb-color-feedback-success-surface)] text-[var(--reddb-color-feedback-success-foreground)]",
-  danger: "border-[var(--reddb-color-feedback-danger-border)] bg-[var(--reddb-color-feedback-danger-surface)] text-[var(--reddb-color-feedback-danger-foreground)]",
-  warning: "border-[var(--reddb-color-feedback-warning-border)] bg-[var(--reddb-color-feedback-warning-surface)] text-[var(--reddb-color-feedback-warning-foreground)]",
-  info: "border-[var(--reddb-color-feedback-info-border)] bg-[var(--reddb-color-feedback-info-surface)] text-[var(--reddb-color-feedback-info-foreground)]",
+  success: "border-feedback-success-border bg-feedback-success-surface text-feedback-success-foreground",
+  danger: "border-feedback-danger-border bg-feedback-danger-surface text-feedback-danger-foreground",
+  warning: "border-feedback-warning-border bg-feedback-warning-surface text-feedback-warning-foreground",
+  info: "border-feedback-info-border bg-feedback-info-surface text-feedback-info-foreground",
 };
 
 function getToastStyle(type) {
@@ -99,7 +99,7 @@ export default function DashboardLayout({ children }) {
       {/* Mobile sidebar overlay */}
       {sidebarOpen && (
         <div
-          className="fixed inset-0 z-40 bg-black/20 lg:hidden"
+          className="fixed inset-0 z-40 bg-scrim/40 lg:hidden"
           onClick={() => setSidebarOpen(false)}
         />
       )}

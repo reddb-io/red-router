@@ -73,7 +73,7 @@ export default function RecommendedSetup({ autoLoad = false, onApplied }) {
   if (!preview) {
     return (
       <div className="flex flex-col gap-2">
-        {error ? <p className="text-sm text-[var(--reddb-color-feedback-danger-foreground)]" role="alert">{error}</p> : null}
+        {error ? <p className="text-sm text-feedback-danger-foreground" role="alert">{error}</p> : null}
         <Button variant="secondary" size="sm" icon="auto_awesome" loading={loading} onClick={load}>
           Preview recommended setup
         </Button>
@@ -126,7 +126,7 @@ export default function RecommendedSetup({ autoLoad = false, onApplied }) {
         </ul>
       ) : null}
 
-      {error ? <p className="text-sm text-[var(--reddb-color-feedback-danger-foreground)]" role="alert">{error}</p> : null}
+      {error ? <p className="text-sm text-feedback-danger-foreground" role="alert">{error}</p> : null}
       {applied ? (
         <p className="text-sm text-text-muted" role="status">
           {applied.created || applied.updated

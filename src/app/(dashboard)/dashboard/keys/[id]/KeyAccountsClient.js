@@ -88,7 +88,7 @@ export default function KeyAccountsClient({ keyId }) {
   if (error && !apiKey) {
     return (
       <Card padding="lg">
-        <p className="text-sm text-[var(--reddb-color-feedback-danger-foreground)]">{error}</p>
+        <p className="text-sm text-feedback-danger-foreground">{error}</p>
         <Link href="/dashboard/endpoint" className="mt-4 inline-block text-sm text-primary">
           Back to API keys
         </Link>
@@ -131,7 +131,7 @@ export default function KeyAccountsClient({ keyId }) {
             </Button>
           </div>
         </div>
-        {error && <p className="mt-3 text-sm text-[var(--reddb-color-feedback-danger-foreground)]">{error}</p>}
+        {error && <p className="mt-3 text-sm text-feedback-danger-foreground">{error}</p>}
       </Card>
 
       {apiKey && (

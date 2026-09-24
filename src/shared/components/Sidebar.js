@@ -5,6 +5,7 @@ import PropTypes from "prop-types";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/shared/utils/cn";
+import { navItem } from "@/shared/ds/nav-item.variants";
 import { APP_CONFIG } from "@/shared/constants/config";
 import { MEDIA_PROVIDER_KINDS } from "@/shared/constants/providers";
 
@@ -78,12 +79,9 @@ export default function Sidebar({ onClose }) {
             key={item.href}
             href={item.href}
             onClick={onClose}
-            className={cn(
-              "flex min-h-11 items-center gap-3 rounded-md px-3 transition-colors group focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2",
-              isActive(item.href) ? "bg-primary/10 text-primary" : "text-text-muted hover:bg-surface-2 hover:text-text-main"
-            )}
+            className={navItem({ active: isActive(item.href) }).root({ class: "flex min-h-11 items-center gap-3 px-3 transition-colors group focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2" })}
           >
-            <span className={cn("material-symbols-outlined text-[18px]", isActive(item.href) ? "fill-1" : "group-hover:text-primary transition-colors")}>{item.icon}</span>
+            <span className={cn("material-symbols-outlined text-[18px]", isActive(item.href) && "fill-1")}>{item.icon}</span>
             <span className="text-[13px] font-medium whitespace-nowrap">{item.label}</span>
           </Link>
         ))}
@@ -113,12 +111,7 @@ export default function Sidebar({ onClose }) {
             {showAdminItems && (<>
             <button
               onClick={() => setMediaOpen((v) => !v)}
-              className={cn(
-                "w-full flex min-h-11 items-center gap-3 px-3 rounded-md transition-colors group",
-                pathname.startsWith("/dashboard/tools-providers")
-                  ? "bg-primary/10 text-primary"
-                  : "text-text-muted hover:bg-surface-2 hover:text-text-main"
-              )}
+              className={navItem({ active: pathname.startsWith("/dashboard/tools-providers") }).root({ class: "w-full flex min-h-11 items-center gap-3 px-3 transition-colors group" })}
             >
               <span className="material-symbols-outlined text-[18px]">perm_media</span>
               <span className="text-[13px] font-medium flex-1 text-left">Tools Providers</span>
@@ -133,12 +126,7 @@ export default function Sidebar({ onClose }) {
                     key={kind.id}
                     href={`/dashboard/tools-providers/${kind.id}`}
                     onClick={onClose}
-                    className={cn(
-                      "flex min-h-11 items-center gap-3 px-4 rounded-md transition-colors group",
-                      pathname.startsWith(`/dashboard/tools-providers/${kind.id}`)
-                        ? "bg-primary/10 text-primary"
-                        : "text-text-muted hover:bg-surface-2 hover:text-text-main"
-                    )}
+                    className={navItem({ active: pathname.startsWith(`/dashboard/tools-providers/${kind.id}`) }).root({ class: "flex min-h-11 items-center gap-3 px-4 transition-colors group" })}
                   >
                     <span className="material-symbols-outlined text-[16px]">{kind.icon}</span>
                     <span className="text-sm">{kind.label}</span>
@@ -148,12 +136,7 @@ export default function Sidebar({ onClose }) {
                   key={COMBINED_WEB_ITEM.id}
                   href={COMBINED_WEB_ITEM.href}
                   onClick={onClose}
-                  className={cn(
-                    "flex min-h-11 items-center gap-3 px-4 rounded-md transition-colors group",
-                    pathname.startsWith(COMBINED_WEB_ITEM.href)
-                      ? "bg-primary/10 text-primary"
-                      : "text-text-muted hover:bg-surface-2 hover:text-text-main"
-                  )}
+                  className={navItem({ active: pathname.startsWith(COMBINED_WEB_ITEM.href) }).root({ class: "flex min-h-11 items-center gap-3 px-4 transition-colors group" })}
                 >
                   <span className="material-symbols-outlined text-[16px]">{COMBINED_WEB_ITEM.icon}</span>
                   <span className="text-sm">{COMBINED_WEB_ITEM.label}</span>
@@ -167,17 +150,12 @@ export default function Sidebar({ onClose }) {
                 key={item.href}
                 href={item.href}
                 onClick={onClose}
-                className={cn(
-                  "flex min-h-11 items-center gap-3 px-3 rounded-md transition-colors group",
-                  isActive(item.href)
-                    ? "bg-primary/10 text-primary"
-                    : "text-text-muted hover:bg-surface-2 hover:text-text-main"
-                )}
+                className={navItem({ active: isActive(item.href) }).root({ class: "flex min-h-11 items-center gap-3 px-3 transition-colors group" })}
               >
                 <span
                   className={cn(
                     "material-symbols-outlined text-[18px]",
-                    isActive(item.href) ? "fill-1" : "group-hover:text-primary transition-colors"
+                    isActive(item.href) && "fill-1"
                   )}
                 >
                   {item.icon}
@@ -191,14 +169,9 @@ export default function Sidebar({ onClose }) {
                 key={item.href}
                 href={item.href}
                 onClick={onClose}
-                className={cn(
-                  "flex min-h-11 items-center gap-3 px-3 rounded-md transition-colors group",
-                  isActive(item.href)
-                    ? "bg-primary/10 text-primary"
-                    : "text-text-muted hover:bg-surface-2 hover:text-text-main"
-                )}
+                className={navItem({ active: isActive(item.href) }).root({ class: "flex min-h-11 items-center gap-3 px-3 transition-colors group" })}
               >
-                <span className={cn("material-symbols-outlined text-[18px]", isActive(item.href) ? "fill-1" : "group-hover:text-primary transition-colors")}>{item.icon}</span>
+                <span className={cn("material-symbols-outlined text-[18px]", isActive(item.href) && "fill-1")}>{item.icon}</span>
                 <span className="text-[13px] font-medium">{item.label}</span>
               </Link>
             ))}
@@ -211,17 +184,12 @@ export default function Sidebar({ onClose }) {
                   key={item.href}
                   href={item.href}
                   onClick={onClose}
-                  className={cn(
-                    "flex min-h-11 items-center gap-3 px-3 rounded-md transition-colors group",
-                    isActive(item.href)
-                      ? "bg-primary/10 text-primary"
-                      : "text-text-muted hover:bg-surface-2 hover:text-text-main"
-                  )}
+                  className={navItem({ active: isActive(item.href) }).root({ class: "flex min-h-11 items-center gap-3 px-3 transition-colors group" })}
                 >
                   <span
                     className={cn(
                       "material-symbols-outlined text-[18px]",
-                      isActive(item.href) ? "fill-1" : "group-hover:text-primary transition-colors"
+                      isActive(item.href) && "fill-1"
                     )}
                   >
                     {item.icon}
@@ -236,17 +204,12 @@ export default function Sidebar({ onClose }) {
             <Link
               href="/dashboard/profile"
               onClick={onClose}
-              className={cn(
-                "flex min-h-11 items-center gap-3 px-3 rounded-md transition-colors group",
-                isActive("/dashboard/profile")
-                  ? "bg-primary/10 text-primary"
-                  : "text-text-muted hover:bg-surface-2 hover:text-text-main"
-              )}
+              className={navItem({ active: isActive("/dashboard/profile") }).root({ class: "flex min-h-11 items-center gap-3 px-3 transition-colors group" })}
             >
               <span
                 className={cn(
                   "material-symbols-outlined text-[18px]",
-                  isActive("/dashboard/profile") ? "fill-1" : "group-hover:text-primary transition-colors"
+                  isActive("/dashboard/profile") && "fill-1"
                 )}
               >
                 settings

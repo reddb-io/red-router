@@ -242,10 +242,10 @@ export default function ModelCatalogBrowser({ providerId, addedIds, onAdd, onEmp
                   </div>
                   <div className="hidden shrink-0 text-right text-[11px] text-text-muted sm:block">
                     {ctx && <div>{ctx} ctx</div>}
-                    {cost && <div className={m.free ? "text-[var(--reddb-color-feedback-success-foreground)]" : undefined}>{cost}</div>}
+                    {cost && <div className={m.free ? "text-feedback-success-foreground" : undefined}>{cost}</div>}
                   </div>
                   {isAdded ? (
-                    <span className="flex shrink-0 items-center gap-0.5 text-[11px] text-[var(--reddb-color-feedback-success-foreground)]">
+                    <span className="flex shrink-0 items-center gap-0.5 text-[11px] text-feedback-success-foreground">
                       <span className="material-symbols-outlined text-[14px]">check</span>Added
                     </span>
                   ) : (

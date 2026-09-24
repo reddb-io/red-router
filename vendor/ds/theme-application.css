@@ -4,7 +4,6 @@
 /* Materials only (ADR 0008): the Color Scheme chooses between them, Density is untouched. */
 [data-theme="application"] {
   --reddb-theme-elevation-base-surface-light: var(--reddb-color-neutral-0);
-  --reddb-theme-elevation-overlay-surface-light: var(--reddb-color-neutral-200);
   --reddb-theme-elevation-raised-surface-light: var(--reddb-color-neutral-50);
   --reddb-theme-elevation-sunken-surface-light: var(--reddb-color-neutral-100);
   --reddb-theme-ink-muted-light: var(--reddb-color-neutral-600);

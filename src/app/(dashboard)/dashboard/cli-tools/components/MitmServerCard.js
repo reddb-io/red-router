@@ -152,7 +152,7 @@ export default function MitmServerCard({ apiKeys, cloudEnabled, onStatusChange }
                 { label: "Trusted", ok: status?.certTrusted },
                 { label: "Server", ok: isRunning },
               ].map(({ label, ok }) => (
-                <span key={label} className={`flex items-center gap-0.5 px-1.5 py-0.5 rounded ${ok ? "text-[var(--reddb-color-feedback-success-foreground)]" : "text-text-muted"}`}>
+                <span key={label} className={`flex items-center gap-0.5 px-1.5 py-0.5 rounded ${ok ? "text-feedback-success-foreground" : "text-text-muted"}`}>
                   <span className="material-symbols-outlined text-[12px]">
                     {ok ? "check_circle" : "cancel"}
                   </span>
@@ -215,7 +215,7 @@ export default function MitmServerCard({ apiKeys, cloudEnabled, onStatusChange }
               <button
                 onClick={() => handleAction("trust-cert")}
                 disabled={loading}
-                className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-[var(--reddb-color-feedback-warning-border)] bg-[var(--reddb-color-feedback-warning-surface)] px-4 py-2 text-xs font-medium text-[var(--reddb-color-feedback-warning-foreground)] transition-colors hover:bg-[var(--reddb-color-feedback-warning-surface)] disabled:opacity-50 sm:w-auto sm:py-1.5"
+                className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-feedback-warning-border bg-feedback-warning-surface px-4 py-2 text-xs font-medium text-feedback-warning-foreground transition-colors hover:bg-feedback-warning-surface disabled:opacity-50 sm:w-auto sm:py-1.5"
               >
                 <span className="material-symbols-outlined text-[16px]">verified_user</span>
                 Trust Cert
@@ -225,7 +225,7 @@ export default function MitmServerCard({ apiKeys, cloudEnabled, onStatusChange }
               <button
                 onClick={() => handleAction("stop")}
                 disabled={loading}
-                className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-[var(--reddb-color-feedback-danger-border)] bg-[var(--reddb-color-feedback-danger-surface)] px-4 py-2 text-xs font-medium text-[var(--reddb-color-feedback-danger-foreground)] transition-colors hover:bg-[var(--reddb-color-feedback-danger-surface)] disabled:opacity-50 sm:w-auto sm:py-1.5"
+                className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-feedback-danger-border bg-feedback-danger-surface px-4 py-2 text-xs font-medium text-feedback-danger-foreground transition-colors hover:bg-feedback-danger-surface disabled:opacity-50 sm:w-auto sm:py-1.5"
               >
                 <span className="material-symbols-outlined text-[16px]">stop_circle</span>
                 Stop Server
@@ -248,7 +248,7 @@ export default function MitmServerCard({ apiKeys, cloudEnabled, onStatusChange }
 
           {/* Action error */}
           {actionError && (
-            <div className="flex items-start gap-2 px-2 py-1.5 rounded text-xs bg-[var(--reddb-color-feedback-danger-surface)] text-[var(--reddb-color-feedback-danger-foreground)] border border-[var(--reddb-color-feedback-danger-border)]">
+            <div className="flex items-start gap-2 px-2 py-1.5 rounded text-xs bg-feedback-danger-surface text-feedback-danger-foreground border border-feedback-danger-border">
               <span className="material-symbols-outlined text-[14px] mt-0.5 shrink-0">error</span>
               <span>{actionError}</span>
             </div>
@@ -256,7 +256,7 @@ export default function MitmServerCard({ apiKeys, cloudEnabled, onStatusChange }
 
           {/* Windows admin warning */}
           {serverIsWindows && !isAdmin && (
-            <div className="flex items-center gap-2 px-2 py-1.5 rounded text-xs bg-[var(--reddb-color-feedback-danger-surface)] text-[var(--reddb-color-feedback-danger-foreground)] border border-[var(--reddb-color-feedback-danger-border)]">
+            <div className="flex items-center gap-2 px-2 py-1.5 rounded text-xs bg-feedback-danger-surface text-feedback-danger-foreground border border-feedback-danger-border">
               <span className="material-symbols-outlined text-[14px]">shield_lock</span>
               <span>Administrator required — restart RedRouter as Administrator to use MITM</span>
             </div>
@@ -266,11 +266,11 @@ export default function MitmServerCard({ apiKeys, cloudEnabled, onStatusChange }
 
       {/* Password Modal */}
       {showPasswordModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-scrim/60">
           <div className="mx-4 flex w-full max-w-sm flex-col gap-4 rounded-xl border border-border bg-surface p-5 shadow-xl sm:p-6">
             <h3 className="font-semibold text-text-main">Sudo Password Required</h3>
-            <div className="flex items-start gap-3 p-3 bg-[var(--reddb-color-feedback-warning-surface)] border border-[var(--reddb-color-feedback-warning-border)] rounded-lg">
-              <span className="material-symbols-outlined text-[var(--reddb-color-feedback-warning-foreground)] text-[20px]">warning</span>
+            <div className="flex items-start gap-3 p-3 bg-feedback-warning-surface border border-feedback-warning-border rounded-lg">
+              <span className="material-symbols-outlined text-feedback-warning-foreground text-[20px]">warning</span>
               <p className="text-xs text-text-muted">Required for SSL certificate and server startup</p>
             </div>
             <Input
@@ -281,7 +281,7 @@ export default function MitmServerCard({ apiKeys, cloudEnabled, onStatusChange }
               onKeyDown={(e) => { if (e.key === "Enter" && !loading) handleConfirmPassword(); }}
             />
             {modalError && (
-              <div className="flex items-center gap-2 px-2 py-1.5 rounded text-xs bg-[var(--reddb-color-feedback-danger-surface)] text-[var(--reddb-color-feedback-danger-foreground)]">
+              <div className="flex items-center gap-2 px-2 py-1.5 rounded text-xs bg-feedback-danger-surface text-feedback-danger-foreground">
                 <span className="material-symbols-outlined text-[14px]">error</span>
                 <span>{modalError}</span>
               </div>
@@ -300,11 +300,11 @@ export default function MitmServerCard({ apiKeys, cloudEnabled, onStatusChange }
 
       {/* Port 443 Conflict Modal */}
       {port443Conflict && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-scrim/60">
           <div className="mx-4 flex w-full max-w-md flex-col gap-4 rounded-xl border border-border bg-surface p-5 shadow-xl sm:p-6">
             <h3 className="font-semibold text-text-main">Port 443 Already In Use</h3>
-            <div className="flex items-start gap-3 p-3 bg-[var(--reddb-color-feedback-warning-surface)] border border-[var(--reddb-color-feedback-warning-border)] rounded-lg">
-              <span className="material-symbols-outlined text-[var(--reddb-color-feedback-warning-foreground)] text-[20px]">warning</span>
+            <div className="flex items-start gap-3 p-3 bg-feedback-warning-surface border border-feedback-warning-border rounded-lg">
+              <span className="material-symbols-outlined text-feedback-warning-foreground text-[20px]">warning</span>
               <div className="flex flex-col gap-1 text-xs text-text-muted">
                 <p>Port 443 is currently used by another process:</p>
                 <p className="font-mono text-text-main" data-i18n-skip="true">

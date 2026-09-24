@@ -12,10 +12,10 @@ export default function StatusAlert({ status, className = "" }) {
   };
 
   return (
-    <div className={`p-2 rounded text-sm ${className} ${status.type === "success" ? "bg-[var(--reddb-color-feedback-success-surface)] text-[var(--reddb-color-feedback-success-foreground)]" :
-        status.type === "warning" ? "bg-[var(--reddb-color-feedback-warning-surface)] text-[var(--reddb-color-feedback-warning-foreground)]" :
-        status.type === "info" ? "bg-[var(--reddb-color-feedback-info-surface)] text-[var(--reddb-color-feedback-info-foreground)]" :
-          "bg-[var(--reddb-color-feedback-danger-surface)] text-[var(--reddb-color-feedback-danger-foreground)]"
+    <div className={`p-2 rounded text-sm ${className} ${status.type === "success" ? "bg-feedback-success-surface text-feedback-success-foreground" :
+        status.type === "warning" ? "bg-feedback-warning-surface text-feedback-warning-foreground" :
+        status.type === "info" ? "bg-feedback-info-surface text-feedback-info-foreground" :
+          "bg-feedback-danger-surface text-feedback-danger-foreground"
       }`}>
       {renderMessage(status.message)}
     </div>

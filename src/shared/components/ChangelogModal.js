@@ -47,7 +47,7 @@ export default function ChangelogModal({ isOpen, onClose }) {
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       {/* Overlay */}
       <div
-        className="absolute inset-0 bg-black/30 backdrop-blur-sm"
+        className="absolute inset-0 bg-scrim/60"
         onClick={onClose}
       />
 
@@ -77,7 +77,7 @@ export default function ChangelogModal({ isOpen, onClose }) {
             </div>
           )}
           {error && (
-            <div className="text-[var(--reddb-color-feedback-danger-foreground)] py-4">Failed to load changelog: {error}</div>
+            <div className="text-feedback-danger-foreground py-4">Failed to load changelog: {error}</div>
           )}
           {!loading && !error && html && (
             <div
