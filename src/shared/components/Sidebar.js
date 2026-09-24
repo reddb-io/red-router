@@ -19,6 +19,7 @@ const operateItems = [
   { href: "/dashboard/quota", label: "Quota Tracker", icon: "data_usage" },
   { href: "/dashboard/combos", label: "Routing Combos", icon: "layers" },
   { href: "/dashboard/token-saver", label: "Token Saver", icon: "savings" },
+  { href: "/dashboard/endpoint", label: "Endpoint & Keys", icon: "api" },
 ];
 
 const toolItems = [
@@ -33,7 +34,6 @@ const debugItems = [
 const systemItems = [
   { href: "/dashboard/setup", label: "Setup", icon: "route" },
   { href: "/dashboard/providers", label: "Providers", icon: "dns" },
-  { href: "/dashboard/endpoint", label: "Endpoint & Keys", icon: "api" },
 ];
 
 const adminSystemItems = [
