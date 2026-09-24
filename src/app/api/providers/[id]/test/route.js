@@ -27,6 +27,11 @@ export async function POST(request, { params }) {
       valid: result.valid,
       error: result.error,
       refreshed: result.refreshed || false,
+      latencyMs: result.latencyMs ?? null,
+      // What happened on the wire: the deciding request and every request made.
+      probe: result.probe || null,
+      requests: result.requests || [],
+      testedAt: result.testedAt,
     });
   } catch (error) {
     console.log("Error testing connection:", error);

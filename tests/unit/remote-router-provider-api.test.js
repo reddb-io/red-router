@@ -164,11 +164,17 @@ describe("RedRouter provider API", () => {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
     }), { params: Promise.resolve({ id: created.connection.id }) })).json();
 
-    expect((await test({})).valid).toBe(true);
+    const ok = await test({});
+    expect(ok.valid).toBe(true);
+    // The test reports what it called, not just a verdict.
+    expect(ok.probe).toMatchObject({ method: "GET", url: "https://first-router.test/v1/models", status: 200 });
+    expect(ok.probe.bytes).toBeGreaterThan(0);
+    expect(typeof ok.latencyMs).toBe("number");
 
     const wrong = await test({ providerSpecificData: { baseUrl: "https://wrong-router.test" } });
     expect(wrong.valid).toBe(false);
     expect(wrong.error).toBeTruthy();
+    expect(wrong.probe).toMatchObject({ url: "https://wrong-router.test/v1/models", status: 404, bytes: 9 });
     const malformed = await test({ providerSpecificData: { baseUrl: "definitely not a url" } });
     expect(malformed).toMatchObject({ valid: false, error: "A valid remote RedRouter URL is required" });
 

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { getStatusVariant as getConnectionStatusVariant } from "@/shared/utils/connectionStatus";
+import ConnectionTestResult from "@/shared/components/ConnectionTestResult";
 import PropTypes from "prop-types";
 import { Badge, Toggle, Tooltip } from "@/shared/components";
 import CooldownTimer from "./CooldownTimer";
@@ -131,6 +132,8 @@ export default function ConnectionRow({ connection, proxyPools, isOAuth, isFirst
     if (!oneByOneStatus) return null;
     if (oneByOneStatus.state === "queued") return "queued";
     if (oneByOneStatus.state === "testing") return "testing";
+    // A finished test with its details renders them below the row instead.
+    if (oneByOneStatus.result) return null;
     if (oneByOneStatus.state === "success") return "success";
     if (oneByOneStatus.state === "failed") return oneByOneStatus.error ? `failed: ${oneByOneStatus.error}` : "failed";
     return null;
@@ -215,6 +218,9 @@ export default function ConnectionRow({ connection, proxyPools, isOAuth, isFirst
               </Badge>
             )}
           </div>
+          {oneByOneStatus?.result && (
+            <ConnectionTestResult result={oneByOneStatus.result} className="mt-1.5" />
+          )}
           {hasAnyProxy && (
             <div className="mt-1 flex items-center gap-2 flex-wrap">
               <span className="max-w-full truncate text-[11px] text-text-muted sm:max-w-[420px]" title={proxyDisplayText}>
@@ -340,6 +346,7 @@ ConnectionRow.propTypes = {
   oneByOneStatus: PropTypes.shape({
     state: PropTypes.string,
     error: PropTypes.string,
+    result: PropTypes.object,
   }),
   autoPing: PropTypes.shape({
     on: PropTypes.bool,

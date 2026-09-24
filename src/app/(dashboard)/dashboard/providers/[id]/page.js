@@ -787,6 +787,8 @@ export default function ProviderDetailPage() {
             [connection.id]: {
               state: valid ? "success" : "failed",
               error: valid ? null : (data.error || null),
+              // Status, latency, size and endpoint of what the test called.
+              result: { ...data, valid },
             },
           }));
         } catch (error) {
