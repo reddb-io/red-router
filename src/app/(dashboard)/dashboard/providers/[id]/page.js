@@ -15,6 +15,7 @@ import { translate } from "@/i18n/runtime";
 import { fetchSuggestedModels } from "@/shared/utils/providerModelsFetcher";
 import { getProviderCustomModelRows } from "@/shared/utils/providerCustomModels";
 import ModelRow from "./ModelRow";
+import ModelCatalogBrowser from "./ModelCatalogBrowser";
 import PassthroughModelsSection from "./PassthroughModelsSection";
 import CompatibleModelsSection from "./CompatibleModelsSection";
 import ConnectionRow from "./ConnectionRow";
@@ -80,6 +81,8 @@ export default function ProviderDetailPage() {
   const [thinkingMode, setThinkingMode] = useState("auto");
   const [autoPing, setAutoPing] = useState({ enabled: false, connections: {} });
   const [suggestedModels, setSuggestedModels] = useState([]);
+  // No models.dev/OpenRouter catalog for this provider: fall back to its own suggested list.
+  const [catalogEmpty, setCatalogEmpty] = useState(false);
   const [liveModels, setLiveModels] = useState([]);
   const [catalogWarning, setCatalogWarning] = useState(null);
   const [catalogLoading, setCatalogLoading] = useState(false);
@@ -1345,8 +1348,19 @@ export default function ProviderDetailPage() {
           </button>
         )}
 
-        {/* Suggested models from provider API — show only models not yet added */}
-        {suggestedModels.length > 0 && (() => {
+        {/* Every model the provider serves, filterable (models.dev + OpenRouter live) */}
+        <ModelCatalogBrowser
+          key={providerId}
+          providerId={providerId}
+          addedIds={new Set([...allModels.map((m) => m.id), ...customModelRows.map((m) => m.id)])}
+          onAdd={async (ids) => {
+            for (const id of ids) await handleAddCustomModel(id, "llm", providerStorageAlias);
+          }}
+          onEmpty={() => setCatalogEmpty(true)}
+        />
+
+        {/* Suggested models from provider API, for providers without a catalog */}
+        {catalogEmpty && suggestedModels.length > 0 && (() => {
           const addedFullModels = new Set([
             ...Object.values(modelAliases),
             ...customModelRows.map((model) => model.fullModel),

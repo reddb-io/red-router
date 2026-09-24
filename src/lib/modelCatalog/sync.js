@@ -6,7 +6,8 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { CATALOG_FILE, CATALOG_RAW_FILE, CATALOG_VERSION, invalidateCatalog, installCatalogSource } from "open-sse/providers/catalogOverride.js";
+import { CATALOG_FILE, CATALOG_RAW_FILE, CATALOG_BROWSE_FILE, CATALOG_VERSION, invalidateCatalog, installCatalogSource } from "open-sse/providers/catalogOverride.js";
+import { browseSlim } from "./browseShape.js";
 
 const CATALOG_URL = "https://models.dev/api.json";
 // Provider-agnostic model facts from the same models.dev project
@@ -142,6 +143,7 @@ export async function seedFromSnapshot() {
   const serialized = JSON.stringify({ v: CATALOG_VERSION, etag: null, syncedAt: Date.now(), models, providers, modelLimits });
   writeAtomic(CATALOG_FILE, serialized);
   writeAtomic(CATALOG_RAW_FILE, JSON.stringify(slim(seed.catalog)));
+  writeAtomic(CATALOG_BROWSE_FILE, JSON.stringify(browseSlim(seed.catalog)));
   invalidateCatalog();
   await installCatalogSource().catch(() => {});
   return {
@@ -251,7 +253,8 @@ export async function syncModelCatalog() {
   state.running = true;
   try {
     const headers = { accept: "application/json" };
-    if (state.etag && state.fileVersion === CATALOG_VERSION) headers["if-none-match"] = state.etag;
+    // No browse file yet (installs from before it existed): fetch in full once to write it.
+    if (state.etag && state.fileVersion === CATALOG_VERSION && fs.existsSync(CATALOG_BROWSE_FILE)) headers["if-none-match"] = state.etag;
     const response = await fetch(CATALOG_URL, { headers, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
 
     let result;
@@ -271,6 +274,7 @@ export async function syncModelCatalog() {
 
       writeAtomic(CATALOG_FILE, serialized);
       writeAtomic(CATALOG_RAW_FILE, JSON.stringify(slim(catalog)));
+      writeAtomic(CATALOG_BROWSE_FILE, JSON.stringify(browseSlim(catalog)));
 
       state.etag = etag;
       state.fileVersion = CATALOG_VERSION;
