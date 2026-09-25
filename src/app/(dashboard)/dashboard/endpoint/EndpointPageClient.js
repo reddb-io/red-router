@@ -836,11 +836,11 @@ export default function APIPageClient({ machineId }) {
           </p>
         </div>
 
-        <details className="mt-5 border-t border-border-subtle pt-4">
-          <summary className="flex min-h-11 items-center justify-between gap-3 text-sm font-medium text-text-main">
+        <section className="mt-5 border-t border-border-subtle pt-4" aria-label="Advanced exposure">
+          <div className="flex min-h-11 items-center justify-between gap-3 text-sm font-medium text-text-main">
             <span><Icon name="public" size={18} className="mr-2 align-middle text-text-muted" />Advanced exposure</span>
             <span className="text-xs font-normal text-text-muted">Cloudflare, Tailscale and dashboard access</span>
-          </summary>
+          </div>
           <div className="pt-4">
           <div className="flex flex-col gap-2">
           {/* Cloudflare Tunnel — exposing the instance publicly is an admin action */}
@@ -1072,7 +1072,7 @@ export default function APIPageClient({ machineId }) {
           </div>
         )}
           </div>
-        </details>
+        </section>
       </Card>
 
       {/* API Keys */}
