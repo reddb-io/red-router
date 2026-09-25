@@ -1,5 +1,12 @@
 # @reddb-io/red-router
 
+## 0.25.2
+
+### Patch Changes
+
+- 42266c3: Fixed a race in the diagnostic log lock. When a launcher had crashed while holding the lock, launchers that started together could remove each other's live lock. One of them then printed "Cannot write diagnostic log" and lost its line. Each dead lock is now removed by exactly one launcher.
+- 7a7993d: The OpenCode Zen and OpenCode Go provider pages now list the models OpenCode serves today. The model browser reads OpenCode's live `/models` lists, the same ones routing already fetches and caches, instead of models.dev's copy. So JEV 1.13 and JEV 1.13 Free show on the OpenCode Zen page with the System One badge, and models OpenCode has retired no longer show. models.dev and RedRouter's built-in list still supply names, prices and limits. The last list is saved to disk. Without network the browser shows that saved list, or RedRouter's built-in list, and the source line says which one it's showing.
+
 ## 0.25.1
 
 ### Patch Changes
