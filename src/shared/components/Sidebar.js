@@ -6,7 +6,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/shared/utils/cn";
 import { navItem } from "@/shared/ds/nav-item.variants";
-import { APP_CONFIG } from "@/shared/constants/config";
+import { BrandMark } from "@/shared/components/BrandingProvider";
 import { MEDIA_PROVIDER_KINDS } from "@/shared/constants/providers";
 import Icon from "./Icon";
 
@@ -106,7 +106,7 @@ export default function Sidebar({ onClose }) {
     <aside className="flex w-72 flex-col border-r border-border-subtle bg-surface transition-colors duration-300 min-h-full">
         <div className="border-b border-border-subtle px-6 py-4">
           <Link href="/dashboard" className="inline-flex min-h-11 items-center text-text-main focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2">
-            <span className="text-lg font-semibold tracking-tight">{APP_CONFIG.name}</span>
+            <BrandMark />
           </Link>
         </div>
 

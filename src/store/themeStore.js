@@ -33,7 +33,7 @@ const useThemeStore = create(
 );
 
 // Apply theme to document
-function applyTheme(theme) {
+export function applyTheme(theme) {
   if (typeof window === "undefined") return;
 
   const root = document.documentElement;
