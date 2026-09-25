@@ -10,6 +10,11 @@ const MODE_OPTIONS = [
   { value: "deny", label: "Every model except matching" },
 ];
 
+const ID_FORMAT_OPTIONS = [
+  { value: "prefixed", label: "Every offer, with its provider (openrouter/anthropic/…)" },
+  { value: "flat", label: "One per model, RedRouter picks the provider (anthropic/claude-…)" },
+];
+
 const LIMIT_FIELDS = [
   { key: "rpm", label: "Requests per minute", placeholder: "No limit", step: "1" },
   { key: "tokensPerDay", label: "Tokens per day", placeholder: "No limit", step: "1" },
@@ -25,6 +30,7 @@ function formFromKey(apiKey) {
     rpm: limits.rpm ?? "",
     tokensPerDay: limits.tokensPerDay ?? "",
     usdPerMonth: limits.usdPerMonth ?? "",
+    modelIdFormat: apiKey?.modelIdFormat === "flat" ? "flat" : "prefixed",
   };
 }
 
@@ -58,6 +64,7 @@ export default function KeyPolicyCard({ apiKey, onSaved }) {
         body: JSON.stringify({
           modelAccess: form.mode === "all" ? null : { mode: form.mode, patterns },
           limits,
+          modelIdFormat: form.modelIdFormat,
         }),
       });
       const data = await response.json();
@@ -109,6 +116,13 @@ export default function KeyPolicyCard({ apiKey, onSaved }) {
                 A pattern matches a model under any of its provider prefixes and aliases. Allowing a combo allows the models it calls.
               </p>
             </div>
+          )}
+          <Select label="Model ids in /v1/models" options={ID_FORMAT_OPTIONS} value={form.modelIdFormat} onChange={update("modelIdFormat")} />
+          {form.modelIdFormat === "flat" && (
+            <p className="text-xs text-text-muted">
+              One entry per model, cheapest provider first and the next on failure. Free and paid offers, and different
+              versions, stay separate entries. Ids with a provider keep working to pin one offer.
+            </p>
           )}
         </div>
         <div className="flex flex-col gap-3">

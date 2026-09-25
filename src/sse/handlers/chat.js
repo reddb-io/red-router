@@ -54,6 +54,7 @@ import { getProjectIdForConnection } from "open-sse/services/projectId.js";
 import { stripModelContextMarker } from "open-sse/utils/modelMarkers.js";
 import { resolveSessionId, resolveAffinityKey } from "open-sse/utils/sessionManager.js";
 import { servedModelId } from "open-sse/utils/servedHeaders.js";
+import { resolveFlatModel } from "@/sse/services/flatResolve.js";
 import { partitionUsable } from "../services/memberEligibility.js";
 import { internalCallHeaders } from "../services/internalCall.js";
 import { handleSystemOne } from "./systemOne.js";
@@ -332,17 +333,26 @@ export async function handleChat(request, clientRawRequest = null, options = {})
   // carry a thinking override suffix ("my-combo(high)") — resolution strips it
   // and re-attaches it to every member; cleanComboName keys strategies/settings.
   // Combo names are unique per owner, so resolution is scoped to the key's owner.
-  const comboResolution = await resolveComboModels(modelStr, comboOwner);
+  // A flat model id ("typesafe/jev-1.13") is an implicit fallback combo over the
+  // offers the key may use, cheapest first (src/sse/services/flatResolve.js).
+  const comboResolution = await resolveComboModels(modelStr, comboOwner)
+    || await resolveFlatModel(modelStr, { apiKey }).catch((error) => {
+      log.warn("CHAT", `flat model lookup failed: ${error.message}`);
+      return null;
+    });
   if (comboResolution) {
     const { models: comboModels, comboName: cleanComboName } = comboResolution;
     routingContext.comboName = cleanComboName;
-    const comboAccess = await checkComboAccess(apiKey, cleanComboName);
+    // A flat entry was built from the offers this key may call, and each member is
+    // still checked on its own; there is no combo name for access rules to match.
+    const comboAccess = comboResolution.flat ? { denial: null, granted: false } : await checkComboAccess(apiKey, cleanComboName);
     if (comboAccess.denial) return responseFromRoutingCandidate(comboAccess.denial, errorContext);
     // A key allowed to call the combo may call what the combo calls.
     routingContext.comboAccessGranted = comboAccess.granted;
     // Check for combo-specific strategy first, fallback to global
     const comboStrategies = settings.comboStrategies || {};
-    const comboSpecificStrategy = comboStrategies[cleanComboName]?.fallbackStrategy;
+    // A flat entry always walks its offers in order: cheapest first, next on failure.
+    const comboSpecificStrategy = comboResolution.flat ? "fallback" : comboStrategies[cleanComboName]?.fallbackStrategy;
     const comboStrategy = comboSpecificStrategy || settings.comboStrategy || "fallback";
     const augmentedModels = augmentModelsWithCapacityAdapter(comboModels, requiredCapabilities, settings);
     const adapterAdded = augmentedModels.filter((m) => !comboModels.includes(m));

@@ -36,6 +36,9 @@ import { CATALOG_VERSION_HEADER } from "open-sse/config/runtimeConfig.js";
 import { SYSTEM_ONE_CREDENTIAL_SOURCES } from "open-sse/config/systemOne.js";
 import { resolveOpenCodeGoModels, resolveOpenCodeZenSystemOneModels } from "open-sse/services/opencodeCatalog.js";
 import { modelsDevModels } from "@/lib/modelCatalog/browse";
+import { groupFlatOffers, pinIdFor } from "@/lib/flatModels.js";
+import { getPricingForModel } from "@/lib/db/repos/pricingRepo.js";
+import { getApiKeyModelIdFormat } from "@/lib/db/repos/apiKeysRepo.js";
 import {
   RED_ROUTER_INSTANCE_HEADER,
   RED_ROUTER_INSTANCE_ID,
@@ -584,6 +587,34 @@ function memberParameters(member) {
  * the shared pool) in place of an API key.
  * @param {object} options - { apiKey, scopeFilter }
  */
+/**
+ * Thinking levels, members and the parameters a client must respect, for an LLM
+ * combo (or a flat model id, which is an implicit fallback combo over its offers).
+ */
+function addComboRouting(entry, memberStrings, comboByName) {
+  const comboLevels = comboThinkingLevels(memberStrings);
+  if (comboLevels) entry.thinking_levels = comboLevels;
+  // What the router may call, and the parameters a client must respect for
+  // whichever member serves (strictest member; see mergeModelParameters).
+  const members = comboMembers(memberStrings, comboByName);
+  if (!members.length) return;
+  entry.members = members;
+  const perMember = members.map((id) => ({ id, parameters: memberParameters(id) }));
+  const strict = mergeModelParameters(perMember.map((m) => m.parameters));
+  // A fallback combo is served by its lead unless the lead fails, so the lead's
+  // parameters are what a client should plan for; X-RedRouter-Served-Model says
+  // when another member answered, and member_parameters has that member's. Any
+  // other strategy may land on any member: the strictest member's apply.
+  const lead = entry.strategy === "fallback" ? perMember[0].parameters : null;
+  const parameters = lead || strict;
+  if (parameters) {
+    entry.parameters = parameters;
+    entry.parameters_basis = lead ? "lead" : "strictest";
+    if (lead && strict) entry.parameters_strict = strict;
+  }
+  entry.member_parameters = perMember;
+}
+
 export async function catalogConnections(options = {}) {
   let connections = [];
   try {
@@ -722,30 +753,7 @@ export async function buildModelsList(kindFilter, options = {}) {
     }
     // LLM combos can only honor thinking levels every member supports (weakest
     // member rule); limits and capabilities come from mergeComboCapabilities above.
-    if ((combo?.kind || LLM_KIND) === LLM_KIND) {
-      const comboLevels = comboThinkingLevels(combo.models);
-      if (comboLevels) entry.thinking_levels = comboLevels;
-      // What the router may call, and the parameters a client must respect for
-      // whichever member serves (strictest member; see mergeModelParameters).
-      const members = comboMembers(combo.models, comboByName);
-      if (members.length) {
-        entry.members = members;
-        const perMember = members.map((id) => ({ id, parameters: memberParameters(id) }));
-        const strict = mergeModelParameters(perMember.map((m) => m.parameters));
-        // A fallback combo is served by its lead unless the lead fails, so the lead's
-        // parameters are what a client should plan for; X-RedRouter-Served-Model says
-        // when another member answered, and member_parameters has that member's. Any
-        // other strategy may land on any member: the strictest member's apply.
-        const lead = entry.strategy === "fallback" ? perMember[0].parameters : null;
-        const parameters = lead || strict;
-        if (parameters) {
-          entry.parameters = parameters;
-          entry.parameters_basis = lead ? "lead" : "strictest";
-          if (lead && strict) entry.parameters_strict = strict;
-        }
-        entry.member_parameters = perMember;
-      }
-    }
+    if ((combo?.kind || LLM_KIND) === LLM_KIND) addComboRouting(entry, combo.models, comboByName);
     models.push(entry);
   }
 
@@ -1027,7 +1035,61 @@ export async function buildModelsList(kindFilter, options = {}) {
     dedupedModels.push(withCreated(model, comboCreated));
   }
 
-  return filterByKeyModelAccess(dedupedModels, options.apiKey);
+  const allowed = await filterByKeyModelAccess(dedupedModels, options.apiKey);
+  // Flat ids group the offers the key may use, so access is decided per offer first.
+  return options.idFormat === "flat" ? flattenCatalog(allowed, comboByName) : allowed;
+}
+
+/** Catalog id formats: "prefixed" lists every offer; "flat" one entry per model (src/lib/flatModels.js). */
+export const ID_FORMATS = ["prefixed", "flat"];
+
+const perMillionPrice = (pricing) => (pricing && (typeof pricing.input === "number" || typeof pricing.output === "number")
+  ? { input: pricing.input ?? null, output: pricing.output ?? null }
+  : null);
+
+/**
+ * Replace each LLM provider offer with its flat entry: an implicit fallback combo
+ * whose members are the offers' full ids (cheapest first), shaped like a combo so
+ * clients handle it the same way, plus `offers` for labels and pinning.
+ */
+async function flattenCatalog(entries, comboByName) {
+  const isOffer = (e) => e?.provider && e.owned_by !== "combo" && e.owned_by !== "alias" && !e.kind;
+  const offers = entries.filter(isOffer);
+  const groups = await groupFlatOffers(offers, {
+    priceOf: async (providerId, modelId) => perMillionPrice(await getPricingForModel(providerId, modelId).catch(() => null)),
+  });
+  const flatIds = new Set(groups.map((g) => g.id));
+  const flat = groups.map((group) => {
+    const members = group.offers.map((o) => o.id);
+    const entry = {
+      id: group.id,
+      object: "model",
+      owned_by: "combo",
+      flat: true,
+      name: group.name,
+      provider: COMBO_PROVIDER,
+      strategy: "fallback",
+      ...(group.canonical ? { canonical: group.canonical } : {}),
+      offers: group.offers.map((o) => ({
+        id: o.id,
+        pin_id: pinIdFor(o, flatIds),
+        provider: o.provider,
+        via: o.via,
+        available: true,
+        price: o.price,
+        free: o.free,
+      })),
+    };
+    const caps = mergeComboCapabilities(members, comboByName);
+    if (caps) {
+      entry.capabilities = caps;
+      entry.context_length = caps.contextWindow;
+      entry.max_completion_tokens = caps.maxOutput;
+    }
+    addComboRouting(entry, members, comboByName);
+    return entry;
+  });
+  return [...entries.filter((e) => !isOffer(e)), ...flat];
 }
 
 /**
@@ -1189,9 +1251,13 @@ export async function GET(request) {
     // ?variants=expand lists every variant id as its own entry (older clients).
     const variants = request?.url ? new URL(request.url).searchParams.get("variants") || undefined : undefined;
     // Another RedRouter reading this catalog sends its hop chain (see catalogFetchOptions).
-    const data = await buildModelsList([LLM_KIND], { ...catalogFetchOptions(request), apiKey, variants });
+    // ?id_format=flat|prefixed overrides the key's setting (Endpoint & Keys → the key).
+    const requestedFormat = request?.url ? new URL(request.url).searchParams.get("id_format") : null;
+    const idFormat = ID_FORMATS.includes(requestedFormat) ? requestedFormat : await getApiKeyModelIdFormat(apiKey);
+    const data = await buildModelsList([LLM_KIND], { ...catalogFetchOptions(request), apiKey, variants, idFormat });
     const catalogVersion = await getCatalogVersion(apiKey);
-    return Response.json({ object: "list", data }, {
+    // id_format says how ids are built, so clients never have to guess from their shape.
+    return Response.json({ object: "list", id_format: idFormat, data }, {
       headers: {
         "Access-Control-Allow-Origin": "*",
         [RED_ROUTER_INSTANCE_HEADER]: RED_ROUTER_INSTANCE_ID,

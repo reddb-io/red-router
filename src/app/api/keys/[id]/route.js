@@ -42,7 +42,7 @@ export async function PUT(request, { params }) {
   try {
     const { id } = await params;
     const body = await request.json();
-    const { isActive, allowedConnectionIds, name, tags, owner, modelAccess, limits } = body;
+    const { isActive, allowedConnectionIds, name, tags, owner, modelAccess, limits, modelIdFormat } = body;
 
     const filter = await getScopeFilter();
     const existing = await getApiKeyById(id);
@@ -71,6 +71,12 @@ export async function PUT(request, { params }) {
       const validated = await validateAllowedConnectionIds(allowedConnectionIds, filter);
       if (validated.error) return NextResponse.json({ error: validated.error }, { status: 400 });
       updateData.allowedConnectionIds = validated.ids;
+    }
+    if (modelIdFormat !== undefined) {
+      if (!["prefixed", "flat"].includes(modelIdFormat)) {
+        return NextResponse.json({ error: "modelIdFormat must be \"prefixed\" or \"flat\"" }, { status: 400 });
+      }
+      updateData.modelIdFormat = modelIdFormat;
     }
     if (modelAccess !== undefined) {
       if (modelAccess !== null && (typeof modelAccess !== "object" || !MODEL_ACCESS_MODES.includes(modelAccess.mode))) {

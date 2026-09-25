@@ -35,6 +35,7 @@ export {
   getApiKeyOwner,
   getApiKeyIdentity,
   getApiKeyPolicy,
+  getApiKeyModelIdFormat,
 } from "./repos/apiKeysRepo.js";
 
 // Combos
