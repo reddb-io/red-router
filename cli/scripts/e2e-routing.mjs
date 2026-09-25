@@ -171,13 +171,16 @@ try {
 
   // 5. Health strategy prefers the faster account.
   await json("/api/settings", { method: "PATCH", body: { fallbackStrategy: "health" } });
+  // Untried accounts go first, so the slow one gets its first sample here.
+  for (let i = 0; i < 2; i++) assert.equal((await chat(key.key, "red-router/fx/ok")).status, 200);
   const before = { slow: slow.hits.filter((m) => m === "fx/ok").length, fast: fast.hits.filter((m) => m === "fx/ok").length };
-  for (let i = 0; i < 8; i++) assert.equal((await chat(key.key, "red-router/fx/ok")).status, 200);
+  for (let i = 0; i < 20; i++) assert.equal((await chat(key.key, "red-router/fx/ok")).status, 200);
   const fastHits = fast.hits.filter((m) => m === "fx/ok").length - before.fast;
   const slowHits = slow.hits.filter((m) => m === "fx/ok").length - before.slow;
-  // 5% of picks explore; 6 of 8 leaves room for that without flaking.
-  assert.ok(fastHits >= 6, `health strategy should favour the fast account (fast ${fastHits}, slow ${slowHits})`);
-  console.log(`PASS 5: health strategy sent ${fastHits}/8 to the fast account`);
+  // 5% of picks explore the other account: about 1 in 20. 15 of 20 fails only
+  // on 6+ explores (p < 0.001); 6 of 8 failed on 2 (p ≈ 0.04).
+  assert.ok(fastHits >= 15, `health strategy should favour the fast account (fast ${fastHits}, slow ${slowHits})`);
+  console.log(`PASS 5: health strategy sent ${fastHits}/20 to the fast account`);
 
   // 6. Access control.
   await json("/api/models/disabled", { body: { providerAlias: "red-router", ids: ["fx/ok"] } });
