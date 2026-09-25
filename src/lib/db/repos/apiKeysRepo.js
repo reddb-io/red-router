@@ -47,6 +47,7 @@ function rowToKey(row) {
     modelAccess: normalizeModelAccess(parseJson(row.modelAccess, null)),
     limits: normalizeKeyLimits(parseJson(row.limits, null)),
     modelIdFormat: normalizeModelIdFormat(row.modelIdFormat),
+    mcpManageKeys: row.mcpManageKeys === 1 || row.mcpManageKeys === true,
     owner: row.owner ?? null,
     createdAt: row.createdAt,
   };
@@ -56,6 +57,13 @@ export async function getApiKeys() {
   const db = await getDb();
   const rows = await db.selectFrom("apiKeys").selectAll().orderBy("createdAt", "asc").execute();
   return rows.map(rowToKey);
+}
+
+export async function getApiKeyByKey(key) {
+  if (!key) return null;
+  const db = await getDb();
+  const row = await db.selectFrom("apiKeys").selectAll().where("key", "=", key).executeTakeFirst();
+  return rowToKey(row);
 }
 
 export async function getApiKeyById(id) {
@@ -134,6 +142,7 @@ export async function updateApiKey(id, data) {
       modelAccess: merged.modelAccess ? stringifyJson(merged.modelAccess) : null,
       limits: merged.limits ? stringifyJson(merged.limits) : null,
       modelIdFormat: merged.modelIdFormat === "prefixed" ? null : merged.modelIdFormat,
+      mcpManageKeys: merged.mcpManageKeys ? 1 : 0,
       owner: merged.owner ?? null,
     }).where("id", "=", id).execute();
     result = merged;

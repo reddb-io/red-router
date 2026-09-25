@@ -3,7 +3,7 @@
 // pre-change safety backup in migrate.js: when the stored version is lower,
 // one lightweight DB backup is taken before applying schema changes. Forgetting
 // to bump only skips that backup — it does NOT break the additive auto-sync.
-export const SCHEMA_VERSION = 7;
+export const SCHEMA_VERSION = 8;
 
 export const PRAGMA_SQL = `
 PRAGMA journal_mode = WAL;
@@ -99,6 +99,9 @@ export const TABLES = {
       // How /v1/models names models for this key: "prefixed" (NULL, every offer)
       // or "flat" (one entry per model, see src/lib/flatModels.js).
       modelIdFormat: "TEXT",
+      // 1 = this key may list, inspect and create API keys through the MCP
+      // server (/v1/mcp), within its own owner's scope. Off by default.
+      mcpManageKeys: "INTEGER DEFAULT 0",
       // See providerConnections.owner. A key's owner also caps which accounts it
       // may route to at runtime.
       owner: "TEXT",

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import PropTypes from "prop-types";
-import { Card, Button, Input, Select } from "@/shared/components";
+import { Card, Button, Input, Select, Toggle } from "@/shared/components";
 
 const MODE_OPTIONS = [
   { value: "all", label: "Every model" },
@@ -31,6 +31,7 @@ function formFromKey(apiKey) {
     tokensPerDay: limits.tokensPerDay ?? "",
     usdPerMonth: limits.usdPerMonth ?? "",
     modelIdFormat: apiKey?.modelIdFormat === "flat" ? "flat" : "prefixed",
+    mcpManageKeys: apiKey?.mcpManageKeys === true,
   };
 }
 
@@ -65,6 +66,7 @@ export default function KeyPolicyCard({ apiKey, onSaved }) {
           modelAccess: form.mode === "all" ? null : { mode: form.mode, patterns },
           limits,
           modelIdFormat: form.modelIdFormat,
+          mcpManageKeys: form.mcpManageKeys,
         }),
       });
       const data = await response.json();
@@ -124,6 +126,12 @@ export default function KeyPolicyCard({ apiKey, onSaved }) {
               versions, stay separate entries. Ids with a provider keep working to pin one offer.
             </p>
           )}
+          <Toggle
+            checked={form.mcpManageKeys}
+            onChange={(checked) => setForm((prev) => ({ ...prev, mcpManageKeys: checked }))}
+            label="Manage API keys via MCP"
+            description="Through /v1/mcp this key may list API keys, read their usage and create new ones (never with this permission). Off: it only sees itself."
+          />
         </div>
         <div className="flex flex-col gap-3">
           {LIMIT_FIELDS.map(({ key, label, placeholder, step }) => (
