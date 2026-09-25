@@ -14,7 +14,47 @@ const MODE_OPTIONS = [
   { value: "window", label: "Consolidated per API key, on a schedule" },
   { value: "instant", label: "Every request, as it happens" },
 ];
-const EMPTY_FORM = { name: "", url: "", secret: "", mode: "window", windowSec: "900", apiKeyIds: [], tags: "" };
+const EMPTY_FORM = { name: "", type: "webhook", mode: "window", windowSec: "900", apiKeyIds: [], tags: "" };
+const TYPE_OPTIONS = [
+  { value: "webhook", label: "Webhook (HTTP POST, signed)" },
+  { value: "sqs", label: "Amazon SQS" },
+  { value: "kafka", label: "Kafka" },
+  { value: "reddb", label: "RedDB queue" },
+];
+const SASL_OPTIONS = [
+  { value: "none", label: "None" },
+  { value: "plain", label: "PLAIN" },
+  { value: "scram-sha-256", label: "SCRAM-SHA-256" },
+  { value: "scram-sha-512", label: "SCRAM-SHA-512" },
+];
+
+// Form fields per transport, from a stored sink's public config (secrets stay
+// empty: an empty secret keeps the stored one).
+function configFields(type, config = {}) {
+  if (type === "sqs") return { queueUrl: config.queueUrl || "", region: config.region || "", accessKeyId: config.accessKeyId || "", secretAccessKey: "", sessionToken: "" };
+  if (type === "kafka") {
+    return {
+      brokers: (config.brokers || []).join(", "), topic: config.topic || "", clientId: config.clientId || "red-router", ssl: !!config.ssl,
+      saslMechanism: config.sasl?.mechanism || "none", saslUsername: config.sasl?.username || "", saslPassword: "",
+    };
+  }
+  if (type === "reddb") return { reddbUrl: config.url || "", queue: config.queue || "", token: "", tenant: config.tenant || "" };
+  return { url: config.url || "", secret: "" };
+}
+
+function configBody(type, f) {
+  if (type === "sqs") return { queueUrl: f.queueUrl, region: f.region, accessKeyId: f.accessKeyId, secretAccessKey: f.secretAccessKey, sessionToken: f.sessionToken };
+  if (type === "kafka") {
+    return {
+      brokers: f.brokers, topic: f.topic, clientId: f.clientId, ssl: f.ssl,
+      sasl: f.saslMechanism && f.saslMechanism !== "none" ? { mechanism: f.saslMechanism, username: f.saslUsername, password: f.saslPassword } : null,
+    };
+  }
+  if (type === "reddb") return { url: f.reddbUrl, queue: f.queue, token: f.token, tenant: f.tenant };
+  return { url: f.url, secret: f.secret };
+}
+
+const keepHint = (has, hintText) => (has ? `Keep the current one${hintText ? ` (${hintText})` : ""}` : "");
 
 function newSecret() {
   const bytes = new Uint8Array(24);
@@ -91,8 +131,8 @@ export default function UsageSinksPage() {
     <div className="flex min-w-0 flex-col gap-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <p className="max-w-2xl text-sm text-ink-muted">
-          Send usage to your billing system by webhook: every request as it happens, or totals per API key every 5, 15, 30 or 60 minutes.
-          Each delivery is signed (Standard Webhooks), retried until it lands, and carries a stable id so it can be deduplicated.
+          Send usage to your billing system by webhook, Amazon SQS, Kafka or a RedDB queue: every request as it happens, or totals per API key every 5, 15, 30 or 60 minutes.
+          Each delivery is retried until it lands and carries a stable id so it can be deduplicated; webhooks are signed (Standard Webhooks).
         </p>
         <Button icon="add" onClick={() => setEditing("new")} className="shrink-0">Add sink</Button>
       </div>
@@ -101,7 +141,7 @@ export default function UsageSinksPage() {
         <Card>
           <div className="py-10 text-center">
             <p className="mb-1 font-medium text-foreground">No usage sinks yet</p>
-            <p className="text-sm text-ink-muted">Add a webhook to start sending usage. It receives usage recorded from then on.</p>
+            <p className="text-sm text-ink-muted">Add a sink to start sending usage. It receives usage recorded from then on.</p>
           </div>
         </Card>
       )}
@@ -116,9 +156,10 @@ export default function UsageSinksPage() {
                   <Badge size="sm" variant={sink.isActive ? "success" : "default"} dot>{sink.isActive ? "Active" : "Paused"}</Badge>
                   <Badge size="sm">{modeLabel(sink)}</Badge>
                 </div>
-                <p className="mt-1 truncate font-mono text-xs text-ink-muted" title={sink.config.url}>POST {sink.config.url}</p>
+                <p className="mt-1 truncate font-mono text-xs text-ink-muted" title={sink.summary}>{sink.summary}</p>
                 <p className="mt-0.5 text-xs text-ink-muted">
-                  {filterLabel(sink, keysById)} · {sink.config.hasSecret ? `signed (${sink.config.secretHint})` : "unsigned"}
+                  {filterLabel(sink, keysById)}
+                  {sink.type === "webhook" && ` · ${sink.config.hasSecret ? `signed (${sink.config.secretHint})` : "unsigned"}`}
                 </p>
               </div>
               <div className="flex shrink-0 items-center gap-2">
@@ -170,13 +211,13 @@ export default function UsageSinksPage() {
 function SinkFormModal({ sink, apiKeys, onClose, onSaved }) {
   const [form, setForm] = useState(() => (sink ? {
     name: sink.name,
-    url: sink.config.url,
-    secret: "",
+    type: sink.type,
+    ...configFields(sink.type, sink.config),
     mode: sink.mode,
     windowSec: String(sink.windowSec || 900),
     apiKeyIds: sink.filter?.apiKeyIds || [],
     tags: (sink.filter?.tags || []).join(", "),
-  } : { ...EMPTY_FORM, secret: newSecret() }));
+  } : { ...EMPTY_FORM, ...configFields("webhook"), secret: newSecret() }));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [testing, setTesting] = useState(false);
@@ -185,8 +226,8 @@ function SinkFormModal({ sink, apiKeys, onClose, onSaved }) {
 
   const body = () => ({
     name: form.name,
-    type: "webhook",
-    config: { url: form.url, secret: form.secret },
+    type: form.type,
+    config: configBody(form.type, form),
     mode: form.mode,
     windowSec: Number(form.windowSec),
     filter: { apiKeyIds: form.apiKeyIds, tags: form.tags.split(",").map((t) => t.trim()).filter(Boolean) },
@@ -227,18 +268,102 @@ function SinkFormModal({ sink, apiKeys, onClose, onSaved }) {
     <Modal isOpen onClose={onClose} title={sink ? "Edit usage sink" : "Add usage sink"} size="lg">
       <div className="flex flex-col gap-4">
         <Input label="Name" value={form.name} onChange={(e) => set({ name: e.target.value })} placeholder="Billing" />
-        <Input label="Webhook URL" value={form.url} onChange={(e) => set({ url: e.target.value })} placeholder="https://billing.example.com/hooks/redrouter" />
-        <div className="flex items-end gap-2">
-          <Input
-            className="flex-1"
-            label="Signing secret"
-            value={form.secret}
-            onChange={(e) => set({ secret: e.target.value })}
-            placeholder={sink?.config.hasSecret ? `Keep the current secret (${sink.config.secretHint})` : "whsec_…"}
-            hint="Verify webhook-signature with it (HMAC-SHA256, Standard Webhooks). Copy it now: it is not shown again."
-          />
-          <Button variant="secondary" icon="key" onClick={() => set({ secret: newSecret() })}>Generate</Button>
-        </div>
+        <Select
+          label="Send to"
+          value={form.type}
+          onChange={(e) => set({ type: e.target.value, ...configFields(e.target.value), ...(e.target.value === "webhook" ? { secret: newSecret() } : {}) })}
+          options={TYPE_OPTIONS}
+          disabled={!!sink}
+        />
+        {form.type === "webhook" && (
+          <>
+            <Input label="Webhook URL" value={form.url} onChange={(e) => set({ url: e.target.value })} placeholder="https://billing.example.com/hooks/redrouter" />
+            <div className="flex items-end gap-2">
+              <Input
+                className="flex-1"
+                label="Signing secret"
+                value={form.secret}
+                onChange={(e) => set({ secret: e.target.value })}
+                placeholder={keepHint(sink?.config.hasSecret, sink?.config.secretHint) || "whsec_…"}
+                hint="Verify webhook-signature with it (HMAC-SHA256, Standard Webhooks). Copy it now: it is not shown again."
+              />
+              <Button variant="secondary" icon="key" onClick={() => set({ secret: newSecret() })}>Generate</Button>
+            </div>
+          </>
+        )}
+        {form.type === "sqs" && (
+          <>
+            <Input
+              label="Queue URL"
+              value={form.queueUrl}
+              onChange={(e) => set({ queueUrl: e.target.value })}
+              placeholder="https://sqs.us-east-1.amazonaws.com/123456789012/usage"
+              hint="A .fifo queue gets the delivery id as MessageDeduplicationId, so a retry is not enqueued twice."
+            />
+            <Input label="Region" value={form.region} onChange={(e) => set({ region: e.target.value })} placeholder="Read from the queue URL" />
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <Input label="Access key id" value={form.accessKeyId} onChange={(e) => set({ accessKeyId: e.target.value })} placeholder="AKIA…" />
+              <Input
+                label="Secret access key"
+                type="password"
+                value={form.secretAccessKey}
+                onChange={(e) => set({ secretAccessKey: e.target.value })}
+                placeholder={keepHint(sink?.config.hasSecret, sink?.config.secretHint)}
+              />
+            </div>
+            <Input
+              label="Session token (optional)"
+              type="password"
+              value={form.sessionToken}
+              onChange={(e) => set({ sessionToken: e.target.value })}
+              placeholder={sink?.config.hasSessionToken ? "Keep the current one (type - to remove)" : "For temporary credentials"}
+              hint="The key needs sqs:SendMessage on this queue."
+            />
+          </>
+        )}
+        {form.type === "kafka" && (
+          <>
+            <Input label="Brokers" value={form.brokers} onChange={(e) => set({ brokers: e.target.value })} placeholder="broker1:9092, broker2:9092" />
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <Input label="Topic" value={form.topic} onChange={(e) => set({ topic: e.target.value })} placeholder="redrouter.usage" hint="The topic must exist." />
+              <Input label="Client id" value={form.clientId} onChange={(e) => set({ clientId: e.target.value })} placeholder="red-router" />
+            </div>
+            <Toggle checked={form.ssl} onChange={(v) => set({ ssl: v })} label="TLS" description="Connect to the brokers over TLS." />
+            <Select label="SASL" value={form.saslMechanism} onChange={(e) => set({ saslMechanism: e.target.value })} options={SASL_OPTIONS} />
+            {form.saslMechanism !== "none" && (
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <Input label="Username" value={form.saslUsername} onChange={(e) => set({ saslUsername: e.target.value })} />
+                <Input
+                  label="Password"
+                  type="password"
+                  value={form.saslPassword}
+                  onChange={(e) => set({ saslPassword: e.target.value })}
+                  placeholder={keepHint(sink?.config.sasl?.hasPassword)}
+                />
+              </div>
+            )}
+            <p className="text-xs text-ink-muted">Messages are keyed by sink, so one sink&apos;s deliveries stay in order; the delivery id is in the redrouter-delivery-id header.</p>
+          </>
+        )}
+        {form.type === "reddb" && (
+          <>
+            <Input label="RedDB URL" value={form.reddbUrl} onChange={(e) => set({ reddbUrl: e.target.value })} placeholder="http://127.0.0.1:5000" />
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <Input label="Queue" value={form.queue} onChange={(e) => set({ queue: e.target.value })} placeholder="usage_events" />
+              <Input label="Tenant (optional)" value={form.tenant} onChange={(e) => set({ tenant: e.target.value })} />
+            </div>
+            <Input
+              label="Token"
+              type="password"
+              value={form.token}
+              onChange={(e) => set({ token: e.target.value })}
+              placeholder={sink?.config.hasToken ? `Keep the current one (${sink.config.tokenHint}; type - to remove)` : "rdb_k_… (not needed without --auth)"}
+            />
+            <p className="text-xs text-ink-muted">
+              Create the queue once: <code>CREATE QUEUE IF NOT EXISTS {form.queue || "usage_events"} WITH DEDUP_WINDOW 1h</code>. Each delivery is pushed with its id as the DEDUP key.
+            </p>
+          </>
+        )}
         <Select label="What to send" value={form.mode} onChange={(e) => set({ mode: e.target.value })} options={MODE_OPTIONS} />
         {form.mode === "window" && (
           <Select label="Window" value={form.windowSec} onChange={(e) => set({ windowSec: e.target.value })} options={WINDOW_OPTIONS} />

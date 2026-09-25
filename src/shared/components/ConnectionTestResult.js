@@ -21,7 +21,8 @@ export function formatBytes(bytes) {
 
 function statusLabel(request) {
   if (!request) return "No request";
-  if (request.status === null) return request.error ? "No response" : "Not sent";
+  // Non-HTTP transports (Kafka) answer without a status code but with a result.
+  if (request.status === null) return request.statusText || (request.error ? "No response" : "Not sent");
   return `${request.status} ${request.statusText || REASONS[request.status] || ""}`.trim();
 }
 
