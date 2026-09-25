@@ -6,6 +6,7 @@ import {
   SYSTEM_ONE_PROVIDER_IDS,
 } from "../config/systemOne.js";
 import { PROVIDER_MEDIA } from "../providers/index.js";
+import { PROVIDER_ID_TO_ALIAS, getModelType } from "../config/providerModels.js";
 import { proxyAwareFetch } from "../utils/proxyFetch.js";
 import { errorResponse, resetsAtFromHeaders, sanitizePublicMessage } from "../utils/error.js";
 
@@ -108,6 +109,9 @@ export function resolveSystemOneProviderModel(providerId, model) {
   // covers requests this provider has no mapping or passthrough for.
   const mapped = config.modelMap?.[normalized];
   if (mapped) return mapped;
+  // A System One model the provider lists (built in, or found in its live catalog,
+  // e.g. OpenCode Zen's jev-1.13 next to jev-1.13-free) is served as asked.
+  if (getModelType(PROVIDER_ID_TO_ALIAS[providerId] || providerId, normalized) === "systemone") return normalized;
   if (config.passthroughModels) return normalized;
   if (config.defaultModel) return config.defaultModel;
   return config.modelMap ? null : normalized;

@@ -15,6 +15,8 @@ import {
   resolveSystemOneProviderModel,
   validateSystemOneRequest,
 } from "open-sse/handlers/systemOneCore.js";
+import { systemOneCredentialProviders } from "open-sse/config/systemOne.js";
+import { providerIdentity } from "open-sse/providers/identity.js";
 import { errorResponse, responseFromRoutingCandidate } from "open-sse/utils/error.js";
 import { handleComboChat } from "open-sse/services/combo.js";
 import * as log from "../utils/logger.js";
@@ -118,67 +120,96 @@ async function handleSingleSystemOne({ body, request, url, clientApiKey, preferr
         continue;
       }
     }
-    const excluded = new Set();
+    // The provider's own accounts first, then accounts whose key also reaches its
+    // System One route (an OpenCode Go key serves the workspace's Zen JEV models).
+    for (const credentialProvider of systemOneCredentialProviders(providerId)) {
+      const borrowed = credentialProvider !== providerId;
+      const excluded = new Set();
 
-    while (true) {
-      const credentials = await getProviderCredentials(
-        providerId,
-        excluded,
-        providerModel,
-        { apiKey: clientApiKey, preferredConnectionId },
-      );
+      while (true) {
+        const credentials = await getProviderCredentials(
+          credentialProvider,
+          excluded,
+          providerModel,
+          { apiKey: clientApiKey, preferredConnectionId },
+        );
 
-      if (credentials?.noActiveCredentials || credentials?.allRateLimited) {
-        lastRoutingCandidate = credentials.candidate || lastRoutingCandidate;
-        break;
-      }
-
-      log.info("AUTH", `Using ${providerId} account: ${credentials.connectionName}`);
-      const providerData = credentials.providerSpecificData || {};
-      const result = await handleSystemOneCore({
-        body: { ...body, model },
-        credentials,
-        providerId,
-        signal: request.signal,
-        proxyOptions: {
-          connectionProxyEnabled: providerData.connectionProxyEnabled === true,
-          connectionProxyUrl: providerData.connectionProxyUrl || "",
-          connectionNoProxy: providerData.connectionNoProxy || "",
-          vercelRelayUrl: providerData.vercelRelayUrl || "",
-        },
-      });
-
-      if (result.success) {
-        await clearAccountError(credentials.connectionId, credentials, providerModel);
-        const tokens = exactSystemOneUsage(result.usage);
-        if (tokens) {
-          saveRequestUsage({
-            provider: providerId,
-            model: providerModel,
-            connectionId: credentials.connectionId,
-            apiKey: clientApiKey,
-            endpoint: url.pathname,
-            tokens,
-            status: "success",
-          }).catch(() => {});
+        if (credentials?.noActiveCredentials || credentials?.allRateLimited) {
+          lastRoutingCandidate = credentials.candidate || lastRoutingCandidate;
+          break;
         }
-        return result.response;
+
+        log.info("AUTH", `Using ${credentialProvider} account: ${credentials.connectionName}${borrowed ? ` for ${providerId} System One` : ""}`);
+        const providerData = credentials.providerSpecificData || {};
+        const result = await handleSystemOneCore({
+          body: { ...body, model },
+          credentials,
+          providerId,
+          signal: request.signal,
+          proxyOptions: {
+            connectionProxyEnabled: providerData.connectionProxyEnabled === true,
+            connectionProxyUrl: providerData.connectionProxyUrl || "",
+            connectionNoProxy: providerData.connectionNoProxy || "",
+            vercelRelayUrl: providerData.vercelRelayUrl || "",
+          },
+        });
+
+        if (result.success) {
+          await clearAccountError(credentials.connectionId, credentials, providerModel);
+          const tokens = exactSystemOneUsage(result.usage);
+          if (tokens) {
+            saveRequestUsage({
+              provider: providerId,
+              model: providerModel,
+              connectionId: credentials.connectionId,
+              apiKey: clientApiKey,
+              endpoint: url.pathname,
+              tokens,
+              status: "success",
+            }).catch(() => {});
+          }
+          return result.response;
+        }
+
+        // A borrowed key the provider refuses says the workspace has no access to
+        // it (Zen not enabled or not paid for), not that the account is broken:
+        // say so, keep the account usable for its own provider, try the next one.
+        if (borrowed && BORROWED_ACCESS_STATUSES.has(result.status)) {
+          log.warn("AUTH", `${providerId} refused the ${credentialProvider} key of ${credentials.connectionName} (${result.status})`);
+          lastUpstreamResponse = borrowedAccessResponse(result, { providerId, credentialProvider, connectionName: credentials.connectionName, model: providerModel });
+          excluded.add(credentials.connectionId);
+          continue;
+        }
+
+        const { shouldFallback } = await markAccountUnavailable(
+          credentials.connectionId,
+          result.status,
+          result.error,
+          credentialProvider,
+          providerModel,
+          result.resetsAtMs,
+        );
+
+        lastUpstreamResponse = result.response;
+        if (!shouldFallback) break;
+        excluded.add(credentials.connectionId);
       }
-
-      const { shouldFallback } = await markAccountUnavailable(
-        credentials.connectionId,
-        result.status,
-        result.error,
-        providerId,
-        providerModel,
-        result.resetsAtMs,
-      );
-
-      lastUpstreamResponse = result.response;
-      if (!shouldFallback) break;
-      excluded.add(credentials.connectionId);
     }
   }
 
   return lastUpstreamResponse || responseFromRoutingCandidate(lastRoutingCandidate);
+}
+
+// Upstream answers meaning "this key may not use this provider": unauthorized,
+// payment required, forbidden.
+const BORROWED_ACCESS_STATUSES = new Set([401, 402, 403]);
+
+/** The upstream refusal, with who refused which key and why it likely happened. */
+function borrowedAccessResponse(result, { providerId, credentialProvider, connectionName, model }) {
+  const provider = providerIdentity(providerId)?.name || providerId;
+  const account = providerIdentity(credentialProvider)?.name || credentialProvider;
+  const message = `${provider} refused ${model} with the key of your ${account} connection "${connectionName}" `
+    + `(HTTP ${result.status}: ${result.error}). The account behind that key needs ${provider} access, `
+    + `or add a ${provider} connection.`;
+  return errorResponse(result.status, message);
 }

@@ -27,21 +27,21 @@ const entries = [
   { provider: "kimi", model: "kimi-k3", current: { contextWindow: 128000, maxOutput: 32000 } },
 ];
 
-let build, getCatalogModalities, invalidateCatalog, syncModelCatalog, startModelCatalogSync, stopModelCatalogSync, capabilities;
+let build, CATALOG_VERSION, getCatalogModalities, invalidateCatalog, syncModelCatalog, startModelCatalogSync, stopModelCatalogSync, capabilities;
 
 beforeAll(async () => {
   ({ build, syncModelCatalog, startModelCatalogSync, stopModelCatalogSync } = await import("../../src/lib/modelCatalog/sync.js"));
   // the builder is exercised directly; a missing export must fail loudly here
   // rather than skip every case below
   expect(typeof build).toBe("function");
-  ({ getCatalogModalities, invalidateCatalog } = await import("../../open-sse/providers/catalogOverride.js"));
+  ({ CATALOG_VERSION, getCatalogModalities, invalidateCatalog } = await import("../../open-sse/providers/catalogOverride.js"));
   capabilities = await import("../../open-sse/providers/capabilities.js");
 });
 
 // Every test starts from the same scoped file, whatever an earlier one wrote.
 function writeCurrentCatalog(extra = {}) {
   const { models, providers } = build(upstream, entries);
-  fs.writeFileSync(catalogFile, JSON.stringify({ v: 2, models, providers, ...extra }));
+  fs.writeFileSync(catalogFile, JSON.stringify({ v: CATALOG_VERSION, models, providers, ...extra }));
   invalidateCatalog();
 }
 
@@ -169,7 +169,7 @@ describe("catalog schema", () => {
     }
     expect(sent[0]["if-none-match"]).toBeUndefined();
     const written = JSON.parse(fs.readFileSync(catalogFile, "utf8"));
-    expect(written.v).toBe(2);
+    expect(written.v).toBe(CATALOG_VERSION);
     expect(written.models["glm:glm-4.6v"]).toEqual({ vision: true });
   });
 

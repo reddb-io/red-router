@@ -18,6 +18,8 @@ import { resolveScopedSettings, headroomProjectUrl } from "@/lib/auth/scopedSett
 import { getModelInfo, parseModel, resolveComboModels } from "../services/model.js";
 import { resolveVariantRequest } from "open-sse/providers/modelVariants.js";
 import { handleChatCore } from "open-sse/handlers/chatCore.js";
+import { ensureOpenCodeGoModel } from "open-sse/services/opencodeCatalog.js";
+import { modelsDevModels } from "@/lib/modelCatalog/browse.js";
 import { DEFAULT_HEADROOM_URL } from "@/lib/headroom/detect";
 import { getTransform as getPxpipeTransform } from "@/lib/pxpipe/loader.js";
 import { appendPxpipeEvent } from "@/lib/pxpipe/events.js";
@@ -608,6 +610,12 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
   if (accessDenial) {
     log.warn("CHAT", `[${provider}/${model}] ${accessDenial.message}`);
     return responseFromRoutingCandidate(accessDenial, errorContext);
+  }
+
+  // A Go model newer than the built-in list: read OpenCode's live list (cached)
+  // first, so the request goes to the endpoint that model is served on.
+  if (provider === "opencode-go") {
+    await ensureOpenCodeGoModel(model, { modelsDev: () => modelsDevModels("opencode-go") });
   }
 
   // Routing shown in the unified "▶" line (client model → provider/model)
