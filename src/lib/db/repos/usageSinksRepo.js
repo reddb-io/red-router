@@ -131,9 +131,10 @@ export async function getUsageRowsAfter(afterId, { upToId = null, limit = 5000 }
  * gets false and writes nothing. A delivery whose id already exists is kept
  * as is (same batch, same webhook-id).
  */
-export async function commitSinkBatch(sinkId, expectedCursor, nextCursor, deliveries, extra = {}) {
+export async function commitSinkBatch(sinkId, expectedCursor, nextCursor, deliveries, extra = {}, at = new Date()) {
   const db = await getDb();
-  const now = new Date().toISOString();
+  // The engine's clock, so a new delivery is due on the same clock that dispatches it.
+  const now = at.toISOString();
   return db.transaction().execute(async (trx) => {
     const res = await trx.updateTable("usageSinks")
       .set({ cursorId: nextCursor, updatedAt: now, ...extra })

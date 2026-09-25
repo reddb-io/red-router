@@ -44,7 +44,7 @@ async function aggregateInstant(sink, deps, resolveKey) {
     deliveries.push({ id, kind: "event", fromId: row.id, toId: row.id, payload: buildEventPayload({ sink, row, identity, id }) });
   }
   const lastId = rows[rows.length - 1].id;
-  await deps.repo.commitSinkBatch(sink.id, sink.cursorId, lastId, deliveries);
+  await deps.repo.commitSinkBatch(sink.id, sink.cursorId, lastId, deliveries, {}, deps.now());
   return deliveries.length;
 }
 
@@ -82,7 +82,7 @@ async function aggregateWindow(sink, deps, resolveKey) {
       payload: buildWindowPayload({ sink, rows: matched, resolveKey, window, range, id }),
     });
   }
-  await deps.repo.commitSinkBatch(sink.id, sink.cursorId, lastId, deliveries, { nextWindowEnd });
+  await deps.repo.commitSinkBatch(sink.id, sink.cursorId, lastId, deliveries, { nextWindowEnd }, deps.now());
   return deliveries.length;
 }
 
