@@ -1,5 +1,34 @@
 # @reddb-io/red-router
 
+## 0.27.0
+
+### Minor Changes
+
+- 4e5c4f6: **Models page: choose the offers behind each flat model id.** Operate → Models lists every model once, with each connected provider or route that serves it.
+  
+  - **Order:** move offers up or down. A flat id tries them from the top. By default the cheapest comes first.
+  - **Switch offers off:** a switched-off offer is skipped by the flat id. Its full id still works. When every offer is off, the flat id is no longer listed.
+  - **Keep the default for new offers:** a newly connected provider joins after the ones you ordered. "Back to cheapest first" drops the custom order.
+  - **What clients see:** `/v1/models` flat entries now carry `offer_order` ("price" or "custom"), and switched-off offers show `available: false`. The catalog version header follows a flat key's own catalog, so clients re-read it after an order change.
+  - **Access:** the page is admin-only while resource scoping is on, because the order applies to every key.
+- e75125c: **Network access setting.** Choose whether RedRouter answers only on this machine (127.0.0.1) or on the whole network (0.0.0.0), and switch back any time.
+  
+  - **Dashboard:** Profile → Network access shows the address RedRouter is bound to and the LAN URLs other devices can use. "Save and restart" applies a new choice right away when the `red-router` CLI runs the server.
+  - **Terminal:** `red-router network local`, `red-router network lan`, or `red-router network status`. `--local` and `--expose` set it for a single run.
+  - **Precedence:** a `--host` flag wins for that run, then the saved choice, then the default. The default is unchanged: the launcher binds 0.0.0.0 and `red-router service` binds 127.0.0.1.
+  - **Services:** services installed from now on follow the saved choice unless installed with `--host` or `--expose`. Reinstall an existing service (`red-router service install`) to make it follow the saved choice.
+- 9a185b9: **Usage sinks can now send to Amazon SQS, Kafka or a RedDB queue, not only webhooks.** Pick the target in System → Usage Sinks → Add sink → "Send to". Instant and windowed modes, API key filters, retries, the deliveries list and "Send test" work the same for every target.
+  
+  - **Amazon SQS:** needs the queue URL and an access key with `sqs:SendMessage`; a session token is optional. It also works with SQS-compatible endpoints such as LocalStack. On a `.fifo` queue, a retried delivery is not enqueued twice and deliveries stay in order.
+  - **Kafka:** needs brokers and a topic, with optional TLS and SASL (PLAIN or SCRAM). Messages are keyed by sink, and each carries the delivery id in the `redrouter-delivery-id` header for deduplication.
+  - **RedDB queue:** each delivery is a `QUEUE PUSH` sent to RedDB's HTTP `/query` endpoint, with the delivery id as the `DEDUP` key. It needs a RedDB URL and a queue name; a token and tenant are optional. Create the queue once, e.g. `CREATE QUEUE IF NOT EXISTS usage_events WITH DEDUP_WINDOW 1h`.
+  - **Secrets:** AWS keys, SASL passwords and RedDB tokens are never returned by the API. Leave a secret empty when editing to keep the stored one.
+
+### Patch Changes
+
+- 59f7057: Charts use the design system's series colours. Usage, top models, providers, the token saver and the provider topology now take their colours from the six DS series (red, blue, green, amber, violet, cyan), tuned for light and dark mode, instead of fixed hex values. Failing topology edges use the DS danger colour.
+- df57e68: Dashboard icons are now lucide SVGs from the design system instead of the Material Symbols font. Icons no longer wait for a font to load before they appear, and each one renders at the size it was designed for.
+
 ## 0.26.0
 
 ### Minor Changes
