@@ -16,7 +16,9 @@ async function setup() {
   await db.deleteFrom("usageHistory").execute();
   await db.deleteFrom("apiKeys").execute();
 
-  let nowMs = Date.parse("2026-09-25T10:03:00.000Z");
+  // A fixed past date: the real clock is always ahead of it, so a delivery that
+  // took its time from the wall clock instead of deps.now() would never be due.
+  let nowMs = Date.parse("2026-01-05T10:03:00.000Z");
   const sent = [];
   let respond = () => ({ ok: true, status: 200 });
   const deps = {
@@ -54,20 +56,20 @@ describe("usage sinks engine", () => {
     const sink = await t.repo.createUsageSink({ name: "billing", type: "webhook", config: { url: "https://billing.test/hook" }, mode: "window", windowSec: 900 });
 
     await t.engine.runUsageSinksTick(t.deps);
-    expect((await t.repo.getUsageSinkById(sink.id)).nextWindowEnd).toBe("2026-09-25T10:15:00.000Z");
+    expect((await t.repo.getUsageSinkById(sink.id)).nextWindowEnd).toBe("2026-01-05T10:15:00.000Z");
 
     await t.record(a.key); await t.record(a.key, "gpt-4o"); await t.record(a.key, "gpt-4o", { status: "error" });
     await t.record(b.key);
     await t.engine.runUsageSinksTick(t.deps);
     expect(t.sent).toHaveLength(0); // window still open
 
-    t.setNow("2026-09-25T10:15:02.000Z");
+    t.setNow("2026-01-05T10:15:02.000Z");
     await t.engine.runUsageSinksTick(t.deps);
     expect(t.sent).toHaveLength(1);
     const { payload } = t.sent[0];
     expect(payload).toMatchObject({
       type: "usage.window", version: 1,
-      window: { start: "2026-09-25T10:00:00.000Z", end: "2026-09-25T10:15:00.000Z", sizeSec: 900 },
+      window: { start: "2026-01-05T10:00:00.000Z", end: "2026-01-05T10:15:00.000Z", sizeSec: 900 },
     });
     const acme = payload.keys.find((k) => k.apiKey?.name === "acme");
     expect(acme.apiKey).toMatchObject({ id: a.id, tags: ["customer-a"] });
@@ -79,10 +81,10 @@ describe("usage sinks engine", () => {
 
     // A request recorded after the boundary goes to the next window, once.
     await t.record(b.key);
-    t.setNow("2026-09-25T10:30:01.000Z");
+    t.setNow("2026-01-05T10:30:01.000Z");
     await t.engine.runUsageSinksTick(t.deps);
     expect(t.sent).toHaveLength(2);
-    expect(t.sent[1].payload.window.start).toBe("2026-09-25T10:15:00.000Z");
+    expect(t.sent[1].payload.window.start).toBe("2026-01-05T10:15:00.000Z");
     expect(t.sent[1].payload.keys).toHaveLength(1);
     expect(t.sent[1].payload.range.fromId).toBe(payload.range.toId + 1);
   });
@@ -114,13 +116,13 @@ describe("usage sinks engine", () => {
     await t.engine.runUsageSinksTick(t.deps);
     let [delivery] = await t.repo.getDeliveries(sink.id);
     expect(delivery).toMatchObject({ status: "pending", attempts: 1, lastStatus: 500 });
-    expect(delivery.nextAttemptAt).toBe("2026-09-25T10:03:30.000Z");
+    expect(delivery.nextAttemptAt).toBe("2026-01-05T10:03:30.000Z");
 
     await t.engine.runUsageSinksTick(t.deps); // not due yet
     expect(t.sent).toHaveLength(1);
 
     t.setResponse(() => ({ ok: true, status: 204 }));
-    t.setNow("2026-09-25T10:03:31.000Z");
+    t.setNow("2026-01-05T10:03:31.000Z");
     await t.engine.runUsageSinksTick(t.deps);
     [delivery] = await t.repo.getDeliveries(sink.id);
     expect(delivery).toMatchObject({ status: "delivered", attempts: 2, lastStatus: 204 });
