@@ -52,7 +52,7 @@ describe("GET /v1/models/{id}", () => {
     const response = await GET(new Request("https://router.test/v1/models/image"), params(["image"]));
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ object: "list", data: [imageModel] });
+    expect(await response.json()).toEqual({ object: "list", id_format: "prefixed", data: [imageModel] });
     expect(mocks.buildModelsList).toHaveBeenCalledWith(["image"], { apiKey: null });
   });
 
@@ -60,7 +60,7 @@ describe("GET /v1/models/{id}", () => {
     const evaluator = { id: "jev/jev-1.13.0", object: "model", owned_by: "jev" };
     mocks.buildModelsList.mockResolvedValue([evaluator]);
     const response = await GET(new Request("https://router.test/v1/models/systemone", { headers: { Authorization: "Bearer test-client-key" } }), params(["systemone"]));
-    expect(await response.json()).toEqual({ object: "list", data: [evaluator] });
+    expect(await response.json()).toEqual({ object: "list", id_format: "prefixed", data: [evaluator] });
     expect(mocks.buildModelsList).toHaveBeenCalledWith(["systemone"], { apiKey: "test-client-key" });
   });
 
