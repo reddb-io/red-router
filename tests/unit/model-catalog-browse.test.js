@@ -7,6 +7,7 @@ import path from "node:path";
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "rr-browse-"));
 process.env.DATA_DIR = dataDir;
 const browseFile = path.join(dataDir, "model-catalog-browse.json");
+const openrouterFile = path.join(dataDir, "model-catalog-openrouter.json");
 
 // models.dev-shaped upstream: one direct provider, one aliased, one gateway.
 const upstream = {
@@ -91,7 +92,7 @@ describe("getProviderCatalog", () => {
   });
 
   it("returns an empty list for a provider models.dev does not know", async () => {
-    expect(await getProviderCatalog("mimo-free")).toEqual({ provider: "mimo-free", source: null, models: [] });
+    expect(await getProviderCatalog("mimo-free")).toEqual({ provider: "mimo-free", source: null, fetchedAt: null, models: [] });
   });
 
   it("serves only the free slice to OpenCode Free", async () => {
@@ -142,11 +143,28 @@ describe("getProviderCatalog", () => {
     expect(calls).toHaveLength(1);
   });
 
-  it("falls back to models.dev when OpenRouter is unreachable", async () => {
-    const fetchImpl = async () => { throw new Error("offline"); };
-    const { source, models } = await getProviderCatalog("openrouter", { fetchImpl });
-    expect(source).toBe("models.dev");
-    expect(models.map((m) => m.id)).toEqual(["qwen/qwen-next"]);
+  it("offline, lists the last OpenRouter list it saved", async () => {
+    const live = async () => jsonResponse({ data: [{ id: "x/saved-model", name: "Saved", created: 1_780_000_000, architecture: { output_modalities: ["text"] } }] });
+    const first = await getProviderCatalog("openrouter", { fetchImpl: live });
+    expect(first.source).toBe("openrouter+models.dev");
+
+    resetBrowseCatalog(); // a restart, then no network
+    const offline = async () => { throw new Error("offline"); };
+    const { source, fetchedAt, models } = await getProviderCatalog("openrouter", { fetchImpl: offline });
+    expect(source).toBe("openrouter-saved+models.dev");
+    expect(fetchedAt).toBe(first.fetchedAt);
+    expect(models.map((m) => m.id)).toEqual(["x/saved-model"]);
+  });
+
+  it("offline with nothing saved, lists the OpenRouter snapshot shipped with RedRouter", async () => {
+    fs.rmSync(openrouterFile, { force: true });
+    const offline = async () => { throw new Error("offline"); };
+    const { source, fetchedAt, models } = await getProviderCatalog("openrouter", { fetchImpl: offline });
+    expect(source).toBe("openrouter-snapshot+models.dev");
+    expect(fetchedAt).toBeTruthy();
+    // Every output modality is vendored, decision models included.
+    expect(models.length).toBeGreaterThan(400);
+    expect(models.find((m) => m.id === "typesafe/jev-1.13")).toMatchObject({ decision: true });
   });
 });
 

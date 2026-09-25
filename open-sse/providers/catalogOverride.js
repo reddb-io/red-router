@@ -15,6 +15,9 @@ export const CATALOG_RAW_FILE = path.join(DATA_DIR, "model-catalog-raw.json");
 // Per-provider browse catalog (names, dates, prices, capabilities) for the
 // dashboard's model browser. Written by the same sync; read by src/lib/modelCatalog/browse.js.
 export const CATALOG_BROWSE_FILE = path.join(DATA_DIR, "model-catalog-browse.json");
+// Last good OpenRouter /models list, so its browser works offline and after a
+// restart without network. Written by src/lib/modelCatalog/browse.js.
+export const OPENROUTER_CATALOG_FILE = path.join(DATA_DIR, "model-catalog-openrouter.json");
 export const CATALOG_VERSION = 2;
 
 const EMPTY = { models: {}, providers: {}, modelLimits: {} };

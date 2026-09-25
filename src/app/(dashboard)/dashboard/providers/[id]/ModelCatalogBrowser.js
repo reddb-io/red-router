@@ -22,6 +22,11 @@ const SOURCE_LABELS = {
   "models.dev": "models.dev",
   openrouter: "OpenRouter",
   "openrouter+models.dev": "OpenRouter + models.dev",
+  // OpenRouter unreachable: the last list saved to disk, or the one shipped with RedRouter.
+  "openrouter-saved": "OpenRouter (saved)",
+  "openrouter-saved+models.dev": "OpenRouter (saved) + models.dev",
+  "openrouter-snapshot": "OpenRouter (bundled)",
+  "openrouter-snapshot+models.dev": "OpenRouter (bundled) + models.dev",
 };
 
 const selectClass = "rounded-lg border border-muted bg-surface-2 px-2 py-1.5 text-xs text-text-main focus:outline-none focus:ring-2 focus:ring-primary/30";
@@ -137,6 +142,7 @@ export default function ModelCatalogBrowser({ providerId, addedIds, onAdd, onEmp
             <p className="text-sm font-medium text-text-main">Discover models</p>
             <p className="text-[11px] text-text-muted">
               {all.length} models in the catalog · source: {SOURCE_LABELS[catalog.source] || catalog.source}
+              {catalog.fetchedAt && catalog.source?.startsWith("openrouter-") && ` · offline, as of ${new Date(catalog.fetchedAt).toLocaleDateString()}`}
             </p>
           </div>
         </div>
