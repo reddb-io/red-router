@@ -1,182 +1,158 @@
-<div align="center">
+# RedRouter
 
-<img src="./images/red-router.png" alt="RedRouter" width="560" />
+[![npm](https://img.shields.io/npm/v/%40reddb-io%2Fred-router.svg)](https://www.npmjs.com/package/@reddb-io/red-router)
+[![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-# RedRouter · `rtr`
+RedRouter is a self-hosted gateway for AI model traffic. It exposes a single
+OpenAI- and Anthropic-compatible endpoint and routes each request to the
+providers and accounts you have configured, with format translation, fallback
+between models and accounts, usage and cost accounting, and per-key access
+control. A web dashboard manages providers, API keys, routing and usage.
 
-**One local gateway. Every model. Zero wasted tokens.**
+It runs on your machine or your server. Credentials and usage data stay in its
+local database.
 
-[![npm](https://img.shields.io/npm/v/%40reddb-io%2Fred-router.svg?color=ff2056&labelColor=0d1117)](https://www.npmjs.com/package/@reddb-io/red-router)
-[![node](https://img.shields.io/badge/node-%E2%89%A518-brightgreen?labelColor=0d1117)](https://nodejs.org)
-[![license](https://img.shields.io/badge/license-MIT-blue?labelColor=0d1117)](LICENSE)
+## Responsible use
 
-[Quick Start](#-quick-start) · [Features](#-features) · [Models & Combos](#-models--combos) · [API](#-api) · [Docs](#-docs)
+RedRouter does not provide access to any model. It forwards requests using the
+credentials you supply, and you remain bound by each provider's terms of
+service, acceptable-use policies and rate limits. That includes any
+restrictions a provider places on using a subscription plan or account through
+third-party tools. Connect only accounts you are authorized to use, in the way
+their terms allow.
 
-<img src="./images/fusion-combo-ui.png" alt="RedRouter dashboard" width="760" />
+RedRouter is an independent project, not affiliated with or endorsed by any
+model provider. Product and company names are trademarks of their respective
+owners.
 
-</div>
+## Installation
 
----
-
-RedRouter runs one **OpenAI-compatible gateway** at `http://localhost:25050/v1` and routes every request across **40+ providers** — subscription quotas first, cheap APIs next, free models last — translating between OpenAI, Claude, Gemini and friends on the fly. Your tools never notice. Your wallet does.
-
-## ⚡ Quick Start
-
-Run it straight with npx — nothing to install:
+Requires Node.js 18 or later.
 
 ```bash
-npx -y @reddb-io/red-router@latest
-```
-
-Or install globally:
-
-```bash
-npm install -g @reddb-io/red-router
+npx -y @reddb-io/red-router@latest      # run without installing
+npm install -g @reddb-io/red-router     # or install globally
 red-router
 ```
 
-Open **http://localhost:25050/dashboard**, connect a provider (OAuth or API key), then point any tool at the gateway:
+The dashboard opens at `http://localhost:25050/dashboard` and the API is served
+at `http://localhost:25050/v1`. Set a dashboard password on first start
+(`INITIAL_PASSWORD` or Settings → Security).
+
+### As a background service
+
+`systemd --user` on Linux, `launchd` on macOS:
 
 ```bash
-# OpenAI-style clients (Codex, Cline, OpenClaw, …)
-export OPENAI_BASE_URL=http://localhost:25050
+red-router service install      # listens on 127.0.0.1 only
+red-router service status
+red-router service uninstall
 ```
 
-Claude Code, Codex, Copilot and other OAuth tools connect straight from the dashboard — no env vars, tokens refresh automatically.
+### Docker
 
-### Run it always (background service)
-
-Keep the gateway running across reboots and crashes — `systemd --user` on Linux, `launchd` on macOS:
-
-```bash
-npx -y @reddb-io/red-router@latest service install          # background, 127.0.0.1 only (safe default)
-npx -y @reddb-io/red-router@latest service install --expose # open to the subnet (0.0.0.0)
-npx -y @reddb-io/red-router@latest service status
-npx -y @reddb-io/red-router@latest service uninstall
-```
-
-Services bind **127.0.0.1 by default**. Use `--expose` (or `-H 0.0.0.0`) only when other machines on your network need to reach it — set API keys and a strong dashboard password first. On Windows, run `red-router -t` for tray-background mode.
-
-### Run it in Docker
-
-Each release also ships a container image (`linux/amd64`) built from the same npm package:
+A container image (`linux/amd64`) is published with each release:
 
 ```bash
 docker run -d --name red-router -p 25050:25050 \
-  -e INITIAL_PASSWORD='choose-a-strong-one' \
+  -e INITIAL_PASSWORD='choose-a-strong-password' \
   -v red-router-data:/data \
   ghcr.io/reddb-io/red-router:latest
 ```
 
-Everything RedRouter stores lives in `/data`. A [`docker-compose.yml`](docker-compose.yml) is included (`INITIAL_PASSWORD=… docker compose up -d`). The container listens on all interfaces, so set API keys (Settings → Require API key) before exposing it.
+All state is stored in `/data`. A [`docker-compose.yml`](docker-compose.yml) is included.
 
-Run from source instead:
-
-```bash
-pnpm install && pnpm dev
-```
-
-## 🧠 Features
-
-| | |
-|---|---|
-| **Smart 3-tier fallback** | Subscription → cheap → free, zero downtime. Multi-account round-robin per provider. |
-| **RTK token saver** | Compresses tool results in place — 20-40% fewer tokens per request. |
-| **Format translation** | OpenAI ↔ Claude ↔ Gemini ↔ Kiro/Cursor/Vertex, with direct routes for fragile shapes (thinking blocks, tool ids). |
-| **Combos** | Unlimited model chains with `fallback`, `round-robin` and `fusion` (judge-model) strategies. |
-| **Thinking levels** | `glm-5.3(high)`, `model(8192)`, even `my-combo(high)` — the level follows the rotation and is clamped to each member. |
-| **Live catalog** | `/v1/models` publishes `context_length`, `max_completion_tokens`, `thinking_levels` and capabilities per model — synced daily from models.dev. |
-| **And everything else** | Web search & fetch, images, TTS/STT, embeddings, video; auto token refresh; real-time quota tracking; usage analytics; cloud sync. |
-
-## 🛠️ Works With
-
-Claude Code · Codex · Cursor · OpenCode · Cline · OpenClaw · GitHub Copilot · Gemini CLI · Antigravity · Zed · Windsurf · Trae · Qoder · Kilo · iFlow · Devin — **any OpenAI- or Claude-compatible client**.
-
-## 🌐 Providers
-
-40+ in three tiers:
-
-- **Subscription** — Claude Pro/Max, Codex Plus/Pro, GitHub Copilot, Kiro, Antigravity, Qoder, OpenCode Go…
-- **Cheap** — GLM (~$0.6/1M), MiniMax (~$0.2/1M), Kimi, Qwen, DeepSeek…
-- **Free** — OpenCode Free, Vertex AI ($300 credits), Kiro free tier, free-model gateways — plus self-hosted (Ollama, LM Studio, LiteLLM).
-
-### Connect another RedRouter
-
-Add **RedRouter** under Providers with the remote URL and a key created on that router. Its exposed models are imported and saved locally automatically, including provider-qualified IDs and combos. No default model or per-model registration is required. The remote key's account bindings determine which providers are visible.
-
-The saved catalog appears in the dashboard, model picker and local `/v1/models`. Catalog reads refresh it after five minutes; if the remote is unavailable, the last saved list remains available with a sync warning in the provider dashboard. Existing RedRouter connections are imported on their next catalog read. Changing the remote URL or key fetches a new catalog before saving.
-
-For example, a remote model `cc/claude-fable-5.1` is selected locally as `red-router/cc/claude-fable-5.1`. Requests use the remote router's key; Claude credentials stay on the remote machine. The ID must be one actually exposed by that remote router. Reciprocal catalog requests skip further RedRouter discovery to avoid loops.
-
-## 📡 API
-
-One endpoint, your client's dialect:
-
-| Client sends | Route |
-|---|---|
-| OpenAI chat | `POST /v1/chat/completions` · `POST /v1/responses` |
-| Claude | `POST /v1/messages` |
-| Media | `/v1/images` · `/v1/audio` · `/v1/embeddings` · `/v1/videos` |
-| Web | `/v1/search` · `/v1/fetch` |
-| TypeSafe AI / JEV | `POST /v1/systemone` (native `state` + `questions` contract) |
-| Catalog | `GET /v1/models` · `GET /v1/models/info?id=…` · `GET /v1/models/{image,tts,stt,embedding,web}` |
-
-JEV requests keep the native TypeSafe AI shape; RedRouter only selects the
-configured TypeSafe AI account, applies account fallback and records returned
-token usage:
-
-```bash
-curl http://localhost:25050/v1/systemone \
-  -H "Authorization: Bearer $RED_ROUTER_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "state": "Production is down; restore service now.",
-    "model": "jev-latest",
-    "questions": {
-      "urgency": {
-        "type": "noul",
-        "instructions": "Does this express urgency?"
-      }
-    }
-  }'
-```
-
-### Reasoning level per request
-
-Whoever pays for the decision decides. `GET /v1/capabilities` lists what this
-instance accepts under `reasoning` (`accepts`, `ladder`, `floor`, `ceiling`,
-`applies`).
-
-| `x-red-router-reasoning` | Effect |
-|---|---|
-| `off` | The client's own thinking config is kept |
-| `none` … `max` | That level, mapped onto the model's own knob |
-| `auto` | The reasoning autopilot for this request, even when it is off for the key, within the configured floor and ceiling |
-
-A client that already chose a level can send it as a hint instead
-(`x-red-router-hint: effort=high`); an explicit header level beats it, and both
-beat `auto`. The hint can also state `stall=true|false`,
-`feedback=agrees|corrects|rejects|neutral` and `frustration=0..1`, which replace
-the router's own reading of the transcript. The autopilot only changes the level
-when a new human message arrives, apart from one step up per human turn when the
-tool loop stalls or fails, so a provider's prompt cache survives the loop. Each
-response reports the choice in `X-RedRouter-Reasoning: <from>-><level>; cause=<cause>`.
-
-## 📚 Docs
-
-- **Architecture** — [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md): request lifecycle, fallback, OAuth, data model
-- **Setup guides & FAQ** — [`gitbook/`](gitbook/) (deployed to GitHub Pages)
-- **Releases** — [`CHANGELOG.md`](CHANGELOG.md)
-
-## 🛠️ Development
+### From source
 
 ```bash
 pnpm install
-pnpm dev                    # dashboard + gateway
-cd tests && npx vitest run  # test suite
+pnpm dev
 ```
 
-Releases follow [Changesets](https://github.com/changesets/changesets): `pnpm changeset` → `pnpm release:version` → tag `vX.Y.Z`; the npm publish is automated on tags.
+## Network access
+
+By default the service listens on `127.0.0.1`. To accept connections from other
+machines, choose **Whole network** in Settings → Network access, or run
+`red-router network lan`. `red-router network local` switches back.
+
+Before exposing RedRouter beyond your machine:
+
+- set a strong dashboard password;
+- turn on **Require API key** (Endpoint & Keys);
+- issue one API key per client.
+
+## Capabilities
+
+- **One API, several dialects.** OpenAI Chat Completions and Responses, and
+  Anthropic Messages, on the same endpoint. Requests are translated to each
+  provider's native format.
+- **Routing and fallback.**
+  - Combos group several models under one name, with fallback, round-robin or judge-based strategies.
+  - Several accounts of the same provider can back each other up.
+  - Flat model ids (`vendor/model`) let RedRouter choose among the providers that serve the same model, and the order is configurable per model.
+- **API keys and policy.** Per-key model rules, request and spending limits,
+  bindings to specific accounts, and an admin role for keys that manage other
+  keys.
+- **Usage and cost.** Per-request logs, token and cost accounting by key, model
+  and provider, and quota tracking for providers that report quotas.
+- **Usage export.** Usage can be sent to a billing system per request or in
+  5–60 minute totals per API key, by signed webhook, Amazon SQS, Kafka or a
+  RedDB queue.
+- **Autopilot (optional).** A small decision model can choose the combo member
+  and the reasoning level for each turn. It is off by default, and a test mode
+  records its decisions without applying them.
+- **MCP server.** `/v1/mcp` lets agents look up the models, combos, providers,
+  quotas and usage available to their API key.
+- **Other endpoints.** Embeddings, images, speech, transcription, video, web
+  search and fetch.
+
+## Providers
+
+RedRouter supports more than 40 providers. Each connects through an API key,
+or through the provider's own sign-in where it offers one. Any OpenAI- or
+Anthropic-compatible endpoint can also be added, including self-hosted servers
+such as Ollama, LM Studio and LiteLLM, and another RedRouter instance.
+
+## Clients
+
+Any client that speaks the OpenAI or Anthropic API can use RedRouter by
+pointing its base URL at `http://<host>:25050/v1` and authenticating with a
+RedRouter API key. The dashboard includes setup steps for common coding tools
+and editors.
+
+## API
+
+| Purpose | Endpoint |
+|---|---|
+| Chat | `POST /v1/chat/completions`, `POST /v1/responses`, `POST /v1/messages` |
+| Models | `GET /v1/models`, `GET /v1/models/info?id=…` |
+| Media and data | `/v1/embeddings`, `/v1/images`, `/v1/audio`, `/v1/videos` |
+| Web | `/v1/search`, `/v1/fetch` |
+| Calling key | `GET /v1/key` |
+| MCP | `POST /v1/mcp` |
+
+Requests authenticate with `Authorization: Bearer <RedRouter API key>` (or
+`x-api-key`). The optional `x-red-router-reasoning` header sets the reasoning
+level for a single request (`off`, `none` … `max`, or `auto`). The level that
+was applied is reported in the `X-RedRouter-Reasoning` response header.
+`GET /v1/capabilities` describes what this instance accepts.
+
+## Documentation
+
+- [Architecture](docs/ARCHITECTURE.md): request lifecycle, routing, authentication and data model.
+- [Guides](gitbook/): setup and frequently asked questions.
+- [Changelog](cli/CHANGELOG.md).
+
+## Development
+
+```bash
+pnpm install
+pnpm dev                         # dashboard and gateway
+cd tests && npx vitest run       # test suite
+```
+
+Releases use [Changesets](https://github.com/changesets/changesets). A pushed
+`vX.Y.Z` tag publishes the npm package and the container image.
 
 ## License
 
