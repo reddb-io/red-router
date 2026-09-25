@@ -10,6 +10,7 @@ import { LOCALE_COOKIE, normalizeLocale } from "@/i18n/config";
 import { LOCALE_FLAGS } from "@/shared/constants/locales";
 import UpdateSection from "./UpdateSection";
 import NetworkAccessCard from "./NetworkAccessCard";
+import BrandingCard from "./BrandingCard";
 
 function getLocaleFromCookie() {
   if (typeof document === "undefined") return "en";
@@ -940,6 +941,8 @@ export default function ProfilePage() {
         </Card>
 
         <NetworkAccessCard />
+
+        <BrandingCard />
 
         {/* Security */}
         <Card>

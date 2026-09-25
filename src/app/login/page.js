@@ -2,8 +2,10 @@
 
 import { useState, useEffect } from "react";
 import { Card, Button, Input } from "@/shared/components";
+import { BrandMark, useBranding } from "@/shared/components/BrandingProvider";
 
 export default function LoginPage() {
+  const brand = useBranding();
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [resetHint, setResetHint] = useState("");
@@ -168,18 +170,31 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-bg p-4 relative overflow-hidden">
-      {/* Faint grid background */}
-      <div className="landing-grid absolute inset-0 pointer-events-none" aria-hidden="true" />
+    <div
+      className="min-h-screen flex items-center justify-center bg-bg p-4 relative overflow-hidden"
+      style={{
+        ...(brand.login.backgroundColor ? { backgroundColor: brand.login.backgroundColor } : {}),
+        ...(brand.login.backgroundImage ? { backgroundImage: `url("${brand.login.backgroundImage}")`, backgroundSize: "cover", backgroundPosition: "center" } : {}),
+      }}
+    >
+      {/* Faint grid background (the default look; a branded background replaces it) */}
+      {!brand.login.backgroundColor && !brand.login.backgroundImage && (
+        <div className="landing-grid absolute inset-0 pointer-events-none" aria-hidden="true" />
+      )}
       <div className="relative z-10 w-full max-w-md">
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-primary mb-2">RedRouter</h1>
+          {brand.logo && (
+            <div className="mb-4 flex justify-center">
+              <BrandMark className="h-12" />
+            </div>
+          )}
+          <h1 className="text-3xl font-bold text-primary mb-2">{brand.login.title}</h1>
           <p className="text-text-muted">
-            {samlAvailable
+            {brand.login.subtitle || (samlAvailable
               ? "Sign in with SAML 2.0 Single Sign-On"
               : oidcAvailable
               ? "Sign in with your OIDC provider to access the dashboard"
-              : "Enter your password to access the dashboard"}
+              : "Enter your password to access the dashboard")}
           </p>
         </div>
 
@@ -283,6 +298,7 @@ export default function LoginPage() {
           </div>
           )}
         </Card>
+        {brand.login.footer && <p className="mt-6 text-center text-xs text-text-muted">{brand.login.footer}</p>}
       </div>
     </div>
   );
