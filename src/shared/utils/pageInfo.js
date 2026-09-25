@@ -87,6 +87,13 @@ export function getPageInfo(pathname) {
       icon: "dns",
       breadcrumbs: [],
     };
+  if (pathname === "/dashboard/autopilot")
+    return {
+      title: "Autopilot",
+      description: "Let a small decision model pick the model and the reasoning level for each turn.",
+      icon: "auto_awesome",
+      breadcrumbs: [],
+    };
   if (pathname === "/dashboard/models")
     return {
       title: "Models",

@@ -100,6 +100,8 @@ const ADMIN_ONLY_PATHS = [
   // Offer order for flat model ids applies to every key's routing.
   "/api/flat-models",
   "/dashboard/models",
+  // Autopilot settings steer every key's requests.
+  "/dashboard/autopilot",
   "/api/tunnel",
   "/api/media-providers",
   "/api/translator",

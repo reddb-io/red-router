@@ -1,8 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import DecisionRouterCard from "@/shared/components/DecisionRouterCard";
-import ReasoningAutopilotCard from "@/shared/components/ReasoningAutopilotCard";
+import AutopilotSummaryCard from "@/shared/components/AutopilotSummaryCard";
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors } from "@dnd-kit/core";
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -549,19 +548,8 @@ export default function CombosPage() {
         getCaps={getCaps}
       />
 
-      {/* Intelligent routing: the decision model (JEV) that picks the member of
-          `auto` combos and the reasoning autopilot. Global settings, served by
-          whichever gateway (TypeSafe, Vercel AI Gateway, OpenRouter, …) is chosen. */}
-      <section id="intelligent-routing" className="flex flex-col gap-4 scroll-mt-6">
-        <div>
-          <h2 className="text-lg font-semibold">Intelligent routing</h2>
-          <p className="text-sm text-text-muted">
-            A decision model (JEV) picks which member of an <code>auto</code> combo serves each turn, and can set the reasoning level.
-          </p>
-        </div>
-        <DecisionRouterCard />
-        <ReasoningAutopilotCard />
-      </section>
+      {/* The decision model's settings live on their own page (Operate → Autopilot). */}
+      <AutopilotSummaryCard />
 
       {/* Create Modal - Use key to force remount and reset state */}
       {showCreateModal && (
