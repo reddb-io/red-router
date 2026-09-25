@@ -1,5 +1,15 @@
 # @reddb-io/red-router
 
+## 0.24.7
+
+### Patch Changes
+
+- 67928f7: A retired provider no longer shows up where the provider list hides it. MiMo Code Free (Xiaomi ended its free channel) appeared as a node in the Usage topology and in the model picker, although it's hidden from Providers and no longer works. Both now use the same list of account-free providers, which leaves out hidden ones.
+- cdff34e: Fixed the page title staying on the first page you opened (for example "Quota Tracker" while you were on Combos). The in-page translator remembered the first text it saw in each element, and when React reused that element for a new page, it put the old text back. It now treats text that React changes as new text, which also fixes any other label React updates in place.
+- cdff34e: The sidebar has one even rhythm. Sections are spaced the same (the Tools heading no longer sits against Settings), rows are compact with a mouse and stay 44px tall on touch screens, and the app name, section headings and icons line up on one edge.
+  
+  The sections now read Operate, Tools, System (Settings last) and Debug (Console Log and Translator, admin only).
+
 ## 0.24.6
 
 ### Patch Changes
