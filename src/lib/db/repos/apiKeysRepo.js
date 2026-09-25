@@ -46,6 +46,7 @@ function rowToKey(row) {
     tags: normalizeTags(parseJson(row.tags, null)) || [],
     modelAccess: normalizeModelAccess(parseJson(row.modelAccess, null)),
     limits: normalizeKeyLimits(parseJson(row.limits, null)),
+    modelIdFormat: normalizeModelIdFormat(row.modelIdFormat),
     owner: row.owner ?? null,
     createdAt: row.createdAt,
   };
@@ -124,6 +125,7 @@ export async function updateApiKey(id, data) {
     merged.tags = tags || [];
     merged.modelAccess = normalizeModelAccess(merged.modelAccess);
     merged.limits = normalizeKeyLimits(merged.limits);
+    merged.modelIdFormat = normalizeModelIdFormat(merged.modelIdFormat);
     await trx.updateTable("apiKeys").set({
       key: merged.key, name: merged.name, machineId: merged.machineId,
       isActive: merged.isActive ? 1 : 0,
@@ -131,6 +133,7 @@ export async function updateApiKey(id, data) {
       tags: tags ? stringifyJson(tags) : null,
       modelAccess: merged.modelAccess ? stringifyJson(merged.modelAccess) : null,
       limits: merged.limits ? stringifyJson(merged.limits) : null,
+      modelIdFormat: merged.modelIdFormat === "prefixed" ? null : merged.modelIdFormat,
       owner: merged.owner ?? null,
     }).where("id", "=", id).execute();
     result = merged;
@@ -171,6 +174,19 @@ export async function getApiKeyIdentity(key) {
   const db = await getDb();
   const row = await db.selectFrom("apiKeys").select(["id", "owner", "name"]).where("key", "=", key).executeTakeFirst();
   return { id: row?.id ?? null, owner: row?.owner ?? null, name: row?.name ?? null };
+}
+
+/** "flat" or "prefixed" (the default, stored as NULL). */
+export function normalizeModelIdFormat(value) {
+  return value === "flat" ? "flat" : "prefixed";
+}
+
+/** How /v1/models names models for this key ("prefixed" for unknown keys and no key). */
+export async function getApiKeyModelIdFormat(key) {
+  if (!key) return "prefixed";
+  const db = await getDb();
+  const row = await db.selectFrom("apiKeys").select("modelIdFormat").where("key", "=", key).executeTakeFirst();
+  return normalizeModelIdFormat(row?.modelIdFormat);
 }
 
 const NO_POLICY = Object.freeze({ id: null, modelAccess: null, limits: null });

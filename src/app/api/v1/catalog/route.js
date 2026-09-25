@@ -26,7 +26,8 @@ export async function GET(request) {
     const apiKey = extractApiKey(request);
     const variants = request?.url ? new URL(request.url).searchParams.get("variants") || undefined : undefined;
     const data = await buildCatalog({ apiKey, variants });
-    return Response.json(data, {
+    // Grouped by provider, so its ids are always the prefixed ones.
+    return Response.json({ ...data, id_format: "prefixed" }, {
       headers: {
         "Access-Control-Allow-Origin": "*",
         ...(data.version ? { [CATALOG_VERSION_HEADER]: data.version } : {}),

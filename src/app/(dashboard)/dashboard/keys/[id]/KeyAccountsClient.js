@@ -136,7 +136,7 @@ export default function KeyAccountsClient({ keyId }) {
 
       {apiKey && (
         // Remounts on save so the form shows the rules as the server normalized them.
-        <KeyPolicyCard key={JSON.stringify([apiKey.modelAccess, apiKey.limits])} apiKey={apiKey} onSaved={setApiKey} />
+        <KeyPolicyCard key={JSON.stringify([apiKey.modelAccess, apiKey.limits, apiKey.modelIdFormat])} apiKey={apiKey} onSaved={setApiKey} />
       )}
 
       <Card padding="lg">

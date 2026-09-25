@@ -58,7 +58,8 @@ export async function GET(request, { params }) {
     if (kindFilter) {
       // Another RedRouter reading this catalog sends its hop chain (see catalogFetchOptions).
       const data = await buildModelsList(kindFilter, { ...catalogFetchOptions(request), apiKey, variants });
-      return json({ object: "list", data }, { headers: { [RED_ROUTER_INSTANCE_HEADER]: RED_ROUTER_INSTANCE_ID } });
+      // System One ids stay prefixed (with every router hop); flat ids cover chat models.
+      return json({ object: "list", id_format: "prefixed", data }, { headers: { [RED_ROUTER_INSTANCE_HEADER]: RED_ROUTER_INSTANCE_ID } });
     }
 
     // Match the same LLM catalog exposed by GET /v1/models. A catch-all
