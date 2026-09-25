@@ -181,7 +181,7 @@ export default function ToolDetailClient({ toolId, machineId }) {
   // Guard removed/unknown tools (e.g. disabled Cowork) to avoid crash on direct URL.
   if (!tool) {
     return (
-      <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 px-1 sm:px-0">
+      <div className="flex w-full flex-col gap-4 px-1 sm:px-0">
         <Link href="/dashboard/cli-tools" className="inline-flex items-center gap-1 text-sm text-text-muted hover:text-primary w-fit">
           <Icon name="arrow_back" size={18} />
           Back to CLI Tools
@@ -192,7 +192,7 @@ export default function ToolDetailClient({ toolId, machineId }) {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 px-1 sm:px-0">
+    <div className="flex w-full flex-col gap-4 px-1 sm:px-0">
       <Link href="/dashboard/cli-tools" className="inline-flex items-center gap-1 text-sm text-text-muted hover:text-primary w-fit">
         <Icon name="arrow_back" size={18} />
         Back to CLI Tools

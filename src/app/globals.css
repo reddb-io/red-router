@@ -228,9 +228,21 @@ body {
  * P5 H5 E4 S5 R5 V4 — task-first, operational, no decorative chrome.
  */
 .setup-workbench {
-  width: min(100%, 72rem);
-  margin-inline: auto;
+  width: 100%;
   min-width: 0;
+}
+
+/* Settings: cards flow into two columns on wide screens, in reading order. */
+.settings-grid {
+  columns: 1;
+  column-gap: var(--reddb-spacing-6);
+}
+.settings-grid > * {
+  break-inside: avoid;
+  margin-bottom: var(--reddb-spacing-6);
+}
+@media (min-width: 80rem) {
+  .settings-grid { columns: 2; }
 }
 
 .setup-heading {
@@ -628,12 +640,12 @@ body {
  * icons: pass (30) · mobile: pass (34, 49, 50–57)
  * motion: state-only · enrichment: none
  */
+/* Pages fill the layout's page frame (DashboardLayout); they never set their own width. */
 .usage-workbench,
 .skills-workbench {
   display: flex;
-  width: min(100%, 76rem);
+  width: 100%;
   min-width: 0;
-  margin-inline: auto;
   flex-direction: column;
 }
 
