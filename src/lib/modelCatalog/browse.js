@@ -2,16 +2,20 @@
 // person filters on (owner, context, release date, reasoning, tools, vision,
 // open weights, price). Sources, per provider:
 //   - OpenRouter: its public /models list (the provider's own, freshest source),
-//     completed with models.dev facts where it lacks them;
+//     completed with models.dev facts where it lacks them. The last good list is
+//     saved to OPENROUTER_CATALOG_FILE, and snapshot/openrouter.json ships with
+//     the repo, so the browser still lists every OpenRouter model offline;
 //   - everyone else: the models.dev catalog (anomalyco/models.dev), refreshed
 //     daily by ./sync.js into CATALOG_BROWSE_FILE, or the snapshot vendored in
 //     the repo until the first sync writes it.
 import fs from "node:fs";
-import { CATALOG_BROWSE_FILE } from "open-sse/providers/catalogOverride.js";
+import { CATALOG_BROWSE_FILE, OPENROUTER_CATALOG_FILE } from "open-sse/providers/catalogOverride.js";
 import { PROVIDER_ALIASES } from "./sync.js";
-import { browseSlim } from "./browseShape.js";
+import { browseSlim, slimOpenRouterModel } from "./browseShape.js";
 
 const SNAPSHOT_API_URL = new URL("./snapshot/api.json", import.meta.url);
+// OpenRouter's list as vendored in the repo (scripts/refresh-catalog-snapshots.mjs).
+const OPENROUTER_SNAPSHOT_URL = new URL("./snapshot/openrouter.json", import.meta.url);
 // Without output_modalities OpenRouter lists only text generators, hiding image,
 // audio and decision models (e.g. TypeSafe's typesafe/jev-1.13).
 const OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models?output_modalities=all";
@@ -106,58 +110,101 @@ function fromModelsDev(id, m, providerName, providerKey) {
   };
 }
 
-let openrouterLive = { at: 0, models: null };
+let openrouterLive = { at: 0, models: null, origin: null, fetchedAt: null };
+// Offline, retry the network this often instead of waiting out a timeout per page view.
+const OFFLINE_RETRY_MS = 5 * 60 * 1000;
 
-/** OpenRouter's own list, per million tokens like models.dev. Null when unreachable. */
-async function fetchOpenRouterModels(fetchImpl = fetch) {
-  if (openrouterLive.models && Date.now() - openrouterLive.at < LIVE_TTL_MS) return openrouterLive.models;
+const perMillion = (v) => { const n = Number(v); return Number.isFinite(n) ? Math.round(n * 1e6 * 1e4) / 1e4 : null; };
+
+/** A slim OpenRouter entry (browseShape.slimOpenRouterModel) in the browser's shape, per million tokens. */
+function mapOpenRouterModel(m) {
+  const params = Array.isArray(m.supported_parameters) ? m.supported_parameters : [];
+  const inputs = m.architecture?.input_modalities || [];
+  const outputs = m.architecture?.output_modalities?.length ? m.architecture.output_modalities : ["text"];
+  const costIn = perMillion(m.pricing?.prompt);
+  const costOut = perMillion(m.pricing?.completion);
+  return {
+    id: m.id,
+    name: m.name || m.id,
+    vendor: vendorOf(m.id, "openrouter"),
+    family: null,
+    releaseDate: Number.isFinite(m.created) ? new Date(m.created * 1000).toISOString().slice(0, 10) : null,
+    updatedDate: null,
+    knowledge: null,
+    contextWindow: m.context_length || m.top_provider?.context_length || null,
+    maxOutput: m.top_provider?.max_completion_tokens || null,
+    reasoning: params.includes("reasoning") || params.includes("include_reasoning"),
+    tools: params.includes("tools"),
+    vision: inputs.includes("image"),
+    pdf: inputs.includes("file"),
+    audio: inputs.includes("audio"),
+    video: inputs.includes("video"),
+    imageOutput: outputs.includes("image"),
+    textOutput: outputs.includes("text"),
+    // System One decision models answer through /v1/systemone, not chat.
+    decision: outputs.includes("decisions"),
+    openWeights: false,
+    free: m.id.endsWith(":free") || (costIn === 0 && costOut === 0),
+    cost: costIn !== null || costOut !== null ? { input: costIn, output: costOut } : null,
+    description: typeof m.description === "string" ? m.description.slice(0, 280) : null,
+  };
+}
+
+function readOpenRouterFile(file) {
   try {
-    const res = await fetchImpl(OPENROUTER_MODELS_URL, { headers: { accept: "application/json" }, signal: AbortSignal.timeout(15_000) });
-    if (!res.ok) return openrouterLive.models;
-    const data = (await res.json())?.data;
-    if (!Array.isArray(data)) return openrouterLive.models;
-    const perMillion = (v) => { const n = Number(v); return Number.isFinite(n) ? Math.round(n * 1e6 * 1e4) / 1e4 : null; };
-    const models = data.map((m) => {
-      const params = Array.isArray(m.supported_parameters) ? m.supported_parameters : [];
-      const inputs = m.architecture?.input_modalities || [];
-      const costIn = perMillion(m.pricing?.prompt);
-      const costOut = perMillion(m.pricing?.completion);
-      return {
-        id: m.id,
-        name: m.name || m.id,
-        vendor: vendorOf(m.id, "openrouter"),
-        family: null,
-        releaseDate: Number.isFinite(m.created) ? new Date(m.created * 1000).toISOString().slice(0, 10) : null,
-        updatedDate: null,
-        knowledge: null,
-        contextWindow: m.context_length || m.top_provider?.context_length || null,
-        maxOutput: m.top_provider?.max_completion_tokens || null,
-        reasoning: params.includes("reasoning") || params.includes("include_reasoning"),
-        tools: params.includes("tools"),
-        vision: inputs.includes("image"),
-        pdf: inputs.includes("file"),
-        audio: inputs.includes("audio"),
-        video: inputs.includes("video"),
-        imageOutput: (m.architecture?.output_modalities || []).includes("image"),
-        textOutput: (m.architecture?.output_modalities || ["text"]).includes("text"),
-        // System One decision models answer through /v1/systemone, not chat.
-        decision: (m.architecture?.output_modalities || []).includes("decisions"),
-        openWeights: false,
-        free: m.id.endsWith(":free") || (costIn === 0 && costOut === 0),
-        cost: costIn !== null || costOut !== null ? { input: costIn, output: costOut } : null,
-        description: typeof m.description === "string" ? m.description.slice(0, 280) : null,
-      };
-    });
-    openrouterLive = { at: Date.now(), models };
-    return models;
+    const saved = JSON.parse(fs.readFileSync(file, "utf8"));
+    return Array.isArray(saved?.models) && saved.models.length ? saved : null;
   } catch {
-    return openrouterLive.models;
+    return null;
+  }
+}
+
+function saveOpenRouterList(slim, fetchedAt) {
+  try {
+    const tmp = `${OPENROUTER_CATALOG_FILE}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify({ fetchedAt, models: slim }));
+    fs.renameSync(tmp, OPENROUTER_CATALOG_FILE);
+  } catch {
+    // Best effort: the live list still serves this process.
   }
 }
 
 /**
+ * OpenRouter's own list: live when reachable (and saved to disk), else the last
+ * saved list, else the snapshot vendored in the repo. Null only if none exists.
+ * @returns {Promise<{ models: object[], origin: "live"|"saved"|"snapshot", fetchedAt: string|null }|null>}
+ */
+async function fetchOpenRouterModels(fetchImpl = fetch) {
+  if (openrouterLive.models && Date.now() - openrouterLive.at < LIVE_TTL_MS) return openrouterLive;
+  try {
+    const res = await fetchImpl(OPENROUTER_MODELS_URL, { headers: { accept: "application/json" }, signal: AbortSignal.timeout(15_000) });
+    const data = res.ok ? (await res.json())?.data : null;
+    if (Array.isArray(data) && data.length) {
+      const slim = data.map(slimOpenRouterModel);
+      const fetchedAt = new Date().toISOString();
+      saveOpenRouterList(slim, fetchedAt);
+      openrouterLive = { at: Date.now(), models: slim.map(mapOpenRouterModel), origin: "live", fetchedAt };
+      return openrouterLive;
+    }
+  } catch {
+    // Offline or OpenRouter down: fall through to what is on disk.
+  }
+  if (openrouterLive.models) return openrouterLive;
+  const saved = readOpenRouterFile(OPENROUTER_CATALOG_FILE);
+  const stored = saved || readOpenRouterFile(OPENROUTER_SNAPSHOT_URL);
+  if (!stored) return null;
+  openrouterLive = {
+    at: Date.now() - LIVE_TTL_MS + OFFLINE_RETRY_MS,
+    models: stored.models.map(mapOpenRouterModel),
+    origin: saved ? "saved" : "snapshot",
+    fetchedAt: stored.fetchedAt || null,
+  };
+  return openrouterLive;
+}
+
+/**
  * Every model we can describe for a provider, newest first.
- * @returns {Promise<{ provider: string, source: string|null, models: object[] }>}
+ * @returns {Promise<{ provider: string, source: string|null, fetchedAt: string|null, models: object[] }>}
  */
 export async function getProviderCatalog(providerId, { fetchImpl } = {}) {
   const mdId = modelsDevProviderId(providerId);
@@ -167,12 +214,13 @@ export async function getProviderCatalog(providerId, { fetchImpl } = {}) {
 
   let models = fromMd;
   let source = entry ? "models.dev" : null;
+  let fetchedAt = null;
   if (providerId === "openrouter") {
-    const live = await fetchOpenRouterModels(fetchImpl);
-    if (live?.length) {
-      // The live list decides what exists; models.dev fills what it lacks.
+    const list = await fetchOpenRouterModels(fetchImpl);
+    if (list?.models?.length) {
+      // OpenRouter's list decides what exists; models.dev fills what it lacks.
       const md = new Map(fromMd.map((m) => [m.id, m]));
-      models = live.map((m) => {
+      models = list.models.map((m) => {
         const extra = md.get(m.id);
         if (!extra) return m;
         return {
@@ -185,13 +233,16 @@ export async function getProviderCatalog(providerId, { fetchImpl } = {}) {
           tools: m.tools || extra.tools,
         };
       });
-      source = entry ? "openrouter+models.dev" : "openrouter";
+      // "openrouter", "openrouter-saved" or "openrouter-snapshot", + models.dev when it helped.
+      const base = list.origin === "live" ? "openrouter" : `openrouter-${list.origin}`;
+      source = entry ? `${base}+models.dev` : base;
+      fetchedAt = list.fetchedAt;
     }
   }
 
   if (FREE_ONLY.has(providerId)) models = models.filter((m) => m.free);
   models.sort((a, b) => String(b.releaseDate || "").localeCompare(String(a.releaseDate || "")) || a.id.localeCompare(b.id));
-  return { provider: providerId, source, models };
+  return { provider: providerId, source, fetchedAt, models };
 }
 
 /** Test hook. */
@@ -199,5 +250,5 @@ export function resetBrowseCatalog() {
   browseCache = null;
   browseMtime = -1;
   snapshotCache = null;
-  openrouterLive = { at: 0, models: null };
+  openrouterLive = { at: 0, models: null, origin: null, fetchedAt: null };
 }

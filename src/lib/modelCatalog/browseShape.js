@@ -29,3 +29,24 @@ export function browseSlim(catalog) {
   }
   return out;
 }
+
+/**
+ * The fields of an OpenRouter /models entry the browser maps, and nothing else:
+ * what is stored on disk and vendored in snapshot/openrouter.json.
+ */
+export function slimOpenRouterModel(m) {
+  return {
+    id: m.id,
+    name: m.name,
+    created: m.created,
+    context_length: m.context_length,
+    pricing: { prompt: m.pricing?.prompt, completion: m.pricing?.completion },
+    supported_parameters: Array.isArray(m.supported_parameters) ? m.supported_parameters : [],
+    architecture: {
+      input_modalities: m.architecture?.input_modalities || [],
+      output_modalities: m.architecture?.output_modalities || [],
+    },
+    top_provider: { context_length: m.top_provider?.context_length, max_completion_tokens: m.top_provider?.max_completion_tokens },
+    description: typeof m.description === "string" ? m.description.slice(0, 280) : undefined,
+  };
+}
