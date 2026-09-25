@@ -176,6 +176,10 @@ describe("System One app handler", () => {
       .mockResolvedValueOnce({
         noActiveCredentials: true,
         candidate: { status: 503, message: "No OpenCode credentials", provider: "opencode-zen", model: "jev-1.13-free" },
+      })
+      .mockResolvedValueOnce({
+        noActiveCredentials: true,
+        candidate: { status: 503, message: "No OpenCode Go credentials", provider: "opencode-go", model: "jev-1.13-free" },
       });
 
     const response = await handleSystemOne(makeRequest());
@@ -192,4 +196,71 @@ describe("System One app handler", () => {
       expect.any(Number),
     );
   });
+
+  describe("OpenCode Zen JEV through an OpenCode Go connection", () => {
+    const goCredentials = {
+      apiKey: "stored-opencode-workspace-key",
+      connectionId: "opencode-go-connection",
+      connectionName: "OpenCode workspace",
+      providerSpecificData: {},
+    };
+
+    it.each([
+      ["opencode-zen/jev-1.13", "jev-1.13"],
+      ["opencode-zen/jev-1.13-free", "jev-1.13-free"],
+    ])("sends %s to Zen with the Go connection's key", async (requested, upstreamModel) => {
+      mocks.getProviderCredentials
+        .mockResolvedValueOnce({ noActiveCredentials: true, candidate: { status: 503, message: "No OpenCode Zen credentials" } })
+        .mockResolvedValueOnce(goCredentials);
+
+      const response = await handleSystemOne(makeRequest(requested));
+
+      expect(response.status).toBe(200);
+      expect(mocks.getProviderCredentials).toHaveBeenNthCalledWith(1, "opencode-zen", expect.any(Set), upstreamModel, expect.any(Object));
+      expect(mocks.getProviderCredentials).toHaveBeenNthCalledWith(2, "opencode-go", expect.any(Set), upstreamModel, expect.any(Object));
+      expect(mocks.handleSystemOneCore).toHaveBeenCalledWith(expect.objectContaining({
+        providerId: "opencode-zen",
+        credentials: expect.objectContaining({ apiKey: "stored-opencode-workspace-key" }),
+        body: expect.objectContaining({ model: upstreamModel }),
+      }));
+    });
+
+    it("prefers an OpenCode Zen connection of its own", async () => {
+      mocks.getProviderCredentials.mockResolvedValueOnce({ ...goCredentials, apiKey: "stored-zen-key", connectionId: "zen-connection" });
+
+      await handleSystemOne(makeRequest("opencode-zen/jev-1.13"));
+
+      expect(mocks.getProviderCredentials).toHaveBeenCalledOnce();
+      expect(mocks.handleSystemOneCore).toHaveBeenCalledWith(expect.objectContaining({
+        providerId: "opencode-zen",
+        credentials: expect.objectContaining({ apiKey: "stored-zen-key" }),
+      }));
+    });
+
+    it.each([401, 402, 403])("says the workspace lacks Zen access when Zen answers %i", async (status) => {
+      mocks.getProviderCredentials
+        .mockResolvedValueOnce({ noActiveCredentials: true, candidate: { status: 503, message: "No OpenCode Zen credentials" } })
+        .mockResolvedValueOnce(goCredentials)
+        .mockResolvedValueOnce({ noActiveCredentials: true, candidate: { status: 503, message: "No more OpenCode Go credentials" } })
+        .mockResolvedValueOnce({ noActiveCredentials: true, candidate: { status: 503, message: "No TypeSafe credentials" } });
+      mocks.handleSystemOneCore.mockResolvedValueOnce({
+        success: false,
+        status,
+        error: "Zen is not enabled for this workspace",
+        response: Response.json({ error: { message: "Zen is not enabled for this workspace" } }, { status }),
+      });
+
+      const response = await handleSystemOne(makeRequest("opencode-zen/jev-1.13"));
+
+      expect(response.status).toBe(status);
+      const message = (await response.json()).error.message;
+      expect(message).toContain("OpenCode Zen refused jev-1.13");
+      expect(message).toContain("OpenCode Go connection \"OpenCode workspace\"");
+      expect(message).toContain("Zen is not enabled for this workspace");
+      // The Go account stays usable for Go chat: no lock for a refusal of the borrowed key.
+      expect(mocks.markAccountUnavailable).not.toHaveBeenCalled();
+      expect(mocks.getProviderCredentials).toHaveBeenNthCalledWith(3, "opencode-go", new Set(["opencode-go-connection"]), "jev-1.13", expect.any(Object));
+    });
+  });
 });
+

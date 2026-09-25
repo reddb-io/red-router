@@ -7,6 +7,7 @@
 
 import REGISTRY from "open-sse/providers/registry/index.js";
 import { getProviderCredentials } from "./auth.js";
+import { systemOneCredentialProviders } from "open-sse/config/systemOne.js";
 import { askJev, decisionUrlFor } from "open-sse/decision/jev.js";
 import { buildState } from "open-sse/decision/state.js";
 import { extractSignals, isEncryptedTask, signalsMeta } from "open-sse/decision/signals.js";
@@ -84,14 +85,14 @@ export async function resolveDecisionTarget(config, { apiKey = null, log } = {})
   }
   const lockKey = `decision:${entry.id}`;
   try {
-    const credentials = await getProviderCredentials(entry.id, new Set(), lockKey, { apiKey });
-    if (credentials?.noActiveCredentials) {
+    const credentials = await decisionCredentials(entry.id, lockKey, apiKey);
+    if (!credentials) {
       log?.info?.("DECISION", `no active credentials for ${entry.id} - decisions disabled`);
       return null;
     }
     const key = credentials?.apiKey || credentials?.accessToken || null;
     if (!key) return null;
-    log?.info?.("DECISION", `using ${entry.id} credential for the decision route`);
+    log?.info?.("DECISION", `using ${credentials.provider || entry.id} credential for the decision route`);
     const providerData = credentials?.providerSpecificData || {};
     const proxyOptions = {
       connectionProxyEnabled: providerData.connectionProxyEnabled === true,
@@ -114,6 +115,18 @@ export async function resolveDecisionTarget(config, { apiKey = null, log } = {})
     log?.warn?.("DECISION", `credential lookup failed: ${error.message}`);
     return null;
   }
+}
+
+/**
+ * The gateway's own account, else an account whose key also reaches its decision
+ * route (an OpenCode Go key serves the workspace's Zen JEV models).
+ */
+async function decisionCredentials(providerId, lockKey, apiKey) {
+  for (const provider of systemOneCredentialProviders(providerId)) {
+    const credentials = await getProviderCredentials(provider, new Set(), lockKey, { apiKey });
+    if (credentials && !credentials.noActiveCredentials) return { ...credentials, provider };
+  }
+  return null;
 }
 
 /** What each model is FOR, without its price: the decision model is asked to judge

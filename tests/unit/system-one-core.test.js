@@ -109,6 +109,43 @@ describe("System One core", () => {
   });
 });
 
+describe("OpenCode Zen JEV with an OpenCode workspace key", () => {
+  it("posts to the Zen System One route with the key it is given", async () => {
+    const fetchImpl = vi.fn(async () => Response.json({ answers: {} }));
+
+    const result = await handleSystemOneCore({
+      body: { ...requestBody, model: "opencode-zen/jev-1.13" },
+      // An OpenCode Go connection's key: the same workspace key serves Zen.
+      credentials: { apiKey: "opencode-workspace-key", connectionId: "opencode-go-connection" },
+      providerId: "opencode-zen",
+      fetchImpl,
+    });
+
+    expect(result.success).toBe(true);
+    const [url, options] = fetchImpl.mock.calls[0];
+    expect(url).toBe("https://opencode.ai/zen/v1/systemone");
+    expect(options.headers.Authorization).toBe("Bearer opencode-workspace-key");
+    expect(JSON.parse(options.body).model).toBe("jev-1.13");
+  });
+
+  it("returns Zen's refusal as is when the workspace has no Zen access", async () => {
+    const upstreamBody = { error: { message: "Zen is not enabled for this workspace" } };
+    const fetchImpl = vi.fn(async () => Response.json(upstreamBody, { status: 403 }));
+
+    const result = await handleSystemOneCore({
+      body: { ...requestBody, model: "opencode-zen/jev-1.13-free" },
+      credentials: { apiKey: "opencode-workspace-key" },
+      providerId: "opencode-zen",
+      fetchImpl,
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.status).toBe(403);
+    expect(result.error).toBe("Zen is not enabled for this workspace");
+    expect(JSON.parse(fetchImpl.mock.calls[0][1].body).model).toBe("jev-1.13-free");
+  });
+});
+
 describe("resolveSystemOneProviderModel", () => {
   it("honors the requested model before the provider default", () => {
     expect(resolveSystemOneProviderModel("typesafe-ai", "jev-1.13")).toBe("jev-1.13.0");

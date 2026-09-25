@@ -33,6 +33,9 @@ import { stripThinkingSuffix } from "open-sse/translator/concerns/thinkingUnifie
 import { extractApiKey } from "@/sse/services/auth.js";
 import { getCatalogVersion } from "@/lib/catalogVersion";
 import { CATALOG_VERSION_HEADER } from "open-sse/config/runtimeConfig.js";
+import { SYSTEM_ONE_CREDENTIAL_SOURCES } from "open-sse/config/systemOne.js";
+import { resolveOpenCodeGoModels, resolveOpenCodeZenSystemOneModels } from "open-sse/services/opencodeCatalog.js";
+import { modelsDevModels } from "@/lib/modelCatalog/browse";
 
 // Per-provider live model resolvers. Each receives a connection record and
 // returns { models: [{ id, name? }, ...] } | null on failure.
@@ -132,6 +135,19 @@ const LIVE_MODEL_RESOLVERS = {
     }, { log: console });
     return result?.models?.length ? { models: result.models } : null;
   },
+  // OpenCode's public Go list says which Go models exist today; models the built-in
+  // list lacks take models.dev's facts. Null (built-in list) when it is unreachable.
+  "opencode-go": async () => {
+    const facts = modelsDevModels("opencode-go");
+    const result = await resolveOpenCodeGoModels({ modelsDev: facts });
+    if (result.source !== "live") return null;
+    const builtIn = new Set((PROVIDER_MODELS["opencode-go"] || []).map((m) => m.id));
+    return {
+      models: result.models.map((m) => (builtIn.has(m.id)
+        ? { id: m.id, name: m.name }
+        : { id: m.id, name: m.name, capabilities: discoveredCapabilities("opencode-go", m.id, facts[m.id]) })),
+    };
+  },
   zed: async (conn) => {
     const result = await resolveZedModels({
       accessToken: conn.accessToken,
@@ -150,6 +166,33 @@ const LIVE_MODEL_RESOLVERS = {
   },
 };
 
+/**
+ * Capabilities of a model only a live catalog knows: the pattern table's guess,
+ * corrected by what models.dev states (browseShape keys), when it has the model.
+ */
+function discoveredCapabilities(providerId, modelId, facts) {
+  const caps = { ...getCapabilitiesForModel(providerId, modelId) };
+  if (!facts) return caps;
+  const inputs = Array.isArray(facts.i) ? facts.i : [];
+  Object.assign(caps, {
+    vision: inputs.includes("image"),
+    pdf: inputs.includes("pdf"),
+    audioInput: inputs.includes("audio"),
+    videoInput: inputs.includes("video"),
+    reasoning: facts.r === true,
+    tools: facts.t === true,
+  });
+  if (facts.c > 0) caps.contextWindow = facts.c;
+  if (facts.o > 0) caps.maxOutput = facts.o;
+  return caps;
+}
+
+// Live System One lists of providers whose models can be reached with another
+// provider's key (SYSTEM_ONE_CREDENTIAL_SOURCES). Without one, the built-in list.
+const SYSTEM_ONE_LIVE_RESOLVERS = {
+  "opencode-zen": resolveOpenCodeZenSystemOneModels,
+};
+
 const parseOpenAIStyleModels = (data) => {
   if (Array.isArray(data)) return data;
   return data?.data || data?.models || data?.results || [];
@@ -161,6 +204,7 @@ const INTERNAL_MODELS_FETCH_HEADER = "x-rr-internal-models-fetch";
 
 // LLM kind sentinel — combos/models with no explicit kind default to LLM
 const LLM_KIND = "llm";
+const SYSTEM_ONE_KIND = "systemone";
 
 // settings.catalog.prefixStyle: "slug" lists "<slug>/<model>" (readable, the default);
 // "short" keeps the legacy short codes ("cc/<model>") for clients that cannot migrate.
@@ -912,6 +956,10 @@ export async function buildModelsList(kindFilter, options = {}) {
     }
   }
 
+  if (kindFilter.includes(SYSTEM_ONE_KIND)) {
+    models.push(...await borrowedSystemOneEntries({ connections, prefixStyle, isDisabled, displayNameOf }));
+  }
+
   // User aliases ("fast" -> "codex/gpt-5.5") are entries of their own, listed when the
   // model they point at is in this catalog. A combo of the same name wins at routing
   // time, so dedupe below keeps the combo.
@@ -953,6 +1001,42 @@ export async function buildModelsList(kindFilter, options = {}) {
   }
 
   return filterByKeyModelAccess(dedupedModels, options.apiKey);
+}
+
+/**
+ * System One models reached with another provider's key: an OpenCode Go account
+ * lists OpenCode Zen's JEV models under Zen's own ids, and /v1/systemone sends them
+ * to Zen with that account's key. The `provider` block is Zen's, with `via` naming
+ * the account type that lends the key. When the provider has an account of its own,
+ * its listing comes first and the dedupe keeps that entry.
+ */
+async function borrowedSystemOneEntries({ connections, prefixStyle, isDisabled, displayNameOf }) {
+  const entries = [];
+  for (const [providerId, sources] of Object.entries(SYSTEM_ONE_CREDENTIAL_SOURCES)) {
+    const lenders = connections.filter((c) => sources.includes(c.provider));
+    if (!lenders.length) continue;
+    const resolver = SYSTEM_ONE_LIVE_RESOLVERS[providerId];
+    const alias = PROVIDER_ID_TO_ALIAS[providerId] || providerId;
+    const served = resolver
+      ? (await resolver().catch(() => null))?.models
+      : null;
+    const listed = (served || PROVIDER_MODELS[alias] || []).filter((m) => modelKind(m) === SYSTEM_ONE_KIND);
+    const prefixes = listingPrefixes(providerId, prefixStyle);
+    const ownPrefixes = [...new Set([prefixes.prefix, ...prefixes.others, alias, providerId])];
+    const lender = providerIdentity(lenders[0].provider);
+    for (const model of listed) {
+      if (ownPrefixes.some((prefix) => isDisabled(prefix, model.id))) continue;
+      const provider = { ...providerIdentity(providerId), via: { id: lender.id, name: lender.name } };
+      if (lenders.length === 1) provider.connection = { id: lenders[0].id, name: connectionLabel(lenders[0]) };
+      entries.push(providerModelEntry({
+        prefixes,
+        modelId: model.id,
+        name: displayNameOf(providerId, model.id, model.name || model.id),
+        provider,
+      }));
+    }
+  }
+  return entries;
 }
 
 /** Every name a listed entry may be matched by in a key's model rules. */

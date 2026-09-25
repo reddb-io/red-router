@@ -11,7 +11,7 @@ import { DATA_DIR } from "@/lib/dataDir.js";
 import { getConsistentMachineId } from "@/shared/utils/machineId";
 import { normalizeDecisionConfig } from "@/sse/services/decisionRouter.js";
 import { buildModelsList } from "@/app/api/v1/models/route.js";
-import { SYSTEM_ONE_PROVIDER_IDS } from "open-sse/config/systemOne.js";
+import { SYSTEM_ONE_ACCOUNT_PROVIDER_IDS } from "open-sse/config/systemOne.js";
 import { COMBO_STRATEGIES } from "open-sse/services/combo.js";
 import { SESSION_HEADERS, AFFINITY_HEADERS } from "open-sse/utils/sessionManager.js";
 import { COST_HEADER, DECISION_HEADER, HINT_HEADER, REASONING_HEADER, REASONING_RESPONSE_HEADER, REQUEST_ID_HEADER, SERVED_MODEL_HEADER, SESSION_AFFINITY_CONFIG, TOKEN_SAVER_HEADER, CATALOG_VERSION_HEADER } from "open-sse/config/runtimeConfig.js";
@@ -167,7 +167,7 @@ async function systemOneCapabilities(apiKey) {
 
 async function hasSystemOneAccount(apiKey) {
   const connections = (await getProviderConnections())
-    .filter((c) => c.isActive !== false && SYSTEM_ONE_PROVIDER_IDS.includes(c.provider));
+    .filter((c) => c.isActive !== false && SYSTEM_ONE_ACCOUNT_PROVIDER_IDS.includes(c.provider));
   const allowed = await getApiKeyAllowedConnectionIds(apiKey || null);
   // Same ownership rule as the /v1/models catalogue.
   const scoped = (await getSettings())?.scopeResourcesByUser === true;

@@ -203,6 +203,14 @@ async function fetchOpenRouterModels(fetchImpl = fetch) {
 }
 
 /**
+ * models.dev's slim entries (browseShape) for one of our providers, by model id;
+ * empty when models.dev does not know the provider.
+ */
+export function modelsDevModels(providerId) {
+  return readBrowseCatalog()?.[modelsDevProviderId(providerId)]?.m || {};
+}
+
+/**
  * Every model we can describe for a provider, newest first.
  * @returns {Promise<{ provider: string, source: string|null, fetchedAt: string|null, models: object[] }>}
  */

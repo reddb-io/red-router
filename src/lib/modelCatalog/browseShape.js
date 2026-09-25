@@ -23,6 +23,8 @@ export function browseSlim(catalog) {
         w: m.open_weights || undefined,
         ci: typeof m.cost?.input === "number" ? m.cost.input : undefined,
         co: typeof m.cost?.output === "number" ? m.cost.output : undefined,
+        // The SDK the model is served through; for OpenCode it names the endpoint.
+        a: m.provider?.npm || undefined,
       };
     }
     out[providerId] = { n: provider?.name || providerId, m: models };

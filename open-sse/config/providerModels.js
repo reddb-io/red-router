@@ -8,6 +8,17 @@ import { FORMATS } from "../translator/formats.js";
 export { PROVIDER_MODELS };
 
 
+// Models a live catalog found that the built-in list lacks (OpenCode Go's /models,
+// OpenCode Zen's JEV ids), keyed like PROVIDER_MODELS. Looked up after the
+// built-in list, so built-in metadata always wins.
+const RUNTIME_MODELS = {};
+
+/** Replace the models a live catalog discovered for one provider alias. */
+export function registerRuntimeModels(aliasOrId, models) {
+  if (Array.isArray(models) && models.length) RUNTIME_MODELS[aliasOrId] = models;
+  else delete RUNTIME_MODELS[aliasOrId];
+}
+
 // Helper functions
 export function getProviderModels(aliasOrId) {
   return PROVIDER_MODELS[aliasOrId] || [];
@@ -38,17 +49,25 @@ function findModel(models, modelId, aliasOrId) {
   return models.find(m => m.id === normalized);
 }
 
+// The built-in entry, else the one a live catalog registered.
+function lookupModel(aliasOrId, modelId) {
+  return findModel(PROVIDER_MODELS[aliasOrId], modelId, aliasOrId)
+    || findModel(RUNTIME_MODELS[aliasOrId], modelId, aliasOrId);
+}
+
+function hasModels(aliasOrId) {
+  return !!(PROVIDER_MODELS[aliasOrId] || RUNTIME_MODELS[aliasOrId]);
+}
+
 export function isValidModel(aliasOrId, modelId, passthroughProviders = new Set()) {
   if (passthroughProviders.has(aliasOrId)) return true;
-  const models = PROVIDER_MODELS[aliasOrId];
-  if (!models) return false;
-  return !!findModel(models, modelId, aliasOrId);
+  if (!hasModels(aliasOrId)) return false;
+  return !!lookupModel(aliasOrId, modelId);
 }
 
 export function findModelName(aliasOrId, modelId) {
-  const models = PROVIDER_MODELS[aliasOrId];
-  if (!models) return modelId;
-  const found = findModel(models, modelId, aliasOrId);
+  if (!hasModels(aliasOrId)) return modelId;
+  const found = lookupModel(aliasOrId, modelId);
   return found?.name || modelId;
 }
 
@@ -56,23 +75,20 @@ export function getModelTargetFormat(aliasOrId, modelId) {
   if ((!aliasOrId || aliasOrId === "oc" || aliasOrId === "opencode" || aliasOrId === "ocg" || aliasOrId === "opencode-go" || aliasOrId === "ocz" || aliasOrId === "opencode-zen") && isMuseSparkModel(modelId)) {
     return FORMATS.OPENAI_RESPONSES;
   }
-  const models = PROVIDER_MODELS[aliasOrId];
-  if (!models) return null;
-  return modelTargetFormat(findModel(models, modelId, aliasOrId));
+  if (!hasModels(aliasOrId)) return null;
+  return modelTargetFormat(lookupModel(aliasOrId, modelId));
 }
 
 // Declared upstream formats for a model (registry `supportedFormats`). Drives the
 // per-model guard on the sourceFormat-matched transport; null when undeclared.
 export function getModelSupportedFormats(aliasOrId, modelId) {
-  const models = PROVIDER_MODELS[aliasOrId];
-  if (!models) return null;
-  return modelSupportedFormats(findModel(models, modelId, aliasOrId));
+  if (!hasModels(aliasOrId)) return null;
+  return modelSupportedFormats(lookupModel(aliasOrId, modelId));
 }
 
 export function getModelType(aliasOrId, modelId) {
-  const models = PROVIDER_MODELS[aliasOrId];
-  if (!models) return null;
-  const found = findModel(models, modelId, aliasOrId);
+  if (!hasModels(aliasOrId)) return null;
+  const found = lookupModel(aliasOrId, modelId);
   return found?.kind || found?.type || null;
 }
 
@@ -82,8 +98,7 @@ export function getModelUpstreamId(aliasOrId, modelId) {
   const sufMatch = typeof modelId === "string" ? modelId.match(/\([^()]+\)\s*$/) : null;
   const suffix = sufMatch ? sufMatch[0] : "";
   const baseId = suffix ? modelId.slice(0, sufMatch.index).trim() : modelId;
-  const models = PROVIDER_MODELS[aliasOrId];
-  const found = findModel(models, baseId, aliasOrId);
+  const found = lookupModel(aliasOrId, baseId);
   const resolvedId = found?.upstreamModelId || found?.id;
   if (resolvedId) {
     const presetMatch = resolvedId.match(/\([^()]+\)\s*$/);
@@ -116,5 +131,5 @@ export function getModelsByProviderId(providerId) {
 // Get strip list for a model entry (explicit opt-in only)
 // Returns array of content types to strip, e.g. ["image", "audio"]
 export function getModelStrip(alias, modelId) {
-  return modelStrip(findModel(PROVIDER_MODELS[alias], modelId, alias));
+  return modelStrip(lookupModel(alias, modelId));
 }
