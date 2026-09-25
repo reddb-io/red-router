@@ -94,6 +94,9 @@ const LOCAL_ONLY_PATHS = [
 // hidden menu entry alone would not keep a scoped user out.
 const ADMIN_ONLY_PATHS = [
   "/api/proxy-pools",
+  // Usage sinks export every user's usage to an outside system.
+  "/api/usage-sinks",
+  "/dashboard/usage-sinks",
   "/api/tunnel",
   "/api/media-providers",
   "/api/translator",
