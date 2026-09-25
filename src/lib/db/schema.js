@@ -99,9 +99,10 @@ export const TABLES = {
       // How /v1/models names models for this key: "prefixed" (NULL, every offer)
       // or "flat" (one entry per model, see src/lib/flatModels.js).
       modelIdFormat: "TEXT",
-      // 1 = this key may list, inspect and create API keys through the MCP
-      // server (/v1/mcp), within its own owner's scope. Off by default.
-      mcpManageKeys: "INTEGER DEFAULT 0",
+      // "admin" = an admin key: its client gets RedRouter's admin MCP tools
+      // (list, inspect and create API keys, within its owner's scope). NULL = a
+      // standard key, the default. See src/lib/apiKeyRole.js.
+      role: "TEXT",
       // See providerConnections.owner. A key's owner also caps which accounts it
       // may route to at runtime.
       owner: "TEXT",

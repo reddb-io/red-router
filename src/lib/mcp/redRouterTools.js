@@ -24,6 +24,9 @@ import { summarizeConnectionHealth } from "open-sse/services/providerHealth.js";
 import { PROVIDER_ID_TO_ALIAS } from "open-sse/config/providerModels.js";
 
 export const MCP_SCHEMA_VERSION = 3;
+
+/** The tools a key's client sees: admin tools only for an admin key. */
+export const toolsForKey = (key) => RED_ROUTER_TOOLS.filter((t) => !t.admin || key?.role === "admin");
 const CAPABILITIES = ["vision", "tools", "reasoning", "pdf", "search", "imageOutput", "audioInput", "audioOutput", "videoInput"];
 const MAX_LIMIT = 500;
 const FREE_ID = /(:free|-free)$/i;
@@ -383,7 +386,7 @@ async function getUsage(args, ctx) {
 
 // ── API keys ────────────────────────────────────────────────────────────────
 // A key sees itself. Listing other keys, reading their usage and creating keys
-// need the key's "Manage API keys via MCP" permission (mcpManageKeys), and reach
+// need an admin key (role "admin", src/lib/apiKeyRole.js), and reach
 // only the keys its owner can see while resource scoping is on.
 
 function publicKey(k) {
@@ -398,14 +401,14 @@ function publicKey(k) {
     model_access: k.modelAccess || null,
     // null: every account; otherwise how many accounts the key is bound to.
     bound_accounts: Array.isArray(k.allowedConnectionIds) && k.allowedConnectionIds.length ? k.allowedConnectionIds.length : null,
-    mcp_manage_keys: k.mcpManageKeys === true,
+    role: k.role || "standard",
     created_at: k.createdAt,
   };
 }
 
 function requireManager(ctx) {
-  if (!ctx.key?.mcpManageKeys) {
-    throw new ToolError("forbidden", "This API key may not manage API keys. Turn on \"Manage API keys via MCP\" for it in Endpoint & Keys → the key.");
+  if (ctx.key?.role !== "admin") {
+    throw new ToolError("forbidden", "This is not an admin API key. Turn on \"Admin key\" for it in Endpoint & Keys → the key.");
   }
   return ctx.key;
 }
@@ -452,7 +455,7 @@ async function createKey(args, ctx) {
   }
   const settings = await getSettings();
   const { getConsistentMachineId } = await import("@/shared/utils/machineId");
-  // A created key stays with its creator's owner, and never gets the manage permission itself.
+  // A created key stays with its creator's owner and is always a standard key.
   const owner = isScopeEnabled(settings) ? manager.owner ?? null : undefined;
   const created = await createApiKey(name, await getConsistentMachineId(), args.tags ?? null, owner);
   const extra = {};
@@ -622,7 +625,7 @@ export const RED_ROUTER_TOOLS = [
   {
     name: "get_usage",
     title: "Get usage",
-    description: "An API key's usage over the last hours (USD): requests, errors, tokens and cost per model, plus its limits, this month's spend and what remains. Defaults to the calling key; `api_key_id` reads another key and needs the manage-keys permission (code forbidden otherwise).",
+    description: "An API key's usage over the last hours (USD): requests, errors, tokens and cost per model, plus its limits, this month's spend and what remains. Defaults to the calling key; `api_key_id` reads another key and needs an admin key (code forbidden otherwise).",
     inputSchema: {
       type: "object",
       properties: {
@@ -652,23 +655,25 @@ export const RED_ROUTER_TOOLS = [
   {
     name: "get_api_key",
     title: "Get this API key",
-    description: "The calling API key: name, tags, id format, limits, model access, bound accounts and whether it may manage API keys. Never returns the secret.",
+    description: "The calling API key: name, role (standard | admin), tags, id format, limits, model access and bound accounts. Never returns the secret.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
     annotations: READ_ONLY,
     run: getApiKeyInfo,
   },
   {
     name: "list_api_keys",
+    admin: true,
     title: "List API keys",
-    description: "API keys within reach, with this month's spend each. Needs the calling key's \"Manage API keys via MCP\" permission (code forbidden otherwise). Never returns secrets.",
+    description: "API keys within reach, with this month's spend each. Needs an admin key (code forbidden otherwise). Never returns secrets.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
     annotations: READ_ONLY,
     run: listApiKeys,
   },
   {
     name: "create_api_key",
+    admin: true,
     title: "Create API key",
-    description: "Create a new RedRouter API key and return it. Needs the calling key's \"Manage API keys via MCP\" permission. The new key never gets that permission itself. Confirm with the user before calling.",
+    description: "Create a new RedRouter API key and return it. Needs an admin key. The new key is always a standard key. Confirm with the user before calling.",
     inputSchema: {
       type: "object",
       properties: {

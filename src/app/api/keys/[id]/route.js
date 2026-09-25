@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { KEY_ROLES } from "@/lib/apiKeyRole.js";
 import { resetCatalogVersions } from "@/lib/catalogVersion";
 import { deleteApiKey, getApiKeyById, updateApiKey, getProviderConnections } from "@/lib/localDb";
 import { canSee, getRequestIdentity, getScopeFilter, normalizeOwnerInput, scopeVisible } from "@/lib/auth/resourceScope";
@@ -42,7 +43,7 @@ export async function PUT(request, { params }) {
   try {
     const { id } = await params;
     const body = await request.json();
-    const { isActive, allowedConnectionIds, name, tags, owner, modelAccess, limits, modelIdFormat, mcpManageKeys } = body;
+    const { isActive, allowedConnectionIds, name, tags, owner, modelAccess, limits, modelIdFormat, role } = body;
 
     const filter = await getScopeFilter();
     const existing = await getApiKeyById(id);
@@ -78,11 +79,11 @@ export async function PUT(request, { params }) {
       }
       updateData.modelIdFormat = modelIdFormat;
     }
-    if (mcpManageKeys !== undefined) {
-      if (typeof mcpManageKeys !== "boolean") {
-        return NextResponse.json({ error: "mcpManageKeys must be a boolean" }, { status: 400 });
+    if (role !== undefined) {
+      if (!KEY_ROLES.includes(role)) {
+        return NextResponse.json({ error: `role must be one of: ${KEY_ROLES.join(", ")}` }, { status: 400 });
       }
-      updateData.mcpManageKeys = mcpManageKeys;
+      updateData.role = role;
     }
     if (modelAccess !== undefined) {
       if (modelAccess !== null && (typeof modelAccess !== "object" || !MODEL_ACCESS_MODES.includes(modelAccess.mode))) {

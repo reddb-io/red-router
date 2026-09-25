@@ -1,4 +1,5 @@
 import { v4 as uuidv4 } from "uuid";
+import { normalizeKeyRole } from "@/lib/apiKeyRole.js";
 import { getDb } from "../kysely.js";
 import { parseJson, stringifyJson } from "../helpers/jsonCol.js";
 import { normalizeOwnerInput, resolveDefaultOwner } from "@/lib/auth/resourceScope";
@@ -47,7 +48,7 @@ function rowToKey(row) {
     modelAccess: normalizeModelAccess(parseJson(row.modelAccess, null)),
     limits: normalizeKeyLimits(parseJson(row.limits, null)),
     modelIdFormat: normalizeModelIdFormat(row.modelIdFormat),
-    mcpManageKeys: row.mcpManageKeys === 1 || row.mcpManageKeys === true,
+    role: normalizeKeyRole(row.role),
     owner: row.owner ?? null,
     createdAt: row.createdAt,
   };
@@ -142,7 +143,7 @@ export async function updateApiKey(id, data) {
       modelAccess: merged.modelAccess ? stringifyJson(merged.modelAccess) : null,
       limits: merged.limits ? stringifyJson(merged.limits) : null,
       modelIdFormat: merged.modelIdFormat === "prefixed" ? null : merged.modelIdFormat,
-      mcpManageKeys: merged.mcpManageKeys ? 1 : 0,
+      role: normalizeKeyRole(merged.role) === "admin" ? "admin" : null,
       owner: merged.owner ?? null,
     }).where("id", "=", id).execute();
     result = merged;

@@ -31,7 +31,7 @@ function formFromKey(apiKey) {
     tokensPerDay: limits.tokensPerDay ?? "",
     usdPerMonth: limits.usdPerMonth ?? "",
     modelIdFormat: apiKey?.modelIdFormat === "flat" ? "flat" : "prefixed",
-    mcpManageKeys: apiKey?.mcpManageKeys === true,
+    admin: apiKey?.role === "admin",
   };
 }
 
@@ -66,7 +66,7 @@ export default function KeyPolicyCard({ apiKey, onSaved }) {
           modelAccess: form.mode === "all" ? null : { mode: form.mode, patterns },
           limits,
           modelIdFormat: form.modelIdFormat,
-          mcpManageKeys: form.mcpManageKeys,
+          role: form.admin ? "admin" : "standard",
         }),
       });
       const data = await response.json();
@@ -127,10 +127,10 @@ export default function KeyPolicyCard({ apiKey, onSaved }) {
             </p>
           )}
           <Toggle
-            checked={form.mcpManageKeys}
-            onChange={(checked) => setForm((prev) => ({ ...prev, mcpManageKeys: checked }))}
-            label="Manage API keys via MCP"
-            description="Through /v1/mcp this key may list API keys, read their usage and create new ones (never with this permission). Off: it only sees itself."
+            checked={form.admin}
+            onChange={(checked) => setForm((prev) => ({ ...prev, admin: checked }))}
+            label="Admin key"
+            description="Its client (e.g. redcode) gets RedRouter's admin MCP tools: list API keys, read their usage and create new ones (never admin). Leave off for keys that only call models."
           />
         </div>
         <div className="flex flex-col gap-3">

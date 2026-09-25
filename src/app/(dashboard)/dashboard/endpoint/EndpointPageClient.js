@@ -1163,6 +1163,11 @@ export default function APIPageClient({ machineId }) {
                 <div className="flex-1 min-w-0">
                   <div className="flex flex-wrap items-center gap-1.5">
                     <p className="text-sm font-medium">{key.name}</p>
+                    {key.role === "admin" && (
+                      <span className="rounded-full bg-feedback-warning-surface px-2 py-0.5 text-[11px] font-medium text-feedback-warning-foreground" title="Admin key: its client gets RedRouter's admin MCP tools">
+                        Admin key
+                      </span>
+                    )}
                     <span className="text-[11px] text-text-muted">{`Created ${new Date(key.createdAt).toLocaleDateString()}`}</span>
                     {key.owner ? (
                       <span className="rounded-full bg-muted/50 px-2 py-0.5 text-[11px] text-text-muted">

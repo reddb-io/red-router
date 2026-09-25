@@ -2,13 +2,13 @@
 //   claude mcp add --transport http red-router http://localhost:25050/v1/mcp \
 //     --header "Authorization: Bearer <RedRouter API key>"
 // Every call needs a valid RedRouter API key, whatever "Require API key" says for
-// /v1: the key scopes each tool to what it can call, and its "Manage API keys via
-// MCP" permission gates the key-management tools.
+// /v1: the key scopes each tool to what it can call, and only an admin key
+// (role "admin") gets the key-management tools.
 import { extractApiKey } from "@/sse/services/auth.js";
 import { getApiKeyByKey } from "@/lib/db/repos/apiKeysRepo.js";
 import { getAppVersion } from "@/lib/db/version.js";
 import { handleMcpBody } from "@/lib/mcp/server.js";
-import { RED_ROUTER_TOOLS, RED_ROUTER_MCP_INSTRUCTIONS, MCP_SCHEMA_VERSION } from "@/lib/mcp/redRouterTools.js";
+import { toolsForKey, RED_ROUTER_MCP_INSTRUCTIONS, MCP_SCHEMA_VERSION } from "@/lib/mcp/redRouterTools.js";
 
 // Clients feature-detect result shapes by this, not by the app version.
 const VERSION_HEADERS = { "x-redrouter-mcp-version": String(MCP_SCHEMA_VERSION) };
@@ -47,7 +47,7 @@ export async function POST(request) {
     info: { name: "red-router", title: "RedRouter", version: getAppVersion() },
     instructions: RED_ROUTER_MCP_INSTRUCTIONS,
     meta: { "io.reddb/red-router-mcp-version": MCP_SCHEMA_VERSION },
-    tools: RED_ROUTER_TOOLS,
+    tools: toolsForKey(key),
     context: { apiKey, key },
   });
   if (out === null) return new Response(null, { status: 202, headers: VERSION_HEADERS });

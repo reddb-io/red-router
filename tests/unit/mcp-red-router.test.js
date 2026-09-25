@@ -10,7 +10,7 @@ vi.mock("@/lib/disabledModelsDb", () => ({ getDisabledModels: mocks.getDisabledM
 vi.mock("@/lib/db/repos/pricingRepo.js", () => ({ getPricingForModel: mocks.getPricingForModel }));
 
 const { handleMcpBody, handleMcpMessage } = await import("@/lib/mcp/server.js");
-const { RED_ROUTER_TOOLS } = await import("@/lib/mcp/redRouterTools.js");
+const { RED_ROUTER_TOOLS, toolsForKey } = await import("@/lib/mcp/redRouterTools.js");
 const keysRepo = await import("@/lib/db/repos/apiKeysRepo.js");
 const { recordQuotaSnapshot, resetQuotaSnapshots } = await import("@/sse/services/quotaSnapshot.js");
 
@@ -146,11 +146,18 @@ describe("API keys over MCP", () => {
   it("shows the calling key without its secret", async () => {
     const me = await newKey("agent");
     const { structuredContent: out } = await call("get_api_key", {}, as(me));
-    expect(out.api_key).toMatchObject({ id: me.id, name: "agent", mcp_manage_keys: false, key_hint: `…${me.key.slice(-4)}` });
+    expect(out.api_key).toMatchObject({ id: me.id, name: "agent", role: "standard", key_hint: `…${me.key.slice(-4)}` });
     expect(JSON.stringify(out)).not.toContain(me.key);
   });
 
-  it("keeps other keys and key creation behind the manage-keys permission", async () => {
+  it("shows admin tools only to an admin key", async () => {
+    const names = (key) => toolsForKey(key).map((t) => t.name);
+    expect(names({ role: "standard" })).not.toContain("create_api_key");
+    expect(names({ role: "standard" })).not.toContain("list_api_keys");
+    expect(names({ role: "admin" })).toEqual(expect.arrayContaining(["create_api_key", "list_api_keys"]));
+  });
+
+  it("keeps other keys and key creation to admin keys", async () => {
     const me = await newKey("plain");
     const other = await newKey("other");
     for (const [tool, args] of [["list_api_keys", {}], ["create_api_key", { name: "x" }], ["get_usage", { api_key_id: other.id }]]) {
@@ -160,7 +167,7 @@ describe("API keys over MCP", () => {
   });
 
   it("lets a manager list keys, read another key's usage and create keys without the permission", async () => {
-    const manager = await newKey("manager", { mcpManageKeys: true });
+    const manager = await newKey("manager", { role: "admin" });
     const other = await newKey("billing-client");
     const listed = (await call("list_api_keys", {}, as(manager))).structuredContent;
     expect(listed.api_keys.map((k) => k.name)).toEqual(expect.arrayContaining(["manager", "billing-client"]));
@@ -169,7 +176,7 @@ describe("API keys over MCP", () => {
     expect(usage).toMatchObject({ api_key_id: other.id, totals: { requests: 0 } });
     const created = (await call("create_api_key", { name: "new-agent", tags: ["ci"], limits: { usdPerMonth: 5 }, id_format: "flat" }, as(manager))).structuredContent;
     expect(created.key).toMatch(/\S{16,}/);
-    expect(created.api_key).toMatchObject({ name: "new-agent", tags: ["ci"], limits: { usdPerMonth: 5 }, id_format: "flat", mcp_manage_keys: false });
+    expect(created.api_key).toMatchObject({ name: "new-agent", tags: ["ci"], limits: { usdPerMonth: 5 }, id_format: "flat", role: "standard" });
     expect((await keysRepo.getApiKeyByKey(created.key)).name).toBe("new-agent");
     const missing = await call("get_usage", { api_key_id: "no-such-id" }, as(manager));
     expect(missing.structuredContent.error.code).toBe("unknown_key");
@@ -188,6 +195,20 @@ describe("quotas over MCP", () => {
     expect(out.providers[0].provider).toBe("claude");
     expect(account.quotas).toContainEqual({ name: "session (5h)", used: 30, total: 100, remaining: 70, remaining_pct: 70, unlimited: false, reset_at: "2026-09-25T18:00:00Z" });
     expect(account.as_of).toBeTruthy();
+  });
+});
+
+describe("/v1/key", () => {
+  it("tells a client the key's role and where to register the MCP server", async () => {
+    vi.doMock("@/sse/services/auth.js", () => ({ extractApiKey: (req) => req.headers.get("authorization")?.replace(/^Bearer /, "") || null }));
+    const { GET } = await import("@/app/api/v1/key/route.js");
+    const admin = await newKey("redcode-admin", { role: "admin" });
+    const res = await GET(new Request("http://localhost:25050/v1/key", { headers: { authorization: `Bearer ${admin.key}` } }));
+    expect(await res.json()).toMatchObject({
+      object: "api_key", id: admin.id, role: "admin",
+      mcp: { url: "http://localhost:25050/v1/mcp", transport: "streamable-http", admin_tools: true },
+    });
+    expect((await GET(new Request("http://localhost:25050/v1/key"))).status).toBe(401);
   });
 });
 
