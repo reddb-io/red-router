@@ -130,7 +130,7 @@ describe("RedRouter tools", () => {
   it("reports providers by account status without account details", async () => {
     const { structuredContent: out } = await call("list_providers");
     const anthropic = out.providers.find((p) => p.id === "anthropic");
-    expect(anthropic.accounts).toEqual({ total: 2, ok: 0, rate_limited: 1, error: 0, disabled: 1 });
+    expect(anthropic.accounts).toEqual({ total: 2, ok: 0, quota_exhausted: 0, rate_limited: 1, error: 0, disabled: 1 });
     expect(anthropic.usable).toBe(false);
     expect(JSON.stringify(out)).not.toMatch(/"(email|apiKey|accessToken)"/);
   });
@@ -139,6 +139,47 @@ describe("RedRouter tools", () => {
     const res = await call("get_usage");
     expect(res.isError).toBe(true);
     expect(res.structuredContent.error.code).toBe("forbidden");
+  });
+});
+
+describe("quota-aware status (what account selection would skip)", () => {
+  const later = () => new Date(Date.now() + 3600_000).toISOString();
+
+  it("never suggests a model whose every account is locked for quota", async () => {
+    mocks.getProviderConnections.mockResolvedValue([
+      conn("a", "openrouter", ["anthropic/claude-sonnet-4.5"], {
+        "modelLock_anthropic/claude-sonnet-4.5": later(),
+        "modelLockMeta_anthropic/claude-sonnet-4.5": { reason: "quota_exhausted", status: 429 },
+      }),
+      conn("b", "anthropic", ["claude-sonnet-4-5"]),
+    ]);
+    const models = Object.fromEntries((await call("list_models", { include_combos: false })).structuredContent.models.map((m) => [m.id, m]));
+    expect(models["openrouter/anthropic/claude-sonnet-4.5"]).toMatchObject({ usable: false, status: { state: "quota_exhausted", accounts: { available: 0, total: 1 } } });
+    expect(models["openrouter/anthropic/claude-sonnet-4.5"].status.until).toBeTruthy();
+    expect(models["anthropic/claude-sonnet-4-5"]).toMatchObject({ usable: true, status: { state: "ok", accounts: { available: 1, total: 1 } } });
+    const recs = (await call("recommend_models", { current: "openrouter/anthropic/claude-sonnet-4.5", include_combos: false })).structuredContent;
+    expect(recs.recommendations.map((r) => r.id)).toEqual(["anthropic/claude-sonnet-4-5"]);
+    expect(recs.recommendations[0].why.map((r) => r.code)).toContain("quota_exhausted");
+  });
+
+  it("reads an exhausted quota report the same way", async () => {
+    resetQuotaSnapshots();
+    mocks.getProviderConnections.mockResolvedValue([conn("b", "anthropic", ["claude-sonnet-4-5"])]);
+    recordQuotaSnapshot("b", { quotas: { "weekly (7d)": { used: 100, total: 100, resetAt: later() } } });
+    const { structuredContent: out } = await call("list_models", { include_combos: false });
+    expect(out.models[0]).toMatchObject({ usable: false, status: { state: "quota_exhausted" } });
+    const providers = (await call("list_providers")).structuredContent.providers;
+    expect(providers[0]).toMatchObject({ usable: false, status: { state: "quota_exhausted" }, accounts: { quota_exhausted: 1 } });
+    resetQuotaSnapshots();
+  });
+
+  it("keeps a model usable while any one of its accounts is free, and ignores other models' locks", async () => {
+    mocks.getProviderConnections.mockResolvedValue([
+      conn("b1", "anthropic", ["claude-sonnet-4-5"], { "modelLock_claude-sonnet-4-5": later() }),
+      conn("b2", "anthropic", ["claude-sonnet-4-5"], { "modelLock_claude-opus-4-1": later() }),
+    ]);
+    const { structuredContent: out } = await call("list_models", { include_combos: false });
+    expect(out.models.find((m) => m.id === "anthropic/claude-sonnet-4-5")).toMatchObject({ usable: true, status: { state: "ok", accounts: { available: 1, total: 2 } } });
   });
 });
 
@@ -239,7 +280,7 @@ describe("/v1/mcp", () => {
     const auth = { authorization: `Bearer ${key.key}` };
     const res = await post({ jsonrpc: "2.0", id: 7, method: "ping" }, { origin: "http://localhost:3000", ...auth });
     expect(res.status).toBe(200);
-    expect(res.headers.get("x-redrouter-mcp-version")).toBe("3");
+    expect(res.headers.get("x-redrouter-mcp-version")).toBe("4");
     expect(await res.json()).toEqual({ jsonrpc: "2.0", id: 7, result: {} });
     expect((await post({ jsonrpc: "2.0", method: "notifications/initialized" }, auth)).status).toBe(202);
   });
