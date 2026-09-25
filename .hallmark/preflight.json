@@ -1,9 +1,0 @@
-{
-  "date": "2026-09-20",
-  "framework": "Next.js 16 App Router",
-  "fontStack": ["Space Grotesk", "JetBrains Mono"],
-  "palette": "vendor/ds RedDB semantic tokens",
-  "motion": "motion-cut",
-  "spacing": "vendor/ds 4px scale",
-  "designContract": "design.md"
-}
