@@ -1,6 +1,6 @@
 "use client";
 
-import { Input } from "@/shared/components";
+import { Input, Icon } from "@/shared/components";
 
 /** Reusable endpoint row component */
 export default function EndpointRow({ label, url, copyId, copied, onCopy, badge, actions }) {
@@ -14,7 +14,7 @@ export default function EndpointRow({ label, url, copyId, copied, onCopy, badge,
         onClick={() => onCopy(url, copyId)}
         className="p-2 hover:bg-muted/50 rounded text-text-muted hover:text-primary transition-colors shrink-0"
       >
-        <span className="material-symbols-outlined text-[18px]">{copied === copyId ? "check" : "content_copy"}</span>
+        <Icon name={copied === copyId ? "check" : "content_copy"} size={18} />
       </button>
       {actions}
     </div>

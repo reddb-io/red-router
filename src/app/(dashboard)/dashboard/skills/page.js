@@ -1,6 +1,6 @@
 "use client";
 
-import { Badge } from "@/shared/components";
+import { Badge, Icon } from "@/shared/components";
 import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
 import {
   SKILLS,
@@ -19,9 +19,7 @@ function CopyButton({ value, label = "Copy link" }) {
       title={value}
       aria-label={`${copied ? "Copied" : label}: ${value}`}
     >
-      <span className="material-symbols-outlined text-[12px]">
-        {copied ? "check" : "content_copy"}
-      </span>
+      <Icon name={copied ? "check" : "content_copy"} size={12} />
       {copied ? "Copied!" : label}
     </button>
   );
@@ -32,7 +30,7 @@ function SkillRow({ skill }) {
   return (
     <article className={`skill-row${skill.isEntry ? " is-entry" : ""}`}>
       <div className="skill-row-icon">
-        <span className="material-symbols-outlined text-[18px]">{skill.icon}</span>
+        <Icon name={skill.icon} size={18} />
       </div>
 
       <div className="skill-row-copy">
@@ -55,7 +53,7 @@ function SkillRow({ skill }) {
           className="skill-source-link"
         >
           Open source
-          <span className="material-symbols-outlined text-[12px]">open_in_new</span>
+          <Icon name="open_in_new" size={12} />
         </a>
       </div>
 
@@ -101,7 +99,7 @@ export default function SkillsPage() {
         </div>
         <a href={`${SKILLS_REPO_URL}/tree/master/skills`} target="_blank" rel="noreferrer">
           View repository
-          <span className="material-symbols-outlined text-[16px]" aria-hidden="true">open_in_new</span>
+          <Icon name="open_in_new" size={16} />
         </a>
       </footer>
       </div>

@@ -16,10 +16,6 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
-/* Hide icon ligature text until font is ready */
-.material-symbols-outlined { opacity: 0; }
-.fonts-loaded .material-symbols-outlined { opacity: 1; transition: opacity .12s ease-out; }
-
 /* ============================================================
    Palette — bridged onto the vendored RedDB Design System tokens.
    The --reddb-color-* semantics resolve per data-color-scheme, which
@@ -337,7 +333,7 @@ body {
 .setup-secret-note { margin-bottom: var(--reddb-spacing-2); color: var(--color-warning); font-size: var(--reddb-font-size-xs); }
 .setup-checks { grid-column: 2 / -1; display: grid; gap: var(--reddb-spacing-2); padding: 0; list-style: none; }
 .setup-checks li { display: flex; align-items: flex-start; gap: var(--reddb-spacing-2); font-size: var(--reddb-font-size-sm); }
-.setup-checks .material-symbols-outlined { font-size: 1.125rem; margin-top: .1rem; }
+.setup-checks [data-icon] { margin-top: .1rem; }
 .setup-checks .is-pass { color: var(--color-success); }
 .setup-checks .is-fail { color: var(--color-danger); }
 .setup-organize { grid-column: 2 / -1; min-width: 0; }
@@ -352,7 +348,7 @@ body {
   background: var(--color-surface);
   padding: var(--reddb-spacing-4);
 }
-.setup-success > .material-symbols-outlined { color: var(--color-success); }
+.setup-success > [data-icon] { color: var(--color-success); }
 .setup-success p { color: var(--color-text-muted); font-size: var(--reddb-font-size-sm); }
 .setup-success a { min-height: 2.75rem; display: inline-flex; align-items: center; color: var(--color-primary); white-space: nowrap; }
 
@@ -1097,28 +1093,6 @@ input, textarea {
 .traffic-light.red { background: #FF5F56; }
 .traffic-light.yellow { background: #FFBD2E; }
 .traffic-light.green { background: #27C93F; }
-
-/* Material Symbols */
-.material-symbols-outlined {
-  font-family: 'Material Symbols Outlined', sans-serif;
-  font-weight: normal;
-  font-style: normal;
-  font-size: 24px;
-  line-height: 1;
-  letter-spacing: normal;
-  text-transform: none;
-  display: inline-block;
-  white-space: nowrap;
-  word-wrap: normal;
-  direction: ltr;
-  font-feature-settings: 'liga';
-  -webkit-font-feature-settings: 'liga';
-  -webkit-font-smoothing: antialiased;
-  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
-}
-.material-symbols-outlined.fill-1 {
-  font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24;
-}
 
 /* Disable text selection on buttons */
 button {

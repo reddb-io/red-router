@@ -7,6 +7,7 @@ import HeaderLanguage from "@/shared/components/HeaderLanguage";
 import ThemeToggle from "@/shared/components/ThemeToggle";
 import { applicationShell } from "@/shared/ds/application-shell.variants";
 import { useHeaderSearchStore } from "@/store/headerSearchStore";
+import Icon from "./Icon";
 
 export default function Header({ onMenuClick, showMenuButton = true }) {
   const [displayName, setDisplayName] = useState("");
@@ -63,7 +64,7 @@ export default function Header({ onMenuClick, showMenuButton = true }) {
             aria-label="Open navigation"
             className="text-foreground transition-colors hover:text-primary pointer-coarse:min-h-11"
           >
-            <span className="material-symbols-outlined" aria-hidden="true">menu</span>
+            <Icon name="menu" size={24} />
           </button>
         )}
       </div>
@@ -75,7 +76,7 @@ export default function Header({ onMenuClick, showMenuButton = true }) {
             className="hidden sm:flex items-center max-w-[220px] px-3 py-1.5 rounded-full border border-border bg-surface/70 text-xs text-text-muted truncate"
             title={displayName}
           >
-            <span className="material-symbols-outlined text-[14px] mr-1.5 text-primary">person</span>
+            <Icon name="person" size={14} className="mr-1.5 text-primary" />
             <span className="truncate">{displayName}</span>
             <span className="ml-2 shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
               {loginMethod}
@@ -101,9 +102,7 @@ function HeaderSearch() {
 
   return (
     <div className="relative w-[160px] sm:w-[220px]">
-      <span className="material-symbols-outlined absolute left-2 top-1/2 -translate-y-1/2 text-text-muted text-[16px] pointer-events-none">
-        search
-      </span>
+      <Icon name="search" size={16} className="absolute left-2 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" />
       <input
         type="text"
         value={query}
@@ -118,7 +117,7 @@ function HeaderSearch() {
           className="absolute right-1 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-main p-0.5 rounded"
           aria-label="Clear search"
         >
-          <span className="material-symbols-outlined text-[16px]">close</span>
+          <Icon name="close" size={16} />
         </button>
       )}
     </div>

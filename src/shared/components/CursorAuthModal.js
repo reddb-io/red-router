@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import PropTypes from "prop-types";
 import { Modal, Button, Input } from "@/shared/components";
+import Icon from "./Icon";
 
 /**
  * Cursor Auth Modal
@@ -96,9 +97,7 @@ export default function CursorAuthModal({ isOpen, onSuccess, onClose }) {
         {autoDetecting && (
           <div className="text-center py-6">
             <div className="size-16 mx-auto mb-4 rounded-full bg-primary/10 flex items-center justify-center">
-              <span className="material-symbols-outlined text-3xl text-primary animate-spin">
-                progress_activity
-              </span>
+              <Icon name="progress_activity" className="text-3xl text-primary animate-spin" />
             </div>
             <h3 className="text-lg font-semibold mb-2">Auto-detecting tokens...</h3>
             <p className="text-sm text-text-muted">
@@ -114,7 +113,7 @@ export default function CursorAuthModal({ isOpen, onSuccess, onClose }) {
             {autoDetected && (
               <div className="bg-feedback-success-surface p-3 rounded-lg border border-feedback-success-border">
                 <div className="flex gap-2">
-                  <span className="material-symbols-outlined text-feedback-success-foreground">check_circle</span>
+                  <Icon name="check_circle" size={24} className="text-feedback-success-foreground" />
                   <p className="text-sm text-feedback-success-foreground">
                     Tokens auto-detected from Cursor IDE successfully!
                   </p>
@@ -126,7 +125,7 @@ export default function CursorAuthModal({ isOpen, onSuccess, onClose }) {
             {windowsManual && (
               <div className="bg-feedback-warning-surface p-3 rounded-lg border border-feedback-warning-border flex flex-col gap-2">
                 <div className="flex gap-2 items-center">
-                  <span className="material-symbols-outlined text-feedback-warning-foreground">info</span>
+                  <Icon name="info" size={24} className="text-feedback-warning-foreground" />
                   <p className="text-sm font-medium text-feedback-warning-foreground">
                     Could not read Cursor database automatically.
                   </p>
@@ -144,7 +143,7 @@ export default function CursorAuthModal({ isOpen, onSuccess, onClose }) {
             {!autoDetected && !windowsManual && !error && (
               <div className="bg-feedback-info-surface p-3 rounded-lg border border-feedback-info-border">
                 <div className="flex gap-2">
-                  <span className="material-symbols-outlined text-feedback-info-foreground">info</span>
+                  <Icon name="info" size={24} className="text-feedback-info-foreground" />
                   <p className="text-sm text-feedback-info-foreground">
                     Cursor IDE not detected. Please paste your tokens manually.
                   </p>

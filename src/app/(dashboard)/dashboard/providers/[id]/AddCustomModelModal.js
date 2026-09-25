@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import PropTypes from "prop-types";
-import { Button, Modal, Toggle } from "@/shared/components";
+import { Button, Modal, Toggle, Icon } from "@/shared/components";
 import { CAPACITY_META, EXCLUSIVE_CAPACITIES } from "@/shared/constants/models";
 
 const defaultCaps = () => Object.fromEntries(Object.keys(CAPACITY_META).map((key) => [key, false]));
@@ -129,13 +129,13 @@ export default function AddCustomModelModal({ isOpen, providerAlias, providerDis
         {/* Test result */}
         {testStatus === "ok" && (
           <div className="flex items-center gap-2 text-sm text-feedback-success-foreground">
-            <span className="material-symbols-outlined text-base">check_circle</span>
+            <Icon name="check_circle" className="text-base" />
             Model is reachable
           </div>
         )}
         {testStatus === "error" && (
           <div className="flex items-start gap-2 text-sm text-feedback-danger-foreground">
-            <span className="material-symbols-outlined text-base shrink-0">cancel</span>
+            <Icon name="cancel" className="text-base shrink-0" />
             <span>{testError || "Model not reachable"}</span>
           </div>
         )}

@@ -10,7 +10,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
-import { Card, Button } from "@/shared/components";
+import { Card, Button, Icon } from "@/shared/components";
 import { SERIES } from "@/shared/utils/chartColors";
 
 const fmtTokens = (n) => {
@@ -107,7 +107,7 @@ export default function PxpipeClient() {
     <div className="space-y-6 p-6">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <h2 className="text-lg font-semibold flex items-center gap-2">
-          <span className="material-symbols-outlined text-primary">image</span>
+          <Icon name="image" size={24} className="text-primary" />
           PXPIPE Dashboard
         </h2>
         <div className="flex items-center gap-2">

@@ -2,6 +2,7 @@
 
 import { cn } from "@/shared/utils/cn";
 import { card } from "@/shared/ds/card.variants";
+import Icon from "./Icon";
 
 // Root padding follows the DS density insets. The DS Card pads its header /
 // body / footer slots; this Card keeps padding on the root so existing layouts
@@ -46,7 +47,7 @@ export default function Card({
         <div className="mb-[var(--reddb-spatial-gap-lg)] flex items-center justify-between gap-[var(--reddb-spatial-gap-md)]">
           <div className={slots.titleRow()}>
             {icon && (
-              <span className="material-symbols-outlined shrink-0 text-[length:var(--reddb-spatial-icon-size-md)] text-ink-muted" aria-hidden="true">{icon}</span>
+              <Icon name={icon} className="shrink-0 text-[length:var(--reddb-spatial-icon-size-md)] text-ink-muted" />
             )}
             <div className="flex min-w-0 flex-col gap-[var(--reddb-spatial-gap-sm)]">
               {title && <h3 className={slots.title()}>{title}</h3>}

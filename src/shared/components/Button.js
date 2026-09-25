@@ -1,6 +1,7 @@
 "use client";
 
 import { button, buttonSpinner } from "@/shared/ds/button.variants";
+import Icon from "./Icon";
 
 // The dashboard's variant names mapped onto the DS Button contract: the DS has
 // three appearances (primary / secondary / ghost) and a separate intent axis for
@@ -33,11 +34,11 @@ export default function Button({
   ...props
 }) {
   const appearance = VARIANTS[variant] || VARIANTS.primary;
-  const iconClass = `material-symbols-outlined leading-none ${ICON_SIZES[size] || ICON_SIZES.md}`;
+  const iconClass = `leading-none ${ICON_SIZES[size] || ICON_SIZES.md}`;
   const spinner = buttonSpinner({ size });
-  // An icon-only button is named by its ligature text until icons move to a
-  // labelled wrapper, so the glyph is hidden from assistive tech only beside text.
-  const iconHidden = children ? "true" : undefined;
+  // An icon-only button used to be named by its ligature text; keep that name
+  // by labelling the glyph when there is no text beside it.
+  const iconLabel = (name) => (children ? undefined : name.replace(/_/g, " "));
 
   return (
     <button
@@ -59,11 +60,11 @@ export default function Button({
           <path className={spinner.head()} d="M21 12a9 9 0 0 0-9-9" strokeWidth="3" strokeLinecap="round" />
         </svg>
       ) : icon ? (
-        <span className={iconClass} aria-hidden={iconHidden}>{icon}</span>
+        <Icon name={icon} className={iconClass} label={iconLabel(icon)} />
       ) : null}
       {children}
       {iconRight && !loading && (
-        <span className={iconClass} aria-hidden={iconHidden}>{iconRight}</span>
+        <Icon name={iconRight} className={iconClass} label={iconLabel(iconRight)} />
       )}
     </button>
   );

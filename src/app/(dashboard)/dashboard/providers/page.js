@@ -8,6 +8,7 @@ import {
   Badge,
   Button,
   Toggle,
+  Icon,
 } from "@/shared/components";
 import ProviderIcon from "@/shared/components/ProviderIcon";
 import ConnectionTestResult from "@/shared/components/ConnectionTestResult";
@@ -420,9 +421,7 @@ export default function ProvidersPage() {
 
       {!hasAnyResult && (
         <div className="text-center py-8 border border-dashed border-border rounded-xl">
-          <span className="material-symbols-outlined text-[32px] text-text-muted mb-2">
-            search_off
-          </span>
+          <Icon name="search_off" size={32} className="text-text-muted mb-2" />
           <p className="text-text-muted text-sm">
             No providers match your search or filters
           </p>
@@ -459,7 +458,7 @@ export default function ProvidersPage() {
         {compatibleProviders.length === 0 &&
         anthropicCompatibleProviders.length === 0 ? (
           <div className="flex items-center justify-center gap-2 py-2 border border-dashed border-border rounded-xl text-text-muted text-sm">
-            <span className="material-symbols-outlined text-[18px]">extension</span>
+            <Icon name="extension" size={18} />
             <span>No custom providers — use buttons above to add OpenAI/Anthropic compatible endpoints</span>
           </div>
         ) : (
@@ -610,7 +609,7 @@ export default function ProvidersPage() {
             onClick={() => setShowAllApikey(true)}
             className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-primary/40 px-3 py-2.5 text-sm font-medium text-primary transition-colors hover:border-primary hover:bg-primary/5"
           >
-            <span className="material-symbols-outlined text-[16px]">expand_more</span>
+            <Icon name="expand_more" size={16} />
             Show all {apikeyEntries.length} providers
           </button>
         )}
@@ -675,7 +674,7 @@ export default function ProvidersPage() {
                 className="p-1 rounded-lg hover:bg-bg text-text-muted hover:text-text-main transition-colors"
                 aria-label="Close test results"
               >
-                <span className="material-symbols-outlined text-lg">close</span>
+                <Icon name="close" className="text-lg" />
               </button>
             </div>
             <div className="p-5">
@@ -750,9 +749,7 @@ function ProviderCard({ providerId, provider, stats, onToggle }) {
                 {allDisabled ? (
                   <Badge variant="default" size="sm">
                     <span className="flex items-center gap-1">
-                      <span className="material-symbols-outlined text-[12px]">
-                        pause_circle
-                      </span>
+                      <Icon name="pause_circle" size={12} />
                       Disabled
                     </span>
                   </Badge>
@@ -855,9 +852,7 @@ function ApiKeyProviderCard({
                 {allDisabled ? (
                   <Badge variant="default" size="sm">
                     <span className="flex items-center gap-1">
-                      <span className="material-symbols-outlined text-[12px]">
-                        pause_circle
-                      </span>
+                      <Icon name="pause_circle" size={12} />
                       Disabled
                     </span>
                   </Badge>
@@ -921,9 +916,7 @@ function ProviderTestResultsView({ results }) {
   if (results.error && !results.results) {
     return (
       <div className="text-center py-6">
-        <span className="material-symbols-outlined text-feedback-danger-foreground text-[32px] mb-2 block">
-          error
-        </span>
+        <Icon name="error" size={32} className="text-feedback-danger-foreground mb-2 block" />
         <p className="text-sm text-feedback-danger-foreground">{results.error}</p>
       </div>
     );
@@ -964,11 +957,7 @@ function ProviderTestResultsView({ results }) {
           className="flex min-w-0 flex-col gap-1.5 rounded-lg bg-muted/50 px-3 py-2 text-xs"
         >
           <div className="flex min-w-0 items-center gap-2">
-            <span
-              className={`material-symbols-outlined shrink-0 text-[16px] ${r.valid ? "text-feedback-success-foreground" : "text-feedback-danger-foreground"}`}
-            >
-              {r.valid ? "check_circle" : "error"}
-            </span>
+            <Icon name={r.valid ? "check_circle" : "error"} size={16} className={`shrink-0 ${r.valid ? "text-feedback-success-foreground" : "text-feedback-danger-foreground"}`} />
             <span className="min-w-0 truncate font-medium">{r.connectionName}</span>
             <span className="min-w-0 truncate text-text-muted">({r.provider})</span>
             {!r.valid && r.diagnosis?.type && (
