@@ -97,6 +97,9 @@ const ADMIN_ONLY_PATHS = [
   // Usage sinks export every user's usage to an outside system.
   "/api/usage-sinks",
   "/dashboard/usage-sinks",
+  // Offer order for flat model ids applies to every key's routing.
+  "/api/flat-models",
+  "/dashboard/models",
   "/api/tunnel",
   "/api/media-providers",
   "/api/translator",

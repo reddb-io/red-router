@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { offerOf, groupFlatOffers, pinIdFor, versionKey } from "../../src/lib/flatModels.js";
+import { applyFlatPolicy, offerOf, groupFlatOffers, pinIdFor, versionKey } from "../../src/lib/flatModels.js";
 
 const provider = (id, extra = {}) => ({ id, slug: id, name: id, category: "apikey", subscription: false, ...extra });
 const entry = (owned_by, modelId, prov, extra = {}) => ({ id: `${owned_by}/${modelId}`, owned_by, name: modelId, provider: prov, ...extra });
@@ -72,5 +72,31 @@ describe("flat model ids", () => {
     expect(versionKey("anthropic/claude-sonnet-4.5")).toBe("claude-sonnet-4-5");
     expect(versionKey("jev-1.13-free")).toBe("jev-1-13");
     expect(versionKey("jev-1.14")).not.toBe(versionKey("jev-1.13"));
+  });
+});
+
+describe("applyFlatPolicy", () => {
+  const offers = ["a", "b", "c", "d"].map((id) => ({ id }));
+  const ids = (r) => r.offers.map((o) => o.id);
+
+  it("puts the named offers first in the saved order and keeps the rest in default order", () => {
+    const r = applyFlatPolicy(offers, { order: ["c", "a"] });
+    expect(ids(r)).toEqual(["c", "a", "b", "d"]);
+    expect(r.custom).toBe(true);
+  });
+
+  it("ignores offers the policy names that are no longer offered", () => {
+    expect(ids(applyFlatPolicy(offers, { order: ["gone", "b"] }))).toEqual(["b", "a", "c", "d"]);
+  });
+
+  it("marks switched-off offers unavailable without moving them", () => {
+    const r = applyFlatPolicy(offers, { disabled: ["b"] });
+    expect(r.offers.map((o) => [o.id, o.available])).toEqual([["a", true], ["b", false], ["c", true], ["d", true]]);
+    expect(r.custom).toBe(true);
+  });
+
+  it("is not custom when the policy matches the default", () => {
+    expect(applyFlatPolicy(offers, { order: ["a", "b"] }).custom).toBe(false);
+    expect(applyFlatPolicy(offers, null)).toEqual({ offers: offers.map((o) => ({ ...o, available: true })), custom: false });
   });
 });
