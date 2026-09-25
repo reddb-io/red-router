@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 300" width="1200" height="300" role="img" aria-labelledby="rr-fo-title rr-fo-desc">
+  <title id="rr-fo-title">Combos keep agents working through provider failures</title>
+  <desc id="rr-fo-desc">An agent calls one combo name. The first member's accounts are rate limited, the second member is down, and the third serves the request, so the coding session continues without the client changing anything.</desc>
+  <defs>
+    <linearGradient id="fo-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0d1117"/>
+      <stop offset="1" stop-color="#07090d"/>
+    </linearGradient>
+    <radialGradient id="fo-glow" cx="0.15" cy="0.1" r="0.8">
+      <stop offset="0" stop-color="#ff2056" stop-opacity="0.26"/>
+      <stop offset="1" stop-color="#ff2056" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="fo-grid" width="24" height="24" patternUnits="userSpaceOnUse">
+      <path d="M24 0H0V24" fill="none" stroke="#ffffff" stroke-opacity="0.028" stroke-width="1"/>
+    </pattern>
+    <clipPath id="fo-frame">
+      <rect x="0" y="0" width="1200" height="300" rx="18"/>
+    </clipPath>
+  </defs>
+  <g clip-path="url(#fo-frame)">
+    <rect width="1200" height="300" fill="url(#fo-bg)"/>
+    <rect width="1200" height="300" fill="url(#fo-grid)"/>
+    <ellipse cx="160" cy="20" rx="420" ry="220" fill="url(#fo-glow)"/>
+    <g font-family="ui-monospace, SFMono-Regular, 'JetBrains Mono', Menlo, Consolas, monospace">
+      <text x="56" y="58" font-size="13" fill="#ff2056" letter-spacing="2.5">CONTINUITY</text>
+      <text x="56" y="92" font-size="30" font-weight="700" fill="#f0f6fc">The agent never stops.</text>
+      <text x="56" y="120" font-size="15" fill="#8b949e">A combo is one model name with a failover order behind it.</text>
+
+      <!-- agent -->
+      <rect x="56" y="160" width="190" height="76" rx="10" fill="#0b0f15" stroke="#ffffff" stroke-opacity="0.09"/>
+      <text x="74" y="188" font-size="12" fill="#6e7681" letter-spacing="1">CODING AGENT</text>
+      <text x="74" y="216" font-size="15" fill="#c9d1d9">model: "coding"</text>
+
+      <line x1="246" y1="198" x2="296" y2="198" stroke="#ff2056" stroke-width="2" stroke-opacity="0.6"/>
+      <path d="M296 192 L308 198 L296 204 Z" fill="#ff2056"/>
+
+      <!-- combo members -->
+      <rect x="312" y="146" width="560" height="120" rx="12" fill="#0b0f15" stroke="#ff2056" stroke-opacity="0.45"/>
+      <text x="330" y="170" font-size="12" fill="#ff2056" letter-spacing="1">COMBO "coding" · fallback</text>
+      <g font-size="14">
+        <text x="330" y="200" fill="#8b949e">1  model A</text>
+        <text x="520" y="200" fill="#8b949e">accounts 1–3</text>
+        <text x="700" y="200" fill="#f85149">rate limited</text>
+        <text x="330" y="226" fill="#8b949e">2  model B</text>
+        <text x="520" y="226" fill="#8b949e">account 1</text>
+        <text x="700" y="226" fill="#f85149">unavailable</text>
+        <text x="330" y="252" fill="#f0f6fc">3  model C</text>
+        <text x="520" y="252" fill="#c9d1d9">account 1</text>
+        <text x="700" y="252" fill="#3fb950">served</text>
+      </g>
+
+      <line x1="872" y1="206" x2="922" y2="206" stroke="#3fb950" stroke-width="2" stroke-opacity="0.8"/>
+      <path d="M922 200 L934 206 L922 212 Z" fill="#3fb950"/>
+
+      <!-- outcome -->
+      <rect x="938" y="146" width="206" height="120" rx="10" fill="#0b0f15" stroke="#3fb950" stroke-opacity="0.45"/>
+      <text x="956" y="172" font-size="12" fill="#3fb950" letter-spacing="1">SESSION CONTINUES</text>
+      <text x="956" y="200" font-size="13" fill="#c9d1d9">no client change</text>
+      <text x="956" y="224" font-size="13" fill="#c9d1d9">served model in</text>
+      <text x="956" y="244" font-size="13" fill="#c9d1d9">response headers</text>
+    </g>
+    <rect x="0" y="296" width="1200" height="4" fill="#ff2056"/>
+  </g>
+</svg>
