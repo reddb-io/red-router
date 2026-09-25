@@ -1,5 +1,26 @@
 # @reddb-io/red-router
 
+## 0.26.0
+
+### Minor Changes
+
+- 6fb7177: **Flat model ids.** An API key can now get one `/v1/models` entry per model instead of one per provider offer. For example, `anthropic/claude-sonnet-4-5` covers both Anthropic direct and OpenRouter, where before there were `anthropic/claude-sonnet-4-5` and `openrouter/anthropic/claude-sonnet-4.5`. Turn it on per key in Endpoint & Keys → the key → "Model ids in /v1/models". The default is unchanged.
+  
+  - **How it routes.** A flat id works like a fallback combo over the offers the key may use: cheapest first, then the fewest RedRouter hops, then the vendor's own offer. The next offer is tried when one fails.
+  - **Stable and safe grouping.**
+    - Different versions, and free vs paid offers, are never grouped (`typesafe/jev-1.13` and `typesafe/jev-1.13:free` are separate entries).
+    - A flat id doesn't change when you connect or drop a provider.
+    - Requests accept either spelling (`claude-sonnet-4.5` or `-4-5`).
+  - **Full information for clients.** Each flat entry lists its offers with provider, RedRouter hops, price and a `pin_id` to pin one offer. `/v1/models`, `/v1/models/systemone` and `/v1/catalog` now say `id_format` at the top, and `X-RedRouter-Served-Model` still names the exact offer that answered.
+
+### Patch Changes
+
+- 733fbee: The model catalog now includes models.dev's specialized models, and RedRouter knows which underlying model each provider offer serves.
+  
+  - The daily models.dev sync and the bundled catalogs ask for every model type. Before, decision models such as TypeSafe's JEV were left out, so they never showed on a models.dev-backed provider page. They now show there marked System One.
+  - A bundled canonical map links each provider offer to its underlying model (`vendor/model`, e.g. OpenCode Zen's `jev-1.13` → `typesafe/jev-latest`). It's built from the models.dev repository's `base_model` links, which models.dev's published JSON leaves out: 428 models and about 6,300 offer links. This is the groundwork for flat model ids; nothing user-facing uses it yet.
+- 326dc01: The "API Key Created" dialog no longer warns that the key will never be shown again. The API keys list has always been able to show and copy it. The dialog now says so.
+
 ## 0.25.3
 
 ### Patch Changes
