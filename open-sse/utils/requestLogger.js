@@ -69,25 +69,22 @@ function writeJsonFile(sessionPath, filename, data) {
   }
 }
 
-// Mask sensitive data in headers (DISABLED - keep full token for testing)
-function maskSensitiveHeaders(headers) {
+// Header names whose values are credentials. Matched as substrings, like requestDetailsRepo.
+const SENSITIVE_HEADER_PARTS = ["authorization", "api-key", "apikey", "cookie", "token", "secret"];
+
+// Log files land on disk in plain text: credential values are replaced, keeping only the
+// auth scheme (e.g. "Bearer") and the length so a missing or malformed header stays debuggable.
+export function maskSensitiveHeaders(headers) {
   if (!headers) return {};
-  return { ...headers };
-  
-  // Old masking code (disabled):
-  // const masked = { ...headers };
-  // const sensitiveKeys = ["authorization", "x-api-key", "cookie", "token"];
-  // 
-  // for (const key of Object.keys(masked)) {
-  //   const lowerKey = key.toLowerCase();
-  //   if (sensitiveKeys.some(sk => lowerKey.includes(sk))) {
-  //     const value = masked[key];
-  //     if (value && value.length > 20) {
-  //       masked[key] = value.slice(0, 10) + "..." + value.slice(-5);
-  //     }
-  //   }
-  // }
-  // return masked;
+  const entries = typeof headers.entries === "function" ? [...headers.entries()] : Object.entries(headers);
+  return Object.fromEntries(
+    entries.map(([key, value]) => {
+      if (!SENSITIVE_HEADER_PARTS.some((part) => key.toLowerCase().includes(part))) return [key, value];
+      const text = Array.isArray(value) ? value.join(", ") : String(value ?? "");
+      const scheme = /^(Bearer|Basic|Token)\s+/i.exec(text)?.[1];
+      return [key, `${scheme ? `${scheme} ` : ""}<redacted len=${text.length}>`];
+    }),
+  );
 }
 
 // No-op logger when logging is disabled
@@ -170,7 +167,7 @@ export async function createRequestLogger(sourceFormat, targetFormat, model) {
         timestamp: new Date().toISOString(),
         status,
         statusText,
-        headers: headers ? (typeof headers.entries === "function" ? Object.fromEntries(headers.entries()) : headers) : {},
+        headers: maskSensitiveHeaders(headers),
         body
       });
     },
