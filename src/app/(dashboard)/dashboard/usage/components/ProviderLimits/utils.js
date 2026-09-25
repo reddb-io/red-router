@@ -349,6 +349,19 @@ export function filterQuotasByVisibility(provider, quotas = [], quotaVisibility 
   return quotas.filter((quota) => !hidden.has(getQuotaVisibilityKey(quota)));
 }
 
+/**
+ * Every quota row hidden for a provider, as { key, name }, whether or not the
+ * row is in the quotas loaded right now: a card whose quota failed to load, or
+ * a row the provider renamed, must still be unhideable.
+ */
+export function getHiddenQuotaEntries(provider, quotas = [], quotaVisibility = {}) {
+  const hidden = quotaVisibility?.[provider]?.hidden;
+  if (!Array.isArray(hidden) || hidden.length === 0) return [];
+  const names = new Map((Array.isArray(quotas) ? quotas : []).map((q) => [getQuotaVisibilityKey(q), q.name]));
+  const keys = [...new Set(hidden.map((k) => String(k).trim()).filter(Boolean))];
+  return keys.map((key) => ({ key, name: names.get(key) || key }));
+}
+
 export function getHiddenQuotaRows(provider, quotas = [], quotaVisibility = {}) {
   if (!Array.isArray(quotas) || quotas.length === 0) return [];
   const hidden = getProviderHiddenQuotaSet(provider, quotaVisibility, quotas);

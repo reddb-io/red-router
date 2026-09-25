@@ -9,7 +9,7 @@ import {
   parseQuotaData,
   calculatePercentage,
   filterQuotasByVisibility,
-  getHiddenQuotaRows,
+  getHiddenQuotaEntries,
   getQuotaVisibilityKey,
   getConnectionLabel,
   getConnectionQuotaRemaining,
@@ -634,9 +634,15 @@ export default function ProviderLimits() {
     updateQuotaVisibility(next, previous);
   }, [quotaVisibility, updateQuotaVisibility]);
 
-  const handleShowQuota = useCallback((provider, quota) => {
-    const key = getQuotaVisibilityKey(quota);
-    if (!provider || !key) return;
+  // key: one hidden row's visibility key; null shows every hidden row of the provider.
+  const handleShowQuota = useCallback((provider, key) => {
+    if (!provider) return;
+    if (key === null) {
+      const previous = quotaVisibility;
+      updateQuotaVisibility({ ...previous, [provider]: { ...(previous[provider] || {}), hidden: [] } }, previous);
+      return;
+    }
+    if (!key) return;
 
     const previous = quotaVisibility;
     const providerVisibility = previous[provider] || {};
@@ -1068,7 +1074,7 @@ export default function ProviderLimits() {
           const rowBusy = deletingId === conn.id || togglingId === conn.id || isResettingLimit;
           const rawQuotas = quota?.quotas || [];
           const visibleQuotas = filterQuotasByVisibility(conn.provider, rawQuotas, quotaVisibility);
-          const hiddenQuotaRows = getHiddenQuotaRows(conn.provider, rawQuotas, quotaVisibility);
+          const hiddenQuotaRows = getHiddenQuotaEntries(conn.provider, rawQuotas, quotaVisibility);
 
           return (
             <Card
@@ -1291,17 +1297,27 @@ export default function ProviderLimits() {
                     <Icon name="visibility_off" size={14} className="shrink-0" />
                     <span className="shrink-0">Hidden:</span>
                     <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto whitespace-nowrap pb-2">
-                      {hiddenQuotaRows.map((quotaRow) => (
+                      {hiddenQuotaRows.map((row) => (
                         <button
-                          key={getQuotaVisibilityKey(quotaRow)}
+                          key={row.key}
                           type="button"
-                          onClick={() => handleShowQuota(conn.provider, quotaRow)}
+                          onClick={() => handleShowQuota(conn.provider, row.key)}
                           className="shrink-0 rounded-md border border-muted px-1.5 py-0.5 transition-colors hover:bg-muted/50 hover:text-text-primary"
                           title="Show this quota row"
                         >
-                          {quotaRow.name}
+                          {row.name}
                         </button>
                       ))}
+                      {hiddenQuotaRows.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => handleShowQuota(conn.provider, null)}
+                          className="shrink-0 rounded-md px-1.5 py-0.5 font-medium text-primary transition-colors hover:bg-muted/50"
+                          title="Show every hidden quota row of this provider"
+                        >
+                          Show all
+                        </button>
+                      )}
                     </div>
                   </div>
                 )}
