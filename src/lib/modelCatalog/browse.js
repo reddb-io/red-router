@@ -112,7 +112,9 @@ function fromModelsDev(id, m, providerName, providerKey) {
     audio: inputs.includes("audio"),
     video: inputs.includes("video"),
     imageOutput: (m.x || []).includes("image"),
-    textOutput: m.nt !== true,
+    textOutput: m.nt !== true && m.y !== "decision",
+    // A System One decision model (models.dev type), answered through /v1/systemone.
+    ...(m.y === "decision" ? { decision: true } : {}),
     openWeights: m.w === true,
     free,
     cost: typeof m.ci === "number" || typeof m.co === "number" ? { input: m.ci ?? null, output: m.co ?? null } : null,

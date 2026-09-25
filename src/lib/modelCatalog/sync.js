@@ -9,12 +9,14 @@ import path from "node:path";
 import { CATALOG_FILE, CATALOG_RAW_FILE, CATALOG_BROWSE_FILE, CATALOG_VERSION, invalidateCatalog, installCatalogSource } from "open-sse/providers/catalogOverride.js";
 import { browseSlim } from "./browseShape.js";
 
-const CATALOG_URL = "https://models.dev/api.json";
+// type=all: models.dev leaves specialized models (decision models such as
+// TypeSafe's JEV) out of api.json and models.json unless asked for.
+const CATALOG_URL = "https://models.dev/api.json?type=all";
 // Provider-agnostic model facts from the same models.dev project
 // (anomalyco/models.dev): keyed "<vendor>/<model-id>", one entry per model
 // regardless of who serves it. Read as the fallback limits layer when a
 // provider is not covered by the api.json deltas below.
-const MODELS_URL = "https://models.dev/models.json";
+const MODELS_URL = "https://models.dev/models.json?type=all";
 // Offline baseline: snapshots vendored into the repo seed the cache when the API is unreachable,
 // so a fresh install (or an outage before the first successful sync) still serves real limits.
 // The scheduled sync overwrites the cache with fresh data as soon as the API answers again.
