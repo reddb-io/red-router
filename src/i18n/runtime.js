@@ -54,8 +54,8 @@ export function onLocaleChange(callback) {
   };
 }
 
-// Process text node
-function processTextNode(node) {
+// Process text node (exported for tests)
+export function processTextNode(node) {
   if (!node.nodeValue || !node.nodeValue.trim()) return;
   
   // Skip if parent is script, style, code, or structural elements
@@ -82,19 +82,21 @@ function processTextNode(node) {
   
   if (skipTags.includes(tagName)) return;
   
-  // Store original text if not already stored
-  if (!node._originalText) {
+  // React rewrites a text node in place when its content changes (a page title
+  // on navigation). A value other than the one written here last is new source
+  // text, not our translation; keeping the first-seen text would bring a stale
+  // label back on the next pass.
+  if (node._originalText === undefined || node.nodeValue !== node._translatedText) {
     node._originalText = node.nodeValue;
   }
-  
-  // Use original text for translation
-  const original = node._originalText;
-  const translated = translate(original);
-  
+
+  const translated = translate(node._originalText);
+
   // Only update if different to avoid unnecessary DOM mutations
   if (translated !== node.nodeValue) {
     node.nodeValue = translated;
   }
+  node._translatedText = translated;
 }
 
 // Process all text nodes in element
@@ -133,6 +135,11 @@ export async function initRuntimeI18n() {
   // Watch for new nodes
   const observer = new MutationObserver((mutations) => {
     mutations.forEach((mutation) => {
+      // Text React updated in place; our own writes come back here as no-ops.
+      if (mutation.type === "characterData") {
+        processTextNode(mutation.target);
+        return;
+      }
       mutation.addedNodes.forEach((node) => {
         if (node.nodeType === Node.ELEMENT_NODE) {
           processElement(node);
@@ -145,6 +152,7 @@ export async function initRuntimeI18n() {
   
   observer.observe(document.body, {
     childList: true,
+    characterData: true,
     subtree: true,
   });
 }
