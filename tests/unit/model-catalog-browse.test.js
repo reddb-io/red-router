@@ -116,12 +116,17 @@ describe("getProviderCatalog", () => {
             id: "meta/llama-free:free", name: "Llama Free", created: 1_700_000_000, context_length: 131_072,
             pricing: { prompt: "0", completion: "0" }, supported_parameters: [], architecture: { input_modalities: ["text"], output_modalities: ["text"] },
           },
+          {
+            id: "typesafe/jev-1.13", name: "TypeSafe: Jev 1.13", created: 1_789_689_684, context_length: 32_000,
+            pricing: { prompt: "0.000000042", completion: "0" }, supported_parameters: [], architecture: { input_modalities: ["text"], output_modalities: ["decisions"] },
+          },
         ],
       });
     };
     const { source, models } = await getProviderCatalog("openrouter", { fetchImpl });
     expect(source).toBe("openrouter+models.dev");
-    expect(calls).toEqual(["https://openrouter.ai/api/v1/models"]);
+    // Every output modality, or OpenRouter leaves out image, audio and decision models.
+    expect(calls).toEqual(["https://openrouter.ai/api/v1/models?output_modalities=all"]);
     const qwen = models.find((m) => m.id === "qwen/qwen-next");
     expect(qwen).toMatchObject({
       vendor: "qwen", contextWindow: 262_144, maxOutput: 32_768, reasoning: true, tools: true, vision: true,
@@ -130,6 +135,7 @@ describe("getProviderCatalog", () => {
       family: "qwen", releaseDate: "2026-07-10", openWeights: true, knowledge: "2026-03",
     });
     expect(models.find((m) => m.id === "meta/llama-free:free")).toMatchObject({ vendor: "meta", free: true, releaseDate: "2023-11-14" });
+    expect(models.find((m) => m.id === "typesafe/jev-1.13")).toMatchObject({ vendor: "typesafe", textOutput: false, decision: true });
 
     // cached: a second read does not refetch
     await getProviderCatalog("openrouter", { fetchImpl });
@@ -158,9 +164,12 @@ describe("filterModels", async () => {
   ];
   const ids = (list) => list.map((m) => m.id);
 
-  it("hides models that do not produce text", () => {
+  it("hides models that do not produce text, but keeps decision models findable", () => {
     expect(ids(filterModels(models, DEFAULT_FILTERS, { now }))).not.toContain("c/imager");
     expect(vendorFacets(models).map((v) => v.vendor)).not.toContain("c");
+    const withDecider = [...models, { id: "d/decider", name: "Decider", vendor: "d", releaseDate: "2026-08-25", textOutput: false, decision: true }];
+    expect(ids(filterModels(withDecider, DEFAULT_FILTERS, { now }))).toContain("d/decider");
+    expect(vendorFacets(withDecider).map((v) => v.vendor)).toContain("d");
   });
 
   it("filters by query terms across id, name and owner", () => {

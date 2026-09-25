@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { cn } from "@/shared/utils/cn";
 import {
@@ -219,7 +220,7 @@ export default function ModelCatalogBrowser({ providerId, addedIds, onAdd, onEmp
                   <input
                     type="checkbox"
                     checked={isAdded || selected.has(m.id)}
-                    disabled={isAdded}
+                    disabled={isAdded || m.decision}
                     onChange={() => toggleSelected(m.id)}
                     aria-label={`Select ${m.name}`}
                     className="size-3.5 accent-primary"
@@ -227,6 +228,14 @@ export default function ModelCatalogBrowser({ providerId, addedIds, onAdd, onEmp
                   <div className="min-w-0 flex-1" title={m.description || undefined}>
                     <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
                       <span className="truncate text-xs font-medium text-text-main">{m.name}</span>
+                      {m.decision && (
+                        <span
+                          className="rounded border border-feedback-info-border bg-feedback-info-surface px-1 text-[10px] font-medium text-feedback-info-foreground"
+                          title="A System One decision model: it returns a typed choice through /v1/systemone, not a chat reply"
+                        >
+                          System One
+                        </span>
+                      )}
                       <Capability on={m.reasoning} icon="psychology" label="Reasoning" />
                       <Capability on={m.tools} icon="build" label="Tool calling" />
                       <Capability on={m.vision} icon="image" label="Image input" />
@@ -244,7 +253,15 @@ export default function ModelCatalogBrowser({ providerId, addedIds, onAdd, onEmp
                     {ctx && <div>{ctx} ctx</div>}
                     {cost && <div className={m.free ? "text-feedback-success-foreground" : undefined}>{cost}</div>}
                   </div>
-                  {isAdded ? (
+                  {m.decision ? (
+                    // Not a chat model: adding it to this provider's chat models would never work.
+                    <Link
+                      href="/dashboard/tools-providers/systemone"
+                      className="flex shrink-0 items-center gap-0.5 rounded-md border border-muted px-2 py-1 text-[11px] text-foreground hover:bg-muted/50"
+                    >
+                      <span className="material-symbols-outlined text-[14px]">arrow_forward</span>Use in System One
+                    </Link>
+                  ) : isAdded ? (
                     <span className="flex shrink-0 items-center gap-0.5 text-[11px] text-feedback-success-foreground">
                       <span className="material-symbols-outlined text-[14px]">check</span>Added
                     </span>
