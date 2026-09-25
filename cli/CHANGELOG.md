@@ -1,5 +1,31 @@
 # @reddb-io/red-router
 
+## 0.30.0
+
+### Minor Changes
+
+- 549762d: **Every page lines up, and a new Console Log.**
+  
+  - **One page width.** Every dashboard page now starts at the same left edge and has the same width. Before, Usage, Setup, Settings, CLI Tools and Proxy Pools each set their own narrower, centred width, and pages shifted a few pixels depending on whether they scrolled.
+  - **Settings uses the width.** Its cards flow into two columns on wide screens instead of a narrow strip in the middle.
+  - **Console Log, rebuilt:**
+    - Live tail that follows new lines. Scrolling up pauses it, and "N new" brings you back.
+    - Filter by text or `/regex/`, with matches highlighted, and toggle levels (info, warn, error, debug) with counts.
+    - Timestamps and line wrapping can be turned on or off; these choices are remembered in your browser.
+    - Copy or download what is shown, and clear the console.
+    - The server now keeps the last 2,000 lines (it was 200), each with its time and level.
+
+### Patch Changes
+
+- ffbf40a: The dashboard now takes the design system the way its README says. `design-system.manifest.json` pins v2026.09, and the official Sync lays it out under `vendor/ds`, replacing the hand-extracted files. Future versions arrive as a reviewable diff. The Brand fonts (Space Grotesk, JetBrains Mono) are now served from the design system's own files instead of Google Fonts, so builds no longer fetch them. Nothing changes visually: the tokens, theme and component contracts are byte-for-byte the same.
+- 1d31d51: Usage sinks: a roomier form that works with any number of API keys.
+  
+  - **Wider form:** short fields sit side by side, and the signing secret gets its own full row.
+  - **Picking keys:** API keys are no longer all loaded as checkboxes. Choose "All keys" or "Selected keys", then search by name or tag; the server returns one page at a time, so it works the same with 5 keys or 50,000. Chosen keys show as removable chips. Saving "Selected keys" with none picked is refused, because it would send every key's usage.
+  - **Faster page:** the Usage Sinks page no longer loads every API key. The keys a sink filters on come with the sink.
+  
+  Endpoint & Keys: the "Advanced exposure" section (Cloudflare, Tailscale, dashboard access) is always open.
+
 ## 0.29.1
 
 ### Patch Changes
