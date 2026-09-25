@@ -82,7 +82,9 @@ export function filterModels(models, filters = DEFAULT_FILTERS, { now = Date.now
   const f = { ...DEFAULT_FILTERS, ...filters };
   const since = f.releasedWithinDays > 0 ? new Date(now - f.releasedWithinDays * DAY_MS).toISOString().slice(0, 10) : null;
   const out = (models || []).filter((m) => {
-    if (m.textOutput === false) return false; // image/audio generators live on the media pages
+    // Image/audio generators live on the media pages; decision models stay findable
+    // here and are marked for System One.
+    if (m.textOutput === false && !m.decision) return false;
     if (f.vendor && m.vendor !== f.vendor) return false;
     if (f.minContext > 0 && !(m.contextWindow >= f.minContext)) return false;
     if (since && !(m.releaseDate && m.releaseDate >= since)) return false;
@@ -116,7 +118,7 @@ export function sortModels(models, sort = "newest") {
 export function vendorFacets(models) {
   const counts = new Map();
   for (const m of models || []) {
-    if (m.textOutput === false || !m.vendor) continue;
+    if ((m.textOutput === false && !m.decision) || !m.vendor) continue;
     counts.set(m.vendor, (counts.get(m.vendor) || 0) + 1);
   }
   return [...counts.entries()].map(([vendor, count]) => ({ vendor, count })).sort((a, b) => b.count - a.count || a.vendor.localeCompare(b.vendor));

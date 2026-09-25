@@ -12,7 +12,9 @@ import { PROVIDER_ALIASES } from "./sync.js";
 import { browseSlim } from "./browseShape.js";
 
 const SNAPSHOT_API_URL = new URL("./snapshot/api.json", import.meta.url);
-const OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models";
+// Without output_modalities OpenRouter lists only text generators, hiding image,
+// audio and decision models (e.g. TypeSafe's typesafe/jev-1.13).
+const OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models?output_modalities=all";
 const LIVE_TTL_MS = 60 * 60 * 1000;
 
 // Our provider id -> models.dev provider id, on top of the sync's aliases (which
@@ -138,6 +140,8 @@ async function fetchOpenRouterModels(fetchImpl = fetch) {
         video: inputs.includes("video"),
         imageOutput: (m.architecture?.output_modalities || []).includes("image"),
         textOutput: (m.architecture?.output_modalities || ["text"]).includes("text"),
+        // System One decision models answer through /v1/systemone, not chat.
+        decision: (m.architecture?.output_modalities || []).includes("decisions"),
         openWeights: false,
         free: m.id.endsWith(":free") || (costIn === 0 && costOut === 0),
         cost: costIn !== null || costOut !== null ? { input: costIn, output: costOut } : null,
