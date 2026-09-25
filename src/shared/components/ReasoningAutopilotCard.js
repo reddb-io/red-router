@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Card, Select, SegmentedControl, Toggle } from "@/shared/components";
 import { translate } from "@/i18n/runtime";
+import Icon from "./Icon";
 
 // Same three states as the decision router: shadow logs the level it would pick
 // (Usage → request details, X-RedRouter-Reasoning header) without touching the
@@ -28,7 +29,7 @@ function Chips({ values, labelOf, onRemove, empty }) {
             className="leading-none text-text-muted hover:text-feedback-danger-foreground"
             aria-label={`${translate("Remove")} ${labelOf(value)}`}
           >
-            <span className="material-symbols-outlined text-[12px]">close</span>
+            <Icon name="close" size={12} />
           </button>
         </span>
       ))}

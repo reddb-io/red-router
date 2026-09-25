@@ -3,7 +3,7 @@
 import { useParams, notFound, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { Card, Badge, Button, Toggle, AddCustomEmbeddingModal } from "@/shared/components";
+import { Card, Badge, Button, Toggle, AddCustomEmbeddingModal, Icon } from "@/shared/components";
 import ProviderIcon from "@/shared/components/ProviderIcon";
 import { MEDIA_PROVIDER_KINDS, AI_PROVIDERS, getProvidersByKind } from "@/shared/constants/providers";
 
@@ -104,7 +104,7 @@ function ComboList({ combos }) {
         <Link key={combo.id} href={`/dashboard/tools-providers/combo/${combo.id}`}>
           <Card padding="xs" className="hover:bg-muted/50 transition-colors cursor-pointer">
             <div className="flex min-w-0 items-center gap-3">
-              <span className="material-symbols-outlined text-primary text-[18px]">layers</span>
+              <Icon name="layers" size={18} className="text-primary" />
               <code className="text-sm font-mono font-medium flex-1 truncate">{combo.name}</code>
               <div className="flex flex-wrap items-center gap-1 sm:shrink-0">
                 {combo.models.slice(0, 6).map((entry, i) => {
@@ -128,7 +128,7 @@ function ComboList({ combos }) {
                 )}
               </div>
               <span className="text-[11px] text-text-muted shrink-0">{combo.models.length}</span>
-              <span className="material-symbols-outlined text-text-muted text-[16px]">chevron_right</span>
+              <Icon name="chevron_right" size={16} className="text-text-muted" />
             </div>
           </Card>
         </Link>
@@ -234,7 +234,7 @@ export default function MediaProviderKindPage() {
       {kind === "systemone" && (
         <Card padding="sm" className="border-primary/20 bg-primary/[0.03]">
           <div className="flex items-start gap-3">
-            <span className="material-symbols-outlined text-primary text-[20px]">rule</span>
+            <Icon name="rule" size={20} className="text-primary" />
             <div>
               <h2 className="text-sm font-semibold">Classify textual state</h2>
               <p className="mt-1 text-xs leading-relaxed text-text-muted">

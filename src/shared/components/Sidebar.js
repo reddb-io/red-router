@@ -8,6 +8,7 @@ import { cn } from "@/shared/utils/cn";
 import { navItem } from "@/shared/ds/nav-item.variants";
 import { APP_CONFIG } from "@/shared/constants/config";
 import { MEDIA_PROVIDER_KINDS } from "@/shared/constants/providers";
+import Icon from "./Icon";
 
 // const VISIBLE_MEDIA_KINDS = ["embedding", "image", "imageToText", "tts", "stt", "webSearch", "webFetch", "video", "music"];
 const VISIBLE_MEDIA_KINDS = ["systemone", "embedding", "image", "video", "tts", "stt"];
@@ -81,7 +82,7 @@ export default function Sidebar({ onClose }) {
     const active = isActive(item.href);
     return (
       <Link key={item.href} href={item.href} onClick={onClose} className={linkClass(active)} aria-current={active ? "page" : undefined}>
-        <span className={cn("material-symbols-outlined text-[18px]", active && "fill-1")} aria-hidden="true">{item.icon}</span>
+        <Icon name={item.icon} size={18} />
         <span className="truncate">{item.label}</span>
       </Link>
     );
@@ -127,11 +128,9 @@ export default function Sidebar({ onClose }) {
                     aria-expanded={mediaOpen}
                     className={linkClass(toolsProvidersActive, "w-full text-left")}
                   >
-                    <span className="material-symbols-outlined text-[18px]" aria-hidden="true">perm_media</span>
+                    <Icon name="perm_media" size={18} />
                     <span className="flex-1 truncate">Tools Providers</span>
-                    <span className={cn("material-symbols-outlined text-[16px] transition-transform", mediaOpen && "rotate-180")} aria-hidden="true">
-                      expand_more
-                    </span>
+                    <Icon name="expand_more" size={16} className={cn("transition-transform", mediaOpen && "rotate-180")} />
                   </button>
                   {mediaOpen && (
                     <div className="ml-5 flex flex-col gap-0.5 border-s border-muted ps-2">

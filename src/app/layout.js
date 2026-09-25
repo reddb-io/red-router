@@ -1,6 +1,5 @@
 import { JetBrains_Mono, Space_Grotesk } from "next/font/google";
 import { GoogleAnalytics } from "@next/third-parties/google";
-import "material-symbols/outlined.css";
 import "./globals.css";
 import { ThemeProvider } from "@/shared/components/ThemeProvider";
 import "@/lib/network/initOutboundProxy"; // Auto-initialize outbound proxy env
@@ -43,11 +42,6 @@ export default function RootLayout({ children }) {
         <script
           dangerouslySetInnerHTML={{
             __html: `(function(){try{var s=localStorage.getItem('theme');var t=s?(JSON.parse(s).state||{}).theme:'system';t=t||'system';var m=window.matchMedia('(prefers-color-scheme: dark)').matches;var d=document.documentElement;d.setAttribute('data-theme','application');if(t==='dark'||(t==='system'&&m)){d.classList.add('dark');d.setAttribute('data-color-scheme','dark')}else{d.setAttribute('data-color-scheme','light')}}catch(e){}})();`,
-          }}
-        />
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `var d=document,r=d.documentElement,f=function(){r.classList.add('fonts-loaded')};if(d.fonts&&d.fonts.load){d.fonts.load('24px "Material Symbols Outlined"').then(f).catch(f);setTimeout(f,3000)}else{f()}`,
           }}
         />
       </head>

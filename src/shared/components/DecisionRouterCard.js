@@ -6,6 +6,7 @@ import { translate } from "@/i18n/runtime";
 import { getProvidersByKind } from "@/shared/constants/providers";
 import ModelSelectModal from "@/shared/components/ModelSelectModal";
 import { publicModelRef } from "@/shared/utils/modelRef";
+import Icon from "./Icon";
 
 // Three states in one field, not an `enabled` flag plus a mode string: "shadow"
 // is the only way to measure what the router would have done without letting it
@@ -177,9 +178,7 @@ export default function DecisionRouterCard({ provider }) {
               </span>
             ) : models.map((value) => (
               <span key={value} className="inline-flex items-center gap-1 rounded bg-muted/50 px-1.5 py-0.5">
-                <span className="material-symbols-outlined text-[12px] text-text-muted">
-                  {value.includes("/") ? "smart_toy" : "layers"}
-                </span>
+                <Icon name={value.includes("/") ? "smart_toy" : "layers"} size={12} className="text-text-muted" />
                 <span className="font-mono text-xs text-text-muted">{publicModelRef(value)}</span>
                 <button
                   type="button"
@@ -187,7 +186,7 @@ export default function DecisionRouterCard({ provider }) {
                   className="leading-none text-text-muted hover:text-feedback-danger-foreground"
                   aria-label={`${translate("Remove")} ${value}`}
                 >
-                  <span className="material-symbols-outlined text-[12px]">close</span>
+                  <Icon name="close" size={12} />
                 </button>
               </span>
             ))}
@@ -215,9 +214,7 @@ export default function DecisionRouterCard({ provider }) {
             onClick={() => setAdvanced(!advanced)}
             className="inline-flex w-fit items-center gap-1 text-xs text-text-muted hover:text-primary"
           >
-            <span className="material-symbols-outlined text-[16px]">
-              {advanced ? "expand_less" : "expand_more"}
-            </span>
+            <Icon name={advanced ? "expand_less" : "expand_more"} size={16} />
             {translate("Advanced")}
           </button>
 

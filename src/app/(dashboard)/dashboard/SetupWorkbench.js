@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
-import { Button, Input, RecommendedSetup } from "@/shared/components";
+import { Button, Input, RecommendedSetup, Icon } from "@/shared/components";
 
 const EMPTY = { connections: [], keys: [] };
 
@@ -10,7 +10,7 @@ function StepStatus({ done, active }) {
   const icon = done ? "check" : active ? "arrow_forward" : "more_horiz";
   return (
     <span className={`setup-step-status ${done ? "is-done" : active ? "is-active" : ""}`} aria-label={done ? "Complete" : active ? "Current step" : "Not started"}>
-      <span className="material-symbols-outlined text-[16px]" aria-hidden="true">{icon}</span>
+      <Icon name={icon} size={16} />
     </span>
   );
 }
@@ -186,7 +186,7 @@ export default function SetupWorkbench() {
           </div>
           {validation ? (
             <ul className="setup-checks" aria-live="polite">
-              {validation.checks?.map((check) => <li key={check.id} className={check.status === "pass" ? "is-pass" : "is-fail"}><span className="material-symbols-outlined" aria-hidden="true">{check.status === "pass" ? "check_circle" : "error"}</span>{check.message}</li>)}
+              {validation.checks?.map((check) => <li key={check.id} className={check.status === "pass" ? "is-pass" : "is-fail"}><Icon name={check.status === "pass" ? "check_circle" : "error"} size={18} />{check.message}</li>)}
             </ul>
           ) : null}
         </li>
@@ -204,7 +204,7 @@ export default function SetupWorkbench() {
         </li>
       </ol>
 
-      {isReady ? <div className="setup-success" role="status"><span className="material-symbols-outlined" aria-hidden="true">check_circle</span><div><strong>Router ready.</strong><p>Your endpoint and selected provider passed validation.</p></div><Link href="/dashboard/usage">Open usage →</Link></div> : null}
+      {isReady ? <div className="setup-success" role="status"><Icon name="check_circle" size={24} /><div><strong>Router ready.</strong><p>Your endpoint and selected provider passed validation.</p></div><Link href="/dashboard/usage">Open usage →</Link></div> : null}
     </div>
   );
 }

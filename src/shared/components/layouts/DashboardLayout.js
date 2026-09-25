@@ -8,6 +8,7 @@ import Header from "../Header";
 import PageHeading from "../PageHeading";
 import Breadcrumbs from "../Breadcrumbs";
 import { getPageInfo, hasOwnHeading } from "@/shared/utils/pageInfo";
+import Icon from "../Icon";
 
 // Toasts use the DS feedback roles (surface / foreground / border per status).
 // Literal class strings, so Tailwind's scanner generates every one of them.
@@ -76,7 +77,7 @@ export default function DashboardLayout({ children }) {
               className={`rounded-md border px-3 py-2 shadow-sm ${style.wrapper}`}
             >
               <div className="flex items-start gap-2">
-                <span className="material-symbols-outlined text-[18px] leading-5">{style.icon}</span>
+                <Icon name={style.icon} size={18} className="leading-5" />
                 <div className="min-w-0 flex-1">
                   {n.title ? <p className="text-xs font-semibold mb-0.5">{n.title}</p> : null}
                   <p className="text-xs whitespace-pre-wrap break-words">{n.message}</p>
@@ -88,7 +89,7 @@ export default function DashboardLayout({ children }) {
                     className="text-current/70 hover:text-current"
                     aria-label="Dismiss notification"
                   >
-                    <span className="material-symbols-outlined text-[16px]">close</span>
+                    <Icon name="close" size={16} />
                   </button>
                 ) : null}
               </div>

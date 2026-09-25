@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Card, Button, Badge, Input, SegmentedControl, Toggle } from "@/shared/components";
+import { Card, Button, Badge, Input, SegmentedControl, Toggle, Icon } from "@/shared/components";
 
 // Models: one entry per flat model id (vendor/model), with every offer that can
 // serve it. The order here is the fallback order a flat id routes in; a
@@ -90,9 +90,7 @@ function ModelRow({ model, onSaved }) {
         aria-expanded={open}
         className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-surface-2 transition-colors"
       >
-        <span className="material-symbols-outlined text-[18px] text-text-muted shrink-0">
-          {open ? "expand_more" : "chevron_right"}
-        </span>
+        <Icon name={open ? "expand_more" : "chevron_right"} size={18} className="text-text-muted shrink-0" />
         <div className="min-w-0 flex-1">
           <p className="font-medium text-sm truncate" data-i18n-skip="true">{model.id}</p>
           <p className="text-xs text-text-muted truncate">

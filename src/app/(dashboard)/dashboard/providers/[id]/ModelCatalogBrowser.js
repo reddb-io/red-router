@@ -17,6 +17,7 @@ import {
   presetFilters,
   vendorFacets,
 } from "@/shared/utils/modelBrowser";
+import Icon from "@/shared/components/Icon";
 
 const PAGE_SIZE = 12;
 
@@ -34,7 +35,9 @@ function chipClass(active) {
 function Capability({ on, icon, label }) {
   if (!on) return null;
   return (
-    <span title={label} className="material-symbols-outlined text-[14px] text-text-muted">{icon}</span>
+    <span title={label} className="inline-flex text-text-muted">
+      <Icon name={icon} size={14} label={label} />
+    </span>
   );
 }
 
@@ -129,7 +132,7 @@ export default function ModelCatalogBrowser({ providerId, addedIds, onAdd, onEmp
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-muted px-3 py-2.5">
         <div className="flex items-center gap-2">
-          <span className="material-symbols-outlined text-[18px] text-primary">travel_explore</span>
+          <Icon name="travel_explore" size={18} className="text-primary" />
           <div>
             <p className="text-sm font-medium text-text-main">Discover models</p>
             <p className="text-[11px] text-text-muted">
@@ -144,7 +147,7 @@ export default function ModelCatalogBrowser({ providerId, addedIds, onAdd, onEmp
             disabled={adding}
             className="flex items-center gap-1 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50"
           >
-            <span className="material-symbols-outlined text-[14px]">{adding ? "progress_activity" : "playlist_add"}</span>
+            <Icon name={adding ? "progress_activity" : "playlist_add"} size={14} />
             Add {selectedIds.length} selected
           </button>
         )}
@@ -155,7 +158,7 @@ export default function ModelCatalogBrowser({ providerId, addedIds, onAdd, onEmp
         <div className="flex flex-wrap gap-1.5">
           {PRESETS.map((p) => (
             <button key={p.id} onClick={() => applyPreset(p.id)} className={chipClass(preset === p.id)}>
-              <span className="material-symbols-outlined text-[14px]">{p.icon}</span>
+              <Icon name={p.icon} size={14} />
               {p.label}
             </button>
           ))}
@@ -164,7 +167,7 @@ export default function ModelCatalogBrowser({ providerId, addedIds, onAdd, onEmp
         {/* Search + filters */}
         <div className="flex flex-wrap items-center gap-2">
           <div className="relative min-w-[180px] flex-1">
-            <span className="material-symbols-outlined pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-[16px] text-text-muted">search</span>
+            <Icon name="search" size={16} className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-text-muted" />
             <input
               value={filters.query}
               onChange={(e) => { setLimit(PAGE_SIZE); setFilters((prev) => ({ ...prev, query: e.target.value })); }}
@@ -190,7 +193,7 @@ export default function ModelCatalogBrowser({ providerId, addedIds, onAdd, onEmp
         <div className="flex flex-wrap items-center gap-1.5">
           {CAPABILITY_FLAGS.map((f) => (
             <button key={f.key} onClick={() => toggleFlag(f.key)} className={chipClass(!!filters.flags?.[f.key])}>
-              <span className="material-symbols-outlined text-[14px]">{filters.flags?.[f.key] ? "check" : f.icon}</span>
+              <Icon name={filters.flags?.[f.key] ? "check" : f.icon} size={14} />
               {f.label}
             </button>
           ))}
@@ -257,11 +260,11 @@ export default function ModelCatalogBrowser({ providerId, addedIds, onAdd, onEmp
                       href="/dashboard/tools-providers/systemone"
                       className="flex shrink-0 items-center gap-0.5 rounded-md border border-muted px-2 py-1 text-[11px] text-foreground hover:bg-muted/50"
                     >
-                      <span className="material-symbols-outlined text-[14px]">arrow_forward</span>Use in System One
+                      <Icon name="arrow_forward" size={14} />Use in System One
                     </Link>
                   ) : isAdded ? (
                     <span className="flex shrink-0 items-center gap-0.5 text-[11px] text-feedback-success-foreground">
-                      <span className="material-symbols-outlined text-[14px]">check</span>Added
+                      <Icon name="check" size={14} />Added
                     </span>
                   ) : (
                     <button
@@ -269,7 +272,7 @@ export default function ModelCatalogBrowser({ providerId, addedIds, onAdd, onEmp
                       disabled={adding}
                       className="flex shrink-0 items-center gap-0.5 rounded-md border border-primary/30 px-2 py-1 text-[11px] text-primary hover:bg-primary/5 disabled:opacity-50"
                     >
-                      <span className="material-symbols-outlined text-[14px]">add</span>Add
+                      <Icon name="add" size={14} />Add
                     </button>
                   )}
                 </li>

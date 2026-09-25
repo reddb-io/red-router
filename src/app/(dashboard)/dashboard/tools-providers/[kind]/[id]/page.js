@@ -3,7 +3,7 @@
 import { useParams, notFound, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useState, useEffect } from "react";
-import { Card, Badge, Button, AddCustomEmbeddingModal, NoAuthProxyCard, ProviderInfoCard } from "@/shared/components";
+import { Card, Badge, Button, AddCustomEmbeddingModal, NoAuthProxyCard, ProviderInfoCard, Icon } from "@/shared/components";
 import ProviderIcon from "@/shared/components/ProviderIcon";
 import { MEDIA_PROVIDER_KINDS, AI_PROVIDERS, isCustomEmbeddingProvider } from "@/shared/constants/providers";
 import ConnectionsCard from "@/app/(dashboard)/dashboard/providers/components/ConnectionsCard";
@@ -76,7 +76,7 @@ export default function MediaProviderDetailPage() {
           href={`/dashboard/tools-providers/${kind}`}
           className="inline-flex items-center gap-1 text-sm text-text-muted hover:text-primary transition-colors mb-4"
         >
-          <span className="material-symbols-outlined text-lg">arrow_back</span>
+          <Icon name="arrow_back" className="text-lg" />
           {kindConfig.label}
         </Link>
 
@@ -102,7 +102,7 @@ export default function MediaProviderDetailPage() {
                   rel="noopener noreferrer"
                   className="text-xs text-primary hover:underline inline-flex items-center gap-1"
                 >
-                  <span className="material-symbols-outlined text-sm">open_in_new</span>
+                  <Icon name="open_in_new" className="text-sm" />
                   Get API Key
                 </a>
               )}
@@ -132,7 +132,7 @@ export default function MediaProviderDetailPage() {
       {/* Kind-specific notice (e.g. codex/image requires Plus) */}
       {!isCustom && provider.kindNotice?.[kind] && (
         <div className="flex items-start gap-3 px-4 py-3 rounded-lg bg-feedback-warning-surface border border-feedback-warning-border text-feedback-warning-foreground">
-          <span className="material-symbols-outlined text-[20px] mt-0.5">warning</span>
+          <Icon name="warning" size={20} className="mt-0.5" />
           <p className="text-sm">{provider.kindNotice[kind]}</p>
         </div>
       )}
@@ -140,7 +140,7 @@ export default function MediaProviderDetailPage() {
       {/* Provider notice text (only when there's actual text content) */}
       {!isCustom && provider.notice?.text && !provider.deprecated && (
         <div className="flex flex-col gap-2 rounded-lg border border-feedback-info-border bg-feedback-info-surface px-3 py-2 sm:flex-row sm:items-center">
-          <span className="material-symbols-outlined text-[16px] text-feedback-info-foreground shrink-0">info</span>
+          <Icon name="info" size={16} className="text-feedback-info-foreground shrink-0" />
           <p className="min-w-0 flex-1 text-xs leading-relaxed text-feedback-info-foreground">{provider.notice.text}</p>
           {provider.notice.apiKeyUrl && (
             <a

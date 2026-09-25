@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Card, Button, SegmentedControl } from "@/shared/components";
+import { Card, Button, SegmentedControl, Icon } from "@/shared/components";
 import { ConfirmModal } from "@/shared/components/Modal";
 
 const MODES = [
@@ -118,7 +118,7 @@ export default function NetworkAccessCard() {
     <Card>
       <div className="flex items-center gap-3 mb-4">
         <div className="size-10 rounded-lg bg-feedback-info-surface text-feedback-info-foreground flex items-center justify-center shrink-0">
-          <span className="material-symbols-outlined text-[20px]">lan</span>
+          <Icon name="lan" size={20} />
         </div>
         <div className="min-w-0">
           <h3 className="text-base sm:text-lg font-semibold">Network access</h3>

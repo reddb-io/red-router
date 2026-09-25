@@ -20,6 +20,7 @@ const ProviderTopology = dynamic(() => import("@/app/(dashboard)/dashboard/usage
 import UsageChart from "@/app/(dashboard)/dashboard/usage/components/UsageChart";
 import ProviderBarChart from "@/app/(dashboard)/dashboard/usage/components/ProviderBarChart";
 import TopModelsChart from "@/app/(dashboard)/dashboard/usage/components/TopModelsChart";
+import Icon from "./Icon";
 
 function timeAgo(timestamp) {
   const diff = Math.floor((Date.now() - new Date(timestamp)) / 1000);
@@ -455,7 +456,7 @@ export default function UsageStats({ period: periodProp, setPeriod: setPeriodPro
 
   const spinner = (
     <div className="flex items-center justify-center py-12 text-text-muted">
-      <span className="material-symbols-outlined text-[32px] animate-spin">progress_activity</span>
+      <Icon name="progress_activity" size={32} className="animate-spin" />
     </div>
   );
 
@@ -477,7 +478,7 @@ export default function UsageStats({ period: periodProp, setPeriod: setPeriodPro
             ))}
           </div>
           {fetching && (
-            <span className="material-symbols-outlined text-[16px] text-text-muted animate-spin">progress_activity</span>
+            <Icon name="progress_activity" size={16} className="text-text-muted animate-spin" />
           )}
         </div>
       )}

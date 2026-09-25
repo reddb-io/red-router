@@ -2,6 +2,7 @@
 
 import { tv } from "tailwind-variants";
 import { badge } from "@/shared/ds/badge.variants";
+import Icon from "./Icon";
 
 // The DS Badge ships neutral / primary / outline. Status badges extend it with
 // the DS feedback roles, the same surface/foreground/border triple the DS Card
@@ -48,7 +49,7 @@ export default function Badge({
   return (
     <span className={statusBadge({ variant: VARIANTS[variant] || "neutral", size, class: className })}>
       {dot && <span className="size-1.5 shrink-0 rounded-full bg-current" aria-hidden="true" />}
-      {icon && <span className="material-symbols-outlined text-[length:var(--reddb-spatial-icon-size-sm)] leading-none" aria-hidden="true">{icon}</span>}
+      {icon && <Icon name={icon} className="text-[length:var(--reddb-spatial-icon-size-sm)] leading-none" />}
       {children}
     </span>
   );

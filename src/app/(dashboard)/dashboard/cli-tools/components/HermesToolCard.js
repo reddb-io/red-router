@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { Card, Button, ModelSelectModal, ManualConfigModal } from "@/shared/components";
+import { Card, Button, ModelSelectModal, ManualConfigModal, Icon } from "@/shared/components";
 import Image from "next/image";
 import BaseUrlSelect from "./BaseUrlSelect";
 import { rememberEndpoint } from "./cliEndpointPresets";
@@ -205,14 +205,14 @@ export default function HermesToolCard({
             <p className="text-xs text-text-muted truncate">{tool.description}</p>
           </div>
         </div>
-        <span className={`material-symbols-outlined text-text-muted text-[20px] transition-transform ${isExpanded ? "rotate-180" : ""}`}>expand_more</span>
+        <Icon name="expand_more" size={20} className={`text-text-muted transition-transform ${isExpanded ? "rotate-180" : ""}`} />
       </div>
 
       {isExpanded && (
         <div className="mt-4 pt-4 border-t border-border flex flex-col gap-4">
           {checking && (
             <div className="flex items-center gap-2 text-text-muted">
-              <span className="material-symbols-outlined animate-spin">progress_activity</span>
+              <Icon name="progress_activity" size={24} className="animate-spin" />
               <span>Checking Hermes Agent...</span>
             </div>
           )}
@@ -221,7 +221,7 @@ export default function HermesToolCard({
             <div className="flex flex-col gap-4">
               <div className="flex flex-col gap-3 p-4 bg-feedback-warning-surface border border-feedback-warning-border rounded-lg">
                 <div className="flex items-start gap-3">
-                  <span className="material-symbols-outlined text-feedback-warning-foreground">warning</span>
+                  <Icon name="warning" size={24} className="text-feedback-warning-foreground" />
                   <div className="flex-1">
                     <p className="font-medium text-feedback-warning-foreground">Hermes Agent not detected locally</p>
                     <p className="text-sm text-text-muted">Install: curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash</p>
@@ -229,7 +229,7 @@ export default function HermesToolCard({
                 </div>
                 <div className="flex flex-col sm:flex-row sm:items-center gap-2 pl-0 sm:pl-9">
                   <Button variant="secondary" size="sm" onClick={() => setShowManualConfigModal(true)} className="w-full sm:w-auto !bg-feedback-warning-surface !border-feedback-warning-border !text-feedback-warning-foreground dark:!text-feedback-warning-foreground hover:!bg-feedback-warning-surface">
-                    <span className="material-symbols-outlined text-[18px] mr-1">content_copy</span>
+                    <Icon name="content_copy" size={18} className="mr-1" />
                     Manual Config
                   </Button>
                 </div>
@@ -242,7 +242,7 @@ export default function HermesToolCard({
               <div className="flex flex-col gap-2">
                 <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-[8rem_auto_1fr] sm:items-center sm:gap-2">
                   <span className="text-xs font-semibold text-text-main sm:text-right sm:text-sm">Select Endpoint</span>
-                  <span className="material-symbols-outlined hidden text-text-muted text-[14px] sm:inline">arrow_forward</span>
+                  <Icon name="arrow_forward" size={14} className="hidden text-text-muted sm:inline" />
                   <BaseUrlSelect
                     value={customBaseUrl || getEffectiveBaseUrl()}
                     onChange={setCustomBaseUrl}
@@ -258,7 +258,7 @@ export default function HermesToolCard({
                 {hermesStatus?.settings?.model?.base_url && (
                   <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-[8rem_auto_1fr_auto] sm:items-center sm:gap-2">
                     <span className="text-xs font-semibold text-text-main sm:text-right sm:text-sm">Current</span>
-                    <span className="material-symbols-outlined hidden text-text-muted text-[14px] sm:inline">arrow_forward</span>
+                    <Icon name="arrow_forward" size={14} className="hidden text-text-muted sm:inline" />
                     <span className="min-w-0 truncate rounded bg-surface/40 px-2 py-2 text-xs text-text-muted sm:py-1.5">
                       {hermesStatus.settings.model.base_url}
                     </span>
@@ -267,16 +267,16 @@ export default function HermesToolCard({
 
                 <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-[8rem_auto_1fr_auto] sm:items-center sm:gap-2">
                   <span className="text-xs font-semibold text-text-main sm:text-right sm:text-sm">API Key</span>
-                  <span className="material-symbols-outlined hidden text-text-muted text-[14px] sm:inline">arrow_forward</span>
+                  <Icon name="arrow_forward" size={14} className="hidden text-text-muted sm:inline" />
                   <ApiKeySelect value={selectedApiKey} onChange={setSelectedApiKey} apiKeys={apiKeys} cloudEnabled={cloudEnabled} />
                 </div>
 
                 <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-[8rem_auto_1fr_auto] sm:items-center sm:gap-2">
                   <span className="text-xs font-semibold text-text-main sm:text-right sm:text-sm">Default Model</span>
-                  <span className="material-symbols-outlined hidden text-text-muted text-[14px] sm:inline">arrow_forward</span>
+                  <Icon name="arrow_forward" size={14} className="hidden text-text-muted sm:inline" />
                   <div className="relative w-full min-w-0">
                     <input type="text" value={selectedModel} onChange={(e) => setSelectedModel(e.target.value)} placeholder="provider/model-id" className="w-full min-w-0 pl-2 pr-7 py-2 bg-surface rounded border border-border text-xs focus:outline-none focus:ring-1 focus:ring-primary/50 sm:py-1.5" />
-                    {selectedModel && <button onClick={() => setSelectedModel("")} className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 text-text-muted hover:text-feedback-danger-foreground rounded transition-colors" title="Clear"><span className="material-symbols-outlined text-[14px]">close</span></button>}
+                    {selectedModel && <button onClick={() => setSelectedModel("")} className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 text-text-muted hover:text-feedback-danger-foreground rounded transition-colors" title="Clear"><Icon name="close" size={14} /></button>}
                   </div>
                   <button onClick={() => setModalOpen(true)} disabled={!hasActiveProviders} className={`w-full sm:w-auto rounded border px-2 py-2 text-xs transition-colors sm:py-1.5 whitespace-nowrap sm:shrink-0 ${hasActiveProviders ? "bg-surface border-border text-text-main hover:border-primary cursor-pointer" : "opacity-50 cursor-not-allowed border-border"}`}>Select</button>
                 </div>
@@ -284,20 +284,20 @@ export default function HermesToolCard({
 
               {message && (
                 <div className={`flex items-center gap-2 px-2 py-1.5 rounded text-xs ${message.type === "success" ? "bg-feedback-success-surface text-feedback-success-foreground" : "bg-feedback-danger-surface text-feedback-danger-foreground"}`}>
-                  <span className="material-symbols-outlined text-[14px]">{message.type === "success" ? "check_circle" : "error"}</span>
+                  <Icon name={message.type === "success" ? "check_circle" : "error"} size={14} />
                   <span>{message.text}</span>
                 </div>
               )}
 
               <div className="flex flex-col sm:flex-row sm:items-center gap-2">
                 <Button variant="primary" size="sm" onClick={handleApply} disabled={!selectedModel} loading={applying} className="w-full sm:w-auto">
-                  <span className="material-symbols-outlined text-[14px] mr-1">save</span>Apply
+                  <Icon name="save" size={14} className="mr-1" />Apply
                 </Button>
                 <Button variant="outline" size="sm" onClick={handleReset} disabled={!hermesStatus?.hasRedRouter} loading={restoring} className="w-full sm:w-auto">
-                  <span className="material-symbols-outlined text-[14px] mr-1">restore</span>Reset
+                  <Icon name="restore" size={14} className="mr-1" />Reset
                 </Button>
                 <Button variant="ghost" size="sm" onClick={() => setShowManualConfigModal(true)} className="w-full sm:w-auto">
-                  <span className="material-symbols-outlined text-[14px] mr-1">content_copy</span>Manual Config
+                  <Icon name="content_copy" size={14} className="mr-1" />Manual Config
                 </Button>
               </div>
             </>

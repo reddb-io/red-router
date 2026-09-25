@@ -59,12 +59,12 @@ importers:
       kysely:
         specifier: ^0.29.6
         version: 0.29.6
+      lucide-react:
+        specifier: ^1.48.0
+        version: 1.48.0(react@19.2.4)
       marked:
         specifier: ^18.0.1
         version: 18.0.13
-      material-symbols:
-        specifier: ^0.44.6
-        version: 0.44.12
       monaco-editor:
         specifier: ^0.55.1
         version: 0.55.1
@@ -2538,6 +2538,11 @@ packages:
   lru-cache@5.1.1:
     resolution: {integrity: sha512-KpNARQA3Iwv+jTA0utUVVbrh+Jlrr1Fv0e56GGzAFOXN7dk/FviaDW8LHmK52DlcH4WP2n6gI8vN1aesBFgo9w==}
 
+  lucide-react@1.48.0:
+    resolution: {integrity: sha512-R0CIKY/fXiC6y9xRBADgsK+VW2p/pcTJOMhLZf1T+uG+vJUvyUR02nGOgmIIC7MPkiNK4Ox8QDnbqF8rJYWPZQ==}
+    peerDependencies:
+      react: ^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0
+
   magic-string@0.30.21:
     resolution: {integrity: sha512-vd2F4YUyEXKGcLHoq+TEyCjxueSeHnFxyyjNp80yg0XV4vUhnDer/lvvlqM/arB5bXQN5K2/3oinyCRyx8T2CQ==}
 
@@ -2550,9 +2555,6 @@ packages:
     resolution: {integrity: sha512-xTxVzZsBFwunP6HDmtBkabUQEYArnP7/rMDGmPj9SlrKlQ4i8MdYVow+nJL0eOqwpUqhzBoTBRADGN6uYwPyOw==}
     engines: {node: '>= 20'}
     hasBin: true
-
-  material-symbols@0.44.12:
-    resolution: {integrity: sha512-lZkS9BwISNU2Jbup+IlwZrr9z1oAK6zx38qPpe7mNzkXwiIEnQaxPz1Sf3bNZ0MX15LNlJQNjKI3MWLgmo83+Q==}
 
   math-intrinsics@1.1.0:
     resolution: {integrity: sha512-/IXtbwEk5HTPyEwyKX6hGkYXxM9nbj64B+ilVJnC/R6B0pH5G4V3b0pVbL7DBj4tkhBAppbQUlf6F6Xl9LHu1g==}
@@ -6025,6 +6027,10 @@ snapshots:
     dependencies:
       yallist: 3.1.1
 
+  lucide-react@1.48.0(react@19.2.4):
+    dependencies:
+      react: 19.2.4
+
   magic-string@0.30.21:
     dependencies:
       '@jridgewell/sourcemap-codec': 1.6.0
@@ -6032,8 +6038,6 @@ snapshots:
   marked@14.0.0: {}
 
   marked@18.0.13: {}
-
-  material-symbols@0.44.12: {}
 
   math-intrinsics@1.1.0: {}
 

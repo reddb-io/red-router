@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { Card, Button, Toggle, Input, Select } from "@/shared/components";
+import { Card, Button, Toggle, Input, Select, Icon } from "@/shared/components";
 import Modal, { ConfirmModal } from "@/shared/components/Modal";
 import LanguageSwitcher from "@/shared/components/LanguageSwitcher";
 import { useTheme } from "@/shared/hooks/useTheme";
@@ -818,9 +818,7 @@ export default function ProfilePage() {
                 "size-10 sm:size-12 rounded-lg flex items-center justify-center shrink-0",
                 dbInfo?.mode === "distributed" ? "bg-feedback-info-surface text-feedback-info-foreground" : "bg-feedback-success-surface text-feedback-success-foreground",
               )}>
-                <span className="material-symbols-outlined text-xl sm:text-2xl">
-                  {dbInfo?.mode === "distributed" ? "database" : "computer"}
-                </span>
+                <Icon name={dbInfo?.mode === "distributed" ? "database" : "computer"} className="text-xl sm:text-2xl" />
               </div>
               <div>
                 <h2 className="text-lg sm:text-xl font-semibold">
@@ -846,9 +844,7 @@ export default function ProfilePage() {
                       : "text-text-muted hover:text-text-main"
                   )}
                 >
-                  <span className="material-symbols-outlined text-[18px]">
-                    {option === "light" ? "light_mode" : option === "dark" ? "dark_mode" : "contrast"}
-                  </span>
+                  <Icon name={option === "light" ? "light_mode" : option === "dark" ? "dark_mode" : "contrast"} size={18} />
                   <span className="capitalize text-xs sm:text-sm">{option}</span>
                 </button>
               ))}
@@ -929,7 +925,7 @@ export default function ProfilePage() {
         <Card>
           <div className="flex items-center gap-3 mb-4">
             <div className="size-10 rounded-lg bg-feedback-info-surface text-feedback-info-foreground flex items-center justify-center shrink-0">
-              <span className="material-symbols-outlined text-[20px]">language</span>
+              <Icon name="language" size={20} />
             </div>
             <h3 className="text-base sm:text-lg font-semibold">Language</h3>
           </div>
@@ -949,7 +945,7 @@ export default function ProfilePage() {
         <Card>
           <div className="flex items-center gap-3 mb-4">
             <div className="p-2 rounded-lg bg-primary/10 text-primary shrink-0">
-              <span className="material-symbols-outlined text-[20px]">shield</span>
+              <Icon name="shield" size={20} />
             </div>
             <h3 className="text-base sm:text-lg font-semibold">Security</h3>
           </div>
@@ -1035,7 +1031,7 @@ export default function ProfilePage() {
             className="w-full flex items-center gap-3 text-left"
           >
             <div className="p-2 rounded-lg bg-feedback-info-surface text-feedback-info-foreground shrink-0">
-              <span className="material-symbols-outlined text-[20px]">lock_open</span>
+              <Icon name="lock_open" size={20} />
             </div>
             <div className="flex-1 min-w-0">
               <h3 className="text-base sm:text-lg font-semibold">Single Sign-On (SSO)</h3>
@@ -1047,9 +1043,7 @@ export default function ProfilePage() {
                     : "Optional SSO via Okta, Entra ID, Keycloak, or OIDC"}
               </p>
             </div>
-            <span className="material-symbols-outlined text-text-muted shrink-0">
-              {oidcExpanded ? "expand_less" : "expand_more"}
-            </span>
+            <Icon name={oidcExpanded ? "expand_less" : "expand_more"} size={24} className="text-text-muted shrink-0" />
           </button>
           {oidcExpanded && (
             <div className="flex flex-col gap-4 mt-4">
@@ -1148,7 +1142,7 @@ export default function ProfilePage() {
                       className="w-full p-3 flex items-center justify-between gap-2 text-left hover:bg-surface/50 transition-colors"
                     >
                       <div className="flex items-center gap-2">
-                        <span className="material-symbols-outlined text-primary text-lg">menu_book</span>
+                        <Icon name="menu_book" className="text-primary text-lg" />
                         <div>
                           <p className="font-semibold text-xs sm:text-sm text-text-main">
                             IdP Setup Guidelines & Provider Configuration Instructions
@@ -1158,12 +1152,7 @@ export default function ProfilePage() {
                           </p>
                         </div>
                       </div>
-                      <span
-                        className="material-symbols-outlined text-text-muted transition-transform text-lg"
-                        style={{ transform: showSamlGuide ? "rotate(180deg)" : "none" }}
-                      >
-                        expand_more
-                      </span>
+                      <Icon name="expand_more" className="text-text-muted transition-transform text-lg" style={{ transform: showSamlGuide ? "rotate(180deg)" : "none" }} />
                     </button>
 
                     {showSamlGuide && (
@@ -1382,7 +1371,7 @@ export default function ProfilePage() {
                         download="red-router-sp-metadata.xml"
                         className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
                       >
-                        <span className="material-symbols-outlined text-[16px]">download</span>
+                        <Icon name="download" size={16} />
                         Download XML
                       </a>
                     </div>
@@ -1579,7 +1568,7 @@ export default function ProfilePage() {
         <Card>
           <div className="flex items-center gap-3 mb-4">
             <div className="p-2 rounded-lg bg-feedback-info-surface text-feedback-info-foreground shrink-0">
-              <span className="material-symbols-outlined text-[20px]">route</span>
+              <Icon name="route" size={20} />
             </div>
             <h3 className="text-base sm:text-lg font-semibold">Routing Strategy</h3>
           </div>
@@ -1743,7 +1732,7 @@ export default function ProfilePage() {
         <Card>
           <div className="flex items-center gap-3 mb-4">
             <div className="p-2 rounded-lg bg-purple-500/10 text-purple-500 shrink-0">
-              <span className="material-symbols-outlined text-[20px]">wifi</span>
+              <Icon name="wifi" size={20} />
             </div>
             <h3 className="text-base sm:text-lg font-semibold">Network</h3>
           </div>
@@ -1815,7 +1804,7 @@ export default function ProfilePage() {
         <Card>
           <div className="flex items-center gap-3 mb-4">
             <div className="p-2 rounded-lg bg-feedback-warning-surface text-feedback-warning-foreground shrink-0">
-              <span className="material-symbols-outlined text-[20px]">monitoring</span>
+              <Icon name="monitoring" size={20} />
             </div>
             <h3 className="text-base sm:text-lg font-semibold">Observability</h3>
           </div>

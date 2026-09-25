@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { createPortal } from "react-dom";
+import Icon from "./Icon";
 
 const FEATURES = [
   { icon: "terminal", label: "Terminal", desc: "Full shell access" },
@@ -37,7 +38,7 @@ export default function NineRemotePromoModal({ isOpen, onClose }) {
         <div className="flex items-center justify-between px-5 py-3 border-b border-border-subtle">
           <div className="flex items-center gap-3">
             <div className="w-7 h-7 rounded-md flex items-center justify-center bg-primary">
-              <span className="material-symbols-outlined text-white text-base">terminal</span>
+              <Icon name="terminal" className="text-white text-base" />
             </div>
             <span className="text-xs font-bold uppercase tracking-wider text-primary font-mono">9Remote</span>
           </div>
@@ -45,7 +46,7 @@ export default function NineRemotePromoModal({ isOpen, onClose }) {
             onClick={onClose}
             className="p-1.5 rounded-md text-text-muted hover:bg-surface-2 hover:text-text-main transition-colors"
           >
-            <span className="material-symbols-outlined text-base">close</span>
+            <Icon name="close" className="text-base" />
           </button>
         </div>
 
@@ -54,7 +55,7 @@ export default function NineRemotePromoModal({ isOpen, onClose }) {
           {/* Hero */}
           <div className="flex flex-col items-center gap-2 text-center mt-2">
             <div className="w-14 h-14 rounded-lg flex items-center justify-center mb-1 bg-primary shadow-[var(--shadow-warm)]">
-              <span className="material-symbols-outlined text-white text-[30px]">terminal</span>
+              <Icon name="terminal" size={30} className="text-white" />
             </div>
             <h1 className="text-lg font-bold text-text-main tracking-tight">9Remote</h1>
             <p className="text-xs text-text-muted leading-5 max-w-[220px]">
@@ -66,7 +67,7 @@ export default function NineRemotePromoModal({ isOpen, onClose }) {
           <div className="flex gap-2 w-full">
             {FEATURES.map(({ icon, label, desc }) => (
               <div key={label} className="flex-1 flex flex-col items-center gap-1.5 py-4 px-1 rounded-md border border-border-subtle bg-surface-2">
-                <span className="material-symbols-outlined text-primary text-[22px]">{icon}</span>
+                <Icon name={icon} size={22} className="text-primary" />
                 <p className="text-xs font-semibold text-text-main">{label}</p>
                 <p className="text-[10px] text-text-muted text-center leading-4">{desc}</p>
               </div>
@@ -77,7 +78,7 @@ export default function NineRemotePromoModal({ isOpen, onClose }) {
           <div className="flex flex-col gap-3 w-full">
             {BULLETS.map(({ icon, text }) => (
               <div key={icon} className="flex items-center gap-2.5">
-                <span className="material-symbols-outlined flex-shrink-0 text-primary text-[16px]">{icon}</span>
+                <Icon name={icon} size={16} className="flex-shrink-0 text-primary" />
                 <span className="text-xs text-text-muted">{text}</span>
               </div>
             ))}
@@ -88,7 +89,7 @@ export default function NineRemotePromoModal({ isOpen, onClose }) {
             onClick={() => window.open(NINE_REMOTE_URL, "_blank")}
             className="w-full py-3 flex items-center justify-center gap-2 text-sm font-semibold text-white rounded-md bg-primary hover:bg-primary-hover shadow-[var(--shadow-warm)] active:scale-[0.98] transition-all"
           >
-            <span className="material-symbols-outlined text-base">open_in_new</span>
+            <Icon name="open_in_new" className="text-base" />
             Get 9Remote
           </button>
         </div>
