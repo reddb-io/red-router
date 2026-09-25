@@ -9,7 +9,10 @@ const cache = new Map(); // key -> { version, expiresAt, pending }
 
 async function compute(apiKey) {
   const { buildModelsList } = await import("@/app/api/v1/models/route.js");
-  const list = await buildModelsList(["llm"], { apiKey, skipDynamicFetch: true });
+  const { getApiKeyModelIdFormat } = await import("@/lib/db/repos/apiKeysRepo.js");
+  // The catalog this key reads: a flat key's version moves with its flat entries.
+  const idFormat = apiKey ? await getApiKeyModelIdFormat(apiKey) : "prefixed";
+  const list = await buildModelsList(["llm"], { apiKey, skipDynamicFetch: true, idFormat });
   return createHash("sha256").update(JSON.stringify(list)).digest("hex").slice(0, 16);
 }
 

@@ -87,6 +87,13 @@ export function getPageInfo(pathname) {
       icon: "dns",
       breadcrumbs: [],
     };
+  if (pathname === "/dashboard/models")
+    return {
+      title: "Models",
+      description: "One entry per model, whoever serves it: choose which offers a flat model id uses, and in what order.",
+      icon: "view_list",
+      breadcrumbs: [],
+    };
   if (pathname.includes("/combos"))
     return {
       title: "Combos",

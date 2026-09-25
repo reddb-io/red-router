@@ -123,3 +123,24 @@ export function pinIdFor(offer, flatIds) {
   if (!flatIds.has(offer.id)) return offer.id;
   return offer.aliases.find((alias) => !flatIds.has(alias)) || null;
 }
+
+/**
+ * An admin's order and switched-off offers for one flat entry (Models page),
+ * saved per flat key. Offers the policy names come first, in its order; the rest
+ * keep the default order after them (a new provider does not jump the queue).
+ * Switched-off offers stay listed with `available: false` and are never members.
+ * @param {object[]} offers  a group's offers, default order
+ * @param {{ order?: string[], disabled?: string[] }|null|undefined} policy
+ * @returns {{ offers: object[], custom: boolean }}
+ */
+export function applyFlatPolicy(offers, policy) {
+  const order = Array.isArray(policy?.order) ? policy.order : [];
+  const disabled = new Set(Array.isArray(policy?.disabled) ? policy.disabled : []);
+  const rank = new Map(order.map((id, i) => [id, i]));
+  const ranked = offers
+    .map((offer, i) => ({ offer, i }))
+    .sort((a, b) => (rank.get(a.offer.id) ?? order.length + a.i) - (rank.get(b.offer.id) ?? order.length + b.i))
+    .map(({ offer }) => ({ ...offer, available: !disabled.has(offer.id) }));
+  const custom = ranked.some((o, i) => o.id !== offers[i].id) || ranked.some((o) => !o.available);
+  return { offers: ranked, custom };
+}

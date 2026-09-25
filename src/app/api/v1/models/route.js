@@ -36,7 +36,7 @@ import { CATALOG_VERSION_HEADER } from "open-sse/config/runtimeConfig.js";
 import { SYSTEM_ONE_CREDENTIAL_SOURCES } from "open-sse/config/systemOne.js";
 import { resolveOpenCodeGoModels, resolveOpenCodeZenSystemOneModels } from "open-sse/services/opencodeCatalog.js";
 import { modelsDevModels } from "@/lib/modelCatalog/browse";
-import { groupFlatOffers, pinIdFor } from "@/lib/flatModels.js";
+import { applyFlatPolicy, groupFlatOffers, pinIdFor } from "@/lib/flatModels.js";
 import { getPricingForModel } from "@/lib/db/repos/pricingRepo.js";
 import { getApiKeyModelIdFormat } from "@/lib/db/repos/apiKeysRepo.js";
 import {
@@ -1037,7 +1037,7 @@ export async function buildModelsList(kindFilter, options = {}) {
 
   const allowed = await filterByKeyModelAccess(dedupedModels, options.apiKey);
   // Flat ids group the offers the key may use, so access is decided per offer first.
-  return options.idFormat === "flat" ? flattenCatalog(allowed, comboByName) : allowed;
+  return options.idFormat === "flat" ? flattenCatalog(allowed, comboByName, { keepEmpty: options.keepEmptyFlat === true }) : allowed;
 }
 
 /** Catalog id formats: "prefixed" lists every offer; "flat" one entry per model (src/lib/flatModels.js). */
@@ -1052,15 +1052,26 @@ const perMillionPrice = (pricing) => (pricing && (typeof pricing.input === "numb
  * whose members are the offers' full ids (cheapest first), shaped like a combo so
  * clients handle it the same way, plus `offers` for labels and pinning.
  */
-async function flattenCatalog(entries, comboByName) {
+async function flattenCatalog(entries, comboByName, { keepEmpty = false } = {}) {
   const isOffer = (e) => e?.provider && e.owned_by !== "combo" && e.owned_by !== "alias" && !e.kind;
   const offers = entries.filter(isOffer);
   const groups = await groupFlatOffers(offers, {
     priceOf: async (providerId, modelId) => perMillionPrice(await getPricingForModel(providerId, modelId).catch(() => null)),
   });
   const flatIds = new Set(groups.map((g) => g.id));
-  const flat = groups.map((group) => {
-    const members = group.offers.map((o) => o.id);
+  let policies = {};
+  try {
+    policies = (await getSettings())?.flatModelPolicies || {};
+  } catch {
+    // No settings: default order, every offer on.
+  }
+  const flat = [];
+  for (const group of groups) {
+    const { offers: ordered, custom } = applyFlatPolicy(group.offers, policies[group.key]);
+    const members = ordered.filter((o) => o.available).map((o) => o.id);
+    // Every offer switched off: the model is not offered at all (the Models page
+    // still lists it, so it can be switched back on).
+    if (!members.length && !keepEmpty) continue;
     const entry = {
       id: group.id,
       object: "model",
@@ -1069,13 +1080,15 @@ async function flattenCatalog(entries, comboByName) {
       name: group.name,
       provider: COMBO_PROVIDER,
       strategy: "fallback",
+      // "price": cheapest first (default); "custom": an admin ordered or switched off offers.
+      offer_order: custom ? "custom" : "price",
       ...(group.canonical ? { canonical: group.canonical } : {}),
-      offers: group.offers.map((o) => ({
+      offers: ordered.map((o) => ({
         id: o.id,
         pin_id: pinIdFor(o, flatIds),
         provider: o.provider,
         via: o.via,
-        available: true,
+        available: o.available,
         price: o.price,
         free: o.free,
       })),
@@ -1087,8 +1100,8 @@ async function flattenCatalog(entries, comboByName) {
       entry.max_completion_tokens = caps.maxOutput;
     }
     addComboRouting(entry, members, comboByName);
-    return entry;
-  });
+    flat.push(entry);
+  }
   return [...entries.filter((e) => !isOffer(e)), ...flat];
 }
 

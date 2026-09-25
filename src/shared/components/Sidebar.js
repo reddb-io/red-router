@@ -18,6 +18,8 @@ const operateItems = [
   { href: "/dashboard", label: "Usage", icon: "bar_chart" },
   { href: "/dashboard/quota", label: "Quota Tracker", icon: "data_usage" },
   { href: "/dashboard/combos", label: "Routing Combos", icon: "layers" },
+  // Admin-only while resource scoping is on (the proxy enforces it).
+  { href: "/dashboard/models", label: "Models", icon: "view_list", adminOnly: true },
   { href: "/dashboard/token-saver", label: "Token Saver", icon: "savings" },
   { href: "/dashboard/endpoint", label: "Endpoint & Keys", icon: "api" },
 ];
@@ -108,7 +110,7 @@ export default function Sidebar({ onClose }) {
 
         {/* One rhythm for every section: the gap between them lives here, not on each block. */}
         <nav className="flex flex-1 flex-col gap-6 overflow-y-auto px-3 py-5 custom-scrollbar" aria-label="Primary navigation">
-          {renderSection("Operate", operateItems.map(renderLink))}
+          {renderSection("Operate", operateItems.filter((item) => showAdminItems || !item.adminOnly).map(renderLink))}
 
           {renderSection("Tools", toolItems.map(renderLink))}
 
