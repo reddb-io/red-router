@@ -68,19 +68,57 @@ function checkedFile(file) {
   }
 }
 
-function lockAbandoned(dir) {
-  const stat = fs.lstatSync(dir);
+// The lock (or recovery guard) at `dir` when its owner is dead, named by its
+// inode and mtime so a later lock at the same path is a different instance.
+// Null when it is live, or already gone.
+function abandonedInstance(dir) {
+  let stat;
+  try { stat = fs.lstatSync(dir); } catch (error) { if (error.code === "ENOENT") return null; throw error; }
   if (!stat.isDirectory()) throw new Error("unsafe diagnostic lock");
-  const owner = path.join(dir, "owner");
+  const instance = `${stat.ino}-${Math.trunc(stat.mtimeMs)}`;
+  const old = Date.now() - stat.mtimeMs > LOCK_GRACE_MS;
   try {
-    const pid = Number(fs.readFileSync(owner, "utf8"));
-    if (!Number.isSafeInteger(pid) || pid <= 0) return Date.now() - stat.mtimeMs > LOCK_GRACE_MS;
-    try { process.kill(pid, 0); return false; } catch (error) { return error.code === "ESRCH"; }
+    const pid = Number(fs.readFileSync(path.join(dir, "owner"), "utf8"));
+    if (!Number.isSafeInteger(pid) || pid <= 0) return old ? instance : null;
+    try { process.kill(pid, 0); return null; } catch (error) { return error.code === "ESRCH" ? instance : null; }
   } catch (error) {
     if (error.code !== "ENOENT") throw error;
     // mkdir may succeed immediately before a crash; do not evict a live process
     // in the tiny window before it writes its owner file.
-    return Date.now() - stat.mtimeMs > LOCK_GRACE_MS;
+    return old ? instance : null;
+  }
+}
+
+// Remove an abandoned lock instance. Judging and removing are separate steps, so
+// processes that judged the same dead lock at once would each remove whatever is
+// at the path when they get there: for the slower one, a new live lock. So one
+// instance is removed by one process only: whoever creates its claim (an
+// exclusive mkdir named after the instance). The claim stays behind so a late
+// process cannot claim that instance again. Claims older than LOCK_GRACE_MS are
+// swept, which also frees an instance whose claimant died before removing it.
+function evictAbandoned(dir, instance) {
+  try {
+    fs.mkdirSync(`${dir}.evicted-${instance}`, { mode: 0o700 });
+  } catch (error) {
+    if (error.code !== "EEXIST") throw error;
+    sweepEvictionClaims(dir);
+    return false;
+  }
+  removeLock(dir);
+  sweepEvictionClaims(dir);
+  return true;
+}
+
+function sweepEvictionClaims(dir) {
+  const prefix = `${path.basename(dir)}.evicted-`;
+  for (const name of fs.readdirSync(path.dirname(dir))) {
+    if (!name.startsWith(prefix)) continue;
+    const claim = path.join(path.dirname(dir), name);
+    try {
+      if (Date.now() - fs.lstatSync(claim).mtimeMs > LOCK_GRACE_MS) fs.rmdirSync(claim);
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+    }
   }
 }
 
@@ -104,7 +142,8 @@ function withLock(file, action, waitMs = LOCK_WAIT_MS) {
       if (fs.existsSync(recovery)) {
         // The recovery guard has its own owner: a crash while reclaiming a
         // dead writer must not disable logging for every future process.
-        try { if (lockAbandoned(recovery)) removeLock(recovery); } catch (error) { if (error.code !== "ENOENT") throw error; }
+        const stale = abandonedInstance(recovery);
+        if (stale) evictAbandoned(recovery, stale);
         if (fs.existsSync(recovery)) throw Object.assign(new Error("recovering log lock"), { code: "EEXIST" });
       }
       fs.mkdirSync(lock, { mode: 0o700 });
@@ -118,7 +157,8 @@ function withLock(file, action, waitMs = LOCK_WAIT_MS) {
         fs.mkdirSync(recovery, { mode: 0o700 });
         recovering = true;
         fs.writeFileSync(path.join(recovery, "owner"), String(process.pid), { mode: 0o600, flag: "wx" });
-        if (lockAbandoned(lock)) removeLock(lock);
+        const stale = abandonedInstance(lock);
+        if (stale) evictAbandoned(lock, stale);
       } catch (recoveryError) {
         if (!["EEXIST", "ENOENT"].includes(recoveryError.code)) throw recoveryError;
       } finally {
@@ -283,4 +323,4 @@ async function openLog({ file = logPath(), platform = process.platform, spawnPro
   });
 }
 
-module.exports = { MAX_BYTES, TOTAL_FILES, MAX_LINE_BYTES, logPath, redact, createDiagnostics, getDiagnostics, captureServerOutput, observeRuntime, openLog };
+module.exports = { MAX_BYTES, TOTAL_FILES, MAX_LINE_BYTES, logPath, redact, createDiagnostics, getDiagnostics, captureServerOutput, observeRuntime, openLog, abandonedInstance, evictAbandoned };

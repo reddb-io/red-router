@@ -8,7 +8,7 @@ import { execFileSync, spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import diagnosticsModule from "../../cli/src/cli/diagnostics.js";
 
-const { MAX_BYTES, TOTAL_FILES, logPath, redact, createDiagnostics, captureServerOutput, observeRuntime, openLog } = diagnosticsModule;
+const { MAX_BYTES, TOTAL_FILES, logPath, redact, createDiagnostics, captureServerOutput, observeRuntime, openLog, abandonedInstance, evictAbandoned } = diagnosticsModule;
 const cli = fileURLToPath(new URL("../../cli/cli.js", import.meta.url));
 const modulePath = fileURLToPath(new URL("../../cli/src/cli/diagnostics.js", import.meta.url));
 const directories = [];
@@ -187,6 +187,46 @@ describe("bounded private rotating log", () => {
     const logger = createDiagnostics({ file, warn: () => { throw new Error("EPIPE"); } });
     expect(logger.append("launcher", "blocked")).toBe(false);
     expect(fs.readFileSync(path.join(`${file}.lock.recovery`, "owner"), "utf8")).toBe(String(process.pid));
+  });
+
+  // Processes that judge the same dead lock at once must not each remove "the
+  // lock": the slower one would remove the live lock that replaced it. This is
+  // what failed the concurrent test below now and then (a live guard removed
+  // under its owner, whose own release then hit ENOENT or ENOTEMPTY).
+  it("removes an abandoned lock once, never the live lock that replaced it", () => {
+    const file = path.join(temporary(), "red-router.log");
+    const lock = `${file}.lock`;
+    fs.mkdirSync(lock);
+    fs.writeFileSync(path.join(lock, "owner"), "2147483646");
+    // Two processes judge the same dead lock.
+    const fast = abandonedInstance(lock);
+    const slow = abandonedInstance(lock);
+    expect(fast).toBeTruthy();
+    expect(slow).toBe(fast);
+
+    expect(evictAbandoned(lock, fast)).toBe(true);
+    expect(fs.existsSync(lock)).toBe(false);
+    // A live writer takes the lock before the slow process gets to evict.
+    fs.mkdirSync(lock);
+    fs.writeFileSync(path.join(lock, "owner"), String(process.pid));
+    expect(abandonedInstance(lock)).toBeNull();
+
+    expect(evictAbandoned(lock, slow)).toBe(false);
+    expect(fs.readFileSync(path.join(lock, "owner"), "utf8")).toBe(String(process.pid));
+  });
+
+  it("frees a dead lock whose evicting process died before removing it", () => {
+    const file = path.join(temporary(), "red-router.log");
+    const lock = `${file}.lock`;
+    fs.mkdirSync(lock);
+    fs.writeFileSync(path.join(lock, "owner"), "2147483646");
+    // The claim is left, the lock is not: the claimant crashed in between.
+    const claim = `${lock}.evicted-${abandonedInstance(lock)}`;
+    fs.mkdirSync(claim);
+    fs.utimesSync(claim, new Date(0), new Date(0));
+    expect(createDiagnostics({ file }).append("launcher", "after a crashed eviction")).toBe(true);
+    expect(fs.readFileSync(file, "utf8")).toContain("after a crashed eviction");
+    expect(fs.existsSync(lock)).toBe(false);
   });
 
   // What is under test is serialization, not speed: the default 200 ms wait drops
