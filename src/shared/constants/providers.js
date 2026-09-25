@@ -46,6 +46,10 @@ const byCategory = (cat) => Object.fromEntries(
 );
 
 export const FREE_PROVIDERS = byCategory("free");
+// Free providers usable without an account, minus retired ones (hidden: e.g.
+// MiMo Code Free after Xiaomi ended it). Anything listing "always available"
+// providers uses this, so a hidden provider stays out everywhere at once.
+export const NO_AUTH_PROVIDERS = Object.values(FREE_PROVIDERS).filter((p) => p.noAuth && !p.hidden);
 export const FREE_TIER_PROVIDERS = byCategory("freeTier");
 
 // Thinking config definitions
