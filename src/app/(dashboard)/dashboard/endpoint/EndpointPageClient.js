@@ -821,6 +821,19 @@ export default function APIPageClient({ machineId }) {
             copied={copied}
             onCopy={copy}
           />
+          {/* RedRouter's own MCP server: read-only models, combos, providers and usage for agents. */}
+          <EndpointRow
+            label="MCP"
+            url={`${currentEndpoint}/mcp`}
+            copyId="mcp_url"
+            copied={copied}
+            onCopy={copy}
+          />
+          <p className="text-xs text-text-muted">
+            Lets an agent see the models, combos and providers its API key can use, and its usage (MCP over HTTP).
+            Claude Code:{" "}
+            <code className="break-all" data-i18n-skip="true">{`claude mcp add --transport http red-router ${currentEndpoint}/mcp --header "Authorization: Bearer <API key>"`}</code>
+          </p>
         </div>
 
         <details className="mt-5 border-t border-border-subtle pt-4">
