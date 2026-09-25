@@ -6,14 +6,15 @@
 // reboots. Windows has no built-in per-user service manager here; the CLI
 // falls back to `--tray` background mode guidance.
 //
-// Network exposure is opt-in: services bind 127.0.0.1 by default. Pass
-// `--host 0.0.0.0` (or `--expose`) to make the gateway reachable from the
-// subnet.
+// Network exposure is opt-in: services follow the saved network setting
+// (`red-router network local|network`, or the dashboard) and bind 127.0.0.1 when
+// none is saved. `--host 0.0.0.0` (or `--expose`) pins the address instead.
 
 const { execFileSync } = require("child_process");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
+const { resolveHost } = require("./src/cli/network");
 
 const SERVICE_ID = "red-router";
 const LINUX_UNIT_DIR = path.join(os.homedir(), ".config", "systemd", "user");
@@ -26,8 +27,11 @@ function resolvePlatform() {
   return process.platform;
 }
 
+// An explicit host is pinned in the definition; otherwise the service follows the
+// saved network setting (`red-router network`), local-only when none is saved.
 function launcherArgs({ port, host }) {
-  return ["-p", String(port), "-H", host, "--skip-update", "-n"];
+  const bind = host ? ["-H", host] : ["--default-host", DEFAULT_SERVICE_HOST];
+  return ["-p", String(port), ...bind, "--skip-update", "-n"];
 }
 
 function buildSystemdUnit({ nodePath, cliPath, port, host }) {
@@ -83,26 +87,28 @@ function run(cmd, args) {
 }
 
 function installService({ port = 25050, host } = {}) {
-  const resolvedHost = host || DEFAULT_SERVICE_HOST;
+  // What the service binds now; without a pinned host it follows the saved setting.
+  const resolvedHost = resolveHost({ flagHost: host, defaultHost: DEFAULT_SERVICE_HOST }).host;
+  const pinned = Boolean(host);
   const { nodePath, cliPath } = resolveNodeAndCli();
   const platform = resolvePlatform();
 
   if (platform === "linux") {
     fs.mkdirSync(LINUX_UNIT_DIR, { recursive: true });
-    fs.writeFileSync(LINUX_UNIT_PATH, buildSystemdUnit({ nodePath, cliPath, port, host: resolvedHost }));
+    fs.writeFileSync(LINUX_UNIT_PATH, buildSystemdUnit({ nodePath, cliPath, port, host }));
     run("systemctl", ["--user", "daemon-reload"]);
     run("systemctl", ["--user", "enable", "--now", `${SERVICE_ID}.service`]);
-    return { ok: true, host: resolvedHost, port, kind: "systemd --user", path: LINUX_UNIT_PATH };
+    return { ok: true, host: resolvedHost, pinned, port, kind: "systemd --user", path: LINUX_UNIT_PATH };
   }
 
   if (platform === "darwin") {
     fs.mkdirSync(DARWIN_PLIST_DIR, { recursive: true });
-    fs.writeFileSync(DARWIN_PLIST_PATH, buildLaunchdPlist({ nodePath, cliPath, port, host: resolvedHost }));
+    fs.writeFileSync(DARWIN_PLIST_PATH, buildLaunchdPlist({ nodePath, cliPath, port, host }));
     try {
       run("launchctl", ["unload", DARWIN_PLIST_PATH]);
     } catch {}
     run("launchctl", ["load", DARWIN_PLIST_PATH]);
-    return { ok: true, host: resolvedHost, port, kind: "launchd", path: DARWIN_PLIST_PATH };
+    return { ok: true, host: resolvedHost, pinned, port, kind: "launchd", path: DARWIN_PLIST_PATH };
   }
 
   return {

@@ -18,6 +18,11 @@ describe("cli service definitions", () => {
     expect(DEFAULT_SERVICE_HOST).toBe("127.0.0.1");
   });
 
+  it("a service without a pinned host follows the saved network setting, local by default", () => {
+    expect(launcherArgs({ port: 25050 })).toEqual(["-p", "25050", "--default-host", "127.0.0.1", "--skip-update", "-n"]);
+    expect(buildSystemdUnit({ ...opts, host: undefined })).toContain('"--default-host" "127.0.0.1"');
+  });
+
   it("launcher args run headless with update checks disabled", () => {
     expect(launcherArgs({ port: 25050, host: "127.0.0.1" })).toEqual([
       "-p",
