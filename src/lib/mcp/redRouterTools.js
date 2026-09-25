@@ -21,9 +21,11 @@ import { getPricingForModel } from "@/lib/db/repos/pricingRepo.js";
 import { getDb } from "@/lib/db/kysely.js";
 import { offerOf } from "@/lib/flatModels.js";
 import { summarizeConnectionHealth } from "open-sse/services/providerHealth.js";
+import { getApplicableModelLock } from "open-sse/services/accountFallback.js";
+import { quotaStanding } from "@/sse/services/quotaSnapshot.js";
 import { PROVIDER_ID_TO_ALIAS } from "open-sse/config/providerModels.js";
 
-export const MCP_SCHEMA_VERSION = 3;
+export const MCP_SCHEMA_VERSION = 4;
 
 /** The tools a key's client sees: admin tools only for an admin key. */
 export const toolsForKey = (key) => RED_ROUTER_TOOLS.filter((t) => !t.admin || key?.role === "admin");
@@ -57,7 +59,10 @@ const total = (price) => (price ? (price.input || 0) + (price.output || 0) : nul
 
 function accountStatus(conn, now) {
   if (conn.isActive === false) return "disabled";
-  if (conn.rateLimitedUntil && Date.parse(conn.rateLimitedUntil) > now) return "rate_limited";
+  // A lock on the whole account, or a quota report with a window used up.
+  const lock = getApplicableModelLock(conn, null, now);
+  if (lock?.meta?.reason === "quota_exhausted" || quotaStanding(conn.id, null, now).exhausted) return "quota_exhausted";
+  if (lock || (conn.rateLimitedUntil && Date.parse(conn.rateLimitedUntil) > now)) return "rate_limited";
   if (conn.testStatus && !["active", "success", "unknown"].includes(conn.testStatus)) return "error";
   return "ok";
 }
@@ -70,9 +75,11 @@ async function providerStates(apiKey) {
   const [connections, allowed] = await Promise.all([getProviderConnections(), getApiKeyAllowedConnectionIds(apiKey)]);
   const now = Date.now();
   const byProvider = new Map();
+  const connsByProvider = new Map();
   for (const conn of connections) {
     if (allowed && !allowed.includes(conn.id)) continue;
-    const p = byProvider.get(conn.provider) || { accounts: { total: 0, ok: 0, rate_limited: 0, error: 0, disabled: 0 }, health: null, until: null };
+    connsByProvider.set(conn.provider, [...(connsByProvider.get(conn.provider) || []), conn]);
+    const p = byProvider.get(conn.provider) || { accounts: { total: 0, ok: 0, quota_exhausted: 0, rate_limited: 0, error: 0, disabled: 0 }, health: null, until: null };
     const state = accountStatus(conn, now);
     p.accounts.total += 1;
     p.accounts[state] += 1;
@@ -90,22 +97,57 @@ async function providerStates(apiKey) {
   }
   for (const p of byProvider.values()) {
     const { accounts } = p;
-    const state = accounts.ok ? "ok" : accounts.rate_limited ? "rate_limited" : accounts.error ? "error" : "disabled";
+    const state = accounts.ok ? "ok" : accounts.quota_exhausted ? "quota_exhausted" : accounts.rate_limited ? "rate_limited" : accounts.error ? "error" : "disabled";
     p.status = {
       state,
       ...(state === "rate_limited" && p.until ? { until: p.until } : {}),
       ...(p.health ? { error_rate: p.health.error_rate } : {}),
     };
   }
+  byProvider.connections = connsByProvider;
   return byProvider;
 }
 
-/** The connection-level status behind a concrete model entry. */
-function statusOfModel(entry, states) {
-  for (const id of [ALIAS_TO_ID[entry.owned_by], entry.owned_by, entry.provider?.id]) {
-    if (id && states.has(id)) return states.get(id).status;
+/**
+ * Whether a concrete model can be served right now, by the same rules account
+ * selection applies: an account counts only while it is on, has no active lock
+ * for this model (or for the whole account), and its quota report does not say
+ * the model's window is used up. States: ok | quota_exhausted | rate_limited |
+ * unavailable | disabled | unknown, with `until` (ISO) when a lock or window ends.
+ */
+function statusOfModel(entry, states, now = Date.now()) {
+  const providerId = [ALIAS_TO_ID[entry.owned_by], entry.owned_by, entry.provider?.id].find((id) => id && states.has(id));
+  if (!providerId) return { state: "unknown" };
+  const provider = states.get(providerId);
+  const conns = states.connections?.get(providerId) || [];
+  // The model id account selection locks on: the part after the local provider prefix.
+  const modelKey = entry.id.startsWith(`${entry.owned_by}/`) ? entry.id.slice(entry.owned_by.length + 1) : entry.id;
+  let available = 0;
+  let quotaBlocked = false;
+  let rateBlocked = false;
+  let untilMs = null;
+  const later = (ms) => { if (Number.isFinite(ms) && ms > now && (untilMs === null || ms < untilMs)) untilMs = ms; };
+  for (const conn of conns) {
+    if (conn.isActive === false) continue;
+    const lock = getApplicableModelLock(conn, modelKey, now);
+    const standing = quotaStanding(conn.id, modelKey, now);
+    const rateLimitedMs = conn.rateLimitedUntil ? Date.parse(conn.rateLimitedUntil) : NaN;
+    if (!lock && !standing.exhausted && !(rateLimitedMs > now)) { available += 1; continue; }
+    if (standing.exhausted || lock?.meta?.reason === "quota_exhausted") quotaBlocked = true;
+    else rateBlocked = true;
+    later(lock?.retryAtMs);
+    later(standing.exhausted ? standing.resetAtMs : null);
+    later(rateLimitedMs);
   }
-  return { state: "unknown" };
+  const accounts = { available, total: conns.length };
+  const errorRate = provider.status?.error_rate;
+  const extra = { accounts, ...(errorRate !== undefined ? { error_rate: errorRate } : {}) };
+  if (available) return { state: "ok", ...extra };
+  if (!conns.some((c) => c.isActive !== false)) return { state: "disabled", ...extra };
+  const until = untilMs ? { until: new Date(untilMs).toISOString() } : {};
+  if (quotaBlocked) return { state: "quota_exhausted", ...until, ...extra };
+  if (rateBlocked) return { state: "rate_limited", ...until, ...extra };
+  return { state: "unavailable", ...extra };
 }
 
 const usableState = (status) => status.state === "ok" || status.state === "unknown";
@@ -264,8 +306,11 @@ function reasonsFor(candidate, { needs, needsTokens, current, delta }) {
     if (delta.context_delta > 0) reasons.push({ code: "larger_context", detail: `${delta.context_delta.toLocaleString("en-US")} more tokens of context than ${current.id}` });
     for (const c of delta.gained_capabilities) if (!needs.includes(c)) reasons.push({ code: c, detail: `adds ${c}, which ${current.id} lacks` });
     if (!current.usable) {
-      reasons.push(current.status.state === "rate_limited"
-        ? { code: "rate_limited", detail: `${current.id} is rate limited${current.status.until ? ` until ${current.status.until}` : ""}` }
+      const until = current.status.until ? ` until ${current.status.until}` : "";
+      reasons.push(current.status.state === "quota_exhausted"
+        ? { code: "quota_exhausted", detail: `${current.id} has no quota left on any account${until}` }
+        : current.status.state === "rate_limited"
+        ? { code: "rate_limited", detail: `${current.id} is rate limited${until}` }
         : { code: "provider_unhealthy", detail: `${current.id} has no usable account (${current.status.state})` });
     } else if ((current.status.error_rate ?? 0) >= UNHEALTHY_ERROR_RATE && (candidate.status.error_rate ?? 0) < (current.status.error_rate ?? 0)) {
       reasons.push({ code: "provider_unhealthy", detail: `${current.id} fails ${Math.round(current.status.error_rate * 100)}% of requests lately` });
@@ -548,7 +593,7 @@ async function getQuotas(args, { apiKey, key }) {
 
 const READ_ONLY = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 const capabilityEnum = { type: "string", enum: CAPABILITIES };
-const SUMMARY_NOTE = "Each model carries status ({state: ok|rate_limited|error|disabled|unknown, until?, error_rate?}), usable, free and, for flat models, offers with pin_id.";
+const SUMMARY_NOTE = "Each model carries status ({state: ok|quota_exhausted|rate_limited|unavailable|disabled|unknown, until?, accounts: {available, total}, error_rate?}), usable, free and, for flat models, offers with pin_id. A model is usable only while one of its accounts has quota and no active lock.";
 
 export const RED_ROUTER_TOOLS = [
   {
@@ -601,7 +646,7 @@ export const RED_ROUTER_TOOLS = [
       "Pass `current` (the model in use) to get a `delta` per suggestion (price_delta_pct, context_delta, gained/lost capabilities) and reasons about the current model's health.",
       "Pass `equivalent_to` to find models with the same capabilities and at least the same context that are cheaper or healthier.",
       "Map a session's needs yourself: images in context → vision, tool calls → tools; `needs_input_tokens` is the context already in use.",
-      "Each suggestion has `why`: [{code, detail}] with codes vision|tools|reasoning|pdf|search|context|larger_context|cheaper|free|rate_limited|provider_unhealthy|fallback, and `why_text`.",
+      "Each suggestion has `why`: [{code, detail}] with codes vision|tools|reasoning|pdf|search|context|larger_context|cheaper|free|quota_exhausted|rate_limited|provider_unhealthy|fallback, and `why_text`.",
     ].join(" "),
     inputSchema: {
       type: "object",
