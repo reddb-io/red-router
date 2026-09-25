@@ -18,6 +18,9 @@ export const CATALOG_BROWSE_FILE = path.join(DATA_DIR, "model-catalog-browse.jso
 // Last good OpenRouter /models list, so its browser works offline and after a
 // restart without network. Written by src/lib/modelCatalog/browse.js.
 export const OPENROUTER_CATALOG_FILE = path.join(DATA_DIR, "model-catalog-openrouter.json");
+// Last good live model list of another provider whose own /models feeds the
+// browser (OpenCode Zen, OpenCode Go). Written by src/lib/modelCatalog/browse.js.
+export const liveCatalogFile = (providerId) => path.join(DATA_DIR, `model-catalog-${providerId}.json`);
 // 3: the browse file keeps each model's serving SDK (`a`); bumping it makes the
 // next sync download the catalog in full instead of trusting its etag.
 export const CATALOG_VERSION = 3;

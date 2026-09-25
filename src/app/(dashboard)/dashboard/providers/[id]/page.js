@@ -1357,7 +1357,7 @@ export default function ProviderDetailPage() {
           </button>
         )}
 
-        {/* Every model the provider serves, filterable (models.dev + OpenRouter live) */}
+        {/* Every model the provider serves, filterable (models.dev + the provider's live list) */}
         <ModelCatalogBrowser
           key={providerId}
           providerId={providerId}

@@ -78,6 +78,24 @@ export async function resolveOpenCodeZenSystemOneModels({ fetchImpl, now = Date.
   return { models, source: "live" };
 }
 
+const LIVE_LIST_URLS = { [GO_PROVIDER_ID]: OPENCODE_GO_MODELS_URL, [ZEN_PROVIDER_ID]: OPENCODE_ZEN_MODELS_URL };
+
+/**
+ * OpenCode's live model ids for Zen or Go, from the same cache routing uses (so
+ * the dashboard never fetches a list twice), with when that list was fetched, and
+ * the built-in entries that describe the ids RedRouter already knows. `ids` is
+ * null when OpenCode has not answered in this process.
+ * @param {"opencode-zen"|"opencode-go"} providerId
+ * @returns {Promise<{ ids: string[]|null, fetchedAt: string|null, builtIn: object[] }>}
+ */
+export async function openCodeLiveModelIds(providerId, { fetchImpl, now = Date.now() } = {}) {
+  const url = LIVE_LIST_URLS[providerId];
+  const builtIn = getProviderModels(alias(providerId));
+  const ids = url ? await liveIds(url, { fetchImpl, now }) : null;
+  const at = ids ? lists.get(url)?.at : 0;
+  return { ids, fetchedAt: at ? new Date(at).toISOString() : null, builtIn };
+}
+
 /** Test hook: forget every cached list and discovered model. */
 export function resetOpenCodeCatalogs() {
   lists.clear();

@@ -138,3 +138,33 @@ export function formatCost(model) {
   const fmt = (v) => (v == null ? "?" : v < 0.01 && v > 0 ? v.toFixed(3) : +v.toFixed(2));
   return `$${fmt(c.input)} / $${fmt(c.output)}`;
 }
+
+const SOURCE_NAMES = {
+  "models.dev": "models.dev",
+  openrouter: "OpenRouter",
+  "opencode-zen": "OpenCode Zen",
+  "opencode-go": "OpenCode Go",
+};
+// A provider's own list when it could not be reached: the last list saved to
+// disk, the one vendored with RedRouter, or RedRouter's built-in list.
+const SOURCE_ORIGINS = { saved: "saved", snapshot: "bundled", builtin: "built-in" };
+
+/**
+ * The catalog's `source` for people: "openrouter-saved+models.dev" ->
+ * "OpenRouter (saved) + models.dev".
+ */
+export function catalogSourceLabel(source) {
+  return String(source || "")
+    .split("+")
+    .map((part) => {
+      const origin = Object.keys(SOURCE_ORIGINS).find((key) => part.endsWith(`-${key}`));
+      const base = origin ? part.slice(0, -origin.length - 1) : part;
+      return `${SOURCE_NAMES[base] || base}${origin ? ` (${SOURCE_ORIGINS[origin]})` : ""}`;
+    })
+    .join(" + ");
+}
+
+/** True when the provider's own list is a saved or bundled copy, not a live one. */
+export function isOfflineCatalog(source) {
+  return /-(saved|snapshot)$/.test(String(source || "").split("+")[0]);
+}
