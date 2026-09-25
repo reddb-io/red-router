@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Card, Button, Badge, Input, Select, Modal, ConfirmModal, Toggle } from "@/shared/components";
+import { Card, Button, Badge, Input, Select, Modal, ConfirmModal, Toggle, SegmentedControl, Icon } from "@/shared/components";
 import ConnectionTestResult from "@/shared/components/ConnectionTestResult";
 
 const WINDOW_OPTIONS = [
@@ -14,7 +14,11 @@ const MODE_OPTIONS = [
   { value: "window", label: "Consolidated per API key, on a schedule" },
   { value: "instant", label: "Every request, as it happens" },
 ];
-const EMPTY_FORM = { name: "", type: "webhook", mode: "window", windowSec: "900", apiKeyIds: [], tags: "" };
+const EMPTY_FORM = { name: "", type: "webhook", mode: "window", windowSec: "900", keyScope: "all", selectedKeys: [], tags: "" };
+const KEY_SCOPE_OPTIONS = [
+  { value: "all", label: "All keys" },
+  { value: "selected", label: "Selected keys" },
+];
 const TYPE_OPTIONS = [
   { value: "webhook", label: "Webhook (HTTP POST, signed)" },
   { value: "sqs", label: "Amazon SQS" },
@@ -67,11 +71,14 @@ function modeLabel(sink) {
   return WINDOW_OPTIONS.find((o) => Number(o.value) === sink.windowSec)?.label || `Every ${sink.windowSec / 60} min`;
 }
 
-function filterLabel(sink, keysById) {
+function filterLabel(sink) {
   const f = sink.filter;
   if (!f) return "All API keys";
   const parts = [];
-  if (f.apiKeyIds?.length) parts.push(f.apiKeyIds.map((id) => keysById[id]?.name || "deleted key").join(", "));
+  if (sink.filterKeys?.length) {
+    const names = sink.filterKeys.map((k) => k.name || "deleted key");
+    parts.push(names.length > 3 ? `${names.slice(0, 3).join(", ")} +${names.length - 3}` : names.join(", "));
+  }
   if (f.tags?.length) parts.push(`tags: ${f.tags.join(", ")}`);
   return parts.join(" · ");
 }
@@ -81,7 +88,6 @@ const formatTime = (iso) => (iso ? new Date(iso).toLocaleString() : "—");
 
 export default function UsageSinksPage() {
   const [sinks, setSinks] = useState([]);
-  const [apiKeys, setApiKeys] = useState([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(null); // null | "new" | sink
   const [deleting, setDeleting] = useState(null);
@@ -90,11 +96,9 @@ export default function UsageSinksPage() {
   const [testingId, setTestingId] = useState(null);
 
   const load = useCallback(async () => {
-    const [sinksRes, keysRes] = await Promise.all([fetch("/api/usage-sinks"), fetch("/api/keys")]);
-    const sinksData = await sinksRes.json().catch(() => ({}));
-    const keysData = await keysRes.json().catch(() => ({}));
+    // Keys are looked up only by the form's picker, never loaded in full (there may be tens of thousands).
+    const sinksData = await (await fetch("/api/usage-sinks")).json().catch(() => ({}));
     setSinks(sinksData.sinks || []);
-    setApiKeys((keysData.keys || []).map(({ id, name, tags }) => ({ id, name, tags: tags || [] })));
     setLoading(false);
   }, []);
 
@@ -102,8 +106,6 @@ export default function UsageSinksPage() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     load();
   }, [load]);
-
-  const keysById = Object.fromEntries(apiKeys.map((k) => [k.id, k]));
 
   const toggleActive = async (sink, isActive) => {
     await fetch(`/api/usage-sinks/${sink.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ isActive }) });
@@ -158,7 +160,7 @@ export default function UsageSinksPage() {
                 </div>
                 <p className="mt-1 truncate font-mono text-xs text-ink-muted" title={sink.summary}>{sink.summary}</p>
                 <p className="mt-0.5 text-xs text-ink-muted">
-                  {filterLabel(sink, keysById)}
+                  {filterLabel(sink)}
                   {sink.type === "webhook" && ` · ${sink.config.hasSecret ? `signed (${sink.config.secretHint})` : "unsigned"}`}
                 </p>
               </div>
@@ -190,7 +192,6 @@ export default function UsageSinksPage() {
       {editing && (
         <SinkFormModal
           sink={editing === "new" ? null : editing}
-          apiKeys={apiKeys}
           onClose={() => setEditing(null)}
           onSaved={() => { setEditing(null); load(); }}
         />
@@ -208,14 +209,79 @@ export default function UsageSinksPage() {
   );
 }
 
-function SinkFormModal({ sink, apiKeys, onClose, onSaved }) {
+const PICKER_PAGE = 20;
+
+// Pick API keys by searching the server a page at a time, so the form works the
+// same with 5 keys or 50,000. Selected keys show as chips.
+function ApiKeyPicker({ selected, onChange }) {
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState({ keys: [], total: 0 });
+  const [searching, setSearching] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      setSearching(true);
+      try {
+        const res = await fetch(`/api/keys/search?q=${encodeURIComponent(query)}&limit=${PICKER_PAGE}`);
+        const data = await res.json().catch(() => ({}));
+        if (!cancelled) setResults({ keys: data.keys || [], total: data.total || 0 });
+      } finally {
+        if (!cancelled) setSearching(false);
+      }
+    }, 250);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [query]);
+
+  const chosen = new Set(selected.map((k) => k.id));
+  const add = (k) => onChange([...selected, { id: k.id, name: k.name }]);
+  const remove = (id) => onChange(selected.filter((k) => k.id !== id));
+
+  return (
+    <div className="flex flex-col gap-2">
+      {selected.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {selected.map((k) => (
+            <span key={k.id} className="inline-flex items-center gap-1 rounded-full bg-primary/10 py-0.5 pl-2.5 pr-1 text-xs text-primary">
+              {k.name || "deleted key"}
+              <button type="button" onClick={() => remove(k.id)} className="grid size-5 place-items-center rounded-full hover:bg-primary/20" aria-label={`Remove ${k.name || "key"}`}>
+                <Icon name="close" size={12} />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+      <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search keys by name or tag" icon="search" />
+      <div className="max-h-48 overflow-y-auto rounded-md border border-border">
+        {results.keys.filter((k) => !chosen.has(k.id)).map((k) => (
+          <button
+            key={k.id}
+            type="button"
+            onClick={() => add(k)}
+            className="flex w-full items-center justify-between gap-3 border-b border-border/50 px-3 py-2 text-left text-sm last:border-b-0 hover:bg-surface-2"
+          >
+            <span className="min-w-0 truncate">{k.name || "Unnamed key"}</span>
+            {k.tags.length > 0 && <span className="shrink-0 truncate text-xs text-ink-muted">{k.tags.join(", ")}</span>}
+          </button>
+        ))}
+        {!searching && results.keys.length === 0 && <p className="px-3 py-2 text-xs text-ink-muted">{query ? "No key matches." : "No API keys yet."}</p>}
+      </div>
+      {results.total > results.keys.length && (
+        <p className="text-xs text-ink-muted">Showing {results.keys.length} of {results.total.toLocaleString()} keys: refine the search to find others.</p>
+      )}
+    </div>
+  );
+}
+
+function SinkFormModal({ sink, onClose, onSaved }) {
   const [form, setForm] = useState(() => (sink ? {
     name: sink.name,
     type: sink.type,
     ...configFields(sink.type, sink.config),
     mode: sink.mode,
     windowSec: String(sink.windowSec || 900),
-    apiKeyIds: sink.filter?.apiKeyIds || [],
+    keyScope: sink.filter?.apiKeyIds?.length ? "selected" : "all",
+    selectedKeys: sink.filterKeys || [],
     tags: (sink.filter?.tags || []).join(", "),
   } : { ...EMPTY_FORM, ...configFields("webhook"), secret: newSecret() }));
   const [saving, setSaving] = useState(false);
@@ -230,10 +296,18 @@ function SinkFormModal({ sink, apiKeys, onClose, onSaved }) {
     config: configBody(form.type, form),
     mode: form.mode,
     windowSec: Number(form.windowSec),
-    filter: { apiKeyIds: form.apiKeyIds, tags: form.tags.split(",").map((t) => t.trim()).filter(Boolean) },
+    filter: {
+      apiKeyIds: form.keyScope === "selected" ? form.selectedKeys.map((k) => k.id) : [],
+      tags: form.tags.split(",").map((t) => t.trim()).filter(Boolean),
+    },
   });
 
   const save = async () => {
+    // "Selected keys" with none picked would send every key's usage.
+    if (form.keyScope === "selected" && !form.selectedKeys.length && !form.tags.trim()) {
+      setError("Pick at least one API key, or choose All keys.");
+      return;
+    }
     setSaving(true);
     setError("");
     try {
@@ -262,32 +336,35 @@ function SinkFormModal({ sink, apiKeys, onClose, onSaved }) {
     }
   };
 
-  const toggleKey = (id) => set({ apiKeyIds: form.apiKeyIds.includes(id) ? form.apiKeyIds.filter((k) => k !== id) : [...form.apiKeyIds, id] });
-
   return (
-    <Modal isOpen onClose={onClose} title={sink ? "Edit usage sink" : "Add usage sink"} size="lg">
+    <Modal isOpen onClose={onClose} title={sink ? "Edit usage sink" : "Add usage sink"} size="2xl">
       <div className="flex flex-col gap-4">
-        <Input label="Name" value={form.name} onChange={(e) => set({ name: e.target.value })} placeholder="Billing" />
-        <Select
-          label="Send to"
-          value={form.type}
-          onChange={(e) => set({ type: e.target.value, ...configFields(e.target.value), ...(e.target.value === "webhook" ? { secret: newSecret() } : {}) })}
-          options={TYPE_OPTIONS}
-          disabled={!!sink}
-        />
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <Input label="Name" value={form.name} onChange={(e) => set({ name: e.target.value })} placeholder="Billing" />
+          <Select
+            label="Send to"
+            value={form.type}
+            onChange={(e) => set({ type: e.target.value, ...configFields(e.target.value), ...(e.target.value === "webhook" ? { secret: newSecret() } : {}) })}
+            options={TYPE_OPTIONS}
+            disabled={!!sink}
+          />
+        </div>
         {form.type === "webhook" && (
           <>
             <Input label="Webhook URL" value={form.url} onChange={(e) => set({ url: e.target.value })} placeholder="https://billing.example.com/hooks/redrouter" />
-            <div className="flex items-end gap-2">
-              <Input
-                className="flex-1"
-                label="Signing secret"
-                value={form.secret}
-                onChange={(e) => set({ secret: e.target.value })}
-                placeholder={keepHint(sink?.config.hasSecret, sink?.config.secretHint) || "whsec_…"}
-                hint="Verify webhook-signature with it (HMAC-SHA256, Standard Webhooks). Copy it now: it is not shown again."
-              />
-              <Button variant="secondary" icon="key" onClick={() => set({ secret: newSecret() })}>Generate</Button>
+            <div className="flex flex-col gap-1.5">
+              <div className="flex items-end gap-2">
+                <Input
+                  className="min-w-0 flex-1"
+                  inputClassName="font-mono"
+                  label="Signing secret"
+                  value={form.secret}
+                  onChange={(e) => set({ secret: e.target.value })}
+                  placeholder={keepHint(sink?.config.hasSecret, sink?.config.secretHint) || "whsec_…"}
+                />
+                <Button variant="secondary" icon="key" onClick={() => set({ secret: newSecret() })} className="shrink-0">Generate</Button>
+              </div>
+              <p className="text-xs text-ink-muted">Verify webhook-signature with it (HMAC-SHA256, Standard Webhooks). Copy it now: it is not shown again.</p>
             </div>
           </>
         )}
@@ -364,25 +441,28 @@ function SinkFormModal({ sink, apiKeys, onClose, onSaved }) {
             </p>
           </>
         )}
-        <Select label="What to send" value={form.mode} onChange={(e) => set({ mode: e.target.value })} options={MODE_OPTIONS} />
-        {form.mode === "window" && (
-          <Select label="Window" value={form.windowSec} onChange={(e) => set({ windowSec: e.target.value })} options={WINDOW_OPTIONS} />
-        )}
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <Select label="What to send" value={form.mode} onChange={(e) => set({ mode: e.target.value })} options={MODE_OPTIONS} />
+          {form.mode === "window" && (
+            <Select label="Window" value={form.windowSec} onChange={(e) => set({ windowSec: e.target.value })} options={WINDOW_OPTIONS} />
+          )}
+        </div>
 
-        <fieldset className="flex flex-col gap-2">
-          <legend className="mb-1 text-sm font-medium text-foreground">API keys</legend>
-          <p className="text-xs text-ink-muted">Leave everything unchecked to send usage for every key, requests without a key included.</p>
-          <div className="flex max-h-40 flex-col gap-1 overflow-y-auto">
-            {apiKeys.map((k) => (
-              <label key={k.id} className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={form.apiKeyIds.includes(k.id)} onChange={() => toggleKey(k.id)} />
-                <span>{k.name || "Unnamed key"}</span>
-                {k.tags.length > 0 && <span className="text-xs text-ink-muted">{k.tags.join(", ")}</span>}
-              </label>
-            ))}
-            {apiKeys.length === 0 && <p className="text-xs text-ink-muted">No API keys yet.</p>}
+        <fieldset className="flex flex-col gap-3 border-t border-border pt-4">
+          <legend className="sr-only">API keys</legend>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="text-sm font-medium text-foreground">API keys</span>
+            <SegmentedControl options={KEY_SCOPE_OPTIONS} value={form.keyScope} onChange={(v) => set({ keyScope: v })} size="sm" />
           </div>
-          <Input label="Or keys with these tags" value={form.tags} onChange={(e) => set({ tags: e.target.value })} placeholder="customer-a, billable" />
+          {form.keyScope === "all"
+            ? <p className="text-xs text-ink-muted">Usage of every key is sent, requests without a key included. Narrow it with tags below.</p>
+            : <ApiKeyPicker selected={form.selectedKeys} onChange={(selectedKeys) => set({ selectedKeys })} />}
+          <Input
+            label={form.keyScope === "all" ? "Only keys with these tags (optional)" : "Also keys with these tags (optional)"}
+            value={form.tags}
+            onChange={(e) => set({ tags: e.target.value })}
+            placeholder="customer-a, billable"
+          />
         </fieldset>
 
         {error && <p className="rounded-md border border-feedback-danger-border bg-feedback-danger-surface px-3 py-2 text-sm text-feedback-danger-foreground" role="alert">{error}</p>}

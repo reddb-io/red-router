@@ -67,6 +67,50 @@ export async function getApiKeyByKey(key) {
   return rowToKey(row);
 }
 
+const MAX_SEARCH_LIMIT = 100;
+const MAX_ID_LOOKUP = 1000;
+
+/**
+ * Find keys without loading them all (pickers over tens of thousands of keys):
+ * by name or tag substring, or by id. Never returns the secret.
+ * @param {{ q?: string, ids?: string[], limit?: number, offset?: number, owner?: string|null|undefined }} opts
+ *   owner: undefined = every key; otherwise shared keys plus that owner's.
+ * @returns {Promise<{ keys: {id,name,tags,isActive,owner,createdAt}[], total: number }>}
+ */
+export async function searchApiKeys({ q = "", ids = null, limit = 20, offset = 0, owner } = {}) {
+  const db = await getDb();
+  let size = Math.min(MAX_SEARCH_LIMIT, Math.max(1, Number(limit) || 20));
+  let query = db.selectFrom("apiKeys");
+  if (Array.isArray(ids)) {
+    if (!ids.length) return { keys: [], total: 0 };
+    // A lookup by id returns every id asked for (names for chips), up to a sane cap.
+    const wanted = [...new Set(ids)].slice(0, MAX_ID_LOOKUP);
+    query = query.where("id", "in", wanted);
+    size = wanted.length;
+  }
+  const term = String(q || "").trim().toLowerCase();
+  if (term) {
+    // % and _ typed in a search act as wildcards; harmless for a picker.
+    const like = `%${term}%`;
+    query = query.where((eb) => eb.or([
+      eb(eb.fn("lower", ["name"]), "like", eb.val(like)),
+      eb(eb.fn("lower", ["tags"]), "like", eb.val(like)),
+    ]));
+  }
+  if (owner !== undefined) query = query.where((eb) => eb.or([eb("owner", "is", null), eb("owner", "=", owner)]));
+  const [{ count }, rows] = await Promise.all([
+    query.select((eb) => eb.fn.countAll().as("count")).executeTakeFirst(),
+    query.select(["id", "name", "tags", "isActive", "owner", "createdAt"]).orderBy("name", "asc").limit(size).offset(Math.max(0, Number(offset) || 0)).execute(),
+  ]);
+  return {
+    total: Number(count) || 0,
+    keys: rows.map((r) => ({
+      id: r.id, name: r.name, tags: normalizeTags(parseJson(r.tags, null)) || [],
+      isActive: r.isActive === 1 || r.isActive === true, owner: r.owner ?? null, createdAt: r.createdAt,
+    })),
+  };
+}
+
 export async function getApiKeyById(id) {
   const db = await getDb();
   const row = await db.selectFrom("apiKeys").selectAll().where("id", "=", id).executeTakeFirst();

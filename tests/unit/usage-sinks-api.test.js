@@ -23,6 +23,15 @@ describe("usage sinks API", () => {
     vi.resetModules();
   });
 
+  it("names the keys a sink filters on without loading every key", async () => {
+    const { createApiKey } = await import("@/lib/db/repos/apiKeysRepo.js");
+    const key = await createApiKey("Acme", "m", null, null);
+    const { POST, GET } = await import("@/app/api/usage-sinks/route.js");
+    await POST(new Request("https://local.test/api/usage-sinks", json({ name: "s", type: "webhook", config: { url: "https://b.test" }, mode: "instant", filter: { apiKeyIds: [key.id, "gone"] } })));
+    const { sinks } = await (await GET()).json();
+    expect(sinks[0].filterKeys).toEqual([{ id: key.id, name: "Acme" }, { id: "gone", name: null, deleted: true }]);
+  });
+
   it("validates a sink and never returns its secret", async () => {
     const { POST, GET } = await import("@/app/api/usage-sinks/route.js");
     const bad = await POST(new Request("https://local.test/api/usage-sinks", json({ name: "x", type: "webhook", config: { url: "ftp://nope" }, mode: "window", windowSec: 900 })));
