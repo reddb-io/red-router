@@ -9,8 +9,13 @@
 // x-redrouter-mcp-version header and in initialize's _meta); bump it when a
 // shape changes so clients can feature-detect. Failures are isError results
 // whose structuredContent is { error: { code, message } } with a stable code.
-import { getProviderConnections, getApiKeyAllowedConnectionIds } from "@/lib/localDb";
-import { getApiKeyModelIdFormat, getApiKeyPolicy } from "@/lib/db/repos/apiKeysRepo.js";
+import { getProviderConnections, getApiKeyAllowedConnectionIds, getSettings } from "@/lib/localDb";
+import {
+  getApiKeyModelIdFormat, getApiKeyPolicy, getApiKeyByKey, getApiKeyById, getApiKeys, createApiKey, updateApiKey,
+} from "@/lib/db/repos/apiKeysRepo.js";
+import { normalizeKeyLimits } from "@/lib/apiKeyPolicy.js";
+import { isScopeEnabled, canSee, ADMIN_OWNER } from "@/lib/auth/resourceScope";
+import { getQuotaSnapshot } from "@/sse/services/quotaSnapshot.js";
 import { getApiKeyUsageTotals } from "@/lib/db/repos/usageRepo.js";
 import { getPricingForModel } from "@/lib/db/repos/pricingRepo.js";
 import { getDb } from "@/lib/db/kysely.js";
@@ -18,7 +23,10 @@ import { offerOf } from "@/lib/flatModels.js";
 import { summarizeConnectionHealth } from "open-sse/services/providerHealth.js";
 import { PROVIDER_ID_TO_ALIAS } from "open-sse/config/providerModels.js";
 
-export const MCP_SCHEMA_VERSION = 2;
+export const MCP_SCHEMA_VERSION = 3;
+
+/** The tools a key's client sees: admin tools only for an admin key. */
+export const toolsForKey = (key) => RED_ROUTER_TOOLS.filter((t) => !t.admin || key?.role === "admin");
 const CAPABILITIES = ["vision", "tools", "reasoning", "pdf", "search", "imageOutput", "audioInput", "audioOutput", "videoInput"];
 const MAX_LIMIT = 500;
 const FREE_ID = /(:free|-free)$/i;
@@ -325,8 +333,15 @@ async function recommendModels(args, { apiKey }) {
   };
 }
 
-async function getUsage(args, { apiKey }) {
+async function getUsage(args, ctx) {
+  let apiKey = ctx.apiKey;
   if (!apiKey) throw new ToolError("forbidden", "get_usage needs an API key: it reports that key's own usage.");
+  let keyId = ctx.key?.id ?? null;
+  if (args.api_key_id && args.api_key_id !== keyId) {
+    const other = await managedKey(ctx, args.api_key_id);
+    apiKey = other.key;
+    keyId = other.id;
+  }
   const hours = Math.min(720, Math.max(1, Number.isFinite(args.hours) ? args.hours : 24));
   const since = new Date(Date.now() - hours * 3600_000).toISOString();
   const db = await getDb();
@@ -355,6 +370,7 @@ async function getUsage(args, { apiKey }) {
   const [policy, month] = await Promise.all([getApiKeyPolicy(apiKey), getApiKeyUsageTotals(apiKey)]);
   const limits = policy.limits || null;
   return {
+    api_key_id: keyId,
     currency: "USD",
     hours,
     totals: { ...totals, cost: round(totals.cost) },
@@ -366,6 +382,168 @@ async function getUsage(args, { apiKey }) {
       tokens_today: limits?.tokensPerDay ? Math.max(0, limits.tokensPerDay - month.tokensToday) : null,
     },
   };
+}
+
+// ── API keys ────────────────────────────────────────────────────────────────
+// A key sees itself. Listing other keys, reading their usage and creating keys
+// need an admin key (role "admin", src/lib/apiKeyRole.js), and reach
+// only the keys its owner can see while resource scoping is on.
+
+function publicKey(k) {
+  return {
+    id: k.id,
+    name: k.name,
+    tags: k.tags || [],
+    is_active: k.isActive !== false,
+    key_hint: k.key ? `…${k.key.slice(-4)}` : null,
+    id_format: k.modelIdFormat || "prefixed",
+    limits: k.limits || null,
+    model_access: k.modelAccess || null,
+    // null: every account; otherwise how many accounts the key is bound to.
+    bound_accounts: Array.isArray(k.allowedConnectionIds) && k.allowedConnectionIds.length ? k.allowedConnectionIds.length : null,
+    role: k.role || "standard",
+    created_at: k.createdAt,
+  };
+}
+
+function requireManager(ctx) {
+  if (ctx.key?.role !== "admin") {
+    throw new ToolError("forbidden", "This is not an admin API key. Turn on \"Admin key\" for it in Endpoint & Keys → the key.");
+  }
+  return ctx.key;
+}
+
+async function keysInScope(manager) {
+  const [settings, all] = await Promise.all([getSettings(), getApiKeys()]);
+  if (!isScopeEnabled(settings) || manager.owner === ADMIN_OWNER) return all;
+  return all.filter((k) => canSee(k, { owner: manager.owner ?? null }));
+}
+
+async function managedKey(ctx, id) {
+  const manager = requireManager(ctx);
+  const key = await getApiKeyById(id);
+  if (!key || !(await keysInScope(manager)).some((k) => k.id === key.id)) throw new ToolError("unknown_key", `No API key "${id}" within reach of this key.`);
+  return key;
+}
+
+async function getApiKeyInfo(_args, ctx) {
+  if (!ctx.key) throw new ToolError("forbidden", "No API key on this request.");
+  return { api_key: publicKey(ctx.key) };
+}
+
+async function listApiKeys(_args, ctx) {
+  const manager = requireManager(ctx);
+  const keys = await keysInScope(manager);
+  const round = (n) => Math.round(n * 1e6) / 1e6;
+  return {
+    total: keys.length,
+    api_keys: await Promise.all(keys.map(async (k) => {
+      const month = await getApiKeyUsageTotals(k.key);
+      return { ...publicKey(k), this_month: { cost: round(month.costThisMonth), tokens_today: month.tokensToday } };
+    })),
+  };
+}
+
+const MAX_KEY_NAME = 100;
+
+async function createKey(args, ctx) {
+  const manager = requireManager(ctx);
+  const name = typeof args.name === "string" ? args.name.trim().slice(0, MAX_KEY_NAME) : "";
+  if (!name) throw new ToolError("invalid_argument", "name is required");
+  if (args.tags !== undefined && (!Array.isArray(args.tags) || args.tags.some((t) => typeof t !== "string"))) {
+    throw new ToolError("invalid_argument", "tags must be a list of strings");
+  }
+  const settings = await getSettings();
+  const { getConsistentMachineId } = await import("@/shared/utils/machineId");
+  // A created key stays with its creator's owner and is always a standard key.
+  const owner = isScopeEnabled(settings) ? manager.owner ?? null : undefined;
+  const created = await createApiKey(name, await getConsistentMachineId(), args.tags ?? null, owner);
+  const extra = {};
+  if (args.limits !== undefined) extra.limits = normalizeKeyLimits(args.limits);
+  if (args.id_format !== undefined) extra.modelIdFormat = args.id_format;
+  const key = Object.keys(extra).length ? await updateApiKey(created.id, extra) : created;
+  return {
+    api_key: publicKey(key),
+    key: key.key,
+    note: "Give this key to the client that needs it. It is also shown in Endpoint & Keys.",
+  };
+}
+
+// ── Quotas ──────────────────────────────────────────────────────────────────
+
+const QUOTA_READ_TIMEOUT_MS = 20_000;
+const QUOTA_CONCURRENCY = 4;
+
+function quotaRows(quotas) {
+  return Object.entries(quotas || {}).map(([name, q]) => {
+    const used = typeof q?.used === "number" ? q.used : null;
+    const totalAllowed = typeof q?.total === "number" ? q.total : null;
+    const remaining = typeof q?.remaining === "number" ? q.remaining : totalAllowed !== null && used !== null ? totalAllowed - used : null;
+    return {
+      name,
+      used,
+      total: totalAllowed,
+      remaining,
+      remaining_pct: totalAllowed > 0 && remaining !== null ? Math.round((remaining / totalAllowed) * 1000) / 10 : null,
+      unlimited: q?.unlimited === true,
+      reset_at: q?.resetAt || q?.reset_at || null,
+    };
+  });
+}
+
+async function withTimeout(promise, ms) {
+  let timer;
+  try {
+    return await Promise.race([promise, new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`timed out after ${ms / 1000}s`)), ms); })]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function getQuotas(args, { apiKey, key }) {
+  const [connections, allowed, settings, { hasUsageHandler }] = await Promise.all([
+    getProviderConnections(), getApiKeyAllowedConnectionIds(apiKey), getSettings(), import("open-sse/services/usage.js"),
+  ]);
+  const scoped = isScopeEnabled(settings) && key?.owner && key.owner !== ADMIN_OWNER;
+  const targets = connections.filter((c) => c.isActive !== false
+    && (!allowed || allowed.includes(c.id))
+    && (!scoped || canSee(c, { owner: key.owner }))
+    && (!args.provider || c.provider === args.provider)
+    && hasUsageHandler(c.provider));
+
+  const now = Date.now();
+  const read = async (conn) => {
+    let snap = getQuotaSnapshot(conn.id, now);
+    let error = null;
+    if (!snap || args.refresh === true) {
+      try {
+        const { readConnectionQuota } = await import("@/shared/services/quotaSnapshotScheduler.js");
+        await withTimeout(readConnectionQuota(conn), QUOTA_READ_TIMEOUT_MS);
+        snap = getQuotaSnapshot(conn.id);
+      } catch (e) {
+        error = e.message;
+      }
+    }
+    return { conn, snap, error };
+  };
+  const results = [];
+  for (let i = 0; i < targets.length; i += QUOTA_CONCURRENCY) {
+    results.push(...await Promise.all(targets.slice(i, i + QUOTA_CONCURRENCY).map(read)));
+  }
+
+  const byProvider = new Map();
+  for (const { conn, snap, error } of results) {
+    const p = byProvider.get(conn.provider) || { provider: conn.provider, accounts: [] };
+    p.accounts.push({
+      connection_id: conn.id,
+      account: p.accounts.length + 1,
+      as_of: snap ? new Date(snap.at).toISOString() : null,
+      quotas: snap ? quotaRows(snap.quotas) : [],
+      ...(error ? { error } : !snap ? { error: "no quota report yet" } : {}),
+    });
+    byProvider.set(conn.provider, p);
+  }
+  return { total_accounts: results.length, providers: [...byProvider.values()] };
 }
 
 const READ_ONLY = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
@@ -447,10 +625,72 @@ export const RED_ROUTER_TOOLS = [
   {
     name: "get_usage",
     title: "Get usage",
-    description: "This API key's own usage over the last hours (USD): requests, errors, tokens and cost per model, plus its limits, this month's spend and what remains. Without an API key it fails with code forbidden.",
-    inputSchema: { type: "object", properties: { hours: { type: "integer", minimum: 1, maximum: 720, description: "Look-back window (default 24)." } }, additionalProperties: false },
+    description: "An API key's usage over the last hours (USD): requests, errors, tokens and cost per model, plus its limits, this month's spend and what remains. Defaults to the calling key; `api_key_id` reads another key and needs an admin key (code forbidden otherwise).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        hours: { type: "integer", minimum: 1, maximum: 720, description: "Look-back window (default 24)." },
+        api_key_id: { type: "string", description: "Another key's id (from list_api_keys)." },
+      },
+      additionalProperties: false,
+    },
     annotations: READ_ONLY,
     run: getUsage,
+  },
+  {
+    name: "get_quotas",
+    title: "Get quotas",
+    description: "Provider quota windows (used, total, remaining, reset time) for the accounts this API key can route to, per provider. Reads the last report RedRouter holds (each up to 30 minutes old, see as_of); `refresh` asks the providers now.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        provider: { type: "string", description: "Only this provider id (e.g. claude, codex, antigravity)." },
+        refresh: { type: "boolean", description: "Read the quotas from the providers now (slower). Default false." },
+      },
+      additionalProperties: false,
+    },
+    annotations: { ...READ_ONLY, openWorldHint: true },
+    run: getQuotas,
+  },
+  {
+    name: "get_api_key",
+    title: "Get this API key",
+    description: "The calling API key: name, role (standard | admin), tags, id format, limits, model access and bound accounts. Never returns the secret.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    annotations: READ_ONLY,
+    run: getApiKeyInfo,
+  },
+  {
+    name: "list_api_keys",
+    admin: true,
+    title: "List API keys",
+    description: "API keys within reach, with this month's spend each. Needs an admin key (code forbidden otherwise). Never returns secrets.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    annotations: READ_ONLY,
+    run: listApiKeys,
+  },
+  {
+    name: "create_api_key",
+    admin: true,
+    title: "Create API key",
+    description: "Create a new RedRouter API key and return it. Needs an admin key. The new key is always a standard key. Confirm with the user before calling.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string", maxLength: MAX_KEY_NAME },
+        tags: { type: "array", items: { type: "string" } },
+        limits: {
+          type: "object",
+          properties: { rpm: { type: "integer", minimum: 1 }, tokensPerDay: { type: "integer", minimum: 1 }, usdPerMonth: { type: "number", minimum: 0.01 } },
+          additionalProperties: false,
+        },
+        id_format: { type: "string", enum: ["prefixed", "flat"], description: "How /v1/models names models for this key." },
+      },
+      required: ["name"],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    run: createKey,
   },
 ];
 

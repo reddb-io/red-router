@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import PropTypes from "prop-types";
-import { Card, Button, Input, Select } from "@/shared/components";
+import { Card, Button, Input, Select, Toggle } from "@/shared/components";
 
 const MODE_OPTIONS = [
   { value: "all", label: "Every model" },
@@ -31,6 +31,7 @@ function formFromKey(apiKey) {
     tokensPerDay: limits.tokensPerDay ?? "",
     usdPerMonth: limits.usdPerMonth ?? "",
     modelIdFormat: apiKey?.modelIdFormat === "flat" ? "flat" : "prefixed",
+    admin: apiKey?.role === "admin",
   };
 }
 
@@ -65,6 +66,7 @@ export default function KeyPolicyCard({ apiKey, onSaved }) {
           modelAccess: form.mode === "all" ? null : { mode: form.mode, patterns },
           limits,
           modelIdFormat: form.modelIdFormat,
+          role: form.admin ? "admin" : "standard",
         }),
       });
       const data = await response.json();
@@ -124,6 +126,12 @@ export default function KeyPolicyCard({ apiKey, onSaved }) {
               versions, stay separate entries. Ids with a provider keep working to pin one offer.
             </p>
           )}
+          <Toggle
+            checked={form.admin}
+            onChange={(checked) => setForm((prev) => ({ ...prev, admin: checked }))}
+            label="Admin key"
+            description="Its client (e.g. redcode) gets RedRouter's admin MCP tools: list API keys, read their usage and create new ones (never admin). Leave off for keys that only call models."
+          />
         </div>
         <div className="flex flex-col gap-3">
           {LIMIT_FIELDS.map(({ key, label, placeholder, step }) => (

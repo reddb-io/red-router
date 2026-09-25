@@ -24,7 +24,8 @@ function createDefaultDeps() {
   return { getProviderConnections, resolveConnectionProxyConfig, refreshAndUpdateCredentials, getUsageForProvider, hasUsageHandler };
 }
 
-async function readConnection(conn, deps) {
+/** Read one account's quota now and keep it as its snapshot (also used by the MCP get_quotas tool). */
+export async function readConnectionQuota(conn, deps = createDefaultDeps()) {
   const proxyOptions = buildProxyOptions(await deps.resolveConnectionProxyConfig(conn.providerSpecificData));
   let connection = conn;
   if (connection.authType === "oauth") {
@@ -41,7 +42,7 @@ export async function runQuotaSnapshotTick(deps = createDefaultDeps(), state = g
     const connections = await deps.getProviderConnections({ isActive: true });
     for (const conn of connections.filter((c) => deps.hasUsageHandler(c.provider))) {
       try {
-        await readConnection(conn, deps);
+        await readConnectionQuota(conn, deps);
       } catch (e) {
         console.warn(`[QuotaSnapshot] ${conn.provider}:${conn.id}: ${e.message}`);
       }

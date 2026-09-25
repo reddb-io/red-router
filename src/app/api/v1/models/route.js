@@ -38,7 +38,7 @@ import { resolveOpenCodeGoModels, resolveOpenCodeZenSystemOneModels } from "open
 import { modelsDevModels } from "@/lib/modelCatalog/browse";
 import { applyFlatPolicy, groupFlatOffers, pinIdFor } from "@/lib/flatModels.js";
 import { getPricingForModel } from "@/lib/db/repos/pricingRepo.js";
-import { getApiKeyModelIdFormat } from "@/lib/db/repos/apiKeysRepo.js";
+import { getApiKeyModelIdFormat, getApiKeyByKey } from "@/lib/db/repos/apiKeysRepo.js";
 import {
   RED_ROUTER_INSTANCE_HEADER,
   RED_ROUTER_INSTANCE_ID,
@@ -1269,12 +1269,16 @@ export async function GET(request) {
     const idFormat = ID_FORMATS.includes(requestedFormat) ? requestedFormat : await getApiKeyModelIdFormat(apiKey);
     const data = await buildModelsList([LLM_KIND], { ...catalogFetchOptions(request), apiKey, variants, idFormat });
     const catalogVersion = await getCatalogVersion(apiKey);
+    // Clients setting RedRouter up as a provider learn the key's role and where
+    // its MCP server is from here, without another call (details: GET /v1/key).
+    const keyRecord = apiKey ? await getApiKeyByKey(apiKey).catch(() => null) : null;
     // id_format says how ids are built, so clients never have to guess from their shape.
     return Response.json({ object: "list", id_format: idFormat, data }, {
       headers: {
         "Access-Control-Allow-Origin": "*",
         [RED_ROUTER_INSTANCE_HEADER]: RED_ROUTER_INSTANCE_ID,
         ...(catalogVersion ? { [CATALOG_VERSION_HEADER]: catalogVersion } : {}),
+        ...(keyRecord ? { "x-redrouter-key-role": keyRecord.role || "standard", "x-redrouter-mcp": "/v1/mcp" } : {}),
       },
     });
   } catch (error) {

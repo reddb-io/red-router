@@ -3,7 +3,7 @@
 // pre-change safety backup in migrate.js: when the stored version is lower,
 // one lightweight DB backup is taken before applying schema changes. Forgetting
 // to bump only skips that backup — it does NOT break the additive auto-sync.
-export const SCHEMA_VERSION = 7;
+export const SCHEMA_VERSION = 8;
 
 export const PRAGMA_SQL = `
 PRAGMA journal_mode = WAL;
@@ -99,6 +99,10 @@ export const TABLES = {
       // How /v1/models names models for this key: "prefixed" (NULL, every offer)
       // or "flat" (one entry per model, see src/lib/flatModels.js).
       modelIdFormat: "TEXT",
+      // "admin" = an admin key: its client gets RedRouter's admin MCP tools
+      // (list, inspect and create API keys, within its owner's scope). NULL = a
+      // standard key, the default. See src/lib/apiKeyRole.js.
+      role: "TEXT",
       // See providerConnections.owner. A key's owner also caps which accounts it
       // may route to at runtime.
       owner: "TEXT",

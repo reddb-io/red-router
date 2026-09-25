@@ -10,14 +10,21 @@ vi.mock("@/lib/disabledModelsDb", () => ({ getDisabledModels: mocks.getDisabledM
 vi.mock("@/lib/db/repos/pricingRepo.js", () => ({ getPricingForModel: mocks.getPricingForModel }));
 
 const { handleMcpBody, handleMcpMessage } = await import("@/lib/mcp/server.js");
-const { RED_ROUTER_TOOLS } = await import("@/lib/mcp/redRouterTools.js");
+const { RED_ROUTER_TOOLS, toolsForKey } = await import("@/lib/mcp/redRouterTools.js");
+const keysRepo = await import("@/lib/db/repos/apiKeysRepo.js");
+const { recordQuotaSnapshot, resetQuotaSnapshots } = await import("@/sse/services/quotaSnapshot.js");
 
 const conn = (id, provider, models, extra = {}) => ({ id, provider, authType: "apikey", isActive: true, priority: 1, providerSpecificData: { enabledModels: models }, ...extra });
 const server = { info: { name: "red-router", version: "test" }, tools: RED_ROUTER_TOOLS, context: { apiKey: null } };
-const call = async (name, args = {}) => {
-  const res = await handleMcpMessage({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }, server);
+const call = async (name, args = {}, context = server.context) => {
+  const res = await handleMcpMessage({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }, { ...server, context });
   return res.result;
 };
+const newKey = async (name, extra = {}) => {
+  const created = await keysRepo.createApiKey(name, "machine-test", null, null);
+  return Object.keys(extra).length ? keysRepo.updateApiKey(created.id, extra) : created;
+};
+const as = (key) => ({ apiKey: key.key, key });
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -43,8 +50,12 @@ describe("MCP protocol", () => {
     const unknown = await handleMcpMessage({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "1999-01-01" } }, server);
     expect(unknown.result.protocolVersion).toBe("2025-06-18");
     const { result } = await handleMcpMessage({ jsonrpc: "2.0", id: 2, method: "tools/list" }, server);
-    expect(result.tools.map((t) => t.name)).toEqual(["list_models", "get_model", "list_combos", "list_providers", "recommend_models", "get_usage"]);
-    expect(result.tools.every((t) => t.annotations.readOnlyHint === true && !("run" in t))).toBe(true);
+    expect(result.tools.map((t) => t.name)).toEqual([
+      "list_models", "get_model", "list_combos", "list_providers", "recommend_models", "get_usage",
+      "get_quotas", "get_api_key", "list_api_keys", "create_api_key",
+    ]);
+    expect(result.tools.every((t) => !("run" in t))).toBe(true);
+    expect(result.tools.filter((t) => t.annotations.readOnlyHint !== true).map((t) => t.name)).toEqual(["create_api_key"]);
   });
 
   it("answers notifications with nothing and bad input with JSON-RPC errors", async () => {
@@ -131,6 +142,76 @@ describe("RedRouter tools", () => {
   });
 });
 
+describe("API keys over MCP", () => {
+  it("shows the calling key without its secret", async () => {
+    const me = await newKey("agent");
+    const { structuredContent: out } = await call("get_api_key", {}, as(me));
+    expect(out.api_key).toMatchObject({ id: me.id, name: "agent", role: "standard", key_hint: `…${me.key.slice(-4)}` });
+    expect(JSON.stringify(out)).not.toContain(me.key);
+  });
+
+  it("shows admin tools only to an admin key", async () => {
+    const names = (key) => toolsForKey(key).map((t) => t.name);
+    expect(names({ role: "standard" })).not.toContain("create_api_key");
+    expect(names({ role: "standard" })).not.toContain("list_api_keys");
+    expect(names({ role: "admin" })).toEqual(expect.arrayContaining(["create_api_key", "list_api_keys"]));
+  });
+
+  it("keeps other keys and key creation to admin keys", async () => {
+    const me = await newKey("plain");
+    const other = await newKey("other");
+    for (const [tool, args] of [["list_api_keys", {}], ["create_api_key", { name: "x" }], ["get_usage", { api_key_id: other.id }]]) {
+      const res = await call(tool, args, as(me));
+      expect(res.structuredContent.error.code, tool).toBe("forbidden");
+    }
+  });
+
+  it("lets a manager list keys, read another key's usage and create keys without the permission", async () => {
+    const manager = await newKey("manager", { role: "admin" });
+    const other = await newKey("billing-client");
+    const listed = (await call("list_api_keys", {}, as(manager))).structuredContent;
+    expect(listed.api_keys.map((k) => k.name)).toEqual(expect.arrayContaining(["manager", "billing-client"]));
+    expect(JSON.stringify(listed)).not.toContain(other.key);
+    const usage = (await call("get_usage", { api_key_id: other.id }, as(manager))).structuredContent;
+    expect(usage).toMatchObject({ api_key_id: other.id, totals: { requests: 0 } });
+    const created = (await call("create_api_key", { name: "new-agent", tags: ["ci"], limits: { usdPerMonth: 5 }, id_format: "flat" }, as(manager))).structuredContent;
+    expect(created.key).toMatch(/\S{16,}/);
+    expect(created.api_key).toMatchObject({ name: "new-agent", tags: ["ci"], limits: { usdPerMonth: 5 }, id_format: "flat", role: "standard" });
+    expect((await keysRepo.getApiKeyByKey(created.key)).name).toBe("new-agent");
+    const missing = await call("get_usage", { api_key_id: "no-such-id" }, as(manager));
+    expect(missing.structuredContent.error.code).toBe("unknown_key");
+  });
+});
+
+describe("quotas over MCP", () => {
+  it("returns the held quota report per provider and account", async () => {
+    resetQuotaSnapshots();
+    mocks.getProviderConnections.mockResolvedValue([{ id: "cl1", provider: "claude", authType: "oauth", isActive: true, priority: 1 }]);
+    recordQuotaSnapshot("cl1", { quotas: { "session (5h)": { used: 30, total: 100, resetAt: "2026-09-25T18:00:00Z" }, "weekly": { used: 10, total: 100, remaining: 90 } } });
+    const me = await newKey("q");
+    const { structuredContent: out } = await call("get_quotas", {}, as(me));
+    expect(out.total_accounts).toBe(1);
+    const [account] = out.providers[0].accounts;
+    expect(out.providers[0].provider).toBe("claude");
+    expect(account.quotas).toContainEqual({ name: "session (5h)", used: 30, total: 100, remaining: 70, remaining_pct: 70, unlimited: false, reset_at: "2026-09-25T18:00:00Z" });
+    expect(account.as_of).toBeTruthy();
+  });
+});
+
+describe("/v1/key", () => {
+  it("tells a client the key's role and where to register the MCP server", async () => {
+    vi.doMock("@/sse/services/auth.js", () => ({ extractApiKey: (req) => req.headers.get("authorization")?.replace(/^Bearer /, "") || null }));
+    const { GET } = await import("@/app/api/v1/key/route.js");
+    const admin = await newKey("redcode-admin", { role: "admin" });
+    const res = await GET(new Request("http://localhost:25050/v1/key", { headers: { authorization: `Bearer ${admin.key}` } }));
+    expect(await res.json()).toMatchObject({
+      object: "api_key", id: admin.id, role: "admin",
+      mcp: { url: "http://localhost:25050/v1/mcp", transport: "streamable-http", admin_tools: true },
+    });
+    expect((await GET(new Request("http://localhost:25050/v1/key"))).status).toBe(401);
+  });
+});
+
 describe("/v1/mcp", () => {
   const post = async (body, headers = {}) => {
     vi.doMock("@/sse/services/auth.js", () => ({
@@ -141,19 +222,25 @@ describe("/v1/mcp", () => {
     return POST(new Request("http://localhost:25050/v1/mcp", { method: "POST", headers: { host: "localhost:25050", "content-type": "application/json", ...headers }, body: JSON.stringify(body) }));
   };
 
-  it("refuses a foreign browser origin and an invalid or missing key when keys are required", async () => {
+  it("refuses a foreign browser origin, and any call without a valid key", async () => {
     expect((await post({ jsonrpc: "2.0", id: 1, method: "ping" }, { origin: "https://evil.example" })).status).toBe(403);
-    mocks.isValidApiKey.mockResolvedValue(false);
     expect((await post({ jsonrpc: "2.0", id: 1, method: "ping" }, { authorization: "Bearer sk-bad" })).status).toBe(401);
-    mocks.getSettings.mockResolvedValue({ requireApiKey: true });
-    expect((await post({ jsonrpc: "2.0", id: 1, method: "ping" })).status).toBe(401);
+    // Even with "Require API key" off for /v1.
+    mocks.getSettings.mockResolvedValue({ requireApiKey: false });
+    const missing = await post({ jsonrpc: "2.0", id: 1, method: "ping" });
+    expect(missing.status).toBe(401);
+    expect(missing.headers.get("www-authenticate")).toMatch(/^Bearer realm="red-router"/);
+    const inactive = await newKey("off", { isActive: false });
+    expect((await post({ jsonrpc: "2.0", id: 1, method: "ping" }, { authorization: `Bearer ${inactive.key}` })).status).toBe(401);
   });
 
   it("answers requests and accepts notifications with 202", async () => {
-    const res = await post({ jsonrpc: "2.0", id: 7, method: "ping" }, { origin: "http://localhost:3000" });
+    const key = await newKey("client");
+    const auth = { authorization: `Bearer ${key.key}` };
+    const res = await post({ jsonrpc: "2.0", id: 7, method: "ping" }, { origin: "http://localhost:3000", ...auth });
     expect(res.status).toBe(200);
-    expect(res.headers.get("x-redrouter-mcp-version")).toBe("2");
+    expect(res.headers.get("x-redrouter-mcp-version")).toBe("3");
     expect(await res.json()).toEqual({ jsonrpc: "2.0", id: 7, result: {} });
-    expect((await post({ jsonrpc: "2.0", method: "notifications/initialized" })).status).toBe(202);
+    expect((await post({ jsonrpc: "2.0", method: "notifications/initialized" }, auth)).status).toBe(202);
   });
 });
