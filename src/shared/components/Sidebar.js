@@ -21,6 +21,7 @@ const operateItems = [
   { href: "/dashboard/combos", label: "Routing Combos", icon: "layers" },
   // Admin-only while resource scoping is on (the proxy enforces it).
   { href: "/dashboard/models", label: "Models", icon: "view_list", adminOnly: true },
+  { href: "/dashboard/autopilot", label: "Autopilot", icon: "auto_awesome", adminOnly: true },
   { href: "/dashboard/token-saver", label: "Token Saver", icon: "savings" },
   { href: "/dashboard/endpoint", label: "Endpoint & Keys", icon: "api" },
 ];

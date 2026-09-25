@@ -1923,7 +1923,7 @@ export default function ProviderDetailPage() {
                 That is configured once for all providers, under Routing Combos.
               </p>
             </div>
-            <Link href="/dashboard/combos#intelligent-routing" className="shrink-0 text-sm font-medium text-primary hover:underline">
+            <Link href="/dashboard/autopilot" className="shrink-0 text-sm font-medium text-primary hover:underline">
               Open intelligent routing →
             </Link>
           </div>

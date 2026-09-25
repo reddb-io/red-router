@@ -7,14 +7,16 @@ import { getProvidersByKind } from "@/shared/constants/providers";
 import ModelSelectModal from "@/shared/components/ModelSelectModal";
 import { publicModelRef } from "@/shared/utils/modelRef";
 import Icon from "./Icon";
+import { decisionRouterSummary } from "@/shared/utils/autopilotSummary";
 
 // Three states in one field, not an `enabled` flag plus a mode string: "shadow"
 // is the only way to measure what the router would have done without letting it
 // act, which is the baseline the savings claim has to be measured against.
-const MODES = [
-  { value: "off", label: "Off", desc: "Never asks the decision model. Routing is exactly as it was." },
-  { value: "shadow", label: "Shadow", desc: "Asks and logs the verdict. Applies nothing; this is the baseline you compare against." },
-  { value: "enforce", label: "Enforce", desc: "Asks and applies the verdict." },
+// Stored as off | shadow | enforce; shown as what they do for the operator.
+export const MODES = [
+  { value: "off", label: "Off" },
+  { value: "shadow", label: "Test run" },
+  { value: "enforce", label: "On" },
 ];
 
 // How much evidence a verdict needs before it acts. The bands come from measured
@@ -24,22 +26,22 @@ const MODES = [
 const PRESETS = [
   {
     value: "cautious",
-    label: "Cautious",
-    desc: "Acts only on near-certain verdicts. Fewest switches, lowest risk of a wrong route.",
+    label: "Rarely",
+    desc: "Switches only when it is near certain. Fewest switches, lowest risk of a wrong pick.",
     minStrength: 0.55,
     switchStrength: 0.75,
   },
   {
     value: "balanced",
-    label: "Balanced",
-    desc: "Acts on clear verdicts. The measured default.",
+    label: "Sometimes",
+    desc: "Switches when the case is clear. The measured default.",
     minStrength: 0.35,
     switchStrength: 0.6,
   },
   {
     value: "eager",
-    label: "Eager",
-    desc: "Also acts on weaker verdicts, in the ambiguous band. More switches, more chances to route wrong.",
+    label: "Often",
+    desc: "Also switches on weaker hunches. More switches, more chances of a wrong pick.",
     minStrength: 0.2,
     switchStrength: 0.4,
   },
@@ -83,7 +85,6 @@ export default function DecisionRouterCard({ provider }) {
   if (!config) return null;
 
   const models = config.models || [];
-  const activeMode = MODES.find((m) => m.value === config.mode) || MODES[0];
   const activePreset = presetOf(config);
 
   const gateways = getProvidersByKind("systemone");
@@ -152,29 +153,36 @@ export default function DecisionRouterCard({ provider }) {
   };
 
   return (
-    <Card padding="sm">
-      <h2 className="text-base font-semibold mb-1">{translate("Decision router")}</h2>
-      <p className="text-xs text-text-muted mb-4">
-        {translate("Picks which model of a combo serves each turn. Only routes to the models listed below.")}
+    <Card padding="md">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="text-base font-semibold">{translate("Pick the model for each turn")}</h2>
+          <p className="mt-1 text-sm text-text-muted">
+            {translate("Inside a combo, a small decision model (JEV) chooses which member answers each turn: a strong model for the hard steps, a cheaper one for the rest.")}
+          </p>
+        </div>
+        <SegmentedControl options={MODES.map((m) => ({ ...m, label: translate(m.label) }))} value={config.mode} onChange={(v) => set("mode", v)} size="sm" />
+      </div>
+
+      <p className={`mt-4 rounded-md px-3 py-2 text-sm ${config.mode === "enforce" ? "bg-feedback-success-surface text-feedback-success-foreground" : config.mode === "shadow" ? "bg-feedback-info-surface text-feedback-info-foreground" : "bg-surface-2 text-text-muted"}`}>
+        {decisionRouterSummary(config)}
       </p>
 
-      <div className="flex flex-col gap-5">
-        <div className="flex flex-col gap-2">
-          <SegmentedControl options={MODES} value={config.mode} onChange={(v) => set("mode", v)} size="sm" />
-          <p className="text-xs text-text-muted">{translate(activeMode.desc)}</p>
-        </div>
-
+      <div className="mt-5 flex flex-col gap-5">
         <div className="flex flex-col gap-2">
           <div className="flex items-center justify-between gap-3">
-            <p className="text-sm font-medium">{translate("Models and combos")}</p>
-            <Button icon="add" variant="ghost" size="sm" onClick={() => setShowModelSelect(true)}>
+            <div>
+              <p className="text-sm font-medium">{translate("Where it may choose")}</p>
+              <p className="text-xs text-text-muted">{translate("The combos (or models) whose members it picks between. Nothing else is touched.")}</p>
+            </div>
+            <Button icon="add" variant="secondary" size="sm" onClick={() => setShowModelSelect(true)}>
               {translate("Add")}
             </Button>
           </div>
           <div className="flex flex-wrap gap-2">
             {models.length === 0 ? (
               <span className="text-xs text-text-muted italic">
-                {translate("No model scope selected. Model routing is off; tool routing follows the mode below.")}
+                {translate("None yet: it has nothing to pick from.")}
               </span>
             ) : models.map((value) => (
               <span key={value} className="inline-flex items-center gap-1 rounded bg-muted/50 px-1.5 py-0.5">
@@ -194,7 +202,7 @@ export default function DecisionRouterCard({ provider }) {
         </div>
 
         <div className="flex flex-col gap-2">
-          <p className="text-sm font-medium">{translate("How decisive")}</p>
+          <p className="text-sm font-medium">{translate("How often it switches")}</p>
           <SegmentedControl
             options={PRESETS.map((p) => ({ value: p.value, label: translate(p.label) }))}
             value={activePreset === "custom" ? null : activePreset}
@@ -203,7 +211,7 @@ export default function DecisionRouterCard({ provider }) {
           />
           <p className="text-xs text-text-muted">
             {activePreset === "custom"
-              ? translate("Custom thresholds, calibrated in Advanced.")
+              ? translate("Custom thresholds, set under Advanced.")
               : translate(PRESETS.find((p) => p.value === activePreset).desc)}
           </p>
         </div>
@@ -215,7 +223,7 @@ export default function DecisionRouterCard({ provider }) {
             className="inline-flex w-fit items-center gap-1 text-xs text-text-muted hover:text-primary"
           >
             <Icon name={advanced ? "expand_less" : "expand_more"} size={16} />
-            {translate("Advanced")}
+            {translate("Advanced: decision model, tools, thresholds")}
           </button>
 
           {advanced && (
