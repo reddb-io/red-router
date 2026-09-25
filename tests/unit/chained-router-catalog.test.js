@@ -11,7 +11,7 @@ const originalDataDir = process.env.DATA_DIR;
 let tempDir;
 let db;
 let buildModelsList;
-let catalogRequestChain;
+let catalogFetchOptions;
 let resolveRedRouterHop;
 let routerConnection;
 let RED_ROUTER_INSTANCE_ID;
@@ -34,7 +34,8 @@ beforeAll(async () => {
     apiKey: "k-home",
     providerSpecificData: { baseUrl: `${HOME}/v1` },
   });
-  ({ buildModelsList, catalogRequestChain } = await import("../../src/app/api/v1/models/route.js"));
+  ({ buildModelsList } = await import("../../src/app/api/v1/models/route.js"));
+  ({ catalogFetchOptions } = await import("../../src/lib/remoteRouterCatalog.js"));
   ({ resolveRedRouterHop } = await import("../../src/sse/services/model.js"));
   ({ RED_ROUTER_INSTANCE_ID, RED_ROUTER_MAX_HOPS, routableRemoteEntries } = await import("../../open-sse/config/redRouter.js"));
 });
@@ -182,10 +183,10 @@ describe("/v1/models through chained RedRouters", () => {
   it("reads the hop chain of a catalog request; an older router's fetch skips upstream routers", () => {
     const request = (headers) => new Request("http://router.test/v1/models", { headers });
 
-    expect(catalogRequestChain(request({ "x-rr-internal-models-fetch": "1" }))).toEqual({ chain: [], skipDynamicFetch: true });
-    expect(catalogRequestChain(request({ "x-rr-internal-models-fetch": "1", "x-red-router-chain": "rr-a, rr-b" })))
-      .toEqual({ chain: ["rr-a", "rr-b"], skipDynamicFetch: false });
-    expect(catalogRequestChain(request({}))).toEqual({ chain: [], skipDynamicFetch: false });
+    expect(catalogFetchOptions(request({ "x-rr-internal-models-fetch": "1" }))).toEqual({ skipDynamicFetch: true });
+    expect(catalogFetchOptions(request({ "x-rr-internal-models-fetch": "1", "x-red-router-chain": "rr-a, rr-b" })))
+      .toEqual({ chain: ["rr-a", "rr-b"] });
+    expect(catalogFetchOptions(request({}))).toEqual({});
   });
 });
 

@@ -1,4 +1,4 @@
-import { syncRemoteRouterCatalog } from "@/lib/remoteRouterCatalog";
+import { INTERNAL_MODELS_FETCH_HEADER, catalogFetchOptions, syncRemoteRouterCatalog } from "@/lib/remoteRouterCatalog";
 import { PROVIDER_MODELS, PROVIDER_ID_TO_ALIAS, getModelKind, findModelName } from "@/shared/constants/models";
 import {
   AI_PROVIDERS,
@@ -37,7 +37,6 @@ import { SYSTEM_ONE_CREDENTIAL_SOURCES } from "open-sse/config/systemOne.js";
 import { resolveOpenCodeGoModels, resolveOpenCodeZenSystemOneModels } from "open-sse/services/opencodeCatalog.js";
 import { modelsDevModels } from "@/lib/modelCatalog/browse";
 import {
-  RED_ROUTER_CHAIN_HEADER,
   RED_ROUTER_INSTANCE_HEADER,
   RED_ROUTER_INSTANCE_ID,
   appendRedRouterHop,
@@ -205,9 +204,6 @@ const parseOpenAIStyleModels = (data) => {
   return data?.data || data?.models || data?.results || [];
 };
 
-// Header sent by fetchCompatibleModelIds to detect cross-instance /models fetches
-// and break recursive loops between red-router instances connected to each other.
-const INTERNAL_MODELS_FETCH_HEADER = "x-rr-internal-models-fetch";
 
 // LLM kind sentinel — combos/models with no explicit kind default to LLM
 const LLM_KIND = "llm";
@@ -1189,11 +1185,11 @@ export async function OPTIONS() {
  */
 export async function GET(request) {
   try {
-    const { skipDynamicFetch, chain } = catalogRequestChain(request);
     const apiKey = extractApiKey(request);
     // ?variants=expand lists every variant id as its own entry (older clients).
     const variants = request?.url ? new URL(request.url).searchParams.get("variants") || undefined : undefined;
-    const data = await buildModelsList([LLM_KIND], { skipDynamicFetch, chain, apiKey, variants });
+    // Another RedRouter reading this catalog sends its hop chain (see catalogFetchOptions).
+    const data = await buildModelsList([LLM_KIND], { ...catalogFetchOptions(request), apiKey, variants });
     const catalogVersion = await getCatalogVersion(apiKey);
     return Response.json({ object: "list", data }, {
       headers: {
@@ -1211,14 +1207,3 @@ export async function GET(request) {
   }
 }
 
-/**
- * How a catalog request asks for remote RedRouter catalogs. A router fetching this
- * one sends its hop chain: remote catalogs are listed, with loops and the hop limit
- * enforced along it. An older router sends only the internal-fetch header: remote
- * catalogs are skipped, as that router expects.
- */
-export function catalogRequestChain(request) {
-  const chain = parseRedRouterChain(request?.headers?.get(RED_ROUTER_CHAIN_HEADER));
-  const legacyFetch = request?.headers?.get(INTERNAL_MODELS_FETCH_HEADER) === "1";
-  return { chain, skipDynamicFetch: legacyFetch && chain.length === 0 };
-}

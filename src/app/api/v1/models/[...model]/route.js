@@ -1,4 +1,5 @@
-import { buildModelsList, catalogRequestChain } from "../route.js";
+import { buildModelsList } from "../route.js";
+import { catalogFetchOptions } from "@/lib/remoteRouterCatalog";
 import { catalogEntryFor } from "@/lib/catalogEntry";
 import { extractApiKey } from "@/sse/services/auth.js";
 import { getCatalogVersion } from "@/lib/catalogVersion";
@@ -55,9 +56,8 @@ export async function GET(request, { params }) {
     const variants = request?.url ? new URL(request.url).searchParams.get("variants") || undefined : undefined;
 
     if (kindFilter) {
-      // Another RedRouter reading this catalog sends its hop chain (see catalogRequestChain).
-      const { skipDynamicFetch, chain } = catalogRequestChain(request);
-      const data = await buildModelsList(kindFilter, { apiKey, variants, skipDynamicFetch, chain });
+      // Another RedRouter reading this catalog sends its hop chain (see catalogFetchOptions).
+      const data = await buildModelsList(kindFilter, { ...catalogFetchOptions(request), apiKey, variants });
       return json({ object: "list", data }, { headers: { [RED_ROUTER_INSTANCE_HEADER]: RED_ROUTER_INSTANCE_ID } });
     }
 

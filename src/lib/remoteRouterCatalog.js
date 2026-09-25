@@ -11,6 +11,10 @@ import { resolveConnectionProxyConfig } from "@/lib/network/connectionProxy";
 
 const REFRESH_MS = 5 * 60 * 1000;
 
+// Sent with every remote catalog fetch. A router that predates hop chains skips its
+// own upstream routers when it sees this, which breaks loops between two of them.
+export const INTERNAL_MODELS_FETCH_HEADER = "x-rr-internal-models-fetch";
+
 // Each remote catalog a connection caches: where the remote serves it, and the
 // providerSpecificData fields holding the list, its sync time and the remote's instance.
 const CATALOGS = {
@@ -51,7 +55,7 @@ export async function syncRemoteRouterCatalog(connection, { force = false, persi
         Authorization: `Bearer ${connection.apiKey}`,
         "Content-Type": "application/json",
         // Older remotes ignore the chain and skip their own upstream routers on this.
-        "x-rr-internal-models-fetch": "1",
+        [INTERNAL_MODELS_FETCH_HEADER]: "1",
         [RED_ROUTER_CHAIN_HEADER]: hops.join(","),
       },
       cache: "no-store",
@@ -75,18 +79,28 @@ export async function syncRemoteRouterCatalog(connection, { force = false, persi
       // A fetch must not overwrite an edit or resurrect a deleted connection.
       const current = await getProviderConnectionById(connection.id);
       if (current && current.apiKey === connection.apiKey && current.providerSpecificData?.baseUrl === data.baseUrl) {
-        await updateProviderConnection(connection.id, {
-          providerSpecificData: {
-            ...current.providerSpecificData,
-            [catalog.models]: models,
-            [catalog.syncedAt]: syncedAt,
-            [catalog.instance]: instanceId,
-          },
-        });
+        const next = { ...current.providerSpecificData, [catalog.models]: models, [catalog.syncedAt]: syncedAt };
+        // An older remote names no instance; its entries carry no route to check either.
+        if (instanceId) next[catalog.instance] = instanceId;
+        else delete next[catalog.instance];
+        await updateProviderConnection(connection.id, { providerSpecificData: next });
       }
     }
     return { models: routable(models, instanceId), instanceId, [catalog.syncedAt]: syncedAt };
   } catch (error) {
     return { models: routable(cached, cachedInstance), instanceId: cachedInstance, warning: error.message, cached: true };
   }
+}
+
+/**
+ * The buildModelsList options a catalog request asks for. A router fetching this
+ * one sends its hop chain: remote catalogs are listed, with loops and the hop limit
+ * enforced along it. An older router sends only the internal-fetch header: remote
+ * catalogs are skipped, as that router expects. Anything else: no options.
+ */
+export function catalogFetchOptions(request) {
+  const chain = parseRedRouterChain(request?.headers?.get(RED_ROUTER_CHAIN_HEADER));
+  if (chain.length) return { chain };
+  if (request?.headers?.get(INTERNAL_MODELS_FETCH_HEADER) === "1") return { skipDynamicFetch: true };
+  return {};
 }
