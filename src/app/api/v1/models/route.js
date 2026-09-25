@@ -36,12 +36,19 @@ import { CATALOG_VERSION_HEADER } from "open-sse/config/runtimeConfig.js";
 import { SYSTEM_ONE_CREDENTIAL_SOURCES } from "open-sse/config/systemOne.js";
 import { resolveOpenCodeGoModels, resolveOpenCodeZenSystemOneModels } from "open-sse/services/opencodeCatalog.js";
 import { modelsDevModels } from "@/lib/modelCatalog/browse";
+import {
+  RED_ROUTER_CHAIN_HEADER,
+  RED_ROUTER_INSTANCE_HEADER,
+  RED_ROUTER_INSTANCE_ID,
+  appendRedRouterHop,
+  parseRedRouterChain,
+} from "open-sse/config/redRouter.js";
 
 // Per-provider live model resolvers. Each receives a connection record and
 // returns { models: [{ id, name? }, ...] } | null on failure.
 // Adding a provider here makes /v1/models prefer the live catalog for it.
+// A remote RedRouter's catalog depends on the hop chain; buildModelsList fetches it.
 const LIVE_MODEL_RESOLVERS = {
-  "red-router": syncRemoteRouterCatalog,
   kiro: async (conn) => {
     const result = await resolveKiroModels({
       accessToken: conn.accessToken,
@@ -332,10 +339,23 @@ function providerModelEntry({ prefixes, modelId, name, provider, extra = {} }) {
 }
 
 /**
- * A model served by a remote RedRouter keeps the remote's own name and provider;
- * `via` says it is reached through this instance's red-router account.
+ * One router hop of a `route`: the RedRouter connection prefix it takes, the remote
+ * instance it reaches (when the remote says), and the account when one serves it.
  */
-function remoteRouterEntry(prefixes, remoteId, remote, conn) {
+function routerHop(prefixes, instanceId, connections) {
+  const hop = { id: REMOTE_ROUTER_ID, name: providerIdentity(REMOTE_ROUTER_ID)?.name || "RedRouter", prefix: prefixes.prefix };
+  if (instanceId) hop.instance = instanceId;
+  if (connections.length === 1) hop.connection = { id: connections[0].id, name: connectionLabel(connections[0]) };
+  return hop;
+}
+
+/**
+ * A model served by a remote RedRouter keeps the remote's own name and provider;
+ * `via` says it is reached through this instance's red-router account, and `route`
+ * lists every router hop, this one first, then the remote's own route when the remote
+ * re-exposes a router further up ("red-router/red-router/opencode-go/<model>").
+ */
+function remoteRouterEntry(prefixes, remoteId, remote, conn, hop) {
   const entry = providerModelEntry({
     prefixes,
     modelId: remoteId,
@@ -357,6 +377,7 @@ function remoteRouterEntry(prefixes, remoteId, remote, conn) {
       }));
   }
   entry.via = REMOTE_ROUTER_ID;
+  entry.route = [hop, ...(Array.isArray(remote?.route) ? remote.route : [])];
   return entry;
 }
 
@@ -618,6 +639,11 @@ export async function buildModelsList(kindFilter, options = {}) {
   // red-router instance's fetchCompatibleModelIds — skip dynamic fetch to break
   // cross-instance recursive loops.
   const skipDynamicFetch = options.skipDynamicFetch === true;
+  // The routers this catalog request already passed (x-red-router-chain). Remote
+  // RedRouter catalogs are fetched with this router appended; none when that would
+  // loop or exceed the hop limit.
+  const chain = parseRedRouterChain(options.chain);
+  const remoteChain = skipDynamicFetch ? null : nextRouterChain(chain);
   const { connections, allowedConnectionIds, settings, scoped, keyOwner } = await catalogConnections(options);
 
   const prefixStyle = catalogPrefixStyle(settings);
@@ -816,9 +842,12 @@ export async function buildModelsList(kindFilter, options = {}) {
       // Config-driven live catalog override (e.g. Kiro returns dynamic
       // -thinking/-agentic variants per account). On failure, fall back to
       // whatever rawModelIds already holds.
-      const liveResolver = providerId === "red-router" && skipDynamicFetch
-        ? async () => ({ models: [] })
+      const liveResolver = providerId === REMOTE_ROUTER_ID
+        ? (remoteChain
+          ? (c) => syncRemoteRouterCatalog(c, { chain: remoteChain })
+          : async () => ({ models: [] }))
         : LIVE_MODEL_RESOLVERS[providerId];
+      let remoteInstance = null;
       if (liveResolver && !hasExplicitEnabledModels) {
         try {
           const live = await liveResolver(conn);
@@ -835,6 +864,7 @@ export async function buildModelsList(kindFilter, options = {}) {
                 .map((m) => [m.id, m.capabilities])
             );
             liveModelById = new Map(live.models.filter((m) => m?.id).map((m) => [m.id, m]));
+            remoteInstance = live.instanceId || null;
           }
         } catch (err) {
           console.log(`Live model fetch failed for ${providerId}: ${err?.message || err}`);
@@ -893,7 +923,7 @@ export async function buildModelsList(kindFilter, options = {}) {
         if (!kindFilter.includes(kind) && !allowAsLlm) continue;
 
         const model = providerId === REMOTE_ROUTER_ID
-          ? remoteRouterEntry(prefixes, modelId, liveModelById.get(modelId), conn)
+          ? remoteRouterEntry(prefixes, modelId, liveModelById.get(modelId), conn, routerHop(prefixes, remoteInstance, prefixConnections))
           : providerModelEntry({ prefixes, modelId, name: displayNameOf(providerId, modelId, nameOf(modelId)), provider });
         if (variants) model.variants = variantEntries(prefixes, variants, nameOf);
         // Live-catalog resolvers (kiro/qoder/github/clinepass) mostly only return
@@ -958,6 +988,7 @@ export async function buildModelsList(kindFilter, options = {}) {
 
   if (kindFilter.includes(SYSTEM_ONE_KIND)) {
     models.push(...await borrowedSystemOneEntries({ connections, prefixStyle, isDisabled, displayNameOf }));
+    models.push(...await remoteRouterSystemOneEntries({ connections, prefixStyle, isDisabled, remoteChain }));
   }
 
   // User aliases ("fast" -> "codex/gpt-5.5") are entries of their own, listed when the
@@ -1037,6 +1068,39 @@ async function borrowedSystemOneEntries({ connections, prefixStyle, isDisabled, 
     }
   }
   return entries;
+}
+
+/**
+ * System One models of every remote RedRouter connection, read from that router's
+ * own /v1/models/systemone and listed under the connection's prefix
+ * ("red-router/opencode-zen/jev-1.13"). A remote that is itself connected to routers
+ * lists theirs, so an id carries one prefix per router hop and `route` names each.
+ * /v1/systemone strips this router's hop and forwards the rest.
+ */
+async function remoteRouterSystemOneEntries({ connections, prefixStyle, isDisabled, remoteChain }) {
+  const routers = connections.filter((c) => c.provider === REMOTE_ROUTER_ID);
+  if (!remoteChain || routers.length === 0) return [];
+  const listings = providerListings(REMOTE_ROUTER_ID, routers, prefixStyle);
+  const catalogs = await Promise.all(listings.map(({ conn }) => (
+    syncRemoteRouterCatalog(conn, { kind: SYSTEM_ONE_KIND, chain: remoteChain }).catch(() => ({ models: [] }))
+  )));
+  return listings.flatMap(({ conn, prefixes, connections: prefixConnections }, index) => {
+    const catalog = catalogs[index];
+    const hop = routerHop(prefixes, catalog.instanceId || null, prefixConnections);
+    const ownPrefixes = [prefixes.prefix, ...prefixes.others, REMOTE_ROUTER_ID];
+    return catalog.models
+      .filter((remote) => !ownPrefixes.some((prefix) => isDisabled(prefix, remote.id)))
+      .map((remote) => remoteRouterEntry(prefixes, remote.id, remote, conn, hop));
+  });
+}
+
+/** The chain a remote RedRouter catalog is fetched with, or null when this router may not add a hop. */
+function nextRouterChain(chain) {
+  try {
+    return parseRedRouterChain(appendRedRouterHop(chain));
+  } catch {
+    return null;
+  }
 }
 
 /** Every name a listed entry may be matched by in a key's model rules. */
@@ -1125,16 +1189,16 @@ export async function OPTIONS() {
  */
 export async function GET(request) {
   try {
-    // Detect cross-instance recursive /models fetch (another red-router fetching our /models)
-    const skipDynamicFetch = request?.headers?.get(INTERNAL_MODELS_FETCH_HEADER) === "1";
+    const { skipDynamicFetch, chain } = catalogRequestChain(request);
     const apiKey = extractApiKey(request);
     // ?variants=expand lists every variant id as its own entry (older clients).
     const variants = request?.url ? new URL(request.url).searchParams.get("variants") || undefined : undefined;
-    const data = await buildModelsList([LLM_KIND], { skipDynamicFetch, apiKey, variants });
+    const data = await buildModelsList([LLM_KIND], { skipDynamicFetch, chain, apiKey, variants });
     const catalogVersion = await getCatalogVersion(apiKey);
     return Response.json({ object: "list", data }, {
       headers: {
         "Access-Control-Allow-Origin": "*",
+        [RED_ROUTER_INSTANCE_HEADER]: RED_ROUTER_INSTANCE_ID,
         ...(catalogVersion ? { [CATALOG_VERSION_HEADER]: catalogVersion } : {}),
       },
     });
@@ -1145,4 +1209,16 @@ export async function GET(request) {
       { status: 500 }
     );
   }
+}
+
+/**
+ * How a catalog request asks for remote RedRouter catalogs. A router fetching this
+ * one sends its hop chain: remote catalogs are listed, with loops and the hop limit
+ * enforced along it. An older router sends only the internal-fetch header: remote
+ * catalogs are skipped, as that router expects.
+ */
+export function catalogRequestChain(request) {
+  const chain = parseRedRouterChain(request?.headers?.get(RED_ROUTER_CHAIN_HEADER));
+  const legacyFetch = request?.headers?.get(INTERNAL_MODELS_FETCH_HEADER) === "1";
+  return { chain, skipDynamicFetch: legacyFetch && chain.length === 0 };
 }

@@ -7,8 +7,9 @@ import {
 } from "../services/auth.js";
 import { getApiKeyOwner, getSettings } from "@/lib/localDb";
 import { saveRequestUsage } from "@/lib/usageDb.js";
-import { getComboModels } from "../services/model.js";
+import { getComboModels, resolveRedRouterHop } from "../services/model.js";
 import {
+  handleRedRouterSystemOneCore,
   handleSystemOneCore,
   getSystemOneProviderOrder,
   normalizeSystemOneModel,
@@ -16,6 +17,13 @@ import {
   validateSystemOneRequest,
 } from "open-sse/handlers/systemOneCore.js";
 import { systemOneCredentialProviders } from "open-sse/config/systemOne.js";
+import {
+  RED_ROUTER_CHAIN_HEADER,
+  RED_ROUTER_INSTANCE_ID,
+  RED_ROUTER_PROVIDER_ID,
+  appendRedRouterHop,
+  parseRedRouterChain,
+} from "open-sse/config/redRouter.js";
 import { providerIdentity } from "open-sse/providers/identity.js";
 import { errorResponse, responseFromRoutingCandidate } from "open-sse/utils/error.js";
 import { handleComboChat } from "open-sse/services/combo.js";
@@ -67,10 +75,16 @@ export async function handleSystemOne(request) {
   const comboModels = typeof body.model === "string"
     ? await getComboModels(body.model, comboOwner)
     : null;
-  const validationError = validateSystemOneRequest(
-    comboModels ? { ...body, model: comboModels[0] } : body,
-  );
+  // A chained id ("red-router/opencode-zen/jev-1.13") names its model for the
+  // upstream router to judge; only the request's shape is checked here.
+  const leadModel = comboModels ? comboModels[0] : body.model;
+  const hop = await systemOneRouterHop(leadModel);
+  const validationError = validateSystemOneRequest({ ...body, model: hop ? undefined : leadModel });
   if (validationError) return errorResponse(400, validationError);
+  // A request that already passed through this router came back around a cycle.
+  if (parseRedRouterChain(request.headers.get(RED_ROUTER_CHAIN_HEADER)).includes(RED_ROUTER_INSTANCE_ID)) {
+    return loopResponse(body.model, "RedRouter routing loop detected");
+  }
 
   log.request("POST", `${url.pathname} | ${body.model || "jev-latest"}`);
 
@@ -101,10 +115,14 @@ export async function handleSystemOne(request) {
     });
   }
 
-  return handleSingleSystemOne({ body, request, url, clientApiKey, preferredConnectionId, enforceKey });
+  return handleSingleSystemOne({ body, hop, request, url, clientApiKey, preferredConnectionId, enforceKey });
 }
 
-async function handleSingleSystemOne({ body, request, url, clientApiKey, preferredConnectionId, enforceKey = true, grantedByCombo = false }) {
+async function handleSingleSystemOne({ body, hop, request, url, clientApiKey, preferredConnectionId, enforceKey = true, grantedByCombo = false }) {
+  const routerHop = hop === undefined ? await systemOneRouterHop(body.model) : hop;
+  if (routerHop) {
+    return handleRouterHopSystemOne({ body, hop: routerHop, request, url, clientApiKey, preferredConnectionId, enforceKey, grantedByCombo });
+  }
   const model = normalizeSystemOneModel(body.model);
   if (!model) return errorResponse(400, "Invalid JEV model");
   let lastUpstreamResponse = null;
@@ -198,6 +216,103 @@ async function handleSingleSystemOne({ body, request, url, clientApiKey, preferr
   }
 
   return lastUpstreamResponse || responseFromRoutingCandidate(lastRoutingCandidate);
+}
+
+/** This router's hop of a chained System One id, or null for a model served here. */
+async function systemOneRouterHop(model) {
+  if (typeof model !== "string" || normalizeSystemOneModel(model)) return null;
+  return resolveRedRouterHop(model);
+}
+
+/**
+ * A System One id through another RedRouter: forward the rest of the id to that
+ * router's /v1/systemone with the connection's key, this router appended to the hop
+ * chain. Each account of the connection prefix is tried in turn.
+ */
+async function handleRouterHopSystemOne({ body, hop, request, url, clientApiKey, preferredConnectionId, enforceKey, grantedByCombo }) {
+  if (enforceKey) {
+    const denial = await checkModelAccess({ apiKey: clientApiKey, providerId: RED_ROUTER_PROVIDER_ID, model: hop.model, requested: body.model, grantedByCombo });
+    if (denial) return responseFromRoutingCandidate(denial);
+  }
+  let chain;
+  try {
+    chain = appendRedRouterHop(request.headers.get(RED_ROUTER_CHAIN_HEADER));
+  } catch (error) {
+    return loopResponse(body.model, error.message);
+  }
+
+  let lastUpstreamResponse = null;
+  let lastRoutingCandidate = null;
+  const excluded = new Set();
+  while (true) {
+    const credentials = await getProviderCredentials(
+      RED_ROUTER_PROVIDER_ID,
+      excluded,
+      hop.model,
+      { apiKey: clientApiKey, preferredConnectionId, connectionIds: hop.connectionIds || undefined },
+    );
+    if (!credentials || credentials.noActiveCredentials || credentials.allRateLimited) {
+      lastRoutingCandidate = credentials?.candidate || lastRoutingCandidate;
+      break;
+    }
+
+    log.info("AUTH", `Using red-router account: ${credentials.connectionName} for System One ${hop.model}`);
+    const providerData = credentials.providerSpecificData || {};
+    const result = await handleRedRouterSystemOneCore({
+      body: { ...body, model: hop.model },
+      credentials,
+      chain,
+      signal: request.signal,
+      proxyOptions: {
+        connectionProxyEnabled: providerData.connectionProxyEnabled === true,
+        connectionProxyUrl: providerData.connectionProxyUrl || "",
+        connectionNoProxy: providerData.connectionNoProxy || "",
+        vercelRelayUrl: providerData.vercelRelayUrl || "",
+      },
+    });
+
+    if (result.success) {
+      await clearAccountError(credentials.connectionId, credentials, hop.model);
+      const tokens = exactSystemOneUsage(result.usage);
+      if (tokens) {
+        saveRequestUsage({
+          provider: RED_ROUTER_PROVIDER_ID,
+          model: hop.model,
+          connectionId: credentials.connectionId,
+          apiKey: clientApiKey,
+          endpoint: url.pathname,
+          tokens,
+          status: "success",
+        }).catch(() => {});
+      }
+      return result.response;
+    }
+
+    log.warn("SYSTEM_ONE", result.error);
+    lastUpstreamResponse = result.response;
+    const { shouldFallback } = await markAccountUnavailable(
+      credentials.connectionId,
+      result.status,
+      result.error,
+      RED_ROUTER_PROVIDER_ID,
+      hop.model,
+      result.resetsAtMs,
+    );
+    if (!shouldFallback) break;
+    excluded.add(credentials.connectionId);
+  }
+
+  return lastUpstreamResponse || responseFromRoutingCandidate(lastRoutingCandidate || {
+    status: 503,
+    message: `No active RedRouter connection for ${body.model}`,
+    provider: RED_ROUTER_PROVIDER_ID,
+    model: hop.model,
+  });
+}
+
+/** A chained id this router may not forward: it would loop, or exceed the hop limit. */
+function loopResponse(model, reason) {
+  return errorResponse(508, `${reason}; not forwarding ${model}`, { reason: "routing_loop", retryable: false });
 }
 
 // Upstream answers meaning "this key may not use this provider": unauthorized,

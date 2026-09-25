@@ -9,6 +9,7 @@ import { PROVIDER_MEDIA } from "../providers/index.js";
 import { PROVIDER_ID_TO_ALIAS, getModelType } from "../config/providerModels.js";
 import { proxyAwareFetch } from "../utils/proxyFetch.js";
 import { errorResponse, resetsAtFromHeaders, sanitizePublicMessage } from "../utils/error.js";
+import { RED_ROUTER_CHAIN_HEADER, RED_ROUTER_PROVIDER_ID, redRouterEndpoint } from "../config/redRouter.js";
 
 const BLOCKED_RESPONSE_HEADERS = new Set([
   "connection",
@@ -158,31 +159,92 @@ export async function handleSystemOneCore({
     return { success: false, status: 422, error: message, response: errorResponse(422, message) };
   }
 
-  const upstreamBody = { ...body, model: providerModel };
+  return forwardSystemOne({
+    url: config.baseUrl,
+    token,
+    headers: config.headers || {},
+    body: { ...body, model: providerModel },
+    label: providerId,
+    timeoutMs: config.timeoutMs,
+    signal,
+    proxyOptions,
+    fetchImpl,
+  });
+}
+
+/**
+ * Forward one System One request to another RedRouter, for an id that goes through
+ * it ("red-router/opencode-zen/jev-1.13" arrives here as `model: "opencode-zen/jev-1.13"`).
+ * The remote gets the rest of the id as is and resolves its own hop, so chains of any
+ * depth route one hop at a time; `chain` is the hop chain header, this router last.
+ * A refusal names the router that answered, so a nested one reads hop by hop.
+ */
+export async function handleRedRouterSystemOneCore({
+  body,
+  credentials,
+  chain,
+  signal,
+  proxyOptions = null,
+  fetchImpl = proxyAwareFetch,
+}) {
+  const token = credentials?.apiKey || credentials?.accessToken;
+  const baseUrl = credentials?.providerSpecificData?.baseUrl;
+  const name = credentials?.connectionName ? `RedRouter "${credentials.connectionName}"` : "RedRouter";
+  if (!token || !baseUrl) {
+    const message = `${name} has no ${token ? "URL" : "API key"} configured`;
+    return { success: false, status: 401, error: message, response: errorResponse(401, message) };
+  }
+  const result = await forwardSystemOne({
+    url: redRouterEndpoint(baseUrl, "systemone"),
+    token,
+    headers: { [RED_ROUTER_CHAIN_HEADER]: chain },
+    body,
+    label: RED_ROUTER_PROVIDER_ID,
+    signal,
+    proxyOptions,
+    fetchImpl,
+  });
+  if (result.success) return result;
+  // Same status and headers (Retry-After included) as the remote's answer; only the
+  // message gains this hop. Not errorResponse: it would reclassify a 402 whose
+  // nested message mentions a quota as a 429.
+  const summary = result.unreachable
+    ? `${name} could not be reached for ${body.model}`
+    : `${name} answered HTTP ${result.status} for ${body.model}`;
+  const error = sanitizePublicMessage(`${summary}: ${result.error}`, summary);
+  await result.response.body?.cancel().catch(() => {});
+  const headers = new Headers(result.response.headers);
+  headers.set("Content-Type", "application/json");
+  const payload = { error: { message: error, type: "upstream_error", code: `http_${result.status}` } };
+  return { ...result, error, response: new Response(JSON.stringify(payload), { status: result.status, headers }) };
+}
+
+/** POST one native System One body and pass the answer through untranslated. */
+async function forwardSystemOne({ url, token, headers, body, label, timeoutMs, signal, proxyOptions, fetchImpl }) {
   const connectController = new AbortController();
   const timer = setTimeout(
     () => connectController.abort(new Error("fetch connect timeout")),
-    config.timeoutMs || FETCH_CONNECT_TIMEOUT_MS,
+    timeoutMs || FETCH_CONNECT_TIMEOUT_MS,
   );
   const mergedSignal = signal
     ? AbortSignal.any([signal, connectController.signal])
     : connectController.signal;
 
   try {
-    const upstream = await fetchImpl(config.baseUrl, {
+    const upstream = await fetchImpl(url, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${token}`,
         "Content-Type": "application/json",
         Accept: "application/json",
-        ...(config.headers || {}),
+        ...headers,
       },
-      body: JSON.stringify(upstreamBody),
+      body: JSON.stringify(body),
       signal: mergedSignal,
     }, proxyOptions);
     clearTimeout(timer);
 
-    const { usage, error } = await responseMetadata(upstream, providerId);
+    const { usage, error } = await responseMetadata(upstream, label);
     const response = new Response(upstream.body, {
       status: upstream.status,
       statusText: upstream.statusText,
@@ -200,12 +262,13 @@ export async function handleSystemOneCore({
   } catch (cause) {
     clearTimeout(timer);
     if (signal?.aborted && cause?.name === "AbortError") throw cause;
-    const fallbackMessage = `${providerId} System One request failed`;
+    const fallbackMessage = `${label} System One request failed`;
     const message = sanitizePublicMessage(cause?.message, fallbackMessage);
     return {
       success: false,
       status: 502,
       error: message,
+      unreachable: true,
       response: errorResponse(502, fallbackMessage),
     };
   }
