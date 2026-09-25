@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 300" width="1200" height="300" role="img" aria-labelledby="rr-ctl-title rr-ctl-desc">
+  <title id="rr-ctl-title">Control: access, budgets, identity and a usage ledger</title>
+  <desc id="rr-ctl-desc">Four areas of control in RedRouter: per-key access rules, per-key budgets, dashboard identity, and a per-request usage ledger that can be exported.</desc>
+  <defs>
+    <linearGradient id="ctl-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0d1117"/>
+      <stop offset="1" stop-color="#07090d"/>
+    </linearGradient>
+    <radialGradient id="ctl-glow" cx="0.9" cy="0.1" r="0.8">
+      <stop offset="0" stop-color="#ff2056" stop-opacity="0.24"/>
+      <stop offset="1" stop-color="#ff2056" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="ctl-grid" width="24" height="24" patternUnits="userSpaceOnUse">
+      <path d="M24 0H0V24" fill="none" stroke="#ffffff" stroke-opacity="0.028" stroke-width="1"/>
+    </pattern>
+    <clipPath id="ctl-frame">
+      <rect x="0" y="0" width="1200" height="300" rx="18"/>
+    </clipPath>
+  </defs>
+  <g clip-path="url(#ctl-frame)">
+    <rect width="1200" height="300" fill="url(#ctl-bg)"/>
+    <rect width="1200" height="300" fill="url(#ctl-grid)"/>
+    <ellipse cx="1080" cy="20" rx="420" ry="220" fill="url(#ctl-glow)"/>
+    <g font-family="ui-monospace, SFMono-Regular, 'JetBrains Mono', Menlo, Consolas, monospace">
+      <text x="56" y="58" font-size="13" fill="#ff2056" letter-spacing="2.5">CONTROL</text>
+      <text x="56" y="92" font-size="30" font-weight="700" fill="#f0f6fc">Every request under your policy.</text>
+
+      <g font-size="13">
+        <rect x="56" y="124" width="256" height="140" rx="12" fill="#0b0f15" stroke="#ff2056" stroke-opacity="0.45"/>
+        <text x="76" y="154" font-size="12" fill="#ff2056" letter-spacing="1.5">ACCESS</text>
+        <text x="76" y="184" fill="#c9d1d9">models per API key</text>
+        <text x="76" y="208" fill="#c9d1d9">accounts per API key</text>
+        <text x="76" y="232" fill="#c9d1d9">admin and standard keys</text>
+
+        <rect x="328" y="124" width="256" height="140" rx="12" fill="#0b0f15" stroke="#ffffff" stroke-opacity="0.09"/>
+        <text x="348" y="154" font-size="12" fill="#8b949e" letter-spacing="1.5">BUDGETS</text>
+        <text x="348" y="184" fill="#c9d1d9">requests per minute</text>
+        <text x="348" y="208" fill="#c9d1d9">tokens per day</text>
+        <text x="348" y="232" fill="#c9d1d9">USD per month</text>
+
+        <rect x="600" y="124" width="256" height="140" rx="12" fill="#0b0f15" stroke="#ffffff" stroke-opacity="0.09"/>
+        <text x="620" y="154" font-size="12" fill="#8b949e" letter-spacing="1.5">IDENTITY</text>
+        <text x="620" y="184" fill="#c9d1d9">password, OIDC, SAML</text>
+        <text x="620" y="208" fill="#c9d1d9">resources per user</text>
+        <text x="620" y="232" fill="#c9d1d9">local or network bind</text>
+
+        <rect x="872" y="124" width="272" height="140" rx="12" fill="#0b0f15" stroke="#ffffff" stroke-opacity="0.09"/>
+        <text x="892" y="154" font-size="12" fill="#8b949e" letter-spacing="1.5">LEDGER</text>
+        <text x="892" y="184" fill="#c9d1d9">every request logged</text>
+        <text x="892" y="208" fill="#c9d1d9">cost by key and model</text>
+        <text x="892" y="232" fill="#c9d1d9">export to your billing</text>
+      </g>
+    </g>
+    <rect x="0" y="296" width="1200" height="4" fill="#ff2056"/>
+  </g>
+</svg>
