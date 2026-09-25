@@ -1,18 +1,16 @@
 /* source() sets scan base to src/ for both webpack + Turbopack; auto-detection still skips binaries + gitignore */
 @import "tailwindcss" source("../../");
 
-/* RedDB Design System distribution — vendored byte-for-byte from
-   reddb-io/design-system v2026.09 (see vendor/ds/README.md). The theme
-   applies under [data-theme="application"], the scheme under
-   [data-color-scheme]; src/store/themeStore.js and the root layout script
-   keep both in sync with the Tailwind `.dark` class. */
-@import "../../vendor/ds/tokens.css";
-@import "../../vendor/ds/theme-base.css";
-@import "../../vendor/ds/theme-application.css";
-@import "../../vendor/ds/scheme-light.css";
-@import "../../vendor/ds/scheme-dark.css";
-@import "../../vendor/ds/theme.css";
-@import "../../vendor/ds/density-compact.css";
+/* RedDB Design System, synced into vendor/ds from design-system.manifest.json
+   (the design-system README, "Consuming it"). Its Application entry carries the
+   Brand fonts, tokens, the Base + Application theme, both colour schemes and
+   every density stop. The theme applies under [data-theme="application"], the
+   scheme under [data-color-scheme], the density under [data-density];
+   src/store/themeStore.js and the root layout script keep them in sync. The
+   dashboard is React, so it takes the CSS and the appearance contracts
+   (scripts/sync-ds-variants.mjs), never the Svelte kits: Tailwind skips them. */
+@import "../../vendor/ds/styles/application.css";
+@source not "../../vendor/ds/kits";
 
 @custom-variant dark (&:where(.dark, .dark *));
 
@@ -178,10 +176,9 @@ select {
   --shadow-elev: var(--shadow-elev);
   --shadow-focus: var(--shadow-focus);
 
-  /* Typography follows the vendored RedDB system. next/font supplies the
-     actual faces through these variables without a render-blocking request. */
-  --font-sans: var(--font-space-grotesk), var(--reddb-font-family-sans);
-  --font-mono: var(--font-jetbrains-mono), var(--reddb-font-family-mono);
+  /* Typography: the Brand's faces, served from vendor/ds/assets/fonts. */
+  --font-sans: var(--reddb-font-family-sans);
+  --font-mono: var(--reddb-font-family-mono);
 }
 
 /* Base */

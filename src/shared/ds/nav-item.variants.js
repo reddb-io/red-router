@@ -1,4 +1,4 @@
-// GENERATED from vendor/ds/kits/app/nav-item.variants.ts by scripts/sync-ds-variants.mjs — do not edit.
+// GENERATED from vendor/ds/kits/app/src/primitives/nav-item.variants.ts by scripts/sync-ds-variants.mjs — do not edit.
 // NavItem's styling. See button.variants.ts for the split, the colour rule and
 // the spatial rule.
 //

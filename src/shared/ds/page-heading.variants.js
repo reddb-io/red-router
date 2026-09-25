@@ -1,4 +1,4 @@
-// GENERATED from vendor/ds/kits/app/page-heading.variants.ts by scripts/sync-ds-variants.mjs — do not edit.
+// GENERATED from vendor/ds/kits/app/src/composites/page-heading.variants.ts by scripts/sync-ds-variants.mjs — do not edit.
 import { tv,                   } from "tailwind-variants";
 
 export const pageHeading = tv({

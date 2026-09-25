@@ -1,0 +1,8 @@
+{
+  "source": "reddb-io/design-system",
+  "version": "v2026.09",
+  "consumer": "red-router",
+  "kits": ["app"],
+  "styles": ["application"],
+  "dest": "vendor/ds"
+}

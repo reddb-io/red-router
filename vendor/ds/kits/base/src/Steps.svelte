@@ -1,0 +1,51 @@
+<script module lang="ts">
+  export type StepState = "complete" | "current" | "upcoming";
+
+  export interface StepItem {
+    id: string;
+    label: string;
+    href?: string;
+    state: StepState;
+  }
+</script>
+
+<script lang="ts">
+  import Link from "./Link.svelte";
+  import { steps } from "./steps.variants";
+
+  interface Props {
+    items: readonly StepItem[];
+    label?: string;
+    class?: string;
+  }
+
+  let { items, label = "Progress", class: className }: Props = $props();
+  const styles = steps();
+</script>
+
+<nav aria-label={label} data-steps class={styles.root({ class: className })}>
+  <ol class={styles.list()}>
+    {#each items as item, index (item.id)}
+      <li data-step-state={item.state} class={styles.item()}>
+        {#if item.state === "current"}
+          <span aria-current="step" class={styles.content()}>
+            <span aria-hidden="true" class={styles.marker()}>{index + 1}</span>
+            <span class={styles.current()}>{item.label}</span>
+          </span>
+        {:else if item.href !== undefined}
+          <Link href={item.href} class={styles.content()}>
+            <span aria-hidden="true" class={styles.marker()}>{item.state === "complete" ? "✓" : index + 1}</span>
+            <span>{item.label}</span>
+            {#if item.state === "complete"}<span class={styles.status()}>Completed</span>{/if}
+          </Link>
+        {:else}
+          <span class={styles.content()}>
+            <span aria-hidden="true" class={styles.marker()}>{item.state === "complete" ? "✓" : index + 1}</span>
+            <span>{item.label}</span>
+            {#if item.state === "complete"}<span class={styles.status()}>Completed</span>{/if}
+          </span>
+        {/if}
+      </li>
+    {/each}
+  </ol>
+</nav>

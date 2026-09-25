@@ -1,4 +1,4 @@
-// GENERATED from vendor/ds/kits/base/badge.variants.ts by scripts/sync-ds-variants.mjs — do not edit.
+// GENERATED from vendor/ds/kits/base/src/badge.variants.ts by scripts/sync-ds-variants.mjs — do not edit.
 import { tv,                   } from "tailwind-variants";
 
 const VARIANT = {

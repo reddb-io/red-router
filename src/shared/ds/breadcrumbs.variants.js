@@ -1,4 +1,4 @@
-// GENERATED from vendor/ds/kits/base/breadcrumbs.variants.ts by scripts/sync-ds-variants.mjs — do not edit.
+// GENERATED from vendor/ds/kits/base/src/breadcrumbs.variants.ts by scripts/sync-ds-variants.mjs — do not edit.
 import { tv,                   } from "tailwind-variants";
 
 export const breadcrumbs = tv({
