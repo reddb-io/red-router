@@ -10,6 +10,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // The design system as its Sync writes it (design-system.manifest.json): vendored, not ours to lint.
+    "vendor/**",
   ]),
 ]);
 

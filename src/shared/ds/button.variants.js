@@ -1,4 +1,4 @@
-// GENERATED from vendor/ds/kits/base/button.variants.ts by scripts/sync-ds-variants.mjs — do not edit.
+// GENERATED from vendor/ds/kits/base/src/button.variants.ts by scripts/sync-ds-variants.mjs — do not edit.
 // Button's public appearance seam.
 //
 // Every class lives in these `tv()` contracts so a consumer can extend the

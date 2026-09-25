@@ -1,4 +1,4 @@
-// GENERATED from vendor/ds/kits/app/application-shell.variants.ts by scripts/sync-ds-variants.mjs — do not edit.
+// GENERATED from vendor/ds/kits/app/src/composites/application-shell.variants.ts by scripts/sync-ds-variants.mjs — do not edit.
 import { tv,                   } from "tailwind-variants";
 
 /**

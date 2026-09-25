@@ -1,4 +1,4 @@
-// GENERATED from vendor/ds/kits/base/card.variants.ts by scripts/sync-ds-variants.mjs — do not edit.
+// GENERATED from vendor/ds/kits/base/src/card.variants.ts by scripts/sync-ds-variants.mjs — do not edit.
 import { tv,                   } from "tailwind-variants";
 
 const VARIANT = {

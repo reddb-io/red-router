@@ -14,7 +14,7 @@ const CHARTS = [
 
 describe("chart colours follow the design system series", () => {
   it("uses custom properties every colour scheme defines", () => {
-    const schemes = ["vendor/ds/scheme-light.css", "vendor/ds/scheme-dark.css"].map(read);
+    const schemes = ["vendor/ds/theme/scheme-light.css", "vendor/ds/theme/scheme-dark.css"].map(read);
     for (const value of [...SERIES_COLORS, DANGER_COLOR]) {
       const name = value.match(/var\((--[a-z0-9-]+)\)/)[1];
       for (const css of schemes) expect(css, name).toContain(`${name}:`);
