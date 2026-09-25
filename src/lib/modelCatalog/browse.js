@@ -5,11 +5,17 @@
 //     completed with models.dev facts where it lacks them. The last good list is
 //     saved to OPENROUTER_CATALOG_FILE, and snapshot/openrouter.json ships with
 //     the repo, so the browser still lists every OpenRouter model offline;
+//   - OpenCode Zen and OpenCode Go: OpenCode's live /models ids, from the cache
+//     routing already keeps (open-sse/services/opencodeCatalog.js), described
+//     by models.dev and the built-in registry. The last good list is saved to
+//     liveCatalogFile(provider); with neither, the built-in registry list;
 //   - everyone else: the models.dev catalog (anomalyco/models.dev), refreshed
 //     daily by ./sync.js into CATALOG_BROWSE_FILE, or the snapshot vendored in
 //     the repo until the first sync writes it.
 import fs from "node:fs";
-import { CATALOG_BROWSE_FILE, OPENROUTER_CATALOG_FILE } from "open-sse/providers/catalogOverride.js";
+import { CATALOG_BROWSE_FILE, OPENROUTER_CATALOG_FILE, liveCatalogFile } from "open-sse/providers/catalogOverride.js";
+import { OPENCODE_SYSTEM_ONE_ID_RE } from "open-sse/config/opencodeCatalog.js";
+import { openCodeLiveModelIds } from "open-sse/services/opencodeCatalog.js";
 import { PROVIDER_ALIASES } from "./sync.js";
 import { browseSlim, slimOpenRouterModel } from "./browseShape.js";
 
@@ -50,6 +56,9 @@ const BROWSE_ALIASES = {
 // Providers that only serve the free slice of the catalog they map to
 // (OpenCode Free is OpenCode Zen's free models).
 const FREE_ONLY = new Set(["opencode"]);
+
+// Providers whose live /models (ids only) decides what the browser lists.
+const OPENCODE_LISTS = new Set(["opencode-zen", "opencode-go"]);
 
 export function modelsDevProviderId(providerId) {
   return BROWSE_ALIASES[providerId] || providerId;
@@ -150,20 +159,21 @@ function mapOpenRouterModel(m) {
   };
 }
 
-function readOpenRouterFile(file) {
+// A saved or vendored list: { fetchedAt, [key]: [...] }, or null when missing or empty.
+function readListFile(file, key = "models") {
   try {
     const saved = JSON.parse(fs.readFileSync(file, "utf8"));
-    return Array.isArray(saved?.models) && saved.models.length ? saved : null;
+    return Array.isArray(saved?.[key]) && saved[key].length ? saved : null;
   } catch {
     return null;
   }
 }
 
-function saveOpenRouterList(slim, fetchedAt) {
+function saveListFile(file, value) {
   try {
-    const tmp = `${OPENROUTER_CATALOG_FILE}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify({ fetchedAt, models: slim }));
-    fs.renameSync(tmp, OPENROUTER_CATALOG_FILE);
+    const tmp = `${file}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(value));
+    fs.renameSync(tmp, file);
   } catch {
     // Best effort: the live list still serves this process.
   }
@@ -182,7 +192,7 @@ async function fetchOpenRouterModels(fetchImpl = fetch) {
     if (Array.isArray(data) && data.length) {
       const slim = data.map(slimOpenRouterModel);
       const fetchedAt = new Date().toISOString();
-      saveOpenRouterList(slim, fetchedAt);
+      saveListFile(OPENROUTER_CATALOG_FILE, { fetchedAt, models: slim });
       openrouterLive = { at: Date.now(), models: slim.map(mapOpenRouterModel), origin: "live", fetchedAt };
       return openrouterLive;
     }
@@ -190,8 +200,8 @@ async function fetchOpenRouterModels(fetchImpl = fetch) {
     // Offline or OpenRouter down: fall through to what is on disk.
   }
   if (openrouterLive.models) return openrouterLive;
-  const saved = readOpenRouterFile(OPENROUTER_CATALOG_FILE);
-  const stored = saved || readOpenRouterFile(OPENROUTER_SNAPSHOT_URL);
+  const saved = readListFile(OPENROUTER_CATALOG_FILE);
+  const stored = saved || readListFile(OPENROUTER_SNAPSHOT_URL);
   if (!stored) return null;
   openrouterLive = {
     at: Date.now() - LIVE_TTL_MS + OFFLINE_RETRY_MS,
@@ -200,6 +210,41 @@ async function fetchOpenRouterModels(fetchImpl = fetch) {
     fetchedAt: stored.fetchedAt || null,
   };
   return openrouterLive;
+}
+
+// fetchedAt of the OpenCode list last written to disk, per provider.
+const openCodeSaved = new Map();
+
+/**
+ * OpenCode's model ids for Zen or Go: live (and saved to disk) when OpenCode
+ * answers, else the last saved list, else the built-in registry list.
+ * @returns {Promise<{ ids: string[], builtIn: object[], origin: "live"|"saved"|"builtin", fetchedAt: string|null }>}
+ */
+async function openCodeModelIds(providerId, fetchImpl) {
+  const file = liveCatalogFile(providerId);
+  const live = await openCodeLiveModelIds(providerId, { fetchImpl });
+  if (live.ids) {
+    if (openCodeSaved.get(providerId) !== live.fetchedAt) {
+      saveListFile(file, { fetchedAt: live.fetchedAt, ids: live.ids });
+      openCodeSaved.set(providerId, live.fetchedAt);
+    }
+    return { ids: live.ids, builtIn: live.builtIn, origin: "live", fetchedAt: live.fetchedAt };
+  }
+  const saved = readListFile(file, "ids");
+  const ids = saved?.ids.filter((id) => typeof id === "string" && id);
+  if (ids?.length) return { ids, builtIn: live.builtIn, origin: "saved", fetchedAt: saved.fetchedAt || null };
+  return { ids: live.builtIn.map((m) => m.id), builtIn: live.builtIn, origin: "builtin", fetchedAt: null };
+}
+
+/**
+ * One id of an OpenCode list in the browser's shape: models.dev's facts when it
+ * has the model, else the built-in name. JEV models are System One decision
+ * models, answered through /v1/systemone, not chat.
+ */
+function describeOpenCodeModel(id, { md, builtIn, providerName, mdId }) {
+  const model = md || { ...fromModelsDev(id, { n: builtIn?.name }, providerName, mdId), free: /[-:]free$/.test(id) };
+  if (builtIn?.kind !== "systemone" && !OPENCODE_SYSTEM_ONE_ID_RE.test(id)) return model;
+  return { ...model, decision: true, textOutput: false };
 }
 
 /**
@@ -248,6 +293,19 @@ export async function getProviderCatalog(providerId, { fetchImpl } = {}) {
     }
   }
 
+  if (OPENCODE_LISTS.has(providerId)) {
+    // OpenCode's list decides what exists; models.dev, then the registry, describe it.
+    const list = await openCodeModelIds(providerId, fetchImpl);
+    const md = new Map(fromMd.map((m) => [m.id, m]));
+    const builtIn = new Map(list.builtIn.map((m) => [m.id, m]));
+    const providerName = entry?.n || providerId;
+    models = list.ids.map((id) => describeOpenCodeModel(id, { md: md.get(id), builtIn: builtIn.get(id), providerName, mdId }));
+    // "opencode-zen", "opencode-zen-saved" or "opencode-zen-builtin", + models.dev when it helped.
+    const base = list.origin === "live" ? providerId : `${providerId}-${list.origin}`;
+    source = entry ? `${base}+models.dev` : base;
+    fetchedAt = list.fetchedAt;
+  }
+
   if (FREE_ONLY.has(providerId)) models = models.filter((m) => m.free);
   models.sort((a, b) => String(b.releaseDate || "").localeCompare(String(a.releaseDate || "")) || a.id.localeCompare(b.id));
   return { provider: providerId, source, fetchedAt, models };
@@ -259,4 +317,5 @@ export function resetBrowseCatalog() {
   browseMtime = -1;
   snapshotCache = null;
   openrouterLive = { at: 0, models: null, origin: null, fetchedAt: null };
+  openCodeSaved.clear();
 }

@@ -42,14 +42,21 @@ const upstream = {
 };
 
 let browseSlim, getProviderCatalog, modelsDevProviderId, resetBrowseCatalog;
+let resetOpenCodeCatalogs, resolveOpenCodeZenSystemOneModels, getProviderModels, PROVIDER_ID_TO_ALIAS;
 
 beforeAll(async () => {
   ({ browseSlim } = await import("../../src/lib/modelCatalog/browseShape.js"));
   ({ getProviderCatalog, modelsDevProviderId, resetBrowseCatalog } = await import("../../src/lib/modelCatalog/browse.js"));
+  ({ resetOpenCodeCatalogs, resolveOpenCodeZenSystemOneModels } = await import("../../open-sse/services/opencodeCatalog.js"));
+  ({ getProviderModels, PROVIDER_ID_TO_ALIAS } = await import("../../open-sse/config/providerModels.js"));
   fs.writeFileSync(browseFile, JSON.stringify(browseSlim(upstream)));
 });
 
-beforeEach(() => resetBrowseCatalog());
+// A restart: nothing cached in memory, whatever is on disk stays.
+beforeEach(() => {
+  resetBrowseCatalog();
+  resetOpenCodeCatalogs();
+});
 
 function jsonResponse(body, status = 200) {
   return { ok: status >= 200 && status < 300, status, json: async () => body };
@@ -165,6 +172,113 @@ describe("getProviderCatalog", () => {
     // Every output modality is vendored, decision models included.
     expect(models.length).toBeGreaterThan(400);
     expect(models.find((m) => m.id === "typesafe/jev-1.13")).toMatchObject({ decision: true });
+  });
+});
+
+describe("getProviderCatalog for OpenCode's live lists", () => {
+  const ZEN_URL = "https://opencode.ai/zen/v1/models";
+  const GO_URL = "https://opencode.ai/zen/go/v1/models";
+  const zenFile = path.join(dataDir, "model-catalog-opencode-zen.json");
+  const goFile = path.join(dataDir, "model-catalog-opencode-go.json");
+  const offline = async () => { throw new Error("offline"); };
+
+  function listFetch(lists, calls = []) {
+    return async (url) => {
+      calls.push(url);
+      if (!lists[url]) throw new Error(`unexpected fetch ${url}`);
+      return jsonResponse({ object: "list", data: lists[url].map((id) => ({ id, object: "model", owned_by: "opencode" })) });
+    };
+  }
+
+  it("lists OpenCode Zen from its live /models, JEV as System One decision models", async () => {
+    const calls = [];
+    const fetchImpl = listFetch({ [ZEN_URL]: ["big-pickle", "claude-fable-5", "brand-new", "jev-1.13", "jev-1.13-free"] }, calls);
+    const { source, fetchedAt, models } = await getProviderCatalog("opencode-zen", { fetchImpl });
+
+    expect(calls).toEqual([ZEN_URL]);
+    expect(source).toBe("opencode-zen+models.dev");
+    expect(fetchedAt).toBeTruthy();
+    // The live list decides what exists: models.dev's "paid-one" is not served today.
+    expect(models.map((m) => m.id).sort()).toEqual(["big-pickle", "brand-new", "claude-fable-5", "jev-1.13", "jev-1.13-free"]);
+    const byId = Object.fromEntries(models.map((m) => [m.id, m]));
+    // models.dev describes what it knows, the built-in registry names the rest.
+    expect(byId["big-pickle"]).toMatchObject({ name: "Big Pickle", free: true, textOutput: true });
+    expect(byId["big-pickle"].decision).toBeUndefined();
+    expect(byId["claude-fable-5"]).toMatchObject({ name: "Claude Fable 5", vendor: "OpenCode Zen", free: false });
+    expect(byId["brand-new"]).toMatchObject({ name: "brand-new", free: false });
+    expect(byId["jev-1.13"]).toMatchObject({ name: "JEV 1.13", decision: true, textOutput: false, free: false });
+    expect(byId["jev-1.13-free"]).toMatchObject({ name: "JEV 1.13 Free", decision: true, textOutput: false, free: true });
+
+    // Saved for the next offline start.
+    expect(JSON.parse(fs.readFileSync(zenFile, "utf8"))).toEqual({
+      fetchedAt, ids: ["big-pickle", "claude-fable-5", "brand-new", "jev-1.13", "jev-1.13-free"],
+    });
+  });
+
+  it("reuses the list routing already fetched instead of fetching it again", async () => {
+    const calls = [];
+    const fetchImpl = listFetch({ [ZEN_URL]: ["big-pickle", "jev-1.13"] }, calls);
+    await resolveOpenCodeZenSystemOneModels({ fetchImpl });
+    const { models } = await getProviderCatalog("opencode-zen", { fetchImpl });
+    expect(calls).toEqual([ZEN_URL]);
+    expect(models.map((m) => m.id).sort()).toEqual(["big-pickle", "jev-1.13"]);
+  });
+
+  it("offline, lists the last OpenCode Zen list it saved", async () => {
+    const first = await getProviderCatalog("opencode-zen", { fetchImpl: listFetch({ [ZEN_URL]: ["saved-one", "jev-1.13"] }) });
+
+    resetBrowseCatalog();
+    resetOpenCodeCatalogs();
+    const { source, fetchedAt, models } = await getProviderCatalog("opencode-zen", { fetchImpl: offline });
+    expect(source).toBe("opencode-zen-saved+models.dev");
+    expect(fetchedAt).toBe(first.fetchedAt);
+    expect(models.map((m) => m.id).sort()).toEqual(["jev-1.13", "saved-one"]);
+    expect(models.find((m) => m.id === "jev-1.13")).toMatchObject({ decision: true });
+  });
+
+  it("lists OpenCode Go from its live /models", async () => {
+    const calls = [];
+    const { source, fetchedAt, models } = await getProviderCatalog("opencode-go", {
+      fetchImpl: listFetch({ [GO_URL]: ["kimi-k3", "go-only-new"] }, calls),
+    });
+    expect(calls).toEqual([GO_URL]);
+    // No opencode-go entry in this models.dev fixture: the list alone.
+    expect(source).toBe("opencode-go");
+    expect(fetchedAt).toBeTruthy();
+    expect(models.map((m) => m.id).sort()).toEqual(["go-only-new", "kimi-k3"]);
+    expect(fs.existsSync(goFile)).toBe(true);
+  });
+
+  it("offline with nothing saved, lists the built-in OpenCode Go models", async () => {
+    fs.rmSync(goFile, { force: true });
+    const { source, fetchedAt, models } = await getProviderCatalog("opencode-go", { fetchImpl: offline });
+    expect(source).toBe("opencode-go-builtin");
+    expect(fetchedAt).toBeNull();
+    const builtIn = getProviderModels(PROVIDER_ID_TO_ALIAS["opencode-go"] || "opencode-go");
+    expect(builtIn.length).toBeGreaterThan(0);
+    expect(models.map((m) => m.id).sort()).toEqual(builtIn.map((m) => m.id).sort());
+  });
+});
+
+describe("catalogSourceLabel", async () => {
+  const { catalogSourceLabel, isOfflineCatalog } = await import("../../src/shared/utils/modelBrowser.js");
+
+  it("names each source, and how fresh a provider's own list is", () => {
+    expect(catalogSourceLabel("models.dev")).toBe("models.dev");
+    expect(catalogSourceLabel("openrouter+models.dev")).toBe("OpenRouter + models.dev");
+    expect(catalogSourceLabel("openrouter-snapshot")).toBe("OpenRouter (bundled)");
+    expect(catalogSourceLabel("opencode-zen-saved+models.dev")).toBe("OpenCode Zen (saved) + models.dev");
+    expect(catalogSourceLabel("opencode-go-builtin")).toBe("OpenCode Go (built-in)");
+    expect(catalogSourceLabel("someone-else")).toBe("someone-else");
+  });
+
+  it("flags saved and bundled lists as offline copies", () => {
+    expect(isOfflineCatalog("openrouter-saved+models.dev")).toBe(true);
+    expect(isOfflineCatalog("opencode-zen-saved")).toBe(true);
+    expect(isOfflineCatalog("openrouter-snapshot")).toBe(true);
+    expect(isOfflineCatalog("opencode-zen+models.dev")).toBe(false);
+    expect(isOfflineCatalog("opencode-go-builtin")).toBe(false);
+    expect(isOfflineCatalog(null)).toBe(false);
   });
 });
 
