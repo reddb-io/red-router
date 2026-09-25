@@ -25,6 +25,8 @@ export function browseSlim(catalog) {
         co: typeof m.cost?.output === "number" ? m.cost.output : undefined,
         // The SDK the model is served through; for OpenCode it names the endpoint.
         a: m.provider?.npm || undefined,
+        // Specialized model type (models.dev ?type=all), e.g. "decision" for System One.
+        y: typeof m.type === "string" ? m.type : undefined,
       };
     }
     out[providerId] = { n: provider?.name || providerId, m: models };
