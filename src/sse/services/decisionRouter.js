@@ -7,6 +7,8 @@
 
 import REGISTRY from "open-sse/providers/registry/index.js";
 import { getProviderCredentials } from "./auth.js";
+import { resolveRedRouterHop } from "./model.js";
+import { RED_ROUTER_CHAIN_HEADER, RED_ROUTER_PROVIDER_ID, appendRedRouterHop, redRouterEndpoint } from "open-sse/config/redRouter.js";
 import { systemOneCredentialProviders } from "open-sse/config/systemOne.js";
 import { askJev, decisionUrlFor } from "open-sse/decision/jev.js";
 import { buildState } from "open-sse/decision/state.js";
@@ -77,6 +79,10 @@ export function decisionProviders() {
  * breaker would take the shared chat provider offline for chat too.
  */
 export async function resolveDecisionTarget(config, { apiKey = null, log } = {}) {
+  // A decision model listed through another RedRouter ("red-router/opencode-zen/
+  // jev-1.13" in /v1/models/systemone) is asked there, whatever the gateway says.
+  const hop = await resolveRedRouterHop(config.model).catch(() => null);
+  if (hop) return routerDecisionTarget(hop, { apiKey, log });
   const entry = registryEntry(config.provider);
   const url = decisionUrlFor(entry);
   if (!url) {
@@ -108,6 +114,44 @@ export async function resolveDecisionTarget(config, { apiKey = null, log } = {})
       // The account and the caller that caused the decision, so its usage row lands
       // under them instead of reading as an unattributed local call.
       connectionId: credentials?.connectionId || null,
+      callerApiKey: apiKey,
+      fetchImpl: (url, options) => proxyAwareFetch(url, options, proxyOptions),
+    };
+  } catch (error) {
+    log?.warn?.("DECISION", `credential lookup failed: ${error.message}`);
+    return null;
+  }
+}
+
+/** The decision route of a chained model: the upstream router's /v1/systemone. */
+async function routerDecisionTarget(hop, { apiKey, log }) {
+  try {
+    const credentials = await getProviderCredentials(RED_ROUTER_PROVIDER_ID, new Set(), `decision:${RED_ROUTER_PROVIDER_ID}`, {
+      apiKey,
+      connectionIds: hop.connectionIds || undefined,
+    });
+    const key = credentials?.apiKey || credentials?.accessToken || null;
+    const baseUrl = credentials?.providerSpecificData?.baseUrl;
+    if (!key || !baseUrl || credentials.noActiveCredentials) {
+      log?.info?.("DECISION", "no active RedRouter connection for the decision model - decisions disabled");
+      return null;
+    }
+    log?.info?.("DECISION", `asking the decision model through RedRouter "${credentials.connectionName}"`);
+    const providerData = credentials.providerSpecificData || {};
+    const proxyOptions = {
+      connectionProxyEnabled: providerData.connectionProxyEnabled === true,
+      connectionProxyUrl: providerData.connectionProxyUrl || "",
+      connectionNoProxy: providerData.connectionNoProxy || "",
+      vercelRelayUrl: providerData.vercelRelayUrl || "",
+    };
+    return {
+      url: redRouterEndpoint(baseUrl, "systemone"),
+      apiKey: key,
+      // The upstream router strips its own hop from what is left of the id.
+      model: hop.model,
+      provider: RED_ROUTER_PROVIDER_ID,
+      headers: { [RED_ROUTER_CHAIN_HEADER]: appendRedRouterHop("") },
+      connectionId: credentials.connectionId || null,
       callerApiKey: apiKey,
       fetchImpl: (url, options) => proxyAwareFetch(url, options, proxyOptions),
     };
@@ -223,7 +267,7 @@ function hasAnthropicThinking(body) {
 const ask = (target, config, state, questions, log) =>
   askJev({
     url: target.url,
-    model: config.model,
+    model: target.model || config.model,
     apiKey: target.apiKey,
     state,
     questions,

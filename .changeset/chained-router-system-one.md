@@ -1,0 +1,5 @@
+---
+"@reddb-io/red-router": patch
+---
+
+System One now works through chained RedRouters. When a RedRouter is connected to another RedRouter, `/v1/models/systemone` lists that router's System One models under the connection's prefix, one prefix per router: `red-router/opencode-zen/jev-1.13`, or `red-router/red-router/opencode-go/jev-1.13` two routers away. Each entry keeps the upstream provider and adds a `route` that names every router it passes through. `/v1/systemone` and the decision router send these ids to the next router with that connection's key, and each router removes its own prefix before passing the id on. When a router down the chain refuses a request (401, 402, 403 or 429), the error keeps the status and `Retry-After`, and it names each router the refusal came back through. The chat `/v1/models` list works the same way: it now lists the models of routers behind a connected router too. Cycles are caught with the hop chain header. A model whose route leads back to a router already in the chain is left out of the list. A request that would loop is refused with HTTP 508. Chains stop at 4 routers, down from 8.

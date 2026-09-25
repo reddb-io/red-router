@@ -1,3 +1,5 @@
+import { RED_ROUTER_PROVIDER_ID } from "./redRouter.js";
+
 export const SYSTEM_ONE_PROVIDER_ID = "typesafe-ai";
 export const SYSTEM_ONE_PROVIDER_IDS = [SYSTEM_ONE_PROVIDER_ID, "vercel-ai-gateway", "openrouter", "opencode-zen"];
 
@@ -13,9 +15,12 @@ export function systemOneCredentialProviders(providerId) {
   return [providerId, ...(SYSTEM_ONE_CREDENTIAL_SOURCES[providerId] || [])];
 }
 
-/** Every provider whose account makes some System One route usable. */
+/**
+ * Every provider whose account makes some System One route usable. A RedRouter
+ * account reaches the System One models of the router it connects to.
+ */
 export const SYSTEM_ONE_ACCOUNT_PROVIDER_IDS = [
-  ...new Set([...SYSTEM_ONE_PROVIDER_IDS, ...Object.values(SYSTEM_ONE_CREDENTIAL_SOURCES).flat()]),
+  ...new Set([...SYSTEM_ONE_PROVIDER_IDS, ...Object.values(SYSTEM_ONE_CREDENTIAL_SOURCES).flat(), RED_ROUTER_PROVIDER_ID]),
 ];
 
 export const SYSTEM_ONE_ENDPOINT = "https://api.typesafe.ai/v1/systemone";

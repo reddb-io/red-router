@@ -1,8 +1,10 @@
 import { buildModelsList } from "../route.js";
+import { catalogFetchOptions } from "@/lib/remoteRouterCatalog";
 import { catalogEntryFor } from "@/lib/catalogEntry";
 import { extractApiKey } from "@/sse/services/auth.js";
 import { getCatalogVersion } from "@/lib/catalogVersion";
 import { CATALOG_VERSION_HEADER } from "open-sse/config/runtimeConfig.js";
+import { RED_ROUTER_INSTANCE_HEADER, RED_ROUTER_INSTANCE_ID } from "open-sse/config/redRouter.js";
 
 // URL slug → service kind(s). `web` covers both webSearch and webFetch.
 const KIND_SLUG_MAP = {
@@ -54,8 +56,9 @@ export async function GET(request, { params }) {
     const variants = request?.url ? new URL(request.url).searchParams.get("variants") || undefined : undefined;
 
     if (kindFilter) {
-      const data = await buildModelsList(kindFilter, { apiKey, variants });
-      return json({ object: "list", data });
+      // Another RedRouter reading this catalog sends its hop chain (see catalogFetchOptions).
+      const data = await buildModelsList(kindFilter, { ...catalogFetchOptions(request), apiKey, variants });
+      return json({ object: "list", data }, { headers: { [RED_ROUTER_INSTANCE_HEADER]: RED_ROUTER_INSTANCE_ID } });
     }
 
     // Match the same LLM catalog exposed by GET /v1/models. A catch-all

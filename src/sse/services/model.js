@@ -4,6 +4,7 @@ import { parseModel as parseModelCore, resolveModelAliasFromMap, getModelInfoCor
 import { withThinkingSuffix } from "open-sse/services/combo.js";
 import { PROVIDER_TOKEN_TO_ID, connectionModelPrefix } from "open-sse/providers/identity.js";
 import { AI_PROVIDERS } from "@/shared/constants/providers";
+import { RED_ROUTER_PROVIDER_ID } from "open-sse/config/redRouter.js";
 
 // Local provider alias overrides (HMR-friendly, applied on top of open-sse map)
 const LOCAL_PROVIDER_ALIASES = {
@@ -101,6 +102,21 @@ export async function getModelInfo(modelStr, comboOwner = undefined) {
   const target = aliases?.[parsed.model];
   if (typeof target === "string" && target.includes("/")) return getModelInfo(target, comboOwner);
   return getModelInfoCore(modelStr, aliases);
+}
+
+/**
+ * This router's hop of a chained id: "red-router/opencode-zen/jev-1.13", or
+ * "<connection prefix>/red-router/opencode-go/jev-1.13" two routers deep. The first
+ * segment is resolved like any model prefix (so chat and System One read hops the
+ * same way); the rest is the id the upstream router gets, which strips its own hop
+ * in turn. Null when the id does not start with a RedRouter connection.
+ * @returns {Promise<{ model: string, connectionIds: string[]|null }|null>}
+ */
+export async function resolveRedRouterHop(modelStr) {
+  if (typeof modelStr !== "string" || !modelStr.includes("/")) return null;
+  const info = await getModelInfo(modelStr.trim());
+  if (info?.provider !== RED_ROUTER_PROVIDER_ID || !info.model) return null;
+  return { model: info.model, connectionIds: info.connectionIds || null };
 }
 
 /** The provider and connection ids a connection model prefix names, or null. */

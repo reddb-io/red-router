@@ -237,10 +237,22 @@ export async function PUT(request, { params }) {
 
     if (existing.provider === RED_ROUTER_PROVIDER_ID && (updateData.apiKey || providerSpecificData?.baseUrl)) {
       const next = { ...existing, ...updateData };
-      next.providerSpecificData = { ...(next.providerSpecificData || {}), discoveredModels: [], modelsSyncedAt: null };
+      // Another router or key: both cached catalogs (chat, System One) are stale.
+      next.providerSpecificData = {
+        ...(next.providerSpecificData || {}),
+        discoveredModels: [],
+        modelsSyncedAt: null,
+        discoveredSystemOneModels: [],
+        systemOneModelsSyncedAt: null,
+      };
       const catalog = await syncRemoteRouterCatalog(next, { persist: false, force: true });
       if (catalog.warning) return NextResponse.json({ error: catalog.warning }, { status: 502 });
-      updateData.providerSpecificData = { ...next.providerSpecificData, discoveredModels: catalog.models, modelsSyncedAt: catalog.modelsSyncedAt };
+      updateData.providerSpecificData = {
+        ...next.providerSpecificData,
+        discoveredModels: catalog.models,
+        modelsSyncedAt: catalog.modelsSyncedAt,
+        modelsInstanceId: catalog.instanceId,
+      };
     }
     const updated = await updateProviderConnection(id, updateData);
 
