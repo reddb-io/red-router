@@ -54,12 +54,21 @@ function RecentRequests({ requests = [] }) {
         <div className="flex-1 flex items-center justify-center text-text-muted text-sm">No requests yet.</div>
       ) : (
         <div className="flex-1 overflow-y-auto">
-          <table className="w-full min-w-[300px] border-collapse text-xs">
+          {/* Fixed layout: the model column takes whatever the others leave, so ids
+              are cut only when the card is genuinely too narrow. */}
+          <table className="w-full min-w-[300px] table-fixed border-collapse text-xs">
+            <colgroup>
+              <col className="w-4" />
+              <col />
+              <col className="w-[22%]" />
+              <col className="w-28" />
+              <col className="w-16" />
+            </colgroup>
             <thead className="sticky top-0 bg-bg z-10">
               <tr className="border-b border-border">
-                <th className="py-1.5 text-left font-semibold text-text-muted w-2"></th>
-                <th className="py-1.5 text-left font-semibold text-text-muted">Model</th>
-                <th className="py-1.5 text-left font-semibold text-text-muted">Key</th>
+                <th className="py-1.5 text-left font-semibold text-text-muted"></th>
+                <th className="py-1.5 pr-2 text-left font-semibold text-text-muted">Model</th>
+                <th className="py-1.5 pr-2 text-left font-semibold text-text-muted">Key</th>
                 <th className="py-1.5 text-right font-semibold text-text-muted whitespace-nowrap">In / Out</th>
                 <th className="py-1.5 text-right font-semibold text-text-muted">When</th>
               </tr>
@@ -72,8 +81,8 @@ function RecentRequests({ requests = [] }) {
                     <td className="py-1.5">
                       <span className={`block w-1.5 h-1.5 rounded-full ${ok ? "bg-success" : "bg-error"}`} />
                     </td>
-                    <td className="py-1.5 font-mono truncate max-w-[120px]" title={r.model}>{r.model}</td>
-                    <td className="py-1.5 truncate max-w-[90px] text-text-muted" title={r.keyName || "Local (no key)"}>{r.keyName || "Local"}</td>
+                    <td className="py-1.5 pr-2 font-mono truncate" title={r.provider ? `${r.model} (${r.provider})` : r.model}>{r.model}</td>
+                    <td className="py-1.5 pr-2 truncate text-text-muted" title={r.keyName || "Local (no key)"}>{r.keyName || "Local"}</td>
                     <td className="py-1.5 text-right whitespace-nowrap">
                       <span className="text-primary">{fmt(r.promptTokens)}↑</span>
                       {" "}

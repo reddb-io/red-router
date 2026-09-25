@@ -948,8 +948,10 @@ body {
   .skills-footer { grid-template-columns: minmax(0, 1fr) auto; }
 }
 
-@media (min-width: 60rem) {
-  .usage-live-grid { grid-template-columns: minmax(0, 2fr) minmax(18rem, 1fr); }
+/* Side by side only when the requests table still gets room to show model ids
+   in full; below that it takes the whole width under the topology. */
+@media (min-width: 80rem) {
+  .usage-live-grid { grid-template-columns: minmax(0, 1fr) minmax(32rem, 1fr); }
 }
 
 .segmented-control__button {
