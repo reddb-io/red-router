@@ -1356,14 +1356,9 @@ export default function APIPageClient({ machineId }) {
         onClose={() => setCreatedKey(null)}
       >
         <div className="flex flex-col gap-4">
-          <div className="bg-feedback-warning-surface border border-feedback-warning-border rounded-lg p-4">
-            <p className="text-sm text-feedback-warning-foreground mb-2 font-medium">
-              Save this key now!
-            </p>
-            <p className="text-sm text-feedback-warning-foreground">
-              This is the only time you will see this key. Store it securely.
-            </p>
-          </div>
+          <p className="text-sm text-text-muted">
+            You can show or copy this key again anytime from the API keys list.
+          </p>
           <div className="flex gap-2">
             <Input
               value={createdKey || ""}
