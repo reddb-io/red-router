@@ -5,7 +5,8 @@ const read = (path) => readFileSync(new URL(path, import.meta.url));
 
 describe("RedDB brand icons", () => {
   it("keeps every browser and PWA SVG on the canonical RedDB mark", () => {
-    const canonical = read("../../vendor/ds/favicon.svg");
+    // The Brand's colour icon Mark, as the design system Sync vendors it.
+    const canonical = read("../../vendor/ds/kits/base/src/marks/reddb-icon-color.svg");
 
     expect(read("../../public/favicon.svg")).toEqual(canonical);
     expect(read("../../public/icons/icon-192.svg")).toEqual(canonical);
