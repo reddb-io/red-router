@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Card, Button, Input, Icon } from "@/shared/components";
 import { cn } from "@/shared/utils/cn";
 import { CONSOLE_LOG_CONFIG } from "@/shared/constants/config";
+import { bucketByMinute, levelOf, MINUTE_MS } from "@/shared/utils/logActivity";
+import LogActivity from "./LogActivity";
 
 // Live server console: tail with auto-follow, text/regex filter, level chips,
 // timestamps and wrapping on or off, copy and download of what is shown.
@@ -30,13 +32,6 @@ function loadPrefs() {
 // Older servers sent plain strings.
 const toEntry = (e, i) => (typeof e === "string" ? { id: `s${i}-${e.length}`, t: null, level: "info", text: e } : e);
 
-// Warnings and errors that reach console.log still read as what they are.
-function levelOf(entry) {
-  if (entry.level !== "info") return entry.level;
-  if (/⚠️|\bWARN\b/.test(entry.text)) return "warn";
-  if (/❌|🔴|\bERROR\b|\bError:/.test(entry.text)) return "error";
-  return "info";
-}
 
 function formatTime(t) {
   if (!t) return "";
@@ -81,8 +76,42 @@ export default function ConsoleLogClient() {
   const [following, setFollowing] = useState(true);
   const [unseen, setUnseen] = useState(0);
   const [copied, setCopied] = useState(false);
+  const [minute, setMinute] = useState(null); // start (ms) of the minute the sparkline narrowed to
+  const [isFull, setIsFull] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
   const logRef = useRef(null);
+  const frameRef = useRef(null);
+  const filterRef = useRef(null);
   const followingRef = useRef(true);
+
+  // The sparkline moves on even while nothing is logged.
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 10_000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Full screen through the browser's Fullscreen API; Esc leaves it.
+  useEffect(() => {
+    const sync = () => setIsFull(document.fullscreenElement === frameRef.current);
+    document.addEventListener("fullscreenchange", sync);
+    return () => document.removeEventListener("fullscreenchange", sync);
+  }, []);
+  const toggleFull = useCallback(() => {
+    if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
+    else frameRef.current?.requestFullscreen?.().catch(() => {});
+  }, []);
+
+  // "/" focuses the filter, "f" toggles full screen (outside text fields).
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.target instanceof HTMLElement && e.target.closest("input, textarea, select, [contenteditable]")) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key === "/") { e.preventDefault(); filterRef.current?.querySelector("input")?.focus(); }
+      else if (e.key === "f" || e.key === "F") { e.preventDefault(); toggleFull(); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [toggleFull]);
 
   useEffect(() => {
     // Per-viewer display preferences, restored after mount.
@@ -120,8 +149,11 @@ export default function ConsoleLogClient() {
   const matcher = useMemo(() => buildMatcher(query), [query]);
   const visible = useMemo(() => {
     const levels = new Set(prefs.levels);
-    return entries.filter((e) => levels.has(levelOf(e)) && matcher.test(e.text));
-  }, [entries, prefs.levels, matcher]);
+    return entries.filter((e) => levels.has(levelOf(e)) && matcher.test(e.text)
+      && (minute === null || (e.t >= minute && e.t < minute + MINUTE_MS)));
+  }, [entries, prefs.levels, matcher, minute]);
+
+  const buckets = useMemo(() => bucketByMinute(entries, { now, minutes: 30 }), [entries, now]);
 
   // Tail: stay at the bottom while following.
   useEffect(() => {
@@ -175,7 +207,8 @@ export default function ConsoleLogClient() {
   }, [entries]);
 
   return (
-    <Card padding="none" className="overflow-hidden">
+    <div ref={frameRef} className={isFull ? "flex h-screen flex-col bg-bg p-3" : ""}>
+    <Card padding="none" className={cn("overflow-hidden", isFull && "flex min-h-0 flex-1 flex-col")}>
       <div className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2">
         <button
           type="button"
@@ -190,15 +223,16 @@ export default function ConsoleLogClient() {
           {following ? "Live" : "Paused"}
         </button>
 
+        <div ref={filterRef} className="w-full min-w-[12rem] flex-1 sm:w-auto">
         <Input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Filter: text or /regex/"
           icon="search"
-          className="w-full min-w-[12rem] flex-1 sm:w-auto"
           inputClassName="font-mono text-xs"
           error={matcher.error ? `Invalid regex: ${matcher.error}` : undefined}
         />
+        </div>
 
         <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Levels">
           {LEVELS.map((l) => {
@@ -231,20 +265,26 @@ export default function ConsoleLogClient() {
           <Button size="sm" variant="ghost" icon={copied ? "check" : "content_copy"} onClick={copy} aria-label="Copy shown lines" />
           <Button size="sm" variant="ghost" icon="download" onClick={download} aria-label="Download shown lines" />
           <Button size="sm" variant="ghost" icon="delete" onClick={clear} aria-label="Clear the console" />
+          <Button size="sm" variant={isFull ? "secondary" : "ghost"} icon={isFull ? "fullscreen_exit" : "fullscreen"} onClick={toggleFull} aria-label={isFull ? "Exit full screen (Esc)" : "Full screen (F)"} title={isFull ? "Exit full screen (Esc)" : "Full screen (F)"} />
         </div>
       </div>
 
-      <div className="relative">
+      <LogActivity buckets={buckets} selected={minute} onSelect={setMinute} />
+
+      <div className={cn("relative", isFull && "flex min-h-0 flex-1 flex-col")}>
         <div
           ref={logRef}
           onScroll={onScroll}
-          className="h-[calc(100vh-17rem)] min-h-[20rem] overflow-auto bg-bg-subtle px-3 py-2 font-mono text-xs leading-5"
+          className={cn(
+            "overflow-auto bg-bg-subtle px-3 py-2 font-mono text-xs leading-5",
+            isFull ? "min-h-0 flex-1" : "h-[calc(100vh-22rem)] min-h-[20rem]",
+          )}
           role="log"
           aria-live="off"
         >
           {visible.length === 0 ? (
             <p className="py-6 text-center text-text-muted">
-              {entries.length === 0 ? "No console output yet." : "No line matches the filter."}
+              {entries.length === 0 ? "No console output yet." : minute !== null ? "Nothing in that minute matches the filter." : "No line matches the filter."}
             </p>
           ) : (
             visible.map((e) => {
@@ -285,8 +325,12 @@ export default function ConsoleLogClient() {
           <span className={cn("size-1.5 rounded-full", connected ? "bg-feedback-success-foreground" : "bg-feedback-danger-foreground")} />
           {connected ? "Connected" : "Reconnecting…"}
         </span>
+        <span className="hidden sm:inline">
+          <kbd className="rounded border border-border px-1 font-mono">/</kbd> filter · <kbd className="rounded border border-border px-1 font-mono">F</kbd> full screen
+        </span>
         <span className="tabular-nums">{visible.length.toLocaleString()} of {entries.length.toLocaleString()} lines · keeps the last {CONSOLE_LOG_CONFIG.maxLines.toLocaleString()}</span>
       </div>
     </Card>
+    </div>
   );
 }
