@@ -63,6 +63,8 @@ function createSpinner(text) {
 }
 
 const pkg = require("./package.json");
+// The foreground launcher binds every interface unless told otherwise.
+const DEFAULT_LAUNCH_HOST = "0.0.0.0";
 const { ensureSqliteRuntime, buildEnvWithRuntime } = require("./hooks/sqliteRuntime");
 const { ensureTrayRuntime } = require("./hooks/trayRuntime");
 const args = process.argv.slice(2);
@@ -94,10 +96,37 @@ if (args[0] === "xai" && args[1] === "video") {
   return;
 }
 
+// Network access (`red-router network [status|local|network]`): which address
+// the gateway binds, saved for the next start (see src/cli/network.js).
+if (args[0] === "network") {
+  const network = require("./src/cli/network");
+  const sub = args[1] || "status";
+  const aliases = { lan: "network", expose: "network", localhost: "local" };
+  const mode = aliases[sub] || sub;
+  if (sub === "status") {
+    const saved = network.readNetworkMode();
+    console.log(saved
+      ? `Network access: ${saved} (${network.MODES[saved]}), saved in ${network.settingPath()}`
+      : `Network access: not set — the launcher binds ${DEFAULT_LAUNCH_HOST}, services bind 127.0.0.1`);
+    process.exit(0);
+  }
+  if (!Object.hasOwn(network.MODES, mode)) {
+    console.log("Usage: red-router network [status|local|lan]");
+    console.log("  local  bind 127.0.0.1 — this machine only");
+    console.log("  lan    bind 0.0.0.0 — every device that can reach this machine (alias: network)");
+    process.exit(sub === "help" || sub === "--help" ? 0 : 1);
+  }
+  network.writeNetworkMode(mode);
+  console.log(`✅ Network access: ${mode} (${network.MODES[mode]}). Restart RedRouter to apply (a running dashboard can restart it from Profile → Network access).`);
+  if (mode === "network") console.log("   ⚠️  Reachable by other devices — keep login on and use API keys.");
+  process.exit(0);
+}
+
 // Headless service management (`red-router service install|status|uninstall`).
 // Runs the launcher under systemd --user (Linux) or launchd (macOS) so the
-// gateway survives reboots and crashes. Services bind 127.0.0.1 by default;
-// `--expose` (or `-H 0.0.0.0`) opens it to the subnet.
+// gateway survives reboots and crashes. Services follow the saved network
+// setting (`red-router network`), 127.0.0.1 when none is saved; `--expose` (or
+// `-H 0.0.0.0`) pins the address in the service definition instead.
 if (args[0] === "service") {
   const { installService, uninstallService, serviceStatus } = require("./service");
   const sub = args[1];
@@ -120,7 +149,7 @@ if (args[0] === "service") {
   const result = sub === "install" ? installService(opts) : sub === "uninstall" ? uninstallService() : serviceStatus();
   if (result.message) console.log(`⚠️  ${result.message}`);
   if (sub === "install" && result.ok) {
-    console.log(`✅ Serviço instalado (${result.kind}) — http://${result.host}:${result.port}`);
+    console.log(`✅ Serviço instalado (${result.kind}) — http://${result.host}:${result.port}${result.pinned ? "" : " (segue `red-router network`)"}`);
     console.log(`   Definição: ${result.path}`);
     if (result.host === "0.0.0.0") {
       console.log("   ⚠️  Exposto à subnet — defina API keys e senha forte no dashboard antes de usar em rede.");
@@ -138,7 +167,7 @@ const APP_NAME = pkg.name; // Use from package.json
 const INSTALL_CMD_LATEST = `npm i -g ${APP_NAME}@latest --prefer-online`;
 
 const DEFAULT_PORT = 25050;
-const DEFAULT_HOST = "0.0.0.0";
+const DEFAULT_HOST = DEFAULT_LAUNCH_HOST;
 
 // First non-internal IPv4 — the address remote peers actually reach when bound to 0.0.0.0.
 function getLanIp() {
@@ -164,6 +193,9 @@ const PROCESS_IDENTIFIERS = [
 // Parse arguments
 let port = DEFAULT_PORT;
 let host = DEFAULT_HOST;
+let flagHost = null; // --host/--expose/--local: wins over the saved network setting
+let defaultHost = DEFAULT_HOST; // --default-host: used when no setting is saved (services)
+let hostSource = "default";
 let noBrowser = false;
 let skipUpdate = false;
 let showLog = false;
@@ -174,7 +206,14 @@ for (let i = 0; i < args.length; i++) {
     port = parseInt(args[i + 1], 10) || DEFAULT_PORT;
     i++;
   } else if (args[i] === "--host" || args[i] === "-H") {
-    host = args[i + 1] || DEFAULT_HOST;
+    flagHost = args[i + 1] || DEFAULT_HOST;
+    i++;
+  } else if (args[i] === "--expose") {
+    flagHost = "0.0.0.0";
+  } else if (args[i] === "--local") {
+    flagHost = "127.0.0.1";
+  } else if (args[i] === "--default-host" && args[i + 1]) {
+    defaultHost = args[i + 1];
     i++;
   } else if (args[i] === "--no-browser" || args[i] === "-n") {
     noBrowser = true;
@@ -191,7 +230,10 @@ Usage: ${APP_NAME} [options]
 
 Options:
   -p, --port <port>   Port to run the server (default: ${DEFAULT_PORT})
-  -H, --host <host>   Host to bind (default: ${DEFAULT_HOST})
+  -H, --host <host>   Host to bind, for this run (default: the saved network
+                      setting, else ${DEFAULT_HOST})
+  --expose            Same as -H 0.0.0.0 (every device on the network)
+  --local             Same as -H 127.0.0.1 (this machine only)
   -n, --no-browser    Don't open browser automatically
   -l, --log           Also show server logs in terminal (always saved privately)
   -t, --tray          Run in system tray mode (background)
@@ -201,9 +243,12 @@ Options:
 
 Commands:
   logs --path|--open  Locate or open the rotating diagnostic log.
+  network [status|local|lan]
+                      Show or save which address RedRouter binds from now on.
   service install|status|uninstall
                       Run as a background service (systemd --user / launchd).
-                      Binds 127.0.0.1 unless --expose or -H 0.0.0.0 is given.
+                      Follows the saved network setting (127.0.0.1 when none);
+                      --expose or -H 0.0.0.0 pins the address instead.
   xai video --prompt "..." --output video.mp4
                       Generate a Grok Imagine video via the running gateway
                       (see: ${APP_NAME} xai video --help)
@@ -214,6 +259,14 @@ Commands:
     process.exit(0);
   }
 }
+
+// Flag for this run, else the saved network setting, else the default; read again
+// whenever the dashboard restarts the server to apply a new setting.
+const networkSetting = require("./src/cli/network");
+function applyHostSetting() {
+  ({ host, source: hostSource } = networkSetting.resolveHost({ flagHost, defaultHost }));
+}
+applyHostSetting();
 
 const { getDiagnostics, captureServerOutput, observeRuntime } = require("./src/cli/diagnostics");
 const diagnostics = getDiagnostics();
@@ -662,7 +715,7 @@ function startServer(updatePromise) {
   // Surface real network exposure when bound to all interfaces (default 0.0.0.0).
   if (host === DEFAULT_HOST) {
     const lanIp = getLanIp();
-    if (lanIp) console.log(`\x1b[33m⚠ Network-exposed: reachable at http://${lanIp}:${port} (bound 0.0.0.0). Use --host 127.0.0.1 for local-only.\x1b[0m`);
+    if (lanIp) console.log(`\x1b[33m⚠ Network-exposed: reachable at http://${lanIp}:${port} (bound 0.0.0.0). Local-only: red-router network local (or --local for this run).\x1b[0m`);
   }
 
   let restartCount = 0;
@@ -682,7 +735,10 @@ function startServer(updatePromise) {
       env: {
         ...buildEnvWithRuntime(process.env),
         PORT: port.toString(),
-        HOSTNAME: host
+        HOSTNAME: host,
+        // Lets the dashboard show where the address comes from and restart to apply a new one.
+        RED_ROUTER_LAUNCHER: "1",
+        RED_ROUTER_HOST_SOURCE: hostSource,
       }
     });
     diagnostics.append("launcher", `Server spawned pid=${child.pid || "unavailable"}`);
@@ -897,6 +953,15 @@ function startServer(updatePromise) {
 
     server.on("close", (code, signal) => {
       diagnostics.append("launcher", `Server exited code=${code} signal=${signal || "none"}`);
+      if (!isShuttingDown && code === networkSetting.RESTART_EXIT_CODE) {
+        // The dashboard saved a new network setting: start again on its address.
+        applyHostSetting();
+        diagnostics.append("launcher", `Restarting on ${host} (${hostSource})`);
+        console.log(`\n↻ Restarting on ${host}:${port}`);
+        server = spawnServer();
+        attachServerEvents();
+        return;
+      }
       if (isShuttingDown || code === 0) {
         process.exit(code || 0);
         return;

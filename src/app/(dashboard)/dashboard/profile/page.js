@@ -9,6 +9,7 @@ import { cn } from "@/shared/utils/cn";
 import { LOCALE_COOKIE, normalizeLocale } from "@/i18n/config";
 import { LOCALE_FLAGS } from "@/shared/constants/locales";
 import UpdateSection from "./UpdateSection";
+import NetworkAccessCard from "./NetworkAccessCard";
 
 function getLocaleFromCookie() {
   if (typeof document === "undefined") return "en";
@@ -941,6 +942,8 @@ export default function ProfilePage() {
             <span className="text-2xl">{LOCALE_FLAGS[locale] || "🌐"}</span>
           </button>
         </Card>
+
+        <NetworkAccessCard />
 
         {/* Security */}
         <Card>
