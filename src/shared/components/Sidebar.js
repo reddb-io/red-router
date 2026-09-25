@@ -37,6 +37,7 @@ const systemItems = [
 ];
 
 const adminSystemItems = [
+  { href: "/dashboard/usage-sinks", label: "Usage Sinks", icon: "outbox" },
   { href: "/dashboard/proxy-pools", label: "Proxy Pools", icon: "lan" },
   { href: "/dashboard/skills", label: "Skills", icon: "extension" },
 ];

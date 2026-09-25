@@ -94,6 +94,14 @@ export function getPageInfo(pathname) {
       icon: "layers",
       breadcrumbs: [],
     };
+  // Before "/usage", which "/usage-sinks" also contains.
+  if (pathname.includes("/usage-sinks"))
+    return {
+      title: "Usage Sinks",
+      description: "Send usage to your billing system: every request, or totals per API key on a schedule.",
+      icon: "outbox",
+      breadcrumbs: [],
+    };
   if (pathname.includes("/usage") || pathname === "/dashboard")
     return {
       title: "Usage",

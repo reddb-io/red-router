@@ -30,6 +30,7 @@ describe("dashboard page identity", () => {
     expect(getPageInfo("/dashboard/skills").title).toBe("Skills");
     expect(getPageInfo("/dashboard/translator").title).toBe("Translator Debug");
     expect(getPageInfo("/dashboard/proxy-pools").title).toBe("Proxy Pools");
+    expect(getPageInfo("/dashboard/usage-sinks").title).toBe("Usage Sinks");
     const add = getPageInfo("/dashboard/providers/new");
     expect(add.title).toBe("Add New Provider");
     expect(add.breadcrumbs.map((c) => c.label)).toEqual(["Providers", "Add New Provider"]);

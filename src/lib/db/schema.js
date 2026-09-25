@@ -3,7 +3,7 @@
 // pre-change safety backup in migrate.js: when the stored version is lower,
 // one lightweight DB backup is taken before applying schema changes. Forgetting
 // to bump only skips that backup — it does NOT break the additive auto-sync.
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 6;
 
 export const PRAGMA_SQL = `
 PRAGMA journal_mode = WAL;
@@ -158,6 +158,49 @@ export const TABLES = {
       "CREATE INDEX IF NOT EXISTS idx_uh_apikey ON usageHistory(apiKey)",
     ],
   },
+  // Usage sinks: destinations that receive per-request usage (instant) or a
+  // per-API-key consolidation of a clock-aligned window (window). cursorId is
+  // the last usageHistory.id the sink has turned into deliveries.
+  usageSinks: {
+    columns: {
+      id: "TEXT PRIMARY KEY",
+      name: "TEXT NOT NULL",
+      type: "TEXT NOT NULL",
+      // JSON transport config, e.g. { url, secret } for a webhook.
+      config: "TEXT",
+      mode: "TEXT NOT NULL",
+      windowSec: "INTEGER",
+      // JSON { apiKeyIds?: string[], tags?: string[] }; NULL = every key.
+      filter: "TEXT",
+      isActive: "INTEGER DEFAULT 1",
+      cursorId: "INTEGER DEFAULT 0",
+      nextWindowEnd: "TEXT",
+      createdAt: "TEXT NOT NULL",
+      updatedAt: "TEXT NOT NULL",
+    },
+  },
+  // The outbox: a batch is stored before it is sent, then retried until it is
+  // delivered or dead. id is deterministic per (sink, usage range), so a
+  // re-created batch collapses onto the existing row and keeps its webhook-id.
+  usageDeliveries: {
+    columns: {
+      id: "TEXT PRIMARY KEY",
+      sinkId: "TEXT NOT NULL",
+      kind: "TEXT NOT NULL",
+      windowStart: "TEXT",
+      windowEnd: "TEXT",
+      fromId: "INTEGER",
+      toId: "INTEGER",
+      payload: "TEXT NOT NULL",
+      status: "TEXT NOT NULL",
+      attempts: "INTEGER DEFAULT 0",
+      nextAttemptAt: "TEXT",
+      lastError: "TEXT",
+      lastStatus: "INTEGER",
+      deliveredAt: "TEXT",
+      createdAt: "TEXT NOT NULL",
+    },
+  },
   usageDaily: {
     columns: {
       dateKey: "TEXT PRIMARY KEY",
@@ -212,6 +255,8 @@ export const INDEXES = [
   { name: "idx_uh_model", table: "usageHistory", columns: ["model"], unique: false },
   { name: "idx_uh_conn", table: "usageHistory", columns: ["connectionId"], unique: false },
   { name: "idx_uh_apikey", table: "usageHistory", columns: ["apiKey"], unique: false },
+  { name: "idx_ud_due", table: "usageDeliveries", columns: ["status", "nextAttemptAt"], unique: false },
+  { name: "idx_ud_sink", table: "usageDeliveries", columns: ["sinkId", "createdAt"], unique: false },
   { name: "idx_rd_ts", table: "requestDetails", columns: ["timestamp"], order: "desc", unique: false },
   { name: "idx_rd_provider", table: "requestDetails", columns: ["provider"], unique: false },
   { name: "idx_rd_model", table: "requestDetails", columns: ["model"], unique: false },

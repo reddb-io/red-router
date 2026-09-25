@@ -117,6 +117,10 @@ async function runHeavyStartup() {
     .then(({ loadCapabilityOverrides }) => loadCapabilityOverrides())
     .catch((e) => console.log("[Capabilities] overrides not loaded:", e.message));
 
+  import("@/lib/usageSinks/scheduler")
+    .then(({ startUsageSinks }) => startUsageSinks())
+    .catch((e) => console.log("[UsageSinks] scheduler start failed:", e.message));
+
   import("@/shared/services/quotaUnlock")
     .then(({ startQuotaUnlock }) => startQuotaUnlock())
     .catch((e) => console.log("[QuotaUnlock] scheduler start failed:", e.message));
