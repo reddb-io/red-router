@@ -70,156 +70,86 @@ export default function Sidebar({ onClose }) {
     return pathname.startsWith(href);
   };
 
-  const renderLinks = (label, items) => (
-    <section className="mb-5" aria-labelledby={`nav-${label.toLowerCase()}`}>
-      <h2 id={`nav-${label.toLowerCase()}`} className="px-3 mb-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-text-muted/70">{label}</h2>
-      <div className="space-y-0.5">
-        {items.map((item) => (
-          <Link
-            key={item.href}
-            href={item.href}
-            onClick={onClose}
-            className={navItem({ active: isActive(item.href) }).root({ class: "flex min-h-11 items-center gap-3 px-3 transition-colors group focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2" })}
-          >
-            <span className={cn("material-symbols-outlined text-[18px]", isActive(item.href) && "fill-1")}>{item.icon}</span>
-            <span className="text-[13px] font-medium whitespace-nowrap">{item.label}</span>
-          </Link>
-        ))}
-      </div>
-    </section>
-  );
+  const linkClass = (active, extra = "") =>
+    // DS NavItem: compact rows with a pointer, 44px targets on touch (design.md).
+    navItem({ active }).root({ class: cn("group flex items-center gap-3 pointer-coarse:min-h-11", extra) });
+
+  const renderLink = (item) => {
+    const active = isActive(item.href);
+    return (
+      <Link key={item.href} href={item.href} onClick={onClose} className={linkClass(active)} aria-current={active ? "page" : undefined}>
+        <span className={cn("material-symbols-outlined text-[18px]", active && "fill-1")} aria-hidden="true">{item.icon}</span>
+        <span className="truncate">{item.label}</span>
+      </Link>
+    );
+  };
+
+  const renderSection = (label, children) => {
+    const id = `nav-${label.toLowerCase()}`;
+    return (
+      <section aria-labelledby={id} className="flex flex-col gap-0.5">
+        <h2 id={id} className="px-3 pb-1.5 text-[11px] font-medium uppercase tracking-[0.12em] text-ink-muted">{label}</h2>
+        {children}
+      </section>
+    );
+  };
+
+  const toolsProvidersActive = pathname.startsWith("/dashboard/tools-providers");
+  const visibleDebugItems = debugItems.filter((item) => item.href !== "/dashboard/translator" || enableTranslator);
 
   return (
     <aside className="flex w-72 flex-col border-r border-border-subtle bg-surface transition-colors duration-300 min-h-full">
-        <div className="border-b border-border-subtle px-5 py-5">
+        <div className="border-b border-border-subtle px-6 py-4">
           <Link href="/dashboard" className="inline-flex min-h-11 items-center text-text-main focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2">
             <span className="text-lg font-semibold tracking-tight">{APP_CONFIG.name}</span>
           </Link>
         </div>
 
-        {/* Navigation */}
-        <nav className="flex-1 px-3 py-5 overflow-y-auto custom-scrollbar" aria-label="Primary navigation">
-          {renderLinks("Operate", operateItems)}
+        {/* One rhythm for every section: the gap between them lives here, not on each block. */}
+        <nav className="flex flex-1 flex-col gap-6 overflow-y-auto px-3 py-5 custom-scrollbar" aria-label="Primary navigation">
+          {renderSection("Operate", operateItems.map(renderLink))}
 
-          {/* System section */}
-          <div className="pt-3 mt-2 space-y-0.5">
-            <p className="px-3 text-[10px] font-semibold text-text-muted/70 uppercase tracking-[0.14em] mb-2">
-              System
-            </p>
+          {renderSection("Tools", toolItems.map(renderLink))}
 
-            {/* Tools Providers accordion */}
-            {showAdminItems && (<>
-            <button
-              onClick={() => setMediaOpen((v) => !v)}
-              className={navItem({ active: pathname.startsWith("/dashboard/tools-providers") }).root({ class: "w-full flex min-h-11 items-center gap-3 px-3 transition-colors group" })}
-            >
-              <span className="material-symbols-outlined text-[18px]">perm_media</span>
-              <span className="text-[13px] font-medium flex-1 text-left">Tools Providers</span>
-              <span className="material-symbols-outlined text-[14px] transition-transform" style={{ transform: mediaOpen ? "rotate(180deg)" : "rotate(0deg)" }}>
-                expand_more
-              </span>
-            </button>
-            {mediaOpen && (
-              <div className="pl-4">
-                {MEDIA_PROVIDER_KINDS.filter((k) => VISIBLE_MEDIA_KINDS.includes(k.id)).map((kind) => (
-                  <Link
-                    key={kind.id}
-                    href={`/dashboard/tools-providers/${kind.id}`}
-                    onClick={onClose}
-                    className={navItem({ active: pathname.startsWith(`/dashboard/tools-providers/${kind.id}`) }).root({ class: "flex min-h-11 items-center gap-3 px-4 transition-colors group" })}
+          {renderSection("System", (
+            <>
+              {systemItems.map(renderLink)}
+
+              {/* Tools Providers accordion */}
+              {showAdminItems && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setMediaOpen((v) => !v)}
+                    aria-expanded={mediaOpen}
+                    className={linkClass(toolsProvidersActive, "w-full text-left")}
                   >
-                    <span className="material-symbols-outlined text-[16px]">{kind.icon}</span>
-                    <span className="text-sm">{kind.label}</span>
-                  </Link>
-                ))}
-                <Link
-                  key={COMBINED_WEB_ITEM.id}
-                  href={COMBINED_WEB_ITEM.href}
-                  onClick={onClose}
-                  className={navItem({ active: pathname.startsWith(COMBINED_WEB_ITEM.href) }).root({ class: "flex min-h-11 items-center gap-3 px-4 transition-colors group" })}
-                >
-                  <span className="material-symbols-outlined text-[16px]">{COMBINED_WEB_ITEM.icon}</span>
-                  <span className="text-sm">{COMBINED_WEB_ITEM.label}</span>
-                </Link>
-              </div>
-            )}
-            </>)}
-
-            {systemItems.map((item) => (
-              <Link
-                key={item.href}
-                href={item.href}
-                onClick={onClose}
-                className={navItem({ active: isActive(item.href) }).root({ class: "flex min-h-11 items-center gap-3 px-3 transition-colors group" })}
-              >
-                <span
-                  className={cn(
-                    "material-symbols-outlined text-[18px]",
-                    isActive(item.href) && "fill-1"
+                    <span className="material-symbols-outlined text-[18px]" aria-hidden="true">perm_media</span>
+                    <span className="flex-1 truncate">Tools Providers</span>
+                    <span className={cn("material-symbols-outlined text-[16px] transition-transform", mediaOpen && "rotate-180")} aria-hidden="true">
+                      expand_more
+                    </span>
+                  </button>
+                  {mediaOpen && (
+                    <div className="ml-5 flex flex-col gap-0.5 border-s border-muted ps-2">
+                      {[
+                        ...MEDIA_PROVIDER_KINDS.filter((k) => VISIBLE_MEDIA_KINDS.includes(k.id))
+                          .map((kind) => ({ href: `/dashboard/tools-providers/${kind.id}`, label: kind.label, icon: kind.icon })),
+                        COMBINED_WEB_ITEM,
+                      ].map(renderLink)}
+                    </div>
                   )}
-                >
-                  {item.icon}
-                </span>
-                <span className="text-[13px] font-medium">{item.label}</span>
-              </Link>
-            ))}
+                </>
+              )}
 
-            {(showAdminItems ? adminSystemItems : []).map((item) => (
-              <Link
-                key={item.href}
-                href={item.href}
-                onClick={onClose}
-                className={navItem({ active: isActive(item.href) }).root({ class: "flex min-h-11 items-center gap-3 px-3 transition-colors group" })}
-              >
-                <span className={cn("material-symbols-outlined text-[18px]", isActive(item.href) && "fill-1")}>{item.icon}</span>
-                <span className="text-[13px] font-medium">{item.label}</span>
-              </Link>
-            ))}
+              {(showAdminItems ? adminSystemItems : []).map(renderLink)}
 
-            {/* Debug items (inside System section, before Settings) */}
-            {(showAdminItems ? debugItems : []).map((item) => {
-              const show = item.href !== "/dashboard/translator" || enableTranslator;
-              return show ? (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  onClick={onClose}
-                  className={navItem({ active: isActive(item.href) }).root({ class: "flex min-h-11 items-center gap-3 px-3 transition-colors group" })}
-                >
-                  <span
-                    className={cn(
-                      "material-symbols-outlined text-[18px]",
-                      isActive(item.href) && "fill-1"
-                    )}
-                  >
-                    {item.icon}
-                  </span>
-                  <span className="text-[13px] font-medium">{item.label}</span>
-                </Link>
-              ) : null;
-            })}
+              {/* Settings — global configuration, so admin-only while scoping is on */}
+              {showAdminItems && renderLink({ href: "/dashboard/profile", label: "Settings", icon: "settings" })}
+            </>
+          ))}
 
-            {/* Settings — global configuration, so admin-only while scoping is on */}
-            {showAdminItems && (
-            <Link
-              href="/dashboard/profile"
-              onClick={onClose}
-              className={navItem({ active: isActive("/dashboard/profile") }).root({ class: "flex min-h-11 items-center gap-3 px-3 transition-colors group" })}
-            >
-              <span
-                className={cn(
-                  "material-symbols-outlined text-[18px]",
-                  isActive("/dashboard/profile") && "fill-1"
-                )}
-              >
-                settings
-              </span>
-              <span className="text-[13px] font-medium">Settings</span>
-            </Link>
-            )}
-          </div>
-
-          {renderLinks("Tools", toolItems)}
+          {showAdminItems && visibleDebugItems.length > 0 && renderSection("Debug", visibleDebugItems.map(renderLink))}
         </nav>
 
     </aside>
