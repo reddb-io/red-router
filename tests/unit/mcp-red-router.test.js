@@ -72,15 +72,48 @@ describe("RedRouter tools", () => {
     expect(out.model.member_details.map((m) => m.id)).toEqual(["openrouter/anthropic/claude-sonnet-4.5", "anthropic/claude-sonnet-4-5"]);
     const missing = await call("get_model", { id: "nope/nothing" });
     expect(missing.isError).toBe(true);
+    expect(missing.structuredContent.error.code).toBe("unknown_model");
   });
 
-  it("ranks recommendations by price and never switches anything", async () => {
-    const { structuredContent: out } = await call("recommend_models", { needs: ["tools"], include_combos: false });
-    expect(out.recommendations[0]).toMatchObject({ id: "anthropic/claude-sonnet-4-5" });
-    expect(out.recommendations[0].why).toMatch(/has tools/);
+  it("only recommends usable models, ranked by price, and never switches anything", async () => {
+    // Anthropic's only enabled account is rate limited: its direct model is not usable.
+    const { structuredContent: out } = await call("recommend_models", { needs: ["tools"] });
+    // The combo's price is its first usable member's: the same OpenRouter model.
+    expect(out.recommendations.map((r) => r.id).sort()).toEqual(["cheap-first", "openrouter/anthropic/claude-sonnet-4.5"]);
+    expect(out.recommendations.find((r) => r.id === "cheap-first")).toMatchObject({ usable: true, price_per_million: { input: 3, output: 15 } });
+    expect(out.recommendations[0].why).toContainEqual({ code: "tools", detail: "supports tools" });
     expect(out.note).toMatch(/after the user agrees/);
-    const capped = (await call("recommend_models", { max_price_per_million: 13 })).structuredContent;
-    expect(capped.recommendations.map((r) => r.id)).toEqual(["anthropic/claude-sonnet-4-5"]);
+  });
+
+  it("explains a switch away from the current model with a delta and reason codes", async () => {
+    const { structuredContent: out } = await call("recommend_models", { current: "anthropic/claude-sonnet-4-5", include_combos: false });
+    expect(out.current).toMatchObject({ usable: false, status: { state: "rate_limited" } });
+    const [pick] = out.recommendations;
+    expect(pick.id).toBe("openrouter/anthropic/claude-sonnet-4.5");
+    expect(pick.delta).toEqual({ price_delta_pct: 50, context_delta: 0, gained_capabilities: [], lost_capabilities: [] });
+    expect(pick.why.map((r) => r.code)).toContain("rate_limited");
+    const unknown = await call("recommend_models", { current: "nope/nothing" });
+    expect(unknown.structuredContent.error.code).toBe("unknown_model");
+  });
+
+  it("finds equivalents only when they are cheaper or healthier", async () => {
+    mocks.getProviderConnections.mockResolvedValue([
+      conn("a", "openrouter", ["anthropic/claude-sonnet-4.5"]),
+      conn("b", "anthropic", ["claude-sonnet-4-5"]),
+    ]);
+    const cheaper = (await call("recommend_models", { equivalent_to: "openrouter/anthropic/claude-sonnet-4.5", include_combos: false })).structuredContent;
+    expect(cheaper.recommendations.map((r) => r.id)).toEqual(["anthropic/claude-sonnet-4-5"]);
+    expect(cheaper.recommendations[0].why.map((r) => r.code)).toContain("cheaper");
+    const none = (await call("recommend_models", { equivalent_to: "anthropic/claude-sonnet-4-5", include_combos: false })).structuredContent;
+    expect(none.recommendations).toEqual([]);
+  });
+
+  it("marks each model's status, usability and free flag", async () => {
+    const { structuredContent: out } = await call("list_models", { include_combos: false });
+    const byId = Object.fromEntries(out.models.map((m) => [m.id, m]));
+    expect(byId["openrouter/anthropic/claude-sonnet-4.5"]).toMatchObject({ usable: true, free: false, status: { state: "ok" } });
+    expect(byId["anthropic/claude-sonnet-4-5"].status.state).toBe("rate_limited");
+    expect(byId["anthropic/claude-sonnet-4-5"].status.until).toBeTruthy();
   });
 
   it("reports providers by account status without account details", async () => {
@@ -92,7 +125,9 @@ describe("RedRouter tools", () => {
   });
 
   it("only reports usage for a key", async () => {
-    expect((await call("get_usage")).isError).toBe(true);
+    const res = await call("get_usage");
+    expect(res.isError).toBe(true);
+    expect(res.structuredContent.error.code).toBe("forbidden");
   });
 });
 
@@ -117,6 +152,7 @@ describe("/v1/mcp", () => {
   it("answers requests and accepts notifications with 202", async () => {
     const res = await post({ jsonrpc: "2.0", id: 7, method: "ping" }, { origin: "http://localhost:3000" });
     expect(res.status).toBe(200);
+    expect(res.headers.get("x-redrouter-mcp-version")).toBe("2");
     expect(await res.json()).toEqual({ jsonrpc: "2.0", id: 7, result: {} });
     expect((await post({ jsonrpc: "2.0", method: "notifications/initialized" })).status).toBe(202);
   });

@@ -50,6 +50,7 @@ export async function handleMcpMessage(message, server) {
           capabilities: { tools: { listChanged: false } },
           serverInfo: server.info,
           ...(server.instructions ? { instructions: server.instructions } : {}),
+          ...(server.meta ? { _meta: server.meta } : {}),
         });
       }
       case "ping":
@@ -69,8 +70,10 @@ export async function handleMcpMessage(message, server) {
           const result = await tool.run(params.arguments || {}, server.context);
           return reply(id, { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], structuredContent: result });
         } catch (error) {
-          // A tool failure is a result the model can read, not a protocol error.
-          return reply(id, { content: [{ type: "text", text: error?.message || String(error) }], isError: true });
+          // A tool failure is a result the model can read, not a protocol error;
+          // `code` is stable for clients to branch on.
+          const failure = { code: error?.code || "internal", message: error?.message || String(error) };
+          return reply(id, { content: [{ type: "text", text: failure.message }], structuredContent: { error: failure }, isError: true });
         }
       }
       default:

@@ -6,7 +6,10 @@ import { getSettings } from "@/lib/localDb";
 import { extractApiKey, isValidApiKey } from "@/sse/services/auth.js";
 import { getAppVersion } from "@/lib/db/version.js";
 import { handleMcpBody } from "@/lib/mcp/server.js";
-import { RED_ROUTER_TOOLS, RED_ROUTER_MCP_INSTRUCTIONS } from "@/lib/mcp/redRouterTools.js";
+import { RED_ROUTER_TOOLS, RED_ROUTER_MCP_INSTRUCTIONS, MCP_SCHEMA_VERSION } from "@/lib/mcp/redRouterTools.js";
+
+// Clients feature-detect result shapes by this, not by the app version.
+const VERSION_HEADERS = { "x-redrouter-mcp-version": String(MCP_SCHEMA_VERSION) };
 
 const LOOPBACK = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
 
@@ -23,7 +26,7 @@ function originAllowed(request) {
   }
 }
 
-const jsonRpcError = (status, code, message) => Response.json({ jsonrpc: "2.0", id: null, error: { code, message } }, { status });
+const jsonRpcError = (status, code, message) => Response.json({ jsonrpc: "2.0", id: null, error: { code, message } }, { status, headers: VERSION_HEADERS });
 
 export async function POST(request) {
   if (!originAllowed(request)) return jsonRpcError(403, -32600, "Origin not allowed");
@@ -36,11 +39,12 @@ export async function POST(request) {
   const out = await handleMcpBody(raw, {
     info: { name: "red-router", title: "RedRouter", version: getAppVersion() },
     instructions: RED_ROUTER_MCP_INSTRUCTIONS,
+    meta: { "io.reddb/red-router-mcp-version": MCP_SCHEMA_VERSION },
     tools: RED_ROUTER_TOOLS,
     context: { apiKey },
   });
-  if (out === null) return new Response(null, { status: 202 });
-  return Response.json(out);
+  if (out === null) return new Response(null, { status: 202, headers: VERSION_HEADERS });
+  return Response.json(out, { headers: VERSION_HEADERS });
 }
 
 // No server-initiated stream and no sessions: a GET stream or DELETE is not offered.
