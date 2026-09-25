@@ -1,5 +1,31 @@
 # @reddb-io/red-router
 
+## 0.25.0
+
+### Minor Changes
+
+- 0e5dcb7: **Usage Sinks**: send usage to your billing system by webhook. Set it up under System → Usage Sinks (admin only).
+  
+  - **Two modes.** Every request as it happens (`usage.recorded`), or totals per API key for a clock-aligned window of 5, 15, 30 or 60 minutes (`usage.window`), with a breakdown per provider and model: requests, errors, prompt, completion and cached tokens, and cost.
+  - **Pick the keys.** Send everything, or only chosen API keys or keys with given tags.
+  - **Built for billing.**
+    - Each delivery is signed per Standard Webhooks (`webhook-id`, `webhook-timestamp`, `webhook-signature`, HMAC-SHA256).
+    - It carries a stable id to deduplicate on, and it's stored before it's sent.
+    - Failed deliveries are retried with backoff for about 16 hours; a `410 Gone` stops retries.
+    - Keys are identified by id, name and masked value, never the raw key.
+  - **See what happened.** "Send test" posts a sample and shows the response status, latency and size. The deliveries list shows each batch's window, requests, cost, status and attempts, with "Retry now".
+  
+  A new sink receives usage recorded from the moment it's created. Windows with no usage send nothing.
+
+### Patch Changes
+
+- 99606d3: The OpenRouter model browser works offline with the full catalog. The last list RedRouter got from OpenRouter is saved to disk, and a copy of OpenRouter's full catalog (all 625 models, JEV included) now ships with RedRouter. Without network, or right after a restart without it, the browser shows the saved list, or the bundled one, instead of falling back to the ~370 models models.dev knows. The source line says when it's showing an offline copy and how old it is.
+  
+  The bundled models.dev catalog is also refreshed, and `scripts/refresh-catalog-snapshots.mjs` refreshes all bundled catalogs before a release.
+- c88bf84: The OpenRouter model browser now finds every OpenRouter model, including TypeSafe's `typesafe/jev-1.13`. It used to ask OpenRouter for its default list, which only has text-generating models, so image, audio and decision models never showed up (about 165 models).
+  
+  Decision models like JEV don't answer chat. They return a typed choice through `/v1/systemone`. The browser marks them **System One** and links to where they work (Tools Providers → System One), instead of offering to add them as chat models. Image and audio generators stay on their media pages.
+
 ## 0.24.7
 
 ### Patch Changes
