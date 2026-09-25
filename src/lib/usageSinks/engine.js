@@ -14,17 +14,17 @@ import { getApiKeys } from "@/lib/db/repos/apiKeysRepo.js";
 import {
   buildKeyResolver, matchesFilter, buildEventPayload, buildWindowPayload, windowBatchId, eventBatchId,
 } from "./payload.js";
-import { sendWebhook } from "./webhook.js";
+import { TRANSPORTS } from "./transports.js";
 
 const INSTANT_BATCH = 200;
 const WINDOW_BATCH = 50_000;
 // Retry schedule after a failed attempt; a delivery is dead once it runs out (~16h).
 export const BACKOFF_SEC = [30, 120, 600, 1800, 3600, 7200, 14400, 28800];
 
-const TRANSPORTS = { webhook: sendWebhook };
+const SENDERS = Object.fromEntries(Object.entries(TRANSPORTS).map(([type, t]) => [type, t.send]));
 
 export function createDefaultDeps() {
-  return { repo, getApiKeys, transports: TRANSPORTS, now: () => new Date() };
+  return { repo, getApiKeys, transports: SENDERS, now: () => new Date() };
 }
 
 /** The window boundary at or after `ms`, for windows of `sizeSec` aligned to the UTC epoch. */
@@ -108,7 +108,7 @@ export async function attemptDelivery(delivery, sink, deps = createDefaultDeps()
   const now = deps.now();
   const attempts = delivery.attempts + 1;
   const result = send
-    ? await send({ config: sink.config, id: delivery.id, payload: delivery.payload, now: now.getTime() })
+    ? await send({ config: sink.config, id: delivery.id, payload: delivery.payload, now: now.getTime(), sinkId: sink.id })
     : { ok: false, retryable: false, error: `Unknown sink type "${sink.type}"` };
   if (result.ok) {
     await deps.repo.markDeliveryResult(delivery.id, {

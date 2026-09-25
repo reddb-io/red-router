@@ -3,7 +3,8 @@ import { v4 as uuidv4 } from "uuid";
 import { getDb } from "../kysely.js";
 import { parseJson, stringifyJson } from "../helpers/jsonCol.js";
 
-export const SINK_TYPES = ["webhook"];
+// Keep in step with TRANSPORTS in src/lib/usageSinks/transports.js.
+export const SINK_TYPES = ["webhook", "sqs", "kafka", "reddb"];
 export const SINK_MODES = ["instant", "window"];
 export const WINDOW_SIZES_SEC = [300, 900, 1800, 3600];
 

@@ -1,5 +1,6 @@
 // Validation and redaction for the usage sinks API.
 import { SINK_TYPES, SINK_MODES, WINDOW_SIZES_SEC } from "@/lib/db/repos/usageSinksRepo.js";
+import { TRANSPORTS } from "./transports.js";
 
 const cleanList = (value) => (Array.isArray(value)
   ? [...new Set(value.filter((v) => typeof v === "string" && v.trim()).map((v) => v.trim()))]
@@ -18,16 +19,13 @@ export function parseSinkInput(body, existing = null) {
     out.name = name.slice(0, 80);
   }
   const type = body.type ?? existing?.type;
-  if (!SINK_TYPES.includes(type)) return { error: `Type must be one of: ${SINK_TYPES.join(", ")}` };
+  if (!SINK_TYPES.includes(type) || !TRANSPORTS[type]) return { error: `Type must be one of: ${SINK_TYPES.join(", ")}` };
   if (!partial) out.type = type;
 
   if (!partial || body.config !== undefined) {
-    const url = typeof body.config?.url === "string" ? body.config.url.trim() : "";
-    let parsed;
-    try { parsed = new URL(url); } catch { return { error: "A valid webhook URL is required" }; }
-    if (!["http:", "https:"].includes(parsed.protocol)) return { error: "Webhook URL must use HTTP or HTTPS" };
-    const secret = typeof body.config?.secret === "string" ? body.config.secret.trim() : "";
-    out.config = { url, secret: secret || existing?.config?.secret || "" };
+    const parsed = TRANSPORTS[type].parseConfig(body.config || {}, existing?.config || {});
+    if (parsed.error) return { error: parsed.error };
+    out.config = parsed.value;
   }
 
   const mode = body.mode ?? existing?.mode;
@@ -50,17 +48,15 @@ export function parseSinkInput(body, existing = null) {
   return { value: out };
 }
 
-/** A sink as the API returns it: the secret is never sent back. */
+/** A sink as the API returns it: secrets are never sent back. */
 export function publicSink(sink, stats = null) {
   if (!sink) return null;
-  const secret = sink.config?.secret || "";
+  const transport = TRANSPORTS[sink.type] || TRANSPORTS.webhook;
+  const config = sink.config || {};
   return {
     ...sink,
-    config: {
-      url: sink.config?.url || "",
-      hasSecret: !!secret,
-      secretHint: secret ? `…${secret.slice(-4)}` : null,
-    },
+    config: transport.publicConfig(config),
+    summary: transport.summary(config),
     deliveries: stats || { pending: 0, delivered: 0, dead: 0 },
   };
 }
