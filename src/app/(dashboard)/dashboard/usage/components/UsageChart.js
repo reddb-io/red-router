@@ -11,6 +11,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
+import { SERIES } from "@/shared/utils/chartColors";
 
 const fmtTokens = (n) => {
   if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`;
@@ -28,9 +29,9 @@ const VIEW_MODES = [
 ];
 
 const VIEW_CONFIG = {
-  tokens:   { dataKey: "tokens",   color: "var(--color-primary)", gradId: "gradTokens", formatter: fmtTokens, label: "Tokens" },
-  requests: { dataKey: "requests", color: "#14b8a6", gradId: "gradRequests", formatter: fmtRequests, label: "Requests" },
-  cost:     { dataKey: "cost",     color: "var(--color-warning)", gradId: "gradCost", formatter: fmtCost, label: "Cost" },
+  tokens:   { dataKey: "tokens",   color: SERIES.red, gradId: "gradTokens", formatter: fmtTokens, label: "Tokens" },
+  requests: { dataKey: "requests", color: SERIES.blue, gradId: "gradRequests", formatter: fmtRequests, label: "Requests" },
+  cost:     { dataKey: "cost",     color: SERIES.amber, gradId: "gradCost", formatter: fmtCost, label: "Cost" },
 };
 
 export default function UsageChart({ period = "7d", apiKeyId = "all" }) {
@@ -92,16 +93,16 @@ export default function UsageChart({ period = "7d", apiKeyId = "all" }) {
           <AreaChart data={data} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
             <defs>
               <linearGradient id="gradTokens" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="var(--color-primary)" stopOpacity={0.22} />
-                <stop offset="95%" stopColor="var(--color-primary)" stopOpacity={0} />
+                <stop offset="5%" stopColor={SERIES.red} stopOpacity={0.22} />
+                <stop offset="95%" stopColor={SERIES.red} stopOpacity={0} />
               </linearGradient>
               <linearGradient id="gradRequests" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#14b8a6" stopOpacity={0.25} />
-                <stop offset="95%" stopColor="#14b8a6" stopOpacity={0} />
+                <stop offset="5%" stopColor={SERIES.blue} stopOpacity={0.25} />
+                <stop offset="95%" stopColor={SERIES.blue} stopOpacity={0} />
               </linearGradient>
               <linearGradient id="gradCost" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="var(--color-warning)" stopOpacity={0.22} />
-                <stop offset="95%" stopColor="var(--color-warning)" stopOpacity={0} />
+                <stop offset="5%" stopColor={SERIES.amber} stopOpacity={0.22} />
+                <stop offset="95%" stopColor={SERIES.amber} stopOpacity={0} />
               </linearGradient>
             </defs>
             <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.1} />

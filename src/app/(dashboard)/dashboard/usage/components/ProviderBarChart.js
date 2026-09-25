@@ -12,8 +12,8 @@ import {
   ResponsiveContainer,
   Cell,
 } from "recharts";
+import { seriesColor } from "@/shared/utils/chartColors";
 
-const COLORS = ["#6366f1", "#14b8a6", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4", "#10b981", "#f97316"];
 
 const fmtTokens = (n) => {
   if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`;
@@ -96,7 +96,7 @@ export default function ProviderBarChart({ byProvider }) {
             />
             <Bar dataKey={viewMode} radius={[4, 4, 0, 0]}>
               {chartData.map((_, i) => (
-                <Cell key={i} fill={COLORS[i % COLORS.length]} fillOpacity={0.85} />
+                <Cell key={i} fill={seriesColor(i)} fillOpacity={0.85} />
               ))}
             </Bar>
           </BarChart>

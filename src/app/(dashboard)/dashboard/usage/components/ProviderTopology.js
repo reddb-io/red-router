@@ -13,6 +13,7 @@ import {
 import "@xyflow/react/dist/style.css";
 import { AI_PROVIDERS } from "@/shared/constants/providers";
 import { getProviderIconSrc, markProviderIconMissing } from "@/shared/utils/providerIcon";
+import { SERIES, DANGER_COLOR } from "@/shared/utils/chartColors";
 
 // Force-stop FE animation if a provider stays active longer than this
 const FE_ACTIVE_TIMEOUT_MS = 60000;
@@ -175,7 +176,7 @@ function TopologyEdge({
       <path
         d={edgePath}
         fill="none"
-        stroke="#22d3ee"
+        stroke={SERIES.cyan}
         strokeWidth={10}
         strokeOpacity={0.35}
         strokeLinecap="round"
@@ -186,7 +187,7 @@ function TopologyEdge({
       <path
         d={edgePath}
         fill="none"
-        stroke="#4ade80"
+        stroke={SERIES.green}
         strokeWidth={5}
         strokeOpacity={0.85}
         strokeLinecap="round"
@@ -205,9 +206,9 @@ function TopologyEdge({
         <circle
           key={`${id}-p-${i}`}
           r={i % 2 === 0 ? 4 : 2.5}
-          fill={i % 3 === 0 ? "#fde047" : i % 3 === 1 ? "#67e8f9" : "#fff"}
+          fill={i % 3 === 0 ? SERIES.amber : i % 3 === 1 ? SERIES.cyan : "#fff"}
           opacity={0.95}
-          style={{ filter: "drop-shadow(0 0 4px #22d3ee)" }}
+          style={{ filter: `drop-shadow(0 0 4px ${SERIES.cyan})` }}
         >
           <animateMotion
             dur={`${0.4 + i * 0.08}s`}
@@ -292,9 +293,9 @@ function buildLayout(providers, activeSet, lastSet, errorSet) {
   });
 
   const edgeStyle = (active, last, error) => {
-    if (error) return { stroke: "#ef4444", strokeWidth: 2.5, opacity: 0.9 };
-    if (active) return { stroke: "#22d3ee", strokeWidth: 3.5, opacity: 1 };
-    if (last) return { stroke: "#f59e0b", strokeWidth: 2, opacity: 0.7 };
+    if (error) return { stroke: DANGER_COLOR, strokeWidth: 2.5, opacity: 0.9 };
+    if (active) return { stroke: SERIES.cyan, strokeWidth: 3.5, opacity: 1 };
+    if (last) return { stroke: SERIES.amber, strokeWidth: 2, opacity: 0.7 };
     return { stroke: "var(--color-border)", strokeWidth: 1, opacity: 0.3 };
   };
 
