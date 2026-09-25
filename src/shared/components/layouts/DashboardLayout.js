@@ -122,8 +122,11 @@ export default function DashboardLayout({ children }) {
       {/* Main content */}
       <main className="flex flex-col flex-1 h-full min-w-0 relative transition-colors duration-300 isolate">
         <Header key={pathname} onMenuClick={() => setSidebarOpen(true)} />
-        <div className={`flex-1 overflow-y-auto custom-scrollbar ${pathname === "/dashboard/basic-chat" ? "" : "p-4 sm:p-6 lg:p-8"} ${pathname === "/dashboard/basic-chat" ? "flex flex-col overflow-hidden" : ""}`}>
-          <div className={`${isChat ? "flex-1 w-full h-full flex flex-col" : "max-w-7xl mx-auto"}`}>
+        {/* One page frame for every page: the layout owns the width (pages never
+            set their own max width or centering), and the scrollbar's gutter is
+            always reserved so content does not shift between short and long pages. */}
+        <div className={`flex-1 overflow-y-auto custom-scrollbar [scrollbar-gutter:stable] ${isChat ? "flex flex-col overflow-hidden" : "p-4 sm:p-6 lg:p-8"}`}>
+          <div className={isChat ? "flex-1 w-full h-full flex flex-col" : "dashboard-page w-full max-w-7xl mx-auto"}>
             {heading}
             {children}
           </div>

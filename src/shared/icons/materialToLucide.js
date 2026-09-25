@@ -179,6 +179,7 @@ import {
   WifiOff,
   Wind,
   Wrench,
+  WrapText,
   X,
   Zap,
 } from "lucide-react";
@@ -369,5 +370,6 @@ export const MATERIAL_TO_LUCIDE = {
   width_full: MoveHorizontal,
   wifi: Wifi,
   wifi_off: WifiOff,
+  wrap_text: WrapText,
   wifi_tethering: RadioTower,
 };

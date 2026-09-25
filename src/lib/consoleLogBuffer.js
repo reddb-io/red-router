@@ -22,6 +22,9 @@ if (!state.emitter) {
 }
 
 if (!state.pendingLines) state.pendingLines = [];
+if (!state.seq) state.seq = 0;
+// Entries from before structured entries (a hot reload) become plain info lines.
+state.logs = state.logs.map((e) => (typeof e === "string" ? { id: ++state.seq, t: Date.now(), level: "info", text: e } : e));
 if (!state.flushTimer) state.flushTimer = null;
 
 const FLUSH_INTERVAL_MS = 100;
@@ -41,8 +44,12 @@ function scheduleFlush() {
   state.flushTimer?.unref?.();
 }
 
-function toLogLine(level, args) {
-  return args.map(formatArg).join(" ");
+/**
+ * One console call as a log entry: { id, t (ms), level, text }. The level is the
+ * console method (log counts as info); the dashboard filters and colours by it.
+ */
+function toLogEntry(level, args) {
+  return { id: ++state.seq, t: Date.now(), level: level === "log" ? "info" : level, text: args.map(formatArg).join(" ") };
 }
 
 // Strip ANSI escape codes so terminal colors don't bleed into UI
@@ -86,7 +93,7 @@ export function initConsoleLogCapture() {
   for (const level of consoleLevels) {
     state.originals[level] = console[level];
     console[level] = (...args) => {
-      appendLine(toLogLine(level, args));
+      appendLine(toLogEntry(level, args));
       state.originals[level](...args);
     };
   }

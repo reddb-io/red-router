@@ -54,7 +54,8 @@ export const API_ENDPOINTS = {
 };
 
 export const CONSOLE_LOG_CONFIG = {
-  maxLines: 200,
+  // Entries kept on the server and in the Console Log page.
+  maxLines: 2000,
   pollIntervalMs: 1000,
 };
 

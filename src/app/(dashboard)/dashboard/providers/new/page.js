@@ -73,7 +73,7 @@ export default function NewProviderPage() {
   const selectedProvider = AI_PROVIDERS[formData.provider];
 
   return (
-    <div className="max-w-2xl mx-auto">
+    <div className="w-full max-w-3xl">
       {/* Form */}
       <Card>
         <form onSubmit={handleSubmit} className="flex flex-col gap-6">
