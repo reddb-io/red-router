@@ -183,6 +183,7 @@ import {
   Wind,
   WrapText,
   Wrench,
+  WrapText,
   X,
   Zap,
 } from "lucide-react";
