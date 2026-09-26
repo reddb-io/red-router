@@ -1218,6 +1218,17 @@ export default function APIPageClient({ machineId }) {
                       ].filter(Boolean).join(" · ")}
                     </p>
                   )}
+                  {(key.modelAccess || key.limits) && (
+                    <p className="mt-1.5 flex items-center gap-1 text-xs text-text-muted">
+                      <span className="material-symbols-outlined text-[12px]">policy</span>
+                      {[
+                        key.modelAccess && (key.modelAccess.mode === "allow" ? `${key.modelAccess.patterns.length} allowed model pattern(s)` : `${key.modelAccess.patterns.length} blocked model pattern(s)`),
+                        key.limits?.rpm && `${key.limits.rpm} req/min`,
+                        key.limits?.tokensPerDay && `${key.limits.tokensPerDay.toLocaleString()} tokens/day`,
+                        key.limits?.usdPerMonth && `$${key.limits.usdPerMonth}/month`,
+                      ].filter(Boolean).join(" · ")}
+                    </p>
+                  )}
                   {key.allowedConnectionIds?.length > 0 && (
                     <div className="mt-2 flex flex-wrap items-center gap-1.5">
                       {key.allowedConnectionIds.map((connId) => (
