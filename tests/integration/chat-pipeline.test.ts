@@ -22,6 +22,7 @@ const { skillRegistry } = await import("../../src/lib/skills/registry.ts");
 const { skillExecutor } = await import("../../src/lib/skills/executor.ts");
 const { encodeSkillToolName } = await import("../../src/lib/skills/injection.ts");
 const { handleChat } = await import("../../src/sse/handlers/chat.ts");
+const compactResponsesRoute = await import("../../src/app/api/v1/responses/compact/route.ts");
 const providerNodeRoute = await import("../../src/app/api/provider-nodes/[id]/route.ts");
 const { initTranslators } = await import("../../open-sse/translator/index.ts");
 const { clearInflight } = await import("../../open-sse/services/requestDedup.ts");
@@ -952,13 +953,14 @@ test("chat pipeline treats Codex /responses/compact as non-streaming JSON", asyn
     return buildOpenAIResponsesJson();
   };
 
-  const response = await handleChat(
+  const response = await compactResponsesRoute.POST(
     buildRequest({
       url: "http://localhost/v1/responses/compact",
       headers: { Accept: "text/event-stream" },
       body: {
         model: "codex/gpt-5.5",
         input: "Compact this session",
+        stream: true,
       },
     })
   );
@@ -971,6 +973,7 @@ test("chat pipeline treats Codex /responses/compact as non-streaming JSON", asyn
   assert.match(fetchCalls[0].url, /\/responses\/compact$/);
   assert.equal(fetchCalls[0].headers.Accept, "application/json");
   assert.equal(fetchCalls[0].body.stream, undefined);
+  assert.equal(fetchCalls[0].body._compact, undefined);
   assert.equal(fetchCalls[0].body.store, undefined);
   assert.equal(json.object, "response");
   assert.equal(json.output_text, "responses compacted from codex");

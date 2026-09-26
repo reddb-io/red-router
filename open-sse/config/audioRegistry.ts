@@ -595,6 +595,21 @@ export const AUDIO_SPEECH_PROVIDERS: Record<string, AudioProvider> = {
     ],
   },
 
+  "xiaomi-mimo-token-plan": {
+    id: "xiaomi-mimo-token-plan",
+    baseUrl: "https://token-plan-sgp.xiaomimimo.com/v1/chat/completions",
+    authType: "apikey",
+    authHeader: "bearer",
+    format: "xiaomi-mimo-tts",
+    supportedFormats: ["mp3", "wav"],
+    models: [
+      { id: "mimo-v2-tts", name: "MiMo V2 TTS" },
+      { id: "mimo-v2.5-tts", name: "MiMo V2.5 TTS" },
+      { id: "mimo-v2.5-tts-voicedesign", name: "MiMo V2.5 Voice Design" },
+      { id: "mimo-v2.5-tts-voiceclone", name: "MiMo V2.5 Voice Clone" },
+    ],
+  },
+
   nanogpt: {
     id: "nanogpt",
     baseUrl: "https://nano-gpt.com/api/v1/audio/speech",
@@ -683,7 +698,8 @@ export function getTranslationProvider(providerId: string): AudioProvider | null
  * Get speech provider config by ID
  */
 export function getSpeechProvider(providerId: string): AudioProvider | null {
-  return AUDIO_SPEECH_PROVIDERS[providerId] || null;
+  const canonicalId = SPEECH_PROVIDER_COMPATIBILITY_ALIASES[providerId] || providerId;
+  return AUDIO_SPEECH_PROVIDERS[canonicalId] || null;
 }
 
 export interface ProviderNodeRow {
@@ -777,7 +793,21 @@ export function parseTranscriptionModel(
   return parseAudioModel(modelStr, AUDIO_TRANSCRIPTION_PROVIDERS, dynamicProviders);
 }
 
+const SPEECH_PROVIDER_COMPATIBILITY_ALIASES: Readonly<Record<string, string>> = {
+  "fish-audio": "fishaudio",
+  "google-tts": "gtts",
+};
+
 export function parseSpeechModel(modelStr: string | null, dynamicProviders?: AudioProvider[]) {
+  if (modelStr) {
+    const slash = modelStr.indexOf("/");
+    if (slash > 0) {
+      const canonicalId = SPEECH_PROVIDER_COMPATIBILITY_ALIASES[modelStr.slice(0, slash)];
+      if (canonicalId) {
+        return { provider: canonicalId, model: modelStr.slice(slash + 1) };
+      }
+    }
+  }
   return parseAudioModel(modelStr, AUDIO_SPEECH_PROVIDERS, dynamicProviders);
 }
 

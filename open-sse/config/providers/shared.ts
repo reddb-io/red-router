@@ -70,6 +70,8 @@ export interface RegistryModel {
   supportsXHighEffort?: boolean;
   maxOutputTokens?: number;
   targetFormat?: string;
+  /** Provider-native model ID when a public model variant selects another wire protocol. */
+  upstreamModelId?: string;
   strip?: readonly string[];
   unsupportedParams?: readonly string[];
   /** Maximum context window in tokens */
@@ -264,9 +266,12 @@ export interface RegistryEntry {
    */
   systemOneConfig?: {
     baseUrl: string;
+    /** Decision-only catalog. Never include these entries in the chat `models` array. */
+    models?: RegistryModel[];
     validateUrl?: string;
     defaultModel?: string;
     modelMap?: Record<string, string>;
+    headers?: Record<string, string>;
     passthroughModels?: boolean;
     contextWindow?: number;
     maxStateAndQuestionTokens?: number;
@@ -506,7 +511,17 @@ export const CHAT_OPENAI_COMPAT_MODELS: Record<string, RegistryModel[]> = {
   ],
   "xiaomi-mimo-token-plan": [
     { id: "mimo-v2.5-pro", name: "MiMo-V2.5-Pro", contextLength: 1048576, maxOutputTokens: 131072 },
+    {
+      id: "mimo-v2.5-pro-claude",
+      name: "MiMo-V2.5-Pro (Claude Native)",
+      targetFormat: "claude",
+      upstreamModelId: "mimo-v2.5-pro",
+      contextLength: 1048576,
+      maxOutputTokens: 131072,
+    },
     { id: "mimo-v2.5", name: "MiMo-V2.5", contextLength: 1048576, maxOutputTokens: 131072 },
+    { id: "mimo-v2-pro", name: "MiMo-V2-Pro" },
+    { id: "mimo-v2-omni", name: "MiMo-V2-Omni" },
   ],
   gitlawb: [
     { id: "mimo-v2.5-pro", name: "MiMo-V2.5-Pro", contextLength: 1048576, maxOutputTokens: 131072 },

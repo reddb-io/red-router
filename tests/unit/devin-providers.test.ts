@@ -16,16 +16,18 @@ test("Devin Desktop exposes the supported BYOK-free catalog", () => {
   assert.ok(desktop.models.every((model) => !model.id.toLowerCase().includes("byok")));
 });
 
-test("public registries do not expose windsurf or ws aliases", () => {
-  assert.equal(REGISTRY.windsurf, undefined);
-  assert.ok(Object.values(REGISTRY).every((entry) => entry.alias !== "ws"));
+test("Windsurf and Devin Desktop retain separate provider identities", () => {
+  assert.equal(REGISTRY.windsurf.alias, "ws");
+  assert.notEqual(REGISTRY.windsurf.executor, REGISTRY["devin-desktop"].executor);
+  assert.notEqual(REGISTRY.windsurf.baseUrl, REGISTRY["devin-desktop"].baseUrl);
 });
 
-test("executor factory exposes only the dedicated Devin Desktop executor", async () => {
+test("executor factory dispatches Windsurf separately from Devin Desktop", async () => {
   assert.equal(hasSpecializedExecutor("devin-desktop"), true);
-  assert.equal(hasSpecializedExecutor("windsurf"), false);
-  assert.equal(hasSpecializedExecutor("ws"), false);
+  assert.equal(hasSpecializedExecutor("windsurf"), true);
+  assert.equal(hasSpecializedExecutor("ws"), true);
   assert.equal((await getExecutor("devin-desktop")).constructor.name, "DevinDesktopExecutor");
+  assert.equal((await getExecutor("windsurf")).constructor.name, "WindsurfExecutor");
 });
 
 test("Devin Desktop executor uses the live endpoint and verified default identity", async () => {
@@ -119,10 +121,10 @@ test("provider card exposes version-honest Devin Desktop key import guidance", (
   assert.match(desktop.authHint, /vary by Devin version and account/);
   assert.doesNotMatch(desktop.authHint, /Devin: Copy API Key to Clipboard/);
   assert.equal(cli.name, "Devin CLI");
-  assert.equal(OAUTH_PROVIDERS.windsurf, undefined);
+  assert.equal(OAUTH_PROVIDERS.windsurf.name, "Windsurf");
 });
 
-test("OAuth modal Desktop branch gives honest import guidance without public Windsurf", async () => {
+test("OAuth modal Desktop branch keeps its Devin-specific import guidance", async () => {
   const source = await readFile(
     new URL("../../src/shared/components/OAuthModal.tsx", import.meta.url),
     "utf8"

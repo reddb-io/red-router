@@ -7,6 +7,7 @@ import { isCloudEnabled, resolveProxyForConnection } from "@/lib/db/settings";
 import { getConsistentMachineId } from "@/shared/utils/machineId";
 import { syncToCloud } from "@/lib/cloudSync";
 import { validateProviderApiKey } from "@/lib/providers/validation";
+import { validateQoderCnProvider } from "@/lib/providers/validation/qoderCn";
 import { projectProviderValidationResultForPublicResponse } from "@/lib/providers/validation/transport";
 import { getCliRuntimeStatus } from "@/shared/services/cliRuntime";
 import { buildQoderCliNotFoundHint } from "@omniroute/open-sse/services/qoderCliResolve.ts";
@@ -401,6 +402,26 @@ export async function testOAuthConnection(
         diagnosis: classifyFailure({ error, refreshFailed: true }),
       };
     }
+  }
+
+  if (connection.provider === "qoder-cn") {
+    const probe = await validateQoderCnProvider({
+      apiKey: accessToken,
+      providerSpecificData: connection.providerSpecificData || {},
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    return {
+      valid: probe.valid,
+      error: probe.error,
+      refreshed,
+      newTokens,
+      diagnosis: probe.valid
+        ? makeDiagnosis("ok", "upstream", null, null)
+        : classifyFailure({
+            error: probe.error || "Qoder CN probe failed",
+            statusCode: probe.statusCode,
+          }),
+    };
   }
 
   // For providers that only check expiry (no test endpoint available)

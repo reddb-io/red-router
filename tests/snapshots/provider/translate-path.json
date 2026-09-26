@@ -5127,6 +5127,29 @@
       "stream": "https://api.qoder.com/v1/chat/completions"
     }
   },
+  "qoder-cn": {
+    "format": "openai",
+    "headers": {
+      "apiKey": {
+        "Accept": "text/event-stream",
+        "Authorization": "Bearer <TOK>",
+        "Content-Type": "application/json"
+      },
+      "nonStream": {
+        "Authorization": "Bearer <TOK>",
+        "Content-Type": "application/json"
+      },
+      "oauth": {
+        "Accept": "text/event-stream",
+        "Authorization": "Bearer <TOK>",
+        "Content-Type": "application/json"
+      }
+    },
+    "url": {
+      "nonStream": "https://gateway.qoder.com.cn/algo/api/v2/service/pro/sse/agent_chat_generation",
+      "stream": "https://gateway.qoder.com.cn/algo/api/v2/service/pro/sse/agent_chat_generation"
+    }
+  },
   "qwen-cloud": {
     "format": "openai",
     "headers": {
@@ -6238,6 +6261,29 @@
     "url": {
       "nonStream": "https://api.inference.wandb.ai/v1/chat/completions",
       "stream": "https://api.inference.wandb.ai/v1/chat/completions"
+    }
+  },
+  "windsurf": {
+    "format": "openai",
+    "headers": {
+      "apiKey": {
+        "Accept": "text/event-stream",
+        "Authorization": "Bearer <TOK>",
+        "Content-Type": "application/json"
+      },
+      "nonStream": {
+        "Authorization": "Bearer <TOK>",
+        "Content-Type": "application/json"
+      },
+      "oauth": {
+        "Accept": "text/event-stream",
+        "Authorization": "Bearer <TOK>",
+        "Content-Type": "application/json"
+      }
+    },
+    "url": {
+      "nonStream": "https://server.codeium.com/exa.language_server_pb.LanguageServerService/GetChatMessage",
+      "stream": "https://server.codeium.com/exa.language_server_pb.LanguageServerService/GetChatMessage"
     }
   },
   "writer": {

@@ -22,6 +22,7 @@ import {
 import {
   buildState,
   stripHarnessNoise,
+  truncate,
   hasCacheBreakpoint,
   turnsOf,
 } from "../../../open-sse/decision/state.ts";
@@ -437,6 +438,12 @@ describe("buildState", () => {
       ),
       "keep"
     );
+  });
+
+  it("text-only state helpers never return non-string values", () => {
+    assert.equal(stripHarnessNoise({ noise: true }), "");
+    assert.equal(truncate({ noise: true }, 10), "");
+    assert.equal(truncate("long text", 4), " …[truncated]… ");
   });
 });
 

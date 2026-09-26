@@ -415,6 +415,28 @@ test("pins the target model when it differs from the translated body model", asy
   assert.equal(out.model, "model-b");
 });
 
+test("maps Xiaomi Token Plan's Claude variant only in the final upstream body", async () => {
+  const source = { model: "mimotp/mimo-v2.5-pro-claude", messages: [] };
+  const variant = await prepareUpstreamBody({
+    translatedBody: source,
+    modelToCall: "mimotp/mimo-v2.5-pro-claude",
+    provider: "xiaomi-mimo-token-plan",
+    targetFormat: "claude",
+    credentials: null,
+  });
+  assert.equal(variant.model, "mimo-v2.5-pro");
+  assert.equal(source.model, "mimotp/mimo-v2.5-pro-claude");
+
+  const ordinary = await prepareUpstreamBody({
+    translatedBody: { model: "mimo-v2.5-pro", messages: [] },
+    modelToCall: "mimo-v2.5-pro",
+    provider: "xiaomi-mimo-token-plan",
+    targetFormat: "openai",
+    credentials: null,
+  });
+  assert.equal(ordinary.model, "mimo-v2.5-pro");
+});
+
 test("leaves the model untouched when it already matches", async () => {
   const out = await prepareUpstreamBody({
     translatedBody: { model: "model-a", messages: [] },

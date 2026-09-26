@@ -545,10 +545,20 @@
       "configSource": "<custom-config>",
       "provider": "promptql"
     },
+    "qdcn": {
+      "className": "QoderCnExecutor",
+      "configSource": "qoder-cn",
+      "provider": "qoder-cn"
+    },
     "qoder": {
       "className": "QoderExecutor",
       "configSource": "qoder",
       "provider": "qoder"
+    },
+    "qoder-cn": {
+      "className": "QoderCnExecutor",
+      "configSource": "qoder-cn",
+      "provider": "qoder-cn"
     },
     "t3-web": {
       "className": "T3ChatWebExecutor",
@@ -630,6 +640,16 @@
       "configSource": "vertex",
       "provider": "vertex"
     },
+    "windsurf": {
+      "className": "WindsurfExecutor",
+      "configSource": "windsurf",
+      "provider": "windsurf"
+    },
+    "ws": {
+      "className": "WindsurfExecutor",
+      "configSource": "windsurf",
+      "provider": "windsurf"
+    },
     "xai": {
       "className": "XaiExecutor",
       "configSource": "xai",
@@ -691,6 +711,6 @@
       "provider": "zai-web"
     }
   },
-  "keyCount": 138,
+  "keyCount": 142,
   "sharedInstances": []
 }

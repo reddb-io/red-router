@@ -19,7 +19,7 @@ const asRecord = (value: unknown): JsonRecord | null =>
 /** Drop harness-injected blocks (system reminders, environment context, AGENTS.md):
  *  they describe the agent harness, not the task the decision is about. */
 export function stripHarnessNoise(text: unknown): string {
-  if (typeof text !== "string" || !text) return text || "";
+  if (typeof text !== "string" || !text) return "";
   let out = text;
   for (const pattern of HARNESS_BLOCK_PATTERNS) out = out.replace(pattern, "");
   return out.replace(/\n{3,}/g, "\n\n").trim();
@@ -27,7 +27,8 @@ export function stripHarnessNoise(text: unknown): string {
 
 /** Head and tail; the middle of a long blob matters least. */
 export function truncate(text: unknown, max: number): string {
-  if (typeof text !== "string" || text.length <= max) return text || "";
+  if (typeof text !== "string") return "";
+  if (text.length <= max) return text;
   const keep = Math.max(0, max - TRUNCATION_MARK.length);
   const head = Math.ceil(keep * 0.6);
   return text.slice(0, head) + TRUNCATION_MARK + text.slice(text.length - (keep - head));

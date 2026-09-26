@@ -109,6 +109,8 @@ import {
 import { validateAiHordeProvider } from "./validation/aihorde";
 import { validateDifyProvider } from "./validation/dify";
 import { validateZyloApiProvider } from "./validation/zylo";
+import { validateWindsurfProvider } from "./validation/windsurf";
+import { validateQoderCnProvider } from "./validation/qoderCn";
 import { validateAdobeFireflyProvider } from "./validation/adobeFirefly";
 import {
   validateV0VercelProvider,
@@ -232,6 +234,8 @@ export async function validateProviderApiKey({ provider, apiKey, providerSpecifi
     "adobe-firefly": validateAdobeFireflyProvider,
     firefly: validateAdobeFireflyProvider,
     qoder: validateQoderProvider,
+    "qoder-cn": validateQoderCnProvider,
+    windsurf: validateWindsurfProvider,
     kiro: validateKiroProvider,
     freebuff: validateFreebuffProvider,
     "command-code": validateCommandCodeProvider,

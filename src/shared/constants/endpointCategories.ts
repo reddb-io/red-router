@@ -25,6 +25,12 @@ export const ENDPOINT_CATEGORIES: readonly EndpointCategory[] = [
     prefixes: ["/v1/chat/completions", "/v1/completions", "/v1/messages", "/v1/responses"],
   },
   {
+    id: "decisions",
+    label: "Decisions / System One",
+    description: "Typed evaluation requests",
+    prefixes: ["/v1/systemone"],
+  },
+  {
     id: "search",
     label: "Web Search",
     description: "Web search and search analytics",

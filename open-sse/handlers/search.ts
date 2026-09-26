@@ -76,7 +76,12 @@ export interface SearchResponse {
   query: string;
   results: SearchResult[];
   answer: { source: string; text: string | null; model: string | null } | null;
-  usage: { queries_used: number; search_cost_usd: number; llm_tokens?: number };
+  usage: {
+    queries_used: number;
+    search_cost_usd: number;
+    llm_tokens?: number;
+    provider_credits_used?: number;
+  };
   metrics: {
     response_time_ms: number;
     upstream_latency_ms: number;

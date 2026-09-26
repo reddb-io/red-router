@@ -9,6 +9,7 @@ import { BaseExecutor } from "../../open-sse/executors/base.ts";
 import type { ProviderCredentials } from "../../open-sse/executors/base.ts";
 import { getKnownPlan } from "../../src/lib/quota/planRegistry.ts";
 import { USAGE_SUPPORTED_PROVIDERS } from "../../src/shared/constants/providers.ts";
+import { getModelTargetFormat, getModelUpstreamId } from "../../open-sse/config/providerModels.ts";
 
 // ---------------------------------------------------------------------------
 // Task 5: xiaomi-mimo declares the Anthropic-compatible variant
@@ -178,18 +179,13 @@ test("buildUrl: xiaomi-mimo-token-plan sem targetFormat mantem a URL OpenAI padr
 // ---------------------------------------------------------------------------
 
 test("xiaomi-mimo-token-plan aponta para o host token-plan-sgp", () => {
-  assert.equal(
-    xiaomi_mimo_token_planProvider.baseUrl,
-    "https://token-plan-sgp.xiaomimimo.com/v1"
-  );
+  assert.equal(xiaomi_mimo_token_planProvider.baseUrl, "https://token-plan-sgp.xiaomimimo.com/v1");
   assert.equal(xiaomi_mimo_token_planProvider.format, "openai");
   assert.equal(xiaomi_mimo_token_planProvider.authHeader, "bearer");
 });
 
 test("xiaomi-mimo-token-plan declara a variante Anthropic no host token-plan", () => {
-  const alt = xiaomi_mimo_token_planProvider.alternateFormats?.find(
-    (a) => a.format === "claude"
-  );
+  const alt = xiaomi_mimo_token_planProvider.alternateFormats?.find((a) => a.format === "claude");
   assert.ok(alt, "esperava uma alternativa claude declarada");
   assert.equal(alt.baseUrl, "https://token-plan-sgp.xiaomimimo.com/anthropic/v1/messages");
   assert.equal(alt.authHeader, "x-api-key");
@@ -197,16 +193,72 @@ test("xiaomi-mimo-token-plan declara a variante Anthropic no host token-plan", (
 
 test("xiaomi-mimo-token-plan esta registrado e nao colide de host com o normal", () => {
   assert.ok(REGISTRY["xiaomi-mimo-token-plan"], "provedor nao registrado");
-  assert.notEqual(
-    REGISTRY["xiaomi-mimo-token-plan"].baseUrl,
-    REGISTRY["xiaomi-mimo"].baseUrl
-  );
+  assert.notEqual(REGISTRY["xiaomi-mimo-token-plan"].baseUrl, REGISTRY["xiaomi-mimo"].baseUrl);
 });
 
 test("xiaomi-mimo-token-plan expoe os modelos de chat", () => {
   const ids = xiaomi_mimo_token_planProvider.models.map((m) => m.id);
   assert.ok(ids.includes("mimo-v2.5-pro"));
   assert.ok(ids.includes("mimo-v2.5"));
+  assert.ok(ids.includes("mimo-v2-pro"));
+  assert.ok(ids.includes("mimo-v2-omni"));
+  assert.ok(ids.includes("mimo-v2.5-pro-claude"));
+  assert.ok(!ids.some((id) => id.includes("tts")), "TTS pertence ao catalogo de audio");
+});
+
+test("variante Claude preserva o modelo upstream e nao altera os outros providers", () => {
+  assert.equal(getModelTargetFormat("mimotp", "mimo-v2.5-pro-claude"), "claude");
+  assert.equal(
+    getModelUpstreamId("xiaomi-mimo-token-plan", "mimotp/mimo-v2.5-pro-claude"),
+    "mimo-v2.5-pro"
+  );
+  assert.equal(getModelUpstreamId("mimotp", "mimo-v2.5-pro"), null);
+  assert.equal(getModelUpstreamId("xiaomi-mimo", "mimo-v2.5-pro-claude"), null);
+});
+
+test("variante Claude usa URL e autenticacao Anthropic sem alterar a conexao", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls: Array<{ url: string; headers: Headers; body: Record<string, unknown> }> = [];
+  globalThis.fetch = async (input, init) => {
+    calls.push({
+      url: String(input),
+      headers: new Headers(init?.headers),
+      body: JSON.parse(String(init?.body || "{}")),
+    });
+    return new Response(JSON.stringify({ id: "msg_test", type: "message", content: [] }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+
+  const executor = new DefaultExecutor("xiaomi-mimo-token-plan");
+  const credentials = { apiKey: "tp-example", providerSpecificData: { region: "ams" } };
+  try {
+    await executor.execute({
+      model: "mimotp/mimo-v2.5-pro-claude",
+      body: { model: "mimo-v2.5-pro", messages: [], max_tokens: 64 },
+      stream: false,
+      credentials,
+    });
+    assert.equal(calls[0]?.url, "https://token-plan-ams.xiaomimimo.com/anthropic/v1/messages");
+    assert.equal(calls[0]?.headers.get("x-api-key"), "tp-example");
+    assert.equal(calls[0]?.headers.get("authorization"), null);
+    assert.equal(calls[0]?.headers.get("anthropic-version"), "2023-06-01");
+    assert.equal(calls[0]?.body.model, "mimo-v2.5-pro");
+    assert.deepEqual(credentials.providerSpecificData, { region: "ams" });
+
+    await executor.execute({
+      model: "mimo-v2.5-pro",
+      body: { model: "mimo-v2.5-pro", messages: [] },
+      stream: false,
+      credentials,
+    });
+    assert.equal(calls[1]?.url, "https://token-plan-ams.xiaomimimo.com/v1/chat/completions");
+    assert.equal(calls[1]?.headers.get("authorization"), "Bearer tp-example");
+    assert.equal(calls[1]?.headers.get("x-api-key"), null);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 // ---------------------------------------------------------------------------

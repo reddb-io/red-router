@@ -30,6 +30,7 @@ import {
   stripBooleanReasoning,
 } from "../../services/opencodeReasoningSanitizer.ts";
 import { getUnsupportedParams } from "../../config/providerRegistry.ts";
+import { getModelUpstreamId } from "../../config/providerModels.ts";
 import { stripUnsupportedParams } from "./unsupportedParamsStrip.ts";
 import {
   stripGpt5SamplingWhenReasoning,
@@ -316,6 +317,12 @@ export async function prepareUpstreamBody(opts: PrepareUpstreamBodyOptions): Pro
     targetFormat,
     connectionCacheOverride
   );
+
+  // Keep public variant IDs through policy/capability resolution. Only the final
+  // outbound payload uses the provider-native model ID; retry and logs retain the
+  // requested variant so its wire protocol stays selected.
+  const upstreamModelId = getModelUpstreamId(provider, modelToCall);
+  if (upstreamModelId) bodyToSend.model = upstreamModelId;
 
   return bodyToSend;
 }

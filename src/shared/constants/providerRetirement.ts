@@ -6,6 +6,8 @@
 export const RUNTIME_RETIRED_PROVIDER_IDS: ReadonlySet<string> = new Set([
   "felo-web",
   "felo",
+  // Keep this tombstone for restored legacy connection rows. The active Google
+  // Code Assist provider is antigravity; this ID must never fall through to it.
   "gemini-cli",
   "qwen-web",
   "qw",

@@ -71,7 +71,9 @@ test("buildGttsRpcBody wraps text/lang under the jQ1olc RPC id, urlencoded", () 
 
   const encoded = body.slice("f.req=".length, -1);
   const envelope = JSON.parse(decodeURIComponent(encoded));
-  assert.deepEqual(envelope, [[["jQ1olc", JSON.stringify(["hello", "en", true, "null"]), null, "generic"]]]);
+  assert.deepEqual(envelope, [
+    [["jQ1olc", JSON.stringify(["hello", "en", true, "null"]), null, "generic"]],
+  ]);
 });
 
 // ─── parseBatchExecuteResponse ──────────────────────────────────────────
@@ -113,8 +115,7 @@ test("synthesizeGtts concatenates decoded audio across multiple chunks", async (
 });
 
 test("synthesizeGtts throws GttsUpstreamError with the upstream status on a non-ok response", async () => {
-  const fetchImpl = async () =>
-    new Response("rate limited", { status: 429 });
+  const fetchImpl = async () => new Response("rate limited", { status: 429 });
 
   await assert.rejects(
     () => synthesizeGtts({ text: "hi", lang: "en" }, fetchImpl),
@@ -160,6 +161,30 @@ test("handleAudioSpeech routes gtts requests without requiring credentials", asy
     assert.equal(response.headers.get("content-type"), "audio/mpeg");
     const buf = Buffer.from(await response.arrayBuffer());
     assert.equal(buf.toString(), "hi-audio");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("9router google-tts model suffix selects the language without credentials", async () => {
+  const originalFetch = globalThis.fetch;
+  let sentLanguage: string | null = null;
+  globalThis.fetch = (async (_url: string, init: RequestInit) => {
+    const body = new URLSearchParams(String(init.body));
+    const envelope = JSON.parse(body.get("f.req") || "[]");
+    sentLanguage = JSON.parse(envelope[0][0][1])[1];
+    return new Response(buildBatchExecuteFixture(Buffer.from("audio").toString("base64")), {
+      status: 200,
+    });
+  }) as typeof fetch;
+
+  try {
+    const response = await handleAudioSpeech({
+      body: { model: "google-tts/pt-BR", input: "Olá" },
+      credentials: null,
+    });
+    assert.equal(response.status, 200);
+    assert.equal(sentLanguage, "pt-BR");
   } finally {
     globalThis.fetch = originalFetch;
   }

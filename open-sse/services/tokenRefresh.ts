@@ -139,14 +139,16 @@ export const DEPRECATED_PROVIDERS: Readonly<
   Record<string, { readonly migrateTo: string; readonly reason: string }>
 > = {
   "gemini-cli": {
-    migrateTo: "gemini",
-    // The legacy path redeemed the token with PROVIDERS.gemini's client — the very same
-    // public Gemini CLI / Code Assist OAuth client — which is why re-adding the account
-    // under `gemini` is a real migration and not a suggestion to start over.
+    migrateTo: "antigravity",
+    // The legacy token may have used the public Gemini CLI OAuth client, but
+    // `gemini` is the Google AI Studio API-key product in this router. Antigravity
+    // is the routable Cloud Code Assist product and requires its own sign-in;
+    // do not imply that the old refresh token can be moved between OAuth clients.
     reason:
-      "The gemini-cli provider was discontinued and is not routable. Re-add this account " +
-      "under the `gemini` provider — it uses the same Google OAuth client, so the same " +
-      "login works and the account becomes usable again.",
+      "The gemini-cli provider was discontinued and is not routable. Sign in again " +
+      "under `antigravity` for the Cloud Code Assist backend; its OAuth client is " +
+      "different and the old Gemini CLI token cannot be reused. The `gemini` " +
+      "provider instead requires a Google AI Studio API key.",
   },
 };
 

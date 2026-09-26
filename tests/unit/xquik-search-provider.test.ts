@@ -10,10 +10,16 @@ const {
 } = await import("../../open-sse/config/searchRegistry.ts");
 const { SEARCH_VALIDATOR_CONFIGS } =
   await import("../../src/lib/providers/validation/searchProviders.ts");
-const { XQUIK_SEARCH_PROVIDER_ID, buildXquikSearchRequest, extractXquikSearchHits } =
-  await import("../../open-sse/handlers/search/xquikSearch.ts");
+const {
+  XQUIK_SEARCH_PROVIDER_ID,
+  buildXquikSearchRequest,
+  countXquikReturnedPosts,
+  extractXquikSearchHits,
+  normalizeXquikSearchResponse,
+} = await import("../../open-sse/handlers/search/xquikSearch.ts");
 const { handleSearch } = await import("../../open-sse/handlers/search.ts");
 const { v1SearchSchema } = await import("../../src/shared/validation/schemas.ts");
+const { xSearchInput } = await import("../../open-sse/mcp-server/schemas/tools.ts");
 
 test("xquik-search is an explicit X-only fallback provider", () => {
   const config = getSearchProvider(XQUIK_SEARCH_PROVIDER_ID);
@@ -22,10 +28,37 @@ test("xquik-search is an explicit X-only fallback provider", () => {
   assert.equal(config.baseUrl, "https://xquik.com/api/v1/x/tweets/search");
   assert.equal(config.authHeader, "x-api-key");
   assert.equal(config.fallbackOnly, true);
+  assert.equal(config.maxMaxResults, 100);
+  assert.equal(config.timeoutMs, 10_000);
+  assert.equal(config.cacheTTLMs, 60_000);
+  assert.equal(config.costPerQuery, 0, "unknown USD-per-credit must not be booked as spend");
   assert.deepEqual(config.searchTypes, ["x"]);
   assert.equal(supportsSearchType(config, "x"), true);
   assert.equal(supportsSearchType(config, "web"), false);
   assert.equal(selectProvider(undefined, "x")?.id, "x-search");
+});
+
+test("xquik retains up to 100 posts before the caller-specific result limit", () => {
+  const tweets = Array.from({ length: 100 }, (_, index) => ({
+    id: String(1912345678901234567n + BigInt(index)),
+    text: `Post ${index}`,
+  }));
+  const normalized = normalizeXquikSearchResponse({ tweets }, (providerId, item, index) => ({
+    title: item.title || "",
+    url: item.url || "",
+    snippet: item.snippet || "",
+    position: index + 1,
+    score: null,
+    published_at: null,
+    favicon_url: null,
+    content: null,
+    metadata: null,
+    citation: { provider: providerId, retrieved_at: "2026-09-26T00:00:00Z", rank: index + 1 },
+    provider_raw: null,
+  }));
+  assert.equal(normalized.results.length, 100);
+  assert.equal(normalized.totalResults, 100);
+  assert.equal(normalized.results[99].snippet, "Post 99");
 });
 
 test("xquik search aliases resolve without changing the xAI provider", () => {
@@ -86,6 +119,18 @@ test("extractXquikSearchHits creates canonical X citations from typed tweet rows
   ]);
 });
 
+test("Xquik credits count returned posts even when one post cannot be normalized", () => {
+  const envelope = {
+    tweets: [
+      { id: "1912345678901234567", text: "Valid" },
+      { id: "invalid", text: "Returned but not linkable" },
+    ],
+  };
+  assert.equal(countXquikReturnedPosts(envelope), 2);
+  assert.equal(extractXquikSearchHits(envelope, 5).length, 1);
+  assert.equal(countXquikReturnedPosts({ invalid: true }), null);
+});
+
 test("xquik provider validation sends its API key only in x-api-key", () => {
   const request = SEARCH_VALIDATOR_CONFIGS["xquik-search"]("xq_test_key");
   const parsedUrl = new URL(request.url);
@@ -110,6 +155,18 @@ test("v1SearchSchema canonicalizes xquik aliases and forces search_type x", () =
   }
 });
 
+test("MCP X search permits 100 Xquik posts without raising the xAI limit", () => {
+  assert.equal(
+    xSearchInput.safeParse({ query: "agents", provider: "xquik-search", max_results: 100 }).success,
+    true
+  );
+  assert.equal(xSearchInput.safeParse({ query: "agents", max_results: 21 }).success, false);
+  assert.equal(
+    xSearchInput.safeParse({ query: "agents", provider: "x-search", max_results: 20 }).success,
+    true
+  );
+});
+
 test("handleSearch maps Xquik tweets into the unified search response", async () => {
   const originalFetch = globalThis.fetch;
   let capturedUrl = "";
@@ -127,6 +184,7 @@ test("handleSearch maps Xquik tweets into the unified search response", async ()
             createdAt: "2026-08-24T07:00:00.000Z",
             author: { username: "openai", name: "OpenAI" },
           },
+          { id: "not-a-tweet-id", text: "Malformed but returned" },
         ],
         has_next_page: false,
         next_cursor: "",
@@ -153,6 +211,9 @@ test("handleSearch maps Xquik tweets into the unified search response", async ()
     assert.equal(result.data?.results[0].url, "https://x.com/openai/status/1912345678901234567");
     assert.equal(result.data?.results[0].snippet, "Agents SDK update");
     assert.equal(result.data?.results[0].metadata?.source_type, "x");
+    assert.equal(result.data?.results.length, 1);
+    assert.equal(result.data?.usage.search_cost_usd, 0);
+    assert.equal(result.data?.usage.provider_credits_used, 2);
   } finally {
     globalThis.fetch = originalFetch;
   }

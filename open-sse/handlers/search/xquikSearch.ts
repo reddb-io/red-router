@@ -57,7 +57,7 @@ const XquikTweetSchema = z
 
 const XquikSearchEnvelopeSchema = z
   .object({
-    tweets: z.array(z.unknown()).default([]),
+    tweets: z.array(z.unknown()),
   })
   .passthrough();
 
@@ -134,12 +134,20 @@ export function extractXquikSearchHits(data: unknown, maxResults: number): Xquik
   return hits;
 }
 
+/** Credits apply to returned posts, including rows omitted by our normalizer. */
+export function countXquikReturnedPosts(data: unknown): number | null {
+  const envelope = XquikSearchEnvelopeSchema.safeParse(data);
+  return envelope.success ? envelope.data.tweets.length : null;
+}
+
 export function normalizeXquikSearchResponse(
   data: unknown,
   makeResult: MakeResult
 ): { results: SearchResult[]; totalResults: number } {
   const now = new Date().toISOString();
-  const results = extractXquikSearchHits(data, 20).map((hit, index) =>
+  // The public search schema and Xquik both allow 100. The caller-specific
+  // limit is applied by searchProxy after normalization.
+  const results = extractXquikSearchHits(data, 100).map((hit, index) =>
     makeResult(
       XQUIK_SEARCH_PROVIDER_ID,
       {

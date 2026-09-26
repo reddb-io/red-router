@@ -19,10 +19,20 @@ import {
 } from "@omniroute/open-sse/config/imageRegistry";
 import { aiHordeImageCatalog } from "@omniroute/open-sse/services/aihordeImageCatalog";
 import { getAllRerankModels } from "@omniroute/open-sse/config/rerankRegistry";
+import { getAllSystemOneModels } from "@omniroute/open-sse/config/systemOneRegistry";
+import { getModelEndpointDecision } from "@omniroute/open-sse/services/modelEndpointPolicy";
 import { getAllAudioModels } from "@omniroute/open-sse/config/audioRegistry";
 import { getAllModerationModels } from "@omniroute/open-sse/config/moderationRegistry";
 import { getAllVideoModels } from "@omniroute/open-sse/config/videoRegistry";
 import { getAllMusicModels } from "@omniroute/open-sse/config/musicRegistry";
+import {
+  SEARCH_PROVIDERS,
+  getSearchCredentialFallbacks,
+} from "@omniroute/open-sse/config/searchRegistry";
+import {
+  ANONYMOUS_CAPABLE_WEB_FETCH_PROVIDERS,
+  WEB_FETCH_PROVIDERS,
+} from "@omniroute/open-sse/handlers/webFetch";
 import {
   getRegistryModelThinkingEfforts,
   getRegistryThinkingEfforts,
@@ -88,6 +98,7 @@ import {
   isNoAuthProviderBlocked,
   isNoAuthProviderKey,
   isNoAuthRawProviderPrefix,
+  isProviderBlockedByIdOrAlias,
   normalizeBlockedProviderSet,
 } from "@/shared/utils/noAuthProviders";
 import { getSourcedTokenLimit, getTokenLimit } from "@omniroute/open-sse/services/contextManager";
@@ -138,6 +149,7 @@ import { isModelExposureAllowed } from "@/shared/utils/modelExposureList";
 import { isModelDisabledGlobally } from "@/shared/utils/disabledModelsList";
 import { isCodexDiscoveryModelExcluded } from "@/shared/services/codexDiscoveryPolicy";
 import { buildErrorBody } from "@omniroute/open-sse/utils/error";
+import { buildVirtualWebCatalogModels, hasConfiguredSearchUrl } from "./catalogVirtualWebModels";
 
 // Public API of this module is preserved after the catalog helper extraction:
 // `isVisionModelId` (vision-detection-consistency.test.ts) and
@@ -1387,6 +1399,9 @@ async function buildUnifiedModelsResponseCore(
         const openRouterCaps: Record<string, ModelCapabilityEntry> = {};
         for (const openRouterModel of openRouterCatalog.data || []) {
           if (!openRouterModel?.id || typeof openRouterModel.id !== "string") continue;
+          if (getModelEndpointDecision("openrouter", openRouterModel.id).kind === "systemone") {
+            continue;
+          }
           const qualifiedId = qualifyOpenRouterModelId(openRouterModel.id);
           if (models.some((existingModel: any) => existingModel?.id === qualifiedId)) continue;
 
@@ -1594,6 +1609,23 @@ async function buildUnifiedModelsResponseCore(
       });
     }
 
+    // System One models use a typed decisions endpoint, never chat translation.
+    for (const decisionModel of getAllSystemOneModels()) {
+      if (!isProviderActive(decisionModel.provider)) continue;
+      if (!providerSupportsModel(decisionModel.provider, decisionModel.model)) continue;
+      if (isModelHiddenBulk(decisionModel.provider, decisionModel.model, null, "systemone"))
+        continue;
+      models.push({
+        id: decisionModel.id,
+        object: "model",
+        created: timestamp,
+        owned_by: decisionModel.provider,
+        root: decisionModel.model,
+        name: decisionModel.name,
+        type: "systemone",
+      });
+    }
+
     // Add audio models (filtered by active providers)
     for (const audioModel of getAllAudioModels()) {
       if (!isProviderActive(audioModel.provider)) continue;
@@ -1660,6 +1692,41 @@ async function buildUnifiedModelsResponseCore(
         type: "music",
       });
     }
+
+    // Search/fetch providers are callable endpoint capabilities, not chat models.
+    // Their virtual IDs match 9router's discovery shape but retain this catalog's
+    // auth, hidden-model, exposure and per-key filters. Never advertise a paid
+    // provider solely because its static card exists.
+    models.push(
+      ...buildVirtualWebCatalogModels({
+        timestamp,
+        searchProviders: Object.values(SEARCH_PROVIDERS),
+        fetchProviderIds: WEB_FETCH_PROVIDERS,
+        isEligible: (providerId, modelId, kind) => {
+          if (isProviderBlockedByIdOrAlias(providerId, blockedProviders)) return false;
+          if (isModelHiddenBulk(providerId, modelId, null, kind)) return false;
+          if (isModelHiddenBulk(providerId, modelId)) return false;
+          if (shouldHideByExposure(providerId, modelId)) return false;
+
+          if (kind === "webSearch") {
+            const search = SEARCH_PROVIDERS[providerId];
+            if (!search) return false;
+            if (!hasConfiguredSearchUrl(search, getConnectionsForProvider(providerId)))
+              return false;
+            if (search.authType === "none") return true;
+            const credentialProviders = [providerId, ...getSearchCredentialFallbacks(providerId)];
+            return credentialProviders.some(
+              (credentialProvider) =>
+                isProviderActive(credentialProvider) &&
+                providerSupportsModel(credentialProvider, modelId)
+            );
+          }
+
+          if (ANONYMOUS_CAPABLE_WEB_FETCH_PROVIDERS.has(providerId)) return true;
+          return isProviderActive(providerId) && providerSupportsModel(providerId, modelId);
+        },
+      })
+    );
 
     // Add custom models (user-defined)
     try {

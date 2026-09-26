@@ -102,6 +102,19 @@ test("resolveModelOrError rejects unknown built-in auto catalog ids", async () =
   assert.match(json.error.message, /Unknown built-in auto combo/i);
 });
 
+test("resolveModelOrError rejects a System One model on chat before upstream dispatch", async () => {
+  await seedConnection("openrouter", { defaultModel: "auto" });
+  const result = await resolveModelOrError(
+    "openrouter/typesafe/jev-1.13",
+    { messages: [{ role: "user", content: "hello" }] },
+    "/v1/chat/completions"
+  );
+  assert.ok(result.error);
+  assert.equal(result.error.status, 400);
+  const json = (await result.error.json()) as ApiErrorJson;
+  assert.match(json.error.message, /\/v1\/systemone/);
+});
+
 test("resolveModelOrError preserves persisted fuzzy auto combos before virtual catalog ids", async () => {
   await combosDb.createCombo({
     id: "persisted-auto-best-legacy",

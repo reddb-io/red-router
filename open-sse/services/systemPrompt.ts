@@ -207,7 +207,10 @@ function markInjected(body: Record<string, unknown>): void {
  * @param {object} [opts] - `{ targetFormat }` from the resolved wire target
  * @returns {object} Modified body
  */
-export function injectSystemPromptPostTranslation(body, opts?: { targetFormat?: string }) {
+export function injectSystemPromptPostTranslation(
+  body: Record<string, unknown>,
+  opts?: { targetFormat?: string }
+) {
   const cfg = getConfig();
   if (!cfg.enabled) return body;
   const prefix = cfg.prefixPrompt || "";
@@ -230,7 +233,9 @@ export function injectSystemPromptPostTranslation(body, opts?: { targetFormat?: 
   if (targetFormat === "claude" || result.system !== undefined) {
     const hasSystemRole =
       Array.isArray(result.messages) &&
-      result.messages.some((m) => m && (m.role === "system" || m.role === "developer"));
+      result.messages.some(
+        (m: { role?: unknown } | null) => m && (m.role === "system" || m.role === "developer")
+      );
     if (!hasSystemRole) {
       if (typeof result.system === "string") {
         let sys = result.system;
@@ -296,17 +301,18 @@ export function injectSystemPromptPostTranslation(body, opts?: { targetFormat?: 
 
   if (!result.messages || !Array.isArray(result.messages)) return result;
 
-  result.messages = [...result.messages];
+  const messages = [...result.messages] as Array<Record<string, unknown>>;
+  result.messages = messages;
   const indices: number[] = [];
-  for (let i = 0; i < result.messages.length; i++) {
-    const m = result.messages[i] as { role?: string };
+  for (let i = 0; i < messages.length; i++) {
+    const m = messages[i] as { role?: string };
     if (m && (m.role === "system" || m.role === "developer")) indices.push(i);
   }
 
   if (indices.length === 0) {
     // No system message — combine both into one at the front (same as injectSystemPrompt).
     if (combined) {
-      result.messages = [{ role: "system", content: combined }, ...result.messages];
+      result.messages = [{ role: "system", content: combined }, ...messages];
     }
     markInjected(result);
     return result;
@@ -314,15 +320,15 @@ export function injectSystemPromptPostTranslation(body, opts?: { targetFormat?: 
 
   if (prefix) {
     const firstIdx = indices[0];
-    result.messages[firstIdx] = { ...result.messages[firstIdx] };
-    prependToContent(result.messages[firstIdx] as Record<string, unknown>, prefix);
+    messages[firstIdx] = { ...messages[firstIdx] };
+    prependToContent(messages[firstIdx], prefix);
   }
   if (suffix) {
     const lastIdx = indices[indices.length - 1];
     if (lastIdx !== indices[0]) {
-      result.messages[lastIdx] = { ...result.messages[lastIdx] };
+      messages[lastIdx] = { ...messages[lastIdx] };
     }
-    appendToContent(result.messages[lastIdx] as Record<string, unknown>, suffix);
+    appendToContent(messages[lastIdx], suffix);
   }
   markInjected(result);
   return result;
@@ -358,7 +364,10 @@ export function injectSystemPromptPostTranslation(body, opts?: { targetFormat?: 
  * @param {object} [opts] - `{ targetFormat }` of the resolved wire target
  * @returns {object} Modified body (or the original when gated out)
  */
-export function injectSystemPromptPreTranslation(body, opts?: { targetFormat?: string }) {
+export function injectSystemPromptPreTranslation(
+  body: Record<string, unknown>,
+  opts?: { targetFormat?: string }
+) {
   const cfg = getConfig();
   if (!cfg.enabled) return body;
   const prefix = cfg.prefixPrompt || "";
@@ -429,17 +438,18 @@ export function injectSystemPromptPreTranslation(body, opts?: { targetFormat?: s
 
   // OpenAI-style client body: write into the system/developer message only.
   if (Array.isArray(result.messages)) {
-    result.messages = [...result.messages];
-    const sysIdx = result.messages.findIndex(
-      (m) => m && (m.role === "system" || m.role === "developer")
+    const messages = [...result.messages] as Array<Record<string, unknown>>;
+    result.messages = messages;
+    const sysIdx = messages.findIndex(
+      (m: { role?: unknown } | null) => m && (m.role === "system" || m.role === "developer")
     );
     if (sysIdx >= 0) {
-      result.messages[sysIdx] = { ...result.messages[sysIdx] };
-      if (prefix) prependToContent(result.messages[sysIdx] as Record<string, unknown>, prefix);
-      if (suffix) appendToContent(result.messages[sysIdx] as Record<string, unknown>, suffix);
+      messages[sysIdx] = { ...messages[sysIdx] };
+      if (prefix) prependToContent(messages[sysIdx], prefix);
+      if (suffix) appendToContent(messages[sysIdx], suffix);
     } else {
       if (combined) {
-        result.messages = [{ role: "system", content: combined }, ...result.messages];
+        result.messages = [{ role: "system", content: combined }, ...messages];
       }
     }
     markInjected(result);

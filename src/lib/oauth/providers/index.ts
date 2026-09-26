@@ -15,6 +15,7 @@ import { codex } from "./codex";
 import { antigravity } from "./antigravity";
 import { agy } from "./agy";
 import { qoder } from "./qoder";
+import { qoderCn } from "./qoder-cn";
 import { kimiCoding } from "./kimi-coding";
 import { github } from "./github";
 import { gheCopilot } from "./ghe-copilot";
@@ -25,6 +26,7 @@ import { trae } from "./trae";
 import { kilocode } from "./kilocode";
 import { cline } from "./cline";
 import { devinDesktop } from "./devin-desktop";
+import { windsurf } from "./windsurf";
 import { grokCli } from "./grok-cli";
 import { xaiOauth } from "./xai-oauth";
 import { openference } from "./openference";
@@ -39,6 +41,7 @@ export const PROVIDERS = {
   antigravity,
   agy,
   qoder,
+  "qoder-cn": qoderCn,
   "kimi-coding": kimiCoding,
   github,
   "ghe-copilot": gheCopilot,
@@ -54,6 +57,7 @@ export const PROVIDERS = {
   // subscription) models. See registry/clinepass/index.ts.
   clinepass: cline,
   "devin-desktop": devinDesktop,
+  windsurf,
   // Devin CLI shares the same imported token format and upstream credential contract.
   "devin-cli": devinDesktop,
   // grok-cli carries BOTH the browser PKCE flow and the paste-token import flow

@@ -298,6 +298,17 @@ export const OAUTH_TEST_CONFIG: Record<string, OAuthTestConfigEntry> = {
     checkExpiry: true,
     refreshable: false,
   },
+  windsurf: {
+    // RegisterUser already exchanged the Firebase JWT for a long-lived Codeium
+    // API key. There is no refresh token; chat traffic verifies live access.
+    checkExpiry: true,
+    refreshable: false,
+  },
+  "qoder-cn": {
+    // The route probes the signed, account-specific CN model catalog directly.
+    // Device tokens cannot be refreshed; expiry requires re-login.
+    refreshable: false,
+  },
   "grok-cli": {
     // #7610: was entirely absent from OAUTH_TEST_CONFIG, so "Test Connection"
     // always fell through to the generic "Provider test not supported" branch

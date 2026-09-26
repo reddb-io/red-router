@@ -45,6 +45,7 @@ import { sanitizeErrorMessage } from "@omniroute/open-sse/utils/error";
 import { GITLAB_DUO_OAUTH_SETUP_MESSAGE } from "@/shared/constants/gitlabDuoSetupMessage";
 import { keychainImportOnlyGuard } from "./keychainImportOnly";
 import { buildRemoteOAuthHint } from "./remoteOAuthHint";
+import { deviceCodeResponseWithVerifier, qoderCnPollData } from "@/lib/oauth/qoderCnDeviceFlow";
 
 // Persist one callback server per provider across Next.js HMR reloads.
 if (!globalThis.__pkceCallbackStates) {
@@ -52,7 +53,13 @@ if (!globalThis.__pkceCallbackStates) {
 }
 
 /** Providers that use the PKCE browser callback flow (like Codex). */
-const PKCE_CALLBACK_PROVIDERS = new Set(["codex", "xai-oauth", "grok-cli", "openference"]);
+const PKCE_CALLBACK_PROVIDERS = new Set([
+  "codex",
+  "xai-oauth",
+  "grok-cli",
+  "openference",
+  "windsurf",
+]);
 
 /**
  * Providers whose device flow runs in the user's browser (auth.openai.com blocks
@@ -263,10 +270,9 @@ export async function GET(
         );
       }
 
-      return NextResponse.json({
-        ...deviceData,
-        codeVerifier: authData.codeVerifier,
-      });
+      return NextResponse.json(
+        deviceCodeResponseWithVerifier(provider, deviceData, authData.codeVerifier)
+      );
     }
 
     if (action === "start-callback-server") {
@@ -302,7 +308,7 @@ export async function GET(
  */
 async function handleStartCallbackServer(
   provider: string,
-  searchParams: URLSearchParams,
+  _searchParams: URLSearchParams,
   request?: Request
 ) {
   if (!PKCE_CALLBACK_PROVIDERS.has(provider)) {
@@ -318,7 +324,7 @@ async function handleStartCallbackServer(
   if (callbackStates[provider]?.close) {
     try {
       callbackStates[provider].close();
-    } catch (e) {
+    } catch {
       /* ignore */
     }
   }
@@ -329,11 +335,22 @@ async function handleStartCallbackServer(
     const serverPort = providerData.fixedPort || 0;
     const callbackPath = providerData.callbackPath || "/callback";
     const callbackHost = providerData.callbackHost || "localhost";
-    const { port, close } = await startLocalServer((params) => {
-      if (callbackStates[provider]) {
-        callbackStates[provider].callbackParams = params;
-      }
-    }, serverPort);
+    const { port, close } = await startLocalServer(
+      (params) => {
+        if (callbackStates[provider]) {
+          if (provider === "windsurf" && !safeEqual(params.state, callbackStates[provider].state)) {
+            callbackStates[provider].callbackParams = {
+              error: "invalid_state",
+              error_description: "OAuth state mismatch",
+            };
+            return;
+          }
+          callbackStates[provider].callbackParams = params;
+        }
+      },
+      serverPort,
+      provider === "windsurf" ? { callbackPath, listenHost: "127.0.0.1" } : {}
+    );
 
     const redirectUri = `http://${callbackHost}:${port}${callbackPath}`;
     const authData = generateAuthData(provider, redirectUri);
@@ -354,7 +371,7 @@ async function handleStartCallbackServer(
       if (callbackStates[provider]?.startedAt === startedAt) {
         try {
           close();
-        } catch (e) {
+        } catch {
           /* ignore */
         }
         delete callbackStates[provider];
@@ -612,8 +629,14 @@ export async function POST(
         if (!codeVerifier) {
           return NextResponse.json({ error: "Missing code verifier" }, { status: 400 });
         }
+        let pollExtraData: unknown;
+        try {
+          pollExtraData = qoderCnPollData(provider, extraData);
+        } catch {
+          return NextResponse.json({ error: "Invalid Qoder CN device flow data" }, { status: 400 });
+        }
         result = await runWithProxyContextOrDirect(proxy, () =>
-          (pollForToken as any)(provider, deviceCode, codeVerifier)
+          (pollForToken as any)(provider, deviceCode, codeVerifier, pollExtraData)
         );
       }
 
@@ -713,7 +736,7 @@ export async function POST(
       // Clean up server
       try {
         close();
-      } catch (e) {
+      } catch {
         /* ignore */
       }
       delete callbackStates[provider];
@@ -726,11 +749,15 @@ export async function POST(
         });
       }
 
-      if (!params.code) {
+      const callbackCode = provider === "windsurf" ? params.access_token : params.code;
+      if (!callbackCode) {
         return NextResponse.json({
           success: false,
-          error: "no_code",
-          errorDescription: "No authorization code received",
+          error: provider === "windsurf" ? "no_token" : "no_code",
+          errorDescription:
+            provider === "windsurf"
+              ? "No Windsurf access token received"
+              : "No authorization code received",
         });
       }
 
@@ -748,7 +775,7 @@ export async function POST(
 
         // Exchange code for tokens (through proxy if configured)
         const tokenData = await runWithProxyContextOrDirect(proxy, () =>
-          exchangeTokens(provider, params.code, redirectUri, codeVerifier, params.state)
+          exchangeTokens(provider, callbackCode, redirectUri, codeVerifier, params.state)
         );
 
         // #11284: when Cloud Code projectId discovery failed at connect time,

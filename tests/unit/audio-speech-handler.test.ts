@@ -155,10 +155,7 @@ test("handleAudioSpeech maps OpenAI stock voice name alloy to a real ElevenLabs 
     });
 
     assert.equal(response.status, 200);
-    assert.equal(
-      capturedUrl,
-      "https://api.elevenlabs.io/v1/text-to-speech/21m00Tcm4TlvDq8ikWAM"
-    );
+    assert.equal(capturedUrl, "https://api.elevenlabs.io/v1/text-to-speech/21m00Tcm4TlvDq8ikWAM");
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -187,10 +184,7 @@ test("handleAudioSpeech resolves ElevenLabs display name 'rachel' case-insensiti
     });
 
     assert.equal(response.status, 200);
-    assert.equal(
-      capturedUrl,
-      "https://api.elevenlabs.io/v1/text-to-speech/21m00Tcm4TlvDq8ikWAM"
-    );
+    assert.equal(capturedUrl, "https://api.elevenlabs.io/v1/text-to-speech/21m00Tcm4TlvDq8ikWAM");
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -218,10 +212,7 @@ test("handleAudioSpeech defaults to Rachel's voice_id when voice is omitted", as
     });
 
     assert.equal(response.status, 200);
-    assert.equal(
-      capturedUrl,
-      "https://api.elevenlabs.io/v1/text-to-speech/21m00Tcm4TlvDq8ikWAM"
-    );
+    assert.equal(capturedUrl, "https://api.elevenlabs.io/v1/text-to-speech/21m00Tcm4TlvDq8ikWAM");
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -438,6 +429,50 @@ test("handleAudioSpeech maps Xiaomi MiMo TTS to chat completions audio payload",
     assert.equal(response.status, 200);
     assert.equal(response.headers.get("content-type"), "audio/wav");
     assert.deepEqual(Array.from(new Uint8Array(await response.arrayBuffer())), [1, 2, 3]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("handleAudioSpeech routes Token Plan TTS to its connection's cluster", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls: Array<{ url: string; auth: string; model: string }> = [];
+  globalThis.fetch = async (url, options = {}) => {
+    const headers = options.headers as Record<string, string>;
+    const body = JSON.parse(String(options.body || "{}"));
+    calls.push({ url: String(url), auth: headers.Authorization, model: body.model });
+    return new Response(JSON.stringify({ choices: [{ message: { audio: { data: "AQID" } } }] }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+
+  try {
+    for (const [region, host] of [
+      ["cn", "token-plan-cn"],
+      ["sgp", "token-plan-sgp"],
+      ["ams", "token-plan-ams"],
+    ]) {
+      const response = await handleAudioSpeech({
+        body: { model: "xiaomi-mimo-token-plan/mimo-v2.5-tts", input: "hello" },
+        credentials: { apiKey: "tp-example", providerSpecificData: { region } },
+      });
+      assert.equal(response.status, 200);
+      assert.equal(calls.at(-1)?.url, `https://${host}.xiaomimimo.com/v1/chat/completions`);
+      assert.equal(calls.at(-1)?.auth, "Bearer tp-example");
+      assert.equal(calls.at(-1)?.model, "mimo-v2.5-tts");
+    }
+
+    const custom = await handleAudioSpeech({
+      body: { model: "xiaomi-mimo-token-plan/mimo-v2-tts", input: "hello" },
+      credentials: {
+        apiKey: "tp-example",
+        providerSpecificData: { region: "cn", baseUrl: "https://proxy.example/v1" },
+      },
+    });
+    assert.equal(custom.status, 200);
+    assert.equal(calls.at(-1)?.url, "https://proxy.example/v1/chat/completions");
+    assert.equal(calls.at(-1)?.model, "mimo-v2-tts");
   } finally {
     globalThis.fetch = originalFetch;
   }

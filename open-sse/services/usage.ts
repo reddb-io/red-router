@@ -60,6 +60,7 @@ import { getGitHubUsage, formatGitHubQuotaSnapshot, inferGitHubPlanName } from "
 import { getCrofUsage } from "./usage/crof.ts";
 import { getNanoGptUsage } from "./usage/nanogpt.ts";
 import { getQoderUsage, parseQoderUserStatusUsage } from "./usage/qoder.ts";
+import { getQoderCnUsage } from "./qoderCnQuota.ts";
 // Re-exported para o teste qoder-usage-quota (importa parseQoderUserStatusUsage de services/usage).
 export { parseQoderUserStatusUsage } from "./usage/qoder.ts";
 import { getOpencodeUsage } from "./usage/opencode.ts";
@@ -70,6 +71,7 @@ import {
   isMoonshotOpenPlatformConnection,
 } from "./usage/moonshotOpenPlatform.ts";
 import { getDevinCliUsage } from "./usage/devinCli.ts";
+import { getWindsurfUsage } from "./usage/windsurf.ts";
 import { getBailianCodingPlanUsage } from "./usage/bailian.ts";
 import { getVertexUsage } from "./usage/vertex.ts";
 import { getXiaomiMimoUsage } from "./usage/xiaomi-mimo.ts";
@@ -169,6 +171,8 @@ export async function getUsageForProvider(
       // Qoder PATs live in `apiKey` (decrypted) or `providerSpecificData.qoderPat`,
       // never in `accessToken`.
       return await getQoderUsage(apiKey, providerSpecificData);
+    case "qoder-cn":
+      return await getQoderCnUsage(apiKey || accessToken || "");
     case "glm":
     case "glm-cn":
     case "zai":
@@ -249,6 +253,8 @@ export async function getUsageForProvider(
     case "devin-cli":
       // Devin CLI tokens live in `accessToken` (oauth import) or `apiKey`.
       return await getDevinCliUsage(apiKey || accessToken);
+    case "windsurf":
+      return await getWindsurfUsage(apiKey || accessToken);
     default:
       return { message: `Usage API not implemented for ${provider}` };
   }

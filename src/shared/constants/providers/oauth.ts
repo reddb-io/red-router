@@ -5,6 +5,19 @@
 import { GITLAB_DUO_OAUTH_SETUP_MESSAGE } from "@/shared/constants/gitlabDuoSetupMessage";
 
 export const OAUTH_PROVIDERS = {
+  windsurf: {
+    id: "windsurf",
+    serviceKinds: ["llm"],
+    alias: "ws",
+    name: "Windsurf",
+    icon: "surfing",
+    color: "#14B8A6",
+    website: "https://windsurf.com",
+    subscriptionRisk: true,
+    riskNoticeVariant: "oauth",
+    authHint:
+      "Sign in with Windsurf or paste a sk-ws-* API key. Browser sign-in exchanges a Firebase token for a Codeium key; neither uses Devin Desktop credentials.",
+  },
   "ghe-copilot": {
     id: "ghe-copilot",
     serviceKinds: ["llm"],
@@ -71,6 +84,19 @@ export const OAUTH_PROVIDERS = {
     subscriptionRisk: true,
     riskNoticeVariant: "oauth",
     hasFree: true,
+  },
+  "qoder-cn": {
+    id: "qoder-cn",
+    serviceKinds: ["llm"],
+    alias: "qdcn",
+    name: "Qoder CN",
+    icon: "water_drop",
+    color: "#EC4899",
+    website: "https://qoder.com.cn",
+    subscriptionRisk: true,
+    riskNoticeVariant: "oauth",
+    authHint:
+      "Sign in with a Qoder China device code or use a pt-* Personal Access Token from qoder.com.cn. Global Qoder credentials are not interchangeable.",
   },
   agy: {
     id: "agy",

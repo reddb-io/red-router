@@ -66,6 +66,14 @@ test("resolvePublicCred('muse_id') returns the public Meta Muse CLI numeric clie
   assert.ok(v.length >= 12);
 });
 
+test("resolvePublicCred('edge_tts_id') returns the public Bing voice catalog identifier", () => {
+  assert.match(resolvePublicCred("edge_tts_id"), /^[A-F0-9]{32}$/);
+});
+
+test("resolvePublicCred('windsurf_id') returns the public browser client identifier", () => {
+  assert.match(resolvePublicCred("windsurf_id"), /^[A-Za-z0-9]{32}$/);
+});
+
 test("encode/decode roundtrip is stable across arbitrary plaintexts", () => {
   for (const sample of [
     "hello world",

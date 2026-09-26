@@ -29,6 +29,12 @@ test("devin-desktop connection test is import-only and not refreshable (#8228)",
   assert.equal(config.refreshable, false);
 });
 
+test("Windsurf OAuth stores a long-lived Codeium key without a refresh token", () => {
+  const config = (OAUTH_TEST_CONFIG as Record<string, { refreshable?: boolean }>).windsurf;
+  assert.ok(config);
+  assert.equal(config.refreshable, false);
+});
+
 test("#8408: every OAuth provider ID has an OAUTH_TEST_CONFIG entry (or is grandfathered)", () => {
   const providerIds = Object.keys(OAUTH_PROVIDERS);
   const testConfigKeys = new Set(Object.keys(OAUTH_TEST_CONFIG));

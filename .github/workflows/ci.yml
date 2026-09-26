@@ -979,6 +979,23 @@ jobs:
         run: npm install -g bun
       - run: npm run test:bun:db
 
+  test-local-device-windows:
+    name: Windows Local Device TTS Contract
+    runs-on: windows-latest
+    timeout-minutes: 10
+    needs: changes
+    if: ${{ github.event_name != 'pull_request' || (needs.changes.outputs.code == 'true' && github.event.pull_request.draft == false) }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.CI_NODE_VERSION }}
+          cache: npm
+      - uses: ./.github/actions/npm-ci-retry
+      - run: node --import tsx/esm --test tests/unit/local-device-tts-windows.test.ts
+
   test-vitest:
     name: Vitest (MCP / autoCombo / UI components)
     # Same dynamic-runner rule as Build (own-origin only; fallback ubuntu-latest).
@@ -1481,6 +1498,9 @@ jobs:
       - package-artifact
       - electron-package-smoke
       - test-unit
+      - test-bun-sqlite
+      - test-local-device-windows
+      - test-vitest
       - test-coverage
       - sonarqube
       - coverage-pr-comment
@@ -1564,6 +1584,9 @@ jobs:
           echo "| Suite | Status |" >> "$GITHUB_STEP_SUMMARY"
           echo "|-------|--------|" >> "$GITHUB_STEP_SUMMARY"
           echo "| Unit | $(status '${{ needs.test-unit.result }}') |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Bun SQLite | $(status '${{ needs.test-bun-sqlite.result }}') |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Windows Local Device TTS | $(status '${{ needs.test-local-device-windows.result }}') |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Vitest (MCP / autoCombo / UI) | $(status '${{ needs.test-vitest.result }}') |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Coverage | $(status '${{ needs.test-coverage.result }}') |" >> "$GITHUB_STEP_SUMMARY"
           echo "| PR Coverage Comment | $(status '${{ needs.coverage-pr-comment.result }}') |" >> "$GITHUB_STEP_SUMMARY"
           echo "| E2E | $(status '${{ needs.test-e2e.result }}') |" >> "$GITHUB_STEP_SUMMARY"
