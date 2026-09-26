@@ -13,6 +13,7 @@ import { CORS_HEADERS } from "@/shared/utils/cors";
 import { getVideoProvider } from "@omniroute/open-sse/config/videoRegistry.ts";
 import { buildErrorBody, errorResponse } from "@omniroute/open-sse/utils/error.ts";
 import { getProviderConnectionById } from "@/lib/db/providers";
+import { isConnectionUnavailableToAuxiliaryActivity } from "@/lib/exclusiveLeaseIsolation";
 import {
   getVideoJob,
   getVideoJobByIdempotency,
@@ -223,6 +224,9 @@ export async function createXaiAsyncVideo(
   if (pinnedConnectionId && credentials.connectionId !== pinnedConnectionId) {
     return failed(503, "Pinned xAI video connection is unavailable");
   }
+  if (await isConnectionUnavailableToAuxiliaryActivity(credentials.connectionId)) {
+    return failed(409, "xAI video connection is leased");
+  }
 
   const reservation = reserveVideoJob({
     owner: requestOwner,
@@ -315,6 +319,9 @@ export async function getXaiAsyncVideo(request: Request, id: string): Promise<Re
   const connection = await getProviderConnectionById(job.connectionId);
   if (!connection || connection.provider !== job.provider || connection.isActive === false) {
     return failed(503, "Creating video connection is unavailable");
+  }
+  if (await isConnectionUnavailableToAuxiliaryActivity(job.connectionId)) {
+    return failed(409, "xAI video connection is leased");
   }
   const token = connection.apiKey || connection.accessToken;
   if (!token) return failed(503, "Creating video connection is unavailable");

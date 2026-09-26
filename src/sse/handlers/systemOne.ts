@@ -10,6 +10,7 @@ import { enforceApiKeyPolicy } from "@/shared/utils/apiKeyPolicy";
 import { isRequireApiKeyEnabled } from "@/shared/utils/featureFlags";
 import { resolveProxyForConnection } from "@/lib/db/settings";
 import { hasBlockingProxyAssignment } from "@/lib/db/proxies";
+import { isConnectionUnavailableToAuxiliaryActivity } from "@/lib/exclusiveLeaseIsolation";
 import {
   extractApiKey,
   getProviderCredentialsWithQuotaPreflight,
@@ -126,6 +127,11 @@ export async function handleSystemOne(request: Request): Promise<Response> {
       const anonymousOpenCode = target.provider === "opencode" && credentials.authType === "none";
       if (!token && !anonymousOpenCode) break;
       if (requestedConnectionId && requestedConnectionId !== credentials.connectionId) break;
+      if (await isConnectionUnavailableToAuxiliaryActivity(credentials.connectionId)) {
+        if (requestedConnectionId) return errorResponse(409, "System One connection is leased");
+        excluded.push(credentials.connectionId);
+        continue;
+      }
 
       let proxyInfo: Awaited<ReturnType<typeof resolveProxyForConnection>>;
       try {

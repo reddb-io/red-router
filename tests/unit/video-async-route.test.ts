@@ -12,6 +12,7 @@ const originalFetch = globalThis.fetch;
 
 const providers = await import("../../src/lib/db/providers.ts");
 const jobs = await import("../../src/lib/db/videoJobs.ts");
+const leases = await import("../../src/lib/db/exclusiveConnectionLeases.ts");
 const asyncVideo = await import("../../src/app/api/v1/_shared/xaiAsyncVideo.ts");
 
 test.afterEach(() => {
@@ -222,6 +223,57 @@ test("extension cannot override the source video's connection", async () => {
     "extensions"
   );
   assert.equal(response.status, 409);
+});
+
+test("an exclusive lease prevents video submission and polling on its connection", async () => {
+  const connection = await providers.createProviderConnection({
+    provider: "xai",
+    authType: "apikey",
+    apiKey: "video-leased-test-key",
+  });
+  const reservation = jobs.reserveVideoJob({
+    owner: "anonymous-dashboard-or-open-api",
+    idempotencyKey: "video-leased-existing-job",
+    requestHash: "e".repeat(64),
+    action: "generations",
+    provider: "xai",
+    model: "grok-imagine-video",
+    connectionId: connection.id,
+  });
+  assert.equal(reservation.kind, "created");
+  assert.equal(jobs.markVideoJobSubmitted(reservation.job.id, "xai-leased-upstream"), true);
+  const acquired = leases.acquireExclusiveConnectionLease({
+    leaseOwnerId: "vlo_UUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUU",
+    apiKeyId: "managed-video-key",
+    provider: "xai",
+    connectionId: connection.id,
+  });
+  assert.equal(acquired.kind, "ACQUIRED");
+  let upstreamCalls = 0;
+  globalThis.fetch = (async () => {
+    upstreamCalls++;
+    throw new Error("leased video connection reached upstream");
+  }) as typeof fetch;
+
+  const submitted = await asyncVideo.createXaiAsyncVideo(
+    new Request("http://localhost/v1/videos/edits", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "idempotency-key": "video-leased-new-job",
+        "x-connection-id": connection.id,
+      },
+      body: JSON.stringify({ model: "xai/grok-imagine-video", prompt: "do not send" }),
+    }),
+    "edits"
+  );
+  assert.notEqual(submitted.status, 202);
+  const polled = await asyncVideo.getXaiAsyncVideo(
+    new Request(`http://localhost/v1/videos/${reservation.job.id}`),
+    reservation.job.id
+  );
+  assert.equal(polled.status, 409);
+  assert.equal(upstreamCalls, 0);
 });
 
 test("edit route forwards multipart bytes and boundary without re-encoding", async () => {

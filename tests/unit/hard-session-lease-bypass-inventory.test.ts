@@ -36,6 +36,10 @@ const EXPECTED: Record<InventoryKind, Record<string, number>> = {
     "src/app/api/search/providers/route.ts": 3,
     "src/app/api/v1/_shared/elevenLabsProxy.ts": 1,
     "src/app/api/v1/_shared/fishAudioProxy.ts": 1,
+    // New independent API and JEV paths select credentials outside chatCore.
+    // They must reject active exclusive leases before upstream I/O (class B).
+    "src/app/api/v1/_shared/xaiAsyncVideo.ts": 1,
+    "src/app/api/v1/audio/voices/route.ts": 1,
     "src/app/api/v1/audio/speech/route.ts": 1,
     "src/app/api/v1/_shared/videoModelResolution.ts": 1,
     "src/app/api/v1/audio/transcriptions/route.ts": 2,
@@ -72,8 +76,10 @@ const EXPECTED: Record<InventoryKind, Record<string, number>> = {
     "src/lib/search/executeWebSearch.ts": 2,
     "src/lib/skills/webFetchExecution.ts": 1,
     "src/sse/handlers/chat.ts": 2,
+    "src/sse/handlers/systemOne.ts": 1,
     "src/sse/services/auth.ts": 4,
     "src/sse/services/imageCredentialRetry.ts": 1,
+    "src/sse/services/jevRouting.ts": 1,
   },
   executor: {
     "open-sse/handlers/chatCore.ts": 3,
@@ -157,6 +163,8 @@ const EXPECTED: Record<InventoryKind, Record<string, number>> = {
     "src/app/api/usage/codex-reset-credit/route.ts": 1,
     "src/app/api/usage/quota/route.ts": 1,
     "src/app/api/usage/utilization/route.ts": 1,
+    // Polling an existing xAI job reads its original connection before HTTP I/O.
+    "src/app/api/v1/_shared/xaiAsyncVideo.ts": 1,
     "src/app/api/v1/vscode/[token]/api/tags/route.ts": 1,
     "src/app/api/v1/vscode/raw/[token]/api/tags/route.ts": 1,
     "src/app/api/v1beta/models/route.ts": 1,
@@ -254,6 +262,7 @@ const CLASSIFICATION: Record<InventoryKind, Record<string, BypassClass>> = {
         "open-sse/services/combo/providerWildcard.ts",
         "open-sse/services/tokenRefresh.ts",
         "src/app/api/translator/send/route.ts",
+        "src/app/api/v1/_shared/xaiAsyncVideo.ts",
         "src/lib/credentialHealth/scheduler.ts",
         "src/lib/providers/volcPlanAutoSyncBackfill.ts",
         "src/lib/providers/volcenginePlanBinding.ts",
@@ -363,6 +372,8 @@ test("managed request surfaces are fenced centrally or rejected before independe
   );
   const internalKeys = fs.readFileSync(path.join(REPO_ROOT, "src/lib/db/apiKeys.ts"), "utf8");
   const auxiliaryIsolationSources = [
+    "src/app/api/v1/_shared/xaiAsyncVideo.ts",
+    "src/app/api/v1/audio/voices/route.ts",
     "src/app/api/providers/[id]/models/route.ts",
     "src/app/api/translator/send/route.ts",
     "src/app/api/translator/translate/route.ts",
@@ -374,6 +385,8 @@ test("managed request surfaces are fenced centrally or rejected before independe
     "src/lib/vncSession/service.ts",
     "src/lib/warmupScheduler.ts",
     "src/shared/services/modelSyncScheduler.ts",
+    "src/sse/handlers/systemOne.ts",
+    "src/sse/services/jevRouting.ts",
   ].map((file) => fs.readFileSync(path.join(REPO_ROOT, file), "utf8"));
   const unfencedUsageRefreshSource = fs.readFileSync(
     path.join(REPO_ROOT, "src/lib/usage/providerLimits.ts"),

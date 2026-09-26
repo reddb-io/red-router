@@ -13,6 +13,7 @@ import { enforceClientApiRouteAuth } from "@/shared/utils/clientApiRouteAuth";
 import { CORS_HEADERS, handleCorsOptions } from "@/shared/utils/cors";
 import { errorResponse } from "@omniroute/open-sse/utils/error.ts";
 import { resolvePublicCred } from "@omniroute/open-sse/utils/publicCreds.ts";
+import { isConnectionUnavailableToAuxiliaryActivity } from "@/lib/exclusiveLeaseIsolation";
 import { normalizeVoices, type VoiceProvider } from "./voiceCatalog";
 
 const querySchema = z.object({
@@ -31,6 +32,7 @@ const URLS: Record<VoiceProvider, string> = {
 };
 
 type Credentials = {
+  connectionId?: string;
   apiKey?: string | null;
   accessToken?: string | null;
   allExpired?: boolean;
@@ -80,6 +82,12 @@ export async function GET(request: Request): Promise<Response> {
     token = credentials?.apiKey || credentials?.accessToken || "";
     if (!token || credentials?.allExpired) {
       return withCors(errorResponse(401, `No credentials for provider: ${provider}`));
+    }
+    if (
+      credentials?.connectionId &&
+      (await isConnectionUnavailableToAuxiliaryActivity(credentials.connectionId))
+    ) {
+      return withCors(errorResponse(409, "Voice discovery connection is leased"));
     }
   }
 

@@ -17,6 +17,7 @@ import { runWithProxyContext } from "@omniroute/open-sse/utils/proxyFetch.ts";
 import { resolveProxyForConnection } from "@/lib/db/settings";
 import { hasBlockingProxyAssignment } from "@/lib/db/proxies";
 import { getProviderCredentialsWithQuotaPreflight } from "@/sse/services/auth";
+import { isConnectionUnavailableToAuxiliaryActivity } from "@/lib/exclusiveLeaseIsolation";
 import { saveRequestUsage } from "@/lib/usage/usageHistory";
 
 type JevTier = (typeof JEV_TIERS)[number];
@@ -100,6 +101,7 @@ export async function classifyJevRoutingTier(
         target.model
       );
       if (!hasUsableDecisionConnection(credentials)) continue;
+      if (await isConnectionUnavailableToAuxiliaryActivity(credentials.connectionId)) continue;
       const token = credentials.apiKey || credentials.accessToken;
       const anonymousOpenCode = target.provider === "opencode" && credentials.authType === "none";
       if ((!token || typeof token !== "string") && !anonymousOpenCode) continue;
