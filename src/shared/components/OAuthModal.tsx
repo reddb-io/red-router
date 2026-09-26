@@ -32,7 +32,6 @@ import {
 export { formatDeviceCodeRemaining } from "./OAuthModalPanels";
 
 const GOOGLE_OAUTH_PROVIDERS = new Set(["antigravity", "agy"]);
-
 /** Providers that use a local callback server on a random port (PKCE browser flow). */
 const PKCE_CALLBACK_SERVER_PROVIDERS = new Set(["codex", "xai-oauth", "grok-cli", "windsurf"]);
 
@@ -946,7 +945,7 @@ export default function OAuthModal({
 
       if (provider === "windsurf") {
         const callback = parseWindsurfCallback(input, authData.redirectUri, authData.state);
-        if (!callback.ok && callback.reason === "state_mismatch") {
+        if (callback.ok === false && callback.reason === "state_mismatch") {
           throw new Error(t("errorStateMismatch"));
         }
         if (!callback.ok) throw new Error(t("errorNoAuthorizationCode"));

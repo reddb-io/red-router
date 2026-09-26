@@ -57,5 +57,6 @@ test("OAuthModal selects callback polling locally and safe manual parsing remote
   assert.match(source, /PKCE_CALLBACK_SERVER_PROVIDERS = new Set\(\[[\s\S]*?"windsurf"/);
   assert.match(source, /redirectUri = "http:\/\/127\.0\.0\.1:20128\/windsurf-auth-callback"/);
   assert.match(source, /parseWindsurfCallback\(input, authData\.redirectUri, authData\.state\)/);
+  assert.match(source, /callback\.ok === false && callback\.reason === "state_mismatch"/);
   assert.match(source, /await exchangeTokens\(callback\.token, callback\.state\)/);
 });
