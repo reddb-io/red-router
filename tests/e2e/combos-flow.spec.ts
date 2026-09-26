@@ -473,7 +473,8 @@ test.describe("Combos flow", () => {
       {
         kind: "model",
         providerId: "codex",
-        model: "codex/gpt-5.5",
+        // Preserve the routable alias typed by the operator; providerId stays canonical.
+        model: "cx/gpt-5.5",
         weight: 0,
       },
       {
