@@ -36,10 +36,10 @@ test("Windsurf OAuth stores a long-lived Codeium key without a refresh token", (
   assert.equal(config.refreshable, false);
 });
 
-test("CodeBuddy international direct key is not treated as refreshable OAuth", () => {
+test("CodeBuddy international device session has a refresh path", () => {
   const config = (OAUTH_TEST_CONFIG as Record<string, { refreshable?: boolean }>)["codebuddy-intl"];
   assert.ok(config);
-  assert.equal(config.refreshable, false);
+  assert.equal(config.refreshable, true);
 });
 
 test("Kimchi connection probe checks its bearer-key model catalog", () => {

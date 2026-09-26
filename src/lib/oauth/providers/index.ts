@@ -31,6 +31,7 @@ import { grokCli } from "./grok-cli";
 import { xaiOauth } from "./xai-oauth";
 import { openference } from "./openference";
 import { codebuddyCn } from "./codebuddy-cn";
+import { codebuddyIntl } from "./codebuddy-intl";
 import { zed } from "./zed";
 import { zedHosted } from "./zed-hosted";
 import { museCode } from "./muse-code";
@@ -66,6 +67,7 @@ export const PROVIDERS = {
   "xai-oauth": xaiOauth,
   openference,
   "codebuddy-cn": codebuddyCn,
+  "codebuddy-intl": codebuddyIntl,
   // Zed IDE credential bridge — uses keychain import, not standard OAuth
   zed,
   "zed-hosted": zedHosted,

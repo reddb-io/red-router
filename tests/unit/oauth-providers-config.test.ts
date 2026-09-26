@@ -28,6 +28,7 @@ const {
   CLINE_CONFIG,
   CODEX_CONFIG,
   CODEBUDDY_CN_CONFIG,
+  CODEBUDDY_INTL_CONFIG,
   DEVIN_DESKTOP_CONFIG,
   ZED_CONFIG,
   CURSOR_CONFIG,
@@ -78,6 +79,7 @@ const EXPECTED_PROVIDER_KEYS = [
   "xai-oauth",
   "openference",
   "codebuddy-cn",
+  "codebuddy-intl",
   "zed",
   "zed-hosted",
   "muse-code",
@@ -115,6 +117,7 @@ const EXPECTED_CONFIG_BY_PROVIDER = {
   "xai-oauth": XAI_OAUTH_CONFIG,
   openference: OPENFERENCE_CONFIG,
   "codebuddy-cn": CODEBUDDY_CN_CONFIG,
+  "codebuddy-intl": CODEBUDDY_INTL_CONFIG,
   zed: ZED_CONFIG,
   "zed-hosted": ZED_HOSTED_CONFIG,
   "muse-code": MUSE_CODE_CONFIG,
@@ -170,6 +173,7 @@ const REQUIRED_FIELDS_BY_PROVIDER = {
   // prettier-ignore
   "zed-hosted": ["webBaseUrl", "cloudBaseUrl", "llmBaseUrl", "userInfoUrl", "llmTokenUrl", "modelsUrl"],
   "muse-code": ["deviceCodeUrl", "tokenUrl", "clientId", "mintUrl"],
+  "codebuddy-intl": ["stateUrl", "tokenUrl", "refreshUrl", "platform", "userAgent"],
 };
 
 function getByPath(object, path) {

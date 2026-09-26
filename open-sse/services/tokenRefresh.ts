@@ -40,6 +40,7 @@ import {
   refreshWithRetry,
 } from "./tokenRefresh/circuitBreaker.ts";
 import { refreshCodebuddyCnToken } from "./tokenRefresh/providers/codebuddyCn.ts";
+import { refreshCodebuddyIntlToken } from "./tokenRefresh/providers/codebuddyIntl.ts";
 import { refreshClineToken } from "./tokenRefresh/providers/cline.ts";
 import { refreshKimiCodingToken } from "./tokenRefresh/providers/kimiCoding.ts";
 import { refreshMuseCodeToken } from "./tokenRefresh/providers/museCode.ts";
@@ -62,6 +63,7 @@ import { refreshCopilotToken } from "./tokenRefresh/providers/copilot.ts";
 
 export {
   refreshCodebuddyCnToken,
+  refreshCodebuddyIntlToken,
   refreshClineToken,
   refreshKimiCodingToken,
   refreshMuseCodeToken,
@@ -459,6 +461,9 @@ async function _getAccessTokenInternal(provider, credentials, log, proxyConfig: 
     case "codebuddy-cn":
       return await refreshCodebuddyCnToken(credentials.refreshToken, log, proxyConfig);
 
+    case "codebuddy-intl":
+      return await refreshCodebuddyIntlToken(credentials.refreshToken, log, proxyConfig);
+
     default:
       // Fallback to generic OAuth refresh for unknown providers
       return refreshAccessToken(provider, credentials.refreshToken, credentials, log, proxyConfig);
@@ -490,6 +495,7 @@ export function supportsTokenRefresh(provider) {
     // testStatus="expired" / errorCode="no_refresh_token".
     "gitlab-duo",
     "codebuddy-cn",
+    "codebuddy-intl",
     "cursor",
   ]);
   if (explicitlySupported.has(provider)) return true;
@@ -602,12 +608,7 @@ export async function getAccessToken(
   // the legacy `connectionId`-less path would silently swallow the callback,
   // leaving DB rows out of sync with rotated tokens (Codex/OpenAI). We still
   // resolve the promise to all waiters with the refreshed credentials.
-  const refreshPromise = _getAccessTokenWithStalenessCheck(
-    provider,
-    credentials,
-    log,
-    proxyConfig
-  )
+  const refreshPromise = _getAccessTokenWithStalenessCheck(provider, credentials, log, proxyConfig)
     .then(async (result) => {
       if (result?.accessToken && effectiveOnPersist) {
         // #4038: same compare-and-swap guard as Layer 1 — skip the persist if a concurrent

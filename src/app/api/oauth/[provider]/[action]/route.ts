@@ -74,6 +74,7 @@ const NO_PKCE_DEVICE_CODE_PROVIDERS = new Set([
   "kimi-coding",
   "kilocode",
   "codebuddy-cn",
+  "codebuddy-intl",
   "grok-cli",
   "ghe-copilot",
   "muse-code",

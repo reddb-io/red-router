@@ -286,11 +286,10 @@ export const OAUTH_TEST_CONFIG: Record<string, OAuthTestConfigEntry> = {
     refreshable: true,
   },
   "codebuddy-intl": {
-    // The international executor accepts a direct key, but its IDE device
-    // login/refresh flow is not ported yet. Do not claim it is refreshable.
-    // This only checks token presence; live chat remains the connectivity test.
+    // The IDE device flow now has a provider-specific .ai refresh path. This
+    // lightweight probe checks expiry; live chat verifies actual connectivity.
     checkExpiry: true,
-    refreshable: false,
+    refreshable: true,
   },
   "devin-cli": {
     // Same gap as grok-cli #7610: absent from this table, so "Test Connection"

@@ -10,10 +10,8 @@ import type { RegistryEntry } from "../../shared.ts";
  * @ c66f917c). Streaming is forced by the executor (non-stream requests are
  * rejected with code 11101).
  *
- * TODO(fork-port): the legacy OAuth device flow (stateUrl → tokenUrl poll
- * with platform=ide) needs a src/lib/oauth/providers/codebuddy-intl.ts
- * implementation before the dashboard "Sign in" button works; until then
- * connections can be created with an API key.
+ * The device flow uses the separate .ai host and IDE platform identity.
+ * See src/lib/oauth/providers/codebuddy-intl.ts for login and polling.
  */
 export const codebuddy_intlProvider: RegistryEntry = {
   id: "codebuddy-intl",
@@ -34,6 +32,7 @@ export const codebuddy_intlProvider: RegistryEntry = {
   },
   oauth: {
     tokenUrl: "https://www.codebuddy.ai/v2/plugin/auth/token",
+    refreshUrl: "https://www.codebuddy.ai/v2/plugin/auth/token/refresh",
   },
   models: [
     // Same model lineup exposed by the CN gateway — intl backend is the same catalog.
