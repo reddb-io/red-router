@@ -179,5 +179,3 @@ export const codebuddyIntl = {
     };
   },
 };
-
-export default codebuddyIntl;
