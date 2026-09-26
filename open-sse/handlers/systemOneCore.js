@@ -118,6 +118,21 @@ export function resolveSystemOneProviderModel(providerId, model) {
   return config.modelMap ? null : normalized;
 }
 
+function derivedDecisionConfig(provider) {
+  const decision = provider?.decisionConfig;
+  const transportBase = provider?.transport?.baseUrl;
+  if (!decision?.path || !transportBase) return null;
+  try {
+    return {
+      baseUrl: new URL(decision.path, transportBase).toString(),
+      defaultModel: decision.defaultModel,
+      timeoutMs: decision.timeoutMs,
+    };
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Proxy one native System One request. No chat translation is
  * involved: state/questions and provider response shapes stay intact.

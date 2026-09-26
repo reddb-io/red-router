@@ -133,6 +133,129 @@ function PhaseBar({ phases }) {
   );
 }
 
+// Stages recorded per request, all as per-stage deltas. connect_ms is the upstream
+// handshake; the gap between it and client_complete_ms is model generation plus the
+// streaming relay, derived here rather than stored so the segments always sum to the
+// measured total. A key absent from `phases` means the stage did not run.
+const PHASE_LADDER = [
+  ["parse_ms", "Parse", "bg-slate-400"],
+  ["auth_ms", "Auth", "bg-sky-500"],
+  ["routing_ms", "Routing", "bg-indigo-500"],
+  ["translate_ms", "Translate", "bg-violet-500"],
+  ["preprocess_ms", "Preprocess", "bg-purple-500"],
+  ["connect_ms", "Connect", "bg-amber-500"],
+  ["peek_ms", "Peek", "bg-orange-500"],
+];
+
+const PHASE_EXTRAS = ["ttfb_client_ms", "ttft_content_ms", "peek_bytes"];
+
+function fmtMs(v) {
+  if (typeof v !== "number" || Number.isNaN(v)) return null;
+  return v >= 1000 ? `${(v / 1000).toFixed(2)}s` : `${Math.round(v)}ms`;
+}
+
+/**
+ * The per-option probabilities jev returned, sorted so the winner is readable at a
+ * glance. This is the only place the runner-up is visible: `confidence` alone hides
+ * whether 0.43 was a near-tie or a flat distribution.
+ */
+function DecisionAnswers({ answers }) {
+  if (!answers || !Object.keys(answers).length) return null;
+  return (
+    <div className="flex flex-col gap-2">
+      {Object.entries(answers).map(([name, answer]) => {
+        const probs = answer?.probabilities && Object.entries(answer.probabilities)
+          .filter(([, v]) => typeof v === "number" && v > 0)
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 8);
+        const scalar = typeof answer?.noul === "number" ? `noul ${answer.noul}`
+          : typeof answer?.score === "number" ? `score ${answer.score}` : null;
+        return (
+          <div key={name} className="rounded border border-black/5 dark:border-white/5 p-2">
+            <div className="flex items-center gap-2 text-xs">
+              <span className="font-semibold text-text-main">{name}</span>
+              <span className="text-text-muted">{answer?.type}</span>
+              {answer?.choice && <span className="font-mono text-text-main">{answer.choice}</span>}
+              {typeof answer?.confidence === "number" && (
+                <span className={cn(
+                  "ml-auto font-mono px-1.5 py-0.5 rounded",
+                  answer.confidence >= 0.85 ? "bg-green-500/15 text-green-600"
+                    : answer.confidence >= 0.7 ? "bg-amber-500/15 text-amber-600"
+                    : "bg-red-500/15 text-red-500"
+                )}>{answer.confidence.toFixed(3)}</span>
+              )}
+              {scalar && <span className="font-mono text-text-muted">{scalar}</span>}
+            </div>
+            {probs?.length > 0 && (
+              <div className="mt-1.5 flex flex-col gap-0.5">
+                {probs.map(([opt, p]) => (
+                  <div key={opt} className="flex items-center gap-2 font-mono text-[11px]">
+                    <span className="w-48 truncate text-text-muted" title={opt}>{opt}</span>
+                    <div className="h-1.5 flex-1 rounded bg-black/5 dark:bg-white/10">
+                      <div className="h-full rounded bg-primary" style={{ width: `${Math.max(1, p * 100)}%` }} />
+                    </div>
+                    <span className="w-12 text-right text-text-main">{p.toFixed(3)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function phaseSegments(phases) {
+  if (!phases) return [];
+  const out = [];
+  let accounted = 0;
+  for (const [key, label, color] of PHASE_LADDER) {
+    const value = phases[key];
+    if (typeof value !== "number" || value <= 0) continue;
+    out.push({ key, label, color, ms: value });
+    accounted += value;
+  }
+  const firstContent = phases.ttft_content_ms;
+  if (typeof firstContent === "number") {
+    const generation = firstContent - accounted;
+    if (generation > 5) out.push({ key: "generation", label: "Generation", color: "bg-emerald-500", ms: generation });
+    accounted = firstContent;
+  }
+  const total = phases.client_complete_ms;
+  if (typeof total === "number") {
+    const stream = total - accounted;
+    // Tolerance: milestone marks are read at slightly different instants than the
+    // total, so a few ms of drift is measurement noise, not a stage.
+    if (stream > 5) out.push({ key: "stream", label: "Stream", color: "bg-teal-500", ms: stream });
+  }
+  return out;
+}
+
+function PhaseBar({ phases }) {
+  const rows = phaseSegments(phases);
+  if (!rows.length) return null;
+  const sum = rows.reduce((a, r) => a + r.ms, 0);
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex h-2 w-full overflow-hidden rounded-full bg-surface-hover">
+        {rows.map(r => (
+          <div key={r.key} className={cn(r.color, "h-full")} style={{ width: `${(r.ms / sum) * 100}%` }} />
+        ))}
+      </div>
+      <div className="flex flex-wrap gap-x-3 gap-y-1">
+        {rows.map(r => (
+          <span key={r.key} className="flex items-center gap-1.5 text-xs text-text-muted">
+            <span className={cn("h-2 w-2 rounded-full", r.color)} />
+            {r.label}
+            <span className="font-mono text-text-main">{fmtMs(r.ms)}</span>
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 let providerNameCache = null;
 let providerNodesCache = null;
 
