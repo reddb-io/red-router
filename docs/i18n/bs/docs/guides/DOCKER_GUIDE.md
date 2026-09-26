@@ -42,7 +42,7 @@ docker run -d \
   --stop-timeout 40 \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## Sa datotekom okruženja
@@ -58,7 +58,7 @@ docker run -d \
   --env-file .env \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## Docker Compose
@@ -312,7 +312,7 @@ Postavite veličinu **cgroup `--memory` iznad veličine hrpe** — izvorni među
 ```bash
 docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
   -e OMNIROUTE_MEMORY_MB=8192 --memory=10g \
-  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data reddb-io/red-router:latest
 ```
 
 ## Kritične varijable okruženja
@@ -358,12 +358,12 @@ docker compose --profile base up -d --build
 
 ### Prethodno izgrađena root slika + runtime podputanja
 
-Objavljene `diegosouzapw/omniroute:*` slike su izgrađene za korijen domene. I dalje možete postaviti `OMNIROUTE_BASE_PATH` u runtime-u; kontejner patchuje paket jednom prilikom pokretanja. Uparite ga sa odgovarajućim javnim porijeklom (origin):
+Objavljene `reddb-io/red-router:*` slike su izgrađene za korijen domene. I dalje možete postaviti `OMNIROUTE_BASE_PATH` u runtime-u; kontejner patchuje paket jednom prilikom pokretanja. Uparite ga sa odgovarajućim javnim porijeklom (origin):
 
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     environment:
       OMNIROUTE_BASE_PATH: /omniroute
       NEXT_PUBLIC_BASE_URL: https://myhostname.example.com/omniroute
@@ -390,7 +390,7 @@ OmniRoute se može sigurno izložiti koristeći Caddy-jevo automatsko SSL obezbj
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     container_name: omniroute
     restart: unless-stopped
     volumes:
@@ -435,10 +435,10 @@ Paneli tunela krajnjih mjesta (Cloudflare, Tailscale, ngrok) se mogu prikazati i
 
 ## Oznake slika
 
-| Slika                    | Oznaka   | Veličina | Opis                                                           |
-| ------------------------ | -------- | -------- | -------------------------------------------------------------- |
-| `diegosouzapw/omniroute` | `latest` | ~250MB   | Najviša **objavljena** stabilna SemVer verzija (ne git `main`) |
-| `diegosouzapw/omniroute` | `3.8.0`  | ~250MB   | Fiksirajte ovu vrstu oznake za GitOps                          |
+| Slika                 | Oznaka   | Veličina | Opis                                                           |
+| --------------------- | -------- | -------- | -------------------------------------------------------------- |
+| `reddb-io/red-router` | `latest` | ~250MB   | Najviša **objavljena** stabilna SemVer verzija (ne git `main`) |
+| `reddb-io/red-router` | `3.8.0`  | ~250MB   | Fiksirajte ovu vrstu oznake za GitOps                          |
 
 Višeplatformski manifest: izvorni `linux/amd64` + `linux/arm64` (Apple Silicon, AWS Graviton, Raspberry Pi). Docker automatski odabire odgovarajuću arhitekturu; proslijedite `--platform linux/amd64` ako trebate prisiliti AMD64 emulaciju na ARM hostovima.
 
@@ -471,8 +471,8 @@ Ako koristite te pružaoce, preuzmite oznaku `-web` kanala koji već koristite �
 Kanal `next` ponovo se izgrađuje pri svakom slanju promjena na trenutnu zadanu granu `release/v*` i objavljuje se i za AMD64 i za ARM64. Starije grane održavanja ne mogu ga prepisati. Kanal pruža sliku koja se može preuzeti i koja sadrži ispravke spojene u aktivnu granu izdanja prije izrade sljedeće stabilne oznake.
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker pull diegosouzapw/omniroute:next-web
+docker pull reddb-io/red-router:next
+docker pull reddb-io/red-router:next-web
 ```
 
 Za Docker Compose nadjačajte oznaku slike koju koristi odabrani profil, a zatim preuzmite sliku i ponovo kreirajte servis:
@@ -480,7 +480,7 @@ Za Docker Compose nadjačajte oznaku slike koju koristi odabrani profil, a zatim
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:next
+    image: reddb-io/red-router:next
 ```
 
 ```bash
@@ -493,14 +493,14 @@ docker compose up -d
 `next` je promjenjivi kanal predizdanja. Može se promijeniti pri svakom slanju promjena na aktivnu granu izdanja i **nije podržan za produkcijsku upotrebu**. Fiksirajte sažetak slike dok procjenjujete određenu verziju:
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker image inspect diegosouzapw/omniroute:next --format '{{index .RepoDigests 0}}'
+docker pull reddb-io/red-router:next
+docker image inspect reddb-io/red-router:next --format '{{index .RepoDigests 0}}'
 ```
 
 Prije testiranja napravite sigurnosnu kopiju OmniRoute volumena podataka ili montiranog direktorija podataka. Za vraćanje na prethodnu verziju ponovo postavite ranije korištenu stabilnu verziju ili sažetak i ponovo kreirajte kontejner:
 
 ```bash
-docker pull diegosouzapw/omniroute:<stable-version>
+docker pull reddb-io/red-router:<stable-version>
 docker compose up -d
 ```
 
@@ -591,7 +591,7 @@ Compose skica (dva heap-a, dva volumena — ne `deploy.replicas: 2`):
 ```yaml
 services:
   omniroute-a:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"
@@ -600,7 +600,7 @@ services:
     volumes: [omniroute-a-data:/app/data]
     ports: ["20128:20128"]
   omniroute-b:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"

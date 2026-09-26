@@ -86,9 +86,9 @@
 
 [![версия в npm](https://img.shields.io/npm/v/omniroute?color=cb3837&logo=npm)](https://www.npmjs.com/package/omniroute)
 ![Месечни изтегляния от NPM](https://img.shields.io/npm/dm/omniroute?label=npm/month&color=cb3837&logo=npm)
-[![Docker Hub](https://img.shields.io/docker/v/diegosouzapw/omniroute?label=Docker%20Hub&logo=docker&color=2496ED)](https://hub.docker.com/r/diegosouzapw/omniroute)
+[![Docker Hub](https://img.shields.io/docker/v/reddb-io/red-router?label=Docker%20Hub&logo=docker&color=2496ED)](https://hub.docker.com/r/reddb-io/red-router)
 [![Лиценз: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](LICENSE)
-![Изтегляния от Docker](https://img.shields.io/docker/pulls/diegosouzapw/omniroute?label=docker%20pulls&logo=docker&color=2496ED)
+![Изтегляния от Docker](https://img.shields.io/docker/pulls/reddb-io/red-router?label=docker%20pulls&logo=docker&color=2496ED)
 ![Изтегляния на Electron](https://img.shields.io/github/downloads/diegosouzapw/omniroute/total?style=flat&label=electron%20downloads&logo=electron&color=47848F)
 
 <table>
@@ -751,7 +751,7 @@ omniroute configure codex          # също: claude opencode qwen aider goose 
 <table>
   <tr><th align="left">Платформа</th><th align="left">Инсталиране</th><th align="left">Основни предимства</th></tr>
   <tr><td align="left" nowrap>📦 <b>npm (глобално)</b></td><td align="left" nowrap><code>npm install -g omniroute</code></td><td align="left">Една команда, всяка ОС</td></tr>
-  <tr><td align="left" nowrap>🐳 <b>Docker</b></td><td align="left" nowrap><code>docker run … diegosouzapw/omniroute</code></td><td align="left">Множество архитектури: <b>AMD64 + ARM64</b></td></tr>
+  <tr><td align="left" nowrap>🐳 <b>Docker</b></td><td align="left" nowrap><code>docker run … reddb-io/red-router</code></td><td align="left">Множество архитектури: <b>AMD64 + ARM64</b></td></tr>
   <tr><td align="left" nowrap>🖥️ <b>Настолно приложение (Electron)</b></td><td align="left" nowrap><code>npm run electron:build</code></td><td align="left">Собствен прозорец + системна област — <b>Windows / macOS / Linux</b></td></tr>
   <tr><td align="left" nowrap>🎩 <b>Лента с менюта (OmniRouteTray)</b></td><td align="left" nowrap><code>brew install --cask zoispag/tap/omniroute-tray</code></td><td align="left">Наблюдава и автоматично актуализира сървъра — <b>macOS</b></td></tr>
   <tr><td align="left" nowrap>💪 <b>ARM</b></td><td align="left" nowrap>собствена поддръжка на <code>arm64</code></td><td align="left">Raspberry Pi, ARM сървъри, Apple Silicon</td></tr>
@@ -1055,7 +1055,7 @@ curl http://localhost:20128/v1/models -H "Authorization: Bearer YOUR_KEY"
 
 ```bash
 docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
-  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data reddb-io/red-router:latest
 ```
 
 `:latest` следва най-високата **публикувана** стабилна SemVer версия. Той не следва git `main`. Фиксирайте `:X.Y.Z` за GitOps. Вижте [Канали за издания на Docker](docs/guides/DOCKER_GUIDE.md#release-channels).Образът фиксира **`OMNIROUTE_MEMORY_MB=1024`**. Това е достатъчно за таблото и лек чат. **Агентите за програмиране** (`POST /v1/responses` от Claude Code, Codex, Grok, …) се нуждаят от много по-голяма V8 heap памет, в противен случай процесът завършва с `FATAL ERROR` при около 12 GiB с два припокриващи се дълги контекста. Оразмерете контейнера над размера на heap паметта (собствените буфери са извън V8):
@@ -1069,13 +1069,13 @@ docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
 ```bash
 docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
   -e OMNIROUTE_MEMORY_MB=8192 --memory=10g \
-  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data reddb-io/red-router:latest
 ```
 
 Пълна таблица: [Ръководство за Docker — оперативна памет за изпълнение](docs/guides/DOCKER_GUIDE.md#runtime-ram-for-coding-agents).
 
-> **Docker канал за предварителни издания:** `diegosouzapw/omniroute:next` и
-> `diegosouzapw/omniroute:next-web` следват текущия стандартен клон `release/v*`.
+> **Docker канал за предварителни издания:** `reddb-io/red-router:next` и
+> `reddb-io/red-router:next-web` следват текущия стандартен клон `release/v*`.
 > Тези променливи тагове са предназначени само за тестване на непубликувани корекции и
 > **не се поддържат за продукционна среда**. Вижте
 > [Канали за издания на Docker](docs/guides/DOCKER_GUIDE.md#release-channels).
@@ -1286,7 +1286,7 @@ OMNIROUTE_SKIP_POSTINSTALL=1 npm install -g omniroute   # CI=1 също го п�
   <tr><td nowrap><b>Тестване</b></td><td>Node.js тестов изпълнител + Vitest — <b>39,000+ статични тестови декларации</b> в 5,100+ проследявани тестови файла (единични, интеграционни, E2E, сигурност, екосистема)</td></tr>
   <tr><td nowrap><b>Платформи</b></td><td>Настолни (Electron) · Android (Termux) · PWA (всеки браузър)</td></tr>
   <tr><td nowrap><b>CI/CD</b></td><td>GitHub Actions — автоматично npm публикуване + Docker Hub при пускане на версия</td></tr>
-  <tr><td nowrap><b>Връзки</b></td><td><a href="https://omniroute.online">Уебсайт</a> · <a href="https://www.npmjs.com/package/omniroute">npm</a> · <a href="https://hub.docker.com/r/diegosouzapw/omniroute">Docker Hub</a></td></tr>
+  <tr><td nowrap><b>Връзки</b></td><td><a href="https://omniroute.online">Уебсайт</a> · <a href="https://www.npmjs.com/package/omniroute">npm</a> · <a href="https://hub.docker.com/r/reddb-io/red-router">Docker Hub</a></td></tr>
 </table>
 
 <div align="center">

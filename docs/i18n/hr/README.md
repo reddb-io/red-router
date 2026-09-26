@@ -86,9 +86,9 @@
 
 [![verzija na npm-u](https://img.shields.io/npm/v/omniroute?color=cb3837&logo=npm)](https://www.npmjs.com/package/omniroute)
 ![Mjesečna preuzimanja s NPM-a](https://img.shields.io/npm/dm/omniroute?label=npm/month&color=cb3837&logo=npm)
-[![Docker Hub](https://img.shields.io/docker/v/diegosouzapw/omniroute?label=Docker%20Hub&logo=docker&color=2496ED)](https://hub.docker.com/r/diegosouzapw/omniroute)
+[![Docker Hub](https://img.shields.io/docker/v/reddb-io/red-router?label=Docker%20Hub&logo=docker&color=2496ED)](https://hub.docker.com/r/reddb-io/red-router)
 [![Licenca: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](LICENSE)
-![Preuzimanja s Dockera](https://img.shields.io/docker/pulls/diegosouzapw/omniroute?label=docker%20pulls&logo=docker&color=2496ED)
+![Preuzimanja s Dockera](https://img.shields.io/docker/pulls/reddb-io/red-router?label=docker%20pulls&logo=docker&color=2496ED)
 ![Preuzimanja Electrona](https://img.shields.io/github/downloads/diegosouzapw/omniroute/total?style=flat&label=electron%20downloads&logo=electron&color=47848F)
 
 <table>
@@ -743,7 +743,7 @@ povijesti vaše ljuske. → [CLI integracije](docs/guides/CLI-INTEGRATIONS.md)
 <table>
   <tr><th align="left">Platforma</th><th align="left">Instalacija</th><th align="left">Istaknuto</th></tr>
   <tr><td align="left" nowrap>📦 <b>npm (globalno)</b></td><td align="left" nowrap><code>npm install -g omniroute</code></td><td align="left">Jedna naredba, bilo koji OS</td></tr>
-  <tr><td align="left" nowrap>🐳 <b>Docker</b></td><td align="left" nowrap><code>docker run … diegosouzapw/omniroute</code></td><td align="left">Multi-arch <b>AMD64 + ARM64</b></td></tr>
+  <tr><td align="left" nowrap>🐳 <b>Docker</b></td><td align="left" nowrap><code>docker run … reddb-io/red-router</code></td><td align="left">Multi-arch <b>AMD64 + ARM64</b></td></tr>
   <tr><td align="left" nowrap>🖥️ <b>Desktop (Electron)</b></td><td align="left" nowrap><code>npm run electron:build</code></td><td align="left">Nativni prozor + sistemska traka — <b>Windows / macOS / Linux</b></td></tr>
   <tr><td align="left" nowrap>💪 <b>ARM</b></td><td align="left" nowrap>nativno <code>arm64</code></td><td align="left">Raspberry Pi, ARM serveri, Apple Silicon</td></tr>
   <tr><td align="left" nowrap>📱 <b>Android (Termux)</b></td><td align="left" nowrap><code>pkg install nodejs && npx -y omniroute</code></td><td align="left">Radi <b>na vašem telefonu</b>, 24/7, bez root pristupa</td></tr>
@@ -1010,7 +1010,7 @@ Koristite ove opcije samo za klijente koji ne mogu prikvačiti `Authorization: B
 
 ```bash
 docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
-  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data reddb-io/red-router:latest
 ```
 
 `:latest` prati najnoviju **objavljenu** stabilnu SemVer verziju. Ne prati git `main`. Za GitOps koristite fiksnu verziju `:X.Y.Z`. Pogledajte [Docker Release Channels](docs/guides/DOCKER_GUIDE.md#release-channels). Slika ima fiksiranu vrijednost **`OMNIROUTE_MEMORY_MB=1024`**. To je dovoljno za nadzornu ploču i lagani chat. **Agenti za kodiranje** (`POST /v1/responses` iz Claude Code, Codex, Grok, …) trebaju znatno veći V8 heap, jer inače proces baca `FATAL ERROR` pri ~12 GiB kod dva preklapajuća dugačka konteksta. Kontejner postavite iznad veličine heapa (nativni bufferi se nalaze izvan V8):
@@ -1024,13 +1024,13 @@ docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
 ```bash
 docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
   -e OMNIROUTE_MEMORY_MB=8192 --memory=10g \
-  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data reddb-io/red-router:latest
 ```
 
 Cijela tablica: [Docker Guide — runtime RAM](docs/guides/DOCKER_GUIDE.md#runtime-ram-for-coding-agents).
 
-> **Pre-release Docker kanal:** `diegosouzapw/omniroute:next` i
-> `diegosouzapw/omniroute:next-web` prate trenutnu zadanu granu
+> **Pre-release Docker kanal:** `reddb-io/red-router:next` i
+> `reddb-io/red-router:next-web` prate trenutnu zadanu granu
 > `release/v*`. Ove promjenjive oznake namijenjene su isključivo testiranju neobjavljenih
 > ispravaka i **nisu podržane za produkciju**. Pogledajte
 > [Docker Release Channels](docs/guides/DOCKER_GUIDE.md#release-channels).
@@ -1241,7 +1241,7 @@ Kanonski podaci na dan 2026-08-24: **1.029 jedinstvenih videa** · **11.132.922 
   <tr><td nowrap><b>Testiranje</b></td><td>Node.js test runner + Vitest — <b>39.000+ statičkih deklaracija testova</b> u 5.100+ praćenih testnih datoteka (jedinični, integracijski, E2E, sigurnosni, ekosustav)</td></tr>
   <tr><td nowrap><b>Platforme</b></td><td>Stolno računalo (Electron) · Android (Termux) · PWA (bilo koji preglednik)</td></tr>
   <tr><td nowrap><b>CI/CD</b></td><td>GitHub Actions — automatsko objavljivanje na npm + Docker Hub pri izdanju</td></tr>
-  <tr><td nowrap><b>Poveznice</b></td><td><a href="https://omniroute.online">Web stranica</a> · <a href="https://www.npmjs.com/package/omniroute">npm</a> · <a href="https://hub.docker.com/r/diegosouzapw/omniroute">Docker Hub</a></td></tr>
+  <tr><td nowrap><b>Poveznice</b></td><td><a href="https://omniroute.online">Web stranica</a> · <a href="https://www.npmjs.com/package/omniroute">npm</a> · <a href="https://hub.docker.com/r/reddb-io/red-router">Docker Hub</a></td></tr>
 </table>
 
 <div align="center">

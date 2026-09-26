@@ -86,9 +86,9 @@
 
 [![npm ಆವೃತ್ತಿ](https://img.shields.io/npm/v/omniroute?color=cb3837&logo=npm)](https://www.npmjs.com/package/omniroute)
 ![NPM ಮಾಸಿಕ](https://img.shields.io/npm/dm/omniroute?label=npm/month&color=cb3837&logo=npm)
-[![Docker Hub](https://img.shields.io/docker/v/diegosouzapw/omniroute?label=Docker%20Hub&logo=docker&color=2496ED)](https://hub.docker.com/r/diegosouzapw/omniroute)
+[![Docker Hub](https://img.shields.io/docker/v/reddb-io/red-router?label=Docker%20Hub&logo=docker&color=2496ED)](https://hub.docker.com/r/reddb-io/red-router)
 [![ಪರವಾನಗಿ: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](LICENSE)
-![Docker ಪುಲ್ಗಳು](https://img.shields.io/docker/pulls/diegosouzapw/omniroute?label=docker%20pulls&logo=docker&color=2496ED)
+![Docker ಪುಲ್ಗಳು](https://img.shields.io/docker/pulls/reddb-io/red-router?label=docker%20pulls&logo=docker&color=2496ED)
 ![Electron ಡೌನ್ಲೋಡ್ಗಳು](https://img.shields.io/github/downloads/diegosouzapw/omniroute/total?style=flat&label=electron%20downloads&logo=electron&color=47848F)
 
 <table>
@@ -743,7 +743,7 @@ omniroute configure codex          # ಇತರ ಆಯ್ಕೆಗಳು: claude 
 <table>
   <tr><th align="left">ಪ್ಲಾಟ್ಫಾರ್ಮ್</th><th align="left">ಸ್ಥಾಪನೆ</th><th align="left">ಮುಖ್ಯಾಂಶಗಳು</th></tr>
   <tr><td align="left" nowrap>📦 <b>npm (ಜಾಗತಿಕ)</b></td><td align="left" nowrap><code>npm install -g omniroute</code></td><td align="left">ಒಂದೇ ಆದೇಶ, ಯಾವುದೇ OS</td></tr>
-  <tr><td align="left" nowrap>🐳 <b>Docker</b></td><td align="left" nowrap><code>docker run … diegosouzapw/omniroute</code></td><td align="left">ಬಹು-ಆರ್ಕಿಟೆಕ್ಚರ್ <b>AMD64 + ARM64</b></td></tr>
+  <tr><td align="left" nowrap>🐳 <b>Docker</b></td><td align="left" nowrap><code>docker run … reddb-io/red-router</code></td><td align="left">ಬಹು-ಆರ್ಕಿಟೆಕ್ಚರ್ <b>AMD64 + ARM64</b></td></tr>
   <tr><td align="left" nowrap>🖥️ <b>ಡೆಸ್ಕ್ಟಾಪ್ (Electron)</b></td><td align="left" nowrap><code>npm run electron:build</code></td><td align="left">ಸ್ಥಳೀಯ ವಿಂಡೋ + ಸಿಸ್ಟಂ ಟ್ರೇ — <b>Windows / macOS / Linux</b></td></tr>
   <tr><td align="left" nowrap>🎩 <b>ಮೆನು-ಬಾರ್ (OmniRouteTray)</b></td><td align="left" nowrap><code>brew install --cask zoispag/tap/omniroute-tray</code></td><td align="left">ಸರ್ವರ್ ಅನ್ನು ಮೇಲ್ವಿಚಾರಣೆ ಮಾಡುತ್ತದೆ &amp; ಸ್ವಯಂ-ನವೀಕರಿಸುತ್ತದೆ — <b>macOS</b></td></tr>
   <tr><td align="left" nowrap>💪 <b>ARM</b></td><td align="left" nowrap>ಸ್ಥಳೀಯ <code>arm64</code></td><td align="left">Raspberry Pi, ARM ಸರ್ವರ್ಗಳು, Apple Silicon</td></tr>
@@ -1047,7 +1047,7 @@ Ollama tags:      http://localhost:20128/vscode/YOUR_KEY/api/tags
 
 ```bash
 docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
-  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data reddb-io/red-router:latest
 ```
 
 `:latest` ಅತ್ಯುನ್ನತ **ಪ್ರಕಟಿತ** ಸ್ಥಿರ SemVer ಅನ್ನು ಅನುಸರಿಸುತ್ತದೆ. ಇದು git `main` ಅನ್ನು ಟ್ರ್ಯಾಕ್ ಮಾಡುವುದಿಲ್ಲ. GitOps ಗಾಗಿ `:X.Y.Z` ಅನ್ನು ಪಿನ್ ಮಾಡಿ. [Docker ಬಿಡುಗಡೆ ಚಾನಲ್ಗಳು](docs/guides/DOCKER_GUIDE.md#release-channels) ನೋಡಿ. ಇಮೇಜ್ನಲ್ಲಿ **`OMNIROUTE_MEMORY_MB=1024`** ಅನ್ನು ಪಿನ್ ಮಾಡಲಾಗಿದೆ. ಡ್ಯಾಶ್ಬೋರ್ಡ್ ಮತ್ತು ಹಗುರವಾದ ಚಾಟ್ಗೆ ಇದು ಸಾಕಾಗುತ್ತದೆ. **ಕೋಡಿಂಗ್ ಏಜೆಂಟ್ಗಳಿಗೆ** (Claude Code, Codex, Grok, … ನಿಂದ `POST /v1/responses`) ಹೆಚ್ಚು ದೊಡ್ಡ V8 ಹೀಪ್ ಅಗತ್ಯವಿದೆ; ಇಲ್ಲದಿದ್ದರೆ, ದೀರ್ಘವಾದ ಎರಡು ಸಂದರ್ಭಗಳು ಪರಸ್ಪರ ಅತಿಕ್ರಮಿಸಿದಾಗ ಪ್ರಕ್ರಿಯೆಯು ~12 GiB ನಲ್ಲಿ `FATAL ERROR` ನೊಂದಿಗೆ ವಿಫಲಗೊಳ್ಳುತ್ತದೆ. ಹೀಪ್ಗಿಂತ ಹೆಚ್ಚಿನ ಗಾತ್ರವನ್ನು ಕಂಟೇನರ್ಗೆ ನಿಗದಿಪಡಿಸಿ (ನೇಟಿವ್ ಬಫರ್ಗಳು V8 ಹೊರಗೆ ಇರುತ್ತವೆ):
@@ -1061,13 +1061,13 @@ docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
 ```bash
 docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
   -e OMNIROUTE_MEMORY_MB=8192 --memory=10g \
-  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data reddb-io/red-router:latest
 ```
 
 ಸಂಪೂರ್ಣ ಕೋಷ್ಟಕ: [Docker ಮಾರ್ಗದರ್ಶಿ — ರನ್ಟೈಮ್ RAM](docs/guides/DOCKER_GUIDE.md#runtime-ram-for-coding-agents).
 
-> **ಪೂರ್ವ-ಬಿಡುಗಡೆ Docker ಚಾನಲ್:** `diegosouzapw/omniroute:next` ಮತ್ತು
-> `diegosouzapw/omniroute:next-web` ಪ್ರಸ್ತುತ ಡೀಫಾಲ್ಟ್ `release/v*`
+> **ಪೂರ್ವ-ಬಿಡುಗಡೆ Docker ಚಾನಲ್:** `reddb-io/red-router:next` ಮತ್ತು
+> `reddb-io/red-router:next-web` ಪ್ರಸ್ತುತ ಡೀಫಾಲ್ಟ್ `release/v*`
 > ಶಾಖೆಯನ್ನು ಅನುಸರಿಸುತ್ತವೆ. ಈ ಬದಲಾಯಿಸಬಹುದಾದ ಟ್ಯಾಗ್ಗಳು ಬಿಡುಗಡೆಯಾಗದ ಪರಿಹಾರಗಳನ್ನು ಪರೀಕ್ಷಿಸಲು ಮಾತ್ರ ಉದ್ದೇಶಿಸಲ್ಪಟ್ಟಿವೆ ಮತ್ತು
 > **ಪ್ರೊಡಕ್ಷನ್ನಲ್ಲಿ ಬೆಂಬಲಿತವಾಗಿಲ್ಲ**. ನೋಡಿ:
 > [Docker ಬಿಡುಗಡೆ ಚಾನಲ್ಗಳು](docs/guides/DOCKER_GUIDE.md#release-channels).
@@ -1278,7 +1278,7 @@ OMNIROUTE_SKIP_POSTINSTALL=1 npm install -g omniroute   # CI=1 ಕೂಡ ಇದ�
   <tr><td nowrap><b>ಪರೀಕ್ಷೆ</b></td><td>Node.js test runner + Vitest — 5,100+ ಟ್ರ್ಯಾಕ್ ಮಾಡಿದ ಪರೀಕ್ಷಾ ಫೈಲ್ಗಳಾದ್ಯಂತ (ಯೂನಿಟ್, ಇಂಟಿಗ್ರೇಷನ್, E2E, ಭದ್ರತೆ, ಪರಿಸರ ವ್ಯವಸ್ಥೆ) <b>39,000+ ಸ್ಥಿರ ಪರೀಕ್ಷಾ ಘೋಷಣೆಗಳು</b></td></tr>
   <tr><td nowrap><b>ಪ್ಲಾಟ್ಫಾರ್ಮ್ಗಳು</b></td><td>ಡೆಸ್ಕ್ಟಾಪ್ (Electron) · Android (Termux) · PWA (ಯಾವುದೇ ಬ್ರೌಸರ್)</td></tr>
   <tr><td nowrap><b>CI/CD</b></td><td>GitHub Actions — ಸ್ವಯಂ npm ಪ್ರಕಟಣೆ + ಬಿಡುಗಡೆಯ ಮೇಲೆ Docker Hub</td></tr>
-  <tr><td nowrap><b>ಲಿಂಕ್ಗಳು</b></td><td><a href="https://omniroute.online">ವೆಬ್ಸೈಟ್</a> · <a href="https://www.npmjs.com/package/omniroute">npm</a> · <a href="https://hub.docker.com/r/diegosouzapw/omniroute">Docker Hub</a></td></tr>
+  <tr><td nowrap><b>ಲಿಂಕ್ಗಳು</b></td><td><a href="https://omniroute.online">ವೆಬ್ಸೈಟ್</a> · <a href="https://www.npmjs.com/package/omniroute">npm</a> · <a href="https://hub.docker.com/r/reddb-io/red-router">Docker Hub</a></td></tr>
 </table>
 
 <div align="center">

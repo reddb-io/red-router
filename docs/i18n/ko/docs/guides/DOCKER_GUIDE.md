@@ -40,7 +40,7 @@ docker run -d \
   --stop-timeout 40 \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## 환경 파일 사용
@@ -56,7 +56,7 @@ docker run -d \
   --env-file .env \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## Docker Compose
@@ -330,7 +330,7 @@ Docker 기본값인 1 GiB는 대시보드/가벼운 채팅을 위한 최저 �
 ```bash
 docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
   -e OMNIROUTE_MEMORY_MB=8192 --memory=10g \
-  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data reddb-io/red-router:latest
 ```
 
 ## 중요한 환경 변수
@@ -376,12 +376,12 @@ docker compose --profile base up -d --build
 
 ### 사전 빌드된 루트 이미지 + 런타임 하위 경로
 
-게시된 `diegosouzapw/omniroute:*` 이미지는 도메인 루트용으로 빌드됩니다. 런타임에 `OMNIROUTE_BASE_PATH`를 설정할 수도 있으며, 컨테이너는 시작 시 번들을 한 번 패치합니다. 이에 대응하는 공개 오리진도 함께 설정하십시오.
+게시된 `reddb-io/red-router:*` 이미지는 도메인 루트용으로 빌드됩니다. 런타임에 `OMNIROUTE_BASE_PATH`를 설정할 수도 있으며, 컨테이너는 시작 시 번들을 한 번 패치합니다. 이에 대응하는 공개 오리진도 함께 설정하십시오.
 
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     environment:
       OMNIROUTE_BASE_PATH: /omniroute
       NEXT_PUBLIC_BASE_URL: https://myhostname.example.com/omniroute
@@ -409,7 +409,7 @@ Caddy의 자동 SSL 프로비저닝을 사용하여 OmniRoute를 안전하게 �
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     container_name: omniroute
     restart: unless-stopped
     volumes:
@@ -458,10 +458,10 @@ Docker 배포용 대시보드는 `Dashboard → Endpoints`에서 클릭 한 번�
 
 ## 이미지 태그
 
-| 이미지                   | 태그     | 크기   | 설명                                              |
-| ------------------------ | -------- | ------ | ------------------------------------------------- |
-| `diegosouzapw/omniroute` | `latest` | ~250MB | 가장 높은 **게시된** 안정 SemVer(git `main` 아님) |
-| `diegosouzapw/omniroute` | `3.8.0`  | ~250MB | GitOps에서는 이 유형의 태그를 고정하여 사용       |
+| 이미지                | 태그     | 크기   | 설명                                              |
+| --------------------- | -------- | ------ | ------------------------------------------------- |
+| `reddb-io/red-router` | `latest` | ~250MB | 가장 높은 **게시된** 안정 SemVer(git `main` 아님) |
+| `reddb-io/red-router` | `3.8.0`  | ~250MB | GitOps에서는 이 유형의 태그를 고정하여 사용       |
 
 다중 플랫폼 매니페스트: `linux/amd64` + `linux/arm64` 네이티브 지원(Apple Silicon, AWS Graviton, Raspberry Pi). Docker는 일치하는 아키텍처를 자동으로 선택합니다. ARM 호스트에서 AMD64 에뮬레이션을 강제해야 하는 경우 `--platform linux/amd64`를 전달하세요.
 
@@ -494,8 +494,8 @@ OmniRoute는 안정 릴리스, 활성 릴리스 브랜치 테스트, 개발 빌�
 `next` 채널은 현재 기본 `release/v*` 브랜치에 푸시할 때마다 다시 빌드되며 AMD64와 ARM64용으로 모두 게시됩니다. 이전 유지보수 브랜치는 이 채널을 덮어쓸 수 없습니다. 이 채널은 다음 안정 태그가 생성되기 전에 활성 릴리스 브랜치에 병합된 수정 사항을 포함하는 가져오기 가능한 이미지를 제공합니다.
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker pull diegosouzapw/omniroute:next-web
+docker pull reddb-io/red-router:next
+docker pull reddb-io/red-router:next-web
 ```
 
 Docker Compose에서는 선택한 프로필이 사용하는 이미지 태그를 재정의한 다음, 서비스를 가져와 다시 생성하세요.
@@ -503,7 +503,7 @@ Docker Compose에서는 선택한 프로필이 사용하는 이미지 태그를 
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:next
+    image: reddb-io/red-router:next
 ```
 
 ```bash
@@ -516,14 +516,14 @@ docker compose up -d
 `next`는 유동적인 시험판 채널입니다. 활성 릴리스 브랜치에 푸시할 때마다 변경될 수 있으며 **프로덕션 용도로는 지원되지 않습니다**. 특정 빌드를 평가하는 동안 이미지 다이제스트를 고정하세요.
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker image inspect diegosouzapw/omniroute:next --format '{{index .RepoDigests 0}}'
+docker pull reddb-io/red-router:next
+docker image inspect reddb-io/red-router:next --format '{{index .RepoDigests 0}}'
 ```
 
 테스트하기 전에 OmniRoute 데이터 볼륨 또는 바인드 마운트된 데이터 디렉터리를 백업하세요. 롤백하려면 이전에 사용한 안정 버전 또는 다이제스트를 복원하고 컨테이너를 다시 생성하세요.
 
 ```bash
-docker pull diegosouzapw/omniroute:<stable-version>
+docker pull reddb-io/red-router:<stable-version>
 docker compose up -d
 ```
 
@@ -614,7 +614,7 @@ Compose 예시(힙 두 개, 볼륨 두 개 — `deploy.replicas: 2`가 아님):
 ```yaml
 services:
   omniroute-a:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"
@@ -623,7 +623,7 @@ services:
     volumes: [omniroute-a-data:/app/data]
     ports: ["20128:20128"]
   omniroute-b:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"

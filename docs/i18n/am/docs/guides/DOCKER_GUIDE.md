@@ -40,7 +40,7 @@ docker run -d \
   --stop-timeout 40 \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## ከአካባቢ ፋይል ጋር
@@ -56,7 +56,7 @@ docker run -d \
   --env-file .env \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## Docker Compose
@@ -331,7 +331,7 @@ docker build --target runner-base \
 ```bash
 docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
   -e OMNIROUTE_MEMORY_MB=8192 --memory=10g \
-  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data reddb-io/red-router:latest
 ```
 
 ## ወሳኝ የአካባቢ ተለዋዋጮች
@@ -387,14 +387,14 @@ runtime environment variable ያስተላልፋል።
 
 ### አስቀድሞ የተገነባ root image + runtime ንዑስ ዱካ
 
-የታተሙት `diegosouzapw/omniroute:*` images ለdomain root የተገነቡ ናቸው። ሆኖም
+የታተሙት `reddb-io/red-router:*` images ለdomain root የተገነቡ ናቸው። ሆኖም
 `OMNIROUTE_BASE_PATH`-ን በruntime ላይ ማዘጋጀት ይችላሉ፤ container-ው ሲጀምር bundle-ውን አንድ ጊዜ
 ያስተካክላል። ከሚዛመደው public origin ጋር ያጣምሩት፦
 
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     environment:
       OMNIROUTE_BASE_PATH: /omniroute
       NEXT_PUBLIC_BASE_URL: https://myhostname.example.com/omniroute
@@ -435,7 +435,7 @@ OmniRoute የCaddy ራስ-ሰር SSL ማቅረብን በመጠቀም በደህ�
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     container_name: omniroute
     restart: unless-stopped
     volumes:
@@ -484,10 +484,10 @@ Caddy ለወደላይኛው ኮንቴይነር መደበኛዎቹን የማስ�
 
 ## የኢሜጅ መለያዎች
 
-| ኢሜጅ                      | መለያ      | መጠን    | መግለጫ                                           |
-| ------------------------ | -------- | ------ | ---------------------------------------------- |
-| `diegosouzapw/omniroute` | `latest` | ~250MB | ከፍተኛው **የታተመ** የተረጋጋ SemVer (git `main` አይደለም) |
-| `diegosouzapw/omniroute` | `3.8.0`  | ~250MB | ለGitOps ይህን የመለያ ምድብ ቋሚ ያድርጉ                   |
+| ኢሜጅ                   | መለያ      | መጠን    | መግለጫ                                           |
+| --------------------- | -------- | ------ | ---------------------------------------------- |
+| `reddb-io/red-router` | `latest` | ~250MB | ከፍተኛው **የታተመ** የተረጋጋ SemVer (git `main` አይደለም) |
+| `reddb-io/red-router` | `3.8.0`  | ~250MB | ለGitOps ይህን የመለያ ምድብ ቋሚ ያድርጉ                   |
 
 ባለብዙ ፕላትፎርም ማኒፌስት፦ `linux/amd64` + `linux/arm64` ቤተኛ (Apple Silicon፣ AWS Graviton፣ Raspberry Pi)። Docker ተዛማጁን አርክቴክቸር በራስ-ሰር ይመርጣል፤ በARM አስተናጋጆች ላይ የAMD64 ኢሙሌሽንን ማስገደድ ካስፈለገዎት `--platform linux/amd64` ያስተላልፉ።
 
@@ -520,8 +520,8 @@ OmniRoute ለተረጋጉ ልቀቶች፣ ለንቁ የልቀት ቅርንጫፍ
 የ`next` ቻናል ወደ የአሁኑ ነባሪ `release/v*` ቅርንጫፍ በሚደረግ እያንዳንዱ push እንደገና ይገነባል፣ ለAMD64 እና ARM64ም ይታተማል። የቆዩ የጥገና ቅርንጫፎች በላዩ ላይ መጻፍ አይችሉም። ቻናሉ ቀጣዩ የተረጋጋ መለያ ከመዘጋጀቱ በፊት ወደ ንቁው የልቀት ቅርንጫፍ ለተዋሃዱ ማስተካከያዎች ሊወርድ የሚችል ኢሜጅ ያቀርባል።
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker pull diegosouzapw/omniroute:next-web
+docker pull reddb-io/red-router:next
+docker pull reddb-io/red-router:next-web
 ```
 
 ለDocker Compose፣ በተመረጠው ፕሮፋይል የሚጠቀመውን የኢሜጅ መለያ ይተኩ፣ ከዚያም አገልግሎቱን ያውርዱ እና እንደገና ይፍጠሩ፦
@@ -529,7 +529,7 @@ docker pull diegosouzapw/omniroute:next-web
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:next
+    image: reddb-io/red-router:next
 ```
 
 ```bash
@@ -542,14 +542,14 @@ docker compose up -d
 `next` ተንሳፋፊ የቅድመ-ልቀት ቻናል ነው። ወደ ንቁው የልቀት ቅርንጫፍ በሚደረግ ማንኛውም push ሊቀየር ይችላል፣ እና **ለምርት አጠቃቀም አይደገፍም**። አንድን የተወሰነ ግንባታ በሚገመግሙበት ጊዜ የኢሜጁን digest ቋሚ ያድርጉ፦
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker image inspect diegosouzapw/omniroute:next --format '{{index .RepoDigests 0}}'
+docker pull reddb-io/red-router:next
+docker image inspect reddb-io/red-router:next --format '{{index .RepoDigests 0}}'
 ```
 
 ከመሞከርዎ በፊት የOmniRoute ዳታ ቮልዩምን ወይም bind-mounted የዳታ ማውጫውን ምትኬ ይያዙ። ወደ ቀድሞው ለመመለስ፣ ከዚህ በፊት ጥቅም ላይ የዋለውን የተረጋጋ ስሪት ወይም digest ይመልሱ እና ኮንቴይነሩን እንደገና ይፍጠሩ፦
 
 ```bash
-docker pull diegosouzapw/omniroute:<stable-version>
+docker pull reddb-io/red-router:<stable-version>
 docker compose up -d
 ```
 
@@ -640,7 +640,7 @@ spec:
 ```yaml
 services:
   omniroute-a:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"
@@ -649,7 +649,7 @@ services:
     volumes: [omniroute-a-data:/app/data]
     ports: ["20128:20128"]
   omniroute-b:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"

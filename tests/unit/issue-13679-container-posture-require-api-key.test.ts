@@ -1,7 +1,7 @@
 /**
  * Issue #13679 (PR E, item #6) — published container/Fly deployment posture.
  *
- * A default `docker run … diegosouzapw/omniroute` (README/QUICK-START one-liners,
+ * A default `docker run … reddb-io/red-router` (README/QUICK-START one-liners,
  * which do NOT pass `--env-file .env`) and the shipped `fly.toml` both publish
  * the app on a public interface (Fly always; a bare `docker run -p 20128:20128`
  * binds 0.0.0.0 on the host) while `REQUIRE_API_KEY` defaulted to unset/false —

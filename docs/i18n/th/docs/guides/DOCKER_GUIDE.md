@@ -40,7 +40,7 @@ docker run -d \
   --stop-timeout 40 \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## การใช้ไฟล์สภาพแวดล้อม
@@ -56,7 +56,7 @@ docker run -d \
   --env-file .env \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## Docker Compose
@@ -332,7 +332,7 @@ docker build --target runner-base \
 ```bash
 docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
   -e OMNIROUTE_MEMORY_MB=8192 --memory=10g \
-  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data reddb-io/red-router:latest
 ```
 
 ## ตัวแปรสภาพแวดล้อมที่สำคัญ
@@ -388,14 +388,14 @@ docker compose --profile base up -d --build
 
 ### อิมเมจสำหรับรากที่สร้างไว้ล่วงหน้า + พาธย่อยขณะรันไทม์
 
-อิมเมจ `diegosouzapw/omniroute:*` ที่เผยแพร่ไว้ถูกสร้างมาสำหรับรากของโดเมน แต่คุณยังคง
+อิมเมจ `reddb-io/red-router:*` ที่เผยแพร่ไว้ถูกสร้างมาสำหรับรากของโดเมน แต่คุณยังคง
 สามารถกำหนด `OMNIROUTE_BASE_PATH` ขณะรันไทม์ได้ โดยคอนเทนเนอร์จะแพตช์บันเดิลหนึ่งครั้ง
 เมื่อเริ่มทำงาน ให้ใช้ร่วมกับ public origin ที่ตรงกัน:
 
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     environment:
       OMNIROUTE_BASE_PATH: /omniroute
       NEXT_PUBLIC_BASE_URL: https://myhostname.example.com/omniroute
@@ -438,7 +438,7 @@ healthcheck ของ Docker จะตรวจสอบ endpoint วงจร�
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     container_name: omniroute
     restart: unless-stopped
     volumes:
@@ -488,10 +488,10 @@ Caddy จะตั้งค่าส่วนหัวการส่งต่�
 
 ## แท็กอิมเมจ
 
-| อิมเมจ                   | แท็ก     | ขนาด   | คำอธิบาย                                                        |
-| ------------------------ | -------- | ------ | --------------------------------------------------------------- |
-| `diegosouzapw/omniroute` | `latest` | ~250MB | SemVer เสถียรที่ **เผยแพร่แล้ว** ซึ่งสูงสุด (ไม่ใช่ git `main`) |
-| `diegosouzapw/omniroute` | `3.8.0`  | ~250MB | ตรึงแท็กประเภทนี้สำหรับ GitOps                                  |
+| อิมเมจ                | แท็ก     | ขนาด   | คำอธิบาย                                                        |
+| --------------------- | -------- | ------ | --------------------------------------------------------------- |
+| `reddb-io/red-router` | `latest` | ~250MB | SemVer เสถียรที่ **เผยแพร่แล้ว** ซึ่งสูงสุด (ไม่ใช่ git `main`) |
+| `reddb-io/red-router` | `3.8.0`  | ~250MB | ตรึงแท็กประเภทนี้สำหรับ GitOps                                  |
 
 แมนิเฟสต์หลายแพลตฟอร์ม: รองรับ `linux/amd64` + `linux/arm64` แบบเนทีฟ (Apple Silicon, AWS Graviton, Raspberry Pi) Docker จะเลือกสถาปัตยกรรมที่ตรงกันโดยอัตโนมัติ ให้ระบุ `--platform linux/amd64` หากต้องการบังคับใช้การจำลอง AMD64 บนโฮสต์ ARM
 
@@ -524,8 +524,8 @@ OmniRoute เผยแพร่ช่องทาง Docker แยกกัน�
 ช่องทาง `next` จะถูกสร้างใหม่ทุกครั้งที่มีการพุชไปยังบรานช์ `release/v*` เริ่มต้นปัจจุบัน และเผยแพร่สำหรับทั้ง AMD64 และ ARM64 บรานช์บำรุงรักษาที่เก่ากว่าไม่สามารถเขียนทับช่องทางนี้ได้ ช่องทางนี้มีอิมเมจที่สามารถดึงได้สำหรับการแก้ไขที่รวมเข้ากับรีลีสบรานช์ที่ใช้งานอยู่แล้ว ก่อนที่จะสร้างแท็กเสถียรถัดไป
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker pull diegosouzapw/omniroute:next-web
+docker pull reddb-io/red-router:next
+docker pull reddb-io/red-router:next-web
 ```
 
 สำหรับ Docker Compose ให้แทนที่แท็กอิมเมจที่โปรไฟล์ซึ่งเลือกไว้ใช้งาน จากนั้นดึงอิมเมจและสร้างบริการขึ้นใหม่:
@@ -533,7 +533,7 @@ docker pull diegosouzapw/omniroute:next-web
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:next
+    image: reddb-io/red-router:next
 ```
 
 ```bash
@@ -546,14 +546,14 @@ docker compose up -d
 `next` เป็นช่องทางก่อนรีลีสแบบลอยตัว ซึ่งอาจเปลี่ยนแปลงเมื่อมีการพุชใดๆ ไปยังรีลีสบรานช์ที่ใช้งานอยู่ และ **ไม่รองรับการใช้งานในระบบจริง** ให้ตรึงไดเจสต์ของอิมเมจขณะประเมินบิลด์ใดบิลด์หนึ่ง:
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker image inspect diegosouzapw/omniroute:next --format '{{index .RepoDigests 0}}'
+docker pull reddb-io/red-router:next
+docker image inspect reddb-io/red-router:next --format '{{index .RepoDigests 0}}'
 ```
 
 ก่อนทดสอบ ให้สำรองข้อมูลวอลุ่มข้อมูลของ OmniRoute หรือไดเรกทอรีข้อมูลที่เมานต์แบบ bind ไว้ หากต้องการย้อนกลับ ให้คืนค่าเวอร์ชันเสถียรหรือไดเจสต์ที่ใช้ก่อนหน้านี้ แล้วสร้างคอนเทนเนอร์ขึ้นใหม่:
 
 ```bash
-docker pull diegosouzapw/omniroute:<stable-version>
+docker pull reddb-io/red-router:<stable-version>
 docker compose up -d
 ```
 
@@ -644,7 +644,7 @@ Postgres ภายนอก / HA แบบ multi-writer **ไม่ใช่** �
 ```yaml
 services:
   omniroute-a:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"
@@ -653,7 +653,7 @@ services:
     volumes: [omniroute-a-data:/app/data]
     ports: ["20128:20128"]
   omniroute-b:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"

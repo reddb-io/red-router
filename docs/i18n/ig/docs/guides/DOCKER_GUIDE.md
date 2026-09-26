@@ -40,7 +40,7 @@ docker run -d \
   --stop-timeout 40 \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## Iji Faịlụ Environment
@@ -56,7 +56,7 @@ docker run -d \
   --env-file .env \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## Docker Compose
@@ -332,7 +332,7 @@ Debe nha **cgroup `--memory` ka ọ dị elu karịa heap** — native buffers, 
 ```bash
 docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
   -e OMNIROUTE_MEMORY_MB=8192 --memory=10g \
-  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data reddb-io/red-router:latest
 ```
 
 ## Mgbanwe Gburugburuwu Dị Oke Mkpa
@@ -387,14 +387,14 @@ runtime environment variable.
 
 ### Root image e wuru tupu oge eruo + ụzọ-nta runtime
 
-A na-ewu image `diegosouzapw/omniroute:*` ndị e bipụtara maka mgbọrọgwụ domain. Ị ka nwere ike
+A na-ewu image `reddb-io/red-router:*` ndị e bipụtara maka mgbọrọgwụ domain. Ị ka nwere ike
 ịtọ `OMNIROUTE_BASE_PATH` n’oge runtime; container ahụ na-eme patch na bundle ahụ otu ugboro mgbe ọ na-amalite.
 Jikọta ya na public origin kwekọrọ ekwekọ:
 
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     environment:
       OMNIROUTE_BASE_PATH: /omniroute
       NEXT_PUBLIC_BASE_URL: https://myhostname.example.com/omniroute
@@ -435,7 +435,7 @@ Enwere ike iji nhazi SSL akpaka nke Caddy kpughee OmniRoute n'ụzọ echekwara.
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     container_name: omniroute
     restart: unless-stopped
     volumes:
@@ -485,10 +485,10 @@ Enwere ike igosi ma ọ bụ zoo panel tunnel nke endpoint (Cloudflare, Tailscal
 
 ## Mkpado Onyonyo
 
-| Onyonyo                  | Mkpado   | Nha    | Nkọwa                                                             |
-| ------------------------ | -------- | ------ | ----------------------------------------------------------------- |
-| `diegosouzapw/omniroute` | `latest` | ~250MB | SemVer kwụsiri ike **ebipụtara** kachasị elu (ọ bụghị git `main`) |
-| `diegosouzapw/omniroute` | `3.8.0`  | ~250MB | Tụgide ụdị mkpado a maka GitOps                                   |
+| Onyonyo               | Mkpado   | Nha    | Nkọwa                                                             |
+| --------------------- | -------- | ------ | ----------------------------------------------------------------- |
+| `reddb-io/red-router` | `latest` | ~250MB | SemVer kwụsiri ike **ebipụtara** kachasị elu (ọ bụghị git `main`) |
+| `reddb-io/red-router` | `3.8.0`  | ~250MB | Tụgide ụdị mkpado a maka GitOps                                   |
 
 Manifest nyiwe-ọtụtụ: `linux/amd64` + `linux/arm64` nke e wuru kpọmkwem (Apple Silicon, AWS Graviton, Raspberry Pi). Docker na-ahọrọ architecture dabara adaba na-akpaghị aka; nyefee `--platform linux/amd64` ma ọ bụrụ na ịchọrọ ịmanye nṅomi AMD64 na host ARM.
 
@@ -521,8 +521,8 @@ A na-eyigharị ọdịda ahụ; ọ naghị eme n'oge mmalite: ndị na-eweta n
 A na-ewughachi ọwa `next` na push ọ bụla gaa na branch `release/v*` ndabara dị ugbu a, a na-ebipụtakwa ya maka ma AMD64 ma ARM64. Branch mmezi ndị ochie enweghị ike idegharị ya. Ọwa ahụ na-enye onyonyo enwere ike ịdọpụta maka ndozi ndị ejikọtara n'ime branch mwepụta nọ n'ọrụ tupu e mepụta mkpado kwụsiri ike na-esote.
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker pull diegosouzapw/omniroute:next-web
+docker pull reddb-io/red-router:next
+docker pull reddb-io/red-router:next-web
 ```
 
 Maka Docker Compose, dochie mkpado onyonyo nke profile ahọrọ na-eji, wee dọpụta ma megharịa service ahụ:
@@ -530,7 +530,7 @@ Maka Docker Compose, dochie mkpado onyonyo nke profile ahọrọ na-eji, wee d�
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:next
+    image: reddb-io/red-router:next
 ```
 
 ```bash
@@ -543,14 +543,14 @@ docker compose up -d
 `next` bụ ọwa tupu mwepụta na-agagharị agagharị. Ọ nwere ike ịgbanwe na push ọ bụla gaa na branch mwepụta nọ n'ọrụ ma **anaghị akwado ya maka ojiji production**. Tụgide digest onyonyo ahụ mgbe ị na-enyocha otu build kpọmkwem:
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker image inspect diegosouzapw/omniroute:next --format '{{index .RepoDigests 0}}'
+docker pull reddb-io/red-router:next
+docker image inspect reddb-io/red-router:next --format '{{index .RepoDigests 0}}'
 ```
 
 Tupu nnwale, mee nkwado ndabere nke volume data OmniRoute ma ọ bụ directory data e ji bind-mount. Iji laghachi azụ, weghachite version kwụsiri ike ma ọ bụ digest e ji mee ihe na mbụ, ma megharịa container ahụ:
 
 ```bash
-docker pull diegosouzapw/omniroute:<stable-version>
+docker pull reddb-io/red-router:<stable-version>
 docker compose up -d
 ```
 
@@ -641,7 +641,7 @@ Ihe atụ Compose (heap abụọ, volume abụọ — ọ bụghị `deploy.repl
 ```yaml
 services:
   omniroute-a:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"
@@ -650,7 +650,7 @@ services:
     volumes: [omniroute-a-data:/app/data]
     ports: ["20128:20128"]
   omniroute-b:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"

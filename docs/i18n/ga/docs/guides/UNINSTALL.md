@@ -68,7 +68,7 @@ docker rm omniroute
 docker volume rm omniroute-data
 
 # (Roghach) Bain an íomhá
-docker rmi diegosouzapw/omniroute:latest
+docker rmi reddb-io/red-router:latest
 ```
 
 ### Docker Compose

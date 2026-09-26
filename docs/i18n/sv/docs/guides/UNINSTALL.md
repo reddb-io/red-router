@@ -70,7 +70,7 @@ docker rm omniroute
 docker volume rm omniroute-data
 
 # (Valfritt) Ta bort avbildningen
-docker rmi diegosouzapw/omniroute:latest
+docker rmi reddb-io/red-router:latest
 ```
 
 ### Docker Compose

@@ -32,6 +32,8 @@ import { resolveQuotaKeyScope } from "@/lib/quota/quotaKey";
 import { isQuotaModelName, parseQuotaModelName } from "@/lib/quota/quotaModelNaming";
 import { buildApiKeyUsageLimitPolicyRejection } from "@/lib/usage/apiKeyUsageLimits";
 import { ALL_COMBOS_ACCESS_RULE } from "@/shared/constants/comboAccess";
+import { isRequestedModelDisabled } from "@/shared/utils/disabledModelsList";
+import { getSettings } from "@/lib/db/settings";
 
 // Default to no per-key request cap. API keys can still opt into explicit
 // limits via Settings/API Keys, while provider/account quota controls remain
@@ -811,6 +813,41 @@ function extractUngatedClientApiKey(request: Request): string | null {
   return null;
 }
 
+/**
+ * Global disabled-models gate (ported from the legacy fork's access-control
+ * concept). Applies to EVERYONE — keyed or keyless — because it is the
+ * operator's own explicit routing choice, not a per-key restriction: a model
+ * in the `disabledModels` settings list is refused wherever a request names it,
+ * instead of only disappearing from `/v1/models` while still routing (the
+ * legacy bug the port fixes). Fail-open on a settings read error (the legacy
+ * behaviour): this is an operator convenience gate, not a security boundary —
+ * per-key policy below remains the access-control layer.
+ */
+async function validateGlobalDisabledModels(
+  request: Request,
+  modelStr: string | null
+): Promise<Response | null> {
+  if (!modelStr) return null;
+  try {
+    const settings = await getSettings();
+    if (!isRequestedModelDisabled(modelStr, settings)) return null;
+  } catch (error) {
+    log.warn("API_POLICY", "Disabled-model check could not read settings; failing open", { error });
+    return null;
+  }
+  const openAiRejection = errorResponse(HTTP_STATUS.FORBIDDEN, `Model "${modelStr}" is disabled`, {
+    code: "model_disabled",
+  });
+  if (!isAnthropicMessagesRequest(request)) return openAiRejection;
+  return policyErrorResponse(
+    request,
+    HTTP_STATUS.FORBIDDEN,
+    `Model "${modelStr}" is disabled`,
+    `Model "${modelStr}" is disabled. Choose another model.`,
+    "permission_error"
+  );
+}
+
 export async function enforceApiKeyPolicy(
   request: Request,
   modelStr: string | null,
@@ -824,6 +861,11 @@ export async function enforceApiKeyPolicy(
     extractApiKey(request) ||
     extractUngatedClientApiKey(request) ||
     (await resolvePlaygroundTestKey(request));
+
+  // Global disabled-models gate runs BEFORE the keyless early return: it is an
+  // operator-level (not per-key) decision, so it applies to everyone exactly once.
+  const disabledRejection = await validateGlobalDisabledModels(request, modelStr);
+  if (disabledRejection) return { apiKey, apiKeyInfo: null, rejection: disabledRejection };
 
   // No API key = local/session mode, skip policy checks
   if (!apiKey) {

@@ -70,7 +70,7 @@ docker rm omniroute
 docker volume rm omniroute-data
 
 # (ବିକଳ୍ପ) ଇମେଜ୍ ଅପସାରଣ କରନ୍ତୁ
-docker rmi diegosouzapw/omniroute:latest
+docker rmi reddb-io/red-router:latest
 ```
 
 ### Docker Compose

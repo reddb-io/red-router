@@ -21,10 +21,10 @@ npm install -g omniroute
 ### Tùy chọn B: Docker
 
 ```bash
-docker run -d --name omniroute -p 20128:20128 diegosouzapw/omniroute:latest
+docker run -d --name omniroute -p 20128:20128 reddb-io/red-router:latest
 ```
 
-`:latest` là phiên bản SemVer ổn định **đã phát hành** cao nhất. Thẻ này **không** theo dõi nhánh git `main`. Hãy ghim `diegosouzapw/omniroute:X.Y.Z` khi sử dụng GitOps. Xem [Thẻ Image / Kênh phát hành](../guides/DOCKER_GUIDE.md#release-channels).
+`:latest` là phiên bản SemVer ổn định **đã phát hành** cao nhất. Thẻ này **không** theo dõi nhánh git `main`. Hãy ghim `reddb-io/red-router:X.Y.Z` khi sử dụng GitOps. Xem [Thẻ Image / Kênh phát hành](../guides/DOCKER_GUIDE.md#release-channels).
 
 ### Tùy chọn C: Từ mã nguồn
 

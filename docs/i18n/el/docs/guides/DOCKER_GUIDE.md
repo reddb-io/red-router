@@ -40,7 +40,7 @@ docker run -d \
   --stop-timeout 40 \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## Με αρχείο περιβάλλοντος
@@ -56,7 +56,7 @@ docker run -d \
   --env-file .env \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## Docker Compose
@@ -332,7 +332,7 @@ docker build --target runner-base \
 ```bash
 docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
   -e OMNIROUTE_MEMORY_MB=8192 --memory=10g \
-  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data reddb-io/red-router:latest
 ```
 
 ## Κρίσιμες μεταβλητές περιβάλλοντος
@@ -388,14 +388,14 @@ docker compose --profile base up -d --build
 
 ### Προκατασκευασμένο image ρίζας + υποδιαδρομή κατά την εκτέλεση
 
-Τα δημοσιευμένα images `diegosouzapw/omniroute:*` έχουν δημιουργηθεί για τη ρίζα του domain. Μπορείτε, ωστόσο,
+Τα δημοσιευμένα images `reddb-io/red-router:*` έχουν δημιουργηθεί για τη ρίζα του domain. Μπορείτε, ωστόσο,
 να ορίσετε το `OMNIROUTE_BASE_PATH` κατά την εκτέλεση· το container επιδιορθώνει το πακέτο μία φορά κατά την εκκίνηση.
 Συνδυάστε το με την αντίστοιχη δημόσια προέλευση:
 
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     environment:
       OMNIROUTE_BASE_PATH: /omniroute
       NEXT_PUBLIC_BASE_URL: https://myhostname.example.com/omniroute
@@ -436,7 +436,7 @@ services:
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     container_name: omniroute
     restart: unless-stopped
     volumes:
@@ -486,10 +486,10 @@ volumes:
 
 ## Ετικέτες εικόνων
 
-| Εικόνα                   | Ετικέτα  | Μέγεθος | Περιγραφή                                                     |
-| ------------------------ | -------- | ------- | ------------------------------------------------------------- |
-| `diegosouzapw/omniroute` | `latest` | ~250MB  | Υψηλότερη **δημοσιευμένη** σταθερή SemVer (όχι το git `main`) |
-| `diegosouzapw/omniroute` | `3.8.0`  | ~250MB  | Καρφιτσώστε αυτήν την κατηγορία ετικέτας για χρήση με GitOps  |
+| Εικόνα                | Ετικέτα  | Μέγεθος | Περιγραφή                                                     |
+| --------------------- | -------- | ------- | ------------------------------------------------------------- |
+| `reddb-io/red-router` | `latest` | ~250MB  | Υψηλότερη **δημοσιευμένη** σταθερή SemVer (όχι το git `main`) |
+| `reddb-io/red-router` | `3.8.0`  | ~250MB  | Καρφιτσώστε αυτήν την κατηγορία ετικέτας για χρήση με GitOps  |
 
 Manifest πολλαπλών πλατφορμών: εγγενής υποστήριξη `linux/amd64` + `linux/arm64` (Apple Silicon, AWS Graviton, Raspberry Pi). Το Docker επιλέγει αυτόματα την αντίστοιχη αρχιτεκτονική· περάστε `--platform linux/amd64` εάν χρειάζεται να επιβάλετε εξομοίωση AMD64 σε κεντρικούς υπολογιστές ARM.
 
@@ -522,8 +522,8 @@ Manifest πολλαπλών πλατφορμών: εγγενής υποστήρ�
 Το κανάλι `next` ανακατασκευάζεται σε κάθε push στον τρέχοντα προεπιλεγμένο κλάδο `release/v*` και δημοσιεύεται τόσο για AMD64 όσο και για ARM64. Παλαιότεροι κλάδοι συντήρησης δεν μπορούν να το αντικαταστήσουν. Το κανάλι παρέχει μια εικόνα διαθέσιμη για pull, η οποία περιλαμβάνει διορθώσεις που έχουν συγχωνευθεί στον ενεργό κλάδο έκδοσης πριν δημιουργηθεί η επόμενη σταθερή ετικέτα.
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker pull diegosouzapw/omniroute:next-web
+docker pull reddb-io/red-router:next
+docker pull reddb-io/red-router:next-web
 ```
 
 Για το Docker Compose, παρακάμψτε την ετικέτα εικόνας που χρησιμοποιεί το επιλεγμένο προφίλ και, στη συνέχεια, κάντε pull και δημιουργήστε ξανά την υπηρεσία:
@@ -531,7 +531,7 @@ docker pull diegosouzapw/omniroute:next-web
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:next
+    image: reddb-io/red-router:next
 ```
 
 ```bash
@@ -544,14 +544,14 @@ docker compose up -d
 Το `next` είναι ένα κυλιόμενο κανάλι προέκδοσης. Μπορεί να αλλάξει με οποιοδήποτε push στον ενεργό κλάδο έκδοσης και **δεν υποστηρίζεται για χρήση σε περιβάλλον παραγωγής**. Καρφιτσώστε το digest της εικόνας κατά την αξιολόγηση ενός συγκεκριμένου build:
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker image inspect diegosouzapw/omniroute:next --format '{{index .RepoDigests 0}}'
+docker pull reddb-io/red-router:next
+docker image inspect reddb-io/red-router:next --format '{{index .RepoDigests 0}}'
 ```
 
 Πριν από τη δοκιμή, δημιουργήστε αντίγραφο ασφαλείας του τόμου δεδομένων του OmniRoute ή του προσαρτημένου μέσω bind καταλόγου δεδομένων. Για επαναφορά, επαναφέρετε τη σταθερή έκδοση ή το digest που χρησιμοποιούνταν προηγουμένως και δημιουργήστε ξανά το container:
 
 ```bash
-docker pull diegosouzapw/omniroute:<stable-version>
+docker pull reddb-io/red-router:<stable-version>
 docker compose up -d
 ```
 
@@ -642,7 +642,7 @@ spec:
 ```yaml
 services:
   omniroute-a:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"
@@ -651,7 +651,7 @@ services:
     volumes: [omniroute-a-data:/app/data]
     ports: ["20128:20128"]
   omniroute-b:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"

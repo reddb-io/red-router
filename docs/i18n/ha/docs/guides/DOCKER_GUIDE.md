@@ -40,7 +40,7 @@ docker run -d \
   --stop-timeout 40 \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## Tare da Fayil ɗin Muhalli
@@ -56,7 +56,7 @@ docker run -d \
   --env-file .env \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## Docker Compose
@@ -332,7 +332,7 @@ Saita girman **cgroup `--memory` sama da heap** — native buffers, SQLite, da b
 ```bash
 docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
   -e OMNIROUTE_MEMORY_MB=8192 --memory=10g \
-  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data reddb-io/red-router:latest
 ```
 
 ## Muhimman Sauye-sauyen Muhalli
@@ -388,14 +388,14 @@ runtime environment variable.
 
 ### Root image da aka riga aka gina + ƙaramin hanyar runtime
 
-Images na `diegosouzapw/omniroute:*` da aka wallafa an gina su ne don tushen domain. Har yanzu za ka iya
+Images na `reddb-io/red-router:*` da aka wallafa an gina su ne don tushen domain. Har yanzu za ka iya
 saita `OMNIROUTE_BASE_PATH` a lokacin runtime; container zai yi wa bundle ɗin patch sau ɗaya lokacin farawa.
 Haɗa shi da public origin da ya dace:
 
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     environment:
       OMNIROUTE_BASE_PATH: /omniroute
       NEXT_PUBLIC_BASE_URL: https://myhostname.example.com/omniroute
@@ -436,7 +436,7 @@ Ana iya fallasa OmniRoute cikin aminci ta amfani da samar da SSL ta atomatik na 
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     container_name: omniroute
     restart: unless-stopped
     volumes:
@@ -486,10 +486,10 @@ Ana iya nuna ko ɓoye bangarorin ramin endpoint (Cloudflare, Tailscale, ngrok) d
 
 ## Alamomin Hoto
 
-| Hoto                     | Alama    | Girma  | Bayani                                                           |
-| ------------------------ | -------- | ------ | ---------------------------------------------------------------- |
-| `diegosouzapw/omniroute` | `latest` | ~250MB | SemVer tsayayye mafi girma da aka **wallafa** (ba git `main` ba) |
-| `diegosouzapw/omniroute` | `3.8.0`  | ~250MB | Kulle wannan rukunin alama don GitOps                            |
+| Hoto                  | Alama    | Girma  | Bayani                                                           |
+| --------------------- | -------- | ------ | ---------------------------------------------------------------- |
+| `reddb-io/red-router` | `latest` | ~250MB | SemVer tsayayye mafi girma da aka **wallafa** (ba git `main` ba) |
+| `reddb-io/red-router` | `3.8.0`  | ~250MB | Kulle wannan rukunin alama don GitOps                            |
 
 Manifest na dandamali da yawa: `linux/amd64` + `linux/arm64` na asali (Apple Silicon, AWS Graviton, Raspberry Pi). Docker yana zaɓar gine-ginen da ya dace ta atomatik; miƙa `--platform linux/amd64` idan kana buƙatar tilasta kwaikwayon AMD64 a kan masaukan ARM.
 
@@ -522,8 +522,8 @@ Idan kana amfani da waɗannan masu samarwar, sauke alamar `-web` ta tashar da ka
 Ana sake gina tashar `next` a duk lokacin da aka yi push zuwa reshen `release/v*` na yanzu da aka zaɓa, kuma ana wallafa ta don AMD64 da ARM64. Tsofaffin rassan kulawa ba za su iya sake rubuta ta ba. Tashar tana samar da hoto da za a iya saukewa don gyare-gyaren da aka haɗa cikin reshen fitarwa mai aiki kafin a ƙirƙiri alamar tsayayyen siga ta gaba.
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker pull diegosouzapw/omniroute:next-web
+docker pull reddb-io/red-router:next
+docker pull reddb-io/red-router:next-web
 ```
 
 Don Docker Compose, maye gurbin alamar hoton da profile ɗin da aka zaɓa yake amfani da ita, sannan sauke kuma sake ƙirƙirar sabis ɗin:
@@ -531,7 +531,7 @@ Don Docker Compose, maye gurbin alamar hoton da profile ɗin da aka zaɓa yake a
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:next
+    image: reddb-io/red-router:next
 ```
 
 ```bash
@@ -544,14 +544,14 @@ docker compose up -d
 `next` tasha ce ta kafin-fitowa mai shawagi. Tana iya canzawa a duk wani push zuwa reshen fitarwa mai aiki kuma **ba a tallafa mata don amfanin samarwa ba**. Kulle digest na hoton yayin tantance takamaiman gini:
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker image inspect diegosouzapw/omniroute:next --format '{{index .RepoDigests 0}}'
+docker pull reddb-io/red-router:next
+docker image inspect reddb-io/red-router:next --format '{{index .RepoDigests 0}}'
 ```
 
 Kafin gwaji, yi ajiyar madadin volume na bayanan OmniRoute ko kundin bayanan da aka ɗaura ta bind mount. Don komawa baya, dawo da tsayayyen siga ko digest da aka yi amfani da shi a baya sannan sake ƙirƙirar container ɗin:
 
 ```bash
-docker pull diegosouzapw/omniroute:<stable-version>
+docker pull reddb-io/red-router:<stable-version>
 docker compose up -d
 ```
 
@@ -642,7 +642,7 @@ Misalin Compose (heaps guda biyu, volumes guda biyu — ba `deploy.replicas: 2` 
 ```yaml
 services:
   omniroute-a:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"
@@ -651,7 +651,7 @@ services:
     volumes: [omniroute-a-data:/app/data]
     ports: ["20128:20128"]
   omniroute-b:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"

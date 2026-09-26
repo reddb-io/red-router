@@ -24,7 +24,7 @@ OmniRoute solves the problem of managing multiple AI provider subscriptions, quo
 - **Proxy engine:** Custom pipeline with format translation, circuit breaker, rate limiting, auto-combo engine
 - **i18n:** next-intl with 67 languages
 - **Desktop:** Electron (cross-platform: Windows, macOS, Linux)
-- **Package:** Published on npm (`omniroute`) and Docker Hub (`diegosouzapw/omniroute`)
+- **Package:** Published on npm (`omniroute`) and Docker Hub (`reddb-io/red-router`)
 
 ## Project Structure
 
@@ -488,7 +488,7 @@ diagnostics) plus **memory**, **skill**, **agentSkill**, **githubSkill**, **pool
 - Repository: https://github.com/diegosouzapw/OmniRoute
 - Website: https://omniroute.online
 - npm: https://www.npmjs.com/package/omniroute
-- Docker Hub: https://hub.docker.com/r/diegosouzapw/omniroute
+- Docker Hub: https://hub.docker.com/r/reddb-io/red-router
 - Documentation: See `/docs/` directory
 
 ### Documentation Index

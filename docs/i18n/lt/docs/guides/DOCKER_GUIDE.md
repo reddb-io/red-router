@@ -40,7 +40,7 @@ docker run -d \
   --stop-timeout 40 \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## Naudojant aplinkos failą
@@ -56,7 +56,7 @@ docker run -d \
   --env-file .env \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## Docker Compose
@@ -333,7 +333,7 @@ Nustatykite **cgroup `--memory` didesnį už kaupą** — savieji buferiai, SQLi
 ```bash
 docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
   -e OMNIROUTE_MEMORY_MB=8192 --memory=10g \
-  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data reddb-io/red-router:latest
 ```
 
 ## Kritiniai aplinkos kintamieji
@@ -390,14 +390,14 @@ vykdymo aplinkos kintamąjį.
 
 ### Iš anksto sukurtas šakninio kelio atvaizdas + vykdymo aplinkos poaplankis
 
-Paskelbti `diegosouzapw/omniroute:*` atvaizdai yra sukurti domeno šakniniam keliui. Vis tiek galite
+Paskelbti `reddb-io/red-router:*` atvaizdai yra sukurti domeno šakniniam keliui. Vis tiek galite
 nustatyti `OMNIROUTE_BASE_PATH` vykdymo metu; paleidžiamas konteineris vieną kartą pataisys paketą.
 Kartu nurodykite atitinkamą viešąjį šaltinį:
 
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     environment:
       OMNIROUTE_BASE_PATH: /omniroute
       NEXT_PUBLIC_BASE_URL: https://myhostname.example.com/omniroute
@@ -440,7 +440,7 @@ OmniRoute galima saugiai paskelbti naudojant Caddy automatinį SSL parengimą. �
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     container_name: omniroute
     restart: unless-stopped
     volumes:
@@ -490,10 +490,10 @@ Galinių taškų tunelių skydelius (Cloudflare, Tailscale, ngrok) galima rodyti
 
 ## Atvaizdų žymos
 
-| Atvaizdas                | Žyma     | Dydis  | Aprašymas                                                |
-| ------------------------ | -------- | ------ | -------------------------------------------------------- |
-| `diegosouzapw/omniroute` | `latest` | ~250MB | Aukščiausia **paskelbta** stabili SemVer (ne git `main`) |
-| `diegosouzapw/omniroute` | `3.8.0`  | ~250MB | GitOps naudokite fiksuotą šios klasės žymą               |
+| Atvaizdas             | Žyma     | Dydis  | Aprašymas                                                |
+| --------------------- | -------- | ------ | -------------------------------------------------------- |
+| `reddb-io/red-router` | `latest` | ~250MB | Aukščiausia **paskelbta** stabili SemVer (ne git `main`) |
+| `reddb-io/red-router` | `3.8.0`  | ~250MB | GitOps naudokite fiksuotą šios klasės žymą               |
 
 Kelių platformų manifestas: savieji `linux/amd64` + `linux/arm64` atvaizdai („Apple Silicon“, „AWS Graviton“, „Raspberry Pi“). Docker automatiškai parenka tinkamą architektūrą; jei ARM pagrindiniuose kompiuteriuose reikia priverstinai naudoti AMD64 emuliaciją, nurodykite `--platform linux/amd64`.
 
@@ -526,8 +526,8 @@ Jei naudojate šiuos teikėjus, atsisiųskite jau naudojamo kanalo `-web` žymą
 `next` kanalas iš naujo sukuriamas po kiekvieno pakeitimų išsiuntimo į dabartinę numatytąją `release/v*` šaką ir skelbiamas tiek AMD64, tiek ARM64 architektūroms. Senesnės priežiūros šakos negali jo perrašyti. Šis kanalas suteikia atsisiunčiamą atvaizdą pataisoms, kurios prieš sukuriant kitą stabilią žymą buvo sujungtos su aktyvia leidimo šaka.
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker pull diegosouzapw/omniroute:next-web
+docker pull reddb-io/red-router:next
+docker pull reddb-io/red-router:next-web
 ```
 
 Naudodami Docker Compose, pakeiskite pasirinkto profilio naudojamą atvaizdo žymą, tada atsisiųskite atvaizdą ir iš naujo sukurkite paslaugą:
@@ -535,7 +535,7 @@ Naudodami Docker Compose, pakeiskite pasirinkto profilio naudojamą atvaizdo žy
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:next
+    image: reddb-io/red-router:next
 ```
 
 ```bash
@@ -548,14 +548,14 @@ docker compose up -d
 `next` yra kintamas išankstinio leidimo kanalas. Jis gali pasikeisti po bet kokio pakeitimų išsiuntimo į aktyvią leidimo šaką ir **nėra palaikomas produkciniam naudojimui**. Vertindami konkrečią versiją, užfiksuokite atvaizdo maišą:
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker image inspect diegosouzapw/omniroute:next --format '{{index .RepoDigests 0}}'
+docker pull reddb-io/red-router:next
+docker image inspect reddb-io/red-router:next --format '{{index .RepoDigests 0}}'
 ```
 
 Prieš testuodami sukurkite atsarginę OmniRoute duomenų tomo arba susieto duomenų katalogo kopiją. Norėdami grįžti prie ankstesnės versijos, atkurkite anksčiau naudotą stabilią versiją arba maišą ir iš naujo sukurkite konteinerį:
 
 ```bash
-docker pull diegosouzapw/omniroute:<stable-version>
+docker pull reddb-io/red-router:<stable-version>
 docker compose up -d
 ```
 
@@ -646,7 +646,7 @@ Compose pavyzdys (dvi krūvos, du tomai — ne `deploy.replicas: 2`):
 ```yaml
 services:
   omniroute-a:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"
@@ -655,7 +655,7 @@ services:
     volumes: [omniroute-a-data:/app/data]
     ports: ["20128:20128"]
   omniroute-b:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"

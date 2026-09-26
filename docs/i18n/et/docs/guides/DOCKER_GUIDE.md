@@ -40,7 +40,7 @@ docker run -d \
   --stop-timeout 40 \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## Keskkonnafailiga
@@ -56,7 +56,7 @@ docker run -d \
   --env-file .env \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## Docker Compose
@@ -335,7 +335,7 @@ Määrake **cgroup'i `--memory` kuhjamälust suuremaks** — natiivsed puhvrid, 
 ```bash
 docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
   -e OMNIROUTE_MEMORY_MB=8192 --memory=10g \
-  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data reddb-io/red-router:latest
 ```
 
 ## Kriitilised keskkonnamuutujad
@@ -392,14 +392,14 @@ ka käituskeskkonna keskkonnamuutujana.
 
 ### Eelkoostatud juurtee tõmmis + käitusaegne alamtee
 
-Avaldatud `diegosouzapw/omniroute:*` tõmmised on koostatud domeeni juurtee jaoks.
+Avaldatud `reddb-io/red-router:*` tõmmised on koostatud domeeni juurtee jaoks.
 Sellegipoolest saate määrata `OMNIROUTE_BASE_PATH`-i käitusajal; konteiner paikab paketti
 käivitumisel ühe korra. Kasutage koos sellega sobivat avalikku lähteaadressi:
 
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     environment:
       OMNIROUTE_BASE_PATH: /omniroute
       NEXT_PUBLIC_BASE_URL: https://myhostname.example.com/omniroute
@@ -442,7 +442,7 @@ OmniRoute'i saab turvaliselt avalikustada Caddy automaatse SSL-i seadistamise ab
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     container_name: omniroute
     restart: unless-stopped
     volumes:
@@ -492,10 +492,10 @@ Lõpp-punktide tunnelipaneele (Cloudflare, Tailscale, ngrok) saab asukohas `Sead
 
 ## Pildisildid
 
-| Pilt                     | Silt     | Suurus | Kirjeldus                                                  |
-| ------------------------ | -------- | ------ | ---------------------------------------------------------- |
-| `diegosouzapw/omniroute` | `latest` | ~250MB | Kõrgeim **avaldatud** stabiilne SemVer (mitte giti `main`) |
-| `diegosouzapw/omniroute` | `3.8.0`  | ~250MB | GitOpsi jaoks kinnitage seda tüüpi silt                    |
+| Pilt                  | Silt     | Suurus | Kirjeldus                                                  |
+| --------------------- | -------- | ------ | ---------------------------------------------------------- |
+| `reddb-io/red-router` | `latest` | ~250MB | Kõrgeim **avaldatud** stabiilne SemVer (mitte giti `main`) |
+| `reddb-io/red-router` | `3.8.0`  | ~250MB | GitOpsi jaoks kinnitage seda tüüpi silt                    |
 
 Mitme platvormi manifest: natiivne `linux/amd64` + `linux/arm64` (Apple Silicon, AWS Graviton, Raspberry Pi). Docker valib sobiva arhitektuuri automaatselt; edastage `--platform linux/amd64`, kui peate ARM-hostides sundima AMD64 emulatsiooni.
 
@@ -528,8 +528,8 @@ Kui kasutate neid pakkujaid, tõmmake juba kasutatava kanali `-web` silt — mid
 Kanal `next` luuakse uuesti iga tõuke korral praegusesse vaikimisi `release/v*` harusse ning avaldatakse nii AMD64 kui ka ARM64 jaoks. Vanemad hooldusharud ei saa seda üle kirjutada. Kanal pakub tõmmatavat pilti paranduste jaoks, mis on enne järgmise stabiilse sildi loomist aktiivsesse väljalaskeharusse mestitud.
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker pull diegosouzapw/omniroute:next-web
+docker pull reddb-io/red-router:next
+docker pull reddb-io/red-router:next-web
 ```
 
 Docker Compose'i puhul alistage valitud profiili kasutatav pildisilt ning seejärel tõmmake pilt ja looge teenus uuesti:
@@ -537,7 +537,7 @@ Docker Compose'i puhul alistage valitud profiili kasutatav pildisilt ning seejä
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:next
+    image: reddb-io/red-router:next
 ```
 
 ```bash
@@ -550,14 +550,14 @@ docker compose up -d
 `next` on ujuv eelväljalaskekanal. See võib aktiivsesse väljalaskeharusse tehtava mis tahes tõuke korral muutuda ja selle kasutamist **tootmiskeskkonnas ei toetata**. Konkreetse järgu hindamise ajaks kinnitage pildi räsi:
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker image inspect diegosouzapw/omniroute:next --format '{{index .RepoDigests 0}}'
+docker pull reddb-io/red-router:next
+docker image inspect reddb-io/red-router:next --format '{{index .RepoDigests 0}}'
 ```
 
 Enne testimist varundage OmniRoute'i andmeköide või haagitud andmekataloog. Tagasipööramiseks taastage varem kasutatud stabiilne versioon või räsi ja looge konteiner uuesti:
 
 ```bash
-docker pull diegosouzapw/omniroute:<stable-version>
+docker pull reddb-io/red-router:<stable-version>
 docker compose up -d
 ```
 
@@ -648,7 +648,7 @@ Compose'i näidis (kaks kuhja, kaks andmeköidet — mitte `deploy.replicas: 2`)
 ```yaml
 services:
   omniroute-a:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"
@@ -657,7 +657,7 @@ services:
     volumes: [omniroute-a-data:/app/data]
     ports: ["20128:20128"]
   omniroute-b:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"

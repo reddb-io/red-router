@@ -70,7 +70,7 @@ docker rm omniroute
 docker volume rm omniroute-data
 
 # (वैकल्पिक) इमेज हटाउनुहोस्
-docker rmi diegosouzapw/omniroute:latest
+docker rmi reddb-io/red-router:latest
 ```
 
 ### Docker Compose

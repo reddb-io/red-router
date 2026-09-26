@@ -86,9 +86,9 @@
 
 [![phiên bản npm](https://img.shields.io/npm/v/omniroute?color=cb3837&logo=npm)](https://www.npmjs.com/package/omniroute)
 ![Lượt tải NPM hằng tháng](https://img.shields.io/npm/dm/omniroute?label=npm/month&color=cb3837&logo=npm)
-[![Docker Hub](https://img.shields.io/docker/v/diegosouzapw/omniroute?label=Docker%20Hub&logo=docker&color=2496ED)](https://hub.docker.com/r/diegosouzapw/omniroute)
+[![Docker Hub](https://img.shields.io/docker/v/reddb-io/red-router?label=Docker%20Hub&logo=docker&color=2496ED)](https://hub.docker.com/r/reddb-io/red-router)
 [![Giấy phép: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](LICENSE)
-![Lượt tải Docker](https://img.shields.io/docker/pulls/diegosouzapw/omniroute?label=docker%20pulls&logo=docker&color=2496ED)
+![Lượt tải Docker](https://img.shields.io/docker/pulls/reddb-io/red-router?label=docker%20pulls&logo=docker&color=2496ED)
 ![Lượt tải Electron](https://img.shields.io/github/downloads/diegosouzapw/omniroute/total?style=flat&label=electron%20downloads&logo=electron&color=47848F)
 
 <table>
@@ -743,7 +743,7 @@ lưu khóa bí mật vào lịch sử shell. → [Tích hợp CLI](docs/guides/C
 <table>
   <tr><th align="left">Nền tảng</th><th align="left">Cài đặt</th><th align="left">Điểm nổi bật</th></tr>
   <tr><td align="left" nowrap>📦 <b>npm (toàn cục)</b></td><td align="left" nowrap><code>npm install -g omniroute</code></td><td align="left">Một lệnh, mọi hệ điều hành</td></tr>
-  <tr><td align="left" nowrap>🐳 <b>Docker</b></td><td align="left" nowrap><code>docker run … diegosouzapw/omniroute</code></td><td align="left">Đa kiến trúc <b>AMD64 + ARM64</b></td></tr>
+  <tr><td align="left" nowrap>🐳 <b>Docker</b></td><td align="left" nowrap><code>docker run … reddb-io/red-router</code></td><td align="left">Đa kiến trúc <b>AMD64 + ARM64</b></td></tr>
   <tr><td align="left" nowrap>🖥️ <b>Máy tính để bàn (Electron)</b></td><td align="left" nowrap><code>npm run electron:build</code></td><td align="left">Cửa sổ gốc + khay hệ thống — <b>Windows / macOS / Linux</b></td></tr>
   <tr><td align="left" nowrap>🎩 <b>Thanh menu (OmniRouteTray)</b></td><td align="left" nowrap><code>brew install --cask zoispag/tap/omniroute-tray</code></td><td align="left">Giám sát &amp; tự động cập nhật máy chủ — <b>macOS</b></td></tr>
   <tr><td align="left" nowrap>💪 <b>ARM</b></td><td align="left" nowrap><code>arm64</code> nguyên bản</td><td align="left">Raspberry Pi, máy chủ ARM, Apple Silicon</td></tr>
@@ -1047,7 +1047,7 @@ Chỉ sử dụng các bí danh này cho những máy khách không thể đính
 
 ```bash
 docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
-  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data reddb-io/red-router:latest
 ```
 
 `:latest` luôn trỏ đến phiên bản SemVer ổn định **đã phát hành** cao nhất. Thẻ này không theo dõi nhánh git `main`. Hãy ghim `:X.Y.Z` khi dùng GitOps. Xem [Các kênh phát hành Docker](docs/guides/DOCKER_GUIDE.md#release-channels). Image ghim **`OMNIROUTE_MEMORY_MB=1024`**. Mức này đủ cho bảng điều khiển và các cuộc trò chuyện nhẹ. **Các tác nhân lập trình** (`POST /v1/responses` từ Claude Code, Codex, Grok, …) cần heap V8 lớn hơn nhiều, nếu không tiến trình sẽ gặp `FATAL ERROR` ở mức khoảng 12 GiB khi có hai ngữ cảnh dài chồng lấn. Hãy đặt giới hạn bộ nhớ container cao hơn heap (các bộ đệm native nằm ngoài V8):
@@ -1061,13 +1061,13 @@ docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
 ```bash
 docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
   -e OMNIROUTE_MEMORY_MB=8192 --memory=10g \
-  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data reddb-io/red-router:latest
 ```
 
 Bảng đầy đủ: [Hướng dẫn Docker — RAM khi chạy](docs/guides/DOCKER_GUIDE.md#runtime-ram-for-coding-agents).
 
-> **Kênh Docker tiền phát hành:** `diegosouzapw/omniroute:next` và
-> `diegosouzapw/omniroute:next-web` theo dõi nhánh `release/v*` mặc định hiện tại.
+> **Kênh Docker tiền phát hành:** `reddb-io/red-router:next` và
+> `reddb-io/red-router:next-web` theo dõi nhánh `release/v*` mặc định hiện tại.
 > Các thẻ có thể thay đổi này chỉ dành cho việc kiểm thử các bản sửa lỗi chưa phát hành và
 > **không được hỗ trợ cho môi trường production**. Xem
 > [Các kênh phát hành Docker](docs/guides/DOCKER_GUIDE.md#release-channels).
@@ -1278,7 +1278,7 @@ Số liệu chuẩn vào 2026-08-24: **1.029 video duy nhất** · **11.132.922 
   <tr><td nowrap><b>Kiểm thử</b></td><td>Node.js test runner + Vitest — <b>Hơn 39.000 khai báo kiểm thử tĩnh</b> trên hơn 5.100 tệp kiểm thử được theo dõi (đơn vị, tích hợp, E2E, bảo mật, hệ sinh thái)</td></tr>
   <tr><td nowrap><b>Nền tảng</b></td><td>Máy tính để bàn (Electron) · Android (Termux) · PWA (mọi trình duyệt)</td></tr>
   <tr><td nowrap><b>CI/CD</b></td><td>GitHub Actions — tự động xuất bản npm + Docker Hub khi phát hành</td></tr>
-  <tr><td nowrap><b>Liên kết</b></td><td><a href="https://omniroute.online">Trang web</a> · <a href="https://www.npmjs.com/package/omniroute">npm</a> · <a href="https://hub.docker.com/r/diegosouzapw/omniroute">Docker Hub</a></td></tr>
+  <tr><td nowrap><b>Liên kết</b></td><td><a href="https://omniroute.online">Trang web</a> · <a href="https://www.npmjs.com/package/omniroute">npm</a> · <a href="https://hub.docker.com/r/reddb-io/red-router">Docker Hub</a></td></tr>
 </table>
 
 <div align="center">

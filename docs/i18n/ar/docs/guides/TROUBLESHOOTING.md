@@ -412,7 +412,7 @@ omniroute
 2. **إصلاح دائم:** اربط بـ IPv4 صراحةً باستخدام `-p 127.0.0.1:20128:20128` في أمر `docker run`:
    ```bash
    docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
-     -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+     -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data reddb-io/red-router:latest
    ```
    يفرض هذا الربط بـ IPv4 ويتجنب أيضًا كشف الوكيل على جميع واجهات المضيف.
 

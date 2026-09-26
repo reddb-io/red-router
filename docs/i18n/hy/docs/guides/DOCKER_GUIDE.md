@@ -40,7 +40,7 @@ docker run -d \
   --stop-timeout 40 \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## Միջավայրի ֆայլով
@@ -56,7 +56,7 @@ docker run -d \
   --env-file .env \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## Docker Compose
@@ -314,7 +314,7 @@ Bare metal միջավայրում `omniroute serve`-ը կարգավորում է
 ```bash
 docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
   -e OMNIROUTE_MEMORY_MB=8192 --memory=10g \
-  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data reddb-io/red-router:latest
 ```
 
 ## Կրիտիկական միջավայրի փոփոխականներ
@@ -371,14 +371,14 @@ docker compose --profile base up -d --build
 
 ### Նախապես կառուցված արմատային պատկեր + կատարման ժամանակի ենթուղի
 
-Հրապարակված `diegosouzapw/omniroute:*` պատկերները կառուցված են դոմենի արմատի համար։ Այնուամենայնիվ,
+Հրապարակված `reddb-io/red-router:*` պատկերները կառուցված են դոմենի արմատի համար։ Այնուամենայնիվ,
 կարող եք կատարման ժամանակ սահմանել `OMNIROUTE_BASE_PATH`․ կոնտեյները մեկնարկի պահին մեկ անգամ
 կուղղի փաթեթը։ Այն զուգակցեք համապատասխան հանրային սկզբնաղբյուրի հետ․
 
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     environment:
       OMNIROUTE_BASE_PATH: /omniroute
       NEXT_PUBLIC_BASE_URL: https://myhostname.example.com/omniroute
@@ -420,7 +420,7 @@ OmniRoute-ը կարելի է անվտանգ հասանելի դարձնել՝ օ
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     container_name: omniroute
     restart: unless-stopped
     volumes:
@@ -470,10 +470,10 @@ Docker տեղակայումների կառավարման վահանակի աջա
 
 ## Պատկերների թեգեր
 
-| Պատկեր                   | Թեգ      | Չափ    | Նկարագրություն                                                  |
-| ------------------------ | -------- | ------ | --------------------------------------------------------------- |
-| `diegosouzapw/omniroute` | `latest` | ~250MB | Ամենաբարձր **հրապարակված** կայուն SemVer-ը (ոչ թե git `main`-ը) |
-| `diegosouzapw/omniroute` | `3.8.0`  | ~250MB | GitOps-ի համար ամրագրեք այս դասի թեգը                           |
+| Պատկեր                | Թեգ      | Չափ    | Նկարագրություն                                                  |
+| --------------------- | -------- | ------ | --------------------------------------------------------------- |
+| `reddb-io/red-router` | `latest` | ~250MB | Ամենաբարձր **հրապարակված** կայուն SemVer-ը (ոչ թե git `main`-ը) |
+| `reddb-io/red-router` | `3.8.0`  | ~250MB | GitOps-ի համար ամրագրեք այս դասի թեգը                           |
 
 Բազմահարթակ մանիֆեստ՝ բնիկ `linux/amd64` + `linux/arm64` (Apple Silicon, AWS Graviton, Raspberry Pi)։ Docker-ն ինքնաբերաբար ընտրում է համապատասխան ճարտարապետությունը․ փոխանցեք `--platform linux/amd64`, եթե ARM հոսթերում հարկավոր է հարկադրաբար օգտագործել AMD64 էմուլյացիա։
 
@@ -506,8 +506,8 @@ OmniRoute-ը հրապարակում է Docker-ի առանձին ալիքներ՝
 `next` ալիքը վերակառուցվում է ընթացիկ լռելյայն `release/v*` ճյուղ կատարվող յուրաքանչյուր push-ի ժամանակ և հրապարակվում է ինչպես AMD64-ի, այնպես էլ ARM64-ի համար։ Ավելի հին սպասարկման ճյուղերը չեն կարող վերագրել այն։ Ալիքը տրամադրում է ներբեռնելի պատկեր այն ուղղումների համար, որոնք մինչև հաջորդ կայուն թեգի ստեղծումը միավորվել են ակտիվ թողարկման ճյուղին։
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker pull diegosouzapw/omniroute:next-web
+docker pull reddb-io/red-router:next
+docker pull reddb-io/red-router:next-web
 ```
 
 Docker Compose-ի համար վերագրեք ընտրված պրոֆիլի կողմից օգտագործվող պատկերի թեգը, ապա ներբեռնեք պատկերը և վերստեղծեք ծառայությունը․
@@ -515,7 +515,7 @@ Docker Compose-ի համար վերագրեք ընտրված պրոֆիլի կո
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:next
+    image: reddb-io/red-router:next
 ```
 
 ```bash
@@ -528,14 +528,14 @@ docker compose up -d
 `next`-ը փոփոխական նախաթողարկման ալիք է։ Այն կարող է փոխվել ակտիվ թողարկման ճյուղ կատարվող ցանկացած push-ի ժամանակ և **չի աջակցվում արտադրական օգտագործման համար**։ Կոնկրետ կառուցվածքը գնահատելիս ամրագրեք պատկերի դայջեսթը․
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker image inspect diegosouzapw/omniroute:next --format '{{index .RepoDigests 0}}'
+docker pull reddb-io/red-router:next
+docker image inspect reddb-io/red-router:next --format '{{index .RepoDigests 0}}'
 ```
 
 Փորձարկումից առաջ պահուստավորեք OmniRoute-ի տվյալների հատորը կամ bind mount-ով միացված տվյալների գրացուցակը։ Հետադարձման համար վերականգնեք նախկինում օգտագործված կայուն տարբերակը կամ դայջեսթը և վերստեղծեք կոնտեյները․
 
 ```bash
-docker pull diegosouzapw/omniroute:<stable-version>
+docker pull reddb-io/red-router:<stable-version>
 docker compose up -d
 ```
 
@@ -626,7 +626,7 @@ Compose-ի ուրվագիծ (երկու heap, երկու volume՝ ոչ թե `dep
 ```yaml
 services:
   omniroute-a:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"
@@ -635,7 +635,7 @@ services:
     volumes: [omniroute-a-data:/app/data]
     ports: ["20128:20128"]
   omniroute-b:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"

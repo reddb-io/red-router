@@ -40,7 +40,7 @@ docker run -d \
   --stop-timeout 40 \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## B’Fajl tal-Ambjent
@@ -56,7 +56,7 @@ docker run -d \
   --env-file .env \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## Docker Compose
@@ -332,7 +332,7 @@ Issettja d-daqs ta’ **cgroup `--memory` ogħla mill-heap** — il-buffers natt
 ```bash
 docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
   -e OMNIROUTE_MEMORY_MB=8192 --memory=10g \
-  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data reddb-io/red-router:latest
 ```
 
 ## Varjabbli Kritiċi tal-Ambjent
@@ -389,14 +389,14 @@ u bħala varjabbli tal-ambjent runtime.
 
 ### Image tal-għerq mibnija minn qabel + sottomogħdija runtime
 
-L-images ippubblikati `diegosouzapw/omniroute:*` huma mibnija għall-għerq tad-dominju.
+L-images ippubblikati `reddb-io/red-router:*` huma mibnija għall-għerq tad-dominju.
 Xorta tista’ tissettja `OMNIROUTE_BASE_PATH` waqt ir-runtime; il-container japplika
 patch lill-bundle darba meta jibda. Użaha flimkien mal-oriġini pubblika korrispondenti:
 
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     environment:
       OMNIROUTE_BASE_PATH: /omniroute
       NEXT_PUBLIC_BASE_URL: https://myhostname.example.com/omniroute
@@ -439,7 +439,7 @@ OmniRoute jista’ jiġi espost b’mod sigur bl-użu tal-forniment awtomatiku t
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     container_name: omniroute
     restart: unless-stopped
     volumes:
@@ -489,10 +489,10 @@ Il-pannelli tal-mini tal-endpoints (Cloudflare, Tailscale, ngrok) jistgħu jintw
 
 ## Tikketti tal-Immaġnijiet
 
-| Immaġni                  | Tikketta | Daqs   | Deskrizzjoni                                            |
-| ------------------------ | -------- | ------ | ------------------------------------------------------- |
-| `diegosouzapw/omniroute` | `latest` | ~250MB | L-ogħla SemVer stabbli **ppubblikat** (mhux git `main`) |
-| `diegosouzapw/omniroute` | `3.8.0`  | ~250MB | Iffissa din il-klassi ta’ tikketta għal GitOps          |
+| Immaġni               | Tikketta | Daqs   | Deskrizzjoni                                            |
+| --------------------- | -------- | ------ | ------------------------------------------------------- |
+| `reddb-io/red-router` | `latest` | ~250MB | L-ogħla SemVer stabbli **ppubblikat** (mhux git `main`) |
+| `reddb-io/red-router` | `3.8.0`  | ~250MB | Iffissa din il-klassi ta’ tikketta għal GitOps          |
 
 Manifest għal diversi pjattaformi: `linux/amd64` + `linux/arm64` nattivi (Apple Silicon, AWS Graviton, Raspberry Pi). Docker jagħżel awtomatikament l-arkitettura korrispondenti; għaddi `--platform linux/amd64` jekk ikollok bżonn tisforza l-emulazzjoni ta’ AMD64 fuq hosts ARM.
 
@@ -525,8 +525,8 @@ Jekk tuża dawk il-fornituri, niżżel it-tikketta `-web` tal-kanal li diġà qe
 Il-kanal `next` jerġa’ jinbena ma’ kull push lejn il-fergħa `release/v*` predefinita attwali u jiġi ppubblikat kemm għal AMD64 kif ukoll għal ARM64. Fergħat ta’ manutenzjoni eqdem ma jistgħux jissostitwuh. Il-kanal jipprovdi immaġni li tista’ titniżżel għal soluzzjonijiet li ġew integrati fil-fergħa tar-rilaxx attiva qabel ma tinħoloq it-tikketta stabbli li jmiss.
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker pull diegosouzapw/omniroute:next-web
+docker pull reddb-io/red-router:next
+docker pull reddb-io/red-router:next-web
 ```
 
 Għal Docker Compose, ibdel it-tikketta tal-immaġni użata mill-profil magħżul, imbagħad niżżel u erġa’ oħloq is-servizz:
@@ -534,7 +534,7 @@ Għal Docker Compose, ibdel it-tikketta tal-immaġni użata mill-profil magħżu
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:next
+    image: reddb-io/red-router:next
 ```
 
 ```bash
@@ -547,14 +547,14 @@ docker compose up -d
 `next` huwa kanal varjabbli ta’ qabel ir-rilaxx. Jista’ jinbidel ma’ kwalunkwe push lejn il-fergħa tar-rilaxx attiva u **mhuwiex appoġġjat għall-użu fil-produzzjoni**. Iffissa d-digest tal-immaġni waqt li tkun qed tevalwa build speċifiku:
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker image inspect diegosouzapw/omniroute:next --format '{{index .RepoDigests 0}}'
+docker pull reddb-io/red-router:next
+docker image inspect reddb-io/red-router:next --format '{{index .RepoDigests 0}}'
 ```
 
 Qabel l-ittestjar, agħmel backup tal-volum tad-data ta’ OmniRoute jew tad-direttorju tad-data mmuntat permezz ta’ bind. Biex terġa’ lura, irrestawra l-verżjoni stabbli jew id-digest li kont tuża qabel u erġa’ oħloq il-container:
 
 ```bash
-docker pull diegosouzapw/omniroute:<stable-version>
+docker pull reddb-io/red-router:<stable-version>
 docker compose up -d
 ```
 
@@ -645,7 +645,7 @@ Abbozz ta’ Compose (żewġ heaps, żewġ volumes — mhux `deploy.replicas: 2`
 ```yaml
 services:
   omniroute-a:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"
@@ -654,7 +654,7 @@ services:
     volumes: [omniroute-a-data:/app/data]
     ports: ["20128:20128"]
   omniroute-b:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"

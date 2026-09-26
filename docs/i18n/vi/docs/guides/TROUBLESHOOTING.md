@@ -413,7 +413,7 @@ hãy xem [`docs/guides/KIRO_SETUP.md`](./KIRO_SETUP.md).
 2. **Cách khắc phục vĩnh viễn:** Liên kết rõ ràng với IPv4 bằng cách sử dụng `-p 127.0.0.1:20128:20128` trong lệnh `docker run`:
    ```bash
    docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
-     -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+     -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data reddb-io/red-router:latest
    ```
    Cách này buộc sử dụng liên kết IPv4 và cũng tránh để proxy bị truy cập từ tất cả các giao diện mạng của máy chủ.
 

@@ -40,7 +40,7 @@ docker run -d \
   --stop-timeout 40 \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## 環境ファイルを使用する場合
@@ -56,7 +56,7 @@ docker run -d \
   --env-file .env \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## Docker Compose
@@ -313,7 +313,7 @@ Docker のデフォルトである 1 GiB は、ダッシュボードや軽量�
 ```bash
 docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
   -e OMNIROUTE_MEMORY_MB=8192 --memory=10g \
-  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data reddb-io/red-router:latest
 ```
 
 ## 重要な環境変数
@@ -359,12 +359,12 @@ docker compose --profile base up -d --build
 
 ### ビルド済みルートイメージ + ランタイムサブパス
 
-公開されている `diegosouzapw/omniroute:*` イメージは、ドメインルート用にビルドされています。それでも、ランタイムに `OMNIROUTE_BASE_PATH` を設定できます。コンテナは起動時にバンドルへ一度だけパッチを適用します。対応する公開オリジンも合わせて設定してください。
+公開されている `reddb-io/red-router:*` イメージは、ドメインルート用にビルドされています。それでも、ランタイムに `OMNIROUTE_BASE_PATH` を設定できます。コンテナは起動時にバンドルへ一度だけパッチを適用します。対応する公開オリジンも合わせて設定してください。
 
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     environment:
       OMNIROUTE_BASE_PATH: /omniroute
       NEXT_PUBLIC_BASE_URL: https://myhostname.example.com/omniroute
@@ -392,7 +392,7 @@ Caddy の自動 SSL プロビジョニングを使用して、OmniRoute を安�
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     container_name: omniroute
     restart: unless-stopped
     volumes:
@@ -441,10 +441,10 @@ Docker デプロイ向けのダッシュボードでは、`Dashboard → Endpoin
 
 ## イメージタグ
 
-| イメージ                 | タグ     | サイズ | 説明                                                                             |
-| ------------------------ | -------- | ------ | -------------------------------------------------------------------------------- |
-| `diegosouzapw/omniroute` | `latest` | ~250MB | **公開済み**の安定版 SemVer のうち最高バージョン（git の `main` ではありません） |
-| `diegosouzapw/omniroute` | `3.8.0`  | ~250MB | GitOps ではこの種類のタグに固定してください                                      |
+| イメージ              | タグ     | サイズ | 説明                                                                             |
+| --------------------- | -------- | ------ | -------------------------------------------------------------------------------- |
+| `reddb-io/red-router` | `latest` | ~250MB | **公開済み**の安定版 SemVer のうち最高バージョン（git の `main` ではありません） |
+| `reddb-io/red-router` | `3.8.0`  | ~250MB | GitOps ではこの種類のタグに固定してください                                      |
 
 マルチプラットフォームマニフェスト：`linux/amd64` + `linux/arm64` ネイティブ（Apple Silicon、AWS Graviton、Raspberry Pi）。Docker は適合するアーキテクチャを自動的に選択します。ARM ホスト上で AMD64 エミュレーションを強制する必要がある場合は、`--platform linux/amd64` を指定してください。
 
@@ -477,8 +477,8 @@ OmniRoute は、安定版リリース、アクティブなリリースブラン�
 `next` チャンネルは、現在のデフォルト `release/v*` ブランチへの push ごとに再ビルドされ、AMD64 と ARM64 の両方で公開されます。古いメンテナンスブランチがこれを上書きすることはできません。このチャンネルでは、次の安定版タグが作成される前にアクティブなリリースブランチへマージされた修正を含む、pull 可能なイメージが提供されます。
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker pull diegosouzapw/omniroute:next-web
+docker pull reddb-io/red-router:next
+docker pull reddb-io/red-router:next-web
 ```
 
 Docker Compose では、選択したプロファイルで使用するイメージタグを上書きしてから、サービスを pull して再作成します。
@@ -486,7 +486,7 @@ Docker Compose では、選択したプロファイルで使用するイメー�
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:next
+    image: reddb-io/red-router:next
 ```
 
 ```bash
@@ -499,14 +499,14 @@ docker compose up -d
 `next` は可変のプレリリースチャンネルです。アクティブなリリースブランチへの push のたびに変更される可能性があり、**本番環境での使用はサポートされていません**。特定のビルドを評価する間は、イメージダイジェストに固定してください。
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker image inspect diegosouzapw/omniroute:next --format '{{index .RepoDigests 0}}'
+docker pull reddb-io/red-router:next
+docker image inspect reddb-io/red-router:next --format '{{index .RepoDigests 0}}'
 ```
 
 テスト前に、OmniRoute のデータボリュームまたはバインドマウントされたデータディレクトリをバックアップしてください。ロールバックするには、以前使用していた安定版バージョンまたはダイジェストを復元し、コンテナーを再作成します。
 
 ```bash
-docker pull diegosouzapw/omniroute:<stable-version>
+docker pull reddb-io/red-router:<stable-version>
 docker compose up -d
 ```
 
@@ -597,7 +597,7 @@ Compose の概略例（2 つのヒープ、2 つのボリューム — `deploy.r
 ```yaml
 services:
   omniroute-a:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"
@@ -606,7 +606,7 @@ services:
     volumes: [omniroute-a-data:/app/data]
     ports: ["20128:20128"]
   omniroute-b:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"

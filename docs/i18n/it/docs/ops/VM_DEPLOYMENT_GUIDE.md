@@ -133,7 +133,7 @@ EOF
 ### 2.3 Avviare il container
 
 ```bash
-docker pull diegosouzapw/omniroute:latest
+docker pull reddb-io/red-router:latest
 
 docker run -d \
   --name omniroute \
@@ -141,7 +141,7 @@ docker run -d \
   --env-file /opt/omniroute/.env \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ### 2.4 Verificare che sia in esecuzione
@@ -300,13 +300,13 @@ curl -sI https://llms.seudominio.com/health
 ### Aggiornare a una nuova versione
 
 ```bash
-docker pull diegosouzapw/omniroute:latest
+docker pull reddb-io/red-router:latest
 docker stop omniroute && docker rm omniroute
 docker run -d --name omniroute --restart unless-stopped \
   --env-file /opt/omniroute/.env \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ### Visualizzare i log

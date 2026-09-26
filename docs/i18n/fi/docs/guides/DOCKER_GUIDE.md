@@ -40,7 +40,7 @@ docker run -d \
   --stop-timeout 40 \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## Ympäristötiedoston käyttäminen
@@ -56,7 +56,7 @@ docker run -d \
   --env-file .env \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## Docker Compose
@@ -335,7 +335,7 @@ Mitoita **cgroupin `--memory` keon kokoa suuremmaksi** — natiivipuskurit, SQLi
 ```bash
 docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
   -e OMNIROUTE_MEMORY_MB=8192 --memory=10g \
-  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data reddb-io/red-router:latest
 ```
 
 ## Kriittiset ympäristömuuttujat
@@ -393,14 +393,14 @@ ja suoritusympäristön ympäristömuuttujana.
 
 ### Valmiiksi rakennettu juurilevykuva + suorituksenaikainen alipolku
 
-Julkaistut `diegosouzapw/omniroute:*`-levykuvat on rakennettu toimialueen juurta varten.
+Julkaistut `reddb-io/red-router:*`-levykuvat on rakennettu toimialueen juurta varten.
 Voit silti määrittää `OMNIROUTE_BASE_PATH`-arvon suorituksen aikana; säilö korjaa paketin
 kerran käynnistyksen yhteydessä. Käytä sen kanssa vastaavaa julkista alkuperää:
 
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     environment:
       OMNIROUTE_BASE_PATH: /omniroute
       NEXT_PUBLIC_BASE_URL: https://myhostname.example.com/omniroute
@@ -444,7 +444,7 @@ OmniRoute voidaan julkaista turvallisesti Caddyn automaattisen SSL-varmenteiden 
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     container_name: omniroute
     restart: unless-stopped
     volumes:
@@ -494,10 +494,10 @@ Päätepisteiden tunnelipaneelit (Cloudflare, Tailscale, ngrok) voidaan näyttä
 
 ## Levykuvatunnisteet
 
-| Levykuva                 | Tunniste | Koko   | Kuvaus                                                    |
-| ------------------------ | -------- | ------ | --------------------------------------------------------- |
-| `diegosouzapw/omniroute` | `latest` | ~250MB | Korkein **julkaistu** vakaa SemVer-versio (ei git `main`) |
-| `diegosouzapw/omniroute` | `3.8.0`  | ~250MB | Kiinnitä tämän tyyppinen tunniste GitOps-käyttöä varten   |
+| Levykuva              | Tunniste | Koko   | Kuvaus                                                    |
+| --------------------- | -------- | ------ | --------------------------------------------------------- |
+| `reddb-io/red-router` | `latest` | ~250MB | Korkein **julkaistu** vakaa SemVer-versio (ei git `main`) |
+| `reddb-io/red-router` | `3.8.0`  | ~250MB | Kiinnitä tämän tyyppinen tunniste GitOps-käyttöä varten   |
 
 Monialustainen manifesti: natiivit `linux/amd64` + `linux/arm64` (Apple Silicon, AWS Graviton, Raspberry Pi). Docker valitsee vastaavan arkkitehtuurin automaattisesti; anna `--platform linux/amd64`, jos AMD64-emulointi on pakotettava ARM-isännillä.
 
@@ -530,8 +530,8 @@ Jos käytät näitä tarjoajia, vedä jo käyttämäsi kanavan `-web`-tunniste �
 `next`-kanava rakennetaan uudelleen jokaisella työnnöllä nykyiseen oletusarvoiseen `release/v*`-haaraan, ja se julkaistaan sekä AMD64- että ARM64-arkkitehtuurille. Vanhemmat ylläpitohaarat eivät voi korvata sitä. Kanava tarjoaa vedettävän levykuvan korjauksille, jotka on yhdistetty aktiiviseen julkaisuhaaraan ennen seuraavan vakaan tunnisteen luomista.
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker pull diegosouzapw/omniroute:next-web
+docker pull reddb-io/red-router:next
+docker pull reddb-io/red-router:next-web
 ```
 
 Korvaa Docker Composessa valitun profiilin käyttämä levykuvatunniste ja vedä sekä luo palvelu sitten uudelleen:
@@ -539,7 +539,7 @@ Korvaa Docker Composessa valitun profiilin käyttämä levykuvatunniste ja vedä
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:next
+    image: reddb-io/red-router:next
 ```
 
 ```bash
@@ -552,14 +552,14 @@ docker compose up -d
 `next` on vaihtuva esijulkaisukanava. Se voi muuttua jokaisella aktiiviseen julkaisuhaaraan tehdyllä työnnöllä, eikä sitä **tueta tuotantokäytössä**. Kiinnitä levykuvan tiiviste arvioidessasi tiettyä koontiversiota:
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker image inspect diegosouzapw/omniroute:next --format '{{index .RepoDigests 0}}'
+docker pull reddb-io/red-router:next
+docker image inspect reddb-io/red-router:next --format '{{index .RepoDigests 0}}'
 ```
 
 Varmuuskopioi OmniRouten tietotaltio tai bind-liitetty tietohakemisto ennen testaamista. Palauta aiemmin käytetty vakaa versio tai tiiviste ja luo säilö uudelleen, jos haluat palata aiempaan versioon:
 
 ```bash
-docker pull diegosouzapw/omniroute:<stable-version>
+docker pull reddb-io/red-router:<stable-version>
 docker compose up -d
 ```
 
@@ -650,7 +650,7 @@ Compose-luonnos (kaksi kekoa, kaksi taltiota — ei `deploy.replicas: 2`):
 ```yaml
 services:
   omniroute-a:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"
@@ -659,7 +659,7 @@ services:
     volumes: [omniroute-a-data:/app/data]
     ports: ["20128:20128"]
   omniroute-b:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"

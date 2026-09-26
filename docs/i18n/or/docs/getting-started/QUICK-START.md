@@ -21,10 +21,10 @@ npm install -g omniroute
 ### ବିକଳ୍ପ B: Docker
 
 ```bash
-docker run -d --name omniroute -p 20128:20128 diegosouzapw/omniroute:latest
+docker run -d --name omniroute -p 20128:20128 reddb-io/red-router:latest
 ```
 
-`:latest` ହେଉଛି ସର୍ବୋଚ୍ଚ **ପ୍ରକାଶିତ** ସ୍ଥିର SemVer। ଏହା git `main`କୁ ଅନୁସରଣ କରେ **ନାହିଁ**। GitOps ପାଇଁ `diegosouzapw/omniroute:X.Y.Z`କୁ ପିନ୍ କରନ୍ତୁ। [ଇମେଜ୍ ଟ୍ୟାଗ୍ଗୁଡ଼ିକ / ରିଲିଜ୍ ଚ୍ୟାନେଲ୍ଗୁଡ଼ିକ](../guides/DOCKER_GUIDE.md#release-channels) ଦେଖନ୍ତୁ।
+`:latest` ହେଉଛି ସର୍ବୋଚ୍ଚ **ପ୍ରକାଶିତ** ସ୍ଥିର SemVer। ଏହା git `main`କୁ ଅନୁସରଣ କରେ **ନାହିଁ**। GitOps ପାଇଁ `reddb-io/red-router:X.Y.Z`କୁ ପିନ୍ କରନ୍ତୁ। [ଇମେଜ୍ ଟ୍ୟାଗ୍ଗୁଡ଼ିକ / ରିଲିଜ୍ ଚ୍ୟାନେଲ୍ଗୁଡ଼ିକ](../guides/DOCKER_GUIDE.md#release-channels) ଦେଖନ୍ତୁ।
 
 ### ବିକଳ୍ପ C: ଉତ୍ସ କୋଡ୍ରୁ
 

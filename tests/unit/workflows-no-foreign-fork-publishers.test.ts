@@ -35,7 +35,7 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../
 const workflowDir = path.join(repoRoot, ".github/workflows");
 
 /** The only owner whose namespaces this repository may publish to or gate on. */
-const OWNER = "diegosouzapw";
+const OWNER = "reddb-io";
 
 function workflowFiles(): string[] {
   return fs

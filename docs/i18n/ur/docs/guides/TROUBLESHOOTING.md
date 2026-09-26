@@ -415,7 +415,7 @@ v3.8.0 سے، **ٹوکن درآمد کریں**،
 2. **مستقل حل:** اپنی `docker run` کمانڈ میں `-p 127.0.0.1:20128:20128` استعمال کرکے واضح طور پر IPv4 سے بائنڈ کریں:
    ```bash
    docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
-     -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+     -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data reddb-io/red-router:latest
    ```
    یہ IPv4 بائنڈ کو یقینی بناتا ہے اور پراکسی کو ہوسٹ کے تمام انٹرفیسز پر ظاہر ہونے سے بھی روکتا ہے۔
 

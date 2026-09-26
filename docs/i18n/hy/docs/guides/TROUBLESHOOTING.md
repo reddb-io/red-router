@@ -427,7 +427,7 @@ v3.8.0-ից սկսած՝ **Import Token**-ի,
 2. **Մշտական լուծում․** Հստակորեն կապակցեք IPv4-ին՝ ձեր `docker run` հրամանում օգտագործելով `-p 127.0.0.1:20128:20128`․
    ```bash
    docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
-     -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+     -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data reddb-io/red-router:latest
    ```
    Սա հարկադրաբար կիրառում է IPv4 կապակցումը և նաև կանխում է պրոքսիի հասանելիությունը հոսթի բոլոր ցանցային միջերեսներում։
 

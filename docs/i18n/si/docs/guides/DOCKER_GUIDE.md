@@ -41,7 +41,7 @@ docker run -d \
   --stop-timeout 40 \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## පරිසර ගොනුවක් සමඟ
@@ -57,7 +57,7 @@ docker run -d \
   --env-file .env \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## Docker Compose
@@ -318,7 +318,7 @@ cgroup `--memory` ප්රමාණය **heap එකට වඩා වැඩි�
 ```bash
 docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
   -e OMNIROUTE_MEMORY_MB=8192 --memory=10g \
-  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data reddb-io/red-router:latest
 ```
 
 ## තීරණාත්මක පරිසර විචල්ය
@@ -364,12 +364,12 @@ docker compose --profile base up -d --build
 
 ### පෙර-build කළ root image එක + runtime උපමාර්ගය
 
-ප්රකාශිත `diegosouzapw/omniroute:*` images domain මූලය සඳහා build කර ඇත. එසේ වුවද, ඔබට runtime එකේදී `OMNIROUTE_BASE_PATH` සැකසිය හැක; container එක startup අවස්ථාවේදී bundle එක එක් වරක් patch කරයි. එයට ගැළපෙන public origin එකද සමඟ සකසන්න:
+ප්රකාශිත `reddb-io/red-router:*` images domain මූලය සඳහා build කර ඇත. එසේ වුවද, ඔබට runtime එකේදී `OMNIROUTE_BASE_PATH` සැකසිය හැක; container එක startup අවස්ථාවේදී bundle එක එක් වරක් patch කරයි. එයට ගැළපෙන public origin එකද සමඟ සකසන්න:
 
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     environment:
       OMNIROUTE_BASE_PATH: /omniroute
       NEXT_PUBLIC_BASE_URL: https://myhostname.example.com/omniroute
@@ -397,7 +397,7 @@ Caddy හි ස්වයංක්රීය SSL සැපයීම භාවි�
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     container_name: omniroute
     restart: unless-stopped
     volumes:
@@ -445,10 +445,10 @@ Docker යෙදවීම් සඳහා වන උපකරණ පුවරු
 
 ## Image ටැග්
 
-| Image                    | Tag      | ප්රමාණය | විස්තරය                                                 |
-| ------------------------ | -------- | ------- | ------------------------------------------------------- |
-| `diegosouzapw/omniroute` | `latest` | ~250MB  | ඉහළම **ප්රකාශිත** ස්ථාවර SemVer (`main` git ශාඛාව නොවේ) |
-| `diegosouzapw/omniroute` | `3.8.0`  | ~250MB  | GitOps සඳහා මෙම ටැග් පන්තිය ස්ථිර කරන්න                 |
+| Image                 | Tag      | ප්රමාණය | විස්තරය                                                 |
+| --------------------- | -------- | ------- | ------------------------------------------------------- |
+| `reddb-io/red-router` | `latest` | ~250MB  | ඉහළම **ප්රකාශිත** ස්ථාවර SemVer (`main` git ශාඛාව නොවේ) |
+| `reddb-io/red-router` | `3.8.0`  | ~250MB  | GitOps සඳහා මෙම ටැග් පන්තිය ස්ථිර කරන්න                 |
 
 බහු-වේදිකා manifest එක: ස්වදේශීය `linux/amd64` + `linux/arm64` (Apple Silicon, AWS Graviton, Raspberry Pi). Docker ස්වයංක්රීයව ගැළපෙන architecture එක තෝරයි; ARM host මත AMD64 emulation බලයෙන් යෙදීමට අවශ්ය නම් `--platform linux/amd64` ලබා දෙන්න.
 
@@ -481,8 +481,8 @@ OmniRoute ස්ථාවර නිකුතු, සක්රිය නිකු
 වත්මන් පෙරනිමි `release/v*` ශාඛාවට සිදු කරන සෑම push එකකදීම `next` නාලිකාව නැවත build කෙරෙන අතර, එය AMD64 සහ ARM64 යන දෙකටම ප්රකාශයට පත් කෙරේ. පැරණි maintenance ශාඛාවලට එය උඩින් ලිවිය නොහැක. ඊළඟ ස්ථාවර ටැගය නිර්මාණය කිරීමට පෙර සක්රිය නිකුතු ශාඛාවට merge කර ඇති නිවැරදි කිරීම් සඳහා මෙම නාලිකාව pull කළ හැකි image එකක් සපයයි.
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker pull diegosouzapw/omniroute:next-web
+docker pull reddb-io/red-router:next
+docker pull reddb-io/red-router:next-web
 ```
 
 Docker Compose සඳහා, තෝරාගත් profile එක භාවිත කරන image ටැගය override කර, පසුව service එක pull කර නැවත සාදන්න:
@@ -490,7 +490,7 @@ Docker Compose සඳහා, තෝරාගත් profile එක භාවි�
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:next
+    image: reddb-io/red-router:next
 ```
 
 ```bash
@@ -503,14 +503,14 @@ docker compose up -d
 `next` යනු වෙනස් වෙමින් පවතින පෙර-නිකුතු නාලිකාවකි. සක්රිය නිකුතු ශාඛාවට සිදු කරන ඕනෑම push එකකදී එය වෙනස් විය හැකි අතර, එය **නිෂ්පාදන භාවිතය සඳහා සහාය නොදක්වයි**. නිශ්චිත build එකක් ඇගයීමේදී image digest එක ස්ථිර කරන්න:
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker image inspect diegosouzapw/omniroute:next --format '{{index .RepoDigests 0}}'
+docker pull reddb-io/red-router:next
+docker image inspect reddb-io/red-router:next --format '{{index .RepoDigests 0}}'
 ```
 
 පරීක්ෂා කිරීමට පෙර, OmniRoute data volume එක හෝ bind-mount කළ data directory එක backup කරන්න. rollback කිරීමට, පෙර භාවිත කළ ස්ථාවර අනුවාදය හෝ digest එක ප්රතිස්ථාපනය කර container එක නැවත සාදන්න:
 
 ```bash
-docker pull diegosouzapw/omniroute:<stable-version>
+docker pull reddb-io/red-router:<stable-version>
 docker compose up -d
 ```
 
@@ -601,7 +601,7 @@ Compose සැලැස්මක් (heaps දෙකක්, volumes දෙකක
 ```yaml
 services:
   omniroute-a:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"
@@ -610,7 +610,7 @@ services:
     volumes: [omniroute-a-data:/app/data]
     ports: ["20128:20128"]
   omniroute-b:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"

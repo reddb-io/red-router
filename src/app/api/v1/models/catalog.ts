@@ -135,6 +135,7 @@ import { incrementCcDiscoveryHitCount } from "@/lib/db/ccDiscoveryMetrics";
 import { isUnifiedChatSourceModelSelectable } from "./catalogModelPolicy";
 import { decideHidePaid } from "./catalogPaidFilter";
 import { isModelExposureAllowed } from "@/shared/utils/modelExposureList";
+import { isModelDisabledGlobally } from "@/shared/utils/disabledModelsList";
 import { isCodexDiscoveryModelExcluded } from "@/shared/services/codexDiscoveryPolicy";
 import { buildErrorBody } from "@omniroute/open-sse/utils/error";
 
@@ -369,8 +370,14 @@ async function buildUnifiedModelsResponseCore(
     // via open-sse/services/autoCombo/modelExposureFilter.ts, per #6512's
     // catalog-only-filter-leaks-into-combo-routing lesson). Independent of
     // hidePaidModels — operator curation, not a cost signal.
+    // Folded in: the global disabled-models gate (ported from the legacy
+    // fork's access-control concept, src/shared/utils/disabledModelsList.ts).
+    // A disabled model is refused at dispatch with 403 model_disabled, so —
+    // like the disabled-router comment above — listing it would offer a
+    // choice that cannot succeed.
     const shouldHideByExposure = (providerKey: string, modelId: string): boolean =>
-      !isModelExposureAllowed(aliasToProviderId[providerKey] || providerKey, modelId, settings);
+      !isModelExposureAllowed(aliasToProviderId[providerKey] || providerKey, modelId, settings) ||
+      isModelDisabledGlobally(aliasToProviderId[providerKey] || providerKey, modelId, settings);
 
     // Get active provider connections
     let connections = [];

@@ -40,7 +40,7 @@ docker run -d \
   --stop-timeout 40 \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## Med miljøfil
@@ -56,7 +56,7 @@ docker run -d \
   --env-file .env \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## Docker Compose
@@ -335,7 +335,7 @@ Dimensjoner **cgroup `--memory` høyere enn heap-størrelsen** — innebygde buf
 ```bash
 docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
   -e OMNIROUTE_MEMORY_MB=8192 --memory=10g \
-  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data reddb-io/red-router:latest
 ```
 
 ## Kritiske miljøvariabler
@@ -391,14 +391,14 @@ miljøvariabel for kjøretid.
 
 ### Forhåndsbygd rotavbildning + underbane ved kjøretid
 
-Publiserte `diegosouzapw/omniroute:*`-avbildninger er bygget for domenets rot. Du kan fortsatt
+Publiserte `reddb-io/red-router:*`-avbildninger er bygget for domenets rot. Du kan fortsatt
 angi `OMNIROUTE_BASE_PATH` ved kjøretid; containeren oppdaterer pakken én gang ved oppstart.
 Bruk den sammen med det samsvarende offentlige opphavet:
 
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     environment:
       OMNIROUTE_BASE_PATH: /omniroute
       NEXT_PUBLIC_BASE_URL: https://myhostname.example.com/omniroute
@@ -439,7 +439,7 @@ OmniRoute kan eksponeres sikkert ved hjelp av Caddys automatiske SSL-klargjørin
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     container_name: omniroute
     restart: unless-stopped
     volumes:
@@ -489,10 +489,10 @@ Tunnelpaneler for endepunkter (Cloudflare, Tailscale, ngrok) kan vises eller skj
 
 ## Image-tagger
 
-| Image                    | Tag      | Størrelse | Beskrivelse                                             |
-| ------------------------ | -------- | --------- | ------------------------------------------------------- |
-| `diegosouzapw/omniroute` | `latest` | ~250MB    | Høyeste **publiserte** stabile SemVer (ikke git `main`) |
-| `diegosouzapw/omniroute` | `3.8.0`  | ~250MB    | Fest denne taggtypen for GitOps                         |
+| Image                 | Tag      | Størrelse | Beskrivelse                                             |
+| --------------------- | -------- | --------- | ------------------------------------------------------- |
+| `reddb-io/red-router` | `latest` | ~250MB    | Høyeste **publiserte** stabile SemVer (ikke git `main`) |
+| `reddb-io/red-router` | `3.8.0`  | ~250MB    | Fest denne taggtypen for GitOps                         |
 
 Flerplattformmanifest: opprinnelig `linux/amd64` + `linux/arm64` (Apple Silicon, AWS Graviton, Raspberry Pi). Docker velger automatisk samsvarende arkitektur. Angi `--platform linux/amd64` hvis du må tvinge frem AMD64-emulering på ARM-verter.
 
@@ -525,8 +525,8 @@ Hvis du bruker disse leverandørene, henter du `-web`-taggen for kanalen du alle
 `next`-kanalen bygges på nytt ved hver push til den gjeldende standardgrenen `release/v*` og publiseres for både AMD64 og ARM64. Eldre vedlikeholdsgrener kan ikke overskrive den. Kanalen tilbyr et nedlastbart image for rettelser som er slått sammen med den aktive utgivelsesgrenen før den neste stabile taggen opprettes.
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker pull diegosouzapw/omniroute:next-web
+docker pull reddb-io/red-router:next
+docker pull reddb-io/red-router:next-web
 ```
 
 For Docker Compose overstyrer du image-taggen som brukes av den valgte profilen, og henter og gjenoppretter deretter tjenesten:
@@ -534,7 +534,7 @@ For Docker Compose overstyrer du image-taggen som brukes av den valgte profilen,
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:next
+    image: reddb-io/red-router:next
 ```
 
 ```bash
@@ -547,14 +547,14 @@ docker compose up -d
 `next` er en flytende førutgivelseskanal. Den kan endres ved enhver push til den aktive utgivelsesgrenen og **støttes ikke for produksjonsbruk**. Fest image-digesten mens du evaluerer et bestemt bygg:
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker image inspect diegosouzapw/omniroute:next --format '{{index .RepoDigests 0}}'
+docker pull reddb-io/red-router:next
+docker image inspect reddb-io/red-router:next --format '{{index .RepoDigests 0}}'
 ```
 
 Før testing bør du sikkerhetskopiere OmniRoute-datavolumet eller den bind-monterte datamappen. For å rulle tilbake gjenoppretter du den stabile versjonen eller digesten som ble brukt tidligere, og gjenoppretter containeren:
 
 ```bash
-docker pull diegosouzapw/omniroute:<stable-version>
+docker pull reddb-io/red-router:<stable-version>
 docker compose up -d
 ```
 
@@ -645,7 +645,7 @@ Compose-eksempel (to heaper, to lagringsenheter — ikke `deploy.replicas: 2`):
 ```yaml
 services:
   omniroute-a:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"
@@ -654,7 +654,7 @@ services:
     volumes: [omniroute-a-data:/app/data]
     ports: ["20128:20128"]
   omniroute-b:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"

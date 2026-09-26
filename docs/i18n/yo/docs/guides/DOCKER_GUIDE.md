@@ -40,7 +40,7 @@ docker run -d \
   --stop-timeout 40 \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## Pẹ̀lú Fáìlì Àyíká
@@ -56,7 +56,7 @@ docker run -d \
   --env-file .env \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## Docker Compose
@@ -332,7 +332,7 @@ Gẹ́gẹ́ bí a ṣe wọn lórí tree yìí (`--target runner-base`, `OMNIRO
 ```bash
 docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
   -e OMNIROUTE_MEMORY_MB=8192 --memory=10g \
-  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data reddb-io/red-router:latest
 ```
 
 ## Àwọn Àyípadà Àyíká Pàtàkì
@@ -388,14 +388,14 @@ runtime environment variable.
 
 ### Image gbòǹgbò tí a ti kọ tẹ́lẹ̀ + ọ̀nà-abẹ́ runtime
 
-Àwọn image `diegosouzapw/omniroute:*` tí a tẹ̀ jáde ni a kọ́ fún gbòǹgbò domain. O ṣì lè
+Àwọn image `reddb-io/red-router:*` tí a tẹ̀ jáde ni a kọ́ fún gbòǹgbò domain. O ṣì lè
 ṣètò `OMNIROUTE_BASE_PATH` ní runtime; container náà yóò patch bundle náà lẹ́ẹ̀kan nígbà ìbẹ̀rẹ̀.
 So ó pọ̀ mọ́ public origin tó bá a mu:
 
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     environment:
       OMNIROUTE_BASE_PATH: /omniroute
       NEXT_PUBLIC_BASE_URL: https://myhostname.example.com/omniroute
@@ -436,7 +436,7 @@ A lè ṣí OmniRoute síta láìléwu nípa lílo ìpèsè SSL aládàáṣe ti
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     container_name: omniroute
     restart: unless-stopped
     volumes:
@@ -486,10 +486,10 @@ A lè fi àwọn pánẹ́ẹ̀lì tunnel endpoint (Cloudflare, Tailscale, ngrok
 
 ## Àwọn Táàgì Àwòrán
 
-| Àwòrán                   | Táàgì    | Ìwọ̀n   | Àpèjúwe                                                                  |
-| ------------------------ | -------- | ------ | ------------------------------------------------------------------------ |
-| `diegosouzapw/omniroute` | `latest` | ~250MB | SemVer dídúróṣinṣin tó ga jù lọ tí a ti **tẹ̀ jáde** (kì í ṣe git `main`) |
-| `diegosouzapw/omniroute` | `3.8.0`  | ~250MB | Di irú táàgì yìí mú fún GitOps                                           |
+| Àwòrán                | Táàgì    | Ìwọ̀n   | Àpèjúwe                                                                  |
+| --------------------- | -------- | ------ | ------------------------------------------------------------------------ |
+| `reddb-io/red-router` | `latest` | ~250MB | SemVer dídúróṣinṣin tó ga jù lọ tí a ti **tẹ̀ jáde** (kì í ṣe git `main`) |
+| `reddb-io/red-router` | `3.8.0`  | ~250MB | Di irú táàgì yìí mú fún GitOps                                           |
 
 Àfihàn onípẹpẹ-púpọ̀: `linux/amd64` + `linux/arm64` àbínibí (Apple Silicon, AWS Graviton, Raspberry Pi). Docker máa ń yan faaji tó bá a mu láìfọwọ́ṣe; fi `--platform linux/amd64` ránṣẹ́ bí o bá nílò láti fi ipa mú àfarawé AMD64 lórí àwọn olùgbàlejò ARM.
 
@@ -522,8 +522,8 @@ Bí o bá ń lo àwọn olùpèsè wọ̀nyẹn, fa táàgì `-web` ti ìkànnì
 A máa tún ìkànnì `next` kọ ní gbogbo ìgbà tí a bá push sí ẹ̀ka `release/v*` àìyẹsẹ̀ lọ́wọ́lọ́wọ́, a sì máa ń tẹ̀ ẹ́ jáde fún AMD64 àti ARM64. Àwọn ẹ̀ka ìtọ́jú àtijọ́ kò lè kọ lé e lórí. Ìkànnì náà ń pèsè àwòrán tí a lè fà fún àwọn àtúnṣe tí a ti merge sínú ẹ̀ka ìtújáde tó ń ṣiṣẹ́ kí a tó gé táàgì dídúróṣinṣin tó kàn.
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker pull diegosouzapw/omniroute:next-web
+docker pull reddb-io/red-router:next
+docker pull reddb-io/red-router:next-web
 ```
 
 Fún Docker Compose, rọ́pò táàgì àwòrán tí profile tí a yàn ń lò, lẹ́yìn náà fa iṣẹ́ náà kí o sì tún un dá:
@@ -531,7 +531,7 @@ Fún Docker Compose, rọ́pò táàgì àwòrán tí profile tí a yàn ń lò,
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:next
+    image: reddb-io/red-router:next
 ```
 
 ```bash
@@ -544,14 +544,14 @@ docker compose up -d
 `next` jẹ́ ìkànnì ìṣáájú-ìtújáde tí ń léfòó. Ó lè yí padà ní gbogbo push sí ẹ̀ka ìtújáde tó ń ṣiṣẹ́, a kò sì **ṣe àtìlẹ́yìn rẹ̀ fún ìlò iṣelọpọ**. Di digest àwòrán náà mú nígbà tí o bá ń ṣe àyẹ̀wò ẹ̀dà pàtó kan:
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker image inspect diegosouzapw/omniroute:next --format '{{index .RepoDigests 0}}'
+docker pull reddb-io/red-router:next
+docker image inspect reddb-io/red-router:next --format '{{index .RepoDigests 0}}'
 ```
 
 Kí o tó ṣe ìdánwò, ṣe àfẹ́yìntì volume dátà OmniRoute tàbí àkójọ dátà tí a so mọ́ pẹ̀lú bind mount. Láti padà sẹ́yìn, mú ẹ̀yà dídúróṣinṣin tàbí digest tí a lò tẹ́lẹ̀ padà, kí o sì tún container náà dá:
 
 ```bash
-docker pull diegosouzapw/omniroute:<stable-version>
+docker pull reddb-io/red-router:<stable-version>
 docker compose up -d
 ```
 
@@ -642,7 +642,7 @@ Hardware: iye àwọn `/v1/responses` gígùn tó lè ṣiṣẹ́ ní àkókò 
 ```yaml
 services:
   omniroute-a:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"
@@ -651,7 +651,7 @@ services:
     volumes: [omniroute-a-data:/app/data]
     ports: ["20128:20128"]
   omniroute-b:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"

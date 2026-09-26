@@ -25,6 +25,9 @@ import { globToRegex } from "./globPattern";
 export interface ModelExposureListSettings {
   modelVisibilityAllowlist?: unknown;
   modelVisibilityDenylist?: unknown;
+  /** Global disabled-models gate (disabledModelsList.ts) — mirrored into the
+   *  auto/* candidate pool alongside these lists. */
+  disabledModels?: unknown;
 }
 
 function normalizeList(value: unknown): string[] {
@@ -32,10 +35,16 @@ function normalizeList(value: unknown): string[] {
   return value.filter((v): v is string => typeof v === "string" && v.trim() !== "");
 }
 
-/** Whether any entry in `list` matches one of `candidates` — exact string match
+/**
+ * Whether any entry in `list` matches one of `candidates` — exact string match
  * first (the common case, no regex cost), falling back to a glob match only
- * when the entry actually contains a wildcard character. */
-function listMatchesAny(list: string[], candidates: string[]): boolean {
+ * when the entry actually contains a wildcard character.
+ *
+ * Exported so sibling list-gate modules (e.g. `disabledModelsList.ts`) reuse
+ * the exact same matching semantics instead of duplicating the
+ * exact-first-then-glob dance.
+ */
+export function listMatchesAny(list: string[], candidates: string[]): boolean {
   return list.some((entry) => {
     if (candidates.includes(entry)) return true;
     if (!/[*?]/.test(entry)) return false;

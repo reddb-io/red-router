@@ -86,9 +86,9 @@
 
 [![npm 版本](https://img.shields.io/npm/v/omniroute?color=cb3837&logo=npm)](https://www.npmjs.com/package/omniroute)
 ![NPM 每月下載量](https://img.shields.io/npm/dm/omniroute?label=npm/month&color=cb3837&logo=npm)
-[![Docker Hub](https://img.shields.io/docker/v/diegosouzapw/omniroute?label=Docker%20Hub&logo=docker&color=2496ED)](https://hub.docker.com/r/diegosouzapw/omniroute)
+[![Docker Hub](https://img.shields.io/docker/v/reddb-io/red-router?label=Docker%20Hub&logo=docker&color=2496ED)](https://hub.docker.com/r/reddb-io/red-router)
 [![授權條款：MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](LICENSE)
-![Docker 拉取次數](https://img.shields.io/docker/pulls/diegosouzapw/omniroute?label=docker%20pulls&logo=docker&color=2496ED)
+![Docker 拉取次數](https://img.shields.io/docker/pulls/reddb-io/red-router?label=docker%20pulls&logo=docker&color=2496ED)
 ![Electron 下載次數](https://img.shields.io/github/downloads/diegosouzapw/omniroute/total?style=flat&label=electron%20downloads&logo=electron&color=47848F)
 
 <table>
@@ -743,7 +743,7 @@ omniroute configure codex          # 亦支援：claude opencode qwen aider goos
 <table>
   <tr><th align="left">平台</th><th align="left">安裝方式</th><th align="left">特色</th></tr>
   <tr><td align="left" nowrap>📦 <b>npm（全域）</b></td><td align="left" nowrap><code>npm install -g omniroute</code></td><td align="left">一行指令，適用於任何作業系統</td></tr>
-  <tr><td align="left" nowrap>🐳 <b>Docker</b></td><td align="left" nowrap><code>docker run … diegosouzapw/omniroute</code></td><td align="left">多架構支援：<b>AMD64 + ARM64</b></td></tr>
+  <tr><td align="left" nowrap>🐳 <b>Docker</b></td><td align="left" nowrap><code>docker run … reddb-io/red-router</code></td><td align="left">多架構支援：<b>AMD64 + ARM64</b></td></tr>
   <tr><td align="left" nowrap>🖥️ <b>桌面版（Electron）</b></td><td align="left" nowrap><code>npm run electron:build</code></td><td align="left">原生視窗 + 系統匣 — <b>Windows / macOS / Linux</b></td></tr>
   <tr><td align="left" nowrap>🎩 <b>選單列（OmniRouteTray）</b></td><td align="left" nowrap><code>brew install --cask zoispag/tap/omniroute-tray</code></td><td align="left">監控伺服器並自動更新 — <b>macOS</b></td></tr>
   <tr><td align="left" nowrap>💪 <b>ARM</b></td><td align="left" nowrap>原生 <code>arm64</code></td><td align="left">Raspberry Pi、ARM 伺服器、Apple Silicon</td></tr>
@@ -1046,7 +1046,7 @@ Ollama 標籤：    http://localhost:20128/vscode/YOUR_KEY/api/tags
 
 ```bash
 docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
-  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data reddb-io/red-router:latest
 ```
 
 `:latest` 會跟隨已**發布**的最高穩定 SemVer 版本，而不會追蹤 git `main`。若使用 GitOps，請固定為 `:X.Y.Z`。請參閱 [Docker 發布頻道](docs/guides/DOCKER_GUIDE.md#release-channels)。此映像檔固定設定 **`OMNIROUTE_MEMORY_MB=1024`**。這足以執行儀表板和輕量聊天。**程式設計代理程式**（來自 Claude Code、Codex、Grok 等的 `POST /v1/responses`）需要大得多的 V8 堆積，否則當兩個長上下文重疊時，程序會在約 12 GiB 處發生 `FATAL ERROR`。容器容量應高於堆積大小（原生緩衝區位於 V8 之外）：
@@ -1060,13 +1060,13 @@ docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
 ```bash
 docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
   -e OMNIROUTE_MEMORY_MB=8192 --memory=10g \
-  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data reddb-io/red-router:latest
 ```
 
 完整表格：[Docker 指南 — 執行階段 RAM](docs/guides/DOCKER_GUIDE.md#runtime-ram-for-coding-agents)。
 
-> **預發行 Docker 頻道：** `diegosouzapw/omniroute:next` 和
-> `diegosouzapw/omniroute:next-web` 會跟隨目前預設的 `release/v*`
+> **預發行 Docker 頻道：** `reddb-io/red-router:next` 和
+> `reddb-io/red-router:next-web` 會跟隨目前預設的 `release/v*`
 > 分支。這些可變標籤僅用於測試尚未發布的修正，
 > **不支援用於正式環境**。請參閱
 > [Docker 發布頻道](docs/guides/DOCKER_GUIDE.md#release-channels)。
@@ -1277,7 +1277,7 @@ OMNIROUTE_SKIP_POSTINSTALL=1 npm install -g omniroute   # CI=1 也會略過
   <tr><td nowrap><b>測試</b></td><td>Node.js test runner + Vitest — 跨越 5,100+ 個追蹤測試檔案的 **39,000+ 靜態測試宣告** (單元、整合、E2E、安全、生態系統)</td></tr>
   <tr><td nowrap><b>平台</b></td><td>桌面 (Electron) · Android (Termux) · PWA (任何瀏覽器)</td></tr>
   <tr><td nowrap><b>CI/CD</b></td><td>GitHub Actions — 自動 npm 發布 + 發布時 Docker Hub</td></tr>
-  <tr><td nowrap><b>連結</b></td><td><a href="https://omniroute.online">網站</a> · <a href="https://www.npmjs.com/package/omniroute">npm</a> · <a href="https://hub.docker.com/r/diegosouzapw/omniroute">Docker Hub</a></td></tr>
+  <tr><td nowrap><b>連結</b></td><td><a href="https://omniroute.online">網站</a> · <a href="https://www.npmjs.com/package/omniroute">npm</a> · <a href="https://hub.docker.com/r/reddb-io/red-router">Docker Hub</a></td></tr>
 </table>
 
 <div align="center">

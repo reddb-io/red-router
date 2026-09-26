@@ -40,7 +40,7 @@ docker run -d \
   --stop-timeout 40 \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## Környezeti fájllal
@@ -56,7 +56,7 @@ docker run -d \
   --env-file .env \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## Docker Compose
@@ -333,7 +333,7 @@ Az `omniroute serve` fizikai gépen a RAM ~35%-ára kalibrál (a `[512, 4096]` t
 ```bash
 docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
   -e OMNIROUTE_MEMORY_MB=8192 --memory=10g \
-  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data reddb-io/red-router:latest
 ```
 
 ## Kritikus környezeti változók
@@ -390,14 +390,14 @@ futásidejű környezeti változóként is továbbítja.
 
 ### Előre összeállított gyökérlemezkép + futásidejű alútvonal
 
-A közzétett `diegosouzapw/omniroute:*` lemezképek a tartomány gyökeréhez készültek. Ennek
+A közzétett `reddb-io/red-router:*` lemezképek a tartomány gyökeréhez készültek. Ennek
 ellenére futásidőben is beállítható az `OMNIROUTE_BASE_PATH`; a konténer induláskor egyszer
 módosítja a csomagot. Használja a hozzá illő nyilvános forrással együtt:
 
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     environment:
       OMNIROUTE_BASE_PATH: /omniroute
       NEXT_PUBLIC_BASE_URL: https://myhostname.example.com/omniroute
@@ -441,7 +441,7 @@ Az OmniRoute biztonságosan elérhetővé tehető a Caddy automatikus SSL-kiép�
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     container_name: omniroute
     restart: unless-stopped
     volumes:
@@ -491,10 +491,10 @@ A végpontok alagútpaneljei (Cloudflare, Tailscale, ngrok) megjeleníthetők va
 
 ## Képcímkék
 
-| Kép                      | Címke    | Méret  | Leírás                                                       |
-| ------------------------ | -------- | ------ | ------------------------------------------------------------ |
-| `diegosouzapw/omniroute` | `latest` | ~250MB | A legmagasabb **közzétett** stabil SemVer (nem a git `main`) |
-| `diegosouzapw/omniroute` | `3.8.0`  | ~250MB | GitOps esetén ezt a címketípust rögzítse                     |
+| Kép                   | Címke    | Méret  | Leírás                                                       |
+| --------------------- | -------- | ------ | ------------------------------------------------------------ |
+| `reddb-io/red-router` | `latest` | ~250MB | A legmagasabb **közzétett** stabil SemVer (nem a git `main`) |
+| `reddb-io/red-router` | `3.8.0`  | ~250MB | GitOps esetén ezt a címketípust rögzítse                     |
 
 Többplatformos jegyzék: natív `linux/amd64` + `linux/arm64` (Apple Silicon, AWS Graviton, Raspberry Pi). A Docker automatikusan kiválasztja a megfelelő architektúrát; adja meg a `--platform linux/amd64` kapcsolót, ha ARM-gazdagépeken kényszeríteni szeretné az AMD64-emulációt.
 
@@ -527,8 +527,8 @@ Ha ezeket a szolgáltatókat használja, töltse le az aktuálisan használt csa
 A `next` csatorna a jelenlegi alapértelmezett `release/v*` ágba történő minden egyes push alkalmával újraépül, és AMD64, valamint ARM64 architektúrához is közzétételre kerül. A régebbi karbantartási ágak nem írhatják felül. A csatorna letölthető képet biztosít azokhoz a javításokhoz, amelyeket a következő stabil címke létrehozása előtt már egyesítettek az aktív kiadási ággal.
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker pull diegosouzapw/omniroute:next-web
+docker pull reddb-io/red-router:next
+docker pull reddb-io/red-router:next-web
 ```
 
 Docker Compose esetén írja felül a kiválasztott profil által használt képcímkét, majd töltse le és hozza létre újra a szolgáltatást:
@@ -536,7 +536,7 @@ Docker Compose esetén írja felül a kiválasztott profil által használt kép
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:next
+    image: reddb-io/red-router:next
 ```
 
 ```bash
@@ -549,14 +549,14 @@ docker compose up -d
 A `next` egy lebegő előzetes kiadási csatorna. Az aktív kiadási ágba történő bármely push alkalmával megváltozhat, és **éles környezetben való használata nem támogatott**. Egy adott build kiértékelésekor rögzítse a kép kivonatát:
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker image inspect diegosouzapw/omniroute:next --format '{{index .RepoDigests 0}}'
+docker pull reddb-io/red-router:next
+docker image inspect reddb-io/red-router:next --format '{{index .RepoDigests 0}}'
 ```
 
 A tesztelés előtt készítsen biztonsági másolatot az OmniRoute adatkötetéről vagy a bind mounttal csatlakoztatott adatkönyvtárról. A visszaállításhoz állítsa vissza a korábban használt stabil verziót vagy kivonatot, majd hozza létre újra a konténert:
 
 ```bash
-docker pull diegosouzapw/omniroute:<stable-version>
+docker pull reddb-io/red-router:<stable-version>
 docker compose up -d
 ```
 
@@ -647,7 +647,7 @@ Compose-vázlat (két kupac, két kötet — nem `deploy.replicas: 2`):
 ```yaml
 services:
   omniroute-a:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"
@@ -656,7 +656,7 @@ services:
     volumes: [omniroute-a-data:/app/data]
     ports: ["20128:20128"]
   omniroute-b:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"

@@ -418,7 +418,7 @@ Tam təfərrüatlar və iki Kiro hesabını paralel əlavə etmək üçün addı
 2. **Daimi həll:** `docker run` əmrinizdə `-p 127.0.0.1:20128:20128` istifadə edərək açıq şəkildə IPv4 ünvanına bağlayın:
    ```bash
    docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
-     -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+     -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data reddb-io/red-router:latest
    ```
    Bu, IPv4 bağlamasını məcbur edir və həmçinin proksinin hostun bütün interfeyslərində əlçatan olmasının qarşısını alır.
 

@@ -406,7 +406,7 @@ v3.8.0 _अघि_ आयात गरिएका कनेक्सनहर�
 2. **स्थायी समाधान:** आफ्नो `docker run` कमान्डमा `-p 127.0.0.1:20128:20128` प्रयोग गरी स्पष्ट रूपमा IPv4 मा बाइन्ड गर्नुहोस्:
    ```bash
    docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
-     -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+     -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data reddb-io/red-router:latest
    ```
    यसले IPv4 बाइन्डलाई बाध्य बनाउँछ र प्रोक्सीलाई सबै होस्ट इन्टरफेसहरूमा एक्सपोज हुनबाट पनि रोक्छ।
 

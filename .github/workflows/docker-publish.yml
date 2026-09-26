@@ -47,9 +47,25 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       promote_latest: ${{ steps.version.outputs.promote_latest }}
       skip: ${{ steps.version.outputs.skip }}
-    env:
-      IMAGE_NAME: diegosouzapw/omniroute
+      dockerhub_image: ${{ steps.image.outputs.dockerhub_image }}
+      dockerhub_repo: ${{ steps.image.outputs.dockerhub_repo }}
+      ghcr_image: ${{ steps.image.outputs.ghcr_image }}
     steps:
+      # Registry namespaces are derived from the repository that runs this
+      # workflow (never hardcoded), lowercased because both Docker Hub and GHCR
+      # require lowercase image paths and GitHub repository names are not
+      # guaranteed to be lowercase (e.g. OmniRoute).
+      - name: Resolve image names from github.repository
+        id: image
+        env:
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          repo="${REPOSITORY,,}"
+          echo "dockerhub_image=${repo}" >> "$GITHUB_OUTPUT"
+          echo "dockerhub_repo=${repo}" >> "$GITHUB_OUTPUT"
+          echo "ghcr_image=ghcr.io/${repo}" >> "$GITHUB_OUTPUT"
+
       - name: Checkout
         uses: actions/checkout@v7
         with:
@@ -67,6 +83,7 @@ jobs:
           INPUT_VERSION: ${{ inputs.version }}
           PROMOTE_INPUT: ${{ inputs.promote_latest }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          IMAGE_NAME: ${{ steps.image.outputs.dockerhub_image }}
         run: |
           set -euo pipefail
 
@@ -113,14 +130,14 @@ jobs:
           # and `next` channels are intentionally rebuilt on every matching push.
           SKIP="false"
           if [ "$VERSION" != "main" ] && [ "$VERSION" != "next" ]; then
-            if docker manifest inspect "diegosouzapw/omniroute:${VERSION}" >/dev/null 2>&1; then
-              echo "Image diegosouzapw/omniroute:${VERSION} already exists on Docker Hub — skipping rebuild."
+            if docker manifest inspect "${IMAGE_NAME}:${VERSION}" >/dev/null 2>&1; then
+              echo "Image ${IMAGE_NAME}:${VERSION} already exists on Docker Hub — skipping rebuild."
               SKIP="true"
             fi
           fi
           echo "skip=$SKIP" >> "$GITHUB_OUTPUT"
 
-          echo "Publishing diegosouzapw/omniroute:$VERSION (promote_latest=$PROMOTE, skip=$SKIP)"
+          echo "Publishing ${IMAGE_NAME}:$VERSION (promote_latest=$PROMOTE, skip=$SKIP)"
 
   build:
     name: Build Docker (${{ matrix.platform }})
@@ -155,8 +172,8 @@ jobs:
           - platform: linux/arm64
             arch: arm64
     env:
-      IMAGE_NAME: diegosouzapw/omniroute
-      GHCR_IMAGE_NAME: ghcr.io/diegosouzapw/omniroute
+      IMAGE_NAME: ${{ needs.prepare.outputs.dockerhub_image }}
+      GHCR_IMAGE_NAME: ${{ needs.prepare.outputs.ghcr_image }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -191,6 +208,15 @@ jobs:
           context: .
           target: runner-base
           platforms: ${{ matrix.platform }}
+          # OCI labels derived from the running repository (never hardcoded),
+          # overriding the Dockerfile defaults with the actual namespace/SHA.
+          labels: |
+            org.opencontainers.image.title=red-router
+            org.opencontainers.image.description=RedRouter — unified AI proxy/router. One endpoint, 358 LLM providers, auto-fallback.
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.version=${{ needs.prepare.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.licenses=MIT
           build-args: |
             OMNIROUTE_USE_TURBOPACK=0
             OMNIROUTE_BUILD_MEMORY_MB=12288
@@ -211,6 +237,15 @@ jobs:
           context: .
           target: runner-web
           platforms: ${{ matrix.platform }}
+          # OCI labels derived from the running repository (never hardcoded),
+          # overriding the Dockerfile defaults with the actual namespace/SHA.
+          labels: |
+            org.opencontainers.image.title=red-router
+            org.opencontainers.image.description=RedRouter — unified AI proxy/router. One endpoint, 358 LLM providers, auto-fallback.
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.version=${{ needs.prepare.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.licenses=MIT
           build-args: |
             OMNIROUTE_USE_TURBOPACK=0
             OMNIROUTE_BUILD_MEMORY_MB=12288
@@ -239,6 +274,13 @@ jobs:
           file: Dockerfile.bun
           target: runner-base
           platforms: ${{ matrix.platform }}
+          labels: |
+            org.opencontainers.image.title=red-router
+            org.opencontainers.image.description=RedRouter — unified AI proxy/router. One endpoint, 358 LLM providers, auto-fallback.
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.version=${{ needs.prepare.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.licenses=MIT
           build-args: |
             OMNIROUTE_USE_TURBOPACK=0
             OMNIROUTE_BUILD_MEMORY_MB=12288
@@ -267,6 +309,13 @@ jobs:
           file: Dockerfile.bun
           target: runner-web
           platforms: ${{ matrix.platform }}
+          labels: |
+            org.opencontainers.image.title=red-router
+            org.opencontainers.image.description=RedRouter — unified AI proxy/router. One endpoint, 358 LLM providers, auto-fallback.
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.version=${{ needs.prepare.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.licenses=MIT
           build-args: |
             OMNIROUTE_USE_TURBOPACK=0
             OMNIROUTE_BUILD_MEMORY_MB=12288
@@ -353,8 +402,8 @@ jobs:
       packages: write
       security-events: write
     env:
-      IMAGE_NAME: diegosouzapw/omniroute
-      GHCR_IMAGE_NAME: ghcr.io/diegosouzapw/omniroute
+      IMAGE_NAME: ${{ needs.prepare.outputs.dockerhub_image }}
+      GHCR_IMAGE_NAME: ${{ needs.prepare.outputs.ghcr_image }}
       VERSION: ${{ needs.prepare.outputs.version }}
       PROMOTE_LATEST: ${{ needs.prepare.outputs.promote_latest }}
     steps:
@@ -597,6 +646,6 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-          repository: diegosouzapw/omniroute
-          short-description: "OmniRoute — Unified AI proxy. Route any LLM through one endpoint."
+          repository: ${{ needs.prepare.outputs.dockerhub_repo }}
+          short-description: "RedRouter — Unified AI proxy/router. One endpoint, 358 LLM providers, auto-fallback."
           readme-filepath: ./README.md

@@ -383,7 +383,7 @@ Kiro ගිණුම් දෙකක් එකිනෙකට යාබදව �
 2. **ස්ථිර විසඳුම:** ඔබගේ `docker run` විධානයෙහි `-p 127.0.0.1:20128:20128` භාවිතයෙන් IPv4 වෙත පැහැදිලිව bind කරන්න:
    ```bash
    docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
-     -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+     -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data reddb-io/red-router:latest
    ```
    මෙය IPv4 bind කිරීම බලගන්වන අතර සියලුම host interfaces මත proxy එක නිරාවරණය වීම ද වළක්වයි.
 

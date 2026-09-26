@@ -5,10 +5,27 @@
  * `isModelAllowedForKey` must not then skip every member just because the
  * allow-list is the combo name. auto/* / disableNonPublic still check the
  * inner target so #9057 holds.
+ *
+ * Also carries the global disabled-models gate (ported from the legacy fork's
+ * access-control concept): a target listed in the `disabledModels` settings is
+ * skipped BEFORE any per-key logic so a disabled member can never be selected
+ * even when the key has no restrictions at all.
  */
 
 import { isModelBlockedByPatterns } from "@/lib/db/apiKeys";
 import { isComboNameAllowedForKey } from "@/shared/utils/apiKeyPolicy";
+import { isRequestedModelDisabled } from "@/shared/utils/disabledModelsList";
+import { getCachedSettings } from "@/lib/db/readCache";
+
+/** Fail-open (legacy behaviour): a settings hiccup must not disable combo fallback. */
+async function isTargetDisabledGlobally(targetModelStr: string): Promise<boolean> {
+  try {
+    const settings = await getCachedSettings();
+    return isRequestedModelDisabled(targetModelStr, settings);
+  } catch {
+    return false;
+  }
+}
 
 export type ComboTargetKeyPolicyInfo = {
   allowedModels?: string[] | null;
@@ -39,6 +56,7 @@ export async function comboTargetPassesKeyModelPolicy(opts: {
   isModelAllowedForKey: (key: string, model: string) => Promise<boolean>;
 }): Promise<boolean> {
   const { apiKey, apiKeyInfo, requestedModelStr, targetModelStr, isModelAllowedForKey } = opts;
+  if (await isTargetDisabledGlobally(targetModelStr)) return false;
   if (!apiKey || !apiKeyInfo) return true;
 
   const hasModelRestrictions =

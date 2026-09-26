@@ -392,7 +392,7 @@ OIDC client เฉพาะของตนเองโดยอัตโนม�
 2. **วิธีแก้ไขแบบถาวร:** ผูกกับ IPv4 อย่างชัดเจนโดยใช้ `-p 127.0.0.1:20128:20128` ในคำสั่ง `docker run`:
    ```bash
    docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
-     -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+     -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data reddb-io/red-router:latest
    ```
    วิธีนี้บังคับให้ผูกกับ IPv4 และยังช่วยหลีกเลี่ยงการเปิดเผยพร็อกซีบนอินเทอร์เฟซทั้งหมดของโฮสต์ด้วย
 

@@ -40,7 +40,7 @@ docker run -d \
   --stop-timeout 40 \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## Z plikiem środowiskowym
@@ -56,7 +56,7 @@ docker run -d \
   --env-file .env \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## Docker Compose
@@ -316,7 +316,7 @@ Ustaw limit **cgroup `--memory` powyżej rozmiaru sterty** — natywne bufory, S
 ```bash
 docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
   -e OMNIROUTE_MEMORY_MB=8192 --memory=10g \
-  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data reddb-io/red-router:latest
 ```
 
 ## Krytyczne zmienne środowiskowe
@@ -372,14 +372,14 @@ zmienną środowiskową środowiska uruchomieniowego.
 
 ### Wstępnie zbudowany obraz dla katalogu głównego + podścieżka w środowisku uruchomieniowym
 
-Opublikowane obrazy `diegosouzapw/omniroute:*` są zbudowane dla katalogu głównego domeny. Nadal można
+Opublikowane obrazy `reddb-io/red-router:*` są zbudowane dla katalogu głównego domeny. Nadal można
 ustawić `OMNIROUTE_BASE_PATH` w środowisku uruchomieniowym; kontener jednorazowo modyfikuje pakiet podczas uruchamiania.
 Należy połączyć tę wartość z odpowiadającym jej publicznym adresem bazowym:
 
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     environment:
       OMNIROUTE_BASE_PATH: /omniroute
       NEXT_PUBLIC_BASE_URL: https://myhostname.example.com/omniroute
@@ -420,7 +420,7 @@ OmniRoute można bezpiecznie udostępnić za pomocą automatycznego dostarczania
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     container_name: omniroute
     restart: unless-stopped
     volumes:
@@ -470,10 +470,10 @@ Panele tuneli punktów końcowych (Cloudflare, Tailscale, ngrok) można wyświet
 
 ## Tagi obrazów
 
-| Obraz                    | Tag      | Rozmiar | Opis                                                               |
-| ------------------------ | -------- | ------- | ------------------------------------------------------------------ |
-| `diegosouzapw/omniroute` | `latest` | ~250MB  | Najwyższa **opublikowana** stabilna wersja SemVer (nie git `main`) |
-| `diegosouzapw/omniroute` | `3.8.0`  | ~250MB  | Przypnij tag tej klasy na potrzeby GitOps                          |
+| Obraz                 | Tag      | Rozmiar | Opis                                                               |
+| --------------------- | -------- | ------- | ------------------------------------------------------------------ |
+| `reddb-io/red-router` | `latest` | ~250MB  | Najwyższa **opublikowana** stabilna wersja SemVer (nie git `main`) |
+| `reddb-io/red-router` | `3.8.0`  | ~250MB  | Przypnij tag tej klasy na potrzeby GitOps                          |
 
 Manifest wieloplatformowy: natywne `linux/amd64` + `linux/arm64` (Apple Silicon, AWS Graviton, Raspberry Pi). Docker automatycznie wybiera pasującą architekturę; użyj `--platform linux/amd64`, jeśli musisz wymusić emulację AMD64 na hostach ARM.
 
@@ -506,8 +506,8 @@ Jeśli korzystasz z tych dostawców, pobierz tag `-web` odpowiadający kanałowi
 Kanał `next` jest przebudowywany po każdym pushu do bieżącej domyślnej gałęzi `release/v*` i publikowany zarówno dla AMD64, jak i ARM64. Starsze gałęzie utrzymaniowe nie mogą go nadpisać. Kanał udostępnia obraz możliwy do pobrania, zawierający poprawki scalone z aktywną gałęzią wydania przed utworzeniem następnego stabilnego tagu.
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker pull diegosouzapw/omniroute:next-web
+docker pull reddb-io/red-router:next
+docker pull reddb-io/red-router:next-web
 ```
 
 W przypadku Docker Compose zastąp tag obrazu używany przez wybrany profil, a następnie pobierz obraz i utwórz usługę ponownie:
@@ -515,7 +515,7 @@ W przypadku Docker Compose zastąp tag obrazu używany przez wybrany profil, a n
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:next
+    image: reddb-io/red-router:next
 ```
 
 ```bash
@@ -528,14 +528,14 @@ docker compose up -d
 `next` jest ruchomym kanałem przedpremierowym. Może zmienić się po każdym pushu do aktywnej gałęzi wydania i **nie jest obsługiwany w zastosowaniach produkcyjnych**. Podczas oceny konkretnej kompilacji przypnij skrót obrazu:
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker image inspect diegosouzapw/omniroute:next --format '{{index .RepoDigests 0}}'
+docker pull reddb-io/red-router:next
+docker image inspect reddb-io/red-router:next --format '{{index .RepoDigests 0}}'
 ```
 
 Przed rozpoczęciem testów wykonaj kopię zapasową woluminu danych OmniRoute lub katalogu danych zamontowanego przez bind mount. Aby wycofać zmiany, przywróć wcześniej używaną stabilną wersję lub skrót i ponownie utwórz kontener:
 
 ```bash
-docker pull diegosouzapw/omniroute:<stable-version>
+docker pull reddb-io/red-router:<stable-version>
 docker compose up -d
 ```
 
@@ -626,7 +626,7 @@ Przykładowa konfiguracja Compose (dwie sterty, dwa woluminy — nie `deploy.rep
 ```yaml
 services:
   omniroute-a:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"
@@ -635,7 +635,7 @@ services:
     volumes: [omniroute-a-data:/app/data]
     ports: ["20128:20128"]
   omniroute-b:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"

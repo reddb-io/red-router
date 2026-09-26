@@ -23,10 +23,10 @@ npm install -g omniroute
 ### Opcija B: Docker
 
 ```bash
-docker run -d --name omniroute -p 20128:20128 diegosouzapw/omniroute:latest
+docker run -d --name omniroute -p 20128:20128 reddb-io/red-router:latest
 ```
 
-`:latest` je najviša **objavljena** stabilna SemVer verzija. Ona **ne** prati git `main`. Fiksirajte (pin) `diegosouzapw/omniroute:X.Y.Z` za GitOps. Pogledajte [Image Tags / Release Channels](../guides/DOCKER_GUIDE.md#release-channels).
+`:latest` je najviša **objavljena** stabilna SemVer verzija. Ona **ne** prati git `main`. Fiksirajte (pin) `reddb-io/red-router:X.Y.Z` za GitOps. Pogledajte [Image Tags / Release Channels](../guides/DOCKER_GUIDE.md#release-channels).
 
 ### Opcija C: Iz izvornog koda
 

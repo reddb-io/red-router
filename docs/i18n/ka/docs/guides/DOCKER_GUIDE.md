@@ -40,7 +40,7 @@ docker run -d \
   --stop-timeout 40 \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## გარემოს ფაილით
@@ -56,7 +56,7 @@ docker run -d \
   --env-file .env \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## Docker Compose
@@ -337,7 +337,7 @@ cgroup-ის **`--memory` heap-ზე მაღალ მნიშვნელ�
 ```bash
 docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
   -e OMNIROUTE_MEMORY_MB=8192 --memory=10g \
-  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data reddb-io/red-router:latest
 ```
 
 ## გარემოს კრიტიკული ცვლადები
@@ -395,14 +395,14 @@ docker compose --profile base up -d --build
 
 ### წინასწარ აგებული ძირეული image + გაშვებისას განსაზღვრული ქვეკატალოგი
 
-გამოქვეყნებული `diegosouzapw/omniroute:*` image-ები დომენის ძირეული მისამართისთვისაა
+გამოქვეყნებული `reddb-io/red-router:*` image-ები დომენის ძირეული მისამართისთვისაა
 აგებული. `OMNIROUTE_BASE_PATH`-ის გაშვებისას განსაზღვრა მაინც შეგიძლიათ; კონტეინერი
 გაშვებისას პაკეტს ერთხელ ასწორებს. მას შესაბამისი საჯარო origin მიუთითეთ:
 
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     environment:
       OMNIROUTE_BASE_PATH: /omniroute
       NEXT_PUBLIC_BASE_URL: https://myhostname.example.com/omniroute
@@ -448,7 +448,7 @@ OmniRoute-ის უსაფრთხოდ გამოქვეყნებ�
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     container_name: omniroute
     restart: unless-stopped
     volumes:
@@ -498,10 +498,10 @@ Docker-ის განთავსებებისთვის დაფი�
 
 ## იმიჯის ტეგები
 
-| იმიჯი                    | ტეგი     | ზომა   | აღწერა                                                              |
-| ------------------------ | -------- | ------ | ------------------------------------------------------------------- |
-| `diegosouzapw/omniroute` | `latest` | ~250MB | ყველაზე მაღალი **გამოქვეყნებული** სტაბილური SemVer (არა git `main`) |
-| `diegosouzapw/omniroute` | `3.8.0`  | ~250MB | GitOps-ისთვის გამოიყენეთ ამ კლასის ფიქსირებული ტეგი                 |
+| იმიჯი                 | ტეგი     | ზომა   | აღწერა                                                              |
+| --------------------- | -------- | ------ | ------------------------------------------------------------------- |
+| `reddb-io/red-router` | `latest` | ~250MB | ყველაზე მაღალი **გამოქვეყნებული** სტაბილური SemVer (არა git `main`) |
+| `reddb-io/red-router` | `3.8.0`  | ~250MB | GitOps-ისთვის გამოიყენეთ ამ კლასის ფიქსირებული ტეგი                 |
 
 მრავალპლატფორმიანი მანიფესტი: ნატიური `linux/amd64` + `linux/arm64` (Apple Silicon, AWS Graviton, Raspberry Pi). Docker ავტომატურად ირჩევს შესაბამის არქიტექტურას; მიუთითეთ `--platform linux/amd64`, თუ ARM ჰოსტებზე AMD64 ემულაციის იძულებით გამოყენება გჭირდებათ.
 
@@ -534,8 +534,8 @@ OmniRoute აქვეყნებს Docker-ის ცალკეულ არ
 `next` არხი თავიდან აიწყობა მიმდინარე ნაგულისხმევ `release/v*` განშტოებაში ყოველი push-ისას და ქვეყნდება როგორც AMD64-ისთვის, ისე ARM64-ისთვის. უფრო ძველი ტექნიკური მხარდაჭერის განშტოებები მას ვერ გადაწერს. ეს არხი გთავაზობთ ჩამოსატვირთ იმიჯს იმ შესწორებებისთვის, რომლებიც მომდევნო სტაბილური ტეგის შექმნამდე აქტიურ გამოშვების განშტოებაში გაერთიანდა.
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker pull diegosouzapw/omniroute:next-web
+docker pull reddb-io/red-router:next
+docker pull reddb-io/red-router:next-web
 ```
 
 Docker Compose-ისთვის ჩაანაცვლეთ არჩეული პროფილის მიერ გამოყენებული იმიჯის ტეგი, შემდეგ ჩამოტვირთეთ იმიჯი და თავიდან შექმენით სერვისი:
@@ -543,7 +543,7 @@ Docker Compose-ისთვის ჩაანაცვლეთ არჩეუ
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:next
+    image: reddb-io/red-router:next
 ```
 
 ```bash
@@ -556,14 +556,14 @@ docker compose up -d
 `next` ცვალებადი წინასწარი გამოშვების არხია. ის შეიძლება შეიცვალოს აქტიურ გამოშვების განშტოებაში ნებისმიერი push-ისას და მისი **საწარმოო გარემოში გამოყენება მხარდაჭერილი არ არის**. კონკრეტული ანაწყობის შეფასებისას დააფიქსირეთ იმიჯის დაიჯესტი:
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker image inspect diegosouzapw/omniroute:next --format '{{index .RepoDigests 0}}'
+docker pull reddb-io/red-router:next
+docker image inspect reddb-io/red-router:next --format '{{index .RepoDigests 0}}'
 ```
 
 ტესტირებამდე შექმენით OmniRoute-ის მონაცემთა ტომის ან bind-მაუნტით მიერთებული მონაცემთა დირექტორიის სარეზერვო ასლი. წინა ვერსიაზე დასაბრუნებლად აღადგინეთ მანამდე გამოყენებული სტაბილური ვერსია ან დაიჯესტი და თავიდან შექმენით კონტეინერი:
 
 ```bash
-docker pull diegosouzapw/omniroute:<stable-version>
+docker pull reddb-io/red-router:<stable-version>
 docker compose up -d
 ```
 
@@ -654,7 +654,7 @@ Compose-ის მონახაზი (ორი heap, ორი volume — �
 ```yaml
 services:
   omniroute-a:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"
@@ -663,7 +663,7 @@ services:
     volumes: [omniroute-a-data:/app/data]
     ports: ["20128:20128"]
   omniroute-b:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"

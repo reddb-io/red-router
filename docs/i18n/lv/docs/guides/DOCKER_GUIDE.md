@@ -40,7 +40,7 @@ docker run -d \
   --stop-timeout 40 \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## Ar vides failu
@@ -56,7 +56,7 @@ docker run -d \
   --env-file .env \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## Docker Compose
@@ -335,7 +335,7 @@ Iestatiet **cgroup `--memory` lielāku par kaudzes apjomu** — vietējie buferi
 ```bash
 docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
   -e OMNIROUTE_MEMORY_MB=8192 --memory=10g \
-  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data reddb-io/red-router:latest
 ```
 
 ## Kritiskie vides mainīgie
@@ -392,14 +392,14 @@ izpildlaika vides mainīgo.
 
 ### Iepriekš izveidots saknes attēls + izpildlaika apakšceļš
 
-Publicētie `diegosouzapw/omniroute:*` attēli ir izveidoti domēna saknei. Joprojām varat
+Publicētie `reddb-io/red-router:*` attēli ir izveidoti domēna saknei. Joprojām varat
 iestatīt `OMNIROUTE_BASE_PATH` izpildlaikā; konteiners palaišanas laikā vienreiz izlabo pakotni.
 Izmantojiet to kopā ar atbilstošo publisko izcelsmes adresi:
 
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     environment:
       OMNIROUTE_BASE_PATH: /omniroute
       NEXT_PUBLIC_BASE_URL: https://myhostname.example.com/omniroute
@@ -440,7 +440,7 @@ OmniRoute var droši publiskot, izmantojot Caddy automātisko SSL nodrošināša
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     container_name: omniroute
     restart: unless-stopped
     volumes:
@@ -490,10 +490,10 @@ Galapunktu tuneļu paneļus (Cloudflare, Tailscale, ngrok) var parādīt vai pas
 
 ## Attēlu tagi
 
-| Attēls                   | Tags     | Izmērs | Apraksts                                                         |
-| ------------------------ | -------- | ------ | ---------------------------------------------------------------- |
-| `diegosouzapw/omniroute` | `latest` | ~250MB | Augstākā **publicētā** stabilā SemVer versija (nevis git `main`) |
-| `diegosouzapw/omniroute` | `3.8.0`  | ~250MB | GitOps vajadzībām piesaistiet šo tagu klasi                      |
+| Attēls                | Tags     | Izmērs | Apraksts                                                         |
+| --------------------- | -------- | ------ | ---------------------------------------------------------------- |
+| `reddb-io/red-router` | `latest` | ~250MB | Augstākā **publicētā** stabilā SemVer versija (nevis git `main`) |
+| `reddb-io/red-router` | `3.8.0`  | ~250MB | GitOps vajadzībām piesaistiet šo tagu klasi                      |
 
 Vairāku platformu manifests: vietējais `linux/amd64` + `linux/arm64` (Apple Silicon, AWS Graviton, Raspberry Pi). Docker automātiski atlasa atbilstošo arhitektūru; norādiet `--platform linux/amd64`, ja ARM resursdatoros nepieciešams piespiedu kārtā izmantot AMD64 emulāciju.
 
@@ -526,8 +526,8 @@ Ja izmantojat šos nodrošinātājus, lejupielādējiet tā kanāla `-web` tagu,
 Kanāls `next` tiek atkārtoti būvēts pēc katras izmaiņu nosūtīšanas uz pašreizējo noklusējuma `release/v*` zaru un tiek publicēts gan AMD64, gan ARM64 arhitektūrai. Vecāki uzturēšanas zari to nevar pārrakstīt. Šis kanāls nodrošina lejupielādējamu attēlu labojumiem, kas pirms nākamā stabilā taga izveides ir sapludināti aktīvajā laidiena zarā.
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker pull diegosouzapw/omniroute:next-web
+docker pull reddb-io/red-router:next
+docker pull reddb-io/red-router:next-web
 ```
 
 Izmantojot Docker Compose, pārrakstiet atlasītā profila izmantoto attēla tagu, pēc tam lejupielādējiet attēlu un izveidojiet pakalpojumu no jauna:
@@ -535,7 +535,7 @@ Izmantojot Docker Compose, pārrakstiet atlasītā profila izmantoto attēla tag
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:next
+    image: reddb-io/red-router:next
 ```
 
 ```bash
@@ -548,14 +548,14 @@ docker compose up -d
 `next` ir mainīgs pirmslaidiena kanāls. Tas var mainīties pēc jebkuras izmaiņu nosūtīšanas uz aktīvo laidiena zaru un **nav atbalstīts lietošanai produkcijā**. Konkrēta būvējuma novērtēšanas laikā piesaistiet attēla kontrolsummu:
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker image inspect diegosouzapw/omniroute:next --format '{{index .RepoDigests 0}}'
+docker pull reddb-io/red-router:next
+docker image inspect reddb-io/red-router:next --format '{{index .RepoDigests 0}}'
 ```
 
 Pirms testēšanas dublējiet OmniRoute datu sējumu vai piesaistīto datu direktoriju. Lai atgrieztos pie iepriekšējās versijas, atjaunojiet iepriekš izmantoto stabilo versiju vai kontrolsummu un izveidojiet konteineru no jauna:
 
 ```bash
-docker pull diegosouzapw/omniroute:<stable-version>
+docker pull reddb-io/red-router:<stable-version>
 docker compose up -d
 ```
 
@@ -646,7 +646,7 @@ Compose skice (divas kaudzes, divi sējumi — nevis `deploy.replicas: 2`):
 ```yaml
 services:
   omniroute-a:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"
@@ -655,7 +655,7 @@ services:
     volumes: [omniroute-a-data:/app/data]
     ports: ["20128:20128"]
   omniroute-b:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"

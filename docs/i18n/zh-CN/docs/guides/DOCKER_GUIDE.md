@@ -40,7 +40,7 @@ docker run -d \
   --stop-timeout 40 \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## 使用环境文件
@@ -56,7 +56,7 @@ docker run -d \
   --env-file .env \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## Docker Compose
@@ -328,7 +328,7 @@ Docker 默认的 1 GiB 只是仪表板/轻量聊天场景的最低配置，并
 ```bash
 docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
   -e OMNIROUTE_MEMORY_MB=8192 --memory=10g \
-  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data reddb-io/red-router:latest
 ```
 
 ## 关键环境变量
@@ -374,12 +374,12 @@ docker compose --profile base up -d --build
 
 ### 预构建的根路径镜像 + 运行时子路径
 
-发布的 `diegosouzapw/omniroute:*` 镜像是针对域名根路径构建的。你仍然可以在运行时设置 `OMNIROUTE_BASE_PATH`；容器会在启动时对运行包进行一次修补。请同时设置与之匹配的公开源地址：
+发布的 `reddb-io/red-router:*` 镜像是针对域名根路径构建的。你仍然可以在运行时设置 `OMNIROUTE_BASE_PATH`；容器会在启动时对运行包进行一次修补。请同时设置与之匹配的公开源地址：
 
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     environment:
       OMNIROUTE_BASE_PATH: /omniroute
       NEXT_PUBLIC_BASE_URL: https://myhostname.example.com/omniroute
@@ -407,7 +407,7 @@ Docker 健康检查会探测带有当前 `OMNIROUTE_BASE_PATH` 前缀的轻量�
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     container_name: omniroute
     restart: unless-stopped
     volumes:
@@ -457,10 +457,10 @@ Docker 部署的仪表板支持在 `Dashboard → Endpoints` 上一键启用 **C
 
 ## 镜像标签
 
-| 镜像                     | 标签     | 大小   | 描述                                           |
-| ------------------------ | -------- | ------ | ---------------------------------------------- |
-| `diegosouzapw/omniroute` | `latest` | ~250MB | 已**发布**的最高稳定 SemVer（不是 git `main`） |
-| `diegosouzapw/omniroute` | `3.8.0`  | ~250MB | 对于 GitOps，请固定使用此类标签                |
+| 镜像                  | 标签     | 大小   | 描述                                           |
+| --------------------- | -------- | ------ | ---------------------------------------------- |
+| `reddb-io/red-router` | `latest` | ~250MB | 已**发布**的最高稳定 SemVer（不是 git `main`） |
+| `reddb-io/red-router` | `3.8.0`  | ~250MB | 对于 GitOps，请固定使用此类标签                |
 
 多平台清单：原生支持 `linux/amd64` + `linux/arm64`（Apple Silicon、AWS Graviton、Raspberry Pi）。Docker 会自动选择匹配的架构；如果需要在 ARM 主机上强制使用 AMD64 模拟，请传入 `--platform linux/amd64`。
 
@@ -493,8 +493,8 @@ OmniRoute 为稳定版本、活跃发布分支测试和开发构建分别发布�
 每次向当前默认的 `release/v*` 分支推送时，都会重新构建 `next` 渠道，并同时为 AMD64 和 ARM64 发布。较旧的维护分支无法覆盖它。该渠道为已合并到活跃发布分支、但尚未创建下一个稳定标签的修复提供可拉取的镜像。
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker pull diegosouzapw/omniroute:next-web
+docker pull reddb-io/red-router:next
+docker pull reddb-io/red-router:next-web
 ```
 
 对于 Docker Compose，请覆盖所选配置使用的镜像标签，然后拉取镜像并重新创建服务：
@@ -502,7 +502,7 @@ docker pull diegosouzapw/omniroute:next-web
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:next
+    image: reddb-io/red-router:next
 ```
 
 ```bash
@@ -515,14 +515,14 @@ docker compose up -d
 `next` 是一个浮动的预发布渠道。活跃发布分支上的任何推送都可能使其发生变化，并且**不支持用于生产环境**。评估特定构建时，请固定镜像摘要：
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker image inspect diegosouzapw/omniroute:next --format '{{index .RepoDigests 0}}'
+docker pull reddb-io/red-router:next
+docker image inspect reddb-io/red-router:next --format '{{index .RepoDigests 0}}'
 ```
 
 测试之前，请备份 OmniRoute 数据卷或绑定挂载的数据目录。若要回滚，请恢复之前使用的稳定版本或摘要，并重新创建容器：
 
 ```bash
-docker pull diegosouzapw/omniroute:<stable-version>
+docker pull reddb-io/red-router:<stable-version>
 docker compose up -d
 ```
 
@@ -613,7 +613,7 @@ Compose 示例（两个堆、两个卷——不要使用 `deploy.replicas: 2`）
 ```yaml
 services:
   omniroute-a:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"
@@ -622,7 +622,7 @@ services:
     volumes: [omniroute-a-data:/app/data]
     ports: ["20128:20128"]
   omniroute-b:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"

@@ -421,7 +421,7 @@ v3.8.0 ਤੋਂ _ਪਹਿਲਾਂ_ ਇੰਪੋਰਟ ਕੀਤੇ ਗਏ ਕ
 2. **ਸਥਾਈ ਹੱਲ:** ਆਪਣੀ `docker run` ਕਮਾਂਡ ਵਿੱਚ `-p 127.0.0.1:20128:20128` ਵਰਤ ਕੇ ਸਪਸ਼ਟ ਤੌਰ ਉੱਤੇ IPv4 ਨਾਲ ਬਾਈਂਡ ਕਰੋ:
    ```bash
    docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
-     -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+     -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data reddb-io/red-router:latest
    ```
    ਇਹ IPv4 ਬਾਈਂਡ ਨੂੰ ਲਾਜ਼ਮੀ ਬਣਾਉਂਦਾ ਹੈ ਅਤੇ ਸਾਰੇ ਹੋਸਟ ਇੰਟਰਫੇਸਾਂ ਉੱਤੇ ਪ੍ਰੌਕਸੀ ਨੂੰ ਉਪਲਬਧ ਕਰਨ ਤੋਂ ਵੀ ਬਚਾਉਂਦਾ ਹੈ।
 

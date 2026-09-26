@@ -417,7 +417,7 @@ pogledajte [`docs/guides/KIRO_SETUP.md`](./KIRO_SETUP.md).
 2. **Trajno rješenje:** Eksplicitno se povežite na IPv4 korištenjem `-p 127.0.0.1:20128:20128` u vašoj naredbi `docker run`:
    ```bash
    docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
-     -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+     -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data reddb-io/red-router:latest
    ```
    Ovo prisiljava povezivanje na IPv4 i također sprječava izlaganje proxyja na svim mrežnim interfejsima hosta.
 

@@ -155,6 +155,14 @@ export const updateSettingsSchema = z.object({
   // empty arrays = no-op (Hard Rule #20 spirit).
   modelVisibilityAllowlist: z.array(z.string().max(200)).max(500).optional(),
   modelVisibilityDenylist: z.array(z.string().max(200)).max(500).optional(),
+  // Global disabled-models gate (ported from the legacy fork's access-control
+  // concept): a listed model is refused at dispatch with 403 model_disabled,
+  // skipped as a combo target, dropped from auto/* pools and hidden from
+  // /v1/models — matched with the same exact-id-or-glob semantics as the
+  // exposure lists above (src/shared/utils/disabledModelsList.ts). Independent
+  // of the per-key allowedModels/blockedModels policy, which stays the security
+  // boundary. Default empty array = no-op (Hard Rule #20 spirit).
+  disabledModels: z.array(z.string().max(200)).max(500).optional(),
   // Subscription-first routing tuning (`auto/subscription`, `auto/thrifty`).
   // TUNING ONLY — there is deliberately no `enabled` flag: both ids are opt-in
   // by being requested, and a toggle able to switch them off would leave

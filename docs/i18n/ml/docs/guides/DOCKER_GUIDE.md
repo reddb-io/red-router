@@ -41,7 +41,7 @@ docker run -d \
   --stop-timeout 40 \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## പരിസ്ഥിതി ഫയലിനൊപ്പം
@@ -57,7 +57,7 @@ docker run -d \
   --env-file .env \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## Docker Compose
@@ -334,7 +334,7 @@ Docker-ലെ മെമ്മറി പെരുമാറ്റം:
 ```bash
 docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
   -e OMNIROUTE_MEMORY_MB=8192 --memory=10g \
-  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data reddb-io/red-router:latest
 ```
 
 ## നിർണായക എൻവയോൺമെന്റ് വേരിയബിളുകൾ
@@ -380,12 +380,12 @@ docker compose --profile base up -d --build
 
 ### മുൻകൂട്ടി ബിൽഡ് ചെയ്ത root ഇമേജ് + runtime ഉപപാത
 
-പ്രസിദ്ധീകരിച്ച `diegosouzapw/omniroute:*` ഇമേജുകൾ ഡൊമെയ്ൻ റൂട്ടിനായി ബിൽഡ് ചെയ്തവയാണ്. എന്നിരുന്നാലും runtime-ൽ `OMNIROUTE_BASE_PATH` സജ്ജമാക്കാം; startup സമയത്ത് കണ്ടെയ്നർ ബണ്ടിൽ ഒരിക്കൽ patch ചെയ്യും. അതിനൊപ്പം പൊരുത്തപ്പെടുന്ന public origin നൽകുക:
+പ്രസിദ്ധീകരിച്ച `reddb-io/red-router:*` ഇമേജുകൾ ഡൊമെയ്ൻ റൂട്ടിനായി ബിൽഡ് ചെയ്തവയാണ്. എന്നിരുന്നാലും runtime-ൽ `OMNIROUTE_BASE_PATH` സജ്ജമാക്കാം; startup സമയത്ത് കണ്ടെയ്നർ ബണ്ടിൽ ഒരിക്കൽ patch ചെയ്യും. അതിനൊപ്പം പൊരുത്തപ്പെടുന്ന public origin നൽകുക:
 
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     environment:
       OMNIROUTE_BASE_PATH: /omniroute
       NEXT_PUBLIC_BASE_URL: https://myhostname.example.com/omniroute
@@ -413,7 +413,7 @@ Caddy-യുടെ സ്വയമേവയുള്ള SSL പ്രൊവി�
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     container_name: omniroute
     restart: unless-stopped
     volumes:
@@ -463,10 +463,10 @@ Docker വിന്യാസങ്ങൾക്കുള്ള ഡാഷ്ബോ
 
 ## ഇമേജ് ടാഗുകൾ
 
-| ഇമേജ്                    | ടാഗ്     | വലുപ്പം | വിവരണം                                                                  |
-| ------------------------ | -------- | ------- | ----------------------------------------------------------------------- |
-| `diegosouzapw/omniroute` | `latest` | ~250MB  | ഏറ്റവും ഉയർന്ന **പ്രസിദ്ധീകരിച്ച** സ്ഥിരതയുള്ള SemVer (git `main` അല്ല) |
-| `diegosouzapw/omniroute` | `3.8.0`  | ~250MB  | GitOps-നായി ഈ വിഭാഗത്തിലുള്ള ടാഗ് പിൻ ചെയ്യുക                           |
+| ഇമേജ്                 | ടാഗ്     | വലുപ്പം | വിവരണം                                                                  |
+| --------------------- | -------- | ------- | ----------------------------------------------------------------------- |
+| `reddb-io/red-router` | `latest` | ~250MB  | ഏറ്റവും ഉയർന്ന **പ്രസിദ്ധീകരിച്ച** സ്ഥിരതയുള്ള SemVer (git `main` അല്ല) |
+| `reddb-io/red-router` | `3.8.0`  | ~250MB  | GitOps-നായി ഈ വിഭാഗത്തിലുള്ള ടാഗ് പിൻ ചെയ്യുക                           |
 
 മൾട്ടി-പ്ലാറ്റ്ഫോം മാനിഫെസ്റ്റ്: `linux/amd64` + `linux/arm64` നേറ്റീവ് (Apple Silicon, AWS Graviton, Raspberry Pi). പൊരുത്തപ്പെടുന്ന ആർക്കിടെക്ചർ Docker സ്വയമേവ തിരഞ്ഞെടുക്കുന്നു; ARM ഹോസ്റ്റുകളിൽ AMD64 എമുലേഷൻ നിർബന്ധമാക്കണമെങ്കിൽ `--platform linux/amd64` നൽകുക.
 
@@ -499,8 +499,8 @@ Docker വിന്യാസങ്ങൾക്കുള്ള ഡാഷ്ബോ
 നിലവിലെ ഡിഫോൾട്ട് `release/v*` ബ്രാഞ്ചിലേക്കുള്ള ഓരോ പുഷിലും `next` ചാനൽ വീണ്ടും ബിൽഡ് ചെയ്യപ്പെടുകയും AMD64, ARM64 എന്നിവയ്ക്കായി പ്രസിദ്ധീകരിക്കപ്പെടുകയും ചെയ്യുന്നു. പഴയ മെയിന്റനൻസ് ബ്രാഞ്ചുകൾക്ക് അതിനെ ഓവർറൈറ്റ് ചെയ്യാനാവില്ല. അടുത്ത സ്ഥിരതയുള്ള ടാഗ് സൃഷ്ടിക്കുന്നതിന് മുമ്പ് സജീവ റിലീസ് ബ്രാഞ്ചിലേക്ക് ലയിപ്പിച്ച പരിഹാരങ്ങൾക്കായി ഈ ചാനൽ പുൾ ചെയ്യാവുന്ന ഒരു ഇമേജ് നൽകുന്നു.
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker pull diegosouzapw/omniroute:next-web
+docker pull reddb-io/red-router:next
+docker pull reddb-io/red-router:next-web
 ```
 
 Docker Compose-നായി, തിരഞ്ഞെടുത്ത പ്രൊഫൈൽ ഉപയോഗിക്കുന്ന ഇമേജ് ടാഗ് ഓവർറൈഡ് ചെയ്തശേഷം സർവീസ് പുൾ ചെയ്ത് വീണ്ടും സൃഷ്ടിക്കുക:
@@ -508,7 +508,7 @@ Docker Compose-നായി, തിരഞ്ഞെടുത്ത പ്രൊ�
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:next
+    image: reddb-io/red-router:next
 ```
 
 ```bash
@@ -521,14 +521,14 @@ docker compose up -d
 `next` ഒരു ഫ്ലോട്ടിംഗ് പ്രീ-റിലീസ് ചാനലാണ്. സജീവ റിലീസ് ബ്രാഞ്ചിലേക്കുള്ള ഏത് പുഷിലും ഇത് മാറാം; കൂടാതെ ഇത് **പ്രൊഡക്ഷൻ ഉപയോഗത്തിന് പിന്തുണയ്ക്കുന്നില്ല**. ഒരു നിർദ്ദിഷ്ട ബിൽഡ് വിലയിരുത്തുമ്പോൾ ഇമേജ് ഡൈജസ്റ്റ് പിൻ ചെയ്യുക:
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker image inspect diegosouzapw/omniroute:next --format '{{index .RepoDigests 0}}'
+docker pull reddb-io/red-router:next
+docker image inspect reddb-io/red-router:next --format '{{index .RepoDigests 0}}'
 ```
 
 പരിശോധനയ്ക്ക് മുമ്പ് OmniRoute ഡാറ്റ വോളിയത്തിന്റെയോ bind-mount ചെയ്ത ഡാറ്റ ഡയറക്ടറിയുടെയോ ബാക്കപ്പ് എടുക്കുക. റോൾബാക്ക് ചെയ്യാൻ, മുമ്പ് ഉപയോഗിച്ചിരുന്ന സ്ഥിരതയുള്ള പതിപ്പോ ഡൈജസ്റ്റോ പുനഃസ്ഥാപിച്ച് കണ്ടെയ്നർ വീണ്ടും സൃഷ്ടിക്കുക:
 
 ```bash
-docker pull diegosouzapw/omniroute:<stable-version>
+docker pull reddb-io/red-router:<stable-version>
 docker compose up -d
 ```
 
@@ -619,7 +619,7 @@ Compose മാതൃക (രണ്ട് ഹീപ്പുകൾ, രണ്ട�
 ```yaml
 services:
   omniroute-a:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"
@@ -628,7 +628,7 @@ services:
     volumes: [omniroute-a-data:/app/data]
     ports: ["20128:20128"]
   omniroute-b:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"

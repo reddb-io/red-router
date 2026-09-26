@@ -40,7 +40,7 @@ docker run -d \
   --stop-timeout 40 \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## এনভায়রনমেন্ট ফাইলসহ
@@ -56,7 +56,7 @@ docker run -d \
   --env-file .env \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## Docker Compose
@@ -336,7 +336,7 @@ bare metal-এ `omniroute serve`, `OMNIROUTE_MEMORY_MB` **সেট করা �
 ```bash
 docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
   -e OMNIROUTE_MEMORY_MB=8192 --memory=10g \
-  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data reddb-io/red-router:latest
 ```
 
 ## গুরুত্বপূর্ণ এনভায়রনমেন্ট ভেরিয়েবলসমূহ
@@ -382,12 +382,12 @@ docker compose --profile base up -d --build
 
 ### আগে থেকে বিল্ড করা root image + runtime subpath
 
-প্রকাশিত `diegosouzapw/omniroute:*` image-গুলো ডোমেইন root-এর জন্য বিল্ড করা। তারপরও আপনি runtime-এ `OMNIROUTE_BASE_PATH` সেট করতে পারেন; কনটেইনার startup-এর সময় bundle-টি একবার patch করে। এর সঙ্গে মিল থাকা public origin সেট করুন:
+প্রকাশিত `reddb-io/red-router:*` image-গুলো ডোমেইন root-এর জন্য বিল্ড করা। তারপরও আপনি runtime-এ `OMNIROUTE_BASE_PATH` সেট করতে পারেন; কনটেইনার startup-এর সময় bundle-টি একবার patch করে। এর সঙ্গে মিল থাকা public origin সেট করুন:
 
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     environment:
       OMNIROUTE_BASE_PATH: /omniroute
       NEXT_PUBLIC_BASE_URL: https://myhostname.example.com/omniroute
@@ -415,7 +415,7 @@ Caddy-এর স্বয়ংক্রিয় SSL প্রভিশনি�
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     container_name: omniroute
     restart: unless-stopped
     volumes:
@@ -465,10 +465,10 @@ Docker ডিপ্লয়মেন্টের জন্য ড্যাশ�
 
 ## ইমেজ ট্যাগসমূহ
 
-| ইমেজ                     | ট্যাগ    | আকার   | বিবরণ                                                   |
-| ------------------------ | -------- | ------ | ------------------------------------------------------- |
-| `diegosouzapw/omniroute` | `latest` | ~250MB | সর্বোচ্চ **প্রকাশিত** স্থিতিশীল SemVer (git `main` নয়) |
-| `diegosouzapw/omniroute` | `3.8.0`  | ~250MB | GitOps-এর জন্য এই শ্রেণির ট্যাগ পিন করুন                |
+| ইমেজ                  | ট্যাগ    | আকার   | বিবরণ                                                   |
+| --------------------- | -------- | ------ | ------------------------------------------------------- |
+| `reddb-io/red-router` | `latest` | ~250MB | সর্বোচ্চ **প্রকাশিত** স্থিতিশীল SemVer (git `main` নয়) |
+| `reddb-io/red-router` | `3.8.0`  | ~250MB | GitOps-এর জন্য এই শ্রেণির ট্যাগ পিন করুন                |
 
 মাল্টি-প্ল্যাটফর্ম ম্যানিফেস্ট: নেটিভ `linux/amd64` + `linux/arm64` (Apple Silicon, AWS Graviton, Raspberry Pi)। Docker স্বয়ংক্রিয়ভাবে উপযুক্ত আর্কিটেকচার নির্বাচন করে; ARM হোস্টে AMD64 ইমুলেশন বাধ্যতামূলক করতে হলে `--platform linux/amd64` দিন।
 
@@ -501,8 +501,8 @@ OmniRoute স্থিতিশীল রিলিজ, সক্রিয় র
 বর্তমান ডিফল্ট `release/v*` ব্রাঞ্চে প্রতিবার পুশের সময় `next` চ্যানেলটি পুনরায় তৈরি হয় এবং AMD64 ও ARM64—উভয়ের জন্য প্রকাশিত হয়। পুরোনো মেইনটেন্যান্স ব্রাঞ্চগুলো এটিকে ওভাররাইট করতে পারে না। পরবর্তী স্থিতিশীল ট্যাগ তৈরির আগে সক্রিয় রিলিজ ব্রাঞ্চে মার্জ হওয়া সংশোধনগুলোর জন্য এই চ্যানেলটি একটি পুলযোগ্য ইমেজ দেয়।
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker pull diegosouzapw/omniroute:next-web
+docker pull reddb-io/red-router:next
+docker pull reddb-io/red-router:next-web
 ```
 
 Docker Compose-এর জন্য, নির্বাচিত প্রোফাইলে ব্যবহৃত ইমেজ ট্যাগ ওভাররাইড করুন, তারপর সার্ভিসটি পুল করে পুনরায় তৈরি করুন:
@@ -510,7 +510,7 @@ Docker Compose-এর জন্য, নির্বাচিত প্রোফ�
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:next
+    image: reddb-io/red-router:next
 ```
 
 ```bash
@@ -523,14 +523,14 @@ docker compose up -d
 `next` একটি পরিবর্তনশীল প্রি-রিলিজ চ্যানেল। সক্রিয় রিলিজ ব্রাঞ্চে যেকোনো পুশের সঙ্গে এটি পরিবর্তিত হতে পারে এবং প্রোডাকশন ব্যবহারের জন্য **সমর্থিত নয়**। নির্দিষ্ট একটি বিল্ড মূল্যায়নের সময় ইমেজ ডাইজেস্ট পিন করুন:
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker image inspect diegosouzapw/omniroute:next --format '{{index .RepoDigests 0}}'
+docker pull reddb-io/red-router:next
+docker image inspect reddb-io/red-router:next --format '{{index .RepoDigests 0}}'
 ```
 
 পরীক্ষার আগে OmniRoute ডেটা ভলিউম বা bind-mounted ডেটা ডিরেক্টরি ব্যাকআপ করুন। রোলব্যাক করতে আগে ব্যবহৃত স্থিতিশীল সংস্করণ বা ডাইজেস্ট পুনরুদ্ধার করুন এবং কনটেইনারটি পুনরায় তৈরি করুন:
 
 ```bash
-docker pull diegosouzapw/omniroute:<stable-version>
+docker pull reddb-io/red-router:<stable-version>
 docker compose up -d
 ```
 
@@ -621,7 +621,7 @@ Compose-এর নমুনা (দুটি heap, দুটি volume—`deploy
 ```yaml
 services:
   omniroute-a:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"
@@ -630,7 +630,7 @@ services:
     volumes: [omniroute-a-data:/app/data]
     ports: ["20128:20128"]
   omniroute-b:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"

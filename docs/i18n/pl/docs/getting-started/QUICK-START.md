@@ -17,7 +17,7 @@ npm install -g omniroute
 ### Opcja B: Docker
 
 ```bash
-docker run -d --name omniroute -p 20128:20128 diegosouzapw/omniroute:latest
+docker run -d --name omniroute -p 20128:20128 reddb-io/red-router:latest
 ```
 
 ### Opcja C: Ze źródeł

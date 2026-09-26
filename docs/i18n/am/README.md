@@ -86,9 +86,9 @@
 
 [![npm ስሪት](https://img.shields.io/npm/v/omniroute?color=cb3837&logo=npm)](https://www.npmjs.com/package/omniroute)
 ![ወርሃዊ NPM](https://img.shields.io/npm/dm/omniroute?label=npm/month&color=cb3837&logo=npm)
-[![Docker Hub](https://img.shields.io/docker/v/diegosouzapw/omniroute?label=Docker%20Hub&logo=docker&color=2496ED)](https://hub.docker.com/r/diegosouzapw/omniroute)
+[![Docker Hub](https://img.shields.io/docker/v/reddb-io/red-router?label=Docker%20Hub&logo=docker&color=2496ED)](https://hub.docker.com/r/reddb-io/red-router)
 [![ፈቃድ፦ MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](LICENSE)
-![Docker ማውረዶች](https://img.shields.io/docker/pulls/diegosouzapw/omniroute?label=docker%20pulls&logo=docker&color=2496ED)
+![Docker ማውረዶች](https://img.shields.io/docker/pulls/reddb-io/red-router?label=docker%20pulls&logo=docker&color=2496ED)
 ![Electron ማውረዶች](https://img.shields.io/github/downloads/diegosouzapw/omniroute/total?style=flat&label=electron%20downloads&logo=electron&color=47848F)
 
 <table>
@@ -743,7 +743,7 @@ omniroute configure codex          # እነዚህም፦ claude opencode qwen aid
 <table>
   <tr><th align="left">መድረክ</th><th align="left">ጭነት</th><th align="left">ዋና ባህሪያት</th></tr>
   <tr><td align="left" nowrap>📦 <b>npm (ዓለም አቀፍ)</b></td><td align="left" nowrap><code>npm install -g omniroute</code></td><td align="left">አንድ ትዕዛዝ፣ ማንኛውም OS</td></tr>
-  <tr><td align="left" nowrap>🐳 <b>Docker</b></td><td align="left" nowrap><code>docker run … diegosouzapw/omniroute</code></td><td align="left">ባለብዙ አርክቴክቸር <b>AMD64 + ARM64</b></td></tr>
+  <tr><td align="left" nowrap>🐳 <b>Docker</b></td><td align="left" nowrap><code>docker run … reddb-io/red-router</code></td><td align="left">ባለብዙ አርክቴክቸር <b>AMD64 + ARM64</b></td></tr>
   <tr><td align="left" nowrap>🖥️ <b>ዴስክቶፕ (Electron)</b></td><td align="left" nowrap><code>npm run electron:build</code></td><td align="left">ቤተኛ መስኮት + የስርዓት ትሪ — <b>Windows / macOS / Linux</b></td></tr>
   <tr><td align="left" nowrap>🎩 <b>ምናሌ አሞሌ (OmniRouteTray)</b></td><td align="left" nowrap><code>brew install --cask zoispag/tap/omniroute-tray</code></td><td align="left">አገልጋዩን ይቆጣጠራል &amp; በራስ-ሰር ያዘምናል — <b>macOS</b></td></tr>
   <tr><td align="left" nowrap>💪 <b>ARM</b></td><td align="left" nowrap>ቤተኛ <code>arm64</code></td><td align="left">Raspberry Pi፣ ARM አገልጋዮች፣ Apple Silicon</td></tr>
@@ -1046,7 +1046,7 @@ curl http://localhost:20128/v1/models -H "Authorization: Bearer YOUR_KEY"
 
 ```bash
 docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
-  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data reddb-io/red-router:latest
 ```
 
 `:latest` ከታተሙት የተረጋጉ SemVer ስሪቶች ከፍተኛውን ይከተላል። git `main`ን አይከተልም። ለGitOps `:X.Y.Z`ን በቋሚነት ይጠቀሙ። [Docker የልቀት ቻናሎች](docs/guides/DOCKER_GUIDE.md#release-channels)ን ይመልከቱ። ምስሉ **`OMNIROUTE_MEMORY_MB=1024`**ን በቋሚነት ያስቀምጣል። ይህ ለዳሽቦርዱ እና ለቀላል ውይይት በቂ ነው። **የኮድ ጽሑፍ ወኪሎች** (ከClaude Code፣ Codex፣ Grok፣ … የሚመጣ `POST /v1/responses`) እጅግ ትልቅ የV8 heap ያስፈልጋቸዋል፤ አለበለዚያ ሁለት ረጅም እና ተደራራቢ ዐውደ-ጽሑፎች ሲኖሩ ሂደቱ ~12 GiB ላይ `FATAL ERROR` ያጋጥመዋል። ኮንቴይነሩን ከheap በላይ የሆነ መጠን ይመድቡ (ቤተኛ buffers ከV8 ውጭ ይገኛሉ)፦
@@ -1060,13 +1060,13 @@ docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
 ```bash
 docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
   -e OMNIROUTE_MEMORY_MB=8192 --memory=10g \
-  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data reddb-io/red-router:latest
 ```
 
 ሙሉ ሰንጠረዥ፦ [Docker መመሪያ — የአሂድ ጊዜ RAM](docs/guides/DOCKER_GUIDE.md#runtime-ram-for-coding-agents)።
 
-> **የቅድመ-ልቀት Docker ቻናል፦** `diegosouzapw/omniroute:next` እና
-> `diegosouzapw/omniroute:next-web` የአሁኑን ነባሪ `release/v*`
+> **የቅድመ-ልቀት Docker ቻናል፦** `reddb-io/red-router:next` እና
+> `reddb-io/red-router:next-web` የአሁኑን ነባሪ `release/v*`
 > branch ይከተላሉ። እነዚህ ሊለወጡ የሚችሉ tags ያልተለቀቁ ማስተካከያዎችን ለመሞከር ብቻ የታሰቡ ሲሆን
 > **በምርት አካባቢ አይደገፉም**።
 > [Docker የልቀት ቻናሎች](docs/guides/DOCKER_GUIDE.md#release-channels)ን ይመልከቱ።
@@ -1277,7 +1277,7 @@ OMNIROUTE_SKIP_POSTINSTALL=1 npm install -g omniroute   # CI=1ም ይዘለዋ�
   <tr><td nowrap><b>ሙከራ</b></td><td>Node.js test runner + Vitest — <b>39,000+ static test declarations</b> across 5,100+ tracked test files (unit, integration, E2E, security, ecosystem)</td></tr>
   <tr><td nowrap><b>ፕላትፎርሞች</b></td><td>Desktop (Electron) · Android (Termux) · PWA (any browser)</td></tr>
   <tr><td nowrap><b>CI/CD</b></td><td>GitHub Actions — auto npm publish + Docker Hub on release</td></tr>
-  <tr><td nowrap><b>አገናኞች</b></td><td><a href="https://omniroute.online">ድር ጣቢያ</a> · <a href="https://www.npmjs.com/package/omniroute">npm</a> · <a href="https://hub.docker.com/r/diegosouzapw/omniroute">Docker Hub</a></td></tr>
+  <tr><td nowrap><b>አገናኞች</b></td><td><a href="https://omniroute.online">ድር ጣቢያ</a> · <a href="https://www.npmjs.com/package/omniroute">npm</a> · <a href="https://hub.docker.com/r/reddb-io/red-router">Docker Hub</a></td></tr>
 </table>
 
 <div align="center">

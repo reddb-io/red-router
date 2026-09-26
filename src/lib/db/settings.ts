@@ -270,6 +270,11 @@ export async function getSettings() {
     // arrays preserve prior behaviour; opt-in only.
     modelVisibilityAllowlist: [],
     modelVisibilityDenylist: [],
+    // Global disabled-models gate (see src/shared/utils/disabledModelsList.ts):
+    // refuse named models at dispatch with 403 model_disabled, skip them as
+    // combo targets and auto/* pool members, hide them from /v1/models. Empty
+    // array preserves prior behaviour; opt-in only (Hard Rule #20 spirit).
+    disabledModels: [],
     // #6977: Opt-in per-connection auto-ping that warms a Codex OAuth connection's
     // quota window right after it resets, so the first real request doesn't land in
     // a cold window. `connections` maps connection id -> enabled. Default empty map

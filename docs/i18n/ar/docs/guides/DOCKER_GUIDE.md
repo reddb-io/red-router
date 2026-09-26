@@ -40,7 +40,7 @@ docker run -d \
   --stop-timeout 40 \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## باستخدام ملف البيئة
@@ -56,7 +56,7 @@ docker run -d \
   --env-file .env \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## Docker Compose
@@ -332,7 +332,7 @@ docker build --target runner-base \
 ```bash
 docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
   -e OMNIROUTE_MEMORY_MB=8192 --memory=10g \
-  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data reddb-io/red-router:latest
 ```
 
 ## متغيرات البيئة الحرجة
@@ -378,12 +378,12 @@ docker compose --profile base up -d --build
 
 ### صورة جذر مبنية مسبقًا + مسار فرعي في وقت التشغيل
 
-تُبنى صور `diegosouzapw/omniroute:*` المنشورة لجذر النطاق. ومع ذلك، يمكنك تعيين `OMNIROUTE_BASE_PATH` في وقت التشغيل؛ إذ تُصحّح الحاوية الحزمة مرة واحدة عند بدء التشغيل. استخدمه مع الأصل العام المطابق:
+تُبنى صور `reddb-io/red-router:*` المنشورة لجذر النطاق. ومع ذلك، يمكنك تعيين `OMNIROUTE_BASE_PATH` في وقت التشغيل؛ إذ تُصحّح الحاوية الحزمة مرة واحدة عند بدء التشغيل. استخدمه مع الأصل العام المطابق:
 
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     environment:
       OMNIROUTE_BASE_PATH: /omniroute
       NEXT_PUBLIC_BASE_URL: https://myhostname.example.com/omniroute
@@ -411,7 +411,7 @@ services:
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     container_name: omniroute
     restart: unless-stopped
     volumes:
@@ -460,10 +460,10 @@ volumes:
 
 ## وسوم الصور
 
-| الصورة                   | الوسم    | الحجم  | الوصف                                               |
-| ------------------------ | -------- | ------ | --------------------------------------------------- |
-| `diegosouzapw/omniroute` | `latest` | ~250MB | أعلى إصدار SemVer مستقر **منشور** (وليس git `main`) |
-| `diegosouzapw/omniroute` | `3.8.0`  | ~250MB | ثبّت هذه الفئة من الوسوم لاستخدامها مع GitOps       |
+| الصورة                | الوسم    | الحجم  | الوصف                                               |
+| --------------------- | -------- | ------ | --------------------------------------------------- |
+| `reddb-io/red-router` | `latest` | ~250MB | أعلى إصدار SemVer مستقر **منشور** (وليس git `main`) |
+| `reddb-io/red-router` | `3.8.0`  | ~250MB | ثبّت هذه الفئة من الوسوم لاستخدامها مع GitOps       |
 
 بيان متعدد المنصات: `linux/amd64` + `linux/arm64` أصليان (Apple Silicon وAWS Graviton وRaspberry Pi). يختار Docker البنية المطابقة تلقائيًا؛ مرّر `--platform linux/amd64` إذا كنت بحاجة إلى فرض محاكاة AMD64 على مضيفات ARM.
 
@@ -496,8 +496,8 @@ volumes:
 تُعاد تهيئة قناة `next` عند كل عملية دفع إلى فرع `release/v*` الافتراضي الحالي، وتُنشر لكل من AMD64 وARM64. لا يمكن لفروع الصيانة الأقدم الكتابة فوقها. توفر القناة صورة قابلة للسحب للإصلاحات التي دُمجت في فرع الإصدار النشط قبل إنشاء الوسم المستقر التالي.
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker pull diegosouzapw/omniroute:next-web
+docker pull reddb-io/red-router:next
+docker pull reddb-io/red-router:next-web
 ```
 
 بالنسبة إلى Docker Compose، تجاوز وسم الصورة الذي يستخدمه ملف التعريف المحدد، ثم اسحب الخدمة وأعِد إنشاؤها:
@@ -505,7 +505,7 @@ docker pull diegosouzapw/omniroute:next-web
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:next
+    image: reddb-io/red-router:next
 ```
 
 ```bash
@@ -518,14 +518,14 @@ docker compose up -d
 `next` قناة عائمة لما قبل الإصدار. قد تتغير عند أي عملية دفع إلى فرع الإصدار النشط، وهي **غير مدعومة للاستخدام في الإنتاج**. ثبّت ملخص الصورة أثناء تقييم بنية محددة:
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker image inspect diegosouzapw/omniroute:next --format '{{index .RepoDigests 0}}'
+docker pull reddb-io/red-router:next
+docker image inspect reddb-io/red-router:next --format '{{index .RepoDigests 0}}'
 ```
 
 قبل الاختبار، أنشئ نسخة احتياطية من وحدة تخزين بيانات OmniRoute أو دليل البيانات المركّب بالربط. للتراجع، استعد الإصدار المستقر أو الملخص المستخدم سابقًا، ثم أعِد إنشاء الحاوية:
 
 ```bash
-docker pull diegosouzapw/omniroute:<stable-version>
+docker pull reddb-io/red-router:<stable-version>
 docker compose up -d
 ```
 
@@ -616,7 +616,7 @@ spec:
 ```yaml
 services:
   omniroute-a:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"
@@ -625,7 +625,7 @@ services:
     volumes: [omniroute-a-data:/app/data]
     ports: ["20128:20128"]
   omniroute-b:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"

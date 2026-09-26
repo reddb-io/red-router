@@ -214,10 +214,9 @@ RUN --mount=type=cache,id=s/92ca8a61-c1ba-421f-a389-d48ac7258c2d-next-cache,targ
 # ── Runner base ────────────────────────────────────────────────────────────
 FROM base AS runner-base
 
-LABEL org.opencontainers.image.title="omniroute" \
-  org.opencontainers.image.description="Unified AI proxy — route any LLM through one endpoint" \
-  org.opencontainers.image.url="https://omniroute.online" \
-  org.opencontainers.image.source="https://github.com/diegosouzapw/OmniRoute" \
+LABEL org.opencontainers.image.title="red-router" \
+  org.opencontainers.image.description="RedRouter — unified AI proxy/router. One endpoint, 358 LLM providers, auto-fallback." \
+  org.opencontainers.image.source="https://github.com/reddb-io/red-router" \
   org.opencontainers.image.licenses="MIT"
 
 ENV NODE_ENV=production
@@ -237,7 +236,7 @@ ENV DATA_DIR=/app/data
 RUN mkdir -p /app/data && chown node:node /app /app/data
 
 # #13679: default the PUBLISHED image to requiring an API key. A bare
-# `docker run -p 20128:20128 … diegosouzapw/omniroute` (README/QUICK-START
+# `docker run -p 20128:20128 … reddb-io/red-router` (README/QUICK-START
 # one-liners) does not pass `--env-file .env`, so without this default the
 # anonymous /v1 LLM proxy would be both keyless AND world-reachable on the
 # published container. This does NOT change the npm/CLI local-dev default

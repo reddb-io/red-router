@@ -21,10 +21,10 @@ npm install -g omniroute
 ### ვარიანტი B: Docker
 
 ```bash
-docker run -d --name omniroute -p 20128:20128 diegosouzapw/omniroute:latest
+docker run -d --name omniroute -p 20128:20128 reddb-io/red-router:latest
 ```
 
-`:latest` არის ყველაზე მაღალი **გამოქვეყნებული** სტაბილური SemVer. ის არ მიჰყვება git-ის `main` შტოს. GitOps-ისთვის გამოიყენეთ ფიქსირებული `diegosouzapw/omniroute:X.Y.Z`. იხილეთ [იმიჯის ტეგები / გამოშვების არხები](../guides/DOCKER_GUIDE.md#release-channels).
+`:latest` არის ყველაზე მაღალი **გამოქვეყნებული** სტაბილური SemVer. ის არ მიჰყვება git-ის `main` შტოს. GitOps-ისთვის გამოიყენეთ ფიქსირებული `reddb-io/red-router:X.Y.Z`. იხილეთ [იმიჯის ტეგები / გამოშვების არხები](../guides/DOCKER_GUIDE.md#release-channels).
 
 ### ვარიანტი C: საწყისი კოდიდან
 

@@ -417,7 +417,7 @@ v3.8.0-მდე იმპორტირებულ კავშირებ�
 2. **მუდმივი გამოსწორება:** მკაფიოდ მიაბით IPv4-ს და თქვენს `docker run` ბრძანებაში გამოიყენეთ `-p 127.0.0.1:20128:20128`:
    ```bash
    docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
-     -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+     -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data reddb-io/red-router:latest
    ```
    ეს აიძულებს სისტემას გამოიყენოს IPv4-ზე მიბმა და ასევე თავიდან აგაცილებთ პროქსის ჰოსტის ყველა ინტერფეისზე გამოტანას.
 

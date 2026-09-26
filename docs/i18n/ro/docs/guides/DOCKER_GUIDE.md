@@ -40,7 +40,7 @@ docker run -d \
   --stop-timeout 40 \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## Cu fișier de mediu
@@ -56,7 +56,7 @@ docker run -d \
   --env-file .env \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## Docker Compose
@@ -332,7 +332,7 @@ Dimensionați **valoarea cgroup `--memory` peste dimensiunea heap-ului** — buf
 ```bash
 docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
   -e OMNIROUTE_MEMORY_MB=8192 --memory=10g \
-  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data reddb-io/red-router:latest
 ```
 
 ## Variabile de mediu critice
@@ -388,14 +388,14 @@ variabilă de mediu în timpul execuției.
 
 ### Imagine preconstruită pentru rădăcină + subcale la execuție
 
-Imaginile publicate `diegosouzapw/omniroute:*` sunt construite pentru rădăcina domeniului. Puteți totuși
+Imaginile publicate `reddb-io/red-router:*` sunt construite pentru rădăcina domeniului. Puteți totuși
 seta `OMNIROUTE_BASE_PATH` în timpul execuției; containerul aplică o singură dată corecțiile asupra pachetului, la pornire.
 Asociați-o cu originea publică corespunzătoare:
 
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     environment:
       OMNIROUTE_BASE_PATH: /omniroute
       NEXT_PUBLIC_BASE_URL: https://myhostname.example.com/omniroute
@@ -436,7 +436,7 @@ OmniRoute poate fi expus în siguranță folosind configurarea SSL automată ofe
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     container_name: omniroute
     restart: unless-stopped
     volumes:
@@ -486,10 +486,10 @@ Panourile pentru tunelurile endpointurilor (Cloudflare, Tailscale, ngrok) pot fi
 
 ## Etichete de imagine
 
-| Imagine                  | Etichetă | Dimensiune | Descriere                                                                    |
-| ------------------------ | -------- | ---------- | ---------------------------------------------------------------------------- |
-| `diegosouzapw/omniroute` | `latest` | ~250MB     | Cea mai recentă versiune SemVer stabilă **publicată** (nu ramura git `main`) |
-| `diegosouzapw/omniroute` | `3.8.0`  | ~250MB     | Fixați această clasă de etichete pentru GitOps                               |
+| Imagine               | Etichetă | Dimensiune | Descriere                                                                    |
+| --------------------- | -------- | ---------- | ---------------------------------------------------------------------------- |
+| `reddb-io/red-router` | `latest` | ~250MB     | Cea mai recentă versiune SemVer stabilă **publicată** (nu ramura git `main`) |
+| `reddb-io/red-router` | `3.8.0`  | ~250MB     | Fixați această clasă de etichete pentru GitOps                               |
 
 Manifest multi-platformă: suport nativ pentru `linux/amd64` + `linux/arm64` (Apple Silicon, AWS Graviton, Raspberry Pi). Docker selectează automat arhitectura corespunzătoare; transmiteți `--platform linux/amd64` dacă trebuie să forțați emularea AMD64 pe gazde ARM.
 
@@ -522,8 +522,8 @@ Dacă utilizați acești furnizori, descărcați eticheta `-web` a canalului pe 
 Canalul `next` este reconstruit la fiecare push către ramura implicită curentă `release/v*` și este publicat atât pentru AMD64, cât și pentru ARM64. Ramurile de mentenanță mai vechi nu îl pot suprascrie. Canalul oferă o imagine care poate fi descărcată pentru corecțiile care au fost îmbinate în ramura activă de lansare înainte de crearea următoarei etichete stabile.
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker pull diegosouzapw/omniroute:next-web
+docker pull reddb-io/red-router:next
+docker pull reddb-io/red-router:next-web
 ```
 
 Pentru Docker Compose, suprascrieți eticheta imaginii utilizată de profilul selectat, apoi descărcați imaginea și recreați serviciul:
@@ -531,7 +531,7 @@ Pentru Docker Compose, suprascrieți eticheta imaginii utilizată de profilul se
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:next
+    image: reddb-io/red-router:next
 ```
 
 ```bash
@@ -544,14 +544,14 @@ docker compose up -d
 `next` este un canal de pre-lansare dinamic. Se poate schimba la orice push către ramura activă de lansare și **nu este acceptat pentru utilizare în producție**. Fixați digestul imaginii atunci când evaluați o anumită compilare:
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker image inspect diegosouzapw/omniroute:next --format '{{index .RepoDigests 0}}'
+docker pull reddb-io/red-router:next
+docker image inspect reddb-io/red-router:next --format '{{index .RepoDigests 0}}'
 ```
 
 Înainte de testare, creați o copie de siguranță a volumului de date OmniRoute sau a directorului de date montat prin bind. Pentru a reveni, restaurați versiunea stabilă sau digestul utilizat anterior și recreați containerul:
 
 ```bash
-docker pull diegosouzapw/omniroute:<stable-version>
+docker pull reddb-io/red-router:<stable-version>
 docker compose up -d
 ```
 
@@ -642,7 +642,7 @@ Schiță Compose (două heap-uri, două volume — nu `deploy.replicas: 2`):
 ```yaml
 services:
   omniroute-a:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"
@@ -651,7 +651,7 @@ services:
     volumes: [omniroute-a-data:/app/data]
     ports: ["20128:20128"]
   omniroute-b:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"

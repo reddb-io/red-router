@@ -70,7 +70,7 @@ docker rm omniroute
 docker volume rm omniroute-data
 
 # (ಐಚ್ಛಿಕ) ಇಮೇಜ್ ಅನ್ನು ತೆಗೆದುಹಾಕಿ
-docker rmi diegosouzapw/omniroute:latest
+docker rmi reddb-io/red-router:latest
 ```
 
 ### Docker Compose

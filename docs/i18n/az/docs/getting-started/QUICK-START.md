@@ -21,10 +21,10 @@ npm install -g omniroute
 ### Seçim B: Docker
 
 ```bash
-docker run -d --name omniroute -p 20128:20128 diegosouzapw/omniroute:latest
+docker run -d --name omniroute -p 20128:20128 reddb-io/red-router:latest
 ```
 
-`:latest` dərc edilmiş ən yüksək stabil SemVer versiyasıdır. O, git `main` qolunu izləmir. GitOps üçün `diegosouzapw/omniroute:X.Y.Z` versiyasını sabitləyin. [İmaj teqləri / Buraxılış kanalları](../guides/DOCKER_GUIDE.md#release-channels) bölməsinə baxın.
+`:latest` dərc edilmiş ən yüksək stabil SemVer versiyasıdır. O, git `main` qolunu izləmir. GitOps üçün `reddb-io/red-router:X.Y.Z` versiyasını sabitləyin. [İmaj teqləri / Buraxılış kanalları](../guides/DOCKER_GUIDE.md#release-channels) bölməsinə baxın.
 
 ### Seçim C: Mənbə kodundan
 

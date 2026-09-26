@@ -415,7 +415,7 @@ i [`docs/guides/KIRO_SETUP.md`](./KIRO_SETUP.md).
 2. **Permanent løsning:** Bind eksplicit til IPv4 ved at bruge `-p 127.0.0.1:20128:20128` i din `docker run`-kommando:
    ```bash
    docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
-     -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+     -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data reddb-io/red-router:latest
    ```
    Dette gennemtvinger IPv4-bindingen og undgår samtidig at eksponere proxyen på alle værtens grænseflader.
 

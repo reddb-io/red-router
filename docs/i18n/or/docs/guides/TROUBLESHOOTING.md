@@ -422,7 +422,7 @@ Isolation ପାଇବାକୁ, Dashboard → Providersରୁ ପୁରୁଣ�
 2. **ସ୍ଥାୟୀ ସମାଧାନ:** ଆପଣଙ୍କ `docker run` କମାଣ୍ଡରେ `-p 127.0.0.1:20128:20128` ବ୍ୟବହାର କରି ସ୍ପଷ୍ଟ ଭାବରେ IPv4 ସହିତ ବାଇଣ୍ଡ୍ କରନ୍ତୁ:
    ```bash
    docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
-     -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+     -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data reddb-io/red-router:latest
    ```
    ଏହା IPv4 ବାଇଣ୍ଡ୍କୁ ବାଧ୍ୟତାମୂଳକ କରେ ଏବଂ ସମସ୍ତ ହୋଷ୍ଟ ଇଣ୍ଟରଫେସ୍ରେ ପ୍ରକ୍ସିକୁ ଉନ୍ମୁକ୍ତ କରିବାରୁ ମଧ୍ୟ ରକ୍ଷା କରେ।
 

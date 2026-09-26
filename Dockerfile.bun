@@ -58,10 +58,9 @@ RUN bun run --quiet build
 # ── Runner Base stage (100% Bun Native Production Runtime) ──────────────────
 FROM oven/bun:1.4.2-slim AS runner-base
 
-LABEL org.opencontainers.image.title="omniroute" \
-  org.opencontainers.image.description="Unified AI proxy — route any LLM through one endpoint (Bun Native)" \
-  org.opencontainers.image.url="https://omniroute.online" \
-  org.opencontainers.image.source="https://github.com/diegosouzapw/OmniRoute" \
+LABEL org.opencontainers.image.title="red-router" \
+  org.opencontainers.image.description="RedRouter — unified AI proxy/router. One endpoint, 358 LLM providers, auto-fallback (Bun Native)." \
+  org.opencontainers.image.source="https://github.com/reddb-io/red-router" \
   org.opencontainers.image.licenses="MIT"
 
 WORKDIR /app

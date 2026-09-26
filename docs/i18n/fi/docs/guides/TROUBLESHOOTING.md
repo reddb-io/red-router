@@ -414,7 +414,7 @@ tiedostossa [`docs/guides/KIRO_SETUP.md`](./KIRO_SETUP.md).
 2. **Pysyvä korjaus:** Sido nimenomaisesti IPv4-osoitteeseen käyttämällä `docker run` -komennossa määritystä `-p 127.0.0.1:20128:20128`:
    ```bash
    docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
-     -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+     -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data reddb-io/red-router:latest
    ```
    Tämä pakottaa IPv4-sidonnan ja estää samalla välityspalvelimen julkaisemisen isännän kaikissa verkkoliitännöissä.
 

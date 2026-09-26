@@ -40,7 +40,7 @@ docker run -d \
   --stop-timeout 40 \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## با فایل محیطی
@@ -56,7 +56,7 @@ docker run -d \
   --env-file .env \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## Docker Compose
@@ -334,7 +334,7 @@ docker build --target runner-base \
 ```bash
 docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
   -e OMNIROUTE_MEMORY_MB=8192 --memory=10g \
-  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data reddb-io/red-router:latest
 ```
 
 ## متغیرهای حیاتی محیطی
@@ -380,12 +380,12 @@ docker compose --profile base up -d --build
 
 ### ایمیج ریشهٔ ازپیشساختهشده + زیرمسیر زمان اجرا
 
-ایمیجهای منتشرشدهٔ `diegosouzapw/omniroute:*` برای ریشهٔ دامنه ساخته شدهاند. بااینحال، میتوانید `OMNIROUTE_BASE_PATH` را هنگام اجرا تنظیم کنید؛ کانتینر در زمان راهاندازی، بسته را یکبار patch میکند. آن را همراه با مبدأ عمومی متناظر تنظیم کنید:
+ایمیجهای منتشرشدهٔ `reddb-io/red-router:*` برای ریشهٔ دامنه ساخته شدهاند. بااینحال، میتوانید `OMNIROUTE_BASE_PATH` را هنگام اجرا تنظیم کنید؛ کانتینر در زمان راهاندازی، بسته را یکبار patch میکند. آن را همراه با مبدأ عمومی متناظر تنظیم کنید:
 
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     environment:
       OMNIROUTE_BASE_PATH: /omniroute
       NEXT_PUBLIC_BASE_URL: https://myhostname.example.com/omniroute
@@ -413,7 +413,7 @@ services:
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     container_name: omniroute
     restart: unless-stopped
     volumes:
@@ -463,10 +463,10 @@ CSRF وابسته به نشست استفاده میکنند. `OMNIROUTE_TRUST_PR
 
 ## برچسبهای ایمیج
 
-| ایمیج                    | برچسب    | اندازه | توضیحات                                                              |
-| ------------------------ | -------- | ------ | -------------------------------------------------------------------- |
-| `diegosouzapw/omniroute` | `latest` | ~250MB | بالاترین نسخهٔ پایدار SemVer که **منتشر شده است** (نه `main` در git) |
-| `diegosouzapw/omniroute` | `3.8.0`  | ~250MB | برای GitOps از این نوع برچسب ثابت استفاده کنید                       |
+| ایمیج                 | برچسب    | اندازه | توضیحات                                                              |
+| --------------------- | -------- | ------ | -------------------------------------------------------------------- |
+| `reddb-io/red-router` | `latest` | ~250MB | بالاترین نسخهٔ پایدار SemVer که **منتشر شده است** (نه `main` در git) |
+| `reddb-io/red-router` | `3.8.0`  | ~250MB | برای GitOps از این نوع برچسب ثابت استفاده کنید                       |
 
 مانیفست چندسکویی: `linux/amd64` + `linux/arm64` بهصورت بومی (Apple Silicon، AWS Graviton، Raspberry Pi). Docker معماری منطبق را بهطور خودکار انتخاب میکند؛ اگر لازم است شبیهسازی AMD64 را روی میزبانهای ARM اجباری کنید، `--platform linux/amd64` را ارسال کنید.
 
@@ -499,8 +499,8 @@ OmniRoute کانالهای Docker جداگانهای را برای انتشار�
 کانال `next` با هر push به شاخهٔ پیشفرض فعلی `release/v*` دوباره ساخته میشود و برای هر دو معماری AMD64 و ARM64 منتشر میگردد. شاخههای نگهداری قدیمیتر نمیتوانند آن را بازنویسی کنند. این کانال، پیش از ایجاد برچسب پایدار بعدی، یک ایمیج قابل pull برای اصلاحاتی فراهم میکند که در شاخهٔ انتشار فعال ادغام شدهاند.
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker pull diegosouzapw/omniroute:next-web
+docker pull reddb-io/red-router:next
+docker pull reddb-io/red-router:next-web
 ```
 
 برای Docker Compose، برچسب ایمیج مورداستفادهٔ پروفایل انتخابشده را بازنویسی کنید، سپس سرویس را pull و دوباره ایجاد کنید:
@@ -508,7 +508,7 @@ docker pull diegosouzapw/omniroute:next-web
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:next
+    image: reddb-io/red-router:next
 ```
 
 ```bash
@@ -521,14 +521,14 @@ docker compose up -d
 `next` یک کانال پیشانتشار شناور است. ممکن است با هر push به شاخهٔ انتشار فعال تغییر کند و **برای استفاده در محیط عملیاتی پشتیبانی نمیشود**. هنگام ارزیابی یک بیلد مشخص، ایمیج را با digest آن ثابت کنید:
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker image inspect diegosouzapw/omniroute:next --format '{{index .RepoDigests 0}}'
+docker pull reddb-io/red-router:next
+docker image inspect reddb-io/red-router:next --format '{{index .RepoDigests 0}}'
 ```
 
 پیش از آزمایش، از volume دادهٔ OmniRoute یا دایرکتوری دادهٔ bind-mounted نسخهٔ پشتیبان تهیه کنید. برای بازگشت، نسخهٔ پایدار یا digest مورداستفادهٔ قبلی را بازیابی کرده و کانتینر را دوباره ایجاد کنید:
 
 ```bash
-docker pull diegosouzapw/omniroute:<stable-version>
+docker pull reddb-io/red-router:<stable-version>
 docker compose up -d
 ```
 
@@ -619,7 +619,7 @@ spec:
 ```yaml
 services:
   omniroute-a:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"
@@ -628,7 +628,7 @@ services:
     volumes: [omniroute-a-data:/app/data]
     ports: ["20128:20128"]
   omniroute-b:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"

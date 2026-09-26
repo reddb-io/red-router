@@ -40,7 +40,7 @@ docker run -d \
   --stop-timeout 40 \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## Ortam Dosyasıyla
@@ -56,7 +56,7 @@ docker run -d \
   --env-file .env \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## Docker Compose
@@ -336,7 +336,7 @@ Docker'daki bellek davranışı:
 ```bash
 docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
   -e OMNIROUTE_MEMORY_MB=8192 --memory=10g \
-  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data reddb-io/red-router:latest
 ```
 
 ## Kritik Ortam Değişkenleri
@@ -393,14 +393,14 @@ docker compose --profile base up -d --build
 
 ### Önceden oluşturulmuş kök imajı + çalışma zamanı alt yolu
 
-Yayımlanmış `diegosouzapw/omniroute:*` imajları etki alanı kökü için oluşturulmuştur.
+Yayımlanmış `reddb-io/red-router:*` imajları etki alanı kökü için oluşturulmuştur.
 Yine de çalışma zamanında `OMNIROUTE_BASE_PATH` ayarlayabilirsiniz; konteyner, başlangıçta
 paketi bir kez yamalar. Bunu eşleşen genel kaynak adresiyle birlikte kullanın:
 
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     environment:
       OMNIROUTE_BASE_PATH: /omniroute
       NEXT_PUBLIC_BASE_URL: https://myhostname.example.com/omniroute
@@ -443,7 +443,7 @@ OmniRoute, Caddy'nin otomatik SSL sağlama özelliği kullanılarak güvenli bir
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     container_name: omniroute
     restart: unless-stopped
     volumes:
@@ -488,10 +488,10 @@ Uç nokta tüneli panelleri (Cloudflare, Tailscale, ngrok), etkin tünel durumu 
 
 ## İmaj Etiketleri
 
-| İmaj                     | Etiket   | Boyut  | Açıklama                                                    |
-| ------------------------ | -------- | ------ | ----------------------------------------------------------- |
-| `diegosouzapw/omniroute` | `latest` | ~250MB | En yüksek **yayımlanmış** kararlı SemVer (git `main` değil) |
-| `diegosouzapw/omniroute` | `3.8.0`  | ~250MB | GitOps için bu etiket sınıfını sabitleyin                   |
+| İmaj                  | Etiket   | Boyut  | Açıklama                                                    |
+| --------------------- | -------- | ------ | ----------------------------------------------------------- |
+| `reddb-io/red-router` | `latest` | ~250MB | En yüksek **yayımlanmış** kararlı SemVer (git `main` değil) |
+| `reddb-io/red-router` | `3.8.0`  | ~250MB | GitOps için bu etiket sınıfını sabitleyin                   |
 
 Çok platformlu manifest: yerel `linux/amd64` + `linux/arm64` (Apple Silicon, AWS Graviton, Raspberry Pi). Docker, eşleşen mimariyi otomatik olarak seçer; ARM ana makinelerinde AMD64 emülasyonunu zorunlu kılmanız gerekiyorsa `--platform linux/amd64` parametresini geçin.
 
@@ -524,8 +524,8 @@ Bu sağlayıcıları kullanıyorsanız, zaten kullandığınız kanalın `-web` 
 `next` kanalı, geçerli varsayılan `release/v*` dalına yapılan her push işleminde yeniden derlenir ve hem AMD64 hem de ARM64 için yayımlanır. Daha eski bakım dalları bunun üzerine yazamaz. Bu kanal, bir sonraki kararlı etiket oluşturulmadan önce etkin sürüm dalına birleştirilmiş düzeltmeler için çekilebilir bir imaj sağlar.
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker pull diegosouzapw/omniroute:next-web
+docker pull reddb-io/red-router:next
+docker pull reddb-io/red-router:next-web
 ```
 
 Docker Compose için seçilen profilin kullandığı imaj etiketini geçersiz kılın, ardından hizmeti çekip yeniden oluşturun:
@@ -533,7 +533,7 @@ Docker Compose için seçilen profilin kullandığı imaj etiketini geçersiz k�
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:next
+    image: reddb-io/red-router:next
 ```
 
 ```bash
@@ -546,14 +546,14 @@ docker compose up -d
 `next`, değişken bir ön sürüm kanalıdır. Etkin sürüm dalına yapılan herhangi bir push işleminde değişebilir ve **üretim kullanımı için desteklenmez**. Belirli bir derlemeyi değerlendirirken imaj özetini sabitleyin:
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker image inspect diegosouzapw/omniroute:next --format '{{index .RepoDigests 0}}'
+docker pull reddb-io/red-router:next
+docker image inspect reddb-io/red-router:next --format '{{index .RepoDigests 0}}'
 ```
 
 Testten önce OmniRoute veri birimini veya bağlama yoluyla eklenmiş veri dizinini yedekleyin. Geri almak için daha önce kullanılan kararlı sürümü veya özeti geri yükleyip kapsayıcıyı yeniden oluşturun:
 
 ```bash
-docker pull diegosouzapw/omniroute:<stable-version>
+docker pull reddb-io/red-router:<stable-version>
 docker compose up -d
 ```
 
@@ -644,7 +644,7 @@ Compose taslağı (iki heap, iki birim — `deploy.replicas: 2` değil):
 ```yaml
 services:
   omniroute-a:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"
@@ -653,7 +653,7 @@ services:
     volumes: [omniroute-a-data:/app/data]
     ports: ["20128:20128"]
   omniroute-b:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"

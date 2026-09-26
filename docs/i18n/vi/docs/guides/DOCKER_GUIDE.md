@@ -40,7 +40,7 @@ docker run -d \
   --stop-timeout 40 \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## Với tệp môi trường
@@ -56,7 +56,7 @@ docker run -d \
   --env-file .env \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## Docker Compose
@@ -332,7 +332,7 @@ Hãy đặt kích thước **cgroup `--memory` cao hơn heap** — các bộ đ�
 ```bash
 docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
   -e OMNIROUTE_MEMORY_MB=8192 --memory=10g \
-  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data reddb-io/red-router:latest
 ```
 
 ## Các biến môi trường quan trọng
@@ -388,14 +388,14 @@ biến môi trường khi chạy.
 
 ### Image gốc được dựng sẵn + đường dẫn con khi chạy
 
-Các image `diegosouzapw/omniroute:*` đã phát hành được xây dựng cho thư mục gốc của miền. Bạn vẫn có thể
+Các image `reddb-io/red-router:*` đã phát hành được xây dựng cho thư mục gốc của miền. Bạn vẫn có thể
 đặt `OMNIROUTE_BASE_PATH` khi chạy; container sẽ vá bundle một lần khi khởi động.
 Hãy ghép biến này với origin công khai tương ứng:
 
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     environment:
       OMNIROUTE_BASE_PATH: /omniroute
       NEXT_PUBLIC_BASE_URL: https://myhostname.example.com/omniroute
@@ -436,7 +436,7 @@ OmniRoute có thể được cung cấp truy cập an toàn bằng tính năng t
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     container_name: omniroute
     restart: unless-stopped
     volumes:
@@ -486,10 +486,10 @@ Các bảng tunnel của endpoint (Cloudflare, Tailscale, ngrok) có thể đư�
 
 ## Thẻ image
 
-| Image                    | Thẻ      | Kích thước | Mô tả                                                            |
-| ------------------------ | -------- | ---------- | ---------------------------------------------------------------- |
-| `diegosouzapw/omniroute` | `latest` | ~250MB     | SemVer ổn định **đã phát hành** cao nhất (không phải git `main`) |
-| `diegosouzapw/omniroute` | `3.8.0`  | ~250MB     | Ghim loại thẻ này cho GitOps                                     |
+| Image                 | Thẻ      | Kích thước | Mô tả                                                            |
+| --------------------- | -------- | ---------- | ---------------------------------------------------------------- |
+| `reddb-io/red-router` | `latest` | ~250MB     | SemVer ổn định **đã phát hành** cao nhất (không phải git `main`) |
+| `reddb-io/red-router` | `3.8.0`  | ~250MB     | Ghim loại thẻ này cho GitOps                                     |
 
 Manifest đa nền tảng: `linux/amd64` + `linux/arm64` nguyên bản (Apple Silicon, AWS Graviton, Raspberry Pi). Docker tự động chọn kiến trúc phù hợp; truyền `--platform linux/amd64` nếu bạn cần buộc mô phỏng AMD64 trên các máy chủ ARM.
 
@@ -522,8 +522,8 @@ Nếu sử dụng các nhà cung cấp đó, hãy kéo thẻ `-web` của kênh 
 Kênh `next` được dựng lại sau mỗi lần push lên nhánh `release/v*` mặc định hiện tại và được phát hành cho cả AMD64 lẫn ARM64. Các nhánh bảo trì cũ hơn không thể ghi đè lên kênh này. Kênh này cung cấp một image có thể kéo về dành cho các bản sửa lỗi đã được hợp nhất vào nhánh phát hành đang hoạt động trước khi thẻ ổn định tiếp theo được tạo.
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker pull diegosouzapw/omniroute:next-web
+docker pull reddb-io/red-router:next
+docker pull reddb-io/red-router:next-web
 ```
 
 Đối với Docker Compose, hãy ghi đè thẻ image được hồ sơ đã chọn sử dụng, sau đó kéo image và tạo lại dịch vụ:
@@ -531,7 +531,7 @@ docker pull diegosouzapw/omniroute:next-web
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:next
+    image: reddb-io/red-router:next
 ```
 
 ```bash
@@ -544,14 +544,14 @@ docker compose up -d
 `next` là một kênh tiền phát hành linh động. Kênh này có thể thay đổi sau bất kỳ lần push nào lên nhánh phát hành đang hoạt động và **không được hỗ trợ để sử dụng trong production**. Hãy ghim digest của image khi đánh giá một bản dựng cụ thể:
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker image inspect diegosouzapw/omniroute:next --format '{{index .RepoDigests 0}}'
+docker pull reddb-io/red-router:next
+docker image inspect reddb-io/red-router:next --format '{{index .RepoDigests 0}}'
 ```
 
 Trước khi kiểm thử, hãy sao lưu volume dữ liệu OmniRoute hoặc thư mục dữ liệu được bind mount. Để khôi phục phiên bản trước, hãy khôi phục phiên bản ổn định hoặc digest đã sử dụng trước đó rồi tạo lại container:
 
 ```bash
-docker pull diegosouzapw/omniroute:<stable-version>
+docker pull reddb-io/red-router:<stable-version>
 docker compose up -d
 ```
 
@@ -642,7 +642,7 @@ Phác thảo Compose (hai heap, hai volume — không phải `deploy.replicas: 2
 ```yaml
 services:
   omniroute-a:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"
@@ -651,7 +651,7 @@ services:
     volumes: [omniroute-a-data:/app/data]
     ports: ["20128:20128"]
   omniroute-b:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"

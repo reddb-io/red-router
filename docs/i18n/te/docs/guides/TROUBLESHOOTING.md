@@ -420,7 +420,7 @@ v3.8.0కు _ముందు_ ఇంపోర్ట్ చేసిన కన�
 2. **శాశ్వత పరిష్కారం:** మీ `docker run` కమాండ్లో `-p 127.0.0.1:20128:20128` ఉపయోగించడం ద్వారా IPv4కు స్పష్టంగా బైండ్ చేయండి:
    ```bash
    docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
-     -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+     -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data reddb-io/red-router:latest
    ```
    ఇది IPv4 బైండ్ను తప్పనిసరి చేస్తుంది మరియు అన్ని హోస్ట్ ఇంటర్ఫేస్లలో ప్రాక్సీ బహిర్గతం కాకుండా కూడా నివారిస్తుంది.
 

@@ -40,7 +40,7 @@ docker run -d \
   --stop-timeout 40 \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## ପରିବେଶ ଫାଇଲ୍ ସହିତ
@@ -56,7 +56,7 @@ docker run -d \
   --env-file .env \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## Docker Compose
@@ -330,7 +330,7 @@ bare metal-ରେ `omniroute serve`, `OMNIROUTE_MEMORY_MB` **ସେଟ୍ ହୋ
 ```bash
 docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
   -e OMNIROUTE_MEMORY_MB=8192 --memory=10g \
-  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data reddb-io/red-router:latest
 ```
 
 ## ଗୁରୁତ୍ୱପୂର୍ଣ୍ଣ ପରିବେଶ ଭେରିଏବଲ୍ଗୁଡ଼ିକ
@@ -376,12 +376,12 @@ docker compose --profile base up -d --build
 
 ### ପୂର୍ବରୁ ବିଲ୍ଡ ହୋଇଥିବା ରୁଟ୍ ଇମେଜ୍ + ରନ୍ଟାଇମ୍ ସବ୍ପାଥ୍
 
-ପ୍ରକାଶିତ `diegosouzapw/omniroute:*` ଇମେଜ୍ଗୁଡ଼ିକ ଡୋମେନ୍ ରୁଟ୍ ପାଇଁ ବିଲ୍ଡ ହୋଇଛି। ତଥାପି ଆପଣ ରନ୍ଟାଇମ୍ରେ `OMNIROUTE_BASE_PATH` ସେଟ୍ କରିପାରିବେ; କଣ୍ଟେନର୍ ଷ୍ଟାର୍ଟଅପ୍ ସମୟରେ ବଣ୍ଡଲ୍କୁ ଥରେ ପ୍ୟାଚ୍ କରେ। ଏହା ସହିତ ମେଳ ଖାଉଥିବା ସାର୍ବଜନୀନ ଅରିଜିନ୍କୁ ଯୋଡ଼ନ୍ତୁ:
+ପ୍ରକାଶିତ `reddb-io/red-router:*` ଇମେଜ୍ଗୁଡ଼ିକ ଡୋମେନ୍ ରୁଟ୍ ପାଇଁ ବିଲ୍ଡ ହୋଇଛି। ତଥାପି ଆପଣ ରନ୍ଟାଇମ୍ରେ `OMNIROUTE_BASE_PATH` ସେଟ୍ କରିପାରିବେ; କଣ୍ଟେନର୍ ଷ୍ଟାର୍ଟଅପ୍ ସମୟରେ ବଣ୍ଡଲ୍କୁ ଥରେ ପ୍ୟାଚ୍ କରେ। ଏହା ସହିତ ମେଳ ଖାଉଥିବା ସାର୍ବଜନୀନ ଅରିଜିନ୍କୁ ଯୋଡ଼ନ୍ତୁ:
 
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     environment:
       OMNIROUTE_BASE_PATH: /omniroute
       NEXT_PUBLIC_BASE_URL: https://myhostname.example.com/omniroute
@@ -409,7 +409,7 @@ Caddyର ସ୍ୱୟଂଚାଳିତ SSL ପ୍ରୋଭିଜନିଂ ବ�
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     container_name: omniroute
     restart: unless-stopped
     volumes:
@@ -459,10 +459,10 @@ Docker ଡିପ୍ଲୟମେଣ୍ଟ ପାଇଁ ଡ୍ୟାସ୍ବୋ�
 
 ## ଇମେଜ୍ ଟ୍ୟାଗ୍ଗୁଡ଼ିକ
 
-| ଇମେଜ୍                    | ଟ୍ୟାଗ୍   | ଆକାର   | ବର୍ଣ୍ଣନା                                              |
-| ------------------------ | -------- | ------ | ----------------------------------------------------- |
-| `diegosouzapw/omniroute` | `latest` | ~250MB | ସର୍ବୋଚ୍ଚ **ପ୍ରକାଶିତ** ସ୍ଥିର SemVer (git `main` ନୁହେଁ) |
-| `diegosouzapw/omniroute` | `3.8.0`  | ~250MB | GitOps ପାଇଁ ଏହି ଶ୍ରେଣୀର ଟ୍ୟାଗ୍କୁ ପିନ୍ କରନ୍ତୁ          |
+| ଇମେଜ୍                 | ଟ୍ୟାଗ୍   | ଆକାର   | ବର୍ଣ୍ଣନା                                              |
+| --------------------- | -------- | ------ | ----------------------------------------------------- |
+| `reddb-io/red-router` | `latest` | ~250MB | ସର୍ବୋଚ୍ଚ **ପ୍ରକାଶିତ** ସ୍ଥିର SemVer (git `main` ନୁହେଁ) |
+| `reddb-io/red-router` | `3.8.0`  | ~250MB | GitOps ପାଇଁ ଏହି ଶ୍ରେଣୀର ଟ୍ୟାଗ୍କୁ ପିନ୍ କରନ୍ତୁ          |
 
 ବହୁ-ପ୍ଲାଟଫର୍ମ ମ୍ୟାନିଫେଷ୍ଟ: ନେଟିଭ୍ `linux/amd64` + `linux/arm64` (Apple Silicon, AWS Graviton, Raspberry Pi)। Docker ସ୍ୱୟଂଚାଳିତ ଭାବରେ ମେଳ ଖାଉଥିବା ଆର୍କିଟେକ୍ଚର୍ ଚୟନ କରେ; ARM ହୋଷ୍ଟଗୁଡ଼ିକରେ AMD64 ଏମ୍ୟୁଲେସନ୍ ବାଧ୍ୟତାମୂଳକ କରିବାକୁ ଆବଶ୍ୟକ ହେଲେ `--platform linux/amd64` ପାସ୍ କରନ୍ତୁ।
 
@@ -495,8 +495,8 @@ OmniRoute ସ୍ଥିର ରିଲିଜ୍, ସକ୍ରିୟ ରିଲିଜ
 ବର୍ତ୍ତମାନର ଡିଫଲ୍ଟ `release/v*` ବ୍ରାଞ୍ଚକୁ ପ୍ରତ୍ୟେକ ପୁସ୍ ସମୟରେ `next` ଚ୍ୟାନେଲ୍ ପୁନଃ ବିଲ୍ଡ ହୁଏ ଏବଂ AMD64 ଓ ARM64 ଉଭୟ ପାଇଁ ପ୍ରକାଶିତ ହୁଏ। ପୁରୁଣା ମେଣ୍ଟେନାନ୍ସ ବ୍ରାଞ୍ଚଗୁଡ଼ିକ ଏହାକୁ ଓଭର୍ରାଇଟ୍ କରିପାରିବେ ନାହିଁ। ପରବର୍ତ୍ତୀ ସ୍ଥିର ଟ୍ୟାଗ୍ ତିଆରି ହେବା ପୂର୍ବରୁ ସକ୍ରିୟ ରିଲିଜ୍ ବ୍ରାଞ୍ଚରେ ମର୍ଜ୍ ହୋଇଥିବା ସଂଶୋଧନଗୁଡ଼ିକ ପାଇଁ ଏହି ଚ୍ୟାନେଲ୍ ଏକ ପୁଲ୍ କରାଯାଇପାରୁଥିବା ଇମେଜ୍ ପ୍ରଦାନ କରେ।
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker pull diegosouzapw/omniroute:next-web
+docker pull reddb-io/red-router:next
+docker pull reddb-io/red-router:next-web
 ```
 
 Docker Compose ପାଇଁ, ଚୟନିତ ପ୍ରୋଫାଇଲ୍ରେ ବ୍ୟବହୃତ ଇମେଜ୍ ଟ୍ୟାଗ୍କୁ ଓଭର୍ରାଇଡ୍ କରନ୍ତୁ, ତା’ପରେ ସର୍ଭିସ୍କୁ ପୁଲ୍ କରି ପୁନଃ ସୃଷ୍ଟି କରନ୍ତୁ:
@@ -504,7 +504,7 @@ Docker Compose ପାଇଁ, ଚୟନିତ ପ୍ରୋଫାଇଲ୍ରେ �
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:next
+    image: reddb-io/red-router:next
 ```
 
 ```bash
@@ -517,14 +517,14 @@ docker compose up -d
 `next` ଏକ ଫ୍ଲୋଟିଂ ପ୍ରାକ୍-ରିଲିଜ୍ ଚ୍ୟାନେଲ୍। ସକ୍ରିୟ ରିଲିଜ୍ ବ୍ରାଞ୍ଚକୁ ଯେକୌଣସି ପୁସ୍ରେ ଏହା ପରିବର୍ତ୍ତିତ ହୋଇପାରେ ଏବଂ ପ୍ରଡକ୍ସନ୍ ବ୍ୟବହାର ପାଇଁ ଏହା **ସମର୍ଥିତ ନୁହେଁ**। ଏକ ନିର୍ଦ୍ଦିଷ୍ଟ ବିଲ୍ଡର ମୂଲ୍ୟାଙ୍କନ ସମୟରେ ଇମେଜ୍ ଡାଇଜେଷ୍ଟକୁ ପିନ୍ କରନ୍ତୁ:
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker image inspect diegosouzapw/omniroute:next --format '{{index .RepoDigests 0}}'
+docker pull reddb-io/red-router:next
+docker image inspect reddb-io/red-router:next --format '{{index .RepoDigests 0}}'
 ```
 
 ପରୀକ୍ଷଣ ପୂର୍ବରୁ OmniRoute ଡାଟା ଭଲ୍ୟୁମ୍ କିମ୍ବା ବାଇଣ୍ଡ୍-ମାଉଣ୍ଟ କରାଯାଇଥିବା ଡାଟା ଡିରେକ୍ଟୋରୀର ବ୍ୟାକ୍ଅପ୍ ନିଅନ୍ତୁ। ରୋଲ୍ବ୍ୟାକ୍ କରିବା ପାଇଁ, ପୂର୍ବରୁ ବ୍ୟବହୃତ ସ୍ଥିର ସଂସ୍କରଣ କିମ୍ବା ଡାଇଜେଷ୍ଟକୁ ପୁନଃସ୍ଥାପନ କରନ୍ତୁ ଏବଂ କଣ୍ଟେନର୍କୁ ପୁନଃ ସୃଷ୍ଟି କରନ୍ତୁ:
 
 ```bash
-docker pull diegosouzapw/omniroute:<stable-version>
+docker pull reddb-io/red-router:<stable-version>
 docker compose up -d
 ```
 
@@ -615,7 +615,7 @@ Compose ରୂପରେଖା (ଦୁଇଟି heap, ଦୁଇଟି volume — 
 ```yaml
 services:
   omniroute-a:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"
@@ -624,7 +624,7 @@ services:
     volumes: [omniroute-a-data:/app/data]
     ports: ["20128:20128"]
   omniroute-b:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"

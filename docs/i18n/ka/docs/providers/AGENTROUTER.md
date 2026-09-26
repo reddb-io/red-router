@@ -68,7 +68,7 @@ docker run -d --name omniroute \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
   -e ENABLE_CC_COMPATIBLE_PROVIDER=true \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ხელახლა გაშვების შემდეგ მართვის პანელში, არსებულ OpenAI-თან თავსებად და Anthropic-თან თავსებად

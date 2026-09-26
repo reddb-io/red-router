@@ -40,7 +40,7 @@ docker run -d \
   --stop-timeout 40 \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## Dengan File Environment
@@ -56,7 +56,7 @@ docker run -d \
   --env-file .env \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## Docker Compose
@@ -332,7 +332,7 @@ Tetapkan ukuran **cgroup `--memory` lebih besar daripada heap** — buffer nativ
 ```bash
 docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
   -e OMNIROUTE_MEMORY_MB=8192 --memory=10g \
-  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data reddb-io/red-router:latest
 ```
 
 ## Variabel Lingkungan Penting
@@ -388,14 +388,14 @@ sebagai variabel lingkungan runtime.
 
 ### Image root siap pakai + subpath runtime
 
-Image `diegosouzapw/omniroute:*` yang dipublikasikan dibuat untuk root domain. Anda
+Image `reddb-io/red-router:*` yang dipublikasikan dibuat untuk root domain. Anda
 tetap dapat mengatur `OMNIROUTE_BASE_PATH` saat runtime; container akan melakukan patch
 pada bundle sekali saat dimulai. Pasangkan dengan origin publik yang sesuai:
 
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     environment:
       OMNIROUTE_BASE_PATH: /omniroute
       NEXT_PUBLIC_BASE_URL: https://myhostname.example.com/omniroute
@@ -438,7 +438,7 @@ OmniRoute dapat diekspos secara aman menggunakan penyediaan SSL otomatis dari Ca
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     container_name: omniroute
     restart: unless-stopped
     volumes:
@@ -488,10 +488,10 @@ Panel tunnel endpoint (Cloudflare, Tailscale, ngrok) dapat ditampilkan atau dise
 
 ## Tag Image
 
-| Image                    | Tag      | Ukuran | Deskripsi                                                                |
-| ------------------------ | -------- | ------ | ------------------------------------------------------------------------ |
-| `diegosouzapw/omniroute` | `latest` | ~250MB | SemVer stabil **yang telah dipublikasikan** tertinggi (bukan git `main`) |
-| `diegosouzapw/omniroute` | `3.8.0`  | ~250MB | Sematkan jenis tag ini untuk GitOps                                      |
+| Image                 | Tag      | Ukuran | Deskripsi                                                                |
+| --------------------- | -------- | ------ | ------------------------------------------------------------------------ |
+| `reddb-io/red-router` | `latest` | ~250MB | SemVer stabil **yang telah dipublikasikan** tertinggi (bukan git `main`) |
+| `reddb-io/red-router` | `3.8.0`  | ~250MB | Sematkan jenis tag ini untuk GitOps                                      |
 
 Manifes multi-platform: `linux/amd64` + `linux/arm64` native (Apple Silicon, AWS Graviton, Raspberry Pi). Docker memilih arsitektur yang sesuai secara otomatis; gunakan `--platform linux/amd64` jika Anda perlu memaksakan emulasi AMD64 pada host ARM.
 
@@ -524,8 +524,8 @@ Jika Anda menggunakan penyedia tersebut, tarik tag `-web` dari kanal yang sedang
 Kanal `next` dibuat ulang pada setiap push ke cabang `release/v*` default saat ini dan dipublikasikan untuk AMD64 maupun ARM64. Cabang pemeliharaan yang lebih lama tidak dapat menimpanya. Kanal ini menyediakan image yang dapat ditarik untuk perbaikan yang telah digabungkan ke cabang rilis aktif sebelum tag stabil berikutnya dibuat.
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker pull diegosouzapw/omniroute:next-web
+docker pull reddb-io/red-router:next
+docker pull reddb-io/red-router:next-web
 ```
 
 Untuk Docker Compose, ganti tag image yang digunakan oleh profil terpilih, lalu tarik dan buat ulang layanan:
@@ -533,7 +533,7 @@ Untuk Docker Compose, ganti tag image yang digunakan oleh profil terpilih, lalu 
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:next
+    image: reddb-io/red-router:next
 ```
 
 ```bash
@@ -546,14 +546,14 @@ docker compose up -d
 `next` adalah kanal prarilis mengambang. Kanal ini dapat berubah pada setiap push ke cabang rilis aktif dan **tidak didukung untuk penggunaan produksi**. Sematkan digest image saat mengevaluasi build tertentu:
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker image inspect diegosouzapw/omniroute:next --format '{{index .RepoDigests 0}}'
+docker pull reddb-io/red-router:next
+docker image inspect reddb-io/red-router:next --format '{{index .RepoDigests 0}}'
 ```
 
 Sebelum melakukan pengujian, cadangkan volume data OmniRoute atau direktori data yang di-bind mount. Untuk melakukan rollback, pulihkan versi stabil atau digest yang sebelumnya digunakan, lalu buat ulang container:
 
 ```bash
-docker pull diegosouzapw/omniroute:<stable-version>
+docker pull reddb-io/red-router:<stable-version>
 docker compose up -d
 ```
 
@@ -644,7 +644,7 @@ Contoh Compose (dua heap, dua volume — bukan `deploy.replicas: 2`):
 ```yaml
 services:
   omniroute-a:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"
@@ -653,7 +653,7 @@ services:
     volumes: [omniroute-a-data:/app/data]
     ports: ["20128:20128"]
   omniroute-b:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"

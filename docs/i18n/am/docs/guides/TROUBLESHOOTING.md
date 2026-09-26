@@ -416,7 +416,7 @@ registration የላቸውም። እነዚያ ግንኙነቶች የጋራ social
 2. **ቋሚ መፍትሔ፦** በ`docker run` commandዎ ውስጥ `-p 127.0.0.1:20128:20128` በመጠቀም በግልጽ ወደ IPv4 bind ያድርጉ፦
    ```bash
    docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
-     -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+     -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data reddb-io/red-router:latest
    ```
    ይህ IPv4 bindን ያስገድዳል፣ እንዲሁም proxyውን በሁሉም የhost interfaces ላይ ከማጋለጥ ይቆጠባል።
 

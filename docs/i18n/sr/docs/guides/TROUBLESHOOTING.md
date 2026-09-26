@@ -414,7 +414,7 @@ OmniRoute аутоматски освежава токене. Ако се про
 2. **Трајно решење:** Експлицитно повежите на IPv4 тако што ћете користити `-p 127.0.0.1:20128:20128` у команди `docker run`:
    ```bash
    docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
-     -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+     -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data reddb-io/red-router:latest
    ```
    Ово намеће IPv4 повезивање и такође спречава излагање проксија на свим интерфејсима хоста.
 

@@ -40,7 +40,7 @@ docker run -d \
   --stop-timeout 40 \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## Environment ဖိုင်ဖြင့်
@@ -56,7 +56,7 @@ docker run -d \
   --env-file .env \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## Docker Compose
@@ -314,7 +314,7 @@ Bare metal ပေါ်ရှိ `omniroute serve` သည် `OMNIROUTE_MEMORY_M
 ```bash
 docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
   -e OMNIROUTE_MEMORY_MB=8192 --memory=10g \
-  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data reddb-io/red-router:latest
 ```
 
 ## အရေးကြီးသော Environment Variable များ
@@ -360,12 +360,12 @@ docker compose --profile base up -d --build
 
 ### ကြိုတင် build လုပ်ထားသော root image + runtime လမ်းကြောင်းခွဲ
 
-ထုတ်ဝေထားသော `diegosouzapw/omniroute:*` image များကို domain root အတွက် build လုပ်ထားသည်။ Runtime တွင် `OMNIROUTE_BASE_PATH` ကို သတ်မှတ်နိုင်ဆဲဖြစ်ပြီး container စတင်ချိန်တွင် bundle ကို တစ်ကြိမ် patch လုပ်ပေးမည်။ ၎င်းနှင့် ကိုက်ညီသော public origin ကို တွဲဖက်သတ်မှတ်ပါ-
+ထုတ်ဝေထားသော `reddb-io/red-router:*` image များကို domain root အတွက် build လုပ်ထားသည်။ Runtime တွင် `OMNIROUTE_BASE_PATH` ကို သတ်မှတ်နိုင်ဆဲဖြစ်ပြီး container စတင်ချိန်တွင် bundle ကို တစ်ကြိမ် patch လုပ်ပေးမည်။ ၎င်းနှင့် ကိုက်ညီသော public origin ကို တွဲဖက်သတ်မှတ်ပါ-
 
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     environment:
       OMNIROUTE_BASE_PATH: /omniroute
       NEXT_PUBLIC_BASE_URL: https://myhostname.example.com/omniroute
@@ -393,7 +393,7 @@ Caddy ၏ အလိုအလျောက် SSL စီစဉ်ပေးမှ�
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     container_name: omniroute
     restart: unless-stopped
     volumes:
@@ -443,10 +443,10 @@ Endpoint tunnel panel များ (Cloudflare၊ Tailscale၊ ngrok) ကို 
 
 ## Image Tag များ
 
-| Image                    | Tag      | အရွယ်အစား | ဖော်ပြချက်                                                                          |
-| ------------------------ | -------- | --------- | ----------------------------------------------------------------------------------- |
-| `diegosouzapw/omniroute` | `latest` | ~250MB    | ထုတ်ဝေထားသော stable SemVer များအနက် အမြင့်ဆုံး (**published**) (git `main` မဟုတ်ပါ) |
-| `diegosouzapw/omniroute` | `3.8.0`  | ~250MB    | GitOps အတွက် ဤ tag အမျိုးအစားကို အတိအကျ သတ်မှတ်အသုံးပြုပါ                           |
+| Image                 | Tag      | အရွယ်အစား | ဖော်ပြချက်                                                                          |
+| --------------------- | -------- | --------- | ----------------------------------------------------------------------------------- |
+| `reddb-io/red-router` | `latest` | ~250MB    | ထုတ်ဝေထားသော stable SemVer များအနက် အမြင့်ဆုံး (**published**) (git `main` မဟုတ်ပါ) |
+| `reddb-io/red-router` | `3.8.0`  | ~250MB    | GitOps အတွက် ဤ tag အမျိုးအစားကို အတိအကျ သတ်မှတ်အသုံးပြုပါ                           |
 
 Multi-platform manifest: မူရင်း `linux/amd64` + `linux/arm64` (Apple Silicon၊ AWS Graviton၊ Raspberry Pi)။ Docker သည် ကိုက်ညီသည့် architecture ကို အလိုအလျောက် ရွေးချယ်ပေးသည်။ ARM host များတွင် AMD64 emulation ကို အတင်းအကျပ် အသုံးပြုရန်လိုအပ်ပါက `--platform linux/amd64` ကို ထည့်သွင်းပါ။
 
@@ -479,8 +479,8 @@ OmniRoute သည် stable release များ၊ လက်ရှိအသု�
 လက်ရှိ မူလသတ်မှတ်ထားသော `release/v*` branch သို့ push လုပ်တိုင်း `next` channel ကို ပြန်လည်တည်ဆောက်ပြီး AMD64 နှင့် ARM64 နှစ်မျိုးလုံးအတွက် ထုတ်ဝေသည်။ အဟောင်း maintenance branch များသည် ၎င်းကို overwrite မလုပ်နိုင်ပါ။ ဤ channel သည် နောက်ထပ် stable tag မထုတ်မီ လက်ရှိ release branch ထဲသို့ merge လုပ်ပြီးသော ပြင်ဆင်ချက်များအတွက် pull လုပ်နိုင်သည့် image ကို ပံ့ပိုးပေးသည်။
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker pull diegosouzapw/omniroute:next-web
+docker pull reddb-io/red-router:next
+docker pull reddb-io/red-router:next-web
 ```
 
 Docker Compose အတွက် ရွေးချယ်ထားသည့် profile က အသုံးပြုသော image tag ကို override လုပ်ပြီးနောက် service ကို pull လုပ်ကာ ပြန်လည်ဖန်တီးပါ။
@@ -488,7 +488,7 @@ Docker Compose အတွက် ရွေးချယ်ထားသည့် pro
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:next
+    image: reddb-io/red-router:next
 ```
 
 ```bash
@@ -501,14 +501,14 @@ docker compose up -d
 `next` သည် အလိုက်သင့်ပြောင်းလဲနေသော pre-release channel ဖြစ်သည်။ လက်ရှိ release branch သို့ push လုပ်သည့်အခါတိုင်း ပြောင်းလဲနိုင်ပြီး **production အသုံးပြုမှုအတွက် ပံ့ပိုးမထားပါ**။ သီးခြား build တစ်ခုကို အကဲဖြတ်နေစဉ် image digest ကို အတိအကျ သတ်မှတ်အသုံးပြုပါ။
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker image inspect diegosouzapw/omniroute:next --format '{{index .RepoDigests 0}}'
+docker pull reddb-io/red-router:next
+docker image inspect reddb-io/red-router:next --format '{{index .RepoDigests 0}}'
 ```
 
 မစမ်းသပ်မီ OmniRoute data volume သို့မဟုတ် bind-mount လုပ်ထားသော data directory ကို backup ပြုလုပ်ပါ။ နောက်ပြန်ပြန်သွားရန် ယခင်အသုံးပြုခဲ့သည့် stable version သို့မဟုတ် digest ကို ပြန်လည်အသုံးပြုပြီး container ကို ပြန်လည်ဖန်တီးပါ။
 
 ```bash
-docker pull diegosouzapw/omniroute:<stable-version>
+docker pull reddb-io/red-router:<stable-version>
 docker compose up -d
 ```
 
@@ -599,7 +599,7 @@ Compose နမူနာ (heap နှစ်ခု၊ volume နှစ်ခု �
 ```yaml
 services:
   omniroute-a:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"
@@ -608,7 +608,7 @@ services:
     volumes: [omniroute-a-data:/app/data]
     ports: ["20128:20128"]
   omniroute-b:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"

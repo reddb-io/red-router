@@ -84,9 +84,9 @@
 
 [![npm-ის ვერსია](https://img.shields.io/npm/v/omniroute?color=cb3837&logo=npm)](https://www.npmjs.com/package/omniroute)
 ![NPM-ის ყოველთვიური ჩამოტვირთვები](https://img.shields.io/npm/dm/omniroute?label=npm/month&color=cb3837&logo=npm)
-[![Docker Hub](https://img.shields.io/docker/v/diegosouzapw/omniroute?label=Docker%20Hub&logo=docker&color=2496ED)](https://hub.docker.com/r/diegosouzapw/omniroute)
+[![Docker Hub](https://img.shields.io/docker/v/reddb-io/red-router?label=Docker%20Hub&logo=docker&color=2496ED)](https://hub.docker.com/r/reddb-io/red-router)
 [![ლიცენზია: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](LICENSE)
-![Docker-ის ჩამოტვირთვები](https://img.shields.io/docker/pulls/diegosouzapw/omniroute?label=docker%20pulls&logo=docker&color=2496ED)
+![Docker-ის ჩამოტვირთვები](https://img.shields.io/docker/pulls/reddb-io/red-router?label=docker%20pulls&logo=docker&color=2496ED)
 ![Electron-ის ჩამოტვირთვები](https://img.shields.io/github/downloads/diegosouzapw/omniroute/total?style=flat&label=electron%20downloads&logo=electron&color=47848F)
 
 <table>
@@ -741,7 +741,7 @@ omniroute configure codex          # ასევე: claude opencode qwen aider
 <table>
   <tr><th align="left">პლატფორმა</th><th align="left">ინსტალაცია</th><th align="left">უპირატესობები</th></tr>
   <tr><td align="left" nowrap>📦 <b>npm (გლობალური)</b></td><td align="left" nowrap><code>npm install -g omniroute</code></td><td align="left">ერთი ბრძანება, ნებისმიერი OS</td></tr>
-  <tr><td align="left" nowrap>🐳 <b>Docker</b></td><td align="left" nowrap><code>docker run … diegosouzapw/omniroute</code></td><td align="left">მრავალარქიტექტურული <b>AMD64 + ARM64</b></td></tr>
+  <tr><td align="left" nowrap>🐳 <b>Docker</b></td><td align="left" nowrap><code>docker run … reddb-io/red-router</code></td><td align="left">მრავალარქიტექტურული <b>AMD64 + ARM64</b></td></tr>
   <tr><td align="left" nowrap>🖥️ <b>დესკტოპი (Electron)</b></td><td align="left" nowrap><code>npm run electron:build</code></td><td align="left">ნატიური ფანჯარა + სისტემური არე — <b>Windows / macOS / Linux</b></td></tr>
   <tr><td align="left" nowrap>🎩 <b>მენიუს ზოლი (OmniRouteTray)</b></td><td align="left" nowrap><code>brew install --cask zoispag/tap/omniroute-tray</code></td><td align="left">სერვერის ზედამხედველობა და ავტომატური განახლება — <b>macOS</b></td></tr>
   <tr><td align="left" nowrap>💪 <b>ARM</b></td><td align="left" nowrap>ნატიური <code>arm64</code></td><td align="left">Raspberry Pi, ARM სერვერები, Apple Silicon</td></tr>
@@ -1045,7 +1045,7 @@ Ollama ტეგები:   http://localhost:20128/vscode/YOUR_KEY/api/tags
 
 ```bash
 docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
-  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data reddb-io/red-router:latest
 ```
 
 `:latest` მიჰყვება ყველაზე მაღალ **გამოქვეყნებულ** სტაბილურ SemVer-ს. ის არ მიჰყვება git-ის `main` ბრენჩს. GitOps-ისთვის გამოიყენეთ ფიქსირებული `:X.Y.Z`. იხილეთ [Docker-ის გამოშვების არხები](docs/guides/DOCKER_GUIDE.md#release-channels).იმიჯში ფიქსირებულია **`OMNIROUTE_MEMORY_MB=1024`**. ეს საკმარისია მართვის პანელისა და მსუბუქი ჩატისთვის. **კოდირების აგენტებს** (`POST /v1/responses` Claude Code-იდან, Codex-იდან, Grok-იდან, …) სჭირდებათ გაცილებით დიდი V8 heap, წინააღმდეგ შემთხვევაში ორი გადაფარული გრძელი კონტექსტის დროს პროცესი დაახლოებით 12 GiB-ზე `FATAL ERROR`-ით წყდება. კონტეინერის მეხსიერება heap-ზე მეტი გამოყავით (native ბუფერები V8-ის გარეთ მდებარეობს):
@@ -1059,13 +1059,13 @@ docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
 ```bash
 docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
   -e OMNIROUTE_MEMORY_MB=8192 --memory=10g \
-  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data reddb-io/red-router:latest
 ```
 
 სრული ცხრილი: [Docker-ის სახელმძღვანელო — ოპერატიული მეხსიერება მუშაობის დროს](docs/guides/DOCKER_GUIDE.md#runtime-ram-for-coding-agents).
 
-> **Docker-ის წინასწარი გამოშვების არხი:** `diegosouzapw/omniroute:next` და
-> `diegosouzapw/omniroute:next-web` მიჰყვება მიმდინარე ნაგულისხმევ `release/v*`
+> **Docker-ის წინასწარი გამოშვების არხი:** `reddb-io/red-router:next` და
+> `reddb-io/red-router:next-web` მიჰყვება მიმდინარე ნაგულისხმევ `release/v*`
 > ბრენჩს. ეს ცვალებადი ტეგები განკუთვნილია მხოლოდ გამოუშვებელი შესწორებების სატესტოდ და
 > **არ არის მხარდაჭერილი საწარმოო გარემოში**. იხილეთ
 > [Docker-ის გამოშვების არხები](docs/guides/DOCKER_GUIDE.md#release-channels).
@@ -1276,7 +1276,7 @@ OMNIROUTE_SKIP_POSTINSTALL=1 npm install -g omniroute   # CI=1-იც გამ�
   <tr><td nowrap><b>ტესტირება</b></td><td>Node.js test runner + Vitest — <b>39,000-ზე მეტი სტატიკური ტესტის დეკლარაცია</b> 5,100-ზე მეტ თვალყურის ქვეშ მყოფ სატესტო ფაილში (ერთეული, ინტეგრაცია, E2E, უსაფრთხოება, ეკოსისტემა)</td></tr>
   <tr><td nowrap><b>პლატფორმები</b></td><td>დესკტოპი (Electron) · Android (Termux) · PWA (ნებისმიერი ბრაუზერი)</td></tr>
   <tr><td nowrap><b>CI/CD</b></td><td>GitHub Actions — ავტომატური npm გამოქვეყნება + Docker Hub გამოშვებისას</td></tr>
-  <tr><td nowrap><b>ბმულები</b></td><td><a href="https://omniroute.online">ვებგვერდი</a> · <a href="https://www.npmjs.com/package/omniroute">npm</a> · <a href="https://hub.docker.com/r/diegosouzapw/omniroute">Docker Hub</a></td></tr>
+  <tr><td nowrap><b>ბმულები</b></td><td><a href="https://omniroute.online">ვებგვერდი</a> · <a href="https://www.npmjs.com/package/omniroute">npm</a> · <a href="https://hub.docker.com/r/reddb-io/red-router">Docker Hub</a></td></tr>
 </table>
 
 <div align="center">

@@ -40,7 +40,7 @@ docker run -d \
   --stop-timeout 40 \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## С файл с променливи на средата
@@ -56,7 +56,7 @@ docker run -d \
   --env-file .env \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## Docker Compose
@@ -332,7 +332,7 @@ docker build --target runner-base \
 ```bash
 docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
   -e OMNIROUTE_MEMORY_MB=8192 --memory=10g \
-  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data reddb-io/red-router:latest
 ```
 
 ## Критични променливи на средата
@@ -390,14 +390,14 @@ docker compose --profile base up -d --build
 
 ### Предварително създаден образ за корена + подпът по време на изпълнение
 
-Публикуваните образи `diegosouzapw/omniroute:*` са създадени за корена на домейна. Все
+Публикуваните образи `reddb-io/red-router:*` са създадени за корена на домейна. Все
 пак можете да зададете `OMNIROUTE_BASE_PATH` по време на изпълнение; контейнерът коригира
 пакета еднократно при стартиране. Използвайте го със съответстващия публичен адрес:
 
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     environment:
       OMNIROUTE_BASE_PATH: /omniroute
       NEXT_PUBLIC_BASE_URL: https://myhostname.example.com/omniroute
@@ -442,7 +442,7 @@ OmniRoute може да бъде публикуван сигурно чрез а
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     container_name: omniroute
     restart: unless-stopped
     volumes:
@@ -492,10 +492,10 @@ Caddy задава стандартните заглавки за препращ
 
 ## Тагове на образи
 
-| Образ                    | Таг      | Размер | Описание                                                            |
-| ------------------------ | -------- | ------ | ------------------------------------------------------------------- |
-| `diegosouzapw/omniroute` | `latest` | ~250MB | Най-високата **публикувана** стабилна SemVer версия (не git `main`) |
-| `diegosouzapw/omniroute` | `3.8.0`  | ~250MB | Фиксирайте този тип таг за GitOps                                   |
+| Образ                 | Таг      | Размер | Описание                                                            |
+| --------------------- | -------- | ------ | ------------------------------------------------------------------- |
+| `reddb-io/red-router` | `latest` | ~250MB | Най-високата **публикувана** стабилна SemVer версия (не git `main`) |
+| `reddb-io/red-router` | `3.8.0`  | ~250MB | Фиксирайте този тип таг за GitOps                                   |
 
 Мултиплатформен манифест: нативни `linux/amd64` + `linux/arm64` (Apple Silicon, AWS Graviton, Raspberry Pi). Docker избира съответстващата архитектура автоматично; подайте `--platform linux/amd64`, ако трябва да наложите AMD64 емулация на ARM хостове.
 
@@ -528,8 +528,8 @@ OmniRoute публикува отделни Docker канали за стаби�
 Каналът `next` се изгражда наново при всяко изпращане на промени към текущия основен клон `release/v*` и се публикува както за AMD64, така и за ARM64. По-старите клонове за поддръжка не могат да го презапишат. Каналът предоставя достъпен за изтегляне образ с корекции, които са слети в активния клон за издание, преди да бъде създаден следващият стабилен таг.
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker pull diegosouzapw/omniroute:next-web
+docker pull reddb-io/red-router:next
+docker pull reddb-io/red-router:next-web
 ```
 
 За Docker Compose заменете тага на образа, използван от избрания профил, след което изтеглете образа и създайте услугата наново:
@@ -537,7 +537,7 @@ docker pull diegosouzapw/omniroute:next-web
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:next
+    image: reddb-io/red-router:next
 ```
 
 ```bash
@@ -550,14 +550,14 @@ docker compose up -d
 `next` е плаващ канал за предварителни издания. Той може да се промени при всяко изпращане на промени към активния клон за издание и **не се поддържа за продукционна употреба**. Фиксирайте дайджеста на образа, докато оценявате конкретна компилация:
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker image inspect diegosouzapw/omniroute:next --format '{{index .RepoDigests 0}}'
+docker pull reddb-io/red-router:next
+docker image inspect reddb-io/red-router:next --format '{{index .RepoDigests 0}}'
 ```
 
 Преди тестване направете резервно копие на тома с данни на OmniRoute или на монтираната чрез bind директория с данни. За да се върнете към предишна версия, възстановете използваната преди това стабилна версия или дайджест и създайте контейнера наново:
 
 ```bash
-docker pull diegosouzapw/omniroute:<stable-version>
+docker pull reddb-io/red-router:<stable-version>
 docker compose up -d
 ```
 
@@ -648,7 +648,7 @@ spec:
 ```yaml
 services:
   omniroute-a:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"
@@ -657,7 +657,7 @@ services:
     volumes: [omniroute-a-data:/app/data]
     ports: ["20128:20128"]
   omniroute-b:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"

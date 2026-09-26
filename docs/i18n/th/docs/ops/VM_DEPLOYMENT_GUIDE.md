@@ -133,7 +133,7 @@ EOF
 ### 2.3 เริ่มต้นคอนเทนเนอร์
 
 ```bash
-docker pull diegosouzapw/omniroute:latest
+docker pull reddb-io/red-router:latest
 
 docker run -d \
   --name omniroute \
@@ -141,7 +141,7 @@ docker run -d \
   --env-file /opt/omniroute/.env \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ### 2.4 ตรวจสอบว่าระบบกำลังทำงาน
@@ -300,13 +300,13 @@ curl -sI https://llms.seudominio.com/health
 ### อัปเกรดเป็นเวอร์ชันใหม่
 
 ```bash
-docker pull diegosouzapw/omniroute:latest
+docker pull reddb-io/red-router:latest
 docker stop omniroute && docker rm omniroute
 docker run -d --name omniroute --restart unless-stopped \
   --env-file /opt/omniroute/.env \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ### ดูบันทึก

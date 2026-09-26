@@ -40,7 +40,7 @@ docker run -d \
   --stop-timeout 40 \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## சூழல் கோப்புடன்
@@ -56,7 +56,7 @@ docker run -d \
   --env-file .env \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## Docker Compose
@@ -335,7 +335,7 @@ bare metal-இல் `omniroute serve`, `OMNIROUTE_MEMORY_MB` **அமைக்�
 ```bash
 docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
   -e OMNIROUTE_MEMORY_MB=8192 --memory=10g \
-  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data reddb-io/red-router:latest
 ```
 
 ## முக்கியமான சூழல் மாறிகள்
@@ -381,12 +381,12 @@ docker compose --profile base up -d --build
 
 ### முன்கூட்டியே உருவாக்கப்பட்ட ரூட் இமேஜ் + இயக்கநேர துணைப் பாதை
 
-வெளியிடப்பட்ட `diegosouzapw/omniroute:*` இமேஜ்கள் டொமைன் மூலத்திற்காக உருவாக்கப்பட்டவை. இருந்தாலும் இயக்கநேரத்தில் `OMNIROUTE_BASE_PATH`-ஐ அமைக்கலாம்; கண்டெய்னர் தொடக்கத்தின்போது பண்டிலை ஒருமுறை பேட்ச் செய்யும். அதற்குப் பொருந்தும் பொது ஆரிஜினையும் சேர்த்து அமைக்கவும்:
+வெளியிடப்பட்ட `reddb-io/red-router:*` இமேஜ்கள் டொமைன் மூலத்திற்காக உருவாக்கப்பட்டவை. இருந்தாலும் இயக்கநேரத்தில் `OMNIROUTE_BASE_PATH`-ஐ அமைக்கலாம்; கண்டெய்னர் தொடக்கத்தின்போது பண்டிலை ஒருமுறை பேட்ச் செய்யும். அதற்குப் பொருந்தும் பொது ஆரிஜினையும் சேர்த்து அமைக்கவும்:
 
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     environment:
       OMNIROUTE_BASE_PATH: /omniroute
       NEXT_PUBLIC_BASE_URL: https://myhostname.example.com/omniroute
@@ -414,7 +414,7 @@ Caddy-யின் தானியங்கி SSL வழங்கலைப் �
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     container_name: omniroute
     restart: unless-stopped
     volumes:
@@ -462,10 +462,10 @@ Docker நிறுவல்களுக்கான டாஷ்போர்ட
 
 ## படக் குறிச்சொற்கள்
 
-| படம்                     | குறிச்சொல் | அளவு   | விளக்கம்                                                    |
-| ------------------------ | ---------- | ------ | ----------------------------------------------------------- |
-| `diegosouzapw/omniroute` | `latest`   | ~250MB | அதிகபட்ச **வெளியிடப்பட்ட** நிலையான SemVer (git `main` அல்ல) |
-| `diegosouzapw/omniroute` | `3.8.0`    | ~250MB | GitOps-க்காக இந்த வகைக் குறிச்சொல்லை நிலையாகப் பொருத்தவும்  |
+| படம்                  | குறிச்சொல் | அளவு   | விளக்கம்                                                    |
+| --------------------- | ---------- | ------ | ----------------------------------------------------------- |
+| `reddb-io/red-router` | `latest`   | ~250MB | அதிகபட்ச **வெளியிடப்பட்ட** நிலையான SemVer (git `main` அல்ல) |
+| `reddb-io/red-router` | `3.8.0`    | ~250MB | GitOps-க்காக இந்த வகைக் குறிச்சொல்லை நிலையாகப் பொருத்தவும்  |
 
 பல-தள manifest: `linux/amd64` + `linux/arm64` ஆகியவற்றுக்கு இயல்பான ஆதரவு (Apple Silicon, AWS Graviton, Raspberry Pi). பொருந்தும் architecture-ஐ Docker தானாகவே தேர்ந்தெடுக்கிறது; ARM host-களில் AMD64 emulation-ஐக் கட்டாயப்படுத்த வேண்டுமானால் `--platform linux/amd64` என்பதை வழங்கவும்.
 
@@ -498,8 +498,8 @@ Docker நிறுவல்களுக்கான டாஷ்போர்ட
 தற்போதைய இயல்புநிலை `release/v*` branch-க்கு ஒவ்வொரு push செய்யப்படும்போதும் `next` சேனல் மீண்டும் build செய்யப்படுகிறது; மேலும் அது AMD64 மற்றும் ARM64 இரண்டிற்கும் வெளியிடப்படுகிறது. பழைய maintenance branch-கள் அதை overwrite செய்ய முடியாது. அடுத்த நிலையான குறிச்சொல் உருவாக்கப்படுவதற்கு முன் செயலில் உள்ள release branch-இல் merge செய்யப்பட்ட திருத்தங்களுக்கான pull செய்யக்கூடிய image-ஐ இந்தச் சேனல் வழங்குகிறது.
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker pull diegosouzapw/omniroute:next-web
+docker pull reddb-io/red-router:next
+docker pull reddb-io/red-router:next-web
 ```
 
 Docker Compose-க்காக, தேர்ந்தெடுக்கப்பட்ட profile பயன்படுத்தும் image குறிச்சொல்லை override செய்து, பின்னர் service-ஐ pull செய்து மீண்டும் உருவாக்கவும்:
@@ -507,7 +507,7 @@ Docker Compose-க்காக, தேர்ந்தெடுக்கப்ப
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:next
+    image: reddb-io/red-router:next
 ```
 
 ```bash
@@ -520,14 +520,14 @@ docker compose up -d
 `next` என்பது மாறிக்கொண்டிருக்கும் pre-release சேனலாகும். செயலில் உள்ள release branch-க்கு ஏதேனும் push செய்யப்படும்போது அது மாறக்கூடும்; மேலும் அது **production பயன்பாட்டிற்கு ஆதரிக்கப்படவில்லை**. குறிப்பிட்ட build ஒன்றை மதிப்பீடு செய்யும்போது image digest-ஐ நிலையாகப் பொருத்தவும்:
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker image inspect diegosouzapw/omniroute:next --format '{{index .RepoDigests 0}}'
+docker pull reddb-io/red-router:next
+docker image inspect reddb-io/red-router:next --format '{{index .RepoDigests 0}}'
 ```
 
 சோதிப்பதற்கு முன், OmniRoute data volume அல்லது bind-mount செய்யப்பட்ட data directory-ஐ backup எடுக்கவும். rollback செய்ய, முன்பு பயன்படுத்தப்பட்ட நிலையான version அல்லது digest-ஐ மீட்டமைத்து container-ஐ மீண்டும் உருவாக்கவும்:
 
 ```bash
-docker pull diegosouzapw/omniroute:<stable-version>
+docker pull reddb-io/red-router:<stable-version>
 docker compose up -d
 ```
 
@@ -618,7 +618,7 @@ Compose மாதிரி (இரண்டு heap-கள், இரண்ட�
 ```yaml
 services:
   omniroute-a:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"
@@ -627,7 +627,7 @@ services:
     volumes: [omniroute-a-data:/app/data]
     ports: ["20128:20128"]
   omniroute-b:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"

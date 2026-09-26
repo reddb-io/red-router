@@ -40,7 +40,7 @@ docker run -d \
   --stop-timeout 40 \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## עם קובץ סביבה
@@ -56,7 +56,7 @@ docker run -d \
   --env-file .env \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## Docker Compose
@@ -332,7 +332,7 @@ docker build --target runner-base \
 ```bash
 docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
   -e OMNIROUTE_MEMORY_MB=8192 --memory=10g \
-  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data reddb-io/red-router:latest
 ```
 
 ## משתני סביבה קריטיים
@@ -389,14 +389,14 @@ docker compose --profile base up -d --build
 
 ### תמונת שורש שנבנתה מראש + נתיב משנה בזמן ריצה
 
-התמונות המפורסמות `diegosouzapw/omniroute:*` נבנות עבור שורש הדומיין. עדיין ניתן
+התמונות המפורסמות `reddb-io/red-router:*` נבנות עבור שורש הדומיין. עדיין ניתן
 להגדיר את `OMNIROUTE_BASE_PATH` בזמן ריצה; הקונטיינר מתקן את החבילה פעם אחת בעת
 ההפעלה. שלבו אותו עם המקור הציבורי התואם:
 
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     environment:
       OMNIROUTE_BASE_PATH: /omniroute
       NEXT_PUBLIC_BASE_URL: https://myhostname.example.com/omniroute
@@ -438,7 +438,7 @@ services:
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     container_name: omniroute
     restart: unless-stopped
     volumes:
@@ -487,10 +487,10 @@ Caddy מגדיר את כותרות ההעברה הסטנדרטיות עבור ה
 
 ## תגיות תמונה
 
-| תמונה                    | תגית     | גודל   | תיאור                                                           |
-| ------------------------ | -------- | ------ | --------------------------------------------------------------- |
-| `diegosouzapw/omniroute` | `latest` | ~250MB | גרסת SemVer היציבה **שפורסמה** והגבוהה ביותר (לא `main` של git) |
-| `diegosouzapw/omniroute` | `3.8.0`  | ~250MB | הצמידו סוג תגית זה עבור GitOps                                  |
+| תמונה                 | תגית     | גודל   | תיאור                                                           |
+| --------------------- | -------- | ------ | --------------------------------------------------------------- |
+| `reddb-io/red-router` | `latest` | ~250MB | גרסת SemVer היציבה **שפורסמה** והגבוהה ביותר (לא `main` של git) |
+| `reddb-io/red-router` | `3.8.0`  | ~250MB | הצמידו סוג תגית זה עבור GitOps                                  |
 
 מניפסט מרובה פלטפורמות: `linux/amd64` + `linux/arm64` באופן מקורי (Apple Silicon, AWS Graviton, Raspberry Pi). Docker בוחר אוטומטית את הארכיטקטורה המתאימה; העבירו `--platform linux/amd64` אם עליכם לכפות אמולציית AMD64 במארחי ARM.
 
@@ -523,8 +523,8 @@ OmniRoute מפרסם ערוצי Docker נפרדים עבור מהדורות יצ
 הערוץ `next` נבנה מחדש בכל דחיפה לענף `release/v*` הנוכחי המשמש כברירת מחדל, ומתפרסם הן עבור AMD64 והן עבור ARM64. ענפי תחזוקה ישנים יותר אינם יכולים לדרוס אותו. הערוץ מספק תמונה זמינה למשיכה עבור תיקונים שמוזגו לענף המהדורה הפעיל לפני יצירת התגית היציבה הבאה.
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker pull diegosouzapw/omniroute:next-web
+docker pull reddb-io/red-router:next
+docker pull reddb-io/red-router:next-web
 ```
 
 עבור Docker Compose, החליפו את תגית התמונה שבה משתמש הפרופיל שנבחר, ולאחר מכן משכו וצרו מחדש את השירות:
@@ -532,7 +532,7 @@ docker pull diegosouzapw/omniroute:next-web
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:next
+    image: reddb-io/red-router:next
 ```
 
 ```bash
@@ -545,14 +545,14 @@ docker compose up -d
 `next` הוא ערוץ קדם-מהדורה צף. הוא עשוי להשתנות בכל דחיפה לענף המהדורה הפעיל ו**אינו נתמך לשימוש בסביבת ייצור**. הצמידו את תקציר התמונה בעת הערכת גרסה מסוימת:
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker image inspect diegosouzapw/omniroute:next --format '{{index .RepoDigests 0}}'
+docker pull reddb-io/red-router:next
+docker image inspect reddb-io/red-router:next --format '{{index .RepoDigests 0}}'
 ```
 
 לפני הבדיקה, גבו את כרך הנתונים של OmniRoute או את ספריית הנתונים שמחוברת באמצעות bind mount. כדי לחזור לאחור, שחזרו את הגרסה היציבה או התקציר שבהם השתמשתם קודם לכן וצרו מחדש את הקונטיינר:
 
 ```bash
-docker pull diegosouzapw/omniroute:<stable-version>
+docker pull reddb-io/red-router:<stable-version>
 docker compose up -d
 ```
 
@@ -643,7 +643,7 @@ Postgres חיצוני / זמינות גבוהה עם כותבים מרובים *
 ```yaml
 services:
   omniroute-a:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"
@@ -652,7 +652,7 @@ services:
     volumes: [omniroute-a-data:/app/data]
     ports: ["20128:20128"]
   omniroute-b:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"

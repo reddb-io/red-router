@@ -388,7 +388,7 @@ Connections ដែលបាន import _មុន_ v3.8.0 មិនមាន clie
 2. **ការកែសម្រួលអចិន្ត្រៃយ៍:** ចងទៅ IPv4 ដោយជាក់លាក់ តាមរយៈការប្រើ `-p 127.0.0.1:20128:20128` ក្នុង command `docker run` របស់អ្នក៖
    ```bash
    docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
-     -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+     -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data reddb-io/red-router:latest
    ```
    វាបង្ខំឱ្យចង IPv4 ហើយក៏ជៀសវាងការបង្ហាញ proxy នៅលើ interface ទាំងអស់របស់ host ផងដែរ។
 

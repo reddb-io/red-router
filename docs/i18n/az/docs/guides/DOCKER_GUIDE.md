@@ -40,7 +40,7 @@ docker run -d \
   --stop-timeout 40 \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## Mühit faylı ilə
@@ -56,7 +56,7 @@ docker run -d \
   --env-file .env \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## Docker Compose
@@ -330,7 +330,7 @@ Docker üçün standart 1 GiB istehsal ölçüsü deyil, idarəetmə paneli/y�
 ```bash
 docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
   -e OMNIROUTE_MEMORY_MB=8192 --memory=10g \
-  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data reddb-io/red-router:latest
 ```
 
 ## Kritik Mühit Dəyişənləri
@@ -387,14 +387,14 @@ mühiti dəyişəni kimi ötürür.
 
 ### Əvvəlcədən qurulmuş kök image-i + icra zamanı alt yol
 
-Yayımlanmış `diegosouzapw/omniroute:*` image-ləri domen kökü üçün qurulub. Buna baxmayaraq,
+Yayımlanmış `reddb-io/red-router:*` image-ləri domen kökü üçün qurulub. Buna baxmayaraq,
 icra zamanı `OMNIROUTE_BASE_PATH` təyin edə bilərsiniz; konteyner başlanğıcda paketi bir
 dəfə yamayır. Onu uyğun ictimai mənbə ünvanı ilə birlikdə istifadə edin:
 
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     environment:
       OMNIROUTE_BASE_PATH: /omniroute
       NEXT_PUBLIC_BASE_URL: https://myhostname.example.com/omniroute
@@ -437,7 +437,7 @@ OmniRoute, Caddy-nin avtomatik SSL təminatı vasitəsilə təhlükəsiz şəkil
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     container_name: omniroute
     restart: unless-stopped
     volumes:
@@ -485,10 +485,10 @@ Son nöqtə tuneli panelləri (Cloudflare, Tailscale, ngrok) aktiv tunelin vəzi
 
 ## İmaj Teqləri
 
-| İmaj                     | Teq      | Ölçü   | Təsvir                                                      |
-| ------------------------ | -------- | ------ | ----------------------------------------------------------- |
-| `diegosouzapw/omniroute` | `latest` | ~250MB | Ən yüksək **dərc edilmiş** stabil SemVer (git `main` deyil) |
-| `diegosouzapw/omniroute` | `3.8.0`  | ~250MB | GitOps üçün bu teq sinfini sabitləyin                       |
+| İmaj                  | Teq      | Ölçü   | Təsvir                                                      |
+| --------------------- | -------- | ------ | ----------------------------------------------------------- |
+| `reddb-io/red-router` | `latest` | ~250MB | Ən yüksək **dərc edilmiş** stabil SemVer (git `main` deyil) |
+| `reddb-io/red-router` | `3.8.0`  | ~250MB | GitOps üçün bu teq sinfini sabitləyin                       |
 
 Çoxplatformalı manifest: yerli `linux/amd64` + `linux/arm64` (Apple Silicon, AWS Graviton, Raspberry Pi). Docker uyğun arxitekturanı avtomatik seçir; ARM hostlarında AMD64 emulyasiyasını məcburi etmək lazımdırsa, `--platform linux/amd64` parametrini ötürün.
 
@@ -521,8 +521,8 @@ Bu provayderlərdən istifadə edirsinizsə, artıq istifadə etdiyiniz kanalın
 `next` kanalı cari standart `release/v*` budağına hər push zamanı yenidən yığılır və həm AMD64, həm də ARM64 üçün dərc edilir. Köhnə texniki xidmət budaqları onun üzərinə yaza bilməz. Bu kanal növbəti stabil teq yaradılmazdan əvvəl aktiv buraxılış budağına birləşdirilmiş düzəlişlər üçün çəkilə bilən imaj təqdim edir.
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker pull diegosouzapw/omniroute:next-web
+docker pull reddb-io/red-router:next
+docker pull reddb-io/red-router:next-web
 ```
 
 Docker Compose üçün seçilmiş profilin istifadə etdiyi imaj teqini dəyişdirin, sonra xidməti çəkin və yenidən yaradın:
@@ -530,7 +530,7 @@ Docker Compose üçün seçilmiş profilin istifadə etdiyi imaj teqini dəyişd
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:next
+    image: reddb-io/red-router:next
 ```
 
 ```bash
@@ -543,14 +543,14 @@ docker compose up -d
 `next` dəyişkən ilkin buraxılış kanalıdır. O, aktiv buraxılış budağına hər push zamanı dəyişə bilər və **istehsalda istifadə üçün dəstəklənmir**. Konkret yığımı qiymətləndirərkən imaj daycestini sabitləyin:
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker image inspect diegosouzapw/omniroute:next --format '{{index .RepoDigests 0}}'
+docker pull reddb-io/red-router:next
+docker image inspect reddb-io/red-router:next --format '{{index .RepoDigests 0}}'
 ```
 
 Sınaqdan əvvəl OmniRoute məlumat həcminin və ya bind mount ilə qoşulmuş məlumat kataloqunun ehtiyat nüsxəsini yaradın. Geri qaytarmaq üçün əvvəllər istifadə edilmiş stabil versiyanı və ya daycesti bərpa edin və konteyneri yenidən yaradın:
 
 ```bash
-docker pull diegosouzapw/omniroute:<stable-version>
+docker pull reddb-io/red-router:<stable-version>
 docker compose up -d
 ```
 
@@ -641,7 +641,7 @@ Compose nümunəsi (iki heap, iki volume — `deploy.replicas: 2` deyil):
 ```yaml
 services:
   omniroute-a:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"
@@ -650,7 +650,7 @@ services:
     volumes: [omniroute-a-data:/app/data]
     ports: ["20128:20128"]
   omniroute-b:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"

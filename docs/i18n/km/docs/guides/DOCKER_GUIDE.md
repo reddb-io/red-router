@@ -40,7 +40,7 @@ docker run -d \
   --stop-timeout 40 \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## ជាមួយឯកសារបរិស្ថាន
@@ -56,7 +56,7 @@ docker run -d \
   --env-file .env \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## Docker Compose
@@ -332,7 +332,7 @@ docker build --target runner-base \
 ```bash
 docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
   -e OMNIROUTE_MEMORY_MB=8192 --memory=10g \
-  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data reddb-io/red-router:latest
 ```
 
 ## អថេរបរិស្ថានសំខាន់ៗ
@@ -378,12 +378,12 @@ docker compose --profile base up -d --build
 
 ### Root image ដែលបាន build ជាមុន + ផ្លូវរងពេល runtime
 
-Image `diegosouzapw/omniroute:*` ដែលបានចេញផ្សាយ ត្រូវបាន build សម្រាប់ឫសដូមែន។ អ្នកនៅតែអាចកំណត់ `OMNIROUTE_BASE_PATH` នៅពេល runtime បាន; container នឹង patch បណ្ណុំមួយដងនៅពេលចាប់ផ្ដើម។ ប្រើវាជាមួយ public origin ដែលត្រូវគ្នា៖
+Image `reddb-io/red-router:*` ដែលបានចេញផ្សាយ ត្រូវបាន build សម្រាប់ឫសដូមែន។ អ្នកនៅតែអាចកំណត់ `OMNIROUTE_BASE_PATH` នៅពេល runtime បាន; container នឹង patch បណ្ណុំមួយដងនៅពេលចាប់ផ្ដើម។ ប្រើវាជាមួយ public origin ដែលត្រូវគ្នា៖
 
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     environment:
       OMNIROUTE_BASE_PATH: /omniroute
       NEXT_PUBLIC_BASE_URL: https://myhostname.example.com/omniroute
@@ -411,7 +411,7 @@ OmniRoute អាចត្រូវបានបើកឱ្យចូលប្រ�
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     container_name: omniroute
     restart: unless-stopped
     volumes:
@@ -461,10 +461,10 @@ Caddy កំណត់បឋមកថាបញ្ជូនបន្តស្ត�
 
 ## ស្លាក Image
 
-| Image                    | ស្លាក    | ទំហំ   | សេចក្ដីពិពណ៌នា                                                              |
-| ------------------------ | -------- | ------ | --------------------------------------------------------------------------- |
-| `diegosouzapw/omniroute` | `latest` | ~250MB | កំណែ SemVer ស្ថិរភាពដែលបាន **បោះពុម្ពផ្សាយ** ខ្ពស់បំផុត (មិនមែន git `main`) |
-| `diegosouzapw/omniroute` | `3.8.0`  | ~250MB | ចងភ្ជាប់ស្លាកប្រភេទនេះសម្រាប់ GitOps                                        |
+| Image                 | ស្លាក    | ទំហំ   | សេចក្ដីពិពណ៌នា                                                              |
+| --------------------- | -------- | ------ | --------------------------------------------------------------------------- |
+| `reddb-io/red-router` | `latest` | ~250MB | កំណែ SemVer ស្ថិរភាពដែលបាន **បោះពុម្ពផ្សាយ** ខ្ពស់បំផុត (មិនមែន git `main`) |
+| `reddb-io/red-router` | `3.8.0`  | ~250MB | ចងភ្ជាប់ស្លាកប្រភេទនេះសម្រាប់ GitOps                                        |
 
 Manifest ពហុវេទិកា៖ `linux/amd64` + `linux/arm64` ដើម (Apple Silicon, AWS Graviton, Raspberry Pi)។ Docker ជ្រើសរើសស្ថាបត្យកម្មដែលត្រូវគ្នាដោយស្វ័យប្រវត្តិ; បញ្ជូន `--platform linux/amd64` ប្រសិនបើអ្នកត្រូវការបង្ខំការត្រាប់តាម AMD64 នៅលើម៉ាស៊ីនមេ ARM។
 
@@ -497,8 +497,8 @@ OmniRoute បោះពុម្ពផ្សាយឆានែល Docker ដា�
 ឆានែល `next` ត្រូវបាន build ឡើងវិញរាល់ពេល push ទៅ branch `release/v*` លំនាំដើមបច្ចុប្បន្ន ហើយត្រូវបានបោះពុម្ពផ្សាយសម្រាប់ទាំង AMD64 និង ARM64។ maintenance branch ចាស់ៗមិនអាចសរសេរជាន់លើវាបានទេ។ ឆានែលនេះផ្ដល់ image ដែលអាច pull បាន សម្រាប់ការកែតម្រូវដែលបាន merge ចូលទៅក្នុង release branch សកម្ម មុនពេលស្លាកស្ថិរភាពបន្ទាប់ត្រូវបានបង្កើត។
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker pull diegosouzapw/omniroute:next-web
+docker pull reddb-io/red-router:next
+docker pull reddb-io/red-router:next-web
 ```
 
 សម្រាប់ Docker Compose សូមកំណត់ជំនួសស្លាក image ដែលបានប្រើដោយ profile ដែលបានជ្រើសរើស បន្ទាប់មក pull និងបង្កើត service ឡើងវិញ៖
@@ -506,7 +506,7 @@ docker pull diegosouzapw/omniroute:next-web
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:next
+    image: reddb-io/red-router:next
 ```
 
 ```bash
@@ -519,14 +519,14 @@ docker compose up -d
 `next` គឺជាឆានែលមុនចេញផ្សាយដែលអណ្ដែត។ វាអាចផ្លាស់ប្ដូរនៅពេល push ណាមួយទៅ release branch សកម្ម ហើយ **មិនត្រូវបានគាំទ្រសម្រាប់ការប្រើប្រាស់ក្នុង production ទេ**។ ចងភ្ជាប់ image digest ខណៈពេលវាយតម្លៃ build ជាក់លាក់មួយ៖
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker image inspect diegosouzapw/omniroute:next --format '{{index .RepoDigests 0}}'
+docker pull reddb-io/red-router:next
+docker image inspect reddb-io/red-router:next --format '{{index .RepoDigests 0}}'
 ```
 
 មុនពេលសាកល្បង សូមបម្រុងទុក OmniRoute data volume ឬ data directory ដែលបាន bind-mount។ ដើម្បីត្រឡប់ក្រោយ សូមស្ដារកំណែស្ថិរភាព ឬ digest ដែលបានប្រើពីមុន ហើយបង្កើត container ឡើងវិញ៖
 
 ```bash
-docker pull diegosouzapw/omniroute:<stable-version>
+docker pull reddb-io/red-router:<stable-version>
 docker compose up -d
 ```
 
@@ -617,7 +617,7 @@ Postgres ខាងក្រៅ / multi-writer HA **មិនមែន** ជា�
 ```yaml
 services:
   omniroute-a:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"
@@ -626,7 +626,7 @@ services:
     volumes: [omniroute-a-data:/app/data]
     ports: ["20128:20128"]
   omniroute-b:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"

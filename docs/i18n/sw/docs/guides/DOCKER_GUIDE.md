@@ -40,7 +40,7 @@ docker run -d \
   --stop-timeout 40 \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## Kwa Kutumia Faili ya Mazingira
@@ -56,7 +56,7 @@ docker run -d \
   --env-file .env \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## Docker Compose
@@ -332,7 +332,7 @@ Weka ukubwa wa **cgroup `--memory` juu ya heap** — vihifadhi asili, SQLite, na
 ```bash
 docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
   -e OMNIROUTE_MEMORY_MB=8192 --memory=10g \
-  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data reddb-io/red-router:latest
 ```
 
 ## Vigezo Muhimu vya Mazingira
@@ -388,14 +388,14 @@ kigezo cha mazingira wakati wa utekelezaji.
 
 ### Image ya mzizi iliyoundwa mapema + njia ndogo wakati wa utekelezaji
 
-Image zilizochapishwa za `diegosouzapw/omniroute:*` zimeundwa kwa ajili ya mzizi wa domain. Bado unaweza
+Image zilizochapishwa za `reddb-io/red-router:*` zimeundwa kwa ajili ya mzizi wa domain. Bado unaweza
 kuweka `OMNIROUTE_BASE_PATH` wakati wa utekelezaji; kontena hurekebisha kifurushi mara moja linapoanza.
 Iambatanishe na origin ya umma inayolingana:
 
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     environment:
       OMNIROUTE_BASE_PATH: /omniroute
       NEXT_PUBLIC_BASE_URL: https://myhostname.example.com/omniroute
@@ -436,7 +436,7 @@ OmniRoute inaweza kuwekwa wazi kwa usalama kwa kutumia utoaji wa SSL wa kiotomat
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     container_name: omniroute
     restart: unless-stopped
     volumes:
@@ -486,10 +486,10 @@ Paneli za tunnel za endpoint (Cloudflare, Tailscale, ngrok) zinaweza kuonyeshwa 
 
 ## Lebo za Picha
 
-| Picha                    | Lebo     | Ukubwa | Maelezo                                                        |
-| ------------------------ | -------- | ------ | -------------------------------------------------------------- |
-| `diegosouzapw/omniroute` | `latest` | ~250MB | SemVer thabiti ya juu zaidi **iliyochapishwa** (si git `main`) |
-| `diegosouzapw/omniroute` | `3.8.0`  | ~250MB | Bandika aina hii ya lebo kwa GitOps                            |
+| Picha                 | Lebo     | Ukubwa | Maelezo                                                        |
+| --------------------- | -------- | ------ | -------------------------------------------------------------- |
+| `reddb-io/red-router` | `latest` | ~250MB | SemVer thabiti ya juu zaidi **iliyochapishwa** (si git `main`) |
+| `reddb-io/red-router` | `3.8.0`  | ~250MB | Bandika aina hii ya lebo kwa GitOps                            |
 
 Manifesti ya majukwaa mengi: `linux/amd64` + `linux/arm64` asilia (Apple Silicon, AWS Graviton, Raspberry Pi). Docker huchagua usanifu unaolingana kiotomatiki; tumia `--platform linux/amd64` ikiwa unahitaji kulazimisha uigaji wa AMD64 kwenye vipangishi vya ARM.
 
@@ -522,8 +522,8 @@ Ikiwa unatumia watoa huduma hao, pakua lebo ya `-web` ya chaneli unayotumia taya
 Chaneli ya `next` huundwa upya kwa kila push kwenda kwenye tawi chaguo-msingi la sasa la `release/v*` na huchapishwa kwa AMD64 na ARM64. Matawi ya zamani ya matengenezo hayawezi kuiandika upya. Chaneli hii hutoa picha inayoweza kupakuliwa yenye marekebisho ambayo yameunganishwa kwenye tawi la toleo linalotumika kabla ya lebo thabiti inayofuata kutolewa.
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker pull diegosouzapw/omniroute:next-web
+docker pull reddb-io/red-router:next
+docker pull reddb-io/red-router:next-web
 ```
 
 Kwa Docker Compose, badilisha lebo ya picha inayotumiwa na wasifu uliochaguliwa, kisha pakua na uunde upya huduma:
@@ -531,7 +531,7 @@ Kwa Docker Compose, badilisha lebo ya picha inayotumiwa na wasifu uliochaguliwa,
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:next
+    image: reddb-io/red-router:next
 ```
 
 ```bash
@@ -544,14 +544,14 @@ docker compose up -d
 `next` ni chaneli inayobadilika ya kabla ya toleo. Inaweza kubadilika kwa push yoyote kwenda kwenye tawi la toleo linalotumika na **haitumiki kwa mazingira ya uzalishaji**. Bandika digest ya picha wakati wa kutathmini muundo mahususi:
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker image inspect diegosouzapw/omniroute:next --format '{{index .RepoDigests 0}}'
+docker pull reddb-io/red-router:next
+docker image inspect reddb-io/red-router:next --format '{{index .RepoDigests 0}}'
 ```
 
 Kabla ya kujaribu, hifadhi nakala rudufu ya volume ya data ya OmniRoute au saraka ya data iliyounganishwa kwa bind mount. Ili kurudi kwenye toleo la awali, rejesha toleo thabiti au digest iliyotumika awali na uunde upya kontena:
 
 ```bash
-docker pull diegosouzapw/omniroute:<stable-version>
+docker pull reddb-io/red-router:<stable-version>
 docker compose up -d
 ```
 
@@ -642,7 +642,7 @@ Mfano wa Compose (heap mbili, volume mbili — si `deploy.replicas: 2`):
 ```yaml
 services:
   omniroute-a:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"
@@ -651,7 +651,7 @@ services:
     volumes: [omniroute-a-data:/app/data]
     ports: ["20128:20128"]
   omniroute-b:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"

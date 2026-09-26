@@ -40,7 +40,7 @@ docker run -d \
   --stop-timeout 40 \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## Le Comhad Timpeallachta
@@ -56,7 +56,7 @@ docker run -d \
   --env-file .env \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## Docker Compose
@@ -333,7 +333,7 @@ Déanann `omniroute serve` ar mhiotal lom calabrú go ~35% de RAM (teoranta do `
 ```bash
 docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
   -e OMNIROUTE_MEMORY_MB=8192 --memory=10g \
-  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data reddb-io/red-router:latest
 ```
 
 ## Athróga Timpeallachta Ríthábhachtacha
@@ -390,14 +390,14 @@ agus mar athróg timpeallachta rite.
 
 ### Íomhá fréimhe réamhthógtha + fochonair ag am rite
 
-Tógtar na híomhánna foilsithe `diegosouzapw/omniroute:*` d’fhréamh an fhearainn. Is féidir
+Tógtar na híomhánna foilsithe `reddb-io/red-router:*` d’fhréamh an fhearainn. Is féidir
 leat `OMNIROUTE_BASE_PATH` a shocrú fós ag am rite; paisteálann an coimeádán an beart uair
 amháin ag am tosaithe. Úsáid é leis an mbunús poiblí comhfhreagrach:
 
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     environment:
       OMNIROUTE_BASE_PATH: /omniroute
       NEXT_PUBLIC_BASE_URL: https://myhostname.example.com/omniroute
@@ -441,7 +441,7 @@ Is féidir OmniRoute a nochtadh go slán trí sholáthar uathoibríoch SSL Caddy
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     container_name: omniroute
     restart: unless-stopped
     volumes:
@@ -491,10 +491,10 @@ Is féidir painéil tolláin críochphointe (Cloudflare, Tailscale, ngrok) a tha
 
 ## Clibeanna Íomhá
 
-| Íomhá                    | Clib     | Méid   | Cur Síos                                                   |
-| ------------------------ | -------- | ------ | ---------------------------------------------------------- |
-| `diegosouzapw/omniroute` | `latest` | ~250MB | An SemVer cobhsaí **foilsithe** is airde (ní git `main` é) |
-| `diegosouzapw/omniroute` | `3.8.0`  | ~250MB | Cuir an aicme clibe seo faoi ghlas le haghaidh GitOps      |
+| Íomhá                 | Clib     | Méid   | Cur Síos                                                   |
+| --------------------- | -------- | ------ | ---------------------------------------------------------- |
+| `reddb-io/red-router` | `latest` | ~250MB | An SemVer cobhsaí **foilsithe** is airde (ní git `main` é) |
+| `reddb-io/red-router` | `3.8.0`  | ~250MB | Cuir an aicme clibe seo faoi ghlas le haghaidh GitOps      |
 
 Lastliosta ilardáin: `linux/amd64` + `linux/arm64` dúchasach (Apple Silicon, AWS Graviton, Raspberry Pi). Roghnaíonn Docker an ailtireacht chomhoiriúnach go huathoibríoch; tabhair `--platform linux/amd64` más gá duit aithris AMD64 a bhrú ar óstaigh ARM.
 
@@ -527,8 +527,8 @@ Má úsáideann tú na soláthraithe sin, tarraing clib `-web` an chainéil atá
 Atógtar an cainéal `next` ar gach brú chuig an mbrainse réamhshocraithe reatha `release/v*` agus foilsítear é le haghaidh AMD64 agus ARM64 araon. Ní féidir le brainsí cothabhála níos sine scríobh anuas air. Soláthraíonn an cainéal íomhá intarraingthe le haghaidh ceartúchán a cumascadh isteach sa bhrainse eisiúna gníomhach sula gcruthaítear an chéad chlib chobhsaí eile.
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker pull diegosouzapw/omniroute:next-web
+docker pull reddb-io/red-router:next
+docker pull reddb-io/red-router:next-web
 ```
 
 Le haghaidh Docker Compose, sáraigh an chlib íomhá a úsáideann an phróifíl roghnaithe, ansin tarraing agus athchruthaigh an tseirbhís:
@@ -536,7 +536,7 @@ Le haghaidh Docker Compose, sáraigh an chlib íomhá a úsáideann an phróifí
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:next
+    image: reddb-io/red-router:next
 ```
 
 ```bash
@@ -549,14 +549,14 @@ docker compose up -d
 Is cainéal réamheisiúna snámhach é `next`. Féadfaidh sé athrú le haon bhrú chuig an mbrainse eisiúna gníomhach agus **ní thacaítear lena úsáid i dtáirgeadh**. Cuir achoimre na híomhá faoi ghlas agus leagan sonrach á mheas agat:
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker image inspect diegosouzapw/omniroute:next --format '{{index .RepoDigests 0}}'
+docker pull reddb-io/red-router:next
+docker image inspect reddb-io/red-router:next --format '{{index .RepoDigests 0}}'
 ```
 
 Sula ndéanfaidh tú tástáil, cruthaigh cúltaca d'imleabhar sonraí OmniRoute nó den chomhadlann sonraí atá gléasta trí cheangal. Chun rolladh siar, athchóirigh an leagan cobhsaí nó an achoimre a úsáideadh roimhe seo agus athchruthaigh an coimeádán:
 
 ```bash
-docker pull diegosouzapw/omniroute:<stable-version>
+docker pull reddb-io/red-router:<stable-version>
 docker compose up -d
 ```
 
@@ -647,7 +647,7 @@ Dréacht Compose (dhá charn, dhá imleabhar — ní `deploy.replicas: 2`):
 ```yaml
 services:
   omniroute-a:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"
@@ -656,7 +656,7 @@ services:
     volumes: [omniroute-a-data:/app/data]
     ports: ["20128:20128"]
   omniroute-b:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"

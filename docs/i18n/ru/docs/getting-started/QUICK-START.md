@@ -21,10 +21,10 @@ npm install -g omniroute
 ### Вариант B: Docker
 
 ```bash
-docker run -d --name omniroute -p 20128:20128 diegosouzapw/omniroute:latest
+docker run -d --name omniroute -p 20128:20128 reddb-io/red-router:latest
 ```
 
-`:latest` — это самая новая **опубликованная** стабильная версия SemVer. Этот тег **не** отслеживает ветку git `main`. Для GitOps закрепите версию с помощью `diegosouzapw/omniroute:X.Y.Z`. См. [Теги образов / каналы выпусков](../guides/DOCKER_GUIDE.md#release-channels).
+`:latest` — это самая новая **опубликованная** стабильная версия SemVer. Этот тег **не** отслеживает ветку git `main`. Для GitOps закрепите версию с помощью `reddb-io/red-router:X.Y.Z`. См. [Теги образов / каналы выпусков](../guides/DOCKER_GUIDE.md#release-channels).
 
 ### Вариант C: из исходного кода
 

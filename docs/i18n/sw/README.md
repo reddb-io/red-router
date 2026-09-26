@@ -86,9 +86,9 @@
 
 [![toleo la npm](https://img.shields.io/npm/v/omniroute?color=cb3837&logo=npm)](https://www.npmjs.com/package/omniroute)
 ![NPM kwa Mwezi](https://img.shields.io/npm/dm/omniroute?label=npm/month&color=cb3837&logo=npm)
-[![Docker Hub](https://img.shields.io/docker/v/diegosouzapw/omniroute?label=Docker%20Hub&logo=docker&color=2496ED)](https://hub.docker.com/r/diegosouzapw/omniroute)
+[![Docker Hub](https://img.shields.io/docker/v/reddb-io/red-router?label=Docker%20Hub&logo=docker&color=2496ED)](https://hub.docker.com/r/reddb-io/red-router)
 [![Leseni: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](LICENSE)
-![Upakuaji wa Docker](https://img.shields.io/docker/pulls/diegosouzapw/omniroute?label=docker%20pulls&logo=docker&color=2496ED)
+![Upakuaji wa Docker](https://img.shields.io/docker/pulls/reddb-io/red-router?label=docker%20pulls&logo=docker&color=2496ED)
 ![Upakuaji wa Electron](https://img.shields.io/github/downloads/diegosouzapw/omniroute/total?style=flat&label=electron%20downloads&logo=electron&color=47848F)
 
 <table>
@@ -676,7 +676,7 @@ kwenye historia ya shell yako. → [Miunganisho ya CLI](docs/guides/CLI-INTEGRAT
 <table>
   <tr><th align="left">Jukwaa</th><th align="left">Usakinishaji</th><th align="left">Vipengele muhimu</th></tr>
   <tr><td align="left" nowrap>📦 <b>npm (kimataifa)</b></td><td align="left" nowrap><code>npm install -g omniroute</code></td><td align="left">Amri moja, mfumo wowote wa uendeshaji</td></tr>
-  <tr><td align="left" nowrap>🐳 <b>Docker</b></td><td align="left" nowrap><code>docker run … diegosouzapw/omniroute</code></td><td align="left">Miundio mingi <b>AMD64 + ARM64</b></td></tr>
+  <tr><td align="left" nowrap>🐳 <b>Docker</b></td><td align="left" nowrap><code>docker run … reddb-io/red-router</code></td><td align="left">Miundio mingi <b>AMD64 + ARM64</b></td></tr>
   <tr><td align="left" nowrap>🖥️ <b>Kompyuta ya mezani (Electron)</b></td><td align="left" nowrap><code>npm run electron:build</code></td><td align="left">Dirisha asilia + trei ya mfumo — <b>Windows / macOS / Linux</b></td></tr>
   <tr><td align="left" nowrap>🎩 <b>Upau wa menyu (OmniRouteTray)</b></td><td align="left" nowrap><code>brew install --cask zoispag/tap/omniroute-tray</code></td><td align="left">Husimamia &amp; kusasisha seva kiotomatiki — <b>macOS</b></td></tr>
   <tr><td align="left" nowrap>💪 <b>ARM</b></td><td align="left" nowrap>asilia <code>arm64</code></td><td align="left">Raspberry Pi, seva za ARM, Apple Silicon</td></tr>
@@ -980,7 +980,7 @@ Tumia hizi kwa viteja ambavyo haviwezi kuambatisha `Authorization: Bearer ...` p
 
 ```bash
 docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
-  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data reddb-io/red-router:latest
 ```
 
 `:latest` hufuata toleo thabiti la juu zaidi la SemVer **lililochapishwa**. Haifuatilii `main` ya git. Bandika `:X.Y.Z` kwa GitOps. Tazama [Vituo vya Matoleo ya Docker](docs/guides/DOCKER_GUIDE.md#release-channels).Image hubandika **`OMNIROUTE_MEMORY_MB=1024`**. Hiyo inatosha kwa dashibodi na gumzo jepesi. **Mawakala wa uandishi wa msimbo** (`POST /v1/responses` kutoka Claude Code, Codex, Grok, …) wanahitaji heap kubwa zaidi ya V8, la sivyo mchakato hupata `FATAL ERROR` unapofikia takriban GiB 12 chini ya miktadha miwili mirefu inayopishana. Weka ukubwa wa kontena juu ya heap (bafa asilia huwa nje ya V8):
@@ -994,13 +994,13 @@ docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
 ```bash
 docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
   -e OMNIROUTE_MEMORY_MB=8192 --memory=10g \
-  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data reddb-io/red-router:latest
 ```
 
 Jedwali kamili: [Mwongozo wa Docker — RAM ya wakati wa utekelezaji](docs/guides/DOCKER_GUIDE.md#runtime-ram-for-coding-agents).
 
-> **Kituo cha Docker cha matoleo ya awali:** `diegosouzapw/omniroute:next` na
-> `diegosouzapw/omniroute:next-web` hufuata tawi la sasa la chaguo-msingi `release/v*`.
+> **Kituo cha Docker cha matoleo ya awali:** `reddb-io/red-router:next` na
+> `reddb-io/red-router:next-web` hufuata tawi la sasa la chaguo-msingi `release/v*`.
 > Lebo hizi zinazoweza kubadilika zimekusudiwa tu kwa kujaribu marekebisho ambayo bado hayajatolewa na
 > **hazitumiki katika mazingira ya uzalishaji**. Tazama
 > [Vituo vya Matoleo ya Docker](docs/guides/DOCKER_GUIDE.md#release-channels).
@@ -1211,7 +1211,7 @@ Vipimo kanuni vya 2026-08-24: **video 1.029 za kipekee** · **mitazamo 11.132.92
   <tr><td nowrap><b>Kujaribu</b></td><td>Node.js test runner + Vitest — <b>matamko 39,000+ ya majaribio tuli</b> katika faili 5,100+ za majaribio zilizofuatiliwa (kitengo, ujumuishaji, E2E, usalama, mfumo ikolojia)</td></tr>
   <tr><td nowrap><b>Majukwaa</b></td><td>Kompyuta ya Mezani (Electron) · Android (Termux) · PWA (kivinjari chochote)</td></tr>
   <tr><td nowrap><b>CI/CD</b></td><td>GitHub Actions — uchapishaji otomatiki wa npm + Docker Hub wakati wa toleo</td></tr>
-  <tr><td nowrap><b>Viungo</b></td><td><a href="https://omniroute.online">Tovuti</a> · <a href="https://www.npmjs.com/package/omniroute">npm</a> · <a href="https://hub.docker.com/r/diegosouzapw/omniroute">Docker Hub</a></td></tr>
+  <tr><td nowrap><b>Viungo</b></td><td><a href="https://omniroute.online">Tovuti</a> · <a href="https://www.npmjs.com/package/omniroute">npm</a> · <a href="https://hub.docker.com/r/reddb-io/red-router">Docker Hub</a></td></tr>
 </table>
 
 <div align="center">

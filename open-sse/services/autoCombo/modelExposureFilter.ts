@@ -16,6 +16,7 @@
  */
 import {
   isModelExposureAllowed,
+  listMatchesAny,
   type ModelExposureListSettings,
 } from "@/shared/utils/modelExposureList";
 
@@ -24,12 +25,38 @@ interface ExposureFilterCandidate {
   model: string;
 }
 
-function hasAnyExposureListEntries(settings: ModelExposureListSettings | null | undefined): boolean {
+/** Global disabled-models gate (src/shared/utils/disabledModelsList.ts) folded
+ *  into the same mirror: a disabled model is refused at dispatch with
+ *  403 model_disabled, so it must not be selected into an auto/* pool either. */
+function hasDisabledModelEntries(settings: ModelExposureListSettings | null | undefined): boolean {
+  return (
+    Array.isArray(settings?.disabledModels) &&
+    (settings.disabledModels as unknown[]).some(
+      (entry) => typeof entry === "string" && entry.trim() !== ""
+    )
+  );
+}
+
+function isCandidateDisabled(
+  candidate: ExposureFilterCandidate,
+  settings: ModelExposureListSettings | null | undefined
+): boolean {
+  if (!hasDisabledModelEntries(settings)) return false;
+  const list = (settings?.disabledModels as unknown[]).filter(
+    (entry): entry is string => typeof entry === "string" && entry.trim() !== ""
+  );
+  return listMatchesAny(list, [candidate.model, `${candidate.provider}/${candidate.model}`]);
+}
+
+function hasAnyExposureListEntries(
+  settings: ModelExposureListSettings | null | undefined
+): boolean {
   return (
     (Array.isArray(settings?.modelVisibilityDenylist) &&
       settings.modelVisibilityDenylist.length > 0) ||
     (Array.isArray(settings?.modelVisibilityAllowlist) &&
-      settings.modelVisibilityAllowlist.length > 0)
+      settings.modelVisibilityAllowlist.length > 0) ||
+    hasDisabledModelEntries(settings)
   );
 }
 
@@ -45,7 +72,9 @@ export function filterModelExposureCandidates<T extends ExposureFilterCandidate>
   settings: ModelExposureListSettings | null | undefined
 ): T[] {
   if (!hasAnyExposureListEntries(settings)) return pool;
-  return pool.filter((candidate) =>
-    isModelExposureAllowed(candidate.provider, candidate.model, settings)
+  return pool.filter(
+    (candidate) =>
+      isModelExposureAllowed(candidate.provider, candidate.model, settings) &&
+      !isCandidateDisabled(candidate, settings)
   );
 }

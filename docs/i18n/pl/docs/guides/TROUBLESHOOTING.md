@@ -419,7 +419,7 @@ znajdziesz w pliku [`docs/guides/KIRO_SETUP.md`](./KIRO_SETUP.md).
 2. **Trwałe rozwiązanie:** Powiąż port jawnie z adresem IPv4, używając `-p 127.0.0.1:20128:20128` w poleceniu `docker run`:
    ```bash
    docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
-     -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+     -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data reddb-io/red-router:latest
    ```
    Wymusza to powiązanie z IPv4, a także zapobiega udostępnianiu serwera proxy na wszystkich interfejsach hosta.
 

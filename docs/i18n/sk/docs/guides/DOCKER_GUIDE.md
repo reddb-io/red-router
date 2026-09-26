@@ -40,7 +40,7 @@ docker run -d \
   --stop-timeout 40 \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## So súborom prostredia
@@ -56,7 +56,7 @@ docker run -d \
   --env-file .env \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## Docker Compose
@@ -332,7 +332,7 @@ Nastavte **cgroup `--memory` vyššie než haldu** — natívne vyrovnávacie pa
 ```bash
 docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
   -e OMNIROUTE_MEMORY_MB=8192 --memory=10g \
-  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data reddb-io/red-router:latest
 ```
 
 ## Kritické premenné prostredia
@@ -388,14 +388,14 @@ premennú prostredia behu.
 
 ### Vopred zostavený koreňový obraz + podcesta počas behu
 
-Publikované obrazy `diegosouzapw/omniroute:*` sú zostavené pre koreň domény. Napriek tomu môžete
+Publikované obrazy `reddb-io/red-router:*` sú zostavené pre koreň domény. Napriek tomu môžete
 nastaviť `OMNIROUTE_BASE_PATH` počas behu; kontajner pri spustení jednorazovo upraví balík.
 Použite ho spolu so zodpovedajúcim verejným pôvodom:
 
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     environment:
       OMNIROUTE_BASE_PATH: /omniroute
       NEXT_PUBLIC_BASE_URL: https://myhostname.example.com/omniroute
@@ -436,7 +436,7 @@ OmniRoute možno bezpečne sprístupniť pomocou automatického poskytovania SSL
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     container_name: omniroute
     restart: unless-stopped
     volumes:
@@ -486,10 +486,10 @@ Panely tunelov koncových bodov (Cloudflare, Tailscale, ngrok) možno zobraziť 
 
 ## Značky obrazov
 
-| Obraz                    | Značka   | Veľkosť | Popis                                                             |
-| ------------------------ | -------- | ------- | ----------------------------------------------------------------- |
-| `diegosouzapw/omniroute` | `latest` | ~250MB  | Najvyššia **publikovaná** stabilná verzia SemVer (nie git `main`) |
-| `diegosouzapw/omniroute` | `3.8.0`  | ~250MB  | Pre GitOps pripnite túto triedu značky                            |
+| Obraz                 | Značka   | Veľkosť | Popis                                                             |
+| --------------------- | -------- | ------- | ----------------------------------------------------------------- |
+| `reddb-io/red-router` | `latest` | ~250MB  | Najvyššia **publikovaná** stabilná verzia SemVer (nie git `main`) |
+| `reddb-io/red-router` | `3.8.0`  | ~250MB  | Pre GitOps pripnite túto triedu značky                            |
 
 Manifest pre viacero platforiem: natívne `linux/amd64` + `linux/arm64` (Apple Silicon, AWS Graviton, Raspberry Pi). Docker automaticky vyberie zodpovedajúcu architektúru; ak potrebujete na hostiteľoch ARM vynútiť emuláciu AMD64, použite `--platform linux/amd64`.
 
@@ -522,8 +522,8 @@ Ak používate týchto poskytovateľov, stiahnite značku `-web` kanála, ktorý
 Kanál `next` sa opätovne zostaví pri každom pushnutí do aktuálnej predvolenej vetvy `release/v*` a publikuje sa pre AMD64 aj ARM64. Staršie vetvy údržby ho nemôžu prepísať. Kanál poskytuje obraz, ktorý možno stiahnuť a ktorý obsahuje opravy zlúčené do aktívnej vetvy vydania ešte pred vytvorením ďalšej stabilnej značky.
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker pull diegosouzapw/omniroute:next-web
+docker pull reddb-io/red-router:next
+docker pull reddb-io/red-router:next-web
 ```
 
 V prípade Docker Compose prepíšte značku obrazu používanú vybraným profilom, potom stiahnite obraz a znova vytvorte službu:
@@ -531,7 +531,7 @@ V prípade Docker Compose prepíšte značku obrazu používanú vybraným profi
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:next
+    image: reddb-io/red-router:next
 ```
 
 ```bash
@@ -544,14 +544,14 @@ docker compose up -d
 `next` je pohyblivý kanál predbežných vydaní. Môže sa zmeniť pri každom pushnutí do aktívnej vetvy vydania a **nie je podporovaný na produkčné použitie**. Pri vyhodnocovaní konkrétneho zostavenia pripnite digest obrazu:
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker image inspect diegosouzapw/omniroute:next --format '{{index .RepoDigests 0}}'
+docker pull reddb-io/red-router:next
+docker image inspect reddb-io/red-router:next --format '{{index .RepoDigests 0}}'
 ```
 
 Pred testovaním zálohujte dátový zväzok OmniRoute alebo pripojený dátový adresár. Ak sa chcete vrátiť k predchádzajúcej verzii, obnovte predtým používanú stabilnú verziu alebo digest a znova vytvorte kontajner:
 
 ```bash
-docker pull diegosouzapw/omniroute:<stable-version>
+docker pull reddb-io/red-router:<stable-version>
 docker compose up -d
 ```
 
@@ -642,7 +642,7 @@ Náčrt konfigurácie Compose (dve haldy, dva zväzky — nie `deploy.replicas: 
 ```yaml
 services:
   omniroute-a:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"
@@ -651,7 +651,7 @@ services:
     volumes: [omniroute-a-data:/app/data]
     ports: ["20128:20128"]
   omniroute-b:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"

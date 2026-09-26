@@ -86,9 +86,9 @@
 
 [![npm பதிப்பு](https://img.shields.io/npm/v/omniroute?color=cb3837&logo=npm)](https://www.npmjs.com/package/omniroute)
 ![NPM மாதாந்திர பதிவிறக்கங்கள்](https://img.shields.io/npm/dm/omniroute?label=npm/month&color=cb3837&logo=npm)
-[![Docker Hub](https://img.shields.io/docker/v/diegosouzapw/omniroute?label=Docker%20Hub&logo=docker&color=2496ED)](https://hub.docker.com/r/diegosouzapw/omniroute)
+[![Docker Hub](https://img.shields.io/docker/v/reddb-io/red-router?label=Docker%20Hub&logo=docker&color=2496ED)](https://hub.docker.com/r/reddb-io/red-router)
 [![உரிமம்: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](LICENSE)
-![Docker பதிவிறக்கங்கள்](https://img.shields.io/docker/pulls/diegosouzapw/omniroute?label=docker%20pulls&logo=docker&color=2496ED)
+![Docker பதிவிறக்கங்கள்](https://img.shields.io/docker/pulls/reddb-io/red-router?label=docker%20pulls&logo=docker&color=2496ED)
 ![Electron பதிவிறக்கங்கள்](https://img.shields.io/github/downloads/diegosouzapw/omniroute/total?style=flat&label=electron%20downloads&logo=electron&color=47848F)
 
 <table>
@@ -751,7 +751,7 @@ omniroute configure codex          # மேலும்: claude opencode qwen ai
 <table>
   <tr><th align="left">தளம்</th><th align="left">நிறுவல்</th><th align="left">சிறப்பம்சங்கள்</th></tr>
   <tr><td align="left" nowrap>📦 <b>npm (உலகளாவியது)</b></td><td align="left" nowrap><code>npm install -g omniroute</code></td><td align="left">ஒரே கட்டளை, எந்த OS-லும்</td></tr>
-  <tr><td align="left" nowrap>🐳 <b>Docker</b></td><td align="left" nowrap><code>docker run … diegosouzapw/omniroute</code></td><td align="left">பல கட்டமைப்புகள் <b>AMD64 + ARM64</b></td></tr>
+  <tr><td align="left" nowrap>🐳 <b>Docker</b></td><td align="left" nowrap><code>docker run … reddb-io/red-router</code></td><td align="left">பல கட்டமைப்புகள் <b>AMD64 + ARM64</b></td></tr>
   <tr><td align="left" nowrap>🖥️ <b>டெஸ்க்டாப் (Electron)</b></td><td align="left" nowrap><code>npm run electron:build</code></td><td align="left">இயல்புநிலை சாளரம் + கணினித் தட்டு — <b>Windows / macOS / Linux</b></td></tr>
   <tr><td align="left" nowrap>🎩 <b>மெனுப் பட்டி (OmniRouteTray)</b></td><td align="left" nowrap><code>brew install --cask zoispag/tap/omniroute-tray</code></td><td align="left">சேவையகத்தைக் கண்காணித்து &amp; தானாகப் புதுப்பிக்கும் — <b>macOS</b></td></tr>
   <tr><td align="left" nowrap>💪 <b>ARM</b></td><td align="left" nowrap>இயல்புநிலை <code>arm64</code></td><td align="left">Raspberry Pi, ARM சேவையகங்கள், Apple Silicon</td></tr>
@@ -1055,7 +1055,7 @@ Ollama குறிச்சொற்கள்: http://localhost:20128/vscode/YO
 
 ```bash
 docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
-  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data reddb-io/red-router:latest
 ```
 
 `:latest` என்பது **வெளியிடப்பட்ட** நிலையான SemVer பதிப்புகளில் மிக உயர்ந்ததைப் பின்பற்றும். இது git `main`-ஐப் பின்தொடராது. GitOps-க்கு `:X.Y.Z` எனப் பதிப்பை நிலைநிறுத்தவும். [Docker வெளியீட்டுச் சேனல்கள்](docs/guides/DOCKER_GUIDE.md#release-channels) என்பதைப் பார்க்கவும். இந்த image-ல் **`OMNIROUTE_MEMORY_MB=1024`** நிலைநிறுத்தப்பட்டுள்ளது. Dashboard மற்றும் இலகுவான chat-க்கு அது போதுமானது. **Coding agents** (Claude Code, Codex, Grok, … இலிருந்து `POST /v1/responses`) இயக்க மிகவும் பெரிய V8 heap தேவை; இல்லையெனில் ஒன்றுடன் ஒன்று நேரத்தில் இயங்கும் இரண்டு நீண்ட context-களின்போது, செயல்முறை சுமார் 12 GiB-ல் `FATAL ERROR` ஏற்படுத்தும். Heap-ஐ விட container-ன் அளவை அதிகமாக அமைக்கவும் (native buffer-கள் V8-க்கு வெளியே இருக்கும்):
@@ -1069,13 +1069,13 @@ docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
 ```bash
 docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
   -e OMNIROUTE_MEMORY_MB=8192 --memory=10g \
-  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data reddb-io/red-router:latest
 ```
 
 முழு அட்டவணை: [Docker வழிகாட்டி — இயக்கநேர RAM](docs/guides/DOCKER_GUIDE.md#runtime-ram-for-coding-agents).
 
-> **முன்வெளியீட்டு Docker சேனல்:** `diegosouzapw/omniroute:next` மற்றும்
-> `diegosouzapw/omniroute:next-web` ஆகியவை தற்போதைய இயல்புநிலை `release/v*`
+> **முன்வெளியீட்டு Docker சேனல்:** `reddb-io/red-router:next` மற்றும்
+> `reddb-io/red-router:next-web` ஆகியவை தற்போதைய இயல்புநிலை `release/v*`
 > branch-ஐப் பின்பற்றுகின்றன. மாறக்கூடிய இந்த tag-கள், இன்னும் வெளியிடப்படாத திருத்தங்களைச் சோதிப்பதற்காக மட்டுமே உருவாக்கப்பட்டவை;
 > அவை **production-க்கு ஆதரிக்கப்படவில்லை**. பார்க்க:
 > [Docker வெளியீட்டுச் சேனல்கள்](docs/guides/DOCKER_GUIDE.md#release-channels).
@@ -1286,7 +1286,7 @@ Dashboard இல்லாத headless runtime-க்கு Docker `base` profile
   <tr><td nowrap><b>சோதனை</b></td><td>Node.js டெஸ்ட் ரன்னர் + வைடெஸ்ட் — <b>39,000+ நிலையான சோதனை அறிவிப்புகள்</b> 5,100+ கண்காணிக்கப்பட்ட சோதனை கோப்புகளில் (யூனிட், இன்டெக்ரேஷன், E2E, பாதுகாப்பு, சுற்றுச்சூழல் அமைப்பு)</td></tr>
   <tr><td nowrap><b>தளங்கள்</b></td><td>டெஸ்க்டாப் (எலக்ட்ரான்) · ஆண்ட்ராய்டு (டெர்மாக்ஸ்) · PWA (எந்த உலாவி)</td></tr>
   <tr><td nowrap><b>CI/CD</b></td><td>கிட்ஹப் ஆக்ஷன்ஸ் — வெளியீட்டில் தானியங்கி npm வெளியீடு + டாக்கர் ஹப்</td></tr>
-  <tr><td nowrap><b>இணைப்புகள்</b></td><td><a href="https://omniroute.online">வலைத்தளம்</a> · <a href="https://www.npmjs.com/package/omniroute">npm</a> · <a href="https://hub.docker.com/r/diegosouzapw/omniroute">டாக்கர் ஹப்</a></td></tr>
+  <tr><td nowrap><b>இணைப்புகள்</b></td><td><a href="https://omniroute.online">வலைத்தளம்</a> · <a href="https://www.npmjs.com/package/omniroute">npm</a> · <a href="https://hub.docker.com/r/reddb-io/red-router">டாக்கர் ஹப்</a></td></tr>
 </table>
 
 <div align="center">

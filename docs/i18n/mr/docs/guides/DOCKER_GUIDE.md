@@ -40,7 +40,7 @@ docker run -d \
   --stop-timeout 40 \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## पर्यावरण फाइलसह
@@ -56,7 +56,7 @@ docker run -d \
   --env-file .env \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
-  diegosouzapw/omniroute:latest
+  reddb-io/red-router:latest
 ```
 
 ## Docker Compose
@@ -314,7 +314,7 @@ bare metal वर `omniroute serve`, `OMNIROUTE_MEMORY_MB` **सेट नसत
 ```bash
 docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
   -e OMNIROUTE_MEMORY_MB=8192 --memory=10g \
-  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data reddb-io/red-router:latest
 ```
 
 ## महत्त्वपूर्ण पर्यावरणीय चल
@@ -360,12 +360,12 @@ docker compose --profile base up -d --build
 
 ### आधीच बिल्ड केलेली रूट इमेज + रनटाइम उपपथ
 
-प्रकाशित केलेल्या `diegosouzapw/omniroute:*` इमेजेस डोमेन रूटसाठी बिल्ड केलेल्या आहेत. तरीही तुम्ही रनटाइमवेळी `OMNIROUTE_BASE_PATH` सेट करू शकता; कंटेनर स्टार्टअपवेळी बंडल एकदा पॅच करतो. त्यास जुळणाऱ्या सार्वजनिक ओरिजिनसह वापरा:
+प्रकाशित केलेल्या `reddb-io/red-router:*` इमेजेस डोमेन रूटसाठी बिल्ड केलेल्या आहेत. तरीही तुम्ही रनटाइमवेळी `OMNIROUTE_BASE_PATH` सेट करू शकता; कंटेनर स्टार्टअपवेळी बंडल एकदा पॅच करतो. त्यास जुळणाऱ्या सार्वजनिक ओरिजिनसह वापरा:
 
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     environment:
       OMNIROUTE_BASE_PATH: /omniroute
       NEXT_PUBLIC_BASE_URL: https://myhostname.example.com/omniroute
@@ -393,7 +393,7 @@ Caddy च्या स्वयंचलित SSL प्रोव्हिज�
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:latest
+    image: reddb-io/red-router:latest
     container_name: omniroute
     restart: unless-stopped
     volumes:
@@ -443,10 +443,10 @@ Docker डिप्लॉयमेंटसाठी डॅशबोर्ड �
 
 ## इमेज टॅग
 
-| इमेज                     | टॅग      | आकार   | वर्णन                                                 |
-| ------------------------ | -------- | ------ | ----------------------------------------------------- |
-| `diegosouzapw/omniroute` | `latest` | ~250MB | सर्वोच्च **प्रकाशित** स्थिर SemVer (git `main` नव्हे) |
-| `diegosouzapw/omniroute` | `3.8.0`  | ~250MB | GitOps साठी या प्रकारचा टॅग निश्चित करा               |
+| इमेज                  | टॅग      | आकार   | वर्णन                                                 |
+| --------------------- | -------- | ------ | ----------------------------------------------------- |
+| `reddb-io/red-router` | `latest` | ~250MB | सर्वोच्च **प्रकाशित** स्थिर SemVer (git `main` नव्हे) |
+| `reddb-io/red-router` | `3.8.0`  | ~250MB | GitOps साठी या प्रकारचा टॅग निश्चित करा               |
 
 मल्टी-प्लॅटफॉर्म मॅनिफेस्ट: `linux/amd64` + `linux/arm64` नेटिव्ह (Apple Silicon, AWS Graviton, Raspberry Pi). Docker जुळणारे आर्किटेक्चर स्वयंचलितपणे निवडतो; ARM होस्टवर AMD64 इम्युलेशन सक्तीने वापरायचे असल्यास `--platform linux/amd64` द्या.
 
@@ -479,8 +479,8 @@ OmniRoute स्थिर रिलीज, सक्रिय रिलीज-�
 सध्याच्या डीफॉल्ट `release/v*` ब्रँचवरील प्रत्येक पुशनंतर `next` चॅनेल पुन्हा बिल्ड केले जाते आणि AMD64 व ARM64 दोन्हींसाठी प्रकाशित केले जाते. जुन्या मेंटेनन्स ब्रँच ते ओव्हरराइट करू शकत नाहीत. पुढील स्थिर टॅग तयार होण्यापूर्वी सक्रिय रिलीज ब्रँचमध्ये मर्ज झालेल्या निराकरणांसाठी हे चॅनेल पुल करता येणारी इमेज पुरवते.
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker pull diegosouzapw/omniroute:next-web
+docker pull reddb-io/red-router:next
+docker pull reddb-io/red-router:next-web
 ```
 
 Docker Compose साठी, निवडलेल्या प्रोफाइलद्वारे वापरला जाणारा इमेज टॅग ओव्हरराइड करा, त्यानंतर सर्व्हिस पुल करून पुन्हा तयार करा:
@@ -488,7 +488,7 @@ Docker Compose साठी, निवडलेल्या प्रोफा�
 ```yaml
 services:
   omniroute:
-    image: diegosouzapw/omniroute:next
+    image: reddb-io/red-router:next
 ```
 
 ```bash
@@ -501,14 +501,14 @@ docker compose up -d
 `next` हे बदलते प्री-रिलीज चॅनेल आहे. सक्रिय रिलीज ब्रँचवरील कोणत्याही पुशनंतर ते बदलू शकते आणि **प्रॉडक्शन वापरासाठी समर्थित नाही**. एखाद्या विशिष्ट बिल्डचे मूल्यमापन करताना इमेज डायजेस्ट निश्चित करा:
 
 ```bash
-docker pull diegosouzapw/omniroute:next
-docker image inspect diegosouzapw/omniroute:next --format '{{index .RepoDigests 0}}'
+docker pull reddb-io/red-router:next
+docker image inspect reddb-io/red-router:next --format '{{index .RepoDigests 0}}'
 ```
 
 चाचणीपूर्वी OmniRoute डेटा व्हॉल्यूम किंवा बाइंड-माउंट केलेल्या डेटा डायरेक्टरीचा बॅकअप घ्या. रोलबॅक करण्यासाठी, पूर्वी वापरलेली स्थिर आवृत्ती किंवा डायजेस्ट पुनर्स्थापित करा आणि कंटेनर पुन्हा तयार करा:
 
 ```bash
-docker pull diegosouzapw/omniroute:<stable-version>
+docker pull reddb-io/red-router:<stable-version>
 docker compose up -d
 ```
 
@@ -599,7 +599,7 @@ Compose आराखडा (दोन heaps, दोन volumes — `deploy.repli
 ```yaml
 services:
   omniroute-a:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"
@@ -608,7 +608,7 @@ services:
     volumes: [omniroute-a-data:/app/data]
     ports: ["20128:20128"]
   omniroute-b:
-    image: diegosouzapw/omniroute:3.8.49
+    image: reddb-io/red-router:3.8.49
     environment:
       DATA_DIR: /app/data
       OMNIROUTE_MEMORY_MB: "12288"
