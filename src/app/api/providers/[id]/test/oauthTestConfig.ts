@@ -1,6 +1,9 @@
 import { buildGitLabOAuthEndpoints, resolveGitLabOAuthBaseUrl } from "@/lib/oauth/gitlab";
 import { ANTIGRAVITY_RUNTIME_BASE_URLS } from "@omniroute/open-sse/config/antigravityUpstream.ts";
-import { IFlowExecutor } from "@omniroute/open-sse/executors/iflow.ts";
+import {
+  buildIFlowSignedHeaders,
+  IFLOW_USER_AGENT,
+} from "@omniroute/open-sse/services/iflowSignature.ts";
 import { getAntigravityContentHeaders } from "@omniroute/open-sse/services/antigravityHeaders.ts";
 import { getAntigravityClientProfile } from "@omniroute/open-sse/services/antigravityClientProfile.ts";
 import {
@@ -312,7 +315,13 @@ export const OAUTH_TEST_CONFIG: Record<string, OAuthTestConfigEntry> = {
     buildProbe: (_connection, accessToken) => ({
       url: "https://apis.iflow.cn/v1/chat/completions",
       method: "POST",
-      headers: new IFlowExecutor().buildHeaders({ accessToken }, false),
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+        "User-Agent": IFLOW_USER_AGENT,
+        Accept: "application/json",
+        ...buildIFlowSignedHeaders(accessToken),
+      },
       body: JSON.stringify({
         model: "qwen3-coder-plus",
         messages: [{ role: "user", content: "ping" }],

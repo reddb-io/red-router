@@ -121,7 +121,7 @@ export async function handleResponsesPost(request: Request, compact = false): Pr
     if (!parsed.success || Array.isArray(parsed.data)) {
       return finishAdmission(errorResponse(400, "Request body must be a JSON object"));
     }
-    parsedBody = compact ? { ...parsed.data, _compact: true, stream: false } : parsed.data;
+    parsedBody = compact ? { ...parsed.data, stream: false } : parsed.data;
 
     // Keep the compact endpoint path for native Codex forwarding while handing
     // the same normalized body to admission, the guard, and handleChat.

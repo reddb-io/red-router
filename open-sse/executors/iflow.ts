@@ -1,8 +1,10 @@
-import { createHmac, randomUUID } from "node:crypto";
+import {
+  buildIFlowSignedHeaders,
+  createIFlowSignature,
+  IFLOW_USER_AGENT,
+} from "../services/iflowSignature.ts";
 import { DefaultExecutor } from "./default.ts";
 import type { ProviderCredentials } from "./base.ts";
-
-const DEFAULT_USER_AGENT = "iFlow-Cli";
 
 /**
  * IFlowExecutor — iFlow AI (iflow.cn) OpenAI-compatible gateway.
@@ -23,29 +25,16 @@ export class IFlowExecutor extends DefaultExecutor {
     timestamp: number,
     apiKey: string
   ): string {
-    if (!apiKey) return "";
-    const hmac = createHmac("sha256", apiKey);
-    hmac.update(`${userAgent}:${sessionId}:${timestamp}`);
-    return hmac.digest("hex");
+    return createIFlowSignature(userAgent, sessionId, timestamp, apiKey);
   }
 
   buildHeaders(credentials: ProviderCredentials, stream = true): Record<string, string> {
     const headers = super.buildHeaders(credentials, stream);
 
-    const sessionId = `session-${randomUUID()}`;
-    const timestamp = Date.now();
     const userAgent =
-      (this.config?.headers?.["User-Agent"] as string | undefined) || DEFAULT_USER_AGENT;
+      (this.config?.headers?.["User-Agent"] as string | undefined) || IFLOW_USER_AGENT;
     const apiKey = credentials.apiKey || credentials.accessToken || "";
-
-    headers["session-id"] = sessionId;
-    headers["x-iflow-timestamp"] = String(timestamp);
-    headers["x-iflow-signature"] = this.createIFlowSignature(
-      userAgent,
-      sessionId,
-      timestamp,
-      apiKey
-    );
+    Object.assign(headers, buildIFlowSignedHeaders(apiKey, userAgent));
 
     if (stream) headers["Accept"] = "text/event-stream";
     return headers;

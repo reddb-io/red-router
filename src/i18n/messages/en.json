@@ -1003,6 +1003,8 @@
     "home": "Home",
     "dashboard": "Dashboard",
     "providers": "Providers",
+    "modelCatalog": "Model catalog",
+    "modelCatalogSubtitle": "Browse models across providers",
     "combos": "Combos",
     "usage": "Usage",
     "analytics": "Analytics",

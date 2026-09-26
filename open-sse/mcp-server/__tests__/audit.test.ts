@@ -60,8 +60,7 @@ describe("MCP audit shutdown", () => {
     expect(mockDb.pragma).toHaveBeenCalledWith("wal_checkpoint(TRUNCATE)");
     expect(mockDb.close).toHaveBeenCalledTimes(1);
     expect(audit.closeAuditDb()).toBe(false);
-  }, // calls can exceed the default budget though the behavior is correct // CI-runner load, vi.resetModules() + a fresh dynamic import + mocked DB // Explicit generous timeout (vitest default is 5000ms): under contended
-  // (issue #6803).
+  }, // (issue #6803). // calls can exceed the default budget though the behavior is correct // CI-runner load, vi.resetModules() + a fresh dynamic import + mocked DB // Explicit generous timeout (vitest default is 5000ms): under contended
   30000);
 
   it("still closes the audit database when checkpoint fails", async () => {
@@ -103,11 +102,8 @@ describe("MCP audit shutdown", () => {
       close() {}
     }
 
-    vi.doMock("../../../src/lib/db/adapters/runtimeRequire.ts", () => ({
-      runtimeRequire: () => FakeDatabase,
-    }));
-
     const audit = await import("../audit.ts");
+    audit.__setBetterSqliteLoaderForTests(() => FakeDatabase);
 
     await expect(audit.getAuditStats()).resolves.toEqual({
       totalCalls: 7,
