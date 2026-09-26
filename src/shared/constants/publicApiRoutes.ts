@@ -33,6 +33,10 @@ const PUBLIC_API_ROUTE_PREFIXES = [
   // OmniRoute-minted session JWT that exchange returns. See
   // open-sse/handlers/cursorCliProxy.ts. Do not widen.
   "/api/cursor-cli/",
+  // White-label branding assets (logo/favicon/login background files placed
+  // next to branding.json). Read-only image bytes; the login page shows them
+  // before sign-in, so the route must be public. Do not widen.
+  "/api/branding/asset/",
 ];
 
 // Single routes, public by EXACT path (both spellings) — never by prefix.

@@ -19,6 +19,7 @@ import {
   toggleExpandedSection,
 } from "@/shared/utils/sidebarExpansionState";
 import { APP_CONFIG } from "@/shared/constants/appConfig";
+import { useBranding } from "@/shared/components/BrandingProvider";
 import OmniRouteLogo from "./OmniRouteLogo";
 import Button from "./Button";
 import Input from "./Input";
@@ -157,6 +158,12 @@ export default function Sidebar({
   const [skipInitialActiveExpansion, setSkipInitialActiveExpansion] = useState(false);
   const [hoveredItem, setHoveredItem] = useState<HoveredItem>(null);
   const [searchQuery, setSearchQuery] = useState("");
+
+  const brand = useBranding();
+  // A branding.json is the white-label source of truth; the dashboard
+  // instance-name/logo settings apply when there is no branding file.
+  const brandName = brand.custom ? brand.name : customAppName || APP_CONFIG.name;
+  const brandLogo = brand.custom ? brand.logo : customLogo;
 
   // Load persisted state once the client has hydrated. A stored [] intentionally
   // means "all sections collapsed". localStorage is read through
@@ -700,12 +707,8 @@ export default function Sidebar({
             className={cn("flex items-center", collapsed ? "justify-center" : "gap-2.5")}
           >
             <div className="flex items-center justify-center size-8 rounded bg-linear-to-br from-[#E54D5E] to-[#C93D4E] shrink-0">
-              {customLogo ? (
-                <img
-                  src={customLogo}
-                  alt={customAppName || APP_CONFIG.name}
-                  className="size-5 object-contain"
-                />
+              {brandLogo ? (
+                <img src={brandLogo} alt={brandName} className="size-5 object-contain" />
               ) : (
                 <OmniRouteLogo size={18} className="text-white" />
               )}
@@ -713,7 +716,7 @@ export default function Sidebar({
             {!collapsed && (
               <div className="flex flex-col min-w-0">
                 <h1 className="text-sm font-semibold tracking-tight text-text-main truncate">
-                  {customAppName || APP_CONFIG.name}
+                  {brandName}
                 </h1>
                 <span className="text-[10px] text-text-muted">v{APP_CONFIG.version}</span>
               </div>

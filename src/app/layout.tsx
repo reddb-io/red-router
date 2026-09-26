@@ -5,6 +5,8 @@ import { getMessages, getLocale, getTranslations } from "next-intl/server";
 import { RTL_LOCALES } from "@/i18n/config";
 import { normalizeComplianceEventTypes } from "@/i18n/request";
 import { getRootLayoutSettings } from "@/lib/db/rootLayoutSettings";
+import { brandingCss, loadBranding, publicBranding } from "@/lib/branding/branding";
+import { BrandingProvider } from "@/shared/components/BrandingProvider";
 import type { Viewport } from "next";
 import { PwaRegister } from "@/shared/components/PwaRegister";
 import { LocaleAutoDetect } from "@/shared/components/LocaleAutoDetect";
@@ -17,11 +19,15 @@ export const viewport: Viewport = {
 
 export async function generateMetadata() {
   const settings = await getRootLayoutSettings();
-  const instanceName = settings.instanceName;
+  const brand = publicBranding(loadBranding());
+  // A branding.json is the white-label source of truth; the dashboard
+  // instance-name setting applies when there is no branding file.
+  const instanceName = brand.custom ? brand.name : settings.instanceName;
   const customFaviconUrl = settings.customFaviconUrl || settings.customFaviconBase64;
+  const brandedFavicon = brand.custom ? brand.favicon : null;
 
   return {
-    title: `${instanceName} — AI Gateway for Multi-Provider LLMs`,
+    title: brand.custom ? brand.name : `${instanceName} — AI Gateway for Multi-Provider LLMs`,
     description:
       "OmniRoute is an AI gateway for multi-provider LLMs. One endpoint for all your AI providers.",
     manifest: "/manifest.webmanifest",
@@ -35,13 +41,15 @@ export async function generateMetadata() {
       "mobile-web-app-capable": "yes",
     },
     icons: {
-      icon: customFaviconUrl
-        ? "/api/settings/favicon"
-        : [
-            { url: "/favicon.ico", sizes: "any" },
-            { url: "/favicon.svg", type: "image/svg+xml" },
-            { url: "/icon-512.png", type: "image/png", sizes: "512x512" },
-          ],
+      icon: brandedFavicon
+        ? brandedFavicon
+        : customFaviconUrl
+          ? "/api/settings/favicon"
+          : [
+              { url: "/favicon.ico", sizes: "any" },
+              { url: "/favicon.svg", type: "image/svg+xml" },
+              { url: "/icon-512.png", type: "image/png", sizes: "512x512" },
+            ],
       apple: [{ url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
     },
   };
@@ -52,6 +60,9 @@ export default async function RootLayout({ children }) {
   const t = await getTranslations("sidebar");
   const messages = normalizeComplianceEventTypes((await getMessages()) as Record<string, unknown>);
   const isRtl = RTL_LOCALES.includes(locale as (typeof RTL_LOCALES)[number]);
+  const branding = loadBranding();
+  const brand = publicBranding(branding);
+  const themeCss = brandingCss(branding);
 
   return (
     <html lang={locale} dir={isRtl ? "rtl" : "ltr"} suppressHydrationWarning>
@@ -128,6 +139,7 @@ export default async function RootLayout({ children }) {
             `,
           }}
         />
+        {themeCss && <style id="branding-theme" dangerouslySetInnerHTML={{ __html: themeCss }} />}
       </head>
       <body className="font-sans antialiased" suppressHydrationWarning>
         <a
@@ -140,7 +152,9 @@ export default async function RootLayout({ children }) {
           <BasePathNetworkProvider>
             <PwaRegister />
             <LocaleAutoDetect />
-            <ThemeProvider>{children}</ThemeProvider>
+            <BrandingProvider value={brand}>
+              <ThemeProvider>{children}</ThemeProvider>
+            </BrandingProvider>
           </BasePathNetworkProvider>
         </NextIntlClientProvider>
       </body>

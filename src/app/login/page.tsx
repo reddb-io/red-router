@@ -4,10 +4,12 @@ import { useTranslations } from "next-intl";
 
 import { useState, useEffect } from "react";
 import { Button, Input } from "@/shared/components";
+import { useBranding } from "@/shared/components/BrandingProvider";
 import { useRouter } from "next/navigation";
 
 export default function LoginPage() {
   const t = useTranslations("auth");
+  const brand = useBranding();
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -175,7 +177,7 @@ export default function LoginPage() {
           </div>
 
           <p className="text-center text-xs text-text-muted/60 mt-8">
-            OmniRoute — {t("unifiedProxy")}
+            {brand.name} — {t("unifiedProxy")}
           </p>
         </div>
       </div>
@@ -215,7 +217,7 @@ export default function LoginPage() {
           </div>
 
           <p className="text-center text-xs text-text-muted/60 mt-8">
-            OmniRoute — {t("unifiedAiApiProxy")}
+            {brand.name} — {t("unifiedAiApiProxy")}
           </p>
         </div>
       </div>
@@ -223,7 +225,12 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <div
+      className="min-h-screen flex flex-col"
+      style={
+        brand.login.backgroundColor ? { backgroundColor: brand.login.backgroundColor } : undefined
+      }
+    >
       {nodeWarningBanner && (
         <div className="flex justify-center pt-6 px-6">{nodeWarningBanner}</div>
       )}
@@ -234,18 +241,28 @@ export default function LoginPage() {
           >
             <div className="mb-10">
               <div className="flex items-center gap-3 mb-8">
-                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-primary-hover flex items-center justify-center">
-                  <span className="material-symbols-outlined text-white text-[20px]">hub</span>
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-primary-hover flex items-center justify-center overflow-hidden">
+                  {brand.logo ? (
+                    // eslint-disable-next-line @next/next/no-img-element -- operator-supplied URL or data URI
+                    <img
+                      src={brand.logo}
+                      alt={brand.name}
+                      className="w-full h-full object-contain"
+                    />
+                  ) : (
+                    <span className="material-symbols-outlined text-white text-[20px]">hub</span>
+                  )}
                 </div>
                 <span className="text-xl font-semibold text-text-main tracking-tight">
-                  OmniRoute
+                  {brand.login.title}
                 </span>
               </div>
               <h1 className="text-2xl font-bold text-text-main tracking-tight">{t("signIn")}</h1>
               <p className="text-text-muted mt-1.5">
-                {oidcEnabled && oidcDisablePasswordLogin
-                  ? t("continueWithOidc")
-                  : t("enterPassword")}
+                {brand.login.subtitle ||
+                  (oidcEnabled && oidcDisablePasswordLogin
+                    ? t("continueWithOidc")
+                    : t("enterPassword"))}
               </p>
             </div>
 
@@ -319,6 +336,10 @@ export default function LoginPage() {
                   {t("forgotPassword")}
                 </a>
               </div>
+            )}
+
+            {brand.login.footer && (
+              <p className="mt-6 text-center text-xs text-text-muted">{brand.login.footer}</p>
             )}
           </div>
         </div>
