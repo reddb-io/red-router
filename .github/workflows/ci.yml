@@ -709,7 +709,8 @@ jobs:
       - uses: ./.github/actions/npm-ci-retry
       - run: npm run check:node-runtime
       # No webpack cache is restored here. The dedicated runner builds with
-      # Turbopack; the hosted fallback uses Webpack without a warm cache.
+      # Turbopack; the hosted fallback uses Webpack without a warm cache and
+      # retains build-next-isolated.mjs's default 8 GB V8 heap.
       #
       # Turbopack production build (Next 16, stable): benchmarked 1.9× faster than the
       # webpack pass (9min0s vs 17min15s on a 32-core box; multi-core Rust vs webpack's
@@ -732,7 +733,6 @@ jobs:
           npm run build
         env:
           OMNIROUTE_USE_TURBOPACK: ${{ (vars.USE_VPS_RUNNER == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)) && '1' || '0' }}
-          OMNIROUTE_BUILD_MEMORY_MB: ${{ (vars.USE_VPS_RUNNER == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)) && '8192' || '5120' }}
       - name: Archive Next.js build for downstream jobs
         # Use tar so the archive preserves paths relative to CWD (.build/next/...).
         # upload-artifact path-stripping is ambiguous when exclude patterns are used;
