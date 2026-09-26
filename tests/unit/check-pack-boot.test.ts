@@ -8,6 +8,7 @@ import {
   REQUIRED_SQLJS_RUNTIME_FILES,
   REQUIRED_MACHINE_TOKEN_RUNTIME_FILES,
   pickTarball,
+  resolveInstalledPackage,
   evaluateBoot,
   pickPort,
   findMissingSqlJsRuntimeFiles,
@@ -41,6 +42,20 @@ test("pickTarball normalizes scoped slashes to the on-disk dash form", () => {
 test("pickTarball throws on empty/odd npm output instead of booting garbage", () => {
   assert.throws(() => pickTarball("[]"));
   assert.throws(() => pickTarball("{}"));
+});
+
+test("pack boot resolves the installed RedRouter package and executable from its manifest", () => {
+  const manifest = JSON.parse(
+    readFileSync(fileURLToPath(new URL("../../package.json", import.meta.url)), "utf8")
+  );
+  assert.deepEqual(resolveInstalledPackage("/prefix", manifest), {
+    packageRoot: path.join("/prefix", "lib", "node_modules", "red-router-app"),
+    binPath: path.join("/prefix", "bin", "red-router"),
+  });
+  assert.throws(
+    () => resolveInstalledPackage("/prefix", { name: "red-router-app", bin: {} }),
+    /server CLI entrypoint/
+  );
 });
 
 test("evaluateBoot passes on HTTP 200 + matching version, whatever the health status", () => {
