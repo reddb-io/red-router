@@ -6,7 +6,7 @@
  * Dashboard → Usage page renders, mirroring getDeepseekUsage's pattern.
  */
 
-import { fetchOpenrouterQuota, type OpenrouterQuota } from "../openrouterQuotaFetcher.ts";
+import type { OpenrouterQuota } from "../openrouterQuotaFetcher.ts";
 import {
   getFreeWindowStatus,
   resolveAccountKey,
@@ -104,6 +104,10 @@ export async function getOpenrouterUsage(
     return { message: "OpenRouter API key not available. Add a key to view usage." };
   }
 
+  // The dashboard fetcher is needed only when usage is requested. A static
+  // import closes an async bundle-initialization cycle through quotaCache →
+  // usage → OpenRouter fetcher → quotaPreflight → quotaCache (Node 24 MCP).
+  const { fetchOpenrouterQuota } = await import("../openrouterQuotaFetcher.ts");
   const connection = { apiKey, providerSpecificData: providerSpecificData ?? {} };
   const quota = (await fetchOpenrouterQuota(connectionId, connection)) as OpenrouterQuota | null;
 

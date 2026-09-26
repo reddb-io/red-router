@@ -103,6 +103,20 @@ export async function applyCatalogPostFilters(
   const authorizeSyntheticModel =
     ctx.authorizeSyntheticModel ?? (await resolveCatalogVariantAuthorizer(request));
 
+  // `opencode/` routes to the credentialed OpenCode Zen provider, not the
+  // no-auth `opencode` connection (`oc/`). Never publish a catalog row under
+  // that prefix unless its Zen connection can actually serve the model.
+  const zenConnections = ctx.connections.filter(
+    (connection: { provider?: string }) => connection.provider === "opencode-zen"
+  );
+  finalModels = finalModels.filter((model) => {
+    if (typeof model.id !== "string" || !model.id.startsWith("opencode/")) return true;
+    if (model.owned_by !== "opencode-zen") return false;
+    const modelId =
+      typeof model.root === "string" ? model.root : model.id.slice("opencode/".length);
+    return hasEligibleConnectionForModel(zenConnections, modelId);
+  });
+
   // variants are only generated for surviving models.
   if (new URL(request.url).searchParams.get("configuredOnly") === "true") {
     finalModels = finalModels.filter((m) => {

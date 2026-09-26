@@ -285,6 +285,13 @@ export const OAUTH_TEST_CONFIG: Record<string, OAuthTestConfigEntry> = {
     checkExpiry: true,
     refreshable: true,
   },
+  "codebuddy-intl": {
+    // The international executor accepts a direct key, but its IDE device
+    // login/refresh flow is not ported yet. Do not claim it is refreshable.
+    // This only checks token presence; live chat remains the connectivity test.
+    checkExpiry: true,
+    refreshable: false,
+  },
   "devin-cli": {
     // Same gap as grok-cli #7610: absent from this table, so "Test Connection"
     // always fell through to "Provider test not supported" and left a working
