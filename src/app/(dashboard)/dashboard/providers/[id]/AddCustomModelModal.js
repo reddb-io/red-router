@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import PropTypes from "prop-types";
-import { Button, Modal, Toggle, Icon } from "@/shared/components";
+import { Button, Modal, Toggle } from "@/shared/components";
 import { CAPACITY_META, EXCLUSIVE_CAPACITIES } from "@/shared/constants/models";
 
 const defaultCaps = () => Object.fromEntries(Object.keys(CAPACITY_META).map((key) => [key, false]));
@@ -129,27 +129,13 @@ export default function AddCustomModelModal({ isOpen, providerAlias, providerDis
         {/* Test result */}
         {testStatus === "ok" && (
           <div className="flex items-center gap-2 text-sm text-feedback-success-foreground">
-<<<<<<< HEAD
-            <Icon name="check_circle" className="text-base" />
-||||||| e6e8d110
-          <div className="flex items-center gap-2 text-sm text-[var(--reddb-color-feedback-success-foreground)]">
             <span className="material-symbols-outlined text-base">check_circle</span>
-=======
-            <span className="material-symbols-outlined text-base">check_circle</span>
->>>>>>> feat/ds-v2026.09
             Model is reachable
           </div>
         )}
         {testStatus === "error" && (
           <div className="flex items-start gap-2 text-sm text-feedback-danger-foreground">
-<<<<<<< HEAD
-            <Icon name="cancel" className="text-base shrink-0" />
-||||||| e6e8d110
-          <div className="flex items-start gap-2 text-sm text-[var(--reddb-color-feedback-danger-foreground)]">
             <span className="material-symbols-outlined text-base shrink-0">cancel</span>
-=======
-            <span className="material-symbols-outlined text-base shrink-0">cancel</span>
->>>>>>> feat/ds-v2026.09
             <span>{testError || "Model not reachable"}</span>
           </div>
         )}

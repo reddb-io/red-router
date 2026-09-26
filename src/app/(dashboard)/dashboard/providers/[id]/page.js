@@ -5,7 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
 import { getProviderIconSrc, markProviderIconMissing } from "@/shared/utils/providerIcon";
-import { Card, Button, Badge, Input, Modal, CardSkeleton, OAuthModal, KiroOAuthWrapper, CursorAuthModal, XiaomiMimoAuthModal, IFlowCookieModal, GitLabAuthModal, Toggle, Select, EditConnectionModal, NoAuthProxyCard, ConfirmModal, Icon } from "@/shared/components";
+import { Card, Button, Badge, Input, Modal, CardSkeleton, OAuthModal, KiroOAuthWrapper, CursorAuthModal, XiaomiMimoAuthModal, IFlowCookieModal, GitLabAuthModal, Toggle, Select, EditConnectionModal, NoAuthProxyCard, ConfirmModal } from "@/shared/components";
 import { OAUTH_PROVIDERS, APIKEY_PROVIDERS, FREE_PROVIDERS, FREE_TIER_PROVIDERS, WEB_COOKIE_PROVIDERS, getProviderAlias, isOpenAICompatibleProvider, isAnthropicCompatibleProvider, AI_PROVIDERS } from "@/shared/constants/providers";
 import { getModelsByProviderId, getModelKind } from "@/shared/constants/models";
 import { getThinkingLevels } from "open-sse/providers/thinkingLevels.js";
@@ -787,8 +787,6 @@ export default function ProviderDetailPage() {
             [connection.id]: {
               state: valid ? "success" : "failed",
               error: valid ? null : (data.error || null),
-              // Status, latency, size and endpoint of what the test called.
-              result: { ...data, valid },
             },
           }));
         } catch (error) {
@@ -921,14 +919,9 @@ export default function ProviderDetailPage() {
       if (res.ok) {
         await fetchConnections();
         setShowEditModal(false);
-        return null;
       }
-      // The dialog shows why the server refused the change (e.g. an unreachable RedRouter URL).
-      const data = await res.json().catch(() => ({}));
-      return { error: data.error || `Save failed (HTTP ${res.status})` };
     } catch (error) {
       console.log("Error updating connection:", error);
-      return { error: error?.message || "Save failed" };
     }
   };
 
@@ -1172,7 +1165,7 @@ export default function ProviderDetailPage() {
             disabled={bulkUpdatingProxy || activePools.length === 0}
             className="flex items-center gap-2 rounded-lg px-3 py-2 text-left transition-colors hover:bg-muted/50 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            <Icon name="sync_alt" size={18} className="text-text-muted" />
+            <span className="material-symbols-outlined text-text-muted text-[18px]">sync_alt</span>
             <span className="text-sm text-text-main">One-to-one (rotate)</span>
           </button>
           <button
@@ -1180,7 +1173,7 @@ export default function ProviderDetailPage() {
             disabled={bulkUpdatingProxy}
             className="flex items-center gap-2 rounded-lg px-3 py-2 text-left transition-colors hover:bg-muted/50 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            <Icon name="link_off" size={18} className="text-text-muted" />
+            <span className="material-symbols-outlined text-text-muted text-[18px]">link_off</span>
             <span className="text-sm text-text-main">None (unbind all)</span>
           </button>
           {proxyPools.map((pool) => (
@@ -1190,7 +1183,7 @@ export default function ProviderDetailPage() {
               disabled={bulkUpdatingProxy || pool.isActive !== true}
               className="flex items-center gap-2 rounded-lg px-3 py-2 text-left transition-colors hover:bg-muted/50 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              <Icon name="lan" size={18} className="text-text-muted" />
+              <span className="material-symbols-outlined text-text-muted text-[18px]">lan</span>
               <span className="truncate text-sm text-text-main">{pool.name}</span>
               {pool.isActive !== true && (
                 <span className="text-[10px] text-text-muted">(inactive)</span>
@@ -1325,7 +1318,7 @@ export default function ProviderDetailPage() {
           onClick={() => setShowAddCustomModel(true)}
           className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-primary/40 px-3 py-2 text-xs text-primary transition-colors hover:border-primary hover:bg-primary/5 sm:w-auto"
         >
-          <Icon name="add" className="text-sm" />
+          <span className="material-symbols-outlined text-sm">add</span>
           Add Model
         </button>
 
@@ -1336,7 +1329,9 @@ export default function ProviderDetailPage() {
             disabled={importingQoderModels}
             className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-feedback-info-border px-3 py-2 text-xs text-feedback-info-foreground transition-colors hover:border-feedback-info-border hover:bg-feedback-info-surface sm:w-auto disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <Icon name={importingQoderModels ? "progress_activity" : "download"} className="text-sm" style={importingQoderModels ? { animation: "spin 1s linear infinite" } : undefined} />
+            <span className="material-symbols-outlined text-sm" style={importingQoderModels ? { animation: "spin 1s linear infinite" } : undefined}>
+              {importingQoderModels ? "progress_activity" : "download"}
+            </span>
             {importingQoderModels ? translate("Fetching...") : translate("Fetch Qoder Models")}
           </button>
         )}
@@ -1348,12 +1343,14 @@ export default function ProviderDetailPage() {
             disabled={importingClineModels}
             className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-feedback-info-border px-3 py-2 text-xs text-feedback-info-foreground transition-colors hover:border-feedback-info-border hover:bg-feedback-info-surface sm:w-auto disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <Icon name={importingClineModels ? "progress_activity" : "download"} className="text-sm" style={importingClineModels ? { animation: "spin 1s linear infinite" } : undefined} />
+            <span className="material-symbols-outlined text-sm" style={importingClineModels ? { animation: "spin 1s linear infinite" } : undefined}>
+              {importingClineModels ? "progress_activity" : "download"}
+            </span>
             {importingClineModels ? translate("Fetching...") : translate("Import from /models")}
           </button>
         )}
 
-        {/* Every model the provider serves, filterable (models.dev + the provider's live list) */}
+        {/* Every model the provider serves, filterable (models.dev + OpenRouter live) */}
         <ModelCatalogBrowser
           key={providerId}
           providerId={providerId}
@@ -1388,7 +1385,7 @@ export default function ProviderDetailPage() {
                     className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-muted text-xs text-text-muted hover:text-primary hover:border-primary/40 hover:bg-primary/5 transition-colors"
                     title={`${m.name} · ${(m.contextLength / 1000).toFixed(0)}k ctx`}
                   >
-                    <Icon name="add" size={13} />
+                    <span className="material-symbols-outlined text-[13px]">add</span>
                     {m.id.split("/").pop()}
                   </button>
                 ))}
@@ -1409,7 +1406,7 @@ export default function ProviderDetailPage() {
                   className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-dashed border-muted text-xs text-text-muted hover:text-primary hover:border-primary/40 hover:bg-primary/5 transition-colors"
                   title="Restore model"
                 >
-                  <Icon name="add" size={13} />
+                  <span className="material-symbols-outlined text-[13px]">add</span>
                   {m.id}
                 </button>
               ))}
@@ -1459,7 +1456,7 @@ export default function ProviderDetailPage() {
           href="/dashboard/providers"
           className="inline-flex items-center gap-1 text-sm text-text-muted hover:text-primary transition-colors mb-4"
         >
-          <Icon name="arrow_back" className="text-lg" />
+          <span className="material-symbols-outlined text-lg">arrow_back</span>
           Back to Providers
         </Link>
         <div className="flex min-w-0 items-center gap-3 sm:gap-4">
@@ -1498,7 +1495,7 @@ export default function ProviderDetailPage() {
                   rel="noopener noreferrer"
                   className="text-xs text-primary hover:underline inline-flex items-center gap-1"
                 >
-                  <Icon name="open_in_new" className="text-sm" />
+                  <span className="material-symbols-outlined text-sm">open_in_new</span>
                   {providerInfo.notice?.apiKeyUrl ? "Get API Key" : "Sign up / Learn more"}
                 </a>
               )}
@@ -1512,30 +1509,14 @@ export default function ProviderDetailPage() {
 
       {providerInfo.deprecated && (
         <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-feedback-warning-surface border border-feedback-warning-border">
-<<<<<<< HEAD
-          <Icon name="warning" size={16} className="text-feedback-warning-foreground mt-0.5 shrink-0" />
-||||||| e6e8d110
-        <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-[var(--reddb-color-feedback-warning-surface)] border border-[var(--reddb-color-feedback-warning-border)]">
-          <span className="material-symbols-outlined text-[16px] text-[var(--reddb-color-feedback-warning-foreground)] mt-0.5 shrink-0">warning</span>
-          <p className="text-xs text-[var(--reddb-color-feedback-danger-foreground)] text-[var(--reddb-color-feedback-warning-foreground)] leading-relaxed">{providerInfo.deprecationNotice}</p>
-=======
           <span className="material-symbols-outlined text-[16px] text-feedback-warning-foreground mt-0.5 shrink-0">warning</span>
->>>>>>> feat/ds-v2026.09
           <p className="text-xs text-feedback-danger-foreground text-feedback-warning-foreground leading-relaxed">{providerInfo.deprecationNotice}</p>
         </div>
       )}
 
       {providerInfo.notice?.text && !providerInfo.deprecated && (
         <div className="flex flex-col gap-2 rounded-lg border border-feedback-info-border bg-feedback-info-surface px-3 py-2 sm:flex-row sm:items-center">
-<<<<<<< HEAD
-          <Icon name="info" size={16} className="text-feedback-info-foreground shrink-0" />
-||||||| e6e8d110
-        <div className="flex flex-col gap-2 rounded-lg border border-[var(--reddb-color-feedback-info-border)] bg-[var(--reddb-color-feedback-info-surface)] px-3 py-2 sm:flex-row sm:items-center">
-          <span className="material-symbols-outlined text-[16px] text-[var(--reddb-color-feedback-info-foreground)] shrink-0">info</span>
-          <p className="min-w-0 flex-1 text-xs leading-relaxed text-[var(--reddb-color-feedback-info-foreground)]">{providerInfo.notice.text}</p>
-=======
           <span className="material-symbols-outlined text-[16px] text-feedback-info-foreground shrink-0">info</span>
->>>>>>> feat/ds-v2026.09
           <p className="min-w-0 flex-1 text-xs leading-relaxed text-feedback-info-foreground">{providerInfo.notice.text}</p>
           {providerInfo.notice.apiKeyUrl && (
             <a
@@ -1630,7 +1611,7 @@ export default function ProviderDetailPage() {
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-center gap-3">
                 <div className="inline-flex items-center justify-center w-9 h-9 rounded-full bg-primary/10 text-primary shrink-0">
-                  <Icon name={isOAuth ? "lock" : "key"} size={18} />
+                  <span className="material-symbols-outlined text-[18px]">{isOAuth ? "lock" : "key"}</span>
                 </div>
                 <div className="min-w-0">
                   <p className="text-sm text-text-muted">No connections yet</p>
@@ -1850,7 +1831,7 @@ export default function ProviderDetailPage() {
                     className="inline-flex items-center gap-1 rounded-md bg-feedback-warning-surface px-2 py-0.5 text-xs font-medium text-feedback-warning-foreground hover:bg-feedback-warning-surface transition-colors"
                   >
                     <span>Allow China-hosted models</span>
-                    <Icon name="open_in_new" size={13} />
+                    <span className="material-symbols-outlined text-[13px]">open_in_new</span>
                   </a>
                 </div>
               );
@@ -1939,7 +1920,7 @@ export default function ProviderDetailPage() {
                 That is configured once for all providers, under Routing Combos.
               </p>
             </div>
-            <Link href="/dashboard/autopilot" className="shrink-0 text-sm font-medium text-primary hover:underline">
+            <Link href="/dashboard/combos#intelligent-routing" className="shrink-0 text-sm font-medium text-primary hover:underline">
               Open intelligent routing →
             </Link>
           </div>

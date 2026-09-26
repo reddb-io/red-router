@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { UPDATER_CONFIG } from "@/shared/constants/config";
 import { readPresets, upsertPreset, deletePreset, subscribePresets, stripSlash } from "./cliEndpointPresets";
-import Icon from "@/shared/components/Icon";
 
 const CUSTOM_VALUE = "__custom__";
 const SAVE_VALUE = "__save__";
@@ -168,14 +167,7 @@ export default function BaseUrlSelect({
         </select>
         {isSaved && (
           <button type="button" onClick={handleDeleteSaved} className="p-1 text-text-muted hover:text-feedback-danger-foreground rounded transition-colors shrink-0" title="Delete saved endpoint">
-<<<<<<< HEAD
-            <Icon name="delete" size={14} />
-||||||| e6e8d110
-          <button type="button" onClick={handleDeleteSaved} className="p-1 text-text-muted hover:text-[var(--reddb-color-feedback-danger-foreground)] rounded transition-colors shrink-0" title="Delete saved endpoint">
             <span className="material-symbols-outlined text-[14px]">delete</span>
-=======
-            <span className="material-symbols-outlined text-[14px]">delete</span>
->>>>>>> feat/ds-v2026.09
           </button>
         )}
       </div>

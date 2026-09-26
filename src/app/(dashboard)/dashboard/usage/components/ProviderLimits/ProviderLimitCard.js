@@ -6,7 +6,6 @@ import ProviderIcon from "@/shared/components/ProviderIcon";
 import Badge from "@/shared/components/Badge";
 import QuotaProgressBar from "./QuotaProgressBar";
 import { calculatePercentage } from "./utils";
-import Icon from "@/shared/components/Icon";
 
 const planVariants = {
   free: "default",
@@ -96,7 +95,13 @@ export default function ProviderLimitCard({
           className="p-2 rounded-lg hover:bg-muted/50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           title="Refresh quota"
         >
-          <Icon name="refresh" size={20} className={`text-text-muted ${refreshing || loading ? "animate-spin" : ""}`} />
+          <span
+            className={`material-symbols-outlined text-[20px] text-text-muted ${
+              refreshing || loading ? "animate-spin" : ""
+            }`}
+          >
+            refresh
+          </span>
         </button>
       </div>
 
@@ -118,18 +123,9 @@ export default function ProviderLimitCard({
       {!loading && error && (
         <div className="p-4 rounded-lg bg-feedback-danger-surface border border-feedback-danger-border">
           <div className="flex items-start gap-2">
-<<<<<<< HEAD
-            <Icon name="error" size={20} className="text-feedback-danger-foreground" />
-||||||| e6e8d110
-            <span className="material-symbols-outlined text-[var(--reddb-color-feedback-danger-foreground)] text-[20px]">
-              error
-            </span>
-            <p className="text-sm text-[var(--reddb-color-feedback-danger-foreground)]">{error}</p>
-=======
             <span className="material-symbols-outlined text-feedback-danger-foreground text-[20px]">
               error
             </span>
->>>>>>> feat/ds-v2026.09
             <p className="text-sm text-feedback-danger-foreground">{error}</p>
           </div>
         </div>
@@ -139,18 +135,9 @@ export default function ProviderLimitCard({
       {!loading && !error && message && (
         <div className="p-4 rounded-lg bg-feedback-info-surface border border-feedback-info-border">
           <div className="flex items-start gap-2">
-<<<<<<< HEAD
-            <Icon name="info" size={20} className="text-feedback-info-foreground" />
-||||||| e6e8d110
-            <span className="material-symbols-outlined text-[var(--reddb-color-feedback-info-foreground)] text-[20px]">
-              info
-            </span>
-            <p className="text-sm text-[var(--reddb-color-feedback-info-foreground)]">
-=======
             <span className="material-symbols-outlined text-feedback-info-foreground text-[20px]">
               info
             </span>
->>>>>>> feat/ds-v2026.09
             <p className="text-sm text-feedback-info-foreground">
               {message}
             </p>
@@ -188,7 +175,9 @@ export default function ProviderLimitCard({
       {/* Empty State */}
       {!loading && !error && !message && quotas?.length === 0 && (
         <div className="text-center py-8 text-text-muted">
-          <Icon name="data_usage" size={48} className="opacity-20" />
+          <span className="material-symbols-outlined text-[48px] opacity-20">
+            data_usage
+          </span>
           <p className="text-sm mt-2">No quota data available</p>
         </div>
       )}

@@ -6,7 +6,6 @@ import Input from "./Input";
 import Button from "./Button";
 import ModelSelectModal from "./ModelSelectModal";
 import { publicModelRef } from "@/shared/utils/modelRef";
-import Icon from "./Icon";
 
 const VALID_NAME_REGEX = /^[a-zA-Z0-9_.\-]+$/;
 
@@ -37,22 +36,15 @@ function ModelItem({ index, model, isFirst, isLast, onEdit, onMoveUp, onMoveDown
       <div className="flex shrink-0 items-center gap-0.5">
         <button onClick={onMoveUp} disabled={isFirst}
           className={`p-0.5 rounded ${isFirst ? "text-text-muted/20 cursor-not-allowed" : "text-text-muted hover:text-primary hover:bg-muted/50"}`} title="Move up">
-          <Icon name="arrow_upward" size={12} />
+          <span className="material-symbols-outlined text-[12px]">arrow_upward</span>
         </button>
         <button onClick={onMoveDown} disabled={isLast}
           className={`p-0.5 rounded ${isLast ? "text-text-muted/20 cursor-not-allowed" : "text-text-muted hover:text-primary hover:bg-muted/50"}`} title="Move down">
-          <Icon name="arrow_downward" size={12} />
+          <span className="material-symbols-outlined text-[12px]">arrow_downward</span>
         </button>
       </div>
       <button onClick={onRemove} className="p-0.5 hover:bg-feedback-danger-surface rounded text-text-muted hover:text-feedback-danger-foreground transition-all" title="Remove">
-<<<<<<< HEAD
-        <Icon name="close" size={12} />
-||||||| e6e8d110
-      <button onClick={onRemove} className="p-0.5 hover:bg-[var(--reddb-color-feedback-danger-surface)] rounded text-text-muted hover:text-[var(--reddb-color-feedback-danger-foreground)] transition-all" title="Remove">
         <span className="material-symbols-outlined text-[12px]">close</span>
-=======
-        <span className="material-symbols-outlined text-[12px]">close</span>
->>>>>>> feat/ds-v2026.09
       </button>
     </div>
   );
@@ -145,7 +137,7 @@ export default function ComboFormModal({ isOpen, combo, onClose, onSave, activeP
             <label className="text-sm font-medium mb-1.5 block">Models</label>
             {models.length === 0 ? (
               <div className="text-center py-4 border border-dashed border-muted rounded-lg bg-muted/50">
-                <Icon name="layers" className="text-text-muted text-xl mb-1" />
+                <span className="material-symbols-outlined text-text-muted text-xl mb-1">layers</span>
                 <p className="text-xs text-text-muted">No models added yet</p>
               </div>
             ) : (
@@ -162,7 +154,7 @@ export default function ComboFormModal({ isOpen, combo, onClose, onSave, activeP
             )}
             <button onClick={() => setShowModelSelect(true)}
               className="w-full mt-2 py-2 border border-dashed border-muted rounded-lg text-xs text-primary font-medium hover:text-primary hover:border-primary/50 transition-colors flex items-center justify-center gap-1">
-              <Icon name="add" size={16} />
+              <span className="material-symbols-outlined text-[16px]">add</span>
               Add Model
             </button>
           </div>

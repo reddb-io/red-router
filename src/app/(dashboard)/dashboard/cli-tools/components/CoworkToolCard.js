@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Card, Button, ManualConfigModal, ComboFormModal, McpMarketplaceModal, ModelSelectModal, Icon } from "@/shared/components";
+import { Card, Button, ManualConfigModal, ComboFormModal, McpMarketplaceModal, ModelSelectModal } from "@/shared/components";
 import Image from "next/image";
 import BaseUrlSelect from "./BaseUrlSelect";
 import { rememberEndpoint } from "./cliEndpointPresets";
@@ -270,14 +270,14 @@ export default function CoworkToolCard({
             <p className="text-xs text-text-muted truncate">{tool.description}</p>
           </div>
         </div>
-        <Icon name="expand_more" size={20} className={`text-text-muted transition-transform ${isExpanded ? "rotate-180" : ""}`} />
+        <span className={`material-symbols-outlined text-text-muted text-[20px] transition-transform ${isExpanded ? "rotate-180" : ""}`}>expand_more</span>
       </div>
 
       {isExpanded && (
         <div className="mt-4 pt-4 border-t border-border flex flex-col gap-4">
           {checking && (
             <div className="flex items-center gap-2 text-text-muted">
-              <Icon name="progress_activity" size={24} className="animate-spin" />
+              <span className="material-symbols-outlined animate-spin">progress_activity</span>
               <span>Checking Claude Cowork...</span>
             </div>
           )}
@@ -285,13 +285,7 @@ export default function CoworkToolCard({
           {!checking && status && !status.installed && (
             <div className="flex flex-col gap-3 p-4 bg-feedback-warning-surface border border-feedback-warning-border rounded-lg">
               <div className="flex items-start gap-3">
-<<<<<<< HEAD
-                <Icon name="warning" size={24} className="text-feedback-warning-foreground" />
-||||||| e6e8d110
-                <span className="material-symbols-outlined text-[var(--reddb-color-feedback-warning-foreground)]">warning</span>
-=======
                 <span className="material-symbols-outlined text-feedback-warning-foreground">warning</span>
->>>>>>> feat/ds-v2026.09
                 <div className="flex-1">
                   <p className="font-medium text-feedback-warning-foreground">Claude Desktop (Cowork mode) not detected</p>
                   <p className="text-sm text-text-muted">Open Claude Desktop → Help → Troubleshooting → Enable Developer mode → Configure third-party inference, then return here.</p>
@@ -299,14 +293,7 @@ export default function CoworkToolCard({
               </div>
               <div className="pl-9">
                 <Button variant="secondary" size="sm" onClick={() => setShowManualConfigModal(true)} className="!bg-feedback-warning-surface !border-feedback-warning-border !text-feedback-warning-foreground dark:!text-feedback-warning-foreground hover:!bg-feedback-warning-surface">
-<<<<<<< HEAD
-                  <Icon name="content_copy" size={18} className="mr-1" />
-||||||| e6e8d110
-                <Button variant="secondary" size="sm" onClick={() => setShowManualConfigModal(true)} className="!bg-[var(--reddb-color-feedback-warning-surface)] !border-[var(--reddb-color-feedback-warning-border)] !text-[var(--reddb-color-feedback-warning-foreground)] dark:!text-[var(--reddb-color-feedback-warning-foreground)] hover:!bg-[var(--reddb-color-feedback-warning-surface)]">
                   <span className="material-symbols-outlined text-[18px] mr-1">content_copy</span>
-=======
-                  <span className="material-symbols-outlined text-[18px] mr-1">content_copy</span>
->>>>>>> feat/ds-v2026.09
                   Manual Config
                 </Button>
               </div>
@@ -318,7 +305,7 @@ export default function CoworkToolCard({
               <div className="flex flex-col gap-2">
                 <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-[8rem_auto_1fr] sm:items-center sm:gap-2">
                   <span className="text-xs font-semibold text-text-main sm:text-right sm:text-sm">Select Endpoint</span>
-                  <Icon name="arrow_forward" size={14} className="hidden text-text-muted sm:inline" />
+                  <span className="material-symbols-outlined hidden text-text-muted text-[14px] sm:inline">arrow_forward</span>
                   <BaseUrlSelect
                     value={getEffectiveBaseUrl()}
                     onChange={(url) => setCustomBaseUrl(stripV1(url))}
@@ -335,7 +322,7 @@ export default function CoworkToolCard({
                 {status?.cowork?.baseUrl && (
                   <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-[8rem_auto_1fr_auto] sm:items-center sm:gap-2">
                     <span className="text-xs font-semibold text-text-main sm:text-right sm:text-sm">Current</span>
-                    <Icon name="arrow_forward" size={14} className="hidden text-text-muted sm:inline" />
+                    <span className="material-symbols-outlined hidden text-text-muted text-[14px] sm:inline">arrow_forward</span>
                     <span className="min-w-0 truncate rounded bg-surface/40 px-2 py-2 text-xs text-text-muted sm:py-1.5">
                       {status.cowork.baseUrl}
                     </span>
@@ -344,13 +331,13 @@ export default function CoworkToolCard({
 
                 <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-[8rem_auto_1fr_auto] sm:items-center sm:gap-2">
                   <span className="text-xs font-semibold text-text-main sm:text-right sm:text-sm">API Key</span>
-                  <Icon name="arrow_forward" size={14} className="hidden text-text-muted sm:inline" />
+                  <span className="material-symbols-outlined hidden text-text-muted text-[14px] sm:inline">arrow_forward</span>
                   <ApiKeySelect value={selectedApiKey} onChange={setSelectedApiKey} apiKeys={apiKeys} cloudEnabled={cloudEnabled} />
                 </div>
 
                 <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-[8rem_auto_1fr] sm:items-center sm:gap-2">
                   <span className="w-32 shrink-0 text-sm font-semibold text-text-main text-right">Models</span>
-                  <Icon name="arrow_forward" size={14} className="text-text-muted" />
+                  <span className="material-symbols-outlined text-text-muted text-[14px]">arrow_forward</span>
                   <div className="flex-1 flex items-center gap-2">
                     <div className="flex-1 flex flex-wrap gap-1.5 min-h-[28px] px-2 py-1.5 bg-surface rounded border border-border">
                       {selectedModels.length === 0 ? (
@@ -360,14 +347,7 @@ export default function CoworkToolCard({
                           <span key={m} className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-muted/50 text-text-muted border border-transparent hover:border-border">
                             {m}
                             <button onClick={() => handleRemoveModel(m)} className="ml-0.5 hover:text-feedback-danger-foreground">
-<<<<<<< HEAD
-                              <Icon name="close" size={12} />
-||||||| e6e8d110
-                            <button onClick={() => handleRemoveModel(m)} className="ml-0.5 hover:text-[var(--reddb-color-feedback-danger-foreground)]">
                               <span className="material-symbols-outlined text-[12px]">close</span>
-=======
-                              <span className="material-symbols-outlined text-[12px]">close</span>
->>>>>>> feat/ds-v2026.09
                             </button>
                           </span>
                         ))
@@ -379,7 +359,7 @@ export default function CoworkToolCard({
 
                 <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-[8rem_auto_1fr] sm:items-start sm:gap-2">
                   <span className="w-32 shrink-0 text-sm font-semibold text-text-main text-right pt-2">MCP</span>
-                  <Icon name="arrow_forward" size={14} className="text-text-muted mt-2" />
+                  <span className="material-symbols-outlined text-text-muted text-[14px] mt-2">arrow_forward</span>
                   <div className="flex-1 flex flex-col gap-1">
                     {/* Preset plugins */}
                     {plugins.filter((p) => p.name !== "exa").map((p) => (
@@ -395,14 +375,7 @@ export default function CoworkToolCard({
                           )}
                         </div>
                         <button onClick={() => removePlugin(p.name)} className="shrink-0 hover:text-feedback-danger-foreground ml-auto">
-<<<<<<< HEAD
-                          <Icon name="close" size={12} />
-||||||| e6e8d110
-                        <button onClick={() => removePlugin(p.name)} className="shrink-0 hover:text-[var(--reddb-color-feedback-danger-foreground)] ml-auto">
                           <span className="material-symbols-outlined text-[12px]">close</span>
-=======
-                          <span className="material-symbols-outlined text-[12px]">close</span>
->>>>>>> feat/ds-v2026.09
                         </button>
                       </div>
                     ))}
@@ -413,14 +386,7 @@ export default function CoworkToolCard({
                         <span className="text-[8px] px-1 py-0.5 rounded bg-feedback-info-surface text-feedback-info-foreground shrink-0">custom</span>
                         <span className="flex-1 text-[9px] text-text-muted truncate">{p.url}</span>
                         <button onClick={() => setCustomPlugins(customPlugins.filter((x) => x.name !== p.name))} className="shrink-0 hover:text-feedback-danger-foreground ml-auto">
-<<<<<<< HEAD
-                          <Icon name="close" size={12} />
-||||||| e6e8d110
-                        <button onClick={() => setCustomPlugins(customPlugins.filter((x) => x.name !== p.name))} className="shrink-0 hover:text-[var(--reddb-color-feedback-danger-foreground)] ml-auto">
                           <span className="material-symbols-outlined text-[12px]">close</span>
-=======
-                          <span className="material-symbols-outlined text-[12px]">close</span>
->>>>>>> feat/ds-v2026.09
                         </button>
                       </div>
                     ))}
@@ -442,7 +408,7 @@ export default function CoworkToolCard({
 
                 <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-[8rem_auto_1fr] sm:items-start sm:gap-2">
                   <span className="w-32 shrink-0 text-sm font-semibold text-text-main text-right pt-1">Tools</span>
-                  <Icon name="arrow_forward" size={14} className="text-text-muted mt-1.5" />
+                  <span className="material-symbols-outlined text-text-muted text-[14px] mt-1.5">arrow_forward</span>
                   <div className="flex-1 flex flex-col gap-1.5">
                     {(() => {
                       const exaEnabled = plugins.some((p) => p.name === "exa");
@@ -493,7 +459,7 @@ export default function CoworkToolCard({
                 {Array.isArray(status?.localStdioPlugins) && status.localStdioPlugins.filter((p) => p.name !== "browsermcp").length > 0 && (
                   <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-[8rem_auto_1fr] sm:items-start sm:gap-2">
                     <span className="w-32 shrink-0 text-sm font-semibold text-text-main text-right pt-1">Local Plugins</span>
-                    <Icon name="arrow_forward" size={14} className="text-text-muted mt-1.5" />
+                    <span className="material-symbols-outlined text-text-muted text-[14px] mt-1.5">arrow_forward</span>
                     <div className="flex-1 flex flex-col gap-2">
                       <div className="flex flex-col gap-1.5 px-2 py-1.5 bg-surface rounded border border-border">
                         {status.localStdioPlugins.filter((p) => p.name !== "browsermcp").map((p) => {
@@ -530,27 +496,20 @@ export default function CoworkToolCard({
 
               {message && (
                 <div className={`flex items-center gap-2 px-2 py-1.5 rounded text-xs ${message.type === "success" ? "bg-feedback-success-surface text-feedback-success-foreground" : "bg-feedback-danger-surface text-feedback-danger-foreground"}`}>
-<<<<<<< HEAD
-                  <Icon name={message.type === "success" ? "check_circle" : "error"} size={14} />
-||||||| e6e8d110
-                <div className={`flex items-center gap-2 px-2 py-1.5 rounded text-xs ${message.type === "success" ? "bg-[var(--reddb-color-feedback-success-surface)] text-[var(--reddb-color-feedback-success-foreground)]" : "bg-[var(--reddb-color-feedback-danger-surface)] text-[var(--reddb-color-feedback-danger-foreground)]"}`}>
                   <span className="material-symbols-outlined text-[14px]">{message.type === "success" ? "check_circle" : "error"}</span>
-=======
-                  <span className="material-symbols-outlined text-[14px]">{message.type === "success" ? "check_circle" : "error"}</span>
->>>>>>> feat/ds-v2026.09
                   <span>{message.text}</span>
                 </div>
               )}
 
               <div className="flex flex-col sm:flex-row sm:items-center gap-2">
                 <Button variant="primary" size="sm" onClick={handleApply} disabled={selectedModels.length === 0} loading={applying} className="w-full sm:w-auto">
-                  <Icon name="save" size={14} className="mr-1" />Apply
+                  <span className="material-symbols-outlined text-[14px] mr-1">save</span>Apply
                 </Button>
                 <Button variant="outline" size="sm" onClick={handleReset} disabled={!status.hasRedRouter} loading={restoring} className="w-full sm:w-auto">
-                  <Icon name="restore" size={14} className="mr-1" />Reset
+                  <span className="material-symbols-outlined text-[14px] mr-1">restore</span>Reset
                 </Button>
                 <Button variant="ghost" size="sm" onClick={() => setShowManualConfigModal(true)} className="w-full sm:w-auto">
-                  <Icon name="content_copy" size={14} className="mr-1" />Manual Config
+                  <span className="material-symbols-outlined text-[14px] mr-1">content_copy</span>Manual Config
                 </Button>
               </div>
             </>
@@ -605,7 +564,7 @@ export default function CoworkToolCard({
             <div className="flex items-center justify-between">
               <h3 className="font-semibold text-sm">Add Custom MCP</h3>
               <button onClick={() => setAddMcpOpen(false)} className="text-text-muted hover:text-text-main">
-                <Icon name="close" size={18} />
+                <span className="material-symbols-outlined text-[18px]">close</span>
               </button>
             </div>
 

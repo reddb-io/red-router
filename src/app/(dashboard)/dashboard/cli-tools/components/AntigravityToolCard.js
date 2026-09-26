@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Card, Button, Badge, Modal, Input, ModelSelectModal, Icon } from "@/shared/components";
+import { Card, Button, Badge, Modal, Input, ModelSelectModal } from "@/shared/components";
 import Image from "next/image";
 
 export default function AntigravityToolCard({
@@ -257,7 +257,7 @@ export default function AntigravityToolCard({
             <p className="text-xs text-text-muted truncate">{tool.description}</p>
           </div>
         </div>
-        <Icon name="expand_more" size={20} className={`text-text-muted transition-transform ${isExpanded ? "rotate-180" : ""}`} />
+        <span className={`material-symbols-outlined text-text-muted text-[20px] transition-transform ${isExpanded ? "rotate-180" : ""}`}>expand_more</span>
       </div>
 
       {isExpanded && (
@@ -274,25 +274,17 @@ export default function AntigravityToolCard({
                 <div key={key} className="flex items-center">
                   <div className="flex items-center gap-1 px-2 py-1 rounded-md">
                     {isLoading ? (
-                      <Icon name="progress_activity" size={14} className="text-primary animate-spin" />
+                      <span className="material-symbols-outlined text-[14px] text-primary animate-spin">progress_activity</span>
                     ) : (
-<<<<<<< HEAD
-                      <Icon name={ok ? "check_circle" : "radio_button_unchecked"} size={14} className={ok ? "text-feedback-success-foreground" : "text-text-muted"} />
-||||||| e6e8d110
-                      <span className={`material-symbols-outlined text-[14px] ${ok ? "text-[var(--reddb-color-feedback-success-foreground)]" : "text-text-muted"}`}>
-                        {ok ? "check_circle" : "radio_button_unchecked"}
-                      </span>
-=======
                       <span className={`material-symbols-outlined text-[14px] ${ok ? "text-feedback-success-foreground" : "text-text-muted"}`}>
                         {ok ? "check_circle" : "radio_button_unchecked"}
                       </span>
->>>>>>> feat/ds-v2026.09
                     )}
                     <span className={`text-xs font-medium ${isLoading ? "text-primary" : ok ? "text-feedback-success-foreground" : "text-text-muted"}`}>
                       {label}
                     </span>
                   </div>
-                  {i < 2 && <Icon name="arrow_forward" size={12} className="text-text-muted" />}
+                  {i < 2 && <span className="material-symbols-outlined text-[12px] text-text-muted">arrow_forward</span>}
                 </div>
               );
             })}
@@ -306,7 +298,7 @@ export default function AntigravityToolCard({
                 disabled={loading}
                 className="px-4 py-2 rounded-lg bg-feedback-danger-surface border border-feedback-danger-border text-feedback-danger-foreground font-medium text-sm flex items-center gap-2 hover:bg-feedback-danger-surface transition-colors disabled:opacity-50"
               >
-                <Icon name="stop_circle" size={18} />
+                <span className="material-symbols-outlined text-[18px]">stop_circle</span>
                 Stop MITM
               </button>
             ) : (
@@ -315,7 +307,7 @@ export default function AntigravityToolCard({
                 disabled={loading || !hasActiveProviders}
                 className="px-4 py-2 rounded-lg bg-primary/10 border border-primary/30 text-primary font-medium text-sm flex items-center gap-2 hover:bg-primary/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <Icon name="play_circle" size={18} />
+                <span className="material-symbols-outlined text-[18px]">play_circle</span>
                 Start MITM
               </button>
             )}
@@ -323,14 +315,7 @@ export default function AntigravityToolCard({
 
           {message?.type === "error" && (
             <div className="flex items-center gap-2 px-2 py-1.5 rounded text-xs bg-feedback-danger-surface text-feedback-danger-foreground">
-<<<<<<< HEAD
-              <Icon name="error" size={14} />
-||||||| e6e8d110
-            <div className="flex items-center gap-2 px-2 py-1.5 rounded text-xs bg-[var(--reddb-color-feedback-danger-surface)] text-[var(--reddb-color-feedback-danger-foreground)]">
               <span className="material-symbols-outlined text-[14px]">error</span>
-=======
-              <span className="material-symbols-outlined text-[14px]">error</span>
->>>>>>> feat/ds-v2026.09
               <span>{message.text}</span>
             </div>
           )}
@@ -340,7 +325,7 @@ export default function AntigravityToolCard({
             <>
               <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-[8rem_auto_1fr_auto] sm:items-center sm:gap-2">
                 <span className="text-xs font-semibold text-text-main sm:text-right sm:text-sm">API Key</span>
-                <Icon name="arrow_forward" size={14} className="hidden text-text-muted sm:inline" />
+                <span className="material-symbols-outlined hidden text-text-muted text-[14px] sm:inline">arrow_forward</span>
                 {apiKeys.length > 0 ? (
                   <select
                     value={selectedApiKey}
@@ -359,7 +344,7 @@ export default function AntigravityToolCard({
               {tool.defaultModels.map((model) => (
                 <div key={model.alias} className="grid grid-cols-1 gap-1.5 sm:grid-cols-[8rem_auto_1fr_auto] sm:items-center sm:gap-2">
                   <span className="text-xs font-semibold text-text-main sm:text-right sm:text-sm">{model.name}</span>
-                  <Icon name="arrow_forward" size={14} className="hidden text-text-muted sm:inline" />
+                  <span className="material-symbols-outlined hidden text-text-muted text-[14px] sm:inline">arrow_forward</span>
                   <div className="relative w-full min-w-0">
                     <input
                       type="text"
@@ -374,7 +359,7 @@ export default function AntigravityToolCard({
                         className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 text-text-muted hover:text-feedback-danger-foreground rounded transition-colors"
                         title="Clear"
                       >
-                        <Icon name="close" size={14} />
+                        <span className="material-symbols-outlined text-[14px]">close</span>
                       </button>
                     )}
                   </div>
@@ -395,7 +380,7 @@ export default function AntigravityToolCard({
                   onClick={handleSaveMappings}
                   disabled={loading || Object.keys(modelMappings).length === 0}
                 >
-                  <Icon name="save" size={14} className="mr-1" />
+                  <span className="material-symbols-outlined text-[14px] mr-1">save</span>
                   Save Mappings
                 </Button>
               </div>
@@ -405,14 +390,7 @@ export default function AntigravityToolCard({
           {/* Windows admin warning */}
           {!isRunning && serverIsWindows && (
             <div className="flex items-center gap-2 px-2 py-1.5 rounded text-xs bg-feedback-warning-surface text-feedback-warning-foreground border border-feedback-warning-border">
-<<<<<<< HEAD
-              <Icon name="warning" size={14} />
-||||||| e6e8d110
-            <div className="flex items-center gap-2 px-2 py-1.5 rounded text-xs bg-[var(--reddb-color-feedback-warning-surface)] text-[var(--reddb-color-feedback-warning-foreground)] border border-[var(--reddb-color-feedback-warning-border)]">
               <span className="material-symbols-outlined text-[14px]">warning</span>
-=======
-              <span className="material-symbols-outlined text-[14px]">warning</span>
->>>>>>> feat/ds-v2026.09
               <span>Windows: Run terminal (RedRouter) as Administrator to enable MITM</span>
             </div>
           )}
@@ -446,14 +424,7 @@ export default function AntigravityToolCard({
       >
         <div className="flex flex-col gap-4">
           <div className="flex items-start gap-3 p-3 bg-feedback-warning-surface border border-feedback-warning-border rounded-lg">
-<<<<<<< HEAD
-            <Icon name="warning" size={20} className="text-feedback-warning-foreground" />
-||||||| e6e8d110
-          <div className="flex items-start gap-3 p-3 bg-[var(--reddb-color-feedback-warning-surface)] border border-[var(--reddb-color-feedback-warning-border)] rounded-lg">
-            <span className="material-symbols-outlined text-[var(--reddb-color-feedback-warning-foreground)] text-[20px]">warning</span>
-=======
             <span className="material-symbols-outlined text-feedback-warning-foreground text-[20px]">warning</span>
->>>>>>> feat/ds-v2026.09
             <p className="text-xs text-text-muted">Required for SSL certificate and DNS configuration</p>
           </div>
 
@@ -469,14 +440,7 @@ export default function AntigravityToolCard({
 
           {message && (
             <div className={`flex items-center gap-2 px-2 py-1.5 rounded text-xs ${message.type === "success" ? "bg-feedback-success-surface text-feedback-success-foreground" : "bg-feedback-danger-surface text-feedback-danger-foreground"}`}>
-<<<<<<< HEAD
-              <Icon name={message.type === "success" ? "check_circle" : "error"} size={14} />
-||||||| e6e8d110
-            <div className={`flex items-center gap-2 px-2 py-1.5 rounded text-xs ${message.type === "success" ? "bg-[var(--reddb-color-feedback-success-surface)] text-[var(--reddb-color-feedback-success-foreground)]" : "bg-[var(--reddb-color-feedback-danger-surface)] text-[var(--reddb-color-feedback-danger-foreground)]"}`}>
               <span className="material-symbols-outlined text-[14px]">{message.type === "success" ? "check_circle" : "error"}</span>
-=======
-              <span className="material-symbols-outlined text-[14px]">{message.type === "success" ? "check_circle" : "error"}</span>
->>>>>>> feat/ds-v2026.09
               <span>{message.text}</span>
             </div>
           )}

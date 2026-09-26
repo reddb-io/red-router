@@ -2,9 +2,8 @@
 
 import { useState, useEffect, useRef } from "react";
 import { getStatusVariant as getConnectionStatusVariant } from "@/shared/utils/connectionStatus";
-import ConnectionTestResult from "@/shared/components/ConnectionTestResult";
 import PropTypes from "prop-types";
-import { Badge, Toggle, Tooltip, Icon } from "@/shared/components";
+import { Badge, Toggle, Tooltip } from "@/shared/components";
 import CooldownTimer from "./CooldownTimer";
 import { connectionModelPrefix } from "open-sse/providers/identity.js";
 
@@ -132,8 +131,6 @@ export default function ConnectionRow({ connection, proxyPools, isOAuth, isFirst
     if (!oneByOneStatus) return null;
     if (oneByOneStatus.state === "queued") return "queued";
     if (oneByOneStatus.state === "testing") return "testing";
-    // A finished test with its details renders them below the row instead.
-    if (oneByOneStatus.result) return null;
     if (oneByOneStatus.state === "success") return "success";
     if (oneByOneStatus.state === "failed") return oneByOneStatus.error ? `failed: ${oneByOneStatus.error}` : "failed";
     return null;
@@ -149,17 +146,19 @@ export default function ConnectionRow({ connection, proxyPools, isOAuth, isFirst
             disabled={isFirst}
             className={`p-0.5 rounded ${isFirst ? "text-text-muted/30 cursor-not-allowed" : "hover:bg-sidebar text-text-muted hover:text-primary"}`}
           >
-            <Icon name="keyboard_arrow_up" className="text-sm" />
+            <span className="material-symbols-outlined text-sm">keyboard_arrow_up</span>
           </button>
           <button
             onClick={onMoveDown}
             disabled={isLast}
             className={`p-0.5 rounded ${isLast ? "text-text-muted/30 cursor-not-allowed" : "hover:bg-sidebar text-text-muted hover:text-primary"}`}
           >
-            <Icon name="keyboard_arrow_down" className="text-sm" />
+            <span className="material-symbols-outlined text-sm">keyboard_arrow_down</span>
           </button>
         </div>
-        <Icon name={authIcon} className="shrink-0 text-base text-text-muted" />
+        <span className="material-symbols-outlined shrink-0 text-base text-text-muted">
+          {authIcon}
+        </span>
         <div className="flex-1 min-w-0">
           <p className="text-sm font-medium truncate">{displayName}</p>
           {secondaryDisplayName && (
@@ -216,9 +215,6 @@ export default function ConnectionRow({ connection, proxyPools, isOAuth, isFirst
               </Badge>
             )}
           </div>
-          {oneByOneStatus?.result && (
-            <ConnectionTestResult result={oneByOneStatus.result} className="mt-1.5" />
-          )}
           {hasAnyProxy && (
             <div className="mt-1 flex items-center gap-2 flex-wrap">
               <span className="max-w-full truncate text-[11px] text-text-muted sm:max-w-[420px]" title={proxyDisplayText}>
@@ -248,7 +244,9 @@ export default function ConnectionRow({ connection, proxyPools, isOAuth, isFirst
                 className={`flex w-full flex-col items-center rounded px-2 py-1 transition-colors hover:bg-muted/50 ${hasAnyProxy ? "text-primary" : "text-text-muted hover:text-primary"}`}
                 disabled={updatingProxy}
               >
-                <Icon name={updatingProxy ? "progress_activity" : "lan"} size={18} />
+                <span className="material-symbols-outlined text-[18px]">
+                  {updatingProxy ? "progress_activity" : "lan"}
+                </span>
                 <span className="text-[10px] leading-tight">Proxy</span>
               </button>
               {showProxyDropdown && (
@@ -278,24 +276,17 @@ export default function ConnectionRow({ connection, proxyPools, isOAuth, isFirst
                 onClick={() => autoPing.onToggle(!autoPing.on)}
                 className={`flex w-full flex-col items-center rounded px-2 py-1 transition-colors hover:bg-muted/50 ${autoPing.on ? "text-primary" : "text-text-muted hover:text-primary"}`}
               >
-                <Icon name="bolt" size={18} />
+                <span className="material-symbols-outlined text-[18px]">bolt</span>
                 <span className="text-[10px] leading-tight">Auto-ping</span>
               </button>
             </Tooltip>
           )}
           <button onClick={onEdit} className="flex flex-col items-center rounded px-2 py-1 text-text-muted hover:bg-muted/50 hover:text-primary">
-            <Icon name="edit" size={18} />
+            <span className="material-symbols-outlined text-[18px]">edit</span>
             <span className="text-[10px] leading-tight">Edit</span>
           </button>
           <button onClick={onDelete} className="flex flex-col items-center rounded px-2 py-1 text-feedback-danger-foreground hover:bg-feedback-danger-surface">
-<<<<<<< HEAD
-            <Icon name="delete" size={18} />
-||||||| e6e8d110
-          <button onClick={onDelete} className="flex flex-col items-center rounded px-2 py-1 text-[var(--reddb-color-feedback-danger-foreground)] hover:bg-[var(--reddb-color-feedback-danger-surface)]">
             <span className="material-symbols-outlined text-[18px]">delete</span>
-=======
-            <span className="material-symbols-outlined text-[18px]">delete</span>
->>>>>>> feat/ds-v2026.09
             <span className="text-[10px] leading-tight">Delete</span>
           </button>
         </div>
@@ -349,7 +340,6 @@ ConnectionRow.propTypes = {
   oneByOneStatus: PropTypes.shape({
     state: PropTypes.string,
     error: PropTypes.string,
-    result: PropTypes.object,
   }),
   autoPing: PropTypes.shape({
     on: PropTypes.bool,

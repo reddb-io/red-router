@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { cn } from "@/shared/utils/cn";
 import {
@@ -9,17 +8,20 @@ import {
   PRESETS,
   RELEASED_OPTIONS,
   SORT_OPTIONS,
-  catalogSourceLabel,
   filterModels,
   formatCost,
   formatTokens,
-  isOfflineCatalog,
   presetFilters,
   vendorFacets,
 } from "@/shared/utils/modelBrowser";
-import Icon from "@/shared/components/Icon";
 
 const PAGE_SIZE = 12;
+
+const SOURCE_LABELS = {
+  "models.dev": "models.dev",
+  openrouter: "OpenRouter",
+  "openrouter+models.dev": "OpenRouter + models.dev",
+};
 
 const selectClass = "rounded-lg border border-muted bg-surface-2 px-2 py-1.5 text-xs text-text-main focus:outline-none focus:ring-2 focus:ring-primary/30";
 
@@ -35,15 +37,12 @@ function chipClass(active) {
 function Capability({ on, icon, label }) {
   if (!on) return null;
   return (
-    <span title={label} className="inline-flex text-text-muted">
-      <Icon name={icon} size={14} label={label} />
-    </span>
+    <span title={label} className="material-symbols-outlined text-[14px] text-text-muted">{icon}</span>
   );
 }
 
 /**
- * Every model the provider serves (models.dev, plus the live list of providers
- * that publish one: OpenRouter, OpenCode Zen, OpenCode Go),
+ * Every model the provider serves (models.dev, plus OpenRouter's live list),
  * filterable by name, owner, context, release date and capabilities, with
  * one-click presets. Calls onAdd(ids) to add models to the provider.
  * Renders nothing when there is no catalog for this provider (onEmpty then fires).
@@ -132,12 +131,11 @@ export default function ModelCatalogBrowser({ providerId, addedIds, onAdd, onEmp
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-muted px-3 py-2.5">
         <div className="flex items-center gap-2">
-          <Icon name="travel_explore" size={18} className="text-primary" />
+          <span className="material-symbols-outlined text-[18px] text-primary">travel_explore</span>
           <div>
             <p className="text-sm font-medium text-text-main">Discover models</p>
             <p className="text-[11px] text-text-muted">
-              {all.length} models in the catalog · source: {catalogSourceLabel(catalog.source)}
-              {catalog.fetchedAt && isOfflineCatalog(catalog.source) && ` · offline, as of ${new Date(catalog.fetchedAt).toLocaleDateString()}`}
+              {all.length} models in the catalog · source: {SOURCE_LABELS[catalog.source] || catalog.source}
             </p>
           </div>
         </div>
@@ -147,7 +145,7 @@ export default function ModelCatalogBrowser({ providerId, addedIds, onAdd, onEmp
             disabled={adding}
             className="flex items-center gap-1 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50"
           >
-            <Icon name={adding ? "progress_activity" : "playlist_add"} size={14} />
+            <span className="material-symbols-outlined text-[14px]">{adding ? "progress_activity" : "playlist_add"}</span>
             Add {selectedIds.length} selected
           </button>
         )}
@@ -158,7 +156,7 @@ export default function ModelCatalogBrowser({ providerId, addedIds, onAdd, onEmp
         <div className="flex flex-wrap gap-1.5">
           {PRESETS.map((p) => (
             <button key={p.id} onClick={() => applyPreset(p.id)} className={chipClass(preset === p.id)}>
-              <Icon name={p.icon} size={14} />
+              <span className="material-symbols-outlined text-[14px]">{p.icon}</span>
               {p.label}
             </button>
           ))}
@@ -167,7 +165,7 @@ export default function ModelCatalogBrowser({ providerId, addedIds, onAdd, onEmp
         {/* Search + filters */}
         <div className="flex flex-wrap items-center gap-2">
           <div className="relative min-w-[180px] flex-1">
-            <Icon name="search" size={16} className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-text-muted" />
+            <span className="material-symbols-outlined pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-[16px] text-text-muted">search</span>
             <input
               value={filters.query}
               onChange={(e) => { setLimit(PAGE_SIZE); setFilters((prev) => ({ ...prev, query: e.target.value })); }}
@@ -193,7 +191,7 @@ export default function ModelCatalogBrowser({ providerId, addedIds, onAdd, onEmp
         <div className="flex flex-wrap items-center gap-1.5">
           {CAPABILITY_FLAGS.map((f) => (
             <button key={f.key} onClick={() => toggleFlag(f.key)} className={chipClass(!!filters.flags?.[f.key])}>
-              <Icon name={filters.flags?.[f.key] ? "check" : f.icon} size={14} />
+              <span className="material-symbols-outlined text-[14px]">{filters.flags?.[f.key] ? "check" : f.icon}</span>
               {f.label}
             </button>
           ))}
@@ -221,7 +219,7 @@ export default function ModelCatalogBrowser({ providerId, addedIds, onAdd, onEmp
                   <input
                     type="checkbox"
                     checked={isAdded || selected.has(m.id)}
-                    disabled={isAdded || m.decision}
+                    disabled={isAdded}
                     onChange={() => toggleSelected(m.id)}
                     aria-label={`Select ${m.name}`}
                     className="size-3.5 accent-primary"
@@ -229,14 +227,6 @@ export default function ModelCatalogBrowser({ providerId, addedIds, onAdd, onEmp
                   <div className="min-w-0 flex-1" title={m.description || undefined}>
                     <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
                       <span className="truncate text-xs font-medium text-text-main">{m.name}</span>
-                      {m.decision && (
-                        <span
-                          className="rounded border border-feedback-info-border bg-feedback-info-surface px-1 text-[10px] font-medium text-feedback-info-foreground"
-                          title="A System One decision model: it returns a typed choice through /v1/systemone, not a chat reply"
-                        >
-                          System One
-                        </span>
-                      )}
                       <Capability on={m.reasoning} icon="psychology" label="Reasoning" />
                       <Capability on={m.tools} icon="build" label="Tool calling" />
                       <Capability on={m.vision} icon="image" label="Image input" />
@@ -254,27 +244,9 @@ export default function ModelCatalogBrowser({ providerId, addedIds, onAdd, onEmp
                     {ctx && <div>{ctx} ctx</div>}
                     {cost && <div className={m.free ? "text-feedback-success-foreground" : undefined}>{cost}</div>}
                   </div>
-<<<<<<< HEAD
-                  {m.decision ? (
-                    // Not a chat model: adding it to this provider's chat models would never work.
-                    <Link
-                      href="/dashboard/tools-providers/systemone"
-                      className="flex shrink-0 items-center gap-0.5 rounded-md border border-muted px-2 py-1 text-[11px] text-foreground hover:bg-muted/50"
-                    >
-                      <Icon name="arrow_forward" size={14} />Use in System One
-                    </Link>
-                  ) : isAdded ? (
-                    <span className="flex shrink-0 items-center gap-0.5 text-[11px] text-feedback-success-foreground">
-                      <Icon name="check" size={14} />Added
-||||||| e6e8d110
-                  {isAdded ? (
-                    <span className="flex shrink-0 items-center gap-0.5 text-[11px] text-[var(--reddb-color-feedback-success-foreground)]">
-                      <span className="material-symbols-outlined text-[14px]">check</span>Added
-=======
                   {isAdded ? (
                     <span className="flex shrink-0 items-center gap-0.5 text-[11px] text-feedback-success-foreground">
                       <span className="material-symbols-outlined text-[14px]">check</span>Added
->>>>>>> feat/ds-v2026.09
                     </span>
                   ) : (
                     <button
@@ -282,7 +254,7 @@ export default function ModelCatalogBrowser({ providerId, addedIds, onAdd, onEmp
                       disabled={adding}
                       className="flex shrink-0 items-center gap-0.5 rounded-md border border-primary/30 px-2 py-1 text-[11px] text-primary hover:bg-primary/5 disabled:opacity-50"
                     >
-                      <Icon name="add" size={14} />Add
+                      <span className="material-symbols-outlined text-[14px]">add</span>Add
                     </button>
                   )}
                 </li>

@@ -4,7 +4,6 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import PropTypes from "prop-types";
 import { Modal, Button, Input } from "@/shared/components";
 import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
-import Icon from "./Icon";
 
 // Providers using the dynamic-port local callback proxy.
 // Browser OAuth: popup → auto callback → auto exchange → poll-status.
@@ -708,7 +707,7 @@ export default function OAuthModal({ isOpen, provider, providerInfo, onSuccess, 
               <>
                 {step === "waiting" && (
                   <div className="flex items-center gap-2 px-3 py-2 border border-border rounded-lg bg-sidebar/50">
-                    <Icon name="progress_activity" className="text-base text-primary animate-spin" />
+                    <span className="material-symbols-outlined text-base text-primary animate-spin">progress_activity</span>
                     <span className="text-sm">Waiting for browser authorization…</span>
                   </div>
                 )}
@@ -763,7 +762,9 @@ export default function OAuthModal({ isOpen, provider, providerInfo, onSuccess, 
           <>
             {/* Option A: Auto via popup */}
             <div className="flex items-center gap-2 px-3 py-2 border border-border rounded-lg bg-sidebar/50">
-              <Icon name="progress_activity" className="text-base text-primary animate-spin" />
+              <span className="material-symbols-outlined text-base text-primary animate-spin">
+                progress_activity
+              </span>
               <span className="text-sm">
                 {isXaiProvider ? "Waiting for Grok Build OAuth…" : "Waiting for popup authorization…"}
               </span>
@@ -865,7 +866,7 @@ export default function OAuthModal({ isOpen, provider, providerInfo, onSuccess, 
             </div>
             {polling && (
               <div className="flex items-center justify-center gap-2 text-sm text-text-muted">
-                <Icon name="progress_activity" size={24} className="animate-spin" />
+                <span className="material-symbols-outlined animate-spin">progress_activity</span>
                 Waiting for authorization...
               </div>
             )}
@@ -876,14 +877,7 @@ export default function OAuthModal({ isOpen, provider, providerInfo, onSuccess, 
         {step === "success" && (
           <div className="text-center py-6">
             <div className="size-16 mx-auto mb-4 rounded-full bg-feedback-success-surface flex items-center justify-center">
-<<<<<<< HEAD
-              <Icon name="check_circle" className="text-3xl text-feedback-success-foreground" />
-||||||| e6e8d110
-            <div className="size-16 mx-auto mb-4 rounded-full bg-[var(--reddb-color-feedback-success-surface)] flex items-center justify-center">
-              <span className="material-symbols-outlined text-3xl text-[var(--reddb-color-feedback-success-foreground)]">check_circle</span>
-=======
               <span className="material-symbols-outlined text-3xl text-feedback-success-foreground">check_circle</span>
->>>>>>> feat/ds-v2026.09
             </div>
             <h3 className="text-lg font-semibold mb-2">Connected Successfully!</h3>
             <p className="text-sm text-text-muted mb-4">
@@ -899,14 +893,7 @@ export default function OAuthModal({ isOpen, provider, providerInfo, onSuccess, 
         {step === "error" && (
           <div className="text-center py-6">
             <div className="size-16 mx-auto mb-4 rounded-full bg-feedback-danger-surface flex items-center justify-center">
-<<<<<<< HEAD
-              <Icon name="error" className="text-3xl text-feedback-danger-foreground" />
-||||||| e6e8d110
-            <div className="size-16 mx-auto mb-4 rounded-full bg-[var(--reddb-color-feedback-danger-surface)] flex items-center justify-center">
-              <span className="material-symbols-outlined text-3xl text-[var(--reddb-color-feedback-danger-foreground)]">error</span>
-=======
               <span className="material-symbols-outlined text-3xl text-feedback-danger-foreground">error</span>
->>>>>>> feat/ds-v2026.09
             </div>
             <h3 className="text-lg font-semibold mb-2">Connection Failed</h3>
             <p className="text-sm text-feedback-danger-foreground mb-4">{error}</p>

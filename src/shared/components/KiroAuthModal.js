@@ -3,7 +3,6 @@
 import { useState, useEffect } from "react";
 import PropTypes from "prop-types";
 import { Modal, Button, Input } from "@/shared/components";
-import Icon from "./Icon";
 
 /**
  * Kiro Auth Method Selection Modal
@@ -199,7 +198,7 @@ export default function KiroAuthModal({ isOpen, onMethodSelect, onClose }) {
               className="w-full p-4 text-left border border-border rounded-lg hover:bg-sidebar transition-colors"
             >
               <div className="flex items-start gap-3">
-                <Icon name="shield" size={24} className="text-primary mt-0.5" />
+                <span className="material-symbols-outlined text-primary mt-0.5">shield</span>
                 <div className="flex-1">
                   <h3 className="font-semibold mb-1">AWS Builder ID</h3>
                   <p className="text-sm text-text-muted">
@@ -215,7 +214,7 @@ export default function KiroAuthModal({ isOpen, onMethodSelect, onClose }) {
               className="w-full p-4 text-left border border-border rounded-lg hover:bg-sidebar transition-colors"
             >
               <div className="flex items-start gap-3">
-                <Icon name="business" size={24} className="text-primary mt-0.5" />
+                <span className="material-symbols-outlined text-primary mt-0.5">business</span>
                 <div className="flex-1">
                   <h3 className="font-semibold mb-1">AWS IAM Identity Center</h3>
                   <p className="text-sm text-text-muted">
@@ -231,7 +230,7 @@ export default function KiroAuthModal({ isOpen, onMethodSelect, onClose }) {
               className="w-full p-4 text-left border border-border rounded-lg hover:bg-sidebar transition-colors"
             >
               <div className="flex items-start gap-3">
-                <Icon name="key" size={24} className="text-primary mt-0.5" />
+                <span className="material-symbols-outlined text-primary mt-0.5">key</span>
                 <div className="flex-1">
                   <h3 className="font-semibold mb-1">API Key</h3>
                   <p className="text-sm text-text-muted">
@@ -247,7 +246,7 @@ export default function KiroAuthModal({ isOpen, onMethodSelect, onClose }) {
               className="hidden w-full p-4 text-left border border-border rounded-lg hover:bg-sidebar transition-colors"
             >
               <div className="flex items-start gap-3">
-                <Icon name="account_circle" size={24} className="text-primary mt-0.5" />
+                <span className="material-symbols-outlined text-primary mt-0.5">account_circle</span>
                 <div className="flex-1">
                   <h3 className="font-semibold mb-1">Google Account</h3>
                   <p className="text-sm text-text-muted">
@@ -263,7 +262,7 @@ export default function KiroAuthModal({ isOpen, onMethodSelect, onClose }) {
               className="hidden w-full p-4 text-left border border-border rounded-lg hover:bg-sidebar transition-colors"
             >
               <div className="flex items-start gap-3">
-                <Icon name="code" size={24} className="text-primary mt-0.5" />
+                <span className="material-symbols-outlined text-primary mt-0.5">code</span>
                 <div className="flex-1">
                   <h3 className="font-semibold mb-1">GitHub Account</h3>
                   <p className="text-sm text-text-muted">
@@ -279,7 +278,7 @@ export default function KiroAuthModal({ isOpen, onMethodSelect, onClose }) {
               className="w-full p-4 text-left border border-border rounded-lg hover:bg-sidebar transition-colors"
             >
               <div className="flex items-start gap-3">
-                <Icon name="file_upload" size={24} className="text-primary mt-0.5" />
+                <span className="material-symbols-outlined text-primary mt-0.5">file_upload</span>
                 <div className="flex-1">
                   <h3 className="font-semibold mb-1">Import Token</h3>
                   <p className="text-sm text-text-muted">
@@ -295,7 +294,7 @@ export default function KiroAuthModal({ isOpen, onMethodSelect, onClose }) {
               className="w-full p-4 text-left border border-border rounded-lg hover:bg-sidebar transition-colors"
             >
               <div className="flex items-start gap-3">
-                <Icon name="data_object" size={24} className="text-primary mt-0.5" />
+                <span className="material-symbols-outlined text-primary mt-0.5">data_object</span>
                 <div className="flex-1">
                   <h3 className="font-semibold mb-1">Import CLIProxyAPI JSON</h3>
                   <p className="text-sm text-text-muted">
@@ -360,14 +359,7 @@ export default function KiroAuthModal({ isOpen, onMethodSelect, onClose }) {
           <div className="space-y-4">
             <div className="bg-feedback-info-surface p-3 rounded-lg border border-feedback-info-border">
               <div className="flex gap-2">
-<<<<<<< HEAD
-                <Icon name="info" size={24} className="text-feedback-info-foreground" />
-||||||| e6e8d110
-                <span className="material-symbols-outlined text-[var(--reddb-color-feedback-info-foreground)]">info</span>
-                <p className="text-sm text-[var(--reddb-color-feedback-info-foreground)]">
-=======
                 <span className="material-symbols-outlined text-feedback-info-foreground">info</span>
->>>>>>> feat/ds-v2026.09
                 <p className="text-sm text-feedback-info-foreground">
                   Paste a long-lived Kiro/CodeWhisperer API key. It is validated
                   against AWS and stored directly as a bearer credential (no refresh).
@@ -424,13 +416,7 @@ export default function KiroAuthModal({ isOpen, onMethodSelect, onClose }) {
           <div className="space-y-4">
             <div className="bg-feedback-warning-surface p-4 rounded-lg border border-feedback-warning-border">
               <div className="flex gap-2">
-<<<<<<< HEAD
-                <Icon name="info" size={24} className="text-feedback-warning-foreground" />
-||||||| e6e8d110
-                <span className="material-symbols-outlined text-[var(--reddb-color-feedback-warning-foreground)]">info</span>
-=======
                 <span className="material-symbols-outlined text-feedback-warning-foreground">info</span>
->>>>>>> feat/ds-v2026.09
                 <div className="flex-1 text-sm">
                   <p className="font-medium text-feedback-warning-foreground mb-1">
                     Manual Callback Required
@@ -458,13 +444,7 @@ export default function KiroAuthModal({ isOpen, onMethodSelect, onClose }) {
           <div className="space-y-4">
             <div className="bg-feedback-warning-surface p-4 rounded-lg border border-feedback-warning-border">
               <div className="flex gap-2">
-<<<<<<< HEAD
-                <Icon name="info" size={24} className="text-feedback-warning-foreground" />
-||||||| e6e8d110
-                <span className="material-symbols-outlined text-[var(--reddb-color-feedback-warning-foreground)]">info</span>
-=======
                 <span className="material-symbols-outlined text-feedback-warning-foreground">info</span>
->>>>>>> feat/ds-v2026.09
                 <div className="flex-1 text-sm">
                   <p className="font-medium text-feedback-warning-foreground mb-1">
                     Manual Callback Required
@@ -494,7 +474,9 @@ export default function KiroAuthModal({ isOpen, onMethodSelect, onClose }) {
             {autoDetecting && (
               <div className="text-center py-6">
                 <div className="size-16 mx-auto mb-4 rounded-full bg-primary/10 flex items-center justify-center">
-                  <Icon name="progress_activity" className="text-3xl text-primary animate-spin" />
+                  <span className="material-symbols-outlined text-3xl text-primary animate-spin">
+                    progress_activity
+                  </span>
                 </div>
                 <h3 className="text-lg font-semibold mb-2">Auto-detecting token...</h3>
                 <p className="text-sm text-text-muted">
@@ -510,14 +492,7 @@ export default function KiroAuthModal({ isOpen, onMethodSelect, onClose }) {
                 {autoDetected && (
                   <div className="bg-feedback-success-surface p-3 rounded-lg border border-feedback-success-border">
                     <div className="flex gap-2">
-<<<<<<< HEAD
-                      <Icon name="check_circle" size={24} className="text-feedback-success-foreground" />
-||||||| e6e8d110
-                      <span className="material-symbols-outlined text-[var(--reddb-color-feedback-success-foreground)]">check_circle</span>
-                      <p className="text-sm text-[var(--reddb-color-feedback-success-foreground)]">
-=======
                       <span className="material-symbols-outlined text-feedback-success-foreground">check_circle</span>
->>>>>>> feat/ds-v2026.09
                       <p className="text-sm text-feedback-success-foreground">
                         Token auto-detected from Kiro IDE successfully!
                       </p>
@@ -529,14 +504,7 @@ export default function KiroAuthModal({ isOpen, onMethodSelect, onClose }) {
                 {!autoDetected && !error && (
                   <div className="bg-feedback-info-surface p-3 rounded-lg border border-feedback-info-border">
                     <div className="flex gap-2">
-<<<<<<< HEAD
-                      <Icon name="info" size={24} className="text-feedback-info-foreground" />
-||||||| e6e8d110
-                      <span className="material-symbols-outlined text-[var(--reddb-color-feedback-info-foreground)]">info</span>
-                      <p className="text-sm text-[var(--reddb-color-feedback-info-foreground)]">
-=======
                       <span className="material-symbols-outlined text-feedback-info-foreground">info</span>
->>>>>>> feat/ds-v2026.09
                       <p className="text-sm text-feedback-info-foreground">
                         Kiro IDE not detected. Please paste your refresh token manually.
                       </p>
@@ -580,14 +548,7 @@ export default function KiroAuthModal({ isOpen, onMethodSelect, onClose }) {
           <div className="space-y-4">
             <div className="bg-feedback-info-surface p-3 rounded-lg border border-feedback-info-border">
               <div className="flex gap-2">
-<<<<<<< HEAD
-                <Icon name="info" size={24} className="text-feedback-info-foreground" />
-||||||| e6e8d110
-                <span className="material-symbols-outlined text-[var(--reddb-color-feedback-info-foreground)]">info</span>
-                <p className="text-sm text-[var(--reddb-color-feedback-info-foreground)]">
-=======
                 <span className="material-symbols-outlined text-feedback-info-foreground">info</span>
->>>>>>> feat/ds-v2026.09
                 <p className="text-sm text-feedback-info-foreground">
                   Paste the Kiro CLIProxyAPI auth JSON containing auth_method=external_idp. Only Microsoft login token endpoints are accepted.
                 </p>

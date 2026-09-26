@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { Card, Button, ModelSelectModal, ManualConfigModal, Icon } from "@/shared/components";
+import { Card, Button, ModelSelectModal, ManualConfigModal } from "@/shared/components";
 import Image from "next/image";
 import BaseUrlSelect from "./BaseUrlSelect";
 import { rememberEndpoint } from "./cliEndpointPresets";
@@ -204,14 +204,14 @@ export default function CopilotToolCard({ tool, isExpanded, onToggle, baseUrl, a
             <p className="text-xs text-text-muted truncate">{tool.description}</p>
           </div>
         </div>
-        <Icon name="expand_more" size={20} className={`text-text-muted transition-transform ${isExpanded ? "rotate-180" : ""}`} />
+        <span className={`material-symbols-outlined text-text-muted text-[20px] transition-transform ${isExpanded ? "rotate-180" : ""}`}>expand_more</span>
       </div>
 
       {isExpanded && (
         <div className="mt-4 pt-4 border-t border-border flex flex-col gap-4">
           {checking && (
             <div className="flex items-center gap-2 text-text-muted">
-              <Icon name="progress_activity" size={24} className="animate-spin" />
+              <span className="material-symbols-outlined animate-spin">progress_activity</span>
               <span>Checking Copilot config...</span>
             </div>
           )}
@@ -219,15 +219,7 @@ export default function CopilotToolCard({ tool, isExpanded, onToggle, baseUrl, a
           {!checking && (
             <>
               <div className="flex items-start gap-3 p-3 bg-feedback-info-surface border border-feedback-info-border rounded-lg">
-<<<<<<< HEAD
-                <Icon name="info" className="text-feedback-info-foreground text-lg" />
-||||||| e6e8d110
-              <div className="flex items-start gap-3 p-3 bg-[var(--reddb-color-feedback-info-surface)] border border-[var(--reddb-color-feedback-info-border)] rounded-lg">
-                <span className="material-symbols-outlined text-[var(--reddb-color-feedback-info-foreground)] text-lg">info</span>
-                <div className="text-xs text-[var(--reddb-color-feedback-info-foreground)]">
-=======
                 <span className="material-symbols-outlined text-feedback-info-foreground text-lg">info</span>
->>>>>>> feat/ds-v2026.09
                 <div className="text-xs text-feedback-info-foreground">
                   <p className="font-medium">Writes to <code className="px-1 bg-muted/50 rounded">chatLanguageModels.json</code></p>
                   <p className="mt-0.5 opacity-80">Reload VS Code after applying for changes to take effect.</p>
@@ -238,7 +230,7 @@ export default function CopilotToolCard({ tool, isExpanded, onToggle, baseUrl, a
                 {/* Endpoint */}
                 <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-[8rem_auto_1fr] sm:items-center sm:gap-2">
                   <span className="text-xs font-semibold text-text-main sm:text-right sm:text-sm">Select Endpoint</span>
-                  <Icon name="arrow_forward" size={14} className="hidden text-text-muted sm:inline" />
+                  <span className="material-symbols-outlined hidden text-text-muted text-[14px] sm:inline">arrow_forward</span>
                   <BaseUrlSelect
                     value={customBaseUrl || getDisplayUrl()}
                     onChange={setCustomBaseUrl}
@@ -254,14 +246,14 @@ export default function CopilotToolCard({ tool, isExpanded, onToggle, baseUrl, a
                 {/* API Key */}
                 <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-[8rem_auto_1fr_auto] sm:items-center sm:gap-2">
                   <span className="text-xs font-semibold text-text-main sm:text-right sm:text-sm">API Key</span>
-                  <Icon name="arrow_forward" size={14} className="hidden text-text-muted sm:inline" />
+                  <span className="material-symbols-outlined hidden text-text-muted text-[14px] sm:inline">arrow_forward</span>
                   <ApiKeySelect value={selectedApiKey} onChange={setSelectedApiKey} apiKeys={apiKeys} cloudEnabled={cloudEnabled} />
                 </div>
 
                 {/* Models */}
                 <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-[8rem_auto_1fr] sm:items-start sm:gap-2">
                   <span className="w-32 shrink-0 text-sm font-semibold text-text-main text-right pt-1">Models</span>
-                  <Icon name="arrow_forward" size={14} className="text-text-muted mt-1.5" />
+                  <span className="material-symbols-outlined text-text-muted text-[14px] mt-1.5">arrow_forward</span>
                   <div className="flex-1 flex flex-col gap-2">
                     <div className="flex flex-wrap gap-1.5 min-h-[28px] px-2 py-1.5 bg-surface rounded border border-border">
                       {selectedModels.length === 0 ? (
@@ -271,14 +263,7 @@ export default function CopilotToolCard({ tool, isExpanded, onToggle, baseUrl, a
                           <span key={model} className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-muted/50 text-text-muted border border-transparent hover:border-border">
                             {model}
                             <button onClick={(e) => { e.stopPropagation(); removeModel(model); }} className="ml-0.5 hover:text-feedback-danger-foreground">
-<<<<<<< HEAD
-                              <Icon name="close" size={12} />
-||||||| e6e8d110
-                            <button onClick={(e) => { e.stopPropagation(); removeModel(model); }} className="ml-0.5 hover:text-[var(--reddb-color-feedback-danger-foreground)]">
                               <span className="material-symbols-outlined text-[12px]">close</span>
-=======
-                              <span className="material-symbols-outlined text-[12px]">close</span>
->>>>>>> feat/ds-v2026.09
                             </button>
                           </span>
                         ))
@@ -293,27 +278,20 @@ export default function CopilotToolCard({ tool, isExpanded, onToggle, baseUrl, a
 
               {message && (
                 <div className={`flex items-center gap-2 px-2 py-1.5 rounded text-xs ${message.type === "success" ? "bg-feedback-success-surface text-feedback-success-foreground" : "bg-feedback-danger-surface text-feedback-danger-foreground"}`}>
-<<<<<<< HEAD
-                  <Icon name={message.type === "success" ? "check_circle" : "error"} size={14} />
-||||||| e6e8d110
-                <div className={`flex items-center gap-2 px-2 py-1.5 rounded text-xs ${message.type === "success" ? "bg-[var(--reddb-color-feedback-success-surface)] text-[var(--reddb-color-feedback-success-foreground)]" : "bg-[var(--reddb-color-feedback-danger-surface)] text-[var(--reddb-color-feedback-danger-foreground)]"}`}>
                   <span className="material-symbols-outlined text-[14px]">{message.type === "success" ? "check_circle" : "error"}</span>
-=======
-                  <span className="material-symbols-outlined text-[14px]">{message.type === "success" ? "check_circle" : "error"}</span>
->>>>>>> feat/ds-v2026.09
                   <span>{message.text}</span>
                 </div>
               )}
 
               <div className="grid grid-cols-1 gap-2 sm:flex sm:items-center">
                 <Button variant="primary" size="sm" onClick={handleApply} disabled={selectedModels.length === 0} loading={applying}>
-                  <Icon name="save" size={14} className="mr-1" />Apply
+                  <span className="material-symbols-outlined text-[14px] mr-1">save</span>Apply
                 </Button>
                 <Button variant="outline" size="sm" onClick={handleReset} disabled={!status?.hasRedRouter} loading={restoring}>
-                  <Icon name="restore" size={14} className="mr-1" />Reset
+                  <span className="material-symbols-outlined text-[14px] mr-1">restore</span>Reset
                 </Button>
                 <Button variant="ghost" size="sm" onClick={() => setShowManualConfigModal(true)} disabled={selectedModels.length === 0}>
-                  <Icon name="content_copy" size={14} className="mr-1" />Manual Config
+                  <span className="material-symbols-outlined text-[14px] mr-1">content_copy</span>Manual Config
                 </Button>
               </div>
             </>

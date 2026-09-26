@@ -8,10 +8,8 @@ import {
   Badge,
   Button,
   Toggle,
-  Icon,
 } from "@/shared/components";
 import ProviderIcon from "@/shared/components/ProviderIcon";
-import ConnectionTestResult from "@/shared/components/ConnectionTestResult";
 import { getProviderIconSrc } from "@/shared/utils/providerIcon";
 import { OAUTH_PROVIDERS, APIKEY_PROVIDERS } from "@/shared/constants/config";
 import {
@@ -421,7 +419,9 @@ export default function ProvidersPage() {
 
       {!hasAnyResult && (
         <div className="text-center py-8 border border-dashed border-border rounded-xl">
-          <Icon name="search_off" size={32} className="text-text-muted mb-2" />
+          <span className="material-symbols-outlined text-[32px] text-text-muted mb-2">
+            search_off
+          </span>
           <p className="text-text-muted text-sm">
             No providers match your search or filters
           </p>
@@ -458,7 +458,7 @@ export default function ProvidersPage() {
         {compatibleProviders.length === 0 &&
         anthropicCompatibleProviders.length === 0 ? (
           <div className="flex items-center justify-center gap-2 py-2 border border-dashed border-border rounded-xl text-text-muted text-sm">
-            <Icon name="extension" size={18} />
+            <span className="material-symbols-outlined text-[18px]">extension</span>
             <span>No custom providers — use buttons above to add OpenAI/Anthropic compatible endpoints</span>
           </div>
         ) : (
@@ -609,7 +609,7 @@ export default function ProvidersPage() {
             onClick={() => setShowAllApikey(true)}
             className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-primary/40 px-3 py-2.5 text-sm font-medium text-primary transition-colors hover:border-primary hover:bg-primary/5"
           >
-            <Icon name="expand_more" size={16} />
+            <span className="material-symbols-outlined text-[16px]">expand_more</span>
             Show all {apikeyEntries.length} providers
           </button>
         )}
@@ -674,7 +674,7 @@ export default function ProvidersPage() {
                 className="p-1 rounded-lg hover:bg-bg text-text-muted hover:text-text-main transition-colors"
                 aria-label="Close test results"
               >
-                <Icon name="close" className="text-lg" />
+                <span className="material-symbols-outlined text-lg">close</span>
               </button>
             </div>
             <div className="p-5">
@@ -749,7 +749,9 @@ function ProviderCard({ providerId, provider, stats, onToggle }) {
                 {allDisabled ? (
                   <Badge variant="default" size="sm">
                     <span className="flex items-center gap-1">
-                      <Icon name="pause_circle" size={12} />
+                      <span className="material-symbols-outlined text-[12px]">
+                        pause_circle
+                      </span>
                       Disabled
                     </span>
                   </Badge>
@@ -852,7 +854,9 @@ function ApiKeyProviderCard({
                 {allDisabled ? (
                   <Badge variant="default" size="sm">
                     <span className="flex items-center gap-1">
-                      <Icon name="pause_circle" size={12} />
+                      <span className="material-symbols-outlined text-[12px]">
+                        pause_circle
+                      </span>
                       Disabled
                     </span>
                   </Badge>
@@ -916,18 +920,9 @@ function ProviderTestResultsView({ results }) {
   if (results.error && !results.results) {
     return (
       <div className="text-center py-6">
-<<<<<<< HEAD
-        <Icon name="error" size={32} className="text-feedback-danger-foreground mb-2 block" />
-||||||| e6e8d110
-        <span className="material-symbols-outlined text-[var(--reddb-color-feedback-danger-foreground)] text-[32px] mb-2 block">
-          error
-        </span>
-        <p className="text-sm text-[var(--reddb-color-feedback-danger-foreground)]">{results.error}</p>
-=======
         <span className="material-symbols-outlined text-feedback-danger-foreground text-[32px] mb-2 block">
           error
         </span>
->>>>>>> feat/ds-v2026.09
         <p className="text-sm text-feedback-danger-foreground">{results.error}</p>
       </div>
     );
@@ -965,32 +960,8 @@ function ProviderTestResultsView({ results }) {
       {items.map((r, i) => (
         <div
           key={r.connectionId || i}
-          className="flex min-w-0 flex-col gap-1.5 rounded-lg bg-muted/50 px-3 py-2 text-xs"
+          className="flex min-w-0 flex-wrap items-center gap-2 rounded-lg bg-muted/50 px-3 py-2 text-xs sm:flex-nowrap"
         >
-<<<<<<< HEAD
-          <div className="flex min-w-0 items-center gap-2">
-            <Icon name={r.valid ? "check_circle" : "error"} size={16} className={`shrink-0 ${r.valid ? "text-feedback-success-foreground" : "text-feedback-danger-foreground"}`} />
-            <span className="min-w-0 truncate font-medium">{r.connectionName}</span>
-            <span className="min-w-0 truncate text-text-muted">({r.provider})</span>
-            {!r.valid && r.diagnosis?.type && (
-              <span className="ml-auto shrink-0 rounded bg-feedback-danger-surface px-1.5 py-0.5 text-[10px] font-bold uppercase text-feedback-danger-foreground">
-                {r.diagnosis.type}
-              </span>
-            )}
-||||||| e6e8d110
-          <span
-            className={`material-symbols-outlined text-[16px] ${r.valid ? "text-[var(--reddb-color-feedback-success-foreground)]" : "text-[var(--reddb-color-feedback-danger-foreground)]"}`}
-          >
-            {r.valid ? "check_circle" : "error"}
-          </span>
-          <div className="min-w-0 flex-[1_1_160px]">
-            <span className="block truncate font-medium sm:inline">
-              {r.connectionName}
-            </span>
-            <span className="block truncate text-text-muted sm:ml-1.5 sm:inline">
-              ({r.provider})
-            </span>
-=======
           <span
             className={`material-symbols-outlined text-[16px] ${r.valid ? "text-feedback-success-foreground" : "text-feedback-danger-foreground"}`}
           >
@@ -1003,26 +974,7 @@ function ProviderTestResultsView({ results }) {
             <span className="block truncate text-text-muted sm:ml-1.5 sm:inline">
               ({r.provider})
             </span>
->>>>>>> feat/ds-v2026.09
           </div>
-<<<<<<< HEAD
-          <ConnectionTestResult result={r} />
-||||||| e6e8d110
-          {r.latencyMs !== undefined && (
-            <span className="shrink-0 text-text-muted font-mono tabular-nums">
-              {r.latencyMs}ms
-            </span>
-          )}
-          <span
-            className={`shrink-0 text-[10px] uppercase font-bold px-1.5 py-0.5 rounded ${
-              r.valid
-                ? "bg-[var(--reddb-color-feedback-success-surface)] text-[var(--reddb-color-feedback-success-foreground)]"
-                : "bg-[var(--reddb-color-feedback-danger-surface)] text-[var(--reddb-color-feedback-danger-foreground)]"
-            }`}
-          >
-            {r.valid ? "OK" : r.diagnosis?.type || "ERROR"}
-          </span>
-=======
           {r.latencyMs !== undefined && (
             <span className="shrink-0 text-text-muted font-mono tabular-nums">
               {r.latencyMs}ms
@@ -1037,7 +989,6 @@ function ProviderTestResultsView({ results }) {
           >
             {r.valid ? "OK" : r.diagnosis?.type || "ERROR"}
           </span>
->>>>>>> feat/ds-v2026.09
         </div>
       ))}
       {items.length === 0 && (

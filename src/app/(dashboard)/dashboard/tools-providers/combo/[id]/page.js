@@ -3,7 +3,7 @@
 import { useParams, notFound, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Card, Button, Input, Toggle, ModelSelectModal, Icon } from "@/shared/components";
+import { Card, Button, Input, Toggle, ModelSelectModal } from "@/shared/components";
 import ProviderIcon from "@/shared/components/ProviderIcon";
 import { AI_PROVIDERS, MEDIA_PROVIDER_KINDS } from "@/shared/constants/providers";
 
@@ -261,10 +261,10 @@ export default function ComboDetailPage() {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3 min-w-0">
           <Link href={backHref} className="text-text-muted hover:text-primary">
-            <Icon name="arrow_back" size={24} />
+            <span className="material-symbols-outlined">arrow_back</span>
           </Link>
           <div className="size-10 rounded-lg bg-primary/10 flex items-center justify-center">
-            <Icon name="layers" size={24} className="text-primary" />
+            <span className="material-symbols-outlined text-primary">layers</span>
           </div>
           <div className="min-w-0">
             <p className="text-xs text-text-muted">{kindLabel} Combo</p>
@@ -329,20 +329,13 @@ export default function ComboDetailPage() {
                   </div>
                   <div className="flex items-center gap-0.5">
                     <button onClick={() => handleMove(idx, -1)} disabled={idx === 0} className={`p-1 rounded ${idx === 0 ? "text-text-muted/20" : "text-text-muted hover:text-primary hover:bg-muted/50"}`} title="Move up">
-                      <Icon name="arrow_upward" size={16} />
+                      <span className="material-symbols-outlined text-[16px]">arrow_upward</span>
                     </button>
                     <button onClick={() => handleMove(idx, 1)} disabled={idx === providers.length - 1} className={`p-1 rounded ${idx === providers.length - 1 ? "text-text-muted/20" : "text-text-muted hover:text-primary hover:bg-muted/50"}`} title="Move down">
-                      <Icon name="arrow_downward" size={16} />
+                      <span className="material-symbols-outlined text-[16px]">arrow_downward</span>
                     </button>
                     <button onClick={() => handleRemoveProvider(idx)} className="p-1 rounded text-text-muted hover:text-feedback-danger-foreground hover:bg-feedback-danger-surface" title="Remove">
-<<<<<<< HEAD
-                      <Icon name="close" size={16} />
-||||||| e6e8d110
-                    <button onClick={() => handleRemoveProvider(idx)} className="p-1 rounded text-text-muted hover:text-[var(--reddb-color-feedback-danger-foreground)] hover:bg-[var(--reddb-color-feedback-danger-surface)]" title="Remove">
                       <span className="material-symbols-outlined text-[16px]">close</span>
-=======
-                      <span className="material-symbols-outlined text-[16px]">close</span>
->>>>>>> feat/ds-v2026.09
                     </button>
                   </div>
                 </div>
@@ -376,7 +369,7 @@ export default function ComboDetailPage() {
                 <div>
                   <div className="flex items-center justify-end mb-1.5">
                     <a href={testResult.imageUrl} download="image.png" className="inline-flex items-center gap-1 text-xs text-text-muted hover:text-primary transition-colors">
-                      <Icon name="download" size={14} />
+                      <span className="material-symbols-outlined text-[14px]">download</span>
                       Download
                     </a>
                   </div>
@@ -387,7 +380,7 @@ export default function ComboDetailPage() {
                 <div>
                   <div className="flex items-center justify-end mb-1.5">
                     <a href={testResult.audioUrl} download="speech.mp3" className="inline-flex items-center gap-1 text-xs text-text-muted hover:text-primary transition-colors">
-                      <Icon name="download" size={14} />
+                      <span className="material-symbols-outlined text-[14px]">download</span>
                       Download
                     </a>
                   </div>

@@ -9,7 +9,7 @@ import {
   parseQuotaData,
   calculatePercentage,
   filterQuotasByVisibility,
-  getHiddenQuotaEntries,
+  getHiddenQuotaRows,
   getQuotaVisibilityKey,
   getConnectionLabel,
   getConnectionQuotaRemaining,
@@ -39,7 +39,7 @@ import {
   QUOTA_SORT_OPTIONS,
 } from "./utils";
 import Card from "@/shared/components/Card";
-import { ConfirmModal, EditConnectionModal, Icon } from "@/shared/components";
+import { ConfirmModal, EditConnectionModal } from "@/shared/components";
 import { USAGE_SUPPORTED_PROVIDERS, AI_PROVIDERS } from "@/shared/constants/providers";
 import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
 
@@ -453,13 +453,9 @@ export default function ProviderLimits() {
           if (USAGE_SUPPORTED_PROVIDERS.includes(provider)) {
             await fetchQuota(connectionId, provider);
           }
-          return null;
         }
-        const data = await res.json().catch(() => ({}));
-        return { error: data.error || `Save failed (HTTP ${res.status})` };
       } catch (error) {
         console.error("Error saving connection:", error);
-        return { error: error?.message || "Save failed" };
       }
     },
     [selectedConnection, fetchConnections, fetchQuota],
@@ -634,15 +630,9 @@ export default function ProviderLimits() {
     updateQuotaVisibility(next, previous);
   }, [quotaVisibility, updateQuotaVisibility]);
 
-  // key: one hidden row's visibility key; null shows every hidden row of the provider.
-  const handleShowQuota = useCallback((provider, key) => {
-    if (!provider) return;
-    if (key === null) {
-      const previous = quotaVisibility;
-      updateQuotaVisibility({ ...previous, [provider]: { ...(previous[provider] || {}), hidden: [] } }, previous);
-      return;
-    }
-    if (!key) return;
+  const handleShowQuota = useCallback((provider, quota) => {
+    const key = getQuotaVisibilityKey(quota);
+    if (!provider || !key) return;
 
     const previous = quotaVisibility;
     const providerVisibility = previous[provider] || {};
@@ -806,7 +796,9 @@ export default function ProviderLimits() {
     return (
       <Card padding="lg">
         <div className="text-center py-12">
-          <Icon name="cloud_off" size={64} className="text-text-muted opacity-20" />
+          <span className="material-symbols-outlined text-[64px] text-text-muted opacity-20">
+            cloud_off
+          </span>
           <h3 className="mt-4 text-lg font-semibold text-text-primary">
             No Providers Connected
           </h3>
@@ -823,7 +815,9 @@ export default function ProviderLimits() {
     return (
       <Card padding="lg">
         <div className="text-center py-12">
-          <Icon name={emptyState.icon} size={64} className="text-text-muted opacity-20" />
+          <span className="material-symbols-outlined text-[64px] text-text-muted opacity-20">
+            {emptyState.icon}
+          </span>
           <h3 className="mt-4 text-lg font-semibold text-text-primary">
             {emptyState.title}
           </h3>
@@ -851,7 +845,9 @@ export default function ProviderLimits() {
             >
               <span className="flex min-w-0 items-center gap-1.5">
                 {providerFilter === "all" ? (
-                  <Icon name="apps" size={14} className="text-text-muted" />
+                  <span className="material-symbols-outlined text-[14px] text-text-muted">
+                    apps
+                  </span>
                 ) : (
                   <ProviderIcon
                     src={`/providers/${providerFilter}.png`}
@@ -865,7 +861,9 @@ export default function ProviderLimits() {
                   {selectedProviderLabel}
                 </span>
               </span>
-              <Icon name="expand_more" size={14} className="text-text-muted" />
+              <span className="material-symbols-outlined text-[14px] text-text-muted">
+                expand_more
+              </span>
             </button>
 
             {providerMenuOpen && (
@@ -888,10 +886,14 @@ export default function ProviderLimits() {
                     }}
                     className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition-colors ${providerFilter === "all" ? "bg-primary/10 text-primary" : "text-text-primary hover:bg-muted/50"}`}
                   >
-                    <Icon name="apps" size={22} />
+                    <span className="material-symbols-outlined text-[22px]">
+                      apps
+                    </span>
                     <span className="font-medium">All providers</span>
                     {providerFilter === "all" && (
-                      <Icon name="check" size={20} className="ml-auto" />
+                      <span className="material-symbols-outlined ml-auto text-[20px]">
+                        check
+                      </span>
                     )}
                   </button>
                   <div className="my-1 h-px bg-muted" />
@@ -920,7 +922,9 @@ export default function ProviderLimits() {
                           {providerLabel(provider)}
                         </span>
                         {providerFilter === provider && (
-                          <Icon name="check" size={20} className="ml-auto" />
+                          <span className="material-symbols-outlined ml-auto text-[20px]">
+                            check
+                          </span>
                         )}
                       </button>
                     ))}
@@ -993,7 +997,9 @@ export default function ProviderLimits() {
             className={`flex h-8 shrink-0 items-center gap-1 rounded-lg border px-2 text-xs transition-colors ${expiringFirst ? "border-feedback-warning-border bg-feedback-warning-surface text-feedback-warning-foreground" : "border-muted text-text-primary hover:bg-muted/50"}`}
             title="Sort accounts by earliest quota reset time"
           >
-            <Icon name="hourglass_top" size={14} />
+            <span className="material-symbols-outlined text-[14px]">
+              hourglass_top
+            </span>
             <span className="hidden sm:inline">Expiring first</span>
           </button>
 
@@ -1005,7 +1011,7 @@ export default function ProviderLimits() {
             className="flex h-8 shrink-0 items-center gap-1 rounded-lg border border-feedback-danger-border px-2 text-xs text-feedback-danger-foreground transition-colors hover:bg-feedback-danger-surface disabled:opacity-50"
             title="Disable connections with depleted quota on the current page"
           >
-            <Icon name="block" size={14} />
+            <span className="material-symbols-outlined text-[14px]">block</span>
             <span className="hidden sm:inline">Turn off Empty</span>
           </button>
 
@@ -1017,7 +1023,9 @@ export default function ProviderLimits() {
             className="flex h-8 shrink-0 items-center gap-1 rounded-lg border border-feedback-success-border px-2 text-xs text-feedback-success-foreground transition-colors hover:bg-feedback-success-surface disabled:opacity-50"
             title="Enable connections that still have quota on the current page"
           >
-            <Icon name="check_circle" size={14} />
+            <span className="material-symbols-outlined text-[14px]">
+              check_circle
+            </span>
             <span className="hidden sm:inline">Turn on Available</span>
           </button>
 
@@ -1027,7 +1035,13 @@ export default function ProviderLimits() {
             className="flex h-8 shrink-0 items-center gap-1 rounded-lg border border-muted px-2 text-xs transition-colors hover:bg-muted/50"
             title={autoRefresh ? "Disable auto-refresh" : "Enable auto-refresh"}
           >
-            <Icon name={autoRefresh ? "toggle_on" : "toggle_off"} size={14} className={autoRefresh ? "text-primary" : "text-text-muted"} />
+            <span
+              className={`material-symbols-outlined text-[14px] ${
+                autoRefresh ? "text-primary" : "text-text-muted"
+              }`}
+            >
+              {autoRefresh ? "toggle_on" : "toggle_off"}
+            </span>
             <span className="hidden text-text-primary sm:inline">
               Auto-refresh
             </span>
@@ -1047,7 +1061,11 @@ export default function ProviderLimits() {
             className="flex h-8 shrink-0 items-center gap-1 rounded-lg border border-muted px-2 text-xs text-text-primary transition-colors hover:bg-muted/50 disabled:opacity-50"
             title="Refresh all"
           >
-            <Icon name="refresh" size={14} className={refreshingAll ? "animate-spin" : ""} />
+            <span
+              className={`material-symbols-outlined text-[14px] ${refreshingAll ? "animate-spin" : ""}`}
+            >
+              refresh
+            </span>
           </button>
         </div>
       </div>
@@ -1074,7 +1092,7 @@ export default function ProviderLimits() {
           const rowBusy = deletingId === conn.id || togglingId === conn.id || isResettingLimit;
           const rawQuotas = quota?.quotas || [];
           const visibleQuotas = filterQuotasByVisibility(conn.provider, rawQuotas, quotaVisibility);
-          const hiddenQuotaRows = getHiddenQuotaEntries(conn.provider, rawQuotas, quotaVisibility);
+          const hiddenQuotaRows = getHiddenQuotaRows(conn.provider, rawQuotas, quotaVisibility);
 
           return (
             <Card
@@ -1140,7 +1158,9 @@ export default function ProviderLimits() {
                               title={conn.providerSpecificData.profileArn}
                               className="inline-flex max-w-full items-center gap-1 rounded-full border border-border-subtle px-2 py-0.5 text-[10px] text-text-muted transition-colors hover:text-primary"
                             >
-                              <Icon name={copied === conn.id ? "check" : "content_copy"} size={12} />
+                              <span className="material-symbols-outlined text-[12px]">
+                                {copied === conn.id ? "check" : "content_copy"}
+                              </span>
                               <code className="truncate font-mono">
                                 {conn.providerSpecificData.profileArn}
                               </code>
@@ -1176,7 +1196,9 @@ export default function ProviderLimits() {
                                 : "border-muted bg-muted/50 text-text-muted"
                             }`}
                           >
-                            <Icon name={isResettingLimit ? "progress_activity" : "restart_alt"} size={15} className={isResettingLimit ? "animate-spin" : ""} />
+                            <span className={`material-symbols-outlined text-[15px] ${isResettingLimit ? "animate-spin" : ""}`}>
+                              {isResettingLimit ? "progress_activity" : "restart_alt"}
+                            </span>
                             <span>{resetCreditCount}</span>
                           </button>
                         </Tooltip>
@@ -1188,7 +1210,7 @@ export default function ProviderLimits() {
                             aria-label="View Codex reset credit expiry"
                             className="flex h-8 w-8 items-center justify-center rounded-lg border border-muted text-text-muted transition-colors hover:bg-muted/50 hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
                           >
-                            <Icon name="schedule" size={17} />
+                            <span className="material-symbols-outlined text-[17px]">schedule</span>
                           </button>
                         </Tooltip>
                       </>
@@ -1201,7 +1223,7 @@ export default function ProviderLimits() {
                           aria-label="Toggle auto-ping"
                           className={`flex h-8 w-8 items-center justify-center rounded-lg transition-colors hover:bg-muted/50 ${autoPingMaps[conn.provider]?.[conn.id] === true ? "text-primary" : "text-text-muted"}`}
                         >
-                          <Icon name="bolt" size={18} />
+                          <span className="material-symbols-outlined text-[18px]">bolt</span>
                         </button>
                       </Tooltip>
                     )}
@@ -1213,7 +1235,11 @@ export default function ProviderLimits() {
                         aria-label="Refresh quota"
                         className="flex h-8 w-8 items-center justify-center rounded-lg hover:bg-muted/50 transition-colors disabled:opacity-50"
                       >
-                        <Icon name="refresh" size={18} className={`text-text-muted ${isLoading ? "animate-spin" : ""}`} />
+                        <span
+                          className={`material-symbols-outlined text-[18px] text-text-muted ${isLoading ? "animate-spin" : ""}`}
+                        >
+                          refresh
+                        </span>
                       </button>
                     </Tooltip>
                     <Tooltip text="Edit connection">
@@ -1227,7 +1253,9 @@ export default function ProviderLimits() {
                         aria-label="Edit connection"
                         className="flex h-8 w-8 items-center justify-center rounded-lg hover:bg-muted/50 text-text-muted hover:text-primary transition-colors disabled:opacity-50"
                       >
-                        <Icon name="edit" size={18} />
+                        <span className="material-symbols-outlined text-[18px]">
+                          edit
+                        </span>
                       </button>
                     </Tooltip>
                     <Tooltip text="Delete connection">
@@ -1238,7 +1266,11 @@ export default function ProviderLimits() {
                         aria-label="Delete connection"
                         className="flex h-8 w-8 items-center justify-center rounded-lg hover:bg-feedback-danger-surface text-feedback-danger-foreground transition-colors disabled:opacity-50"
                       >
-                        <Icon name="delete" size={18} className={deletingId === conn.id ? "animate-pulse" : ""} />
+                        <span
+                          className={`material-symbols-outlined text-[18px] ${deletingId === conn.id ? "animate-pulse" : ""}`}
+                        >
+                          delete
+                        </span>
                       </button>
                     </Tooltip>
                     <div
@@ -1265,21 +1297,15 @@ export default function ProviderLimits() {
               <div className="px-2 py-1.5">
                 {isLoading ? (
                   <div className="text-center py-5 text-text-muted">
-                    <Icon name="progress_activity" size={28} className="animate-spin" />
+                    <span className="material-symbols-outlined text-[28px] animate-spin">
+                      progress_activity
+                    </span>
                   </div>
                 ) : error ? (
                   <div className="text-center py-5">
-<<<<<<< HEAD
-                    <Icon name="error" size={28} className="text-feedback-danger-foreground" />
-||||||| e6e8d110
-                    <span className="material-symbols-outlined text-[28px] text-[var(--reddb-color-feedback-danger-foreground)]">
-                      error
-                    </span>
-=======
                     <span className="material-symbols-outlined text-[28px] text-feedback-danger-foreground">
                       error
                     </span>
->>>>>>> feat/ds-v2026.09
                     <p className="mt-1.5 text-xs text-text-muted">{error}</p>
                   </div>
                 ) : quota?.message ? (
@@ -1304,30 +1330,22 @@ export default function ProviderLimits() {
                 )}
                 {hiddenQuotaRows.length > 0 && (
                   <div className="mt-2 flex min-w-0 items-center gap-1 border-t border-muted pt-2 text-[10px] text-text-muted">
-                    <Icon name="visibility_off" size={14} className="shrink-0" />
+                    <span className="material-symbols-outlined shrink-0 text-[14px]">
+                      visibility_off
+                    </span>
                     <span className="shrink-0">Hidden:</span>
                     <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto whitespace-nowrap pb-2">
-                      {hiddenQuotaRows.map((row) => (
+                      {hiddenQuotaRows.map((quotaRow) => (
                         <button
-                          key={row.key}
+                          key={getQuotaVisibilityKey(quotaRow)}
                           type="button"
-                          onClick={() => handleShowQuota(conn.provider, row.key)}
+                          onClick={() => handleShowQuota(conn.provider, quotaRow)}
                           className="shrink-0 rounded-md border border-muted px-1.5 py-0.5 transition-colors hover:bg-muted/50 hover:text-text-primary"
                           title="Show this quota row"
                         >
-                          {row.name}
+                          {quotaRow.name}
                         </button>
                       ))}
-                      {hiddenQuotaRows.length > 1 && (
-                        <button
-                          type="button"
-                          onClick={() => handleShowQuota(conn.provider, null)}
-                          className="shrink-0 rounded-md px-1.5 py-0.5 font-medium text-primary transition-colors hover:bg-muted/50"
-                          title="Show every hidden quota row of this provider"
-                        >
-                          Show all
-                        </button>
-                      )}
                     </div>
                   </div>
                 )}
@@ -1421,7 +1439,9 @@ export default function ProviderLimits() {
                 className="flex h-8 w-8 items-center justify-center rounded-lg border border-muted text-text-primary transition-colors hover:bg-muted/50 disabled:cursor-not-allowed disabled:opacity-40"
                 aria-label="Previous accounts page"
               >
-                <Icon name="chevron_left" size={16} />
+                <span className="material-symbols-outlined text-[16px]">
+                  chevron_left
+                </span>
               </button>
               <button
                 type="button"
@@ -1438,7 +1458,9 @@ export default function ProviderLimits() {
                 className="flex h-8 w-8 items-center justify-center rounded-lg border border-muted text-text-primary transition-colors hover:bg-muted/50 disabled:cursor-not-allowed disabled:opacity-40"
                 aria-label="Next accounts page"
               >
-                <Icon name="chevron_right" size={16} />
+                <span className="material-symbols-outlined text-[16px]">
+                  chevron_right
+                </span>
               </button>
               <button
                 type="button"
@@ -1491,14 +1513,14 @@ export default function ProviderLimits() {
                 className="flex h-8 w-8 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-muted/50 hover:text-text-primary"
                 aria-label="Close reset credit expiry modal"
               >
-                <Icon name="close" size={18} />
+                <span className="material-symbols-outlined text-[18px]">close</span>
               </button>
             </div>
 
             <div className="max-h-[70vh] overflow-auto bg-elevation-overlay-surface p-4">
               {resetCreditsState.loading ? (
                 <div className="flex items-center justify-center gap-2 py-10 text-sm text-text-muted">
-                  <Icon name="progress_activity" size={20} className="animate-spin" />
+                  <span className="material-symbols-outlined animate-spin text-[20px]">progress_activity</span>
                   Loading reset credits...
                 </div>
               ) : resetCreditsState.error ? (

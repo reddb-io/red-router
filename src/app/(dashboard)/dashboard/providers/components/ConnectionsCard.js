@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { getStatusVariant as getConnectionStatusVariant } from "@/shared/utils/connectionStatus";
 import PropTypes from "prop-types";
-import { Card, Badge, Button, Modal, Select, Toggle, EditConnectionModal, ConfirmModal, Icon } from "@/shared/components";
+import { Card, Badge, Button, Modal, Select, Toggle, EditConnectionModal, ConfirmModal } from "@/shared/components";
 
 // ── CooldownTimer ──────────────────────────────────────────────
 function CooldownTimer({ until }) {
@@ -104,13 +104,13 @@ function ConnectionRow({ connection, proxyPools, isOAuth, isFirst, isLast, onMov
       <div className="flex w-full min-w-0 flex-1 items-start gap-3 sm:items-center">
         <div className="flex flex-col">
           <button onClick={onMoveUp} disabled={isFirst} className={`p-0.5 rounded ${isFirst ? "text-text-muted/30 cursor-not-allowed" : "hover:bg-sidebar text-text-muted hover:text-primary"}`}>
-            <Icon name="keyboard_arrow_up" className="text-sm" />
+            <span className="material-symbols-outlined text-sm">keyboard_arrow_up</span>
           </button>
           <button onClick={onMoveDown} disabled={isLast} className={`p-0.5 rounded ${isLast ? "text-text-muted/30 cursor-not-allowed" : "hover:bg-sidebar text-text-muted hover:text-primary"}`}>
-            <Icon name="keyboard_arrow_down" className="text-sm" />
+            <span className="material-symbols-outlined text-sm">keyboard_arrow_down</span>
           </button>
         </div>
-        <Icon name={isOAuth ? "lock" : "key"} className="text-base text-text-muted" />
+        <span className="material-symbols-outlined text-base text-text-muted">{isOAuth ? "lock" : "key"}</span>
         <div className="flex-1 min-w-0">
           <p className="text-sm font-medium truncate">{displayName}</p>
           <div className="flex flex-wrap items-center gap-2 mt-1">
@@ -142,7 +142,7 @@ function ConnectionRow({ connection, proxyPools, isOAuth, isFirst, isLast, onMov
                 className={`flex flex-col items-center px-2 py-1 rounded hover:bg-muted/50 transition-colors ${hasAnyProxy ? "text-primary" : "text-text-muted hover:text-primary"}`}
                 disabled={updatingProxy}
               >
-                <Icon name={updatingProxy ? "progress_activity" : "lan"} size={18} />
+                <span className="material-symbols-outlined text-[18px]">{updatingProxy ? "progress_activity" : "lan"}</span>
                 <span className="text-[10px] leading-tight">Proxy</span>
               </button>
               {showProxyDropdown && (
@@ -156,18 +156,11 @@ function ConnectionRow({ connection, proxyPools, isOAuth, isFirst, isLast, onMov
             </div>
           )}
           <button onClick={onEdit} className="flex flex-col items-center px-2 py-1 rounded hover:bg-muted/50 text-text-muted hover:text-primary">
-            <Icon name="edit" size={18} />
+            <span className="material-symbols-outlined text-[18px]">edit</span>
             <span className="text-[10px] leading-tight">Edit</span>
           </button>
           <button onClick={onDelete} className="flex flex-col items-center px-2 py-1 rounded hover:bg-feedback-danger-surface text-feedback-danger-foreground">
-<<<<<<< HEAD
-            <Icon name="delete" size={18} />
-||||||| e6e8d110
-          <button onClick={onDelete} className="flex flex-col items-center px-2 py-1 rounded hover:bg-[var(--reddb-color-feedback-danger-surface)] text-[var(--reddb-color-feedback-danger-foreground)]">
             <span className="material-symbols-outlined text-[18px]">delete</span>
-=======
-            <span className="material-symbols-outlined text-[18px]">delete</span>
->>>>>>> feat/ds-v2026.09
             <span className="text-[10px] leading-tight">Delete</span>
           </button>
         </div>
@@ -400,13 +393,8 @@ export default function ConnectionsCard({ providerId, isOAuth }) {
   const handleUpdateConnection = async (formData) => {
     try {
       const res = await fetch(`/api/providers/${selectedConnection.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(formData) });
-      if (res.ok) { await fetch_(); setShowEditModal(false); return null; }
-      const data = await res.json().catch(() => ({}));
-      return { error: data.error || `Save failed (HTTP ${res.status})` };
-    } catch (e) {
-      console.log("update connection error:", e);
-      return { error: e?.message || "Save failed" };
-    }
+      if (res.ok) { await fetch_(); setShowEditModal(false); }
+    } catch (e) { console.log("update connection error:", e); }
   };
 
   if (loading) return <Card><div className="h-20 animate-pulse bg-muted/50 rounded-lg" /></Card>;

@@ -1,12 +1,13 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import AutopilotSummaryCard from "@/shared/components/AutopilotSummaryCard";
+import DecisionRouterCard from "@/shared/components/DecisionRouterCard";
+import ReasoningAutopilotCard from "@/shared/components/ReasoningAutopilotCard";
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors } from "@dnd-kit/core";
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { restrictToVerticalAxis, restrictToParentElement } from "@dnd-kit/modifiers";
-import { Card, Button, Modal, Input, CardSkeleton, ModelSelectModal, ConfirmModal, CapacityBadges, Select, Toggle, RecommendedSetup, Icon } from "@/shared/components";
+import { Card, Button, Modal, Input, CardSkeleton, ModelSelectModal, ConfirmModal, CapacityBadges, Select, Toggle, RecommendedSetup } from "@/shared/components";
 import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
 import { useModelCaps } from "@/shared/hooks/useModelCaps";
 import { publicModelRef } from "@/shared/utils/modelRef";
@@ -424,7 +425,7 @@ export default function CombosPage() {
           {STRATEGY_SUMMARY.map((s) => (
             <div key={s.key} className="rounded-lg border border-border bg-surface-2 px-4 py-3">
               <div className="flex items-center gap-2 text-sm font-medium text-text-main">
-                <Icon name={s.icon} size={18} className="text-primary" />
+                <span className="material-symbols-outlined text-[18px] text-primary">{s.icon}</span>
                 {s.label}
               </div>
               <p className="mt-1 text-xs text-text-muted">{s.desc}</p>
@@ -438,7 +439,7 @@ export default function CombosPage() {
         <Card>
           <div className="text-center py-12">
             <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-primary/10 text-primary mb-4">
-              <Icon name="layers" size={32} />
+              <span className="material-symbols-outlined text-[32px]">layers</span>
             </div>
             <p className="text-text-main font-medium mb-1">No combos yet</p>
             <p className="text-sm text-text-muted">
@@ -530,7 +531,7 @@ export default function CombosPage() {
               <div className="flex flex-wrap gap-2">
                 {hiddenShared.map((name) => (
                   <button key={name} type="button" onClick={() => handleToggleHidden(name, false)} className="inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1 text-xs text-text-muted transition-colors hover:text-text-main" title="Restore this shared combo">
-                    <Icon name="undo" size={14} />
+                    <span className="material-symbols-outlined text-[14px]">undo</span>
                     <span className="font-mono">{name}</span>
                   </button>
                 ))}
@@ -548,8 +549,19 @@ export default function CombosPage() {
         getCaps={getCaps}
       />
 
-      {/* The decision model's settings live on their own page (Operate → Autopilot). */}
-      <AutopilotSummaryCard />
+      {/* Intelligent routing: the decision model (JEV) that picks the member of
+          `auto` combos and the reasoning autopilot. Global settings, served by
+          whichever gateway (TypeSafe, Vercel AI Gateway, OpenRouter, …) is chosen. */}
+      <section id="intelligent-routing" className="flex flex-col gap-4 scroll-mt-6">
+        <div>
+          <h2 className="text-lg font-semibold">Intelligent routing</h2>
+          <p className="text-sm text-text-muted">
+            A decision model (JEV) picks which member of an <code>auto</code> combo serves each turn, and can set the reasoning level.
+          </p>
+        </div>
+        <DecisionRouterCard />
+        <ReasoningAutopilotCard />
+      </section>
 
       {/* Create Modal - Use key to force remount and reset state */}
       {showCreateModal && (
@@ -643,7 +655,7 @@ function ClientPresetsMenu({ presetLoading, onGenerate }) {
               onClick={() => { setOpen(false); onGenerate(p.source); }}
               className="flex w-full items-start gap-3 rounded-md px-3 py-2 text-left transition-colors hover:bg-surface-2"
             >
-              <Icon name={p.icon} size={20} className="mt-0.5 text-text-muted" />
+              <span className="material-symbols-outlined mt-0.5 text-[20px] text-text-muted">{p.icon}</span>
               <span className="min-w-0">
                 <span className="block text-sm font-medium text-text-main">{p.label}</span>
                 <span className="block text-xs text-text-muted">{p.desc}</span>
@@ -679,7 +691,7 @@ function ComboCard({ combo, getCaps, activeProviders = [], copied, onCopy, onEdi
             </label>
           )}
           <div className="size-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-            <Icon name="layers" size={18} className="text-primary" />
+            <span className="material-symbols-outlined text-primary text-[18px]">layers</span>
           </div>
           <div className="min-w-0 flex-1">
             <code className="block truncate font-mono text-sm font-medium">{combo.name}</code>
@@ -707,7 +719,7 @@ function ComboCard({ combo, getCaps, activeProviders = [], copied, onCopy, onEdi
                   className="inline-flex max-w-full items-center gap-1 rounded border border-dashed border-primary/40 px-1.5 py-0.5 font-mono text-[11px] text-primary hover:border-primary hover:bg-primary/5 transition-colors"
                   title="Pick the model that fuses panel answers"
                 >
-                  <Icon name="gavel" size={13} />
+                  <span className="material-symbols-outlined text-[13px]">gavel</span>
                   <span className="truncate">{publicModelRef(judge) || `Auto — ${publicModelRef(combo.models[0]) || "first model"}`}</span>
                 </button>
                 {judge && (
@@ -716,7 +728,7 @@ function ComboCard({ combo, getCaps, activeProviders = [], copied, onCopy, onEdi
                     className="p-0.5 rounded text-text-muted hover:text-feedback-danger-foreground hover:bg-feedback-danger-surface transition-colors"
                     title="Reset judge to Auto"
                   >
-                    <Icon name="close" size={13} />
+                    <span className="material-symbols-outlined text-[13px]">close</span>
                   </button>
                 )}
               </div>
@@ -742,7 +754,9 @@ function ComboCard({ combo, getCaps, activeProviders = [], copied, onCopy, onEdi
               className="flex flex-col items-center rounded px-2 py-1 text-text-muted transition-colors hover:bg-muted/50 hover:text-primary"
               title="Copy combo name"
             >
-              <Icon name={copied === `combo-${combo.id}` ? "check" : "content_copy"} size={18} />
+              <span className="material-symbols-outlined text-[18px]">
+                {copied === `combo-${combo.id}` ? "check" : "content_copy"}
+              </span>
               <span className="text-[10px] leading-tight">Copy</span>
             </button>
             {onEdit && (
@@ -751,7 +765,7 @@ function ComboCard({ combo, getCaps, activeProviders = [], copied, onCopy, onEdi
                 className="flex flex-col items-center rounded px-2 py-1 text-text-muted transition-colors hover:bg-muted/50 hover:text-primary"
                 title="Edit"
               >
-                <Icon name="edit" size={18} />
+                <span className="material-symbols-outlined text-[18px]">edit</span>
                 <span className="text-[10px] leading-tight">Edit</span>
               </button>
             )}
@@ -761,7 +775,7 @@ function ComboCard({ combo, getCaps, activeProviders = [], copied, onCopy, onEdi
                 className="flex flex-col items-center rounded px-2 py-1 text-feedback-danger-foreground transition-colors hover:bg-feedback-danger-surface"
                 title="Delete"
               >
-                <Icon name="delete" size={18} />
+                <span className="material-symbols-outlined text-[18px]">delete</span>
                 <span className="text-[10px] leading-tight">Delete</span>
               </button>
             )}
@@ -771,7 +785,7 @@ function ComboCard({ combo, getCaps, activeProviders = [], copied, onCopy, onEdi
                 className="flex flex-col items-center rounded px-2 py-1 text-text-muted transition-colors hover:bg-muted/50 hover:text-primary"
                 title="Hide this shared combo to free its name for your own"
               >
-                <Icon name="visibility_off" size={18} />
+                <span className="material-symbols-outlined text-[18px]">visibility_off</span>
                 <span className="text-[10px] leading-tight">Hide</span>
               </button>
             )}
@@ -861,7 +875,7 @@ function CapacityAdapterCap({ cap, entry, onChange, activeProviders, getCaps }) 
             aria-label={`Enable ${cap.label} adapter`}
           />
           <div className="size-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-            <Icon name={cap.icon} size={18} className="text-primary" />
+            <span className="material-symbols-outlined text-primary text-[18px]">{cap.icon}</span>
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-1.5">
@@ -880,20 +894,13 @@ function CapacityAdapterCap({ cap, entry, onChange, activeProviders, getCaps }) 
                     <span>{publicModelRef(model)}</span>
                     <CapacityBadges caps={getCaps?.(model)} />
                     <button onClick={() => handleMove(index, -1)} disabled={index === 0} className={`leading-none opacity-0 group-hover/chip:opacity-100 ${index === 0 ? "text-text-muted/20" : "text-text-muted hover:text-primary"}`}>
-                      <Icon name="arrow_upward" size={12} />
+                      <span className="material-symbols-outlined text-[12px]">arrow_upward</span>
                     </button>
                     <button onClick={() => handleMove(index, 1)} disabled={index === models.length - 1} className={`leading-none opacity-0 group-hover/chip:opacity-100 ${index === models.length - 1 ? "text-text-muted/20" : "text-text-muted hover:text-primary"}`}>
-                      <Icon name="arrow_downward" size={12} />
+                      <span className="material-symbols-outlined text-[12px]">arrow_downward</span>
                     </button>
                     <button onClick={() => handleRemove(index)} className="leading-none opacity-0 group-hover/chip:opacity-100 text-text-muted hover:text-feedback-danger-foreground">
-<<<<<<< HEAD
-                      <Icon name="close" size={12} />
-||||||| e6e8d110
-                    <button onClick={() => handleRemove(index)} className="leading-none opacity-0 group-hover/chip:opacity-100 text-text-muted hover:text-[var(--reddb-color-feedback-danger-foreground)]">
                       <span className="material-symbols-outlined text-[12px]">close</span>
-=======
-                      <span className="material-symbols-outlined text-[12px]">close</span>
->>>>>>> feat/ds-v2026.09
                     </button>
                   </code>
                 ))
@@ -1019,7 +1026,7 @@ function ModelItem({ id, index, model, isFirst, isLast, onEdit, onMoveUp, onMove
           className={`p-0.5 rounded ${isFirst ? "text-text-muted/20 cursor-not-allowed" : "text-text-muted hover:text-primary hover:bg-muted/50"}`}
           title="Move up"
         >
-          <Icon name="arrow_upward" size={12} />
+          <span className="material-symbols-outlined text-[12px]">arrow_upward</span>
         </button>
         <button
           onClick={onMoveDown}
@@ -1027,7 +1034,7 @@ function ModelItem({ id, index, model, isFirst, isLast, onEdit, onMoveUp, onMove
           className={`p-0.5 rounded ${isLast ? "text-text-muted/20 cursor-not-allowed" : "text-text-muted hover:text-primary hover:bg-muted/50"}`}
           title="Move down"
         >
-          <Icon name="arrow_downward" size={12} />
+          <span className="material-symbols-outlined text-[12px]">arrow_downward</span>
         </button>
       </div>
 
@@ -1037,7 +1044,7 @@ function ModelItem({ id, index, model, isFirst, isLast, onEdit, onMoveUp, onMove
         className="p-0.5 hover:bg-feedback-danger-surface rounded text-text-muted hover:text-feedback-danger-foreground transition-all"
         title="Remove"
       >
-        <Icon name="close" size={12} />
+        <span className="material-symbols-outlined text-[12px]">close</span>
       </button>
     </div>
   );
@@ -1191,7 +1198,7 @@ function ComboFormModal({ isOpen, combo, onClose, onSave, activeProviders, kindF
 
             {models.length === 0 ? (
               <div className="text-center py-4 border border-dashed border-muted rounded-lg bg-muted/50">
-                <Icon name="layers" className="text-text-muted text-xl mb-1" />
+                <span className="material-symbols-outlined text-text-muted text-xl mb-1">layers</span>
                 <p className="text-xs text-text-muted">No models added yet</p>
               </div>
             ) : (
@@ -1226,7 +1233,7 @@ function ComboFormModal({ isOpen, combo, onClose, onSave, activeProviders, kindF
               onClick={() => setShowModelSelect(true)}
               className="w-full mt-2 py-2 border border-dashed border-muted rounded-lg text-xs text-primary font-medium hover:text-primary hover:border-primary/50 transition-colors flex items-center justify-center gap-1"
             >
-              <Icon name="add" size={16} />
+              <span className="material-symbols-outlined text-[16px]">add</span>
               Add Model
             </button>
           </div>

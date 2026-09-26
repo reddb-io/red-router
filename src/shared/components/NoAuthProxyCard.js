@@ -5,7 +5,6 @@ import PropTypes from "prop-types";
 import Card from "./Card";
 import Select from "./Select";
 import Badge from "./Badge";
-import Icon from "./Icon";
 
 const NONE_PROXY_POOL_VALUE = "__none__";
 const STRATEGIES = [
@@ -81,14 +80,7 @@ export default function NoAuthProxyCard({ providerId }) {
     <Card>
       <div className="flex items-center gap-3 mb-4">
         <div className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-feedback-success-surface text-feedback-success-foreground">
-<<<<<<< HEAD
-          <Icon name="lock_open" size={20} />
-||||||| e6e8d110
-        <div className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-[var(--reddb-color-feedback-success-surface)] text-[var(--reddb-color-feedback-success-foreground)]">
           <span className="material-symbols-outlined text-[20px]">lock_open</span>
-=======
-          <span className="material-symbols-outlined text-[20px]">lock_open</span>
->>>>>>> feat/ds-v2026.09
         </div>
         <div className="flex-1">
           <p className="text-sm font-medium">No authentication required</p>

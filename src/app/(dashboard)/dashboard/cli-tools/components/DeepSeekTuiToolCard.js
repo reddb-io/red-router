@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { Card, Button, ModelSelectModal, ManualConfigModal, Icon } from "@/shared/components";
+import { Card, Button, ModelSelectModal, ManualConfigModal } from "@/shared/components";
 import Image from "next/image";
 import BaseUrlSelect from "./BaseUrlSelect";
 import { rememberEndpoint } from "./cliEndpointPresets";
@@ -207,14 +207,14 @@ model = "${selectedModel || "provider/model-id"}"
             <p className="text-xs text-text-muted truncate">{tool.description}</p>
           </div>
         </div>
-        <Icon name="expand_more" size={20} className={`text-text-muted transition-transform ${isExpanded ? "rotate-180" : ""}`} />
+        <span className={`material-symbols-outlined text-text-muted text-[20px] transition-transform ${isExpanded ? "rotate-180" : ""}`}>expand_more</span>
       </div>
 
       {isExpanded && (
         <div className="mt-4 pt-4 border-t border-border flex flex-col gap-4">
           {checking && (
             <div className="flex items-center gap-2 text-text-muted">
-              <Icon name="progress_activity" size={24} className="animate-spin" />
+              <span className="material-symbols-outlined animate-spin">progress_activity</span>
               <span>Checking DeepSeek TUI...</span>
             </div>
           )}
@@ -223,13 +223,7 @@ model = "${selectedModel || "provider/model-id"}"
             <div className="flex flex-col gap-4">
               <div className="flex flex-col gap-3 p-4 bg-feedback-warning-surface border border-feedback-warning-border rounded-lg">
                 <div className="flex items-start gap-3">
-<<<<<<< HEAD
-                  <Icon name="warning" size={24} className="text-feedback-warning-foreground" />
-||||||| e6e8d110
-                  <span className="material-symbols-outlined text-[var(--reddb-color-feedback-warning-foreground)]">warning</span>
-=======
                   <span className="material-symbols-outlined text-feedback-warning-foreground">warning</span>
->>>>>>> feat/ds-v2026.09
                   <div className="flex-1">
                     <p className="font-medium text-feedback-warning-foreground">DeepSeek TUI not detected locally</p>
                     <p className="text-sm text-text-muted mt-1">Install via npm:</p>
@@ -239,14 +233,7 @@ model = "${selectedModel || "provider/model-id"}"
                 </div>
                 <div className="flex items-center gap-2 pl-9">
                   <Button variant="secondary" size="sm" onClick={() => setShowManualConfigModal(true)} className="!bg-feedback-warning-surface !border-feedback-warning-border !text-feedback-warning-foreground dark:!text-feedback-warning-foreground hover:!bg-feedback-warning-surface">
-<<<<<<< HEAD
-                    <Icon name="content_copy" size={18} className="mr-1" />
-||||||| e6e8d110
-                  <Button variant="secondary" size="sm" onClick={() => setShowManualConfigModal(true)} className="!bg-[var(--reddb-color-feedback-warning-surface)] !border-[var(--reddb-color-feedback-warning-border)] !text-[var(--reddb-color-feedback-warning-foreground)] dark:!text-[var(--reddb-color-feedback-warning-foreground)] hover:!bg-[var(--reddb-color-feedback-warning-surface)]">
                     <span className="material-symbols-outlined text-[18px] mr-1">content_copy</span>
-=======
-                    <span className="material-symbols-outlined text-[18px] mr-1">content_copy</span>
->>>>>>> feat/ds-v2026.09
                     Manual Config
                   </Button>
                 </div>
@@ -265,7 +252,9 @@ model = "${selectedModel || "provider/model-id"}"
                         note.type === "error" ? "bg-feedback-danger-surface text-feedback-danger-foreground" :
                         "bg-feedback-info-surface text-feedback-info-foreground"
                       }`}>
-                        <Icon name={note.type === "warning" ? "warning" : note.type === "error" ? "error" : "info"} size={14} className="mt-0.5" />
+                        <span className="material-symbols-outlined text-[14px] mt-0.5">
+                          {note.type === "warning" ? "warning" : note.type === "error" ? "error" : "info"}
+                        </span>
                         <span>{note.text}</span>
                       </div>
                     ))}
@@ -274,7 +263,7 @@ model = "${selectedModel || "provider/model-id"}"
 
                 <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-[8rem_auto_1fr] sm:items-center sm:gap-2">
                   <span className="text-xs font-semibold text-text-main sm:text-right sm:text-sm">Select Endpoint</span>
-                  <Icon name="arrow_forward" size={14} className="hidden text-text-muted sm:inline" />
+                  <span className="material-symbols-outlined hidden text-text-muted text-[14px] sm:inline">arrow_forward</span>
                   <BaseUrlSelect
                     value={customBaseUrl || getEffectiveBaseUrl()}
                     onChange={setCustomBaseUrl}
@@ -290,7 +279,7 @@ model = "${selectedModel || "provider/model-id"}"
                 {deepseekStatus?.settings?.["providers.openai"]?.base_url && (
                   <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-[8rem_auto_1fr_auto] sm:items-center sm:gap-2">
                     <span className="text-xs font-semibold text-text-main sm:text-right sm:text-sm">Current</span>
-                    <Icon name="arrow_forward" size={14} className="hidden text-text-muted sm:inline" />
+                    <span className="material-symbols-outlined hidden text-text-muted text-[14px] sm:inline">arrow_forward</span>
                     <span className="min-w-0 truncate rounded bg-surface/40 px-2 py-2 text-xs text-text-muted sm:py-1.5">
                       {deepseekStatus.settings["providers.openai"].base_url}
                     </span>
@@ -299,22 +288,16 @@ model = "${selectedModel || "provider/model-id"}"
 
                 <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-[8rem_auto_1fr_auto] sm:items-center sm:gap-2">
                   <span className="text-xs font-semibold text-text-main sm:text-right sm:text-sm">API Key</span>
-                  <Icon name="arrow_forward" size={14} className="hidden text-text-muted sm:inline" />
+                  <span className="material-symbols-outlined hidden text-text-muted text-[14px] sm:inline">arrow_forward</span>
                   <ApiKeySelect value={selectedApiKey} onChange={setSelectedApiKey} apiKeys={apiKeys} cloudEnabled={cloudEnabled} />
                 </div>
 
                 <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-[8rem_auto_1fr_auto] sm:items-center sm:gap-2">
                   <span className="text-xs font-semibold text-text-main sm:text-right sm:text-sm">Default Model</span>
-                  <Icon name="arrow_forward" size={14} className="hidden text-text-muted sm:inline" />
+                  <span className="material-symbols-outlined hidden text-text-muted text-[14px] sm:inline">arrow_forward</span>
                   <div className="relative w-full min-w-0">
                     <input type="text" value={selectedModel} onChange={(e) => setSelectedModel(e.target.value)} placeholder="provider/model-id" className="w-full min-w-0 pl-2 pr-7 py-2 bg-surface rounded border border-border text-xs focus:outline-none focus:ring-1 focus:ring-primary/50 sm:py-1.5" />
-<<<<<<< HEAD
-                    {selectedModel && <button onClick={() => setSelectedModel("")} className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 text-text-muted hover:text-feedback-danger-foreground rounded transition-colors" title="Clear"><Icon name="close" size={14} /></button>}
-||||||| e6e8d110
-                    {selectedModel && <button onClick={() => setSelectedModel("")} className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 text-text-muted hover:text-[var(--reddb-color-feedback-danger-foreground)] rounded transition-colors" title="Clear"><span className="material-symbols-outlined text-[14px]">close</span></button>}
-=======
                     {selectedModel && <button onClick={() => setSelectedModel("")} className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 text-text-muted hover:text-feedback-danger-foreground rounded transition-colors" title="Clear"><span className="material-symbols-outlined text-[14px]">close</span></button>}
->>>>>>> feat/ds-v2026.09
                   </div>
                   <button onClick={() => setModalOpen(true)} disabled={!hasActiveProviders} className={`w-full sm:w-auto rounded border px-2 py-2 text-xs transition-colors sm:py-1.5 whitespace-nowrap sm:shrink-0 ${hasActiveProviders ? "bg-surface border-border text-text-main hover:border-primary cursor-pointer" : "opacity-50 cursor-not-allowed border-border"}`}>Select</button>
                 </div>
@@ -322,27 +305,20 @@ model = "${selectedModel || "provider/model-id"}"
 
               {message && (
                 <div className={`flex items-center gap-2 px-2 py-1.5 rounded text-xs ${message.type === "success" ? "bg-feedback-success-surface text-feedback-success-foreground" : "bg-feedback-danger-surface text-feedback-danger-foreground"}`}>
-<<<<<<< HEAD
-                  <Icon name={message.type === "success" ? "check_circle" : "error"} size={14} />
-||||||| e6e8d110
-                <div className={`flex items-center gap-2 px-2 py-1.5 rounded text-xs ${message.type === "success" ? "bg-[var(--reddb-color-feedback-success-surface)] text-[var(--reddb-color-feedback-success-foreground)]" : "bg-[var(--reddb-color-feedback-danger-surface)] text-[var(--reddb-color-feedback-danger-foreground)]"}`}>
                   <span className="material-symbols-outlined text-[14px]">{message.type === "success" ? "check_circle" : "error"}</span>
-=======
-                  <span className="material-symbols-outlined text-[14px]">{message.type === "success" ? "check_circle" : "error"}</span>
->>>>>>> feat/ds-v2026.09
                   <span>{message.text}</span>
                 </div>
               )}
 
               <div className="grid grid-cols-1 gap-2 sm:flex sm:items-center">
                 <Button variant="primary" size="sm" onClick={handleApply} disabled={!selectedModel} loading={applying}>
-                  <Icon name="save" size={14} className="mr-1" />Apply
+                  <span className="material-symbols-outlined text-[14px] mr-1">save</span>Apply
                 </Button>
                 <Button variant="outline" size="sm" onClick={handleReset} disabled={!deepseekStatus?.hasRedRouter} loading={restoring}>
-                  <Icon name="restore" size={14} className="mr-1" />Reset
+                  <span className="material-symbols-outlined text-[14px] mr-1">restore</span>Reset
                 </Button>
                 <Button variant="ghost" size="sm" onClick={() => setShowManualConfigModal(true)}>
-                  <Icon name="content_copy" size={14} className="mr-1" />Manual Config
+                  <span className="material-symbols-outlined text-[14px] mr-1">content_copy</span>Manual Config
                 </Button>
               </div>
             </>

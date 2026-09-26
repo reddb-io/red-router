@@ -1,9 +1,4 @@
-<<<<<<< HEAD
-// GENERATED from vendor/ds/kits/app/src/primitives/nav-item.variants.ts by scripts/sync-ds-variants.mjs — do not edit.
-||||||| e6e8d110
-=======
 // GENERATED from vendor/ds/kits/app/nav-item.variants.ts by scripts/sync-ds-variants.mjs — do not edit.
->>>>>>> feat/ds-v2026.09
 // NavItem's styling. See button.variants.ts for the split, the colour rule and
 // the spatial rule.
 //

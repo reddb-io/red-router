@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef } from "react";
-import { Modal, Button, Icon } from "@/shared/components";
+import { Modal, Button } from "@/shared/components";
 import { translate } from "@/i18n/runtime";
 
 const PLACEHOLDER = `[
@@ -227,7 +227,7 @@ export default function BulkImportGrokCliModal({ isOpen, onClose, onSuccess }) {
 
           {isDragging && (
             <div className="absolute inset-0 flex flex-col items-center justify-center bg-sidebar/90 rounded pointer-events-none backdrop-blur-xs">
-              <Icon name="upload_file" className="text-3xl text-primary mb-1" />
+              <span className="material-symbols-outlined text-3xl text-primary mb-1">upload_file</span>
               <span className="text-sm font-medium text-primary">
                 {translate("Drop .json files here")}
               </span>
@@ -237,14 +237,7 @@ export default function BulkImportGrokCliModal({ isOpen, onClose, onSuccess }) {
 
         {fileCountInfo && (
           <div className="flex items-center gap-1.5 text-xs text-feedback-success-foreground font-medium bg-feedback-success-surface border border-feedback-success-border px-2.5 py-1.5 rounded">
-<<<<<<< HEAD
-            <Icon name="check_circle" className="text-sm" />
-||||||| e6e8d110
-          <div className="flex items-center gap-1.5 text-xs text-[var(--reddb-color-feedback-success-foreground)] font-medium bg-[var(--reddb-color-feedback-success-surface)] border border-[var(--reddb-color-feedback-success-border)] px-2.5 py-1.5 rounded">
             <span className="material-symbols-outlined text-sm">check_circle</span>
-=======
-            <span className="material-symbols-outlined text-sm">check_circle</span>
->>>>>>> feat/ds-v2026.09
             <span>
               {translate("Loaded")} {fileCountInfo.accountsCount} {translate("account(s) from")}{" "}
               {fileCountInfo.filesCount} {translate("file(s)")}

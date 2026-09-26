@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Card, Button, ModelSelectModal, ManualConfigModal, Icon } from "@/shared/components";
+import { Card, Button, ModelSelectModal, ManualConfigModal } from "@/shared/components";
 import { useModelCaps } from "@/shared/hooks/useModelCaps";
 import Image from "next/image";
 import BaseUrlSelect from "./BaseUrlSelect";
@@ -24,7 +24,7 @@ function ModelField({ label, value, placeholder, onChange, onSelect, disabled, h
         <span className="text-xs font-semibold text-text-main sm:text-sm">{label}</span>
         {help && <p className="mt-0.5 text-[10px] leading-tight text-text-muted">{help}</p>}
       </div>
-      <Icon name="arrow_forward" size={14} className="hidden text-text-muted sm:inline" />
+      <span className="material-symbols-outlined hidden text-text-muted text-[14px] sm:inline">arrow_forward</span>
       <div className="relative w-full min-w-0">
         <input
           type="text"
@@ -40,7 +40,7 @@ function ModelField({ label, value, placeholder, onChange, onSelect, disabled, h
             className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 text-text-muted hover:text-feedback-danger-foreground rounded transition-colors"
             title="Clear (inherit main model for subagents)"
           >
-            <Icon name="close" size={14} />
+            <span className="material-symbols-outlined text-[14px]">close</span>
           </button>
         )}
       </div>
@@ -278,29 +278,23 @@ export default function GrokBuildToolCard({
             <p className="text-xs text-text-muted truncate">{tool.description}</p>
           </div>
         </div>
-        <Icon name="expand_more" size={20} className={`text-text-muted transition-transform ${isExpanded ? "rotate-180" : ""}`} />
+        <span className={`material-symbols-outlined text-text-muted text-[20px] transition-transform ${isExpanded ? "rotate-180" : ""}`}>expand_more</span>
       </div>
 
       {isExpanded && (
         <div className="mt-4 pt-4 border-t border-border flex flex-col gap-4">
-          {checking && <div className="flex items-center gap-2 text-text-muted"><Icon name="progress_activity" size={24} className="animate-spin" /><span>Checking Grok Build...</span></div>}
+          {checking && <div className="flex items-center gap-2 text-text-muted"><span className="material-symbols-outlined animate-spin">progress_activity</span><span>Checking Grok Build...</span></div>}
 
           {!checking && grokStatus && !grokStatus.installed && (
             <div className="flex flex-col gap-3 p-4 bg-feedback-warning-surface border border-feedback-warning-border rounded-lg">
               <div className="flex items-start gap-3">
-<<<<<<< HEAD
-                <Icon name="warning" size={24} className="text-feedback-warning-foreground" />
-||||||| e6e8d110
-                <span className="material-symbols-outlined text-[var(--reddb-color-feedback-warning-foreground)]">warning</span>
-=======
                 <span className="material-symbols-outlined text-feedback-warning-foreground">warning</span>
->>>>>>> feat/ds-v2026.09
                 <div className="flex-1">
                   <p className="font-medium text-feedback-warning-foreground">Grok Build not detected locally</p>
                   <code className="block mt-2 p-2 bg-black/20 rounded text-xs font-mono">curl -fsSL https://x.ai/cli/install.sh | bash</code>
                 </div>
               </div>
-              <Button variant="secondary" size="sm" onClick={() => setShowManualConfigModal(true)} className="w-full sm:w-auto"><Icon name="content_copy" size={18} className="mr-1" />Manual Config</Button>
+              <Button variant="secondary" size="sm" onClick={() => setShowManualConfigModal(true)} className="w-full sm:w-auto"><span className="material-symbols-outlined text-[18px] mr-1">content_copy</span>Manual Config</Button>
             </div>
           )}
 
@@ -311,14 +305,7 @@ export default function GrokBuildToolCard({
                   <div className="mb-2 flex flex-col gap-2">
                     {tool.notes.map((note, index) => (
                       <div key={index} className={`flex items-start gap-2 rounded p-2 text-xs ${note.type === "warning" ? "bg-feedback-warning-surface text-feedback-warning-foreground" : "bg-feedback-info-surface text-feedback-info-foreground"}`}>
-<<<<<<< HEAD
-                        <Icon name={note.type === "warning" ? "warning" : "info"} size={14} className="mt-0.5" />
-||||||| e6e8d110
-                      <div key={index} className={`flex items-start gap-2 rounded p-2 text-xs ${note.type === "warning" ? "bg-[var(--reddb-color-feedback-warning-surface)] text-[var(--reddb-color-feedback-warning-foreground)]" : "bg-[var(--reddb-color-feedback-info-surface)] text-[var(--reddb-color-feedback-info-foreground)]"}`}>
                         <span className="material-symbols-outlined mt-0.5 text-[14px]">{note.type === "warning" ? "warning" : "info"}</span>
-=======
-                        <span className="material-symbols-outlined mt-0.5 text-[14px]">{note.type === "warning" ? "warning" : "info"}</span>
->>>>>>> feat/ds-v2026.09
                         <span>{note.text}</span>
                       </div>
                     ))}
@@ -326,21 +313,21 @@ export default function GrokBuildToolCard({
                 )}
                 <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-[8rem_auto_1fr] sm:items-center sm:gap-2">
                   <span className="text-xs font-semibold text-text-main sm:text-right sm:text-sm">Select Endpoint</span>
-                  <Icon name="arrow_forward" size={14} className="hidden text-text-muted sm:inline" />
+                  <span className="material-symbols-outlined hidden text-text-muted text-[14px] sm:inline">arrow_forward</span>
                   <BaseUrlSelect value={customBaseUrl || getEffectiveBaseUrl()} onChange={setCustomBaseUrl} requiresExternalUrl={tool.requiresExternalUrl} tunnelEnabled={tunnelEnabled} tunnelPublicUrl={tunnelPublicUrl} tailscaleEnabled={tailscaleEnabled} tailscaleUrl={tailscaleUrl} currentUrl={currentBaseUrl} />
                 </div>
 
                 {configuredModel?.base_url && (
                   <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-[8rem_auto_1fr] sm:items-center sm:gap-2">
                     <span className="text-xs font-semibold text-text-main sm:text-right sm:text-sm">Current</span>
-                    <Icon name="arrow_forward" size={14} className="hidden text-text-muted sm:inline" />
+                    <span className="material-symbols-outlined hidden text-text-muted text-[14px] sm:inline">arrow_forward</span>
                     <span className="min-w-0 truncate rounded bg-surface/40 px-2 py-2 text-xs text-text-muted sm:py-1.5">{configuredModel.base_url} · {configuredModel.model}{configuredModel.context_window ? ` · ${(configuredModel.context_window / 1000).toLocaleString()}K ctx` : ""}</span>
                   </div>
                 )}
 
                 <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-[8rem_auto_1fr] sm:items-center sm:gap-2">
                   <span className="text-xs font-semibold text-text-main sm:text-right sm:text-sm">API Key</span>
-                  <Icon name="arrow_forward" size={14} className="hidden text-text-muted sm:inline" />
+                  <span className="material-symbols-outlined hidden text-text-muted text-[14px] sm:inline">arrow_forward</span>
                   <ApiKeySelect value={selectedApiKey} onChange={setSelectedApiKey} apiKeys={apiKeys} cloudEnabled={cloudEnabled} />
                 </div>
 
@@ -348,7 +335,7 @@ export default function GrokBuildToolCard({
 
                 <div className="my-1 border-t border-border pt-3">
                   <div className="mb-2 flex items-start gap-2">
-                    <Icon name="account_tree" size={16} className="text-primary" />
+                    <span className="material-symbols-outlined text-primary text-[16px]">account_tree</span>
                     <div>
                       <p className="text-xs font-semibold text-text-main">Subagent model overrides</p>
                       <p className="text-[10px] text-text-muted">Leave blank to inherit Main Model. Each override keeps its own context window.</p>
@@ -370,18 +357,12 @@ export default function GrokBuildToolCard({
                 ))}
               </div>
 
-<<<<<<< HEAD
-              {message && <div className={`flex items-center gap-2 px-2 py-1.5 rounded text-xs ${message.type === "success" ? "bg-feedback-success-surface text-feedback-success-foreground" : "bg-feedback-danger-surface text-feedback-danger-foreground"}`}><Icon name={message.type === "success" ? "check_circle" : "error"} size={14} /><span>{message.text}</span></div>}
-||||||| e6e8d110
-              {message && <div className={`flex items-center gap-2 px-2 py-1.5 rounded text-xs ${message.type === "success" ? "bg-[var(--reddb-color-feedback-success-surface)] text-[var(--reddb-color-feedback-success-foreground)]" : "bg-[var(--reddb-color-feedback-danger-surface)] text-[var(--reddb-color-feedback-danger-foreground)]"}`}><span className="material-symbols-outlined text-[14px]">{message.type === "success" ? "check_circle" : "error"}</span><span>{message.text}</span></div>}
-=======
               {message && <div className={`flex items-center gap-2 px-2 py-1.5 rounded text-xs ${message.type === "success" ? "bg-feedback-success-surface text-feedback-success-foreground" : "bg-feedback-danger-surface text-feedback-danger-foreground"}`}><span className="material-symbols-outlined text-[14px]">{message.type === "success" ? "check_circle" : "error"}</span><span>{message.text}</span></div>}
->>>>>>> feat/ds-v2026.09
 
               <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-                <Button variant="primary" size="sm" onClick={handleApply} disabled={!selectedModel} loading={applying} className="w-full sm:w-auto"><Icon name="save" size={14} className="mr-1" />Apply</Button>
-                <Button variant="outline" size="sm" onClick={handleReset} disabled={!grokStatus?.hasRedRouter} loading={restoring} className="w-full sm:w-auto"><Icon name="restore" size={14} className="mr-1" />Reset</Button>
-                <Button variant="ghost" size="sm" onClick={() => setShowManualConfigModal(true)} className="w-full sm:w-auto"><Icon name="content_copy" size={14} className="mr-1" />Manual Config</Button>
+                <Button variant="primary" size="sm" onClick={handleApply} disabled={!selectedModel} loading={applying} className="w-full sm:w-auto"><span className="material-symbols-outlined text-[14px] mr-1">save</span>Apply</Button>
+                <Button variant="outline" size="sm" onClick={handleReset} disabled={!grokStatus?.hasRedRouter} loading={restoring} className="w-full sm:w-auto"><span className="material-symbols-outlined text-[14px] mr-1">restore</span>Reset</Button>
+                <Button variant="ghost" size="sm" onClick={() => setShowManualConfigModal(true)} className="w-full sm:w-auto"><span className="material-symbols-outlined text-[14px] mr-1">content_copy</span>Manual Config</Button>
               </div>
             </>
           )}

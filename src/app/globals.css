@@ -1,31 +1,6 @@
 /* source() sets scan base to src/ for both webpack + Turbopack; auto-detection still skips binaries + gitignore */
 @import "tailwindcss" source("../../");
 
-<<<<<<< HEAD
-/* RedDB Design System, synced into vendor/ds from design-system.manifest.json
-   (the design-system README, "Consuming it"). Its Application entry carries the
-   Brand fonts, tokens, the Base + Application theme, both colour schemes and
-   every density stop. The theme applies under [data-theme="application"], the
-   scheme under [data-color-scheme], the density under [data-density];
-   src/store/themeStore.js and the root layout script keep them in sync. The
-   dashboard is React, so it takes the CSS and the appearance contracts
-   (scripts/sync-ds-variants.mjs), never the Svelte kits: Tailwind skips them. */
-@import "../../vendor/ds/styles/application.css";
-@source not "../../vendor/ds/kits";
-||||||| e6e8d110
-/* RedDB Design System distribution — vendored byte-for-byte from
-   reddb-io/design-system v2026.08.5 (see vendor/ds/README.md). The theme
-   applies under [data-theme="application"], the scheme under
-   [data-color-scheme]; src/store/themeStore.js and the root layout script
-   keep both in sync with the Tailwind `.dark` class. */
-@import "../../vendor/ds/tokens.css";
-@import "../../vendor/ds/theme-base.css";
-@import "../../vendor/ds/theme-application.css";
-@import "../../vendor/ds/scheme-light.css";
-@import "../../vendor/ds/scheme-dark.css";
-@import "../../vendor/ds/theme.css";
-@import "../../vendor/ds/density-compact.css";
-=======
 /* RedDB Design System distribution — vendored byte-for-byte from
    reddb-io/design-system v2026.09 (see vendor/ds/README.md). The theme
    applies under [data-theme="application"], the scheme under
@@ -38,9 +13,12 @@
 @import "../../vendor/ds/scheme-dark.css";
 @import "../../vendor/ds/theme.css";
 @import "../../vendor/ds/density-compact.css";
->>>>>>> feat/ds-v2026.09
 
 @custom-variant dark (&:where(.dark, .dark *));
+
+/* Hide icon ligature text until font is ready */
+.material-symbols-outlined { opacity: 0; }
+.fonts-loaded .material-symbols-outlined { opacity: 1; transition: opacity .12s ease-out; }
 
 /* ============================================================
    Palette — bridged onto the vendored RedDB Design System tokens.
@@ -204,9 +182,10 @@ select {
   --shadow-elev: var(--shadow-elev);
   --shadow-focus: var(--shadow-focus);
 
-  /* Typography: the Brand's faces, served from vendor/ds/assets/fonts. */
-  --font-sans: var(--reddb-font-family-sans);
-  --font-mono: var(--reddb-font-family-mono);
+  /* Typography follows the vendored RedDB system. next/font supplies the
+     actual faces through these variables without a render-blocking request. */
+  --font-sans: var(--font-space-grotesk), var(--reddb-font-family-sans);
+  --font-mono: var(--font-jetbrains-mono), var(--reddb-font-family-mono);
 }
 
 /* Base */
@@ -253,21 +232,9 @@ body {
  * P5 H5 E4 S5 R5 V4 — task-first, operational, no decorative chrome.
  */
 .setup-workbench {
-  width: 100%;
+  width: min(100%, 72rem);
+  margin-inline: auto;
   min-width: 0;
-}
-
-/* Settings: cards flow into two columns on wide screens, in reading order. */
-.settings-grid {
-  columns: 1;
-  column-gap: var(--reddb-spacing-6);
-}
-.settings-grid > * {
-  break-inside: avoid;
-  margin-bottom: var(--reddb-spacing-6);
-}
-@media (min-width: 80rem) {
-  .settings-grid { columns: 2; }
 }
 
 .setup-heading {
@@ -370,7 +337,7 @@ body {
 .setup-secret-note { margin-bottom: var(--reddb-spacing-2); color: var(--color-warning); font-size: var(--reddb-font-size-xs); }
 .setup-checks { grid-column: 2 / -1; display: grid; gap: var(--reddb-spacing-2); padding: 0; list-style: none; }
 .setup-checks li { display: flex; align-items: flex-start; gap: var(--reddb-spacing-2); font-size: var(--reddb-font-size-sm); }
-.setup-checks [data-icon] { margin-top: .1rem; }
+.setup-checks .material-symbols-outlined { font-size: 1.125rem; margin-top: .1rem; }
 .setup-checks .is-pass { color: var(--color-success); }
 .setup-checks .is-fail { color: var(--color-danger); }
 .setup-organize { grid-column: 2 / -1; min-width: 0; }
@@ -385,7 +352,7 @@ body {
   background: var(--color-surface);
   padding: var(--reddb-spacing-4);
 }
-.setup-success > [data-icon] { color: var(--color-success); }
+.setup-success > .material-symbols-outlined { color: var(--color-success); }
 .setup-success p { color: var(--color-text-muted); font-size: var(--reddb-font-size-sm); }
 .setup-success a { min-height: 2.75rem; display: inline-flex; align-items: center; color: var(--color-primary); white-space: nowrap; }
 
@@ -665,12 +632,12 @@ body {
  * icons: pass (30) · mobile: pass (34, 49, 50–57)
  * motion: state-only · enrichment: none
  */
-/* Pages fill the layout's page frame (DashboardLayout); they never set their own width. */
 .usage-workbench,
 .skills-workbench {
   display: flex;
-  width: 100%;
+  width: min(100%, 76rem);
   min-width: 0;
+  margin-inline: auto;
   flex-direction: column;
 }
 
@@ -985,10 +952,8 @@ body {
   .skills-footer { grid-template-columns: minmax(0, 1fr) auto; }
 }
 
-/* Side by side only when the requests table still gets room to show model ids
-   in full; below that it takes the whole width under the topology. */
-@media (min-width: 80rem) {
-  .usage-live-grid { grid-template-columns: minmax(0, 1fr) minmax(32rem, 1fr); }
+@media (min-width: 60rem) {
+  .usage-live-grid { grid-template-columns: minmax(0, 2fr) minmax(18rem, 1fr); }
 }
 
 .segmented-control__button {
@@ -1132,6 +1097,28 @@ input, textarea {
 .traffic-light.red { background: #FF5F56; }
 .traffic-light.yellow { background: #FFBD2E; }
 .traffic-light.green { background: #27C93F; }
+
+/* Material Symbols */
+.material-symbols-outlined {
+  font-family: 'Material Symbols Outlined', sans-serif;
+  font-weight: normal;
+  font-style: normal;
+  font-size: 24px;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  font-feature-settings: 'liga';
+  -webkit-font-feature-settings: 'liga';
+  -webkit-font-smoothing: antialiased;
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+}
+.material-symbols-outlined.fill-1 {
+  font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+}
 
 /* Disable text selection on buttons */
 button {

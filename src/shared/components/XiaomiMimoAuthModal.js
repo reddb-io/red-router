@@ -3,7 +3,6 @@
 import { useState, useEffect } from "react";
 import PropTypes from "prop-types";
 import { Modal, Button } from "@/shared/components";
-import Icon from "./Icon";
 
 /**
  * Xiaomi MiMo Auth Modal
@@ -145,7 +144,9 @@ export default function XiaomiMimoAuthModal({ isOpen, onSuccess, onClose }) {
         {phase === "detecting" && (
           <div className="text-center py-6">
             <div className="size-16 mx-auto mb-4 rounded-full bg-primary/10 flex items-center justify-center">
-              <Icon name="progress_activity" className="text-3xl text-primary animate-spin" />
+              <span className="material-symbols-outlined text-3xl text-primary animate-spin">
+                progress_activity
+              </span>
             </div>
             <h3 className="text-lg font-semibold mb-2">Reading local credentials...</h3>
             <p className="text-sm text-text-muted">
@@ -159,14 +160,7 @@ export default function XiaomiMimoAuthModal({ isOpen, onSuccess, onClose }) {
           <>
             <div className="bg-feedback-success-surface p-3 rounded-lg border border-feedback-success-border">
               <div className="flex gap-2">
-<<<<<<< HEAD
-                <Icon name="check_circle" size={24} className="text-feedback-success-foreground" />
-||||||| e6e8d110
-                <span className="material-symbols-outlined text-[var(--reddb-color-feedback-success-foreground)]">check_circle</span>
-                <div className="text-sm text-[var(--reddb-color-feedback-success-foreground)]">
-=======
                 <span className="material-symbols-outlined text-feedback-success-foreground">check_circle</span>
->>>>>>> feat/ds-v2026.09
                 <div className="text-sm text-feedback-success-foreground">
                   <p className="font-medium">Xiaomi MiMo Desktop credentials found!</p>
                   <p className="mt-1 opacity-80">
@@ -197,7 +191,9 @@ export default function XiaomiMimoAuthModal({ isOpen, onSuccess, onClose }) {
         {phase === "importing" && (
           <div className="text-center py-6">
             <div className="size-16 mx-auto mb-4 rounded-full bg-primary/10 flex items-center justify-center">
-              <Icon name="progress_activity" className="text-3xl text-primary animate-spin" />
+              <span className="material-symbols-outlined text-3xl text-primary animate-spin">
+                progress_activity
+              </span>
             </div>
             <h3 className="text-lg font-semibold mb-2">Connecting...</h3>
           </div>
@@ -208,14 +204,7 @@ export default function XiaomiMimoAuthModal({ isOpen, onSuccess, onClose }) {
           <>
             <div className="bg-feedback-warning-surface p-3 rounded-lg border border-feedback-warning-border">
               <div className="flex gap-2 items-start">
-<<<<<<< HEAD
-                <Icon name="info" size={24} className="text-feedback-warning-foreground" />
-||||||| e6e8d110
-                <span className="material-symbols-outlined text-[var(--reddb-color-feedback-warning-foreground)]">info</span>
-                <div className="text-sm text-[var(--reddb-color-feedback-warning-foreground)]">
-=======
                 <span className="material-symbols-outlined text-feedback-warning-foreground">info</span>
->>>>>>> feat/ds-v2026.09
                 <div className="text-sm text-feedback-warning-foreground">
                   <p className="font-medium">Local credentials not found</p>
                   <p className="mt-1 opacity-80">{error}</p>
