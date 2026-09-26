@@ -145,6 +145,11 @@ export function buildReasoningQuestions() {
   return { questions: { [DELIBERATION_KEY]: DELIBERATION_QUESTION } };
 }
 
+/** Deliberation alone: the reasoning autopilot's question when no model decision ran. */
+export function buildReasoningQuestions() {
+  return { questions: { [DELIBERATION_KEY]: DELIBERATION_QUESTION } };
+}
+
 /** Tools kept for jev when a roster is too big to judge well. */
 export const SHORTLIST_MAX = 24;
 
