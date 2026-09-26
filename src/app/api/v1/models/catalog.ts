@@ -305,17 +305,9 @@ async function buildUnifiedModelsResponseCore(
   // #9147: this builder walks connections + model registries at catalog scale with no
   // event-loop yield, so a large deployment pins the single Node.js thread for the
   // whole build (reporter: 183 connections / 2000+ models → 10.1s stall that blocks the
-  // dashboard WS heartbeat). Yield every `catYIELD_EVERY` items across the hot loops.
-  // A five-model batch exceeded the responsiveness guard under catalog-scale CI load.
-  // Yield after each model so one expensive entry cannot multiply into a long stall.
-  const catYIELD_EVERY = 1;
-  let catYieldCount = 0;
-  const maybeYieldCatalogBuild = async (): Promise<void> => {
-    catYieldCount++;
-    if (catYieldCount % catYIELD_EVERY === 0) {
-      await yieldCatalogBuildTurn();
-    }
-  };
+  // dashboard WS heartbeat). Yield after each item in the hot loops; a five-model
+  // batch exceeded the responsiveness guard under catalog-scale CI load.
+  const maybeYieldCatalogBuild = yieldCatalogBuildTurn;
   try {
     // #9147/#12172: bulk-load the hidden-model map once PER MODALITY (memoized below,
     // one SQLite query per modality actually used) instead of `getModelIsHidden()`'s
