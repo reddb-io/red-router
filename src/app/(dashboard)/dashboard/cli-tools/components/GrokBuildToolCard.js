@@ -288,7 +288,13 @@ export default function GrokBuildToolCard({
           {!checking && grokStatus && !grokStatus.installed && (
             <div className="flex flex-col gap-3 p-4 bg-feedback-warning-surface border border-feedback-warning-border rounded-lg">
               <div className="flex items-start gap-3">
+<<<<<<< HEAD
                 <Icon name="warning" size={24} className="text-feedback-warning-foreground" />
+||||||| e6e8d110
+                <span className="material-symbols-outlined text-[var(--reddb-color-feedback-warning-foreground)]">warning</span>
+=======
+                <span className="material-symbols-outlined text-feedback-warning-foreground">warning</span>
+>>>>>>> feat/ds-v2026.09
                 <div className="flex-1">
                   <p className="font-medium text-feedback-warning-foreground">Grok Build not detected locally</p>
                   <code className="block mt-2 p-2 bg-black/20 rounded text-xs font-mono">curl -fsSL https://x.ai/cli/install.sh | bash</code>
@@ -305,7 +311,14 @@ export default function GrokBuildToolCard({
                   <div className="mb-2 flex flex-col gap-2">
                     {tool.notes.map((note, index) => (
                       <div key={index} className={`flex items-start gap-2 rounded p-2 text-xs ${note.type === "warning" ? "bg-feedback-warning-surface text-feedback-warning-foreground" : "bg-feedback-info-surface text-feedback-info-foreground"}`}>
+<<<<<<< HEAD
                         <Icon name={note.type === "warning" ? "warning" : "info"} size={14} className="mt-0.5" />
+||||||| e6e8d110
+                      <div key={index} className={`flex items-start gap-2 rounded p-2 text-xs ${note.type === "warning" ? "bg-[var(--reddb-color-feedback-warning-surface)] text-[var(--reddb-color-feedback-warning-foreground)]" : "bg-[var(--reddb-color-feedback-info-surface)] text-[var(--reddb-color-feedback-info-foreground)]"}`}>
+                        <span className="material-symbols-outlined mt-0.5 text-[14px]">{note.type === "warning" ? "warning" : "info"}</span>
+=======
+                        <span className="material-symbols-outlined mt-0.5 text-[14px]">{note.type === "warning" ? "warning" : "info"}</span>
+>>>>>>> feat/ds-v2026.09
                         <span>{note.text}</span>
                       </div>
                     ))}
@@ -357,7 +370,13 @@ export default function GrokBuildToolCard({
                 ))}
               </div>
 
+<<<<<<< HEAD
               {message && <div className={`flex items-center gap-2 px-2 py-1.5 rounded text-xs ${message.type === "success" ? "bg-feedback-success-surface text-feedback-success-foreground" : "bg-feedback-danger-surface text-feedback-danger-foreground"}`}><Icon name={message.type === "success" ? "check_circle" : "error"} size={14} /><span>{message.text}</span></div>}
+||||||| e6e8d110
+              {message && <div className={`flex items-center gap-2 px-2 py-1.5 rounded text-xs ${message.type === "success" ? "bg-[var(--reddb-color-feedback-success-surface)] text-[var(--reddb-color-feedback-success-foreground)]" : "bg-[var(--reddb-color-feedback-danger-surface)] text-[var(--reddb-color-feedback-danger-foreground)]"}`}><span className="material-symbols-outlined text-[14px]">{message.type === "success" ? "check_circle" : "error"}</span><span>{message.text}</span></div>}
+=======
+              {message && <div className={`flex items-center gap-2 px-2 py-1.5 rounded text-xs ${message.type === "success" ? "bg-feedback-success-surface text-feedback-success-foreground" : "bg-feedback-danger-surface text-feedback-danger-foreground"}`}><span className="material-symbols-outlined text-[14px]">{message.type === "success" ? "check_circle" : "error"}</span><span>{message.text}</span></div>}
+>>>>>>> feat/ds-v2026.09
 
               <div className="flex flex-col sm:flex-row sm:items-center gap-2">
                 <Button variant="primary" size="sm" onClick={handleApply} disabled={!selectedModel} loading={applying} className="w-full sm:w-auto"><Icon name="save" size={14} className="mr-1" />Apply</Button>

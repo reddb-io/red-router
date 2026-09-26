@@ -1269,7 +1269,17 @@ export default function ProviderLimits() {
                   </div>
                 ) : error ? (
                   <div className="text-center py-5">
+<<<<<<< HEAD
                     <Icon name="error" size={28} className="text-feedback-danger-foreground" />
+||||||| e6e8d110
+                    <span className="material-symbols-outlined text-[28px] text-[var(--reddb-color-feedback-danger-foreground)]">
+                      error
+                    </span>
+=======
+                    <span className="material-symbols-outlined text-[28px] text-feedback-danger-foreground">
+                      error
+                    </span>
+>>>>>>> feat/ds-v2026.09
                     <p className="mt-1.5 text-xs text-text-muted">{error}</p>
                   </div>
                 ) : quota?.message ? (

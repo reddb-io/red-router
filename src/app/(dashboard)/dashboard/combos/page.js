@@ -886,7 +886,14 @@ function CapacityAdapterCap({ cap, entry, onChange, activeProviders, getCaps }) 
                       <Icon name="arrow_downward" size={12} />
                     </button>
                     <button onClick={() => handleRemove(index)} className="leading-none opacity-0 group-hover/chip:opacity-100 text-text-muted hover:text-feedback-danger-foreground">
+<<<<<<< HEAD
                       <Icon name="close" size={12} />
+||||||| e6e8d110
+                    <button onClick={() => handleRemove(index)} className="leading-none opacity-0 group-hover/chip:opacity-100 text-text-muted hover:text-[var(--reddb-color-feedback-danger-foreground)]">
+                      <span className="material-symbols-outlined text-[12px]">close</span>
+=======
+                      <span className="material-symbols-outlined text-[12px]">close</span>
+>>>>>>> feat/ds-v2026.09
                     </button>
                   </code>
                 ))

@@ -869,7 +869,14 @@ export default function APIPageClient({ machineId }) {
             ) : tunnelEnabled && !tunnelLoading && !tunnelReachable ? (
               <>
                 <div className="flex-1 flex items-center gap-2 px-3 py-1.5 rounded border border-feedback-warning-border bg-feedback-warning-surface text-sm text-feedback-warning-foreground">
+<<<<<<< HEAD
                   <Icon name="progress_activity" className="animate-spin text-sm" />
+||||||| e6e8d110
+                <div className="flex-1 flex items-center gap-2 px-3 py-1.5 rounded border border-[var(--reddb-color-feedback-warning-border)] bg-[var(--reddb-color-feedback-warning-surface)] text-sm text-[var(--reddb-color-feedback-warning-foreground)]">
+                  <span className="material-symbols-outlined animate-spin text-sm">progress_activity</span>
+=======
+                  <span className="material-symbols-outlined animate-spin text-sm">progress_activity</span>
+>>>>>>> feat/ds-v2026.09
                   {tunnelEverReachable ? "Tunnel reconnecting..." : "Tunnel checking..."}
                 </div>
                 <button
@@ -897,7 +904,14 @@ export default function APIPageClient({ machineId }) {
             ) : tunnelStatus?.type === "error" ? (
               <>
                 <div className="flex-1 flex items-center gap-2 px-3 py-1.5 rounded border border-feedback-danger-border bg-feedback-danger-surface text-sm text-feedback-danger-foreground">
+<<<<<<< HEAD
                   <Icon name="error" className="text-sm" />
+||||||| e6e8d110
+                <div className="flex-1 flex items-center gap-2 px-3 py-1.5 rounded border border-[var(--reddb-color-feedback-danger-border)] bg-[var(--reddb-color-feedback-danger-surface)] text-sm text-[var(--reddb-color-feedback-danger-foreground)]">
+                  <span className="material-symbols-outlined text-sm">error</span>
+=======
+                  <span className="material-symbols-outlined text-sm">error</span>
+>>>>>>> feat/ds-v2026.09
                   {tunnelStatus.message}
                 </div>
                 <Button size="sm" icon="cloud_upload" onClick={() => setShowEnableTunnelModal(true)}>Enable</Button>
@@ -961,7 +975,14 @@ export default function APIPageClient({ machineId }) {
             ) : tsEnabled && !tsLoading && !tsReachable ? (
               <>
                 <div className="flex-1 flex items-center gap-2 px-3 py-1.5 rounded border border-feedback-warning-border bg-feedback-warning-surface text-sm text-feedback-warning-foreground">
+<<<<<<< HEAD
                   <Icon name="progress_activity" className="animate-spin text-sm" />
+||||||| e6e8d110
+                <div className="flex-1 flex items-center gap-2 px-3 py-1.5 rounded border border-[var(--reddb-color-feedback-warning-border)] bg-[var(--reddb-color-feedback-warning-surface)] text-sm text-[var(--reddb-color-feedback-warning-foreground)]">
+                  <span className="material-symbols-outlined animate-spin text-sm">progress_activity</span>
+=======
+                  <span className="material-symbols-outlined animate-spin text-sm">progress_activity</span>
+>>>>>>> feat/ds-v2026.09
                   {tsEverReachable ? "Tailscale reconnecting..." : "Tailscale checking..."}
                 </div>
                 <button
@@ -998,7 +1019,14 @@ export default function APIPageClient({ machineId }) {
             ) : tsStatus?.type === "error" ? (
               <>
                 <div className="flex-1 flex items-center gap-2 px-3 py-1.5 rounded border border-feedback-danger-border bg-feedback-danger-surface text-sm text-feedback-danger-foreground">
+<<<<<<< HEAD
                   <Icon name="error" className="text-sm" />
+||||||| e6e8d110
+                <div className="flex-1 flex items-center gap-2 px-3 py-1.5 rounded border border-[var(--reddb-color-feedback-danger-border)] bg-[var(--reddb-color-feedback-danger-surface)] text-sm text-[var(--reddb-color-feedback-danger-foreground)]">
+                  <span className="material-symbols-outlined text-sm">error</span>
+=======
+                  <span className="material-symbols-outlined text-sm">error</span>
+>>>>>>> feat/ds-v2026.09
                   {tsStatus.message}
                 </div>
                 <Button size="sm" icon="vpn_lock" onClick={handleOpenTsModal}>Enable</Button>
@@ -1206,6 +1234,7 @@ export default function APIPageClient({ machineId }) {
                   </div>
                   {key.isActive === false && (
                     <p className="text-xs text-feedback-warning-foreground mt-1.5">Paused</p>
+<<<<<<< HEAD
                   )}
                   {(key.modelAccess || key.limits) && (
                     <p className="mt-1.5 flex items-center gap-1 text-xs text-text-muted">
@@ -1217,6 +1246,10 @@ export default function APIPageClient({ machineId }) {
                         key.limits?.usdPerMonth && `$${key.limits.usdPerMonth}/month`,
                       ].filter(Boolean).join(" · ")}
                     </p>
+||||||| e6e8d110
+                    <p className="text-xs text-[var(--reddb-color-feedback-warning-foreground)] mt-1.5">Paused</p>
+=======
+>>>>>>> feat/ds-v2026.09
                   )}
                   {(key.modelAccess || key.limits) && (
                     <p className="mt-1.5 flex items-center gap-1 text-xs text-text-muted">
@@ -1386,9 +1419,29 @@ export default function APIPageClient({ machineId }) {
         onClose={() => setCreatedKey(null)}
       >
         <div className="flex flex-col gap-4">
+<<<<<<< HEAD
           <p className="text-sm text-text-muted">
             You can show or copy this key again anytime from the API keys list.
           </p>
+||||||| e6e8d110
+          <div className="bg-[var(--reddb-color-feedback-warning-surface)] border border-[var(--reddb-color-feedback-warning-border)] rounded-lg p-4">
+            <p className="text-sm text-[var(--reddb-color-feedback-warning-foreground)] mb-2 font-medium">
+              Save this key now!
+            </p>
+            <p className="text-sm text-[var(--reddb-color-feedback-warning-foreground)]">
+              This is the only time you will see this key. Store it securely.
+            </p>
+          </div>
+=======
+          <div className="bg-feedback-warning-surface border border-feedback-warning-border rounded-lg p-4">
+            <p className="text-sm text-feedback-warning-foreground mb-2 font-medium">
+              Save this key now!
+            </p>
+            <p className="text-sm text-feedback-warning-foreground">
+              This is the only time you will see this key. Store it securely.
+            </p>
+          </div>
+>>>>>>> feat/ds-v2026.09
           <div className="flex gap-2">
             <Input
               value={createdKey || ""}
@@ -1519,7 +1572,14 @@ export default function APIPageClient({ machineId }) {
           {tsInstalled === true && !tsInstalling && (
             <div className="flex flex-col gap-3">
               <div className="flex items-center gap-2 text-sm text-feedback-success-foreground">
+<<<<<<< HEAD
                 <Icon name="check_circle" size={16} />
+||||||| e6e8d110
+              <div className="flex items-center gap-2 text-sm text-[var(--reddb-color-feedback-success-foreground)]">
+                <span className="material-symbols-outlined text-[16px]">check_circle</span>
+=======
+                <span className="material-symbols-outlined text-[16px]">check_circle</span>
+>>>>>>> feat/ds-v2026.09
                 Tailscale installed
               </div>
               <div className="flex gap-2">

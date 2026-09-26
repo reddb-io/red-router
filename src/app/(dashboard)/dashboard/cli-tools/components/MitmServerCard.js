@@ -153,7 +153,18 @@ export default function MitmServerCard({ apiKeys, cloudEnabled, onStatusChange }
                 { label: "Server", ok: isRunning },
               ].map(({ label, ok }) => (
                 <span key={label} className={`flex items-center gap-0.5 px-1.5 py-0.5 rounded ${ok ? "text-feedback-success-foreground" : "text-text-muted"}`}>
+<<<<<<< HEAD
                   <Icon name={ok ? "check_circle" : "cancel"} size={12} />
+||||||| e6e8d110
+                <span key={label} className={`flex items-center gap-0.5 px-1.5 py-0.5 rounded ${ok ? "text-[var(--reddb-color-feedback-success-foreground)]" : "text-text-muted"}`}>
+                  <span className="material-symbols-outlined text-[12px]">
+                    {ok ? "check_circle" : "cancel"}
+                  </span>
+=======
+                  <span className="material-symbols-outlined text-[12px]">
+                    {ok ? "check_circle" : "cancel"}
+                  </span>
+>>>>>>> feat/ds-v2026.09
                   {label}
                 </span>
               ))}
@@ -247,7 +258,14 @@ export default function MitmServerCard({ apiKeys, cloudEnabled, onStatusChange }
           {/* Action error */}
           {actionError && (
             <div className="flex items-start gap-2 px-2 py-1.5 rounded text-xs bg-feedback-danger-surface text-feedback-danger-foreground border border-feedback-danger-border">
+<<<<<<< HEAD
               <Icon name="error" size={14} className="mt-0.5 shrink-0" />
+||||||| e6e8d110
+            <div className="flex items-start gap-2 px-2 py-1.5 rounded text-xs bg-[var(--reddb-color-feedback-danger-surface)] text-[var(--reddb-color-feedback-danger-foreground)] border border-[var(--reddb-color-feedback-danger-border)]">
+              <span className="material-symbols-outlined text-[14px] mt-0.5 shrink-0">error</span>
+=======
+              <span className="material-symbols-outlined text-[14px] mt-0.5 shrink-0">error</span>
+>>>>>>> feat/ds-v2026.09
               <span>{actionError}</span>
             </div>
           )}
@@ -255,7 +273,14 @@ export default function MitmServerCard({ apiKeys, cloudEnabled, onStatusChange }
           {/* Windows admin warning */}
           {serverIsWindows && !isAdmin && (
             <div className="flex items-center gap-2 px-2 py-1.5 rounded text-xs bg-feedback-danger-surface text-feedback-danger-foreground border border-feedback-danger-border">
+<<<<<<< HEAD
               <Icon name="shield_lock" size={14} />
+||||||| e6e8d110
+            <div className="flex items-center gap-2 px-2 py-1.5 rounded text-xs bg-[var(--reddb-color-feedback-danger-surface)] text-[var(--reddb-color-feedback-danger-foreground)] border border-[var(--reddb-color-feedback-danger-border)]">
+              <span className="material-symbols-outlined text-[14px]">shield_lock</span>
+=======
+              <span className="material-symbols-outlined text-[14px]">shield_lock</span>
+>>>>>>> feat/ds-v2026.09
               <span>Administrator required — restart RedRouter as Administrator to use MITM</span>
             </div>
           )}
@@ -268,7 +293,14 @@ export default function MitmServerCard({ apiKeys, cloudEnabled, onStatusChange }
           <div className="mx-4 flex w-full max-w-sm flex-col gap-4 rounded-xl border border-border bg-surface p-5 shadow-xl sm:p-6">
             <h3 className="font-semibold text-text-main">Sudo Password Required</h3>
             <div className="flex items-start gap-3 p-3 bg-feedback-warning-surface border border-feedback-warning-border rounded-lg">
+<<<<<<< HEAD
               <Icon name="warning" size={20} className="text-feedback-warning-foreground" />
+||||||| e6e8d110
+            <div className="flex items-start gap-3 p-3 bg-[var(--reddb-color-feedback-warning-surface)] border border-[var(--reddb-color-feedback-warning-border)] rounded-lg">
+              <span className="material-symbols-outlined text-[var(--reddb-color-feedback-warning-foreground)] text-[20px]">warning</span>
+=======
+              <span className="material-symbols-outlined text-feedback-warning-foreground text-[20px]">warning</span>
+>>>>>>> feat/ds-v2026.09
               <p className="text-xs text-text-muted">Required for SSL certificate and server startup</p>
             </div>
             <Input
@@ -280,7 +312,14 @@ export default function MitmServerCard({ apiKeys, cloudEnabled, onStatusChange }
             />
             {modalError && (
               <div className="flex items-center gap-2 px-2 py-1.5 rounded text-xs bg-feedback-danger-surface text-feedback-danger-foreground">
+<<<<<<< HEAD
                 <Icon name="error" size={14} />
+||||||| e6e8d110
+              <div className="flex items-center gap-2 px-2 py-1.5 rounded text-xs bg-[var(--reddb-color-feedback-danger-surface)] text-[var(--reddb-color-feedback-danger-foreground)]">
+                <span className="material-symbols-outlined text-[14px]">error</span>
+=======
+                <span className="material-symbols-outlined text-[14px]">error</span>
+>>>>>>> feat/ds-v2026.09
                 <span>{modalError}</span>
               </div>
             )}
@@ -302,7 +341,14 @@ export default function MitmServerCard({ apiKeys, cloudEnabled, onStatusChange }
           <div className="mx-4 flex w-full max-w-md flex-col gap-4 rounded-xl border border-border bg-surface p-5 shadow-xl sm:p-6">
             <h3 className="font-semibold text-text-main">Port 443 Already In Use</h3>
             <div className="flex items-start gap-3 p-3 bg-feedback-warning-surface border border-feedback-warning-border rounded-lg">
+<<<<<<< HEAD
               <Icon name="warning" size={20} className="text-feedback-warning-foreground" />
+||||||| e6e8d110
+            <div className="flex items-start gap-3 p-3 bg-[var(--reddb-color-feedback-warning-surface)] border border-[var(--reddb-color-feedback-warning-border)] rounded-lg">
+              <span className="material-symbols-outlined text-[var(--reddb-color-feedback-warning-foreground)] text-[20px]">warning</span>
+=======
+              <span className="material-symbols-outlined text-feedback-warning-foreground text-[20px]">warning</span>
+>>>>>>> feat/ds-v2026.09
               <div className="flex flex-col gap-1 text-xs text-text-muted">
                 <p>Port 443 is currently used by another process:</p>
                 <p className="font-mono text-text-main" data-i18n-skip="true">

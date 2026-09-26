@@ -219,7 +219,15 @@ export default function CopilotToolCard({ tool, isExpanded, onToggle, baseUrl, a
           {!checking && (
             <>
               <div className="flex items-start gap-3 p-3 bg-feedback-info-surface border border-feedback-info-border rounded-lg">
+<<<<<<< HEAD
                 <Icon name="info" className="text-feedback-info-foreground text-lg" />
+||||||| e6e8d110
+              <div className="flex items-start gap-3 p-3 bg-[var(--reddb-color-feedback-info-surface)] border border-[var(--reddb-color-feedback-info-border)] rounded-lg">
+                <span className="material-symbols-outlined text-[var(--reddb-color-feedback-info-foreground)] text-lg">info</span>
+                <div className="text-xs text-[var(--reddb-color-feedback-info-foreground)]">
+=======
+                <span className="material-symbols-outlined text-feedback-info-foreground text-lg">info</span>
+>>>>>>> feat/ds-v2026.09
                 <div className="text-xs text-feedback-info-foreground">
                   <p className="font-medium">Writes to <code className="px-1 bg-muted/50 rounded">chatLanguageModels.json</code></p>
                   <p className="mt-0.5 opacity-80">Reload VS Code after applying for changes to take effect.</p>
@@ -263,7 +271,14 @@ export default function CopilotToolCard({ tool, isExpanded, onToggle, baseUrl, a
                           <span key={model} className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-muted/50 text-text-muted border border-transparent hover:border-border">
                             {model}
                             <button onClick={(e) => { e.stopPropagation(); removeModel(model); }} className="ml-0.5 hover:text-feedback-danger-foreground">
+<<<<<<< HEAD
                               <Icon name="close" size={12} />
+||||||| e6e8d110
+                            <button onClick={(e) => { e.stopPropagation(); removeModel(model); }} className="ml-0.5 hover:text-[var(--reddb-color-feedback-danger-foreground)]">
+                              <span className="material-symbols-outlined text-[12px]">close</span>
+=======
+                              <span className="material-symbols-outlined text-[12px]">close</span>
+>>>>>>> feat/ds-v2026.09
                             </button>
                           </span>
                         ))
@@ -278,7 +293,14 @@ export default function CopilotToolCard({ tool, isExpanded, onToggle, baseUrl, a
 
               {message && (
                 <div className={`flex items-center gap-2 px-2 py-1.5 rounded text-xs ${message.type === "success" ? "bg-feedback-success-surface text-feedback-success-foreground" : "bg-feedback-danger-surface text-feedback-danger-foreground"}`}>
+<<<<<<< HEAD
                   <Icon name={message.type === "success" ? "check_circle" : "error"} size={14} />
+||||||| e6e8d110
+                <div className={`flex items-center gap-2 px-2 py-1.5 rounded text-xs ${message.type === "success" ? "bg-[var(--reddb-color-feedback-success-surface)] text-[var(--reddb-color-feedback-success-foreground)]" : "bg-[var(--reddb-color-feedback-danger-surface)] text-[var(--reddb-color-feedback-danger-foreground)]"}`}>
+                  <span className="material-symbols-outlined text-[14px]">{message.type === "success" ? "check_circle" : "error"}</span>
+=======
+                  <span className="material-symbols-outlined text-[14px]">{message.type === "success" ? "check_circle" : "error"}</span>
+>>>>>>> feat/ds-v2026.09
                   <span>{message.text}</span>
                 </div>
               )}

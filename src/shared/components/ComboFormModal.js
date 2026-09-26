@@ -45,7 +45,14 @@ function ModelItem({ index, model, isFirst, isLast, onEdit, onMoveUp, onMoveDown
         </button>
       </div>
       <button onClick={onRemove} className="p-0.5 hover:bg-feedback-danger-surface rounded text-text-muted hover:text-feedback-danger-foreground transition-all" title="Remove">
+<<<<<<< HEAD
         <Icon name="close" size={12} />
+||||||| e6e8d110
+      <button onClick={onRemove} className="p-0.5 hover:bg-[var(--reddb-color-feedback-danger-surface)] rounded text-text-muted hover:text-[var(--reddb-color-feedback-danger-foreground)] transition-all" title="Remove">
+        <span className="material-symbols-outlined text-[12px]">close</span>
+=======
+        <span className="material-symbols-outlined text-[12px]">close</span>
+>>>>>>> feat/ds-v2026.09
       </button>
     </div>
   );

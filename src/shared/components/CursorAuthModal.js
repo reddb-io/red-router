@@ -113,7 +113,14 @@ export default function CursorAuthModal({ isOpen, onSuccess, onClose }) {
             {autoDetected && (
               <div className="bg-feedback-success-surface p-3 rounded-lg border border-feedback-success-border">
                 <div className="flex gap-2">
+<<<<<<< HEAD
                   <Icon name="check_circle" size={24} className="text-feedback-success-foreground" />
+||||||| e6e8d110
+                  <span className="material-symbols-outlined text-[var(--reddb-color-feedback-success-foreground)]">check_circle</span>
+                  <p className="text-sm text-[var(--reddb-color-feedback-success-foreground)]">
+=======
+                  <span className="material-symbols-outlined text-feedback-success-foreground">check_circle</span>
+>>>>>>> feat/ds-v2026.09
                   <p className="text-sm text-feedback-success-foreground">
                     Tokens auto-detected from Cursor IDE successfully!
                   </p>
@@ -125,7 +132,14 @@ export default function CursorAuthModal({ isOpen, onSuccess, onClose }) {
             {windowsManual && (
               <div className="bg-feedback-warning-surface p-3 rounded-lg border border-feedback-warning-border flex flex-col gap-2">
                 <div className="flex gap-2 items-center">
+<<<<<<< HEAD
                   <Icon name="info" size={24} className="text-feedback-warning-foreground" />
+||||||| e6e8d110
+                  <span className="material-symbols-outlined text-[var(--reddb-color-feedback-warning-foreground)]">info</span>
+                  <p className="text-sm font-medium text-[var(--reddb-color-feedback-warning-foreground)]">
+=======
+                  <span className="material-symbols-outlined text-feedback-warning-foreground">info</span>
+>>>>>>> feat/ds-v2026.09
                   <p className="text-sm font-medium text-feedback-warning-foreground">
                     Could not read Cursor database automatically.
                   </p>
@@ -143,7 +157,14 @@ export default function CursorAuthModal({ isOpen, onSuccess, onClose }) {
             {!autoDetected && !windowsManual && !error && (
               <div className="bg-feedback-info-surface p-3 rounded-lg border border-feedback-info-border">
                 <div className="flex gap-2">
+<<<<<<< HEAD
                   <Icon name="info" size={24} className="text-feedback-info-foreground" />
+||||||| e6e8d110
+                  <span className="material-symbols-outlined text-[var(--reddb-color-feedback-info-foreground)]">info</span>
+                  <p className="text-sm text-[var(--reddb-color-feedback-info-foreground)]">
+=======
+                  <span className="material-symbols-outlined text-feedback-info-foreground">info</span>
+>>>>>>> feat/ds-v2026.09
                   <p className="text-sm text-feedback-info-foreground">
                     Cursor IDE not detected. Please paste your tokens manually.
                   </p>

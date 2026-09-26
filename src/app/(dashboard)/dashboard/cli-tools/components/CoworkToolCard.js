@@ -285,7 +285,13 @@ export default function CoworkToolCard({
           {!checking && status && !status.installed && (
             <div className="flex flex-col gap-3 p-4 bg-feedback-warning-surface border border-feedback-warning-border rounded-lg">
               <div className="flex items-start gap-3">
+<<<<<<< HEAD
                 <Icon name="warning" size={24} className="text-feedback-warning-foreground" />
+||||||| e6e8d110
+                <span className="material-symbols-outlined text-[var(--reddb-color-feedback-warning-foreground)]">warning</span>
+=======
+                <span className="material-symbols-outlined text-feedback-warning-foreground">warning</span>
+>>>>>>> feat/ds-v2026.09
                 <div className="flex-1">
                   <p className="font-medium text-feedback-warning-foreground">Claude Desktop (Cowork mode) not detected</p>
                   <p className="text-sm text-text-muted">Open Claude Desktop → Help → Troubleshooting → Enable Developer mode → Configure third-party inference, then return here.</p>
@@ -293,7 +299,14 @@ export default function CoworkToolCard({
               </div>
               <div className="pl-9">
                 <Button variant="secondary" size="sm" onClick={() => setShowManualConfigModal(true)} className="!bg-feedback-warning-surface !border-feedback-warning-border !text-feedback-warning-foreground dark:!text-feedback-warning-foreground hover:!bg-feedback-warning-surface">
+<<<<<<< HEAD
                   <Icon name="content_copy" size={18} className="mr-1" />
+||||||| e6e8d110
+                <Button variant="secondary" size="sm" onClick={() => setShowManualConfigModal(true)} className="!bg-[var(--reddb-color-feedback-warning-surface)] !border-[var(--reddb-color-feedback-warning-border)] !text-[var(--reddb-color-feedback-warning-foreground)] dark:!text-[var(--reddb-color-feedback-warning-foreground)] hover:!bg-[var(--reddb-color-feedback-warning-surface)]">
+                  <span className="material-symbols-outlined text-[18px] mr-1">content_copy</span>
+=======
+                  <span className="material-symbols-outlined text-[18px] mr-1">content_copy</span>
+>>>>>>> feat/ds-v2026.09
                   Manual Config
                 </Button>
               </div>
@@ -347,7 +360,14 @@ export default function CoworkToolCard({
                           <span key={m} className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-muted/50 text-text-muted border border-transparent hover:border-border">
                             {m}
                             <button onClick={() => handleRemoveModel(m)} className="ml-0.5 hover:text-feedback-danger-foreground">
+<<<<<<< HEAD
                               <Icon name="close" size={12} />
+||||||| e6e8d110
+                            <button onClick={() => handleRemoveModel(m)} className="ml-0.5 hover:text-[var(--reddb-color-feedback-danger-foreground)]">
+                              <span className="material-symbols-outlined text-[12px]">close</span>
+=======
+                              <span className="material-symbols-outlined text-[12px]">close</span>
+>>>>>>> feat/ds-v2026.09
                             </button>
                           </span>
                         ))
@@ -375,7 +395,14 @@ export default function CoworkToolCard({
                           )}
                         </div>
                         <button onClick={() => removePlugin(p.name)} className="shrink-0 hover:text-feedback-danger-foreground ml-auto">
+<<<<<<< HEAD
                           <Icon name="close" size={12} />
+||||||| e6e8d110
+                        <button onClick={() => removePlugin(p.name)} className="shrink-0 hover:text-[var(--reddb-color-feedback-danger-foreground)] ml-auto">
+                          <span className="material-symbols-outlined text-[12px]">close</span>
+=======
+                          <span className="material-symbols-outlined text-[12px]">close</span>
+>>>>>>> feat/ds-v2026.09
                         </button>
                       </div>
                     ))}
@@ -386,7 +413,14 @@ export default function CoworkToolCard({
                         <span className="text-[8px] px-1 py-0.5 rounded bg-feedback-info-surface text-feedback-info-foreground shrink-0">custom</span>
                         <span className="flex-1 text-[9px] text-text-muted truncate">{p.url}</span>
                         <button onClick={() => setCustomPlugins(customPlugins.filter((x) => x.name !== p.name))} className="shrink-0 hover:text-feedback-danger-foreground ml-auto">
+<<<<<<< HEAD
                           <Icon name="close" size={12} />
+||||||| e6e8d110
+                        <button onClick={() => setCustomPlugins(customPlugins.filter((x) => x.name !== p.name))} className="shrink-0 hover:text-[var(--reddb-color-feedback-danger-foreground)] ml-auto">
+                          <span className="material-symbols-outlined text-[12px]">close</span>
+=======
+                          <span className="material-symbols-outlined text-[12px]">close</span>
+>>>>>>> feat/ds-v2026.09
                         </button>
                       </div>
                     ))}
@@ -496,7 +530,14 @@ export default function CoworkToolCard({
 
               {message && (
                 <div className={`flex items-center gap-2 px-2 py-1.5 rounded text-xs ${message.type === "success" ? "bg-feedback-success-surface text-feedback-success-foreground" : "bg-feedback-danger-surface text-feedback-danger-foreground"}`}>
+<<<<<<< HEAD
                   <Icon name={message.type === "success" ? "check_circle" : "error"} size={14} />
+||||||| e6e8d110
+                <div className={`flex items-center gap-2 px-2 py-1.5 rounded text-xs ${message.type === "success" ? "bg-[var(--reddb-color-feedback-success-surface)] text-[var(--reddb-color-feedback-success-foreground)]" : "bg-[var(--reddb-color-feedback-danger-surface)] text-[var(--reddb-color-feedback-danger-foreground)]"}`}>
+                  <span className="material-symbols-outlined text-[14px]">{message.type === "success" ? "check_circle" : "error"}</span>
+=======
+                  <span className="material-symbols-outlined text-[14px]">{message.type === "success" ? "check_circle" : "error"}</span>
+>>>>>>> feat/ds-v2026.09
                   <span>{message.text}</span>
                 </div>
               )}

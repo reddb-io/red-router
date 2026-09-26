@@ -360,7 +360,14 @@ export default function KiroAuthModal({ isOpen, onMethodSelect, onClose }) {
           <div className="space-y-4">
             <div className="bg-feedback-info-surface p-3 rounded-lg border border-feedback-info-border">
               <div className="flex gap-2">
+<<<<<<< HEAD
                 <Icon name="info" size={24} className="text-feedback-info-foreground" />
+||||||| e6e8d110
+                <span className="material-symbols-outlined text-[var(--reddb-color-feedback-info-foreground)]">info</span>
+                <p className="text-sm text-[var(--reddb-color-feedback-info-foreground)]">
+=======
+                <span className="material-symbols-outlined text-feedback-info-foreground">info</span>
+>>>>>>> feat/ds-v2026.09
                 <p className="text-sm text-feedback-info-foreground">
                   Paste a long-lived Kiro/CodeWhisperer API key. It is validated
                   against AWS and stored directly as a bearer credential (no refresh).
@@ -417,7 +424,13 @@ export default function KiroAuthModal({ isOpen, onMethodSelect, onClose }) {
           <div className="space-y-4">
             <div className="bg-feedback-warning-surface p-4 rounded-lg border border-feedback-warning-border">
               <div className="flex gap-2">
+<<<<<<< HEAD
                 <Icon name="info" size={24} className="text-feedback-warning-foreground" />
+||||||| e6e8d110
+                <span className="material-symbols-outlined text-[var(--reddb-color-feedback-warning-foreground)]">info</span>
+=======
+                <span className="material-symbols-outlined text-feedback-warning-foreground">info</span>
+>>>>>>> feat/ds-v2026.09
                 <div className="flex-1 text-sm">
                   <p className="font-medium text-feedback-warning-foreground mb-1">
                     Manual Callback Required
@@ -445,7 +458,13 @@ export default function KiroAuthModal({ isOpen, onMethodSelect, onClose }) {
           <div className="space-y-4">
             <div className="bg-feedback-warning-surface p-4 rounded-lg border border-feedback-warning-border">
               <div className="flex gap-2">
+<<<<<<< HEAD
                 <Icon name="info" size={24} className="text-feedback-warning-foreground" />
+||||||| e6e8d110
+                <span className="material-symbols-outlined text-[var(--reddb-color-feedback-warning-foreground)]">info</span>
+=======
+                <span className="material-symbols-outlined text-feedback-warning-foreground">info</span>
+>>>>>>> feat/ds-v2026.09
                 <div className="flex-1 text-sm">
                   <p className="font-medium text-feedback-warning-foreground mb-1">
                     Manual Callback Required
@@ -491,7 +510,14 @@ export default function KiroAuthModal({ isOpen, onMethodSelect, onClose }) {
                 {autoDetected && (
                   <div className="bg-feedback-success-surface p-3 rounded-lg border border-feedback-success-border">
                     <div className="flex gap-2">
+<<<<<<< HEAD
                       <Icon name="check_circle" size={24} className="text-feedback-success-foreground" />
+||||||| e6e8d110
+                      <span className="material-symbols-outlined text-[var(--reddb-color-feedback-success-foreground)]">check_circle</span>
+                      <p className="text-sm text-[var(--reddb-color-feedback-success-foreground)]">
+=======
+                      <span className="material-symbols-outlined text-feedback-success-foreground">check_circle</span>
+>>>>>>> feat/ds-v2026.09
                       <p className="text-sm text-feedback-success-foreground">
                         Token auto-detected from Kiro IDE successfully!
                       </p>
@@ -503,7 +529,14 @@ export default function KiroAuthModal({ isOpen, onMethodSelect, onClose }) {
                 {!autoDetected && !error && (
                   <div className="bg-feedback-info-surface p-3 rounded-lg border border-feedback-info-border">
                     <div className="flex gap-2">
+<<<<<<< HEAD
                       <Icon name="info" size={24} className="text-feedback-info-foreground" />
+||||||| e6e8d110
+                      <span className="material-symbols-outlined text-[var(--reddb-color-feedback-info-foreground)]">info</span>
+                      <p className="text-sm text-[var(--reddb-color-feedback-info-foreground)]">
+=======
+                      <span className="material-symbols-outlined text-feedback-info-foreground">info</span>
+>>>>>>> feat/ds-v2026.09
                       <p className="text-sm text-feedback-info-foreground">
                         Kiro IDE not detected. Please paste your refresh token manually.
                       </p>
@@ -547,7 +580,14 @@ export default function KiroAuthModal({ isOpen, onMethodSelect, onClose }) {
           <div className="space-y-4">
             <div className="bg-feedback-info-surface p-3 rounded-lg border border-feedback-info-border">
               <div className="flex gap-2">
+<<<<<<< HEAD
                 <Icon name="info" size={24} className="text-feedback-info-foreground" />
+||||||| e6e8d110
+                <span className="material-symbols-outlined text-[var(--reddb-color-feedback-info-foreground)]">info</span>
+                <p className="text-sm text-[var(--reddb-color-feedback-info-foreground)]">
+=======
+                <span className="material-symbols-outlined text-feedback-info-foreground">info</span>
+>>>>>>> feat/ds-v2026.09
                 <p className="text-sm text-feedback-info-foreground">
                   Paste the Kiro CLIProxyAPI auth JSON containing auth_method=external_idp. Only Microsoft login token endpoints are accepted.
                 </p>

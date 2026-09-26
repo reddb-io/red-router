@@ -916,7 +916,18 @@ function ProviderTestResultsView({ results }) {
   if (results.error && !results.results) {
     return (
       <div className="text-center py-6">
+<<<<<<< HEAD
         <Icon name="error" size={32} className="text-feedback-danger-foreground mb-2 block" />
+||||||| e6e8d110
+        <span className="material-symbols-outlined text-[var(--reddb-color-feedback-danger-foreground)] text-[32px] mb-2 block">
+          error
+        </span>
+        <p className="text-sm text-[var(--reddb-color-feedback-danger-foreground)]">{results.error}</p>
+=======
+        <span className="material-symbols-outlined text-feedback-danger-foreground text-[32px] mb-2 block">
+          error
+        </span>
+>>>>>>> feat/ds-v2026.09
         <p className="text-sm text-feedback-danger-foreground">{results.error}</p>
       </div>
     );
@@ -956,6 +967,7 @@ function ProviderTestResultsView({ results }) {
           key={r.connectionId || i}
           className="flex min-w-0 flex-col gap-1.5 rounded-lg bg-muted/50 px-3 py-2 text-xs"
         >
+<<<<<<< HEAD
           <div className="flex min-w-0 items-center gap-2">
             <Icon name={r.valid ? "check_circle" : "error"} size={16} className={`shrink-0 ${r.valid ? "text-feedback-success-foreground" : "text-feedback-danger-foreground"}`} />
             <span className="min-w-0 truncate font-medium">{r.connectionName}</span>
@@ -965,8 +977,67 @@ function ProviderTestResultsView({ results }) {
                 {r.diagnosis.type}
               </span>
             )}
+||||||| e6e8d110
+          <span
+            className={`material-symbols-outlined text-[16px] ${r.valid ? "text-[var(--reddb-color-feedback-success-foreground)]" : "text-[var(--reddb-color-feedback-danger-foreground)]"}`}
+          >
+            {r.valid ? "check_circle" : "error"}
+          </span>
+          <div className="min-w-0 flex-[1_1_160px]">
+            <span className="block truncate font-medium sm:inline">
+              {r.connectionName}
+            </span>
+            <span className="block truncate text-text-muted sm:ml-1.5 sm:inline">
+              ({r.provider})
+            </span>
+=======
+          <span
+            className={`material-symbols-outlined text-[16px] ${r.valid ? "text-feedback-success-foreground" : "text-feedback-danger-foreground"}`}
+          >
+            {r.valid ? "check_circle" : "error"}
+          </span>
+          <div className="min-w-0 flex-[1_1_160px]">
+            <span className="block truncate font-medium sm:inline">
+              {r.connectionName}
+            </span>
+            <span className="block truncate text-text-muted sm:ml-1.5 sm:inline">
+              ({r.provider})
+            </span>
+>>>>>>> feat/ds-v2026.09
           </div>
+<<<<<<< HEAD
           <ConnectionTestResult result={r} />
+||||||| e6e8d110
+          {r.latencyMs !== undefined && (
+            <span className="shrink-0 text-text-muted font-mono tabular-nums">
+              {r.latencyMs}ms
+            </span>
+          )}
+          <span
+            className={`shrink-0 text-[10px] uppercase font-bold px-1.5 py-0.5 rounded ${
+              r.valid
+                ? "bg-[var(--reddb-color-feedback-success-surface)] text-[var(--reddb-color-feedback-success-foreground)]"
+                : "bg-[var(--reddb-color-feedback-danger-surface)] text-[var(--reddb-color-feedback-danger-foreground)]"
+            }`}
+          >
+            {r.valid ? "OK" : r.diagnosis?.type || "ERROR"}
+          </span>
+=======
+          {r.latencyMs !== undefined && (
+            <span className="shrink-0 text-text-muted font-mono tabular-nums">
+              {r.latencyMs}ms
+            </span>
+          )}
+          <span
+            className={`shrink-0 text-[10px] uppercase font-bold px-1.5 py-0.5 rounded ${
+              r.valid
+                ? "bg-feedback-success-surface text-feedback-success-foreground"
+                : "bg-feedback-danger-surface text-feedback-danger-foreground"
+            }`}
+          >
+            {r.valid ? "OK" : r.diagnosis?.type || "ERROR"}
+          </span>
+>>>>>>> feat/ds-v2026.09
         </div>
       ))}
       {items.length === 0 && (

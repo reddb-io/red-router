@@ -926,7 +926,14 @@ export default function ProfilePage() {
         <Card>
           <div className="flex items-center gap-3 mb-4">
             <div className="size-10 rounded-lg bg-feedback-info-surface text-feedback-info-foreground flex items-center justify-center shrink-0">
+<<<<<<< HEAD
               <Icon name="language" size={20} />
+||||||| e6e8d110
+            <div className="size-10 rounded-lg bg-[var(--reddb-color-feedback-info-surface)] text-[var(--reddb-color-feedback-info-foreground)] flex items-center justify-center shrink-0">
+              <span className="material-symbols-outlined text-[20px]">language</span>
+=======
+              <span className="material-symbols-outlined text-[20px]">language</span>
+>>>>>>> feat/ds-v2026.09
             </div>
             <h3 className="text-base sm:text-lg font-semibold">Language</h3>
           </div>
@@ -1034,7 +1041,14 @@ export default function ProfilePage() {
             className="w-full flex items-center gap-3 text-left"
           >
             <div className="p-2 rounded-lg bg-feedback-info-surface text-feedback-info-foreground shrink-0">
+<<<<<<< HEAD
               <Icon name="lock_open" size={20} />
+||||||| e6e8d110
+            <div className="p-2 rounded-lg bg-[var(--reddb-color-feedback-info-surface)] text-[var(--reddb-color-feedback-info-foreground)] shrink-0">
+              <span className="material-symbols-outlined text-[20px]">lock_open</span>
+=======
+              <span className="material-symbols-outlined text-[20px]">lock_open</span>
+>>>>>>> feat/ds-v2026.09
             </div>
             <div className="flex-1 min-w-0">
               <h3 className="text-base sm:text-lg font-semibold">Single Sign-On (SSO)</h3>
@@ -1571,7 +1585,14 @@ export default function ProfilePage() {
         <Card>
           <div className="flex items-center gap-3 mb-4">
             <div className="p-2 rounded-lg bg-feedback-info-surface text-feedback-info-foreground shrink-0">
+<<<<<<< HEAD
               <Icon name="route" size={20} />
+||||||| e6e8d110
+            <div className="p-2 rounded-lg bg-[var(--reddb-color-feedback-info-surface)] text-[var(--reddb-color-feedback-info-foreground)] shrink-0">
+              <span className="material-symbols-outlined text-[20px]">route</span>
+=======
+              <span className="material-symbols-outlined text-[20px]">route</span>
+>>>>>>> feat/ds-v2026.09
             </div>
             <h3 className="text-base sm:text-lg font-semibold">Routing Strategy</h3>
           </div>
@@ -1807,7 +1828,14 @@ export default function ProfilePage() {
         <Card>
           <div className="flex items-center gap-3 mb-4">
             <div className="p-2 rounded-lg bg-feedback-warning-surface text-feedback-warning-foreground shrink-0">
+<<<<<<< HEAD
               <Icon name="monitoring" size={20} />
+||||||| e6e8d110
+            <div className="p-2 rounded-lg bg-[var(--reddb-color-feedback-warning-surface)] text-[var(--reddb-color-feedback-warning-foreground)] shrink-0">
+              <span className="material-symbols-outlined text-[20px]">monitoring</span>
+=======
+              <span className="material-symbols-outlined text-[20px]">monitoring</span>
+>>>>>>> feat/ds-v2026.09
             </div>
             <h3 className="text-base sm:text-lg font-semibold">Observability</h3>
           </div>

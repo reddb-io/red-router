@@ -385,7 +385,13 @@ export default function GenericCliToolCard({
             <div className="flex flex-col gap-4">
               <div className="flex flex-col gap-3 p-4 bg-feedback-warning-surface border border-feedback-warning-border rounded-lg">
                 <div className="flex items-start gap-3">
+<<<<<<< HEAD
                   <Icon name="warning" size={24} className="text-feedback-warning-foreground" />
+||||||| e6e8d110
+                  <span className="material-symbols-outlined text-[var(--reddb-color-feedback-warning-foreground)]">warning</span>
+=======
+                  <span className="material-symbols-outlined text-feedback-warning-foreground">warning</span>
+>>>>>>> feat/ds-v2026.09
                   <div className="flex-1">
                     <p className="font-medium text-feedback-warning-foreground">{tool.name} not detected locally</p>
                     <p className="text-sm text-text-muted">Manual configuration is still available if red-router is deployed on a remote server.</p>

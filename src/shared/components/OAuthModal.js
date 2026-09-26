@@ -876,7 +876,14 @@ export default function OAuthModal({ isOpen, provider, providerInfo, onSuccess, 
         {step === "success" && (
           <div className="text-center py-6">
             <div className="size-16 mx-auto mb-4 rounded-full bg-feedback-success-surface flex items-center justify-center">
+<<<<<<< HEAD
               <Icon name="check_circle" className="text-3xl text-feedback-success-foreground" />
+||||||| e6e8d110
+            <div className="size-16 mx-auto mb-4 rounded-full bg-[var(--reddb-color-feedback-success-surface)] flex items-center justify-center">
+              <span className="material-symbols-outlined text-3xl text-[var(--reddb-color-feedback-success-foreground)]">check_circle</span>
+=======
+              <span className="material-symbols-outlined text-3xl text-feedback-success-foreground">check_circle</span>
+>>>>>>> feat/ds-v2026.09
             </div>
             <h3 className="text-lg font-semibold mb-2">Connected Successfully!</h3>
             <p className="text-sm text-text-muted mb-4">
@@ -892,7 +899,14 @@ export default function OAuthModal({ isOpen, provider, providerInfo, onSuccess, 
         {step === "error" && (
           <div className="text-center py-6">
             <div className="size-16 mx-auto mb-4 rounded-full bg-feedback-danger-surface flex items-center justify-center">
+<<<<<<< HEAD
               <Icon name="error" className="text-3xl text-feedback-danger-foreground" />
+||||||| e6e8d110
+            <div className="size-16 mx-auto mb-4 rounded-full bg-[var(--reddb-color-feedback-danger-surface)] flex items-center justify-center">
+              <span className="material-symbols-outlined text-3xl text-[var(--reddb-color-feedback-danger-foreground)]">error</span>
+=======
+              <span className="material-symbols-outlined text-3xl text-feedback-danger-foreground">error</span>
+>>>>>>> feat/ds-v2026.09
             </div>
             <h3 className="text-lg font-semibold mb-2">Connection Failed</h3>
             <p className="text-sm text-feedback-danger-foreground mb-4">{error}</p>

@@ -22,6 +22,52 @@ const SCOPES = [
 ];
 const LEVELS = ["none", "minimal", "low", "medium", "high", "xhigh", "max"];
 
+<<<<<<< HEAD
+||||||| e6e8d110
+function Chips({ values, labelOf, onRemove, empty }) {
+  if (values.length === 0) return <span className="text-xs text-text-muted italic">{empty}</span>;
+  return (
+    <div className="flex flex-wrap gap-2">
+      {values.map((value) => (
+        <span key={value} className="inline-flex items-center gap-1 rounded bg-muted/50 px-1.5 py-0.5">
+          <span className="font-mono text-xs text-text-muted">{labelOf(value)}</span>
+          <button
+            type="button"
+            onClick={() => onRemove(value)}
+            className="leading-none text-text-muted hover:text-[var(--reddb-color-feedback-danger-foreground)]"
+            aria-label={`${translate("Remove")} ${labelOf(value)}`}
+          >
+            <span className="material-symbols-outlined text-[12px]">close</span>
+          </button>
+        </span>
+      ))}
+    </div>
+  );
+}
+
+=======
+function Chips({ values, labelOf, onRemove, empty }) {
+  if (values.length === 0) return <span className="text-xs text-text-muted italic">{empty}</span>;
+  return (
+    <div className="flex flex-wrap gap-2">
+      {values.map((value) => (
+        <span key={value} className="inline-flex items-center gap-1 rounded bg-muted/50 px-1.5 py-0.5">
+          <span className="font-mono text-xs text-text-muted">{labelOf(value)}</span>
+          <button
+            type="button"
+            onClick={() => onRemove(value)}
+            className="leading-none text-text-muted hover:text-feedback-danger-foreground"
+            aria-label={`${translate("Remove")} ${labelOf(value)}`}
+          >
+            <span className="material-symbols-outlined text-[12px]">close</span>
+          </button>
+        </span>
+      ))}
+    </div>
+  );
+}
+
+>>>>>>> feat/ds-v2026.09
 export default function ReasoningAutopilotCard() {
   const [config, setConfig] = useState(null);
   const [keyChips, setKeyChips] = useState([]);

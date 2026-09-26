@@ -2,7 +2,11 @@
 
 import { cn } from "@/shared/utils/cn";
 import { select } from "@/shared/ds/select.variants";
+<<<<<<< HEAD
 import Icon from "./Icon";
+||||||| e6e8d110
+=======
+>>>>>>> feat/ds-v2026.09
 
 export default function Select({
   label,
@@ -57,7 +61,14 @@ export default function Select({
       </div>
       {error && (
         <p className="text-xs text-feedback-danger-foreground flex items-center gap-1">
+<<<<<<< HEAD
           <Icon name="error" size={14} />
+||||||| e6e8d110
+        <p className="text-xs text-[var(--reddb-color-feedback-danger-foreground)] flex items-center gap-1">
+          <span className="material-symbols-outlined text-[14px]">error</span>
+=======
+          <span className="material-symbols-outlined text-[14px]">error</span>
+>>>>>>> feat/ds-v2026.09
           {error}
         </p>
       )}

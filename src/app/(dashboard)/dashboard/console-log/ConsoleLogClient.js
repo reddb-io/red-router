@@ -7,6 +7,7 @@ import { CONSOLE_LOG_CONFIG } from "@/shared/constants/config";
 import { bucketByMinute, levelOf, MINUTE_MS } from "@/shared/utils/logActivity";
 import LogActivity from "./LogActivity";
 
+<<<<<<< HEAD
 // Live server console: tail with auto-follow, text/regex filter, level chips,
 // timestamps and wrapping on or off, copy and download of what is shown.
 const LEVELS = [
@@ -20,7 +21,25 @@ const PREFS_KEY = "rr.consoleLog.prefs";
 const DEFAULT_PREFS = { timestamps: true, wrap: false, levels: ["info", "warn", "error", "debug"] };
 // The server's own "[13:19:58]" prefix is dropped when the timestamp column shows.
 const CLOCK_PREFIX = /^\[\d{2}:\d{2}:\d{2}\]\s*/;
+||||||| e6e8d110
+const LOG_LEVEL_COLORS = {
+  LOG: "text-[var(--reddb-color-feedback-success-foreground)]",
+  INFO: "text-[var(--reddb-color-feedback-info-foreground)]",
+  WARN: "text-[var(--reddb-color-feedback-warning-foreground)]",
+  ERROR: "text-[var(--reddb-color-feedback-danger-foreground)]",
+  DEBUG: "text-purple-400",
+};
+=======
+const LOG_LEVEL_COLORS = {
+  LOG: "text-feedback-success-foreground",
+  INFO: "text-feedback-info-foreground",
+  WARN: "text-feedback-warning-foreground",
+  ERROR: "text-feedback-danger-foreground",
+  DEBUG: "text-purple-400",
+};
+>>>>>>> feat/ds-v2026.09
 
+<<<<<<< HEAD
 function loadPrefs() {
   try {
     return { ...DEFAULT_PREFS, ...JSON.parse(localStorage.getItem(PREFS_KEY) || "{}") };
@@ -66,6 +85,19 @@ function Highlighted({ text, regex }) {
   }
   if (last < text.length) parts.push(text.slice(last));
   return parts;
+||||||| e6e8d110
+function colorLine(line) {
+  const match = line.match(/\[(\w+)\]/g);
+  const levelTag = match ? match[1]?.replace(/\[|\]/g, "") : null;
+  const color = LOG_LEVEL_COLORS[levelTag] || "text-[var(--reddb-color-feedback-success-foreground)]";
+  return <span className={color}>{line}</span>;
+=======
+function colorLine(line) {
+  const match = line.match(/\[(\w+)\]/g);
+  const levelTag = match ? match[1]?.replace(/\[|\]/g, "") : null;
+  const color = LOG_LEVEL_COLORS[levelTag] || "text-feedback-success-foreground";
+  return <span className={color}>{line}</span>;
+>>>>>>> feat/ds-v2026.09
 }
 
 export default function ConsoleLogClient() {

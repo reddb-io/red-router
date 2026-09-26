@@ -42,7 +42,14 @@ export function ModelRow({ model, fullModel, copied, onCopy, testStatus, isCusto
         {isFree && <span className="text-[10px] font-bold text-feedback-success-foreground bg-feedback-success-surface px-1.5 py-0.5 rounded">FREE</span>}
         {isCustom && (
           <button onClick={onDeleteAlias} className="p-0.5 hover:bg-feedback-danger-surface rounded text-text-muted hover:text-feedback-danger-foreground opacity-0 group-hover:opacity-100 transition-opacity ml-auto" title="Remove custom model">
+<<<<<<< HEAD
             <Icon name="close" className="text-sm" />
+||||||| e6e8d110
+          <button onClick={onDeleteAlias} className="p-0.5 hover:bg-[var(--reddb-color-feedback-danger-surface)] rounded text-text-muted hover:text-[var(--reddb-color-feedback-danger-foreground)] opacity-0 group-hover:opacity-100 transition-opacity ml-auto" title="Remove custom model">
+            <span className="material-symbols-outlined text-sm">close</span>
+=======
+            <span className="material-symbols-outlined text-sm">close</span>
+>>>>>>> feat/ds-v2026.09
           </button>
         )}
       </div>

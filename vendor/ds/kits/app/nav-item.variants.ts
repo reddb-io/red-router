@@ -1,9 +1,3 @@
-<<<<<<< HEAD
-// GENERATED from vendor/ds/kits/app/src/primitives/nav-item.variants.ts by scripts/sync-ds-variants.mjs — do not edit.
-||||||| e6e8d110
-=======
-// GENERATED from vendor/ds/kits/app/nav-item.variants.ts by scripts/sync-ds-variants.mjs — do not edit.
->>>>>>> feat/ds-v2026.09
 // NavItem's styling. See button.variants.ts for the split, the colour rule and
 // the spatial rule.
 //
@@ -22,20 +16,20 @@
 // is the same choice button.variants.ts made and for the same reason: the
 // Tokens Layer ships no second surface yet.
 
-import { tv,                   } from "tailwind-variants";
+import { tv, type VariantProps } from "tailwind-variants";
 
 const ACTIVE = {
   /** Where you are. */
   true: { root: "border-primary bg-foreground/10 font-medium text-foreground" },
   /** Everywhere else you could go. */
   false: { root: "border-transparent bg-transparent text-ink-muted hover:bg-foreground/8 hover:text-foreground" },
-}         ;
+} as const;
 
 const DISABLED = {
   /** Present, visibly unavailable, and unreachable by pointer or by tab. */
   true: { root: "pointer-events-none opacity-50" },
   false: { root: "" },
-}         ;
+} as const;
 
 export const navItem = tv({
   slots: {
@@ -48,4 +42,4 @@ export const navItem = tv({
   defaultVariants: { active: false, disabled: false },
 });
 
-                                                           
+export type NavItemVariants = VariantProps<typeof navItem>;

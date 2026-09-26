@@ -276,7 +276,17 @@ export default function AntigravityToolCard({
                     {isLoading ? (
                       <Icon name="progress_activity" size={14} className="text-primary animate-spin" />
                     ) : (
+<<<<<<< HEAD
                       <Icon name={ok ? "check_circle" : "radio_button_unchecked"} size={14} className={ok ? "text-feedback-success-foreground" : "text-text-muted"} />
+||||||| e6e8d110
+                      <span className={`material-symbols-outlined text-[14px] ${ok ? "text-[var(--reddb-color-feedback-success-foreground)]" : "text-text-muted"}`}>
+                        {ok ? "check_circle" : "radio_button_unchecked"}
+                      </span>
+=======
+                      <span className={`material-symbols-outlined text-[14px] ${ok ? "text-feedback-success-foreground" : "text-text-muted"}`}>
+                        {ok ? "check_circle" : "radio_button_unchecked"}
+                      </span>
+>>>>>>> feat/ds-v2026.09
                     )}
                     <span className={`text-xs font-medium ${isLoading ? "text-primary" : ok ? "text-feedback-success-foreground" : "text-text-muted"}`}>
                       {label}
@@ -313,7 +323,14 @@ export default function AntigravityToolCard({
 
           {message?.type === "error" && (
             <div className="flex items-center gap-2 px-2 py-1.5 rounded text-xs bg-feedback-danger-surface text-feedback-danger-foreground">
+<<<<<<< HEAD
               <Icon name="error" size={14} />
+||||||| e6e8d110
+            <div className="flex items-center gap-2 px-2 py-1.5 rounded text-xs bg-[var(--reddb-color-feedback-danger-surface)] text-[var(--reddb-color-feedback-danger-foreground)]">
+              <span className="material-symbols-outlined text-[14px]">error</span>
+=======
+              <span className="material-symbols-outlined text-[14px]">error</span>
+>>>>>>> feat/ds-v2026.09
               <span>{message.text}</span>
             </div>
           )}
@@ -388,7 +405,14 @@ export default function AntigravityToolCard({
           {/* Windows admin warning */}
           {!isRunning && serverIsWindows && (
             <div className="flex items-center gap-2 px-2 py-1.5 rounded text-xs bg-feedback-warning-surface text-feedback-warning-foreground border border-feedback-warning-border">
+<<<<<<< HEAD
               <Icon name="warning" size={14} />
+||||||| e6e8d110
+            <div className="flex items-center gap-2 px-2 py-1.5 rounded text-xs bg-[var(--reddb-color-feedback-warning-surface)] text-[var(--reddb-color-feedback-warning-foreground)] border border-[var(--reddb-color-feedback-warning-border)]">
+              <span className="material-symbols-outlined text-[14px]">warning</span>
+=======
+              <span className="material-symbols-outlined text-[14px]">warning</span>
+>>>>>>> feat/ds-v2026.09
               <span>Windows: Run terminal (RedRouter) as Administrator to enable MITM</span>
             </div>
           )}
@@ -422,7 +446,14 @@ export default function AntigravityToolCard({
       >
         <div className="flex flex-col gap-4">
           <div className="flex items-start gap-3 p-3 bg-feedback-warning-surface border border-feedback-warning-border rounded-lg">
+<<<<<<< HEAD
             <Icon name="warning" size={20} className="text-feedback-warning-foreground" />
+||||||| e6e8d110
+          <div className="flex items-start gap-3 p-3 bg-[var(--reddb-color-feedback-warning-surface)] border border-[var(--reddb-color-feedback-warning-border)] rounded-lg">
+            <span className="material-symbols-outlined text-[var(--reddb-color-feedback-warning-foreground)] text-[20px]">warning</span>
+=======
+            <span className="material-symbols-outlined text-feedback-warning-foreground text-[20px]">warning</span>
+>>>>>>> feat/ds-v2026.09
             <p className="text-xs text-text-muted">Required for SSL certificate and DNS configuration</p>
           </div>
 
@@ -438,7 +469,14 @@ export default function AntigravityToolCard({
 
           {message && (
             <div className={`flex items-center gap-2 px-2 py-1.5 rounded text-xs ${message.type === "success" ? "bg-feedback-success-surface text-feedback-success-foreground" : "bg-feedback-danger-surface text-feedback-danger-foreground"}`}>
+<<<<<<< HEAD
               <Icon name={message.type === "success" ? "check_circle" : "error"} size={14} />
+||||||| e6e8d110
+            <div className={`flex items-center gap-2 px-2 py-1.5 rounded text-xs ${message.type === "success" ? "bg-[var(--reddb-color-feedback-success-surface)] text-[var(--reddb-color-feedback-success-foreground)]" : "bg-[var(--reddb-color-feedback-danger-surface)] text-[var(--reddb-color-feedback-danger-foreground)]"}`}>
+              <span className="material-symbols-outlined text-[14px]">{message.type === "success" ? "check_circle" : "error"}</span>
+=======
+              <span className="material-symbols-outlined text-[14px]">{message.type === "success" ? "check_circle" : "error"}</span>
+>>>>>>> feat/ds-v2026.09
               <span>{message.text}</span>
             </div>
           )}

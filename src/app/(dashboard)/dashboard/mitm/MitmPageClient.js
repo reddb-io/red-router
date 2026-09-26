@@ -79,7 +79,15 @@ export default function MitmPageClient() {
   return (
     <div className="flex w-full flex-col gap-6">
       <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-feedback-warning-surface border border-feedback-warning-border">
+<<<<<<< HEAD
         <Icon name="warning" size={16} className="text-feedback-warning-foreground mt-0.5 shrink-0" />
+||||||| e6e8d110
+      <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-[var(--reddb-color-feedback-warning-surface)] border border-[var(--reddb-color-feedback-warning-border)]">
+        <span className="material-symbols-outlined text-[16px] text-[var(--reddb-color-feedback-warning-foreground)] mt-0.5 shrink-0">warning</span>
+        <p className="text-xs text-[var(--reddb-color-feedback-danger-foreground)] text-[var(--reddb-color-feedback-warning-foreground)] leading-relaxed">
+=======
+        <span className="material-symbols-outlined text-[16px] text-feedback-warning-foreground mt-0.5 shrink-0">warning</span>
+>>>>>>> feat/ds-v2026.09
         <p className="text-xs text-feedback-danger-foreground text-feedback-warning-foreground leading-relaxed">
           ⚠️ MITM intercepts HTTPS traffic of IDE tools (Antigravity, GitHub Copilot, Kiro) via local CA to redirect requests to your providers. May violate ToS → account ban. Use at your own risk.
         </p>

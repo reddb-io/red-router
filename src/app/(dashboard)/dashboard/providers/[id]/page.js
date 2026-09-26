@@ -1512,14 +1512,30 @@ export default function ProviderDetailPage() {
 
       {providerInfo.deprecated && (
         <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-feedback-warning-surface border border-feedback-warning-border">
+<<<<<<< HEAD
           <Icon name="warning" size={16} className="text-feedback-warning-foreground mt-0.5 shrink-0" />
+||||||| e6e8d110
+        <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-[var(--reddb-color-feedback-warning-surface)] border border-[var(--reddb-color-feedback-warning-border)]">
+          <span className="material-symbols-outlined text-[16px] text-[var(--reddb-color-feedback-warning-foreground)] mt-0.5 shrink-0">warning</span>
+          <p className="text-xs text-[var(--reddb-color-feedback-danger-foreground)] text-[var(--reddb-color-feedback-warning-foreground)] leading-relaxed">{providerInfo.deprecationNotice}</p>
+=======
+          <span className="material-symbols-outlined text-[16px] text-feedback-warning-foreground mt-0.5 shrink-0">warning</span>
+>>>>>>> feat/ds-v2026.09
           <p className="text-xs text-feedback-danger-foreground text-feedback-warning-foreground leading-relaxed">{providerInfo.deprecationNotice}</p>
         </div>
       )}
 
       {providerInfo.notice?.text && !providerInfo.deprecated && (
         <div className="flex flex-col gap-2 rounded-lg border border-feedback-info-border bg-feedback-info-surface px-3 py-2 sm:flex-row sm:items-center">
+<<<<<<< HEAD
           <Icon name="info" size={16} className="text-feedback-info-foreground shrink-0" />
+||||||| e6e8d110
+        <div className="flex flex-col gap-2 rounded-lg border border-[var(--reddb-color-feedback-info-border)] bg-[var(--reddb-color-feedback-info-surface)] px-3 py-2 sm:flex-row sm:items-center">
+          <span className="material-symbols-outlined text-[16px] text-[var(--reddb-color-feedback-info-foreground)] shrink-0">info</span>
+          <p className="min-w-0 flex-1 text-xs leading-relaxed text-[var(--reddb-color-feedback-info-foreground)]">{providerInfo.notice.text}</p>
+=======
+          <span className="material-symbols-outlined text-[16px] text-feedback-info-foreground shrink-0">info</span>
+>>>>>>> feat/ds-v2026.09
           <p className="min-w-0 flex-1 text-xs leading-relaxed text-feedback-info-foreground">{providerInfo.notice.text}</p>
           {providerInfo.notice.apiKeyUrl && (
             <a

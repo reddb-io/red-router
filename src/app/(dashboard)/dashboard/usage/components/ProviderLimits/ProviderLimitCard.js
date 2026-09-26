@@ -118,7 +118,18 @@ export default function ProviderLimitCard({
       {!loading && error && (
         <div className="p-4 rounded-lg bg-feedback-danger-surface border border-feedback-danger-border">
           <div className="flex items-start gap-2">
+<<<<<<< HEAD
             <Icon name="error" size={20} className="text-feedback-danger-foreground" />
+||||||| e6e8d110
+            <span className="material-symbols-outlined text-[var(--reddb-color-feedback-danger-foreground)] text-[20px]">
+              error
+            </span>
+            <p className="text-sm text-[var(--reddb-color-feedback-danger-foreground)]">{error}</p>
+=======
+            <span className="material-symbols-outlined text-feedback-danger-foreground text-[20px]">
+              error
+            </span>
+>>>>>>> feat/ds-v2026.09
             <p className="text-sm text-feedback-danger-foreground">{error}</p>
           </div>
         </div>
@@ -128,7 +139,18 @@ export default function ProviderLimitCard({
       {!loading && !error && message && (
         <div className="p-4 rounded-lg bg-feedback-info-surface border border-feedback-info-border">
           <div className="flex items-start gap-2">
+<<<<<<< HEAD
             <Icon name="info" size={20} className="text-feedback-info-foreground" />
+||||||| e6e8d110
+            <span className="material-symbols-outlined text-[var(--reddb-color-feedback-info-foreground)] text-[20px]">
+              info
+            </span>
+            <p className="text-sm text-[var(--reddb-color-feedback-info-foreground)]">
+=======
+            <span className="material-symbols-outlined text-feedback-info-foreground text-[20px]">
+              info
+            </span>
+>>>>>>> feat/ds-v2026.09
             <p className="text-sm text-feedback-info-foreground">
               {message}
             </p>

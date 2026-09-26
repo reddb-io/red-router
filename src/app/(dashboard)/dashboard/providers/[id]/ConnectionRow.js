@@ -288,7 +288,14 @@ export default function ConnectionRow({ connection, proxyPools, isOAuth, isFirst
             <span className="text-[10px] leading-tight">Edit</span>
           </button>
           <button onClick={onDelete} className="flex flex-col items-center rounded px-2 py-1 text-feedback-danger-foreground hover:bg-feedback-danger-surface">
+<<<<<<< HEAD
             <Icon name="delete" size={18} />
+||||||| e6e8d110
+          <button onClick={onDelete} className="flex flex-col items-center rounded px-2 py-1 text-[var(--reddb-color-feedback-danger-foreground)] hover:bg-[var(--reddb-color-feedback-danger-surface)]">
+            <span className="material-symbols-outlined text-[18px]">delete</span>
+=======
+            <span className="material-symbols-outlined text-[18px]">delete</span>
+>>>>>>> feat/ds-v2026.09
             <span className="text-[10px] leading-tight">Delete</span>
           </button>
         </div>

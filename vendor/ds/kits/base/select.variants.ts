@@ -1,13 +1,7 @@
-<<<<<<< HEAD
-// GENERATED from vendor/ds/kits/base/src/select.variants.ts by scripts/sync-ds-variants.mjs — do not edit.
-||||||| e6e8d110
-=======
-// GENERATED from vendor/ds/kits/base/select.variants.ts by scripts/sync-ds-variants.mjs — do not edit.
->>>>>>> feat/ds-v2026.09
 // Select's public appearance seam. The component keeps the platform's own
 // popup and keyboard model while giving the closed control a canonical skin.
 
-import { tv,                   } from "tailwind-variants";
+import { tv, type VariantProps } from "tailwind-variants";
 
 export const select = tv({
   base: [
@@ -20,4 +14,4 @@ export const select = tv({
   ].join(" "),
 });
 
-                                                         
+export type SelectVariants = VariantProps<typeof select>;

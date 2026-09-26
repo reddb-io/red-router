@@ -1,14 +1,8 @@
-<<<<<<< HEAD
-// GENERATED from vendor/ds/kits/base/src/input.variants.ts by scripts/sync-ds-variants.mjs — do not edit.
-||||||| e6e8d110
-=======
-// GENERATED from vendor/ds/kits/base/input.variants.ts by scripts/sync-ds-variants.mjs — do not edit.
->>>>>>> feat/ds-v2026.09
 // Input's public appearance seam. Input itself owns only the native element
 // and forwarding behavior; this function is where a consumer composes or
 // extends the canonical appearance without copying that behavior.
 
-import { tv,                   } from "tailwind-variants";
+import { tv, type VariantProps } from "tailwind-variants";
 
 export const input = tv({
   base: [
@@ -22,4 +16,4 @@ export const input = tv({
   ].join(" "),
 });
 
-                                                       
+export type InputVariants = VariantProps<typeof input>;

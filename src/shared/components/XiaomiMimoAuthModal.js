@@ -159,7 +159,14 @@ export default function XiaomiMimoAuthModal({ isOpen, onSuccess, onClose }) {
           <>
             <div className="bg-feedback-success-surface p-3 rounded-lg border border-feedback-success-border">
               <div className="flex gap-2">
+<<<<<<< HEAD
                 <Icon name="check_circle" size={24} className="text-feedback-success-foreground" />
+||||||| e6e8d110
+                <span className="material-symbols-outlined text-[var(--reddb-color-feedback-success-foreground)]">check_circle</span>
+                <div className="text-sm text-[var(--reddb-color-feedback-success-foreground)]">
+=======
+                <span className="material-symbols-outlined text-feedback-success-foreground">check_circle</span>
+>>>>>>> feat/ds-v2026.09
                 <div className="text-sm text-feedback-success-foreground">
                   <p className="font-medium">Xiaomi MiMo Desktop credentials found!</p>
                   <p className="mt-1 opacity-80">
@@ -201,7 +208,14 @@ export default function XiaomiMimoAuthModal({ isOpen, onSuccess, onClose }) {
           <>
             <div className="bg-feedback-warning-surface p-3 rounded-lg border border-feedback-warning-border">
               <div className="flex gap-2 items-start">
+<<<<<<< HEAD
                 <Icon name="info" size={24} className="text-feedback-warning-foreground" />
+||||||| e6e8d110
+                <span className="material-symbols-outlined text-[var(--reddb-color-feedback-warning-foreground)]">info</span>
+                <div className="text-sm text-[var(--reddb-color-feedback-warning-foreground)]">
+=======
+                <span className="material-symbols-outlined text-feedback-warning-foreground">info</span>
+>>>>>>> feat/ds-v2026.09
                 <div className="text-sm text-feedback-warning-foreground">
                   <p className="font-medium">Local credentials not found</p>
                   <p className="mt-1 opacity-80">{error}</p>

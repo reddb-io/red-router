@@ -237,7 +237,14 @@ export default function BulkImportGrokCliModal({ isOpen, onClose, onSuccess }) {
 
         {fileCountInfo && (
           <div className="flex items-center gap-1.5 text-xs text-feedback-success-foreground font-medium bg-feedback-success-surface border border-feedback-success-border px-2.5 py-1.5 rounded">
+<<<<<<< HEAD
             <Icon name="check_circle" className="text-sm" />
+||||||| e6e8d110
+          <div className="flex items-center gap-1.5 text-xs text-[var(--reddb-color-feedback-success-foreground)] font-medium bg-[var(--reddb-color-feedback-success-surface)] border border-[var(--reddb-color-feedback-success-border)] px-2.5 py-1.5 rounded">
+            <span className="material-symbols-outlined text-sm">check_circle</span>
+=======
+            <span className="material-symbols-outlined text-sm">check_circle</span>
+>>>>>>> feat/ds-v2026.09
             <span>
               {translate("Loaded")} {fileCountInfo.accountsCount} {translate("account(s) from")}{" "}
               {fileCountInfo.filesCount} {translate("file(s)")}

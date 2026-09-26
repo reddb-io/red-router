@@ -254,6 +254,7 @@ export default function ModelCatalogBrowser({ providerId, addedIds, onAdd, onEmp
                     {ctx && <div>{ctx} ctx</div>}
                     {cost && <div className={m.free ? "text-feedback-success-foreground" : undefined}>{cost}</div>}
                   </div>
+<<<<<<< HEAD
                   {m.decision ? (
                     // Not a chat model: adding it to this provider's chat models would never work.
                     <Link
@@ -265,6 +266,15 @@ export default function ModelCatalogBrowser({ providerId, addedIds, onAdd, onEmp
                   ) : isAdded ? (
                     <span className="flex shrink-0 items-center gap-0.5 text-[11px] text-feedback-success-foreground">
                       <Icon name="check" size={14} />Added
+||||||| e6e8d110
+                  {isAdded ? (
+                    <span className="flex shrink-0 items-center gap-0.5 text-[11px] text-[var(--reddb-color-feedback-success-foreground)]">
+                      <span className="material-symbols-outlined text-[14px]">check</span>Added
+=======
+                  {isAdded ? (
+                    <span className="flex shrink-0 items-center gap-0.5 text-[11px] text-feedback-success-foreground">
+                      <span className="material-symbols-outlined text-[14px]">check</span>Added
+>>>>>>> feat/ds-v2026.09
                     </span>
                   ) : (
                     <button

@@ -335,7 +335,14 @@ export default function ComboDetailPage() {
                       <Icon name="arrow_downward" size={16} />
                     </button>
                     <button onClick={() => handleRemoveProvider(idx)} className="p-1 rounded text-text-muted hover:text-feedback-danger-foreground hover:bg-feedback-danger-surface" title="Remove">
+<<<<<<< HEAD
                       <Icon name="close" size={16} />
+||||||| e6e8d110
+                    <button onClick={() => handleRemoveProvider(idx)} className="p-1 rounded text-text-muted hover:text-[var(--reddb-color-feedback-danger-foreground)] hover:bg-[var(--reddb-color-feedback-danger-surface)]" title="Remove">
+                      <span className="material-symbols-outlined text-[16px]">close</span>
+=======
+                      <span className="material-symbols-outlined text-[16px]">close</span>
+>>>>>>> feat/ds-v2026.09
                     </button>
                   </div>
                 </div>

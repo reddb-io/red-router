@@ -1,6 +1,7 @@
 /* source() sets scan base to src/ for both webpack + Turbopack; auto-detection still skips binaries + gitignore */
 @import "tailwindcss" source("../../");
 
+<<<<<<< HEAD
 /* RedDB Design System, synced into vendor/ds from design-system.manifest.json
    (the design-system README, "Consuming it"). Its Application entry carries the
    Brand fonts, tokens, the Base + Application theme, both colour schemes and
@@ -11,6 +12,33 @@
    (scripts/sync-ds-variants.mjs), never the Svelte kits: Tailwind skips them. */
 @import "../../vendor/ds/styles/application.css";
 @source not "../../vendor/ds/kits";
+||||||| e6e8d110
+/* RedDB Design System distribution — vendored byte-for-byte from
+   reddb-io/design-system v2026.08.5 (see vendor/ds/README.md). The theme
+   applies under [data-theme="application"], the scheme under
+   [data-color-scheme]; src/store/themeStore.js and the root layout script
+   keep both in sync with the Tailwind `.dark` class. */
+@import "../../vendor/ds/tokens.css";
+@import "../../vendor/ds/theme-base.css";
+@import "../../vendor/ds/theme-application.css";
+@import "../../vendor/ds/scheme-light.css";
+@import "../../vendor/ds/scheme-dark.css";
+@import "../../vendor/ds/theme.css";
+@import "../../vendor/ds/density-compact.css";
+=======
+/* RedDB Design System distribution — vendored byte-for-byte from
+   reddb-io/design-system v2026.09 (see vendor/ds/README.md). The theme
+   applies under [data-theme="application"], the scheme under
+   [data-color-scheme]; src/store/themeStore.js and the root layout script
+   keep both in sync with the Tailwind `.dark` class. */
+@import "../../vendor/ds/tokens.css";
+@import "../../vendor/ds/theme-base.css";
+@import "../../vendor/ds/theme-application.css";
+@import "../../vendor/ds/scheme-light.css";
+@import "../../vendor/ds/scheme-dark.css";
+@import "../../vendor/ds/theme.css";
+@import "../../vendor/ds/density-compact.css";
+>>>>>>> feat/ds-v2026.09
 
 @custom-variant dark (&:where(.dark, .dark *));
 

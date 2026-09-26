@@ -598,7 +598,13 @@ export default function ProxyPoolsPage() {
                   }}
                   className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-text-main transition-colors hover:bg-muted/50"
                 >
+<<<<<<< HEAD
                   <Icon name="cloud" size={20} className="text-feedback-warning-foreground" />
+||||||| e6e8d110
+                  <span className="material-symbols-outlined text-[20px] text-[var(--reddb-color-feedback-warning-foreground)]">cloud</span>
+=======
+                  <span className="material-symbols-outlined text-[20px] text-feedback-warning-foreground">cloud</span>
+>>>>>>> feat/ds-v2026.09
                   Cloudflare Relay
                 </button>
                 <button
@@ -608,7 +614,13 @@ export default function ProxyPoolsPage() {
                   }}
                   className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-text-main transition-colors hover:bg-muted/50"
                 >
+<<<<<<< HEAD
                   <Icon name="cloud_upload" size={20} className="text-feedback-info-foreground" />
+||||||| e6e8d110
+                  <span className="material-symbols-outlined text-[20px] text-[var(--reddb-color-feedback-info-foreground)]">cloud_upload</span>
+=======
+                  <span className="material-symbols-outlined text-[20px] text-feedback-info-foreground">cloud_upload</span>
+>>>>>>> feat/ds-v2026.09
                   Vercel Relay
                 </button>
                 <button
@@ -618,7 +630,13 @@ export default function ProxyPoolsPage() {
                   }}
                   className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-text-main transition-colors hover:bg-muted/50"
                 >
+<<<<<<< HEAD
                   <Icon name="terminal" size={20} className="text-feedback-success-foreground" />
+||||||| e6e8d110
+                  <span className="material-symbols-outlined text-[20px] text-[var(--reddb-color-feedback-success-foreground)]">terminal</span>
+=======
+                  <span className="material-symbols-outlined text-[20px] text-feedback-success-foreground">terminal</span>
+>>>>>>> feat/ds-v2026.09
                   Deno Relay
                 </button>
               </div>
