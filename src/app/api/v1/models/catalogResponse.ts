@@ -313,7 +313,8 @@ export async function finalizeCatalogResponse(
   const capabilityResolutionSnapshot =
     enrichmentSnapshot?.capabilityResolutionSnapshot ?? createModelCapabilityResolutionSnapshot();
   const enriched: Array<Record<string, unknown>> = [];
-  const catYIELD_EVERY = 5;
+  // Enrichment cost varies by model; keep each entry independently interruptible.
+  const catYIELD_EVERY = 1;
   let catEnrichCount = 0;
   for (const model of finalModels) {
     let listedModel: Record<string, unknown>;

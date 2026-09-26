@@ -306,7 +306,9 @@ async function buildUnifiedModelsResponseCore(
   // event-loop yield, so a large deployment pins the single Node.js thread for the
   // whole build (reporter: 183 connections / 2000+ models → 10.1s stall that blocks the
   // dashboard WS heartbeat). Yield every `catYIELD_EVERY` items across the hot loops.
-  const catYIELD_EVERY = 5;
+  // A five-model batch exceeded the responsiveness guard under catalog-scale CI load.
+  // Yield after each model so one expensive entry cannot multiply into a long stall.
+  const catYIELD_EVERY = 1;
   let catYieldCount = 0;
   const maybeYieldCatalogBuild = async (): Promise<void> => {
     catYieldCount++;
