@@ -1000,6 +1000,8 @@
   "featureFlagXaiOauthLiveModelDiscoveryDescription": "Faigh catalóg bheo samhlacha xAI do naisc xai-oauth ó https://api.x.ai/v1/models ag úsáid an chomhartha iompróra OAuth, in ionad an tsíl stataigh reoite. Díchumasaithe de réir réamhshocraithe: leanann xai-oauth den síol statach a sholáthar gan athrú. Má tharlaíonn aon earráid réitigh, téann an aimsiú siar chuig an síol.",
   "featureFlagDbHealthcheckStartupDeferredEnabledDescription": "Rith seiceáil sláine/sláinte an bhunachair sonraí ag am tosaithe tar éis don fhreastalaí tosú ag glacadh le hiarratais, in ionad bac a chur ar an tosú go dtí go mbeidh sí críochnaithe. Díchumasaithe de réir réamhshocraithe: cuireann an tseiceáil bac ar an tosú díreach mar a rinne sí roimh an athrú seo, mar sin aimsítear bunachar sonraí truaillithe fós sula bhfreastalaítear ar an gcéad iarratas.",
   "sidebar": {
+    "modelCatalog": "Samhlacha",
+    "modelCatalogSubtitle": "Catalóg samhlacha do gach soláthraí nasctha.",
     "home": "Baile",
     "dashboard": "Deais",
     "providers": "Soláthraithe",

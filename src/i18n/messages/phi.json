@@ -1000,6 +1000,8 @@
   "featureFlagXaiOauthLiveModelDiscoveryDescription": "Kunin ang live na catalog ng modelo ng xAI para sa mga koneksyong xai-oauth mula sa https://api.x.ai/v1/models gamit ang OAuth bearer token, sa halip na ang hindi nagbabagong static seed. Naka-off bilang default: patuloy na ihahatid ng xai-oauth ang static seed nang walang pagbabago. Kapag may anumang error sa resolution, babalik ang discovery sa seed.",
   "featureFlagDbHealthcheckStartupDeferredEnabledDescription": "Patakbuhin ang database integrity/health check sa startup pagkatapos magsimulang tumanggap ng mga request ang server, sa halip na harangan ang startup hanggang sa matapos ito. Naka-off bilang default: haharangin ng startup ang check nang eksaktong gaya noong bago ang pagbabagong ito, kaya matutukoy pa rin ang sirang database bago maihatid ang unang request.",
   "sidebar": {
+    "modelCatalog": "Mga Modelo",
+    "modelCatalogSubtitle": "Catalog ng modelo para sa lahat ng konektadong provider.",
     "home": "Bahay",
     "dashboard": "Dashboard",
     "providers": "Mga provider",

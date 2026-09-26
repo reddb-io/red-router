@@ -141,7 +141,9 @@ test("OAuth modal Desktop branch keeps its Devin-specific import guidance", asyn
   assert.match(enMessages, /Paste an existing Devin API key/);
   assert.match(enMessages, /vary by Devin version and account/);
   assert.doesNotMatch(source, /Devin: Copy API Key to Clipboard/);
-  assert.doesNotMatch(source, /provider === ["']windsurf["']/);
+  assert.match(source, /provider === ["']windsurf["']/);
+  assert.match(source, /redirectUri = "http:\/\/127\.0\.0\.1:20128\/windsurf-auth-callback"/);
+  assert.match(source, /provider === "devin-desktop" \|\| provider === "devin-cli"/);
 });
 
 test("Devin public errors and token refresh logs do not expose the retired provider", async () => {

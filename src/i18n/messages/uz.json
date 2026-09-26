@@ -1000,6 +1000,8 @@
   "featureFlagXaiOauthLiveModelDiscoveryDescription": "xai-oauth ulanishlari uchun statik, oʻzgarmas boshlangʻich roʻyxat oʻrniga OAuth bearer tokenidan foydalanib https://api.x.ai/v1/models manzilidan amaldagi xAI modellar katalogini oling. Odatiy holatda oʻchiq: xai-oauth statik boshlangʻich roʻyxatni oʻzgartirmasdan taqdim etishda davom etadi. Aniqlashda har qanday xatolik yuz bersa, tizim statik boshlangʻich roʻyxatga qaytadi.",
   "featureFlagDbHealthcheckStartupDeferredEnabledDescription": "Server soʻrovlarni qabul qila boshlaganidan keyin ishga tushirishdagi maʼlumotlar bazasi yaxlitligi/holati tekshiruvini bajaring, yaʼni tekshiruv yakunlanguncha ishga tushishni bloklamang. Odatiy holatda oʻchiq: ishga tushish bu oʻzgarishdan avvalgidek tekshiruv tugashini kutadi, shuning uchun buzilgan maʼlumotlar bazasi birinchi soʻrovga xizmat koʻrsatilishidan oldin aniqlanadi.",
   "sidebar": {
+    "modelCatalog": "Modellar",
+    "modelCatalogSubtitle": "Barcha ulangan provayderlar uchun modellar katalogi.",
     "home": "Bosh sahifa",
     "dashboard": "Boshqaruv paneli",
     "providers": "Provayderlar",

@@ -330,6 +330,16 @@ export const OAUTH_TEST_CONFIG: Record<string, OAuthTestConfigEntry> = {
       }),
     }),
   },
+  kimchi: {
+    // Kimchi uses a pasted, non-refreshable bearer key. Probe the same model
+    // catalog URL registered for the provider, without spending inference quota.
+    url: "https://llm.kimchi.dev/v1/models",
+    method: "GET",
+    authHeader: "Authorization",
+    authPrefix: "Bearer ",
+    extraHeaders: { Accept: "application/json" },
+    refreshable: false,
+  },
   "qoder-cn": {
     // The route probes the signed, account-specific CN model catalog directly.
     // Device tokens cannot be refreshed; expiry requires re-login.

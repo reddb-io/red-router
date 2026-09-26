@@ -1000,6 +1000,8 @@
   "featureFlagXaiOauthLiveModelDiscoveryDescription": "Načítat aktuální katalog modelů xAI pro připojení xai-oauth z https://api.x.ai/v1/models pomocí tokenu OAuth typu Bearer namísto neměnného statického základu. Ve výchozím nastavení vypnuto: xai-oauth nadále beze změny poskytuje statický základ. Při jakékoli chybě zjišťování se použije statický základ.",
   "featureFlagDbHealthcheckStartupDeferredEnabledDescription": "Spustit kontrolu integrity a stavu databáze až poté, co server začne přijímat požadavky, namísto blokování spuštění do jejího dokončení. Ve výchozím nastavení vypnuto: spuštění je kontrolou blokováno přesně jako před touto změnou, takže poškozená databáze je stále odhalena před obsloužením prvního požadavku.",
   "sidebar": {
+    "modelCatalog": "Modely",
+    "modelCatalogSubtitle": "Katalog modelů pro všechny připojené poskytovatele.",
     "home": "Domov",
     "dashboard": "Nástěnka",
     "providers": "Poskytovatelé",

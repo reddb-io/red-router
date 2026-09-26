@@ -1000,6 +1000,8 @@
   "featureFlagXaiOauthLiveModelDiscoveryDescription": "Za povezave xai-oauth pridobi aktualni katalog modelov xAI z naslova https://api.x.ai/v1/models z uporabo nosilnega žetona OAuth namesto nespremenljivega statičnega začetnega nabora. Privzeto je izklopljeno: xai-oauth še naprej brez sprememb uporablja statični začetni nabor. Ob kakršni koli napaki pri razreševanju odkrivanje uporabi začetni nabor.",
   "featureFlagDbHealthcheckStartupDeferredEnabledDescription": "Preverjanje celovitosti/stanja podatkovne zbirke ob zagonu izvedi po tem, ko strežnik začne sprejemati zahteve, namesto da bi do zaključka preverjanja blokiral zagon. Privzeto je izklopljeno: preverjanje blokira zagon povsem enako kot pred to spremembo, zato je poškodovana podatkovna zbirka še vedno zaznana, preden je obdelana prva zahteva.",
   "sidebar": {
+    "modelCatalog": "Modeli",
+    "modelCatalogSubtitle": "Katalog modelov za vse povezane ponudnike.",
     "home": "Domov",
     "dashboard": "Nadzorna plošča",
     "providers": "Ponudniki",

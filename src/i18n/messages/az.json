@@ -1000,6 +1000,8 @@
   "featureFlagXaiOauthLiveModelDiscoveryDescription": "xai-oauth bağlantıları üçün sabit statik ilkin siyahı əvəzinə OAuth daşıyıcı tokenindən istifadə edərək https://api.x.ai/v1/models ünvanından aktual xAI model kataloqunu əldə edin. Defolt olaraq deaktivdir: xai-oauth statik ilkin siyahını dəyişmədən təqdim etməyə davam edir. Aşkarlama zamanı hər hansı xəta baş verərsə, ilkin siyahıdan istifadə olunur.",
   "featureFlagDbHealthcheckStartupDeferredEnabledDescription": "Başlanğıc verilənlər bazası bütövlüyü/sağlamlıq yoxlamasını server sorğuları qəbul etməyə başladıqdan sonra işə salın, onun tamamlanmasını gözləyərək başlanğıcı bloklamayın. Defolt olaraq deaktivdir: başlanğıc bu dəyişiklikdən əvvəl olduğu kimi yoxlama tamamlananadək bloklanır, beləliklə zədələnmiş verilənlər bazası yenə də ilk sorğu emal edilməzdən əvvəl aşkarlanır.",
   "sidebar": {
+    "modelCatalog": "Modellər",
+    "modelCatalogSubtitle": "Bütün qoşulmuş provayderlər üçün model kataloqu.",
     "home": "Əsas səhifə",
     "dashboard": "İdarə paneli",
     "providers": "Provayderlər",

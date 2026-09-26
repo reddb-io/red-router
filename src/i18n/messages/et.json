@@ -1000,6 +1000,8 @@
   "featureFlagXaiOauthLiveModelDiscoveryDescription": "Hangi xai-oauth ühenduste reaalajas xAI mudelikataloog aadressilt https://api.x.ai/v1/models, kasutades OAuthi kandjaluba, mitte fikseeritud staatilist algandmestikku. Vaikimisi väljas: xai-oauth jätkab staatilise algandmestiku muutmata kujul pakkumist. Mis tahes lahendamistõrke korral kasutatakse mudelite avastamisel algandmestikku.",
   "featureFlagDbHealthcheckStartupDeferredEnabledDescription": "Käivita andmebaasi terviklikkuse ja seisundi kontroll pärast seda, kui server on hakanud päringuid vastu võtma, selle asemel et käivitamist kontrolli lõpulejõudmiseni blokeerida. Vaikimisi väljas: käivitamine blokeeritakse kontrolli ajaks täpselt nagu enne seda muudatust, nii et rikutud andmebaas tuvastatakse endiselt enne esimese päringu teenindamist.",
   "sidebar": {
+    "modelCatalog": "Mudelid",
+    "modelCatalogSubtitle": "Kõigi ühendatud teenusepakkujate mudelikataloog.",
     "home": "Avaleht",
     "dashboard": "Juhtpaneel",
     "providers": "Pakkujad",

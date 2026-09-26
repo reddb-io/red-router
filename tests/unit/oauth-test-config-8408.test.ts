@@ -36,6 +36,15 @@ test("Windsurf OAuth stores a long-lived Codeium key without a refresh token", (
   assert.equal(config.refreshable, false);
 });
 
+test("Kimchi connection probe checks its bearer-key model catalog", () => {
+  const config = OAUTH_TEST_CONFIG.kimchi;
+  assert.equal(config.url, "https://llm.kimchi.dev/v1/models");
+  assert.equal(config.method, "GET");
+  assert.equal(config.authHeader, "Authorization");
+  assert.equal(config.authPrefix, "Bearer ");
+  assert.equal(config.refreshable, false);
+});
+
 test("iFlow connection probe signs the actual chat request with the credential", async () => {
   const config = OAUTH_TEST_CONFIG.iflow;
   assert.equal(config.refreshable, false);

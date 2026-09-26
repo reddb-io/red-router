@@ -1000,6 +1000,8 @@
   "featureFlagXaiOauthLiveModelDiscoveryDescription": "使用 OAuth bearer token，從 https://api.x.ai/v1/models 擷取 xai-oauth 連線的即時 xAI 模型目錄，而非固定不變的靜態種子。預設關閉：xai-oauth 會繼續提供未變更的靜態種子。發生任何解析錯誤時，探索功能會回退至該種子。",
   "featureFlagDbHealthcheckStartupDeferredEnabledDescription": "伺服器開始接受請求後再執行啟動時的資料庫完整性／健康狀況檢查，而非在檢查完成前阻擋啟動程序。預設關閉：啟動程序會像此變更前一樣等待檢查完成，因此損壞的資料庫仍會在處理第一個請求前被偵測到。",
   "sidebar": {
+    "modelCatalog": "模型",
+    "modelCatalogSubtitle": "所有連線的提供者的模型目錄。",
     "home": "首頁",
     "dashboard": "儀表板",
     "providers": "提供者",

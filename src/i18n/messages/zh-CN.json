@@ -1000,6 +1000,8 @@
   "featureFlagXaiOauthLiveModelDiscoveryDescription": "对于 xai-oauth 连接，使用 OAuth 持有者令牌从 https://api.x.ai/v1/models 获取实时 xAI 模型目录，而不是使用固定不变的静态种子数据。默认关闭：xai-oauth 将继续原样提供静态种子数据。出现任何解析错误时，发现功能都会回退到种子数据。",
   "featureFlagDbHealthcheckStartupDeferredEnabledDescription": "在服务器开始接受请求后运行启动时数据库完整性/健康检查，而不是阻塞启动直至检查完成。默认关闭：启动过程会像此更改之前一样等待检查完成，因此损坏的数据库仍会在处理第一个请求之前被发现。",
   "sidebar": {
+    "modelCatalog": "模型",
+    "modelCatalogSubtitle": "所有连接的提供者的模型目录。",
     "home": "首页",
     "dashboard": "仪表板",
     "providers": "提供者",

@@ -1281,7 +1281,6 @@ export class CodexExecutor extends BaseExecutor {
     if (isCompactRequest) {
       delete body.stream;
       delete body.stream_options;
-      delete body._compact;
       delete body.client_metadata;
       delete body.include;
     } else {

@@ -1000,6 +1000,8 @@
   "featureFlagXaiOauthLiveModelDiscoveryDescription": "Haal voor xai-oauth-verbindingen de actuele xAI-modelcatalogus op van https://api.x.ai/v1/models met behulp van het OAuth-bearertoken, in plaats van de bevroren statische basisset. Standaard uitgeschakeld: xai-oauth blijft de statische basisset ongewijzigd aanbieden. Bij elke fout bij het bepalen van de modellen valt de detectie terug op de basisset.",
   "featureFlagDbHealthcheckStartupDeferredEnabledDescription": "Voer de integriteits-/statuscontrole van de database bij het opstarten uit nadat de server verzoeken begint te accepteren, in plaats van het opstarten te blokkeren totdat de controle is voltooid. Standaard uitgeschakeld: het opstarten blijft precies zoals vóór deze wijziging op de controle wachten, zodat een beschadigde database nog steeds wordt gedetecteerd voordat het eerste verzoek wordt verwerkt.",
   "sidebar": {
+    "modelCatalog": "Modellen",
+    "modelCatalogSubtitle": "Modelcatalogus voor alle aangesloten providers.",
     "home": "Thuis",
     "dashboard": "Dashboard",
     "providers": "Aanbieders",

@@ -1000,6 +1000,8 @@
   "featureFlagXaiOauthLiveModelDiscoveryDescription": "Preia catalogul actualizat de modele xAI pentru conexiunile xai-oauth de la https://api.x.ai/v1/models, utilizând tokenul bearer OAuth, în locul setului inițial static. Dezactivată implicit: xai-oauth continuă să furnizeze fără modificări setul inițial static. La orice eroare de rezolvare, descoperirea revine la setul inițial.",
   "featureFlagDbHealthcheckStartupDeferredEnabledDescription": "Execută verificarea integrității/stării bazei de date la pornire după ce serverul începe să accepte cereri, în loc să blocheze pornirea până la finalizarea acesteia. Dezactivată implicit: pornirea este blocată de verificare exact ca înainte de această modificare, astfel încât o bază de date coruptă este detectată în continuare înainte de procesarea primei cereri.",
   "sidebar": {
+    "modelCatalog": "Modele",
+    "modelCatalogSubtitle": "Catalog model pentru toți furnizorii conectați.",
     "home": "Acasă",
     "dashboard": "Tabloul de bord",
     "providers": "Furnizorii",

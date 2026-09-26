@@ -131,6 +131,7 @@ import {
 import { getVisionCapabilityFields, getCustomVisionCapabilityFields } from "./catalogVision";
 import {
   buildAliasMaps,
+  canEmitSyncedCanonical,
   prefixRoutesToProvider,
   resolveCanonicalProviderId as resolveCanonicalProviderIdFromMaps,
   getProviderPrefixes as getProviderPrefixesFromMaps,
@@ -1367,8 +1368,7 @@ async function buildUnifiedModelsResponseCore(
                 : {}),
             });
           }
-
-          if (includeCanonical && canonicalProviderId !== alias && !prefix) {
+          if (canEmitSyncedCanonical(includeCanonical, canonicalProviderId, alias, !!prefix)) {
             const providerPrefixedId = `${canonicalProviderId}/${displayModelId}`;
             if (!models.some((model) => model.id === providerPrefixedId)) {
               models.push({

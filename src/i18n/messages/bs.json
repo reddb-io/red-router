@@ -1000,6 +1000,8 @@
   "featureFlagXaiOauthLiveModelDiscoveryDescription": "Preuzmi aktivni xAI katalog modela za xai-oauth konekcije sa https://api.x.ai/v1/models koristeći OAuth bearer token, umjesto zamrznutog statičkog seed-a. Podrazumijevano isključeno: xai-oauth nastavlja posluživati statički seed nepromijenjeno. Pri bilo kojoj grešci u razrješavanju, discovery se vraća na seed.",
   "featureFlagDbHealthcheckStartupDeferredEnabledDescription": "Pokreni provjeru integriteta/zdravlja baze podataka pri pokretanju nakon što server počne prihvatati zahtjeve, umjesto blokiranja pokretanja dok se ona ne završi. Podrazumijevano isključeno: pokretanje blokira provjeru tačno kao i prije ove promjene, tako da se korumpirana baza i dalje otkriva prije nego što prvi zahtjev bude poslužen.",
   "sidebar": {
+    "modelCatalog": "Modeli",
+    "modelCatalogSubtitle": "Katalog modela za sve povezane provajdere.",
     "home": "Početna",
     "dashboard": "Kontrolna tabla",
     "providers": "Provajderi",
