@@ -274,6 +274,12 @@ import { helixmindProvider } from "./registry/helixmind/index.ts";
 import { tabitokenProvider } from "./registry/tabitoken/index.ts";
 import { logfareProvider } from "./registry/logfare/index.ts";
 import { seekaiProvider } from "./registry/seekai/index.ts";
+import { iflowProvider } from "./registry/iflow/index.ts";
+import { kimchiProvider } from "./registry/kimchi/index.ts";
+import { mimo_freeProvider } from "./registry/mimo-free/index.ts";
+import { codebuddy_intlProvider } from "./registry/codebuddy-intl/index.ts";
+import { typesafe_aiProvider } from "./registry/typesafe-ai/index.ts";
+import { red_routerProvider } from "./registry/red-router/index.ts";
 
 export const REGISTRY: Record<string, RegistryEntry> = {
   aimlapi: aimlapiProvider,
@@ -552,4 +558,10 @@ export const REGISTRY: Record<string, RegistryEntry> = {
   tabitoken: tabitokenProvider,
   logfare: logfareProvider,
   seekai: seekaiProvider,
+  iflow: iflowProvider,
+  kimchi: kimchiProvider,
+  "mimo-free": mimo_freeProvider,
+  "codebuddy-intl": codebuddy_intlProvider,
+  "typesafe-ai": typesafe_aiProvider,
+  "red-router": red_routerProvider,
 };

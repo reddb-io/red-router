@@ -1541,4 +1541,39 @@ export const APIKEY_PROVIDERS_GATEWAYS = {
     apiHint:
       "Create an API key at https://seekai.cc, then paste it here as a Bearer token. OpenAI-compatible base URL: https://seekai.cc/v1.",
   },
+  // TypeSafe AI (https://typesafe.ai) — JEV "System One" decision-model
+  // provider. NOT a chat model: JEV is a routing classifier (unstructured
+  // state in, typed probabilities out) that Auto-Combo consults before model
+  // ordering (open-sse/decision/jev.ts). Registered as a chat apikey entry so
+  // the operator's JEV key is a first-class connection.
+  "typesafe-ai": {
+    id: "typesafe-ai",
+    serviceKinds: ["llm"],
+    alias: "jev",
+    name: "TypeSafe AI (JEV)",
+    icon: "rule",
+    color: "#7C3AED",
+    textIcon: "JEV",
+    website: "https://typesafe.ai",
+    authHint:
+      "Create an API key at https://platform.typesafe.ai, then paste it here. JEV uses its native System One contract at POST /v1/systemone (state + questions).",
+    passthroughModels: true,
+  },
+  // RedRouter (https://github.com/reddb-io/red-router) — self-upstream chat:
+  // connect to another RedRouter instance with its URL + a RedRouter API key.
+  // Accounts and provider access stay on the remote machine; this instance
+  // only needs the URL (providerSpecificData.baseUrl) and the key.
+  "red-router": {
+    id: "red-router",
+    serviceKinds: ["llm"],
+    alias: "red-router",
+    name: "RedRouter",
+    icon: "router",
+    color: "#E5484D",
+    textIcon: "RR",
+    website: "https://github.com/reddb.io/red-router",
+    authHint:
+      "Point providerSpecificData.baseUrl at the remote RedRouter (e.g. http://host:25050/v1) and paste one of its API keys. Default: http://127.0.0.1:25050/v1 (same host).",
+    passthroughModels: true,
+  },
 };

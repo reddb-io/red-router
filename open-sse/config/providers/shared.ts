@@ -256,6 +256,21 @@ export interface RegistryEntry {
    * via providerSpecificData.targetFormat; ver config/providers/alternateFormats.ts.
    */
   alternateFormats?: import("./alternateFormats.ts").AlternateFormat[];
+  /**
+   * JEV "System One" decision-model contract for decision-model providers
+   * (typesafe-ai). Resolved by decisionUrlFor() in open-sse/decision/jev.ts —
+   * the routing classifier reads `systemOneConfig.baseUrl` (plus the
+   * provider's `baseUrl` as URL base when relative), never the chat route.
+   */
+  systemOneConfig?: {
+    baseUrl: string;
+    validateUrl?: string;
+    defaultModel?: string;
+    modelMap?: Record<string, string>;
+    passthroughModels?: boolean;
+    contextWindow?: number;
+    maxStateAndQuestionTokens?: number;
+  };
 }
 
 /**

@@ -1,16 +1,16 @@
 ---
 title: "Provider Reference"
 version: 3.8.51
-lastUpdated: 2026-09-24
+lastUpdated: 2026-09-26
 ---
 
 # Provider Reference
 
 > **Auto-generated** from `src/shared/constants/providers.ts` — do not edit by hand.
 > Regenerate with: `npm run gen:provider-reference`
-> **Last generated:** 2026-09-24
+> **Last generated:** 2026-09-26
 
-Total providers: **358**. See category breakdown below.
+Total providers: **369**. See category breakdown below.
 
 ## Categories
 
@@ -34,7 +34,7 @@ Use the dashboard at `/dashboard/providers` to enable, configure, and test each 
 
 ---
 
-## No-auth Providers (no key required) (10)
+## No-auth Providers (no key required) (11)
 
 | ID | Alias | Name | Tags | Website | Notes | Tool calling |
 |----|-------|------|------|---------|-------|--------------|
@@ -44,12 +44,13 @@ Use the dashboard at `/dashboard/providers` to enable, configure, and test each 
 | `codex-app-server` | `cxa` | OpenAI Codex (App-Server) | No-auth | [link](https://developers.openai.com/codex/cli) | No token stored by OmniRoute. The Codex CLI app-server manages its own ChatGPT sign-in (~/.codex/auth.json, auto-refreshed). Use “Sign in with ChatGPT” if the CLI is not yet authenticated. | — |
 | `devin-cli-agentic` | `dva` | Devin CLI Agentic Bridge | No-auth | [link](https://docs.devin.ai/work-with-devin/devin-cli) | Authentication is owned by the official Devin CLI in its isolated bridge volume. | emulated |
 | `duckduckgo-web` | `ddgw` | DuckDuckGo AI Chat | No-auth | [link](https://duckduckgo.com/duckchat) | No credentials required — DuckDuckGo AI Chat is anonymous and free. | emulated |
-| `opencode` | `oc` | OpenCode Free | No-auth | [link](https://opencode.ai) | No API key required — uses OpenCode's public free endpoint. | — |
+| `mimo-free` | `mmf` | MiMo Code Free | No-auth | — | ⚠️ **DEPRECATED.** Xiaomi ended the free MiMo channel ("MiMo free API service has ended"). The entry stays available for operators whose endpoint still answers; it is hidden pending an official replacement channel. | — |
+| `opencode` | `oc` | OpenCode Free | No-auth | [link](https://opencode.ai) | No API key required — OpenCode's free tier can only be used from within OpenCode (client-contract requests). | — |
 | `uncloseai` | `unc` | UncloseAI | No-auth | [link](https://uncloseai.com) | No auth required. API accepts any non-empty string as key for identification. If older built-in models return 404, use Available Models → Import from /models or Auto-Sync; verified live model: Lorbus/Qwen3.6-27B-int4-AutoRound. | — |
 | `veoaifree-web` | `veo-free` | Veo AI Free | No-auth, video | [link](https://veoaifree.com) | No auth required. Rate limited to 6 requests/hour per IP. | — |
 | `zcode` | `zc` | ZCode (GLM Coding Plan) | No-auth | [link](https://zcode.z.ai) | No API key stored by OmniRoute. The local ZCode app-server uses the existing builtin:zai-coding-plan login. | — |
 
-## OAuth Providers (25)
+## OAuth Providers (28)
 
 | ID | Alias | Name | Tags | Website | Notes |
 |----|-------|------|------|---------|-------|
@@ -60,6 +61,7 @@ Use the dashboard at `/dashboard/providers` to enable, configure, and test each 
 | `cline` | `cl` | Cline | OAuth | — | — |
 | `clinepass` | `cp` | ClinePass | OAuth | [link](https://cline.bot/cline-pass) | ClinePass is Cline's $9.99/mo subscription bundling 10 open coding models. Sign in with your Cline account (same login as the Cline CLI/IDE), or paste a direct ClinePass API key (app.cline.bot → Settings → API Keys). A ClinePass subscription unlocks the cline-pass/* models. Reuses the Cline WorkOS OAuth flow. |
 | `codebuddy-cn` | `cbcn` | CodeBuddy CN | OAuth | [link](https://copilot.tencent.com) | Tencent CodeBuddy CN (copilot.tencent.com). Sign in via the official CLI device-code flow, or paste a direct API key (sent as Authorization: Bearer). Catalog: GLM / Kimi / MiniMax / DeepSeek / Hunyuan. |
+| `codebuddy-intl` | `cbai` | CodeBuddy | OAuth | [link](https://www.codebuddy.ai) | Tencent CodeBuddy international (www.codebuddy.ai). Sign in via the IDE plugin device flow, or paste a direct API key (sent as Authorization: Bearer). Same catalog as CodeBuddy CN. |
 | `codex` | `cx` | OpenAI Codex | OAuth | — | — |
 | `cursor` | `cu` | Cursor IDE | OAuth | — | — |
 | `devin-cli` | `dv` | Devin CLI | OAuth | [link](https://cli.devin.ai) | Requires the Devin CLI binary. Run `devin auth login` to authenticate, or provide your WINDSURF_API_KEY. Install: https://cli.devin.ai |
@@ -68,7 +70,9 @@ Use the dashboard at `/dashboard/providers` to enable, configure, and test each 
 | `github` | `gh` | GitHub Copilot | OAuth | — | — |
 | `gitlab-duo` | `gitlab-duo` | GitLab Duo | OAuth | [link](https://docs.gitlab.com/user/duo_agent_platform/code_suggestions/) | GitLab Duo OAuth is not configured. Register an OAuth application at https://gitlab.com/-/profile/applications with redirect URI http://localhost:20128/callback and scopes "ai_features read_user", then set GITLAB_DUO_OAUTH_CLIENT_ID (and optionally GITLAB_DUO_OAUTH_CLIENT_SECRET) and restart. |
 | `grok-cli` | `gc` | Grok Build | OAuth | — | Sign in with your browser, or paste your ~/.grok/auth.json (or the JWT access token) from the Grok Build CLI; refresh_token is rotated automatically either way. |
+| `iflow` | `if` | iFlow AI | OAuth | [link](https://iflow.cn) | Sign in with your iFlow account (phone OAuth, same client as the iFlow CLI), or paste an API key / access token. Every request is HMAC-signed with the connection credential (apis.iflow.cn). Catalog: Qwen / Kimi / DeepSeek / GLM. |
 | `kilocode` | `kc` | Kilo Code | OAuth | — | — |
+| `kimchi` | `kimchi` | Kimchi | OAuth | [link](https://kimchi.dev) | Create a key at https://app.kimchi.dev and paste it here (sent as Authorization: Bearer). Multi-backend gateway: MiniMax / Kimi / Nemotron / Claude via llm.kimchi.dev. |
 | `kimi-coding` | `kmc` | Kimi Code CLI | OAuth | [link](https://www.kimi.ai/code?aff=omniroute) | Sign in with the same Kimi account used by Kimi Code CLI. OmniRoute uses the CLI OAuth flow and Kimi Coding Plan endpoints. |
 | `kiro` | `kr` | Kiro AI | OAuth | — | Free tier: 50 credits/month (~25K–100K tokens). ⚠️ Kiro ToS prohibits third-party proxy/harness use. |
 | `muse-code` | `mc` | Muse Code (Meta) | OAuth | [link](https://ai.developer.meta.com/docs/muse-code/auth) | Sign in with the Muse Code device flow (same as `muse login` / CLIProxyAPI `-meta-login`) to use a Muse subscription, or paste a META_API_KEY. Device login keeps the durable dca token and mints the inference key; a 401 remints that key. Wire format is OpenAI Responses (POST /responses). |
@@ -117,7 +121,7 @@ Use the dashboard at `/dashboard/providers` to enable, configure, and test each 
 | `zai-web` | `zw` | Z.ai Web | Web cookie | [link](https://chat.z.ai) | Copy the "token" value from chat.z.ai → DevTools → Application → Local Storage. Do not copy cookies; OmniRoute handles the per-request CAPTCHA through its browser transport. | — |
 | `zenmux-free` | `zmf` | ZenMux Free (Web) | Web cookie | [link](https://zenmux.ai) | Login at zenmux.ai, then export all cookies using EditThisCookie or Cookie-Editor and paste the full Cookie header string here. Refresh every ~30 days. | — |
 
-## API Key Providers (paid / paid-with-free-credits) (241)
+## API Key Providers (paid / paid-with-free-credits) (243)
 
 | ID | Alias | Name | Tags | Website | Notes |
 |----|-------|------|------|---------|-------|
@@ -302,6 +306,7 @@ Use the dashboard at `/dashboard/providers` to enable, configure, and test each 
 | `qwen-cloud` | `qwc` | Qwen Cloud | API key | [link](https://www.qwencloud.com/) | — |
 | `qwen-cloud-token-plan` | `qct` | Qwen Cloud Token Plan | API key | [link](https://www.qwencloud.com/pricing/token-plan) | — |
 | `recraft` | `recraft` | Recraft | API key, image | [link](https://recraft.ai) | — |
+| `red-router` | `red-router` | RedRouter | API key | [link](https://github.com/reddb.io/red-router) | Point providerSpecificData.baseUrl at the remote RedRouter (e.g. http://host:25050/v1) and paste one of its API keys. Default: http://127.0.0.1:25050/v1 (same host). |
 | `regolo` | `regolo` | Regolo AI | API key | [link](https://regolo.ai) | Get your Regolo API key from regolo.ai, then paste it here as a Bearer token. |
 | `reka` | `reka` | Reka | API key | [link](https://docs.reka.ai/chat/overview) | Use your Reka API key. OmniRoute supports the OpenAI-compatible base URL https://api.reka.ai/v1 and sends both Authorization and X-Api-Key headers for compatibility. |
 | `requesty` | `requesty` | Requesty | API key | [link](https://requesty.ai) | Free tier ~200 requests/day - multi-model routing gateway (300+ models) |
@@ -332,6 +337,7 @@ Use the dashboard at `/dashboard/providers` to enable, configure, and test each 
 | `tokenreply` | `tokenreply` | TokenReply | API key, aggregator | [link](https://www.tokenreply.com) | Free-tagged models have model- and campaign-specific daily limits; no fixed global free quota is published. |
 | `tokenrouter` | `trk` | TokenRouter | API key | [link](https://tokenrouter.com) | Use your TokenRouter API key in Authorization: Bearer <key>. Fully OpenAI-compatible. API base URL: https://api.tokenrouter.com/v1. |
 | `topaz` | `topaz` | Topaz | API key, image | [link](https://topazlabs.com) | — |
+| `typesafe-ai` | `jev` | TypeSafe AI (JEV) | API key | [link](https://typesafe.ai) | Create an API key at https://platform.typesafe.ai, then paste it here. JEV uses its native System One contract at POST /v1/systemone (state + questions). |
 | `typhoon` | `typhoon` | Typhoon | API key | [link](https://docs.opentyphoon.ai) | Free API key with a 5 req/s and 200 req/m rate limit. |
 | `uc-direct` | `ucd` | UC Direct (uncensored.com) | API key | [link](https://uncensored.com) | Use your uncensored.com Developer API key (uai_sk_live_...). OmniRoute sends it as the X-api-key header to the OpenAI-compatible https://api.uncensored.com/api/v1 endpoint. The key never expires. This is the metered/credits surface; the un-metered subscription chat is the separate 'uc' provider. |
 | `udio` | `udio` | Udio | API key | [link](https://udio.com) | Paste session cookie from udio.com (Supabase auth) |
@@ -363,7 +369,7 @@ Use the dashboard at `/dashboard/providers` to enable, configure, and test each 
 | `zerolimitai` | `zerolimitai` | ZeroLimitAI | API key, aggregator | [link](https://www.zerolimitai.com) | Temporary free trial is advertised, but official pages conflict between 3 and 7 days; a 100-calls/day claim is not treated as permanent. |
 | `zylo-api` | `zylo` | Zylo API | API key, aggregator | [link](https://zyloai.net) | Basic plan: 10 RPM, 7,200 requests/day and 200,000 tokens/day; limited to Basic text models. |
 
-## Local Providers (14)
+## Local Providers (15)
 
 | ID | Alias | Name | Tags | Website | Notes |
 |----|-------|------|------|---------|-------|
@@ -378,6 +384,7 @@ Use the dashboard at `/dashboard/providers` to enable, configure, and test each 
 | `ollama-local` | `ollama` | Ollama | Local, self-hosted | [link](https://ollama.com) | No API key required. Ollama runs locally — configure its OpenAI-compatible base URL (default: http://localhost:11434/v1) and make sure Ollama is running before connecting. |
 | `oobabooga` | `ooba` | oobabooga | Local, self-hosted | [link](https://github.com/oobabooga/text-generation-webui) | API key optional. Configure the local oobabooga OpenAI-compatible base URL (default: http://localhost:5000/v1). |
 | `sdwebui` | `sdwebui` | SD WebUI | Local | [link](https://github.com/AUTOMATIC1111/stable-diffusion-webui) | No API key required. Configure the local WebUI base URL (default: http://localhost:7860). |
+| `selfhosted-embedding` | `selfhosted-embedding` | Self-hosted Embedding | Local | [link](https://github.com/ggml-org/llama.cpp) | API key optional (any value works — local servers ignore it). Set providerSpecificData.baseUrl to the OpenAI base URL, e.g. http://host:8080/v1 — /embeddings is appended (default: http://127.0.0.1:8080/v1). |
 | `triton` | `triton` | NVIDIA Triton | Local, self-hosted | [link](https://developer.nvidia.com/triton-inference-server) | API key optional. Configure the Triton OpenAI-compatible base URL (default: http://localhost:8000/v1). |
 | `vllm` | `vllm` | vLLM | Local, self-hosted | [link](https://github.com/vllm-project/vllm) | API key optional. Configure the local vLLM OpenAI-compatible base URL (default: http://localhost:8000/v1). |
 | `xinference` | `xinference` | XInference | Local, self-hosted | [link](https://inference.readthedocs.io) | API key optional. Configure the local XInference OpenAI-compatible base URL (default: http://localhost:9997/v1). |
@@ -404,7 +411,7 @@ Use the dashboard at `/dashboard/providers` to enable, configure, and test each 
 | `xquik-search` | `xquik` | Xquik X Search | Search | [link](https://docs.xquik.com) | Xquik API key (xq_...). Search is metered per returned post; the catalog estimate uses 5 results. |
 | `youcom-search` | `youcom-search` | You.com Search | Search | [link](https://you.com/business/api/) | X-API-Key from the You.com platform dashboard |
 
-## Audio-only Providers (12)
+## Audio-only Providers (16)
 
 | ID | Alias | Name | Tags | Website | Notes |
 |----|-------|------|------|---------|-------|
@@ -412,12 +419,16 @@ Use the dashboard at `/dashboard/providers` to enable, configure, and test each 
 | `aws-polly` | `polly` | AWS Polly | Audio | [link](https://aws.amazon.com/polly/) | Use AWS Secret Access Key as API key; set providerSpecificData.accessKeyId and optional region. |
 | `cartesia` | `cartesia` | Cartesia | Audio | [link](https://cartesia.ai) | — |
 | `deepgram` | `dg` | Deepgram | Audio | [link](https://deepgram.com) | — |
+| `edge-tts` | `edge-tts` | Edge TTS | Audio | [link](https://www.bing.com/translator) | No API key required. Reverse-engineered Bing translator endpoint (unofficial, no SLA) — per-IP rate-limited by Bing without notice. Voice is the full Edge voice id, e.g. en-US-AvaNeural. |
 | `elevenlabs` | `el` | ElevenLabs | Audio | [link](https://elevenlabs.io) | — |
 | `fishaudio` | `fishaudio` | Fish Audio | Audio | [link](https://fish.audio) | — |
 | `gladia` | `gladia` | Gladia | Audio | [link](https://gladia.io) | — |
 | `inworld` | `inworld` | Inworld | Audio | [link](https://inworld.ai) | — |
+| `local-device` | `local-device` | Local Device | Audio | — | No API key required. Requires the `say` (macOS) and `ffmpeg` binaries on PATH; voice is an installed `say` voice name. |
 | `playht` | `playht` | PlayHT | Audio | [link](https://play.ht) | — |
 | `rev-ai` | `revai` | Rev AI | Audio | [link](https://www.rev.ai) | — |
+| `selfhosted-stt` | `selfhosted-stt` | Self-hosted STT | Audio | [link](https://github.com/ggml-org/whisper.cpp) | Set providerSpecificData.baseUrl to the full transcriptions URL, e.g. http://host:8080/v1/audio/transcriptions. The API key is not checked by local servers; any value works. |
+| `selfhosted-tts` | `selfhosted-tts` | Self-hosted TTS | Audio | [link](https://github.com/remsky/Kokoro-FastAPI) | Set providerSpecificData.baseUrl to the server root, e.g. http://host:8080 — /v1/audio/speech is appended. The API key is not checked by local servers; any value works. |
 | `soniox` | `sx` | Soniox | Audio | [link](https://soniox.com) | — |
 | `speechmatics` | `sm` | Speechmatics | Audio | [link](https://www.speechmatics.com) | Free tier — 8 hours/month, no credit card required. Batch (async) mode only. |
 
@@ -446,7 +457,7 @@ Use the dashboard at `/dashboard/providers` to enable, configure, and test each 
 
 - Catalog: [`src/shared/constants/providers.ts`](../../src/shared/constants/providers.ts)
 - Registry (per-model details): [`open-sse/config/providerRegistry.ts`](../../open-sse/config/providerRegistry.ts)
-- Executors: [`open-sse/executors/`](../../open-sse/executors/) (127 implementations)
+- Executors: [`open-sse/executors/`](../../open-sse/executors/) (138 implementations)
 - Translators: [`open-sse/translator/`](../../open-sse/translator/)
 
 ## See Also

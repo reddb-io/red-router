@@ -261,6 +261,23 @@ export const AUDIO_TRANSCRIPTION_PROVIDERS: Record<string, AudioProvider> = {
       { id: "gpt-4o-transcription", name: "GPT-4o Transcription" },
     ],
   },
+
+  // Self-hosted, OpenAI-compatible speech-to-text (whisper.cpp,
+  // faster-whisper, Speaches, vLLM-served Whisper, ...). Every other STT
+  // entry is a named cloud service with a fixed endpoint; this one exists so
+  // a locally-served /v1/audio/transcriptions can be used at all: set the
+  // connection's providerSpecificData.baseUrl to the FULL transcriptions URL
+  // (applied by the default branch in audioTranscription.ts), exactly as the
+  // custom embedding providers already work. authType "apikey" (not "none")
+  // is what gives the connection a credentials record; local servers ignore
+  // the key itself — any non-empty value works.
+  "selfhosted-stt": {
+    id: "selfhosted-stt",
+    baseUrl: "http://127.0.0.1:8080/v1/audio/transcriptions",
+    authType: "apikey",
+    authHeader: "bearer",
+    models: [{ id: "whisper-1", name: "Whisper (self-hosted)" }],
+  },
 };
 
 /**
@@ -601,6 +618,50 @@ export const AUDIO_SPEECH_PROVIDERS: Record<string, AudioProvider> = {
     authHeader: "none",
     format: "uc-tts",
     models: [{ id: "jade", name: "UC Voice (Jade)" }],
+  },
+
+  // Edge TTS — reverse-engineered Bing translator endpoint, no auth (ported
+  // from the legacy fork's edge-tts provider). POST Bing `tfettts` with SSML
+  // + a scraped `params_AbusePreventionHelper` token, handled by the
+  // `format: "edge-tts"` branch in audioSpeech.ts (open-sse/executors/edgeTts.ts).
+  // No official SLA; per-IP rate-limited by Bing without notice.
+  "edge-tts": {
+    id: "edge-tts",
+    baseUrl: "https://www.bing.com/tfettts?isVertical=1&&IG=1&IID=translator.5023&SFX=1",
+    authType: "none",
+    authHeader: "none",
+    format: "edge-tts",
+    supportedFormats: ["mp3"],
+    models: [{ id: "default", name: "Edge TTS (Free)" }],
+  },
+
+  // Local device TTS — macOS `say` + ffmpeg, entirely on the operator's
+  // machine (ported from the legacy fork's local-device provider). Handled by
+  // the `format: "local-device"` branch in audioSpeech.ts
+  // (open-sse/executors/localDevice.ts). The baseUrl is a synthetic marker
+  // (there is no network transport) and is never fetched.
+  "local-device": {
+    id: "local-device",
+    baseUrl: "local-device",
+    authType: "none",
+    authHeader: "none",
+    format: "local-device",
+    supportedFormats: ["mp3"],
+    models: [{ id: "default", name: "Local Device TTS" }],
+  },
+
+  // Self-hosted, OpenAI-compatible text-to-speech (Kokoro-FastAPI,
+  // openedai-speech, vLLM-served TTS, ...). authType "apikey" (not "none") so
+  // the connection carries a credentials record — which is where
+  // providerSpecificData.baseUrl lives (the audioSpeech.ts default branch
+  // applies that override by appending /v1/audio/speech). Local servers
+  // ignore the key itself; any non-empty value works.
+  "selfhosted-tts": {
+    id: "selfhosted-tts",
+    baseUrl: "http://127.0.0.1:8880/v1/audio/speech",
+    authType: "apikey",
+    authHeader: "bearer",
+    models: [{ id: "kokoro", name: "Kokoro (self-hosted)" }],
   },
 };
 

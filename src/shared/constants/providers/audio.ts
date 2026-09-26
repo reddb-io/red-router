@@ -129,4 +129,59 @@ export const AUDIO_ONLY_PROVIDERS = {
     hasFree: true,
     freeNote: "Free tier — 8 hours/month, no credit card required. Batch (async) mode only.",
   },
+
+  "selfhosted-stt": {
+    id: "selfhosted-stt",
+    serviceKinds: [],
+    alias: "selfhosted-stt",
+    name: "Self-hosted STT",
+    icon: "cloud",
+    color: "#64748B",
+    textIcon: "ST",
+    website: "https://github.com/ggml-org/whisper.cpp",
+    authHint:
+      "Set providerSpecificData.baseUrl to the full transcriptions URL, e.g. http://host:8080/v1/audio/transcriptions. The API key is not checked by local servers; any value works.",
+  },
+
+  "selfhosted-tts": {
+    id: "selfhosted-tts",
+    serviceKinds: [],
+    alias: "selfhosted-tts",
+    name: "Self-hosted TTS",
+    icon: "cloud",
+    color: "#64748B",
+    textIcon: "TT",
+    website: "https://github.com/remsky/Kokoro-FastAPI",
+    authHint:
+      "Set providerSpecificData.baseUrl to the server root, e.g. http://host:8080 — /v1/audio/speech is appended. The API key is not checked by local servers; any value works.",
+  },
+
+  "edge-tts": {
+    id: "edge-tts",
+    serviceKinds: [],
+    alias: "edge-tts",
+    name: "Edge TTS",
+    icon: "record_voice_over",
+    color: "#0078D4",
+    textIcon: "ET",
+    website: "https://www.bing.com/translator",
+    hasFree: true,
+    freeNote: "Free — reverse-engineered Bing translator endpoint, no API key required.",
+    authHint:
+      "No API key required. Reverse-engineered Bing translator endpoint (unofficial, no SLA) — per-IP rate-limited by Bing without notice. Voice is the full Edge voice id, e.g. en-US-AvaNeural.",
+  },
+
+  "local-device": {
+    id: "local-device",
+    serviceKinds: [],
+    alias: "local-device",
+    name: "Local Device",
+    icon: "speaker",
+    color: "#64748B",
+    textIcon: "LD",
+    hasFree: true,
+    freeNote: "Free — synthesizes on this machine via `say` (macOS) + ffmpeg. No network access.",
+    authHint:
+      "No API key required. Requires the `say` (macOS) and `ffmpeg` binaries on PATH; voice is an installed `say` voice name.",
+  },
 };
