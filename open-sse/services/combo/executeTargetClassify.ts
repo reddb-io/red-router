@@ -31,8 +31,11 @@ export function handlePreContentStreamRetry(
   },
   modelStr: string
 ): boolean {
+  const isPreContentStreamError =
+    quality.reason === "streaming upstream error" ||
+    quality.reason?.startsWith("streaming upstream error: ") === true;
   if (
-    quality.reason !== "streaming upstream error" ||
+    !isPreContentStreamError ||
     retry >= deps.maxRetries ||
     deps.signal?.aborted
   ) {

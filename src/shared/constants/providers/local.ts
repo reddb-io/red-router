@@ -199,4 +199,18 @@ export const LOCAL_PROVIDERS = {
       "No API key required. Configure the local ComfyUI base URL (default: http://localhost:8188).",
     localDefault: "http://localhost:8188",
   },
+  "selfhosted-embedding": {
+    id: "selfhosted-embedding",
+    serviceKinds: ["embedding"],
+    alias: "selfhosted-embedding",
+    name: "Self-hosted Embedding",
+    icon: "cloud",
+    color: "#64748B",
+    textIcon: "SE",
+    website: "https://github.com/ggml-org/llama.cpp",
+    authHint:
+      "API key optional (any value works — local servers ignore it). Set providerSpecificData.baseUrl to the OpenAI base URL, e.g. http://host:8080/v1 — /embeddings is appended (default: http://127.0.0.1:8080/v1).",
+    localDefault: "http://127.0.0.1:8080/v1",
+    passthroughModels: true,
+  },
 };

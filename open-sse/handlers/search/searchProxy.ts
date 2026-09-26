@@ -15,6 +15,7 @@ import { HTTP_STATUS } from "../../config/constants.ts";
 import { isSubscriptionQuotaText } from "../../services/quotaTextCooldowns.ts";
 import type { SearchProviderConfig } from "../../config/searchRegistry.ts";
 import type { SearchResult } from "../search.ts";
+import { countXquikReturnedPosts } from "./xquikSearch.ts";
 
 const SEARCH_COOLDOWN_STATUSES = new Set([
   HTTP_STATUS.PAYMENT_REQUIRED,
@@ -145,7 +146,7 @@ export interface ProviderFetchResult {
     query: string;
     results: SearchResult[];
     answer: null;
-    usage: { queries_used: number; search_cost_usd: number };
+    usage: { queries_used: number; search_cost_usd: number; provider_credits_used?: number };
     metrics: {
       response_time_ms: number;
       upstream_latency_ms: number;
@@ -256,6 +257,7 @@ export async function executeProviderFetch(
     const data = await response.json();
     const normalized = normalize(config.id, data, query, searchType);
     const results = normalized.results.slice(0, maxResults);
+    const providerCreditsUsed = config.id === "xquik-search" ? countXquikReturnedPosts(data) : null;
     const duration = Date.now() - startTime;
 
     logCall({
@@ -273,7 +275,11 @@ export async function executeProviderFetch(
         query,
         results,
         answer: null,
-        usage: { queries_used: 1, search_cost_usd: config.costPerQuery },
+        usage: {
+          queries_used: 1,
+          search_cost_usd: config.costPerQuery,
+          ...(providerCreditsUsed === null ? {} : { provider_credits_used: providerCreditsUsed }),
+        },
         metrics: {
           response_time_ms: duration,
           upstream_latency_ms: duration,

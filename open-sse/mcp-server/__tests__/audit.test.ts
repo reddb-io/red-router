@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import * as audit from "../audit.ts";
 
 type MockAuditDb = {
   prepare: ReturnType<typeof vi.fn>;
@@ -26,8 +27,10 @@ describe("MCP audit shutdown", () => {
   let dbFile: string;
 
   beforeEach(() => {
-    vi.resetModules();
     globalThis.__omnirouteMcpAuditDb = undefined;
+    // Shutdown tests exercise the audit handle, not ambient caller lookup.
+    audit.__setAuditCallerIdResolverForTests(async () => undefined);
+    audit.__setBetterSqliteLoaderForTests(null);
     dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "omniroute-mcp-audit-"));
     dbFile = path.join(dataDir, "storage.sqlite");
     fs.writeFileSync(dbFile, "");
@@ -37,6 +40,9 @@ describe("MCP audit shutdown", () => {
   afterEach(() => {
     delete process.env.DATA_DIR;
     globalThis.__omnirouteMcpAuditDb = undefined;
+    audit.__setAuditCallerIdResolverForTests(null);
+    audit.__setBetterSqliteLoaderForTests(null);
+    vi.doUnmock("node:sqlite");
     vi.doUnmock("../../../src/lib/db/adapters/runtimeRequire.ts");
     vi.restoreAllMocks();
   });
@@ -49,7 +55,6 @@ describe("MCP audit shutdown", () => {
       open: true,
     };
 
-    const audit = await import("../audit.ts");
     // Inject through the connection cache — the seam the module itself uses.
     globalThis.__omnirouteMcpAuditDb = mockDb as unknown as typeof globalThis.__omnirouteMcpAuditDb;
 
@@ -60,9 +65,7 @@ describe("MCP audit shutdown", () => {
     expect(mockDb.pragma).toHaveBeenCalledWith("wal_checkpoint(TRUNCATE)");
     expect(mockDb.close).toHaveBeenCalledTimes(1);
     expect(audit.closeAuditDb()).toBe(false);
-  }, // calls can exceed the default budget though the behavior is correct // CI-runner load, vi.resetModules() + a fresh dynamic import + mocked DB // Explicit generous timeout (vitest default is 5000ms): under contended
-  // (issue #6803).
-  30000);
+  }, 30000);
 
   it("still closes the audit database when checkpoint fails", async () => {
     const mockDb: MockAuditDb = {
@@ -74,7 +77,6 @@ describe("MCP audit shutdown", () => {
       open: true,
     };
 
-    const audit = await import("../audit.ts");
     globalThis.__omnirouteMcpAuditDb = mockDb as unknown as typeof globalThis.__omnirouteMcpAuditDb;
 
     await audit.logToolCall("omniroute_get_health", {}, {}, 5, true);
@@ -103,11 +105,7 @@ describe("MCP audit shutdown", () => {
       close() {}
     }
 
-    vi.doMock("../../../src/lib/db/adapters/runtimeRequire.ts", () => ({
-      runtimeRequire: () => FakeDatabase,
-    }));
-
-    const audit = await import("../audit.ts");
+    audit.__setBetterSqliteLoaderForTests(() => FakeDatabase);
 
     await expect(audit.getAuditStats()).resolves.toEqual({
       totalCalls: 7,
@@ -144,7 +142,6 @@ describe("MCP audit shutdown", () => {
     });
     vi.doMock("node:sqlite", () => ({ DatabaseSync }));
 
-    const audit = await import("../audit.ts");
     audit.__setBetterSqliteLoaderForTests(() => {
       throw bindingErr;
     });
@@ -182,7 +179,6 @@ describe("MCP audit shutdown", () => {
     });
     vi.doMock("node:sqlite", () => ({ DatabaseSync }));
 
-    const audit = await import("../audit.ts");
     // Webpack/standalone stub: require("better-sqlite3") returns a non-callable
     // object, so the loader rejects it with "better-sqlite3 export is not a function"
     // (the minified runtime form is "a is not a function"; both classify the same).
@@ -210,7 +206,6 @@ describe("MCP audit shutdown", () => {
       close: vi.fn(),
       open: true,
     };
-    const audit = await import("../audit.ts");
     audit.__setBetterSqliteLoaderForTests(
       () =>
         function Database() {
@@ -235,7 +230,6 @@ describe("MCP audit shutdown", () => {
 
   it("caches a failed audit connection so dashboard polls do not reconnect", async () => {
     const connectErr = new Error("permission denied");
-    const audit = await import("../audit.ts");
     audit.__setBetterSqliteLoaderForTests(() => {
       throw connectErr;
     });

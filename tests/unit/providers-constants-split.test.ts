@@ -46,7 +46,8 @@ import assert from "node:assert/strict";
 
 const P = await import("../../src/shared/constants/providers.ts");
 
-const APIKEY_PROVIDER_COUNT = 241;
+// Measured from the merged catalog in CI after the upstream-parity additions.
+const APIKEY_PROVIDER_COUNT = 250;
 
 test("barrel still exports every catalog + key helpers", () => {
   for (const name of [

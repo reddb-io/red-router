@@ -1000,6 +1000,8 @@
   "featureFlagXaiOauthLiveModelDiscoveryDescription": "Hämta xAI:s aktuella modellkatalog för xai-oauth-anslutningar från https://api.x.ai/v1/models med OAuth-bearer-token i stället för den statiska, oföränderliga grunduppsättningen. Av som standard: xai-oauth fortsätter att tillhandahålla den statiska grunduppsättningen oförändrad. Om ett fel uppstår när modellerna ska fastställas återgår identifieringen till grunduppsättningen.",
   "featureFlagDbHealthcheckStartupDeferredEnabledDescription": "Kör integritets-/hälsokontrollen av databasen vid start efter att servern har börjat ta emot förfrågningar, i stället för att blockera starten tills kontrollen är klar. Av som standard: starten blockeras av kontrollen precis som före denna ändring, så en skadad databas upptäcks fortfarande innan den första förfrågningen behandlas.",
   "sidebar": {
+    "modelCatalog": "Modeller",
+    "modelCatalogSubtitle": "Modellkatalog för alla anslutna leverantörer.",
     "home": "Hem",
     "dashboard": "Instrumentpanel",
     "providers": "Leverantörer",

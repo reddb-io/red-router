@@ -206,7 +206,8 @@ function egressShieldText(
   if (egress.kind === "inherited-pool") {
     return t(getEgressLabelKey(egress.kind), { count: egress.count ?? 0 });
   }
-  return t(getEgressLabelKey(egress.kind));
+  if (egress.kind === "pool-empty") return t(getEgressLabelKey("pool-empty"));
+  return t(egress.kind === "own" ? "configureProxy" : getEgressLabelKey("direct"));
 }
 
 function isEgressConfigured(egress: EffectiveEgress | null, proxy: InlineProxy | null): boolean {

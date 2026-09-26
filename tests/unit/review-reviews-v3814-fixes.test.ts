@@ -146,6 +146,13 @@ test("LEDGER-4: minimax-m3 vision metadata matches each provider", () => {
   assert.ok(entries.length >= 6, `expected several minimax-m3 entries, got ${entries.length}`);
   const promptql = entries.find((entry) => entry.provider === "promptql");
   assert.notEqual(promptql?.supportsVision, true, "PromptQL MiniMax M3 is text-only");
+  for (const provider of ["command-code", "kimchi"]) {
+    assert.equal(
+      entries.find((entry) => entry.provider === provider)?.supportsVision,
+      true,
+      `${provider} MiniMax M3 must advertise image input`
+    );
+  }
   const unflagged = entries
     .filter((entry) => entry.provider !== "promptql" && entry.supportsVision !== true)
     .map((entry) => `${entry.provider}/${entry.id}`);

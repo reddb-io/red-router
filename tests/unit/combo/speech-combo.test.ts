@@ -95,6 +95,22 @@ test("does not select retired EdgeTTS targets as speech-capable", async () => {
   assert.ok(!bodyStr.includes("at "), "Error response does not leak stack traces");
 });
 
+test("a remote speech combo cannot dispatch a local-device subprocess", async () => {
+  await createCombo({
+    name: "host-voice-combo",
+    strategy: "priority",
+    models: ["local-device/default"],
+  });
+  const response = await executeSpeechCombo(
+    "host-voice-combo",
+    { model: "host-voice-combo", input: "hello there" },
+    Date.now(),
+    new Request("https://remote.example/v1/audio/speech")
+  );
+  assert.equal(response.status, 400);
+  assert.match(await response.text(), /No speech-capable targets/);
+});
+
 test("returns 400 when combo has no usable targets", async () => {
   await createCombo({ name: "empty-combo", strategy: "priority", models: [] });
 

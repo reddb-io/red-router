@@ -170,6 +170,23 @@ export const NOAUTH_PROVIDERS = {
       text: "UncloseAI needs no API key. API accepts any non-empty string as key for identification. If older built-in models return 404, use Available Models → Import from /models or Auto-Sync.",
     },
   },
+  "mimo-free": {
+    id: "mimo-free",
+    alias: "mmf",
+    name: "MiMo Code Free",
+    icon: "smart_toy",
+    color: "#FF6900",
+    textIcon: "MF",
+    noAuth: true,
+    hasFree: true,
+    passthroughModels: true,
+    serviceKinds: ["llm"],
+    deprecated: true,
+    deprecationReason:
+      'Xiaomi ended the free MiMo channel ("MiMo free API service has ended"). The entry stays available for operators whose endpoint still answers; it is hidden pending an official replacement channel.',
+    authHint:
+      "No API key required — the executor bootstraps an anonymous per-process JWT from the MiMo bootstrap endpoint (device fingerprint as client id). Subject to Xiaomi anti-abuse gating (Chrome-like User-Agent + MiMoCode system marker, handled automatically).",
+  },
   aihorde: {
     id: "aihorde",
     alias: "horde",

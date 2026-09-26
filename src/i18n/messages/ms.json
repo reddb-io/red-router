@@ -1000,6 +1000,8 @@
   "featureFlagXaiOauthLiveModelDiscoveryDescription": "Dapatkan katalog model xAI semasa untuk sambungan xai-oauth daripada https://api.x.ai/v1/models menggunakan token pembawa OAuth, dan bukannya benih statik yang dibekukan. Dimatikan secara lalai: xai-oauth terus menyediakan benih statik tanpa perubahan. Jika berlaku sebarang ralat resolusi, penemuan akan kembali menggunakan benih tersebut.",
   "featureFlagDbHealthcheckStartupDeferredEnabledDescription": "Jalankan semakan integriti/kesihatan pangkalan data permulaan selepas pelayan mula menerima permintaan, dan bukannya menyekat permulaan sehingga semakan selesai. Dimatikan secara lalai: permulaan disekat oleh semakan sama seperti sebelum perubahan ini, jadi pangkalan data yang rosak masih dikesan sebelum permintaan pertama dilayan.",
   "sidebar": {
+    "modelCatalog": "Model",
+    "modelCatalogSubtitle": "Katalog model untuk semua pembekal yang disambungkan.",
     "home": "Rumah",
     "dashboard": "Papan pemuka",
     "providers": "Pembekal",

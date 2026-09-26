@@ -1000,6 +1000,8 @@
   "featureFlagXaiOauthLiveModelDiscoveryDescription": "Ġib il-katalgu attwali tal-mudelli xAI għall-konnessjonijiet xai-oauth minn https://api.x.ai/v1/models billi tuża t-token bearer OAuth, minflok is-seed statiku ffriżat. Diżattivat b’mod awtomatiku: xai-oauth jibqa’ jservi s-seed statiku mingħajr tibdil. F’każ ta’ kwalunkwe żball fir-riżoluzzjoni, l-iskoperta terġa’ lura għas-seed.",
   "featureFlagDbHealthcheckStartupDeferredEnabledDescription": "Ħaddem il-kontroll tal-integrità/tas-saħħa tad-database tal-istartjar wara li s-server jibda jaċċetta t-talbiet, minflok ma timblokka l-istartjar sakemm jitlesta. Diżattivat b’mod awtomatiku: l-istartjar jibqa’ mblukkat sakemm jitlesta l-kontroll eżattament bħal qabel din il-bidla, għalhekk database korrotta xorta tinqabad qabel ma tiġi moqdija l-ewwel talba.",
   "sidebar": {
+    "modelCatalog": "Mudelli",
+    "modelCatalogSubtitle": "Katalgu tal-mudelli għall-fornituri konnessi kollha.",
     "home": "Paġna Ewlenija",
     "dashboard": "Pannell tal-kontroll",
     "providers": "Fornituri",

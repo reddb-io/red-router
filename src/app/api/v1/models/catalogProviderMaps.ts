@@ -1,5 +1,6 @@
 import { PROVIDER_MODELS, PROVIDER_ID_TO_ALIAS } from "@/shared/constants/models";
 import { AI_PROVIDERS } from "@/shared/constants/providers";
+import { isNoAuthProviderKey } from "@/shared/utils/noAuthProviders";
 import { parseModel, resolveCanonicalProviderModel } from "@omniroute/open-sse/services/model";
 
 // Alias <-> providerId resolution maps for the unified model catalog. Extracted
@@ -112,6 +113,22 @@ export function resolveCanonicalProviderId(
 export function prefixRoutesToProvider(prefix: string, providerId: string): boolean {
   const parsed = parseModel(`${prefix}/__omniroute_probe__`);
   return parsed.provider === providerId;
+}
+
+/** Synced rows must obey the same no-auth/prefix collision gate as static rows. */
+export function canEmitSyncedCanonical(
+  includeCanonical: boolean,
+  providerId: string,
+  alias: string,
+  hasNodePrefix: boolean
+): boolean {
+  return (
+    includeCanonical &&
+    providerId !== alias &&
+    !hasNodePrefix &&
+    !isNoAuthProviderKey(providerId) &&
+    prefixRoutesToProvider(providerId, providerId)
+  );
 }
 
 /**

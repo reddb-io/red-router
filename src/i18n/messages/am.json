@@ -1000,6 +1000,8 @@
   "featureFlagXaiOauthLiveModelDiscoveryDescription": "የቆመውን የማይለወጥ የመነሻ ዝርዝር ከመጠቀም ይልቅ፣ የOAuth bearer tokenን በመጠቀም ለxai-oauth ግንኙነቶች ቀጥታውን የxAI ሞዴል ካታሎግ ከhttps://api.x.ai/v1/models ያምጡ። በነባሪ የተሰናከለ ነው፦ xai-oauth ያልተለወጠውን የማይለወጥ የመነሻ ዝርዝር ማቅረቡን ይቀጥላል። በማንኛውም የመፍታት ስህተት ጊዜ፣ ግኝቱ ወደ መነሻ ዝርዝሩ ይመለሳል።",
   "featureFlagDbHealthcheckStartupDeferredEnabledDescription": "አገልጋዩ ጥያቄዎችን መቀበል ከጀመረ በኋላ የማስጀመሪያውን የውሂብ ጎታ ታማኝነት/ጤና ምርመራ ያስኪዱ፤ እስኪጠናቀቅ ድረስ ማስጀመርን አያግዱ። በነባሪ የተሰናከለ ነው፦ ማስጀመር ከዚህ ለውጥ በፊት እንደነበረው ልክ ምርመራውን ይጠብቃል፤ ስለዚህ የተበላሸ የውሂብ ጎታ የመጀመሪያው ጥያቄ ከመስተናገዱ በፊት አሁንም ይገኛል።",
   "sidebar": {
+    "modelCatalog": "ሞዴሎች",
+    "modelCatalogSubtitle": "ለሁሉም የተገናኙ providers የሞዴል ካታሎግ።",
     "home": "መነሻ",
     "dashboard": "ዳሽቦርድ",
     "providers": "አቅራቢዎች",

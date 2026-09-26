@@ -43,6 +43,28 @@ test("OpenRouter :batch variants are not chat-selectable", () => {
   }
 });
 
+test("System One models stay out of chat even after synthetic chat discovery", () => {
+  for (const [provider, id] of [
+    ["typesafe-ai", "jev-latest"],
+    ["openrouter", "typesafe/jev-1.13"],
+    ["opencode-zen", "jev-1.13"],
+    ["opencode", "jev-1.13-free"],
+  ]) {
+    assert.deepEqual(getModelEndpointDecision(provider, id, ["chat"]), {
+      kind: "systemone",
+      chatSelectable: false,
+      reason: "provider-policy",
+    });
+  }
+  assert.equal(isChatSelectableModel("custom-provider", { id: "jev-latest" }), true);
+  assert.equal(isChatSelectableModel("openrouter", { id: "openai/gpt-4o" }), true);
+  assert.deepEqual(getModelEndpointDecision("custom-provider", "typed", ["/v1/systemone"]), {
+    kind: "systemone",
+    chatSelectable: false,
+    reason: "explicit-endpoints",
+  });
+});
+
 test("OpenRouter's other variant suffixes stay chat-selectable", () => {
   // Excluding these would shrink the routable catalogue -- they are routing
   // hints on the same chat model, not a different endpoint.

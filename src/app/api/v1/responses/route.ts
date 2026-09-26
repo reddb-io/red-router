@@ -97,7 +97,7 @@ export async function withCodexPreferredModel(
  * POST /v1/responses - OpenAI Responses API format
  * Handled by the unified chat handler (openai-responses format auto-detected).
  */
-async function postHandler(request: any) {
+export async function handleResponsesPost(request: Request, compact = false): Promise<Response> {
   const sessionId = resolveSessionId(request);
   const admissionResult = await admitChatRequest(request, {
     sessionId,
@@ -121,7 +121,20 @@ async function postHandler(request: any) {
     if (!parsed.success || Array.isArray(parsed.data)) {
       return finishAdmission(errorResponse(400, "Request body must be a JSON object"));
     }
-    parsedBody = parsed.data;
+    parsedBody = compact ? { ...parsed.data, stream: false } : parsed.data;
+
+    // Keep the compact endpoint path for native Codex forwarding while handing
+    // the same normalized body to admission, the guard, and handleChat.
+    if (compact) {
+      const headers = new Headers(request.headers);
+      headers.delete("content-length");
+      request = new Request(request.url, {
+        method: request.method,
+        headers,
+        body: JSON.stringify(parsedBody),
+        signal: request.signal,
+      });
+    }
 
     const structuralAdmission = await admitChatStructure(parsedBody, admission.lease, {
       sessionId,
@@ -210,4 +223,4 @@ async function postHandler(request: any) {
   }
 }
 
-export const POST = postHandler;
+export const POST = (request: Request) => handleResponsesPost(request);

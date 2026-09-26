@@ -377,13 +377,14 @@ export const SEARCH_PROVIDERS: Record<string, SearchProviderConfig> = {
     method: "GET",
     authType: "apikey",
     authHeader: "x-api-key",
-    costPerQuery: 0.00075,
+    // One Xquik credit per returned post; no verified USD-per-credit conversion.
+    costPerQuery: 0,
     freeMonthlyQuota: 0,
     searchTypes: ["x"],
     defaultMaxResults: 5,
-    maxMaxResults: 20,
-    timeoutMs: 15_000,
-    cacheTTLMs: 5 * 60 * 1000,
+    maxMaxResults: 100,
+    timeoutMs: 10_000,
+    cacheTTLMs: 60_000,
     fallbackOnly: true,
   },
 

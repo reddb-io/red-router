@@ -23,6 +23,7 @@ import OAuthErrorStep from "@/shared/components/oauthModal/OAuthErrorStep";
 import OAuthWaitingStep from "@/shared/components/oauthModal/OAuthWaitingStep";
 import { parseGrokCliPasteToken } from "@/lib/oauth/utils/grokCliAuthJson";
 import { buildGoogleLoopbackHint } from "@/lib/oauth/utils/googleLoopbackHint";
+import { parseWindsurfCallback } from "@/lib/oauth/utils/windsurfCallback";
 import {
   buildPkceLoopbackMismatchHint,
   type PkceLoopbackMismatchHint,
@@ -31,9 +32,8 @@ import {
 export { formatDeviceCodeRemaining } from "./OAuthModalPanels";
 
 const GOOGLE_OAUTH_PROVIDERS = new Set(["antigravity", "agy"]);
-
 /** Providers that use a local callback server on a random port (PKCE browser flow). */
-const PKCE_CALLBACK_SERVER_PROVIDERS = new Set(["codex", "xai-oauth", "grok-cli"]);
+const PKCE_CALLBACK_SERVER_PROVIDERS = new Set(["codex", "xai-oauth", "grok-cli", "windsurf"]);
 
 // grok-cli is wired into BOTH the device-code panel (its default, #7358) and
 // the browser PKCE + import-token paths above/below (#7013) — the user picks
@@ -47,9 +47,11 @@ const DEVICE_CODE_PROVIDERS = new Set([
   "kimi-coding",
   "kilocode",
   "codebuddy-cn",
+  "codebuddy-intl",
   "ghe-copilot",
   "grok-cli",
   "muse-code",
+  "qoder-cn",
 ]);
 
 const TOKEN_PASTE_PROVIDERS = new Set(["devin-desktop", "devin-cli", "grok-cli"]);
@@ -446,7 +448,9 @@ export default function OAuthModal({
                 }
               : provider === "ghe-copilot" && gheUrl.trim()
                 ? { gheUrl: gheUrl.trim() }
-                : null;
+                : provider === "qoder-cn"
+                  ? { _qoderMachineId: data._qoderMachineId }
+                  : null;
           startPolling(
             data.device_code,
             data.codeVerifier,
@@ -560,6 +564,10 @@ export default function OAuthModal({
           // Fixed native-app loopback callback, distinct ports so both can run concurrently (#7013).
           const grokBuildPort = provider === "xai-oauth" ? 56121 : 56122;
           redirectUri = `http://127.0.0.1:${grokBuildPort}/callback`;
+        } else if (provider === "windsurf") {
+          // Remote operators copy the final loopback URL; never send an
+          // implicit Firebase bearer token to a public /callback route.
+          redirectUri = "http://127.0.0.1:20128/windsurf-auth-callback";
         } else if (provider === "devin-desktop" || provider === "devin-cli") {
           // Retained callback-path fallback for the retired browser flow.
           const port = window.location.port || "20128";
@@ -795,7 +803,7 @@ export default function OAuthModal({
     try {
       channel = new BroadcastChannel("oauth_callback");
       channel.onmessage = (event) => handleCallback(event.data);
-    } catch (e) {
+    } catch {
       console.log("BroadcastChannel not supported");
     }
 
@@ -806,7 +814,7 @@ export default function OAuthModal({
           const data = JSON.parse(event.newValue);
           handleCallback(data);
           localStorage.removeItem("oauth_callback");
-        } catch (e) {
+        } catch {
           console.log("Failed to parse localStorage data");
         }
       }
@@ -841,7 +849,6 @@ export default function OAuthModal({
   useEffect(() => {
     if (step !== "waiting" || isDeviceCode || !popupRef.current) return;
 
-    let closed = false;
     const popupClosedInterval = setInterval(() => {
       if (callbackProcessedRef.current) {
         clearInterval(popupClosedInterval);
@@ -849,7 +856,6 @@ export default function OAuthModal({
       }
       try {
         if (popupRef.current?.closed) {
-          closed = true;
           clearInterval(popupClosedInterval);
           // Popup was closed without completing OAuth — switch to manual input mode
           // so user can paste the callback URL from their browser address bar
@@ -934,6 +940,16 @@ export default function OAuthModal({
       // skip the generic code/state extraction below.
       if (provider === "zed-hosted") {
         await exchangeTokens(input, authData?.state || null);
+        return;
+      }
+
+      if (provider === "windsurf") {
+        const callback = parseWindsurfCallback(input, authData.redirectUri, authData.state);
+        if (callback.ok === false && callback.reason === "state_mismatch") {
+          throw new Error(t("errorStateMismatch"));
+        }
+        if (!callback.ok) throw new Error(t("errorNoAuthorizationCode"));
+        await exchangeTokens(callback.token, callback.state);
         return;
       }
 

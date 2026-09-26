@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+    branches: [main, omniroute-base]
     types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
 
@@ -131,6 +131,11 @@ jobs:
       - run: npm run check:any-budget:t11
       - run: npm run check:provider-consistency
       - run: npm run check:model-lifecycle
+      # The audited icon snapshot predates this fork and is not reachable from
+      # origin's history. Fetch its immutable OmniRoute commit so the checker
+      # can compare real Git tree bytes instead of skipping provenance.
+      - name: Fetch provider asset audit snapshot
+        run: git fetch --no-tags --depth=1 https://github.com/diegosouzapw/OmniRoute.git ccb024cfa9a7612fa65b1f1795740572369d58f5
       - run: npm run check:provider-asset-provenance
       - run: npm run check:fetch-targets
       - run: npm run check:deps
@@ -217,6 +222,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
+          fetch-depth: 0
       - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.CI_NODE_VERSION }}
@@ -278,7 +284,14 @@ jobs:
       # Fase 7 INT: dead-code, type-coverage promovidos de advisory (quality-extended)
       # para BLOQUEANTES aqui. cognitive-complexity is folded into the step above.
       - name: Dead-code ratchet (knip)
-        run: npm run check:dead-code
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [ -n "$PR_BASE_SHA" ]; then
+            npm run check:dead-code -- --base-ref "$PR_BASE_SHA"
+          else
+            npm run check:dead-code
+          fi
       - name: Type coverage ratchet
         run: npm run check:type-coverage
       - name: Compression budget ratchet (F2.4 / N4)
@@ -695,21 +708,31 @@ jobs:
           cache: npm
       - uses: ./.github/actions/npm-ci-retry
       - run: npm run check:node-runtime
-      # NOTE: the webpack `.build/next/cache` actions/cache step was removed with the
-      # Turbopack switch below — Turbopack does not read/write the webpack cache dir
-      # (its persistent FS cache is still experimental and intentionally NOT enabled),
-      # so restoring the old ~0.5 GB webpack cache would only waste download time.
-      # Rolling back to webpack = revert this commit (cache step comes back with it).
+      # No webpack cache is restored here. The dedicated runner builds with
+      # Turbopack; the hosted fallback uses Webpack without a warm cache and
+      # retains build-next-isolated.mjs's default 8 GB V8 heap.
       #
       # Turbopack production build (Next 16, stable): benchmarked 1.9× faster than the
       # webpack pass (9min0s vs 17min15s on a 32-core box; multi-core Rust vs webpack's
       # single-threaded compile). Standalone output smoke-validated (server boots,
       # /api/monitoring/health 200). Downstream jobs (e2e ×9, package-artifact,
-      # electron-package-smoke) consume this artifact, so a green run here validates
-      # the Turbopack artifact end-to-end.
-      - run: npm run build
+      # electron-package-smoke) consume this artifact, validating the selected bundler.
+      - name: Build with resource diagnostics
+        run: |
+          monitor_build_resources() {
+            while true; do
+              echo "[build-resource] $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+              free -m
+              ps -e -o rss=,comm= | sort -nr | sed -n '1,5p'
+              sleep 30
+            done
+          }
+          monitor_build_resources &
+          monitor_pid=$!
+          trap 'kill "$monitor_pid" 2>/dev/null || true' EXIT
+          npm run build
         env:
-          OMNIROUTE_USE_TURBOPACK: "1"
+          OMNIROUTE_USE_TURBOPACK: ${{ (vars.USE_VPS_RUNNER == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)) && '1' || '0' }}
       - name: Archive Next.js build for downstream jobs
         # Use tar so the archive preserves paths relative to CWD (.build/next/...).
         # upload-artifact path-stripping is ambiguous when exclude patterns are used;
@@ -978,6 +1001,23 @@ jobs:
         if: runner.os != 'Windows'
         run: npm install -g bun
       - run: npm run test:bun:db
+
+  test-local-device-windows:
+    name: Windows Local Device TTS Contract
+    runs-on: windows-latest
+    timeout-minutes: 10
+    needs: changes
+    if: ${{ github.event_name != 'pull_request' || (needs.changes.outputs.code == 'true' && github.event.pull_request.draft == false) }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.CI_NODE_VERSION }}
+          cache: npm
+      - uses: ./.github/actions/npm-ci-retry
+      - run: node --import tsx/esm --test tests/unit/local-device-tts-windows.test.ts
 
   test-vitest:
     name: Vitest (MCP / autoCombo / UI components)
@@ -1481,6 +1521,9 @@ jobs:
       - package-artifact
       - electron-package-smoke
       - test-unit
+      - test-bun-sqlite
+      - test-local-device-windows
+      - test-vitest
       - test-coverage
       - sonarqube
       - coverage-pr-comment
@@ -1564,6 +1607,9 @@ jobs:
           echo "| Suite | Status |" >> "$GITHUB_STEP_SUMMARY"
           echo "|-------|--------|" >> "$GITHUB_STEP_SUMMARY"
           echo "| Unit | $(status '${{ needs.test-unit.result }}') |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Bun SQLite | $(status '${{ needs.test-bun-sqlite.result }}') |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Windows Local Device TTS | $(status '${{ needs.test-local-device-windows.result }}') |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Vitest (MCP / autoCombo / UI) | $(status '${{ needs.test-vitest.result }}') |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Coverage | $(status '${{ needs.test-coverage.result }}') |" >> "$GITHUB_STEP_SUMMARY"
           echo "| PR Coverage Comment | $(status '${{ needs.coverage-pr-comment.result }}') |" >> "$GITHUB_STEP_SUMMARY"
           echo "| E2E | $(status '${{ needs.test-e2e.result }}') |" >> "$GITHUB_STEP_SUMMARY"

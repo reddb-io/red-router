@@ -172,6 +172,11 @@ const EMBEDDED_DEFAULTS = {
   openference_id: [0, 0, 0, 0, 0, 0, 0, 0, 0],
   // Trae Cloud IDE — public oauth client id
   trae_id: [10, 3, 95, 6, 10, 22, 66, 3, 11, 90, 72, 31, 91, 2],
+  // Windsurf browser sign-in client identifier distributed by its public app.
+  windsurf_id: [
+    92, 42, 59, 27, 11, 62, 66, 24, 1, 108, 21, 62, 39, 25, 45, 81, 66, 20, 104, 1, 29, 30, 26, 28,
+    2, 31, 65, 93, 72, 32, 64, 23,
+  ],
   // Microsoft 365 Copilot web (m365.cloud.microsoft) — public SPA client id
   // observed in browser tokens and M365-Copilot2API. Not a per-user secret.
   m365_oauth_client_id: [
@@ -191,6 +196,19 @@ const EMBEDDED_DEFAULTS = {
   adobe_firefly_balance_api_key: [60, 24, 0, 11, 0, 10, 20, 31, 50, 72, 18, 32, 43, 93],
   // Muse Code CLI — Meta public OAuth client id (device grant, no secret).
   muse_id: [94, 93, 93, 88, 68, 93, 64, 77, 80, 31, 71, 65, 90, 85, 93, 85],
+  // iFlow AI (iflow.cn) — public OAuth client credentials shipped in the
+  // official iFlow CLI (same class as the Kimi/Codex CLI clients above).
+  iflow_id: [94, 93, 94, 89, 75, 92, 68, 69, 85, 29, 65],
+  iflow_secret: [
+    91, 55, 93, 48, 24, 55, 12, 23, 51, 94, 33, 3, 27, 43, 47, 82, 72, 2, 88, 33, 1, 39, 43, 48, 91,
+    39, 7, 20, 126, 52, 1, 53,
+  ],
+  // Bing read-aloud voice catalog public client identifier, distributed in the
+  // Edge TTS client. It is not a user credential.
+  edge_tts_id: [
+    89, 44, 91, 40, 51, 94, 49, 64, 32, 108, 54, 51, 86, 41, 80, 37, 111, 69, 6, 42, 95, 93, 45, 68,
+    87, 65, 77, 84, 105, 70, 51, 86,
+  ],
 } as const;
 
 export type EmbeddedDefaultKey = keyof typeof EMBEDDED_DEFAULTS;

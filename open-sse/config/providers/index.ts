@@ -37,6 +37,8 @@ import { cloudflarePlaygroundProvider } from "./registry/cloudflare-playground/i
 import { bedrockProvider } from "./registry/bedrock/index.ts";
 import { inner_aiProvider } from "./registry/inner-ai/index.ts";
 import { qoderProvider } from "./registry/qoder/index.ts";
+import { qoderCnProvider } from "./registry/qoder-cn/index.ts";
+import { windsurfProvider } from "./registry/windsurf/index.ts";
 import { xiaomi_mimoProvider } from "./registry/xiaomi-mimo/index.ts";
 import { xiaomi_mimo_token_planProvider } from "./registry/xiaomi-mimo-token-plan/index.ts";
 import { codestralProvider } from "./registry/codestral/index.ts";
@@ -171,6 +173,10 @@ import { cloudflare_aiProvider } from "./registry/cloudflare-ai/index.ts";
 import { nous_researchProvider } from "./registry/nous-research/index.ts";
 import { alibabaProvider } from "./registry/alibaba/index.ts";
 import { alibaba_cnProvider } from "./registry/alibaba/cn/index.ts";
+import { alicodeProvider } from "./registry/alicode/index.ts";
+import { alicode_intlProvider } from "./registry/alicode-intl/index.ts";
+import { alims_intlProvider } from "./registry/alims-intl/index.ts";
+import { alitp_intlProvider } from "./registry/alitp-intl/index.ts";
 import { doubaoProvider } from "./registry/doubao/index.ts";
 import { doubao_webProvider } from "./registry/doubao/web/index.ts";
 import { kilo_gatewayProvider } from "./registry/kilo-gateway/index.ts";
@@ -274,6 +280,14 @@ import { helixmindProvider } from "./registry/helixmind/index.ts";
 import { tabitokenProvider } from "./registry/tabitoken/index.ts";
 import { logfareProvider } from "./registry/logfare/index.ts";
 import { seekaiProvider } from "./registry/seekai/index.ts";
+import { iflowProvider } from "./registry/iflow/index.ts";
+import { kimchiProvider } from "./registry/kimchi/index.ts";
+import { mimo_freeProvider } from "./registry/mimo-free/index.ts";
+import { codebuddy_intlProvider } from "./registry/codebuddy-intl/index.ts";
+import { typesafe_aiProvider } from "./registry/typesafe-ai/index.ts";
+import { atriaProvider } from "./registry/atria/index.ts";
+import { tokenharborProvider } from "./registry/tokenharbor/index.ts";
+import { red_routerProvider } from "./registry/red-router/index.ts";
 
 export const REGISTRY: Record<string, RegistryEntry> = {
   aimlapi: aimlapiProvider,
@@ -310,6 +324,8 @@ export const REGISTRY: Record<string, RegistryEntry> = {
   bedrock: bedrockProvider,
   "inner-ai": inner_aiProvider,
   qoder: qoderProvider,
+  "qoder-cn": qoderCnProvider,
+  windsurf: windsurfProvider,
   "xiaomi-mimo": xiaomi_mimoProvider,
   "xiaomi-mimo-token-plan": xiaomi_mimo_token_planProvider,
   codestral: codestralProvider,
@@ -446,6 +462,10 @@ export const REGISTRY: Record<string, RegistryEntry> = {
   "nous-research": nous_researchProvider,
   alibaba: alibabaProvider,
   "alibaba-cn": alibaba_cnProvider,
+  alicode: alicodeProvider,
+  "alicode-intl": alicode_intlProvider,
+  "alims-intl": alims_intlProvider,
+  "alitp-intl": alitp_intlProvider,
   doubao: doubaoProvider,
   "doubao-web": doubao_webProvider,
   "kilo-gateway": kilo_gatewayProvider,
@@ -552,4 +572,12 @@ export const REGISTRY: Record<string, RegistryEntry> = {
   tabitoken: tabitokenProvider,
   logfare: logfareProvider,
   seekai: seekaiProvider,
+  iflow: iflowProvider,
+  kimchi: kimchiProvider,
+  "mimo-free": mimo_freeProvider,
+  "codebuddy-intl": codebuddy_intlProvider,
+  "typesafe-ai": typesafe_aiProvider,
+  atria: atriaProvider,
+  tokenharbor: tokenharborProvider,
+  "red-router": red_routerProvider,
 };

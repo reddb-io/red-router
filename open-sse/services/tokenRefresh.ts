@@ -40,6 +40,7 @@ import {
   refreshWithRetry,
 } from "./tokenRefresh/circuitBreaker.ts";
 import { refreshCodebuddyCnToken } from "./tokenRefresh/providers/codebuddyCn.ts";
+import { refreshCodebuddyIntlToken } from "./tokenRefresh/providers/codebuddyIntl.ts";
 import { refreshClineToken } from "./tokenRefresh/providers/cline.ts";
 import { refreshKimiCodingToken } from "./tokenRefresh/providers/kimiCoding.ts";
 import { refreshMuseCodeToken } from "./tokenRefresh/providers/museCode.ts";
@@ -62,6 +63,7 @@ import { refreshCopilotToken } from "./tokenRefresh/providers/copilot.ts";
 
 export {
   refreshCodebuddyCnToken,
+  refreshCodebuddyIntlToken,
   refreshClineToken,
   refreshKimiCodingToken,
   refreshMuseCodeToken,
@@ -139,14 +141,16 @@ export const DEPRECATED_PROVIDERS: Readonly<
   Record<string, { readonly migrateTo: string; readonly reason: string }>
 > = {
   "gemini-cli": {
-    migrateTo: "gemini",
-    // The legacy path redeemed the token with PROVIDERS.gemini's client — the very same
-    // public Gemini CLI / Code Assist OAuth client — which is why re-adding the account
-    // under `gemini` is a real migration and not a suggestion to start over.
+    migrateTo: "antigravity",
+    // The legacy token may have used the public Gemini CLI OAuth client, but
+    // `gemini` is the Google AI Studio API-key product in this router. Antigravity
+    // is the routable Cloud Code Assist product and requires its own sign-in;
+    // do not imply that the old refresh token can be moved between OAuth clients.
     reason:
-      "The gemini-cli provider was discontinued and is not routable. Re-add this account " +
-      "under the `gemini` provider — it uses the same Google OAuth client, so the same " +
-      "login works and the account becomes usable again.",
+      "The gemini-cli provider was discontinued and is not routable. Sign in again " +
+      "under `antigravity` for the Cloud Code Assist backend; its OAuth client is " +
+      "different and the old Gemini CLI token cannot be reused. The `gemini` " +
+      "provider instead requires a Google AI Studio API key.",
   },
 };
 
@@ -457,6 +461,9 @@ async function _getAccessTokenInternal(provider, credentials, log, proxyConfig: 
     case "codebuddy-cn":
       return await refreshCodebuddyCnToken(credentials.refreshToken, log, proxyConfig);
 
+    case "codebuddy-intl":
+      return await refreshCodebuddyIntlToken(credentials.refreshToken, log, proxyConfig);
+
     default:
       // Fallback to generic OAuth refresh for unknown providers
       return refreshAccessToken(provider, credentials.refreshToken, credentials, log, proxyConfig);
@@ -488,6 +495,7 @@ export function supportsTokenRefresh(provider) {
     // testStatus="expired" / errorCode="no_refresh_token".
     "gitlab-duo",
     "codebuddy-cn",
+    "codebuddy-intl",
     "cursor",
   ]);
   if (explicitlySupported.has(provider)) return true;
@@ -600,12 +608,7 @@ export async function getAccessToken(
   // the legacy `connectionId`-less path would silently swallow the callback,
   // leaving DB rows out of sync with rotated tokens (Codex/OpenAI). We still
   // resolve the promise to all waiters with the refreshed credentials.
-  const refreshPromise = _getAccessTokenWithStalenessCheck(
-    provider,
-    credentials,
-    log,
-    proxyConfig
-  )
+  const refreshPromise = _getAccessTokenWithStalenessCheck(provider, credentials, log, proxyConfig)
     .then(async (result) => {
       if (result?.accessToken && effectiveOnPersist) {
         // #4038: same compare-and-swap guard as Layer 1 — skip the persist if a concurrent

@@ -8,15 +8,15 @@
  *    stored connection can therefore never serve a request, no matter how fresh its
  *    token is.
  *  - The legacy refresh path DID work: it redeemed the token with
- *    `PROVIDERS.gemini.clientId`, which is the same public Gemini CLI / Code Assist
- *    OAuth client. So refreshing kept a credential alive that had nowhere to go.
+ *    `PROVIDERS.gemini.clientId`, which is the public Gemini CLI OAuth client.
+ *    Refreshing kept a credential alive that had nowhere to go.
  *  - Removing it from `supportsTokenRefresh` alone would produce a SILENT skip
  *    (`Skipping … (refresh unsupported)` in tokenHealthCheck) — the connection would
  *    sit at `active` forever while doing nothing.
  *
  * So the deprecation has to be *legible*: the connection becomes terminal with a
- * reason that names the migration. `gemini` uses the very same OAuth client, so
- * re-adding the account there is a real, working path — not advice to nowhere.
+ * reason that names the migration. `gemini` is the AI Studio API-key product;
+ * `antigravity` is the Cloud Code Assist OAuth path, requiring a fresh sign-in.
  *
  * NOT touched, and asserted here so a future edit cannot conflate them: the
  * `gemini-cli` CLIENT identity (issue #7034) — requests ARRIVING from the Gemini CLI
@@ -39,6 +39,7 @@ import {
   TOKEN_EXPIRY_BUFFER_MS,
 } from "../../open-sse/services/tokenRefresh.ts";
 import { CLIENT_IDENTITY_PROFILES } from "../../src/shared/constants/clientIdentityProfiles.ts";
+import { APIKEY_PROVIDERS, OAUTH_PROVIDERS } from "../../src/shared/constants/providers.ts";
 import { assertRuntimeProviderAvailable } from "../../src/shared/constants/providerRetirement.ts";
 
 test("gemini-cli is registered as deprecated, with a migration target that is routable", () => {
@@ -49,13 +50,16 @@ test("gemini-cli is registered as deprecated, with a migration target that is ro
 
   const notice = getDeprecationNotice("gemini-cli");
   assert.ok(notice, "a deprecated provider must carry a notice");
-  assert.equal(notice.migrateTo, "gemini");
-  assert.match(notice.reason, /gemini/i);
+  assert.equal(notice.migrateTo, "antigravity");
+  assert.match(notice.reason, /sign in again/i);
+  assert.match(notice.reason, /Google AI Studio API key/i);
 
   // The migration target must actually be usable — otherwise the notice sends the
   // operator nowhere. This is the assertion that makes the advice honest.
   assert.ok(REGISTRY[notice.migrateTo], "the migration target must be a routable provider");
   assert.ok(PROVIDERS[notice.migrateTo], "the migration target must have OAuth config");
+  assert.ok(OAUTH_PROVIDERS.antigravity, "the migration target must have a sign-in card");
+  assert.ok(APIKEY_PROVIDERS.gemini, "Gemini remains a separate AI Studio key product");
 });
 
 test("a deprecated provider is no longer refresh-capable and carries no refresh lead", () => {
@@ -100,7 +104,11 @@ test("refreshing a stored gemini-cli connection fails with a CLASSIFIED code, no
       "reuse the established unrecoverable contract so every existing caller stops retrying"
     );
     assert.equal(result.code, "provider_deprecated", "…but with a code that says WHY");
-    assert.equal(result.migrateTo, "gemini", "and the migration target, for a legible message");
+    assert.equal(
+      result.migrateTo,
+      "antigravity",
+      "and the migration target, for a legible message"
+    );
     assert.equal(result.accessToken, undefined);
   } finally {
     globalThis.fetch = originalFetch;
@@ -120,5 +128,7 @@ test("the gemini-cli CLIENT identity is untouched (issue #7034)", () => {
 test("deprecation does not resurrect the provider into any routable registry", () => {
   assert.equal(REGISTRY["gemini-cli"], undefined);
   assert.equal(PROVIDERS["gemini-cli"], undefined);
+  assert.equal((OAUTH_PROVIDERS as Record<string, unknown>)["gemini-cli"], undefined);
+  assert.equal((APIKEY_PROVIDERS as Record<string, unknown>)["gemini-cli"], undefined);
   assert.ok(Object.prototype.hasOwnProperty.call(DEPRECATED_PROVIDERS, "gemini-cli"));
 });

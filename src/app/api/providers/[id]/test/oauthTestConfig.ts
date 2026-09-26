@@ -1,5 +1,9 @@
 import { buildGitLabOAuthEndpoints, resolveGitLabOAuthBaseUrl } from "@/lib/oauth/gitlab";
 import { ANTIGRAVITY_RUNTIME_BASE_URLS } from "@omniroute/open-sse/config/antigravityUpstream.ts";
+import {
+  buildIFlowSignedHeaders,
+  IFLOW_USER_AGENT,
+} from "@omniroute/open-sse/services/iflowSignature.ts";
 import { getAntigravityContentHeaders } from "@omniroute/open-sse/services/antigravityHeaders.ts";
 import { getAntigravityClientProfile } from "@omniroute/open-sse/services/antigravityClientProfile.ts";
 import {
@@ -281,6 +285,12 @@ export const OAUTH_TEST_CONFIG: Record<string, OAuthTestConfigEntry> = {
     checkExpiry: true,
     refreshable: true,
   },
+  "codebuddy-intl": {
+    // The IDE device flow now has a provider-specific .ai refresh path. This
+    // lightweight probe checks expiry; live chat verifies actual connectivity.
+    checkExpiry: true,
+    refreshable: true,
+  },
   "devin-cli": {
     // Same gap as grok-cli #7610: absent from this table, so "Test Connection"
     // always fell through to "Provider test not supported" and left a working
@@ -296,6 +306,49 @@ export const OAUTH_TEST_CONFIG: Record<string, OAuthTestConfigEntry> = {
     // refresh token or known expiry. Validate token presence here; real
     // connectivity is exercised by chat requests.
     checkExpiry: true,
+    refreshable: false,
+  },
+  windsurf: {
+    // RegisterUser already exchanged the Firebase JWT for a long-lived Codeium
+    // API key. There is no refresh token; chat traffic verifies live access.
+    checkExpiry: true,
+    refreshable: false,
+  },
+  iflow: {
+    // Exercise the real signed chat surface. A plain bearer-only probe would
+    // reject a healthy credential because iFlow requires per-request HMAC.
+    refreshable: false,
+    buildProbe: (_connection, accessToken) => ({
+      url: "https://apis.iflow.cn/v1/chat/completions",
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+        "User-Agent": IFLOW_USER_AGENT,
+        Accept: "application/json",
+        ...buildIFlowSignedHeaders(accessToken),
+      },
+      body: JSON.stringify({
+        model: "qwen3-coder-plus",
+        messages: [{ role: "user", content: "ping" }],
+        max_tokens: 1,
+        stream: false,
+      }),
+    }),
+  },
+  kimchi: {
+    // Kimchi uses a pasted, non-refreshable bearer key. Probe the same model
+    // catalog URL registered for the provider, without spending inference quota.
+    url: "https://llm.kimchi.dev/v1/models",
+    method: "GET",
+    authHeader: "Authorization",
+    authPrefix: "Bearer ",
+    extraHeaders: { Accept: "application/json" },
+    refreshable: false,
+  },
+  "qoder-cn": {
+    // The route probes the signed, account-specific CN model catalog directly.
+    // Device tokens cannot be refreshed; expiry requires re-login.
     refreshable: false,
   },
   "grok-cli": {

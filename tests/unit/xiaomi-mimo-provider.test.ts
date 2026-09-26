@@ -10,6 +10,7 @@ import {
   updateProviderConnectionSchema,
 } from "../../src/shared/validation/schemas.ts";
 import { validateBody } from "../../src/shared/validation/helpers.ts";
+import { APIKEY_PROVIDERS } from "../../src/shared/constants/providers/apikey/index.ts";
 
 const DEPRECATED_MIMO_V2_MODELS = ["mimo-v2-pro", "mimo-v2-omni", "mimo-v2-flash", "mimo-v2-tts"];
 
@@ -44,6 +45,27 @@ test("xiaomi-mimo TTS models are registered in the audio speech registry", () =>
       (model) => model.id === "xiaomi-mimo/mimo-v2.5-tts" && model.subtype === "speech"
     )
   );
+});
+
+test("xiaomi Token Plan TTS models use separate credentials and stay out of chat", () => {
+  const provider = getSpeechProvider("xiaomi-mimo-token-plan");
+  assert.ok(provider);
+  assert.equal(provider.id, "xiaomi-mimo-token-plan");
+  assert.equal(provider.format, "xiaomi-mimo-tts");
+  assert.equal(provider.authHeader, "bearer");
+  assert.ok(APIKEY_PROVIDERS["xiaomi-mimo-token-plan"].serviceKinds.includes("tts"));
+  assert.deepEqual(
+    provider.models.map((model) => model.id),
+    ["mimo-v2-tts", "mimo-v2.5-tts", "mimo-v2.5-tts-voicedesign", "mimo-v2.5-tts-voiceclone"]
+  );
+  for (const model of provider.models) {
+    assert.ok(
+      getAllAudioModels().some(
+        (entry) => entry.id === `xiaomi-mimo-token-plan/${model.id}` && entry.subtype === "speech"
+      )
+    );
+    assert.ok(!REGISTRY["xiaomi-mimo-token-plan"].models.some((entry) => entry.id === model.id));
+  }
 });
 
 test("xiaomi-mimo executor appends /chat/completions for regional base URLs", () => {

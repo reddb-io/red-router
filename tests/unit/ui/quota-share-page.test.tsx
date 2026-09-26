@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // ── i18n stub ──────────────────────────────────────────────────────────────
 vi.mock("next-intl", () => ({
   useTranslations: () => (key: string) => key,
+  useLocale: () => "en",
 }));
 
 // ── next/dynamic stub ──────────────────────────────────────────────────────

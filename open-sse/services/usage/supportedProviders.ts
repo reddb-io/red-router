@@ -28,6 +28,7 @@ export const USAGE_SUPPORTED_PROVIDERS: readonly string[] = [
   "claude",
   "cursor",
   "qoder",
+  "qoder-cn",
   "kimi-coding",
   "kimi-coding-apikey",
   "glm",
@@ -87,4 +88,5 @@ export const USAGE_SUPPORTED_PROVIDERS: readonly string[] = [
   "lyceum",
   // Devin CLI agentic quota (Codeium seat-management GetUserStatus, protobuf)
   "devin-cli",
+  "windsurf",
 ];

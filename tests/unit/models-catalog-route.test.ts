@@ -129,6 +129,65 @@ test("v1 models catalog accepts bearer API keys and filters the list by allowed 
   );
 });
 
+test("v1 models catalog exposes callable search/fetch virtual models without bypassing key filters", async () => {
+  await seedConnection("exa-search", { name: "exa-search-main" });
+  await seedConnection("openai", { name: "openai-main" });
+
+  const publicResponse = await v1ModelsCatalog.getUnifiedModelsResponse(
+    new Request("http://localhost/api/v1/models")
+  );
+  const publicBody = (await publicResponse.json()) as { data: Array<Record<string, unknown>> };
+  assert.equal(publicResponse.status, 200);
+  assert.equal(
+    publicBody.data.find((model) => model.id === "exa-search/search")?.type,
+    "webSearch"
+  );
+  assert.equal(publicBody.data.find((model) => model.id === "exa-search/fetch")?.type, "webFetch");
+
+  const key = await apiKeysDb.createApiKey("catalog-no-exa", "machine-no-exa");
+  await apiKeysDb.updateApiKeyPermissions(key.id, { allowedModels: ["openai/*"] });
+  const scopedResponse = await v1ModelsCatalog.getUnifiedModelsResponse(
+    new Request("http://localhost/api/v1/models", {
+      headers: { Authorization: `Bearer ${key.key}` },
+    })
+  );
+  const scopedBody = (await scopedResponse.json()) as { data: Array<{ id: string }> };
+  assert.equal(scopedResponse.status, 200);
+  assert.equal(
+    scopedBody.data.some((model) => model.id === "exa-search/search"),
+    false
+  );
+  assert.equal(
+    scopedBody.data.some((model) => model.id === "exa-search/fetch"),
+    false
+  );
+});
+
+test("v1 models catalog hides default SearXNG localhost but lists an operator-configured URL", async () => {
+  const initialResponse = await v1ModelsCatalog.getUnifiedModelsResponse(
+    new Request("http://localhost/api/v1/models")
+  );
+  const initialBody = (await initialResponse.json()) as { data: Array<{ id: string }> };
+  assert.equal(
+    initialBody.data.some((model) => model.id === "searxng-search/search"),
+    false
+  );
+
+  await seedConnection("searxng-search", {
+    name: "searxng-private",
+    providerSpecificData: { baseUrl: "https://search.example.net/search" },
+  });
+  v1ModelsCatalog.__resetCatalogBuilderRunsForTest();
+  const configuredResponse = await v1ModelsCatalog.getUnifiedModelsResponse(
+    new Request("http://localhost/api/v1/models")
+  );
+  const configuredBody = (await configuredResponse.json()) as { data: Array<{ id: string }> };
+  assert.equal(
+    configuredBody.data.some((model) => model.id === "searxng-search/search"),
+    true
+  );
+});
+
 test("v1 models catalog does NOT accept API keys supplied via query string (#3300 security follow-up)", async () => {
   // Query-string token fallbacks (`?token=`/`?key=`/`?apiKey=`/`?api_key=`) were
   // intentionally removed — a credential in the query string leaks into access
@@ -1626,6 +1685,11 @@ test("v1 models catalog includes noAuth provider models when no DB connections e
     ids.some((id) => id.startsWith("opencode/")),
     false,
     "catalog must not return opencode/* noAuth aliases because opencode/ routes to opencode-zen"
+  );
+  assert.equal(
+    ids.some((id) => id.startsWith("opencode-zen/")),
+    false,
+    "opencode-zen must remain credential-gated even when no-auth oc is available"
   );
 });
 

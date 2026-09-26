@@ -24,6 +24,8 @@ import { tavilyFetch } from "../executors/tavily-fetch.ts";
 import { tinyfishFetch } from "../executors/tinyfish-fetch.ts";
 import { nimbleFetch } from "../executors/nimble-fetch.ts";
 import { anysearchFetch } from "../executors/anysearch-fetch.ts";
+import { exaFetch } from "../executors/exa-fetch.ts";
+import { ollamaCloudFetch } from "../executors/ollama-cloud-fetch.ts";
 
 export type WebFetchFormat = "markdown" | "html" | "links" | "screenshot";
 
@@ -73,6 +75,8 @@ export const WEB_FETCH_PROVIDERS = Object.freeze([
   "anysearch-search",
   "context7",
   "nimble-search",
+  "exa-search",
+  "ollama-cloud",
 ] as const);
 // Derived from the array — adding a provider to WEB_FETCH_PROVIDERS
 // automatically widens the union; they cannot drift apart.
@@ -160,6 +164,22 @@ export async function handleWebFetch(
 
       case "nimble-search":
         return await nimbleFetch({
+          url: req.url,
+          format,
+          includeMetadata,
+          credentials,
+        });
+
+      case "exa-search":
+        return await exaFetch({
+          url: req.url,
+          format,
+          includeMetadata,
+          credentials,
+        });
+
+      case "ollama-cloud":
+        return await ollamaCloudFetch({
           url: req.url,
           format,
           includeMetadata,

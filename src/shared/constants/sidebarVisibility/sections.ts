@@ -44,9 +44,9 @@ const OMNI_PROXY_ITEMS: readonly SidebarItemDefinition[] = [
     id: "model-catalog",
     href: "/dashboard/models",
     i18nKey: "modelCatalog",
-    labelFallback: "Model catalog",
+    labelFallback: "Models",
     subtitleKey: "modelCatalogSubtitle",
-    subtitleFallback: "Browse models across providers",
+    subtitleFallback: "Model catalog for all connected providers.",
     icon: "view_list",
   },
   {

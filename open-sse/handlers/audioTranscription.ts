@@ -976,6 +976,21 @@ export async function handleAudioTranscription({
     return handleOpenRouterTranscription(providerConfig, file, modelId, token, formData);
   }
 
+  // Self-hosted STT URL override: the connection's
+  // providerSpecificData.baseUrl IS the full transcriptions URL (e.g.
+  // http://host:8080/v1/audio/transcriptions) — replaced wholesale, the same
+  // per-connection override the self-hosted embedding providers use. Any
+  // other provider keeps its registry baseUrl untouched.
+  function resolveSelfhostedTranscriptionUrl(providerConfig, credentials) {
+    if (providerConfig.id !== "selfhosted-stt") return providerConfig.baseUrl;
+    const raw =
+      credentials?.providerSpecificData &&
+      typeof credentials.providerSpecificData.baseUrl === "string"
+        ? credentials.providerSpecificData.baseUrl.trim()
+        : "";
+    return raw || providerConfig.baseUrl;
+  }
+
   // Default: OpenAI/Groq/Qwen3-compatible multipart proxy
   const extraFields: Record<string, string> = {};
   for (const key of [
@@ -997,7 +1012,7 @@ export async function handleAudioTranscription({
   });
 
   try {
-    const res = await fetch(providerConfig.baseUrl, {
+    const res = await fetch(resolveSelfhostedTranscriptionUrl(providerConfig, credentials), {
       method: "POST",
       headers: { ...buildAuthHeaders(providerConfig, token), "Content-Type": multipartCT },
       body: multipartBody,

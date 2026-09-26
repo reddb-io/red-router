@@ -1000,6 +1000,8 @@
   "featureFlagXaiOauthLiveModelDiscoveryDescription": "Weta katalọgụ ụdị xAI dị ugbu a maka njikọ xai-oauth site na https://api.x.ai/v1/models, jiri OAuth bearer token, kama iji mkpụrụ static a kpọnwụrụ akpọnwụ. Agbanyụrụ ya na ndabara: xai-oauth ga-aga n’ihu inye mkpụrụ static ahụ n’enweghị mgbanwe. Ọ bụrụ na njehie ọ bụla emee mgbe a na-achọpụta ya, nchọpụta ahụ ga-alaghachi n’iji mkpụrụ ahụ.",
   "featureFlagDbHealthcheckStartupDeferredEnabledDescription": "Mee nyocha iguzosi ike n’ezi ihe/ahụike nke database mgbe server malitere ịnabata arịrịọ, kama igbochi mmalite ruo mgbe nyocha ahụ gwụchara. Agbanyụrụ ya na ndabara: mmalite ga-echere nyocha ahụ kpọmkwem dịka ọ dị tupu mgbanwe a, ya mere a ka ga-achọpụta database mebiri emebi tupu e jeere arịrịọ mbụ ozi.",
   "sidebar": {
+    "modelCatalog": "Ụdị",
+    "modelCatalogSubtitle": "Katalọgụ model maka providers niile ejikọrọ.",
     "home": "Mbido",
     "dashboard": "Ogwe njikwa",
     "providers": "Ndị Na-enye Ọrụ",

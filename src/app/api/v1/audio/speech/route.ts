@@ -19,6 +19,7 @@ import { attachOmniRouteMetaToResponse } from "@/domain/omnirouteResponseMeta";
 import { calculateModalCost } from "@/lib/usage/costCalculator";
 import { generateRequestId } from "@/shared/utils/requestId";
 import { saveCallLog } from "@/lib/usageDb";
+import { canUseHostSpeech } from "@/lib/security/hostSpeechAccess";
 
 /**
  * Handle CORS preflight
@@ -36,7 +37,7 @@ export async function OPTIONS() {
  * POST /v1/audio/speech — text-to-speech
  * OpenAI TTS API compatible. Returns audio stream.
  */
-async function postHandler(request, context) {
+async function postHandler(request, _context) {
   let rawBody;
   try {
     rawBody = await request.json();
@@ -64,7 +65,7 @@ async function postHandler(request, context) {
     const combo = await getComboByName(body.model);
     if (combo) {
       const { executeSpeechCombo } = await import("@omniroute/open-sse/services/speechCombo");
-      return executeSpeechCombo(body.model, body, startTime);
+      return executeSpeechCombo(body.model, body, startTime, request);
     }
   }
 
@@ -78,6 +79,9 @@ async function postHandler(request, context) {
       HTTP_STATUS.BAD_REQUEST,
       `Invalid speech model: ${body.model}. Use format: provider/model`
     );
+  }
+  if (provider === "local-device" && !canUseHostSpeech(request)) {
+    return errorResponse(403, "Local-device speech requires a loopback request");
   }
 
   // Check provider config — hardcoded first, then dynamic

@@ -1000,6 +1000,8 @@
   "featureFlagXaiOauthLiveModelDiscoveryDescription": "Ambil katalog model xAI langsung untuk koneksi xai-oauth dari https://api.x.ai/v1/models menggunakan token bearer OAuth, bukan seed statis yang dibekukan. Nonaktif secara default: xai-oauth tetap menyajikan seed statis tanpa perubahan. Jika terjadi kesalahan resolusi, penemuan akan kembali menggunakan seed.",
   "featureFlagDbHealthcheckStartupDeferredEnabledDescription": "Jalankan pemeriksaan integritas/kesehatan basis data saat startup setelah server mulai menerima permintaan, bukan memblokir startup hingga pemeriksaan selesai. Nonaktif secara default: startup tetap diblokir selama pemeriksaan persis seperti sebelum perubahan ini, sehingga basis data yang rusak masih terdeteksi sebelum permintaan pertama dilayani.",
   "sidebar": {
+    "modelCatalog": "Model",
+    "modelCatalogSubtitle": "Katalog model untuk semua penyedia yang terhubung.",
     "home": "Rumah",
     "dashboard": "Dasbor",
     "providers": "Penyedia",

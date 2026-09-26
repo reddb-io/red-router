@@ -14,6 +14,20 @@ export const openrouterProvider: RegistryEntry = {
   // only surfaced later as upstream 401 "User not found." on real chat traffic.
   // /api/v1/auth/key is the authenticated key-info endpoint: 200 = valid, 401 = invalid.
   testKeyModelsUrl: "https://openrouter.ai/api/v1/auth/key",
+  systemOneConfig: {
+    baseUrl: "https://openrouter.ai/api/v1/systemone",
+    models: [{ id: "typesafe/jev-1.13", name: "JEV 1.13" }],
+    defaultModel: "typesafe/jev-1.13",
+    modelMap: {
+      "jev-1.13": "typesafe/jev-1.13",
+      "jev-1.13.0": "typesafe/jev-1.13",
+      "jev-latest": "typesafe/jev-1.13",
+    },
+    headers: {
+      "HTTP-Referer": "https://endpoint-proxy.local",
+      "X-Title": "Endpoint Proxy",
+    },
+  },
   headers: {
     "HTTP-Referer": "https://endpoint-proxy.local",
     "X-Title": "Endpoint Proxy",

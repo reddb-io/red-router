@@ -13,17 +13,20 @@ const { runWithCapture } = await import("../../open-sse/utils/providerRequestLog
 const capture = { capture: () => {}, body: (fallback: unknown) => fallback };
 let server: http.Server;
 let baseUrl = "";
+let heldResponseGate: Promise<void> | null = null;
 
 test.before(async () => {
   server = http.createServer((req, res) => {
     const params = new URL(req.url ?? "/", "http://local").searchParams;
-    setTimeout(
-      () => {
-        res.writeHead(Number(params.get("code") ?? 200), { "content-type": "application/json" });
-        res.end("{}");
-      },
-      Number(params.get("delay") ?? 0)
-    );
+    const respond = () => {
+      res.writeHead(Number(params.get("code") ?? 200), { "content-type": "application/json" });
+      res.end("{}");
+    };
+    if (params.get("hold") === "1" && heldResponseGate) {
+      void heldResponseGate.then(respond);
+    } else {
+      setTimeout(respond, Number(params.get("delay") ?? 0));
+    }
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -66,18 +69,26 @@ test("the last response received during the dispatch wins", async () => {
 test("a fetch still running when the dispatch returns does not change the status", async () => {
   const sink: Sink = { proxy: null };
   let background: Promise<unknown> = Promise.resolve();
-  await inRequest(sink, async () => {
-    await dispatch(async () => {
-      const res = await fetch(`${baseUrl}/v1?code=429`);
-      background = Promise.all([
-        fetch(`${baseUrl}/finish?code=200&delay=50`).then((r) => r.text()),
-        fetch("http://127.0.0.1:1/finish").catch(() => null),
-      ]);
-      return res;
-    });
-    await background;
+  let releaseHeldResponse: () => void = () => {};
+  heldResponseGate = new Promise<void>((resolve) => {
+    releaseHeldResponse = resolve;
   });
-  assert.equal(sink.upstreamStatus, 429);
+  try {
+    await inRequest(sink, async () => {
+      await dispatch(async () => {
+        const res = await fetch(`${baseUrl}/v1?code=429`);
+        background = fetch(`${baseUrl}/finish?code=200&hold=1`).then((r) => r.text());
+        return res;
+      });
+      assert.equal(sink.upstreamStatus, 429);
+      releaseHeldResponse();
+      await background;
+    });
+    assert.equal(sink.upstreamStatus, 429);
+  } finally {
+    releaseHeldResponse();
+    heldResponseGate = null;
+  }
 });
 
 test("a side fetch after the dispatch keeps the provider status", async () => {

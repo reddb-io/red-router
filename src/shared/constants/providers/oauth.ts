@@ -5,6 +5,19 @@
 import { GITLAB_DUO_OAUTH_SETUP_MESSAGE } from "@/shared/constants/gitlabDuoSetupMessage";
 
 export const OAUTH_PROVIDERS = {
+  windsurf: {
+    id: "windsurf",
+    serviceKinds: ["llm"],
+    alias: "ws",
+    name: "Windsurf",
+    icon: "surfing",
+    color: "#14B8A6",
+    website: "https://windsurf.com",
+    subscriptionRisk: true,
+    riskNoticeVariant: "oauth",
+    authHint:
+      "Sign in with Windsurf or paste a sk-ws-* API key. Browser sign-in exchanges a Firebase token for a Codeium key; neither uses Devin Desktop credentials.",
+  },
   "ghe-copilot": {
     id: "ghe-copilot",
     serviceKinds: ["llm"],
@@ -71,6 +84,19 @@ export const OAUTH_PROVIDERS = {
     subscriptionRisk: true,
     riskNoticeVariant: "oauth",
     hasFree: true,
+  },
+  "qoder-cn": {
+    id: "qoder-cn",
+    serviceKinds: ["llm"],
+    alias: "qdcn",
+    name: "Qoder CN",
+    icon: "water_drop",
+    color: "#EC4899",
+    website: "https://qoder.com.cn",
+    subscriptionRisk: true,
+    riskNoticeVariant: "oauth",
+    authHint:
+      "Sign in with a Qoder China device code or use a pt-* Personal Access Token from qoder.com.cn. Global Qoder credentials are not interchangeable.",
   },
   agy: {
     id: "agy",
@@ -321,5 +347,46 @@ export const OAUTH_PROVIDERS = {
     passthroughModels: true,
     authHint:
       "Sign in with the Muse Code device flow (same as `muse login` / CLIProxyAPI `-meta-login`) to use a Muse subscription, or paste a META_API_KEY. Device login keeps the durable dca token and mints the inference key; a 401 remints that key. Wire format is OpenAI Responses (POST /responses).",
+  },
+  iflow: {
+    id: "iflow",
+    serviceKinds: ["llm"],
+    alias: "iflow",
+    name: "iFlow AI",
+    icon: "water_drop",
+    color: "#6366F1",
+    textIcon: "IF",
+    website: "https://iflow.cn",
+    subscriptionRisk: true,
+    riskNoticeVariant: "oauth",
+    authHint:
+      "Sign in with your iFlow account (phone OAuth, same client as the iFlow CLI), or paste an API key / access token. Every request is HMAC-signed with the connection credential (apis.iflow.cn). Catalog: Qwen / Kimi / DeepSeek / GLM.",
+  },
+  kimchi: {
+    id: "kimchi",
+    serviceKinds: ["llm"],
+    alias: "kimchi",
+    name: "Kimchi",
+    icon: "restaurant",
+    color: "#FF521D",
+    textIcon: "KC",
+    website: "https://kimchi.dev",
+    passthroughModels: true,
+    authHint:
+      "Create a key at https://app.kimchi.dev and paste it here (sent as Authorization: Bearer). Multi-backend gateway: MiniMax / Kimi / Nemotron / Claude via llm.kimchi.dev.",
+  },
+  "codebuddy-intl": {
+    id: "codebuddy-intl",
+    serviceKinds: ["llm"],
+    alias: "cbai",
+    name: "CodeBuddy",
+    icon: "smart_toy",
+    color: "#006EFF",
+    textIcon: "CI",
+    website: "https://www.codebuddy.ai",
+    subscriptionRisk: true,
+    riskNoticeVariant: "oauth",
+    authHint:
+      "Tencent CodeBuddy international (www.codebuddy.ai). Sign in via the IDE plugin device flow, or paste a direct API key (sent as Authorization: Bearer). Same catalog as CodeBuddy CN.",
   },
 };

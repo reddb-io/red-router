@@ -15,13 +15,13 @@ beforeAll(() => {
   } as unknown as typeof ResizeObserver;
 });
 
-const containers: HTMLElement[] = [];
+const mountedRoots: Array<{ root: ReturnType<typeof createRoot>; container: HTMLElement }> = [];
 
 function mount(ui: React.ReactElement): HTMLElement {
   const container = document.createElement("div");
   document.body.appendChild(container);
-  containers.push(container);
   const root = createRoot(container);
+  mountedRoots.push({ root, container });
   act(() => {
     root.render(ui);
   });
@@ -35,10 +35,13 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  while (containers.length > 0) {
-    containers.pop()?.remove();
+  while (mountedRoots.length > 0) {
+    const mounted = mountedRoots.pop();
+    if (mounted) {
+      act(() => mounted.root.unmount());
+      mounted.container.remove();
+    }
   }
-  document.body.innerHTML = "";
 });
 
 const nodes = [

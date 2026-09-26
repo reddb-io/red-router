@@ -10,6 +10,7 @@ export {
 } from "./providers/registry/alibaba/index.ts";
 export { REGISTRY } from "./providers/index.ts";
 import { REGISTRY } from "./providers/index.ts";
+import { resolveProviderCompatibilityAlias } from "@/shared/constants/providerCompatibilityAliases";
 // Imported from `privateHost` rather than `outboundUrlGuard`: this module is reachable from
 // `ProviderDetailPageClient.tsx`, so anything it pulls in has to survive a browser bundle
 // (#11122). `privateHost` is platform-free by contract; the guard module is not.
@@ -186,7 +187,8 @@ function ensureByAliasPopulated(): void {
 /** Get registry entry by provider ID or alias */
 export function getRegistryEntry(provider: string): RegistryEntry | null {
   ensureByAliasPopulated();
-  return REGISTRY[provider] || _byAlias.get(provider) || null;
+  const canonicalProvider = resolveProviderCompatibilityAlias(provider);
+  return REGISTRY[canonicalProvider] || _byAlias.get(canonicalProvider) || null;
 }
 
 /** Resolve only a model's explicit reasoning vocabulary. */

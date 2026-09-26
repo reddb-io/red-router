@@ -449,6 +449,25 @@ export const EMBEDDING_PROVIDERS: Record<string, EmbeddingProvider> = {
       },
     ],
   },
+
+  // Self-hosted, OpenAI-compatible embeddings (llama.cpp / llama-server, vLLM,
+  // Infinity, text-embeddings-inference, ...) — the embeddings counterpart of
+  // selfhosted-stt / selfhosted-tts (ported from the legacy fork). The id is
+  // a placeholder for the UI: the request passes `model` straight through and
+  // llama-server ignores an unknown value rather than rejecting it. Dimensions
+  // are deliberately NOT declared — they are a property of the loaded weights.
+  // authType "apikey" (not "none") gives the connection a credentials record,
+  // which is where providerSpecificData.baseUrl lives (applied by
+  // resolveLocalEmbeddingUrl in handlers/embeddings.ts, which also tolerates a
+  // trailing /embeddings or a bare OpenAI base URL). Local servers ignore the
+  // key itself; any non-empty value works.
+  "selfhosted-embedding": {
+    id: "selfhosted-embedding",
+    baseUrl: "http://127.0.0.1:8080/v1/embeddings",
+    authType: "apikey",
+    authHeader: "bearer",
+    models: [{ id: "embedding", name: "Self-hosted embedding model" }],
+  },
 };
 
 const EMBEDDING_PROVIDER_ALIASES: Record<string, string> = {

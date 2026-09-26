@@ -25,6 +25,7 @@ Live count: `ls open-sse/services/*.ts | wc -l` (currently 134). More including 
 - **`tokenRefresh.ts`** — OAuth token expiration detection and refresh.
 - **`accountFallback.ts`** — Account switching on quota/rate-limit. Also houses model lockout.
 - **`sessionManager.ts`** — Request session state across retries.
+- **`iflowSignature.ts`** — Shared per-request HMAC headers for iFlow chat and connection probes.
 
 ### Request Routing & Intelligence
 

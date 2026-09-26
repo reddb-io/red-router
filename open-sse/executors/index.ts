@@ -1,4 +1,5 @@
 import { SEARCH_PROVIDERS } from "../config/searchRegistry.ts";
+import { resolveProviderCompatibilityAlias } from "@/shared/constants/providerCompatibilityAliases";
 import { assertMicrosoftDesignerWebProviderAvailable } from "@/shared/constants/designerWebRetirement";
 import { assertRuntimeProviderAvailable } from "@/shared/constants/providerRetirement";
 import { assertCommonChatGptWebProviderAvailable } from "@/shared/constants/chatgptWebRetirement";
@@ -33,6 +34,10 @@ const lazyExecutors: Record<string, () => Promise<BaseExecutor>> = {
   github: () => import("./github.ts").then((m) => new m.GithubExecutor()),
   "ghe-copilot": () => import("./ghe-copilot.ts").then((m) => new m.GheCopilotExecutor()),
   qoder: () => import("./qoder.ts").then((m) => new m.QoderExecutor()),
+  "qoder-cn": () => import("./qoder-cn.ts").then((m) => new m.QoderCnExecutor()),
+  qdcn: () => import("./qoder-cn.ts").then((m) => new m.QoderCnExecutor()),
+  windsurf: () => import("./windsurf.ts").then((m) => new m.WindsurfExecutor()),
+  ws: () => import("./windsurf.ts").then((m) => new m.WindsurfExecutor()),
   kiro: () => import("./kiro.ts").then((m) => new m.KiroExecutor()),
   "amazon-q": () => import("./kiro.ts").then((m) => new m.KiroExecutor("amazon-q")),
   bedrock: () => import("./bedrock.ts").then((m) => new m.BedrockExecutor()),
@@ -167,6 +172,12 @@ const lazyExecutors: Record<string, () => Promise<BaseExecutor>> = {
   gc: () => import("./grok-cli.ts").then((m) => new m.GrokCliExecutor()), // Alias
   "codebuddy-cn": () => import("./codebuddy-cn.ts").then((m) => new m.CodeBuddyCnExecutor()),
   cbcn: () => import("./codebuddy-cn.ts").then((m) => new m.CodeBuddyCnExecutor()), // Alias for codebuddy-cn
+  "codebuddy-intl": () => import("./codebuddy-intl.ts").then((m) => new m.CodeBuddyIntlExecutor()),
+  cbai: () => import("./codebuddy-intl.ts").then((m) => new m.CodeBuddyIntlExecutor()), // Alias
+  iflow: () => import("./iflow.ts").then((m) => new m.IFlowExecutor()),
+  kimchi: () => import("./kimchi.ts").then((m) => new m.KimchiExecutor()),
+  "mimo-free": () => import("./mimo-free.ts").then((m) => new m.MimoFreeExecutor()),
+  mmf: () => import("./mimo-free.ts").then((m) => new m.MimoFreeExecutor()), // Alias
   "zenmux-free": () => import("./zenmux-free.ts").then((m) => new m.ZenmuxFreeExecutor()),
   "cloudflare-playground": () =>
     import("./cloudflare-playground.ts").then((m) => new m.CloudflarePlaygroundExecutor()),
@@ -215,6 +226,7 @@ const CHAT_UNSUPPORTED_CLOUD_AGENT_PROVIDERS = new Set(["jules"]);
 const CHAT_UNSUPPORTED_SEARCH_PROVIDERS = new Set(Object.keys(SEARCH_PROVIDERS));
 
 export async function getExecutor(provider: string): Promise<BaseExecutor> {
+  provider = resolveProviderCompatibilityAlias(provider);
   assertMicrosoftDesignerWebProviderAvailable(provider);
   assertRuntimeProviderAvailable(provider);
   assertCommonChatGptWebProviderAvailable(provider);
@@ -238,7 +250,7 @@ export async function getExecutor(provider: string): Promise<BaseExecutor> {
 }
 
 export function hasSpecializedExecutor(provider: string): boolean {
-  return hasRegisteredExecutor(provider);
+  return hasRegisteredExecutor(resolveProviderCompatibilityAlias(provider));
 }
 
 export { registerExecutor, registerLazyExecutor, listExecutorAliases } from "./registry.ts";

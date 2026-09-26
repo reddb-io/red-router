@@ -161,7 +161,7 @@ test("GET groups only gemini-cli leftovers from mixed connections", async () => 
   };
   assert.equal(body.leftovers.length, 1);
   assert.equal(body.leftovers[0]?.provider, "gemini-cli");
-  assert.equal(body.leftovers[0]?.migrateTo, "gemini");
+  assert.equal(body.leftovers[0]?.migrateTo, "antigravity");
   assert.equal(body.leftovers[0]?.connectionIds.length, 2);
 });
 

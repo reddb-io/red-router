@@ -16,7 +16,6 @@
  * @module domain/quotaCache
  */
 
-import { getUsageForProvider } from "@omniroute/open-sse/services/usage.ts";
 import { getCachedProviderConnectionById } from "@/lib/db/readCache";
 import { resolveProxyForConnection } from "@/lib/db/settings";
 import { runWithProxyContext } from "@omniroute/open-sse/utils/proxyFetch.ts";
@@ -847,6 +846,10 @@ async function refreshEntry(entry: QuotaCacheEntry) {
     }
 
     const proxyInfo = await resolveProxyForConnection(entry.connectionId);
+    // The quota preflight path imports this cache during module startup. Resolve
+    // the usage dispatcher only when a background refresh actually runs so the
+    // MCP ESM bundle does not await the quotaCache → usage → preflight cycle.
+    const { getUsageForProvider } = await import("@omniroute/open-sse/services/usage.ts");
     const usage = await runWithProxyContext(proxyInfo?.proxy || null, () =>
       getUsageForProvider(connection)
     );

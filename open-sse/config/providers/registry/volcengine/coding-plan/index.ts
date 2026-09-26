@@ -7,8 +7,10 @@ import type { RegistryEntry, RegistryModel } from "../../../shared.ts";
  * is served by a DEDICATED endpoint — `/api/coding/v3` — which differs from both the
  * standard pay-per-use API (`/api/v3`) and the Agent Plan API (`/api/plan/v3`). Using
  * the wrong base URL returns HTTP 401 "The API key or AK/SK ... is missing or invalid"
- * even with a valid Coding Plan key. Model IDs below verified live against
- * /api/coding/v3/chat/completions (all return 200).
+ * even with a valid Coding Plan key. Native lowercase model IDs below were
+ * verified live against /api/coding/v3/chat/completions (all return 200).
+ * The exact-case 9router IDs at the end are compatibility candidates; the
+ * four IDs without a verified lowercase counterpart still need live smoke.
  */
 export const VOLCENGINE_CODING_PLAN_MODELS: RegistryModel[] = [
   {
@@ -77,6 +79,51 @@ export const VOLCENGINE_CODING_PLAN_MODELS: RegistryModel[] = [
     contextLength: 1048576,
     toolCalling: true,
     supportsReasoning: true,
+  },
+  // Preserve compatible 9router Ark IDs without substituting other versions.
+  {
+    id: "Doubao-Seed-2.0-lite",
+    name: "Doubao Seed 2.0 Lite (9router ID)",
+    upstreamModelId: "doubao-seed-2.0-lite",
+  },
+  {
+    id: "DeepSeek-V4-Flash",
+    name: "DeepSeek V4 Flash (9router ID)",
+    upstreamModelId: "deepseek-v4-flash",
+  },
+  {
+    id: "DeepSeek-V4-Pro",
+    name: "DeepSeek V4 Pro (9router ID)",
+    upstreamModelId: "deepseek-v4-pro",
+  },
+  {
+    id: "MiniMax-M2.7",
+    name: "MiniMax M2.7 (9router ID)",
+    upstreamModelId: "minimax-m2.7",
+  },
+  {
+    id: "Kimi-K2.6",
+    name: "Kimi K2.6 (9router ID)",
+    upstreamModelId: "kimi-k2.6",
+  },
+  // These IDs are declared by 9router for this same Coding Plan endpoint.
+  // Preserve their exact wire spelling until Ark confirms them live; never
+  // substitute a newer model version just because it has a similar name.
+  {
+    id: "Doubao-Seed-2.0-Code",
+    name: "Doubao Seed 2.0 Code (9router ID; live smoke pending)",
+  },
+  {
+    id: "Doubao-Seed-2.0-pro",
+    name: "Doubao Seed 2.0 Pro (9router ID; live smoke pending)",
+  },
+  {
+    id: "Doubao-Seed-Code",
+    name: "Doubao Seed Code (9router ID; live smoke pending)",
+  },
+  {
+    id: "GLM-5.1",
+    name: "GLM 5.1 (9router ID; live smoke pending)",
   },
 ];
 

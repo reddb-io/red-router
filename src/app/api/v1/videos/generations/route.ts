@@ -29,6 +29,7 @@ import {
   resolveLocalOverrideCredentials,
   resolveVideoModelTarget,
 } from "@/app/api/v1/_shared/videoModelResolution";
+import { createXaiAsyncVideo } from "@/app/api/v1/_shared/xaiAsyncVideo";
 
 export const dynamic = "force-dynamic";
 
@@ -54,6 +55,17 @@ export async function GET(request?: Request) {
  * POST /v1/videos/generations — generate videos
  */
 async function postHandler(request, context) {
+  // Existing OmniRoute clients expect this endpoint to wait for the finished
+  // video. The standard Prefer header opts into 9router-style async jobs.
+  if (
+    request.headers
+      .get("prefer")
+      ?.split(",")
+      .some((part) => part.trim() === "respond-async")
+  ) {
+    return createXaiAsyncVideo(request, "generations");
+  }
+
   const parsed = await readMediaGenerationBody(request, log, "VIDEO");
   if (parsed.state === "invalid") {
     return parsed.response;

@@ -12,7 +12,7 @@ import {
 } from "../services/claudeCodeCompatible.ts";
 import { getGigachatAccessToken } from "../services/gigachatAuth.ts";
 import { getRegistryEntry, requireCompatibleBaseUrl } from "../config/providerRegistry.ts";
-import { getModelTargetFormat } from "../config/providerModels.ts";
+import { getModelTargetFormat, getModelUpstreamId } from "../config/providerModels.ts";
 import {
   applyClientAnthropicBeta,
   normalizeAnthropicHeaderVariants,
@@ -65,6 +65,10 @@ import { normalizePoolConfig } from "./default/poolConfig.ts";
 import { acquireNvidiaConcurrencySlot } from "./default/nvidiaConcurrencyGate.ts";
 import { resolveAlibabaProviderBaseUrl } from "@/shared/constants/alibabaProviderRegions";
 import { xiaomiAlternateUrl, xiaomiMimoChatUrl } from "./default/xiaomiTokenPlan.ts";
+import {
+  isXiaomiTokenPlanPresetUrl,
+  isXiaomiTokenPlanProvider,
+} from "@/shared/constants/xiaomiTokenPlanRegions";
 import { usesCcWireImage } from "../services/ccWireImageBuiltins.ts";
 
 const NVIDIA_TOOL_CALL_ID_PATTERN = /^[A-Za-z0-9]{9}$/;
@@ -263,7 +267,10 @@ export class DefaultExecutor extends BaseExecutor {
     {
       const alternate = this.resolveAlternate(credentials);
       const manualBaseUrl = credentials?.providerSpecificData?.baseUrl;
-      const hasManualBaseUrl = typeof manualBaseUrl === "string" && !!manualBaseUrl;
+      const hasManualBaseUrl =
+        typeof manualBaseUrl === "string" &&
+        !!manualBaseUrl &&
+        !(isXiaomiTokenPlanProvider(this.provider) && isXiaomiTokenPlanPresetUrl(manualBaseUrl));
       if (alternate?.baseUrl && !hasManualBaseUrl) {
         // Operator's manual override (#6147) keeps its own semantics and falls
         // through to the provider-specific handling below.
@@ -1148,6 +1155,24 @@ export class DefaultExecutor extends BaseExecutor {
   }
 
   async execute(input: ExecuteInput) {
+    // This public model is a Claude-native variant of the same Xiaomi upstream ID.
+    // Keep the override request-local: neither the stored connection nor sibling
+    // OpenAI-format requests should inherit its Anthropic URL/auth/body policy.
+    if (
+      this.provider === "xiaomi-mimo-token-plan" &&
+      getModelUpstreamId(this.provider, input.model) === "mimo-v2.5-pro"
+    ) {
+      input = {
+        ...input,
+        credentials: {
+          ...input.credentials,
+          providerSpecificData: {
+            ...input.credentials.providerSpecificData,
+            targetFormat: "claude",
+          },
+        },
+      };
+    }
     // #6846 Phase 1: per-connection concurrency cap for nvidia — no-op for every
     // other provider (returns null immediately, no semaphore key allocated).
     const releaseNvidiaSlot = await acquireNvidiaConcurrencySlot(
