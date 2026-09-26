@@ -47,6 +47,7 @@ const {
   OPENFERENCE_CONFIG,
   ZED_HOSTED_CONFIG,
   MUSE_CODE_CONFIG,
+  WINDSURF_CONFIG,
 } = oauthModule;
 const { getAntigravityLoadCodeAssistMetadata } = antigravityHeadersModule;
 
@@ -71,6 +72,7 @@ const EXPECTED_PROVIDER_KEYS = [
   "cline",
   "clinepass",
   "devin-desktop",
+  "windsurf",
   "devin-cli",
   "grok-cli",
   "xai-oauth",
@@ -106,6 +108,7 @@ const EXPECTED_CONFIG_BY_PROVIDER = {
   cline: CLINE_CONFIG,
   clinepass: CLINE_CONFIG, // reuses the Cline WorkOS flow (clinepass: cline in providers/index.ts)
   "devin-desktop": DEVIN_DESKTOP_CONFIG,
+  windsurf: WINDSURF_CONFIG,
   "devin-cli": DEVIN_DESKTOP_CONFIG,
   trae: TRAE_CONFIG,
   "grok-cli": GROK_BUILD_OAUTH_CONFIG,
@@ -155,6 +158,7 @@ const REQUIRED_FIELDS_BY_PROVIDER = {
   cline: ["appBaseUrl", "apiBaseUrl", "authorizeUrl", "tokenExchangeUrl", "refreshUrl"],
   clinepass: ["appBaseUrl", "apiBaseUrl", "authorizeUrl", "tokenExchangeUrl", "refreshUrl"],
   "devin-desktop": ["apiServerUrl", "inferenceUrl", "ideName", "defaultVersion"],
+  windsurf: ["clientId", "authBaseUrl", "signInPath", "registerUrl", "callbackPath"],
   "devin-cli": ["apiServerUrl", "inferenceUrl", "ideName", "defaultVersion"],
   trae: ["apiEndpoint", "chatEndpoint", "webUrl"],
   // prettier-ignore

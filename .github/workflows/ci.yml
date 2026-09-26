@@ -131,6 +131,11 @@ jobs:
       - run: npm run check:any-budget:t11
       - run: npm run check:provider-consistency
       - run: npm run check:model-lifecycle
+      # The audited icon snapshot predates this fork and is not reachable from
+      # origin's history. Fetch its immutable OmniRoute commit so the checker
+      # can compare real Git tree bytes instead of skipping provenance.
+      - name: Fetch provider asset audit snapshot
+        run: git fetch --no-tags --depth=1 https://github.com/diegosouzapw/OmniRoute.git ccb024cfa9a7612fa65b1f1795740572369d58f5
       - run: npm run check:provider-asset-provenance
       - run: npm run check:fetch-targets
       - run: npm run check:deps

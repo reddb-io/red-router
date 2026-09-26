@@ -10,7 +10,7 @@ lastUpdated: 2026-09-26
 > Regenerate with: `npm run gen:provider-reference`
 > **Last generated:** 2026-09-26
 
-Total providers: **369**. See category breakdown below.
+Total providers: **377**. See category breakdown below.
 
 ## Categories
 
@@ -50,7 +50,7 @@ Use the dashboard at `/dashboard/providers` to enable, configure, and test each 
 | `veoaifree-web` | `veo-free` | Veo AI Free | No-auth, video | [link](https://veoaifree.com) | No auth required. Rate limited to 6 requests/hour per IP. | — |
 | `zcode` | `zc` | ZCode (GLM Coding Plan) | No-auth | [link](https://zcode.z.ai) | No API key stored by OmniRoute. The local ZCode app-server uses the existing builtin:zai-coding-plan login. | — |
 
-## OAuth Providers (28)
+## OAuth Providers (30)
 
 | ID | Alias | Name | Tags | Website | Notes |
 |----|-------|------|------|---------|-------|
@@ -70,7 +70,7 @@ Use the dashboard at `/dashboard/providers` to enable, configure, and test each 
 | `github` | `gh` | GitHub Copilot | OAuth | — | — |
 | `gitlab-duo` | `gitlab-duo` | GitLab Duo | OAuth | [link](https://docs.gitlab.com/user/duo_agent_platform/code_suggestions/) | GitLab Duo OAuth is not configured. Register an OAuth application at https://gitlab.com/-/profile/applications with redirect URI http://localhost:20128/callback and scopes "ai_features read_user", then set GITLAB_DUO_OAUTH_CLIENT_ID (and optionally GITLAB_DUO_OAUTH_CLIENT_SECRET) and restart. |
 | `grok-cli` | `gc` | Grok Build | OAuth | — | Sign in with your browser, or paste your ~/.grok/auth.json (or the JWT access token) from the Grok Build CLI; refresh_token is rotated automatically either way. |
-| `iflow` | `if` | iFlow AI | OAuth | [link](https://iflow.cn) | Sign in with your iFlow account (phone OAuth, same client as the iFlow CLI), or paste an API key / access token. Every request is HMAC-signed with the connection credential (apis.iflow.cn). Catalog: Qwen / Kimi / DeepSeek / GLM. |
+| `iflow` | `iflow` | iFlow AI | OAuth | [link](https://iflow.cn) | Sign in with your iFlow account (phone OAuth, same client as the iFlow CLI), or paste an API key / access token. Every request is HMAC-signed with the connection credential (apis.iflow.cn). Catalog: Qwen / Kimi / DeepSeek / GLM. |
 | `kilocode` | `kc` | Kilo Code | OAuth | — | — |
 | `kimchi` | `kimchi` | Kimchi | OAuth | [link](https://kimchi.dev) | Create a key at https://app.kimchi.dev and paste it here (sent as Authorization: Bearer). Multi-backend gateway: MiniMax / Kimi / Nemotron / Claude via llm.kimchi.dev. |
 | `kimi-coding` | `kmc` | Kimi Code CLI | OAuth | [link](https://www.kimi.ai/code?aff=omniroute) | Sign in with the same Kimi account used by Kimi Code CLI. OmniRoute uses the CLI OAuth flow and Kimi Coding Plan endpoints. |
@@ -78,7 +78,9 @@ Use the dashboard at `/dashboard/providers` to enable, configure, and test each 
 | `muse-code` | `mc` | Muse Code (Meta) | OAuth | [link](https://ai.developer.meta.com/docs/muse-code/auth) | Sign in with the Muse Code device flow (same as `muse login` / CLIProxyAPI `-meta-login`) to use a Muse subscription, or paste a META_API_KEY. Device login keeps the durable dca token and mints the inference key; a 401 remints that key. Wire format is OpenAI Responses (POST /responses). |
 | `openference` | `of` | Openference | OAuth | [link](https://openference.com) | Sign in with your Openference account to route requests through api.openference.com. Includes free-tier access to Qwen3.8 27b and Llama 3.2 3B — see openference.com/pricing for current plan terms. |
 | `qoder` | `if` | Qoder | OAuth | — | — |
+| `qoder-cn` | `qdcn` | Qoder CN | OAuth | [link](https://qoder.com.cn) | Sign in with a Qoder China device code or use a pt-* Personal Access Token from qoder.com.cn. Global Qoder credentials are not interchangeable. |
 | `trae` | `tr` | Trae | OAuth | [link](https://trae.ai) | Trae is an AI-native IDE by ByteDance (SOLO remote agent). Authorize via trae.ai in the popup, or sign in at solo.trae.ai and paste the Cloud-IDE-JWT (sent as 'Authorization: Cloud-IDE-JWT <token>', ~14-day lifetime) as the access token; web_id/biz_user_id/user_unique_id/scope/tenant/region propagate via providerSpecificData. No headless refresh for pasted tokens — re-paste on expiry. |
+| `windsurf` | `ws` | Windsurf | OAuth | [link](https://windsurf.com) | Sign in with Windsurf or paste a sk-ws-* API key. Browser sign-in exchanges a Firebase token for a Codeium key; neither uses Devin Desktop credentials. |
 | `xai-oauth` | `xao` | xAI OAuth (Grok) | OAuth | [link](https://x.ai) | Sign in with xAI to use api.x.ai models such as Grok 4.5. This is separate from Grok Build JWT sessions, which use cli-chat-proxy.grok.com and grok-build model aliases. |
 | `zed` | `zd` | Zed IDE | OAuth | [link](https://zed.dev) | Zed stores LLM provider credentials (OpenAI, Anthropic, Google, Mistral, xAI) in the OS keychain. Use the Import button below to discover and import them automatically. |
 | `zed-hosted` | — | Zed Hosted Models | OAuth | [link](https://zed.dev) | Sign in with your Zed account (native-app sign-in). OmniRoute generates a one-time RSA keypair and opens zed.dev to authorize it — on a remote/headless install, copy the resulting 127.0.0.1 callback URL from your browser's address bar and paste it back here. Distinct from the 'Zed IDE' credential-import entry above: this proxies chat completions through Zed's own hosted model aggregator (cloud.zed.dev), fronting Anthropic/OpenAI/Google/xAI models under your Zed plan. |
@@ -121,7 +123,7 @@ Use the dashboard at `/dashboard/providers` to enable, configure, and test each 
 | `zai-web` | `zw` | Z.ai Web | Web cookie | [link](https://chat.z.ai) | Copy the "token" value from chat.z.ai → DevTools → Application → Local Storage. Do not copy cookies; OmniRoute handles the per-request CAPTCHA through its browser transport. | — |
 | `zenmux-free` | `zmf` | ZenMux Free (Web) | Web cookie | [link](https://zenmux.ai) | Login at zenmux.ai, then export all cookies using EditThisCookie or Cookie-Editor and paste the full Cookie header string here. Refresh every ~30 days. | — |
 
-## API Key Providers (paid / paid-with-free-credits) (243)
+## API Key Providers (paid / paid-with-free-credits) (250)
 
 | ID | Alias | Name | Tags | Website | Notes |
 |----|-------|------|------|---------|-------|
@@ -135,11 +137,16 @@ Use the dashboard at `/dashboard/providers` to enable, configure, and test each 
 | `aion` | `aion` | Aion Labs | API key | [link](https://www.aionlabs.ai) | Create a free API key at aionlabs.ai (no card), then paste it here as a Bearer token. |
 | `alibaba` | `ali` | Alibaba Cloud Model Studio | API key | [link](https://bailian.console.alibabacloud.com/) | — |
 | `alibaba-cn` | `ali-cn` | Alibaba (China) | API key | [link](https://dashscope.console.aliyun.com/) | — |
+| `alicode` | `alicode` | Alibaba Coding (China) | API key | [link](https://bailian.console.aliyun.com) | — |
+| `alicode-intl` | `alicode-intl` | Alibaba Coding (International) | API key | [link](https://www.alibabacloud.com/product/coding) | — |
+| `alims-intl` | `alims-intl` | Alibaba Model Studio (International) | API key | [link](https://modelstudio.console.alibabacloud.com) | — |
+| `alitp-intl` | `alitp-intl` | Alibaba Token Plan (OpenAI) | API key | [link](https://www.alibabacloud.com/help/en/model-studio/token-plan-overview) | — |
 | `ant-ling` | `ling` | Ant Ling / Ring (inclusionAI) | API key | [link](https://developer.ant-ling.com/en/docs/) | Register and create an API key at the Ant Ling API console (https://chat.ant-ling.com/open), then paste it here. OmniRoute routes chat traffic to https://api.ant-ling.com/v1/chat/completions; the provider is OpenAI-compatible and also exposes an Anthropic-compatible surface. |
 | `anthropic` | `anthropic` | Anthropic | API key | [link](https://platform.claude.com) | — |
 | `anyapi` | `anyapi` | AnyAPI AI | API key, aggregator | [link](https://anyapi.ai) | Free plan: 100,000 ANY Tokens/day and 100 RPM for eligible Free/Basic models; no credit card required. |
 | `api-airforce` | `af` | Api.airforce | API key | [link](https://api.airforce) | 55 free tier models including Grok-3, Claude 3.7, Qwen3, Kimi-K2, Gemini 2.5 Flash, DeepSeek-V3 |
 | `arcee-ai` | `arcee` | Arcee AI | API key | [link](https://arcee.ai) | Get API key at arcee.ai |
+| `atria` | `atria` | Atria Dawn | API key | [link](https://atria-asi.ai) | Use an Atria API key. Atria Dawn Preview currently accepts text only. |
 | `auriko` | `auriko` | Auriko | API key, aggregator | [link](https://www.auriko.ai) | Free plan publishes 1,000 Platform RPM and 10,000 BYOK RPM. Platform inference still passes through provider cost; this is not a free-token pool or unlimited free inference. |
 | `azure-ai` | `azure-ai` | Azure AI Foundry | API key, enterprise | [link](https://learn.microsoft.com/azure/ai-foundry) | Use your Azure AI Foundry key. Base URL can be https://<resource>.services.ai.azure.com/openai/v1/ or https://<resource>.openai.azure.com/openai/v1/. |
 | `azure-openai` | `azure` | Azure OpenAI | API key, enterprise | [link](https://azure.microsoft.com/products/ai-services/openai-service) | Use your Azure OpenAI API key. Base URL should be your resource endpoint, for example https://my-resource.openai.azure.com. |
@@ -334,6 +341,7 @@ Use the dashboard at `/dashboard/providers` to enable, configure, and test each 
 | `tinyfish` | `tf` | TinyFish Fetch | API key | [link](https://docs.tinyfish.ai/fetch-api) | X-API-Key from agent.tinyfish.ai/api-keys |
 | `together` | `together` | Together AI | API key, video | [link](https://www.together.ai) | — |
 | `token-kiosk` | `tk` | Token Kiosk | API key | [link](https://agent-router.gaib.ai) | Use your Token Kiosk API key in Authorization: Bearer <key>. Fully OpenAI-compatible gateway. API base URL: https://agent-router.gaib.ai/v1. |
+| `tokenharbor` | `tokenharbor` | Token Harbor | API key | [link](https://tokenharbor.ai) | Use a Token Harbor wallet API key. Model ids come from its live catalog. |
 | `tokenreply` | `tokenreply` | TokenReply | API key, aggregator | [link](https://www.tokenreply.com) | Free-tagged models have model- and campaign-specific daily limits; no fixed global free quota is published. |
 | `tokenrouter` | `trk` | TokenRouter | API key | [link](https://tokenrouter.com) | Use your TokenRouter API key in Authorization: Bearer <key>. Fully OpenAI-compatible. API base URL: https://api.tokenrouter.com/v1. |
 | `topaz` | `topaz` | Topaz | API key, image | [link](https://topazlabs.com) | — |
@@ -356,6 +364,7 @@ Use the dashboard at `/dashboard/providers` to enable, configure, and test each 
 | `wafer` | `wafer` | Wafer AI | API key | [link](https://wafer.ai) | — |
 | `wandb` | `wandb` | Weights & Biases Inference | API key | [link](https://wandb.ai) | — |
 | `watsonx` | `watsonx` | IBM watsonx.ai Gateway | API key, enterprise | [link](https://www.ibm.com/products/watsonx-ai) | Use your watsonx bearer token. Base URL can be https://<region>.ml.cloud.ibm.com/ml/gateway/v1/ or a self-managed /ml/gateway/v1 endpoint. |
+| `windsurf` | `ws` | Windsurf | API key | [link](https://windsurf.com) | Paste a Windsurf sk-ws-* API key. Connection validation sends one short chat probe and may consume credits; Firebase and Devin imports are not supported here. |
 | `writer` | `writer` | Writer | API key | [link](https://dev.writer.com) | — |
 | `x5lab` | `x5lab` | X5Lab | API key | [link](https://x5lab.dev) | Use your X5Lab API key (x5-...) in Authorization: Bearer <key>. Fully OpenAI-compatible. API base URL: https://api.x5lab.dev/v1. |
 | `xai` | `xai` | xAI (Grok) | API key | [link](https://x.ai) | Use an official xAI API key, or sign in with xAI OAuth. Grok Build JWT sessions remain a separate provider. |
@@ -457,7 +466,7 @@ Use the dashboard at `/dashboard/providers` to enable, configure, and test each 
 
 - Catalog: [`src/shared/constants/providers.ts`](../../src/shared/constants/providers.ts)
 - Registry (per-model details): [`open-sse/config/providerRegistry.ts`](../../open-sse/config/providerRegistry.ts)
-- Executors: [`open-sse/executors/`](../../open-sse/executors/) (138 implementations)
+- Executors: [`open-sse/executors/`](../../open-sse/executors/) (143 implementations)
 - Translators: [`open-sse/translator/`](../../open-sse/translator/)
 
 ## See Also

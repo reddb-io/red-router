@@ -21,7 +21,7 @@ test("Qoder CN Encode=1 preserves arbitrary UTF-8 bytes through the wire transfo
   for (const value of ["", "abc", "hello", "ação 🚀", "a".repeat(128)]) {
     const input = new TextEncoder().encode(value);
     const encoded = encodeQoderCnBody(input);
-    assert.deepEqual(decodeQoderBody(encoded), input);
+    assert.deepEqual(decodeQoderBody(encoded), Buffer.from(input));
     assert.equal(encoded.length, Buffer.from(input).toString("base64").length);
   }
 });
