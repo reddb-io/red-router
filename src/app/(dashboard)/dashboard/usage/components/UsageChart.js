@@ -100,6 +100,10 @@ export default function UsageChart({ period = "7d", apiKeyId = "all" }) {
                 <stop offset="5%" stopColor={SERIES.blue} stopOpacity={0.25} />
                 <stop offset="95%" stopColor={SERIES.blue} stopOpacity={0} />
               </linearGradient>
+              <linearGradient id="gradRequests" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor="#14b8a6" stopOpacity={0.25} />
+                <stop offset="95%" stopColor="#14b8a6" stopOpacity={0} />
+              </linearGradient>
               <linearGradient id="gradCost" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="5%" stopColor={SERIES.amber} stopOpacity={0.22} />
                 <stop offset="95%" stopColor={SERIES.amber} stopOpacity={0} />
