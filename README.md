@@ -1,4 +1,4 @@
-<div align="center">
+# RedRouter
 
 <img src="docs/readme/hero.svg" alt="RedRouter: coding agents, IDE plugins, applications and MCP agents send requests to one RedRouter endpoint, which applies key policy and spend limits and fails over to the next provider when one is rate limited or down." width="100%">
 
@@ -6,7 +6,7 @@
 [![Container](https://img.shields.io/badge/container-ghcr.io-8b949e?style=for-the-badge&labelColor=0d1117)](https://github.com/reddb-io/red-router/pkgs/container/red-router)
 [![License](https://img.shields.io/badge/license-MIT-blue?style=for-the-badge&labelColor=0d1117)](LICENSE)
 
-</div>
+## Installation
 
 ---
 
