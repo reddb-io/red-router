@@ -18,11 +18,14 @@ beforeAll(() => {
 
 // ── Mocks ─────────────────────────────────────────────────────────────────
 
-// Stub @xyflow/react so ReactFlow renders without canvas/DOM measurement APIs
+// This suite tests the cockpit shell and view switching, not ReactFlow's animation
+// scheduler. A real fitView() starts async React updates that can outlive jsdom.
 vi.mock("@xyflow/react", async () => {
-  const actual = (await vi.importActual("@xyflow/react")) as Record<string, unknown>;
+  const { createElement } = await import("react");
   return {
-    ...actual,
+    ReactFlow: ({ children }: { children?: React.ReactNode }) =>
+      createElement("div", { className: "react-flow" }, children),
+    Controls: () => null,
     Handle: (_props: Record<string, unknown>) => null,
     Position: { Left: "left", Right: "right", Top: "top", Bottom: "bottom" },
   };
