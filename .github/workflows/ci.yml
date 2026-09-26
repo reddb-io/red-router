@@ -685,12 +685,6 @@ jobs:
     # dispatch events are own-origin by definition). Any failure path (VM down,
     # var unset/false) also falls back to ubuntu-latest.
     runs-on: ${{ (vars.USE_VPS_RUNNER == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)) && fromJSON('["self-hosted","omni-build"]') || 'ubuntu-latest' }}
-    # The hosted runner has less RAM than the full Turbopack build's observed
-    # peak. Keep the production bundler on the dedicated runner; use Next's
-    # supported Webpack fallback with a bounded heap when that runner is absent.
-    env:
-      OMNIROUTE_USE_TURBOPACK: ${{ (vars.USE_VPS_RUNNER == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)) && '1' || '0' }}
-      OMNIROUTE_BUILD_MEMORY_MB: ${{ (vars.USE_VPS_RUNNER == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)) && '8192' || '5120' }}
     needs: changes
     # The .113 pool runs ONE next-build with room to spare and two at the edge: the
     # box has 31 GB and a single next-build peaks at 14–16 GB RSS. On 2026-08-28
@@ -714,21 +708,31 @@ jobs:
           cache: npm
       - uses: ./.github/actions/npm-ci-retry
       - run: npm run check:node-runtime
-      # NOTE: the webpack `.build/next/cache` actions/cache step was removed with the
-      # Turbopack switch below — Turbopack does not read/write the webpack cache dir
-      # (its persistent FS cache is still experimental and intentionally NOT enabled),
-      # so restoring the old ~0.5 GB webpack cache would only waste download time.
-      # Rolling back to webpack = revert this commit (cache step comes back with it).
+      # No webpack cache is restored here. The dedicated runner builds with
+      # Turbopack; the hosted fallback uses Webpack without a warm cache.
       #
       # Turbopack production build (Next 16, stable): benchmarked 1.9× faster than the
       # webpack pass (9min0s vs 17min15s on a 32-core box; multi-core Rust vs webpack's
       # single-threaded compile). Standalone output smoke-validated (server boots,
       # /api/monitoring/health 200). Downstream jobs (e2e ×9, package-artifact,
-      # electron-package-smoke) consume this artifact, so a green run here validates
-      # the Turbopack artifact end-to-end.
-      - run: npm run build
+      # electron-package-smoke) consume this artifact, validating the selected bundler.
+      - name: Build with resource diagnostics
+        run: |
+          monitor_build_resources() {
+            while true; do
+              echo "[build-resource] $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+              free -m
+              ps -e -o rss=,comm= | sort -nr | sed -n '1,5p'
+              sleep 30
+            done
+          }
+          monitor_build_resources &
+          monitor_pid=$!
+          trap 'kill "$monitor_pid" 2>/dev/null || true' EXIT
+          npm run build
         env:
-          OMNIROUTE_USE_TURBOPACK: "1"
+          OMNIROUTE_USE_TURBOPACK: ${{ (vars.USE_VPS_RUNNER == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)) && '1' || '0' }}
+          OMNIROUTE_BUILD_MEMORY_MB: ${{ (vars.USE_VPS_RUNNER == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)) && '8192' || '5120' }}
       - name: Archive Next.js build for downstream jobs
         # Use tar so the archive preserves paths relative to CWD (.build/next/...).
         # upload-artifact path-stripping is ambiguous when exclude patterns are used;
