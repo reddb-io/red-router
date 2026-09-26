@@ -1625,6 +1625,8 @@ gh release create "v${VERSION}" --title "v${VERSION}" --generate-notes
 
 OmniRoute stands on the shoulders of giants. It started as a fork of **[9router](https://github.com/decolua/9router)** and a TypeScript port of the Go project **[CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI)** — and from there, every subsystem below was inspired by an open-source project that got there first. Each one shaped a concrete piece of OmniRoute. This is our thank-you to all of them. 🙏
 
+**RedRouter** ([reddb-io/red-router](https://github.com/reddb-io/red-router)) is a downstream fork of **OmniRoute** ([diegosouzapw/OmniRoute](https://github.com/diegosouzapw/OmniRoute), MIT) — the full v3.8.51 engine is adopted as our base. All credit for the OmniRoute codebase goes to Diego Souza and its 600+ contributors.
+
 > ⭐ star counts verified from GitHub's REST API on August 24, 2026 — go give these projects a star. Counts are an exact dated snapshot and will naturally change.
 
 ### 🧬 Lineage & gateway

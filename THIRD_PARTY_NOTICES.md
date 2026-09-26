@@ -1,5 +1,17 @@
 # Third-Party Notices
 
+## OmniRoute (upstream codebase)
+
+RedRouter is a downstream fork of [OmniRoute](https://github.com/diegosouzapw/OmniRoute)
+by Diego Souza and contributors, adopted at tag/release `v3.8.51`.
+
+- License: MIT — https://github.com/diegosouzapw/OmniRoute/blob/main/LICENSE
+- Copyright © diegosouzapw and OmniRoute contributors.
+- OmniRoute itself is a fork of [9router](https://github.com/decolua/9router) and a
+  TypeScript port of [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI).
+- Upstream is tracked in this repository via the `omni-upstream` git remote for
+  diffing and future release syncs.
+
 ## wreq-js 3.2.0 native transport
 
 OmniRoute ships `wreq-js@3.2.0` and its platform-specific native bindings for browser-
