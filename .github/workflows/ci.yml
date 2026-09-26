@@ -685,6 +685,12 @@ jobs:
     # dispatch events are own-origin by definition). Any failure path (VM down,
     # var unset/false) also falls back to ubuntu-latest.
     runs-on: ${{ (vars.USE_VPS_RUNNER == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)) && fromJSON('["self-hosted","omni-build"]') || 'ubuntu-latest' }}
+    # The hosted runner has less RAM than the full Turbopack build's observed
+    # peak. Keep the production bundler on the dedicated runner; use Next's
+    # supported Webpack fallback with a bounded heap when that runner is absent.
+    env:
+      OMNIROUTE_USE_TURBOPACK: ${{ (vars.USE_VPS_RUNNER == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)) && '1' || '0' }}
+      OMNIROUTE_BUILD_MEMORY_MB: ${{ (vars.USE_VPS_RUNNER == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)) && '8192' || '5120' }}
     needs: changes
     # The .113 pool runs ONE next-build with room to spare and two at the edge: the
     # box has 31 GB and a single next-build peaks at 14–16 GB RSS. On 2026-08-28
