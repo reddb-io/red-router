@@ -70,6 +70,11 @@ export async function buildCapabilities({ apiKey = null } = {}) {
       accepts: [...REASONING_HEADER_VALUES],
       ladder: [...REASONING_LADDER],
     },
+    reasoning: {
+      mode: reasoning.mode,
+      header: REASONING_HEADER,
+      response_header: REASONING_RESPONSE_HEADER,
+    },
     session: {
       headers: [...SESSION_HEADERS],
       // Combo member stickiness is keyed on these headers only (parent first).
