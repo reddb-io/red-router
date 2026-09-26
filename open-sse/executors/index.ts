@@ -27,6 +27,7 @@ import { getDefaultExecutor } from "./defaultResolver.ts";
 //   - each alias still gets its OWN instance (aliases never share)
 //   - ctor arguments are unchanged
 const lazyExecutors: Record<string, () => Promise<BaseExecutor>> = {
+  "ollama-local": () => import("./ollama-local.ts").then((m) => new m.OllamaLocalExecutor()),
   antigravity: () => import("./antigravity.ts").then((m) => new m.AntigravityExecutor()),
   agy: () => import("./antigravity.ts").then((m) => new m.AntigravityExecutor()),
   github: () => import("./github.ts").then((m) => new m.GithubExecutor()),

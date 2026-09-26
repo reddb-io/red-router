@@ -11,4 +11,6 @@ export const FORMATS = {
   ANTIGRAVITY: "antigravity",
   KIRO: "kiro",
   CURSOR: "cursor",
+  /** Ollama native /api/chat envelope (RedRouter, ported from legacy 9router fork). */
+  OLLAMA: "ollama",
 };

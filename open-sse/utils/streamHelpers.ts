@@ -131,6 +131,21 @@ export function parseSSELine(line: string): SSEJsonPayload | null {
   return parseSSEDataPayload(clean.slice(5));
 }
 
+// NDJSON line (Ollama native /api/chat): raw JSON lines without a "data:" prefix.
+// Ported from the legacy RedRouter fork (streamHelpers.js parseSSELine).
+export function parseNdjsonLine(line: string): SSEJsonPayload | null {
+  if (!line) return null;
+  const clean = stripAnsiCodes(line.trimStart());
+  if (!clean.startsWith("{")) return null;
+  try {
+    const parsed = JSON.parse(clean) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    return parsed as SSEJsonPayload;
+  } catch {
+    return null;
+  }
+}
+
 function extractSseDataLine(line: string): string | null {
   const trimmed = stripAnsiCodes(line.trimStart().replace(CR_STRIP_RE, ""));
   if (!trimmed.startsWith("data:")) return null;

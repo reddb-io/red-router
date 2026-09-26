@@ -457,6 +457,13 @@ export function buildProviderHeaders(provider, credentials, stream = true, body 
 
 // Get target format for provider
 export function getTargetFormat(provider, providerSpecificData = null) {
+  // Ollama native mode (legacy RedRouter behavior): route to the native
+  // /api/chat envelope unless the connection was explicitly configured with an
+  // OpenAI-compatible /v1 base URL (legacy bridge).
+  if (provider === "ollama-local") {
+    const psdBase = providerSpecificData?.baseUrl;
+    return typeof psdBase === "string" && /\/v1\/?$/.test(psdBase) ? "openai" : "ollama";
+  }
   if (isOpenAICompatible(provider)) {
     return getOpenAICompatibleType(provider, providerSpecificData) === "responses"
       ? "openai-responses"

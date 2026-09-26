@@ -1,4 +1,5 @@
 import { FORMATS } from "../translator/formats.ts";
+import { ollamaBodyToOpenAI } from "../translator/response/ollama-to-openai.ts";
 import {
   buildGeminiThoughtSignatureKey,
   storeGeminiThoughtSignature,
@@ -167,6 +168,12 @@ export function translateNonStreamingResponse(
   toolSchemas?: Map<string, JsonRecord> | null,
   requestedThinking?: boolean
 ): unknown {
+  // Ollama native /api/chat body — single JSON object, self-describing.
+  // Ported from the legacy RedRouter fork (nonStreamingHandler.js #162).
+  if (targetFormat === FORMATS.OLLAMA && sourceFormat !== FORMATS.OLLAMA) {
+    return ollamaBodyToOpenAI(toRecord(responseBody));
+  }
+
   // If already in source format, return as-is
   if (targetFormat === sourceFormat) {
     if (targetFormat === FORMATS.OPENAI) {

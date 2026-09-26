@@ -15,6 +15,7 @@ import {
 } from "./usageTracking.ts";
 import {
   parseSSELine,
+  parseNdjsonLine,
   parseSSEDataPayload,
   createSSEDataLineNormalizer,
   createSSEEventPrefixBuffer,
@@ -2284,7 +2285,8 @@ export function createSSEStream(options: StreamOptions = {}) {
             continue;
           }
 
-          const parsed = parseSSELine(trimmed);
+          const parsed =
+            targetFormat === FORMATS.OLLAMA ? parseNdjsonLine(trimmed) : parseSSELine(trimmed);
           if (!parsed) continue;
 
           if (upstreamErrorForwarded) continue;
@@ -2923,7 +2925,10 @@ export function createSSEStream(options: StreamOptions = {}) {
 
           // Translate mode: process remaining buffer
           if (buffer.trim()) {
-            const parsed = parseSSELine(buffer.trim());
+            const parsed =
+              targetFormat === FORMATS.OLLAMA
+                ? parseNdjsonLine(buffer.trim())
+                : parseSSELine(buffer.trim());
             if (parsed && !parsed.done) {
               if (emitTranslatedFailureAndAbort(controller, parsed)) return;
               providerPayloadCollector.push(parsed);

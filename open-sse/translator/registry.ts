@@ -20,8 +20,8 @@ function makeKey(from: string, to: string) {
 export function register(
   from: string,
   to: string,
-  requestFn?: RequestTranslator,
-  responseFn?: ResponseTranslator
+  requestFn?: RequestTranslator | null,
+  responseFn?: ResponseTranslator | null
 ) {
   const key = makeKey(from, to);
   if (requestFn) {
