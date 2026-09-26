@@ -513,7 +513,10 @@ async function buildUnifiedModelsResponseCore(
     // noAuth providers have no DB rows; settings.blockedProviders disables them.
     for (const p of Object.values(NOAUTH_PROVIDERS)) {
       if (isNoAuthProviderBlocked(blockedProviders, p.id, "alias" in p ? p.alias : null)) continue;
-      activeAliases.add(p.id);
+      // A no-auth id can collide with another product's routable prefix
+      // (`opencode/` belongs to opencode-zen; no-auth OpenCode uses `oc/`).
+      // Only activate the raw id when requests under it reach that provider.
+      if (prefixRoutesToProvider(p.id, p.id)) activeAliases.add(p.id);
       if ("alias" in p && typeof p.alias === "string") activeAliases.add(p.alias);
     }
 

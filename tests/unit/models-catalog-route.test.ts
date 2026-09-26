@@ -1686,6 +1686,11 @@ test("v1 models catalog includes noAuth provider models when no DB connections e
     false,
     "catalog must not return opencode/* noAuth aliases because opencode/ routes to opencode-zen"
   );
+  assert.equal(
+    ids.some((id) => id.startsWith("opencode-zen/")),
+    false,
+    "opencode-zen must remain credential-gated even when no-auth oc is available"
+  );
 });
 
 test("v1 models catalog hides disabled noAuth provider models", async () => {

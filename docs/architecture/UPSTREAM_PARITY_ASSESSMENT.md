@@ -133,6 +133,13 @@ Plan, Model Studio, and OpenAI-compatible Token Plan hosts. The pre-existing
 connections still need CI and real-key authentication smoke before operational
 parity can be claimed.
 
+The `iflow` registry and HMAC executor exist, but the OAuth card still has no
+local sign-in implementation. Its connection test previously returned
+"Provider test not supported"; this worktree now builds a signed, one-token
+chat probe using the executor's headers. That probe may consume credits and
+still needs CI and real-account validation. It does not close the OAuth login
+gap, which remains a separate porting task.
+
 ### Provider identity gaps confirmed by transport inspection
 
 | 9router provider    | 9router identity and wire contract                                                                                                                                                 | Local state                                                                                                                                                                                                                                                  | Required port boundary                                                                                                                                                                        |

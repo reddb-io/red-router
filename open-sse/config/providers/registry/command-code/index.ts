@@ -155,7 +155,7 @@ export const command_codeProvider: RegistryEntry = {
       contextLength: 200000,
       maxOutputTokens: 32768,
     },
-    { id: "MiniMaxAI/MiniMax-M3", name: "MiniMax M3 (CC)" },
+    { id: "MiniMaxAI/MiniMax-M3", name: "MiniMax M3 (CC)", supportsVision: true },
     {
       id: "MiniMaxAI/MiniMax-M2.7",
       name: "MiniMax M2.7 (CC)",
