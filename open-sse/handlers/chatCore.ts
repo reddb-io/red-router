@@ -279,6 +279,9 @@ import { prepareUpstreamBody } from "./chatCore/upstreamBody.ts";
 import { getQuotaScopeLabelForProvider } from "../services/antigravityQuotaFamily.ts";
 import { excludeConnectionForCooldown } from "./chatCore/connectionCooldown.ts";
 import { handleRequestRejectedFailure } from "./chatCore/requestRejectedFailure.ts";
+// JEV tool decision — additive port from the legacy fork (c66f917c); inert unless
+// the caller passes `decideTool`. See chatCore/toolDecision.ts.
+import { applyToolDecision } from "./chatCore/toolDecision.ts";
 import { projectRetainedProviderFailureMessage } from "./chatCore/providerFailureRetention.ts";
 import { getKimiTemporaryRateLimitResetAt } from "./chatCore/kimiQuotaRecovery.ts";
 import {
@@ -514,6 +517,14 @@ export async function handleChatCore({
   videoBridgeLog = undefined,
   fallbackAttempts = undefined,
   forcedConnectionId = null, // #14116: caller's pinned/requested connection, vs credentials.connectionId below
+  // JEV decision engine (additive port from the legacy fork, c66f917c). All three
+  // default to null and the default path never passes them, so request behavior
+  // is byte-identical. `decideTool` is a callback that asks the decision model
+  // which tool to force; `decision` is a resolved model decision; `hint` is the
+  // parsed x-red-router-hint classification.
+  decideTool = null,
+  decision = null,
+  hint = null,
 }) {
   const {
     model: originModel,
@@ -2734,6 +2745,27 @@ export async function handleChatCore({
   }
 
   trace("post_translation");
+
+  // ── JEV tool decision (additive port from the legacy fork, c66f917c ~400-427) ──
+  // Post-translation, pre-dispatch: the decision reads the translated body and may
+  // write a tool_choice pin or append a trailing hint. Inert unless `decideTool` is
+  // supplied — the default path skips it entirely.
+  {
+    const applied = await applyToolDecision(translatedBody as Record<string, unknown>, {
+      decideTool,
+      format: targetFormat,
+      provider,
+      model: effectiveModel,
+      clientRawRequest,
+      decision,
+      hint,
+      reasoning: null,
+      log,
+    });
+    if (applied.logLine) log?.info?.("DECISION", applied.logLine);
+    if (applied.decisionDetail) trace("tool_decision", applied.decisionDetail);
+  }
+  // === /JEV tool decision ===
 
   // Keep the request translator's namespace identities separate from toolNameMap:
   // the latter is a Kiro/Claude passthrough alias channel with string values,
@@ -5248,6 +5280,21 @@ export async function handleChatCore({
               },
             }
           );
+          // JEV tool decision on the follow-up leg (additive port; same inert-by-default gate).
+          {
+            const applied = await applyToolDecision(translatedBody as Record<string, unknown>, {
+              decideTool,
+              format: targetFormat,
+              provider,
+              model,
+              clientRawRequest,
+              decision,
+              hint,
+              reasoning: null,
+              log,
+            });
+            if (applied.logLine) log?.info?.("DECISION", applied.logLine);
+          }
           return runNonStreamingProviderLeg(
             followUpLegInput(
               {
