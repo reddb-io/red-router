@@ -60,6 +60,7 @@ export const ACCOUNT_FALLBACK_STRATEGY_VALUES = [
   "least-used",
   "cost-optimized",
   "expiry-first",
+  "health",
   "strict-random",
 ] as const;
 

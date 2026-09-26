@@ -16,9 +16,16 @@ type Props = {
 };
 
 const STRATEGY_OPTIONS = ACCOUNT_FALLBACK_STRATEGY_VALUES.filter((v) =>
-  ["fill-first", "round-robin", "priority", "p2c", "random", "least-used", "expiry-first"].includes(
-    v
-  )
+  [
+    "fill-first",
+    "round-robin",
+    "priority",
+    "p2c",
+    "random",
+    "least-used",
+    "expiry-first",
+    "health",
+  ].includes(v)
 );
 
 function clampProviderStickyLimit(raw: string): number {

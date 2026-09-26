@@ -5,6 +5,7 @@ import { extractGoogApiKeyHeader } from "./googApiKeyAuth.ts";
 import { describeUpstreamFailure } from "@/shared/utils/upstreamError";
 import { buildAllExpiredCredentials } from "./authExpiredCredentials.ts";
 import { pickExpiryFirstConnection } from "./expiryFirstAccountSelection.ts";
+import { rankByHealth, recordFailure } from "@omniroute/open-sse/services/providerHealth.ts";
 import {
   getCachedRawProviderConnections,
   getCachedProviderNodes,
@@ -1158,6 +1159,12 @@ async function loadAdvertisedModelsForSelfHostedConnections(
 }
 
 /**
+ * Share of `health` picks that try another healthy account, so one that got
+ * faster again is noticed (ported from feat/account-health).
+ */
+const HEALTH_EXPLORE_RATE = 0.05;
+
+/**
  * Get provider credentials from localDb
  * Filters out unavailable accounts and returns the selected account based on strategy
  * @param {string} provider - Provider name
@@ -2151,6 +2158,15 @@ export async function getProviderCredentials(
         const selectedId = getNextFromDeckSync(`conn:${provider}`, ids);
         connection = orderedConnections.find((c) => c.id === selectedId) || orderedConnections[0];
       }
+    } else if (strategy === "health") {
+      // Health-ranked selection (ported from feat/account-health): untried
+      // accounts first, then breaker, error rate and time to first token; ties
+      // keep the configured priority. A small share of picks explores another
+      // healthy account so a recovered one is noticed.
+      const ranked = rankByHealth(orderedConnections, requestedModel, {
+        explore: HEALTH_EXPLORE_RATE,
+      });
+      connection = ranked[0] || orderedConnections[0];
     } else {
       // Default: fill-first (already sorted by priority in getProviderConnections)
       connection = orderedConnections[0];
@@ -2831,6 +2847,14 @@ export async function markAccountUnavailable(
         `[T-PROBE] ${connectionId.slice(0, 8)} ${provider ?? ""} failure ${status} recorded — connection stays in the pool`
       );
       return { shouldFallback: true, cooldownMs: 0 };
+    }
+
+    // Health tracking (feat/account-health port): a real request-path failure
+    // that survives request-scoped classification counts against the
+    // (account, model) pair the `health` strategy ranks by. Request-scoped
+    // errors and isolated T-PROBE failures returned above.
+    if (fallbackResult.shouldFallback) {
+      recordFailure({ connectionId, model });
     }
 
     // Read passthroughModels from connection config (user-configured per-model quota)

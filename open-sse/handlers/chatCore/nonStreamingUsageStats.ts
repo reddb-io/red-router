@@ -15,6 +15,7 @@ import { recordKeyQuotaUsage } from "@/domain/keyQuota";
 import { formatUsageLog } from "@/lib/usage/tokenAccounting";
 import { COLORS } from "../../utils/stream.ts";
 import { recordTokenUsage } from "../../services/tokenLimitCounter.ts";
+import { recordSuccess } from "../../services/providerHealth.ts";
 import { computeBillableTokens } from "./upstreamTimeouts.ts";
 import { type EffectiveServiceTier } from "./serviceTier.ts";
 
@@ -85,6 +86,26 @@ function recordBillableTokens(
   }
 }
 
+/**
+ * Health tracking (feat/account-health port): a successful non-streaming
+ * answer arrives whole, so first token = total latency; feed the
+ * (account, model) EWMA the `health` account-selection strategy ranks by.
+ */
+function recordNonStreamProviderHealth(ctx: RecordNonStreamingUsageStatsContext): void {
+  if (!ctx.connectionId) return;
+  try {
+    const latencyMs = Date.now() - ctx.startTime;
+    recordSuccess({
+      connectionId: ctx.connectionId,
+      model: ctx.model ?? null,
+      ttftMs: latencyMs,
+      latencyMs,
+    });
+  } catch {
+    // never block the response on health recording
+  }
+}
+
 export function recordNonStreamingUsageStats(
   usage: unknown,
   ctx: RecordNonStreamingUsageStatsContext
@@ -94,4 +115,5 @@ export function recordNonStreamingUsageStats(
   if (ctx.traceEnabled) logUsageTrace(usage, ctx.provider, ctx.connectionId);
   persistUsageRow(usage, ctx);
   recordBillableTokens(usage, ctx.apiKeyInfo, ctx.provider, ctx.model);
+  recordNonStreamProviderHealth(ctx);
 }

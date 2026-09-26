@@ -13,6 +13,7 @@
 import { saveRequestUsage } from "@/lib/usageDb";
 import { recordKeyQuotaUsage } from "@/domain/keyQuota";
 import { recordTokenUsage } from "../../services/tokenLimitCounter.ts";
+import { recordSuccess } from "../../services/providerHealth.ts";
 import { computeBillableTokens } from "./upstreamTimeouts.ts";
 import { type EffectiveServiceTier } from "./serviceTier.ts";
 
@@ -74,6 +75,27 @@ function recordStreamingBillableTokens(usage: object, ctx: RecordStreamingUsageS
   }
 }
 
+/**
+ * Health tracking (feat/account-health port): a 200 stream that ran to
+ * completion feeds the (account, model) EWMA the `health` account-selection
+ * strategy ranks by. A stream cut short by the client
+ * (stream_interrupted/aborted) says nothing about the account's speed.
+ */
+function recordStreamProviderHealth(ctx: RecordStreamingUsageStatsContext): void {
+  if (ctx.streamStatus !== 200 || !ctx.connectionId) return;
+  if (ctx.streamErrorCode === "stream_interrupted" || ctx.streamErrorCode === "aborted") return;
+  try {
+    recordSuccess({
+      connectionId: ctx.connectionId,
+      model: ctx.model ?? null,
+      ttftMs: typeof ctx.ttft === "number" && ctx.ttft >= 0 ? ctx.ttft : null,
+      latencyMs: Date.now() - ctx.startTime,
+    });
+  } catch {
+    // never block the stream on health recording
+  }
+}
+
 export function recordStreamingUsageStats(
   usage: unknown,
   ctx: RecordStreamingUsageStatsContext
@@ -81,4 +103,5 @@ export function recordStreamingUsageStats(
   if (!usage || typeof usage !== "object") return;
   persistStreamingUsageRow(usage, ctx);
   recordStreamingBillableTokens(usage, ctx);
+  recordStreamProviderHealth(ctx);
 }
