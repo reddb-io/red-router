@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import React, { act } from "react";
 import { createRoot } from "react-dom/client";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, expect, it, vi } from "vitest";
 
 const flow = vi.hoisted(() => ({
   onInit: null as null | ((instance: { fitView: () => void }) => void),
@@ -16,6 +16,17 @@ vi.mock("@xyflow/react", () => ({
 }));
 
 import { FlowCanvas } from "@/shared/components/flow/FlowCanvas";
+
+beforeAll(() => {
+  (
+    globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
+  ).IS_REACT_ACT_ENVIRONMENT = true;
+  globalThis.ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  } as unknown as typeof ResizeObserver;
+});
 
 afterEach(() => {
   vi.restoreAllMocks();
