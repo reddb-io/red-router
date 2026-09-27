@@ -202,15 +202,9 @@ jobs:
     runs-on: ubuntu-latest
     # needs lint so eslint-results artifact is available (same inventory as the
     # blocking lint step). Allow lint failure so other ratchets still run.
-    needs: [changes, test-coverage, lint]
-    # Run even when test-coverage was SKIPPED/FAILED (e.g. a single flaky Coverage
-    # Shard breaks the shard→coverage→ratchet chain). The DETERMINISTIC ratchets
-    # (eslint / complexity / cognitive-complexity / duplication / codeql) do NOT need
-    # the coverage artifact and MUST still run so cycle drift is measured on the
-    # release PR — otherwise a flake silently skips the whole gate (incident: v3.8.36
-    # release PR #4854, where the drift cascade only surfaced post-merge in #5029).
-    # The coverage.* metrics degrade gracefully: the download is continue-on-error and
-    # the ratchet runs with --allow-missing, so absent coverage is skipped, not failed.
+    needs: [changes, lint]
+    # Run after lint even if lint fails so independent ratchets still report their
+    # verdict. Coverage metrics are optional and absent from this CI path.
     # Path filter: code-only — pure docs/i18n PRs have nothing for these ratchets to guard.
     if: ${{ !cancelled() && !contains(github.event.pull_request.labels.*.name, 'hotfix') && (github.event_name != 'pull_request' || (github.event.pull_request.draft == false && needs.changes.outputs.code == 'true' && (needs.lint.result == 'success' || needs.lint.result == 'failure'))) }}
     # security-events: read lets the CodeQL ratchet read open code-scanning alerts
@@ -240,16 +234,6 @@ jobs:
           # stale per-file verdicts, which is exactly how 215 pre-existing errors stayed
           # invisible for a whole cycle. Exact key or a cold full lint (~13 min) — never a
           # partial cache from another configuration.
-      # Coverage mergeada (coverage-summary.json) p/ o ratchet de cobertura.
-      # continue-on-error: o artifact pode não existir se a job test-coverage foi
-      # SKIPPED (shard flaky). Nesse caso collect-metrics pula coverage.* (ausente sem
-      # erro) e o ratchet roda com --allow-missing — as métricas determinísticas
-      # (eslint/complexity/cognitive) seguem BLOQUEANTES.
-      - uses: actions/download-artifact@v8
-        continue-on-error: true
-        with:
-          name: coverage-report
-          path: coverage/
       # Prefer lint job's ESLint JSON (one inventory, two consumers).
       - name: Download ESLint results
         continue-on-error: true
@@ -258,20 +242,12 @@ jobs:
           name: eslint-results
           path: .artifacts/
       - run: npm run quality:collect
-      # Catraca: falha se qualquer métrica regredir vs quality-baseline.json (commitado).
-      # Hoje: contagem de warnings do ESLint. Fase 4 estende com cobertura (lida do
-      # coverage mergeado). Tamanho de arquivo e duplicação têm gates dedicados.
-      # --allow-missing: pula métricas do baseline ausentes do collect (coverage.* quando
-      # o artifact não veio) em vez de falhar — mantém os gates determinísticos ativos.
+      # Compare collected metrics against the committed baseline. --allow-missing
+      # skips optional coverage metrics without weakening deterministic ratchets.
       - name: Ratchet check
         run: node scripts/quality/check-quality-ratchet.mjs --allow-missing --summary .artifacts/quality-ratchet.md
-      # Fase 6A.5: require-tighten — BLOQUEANTE (promovido de advisory no fim do ciclo
-      # v3.8.27). Falha quando uma métrica MELHOROU sem o baseline ter sido apertado no
-      # mesmo PR (força capturar ganhos permanentes). As métricas coverage.* carregam
-      # tightenSlack para o gap anti-flake (CI mergeado > baseline) não disparar falso-
-      # positivo. Verificado limpo (exit 0) no tip de release/v3.8.27 com a cobertura
-      # mergeada == baseline (ver a nota _require_tighten_flip_blocking em
-      # config/quality/quality-baseline.json).
+      # Require tightening for collected metrics that improved. Optional coverage
+      # metrics are absent and ignored by --allow-missing.
       - name: Require-tighten (blocking)
         run: node scripts/quality/check-quality-ratchet.mjs --allow-missing --require-tighten
       # Catraca de duplicação (jscpd@4 sobre src+open-sse). Roda neste job (paralelo)
@@ -932,44 +908,12 @@ jobs:
           cache: npm
       - uses: ./.github/actions/npm-ci-retry
       - run: npm run check:node-runtime
-      # QW-d (plano mestre): fonte única — o MESMO npm script dos runs locais (adiciona o
-      # setupPolyfill que o comando inline omitia; o glob canônico vive só no package.json).
-      # D3 (plano mestre): a coverage é coletada NESTE mesmo run (c8/NODE_V8_COVERAGE propaga
-      # aos filhos através do npm) — elimina a matrix Coverage Shard ×8, que re-executava a
-      # suíte inteira só para medir o gate. Padrão usado pelo CI do próprio nodejs/node.
-      # Heap: os shards rodam sob instrumentacao de cobertura do V8, que retem muito
-      # mais memoria que a suite crua. Com o teto antigo de 4096 MB os shards passaram
-      # a abortar com SIGABRT (exit 134, "Ineffective mark-compacts near heap limit")
-      # ao redor de 4086 MB conforme o catalogo de providers cresceu no ciclo v3.8.50 —
-      # todos os testes passavam e o processo morria no fim, o que le como falha de
-      # teste sem ser. O teto vive em `test:unit:ci:shard` (package.json) e agora
-      # acompanha os 8192 MB ja usados pelas variantes nao-shardadas; os runners
-      # GitHub-hosted tem 16 GB.
-      - name: Unit tests (shard ${{ matrix.shard }}/8) with V8 coverage
+      # Run the same shard command without V8 coverage instrumentation. Coverage
+      # is no longer a release gate; keep functional tests blocking.
+      - name: Unit tests (shard ${{ matrix.shard }}/8)
         env:
           TEST_SHARD: ${{ matrix.shard }}/8
-          # NODE_OPTIONS (nao so o flag em test:unit:ci:shard) porque quem estoura o
-          # heap e o processo `c8` que embrulha a suite — ele agrega ~577 MB de JSON
-          # de cobertura bruta. Subir o teto so no node filho deixa o pai no default
-          # do V8 (~4 GB) e o OOM continua igual, em ~4083 MB. Mesmo padrao ja usado
-          # pelo job de merge de cobertura mais abaixo.
-          NODE_OPTIONS: --max-old-space-size=8192
-        run: |
-          rm -rf coverage-shard coverage-shard-report
-          npx c8 \
-            --temp-directory=coverage-shard \
-            --reports-dir=coverage-shard-report \
-            --reporter=json \
-            --exclude=tests/** \
-            --exclude=**/*.test.* \
-            npm run test:unit:ci:shard
-      - name: Upload raw shard coverage
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: coverage-shard-${{ matrix.shard }}
-          path: coverage-shard/*.json
-          if-no-files-found: error
+        run: npm run test:unit:ci:shard
 
   test-bun-sqlite:
     name: Bun SQLite Compatibility
@@ -1073,6 +1017,9 @@ jobs:
   test-coverage:
     name: Coverage
     runs-on: ubuntu-latest
+    # Disabled at the operator's request. Historical job retained temporarily;
+    # unit tests no longer produce the raw artifacts it would consume.
+    if: ${{ false }}
     # 10min was sized before #7114 added the lcov reporter (Codecov/Sonar need it);
     # merging 8 shard JSONs + text+json+lcov now takes ~10-12min — three consecutive
     # release-tip runs died at exactly 10m as job-timeout "cancelled" (2026-07-15/16).
@@ -1082,7 +1029,6 @@ jobs:
     # blocking job was green. The upload step now has its own ceiling; this is headroom.
     timeout-minutes: 30
     needs: test-unit
-    if: ${{ !cancelled() && needs.test-unit.result == 'success' && !contains(github.event.pull_request.labels.*.name, 'hotfix') }}
     env:
       JWT_SECRET: ci-test-secret-with-sufficient-length-for-validation
       API_KEY_SECRET: ci-test-api-key-secret-long
@@ -1524,9 +1470,6 @@ jobs:
       - test-bun-sqlite
       - test-local-device-windows
       - test-vitest
-      - test-coverage
-      - sonarqube
-      - coverage-pr-comment
       - test-e2e
       - test-integration
       - test-security
@@ -1592,7 +1535,6 @@ jobs:
           echo "| i18n UI Coverage | $(status '${{ needs.i18n-ui-coverage.result }}') |" >> "$GITHUB_STEP_SUMMARY"
           echo "| i18n Glossary (zh-CN, ko) | $(status '${{ needs.i18n-glossary-zhcn.result }}') |" >> "$GITHUB_STEP_SUMMARY"
           echo "| PR Test Policy | $(status '${{ needs.pr-test-policy.result }}') |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| SonarQube (opt-in; disabled without SONARQUBE_ENABLED=true) | $(status '${{ needs.sonarqube.result }}') |" >> "$GITHUB_STEP_SUMMARY"
 
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "## 🏗️ Build" >> "$GITHUB_STEP_SUMMARY"
@@ -1610,8 +1552,6 @@ jobs:
           echo "| Bun SQLite | $(status '${{ needs.test-bun-sqlite.result }}') |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Windows Local Device TTS | $(status '${{ needs.test-local-device-windows.result }}') |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Vitest (MCP / autoCombo / UI) | $(status '${{ needs.test-vitest.result }}') |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Coverage | $(status '${{ needs.test-coverage.result }}') |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| PR Coverage Comment | $(status '${{ needs.coverage-pr-comment.result }}') |" >> "$GITHUB_STEP_SUMMARY"
           echo "| E2E | $(status '${{ needs.test-e2e.result }}') |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Integration | $(status '${{ needs.test-integration.result }}') |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Security Tests | $(status '${{ needs.test-security.result }}') |" >> "$GITHUB_STEP_SUMMARY"

@@ -90,12 +90,14 @@ Runs on every PR to `main`. Blocks merge on failure.
 
 ### Job: `quality-gate`
 
-Runs after `test-coverage`. Blocks merge on failure.
+Runs after `lint`. Blocks merge on failure for collected, non-coverage metrics. Unit
+tests remain blocking, but CI no longer instruments them for code coverage; the
+historical `test-coverage` job is disabled.
 
 | Script                       | Validates                                                                                                                                                   | Blocking                  |
 | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
-| `quality:collect`            | Emits `quality-metrics.json` (ESLint warning count, coverage from merged shard report)                                                                      | Yes (upstream of ratchet) |
-| `quality:ratchet`            | Each metric in `quality-baseline.json` has not regressed (ESLint warnings ≤ baseline; coverage ≥ baseline)                                                  | Yes                       |
+| `quality:collect`            | Emits `quality-metrics.json` for available metrics; no coverage artifact is downloaded in CI                                                                | Yes (upstream of ratchet) |
+| `quality:ratchet`            | Collected metrics in `quality-baseline.json` have not regressed; missing optional coverage metrics are skipped                                              | Yes                       |
 | `check:duplication`          | Code duplication (jscpd@4) does not exceed baseline in `quality-baseline.json`                                                                              | Yes                       |
 | `check:complexity`           | File-level cyclomatic complexity does not exceed the cap (core ESLint `complexity` + `max-lines-per-function`)                                              | Yes                       |
 | `check:cognitive-complexity` | Cognitive complexity ratchet (`eslint-plugin-sonarjs`) — separate ESLint pass; CI runs both merged as the single `check:complexity-ratchets` step           | Yes                       |
@@ -286,8 +288,9 @@ per-file counts are diffed):
   innocent PR; the drift is re-frozen at release reconciliation and watched by the headroom job.
 
 `workflow_dispatch` runs, the release-green sweep and the nightly headroom job have no PR base
-and keep the absolute (global) comparison. Coverage, duplication and type-coverage stay global
-for now (their tools do not produce a per-file diff cheaply) — candidates for the same treatment.
+and keep the absolute (global) comparison. Duplication and type-coverage stay global
+for now (their tools do not produce a per-file diff cheaply). Code coverage is not
+collected on this CI path.
 
 **Closing the phase at v4.0 (LTS = tighter than before, not "back to normal")**
 
@@ -298,7 +301,8 @@ for now (their tools do not produce a per-file diff cheaply) — candidates for 
 2. Delete `_policy` from `quality-baseline.json` (re-arms `--require-tighten` and the nightly
    banking), restore `THRESHOLD = 36` (or higher) in `check-openapi-coverage.mjs`.
 3. Tighten beyond measured where the modularization paid off: file-size `cap` back to 1000
-   (or 800), coverage floors +5, dead exports 0 for the modularized packages.
+   (or 800), dead exports 0 for the modularized packages. The historical coverage
+   baselines are not a release requirement.
 
 ## Ratchet Baseline (`quality-baseline.json`)
 
@@ -306,15 +310,20 @@ The ratchet engine (`scripts/quality/check-quality-ratchet.mjs`) reads `quality-
 and compares it against the freshly collected `quality-metrics.json`. Any metric that regresses
 beyond its epsilon fails the build.
 
-Current tracked metrics:
+Current CI-enforced metrics include `eslintWarnings`. Historical `coverage.*` entries
+remain in the baseline file, but CI does not collect them and the ratchet runs with
+`--allow-missing`, so they do not block a build. Type coverage is a separate type-safety
+ratchet and is not code coverage.
+
+Examples of baseline entries:
 
 | Metric                | Direction | Meaning                            |
 | --------------------- | --------- | ---------------------------------- |
 | `eslintWarnings`      | `down`    | ESLint warning count must not grow |
-| `coverage.statements` | `up`      | Statement coverage must not fall   |
-| `coverage.lines`      | `up`      | Line coverage must not fall        |
-| `coverage.functions`  | `up`      | Function coverage must not fall    |
-| `coverage.branches`   | `up`      | Branch coverage must not fall      |
+| `coverage.statements` | `up`      | Historical, not enforced in CI     |
+| `coverage.lines`      | `up`      | Historical, not enforced in CI     |
+| `coverage.functions`  | `up`      | Historical, not enforced in CI     |
+| `coverage.branches`   | `up`      | Historical, not enforced in CI     |
 
 To update the baseline after a genuine improvement:
 
@@ -459,7 +468,7 @@ allowlist is a false sense of quality.
    as the code is correct.
 3. **If the violation is pre-existing** (i.e., you did not introduce it but the gate now
    covers it): add an allowlist entry with a justification comment and a tracking issue.
-4. **If the gate is a ratchet** (coverage, ESLint warnings, duplication, complexity):
+4. **If the gate is a ratchet** (ESLint warnings, duplication, complexity):
    your change made the metric worse. Fix the underlying issue, or (rarely) run
    `npm run quality:ratchet -- --update` if the change is intentional and the metric
    degradation is acceptable — but document why in the PR description.

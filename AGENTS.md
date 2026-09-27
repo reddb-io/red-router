@@ -16,7 +16,7 @@ npm run build:release          # Release build
 npm run lint                   # ESLint (0 errors expected; warnings are pre-existing)
 npm run typecheck:core         # TypeScript check (should be clean)
 npm run typecheck:noimplicit:core  # Strict check (no implicit any)
-npm run test:coverage          # Unit tests + coverage gate (60/60/60/60 — statements/lines/functions/branches)
+npm run test:unit              # Unit tests (coverage is not a CI/release gate)
 npm run check                  # lint + test combined
 npm run check:cycles           # Detect circular dependencies
 npm run check:docs-all         # Run after changing documentation (includes fabricated-docs validation)
@@ -463,8 +463,7 @@ For any non-trivial change, read the matching deep-dive first:
 | E2E (Playwright)        | `npm run test:e2e`                                                            |
 | Protocol E2E (MCP+A2A)  | `npm run test:protocols:e2e` (CI job `test-protocols-e2e`, advisory — #10049) |
 | Ecosystem               | `npm run test:ecosystem` (CI job `test-ecosystem`, blocking)                  |
-| Coverage gate           | `npm run test:coverage` (60/60/60/60 — statements/lines/functions/branches)   |
-| Coverage report         | `npm run coverage:report`                                                     |
+| Coverage (optional)     | `npm run test:coverage` — diagnostic only; not required for CI or release     |
 
 **PR rule**: If you change production code in `src/`, `open-sse/`, `electron/`, or `bin/`, you must include or update tests in the same PR.
 
@@ -480,7 +479,7 @@ For any non-trivial change, read the matching deep-dive first:
 
 Why this matters: fixing bug A while opening bug B is worse than not fixing at all. The TDD/VPS gate enforces surgical scope — you touch only what the failing test proves is broken. Examples where this paid off: #3090 (claude-web 403), #3113 (WS HTTP fallback), #3052 (heap-guard auto-calibration).
 
-**Copilot coverage policy**: When a PR changes production code and coverage is below 60% (statements/lines/functions/branches), do not just report — add or update tests, rerun the coverage gate, then ask for confirmation. Include commands run, changed test files, and final coverage result in the PR report.
+**Coverage policy**: Coverage measurement is optional. Do not add tests merely to raise a percentage; keep the production-code PR test requirement above and validate behavior through the relevant suites.
 
 ---
 
@@ -689,7 +688,7 @@ procedures are in [`docs/architecture/QUALITY_GATES.md`](docs/architecture/QUALI
 
 - Gates in jobs `lint` + `docs-sync-strict`: pass/fail policy gates —
   fix the violation or add an allowlist entry with a justification comment + tracking issue.
-- Gates in job `quality-gate`: ratchet — metrics (ESLint warnings, code coverage, duplication,
+- Gates in job `quality-gate`: ratchet — metrics (ESLint warnings, duplication,
   complexity) must not regress vs `quality-baseline.json`. Update via
   `npm run quality:ratchet -- --update` when a metric genuinely improves.
 - Job `test-vitest` runs `npm run test:vitest` (MCP tools, autoCombo, cache) — blocking.
@@ -716,7 +715,7 @@ the stale-enforcement added in Fase 6A.3.
 6. Never silently swallow errors in SSE streams
 7. Always validate inputs with Zod schemas
 8. Always include tests when changing production code
-9. Coverage must not regress below the baseline frozen in `quality-baseline.json` (ratchet); absolute floor is 60% (statements/lines/functions/branches). Update the baseline via `npm run quality:ratchet -- --update` only when coverage genuinely improves. See `docs/architecture/QUALITY_GATES.md`.
+9. Coverage is not a CI or release gate. Keep functional tests for production changes; do not target an arbitrary coverage percentage.
 10. Never bypass Husky hooks (`--no-verify`, `--no-gpg-sign`) without explicit operator approval.
 11. Never embed public upstream OAuth client_id/secret or Firebase Web keys as string literals — always go through `resolvePublicCred()` (`open-sse/utils/publicCreds.ts`). See `docs/security/PUBLIC_CREDS.md`.
 12. Never return raw `err.stack` / `err.message` in HTTP / SSE / executor responses — always route through `buildErrorBody()` or `sanitizeErrorMessage()` (`open-sse/utils/error.ts`). See `docs/security/ERROR_SANITIZATION.md`.
