@@ -8,8 +8,13 @@ lastUpdated: 2026-09-27
 
 This is a source snapshot, **not a claim of complete feature parity**. The comparison uses
 `upstream/master` at `f01fb909e37189008080632ddaf404f096345cde` (9router),
-`omni-upstream/release/v3.8.51` at `ae2ba35852d4e5a55486a1c0e6a779105564fd6d`
-(OmniRoute), and the local `feat/systemone-parity` worktree based on `cf5d22c291`.
+`omni-upstream/release/v3.8.51` at `a58000c7685f4091c7a6fd8ddf3ebce7d2ec67c3`
+(OmniRoute), and the local `feat/main-integration` worktree (inventory run at
+`70602300e6`).
+The OmniRoute release head advanced by two commits from the earlier snapshot;
+one includes the pre-request-hook realm isolation advisory. This branch
+contains corresponding isolation and a stricter foreign-exception boundary in
+`src/lib/middleware/registry.ts`; this is a source comparison, not a security audit.
 Refresh the refs and rerun `node scripts/ad-hoc/upstream-parity-inventory.mjs` before using
 the counts in a later review. The script reads paths and provider IDs; it does not compare
 credentials, transport, model lists, billing, UI, or behavior.
@@ -34,7 +39,7 @@ commits still need patch-equivalence review before claiming current-main parity.
 | ------------- | ----------------: | ---------------------------------------: | ----------------: | ----------------------------------: |
 | 9router       |               129 |                                       51 |                21 |                                   0 |
 | OmniRoute     |               273 |                                        0 |               100 |                                   0 |
-| This worktree |               287 |                                        — |               107 |                                   — |
+| This worktree |               287 |                                        — |               108 |                                   — |
 
 The 51 9router provider IDs are **not 51 proven missing providers**. For example,
 `deepgram`, `elevenlabs`, and `edge-tts` are present in the local audio registry
@@ -363,19 +368,19 @@ These are implementation candidates pending CI and external credential smoke.
 System One must remain advisory when unavailable or inconclusive; it must not
 silently approve task completion or compaction.
 
-This is **not** the whole 9router Decisions runtime. In this checkout,
-`src/sse/services/jevRouting.ts` asks JEV for a `tier` and uses it only as an
-optional Auto-Combo complexity signal. `open-sse/handlers/chatCore.ts` has a
-post-translation tool-decision hook, but its `decideTool` parameter defaults to
-`null`, and no production caller supplies a callback. The imported
-`open-sse/decision/` question builders, model-choice gates, cost tie-breakers,
-reasoning autopilot, and `askJev` transport therefore are not proof that chat
-requests actually use those Decisions features. Unit contracts for the pure
-modules also do not establish end-to-end behavior. Before claiming parity,
-wire an explicit opt-in decision-model role and stored connection into chat,
-preserve key/model policy and quota isolation, make inconclusive verdicts
-abstain, record sanitized decision traces, and validate tool/model/reasoning
-choices through CI and credentialed runtime smoke.
+This is **not** the whole 9router Decisions runtime. The `feat/main-integration`
+branch now wires opt-in tool decisions from `src/sse/handlers/chat.ts` into the
+post-translation hook, and opt-in direct model choice in Auto-Combo through
+`decision.modelMode: "jev"`. The combo builder exposes the evaluation model,
+model choice, and tool choice; all are off by default. Evaluations use a stored
+connection permitted by the request API key, record reported usage separately, and abstain
+when unavailable or inconclusive. Direct model choice is limited to routable
+candidates under the request cost cap; it does not replace deterministic fallback.
+This is implementation evidence, not a completed credentialed smoke. Reasoning
+autopilot, client-provided hints, decision traces, and the legacy `askJev`
+transport are not wired as a complete runtime. The current CI, model/connection
+policy edge cases, and live TypeSafe/OpenCode/OpenRouter evaluations still need
+verification before claiming Decisions parity.
 
 ## Persistence and scale boundary
 
