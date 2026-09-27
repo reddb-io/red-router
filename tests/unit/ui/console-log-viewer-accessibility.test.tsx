@@ -263,8 +263,7 @@ describe("ConsoleLogViewer accessibility", () => {
 
     const container = await renderViewer();
     await act(async () => {
-      vi.advanceTimersByTime(3_000);
-      vi.advanceTimersByTime(0);
+      vi.advanceTimersByTime(3_001);
     });
     expect(globalThis.fetch).toHaveBeenCalledOnce();
 
