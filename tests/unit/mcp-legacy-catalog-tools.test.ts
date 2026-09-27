@@ -66,6 +66,9 @@ describe("legacy MCP catalog tools", () => {
       data: [
         { id: "claude/opus", capabilities: { tool_calling: true } },
         { id: "image/render", type: "image" },
+        { id: "typesafe-ai/jev-latest", type: "systemone" },
+        { id: "tavily/web-search", type: "webSearch" },
+        { id: "tavily/web-fetch", type: "webFetch" },
       ],
     });
     assert.deepEqual(

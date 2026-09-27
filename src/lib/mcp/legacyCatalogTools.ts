@@ -41,12 +41,21 @@ export function parseLegacyKeyCatalog(body: unknown): CatalogModel[] {
   if (!parsed.success) {
     throw new LegacyMcpToolError("catalog_unavailable", "Model catalog unavailable");
   }
-  // The old tools described LLMs, not the newer embedding/media endpoints.
+  // The old tools described chat LLMs, not typed Decisions, web or media endpoints.
   return parsed.data.data.filter(
     (model) =>
-      !["embedding", "image", "rerank", "audio", "moderation", "video", "music"].includes(
-        model.type ?? ""
-      )
+      ![
+        "embedding",
+        "image",
+        "rerank",
+        "systemone",
+        "audio",
+        "moderation",
+        "video",
+        "music",
+        "webSearch",
+        "webFetch",
+      ].includes(model.type ?? "")
   );
 }
 
