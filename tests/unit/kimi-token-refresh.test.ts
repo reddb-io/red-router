@@ -1,8 +1,22 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { exchangeKimiRefreshToken } from "../../src/lib/kimi/tokenRefresh.ts";
+import { getKimiWebBaseUrl } from "../../src/lib/kimi/baseUrl.ts";
 
 describe("Kimi Token Refresh Exchange", () => {
+  it("normalizes the default and configured Web host", () => {
+    const previous = process.env.KIMI_WEB_BASE_URL;
+    try {
+      delete process.env.KIMI_WEB_BASE_URL;
+      assert.equal(getKimiWebBaseUrl(), "https://www.kimi.ai");
+      process.env.KIMI_WEB_BASE_URL = "https://kimi.example.test///";
+      assert.equal(getKimiWebBaseUrl(), "https://kimi.example.test");
+    } finally {
+      if (previous === undefined) delete process.env.KIMI_WEB_BASE_URL;
+      else process.env.KIMI_WEB_BASE_URL = previous;
+    }
+  });
+
   it("exchanges valid refresh_token for new access_token and refresh_token", async () => {
     const originalFetch = globalThis.fetch;
     const now = Math.floor(Date.now() / 1000);

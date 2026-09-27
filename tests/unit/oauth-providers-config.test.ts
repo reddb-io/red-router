@@ -28,6 +28,7 @@ const {
   CLINE_CONFIG,
   CODEX_CONFIG,
   CODEBUDDY_CN_CONFIG,
+  CODEBUDDY_INTL_CONFIG,
   DEVIN_DESKTOP_CONFIG,
   ZED_CONFIG,
   CURSOR_CONFIG,
@@ -41,11 +42,14 @@ const {
   OAUTH_TIMEOUT,
   PROVIDERS: OAUTH_PROVIDER_IDS,
   QODER_CONFIG,
+  QODER_CN_CONFIG,
   TRAE_CONFIG,
   XAI_OAUTH_CONFIG,
   OPENFERENCE_CONFIG,
   ZED_HOSTED_CONFIG,
   MUSE_CODE_CONFIG,
+  WINDSURF_CONFIG,
+  IFLOW_CONFIG,
 } = oauthModule;
 const { getAntigravityLoadCodeAssistMetadata } = antigravityHeadersModule;
 
@@ -57,6 +61,7 @@ const EXPECTED_PROVIDER_KEYS = [
   "antigravity",
   "agy",
   "qoder",
+  "qoder-cn",
   "kimi-coding",
   "github",
   "ghe-copilot",
@@ -69,14 +74,17 @@ const EXPECTED_PROVIDER_KEYS = [
   "cline",
   "clinepass",
   "devin-desktop",
+  "windsurf",
   "devin-cli",
   "grok-cli",
   "xai-oauth",
   "openference",
   "codebuddy-cn",
+  "codebuddy-intl",
   "zed",
   "zed-hosted",
   "muse-code",
+  "iflow",
 ];
 
 const browserUrl = "http://localhost:20128/callback";
@@ -92,6 +100,7 @@ const EXPECTED_CONFIG_BY_PROVIDER = {
   antigravity: ANTIGRAVITY_CONFIG,
   agy: AGY_CONFIG,
   qoder: QODER_CONFIG,
+  "qoder-cn": QODER_CN_CONFIG,
   "kimi-coding": KIMI_CODING_CONFIG,
   github: GITHUB_CONFIG,
   "ghe-copilot": GHE_COPILOT_CONFIG,
@@ -103,15 +112,18 @@ const EXPECTED_CONFIG_BY_PROVIDER = {
   cline: CLINE_CONFIG,
   clinepass: CLINE_CONFIG, // reuses the Cline WorkOS flow (clinepass: cline in providers/index.ts)
   "devin-desktop": DEVIN_DESKTOP_CONFIG,
+  windsurf: WINDSURF_CONFIG,
   "devin-cli": DEVIN_DESKTOP_CONFIG,
   trae: TRAE_CONFIG,
   "grok-cli": GROK_BUILD_OAUTH_CONFIG,
   "xai-oauth": XAI_OAUTH_CONFIG,
   openference: OPENFERENCE_CONFIG,
   "codebuddy-cn": CODEBUDDY_CN_CONFIG,
+  "codebuddy-intl": CODEBUDDY_INTL_CONFIG,
   zed: ZED_CONFIG,
   "zed-hosted": ZED_HOSTED_CONFIG,
   "muse-code": MUSE_CODE_CONFIG,
+  iflow: IFLOW_CONFIG,
 };
 
 const KIRO_REQUIRED_FIELDS = [
@@ -130,6 +142,7 @@ const REQUIRED_FIELDS_BY_PROVIDER = {
   antigravity: ["authorizeUrl", "tokenUrl", "userInfoUrl", "scopes", "clientId"],
   agy: ["authorizeUrl", "tokenUrl", "userInfoUrl", "scopes", "clientId"],
   qoder: ["extraParams"],
+  "qoder-cn": ["loginUrl", "deviceTokenUrl", "userInfoUrl"],
   "kimi-coding": ["deviceCodeUrl", "tokenUrl", "clientId"],
   github: ["deviceCodeUrl", "tokenUrl", "userInfoUrl", "copilotTokenUrl", "clientId"],
   // GHE Copilot derives its URLs at runtime from the per-connection gheUrl — only static fields.
@@ -151,6 +164,7 @@ const REQUIRED_FIELDS_BY_PROVIDER = {
   cline: ["appBaseUrl", "apiBaseUrl", "authorizeUrl", "tokenExchangeUrl", "refreshUrl"],
   clinepass: ["appBaseUrl", "apiBaseUrl", "authorizeUrl", "tokenExchangeUrl", "refreshUrl"],
   "devin-desktop": ["apiServerUrl", "inferenceUrl", "ideName", "defaultVersion"],
+  windsurf: ["clientId", "authBaseUrl", "signInPath", "registerUrl", "callbackPath"],
   "devin-cli": ["apiServerUrl", "inferenceUrl", "ideName", "defaultVersion"],
   trae: ["apiEndpoint", "chatEndpoint", "webUrl"],
   // prettier-ignore
@@ -162,6 +176,8 @@ const REQUIRED_FIELDS_BY_PROVIDER = {
   // prettier-ignore
   "zed-hosted": ["webBaseUrl", "cloudBaseUrl", "llmBaseUrl", "userInfoUrl", "llmTokenUrl", "modelsUrl"],
   "muse-code": ["deviceCodeUrl", "tokenUrl", "clientId", "mintUrl"],
+  "codebuddy-intl": ["stateUrl", "tokenUrl", "refreshUrl", "platform", "userAgent"],
+  iflow: ["clientId", "clientSecret", "authorizeUrl", "tokenUrl", "userInfoUrl"],
 };
 
 function getByPath(object, path) {

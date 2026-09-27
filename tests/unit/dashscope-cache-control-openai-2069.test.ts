@@ -44,6 +44,10 @@ describe("DashScope OpenAI-compat cache_control preservation (#2069)", () => {
     assert.equal(providerSupportsCaching("alibaba"), true);
     assert.equal(providerSupportsCaching("alibaba-cn"), true);
     assert.equal(providerSupportsCaching("qwen-cloud"), true);
+    for (const provider of ["alicode", "alicode-intl", "alims-intl", "alitp-intl"]) {
+      assert.equal(providerSupportsCaching(provider), true, provider);
+      assert.equal(providerHonorsOpenAIFormatCacheControl(provider), true, provider);
+    }
   });
 
   test("shouldPreserveCacheControl is true for Claude Code → alibaba single model", () => {

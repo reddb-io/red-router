@@ -94,6 +94,11 @@ test("credential resolver covers every executor with custom refresh behavior", (
       `${file} must be registered in the refresh-only resolver`
     );
   }
+  assert.match(
+    credentialExecutorSource,
+    /"qoder-cn": \(\) => import\("\.\/qoder-cn\.ts"\)/,
+    "Qoder CN device credentials must use its non-refreshing executor"
+  );
 });
 
 test("Claude OAuth validation resolves the default executor without the chat registry", () => {

@@ -13,18 +13,19 @@ import {
   hintDeliberation,
   decisionOptOut,
   hintDetail,
-} from "../../../open-sse/decision/clientHint.ts";
+} from "../../open-sse/decision/clientHint.ts";
 import {
   extractSignals,
   detectFeedback,
   detectFrustration,
-} from "../../../open-sse/decision/signals.ts";
+} from "../../open-sse/decision/signals.ts";
 import {
   buildState,
   stripHarnessNoise,
+  truncate,
   hasCacheBreakpoint,
   turnsOf,
-} from "../../../open-sse/decision/state.ts";
+} from "../../open-sse/decision/state.ts";
 import {
   decideStrength,
   decideSwitch,
@@ -32,27 +33,27 @@ import {
   winnerStrength,
   cheapestWithinBand,
   resolveToolDecision,
-} from "../../../open-sse/decision/decide.ts";
+} from "../../open-sse/decision/decide.ts";
 import {
   applyToolChoice,
   extractTools,
   hasPinnedToolChoice,
   supportsToolChoice,
-} from "../../../open-sse/decision/tools.ts";
-import { injectHint, hintText } from "../../../open-sse/decision/injectHint.ts";
+} from "../../open-sse/decision/tools.ts";
+import { injectHint, hintText } from "../../open-sse/decision/injectHint.ts";
 import {
   normalizeAutopilotConfig,
   autopilotApplies,
   levelFromDeliberation,
   parseReasoningHeader,
   decideReasoningLevel,
-} from "../../../open-sse/decision/reasoningAutopilot.ts";
-import { localDeliberation, tierForScore } from "../../../open-sse/decision/localScorer.ts";
+} from "../../open-sse/decision/reasoningAutopilot.ts";
+import { localDeliberation, tierForScore } from "../../open-sse/decision/localScorer.ts";
 import {
   buildToolQuestions,
   buildModelQuestions,
   shortlistTools,
-} from "../../../open-sse/decision/questions.ts";
+} from "../../open-sse/decision/questions.ts";
 
 const reminder = (text) => `<system-reminder>${text}</system-reminder>`;
 
@@ -253,8 +254,6 @@ describe("extractSignals", () => {
     assert.equal(tierForScore(0.9), "REASONING");
   });
 });
-import { tierForScore } from "../../../open-sse/decision/localScorer.ts";
-
 // ── decide.decideStrength / rankByCost ────────────────────────────────────────
 
 describe("decideStrength", () => {
@@ -437,6 +436,12 @@ describe("buildState", () => {
       ),
       "keep"
     );
+  });
+
+  it("text-only state helpers never return non-string values", () => {
+    assert.equal(stripHarnessNoise({ noise: true }), "");
+    assert.equal(truncate({ noise: true }, 10), "");
+    assert.equal(truncate("long text", 4), " …[truncated]… ");
   });
 });
 

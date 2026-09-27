@@ -160,7 +160,7 @@ export const APIKEY_PROVIDERS_INFERENCE = {
   },
   "ollama-cloud": {
     id: "ollama-cloud",
-    serviceKinds: ["llm"],
+    serviceKinds: ["llm", "webFetch"],
     alias: "ollamacloud",
     name: "Ollama Cloud",
     icon: "cloud",

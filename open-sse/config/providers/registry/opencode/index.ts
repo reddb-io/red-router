@@ -10,6 +10,12 @@ export const opencodeProvider: RegistryEntry = {
   authType: "apikey",
   authHeader: "Authorization",
   authPrefix: "Bearer",
+  systemOneConfig: {
+    baseUrl: "https://opencode.ai/zen/v1/systemone",
+    models: [{ id: "jev-1.13-free", name: "JEV 1.13 Free" }],
+    defaultModel: "jev-1.13-free",
+    modelMap: { "jev-latest": "jev-1.13-free" },
+  },
   passthroughModels: true,
   defaultContextLength: 200000,
   models: [

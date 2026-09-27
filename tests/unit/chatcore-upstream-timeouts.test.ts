@@ -59,23 +59,32 @@ test("normalizeExecutorResult rejects malformed executor output", () => {
     /must contain a Response/
   );
 });
-test("executeWithUpstreamStartTimeout leaves no abort listener on the client signal after a resolving execute", async () => {
+test("executeWithUpstreamStartTimeout forwards client abort after headers resolve", async () => {
   const client = new AbortController();
   const before = getEventListeners(client.signal, "abort").length;
+  let upstreamSignal: AbortSignal | undefined;
   const result = await executeWithUpstreamStartTimeout({
     executor: {},
     provider: "test-provider",
     model: "test-model",
     connectionTimeoutMs: 5_000,
     signal: client.signal,
-    execute: async () => "ok",
+    execute: async (signal) => {
+      upstreamSignal = signal;
+      return "ok";
+    },
   });
   assert.equal(result, "ok");
+  assert.ok(upstreamSignal);
+  assert.equal(upstreamSignal.aborted, false);
   assert.equal(
     getEventListeners(client.signal, "abort").length,
-    before,
-    "every listener registered for the race must be removed once it settles"
+    before + 1,
+    "the active upstream stream retains exactly one client-abort link"
   );
+  client.abort("client disconnected");
+  assert.equal(upstreamSignal.aborted, true);
+  assert.equal(getEventListeners(client.signal, "abort").length, before);
 });
 
 test("executeWithUpstreamStartTimeout: a synchronously throwing execute cannot orphan abortPromise (2026-08-31 hedge-cancelled exit)", async () => {

@@ -694,7 +694,9 @@ async function handleWebFetch(args: {
     | "tinyfish"
     | "context7"
     | "nimble-search"
-    | "anysearch-search";
+    | "anysearch-search"
+    | "exa-search"
+    | "ollama-cloud";
   format?: "markdown" | "html" | "links" | "screenshot";
   include_metadata?: boolean;
   depth?: number;
@@ -1091,7 +1093,7 @@ export function createMcpServer(options?: CreateMcpServerOptions): McpServer {
     "omniroute_web_fetch",
     {
       description:
-        "Fetches and extracts content from a URL using OmniRoute's web fetch gateway. Supports multiple providers (Firecrawl, Jina Reader, Tavily) with automatic failover. Returns the page content as markdown, HTML, links, or screenshot, along with metadata.",
+        "Fetches content from a URL through OmniRoute's web fetch gateway. Supports multiple providers with automatic failover; formats vary by provider (Exa supports text/markdown only). Returns content and available metadata.",
       inputSchema: webFetchInput,
     },
     withScopeEnforcement("omniroute_web_fetch", (args) => handleWebFetch(webFetchInput.parse(args)))

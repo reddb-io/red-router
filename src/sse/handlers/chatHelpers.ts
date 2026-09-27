@@ -30,6 +30,7 @@ import {
 import { inheritTrustedLocalRateLimitResponse } from "@omniroute/open-sse/services/rateLimitManager/errors.ts";
 import { HTTP_STATUS } from "@omniroute/open-sse/config/constants.ts";
 import { getRegistryEntry } from "@omniroute/open-sse/config/providerRegistry.ts";
+import { getModelEndpointDecision } from "@omniroute/open-sse/services/modelEndpointPolicy.ts";
 import { getCachedProviderNodes } from "@/lib/db/readCache";
 import {
   runWithProxyContext,
@@ -309,6 +310,14 @@ export async function resolveModelOrError(
   }
 
   const { provider, model, extendedContext } = modelInfo;
+  if (getModelEndpointDecision(provider, model).kind === "systemone") {
+    return {
+      error: errorResponse(
+        HTTP_STATUS.BAD_REQUEST,
+        `Model '${modelStr}' requires POST /v1/systemone, not a chat endpoint`
+      ),
+    };
+  }
   // apiFormat: optional custom-model marker — see chatCore.ts for shape narrowing rationale.
   const apiFormat: string | undefined =
     modelInfo && typeof modelInfo === "object" && "apiFormat" in modelInfo

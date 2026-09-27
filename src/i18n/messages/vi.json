@@ -1000,6 +1000,8 @@
   "featureFlagXaiOauthLiveModelDiscoveryDescription": "Lấy danh mục mô hình xAI trực tiếp cho các kết nối xai-oauth từ https://api.x.ai/v1/models bằng token bearer OAuth, thay vì dữ liệu khởi tạo tĩnh đã đóng băng. Tắt theo mặc định: xai-oauth tiếp tục cung cấp dữ liệu khởi tạo tĩnh không thay đổi. Khi có bất kỳ lỗi phân giải nào, quá trình khám phá sẽ quay lại dữ liệu khởi tạo.",
   "featureFlagDbHealthcheckStartupDeferredEnabledDescription": "Chạy kiểm tra tính toàn vẹn/sức khỏe cơ sở dữ liệu lúc khởi động sau khi máy chủ bắt đầu nhận yêu cầu, thay vì chặn quá trình khởi động cho đến khi kiểm tra hoàn tất. Tắt theo mặc định: quá trình khởi động vẫn chặn theo kiểm tra này giống như trước thay đổi này, vì vậy một cơ sở dữ liệu bị hỏng vẫn được phát hiện trước khi yêu cầu đầu tiên được phục vụ.",
   "sidebar": {
+    "modelCatalog": "Mô hình",
+    "modelCatalogSubtitle": "Danh mục mô hình cho tất cả các nhà cung cấp được kết nối.",
     "home": "Trang chủ",
     "dashboard": "Trang tổng quan",
     "providers": "Nhà cung cấp",

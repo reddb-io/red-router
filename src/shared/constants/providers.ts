@@ -1,3 +1,7 @@
+import {
+  PROVIDER_COMPATIBILITY_ALIASES,
+  resolveProviderCompatibilityAlias,
+} from "./providerCompatibilityAliases";
 // Re-export service kinds from leaf module (avoids circular dep with providerSchema)
 export type { ServiceKind } from "./serviceKinds";
 export type RiskNoticeVariant = "oauth" | "webCookie" | "deprecated" | "embedded-service";
@@ -43,7 +47,16 @@ export function supportsApiKeyOnFreeProvider(providerId: unknown): boolean {
 
 // Providers presented as one dashboard card with OAuth as the primary action
 // and a direct API-key alternative. Keep these out of FREE_APIKEY_PROVIDER_IDS.
-const DUAL_AUTH_PROVIDER_IDS = new Set(["clinepass", "codebuddy-cn", "xai", "muse-code"]);
+const DUAL_AUTH_PROVIDER_IDS = new Set([
+  "windsurf",
+  "qoder-cn",
+  "clinepass",
+  "codebuddy-cn",
+  "codebuddy-intl",
+  "kimchi",
+  "xai",
+  "muse-code",
+]);
 
 export function supportsDualAuthProvider(providerId: unknown): boolean {
   return typeof providerId === "string" && DUAL_AUTH_PROVIDER_IDS.has(providerId);
@@ -289,6 +302,7 @@ const BULK_API_KEY_EXCLUDED = new Set([
   "chatgpt-web",
   "inner-ai",
   "qoder",
+  "qoder-cn",
   "google-pse-search",
   "command-code",
   "azure",
@@ -357,6 +371,7 @@ function getOrCreateAliasToId(): Record<string, string> {
         if ((p as any).alias) _ALIAS_TO_ID[(p as any).alias] = (p as any).id;
       }
     }
+    Object.assign(_ALIAS_TO_ID, PROVIDER_COMPATIBILITY_ALIASES);
   }
   return _ALIAS_TO_ID;
 }
@@ -430,6 +445,7 @@ export const AUTH_METHODS = {
 };
 
 export function getProviderByAlias(alias: string): AiProviderDefinition | null {
+  alias = resolveProviderCompatibilityAlias(alias);
   for (const section of _PROVIDER_SECTIONS) {
     for (const provider of Object.values(section)) {
       if (provider.alias === alias || provider.id === alias) {

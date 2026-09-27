@@ -8,7 +8,7 @@
  */
 
 export type ModelEndpointKind =
-  "chat" | "image" | "video" | "embedding" | "rerank" | "non-chat" | "unknown";
+  "chat" | "image" | "video" | "embedding" | "rerank" | "systemone" | "non-chat" | "unknown";
 
 export type ModelEndpointDecision = {
   kind: ModelEndpointKind;
@@ -32,6 +32,7 @@ const EMBEDDING_ENDPOINTS = new Set(["embeddings", "embedding"]);
 const RERANK_ENDPOINTS = new Set(["rerank", "reranking"]);
 const IMAGE_ENDPOINTS = new Set(["image", "images", "images/generations"]);
 const VIDEO_ENDPOINTS = new Set(["video", "videos", "videos/generations"]);
+const SYSTEM_ONE_ENDPOINTS = new Set(["systemone", "decisions"]);
 
 function normalizeEndpoint(endpoint: string): string {
   return endpoint.trim().toLowerCase().replace(/^\/+/, "").replace(/^v1\//, "");
@@ -57,6 +58,9 @@ function classifyExplicitEndpoints(
   }
   if (endpoints.some((endpoint) => VIDEO_ENDPOINTS.has(endpoint))) {
     return { kind: "video", chatSelectable: false, reason: "explicit-endpoints" };
+  }
+  if (endpoints.some((endpoint) => SYSTEM_ONE_ENDPOINTS.has(endpoint))) {
+    return { kind: "systemone", chatSelectable: false, reason: "explicit-endpoints" };
   }
   return { kind: "non-chat", chatSelectable: false, reason: "explicit-endpoints" };
 }
@@ -107,13 +111,28 @@ function classifyOpenRouterModel(modelId: string): ModelEndpointDecision | null 
     : null;
 }
 
+/** Known decision routes override stale synced rows stamped with synthetic `chat`. */
+function classifySystemOneModel(provider: string, modelId: string): ModelEndpointDecision | null {
+  const id = modelId.trim().toLowerCase();
+  const decisionOnly =
+    provider === "typesafe-ai" ||
+    (provider === "openrouter" && id.startsWith("typesafe/jev-")) ||
+    ((provider === "opencode" || provider === "opencode-zen") && /^jev-[a-z0-9]/.test(id));
+  return decisionOnly
+    ? { kind: "systemone", chatSelectable: false, reason: "provider-policy" }
+    : null;
+}
+
 export function getModelEndpointDecision(
   provider: string | null | undefined,
   modelId: string,
   supportedEndpoints?: readonly string[]
 ): ModelEndpointDecision {
+  const normalizedProvider = provider?.trim().toLowerCase() ?? "";
+  const systemOne = classifySystemOneModel(normalizedProvider, modelId);
+  if (systemOne) return systemOne;
   const explicit = classifyExplicitEndpoints(supportedEndpoints);
-  if (provider?.trim().toLowerCase() === "openrouter") {
+  if (normalizedProvider === "openrouter") {
     // Unconditional, unlike the OpenAI branch below: there is no "batch"
     // endpoint name an upstream could declare alongside a chat one, and the
     // rows already stored for these carry the synthetic `["chat"]` default --
@@ -121,7 +140,7 @@ export function getModelEndpointDecision(
     const openRouterDecision = classifyOpenRouterModel(modelId);
     if (openRouterDecision) return openRouterDecision;
   }
-  if (provider?.trim().toLowerCase() === "openai") {
+  if (normalizedProvider === "openai") {
     const openAiDecision = classifyOpenAiModel(modelId);
     if (openAiDecision) {
       // Old imported rows were persisted with `["chat"]` as a synthetic default

@@ -1000,6 +1000,8 @@
   "featureFlagXaiOauthLiveModelDiscoveryDescription": "Recupera il catalogo live dei modelli xAI per le connessioni xai-oauth da https://api.x.ai/v1/models utilizzando il token bearer OAuth, anziché il seed statico invariabile. Disattivata per impostazione predefinita: xai-oauth continua a fornire il seed statico senza modifiche. In caso di errore di risoluzione, il rilevamento ripiega sul seed.",
   "featureFlagDbHealthcheckStartupDeferredEnabledDescription": "Esegui il controllo di integrità/stato del database all'avvio dopo che il server ha iniziato ad accettare richieste, anziché bloccare l'avvio fino al suo completamento. Disattivata per impostazione predefinita: l'avvio resta bloccato durante il controllo esattamente come prima di questa modifica, quindi un database danneggiato viene comunque rilevato prima che sia gestita la prima richiesta.",
   "sidebar": {
+    "modelCatalog": "Modelli",
+    "modelCatalogSubtitle": "Catalogo dei modelli per tutti i fornitori collegati.",
     "home": "Casa",
     "dashboard": "Pannello di controllo",
     "providers": "Fornitori",

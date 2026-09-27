@@ -3,6 +3,19 @@
  * Pure data; merged by apikey/index.ts via spread (god-file decomposition; semantic split).
  */
 export const APIKEY_PROVIDERS_GATEWAYS = {
+  windsurf: {
+    id: "windsurf",
+    alias: "ws",
+    name: "Windsurf",
+    icon: "surfing",
+    color: "#14B8A6",
+    website: "https://windsurf.com",
+    serviceKinds: ["llm"],
+    authHint:
+      "Paste a Windsurf sk-ws-* API key. Connection validation sends one short chat probe and may consume credits; Firebase and Devin imports are not supported here.",
+    apiHint:
+      "Text-only Codeium LanguageServerService chat. Tool calls and non-text content are rejected.",
+  },
   // 1min.ai (https://docs.1min.ai) — multi-model chat aggregator with its own
   // custom API (single `prompt` string + real SSE, not OpenAI-compatible).
   // OmniRoute's oneminai executor translates both directions.
@@ -781,6 +794,32 @@ export const APIKEY_PROVIDERS_GATEWAYS = {
       text: "Dahl auto-generates tokens via https://inference.dahl.global/tokens. No signup needed. Rate limits apply. You can also add your own API key.",
     },
   },
+  atria: {
+    id: "atria",
+    serviceKinds: ["llm"],
+    alias: "atria",
+    name: "Atria Dawn",
+    icon: "flare",
+    color: "#C2410C",
+    textIcon: "AD",
+    website: "https://atria-asi.ai",
+    apiKeyUrl: "https://api.atria-asi.ai/dashboard",
+    authHint: "Use an Atria API key. Atria Dawn Preview currently accepts text only.",
+    passthroughModels: true,
+  },
+  tokenharbor: {
+    id: "tokenharbor",
+    serviceKinds: ["llm"],
+    alias: "tokenharbor",
+    name: "Token Harbor",
+    icon: "anchor",
+    color: "#0F766E",
+    textIcon: "TH",
+    website: "https://tokenharbor.ai",
+    apiKeyUrl: "https://tokenharbor.ai/dashboard",
+    authHint: "Use a Token Harbor wallet API key. Model ids come from its live catalog.",
+    passthroughModels: true,
+  },
   freetheai: {
     id: "freetheai",
     serviceKinds: ["llm"],
@@ -1540,5 +1579,40 @@ export const APIKEY_PROVIDERS_GATEWAYS = {
     authHint: "Create an API key at https://seekai.cc, then paste it here as a Bearer token.",
     apiHint:
       "Create an API key at https://seekai.cc, then paste it here as a Bearer token. OpenAI-compatible base URL: https://seekai.cc/v1.",
+  },
+  // TypeSafe AI (https://typesafe.ai) — JEV "System One" decision-model
+  // provider. NOT a chat model: JEV is a routing classifier (unstructured
+  // state in, typed probabilities out) that Auto-Combo consults before model
+  // ordering (open-sse/decision/jev.ts). Registered as a chat apikey entry so
+  // the operator's JEV key is a first-class connection.
+  "typesafe-ai": {
+    id: "typesafe-ai",
+    serviceKinds: ["llm"],
+    alias: "jev",
+    name: "TypeSafe AI (JEV)",
+    icon: "rule",
+    color: "#7C3AED",
+    textIcon: "JEV",
+    website: "https://typesafe.ai",
+    authHint:
+      "Create an API key at https://platform.typesafe.ai, then paste it here. JEV uses its native System One contract at POST /v1/systemone (state + questions).",
+    passthroughModels: true,
+  },
+  // RedRouter (https://github.com/reddb-io/red-router) — self-upstream chat:
+  // connect to another RedRouter instance with its URL + a RedRouter API key.
+  // Accounts and provider access stay on the remote machine; this instance
+  // only needs the URL (providerSpecificData.baseUrl) and the key.
+  "red-router": {
+    id: "red-router",
+    serviceKinds: ["llm"],
+    alias: "red-router",
+    name: "RedRouter",
+    icon: "router",
+    color: "#E5484D",
+    textIcon: "RR",
+    website: "https://github.com/reddb.io/red-router",
+    authHint:
+      "Point providerSpecificData.baseUrl at the remote RedRouter (e.g. http://host:25050/v1) and paste one of its API keys. Default: http://127.0.0.1:25050/v1 (same host).",
+    passthroughModels: true,
   },
 };

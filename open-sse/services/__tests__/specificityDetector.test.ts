@@ -225,15 +225,23 @@ describe("SpecificityDetector", () => {
   });
 
   describe("performance", () => {
-    it("completes analysis in <5ms for 20 messages", () => {
+    it("has median analysis latency <5ms for 20 messages", () => {
       const msgs = Array(20).fill({
         content:
           "Write a function that implements merge sort with O(n log n) complexity. Step 1: divide array. Therefore, use recursion.",
       });
-      const t0 = performance.now();
-      analyzeSpecificity({ messages: msgs });
-      const elapsed = performance.now() - t0;
-      expect(elapsed, `Expected < 5ms, got ${elapsed.toFixed(2)}ms`).toBeLessThan(5);
+      const input = { messages: msgs };
+      // Warm up the regex/JIT path, then use a median so one CI scheduling pause
+      // cannot masquerade as a regression in the detector itself. Keep the same
+      // per-call 5ms budget rather than increasing it under runner contention.
+      for (let i = 0; i < 3; i++) analyzeSpecificity(input);
+      const samples = Array.from({ length: 11 }, () => {
+        const started = performance.now();
+        analyzeSpecificity(input);
+        return performance.now() - started;
+      }).sort((a, b) => a - b);
+      const median = samples[Math.floor(samples.length / 2)];
+      expect(median, `Expected median < 5ms, got ${median.toFixed(2)}ms`).toBeLessThan(5);
     });
   });
 });

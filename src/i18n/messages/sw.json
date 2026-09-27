@@ -1000,6 +1000,8 @@
   "featureFlagXaiOauthLiveModelDiscoveryDescription": "Leta katalogi ya moja kwa moja ya modeli za xAI kwa miunganisho ya xai-oauth kutoka https://api.x.ai/v1/models ukitumia tokeni ya OAuth bearer, badala ya data tuli ya mwanzo isiyobadilika. Huzimwa kwa chaguo-msingi: xai-oauth huendelea kutoa data tuli ya mwanzo bila mabadiliko. Hitilafu yoyote ya utatuzi ikitokea, ugunduzi hurudi kutumia data ya mwanzo.",
   "featureFlagDbHealthcheckStartupDeferredEnabledDescription": "Tekeleza ukaguzi wa uadilifu/afya ya hifadhidata wakati wa kuwasha baada ya seva kuanza kukubali maombi, badala ya kuzuia kuanza hadi ukaguzi ukamilike. Huzimwa kwa chaguo-msingi: kuanza huzuiwa hadi ukaguzi ukamilike kama ilivyokuwa kabla ya mabadiliko haya, kwa hivyo hifadhidata iliyoharibika bado hugunduliwa kabla ya ombi la kwanza kuhudumiwa.",
   "sidebar": {
+    "modelCatalog": "Modeli",
+    "modelCatalogSubtitle": "Katalogi ya modeli kwa watoa huduma wote waliounganishwa.",
     "home": "Nyumbani",
     "dashboard": "Dashibodi",
     "providers": "Watoa Huduma",

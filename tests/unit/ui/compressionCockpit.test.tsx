@@ -18,11 +18,14 @@ beforeAll(() => {
 
 // ── Mocks ─────────────────────────────────────────────────────────────────
 
-// Stub @xyflow/react so ReactFlow renders without canvas/DOM measurement APIs
+// This suite tests the cockpit shell and view switching, not ReactFlow's animation
+// scheduler. A real fitView() starts async React updates that can outlive jsdom.
 vi.mock("@xyflow/react", async () => {
-  const actual = (await vi.importActual("@xyflow/react")) as Record<string, unknown>;
+  const { createElement } = await import("react");
   return {
-    ...actual,
+    ReactFlow: ({ children }: { children?: React.ReactNode }) =>
+      createElement("div", { className: "react-flow" }, children),
+    Controls: () => null,
     Handle: (_props: Record<string, unknown>) => null,
     Position: { Left: "left", Right: "right", Top: "top", Bottom: "bottom" },
   };
@@ -35,13 +38,13 @@ const { CompressionCockpit } =
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
-const containers: HTMLElement[] = [];
+const mountedRoots: Array<{ root: ReturnType<typeof createRoot>; container: HTMLElement }> = [];
 
 function mount(ui: React.ReactElement): HTMLElement {
   const container = document.createElement("div");
   document.body.appendChild(container);
-  containers.push(container);
   const root = createRoot(container);
+  mountedRoots.push({ root, container });
   act(() => {
     root.render(
       <NextIntlClientProvider
@@ -68,10 +71,13 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  while (containers.length > 0) {
-    containers.pop()?.remove();
+  while (mountedRoots.length > 0) {
+    const mounted = mountedRoots.pop();
+    if (mounted) {
+      act(() => mounted.root.unmount());
+      mounted.container.remove();
+    }
   }
-  document.body.innerHTML = "";
 });
 
 // ── Sample run ────────────────────────────────────────────────────────────

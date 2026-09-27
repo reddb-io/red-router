@@ -1000,6 +1000,8 @@
   "featureFlagXaiOauthLiveModelDiscoveryDescription": "Iegūt aktuālo xAI modeļu katalogu xai-oauth savienojumiem no https://api.x.ai/v1/models, izmantojot OAuth nesējtokenu, nevis fiksēto statisko sākotnējo kopu. Pēc noklusējuma izslēgts: xai-oauth turpina bez izmaiņām izmantot statisko sākotnējo kopu. Ja modeļu noteikšanas laikā rodas jebkāda kļūda, tiek izmantota sākotnējā kopa.",
   "featureFlagDbHealthcheckStartupDeferredEnabledDescription": "Palaist datubāzes integritātes un darbspējas pārbaudi pēc tam, kad serveris sāk pieņemt pieprasījumus, nevis bloķēt palaišanu līdz pārbaudes pabeigšanai. Pēc noklusējuma izslēgts: palaišana tiek bloķēta līdz pārbaudes pabeigšanai tieši tāpat kā pirms šīm izmaiņām, tāpēc bojāta datubāze joprojām tiek konstatēta pirms pirmā pieprasījuma apstrādes.",
   "sidebar": {
+    "modelCatalog": "Modeļi",
+    "modelCatalogSubtitle": "Modeļu katalogs visiem pievienotajiem nodrošinātājiem.",
     "home": "Sākums",
     "dashboard": "Panelis",
     "providers": "Nodrošinātāji",

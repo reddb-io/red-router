@@ -66,6 +66,7 @@ describe("ConsoleLogViewer accessibility", () => {
     document.body.innerHTML = "";
     vi.useRealTimers();
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it("names icon-only controls and exposes keyboard-visible copy feedback", async () => {
@@ -137,5 +138,172 @@ describe("ConsoleLogViewer accessibility", () => {
     const root = roots.pop();
     act(() => root?.unmount());
     expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("filters by an activity minute and clears the filter on a second click", async () => {
+    vi.setSystemTime(new Date("2026-08-26T00:00:30.000Z"));
+    const container = await renderViewer();
+    const minute = container.querySelector<HTMLButtonElement>(
+      '[role="group"][aria-label="Log lines per minute"] button[aria-label$="2 lines"]'
+    );
+
+    expect(minute).not.toBeNull();
+    await act(async () => minute?.click());
+    expect(minute?.getAttribute("aria-pressed")).toBe("true");
+    expect(
+      container.querySelectorAll('button[aria-label="logs.consoleViewer.copyLogEntry"]')
+    ).toHaveLength(2);
+
+    await act(async () => minute?.click());
+    expect(minute?.getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("pauses auto-scroll when browsing older lines and resumes at the bottom", async () => {
+    const container = await renderViewer();
+    const output = container.querySelector<HTMLDivElement>('[role="log"]');
+    const toggle = container.querySelector<HTMLButtonElement>(
+      'button[title="logs.consoleViewer.disableAutoScroll"]'
+    );
+    expect(output).not.toBeNull();
+    expect(toggle?.getAttribute("aria-pressed")).toBe("true");
+
+    Object.defineProperty(output, "scrollHeight", { configurable: true, value: 1000 });
+    Object.defineProperty(output, "clientHeight", { configurable: true, value: 200 });
+    await act(async () => output?.dispatchEvent(new Event("scroll", { bubbles: true })));
+    expect(toggle?.getAttribute("aria-pressed")).toBe("false");
+
+    if (output) output.scrollTop = 800;
+    await act(async () => output?.dispatchEvent(new Event("scroll", { bubbles: true })));
+    expect(toggle?.getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("does not intercept fullscreen shortcuts outside the console", async () => {
+    const container = await renderViewer();
+    const frame = container.firstElementChild as HTMLDivElement;
+    const requestFullscreen = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(frame, "requestFullscreen", { value: requestFullscreen });
+
+    document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "f", bubbles: true }));
+    expect(requestFullscreen).not.toHaveBeenCalled();
+
+    await act(async () => {
+      frame.dispatchEvent(new KeyboardEvent("keydown", { key: "f", bubbles: true }));
+      await Promise.resolve();
+    });
+    expect(requestFullscreen).toHaveBeenCalledOnce();
+  });
+
+  it("copies the currently visible console lines as text", async () => {
+    const container = await renderViewer();
+    const copyShown = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="common.copy"]'
+    );
+
+    expect(copyShown?.disabled).toBe(false);
+    await act(async () => {
+      copyShown?.click();
+      await Promise.resolve();
+    });
+
+    const copiedText = copyToClipboard.mock.lastCall?.[0] as string;
+    expect(copiedText).toContain("ready");
+    expect(copiedText).toContain("waiting");
+    expect(copiedText.split("\n")).toHaveLength(2);
+    expect(container.querySelector('[role="status"]')?.textContent).toBe("common.copied");
+    expect(container.querySelector('button[aria-label="logs.export"]')).not.toBeNull();
+  });
+
+  it("uses structured log snapshots and appends from the live stream", async () => {
+    class MockEventSource {
+      static latest: MockEventSource | null = null;
+      onopen: ((event: Event) => void) | null = null;
+      onmessage: ((event: MessageEvent) => void) | null = null;
+      onerror: ((event: Event) => void) | null = null;
+      close = vi.fn();
+
+      constructor(readonly url: string) {
+        MockEventSource.latest = this;
+      }
+    }
+    vi.stubGlobal("EventSource", MockEventSource);
+
+    const container = await renderViewer();
+    const source = MockEventSource.latest;
+    expect(source?.url).toContain("/api/logs/console/stream");
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+
+    await act(async () => {
+      source?.onmessage?.({
+        data: JSON.stringify({
+          type: "snapshot",
+          logs: [{ timestamp: "2026-08-26T00:00:00.000Z", level: "info", message: "first" }],
+        }),
+      } as MessageEvent);
+    });
+    expect(container.textContent).toContain("first");
+
+    await act(async () => {
+      source?.onmessage?.({
+        data: JSON.stringify({
+          type: "append",
+          logs: [{ timestamp: "2026-08-26T00:00:01.000Z", level: "warn", message: "second" }],
+        }),
+      } as MessageEvent);
+    });
+    expect(
+      container.querySelectorAll('button[aria-label="logs.consoleViewer.copyLogEntry"]')
+    ).toHaveLength(2);
+
+    const root = roots.pop();
+    act(() => root?.unmount());
+    expect(source?.close).toHaveBeenCalledOnce();
+  });
+
+  it("does not overwrite a newer stream snapshot with an older polling response", async () => {
+    class MockEventSource {
+      static latest: MockEventSource | null = null;
+      onmessage: ((event: MessageEvent) => void) | null = null;
+      onopen: ((event: Event) => void) | null = null;
+      onerror: ((event: Event) => void) | null = null;
+      close = vi.fn();
+
+      constructor() {
+        MockEventSource.latest = this;
+      }
+    }
+    vi.stubGlobal("EventSource", MockEventSource);
+    let finishFetch: ((value: unknown) => void) | undefined;
+    globalThis.fetch = vi.fn().mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finishFetch = resolve;
+        })
+    );
+
+    const container = await renderViewer();
+    await act(async () => {
+      vi.advanceTimersByTime(3_001);
+    });
+    expect(globalThis.fetch).toHaveBeenCalledOnce();
+
+    await act(async () => {
+      MockEventSource.latest?.onmessage?.({
+        data: JSON.stringify({
+          type: "snapshot",
+          logs: [{ timestamp: "2026-08-26T00:00:01.000Z", level: "info", message: "new" }],
+        }),
+      } as MessageEvent);
+    });
+    await act(async () => {
+      finishFetch?.({
+        ok: true,
+        json: async () => [
+          { timestamp: "2026-08-26T00:00:00.000Z", level: "info", message: "stale" },
+        ],
+      });
+      await Promise.resolve();
+    });
+    expect(container.textContent).toContain("new");
+    expect(container.textContent).not.toContain("stale");
   });
 });

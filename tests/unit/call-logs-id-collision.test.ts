@@ -185,6 +185,7 @@ test("chatCore does not truncate randomUUID to six hex chars for the request tra
     fileURLToPath(new URL("../../open-sse/handlers/chatCore.ts", import.meta.url)),
     "utf8"
   );
+  assert.match(src, /export async function handleChatCore\(/);
   assert.doesNotMatch(
     src,
     /crypto\.randomUUID\(\)\.slice\(0,\s*6\)/,

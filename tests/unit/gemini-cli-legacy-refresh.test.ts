@@ -20,7 +20,7 @@ import { OAUTH_PROVIDERS } from "../../src/shared/constants/providers.ts";
 //   #8275  Narrowed that to the legacy refresh path ONLY, keeping the discontinued
 //          provider out of the public registries and out of routing.
 //   now    Deprecated. What #8275 left was a refresh that WORKED (it redeemed against
-//          PROVIDERS.gemini's client — the same public Gemini CLI OAuth client) for a
+//          PROVIDERS.gemini's client — the public Gemini CLI OAuth client) for a
 //          provider that is NOT routable. So the token stayed fresh and could never
 //          answer a request: periodic upstream calls maintaining a dead credential.
 //
@@ -114,7 +114,7 @@ test("legacy Gemini CLI refresh reports deprecation, not a revoked token", async
     );
     assert.equal(result.error, "unrecoverable_refresh_error");
     assert.equal(result.code, "provider_deprecated");
-    assert.equal(result.migrateTo, "gemini");
+    assert.equal(result.migrateTo, "antigravity");
     assert.match(result.reason, /gemini/i);
 
     // The pre-deprecation behavior for a genuinely revoked token still works for the

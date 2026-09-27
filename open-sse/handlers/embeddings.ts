@@ -302,7 +302,8 @@ function isLocalEmbeddingProvider(provider: string): boolean {
     provider === "lmstudio" ||
     provider === "llama-cpp" ||
     provider === "llamacpp" ||
-    provider === "lemonade"
+    provider === "lemonade" ||
+    provider === "selfhosted-embedding"
   );
 }
 

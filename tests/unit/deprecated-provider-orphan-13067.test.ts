@@ -43,7 +43,7 @@ test("mixed connections group only gemini-cli leftovers", () => {
 
   assert.equal(leftovers.length, 1);
   assert.equal(leftovers[0]?.provider, "gemini-cli");
-  assert.equal(leftovers[0]?.migrateTo, "gemini");
+  assert.equal(leftovers[0]?.migrateTo, "antigravity");
   assert.ok(leftovers[0]?.reason);
   assert.deepEqual(leftovers[0]?.connectionIds, ["c1", "c2"]);
   assert.deepEqual(leftovers[0]?.names, ["old cli", "old cli 2"]);

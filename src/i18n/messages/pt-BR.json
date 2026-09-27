@@ -1000,6 +1000,8 @@
   "featureFlagXaiOauthLiveModelDiscoveryDescription": "Busca o catálogo atualizado de modelos da xAI para conexões xai-oauth em https://api.x.ai/v1/models usando o token bearer OAuth, em vez do conjunto inicial estático e congelado. Desligado por padrão: xai-oauth continua disponibilizando o conjunto inicial estático sem alterações. Em caso de qualquer erro de resolução, a descoberta recorre ao conjunto inicial.",
   "featureFlagDbHealthcheckStartupDeferredEnabledDescription": "Executa a verificação de integridade/saúde do banco de dados na inicialização depois que o servidor começa a aceitar requisições, em vez de bloquear a inicialização até que ela termine. Desligado por padrão: a inicialização bloqueia na verificação exatamente como antes desta mudança, então um banco de dados corrompido ainda é detectado antes da primeira requisição ser atendida.",
   "sidebar": {
+    "modelCatalog": "Modelos",
+    "modelCatalogSubtitle": "Catálogo de modelos para todos os provedores conectados.",
     "home": "Início",
     "dashboard": "Painel",
     "providers": "Provedores",

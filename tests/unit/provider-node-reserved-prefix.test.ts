@@ -199,8 +199,9 @@ test("shared set size includes live REGISTRY and retired Designer + Felo + Qwen 
   // (415 -> 413). Measured, not hand-derived: RESERVED_PROVIDER_PREFIXES.size on this head.
   // Reconciled 2026-09-23: #14468 (suno retirement) landed on the tip first, which already
   // measured 413 there; with gemini-business also retired on top of it the live set is 412
-  // (413 -> 412). Measured, not hand-derived: RESERVED_PROVIDER_PREFIXES.size on this head.
-  assert.equal(RESERVED_PREFIX_COUNT, 412);
+  // (413 -> 412). That was the historical pre-parity baseline.
+  // Measured in CI after adding upstream-parity provider ids and aliases.
+  assert.equal(RESERVED_PREFIX_COUNT, 431);
 });
 
 test("isReservedProviderPrefix rejects non-string input", () => {

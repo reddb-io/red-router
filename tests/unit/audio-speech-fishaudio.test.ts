@@ -76,6 +76,32 @@ test("handleAudioSpeech maps Fish S2.1 free model and validated provider options
   }
 });
 
+test("9router fish-audio prefix uses the existing Fish TTS transport", async () => {
+  const originalFetch = globalThis.fetch;
+  let upstreamUrl = "";
+  let upstreamModel = "";
+  globalThis.fetch = async (url, options = {}) => {
+    upstreamUrl = String(url);
+    upstreamModel = new Headers(options.headers).get("model") || "";
+    return new Response(new Uint8Array([1, 2]), {
+      status: 200,
+      headers: { "content-type": "audio/mpeg" },
+    });
+  };
+
+  try {
+    const response = await handleAudioSpeech({
+      body: { model: "fish-audio/s2.1-pro", input: "hello", voice: "reference-1" },
+      credentials: { apiKey: "fish-key" },
+    });
+    assert.equal(response.status, 200);
+    assert.equal(upstreamUrl, "https://api.fish.audio/v1/tts");
+    assert.equal(upstreamModel, "s2.1-pro");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("handleAudioSpeech surfaces sanitized Fish Audio upstream errors (not a raw stack)", async () => {
   const originalFetch = globalThis.fetch;
 
@@ -117,7 +143,6 @@ test("handleAudioSpeech requires credentials for Fish Audio", async () => {
   assert.equal(response.status, 401);
   assert.equal(payload.error.message, "No credentials for speech provider: fishaudio");
 });
-
 
 test("handleAudioSpeech rejects invalid Fish provider options before fetch", async () => {
   const originalFetch = globalThis.fetch;

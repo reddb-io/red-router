@@ -1000,6 +1000,8 @@
   "featureFlagXaiOauthLiveModelDiscoveryDescription": "Naudojant OAuth nešėjo prieigos raktą gauti aktualų xAI modelių katalogą, skirtą xai-oauth ryšiams, iš https://api.x.ai/v1/models, užuot naudojus fiksuotą statinį pradinį sąrašą. Pagal numatytuosius nustatymus išjungta: xai-oauth ir toliau be pakeitimų pateikia statinį pradinį sąrašą. Įvykus bet kokiai modelių nustatymo klaidai, aptikimo funkcija grįžta prie pradinio sąrašo.",
   "featureFlagDbHealthcheckStartupDeferredEnabledDescription": "Paleisti pradinę duomenų bazės vientisumo ir būklės patikrą serveriui pradėjus priimti užklausas, užuot blokavus paleidimą, kol patikra bus baigta. Pagal numatytuosius nustatymus išjungta: paleidimas blokuojamas iki patikros pabaigos lygiai taip pat kaip prieš šį pakeitimą, todėl sugadinta duomenų bazė vis tiek aptinkama prieš apdorojant pirmąją užklausą.",
   "sidebar": {
+    "modelCatalog": "Modeliai",
+    "modelCatalogSubtitle": "Visų prijungtų teikėjų modelių katalogas.",
     "home": "Pradžia",
     "dashboard": "Suvestinė",
     "providers": "Teikėjai",

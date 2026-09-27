@@ -15,6 +15,7 @@ import { pickFastestModelTool } from "./pickFastestModel.ts";
 import { getActiveSearchProviders } from "./providerEnums";
 import { CCR_MCP_TOOLS } from "./ccrTools.ts";
 import { radarCatalogTool } from "./radarCatalog.ts";
+import { listModelsCatalogOutput } from "./modelCatalog.ts";
 import {
   AUTO_ROUTING_STRATEGY_VALUES,
   ROUTING_STRATEGY_VALUES,
@@ -26,6 +27,7 @@ import {
 export type { AuditLevel, McpToolDefinition } from "./toolDefinition.ts";
 import type { McpToolDefinition } from "./toolDefinition.ts";
 export { pickFastestModelInput, pickFastestModelOutput } from "./pickFastestModel.ts";
+export { listModelsCatalogOutput } from "./modelCatalog.ts";
 export * from "./ccrTools.ts";
 // ============ Phase 1: Essential Tools ============
 
@@ -428,24 +430,6 @@ export const listModelsCatalogInput = z.object({
     .describe("Filter by model capability"),
 });
 
-export const listModelsCatalogOutput = z.object({
-  models: z.array(
-    z.object({
-      id: z.string(),
-      provider: z.string(),
-      capabilities: z.array(z.string()),
-      status: z.enum(["available", "degraded", "unavailable"]),
-      thinkingEffort: z.string().optional(),
-      pricing: z
-        .object({
-          inputPerMillion: z.number().nullable(),
-          outputPerMillion: z.number().nullable(),
-        })
-        .optional(),
-    })
-  ),
-});
-
 export const listModelsCatalogTool: McpToolDefinition<
   typeof listModelsCatalogInput,
   typeof listModelsCatalogOutput
@@ -503,6 +487,7 @@ export const webSearchOutput = z.object({
   usage: z.object({
     queries_used: z.number().int().min(0),
     search_cost_usd: z.number().min(0),
+    provider_credits_used: z.number().int().min(0).optional(),
   }),
 });
 
@@ -518,25 +503,30 @@ export const webSearchTool: McpToolDefinition<typeof webSearchInput, typeof webS
   sourceEndpoints: ["/v1/search"],
 };
 
-export const xSearchInput = z.object({
-  query: z
-    .string()
-    .min(1, "Query is required")
-    .max(500, "Query must be 500 characters or fewer")
-    .describe("X search query (keywords, topic, or @handle)"),
-  max_results: z
-    .number()
-    .int()
-    .min(1)
-    .max(20)
-    .default(5)
-    .describe("Maximum number of X results to return"),
-  provider: z
-    .enum(["x-search", "xquik-search"])
-    .optional()
-    .default("x-search")
-    .describe("X search backend: x-search uses xAI/SuperGrok; xquik-search uses Xquik"),
-});
+export const xSearchInput = z
+  .object({
+    query: z
+      .string()
+      .min(1, "Query is required")
+      .max(500, "Query must be 500 characters or fewer")
+      .describe("X search query (keywords, topic, or @handle)"),
+    max_results: z
+      .number()
+      .int()
+      .min(1)
+      .max(100)
+      .default(5)
+      .describe("Maximum X results: 20 for x-search, 100 for xquik-search"),
+    provider: z
+      .enum(["x-search", "xquik-search"])
+      .optional()
+      .default("x-search")
+      .describe("X search backend: x-search uses xAI/SuperGrok; xquik-search uses Xquik"),
+  })
+  .refine((input) => input.provider === "xquik-search" || input.max_results <= 20, {
+    path: ["max_results"],
+    message: "x-search supports at most 20 results; use xquik-search for up to 100",
+  });
 
 export const xSearchTool: McpToolDefinition<typeof xSearchInput, typeof webSearchOutput> = {
   name: "omniroute_x_search",
@@ -565,6 +555,8 @@ export const webFetchInput = z.object({
       "context7",
       "nimble-search",
       "anysearch-search",
+      "exa-search",
+      "ollama-cloud",
     ])
     .optional()
     .describe(

@@ -375,13 +375,13 @@ describe("omniroute_x_search handler (via MCP dispatch)", () => {
           },
         ],
         cached: false,
-        usage: { queries_used: 1, search_cost_usd: 0.00015 },
+        usage: { queries_used: 1, search_cost_usd: 0, provider_credits_used: 1 },
       }),
     });
 
     const result = await client.callTool({
       name: "omniroute_x_search",
-      arguments: { query: "agents sdk", max_results: 5, provider: "xquik-search" },
+      arguments: { query: "agents sdk", max_results: 100, provider: "xquik-search" },
     });
 
     expect(result.isError).toBeFalsy();
@@ -389,6 +389,7 @@ describe("omniroute_x_search handler (via MCP dispatch)", () => {
     const body = JSON.parse(options.body as string);
     expect(body.search_type).toBe("x");
     expect(body.provider).toBe("xquik-search");
+    expect(body.max_results).toBe(100);
   });
 });
 

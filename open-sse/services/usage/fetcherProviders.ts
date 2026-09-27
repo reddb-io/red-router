@@ -32,6 +32,7 @@ export const USAGE_FETCHER_PROVIDERS = [
   "kimi-coding",
   "kimi-coding-apikey",
   "qoder",
+  "qoder-cn",
   "glm",
   "glm-cn",
   "zai",
@@ -92,6 +93,8 @@ export const USAGE_FETCHER_PROVIDERS = [
   "kilocode",
   // Devin CLI agentic quota (Codeium seat-management GetUserStatus, protobuf)
   "devin-cli",
+  // Windsurf Codeium GetUserStatus quota (API-key contract; live smoke pending)
+  "windsurf",
 ] as const;
 
 export type UsageFetcherProvider = (typeof USAGE_FETCHER_PROVIDERS)[number];

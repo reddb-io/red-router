@@ -104,6 +104,24 @@ export const QODER_CONFIG = {
   },
 };
 
+export const QODER_CN_CONFIG = {
+  loginUrl: "https://qoder.com.cn/device/selectAccounts",
+  deviceTokenUrl: "https://openapi.qoder.com.cn/api/v1/deviceToken/poll",
+  userInfoUrl: "https://openapi.qoder.com.cn/api/v1/userinfo",
+};
+
+// iFlow's public CLI client uses a phone authorization-code flow. The token
+// exchange returns an OAuth token; the separate user-info call yields the API
+// key used for signed inference requests.
+export const IFLOW_CONFIG = {
+  clientId: resolvePublicCred("iflow_id"),
+  clientSecret: resolvePublicCred("iflow_secret"),
+  authorizeUrl: "https://iflow.cn/oauth",
+  tokenUrl: "https://iflow.cn/oauth/token",
+  userInfoUrl: "https://iflow.cn/api/oauth/getUserInfo",
+  extraParams: { loginMethod: "phone", type: "phone" },
+};
+
 // CodeBuddy CN (Tencent — copilot.tencent.com) OAuth Configuration
 // (Custom Device-Auth Flow: POST stateUrl → open authUrl → GET pollUrl?state=).
 // No client_id/secret — the upstream CLI ships none.
@@ -116,6 +134,18 @@ export const CODEBUDDY_CN_CONFIG = {
   refreshUrl: "https://copilot.tencent.com/v2/plugin/auth/token/refresh",
   userAgent: CODEBUDDY_CN_USER_AGENT,
   platform: "CLI",
+  pollInterval: 5000,
+};
+
+// CodeBuddy International uses the same device-code protocol as CN, but its
+// IDE identity and .ai hosts must remain separate from the Tencent CN account.
+export const CODEBUDDY_INTL_CONFIG = {
+  baseUrl: "https://www.codebuddy.ai",
+  stateUrl: "https://www.codebuddy.ai/v2/plugin/auth/state",
+  tokenUrl: "https://www.codebuddy.ai/v2/plugin/auth/token",
+  refreshUrl: "https://www.codebuddy.ai/v2/plugin/auth/token/refresh",
+  userAgent: "IDE/2.63.2 CodeBuddy/2.63.2",
+  platform: "ide",
   pollInterval: 5000,
 };
 
@@ -450,6 +480,16 @@ export const TRAE_CONFIG = {
     "Authorize via trae.ai in the popup, or sign in to solo.trae.ai and paste the Cloud-IDE-JWT from the Authorization header (~14-day lifetime).",
 };
 
+// Windsurf browser sign-in yields a Firebase JWT, then RegisterUser yields a Codeium API key.
+export const WINDSURF_CONFIG = {
+  clientId: resolvePublicCred("windsurf_id", "WINDSURF_OAUTH_CLIENT_ID"),
+  authBaseUrl: "https://www.windsurf.com",
+  signInPath: "/windsurf/signin",
+  registerUrl:
+    "https://register.windsurf.com/exa.seat_management_pb.SeatManagementService/RegisterUser",
+  callbackPath: "/windsurf-auth-callback",
+};
+
 // Devin Desktop / Devin CLI import-token configuration.
 // Public product identity is Devin. The upstream transport still identifies
 // the IDE as `windsurf`; authentication itself is import-only.
@@ -503,6 +543,7 @@ export const PROVIDERS = {
   CODEX: "codex",
   GEMINI: "gemini",
   QODER: "qoder",
+  QODER_CN: "qoder-cn",
   ANTIGRAVITY: "antigravity",
   AGY: "agy",
   KIMI_CODING: "kimi-coding",
@@ -517,13 +558,16 @@ export const PROVIDERS = {
   CLINE: "cline",
   CLINEPASS: "clinepass",
   DEVIN_DESKTOP: "devin-desktop",
+  WINDSURF: "windsurf",
   DEVIN_CLI: "devin-cli",
   TRAE: "trae",
   CODEBUDDY_CN: "codebuddy-cn",
+  CODEBUDDY_INTL: "codebuddy-intl",
   GROK_CLI: "grok-cli",
   XAI_OAUTH: "xai-oauth",
   OPENFERENCE: "openference",
   ZED: "zed",
   ZED_HOSTED: "zed-hosted",
   MUSE_CODE: "muse-code",
+  IFLOW: "iflow",
 };

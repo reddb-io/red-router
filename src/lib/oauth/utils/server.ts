@@ -9,17 +9,26 @@ import { URL } from "url";
  */
 export function startLocalServer(
   onCallback: (params: Record<string, string>) => void,
-  fixedPort: number | null = null
+  fixedPort: number | null = null,
+  options: { callbackPath?: string; listenHost?: string } = {}
 ): Promise<{ server: any; port: number; close: () => void }> {
   return new Promise((resolve, reject) => {
     const server = http.createServer((req, res) => {
       const url = new URL(req.url || "/", `http://localhost`);
 
-      if (url.pathname === "/callback" || url.pathname === "/auth/callback") {
+      if (
+        url.pathname === "/callback" ||
+        url.pathname === "/auth/callback" ||
+        (options.callbackPath && url.pathname === options.callbackPath)
+      ) {
         const params = Object.fromEntries(url.searchParams);
 
         // Send success response to browser with auto-close attempt
-        res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+        res.writeHead(200, {
+          "Content-Type": "text/html; charset=utf-8",
+          "Cache-Control": "no-store",
+          "Referrer-Policy": "no-referrer",
+        });
         res.end(`<!DOCTYPE html>
 <html>
 <head>
@@ -41,6 +50,7 @@ export function startLocalServer(
     <p id="message">Closing in <span id="countdown">3</span> seconds...</p>
   </div>
   <script>
+    window.history.replaceState(null, "", window.location.pathname);
     let count = 3;
     const countdown = document.getElementById("countdown");
     const message = document.getElementById("message");
@@ -69,7 +79,7 @@ export function startLocalServer(
 
     // Listen on fixed port or find available port
     const portToUse = fixedPort || 0;
-    server.listen(portToUse, "0.0.0.0", () => {
+    server.listen(portToUse, options.listenHost || "0.0.0.0", () => {
       const addr = server.address() as { port: number };
       resolve({
         server,

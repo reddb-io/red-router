@@ -1000,6 +1000,8 @@
   "featureFlagXaiOauthLiveModelDiscoveryDescription": "Gba àkójọ awoṣe xAI tó wà láàyè fún àwọn ìsopọ̀ xai-oauth láti https://api.x.ai/v1/models nípa lílo àmì OAuth bearer, dípò irúgbìn aimi tí a dì mú. A pa á ní àkọ́kọ́: xai-oauth yóò máa lo irúgbìn aimi náà láìyípadà. Bí àṣìṣe èyíkéyìí bá ṣẹlẹ̀ nígbà ìyanjú, ìṣàwárí yóò padà sí irúgbìn náà.",
   "featureFlagDbHealthcheckStartupDeferredEnabledDescription": "Ṣe àyẹ̀wò ìdúróṣinṣin/ìlera ibi ìpamọ́ dátà ní ìbẹ̀rẹ̀ lẹ́yìn tí olupín ti bẹ̀rẹ̀ sí í gba àwọn ìbéèrè, dípò dídènà ìbẹ̀rẹ̀ títí àyẹ̀wò náà yóò fi parí. A pa á ní àkọ́kọ́: ìbẹ̀rẹ̀ yóò dúró de àyẹ̀wò náà gẹ́gẹ́ bí ó ti rí ṣáájú ìyípadà yìí, nítorí náà a ó ṣì rí ibi ìpamọ́ dátà tó bàjẹ́ kí a tó ṣe ìtọ́jú ìbéèrè àkọ́kọ́.",
   "sidebar": {
+    "modelCatalog": "Àwọn àwòṣe",
+    "modelCatalogSubtitle": "Àkójọ model fún gbogbo àwọn provider tí a ti so pọ̀.",
     "home": "Ojúlé",
     "dashboard": "Pátákó Ìṣàkóso",
     "providers": "Àwọn Olùpèsè",

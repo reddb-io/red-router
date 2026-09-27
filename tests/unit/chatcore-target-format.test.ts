@@ -70,6 +70,29 @@ test("provider-local target format does not leak from another provider", () => {
   assert.equal(r.targetFormat, FORMATS.OPENAI);
 });
 
+test("Xiaomi Token Plan Claude variant wins over the connection's OpenAI default", () => {
+  const variant = resolveChatCoreTargetFormat({
+    provider: "xiaomi-mimo-token-plan",
+    resolvedModel: "mimotp/mimo-v2.5-pro-claude",
+    apiFormat: undefined,
+    sourceFormat: FORMATS.OPENAI,
+    customModelTargetFormat: undefined,
+    providerSpecificData: { targetFormat: "openai" },
+  });
+  assert.equal(variant.alias, "mimotp");
+  assert.equal(variant.targetFormat, FORMATS.CLAUDE);
+
+  const ordinary = resolveChatCoreTargetFormat({
+    provider: "xiaomi-mimo-token-plan",
+    resolvedModel: "mimotp/mimo-v2.5-pro",
+    apiFormat: undefined,
+    sourceFormat: FORMATS.OPENAI,
+    customModelTargetFormat: undefined,
+    providerSpecificData: { targetFormat: "openai" },
+  });
+  assert.equal(ordinary.targetFormat, FORMATS.OPENAI);
+});
+
 test("customModelTargetFormat is used when the model has no registry target format", () => {
   const customModel = "totally-unknown-custom-model-xyz";
   // precondition: the registry has no target format for this unknown model

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { buildNoAuthModelsResponse } from "../../src/app/api/providers/[id]/models/modelRouteProjection";
+import { getRegistryEntry } from "../../open-sse/config/providerRegistry";
 import { isDegradedDiscovery } from "../../src/app/api/providers/[id]/sync-models/degradedLocalCatalog";
 import { NOAUTH_PROVIDERS } from "../../src/shared/constants/providers/noauth";
 import { getModelsByProviderId } from "../../src/shared/constants/models";
@@ -23,6 +24,9 @@ function catalogOnlyNoAuthProviders(): string[] {
   for (const id of Object.keys(NOAUTH_PROVIDERS)) {
     // Only providers that actually ship a catalog can be asserted on.
     if (!(getModelsByProviderId(id) || []).length) continue;
+    // A provider with a remote models endpoint is not catalog-only: a failed
+    // live fetch must remain a degraded discovery, never an intentional one.
+    if (getRegistryEntry(id)?.modelsUrl) continue;
     ids.push(id);
   }
   return ids;

@@ -7,6 +7,7 @@ import { createChatPipelineHarness } from "./_chatPipelineHarness.ts";
 
 const harness = await createChatPipelineHarness("skills-pipeline");
 const {
+  apiKeysDb,
   BaseExecutor,
   buildOpenAIResponse,
   buildOpenAIToolCallResponse,
@@ -100,6 +101,9 @@ test("skills API lists registered skills", async () => {
 test("enabling a disabled skill makes it available in the request pipeline", async () => {
   await seedConnection("openai", { apiKey: "sk-openai-skill-enable" });
   const apiKey = await seedApiKey();
+  const managementKey = await apiKeysDb.createApiKey("skills-manage-enable", "machine-test", [
+    "manage",
+  ]);
   await enableSkills();
 
   const skill = await registerSkill({
@@ -112,7 +116,7 @@ test("enabling a disabled skill makes it available in the request pipeline", asy
   const updateResponse = await skillByIdRouteModule.PUT(
     new Request("http://localhost/api/skills/id", {
       method: "PUT",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${managementKey.key}` },
       body: JSON.stringify({ enabled: true }),
     }),
     { params: Promise.resolve({ id: skill.id }) }
@@ -290,6 +294,9 @@ test("skill execution errors are returned gracefully in tool results", async () 
 test("disabling a skill removes it from request tool injection", async () => {
   await seedConnection("openai", { apiKey: "sk-openai-skill-disable" });
   const apiKey = await seedApiKey();
+  const managementKey = await apiKeysDb.createApiKey("skills-manage-disable", "machine-test", [
+    "manage",
+  ]);
   await enableSkills();
 
   const skill = await registerSkill({
@@ -301,7 +308,7 @@ test("disabling a skill removes it from request tool injection", async () => {
   const updateResponse = await skillByIdRouteModule.PUT(
     new Request("http://localhost/api/skills/id", {
       method: "PUT",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${managementKey.key}` },
       body: JSON.stringify({ enabled: false }),
     }),
     { params: Promise.resolve({ id: skill.id }) }

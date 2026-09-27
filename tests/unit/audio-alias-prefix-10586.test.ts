@@ -1,6 +1,22 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
+test("9router TTS prefixes reuse the matching local speech providers only", async () => {
+  const { getSpeechProvider, parseSpeechModel, parseTranscriptionModel } =
+    await import("../../open-sse/config/audioRegistry.ts");
+  assert.deepEqual(parseSpeechModel("fish-audio/s2.1-pro"), {
+    provider: "fishaudio",
+    model: "s2.1-pro",
+  });
+  assert.deepEqual(parseSpeechModel("google-tts/pt-BR"), {
+    provider: "gtts",
+    model: "pt-BR",
+  });
+  assert.equal(getSpeechProvider("fish-audio"), getSpeechProvider("fishaudio"));
+  assert.equal(getSpeechProvider("google-tts"), getSpeechProvider("gtts"));
+  assert.equal(parseTranscriptionModel("fish-audio/s2.1-pro").provider, null);
+});
+
 test("parseSpeechModel resolves the elevenlabs short-alias prefix advertised by /v1/models", async () => {
   const { parseSpeechModel } = await import("../../open-sse/config/audioRegistry.ts");
 
@@ -18,9 +34,8 @@ test("parseSpeechModel resolves the elevenlabs short-alias prefix advertised by 
 });
 
 test("parseSpeechModel resolves every alias registered for an AUDIO_SPEECH_PROVIDERS entry", async () => {
-  const { parseSpeechModel, AUDIO_SPEECH_PROVIDERS } = await import(
-    "../../open-sse/config/audioRegistry.ts"
-  );
+  const { parseSpeechModel, AUDIO_SPEECH_PROVIDERS } =
+    await import("../../open-sse/config/audioRegistry.ts");
   const { getProviderAlias } = await import("../../src/shared/constants/providers.ts");
 
   for (const providerId of Object.keys(AUDIO_SPEECH_PROVIDERS)) {
@@ -38,9 +53,8 @@ test("parseSpeechModel resolves every alias registered for an AUDIO_SPEECH_PROVI
 });
 
 test("parseTranscriptionModel resolves every alias registered for an AUDIO_TRANSCRIPTION_PROVIDERS entry", async () => {
-  const { parseTranscriptionModel, AUDIO_TRANSCRIPTION_PROVIDERS } = await import(
-    "../../open-sse/config/audioRegistry.ts"
-  );
+  const { parseTranscriptionModel, AUDIO_TRANSCRIPTION_PROVIDERS } =
+    await import("../../open-sse/config/audioRegistry.ts");
   const { getProviderAlias } = await import("../../src/shared/constants/providers.ts");
 
   for (const providerId of Object.keys(AUDIO_TRANSCRIPTION_PROVIDERS)) {
@@ -58,9 +72,8 @@ test("parseTranscriptionModel resolves every alias registered for an AUDIO_TRANS
 });
 
 test("parseTranslationModel resolves every alias registered for an AUDIO_TRANSLATION_PROVIDERS entry", async () => {
-  const { parseTranslationModel, AUDIO_TRANSLATION_PROVIDERS } = await import(
-    "../../open-sse/config/audioRegistry.ts"
-  );
+  const { parseTranslationModel, AUDIO_TRANSLATION_PROVIDERS } =
+    await import("../../open-sse/config/audioRegistry.ts");
   const { getProviderAlias } = await import("../../src/shared/constants/providers.ts");
 
   for (const providerId of Object.keys(AUDIO_TRANSLATION_PROVIDERS)) {

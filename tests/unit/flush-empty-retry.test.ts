@@ -153,7 +153,9 @@ test("bounded read abandons past the cap without buffering everything", async ()
 });
 
 test("bounded read returns small bodies intact", async () => {
-  const body = sse(chatChunk({ content: "hi" }));
+  // Useful content now exits early so the original stream can be forwarded.
+  // A complete, content-free turn still exercises the buffered text path.
+  const body = sse(chatChunk({}));
   const res = new Response(body, { status: 200 });
   const out = await readBoundedResponseText(res, FLUSH_EMPTY_RETRY_MAX_BYTES);
   assert.equal(out, body);
@@ -183,7 +185,7 @@ test("bounded read outcome tells a read failure apart from an over-cap body", as
   );
   assert.equal(skipped.kind, "skipped", "an over-cap body is passed through, not retried");
 
-  const body = sse(chatChunk({ content: "hi" }));
+  const body = sse(chatChunk({}));
   const ok = await readBoundedResponseOutcome(
     new Response(body, { status: 200 }),
     FLUSH_EMPTY_RETRY_MAX_BYTES
@@ -267,23 +269,26 @@ test("a stalled stream with nothing usable is retried, not surfaced as an error"
 });
 
 test("a stalled stream that already carries content is passed through, not replayed", async () => {
+  const body = sse(chatChunk({ content: "hello" }));
   const partial = new ReadableStream<Uint8Array>({
     start(controller) {
-      controller.enqueue(new TextEncoder().encode(sse(chatChunk({ content: "hello" }))));
+      controller.enqueue(new TextEncoder().encode(body));
     },
   });
-  const out = await readBoundedResponseOutcome(
-    new Response(partial, { status: 200 }),
-    FLUSH_EMPTY_RETRY_MAX_BYTES,
-    50
-  );
-  assert.equal(out.kind, "idle");
+  const response = new Response(partial, { status: 200 });
+  const out = await readBoundedResponseOutcome(response, FLUSH_EMPTY_RETRY_MAX_BYTES, 50);
+  assert.equal(out.kind, "early-pass", "usable content must not wait for the idle deadline");
   const verdict = judgeBufferedTurn(out, FORMATS.OPENAI, FORMATS.OPENAI, false);
   assert.equal(verdict.kind, "pass", "content already produced is worth keeping");
+  const originalReader = response.body?.getReader();
+  assert.ok(originalReader);
+  const originalChunk = await originalReader.read();
+  assert.equal(new TextDecoder().decode(originalChunk.value), body);
+  void originalReader.cancel().catch(() => undefined);
 });
 
 test("bounded read keeps no budget when the idle budget is zero", async () => {
-  const body = sse(chatChunk({ content: "hi" }));
+  const body = sse(chatChunk({}));
   const out = await readBoundedResponseOutcome(new Response(body, { status: 200 }), 256_000, 0);
   assert.deepEqual(out, { kind: "text", text: body }, "a disabled budget must not change reads");
 });

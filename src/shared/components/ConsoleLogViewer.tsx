@@ -10,8 +10,10 @@ import { useLocale, useTranslations } from "next-intl";
  * Supports level filtering, text search, auto-scroll, and copy-to-clipboard.
  */
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { copyToClipboard } from "@/shared/utils/clipboard";
+import { bucketLogActivity, LOG_ACTIVITY_MINUTE_MS } from "@/shared/utils/logActivity";
+import ConsoleLogActivity from "@/shared/components/ConsoleLogActivity";
 
 interface LogEntry {
   timestamp: string;
@@ -47,6 +49,7 @@ const POLL_INTERVAL = 5000; // 5 seconds
 export default function ConsoleLogViewer() {
   const locale = useLocale();
   const t = useTranslations("loggers");
+  const tl = useTranslations("logs");
   const tv = useTranslations("logs.consoleViewer");
   const tc = useTranslations("common");
   const [logs, setLogs] = useState<LogEntry[]>([]);
@@ -57,10 +60,19 @@ export default function ConsoleLogViewer() {
   const [autoScroll, setAutoScroll] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
+  const [copiedAll, setCopiedAll] = useState(false);
+  const [selectedMinute, setSelectedMinute] = useState<number | null>(null);
+  const [now, setNow] = useState(0);
+  const [isFullScreen, setIsFullScreen] = useState(false);
+  const [fullScreenError, setFullScreenError] = useState(false);
+  const frameRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const copyFeedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const logUpdateVersionRef = useRef(0);
 
   const fetchLogs = useCallback(async () => {
+    const version = logUpdateVersionRef.current;
     try {
       const params = new URLSearchParams();
       if (levelFilter !== "all") params.set("level", levelFilter);
@@ -69,26 +81,92 @@ export default function ConsoleLogViewer() {
       const res = await fetch(`/api/logs/console?${params.toString()}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data: LogEntry[] = await res.json();
+      if (version !== logUpdateVersionRef.current) return;
 
       setLogs(data);
       setLastUpdated(new Date());
       setError(null);
     } catch (err: any) {
+      if (version !== logUpdateVersionRef.current) return;
       setError(err.message || tv("fetchFailed"));
     } finally {
-      setLoading(false);
+      if (version === logUpdateVersionRef.current) setLoading(false);
     }
   }, [levelFilter, tv]);
 
-  // Initial fetch + polling
+  // The server sends one snapshot, then only appended lines. Polling remains a
+  // fallback when EventSource is unavailable or the stream disconnects.
   useEffect(() => {
-    const initialFetch = setTimeout(() => void fetchLogs(), 0);
-    const interval = setInterval(fetchLogs, POLL_INTERVAL);
-    return () => {
-      clearTimeout(initialFetch);
-      clearInterval(interval);
+    logUpdateVersionRef.current += 1;
+    let source: EventSource | null = null;
+    let initialFetch: ReturnType<typeof setTimeout> | null = null;
+    let fallbackDelay: ReturnType<typeof setTimeout> | null = null;
+    let interval: ReturnType<typeof setInterval> | null = null;
+
+    const startPolling = () => {
+      if (interval) return;
+      initialFetch = setTimeout(() => void fetchLogs(), 0);
+      interval = setInterval(() => void fetchLogs(), POLL_INTERVAL);
     };
-  }, [fetchLogs]);
+    const stopPolling = () => {
+      if (initialFetch) clearTimeout(initialFetch);
+      if (interval) clearInterval(interval);
+      initialFetch = null;
+      interval = null;
+    };
+
+    if (typeof EventSource === "undefined") {
+      startPolling();
+    } else {
+      try {
+        const params = new URLSearchParams();
+        if (levelFilter !== "all") params.set("level", levelFilter);
+        source = new EventSource(`/api/logs/console/stream?${params.toString()}`);
+        source.onopen = () => {
+          if (fallbackDelay) clearTimeout(fallbackDelay);
+          fallbackDelay = null;
+          stopPolling();
+        };
+        source.onmessage = (event) => {
+          try {
+            const update: unknown = JSON.parse(event.data);
+            if (!update || typeof update !== "object") return;
+            const payload = update as { type?: string; logs?: LogEntry[] };
+            if (payload.type === "error") {
+              setError(tv("fetchFailed"));
+              source?.close();
+              startPolling();
+              return;
+            }
+            if (!Array.isArray(payload.logs)) return;
+            logUpdateVersionRef.current += 1;
+            const incoming = payload.logs;
+            if (payload.type === "snapshot") setLogs(incoming);
+            else if (payload.type === "append") {
+              setLogs((previous) => [...previous, ...incoming].slice(-500));
+            } else return;
+            setLastUpdated(new Date());
+            setLoading(false);
+            setError(null);
+          } catch {
+            source?.close();
+            startPolling();
+          }
+        };
+        source.onerror = () => startPolling();
+        fallbackDelay = setTimeout(startPolling, 3_000);
+      } catch {
+        startPolling();
+      }
+    }
+
+    return () => {
+      logUpdateVersionRef.current += 1;
+      source?.close();
+      if (fallbackDelay) clearTimeout(fallbackDelay);
+      stopPolling();
+    };
+  }, [fetchLogs, levelFilter, tv]);
 
   useEffect(
     () => () => {
@@ -97,12 +175,67 @@ export default function ConsoleLogViewer() {
     []
   );
 
+  useEffect(() => {
+    const initial = setTimeout(() => setNow(Date.now()), 0);
+    const timer = setInterval(() => setNow(Date.now()), 10_000);
+    return () => {
+      clearTimeout(initial);
+      clearInterval(timer);
+    };
+  }, []);
+
+  useEffect(() => {
+    const sync = () => setIsFullScreen(document.fullscreenElement === frameRef.current);
+    document.addEventListener("fullscreenchange", sync);
+    return () => document.removeEventListener("fullscreenchange", sync);
+  }, []);
+
+  const toggleFullScreen = useCallback(async () => {
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen();
+      else if (frameRef.current?.requestFullscreen) await frameRef.current.requestFullscreen();
+      else throw new Error("Fullscreen API unavailable");
+      setFullScreenError(false);
+    } catch {
+      setFullScreenError(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+      const target = event.target;
+      if (!(target instanceof Node) || !frameRef.current?.contains(target)) return;
+      if (
+        target instanceof HTMLElement &&
+        target.closest("input, textarea, select, button, a, [contenteditable]")
+      )
+        return;
+      if (event.key === "/") {
+        event.preventDefault();
+        searchRef.current?.focus();
+      } else if (event.key.toLowerCase() === "f") {
+        event.preventDefault();
+        void toggleFullScreen();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [toggleFullScreen]);
+
   // Auto-scroll to bottom on new logs
   useEffect(() => {
     if (autoScroll && scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [logs, autoScroll]);
+
+  const handleConsoleScroll = () => {
+    const element = scrollRef.current;
+    if (!element) return;
+    const atBottom = element.scrollHeight - element.scrollTop - element.clientHeight < 24;
+    setAutoScroll((current) => (current === atBottom ? current : atBottom));
+  };
 
   const handleCopy = async (entry: LogEntry, idx: number) => {
     const text = JSON.stringify(entry, null, 2);
@@ -114,10 +247,12 @@ export default function ConsoleLogViewer() {
 
     setError(null);
     if (copyFeedbackTimerRef.current) clearTimeout(copyFeedbackTimerRef.current);
+    setCopiedAll(false);
     setCopiedIdx(idx);
     copyFeedbackTimerRef.current = setTimeout(() => {
       copyFeedbackTimerRef.current = null;
       setCopiedIdx(null);
+      setCopiedAll(false);
     }, 2000);
   };
 
@@ -155,15 +290,74 @@ export default function ConsoleLogViewer() {
   const getCorrelationId = (entry: LogEntry) => stringifyValue(entry.correlationId);
 
   // Apply text search filter
-  const filteredLogs = searchText
-    ? logs.filter((entry) => {
-        const full = JSON.stringify(entry).toLowerCase();
-        return full.includes(searchText.toLowerCase());
+  const activityBuckets = useMemo(() => bucketLogActivity(logs, now), [logs, now]);
+  const firstMinute = activityBuckets[0].start;
+  const lastMinute = activityBuckets[activityBuckets.length - 1].start;
+  const activeMinute =
+    selectedMinute !== null && selectedMinute >= firstMinute && selectedMinute <= lastMinute
+      ? selectedMinute
+      : null;
+
+  const filteredLogs = useMemo(() => {
+    const query = searchText.toLowerCase();
+    return logs.filter((entry) => {
+      if (query && !JSON.stringify(entry).toLowerCase().includes(query)) return false;
+      if (activeMinute === null) return true;
+      const timestamp = new Date(entry.timestamp).getTime();
+      return timestamp >= activeMinute && timestamp < activeMinute + LOG_ACTIVITY_MINUTE_MS;
+    });
+  }, [logs, searchText, activeMinute]);
+
+  const shownText = () =>
+    filteredLogs
+      .map((entry) => {
+        const component = getComponent(entry);
+        return [entry.timestamp, entry.level, component ? `[${component}]` : "", getText(entry)]
+          .filter(Boolean)
+          .join(" ");
       })
-    : logs;
+      .join("\n");
+
+  const handleCopyShown = async () => {
+    const success = await copyToClipboard(shownText());
+    if (!success) {
+      setError(tv("copyFailed"));
+      return;
+    }
+    setError(null);
+    if (copyFeedbackTimerRef.current) clearTimeout(copyFeedbackTimerRef.current);
+    setCopiedIdx(null);
+    setCopiedAll(true);
+    copyFeedbackTimerRef.current = setTimeout(() => {
+      copyFeedbackTimerRef.current = null;
+      setCopiedAll(false);
+    }, 2000);
+  };
+
+  const handleDownloadShown = () => {
+    let url: string | null = null;
+    let link: HTMLAnchorElement | null = null;
+    try {
+      url = URL.createObjectURL(new Blob([shownText()], { type: "text/plain;charset=utf-8" }));
+      link = document.createElement("a");
+      link.href = url;
+      link.download = `omniroute-console-${new Date().toISOString().replace(/[:.]/g, "-")}.log`;
+      document.body.appendChild(link);
+      link.click();
+      setError(null);
+    } catch {
+      setError(tl("exportFailed"));
+    } finally {
+      link?.remove();
+      if (url) URL.revokeObjectURL(url);
+    }
+  };
 
   return (
-    <div className="flex flex-col gap-4">
+    <div
+      ref={frameRef}
+      className={`flex flex-col gap-4 ${isFullScreen ? "h-screen min-h-0 bg-[var(--color-bg)] p-3" : ""}`}
+    >
       {/* Toolbar */}
       <div className="flex flex-wrap items-center gap-3 p-4 rounded-xl bg-[var(--color-surface)] border border-[var(--color-border)]">
         {/* Level filter */}
@@ -182,6 +376,7 @@ export default function ConsoleLogViewer() {
 
         {/* Search */}
         <input
+          ref={searchRef}
           type="text"
           placeholder={tv("searchPlaceholder")}
           value={searchText}
@@ -193,6 +388,7 @@ export default function ConsoleLogViewer() {
         {/* Auto-scroll toggle */}
         <button
           onClick={() => setAutoScroll(!autoScroll)}
+          aria-pressed={autoScroll}
           title={autoScroll ? tv("disableAutoScroll") : tv("enableAutoScroll")}
           className={`px-3 py-2 rounded-lg text-sm font-medium border transition-colors ${
             autoScroll
@@ -217,6 +413,50 @@ export default function ConsoleLogViewer() {
             refresh
           </span>
         </button>
+
+        <button
+          type="button"
+          onClick={() => void toggleFullScreen()}
+          aria-label={isFullScreen ? "Exit full screen" : "Full screen"}
+          title={isFullScreen ? "Exit full screen (Esc)" : "Full screen (F)"}
+          className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-[var(--color-text-main)] hover:bg-[var(--color-bg-alt)] focus-visible:outline-2 focus-visible:outline-[var(--color-accent)]"
+        >
+          <span className="material-symbols-outlined text-[16px]" aria-hidden="true">
+            {isFullScreen ? "fullscreen_exit" : "fullscreen"}
+          </span>
+        </button>
+
+        <div className="flex items-center gap-1" role="group" aria-label={tv("consoleAria")}>
+          <button
+            type="button"
+            onClick={() => void handleCopyShown()}
+            disabled={filteredLogs.length === 0}
+            aria-label={tc("copy")}
+            title={tc("copy")}
+            className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-[var(--color-text-main)] hover:bg-[var(--color-bg-alt)] disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-[var(--color-accent)]"
+          >
+            <span className="material-symbols-outlined text-[16px]" aria-hidden="true">
+              {copiedAll ? "check" : "content_copy"}
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={handleDownloadShown}
+            disabled={filteredLogs.length === 0}
+            aria-label={tl("export")}
+            title={tl("export")}
+            className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-[var(--color-text-main)] hover:bg-[var(--color-bg-alt)] disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-[var(--color-accent)]"
+          >
+            <span className="material-symbols-outlined text-[16px]" aria-hidden="true">
+              download
+            </span>
+          </button>
+        </div>
+        {copiedAll && (
+          <span className="sr-only" role="status" aria-live="polite">
+            {tc("copied")}
+          </span>
+        )}
 
         {/* Status */}
         <div className="flex items-center gap-2 ml-auto text-xs text-[var(--color-text-muted)]">
@@ -245,11 +485,31 @@ export default function ConsoleLogViewer() {
         </div>
       )}
 
+      {fullScreenError && (
+        <p role="alert" className="text-sm text-red-400">
+          Full screen is unavailable in this browser.
+        </p>
+      )}
+
+      {now > 0 ? (
+        <ConsoleLogActivity
+          buckets={activityBuckets}
+          selectedMinute={activeMinute}
+          onSelectMinute={setSelectedMinute}
+          locale={locale}
+          warningLabel={tc("warning")}
+          errorLabel={tc("errors")}
+        />
+      ) : (
+        <div className="h-20 rounded-xl bg-[var(--color-surface)]" aria-hidden="true" />
+      )}
+
       {/* Console output */}
       <div
         ref={scrollRef}
-        className="rounded-xl border border-[var(--color-border)] bg-[#0d1117] overflow-auto font-mono text-xs leading-relaxed"
-        style={{ maxHeight: "calc(100vh - 340px)", minHeight: "400px" }}
+        onScroll={handleConsoleScroll}
+        className={`rounded-xl border border-[var(--color-border)] bg-[#0d1117] overflow-auto font-mono text-xs leading-relaxed ${isFullScreen ? "min-h-0 flex-1" : ""}`}
+        style={isFullScreen ? undefined : { maxHeight: "calc(100vh - 340px)", minHeight: "400px" }}
         role="log"
         aria-label={tv("consoleAria")}
         aria-live="polite"

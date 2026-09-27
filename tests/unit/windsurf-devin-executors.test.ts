@@ -88,8 +88,16 @@ test("devin-cli provider: flowType is import_token (shares Devin token config)",
   assert.equal(provider.flowType, "import_token");
 });
 
-test("legacy windsurf provider is no longer public", () => {
-  assert.throws(() => getProvider("windsurf"), /Unknown provider/i);
+test("Windsurf browser flow is distinct from Devin import-token flow", () => {
+  const provider = getProvider("windsurf");
+  assert.equal(provider.flowType, "authorization_code");
+  const data = generateAuthData("windsurf", "http://127.0.0.1:12345/windsurf-auth-callback");
+  assert.match(data.authUrl ?? "", /windsurf\.com\/windsurf\/signin/);
+  assert.match(data.authUrl ?? "", /response_type=token/);
+  assert.notEqual(
+    data.authUrl,
+    generateAuthData("devin-desktop", "http://localhost/callback").authUrl
+  );
 });
 
 test("devin-desktop provider: generateAuthData returns no authUrl", () => {

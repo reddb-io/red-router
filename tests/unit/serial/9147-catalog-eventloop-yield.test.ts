@@ -4,6 +4,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+// Kept in the serial suite: sibling test processes can deschedule this timer
+// probe without blocking the catalog's own event loop.
 const TEST_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "omniroute-9147-"));
 process.env.DATA_DIR = TEST_DATA_DIR;
 process.env.API_KEY_SECRET = process.env.API_KEY_SECRET || "catalog-9147-test-secret";
@@ -18,9 +20,9 @@ process.env.API_KEY_SECRET = process.env.API_KEY_SECRET || "catalog-9147-test-se
 // evaluated; build-latency budgeting is a separate concern from this test.
 process.env.CATALOG_BUILD_TIMEOUT_MS = "120000";
 
-const core = await import("../../src/lib/db/core.ts");
-const apiKeysDb = await import("../../src/lib/db/apiKeys.ts");
-const v1ModelsCatalog = await import("../../src/app/api/v1/models/catalog.ts");
+const core = await import("../../../src/lib/db/core.ts");
+const apiKeysDb = await import("../../../src/lib/db/apiKeys.ts");
+const v1ModelsCatalog = await import("../../../src/app/api/v1/models/catalog.ts");
 
 const CONNECTION_COUNT = 60;
 const MODELS_PER_CONNECTION = 12; // ~720 synced models total

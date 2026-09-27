@@ -96,6 +96,23 @@ test("Anthropic-compatible inference follows the connection region", () => {
   }
 });
 
+test("saved Token Plan preset URL does not pin a Claude request to the old cluster", () => {
+  const executor = new DefaultExecutor("xiaomi-mimo-token-plan");
+  assert.equal(
+    executor.buildUrl(
+      "mimo-v2.5-pro-claude",
+      false,
+      0,
+      credentials({
+        region: "ams",
+        baseUrl: "https://token-plan-sgp.xiaomimimo.com/v1",
+        targetFormat: "claude",
+      })
+    ),
+    "https://token-plan-ams.xiaomimimo.com/anthropic/v1/messages"
+  );
+});
+
 test("existing connections without a region retain the Singapore routes", () => {
   const executor = new DefaultExecutor("xiaomi-mimo-token-plan");
   assert.equal(

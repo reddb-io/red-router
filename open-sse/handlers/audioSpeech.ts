@@ -17,6 +17,7 @@ import { stripTrailingSlashes } from "../utils/urlSanitize.ts";
  * - Tortoise TTS: POST { text, voice } → audio binary (local, no auth)
  */
 
+import { resolveXiaomiTokenPlanBaseUrl } from "@/shared/constants/xiaomiTokenPlanRegions";
 import { getSpeechProvider, parseSpeechModel } from "../config/audioRegistry.ts";
 import { buildAuthHeaders } from "../config/registryUtils.ts";
 import { kieExecutor } from "../executors/kie.ts";
@@ -24,6 +25,8 @@ import { vertexGenerateSpeech } from "../executors/vertexMedia.ts";
 import { handleGeminiTtsSpeech } from "../executors/geminiTts.ts";
 import { handleAwsPollySpeech } from "../executors/awsPollyTts.ts";
 import { GttsUpstreamError, normalizeGttsLang, synthesizeGtts } from "../executors/gtts.ts";
+import { EdgeTtsUpstreamError, synthesizeEdgeTts } from "../executors/edgeTts.ts";
+import { LocalDeviceTtsError, synthesizeLocalDeviceTts } from "../executors/localDevice.ts";
 import { handleFishAudioSpeech } from "../executors/fishAudioTts.ts";
 import { errorResponse } from "../utils/error.ts";
 import { resolveElevenLabsVoiceId } from "./elevenLabsVoiceMap.ts";
@@ -590,7 +593,11 @@ async function pollKieAudioResult(baseUrl, modelId, taskId, token) {
  */
 async function handleXiaomiMimoSpeech(providerConfig, body, modelId, token, credentials) {
   const providerSpecificData = getProviderSpecificData(credentials);
-  const url = normalizeXiaomiMimoSpeechUrl(providerSpecificData.baseUrl || providerConfig.baseUrl);
+  const baseUrl =
+    providerConfig.id === "xiaomi-mimo-token-plan"
+      ? resolveXiaomiTokenPlanBaseUrl(providerSpecificData)
+      : providerSpecificData.baseUrl || providerConfig.baseUrl;
+  const url = normalizeXiaomiMimoSpeechUrl(baseUrl);
   const audioMimeType = normalizeXiaomiMimoMimeType(body.response_format);
   if (!audioMimeType) {
     return errorResponse(400, "Xiaomi MiMo TTS supports response_format mp3 or wav only");
@@ -784,11 +791,11 @@ async function handleTortoiseSpeech(providerConfig, body) {
  * `voice` doubles as the language code since gTTS has no voice concept —
  * defaults to English when omitted or unrecognized.
  */
-async function handleGttsSpeech(body) {
+async function handleGttsSpeech(body, modelId) {
   try {
     const audio = await synthesizeGtts({
       text: body.input,
-      lang: normalizeGttsLang(body.voice),
+      lang: normalizeGttsLang(body.voice || (modelId === "default" ? undefined : modelId)),
     });
     return new Response(audio, {
       status: 200,
@@ -799,6 +806,69 @@ async function handleGttsSpeech(body) {
     const message = err instanceof Error ? err.message : "gTTS synthesis failed";
     return errorResponse(status, message);
   }
+}
+
+/**
+ * Handle Edge TTS (reverse-engineered Bing translator endpoint, no auth).
+ * `voice` is the full Edge voice id (e.g. "en-US-AvaNeural"); defaults to the
+ * voice the legacy fork shipped with.
+ */
+async function handleEdgeTtsSpeech(body) {
+  try {
+    const audio = await synthesizeEdgeTts(
+      typeof body.input === "string" ? body.input : "",
+      typeof body.voice === "string" ? body.voice : undefined
+    );
+    return new Response(audio, {
+      status: 200,
+      headers: { ...CORS_HEADERS, "Content-Type": "audio/mpeg" },
+    });
+  } catch (err) {
+    const status = err instanceof EdgeTtsUpstreamError ? err.status : 502;
+    const message = err instanceof Error ? err.message : "Edge TTS synthesis failed";
+    return errorResponse(status, message);
+  }
+}
+
+/**
+ * Handle local device TTS (macOS `say` + ffmpeg, no network). `voice` is a
+ * `say` voice name when given.
+ */
+async function handleLocalDeviceSpeech(body) {
+  try {
+    const audio = await synthesizeLocalDeviceTts(
+      typeof body.input === "string" ? body.input : "",
+      typeof body.voice === "string" ? body.voice : undefined
+    );
+    return new Response(audio, {
+      status: 200,
+      headers: { ...CORS_HEADERS, "Content-Type": "audio/mpeg" },
+    });
+  } catch (err) {
+    const status = err instanceof LocalDeviceTtsError ? err.status : 502;
+    const message = err instanceof Error ? err.message : "Local device TTS synthesis failed";
+    return errorResponse(status, message);
+  }
+}
+
+/**
+ * Self-hosted TTS URL override: when the connection's
+ * providerSpecificData.baseUrl is set (the server root, e.g.
+ * http://host:8080), the /v1/audio/speech path is appended — the same
+ * per-connection override the self-hosted embedding providers use. Any other
+ * provider keeps its registry baseUrl untouched.
+ */
+function resolveSelfhostedSpeechUrl(providerConfig, credentials) {
+  if (providerConfig.id !== "selfhosted-tts") return providerConfig.baseUrl;
+  const raw =
+    credentials?.providerSpecificData &&
+    typeof credentials.providerSpecificData.baseUrl === "string"
+      ? credentials.providerSpecificData.baseUrl.trim()
+      : "";
+  if (!raw) return providerConfig.baseUrl;
+  const normalized = raw.replace(/\/+$/, "");
+  if (normalized.endsWith("/v1/audio/speech")) return normalized;
+  return `${normalized}/v1/audio/speech`;
 }
 
 /**
@@ -836,7 +906,7 @@ export async function handleAudioSpeech({
   if (!providerConfig) {
     return errorResponse(
       400,
-      `No speech provider found for model "${body.model}". Use format provider/model. Available: openai, hyperbolic, deepgram, nvidia, elevenlabs, huggingface, inworld, cartesia, fishaudio, playht, kie, aws-polly, xiaomi-mimo, gtts, coqui, tortoise, qwen`
+      `No speech provider found for model "${body.model}". Use format provider/model. Available: openai, hyperbolic, deepgram, nvidia, elevenlabs, huggingface, inworld, cartesia, fishaudio, playht, kie, aws-polly, xiaomi-mimo, xiaomi-mimo-token-plan, gtts, edge-tts, local-device, selfhosted-tts, coqui, tortoise, qwen`
     );
   }
 
@@ -935,7 +1005,15 @@ export async function handleAudioSpeech({
     }
 
     if (providerConfig.format === "gtts") {
-      return handleGttsSpeech(body);
+      return handleGttsSpeech(body, modelId);
+    }
+
+    if (providerConfig.format === "edge-tts") {
+      return handleEdgeTtsSpeech(body);
+    }
+
+    if (providerConfig.format === "local-device") {
+      return handleLocalDeviceSpeech(body);
     }
 
     if (providerConfig.format === "xiaomi-mimo-tts") {
@@ -955,7 +1033,7 @@ export async function handleAudioSpeech({
     }
 
     // Default: OpenAI-compatible JSON → audio stream proxy (also used by Qwen3)
-    const res = await fetch(providerConfig.baseUrl, {
+    const res = await fetch(resolveSelfhostedSpeechUrl(providerConfig, credentials), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

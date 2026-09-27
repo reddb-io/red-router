@@ -167,3 +167,57 @@ export function extractSystemRoleMessages(payload: Record<string, unknown>): voi
   }
   payload.messages = messages.filter((m) => !isSystemRole(m.role));
 }
+
+/**
+ * The mid-conversation-system passthrough keeps later system turns in
+ * messages[], but Anthropic rejects a text system turn in the initial slot.
+ * Lift only the leading run into the top-level system parameter. Leave empty
+ * directive-only turns for relocateDirectiveOnlyMessages to position later.
+ */
+export function hoistLeadingTextSystemMessages(payload: Record<string, unknown>): void {
+  if (!Array.isArray(payload.messages) || payload.messages.length === 0) return;
+  const messages = payload.messages as Array<Record<string, unknown>>;
+  const isSystemRole = (role: unknown): boolean =>
+    typeof role === "string" &&
+    (role.toLowerCase() === "system" || role.toLowerCase() === "developer");
+
+  const blocks: Array<Record<string, unknown>> = [];
+  const kept: Array<Record<string, unknown>> = [];
+  let i = 0;
+  for (; i < messages.length; i++) {
+    const message = messages[i];
+    if (message == null || typeof message !== "object" || !isSystemRole(message.role)) break;
+    if (typeof message.content === "string") {
+      if (message.content.length > 0) blocks.push({ type: "text", text: message.content });
+      else kept.push(message);
+      continue;
+    }
+    if (Array.isArray(message.content) && message.content.length > 0) {
+      const content = message.content as Array<Record<string, unknown>>;
+      // The top-level system parameter only accepts text. Do not silently
+      // discard an image, document, or unknown block from a mixed message.
+      if (
+        !content.every(
+          (block) =>
+            block?.type === "text" && typeof block.text === "string" && block.text.length > 0
+        )
+      ) {
+        break;
+      }
+      blocks.push(...content.map((block) => ({ ...block })));
+      continue;
+    }
+    kept.push(message);
+  }
+  if (blocks.length === 0) return;
+
+  const existing = payload.system;
+  if (typeof existing === "string" && existing.length > 0) {
+    payload.system = [{ type: "text", text: existing }, ...blocks];
+  } else if (Array.isArray(existing)) {
+    payload.system = [...(existing as Array<Record<string, unknown>>), ...blocks];
+  } else {
+    payload.system = blocks;
+  }
+  payload.messages = [...kept, ...messages.slice(i)];
+}

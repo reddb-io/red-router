@@ -118,6 +118,18 @@ export async function probePortFree(port, deps = {}) {
   });
 }
 
+/** Return known owners, an unknown-owner sentinel, or [] when the port is free. */
+export async function findPortConflictPids(
+  port,
+  { findPids = findListeningPids, probe = probePortFree } = {}
+) {
+  const pids = await findPids(port);
+  if (pids?.length > 0) return pids;
+  // A missing lsof/netstat yields null, not []. In both that case and an empty
+  // discovery result, confirm with a bind probe before declaring the port free.
+  return (await probe(port)) ? [] : [null];
+}
+
 function parseNetstatListeningPids(stdout, port) {
   const portCol = `:${port}`;
   const pids = [];

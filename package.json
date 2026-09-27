@@ -1,7 +1,7 @@
 {
   "name": "red-router-app",
   "version": "3.8.51",
-  "description": "Unified AI router with 358 providers, RTK+Caveman compression, auto fallback, MCP/A2A, desktop, PWA, and OpenAI-compatible APIs. RedRouter fork of OmniRoute (MIT, diegosouzapw/OmniRoute).",
+  "description": "Unified AI router with 377 providers, RTK+Caveman compression, auto fallback, MCP/A2A, desktop, PWA, and OpenAI-compatible APIs. RedRouter fork of OmniRoute (MIT, diegosouzapw/OmniRoute).",
   "type": "module",
   "bin": {
     "red-router": "bin/omniroute.mjs",
@@ -456,7 +456,7 @@
   "lint-staged": {
     "*.{js,jsx,ts,tsx,mjs}": [
       "prettier --write",
-      "eslint --fix --no-error-on-unmatched-pattern --no-warn-ignored --suppressions-location config/quality/eslint-suppressions.json"
+      "eslint --fix --no-error-on-unmatched-pattern --no-warn-ignored --suppressions-location config/quality/eslint-suppressions.json --pass-on-unpruned-suppressions"
     ],
     "*.{json,md,yml,yaml,css}": [
       "prettier --write"

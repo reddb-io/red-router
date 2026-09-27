@@ -30,6 +30,7 @@ import {
 } from "../utils/error.ts";
 import { extractKimiAccessToken } from "@/lib/providers/webCookieAuth";
 import { exchangeKimiRefreshToken } from "@/lib/kimi/tokenRefresh";
+import { getKimiWebBaseUrl } from "@/lib/kimi/baseUrl";
 import {
   type KimiWebModelConfig,
   resolveKimiWebContextLength,
@@ -38,14 +39,7 @@ import {
 } from "../config/providers/registry/kimi/web/runtime.ts";
 
 export { extractKimiAccessToken };
-
-export function getKimiWebBaseUrl(): string {
-  const envUrl = process.env.KIMI_WEB_BASE_URL?.trim();
-  if (envUrl) {
-    return envUrl.replace(/\/+$/, "");
-  }
-  return "https://www.kimi.ai";
-}
+export { getKimiWebBaseUrl };
 
 export function getKimiWebChatUrl(): string {
   const envChat = process.env.KIMI_WEB_CHAT_URL?.trim();

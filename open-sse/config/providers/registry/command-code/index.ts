@@ -117,6 +117,8 @@ export const command_codeProvider: RegistryEntry = {
       contextLength: 1000000,
       maxOutputTokens: 131072,
     },
+    { id: "moonshotai/Kimi-K2.7-Code", name: "Kimi K2.7 Code (CC)" },
+    { id: "moonshotai/Kimi-K2.7-Code-Highspeed", name: "Kimi K2.7 Code HighSpeed (CC)" },
     {
       id: "moonshotai/Kimi-K2.6",
       name: "Kimi K2.6 (CC)",
@@ -135,6 +137,8 @@ export const command_codeProvider: RegistryEntry = {
       contextLength: 262144,
       maxOutputTokens: 65536,
     },
+    { id: "zai-org/GLM-5.2", name: "GLM-5.2 (CC)" },
+    { id: "zai-org/GLM-5.2-Fast", name: "GLM-5.2 Fast (CC)" },
     {
       id: "zai-org/GLM-5.1",
       name: "GLM-5.1 (CC)",
@@ -151,6 +155,7 @@ export const command_codeProvider: RegistryEntry = {
       contextLength: 200000,
       maxOutputTokens: 32768,
     },
+    { id: "MiniMaxAI/MiniMax-M3", name: "MiniMax M3 (CC)", supportsVision: true },
     {
       id: "MiniMaxAI/MiniMax-M2.7",
       name: "MiniMax M2.7 (CC)",
@@ -167,6 +172,8 @@ export const command_codeProvider: RegistryEntry = {
       contextLength: 1048576,
       maxOutputTokens: 65536,
     },
+    { id: "xiaomi/mimo-v2.5-pro", name: "MiMo V2.5 Pro (CC)" },
+    { id: "xiaomi/mimo-v2.5", name: "MiMo V2.5 (CC)" },
     {
       id: "Qwen/Qwen3.6-Max-Preview",
       name: "Qwen 3.6 Max (CC)",
@@ -184,5 +191,10 @@ export const command_codeProvider: RegistryEntry = {
       contextLength: 1000000,
       maxOutputTokens: 32768,
     },
+    { id: "Qwen/Qwen3.7-Max", name: "Qwen 3.7 Max (CC)" },
+    { id: "Qwen/Qwen3.7-Plus", name: "Qwen 3.7 Plus (CC)" },
+    { id: "stepfun/Step-3.7-Flash", name: "Step 3.7 Flash (CC)" },
+    { id: "stepfun/Step-3.5-Flash", name: "Step 3.5 Flash (CC)" },
+    { id: "nvidia/nemotron-3-ultra-550b-a55b", name: "Nemotron 3 Ultra (CC)" },
   ],
 };

@@ -10,6 +10,8 @@ process.env.DATA_DIR = TEST_DATA_DIR;
 const { REGISTRY, getRegistryEntry } = await import("../../open-sse/config/providerRegistry.ts");
 const { CommandCodeExecutor } = await import("../../open-sse/executors/commandCode.ts");
 const { getExecutor, hasSpecializedExecutor } = await import("../../open-sse/executors/index.ts");
+const { parseModel } = await import("../../open-sse/services/model.ts");
+const { resolveProviderId, ALIAS_TO_ID } = await import("../../src/shared/constants/providers.ts");
 const core = await import("../../src/lib/db/core.ts");
 
 const originalFetch = globalThis.fetch;
@@ -27,14 +29,26 @@ const PINNED_COMMAND_CODE_MODELS = [
   "gpt-5.4-mini",
   "deepseek/deepseek-v4-pro",
   "deepseek/deepseek-v4-flash",
+  "moonshotai/Kimi-K2.7-Code",
+  "moonshotai/Kimi-K2.7-Code-Highspeed",
   "moonshotai/Kimi-K2.6",
   "moonshotai/Kimi-K2.5",
+  "zai-org/GLM-5.2",
+  "zai-org/GLM-5.2-Fast",
   "zai-org/GLM-5.1",
   "zai-org/GLM-5",
+  "MiniMaxAI/MiniMax-M3",
   "MiniMaxAI/MiniMax-M2.7",
   "MiniMaxAI/MiniMax-M2.5",
+  "xiaomi/mimo-v2.5-pro",
+  "xiaomi/mimo-v2.5",
   "Qwen/Qwen3.6-Max-Preview",
   "Qwen/Qwen3.6-Plus",
+  "Qwen/Qwen3.7-Max",
+  "Qwen/Qwen3.7-Plus",
+  "stepfun/Step-3.7-Flash",
+  "stepfun/Step-3.5-Flash",
+  "nvidia/nemotron-3-ultra-550b-a55b",
 ];
 
 const CHAT_URL = "https://api.commandcode.ai/provider/v1/chat/completions";
@@ -130,6 +144,19 @@ test("getExecutor returns the specialized Command Code executor", async () => {
   assert.equal(hasSpecializedExecutor("command-code"), true);
   assert.ok((await getExecutor("command-code")) instanceof CommandCodeExecutor);
   assert.ok((await getExecutor("cmd")) instanceof CommandCodeExecutor);
+  assert.ok((await getExecutor("commandcode")) instanceof CommandCodeExecutor);
+  assert.ok((await getExecutor("cmc")) instanceof CommandCodeExecutor);
+});
+
+test("9router CommandCode IDs resolve to the existing connection, not a second provider", () => {
+  for (const prefix of ["commandcode", "cmc"]) {
+    assert.equal(parseModel(`${prefix}/deepseek/deepseek-v4-pro`).provider, "command-code");
+    assert.equal(resolveProviderId(prefix), "command-code");
+    assert.equal(ALIAS_TO_ID[prefix], "command-code");
+    assert.equal(getRegistryEntry(prefix), REGISTRY["command-code"]);
+    assert.equal(hasSpecializedExecutor(prefix), true);
+  }
+  assert.equal(REGISTRY.commandcode, undefined);
 });
 
 test("Command Code executor posts a flat OpenAI body + standard headers to /provider/v1/chat/completions (#10265)", async () => {

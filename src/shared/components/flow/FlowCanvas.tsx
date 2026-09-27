@@ -68,6 +68,7 @@ export function FlowCanvas({
   children,
 }: FlowCanvasProps) {
   const rfInstance = useRef<ReactFlowInstance | null>(null);
+  const initFitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   // Bumped on every onInit so queued fitView calls can be invalidated when
   // a new ReactFlow instance mounts (e.g. via fitKey change).
@@ -76,10 +77,12 @@ export function FlowCanvas({
   const onInit = useCallback((instance: ReactFlowInstance) => {
     const generation = ++generationRef.current;
     rfInstance.current = instance;
+    if (initFitTimerRef.current !== null) clearTimeout(initFitTimerRef.current);
     // Defer fitView until ReactFlow has measured its viewport, but guard
     // against the instance being replaced (generation mismatch) before the
     // timer fires — see Bug #4 in the audit report.
-    setTimeout(() => {
+    initFitTimerRef.current = setTimeout(() => {
+      initFitTimerRef.current = null;
       if (generationRef.current === generation) {
         instance.fitView(FIT_VIEW_OPTIONS);
       }
@@ -113,6 +116,8 @@ export function FlowCanvas({
   // disposed ReactFlow instance.
   useEffect(() => {
     return () => {
+      if (initFitTimerRef.current !== null) clearTimeout(initFitTimerRef.current);
+      initFitTimerRef.current = null;
       rfInstance.current = null;
     };
   }, []);

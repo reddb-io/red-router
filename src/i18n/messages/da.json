@@ -1000,6 +1000,8 @@
   "featureFlagXaiOauthLiveModelDiscoveryDescription": "Hent det aktuelle xAI-modelkatalog for xai-oauth-forbindelser fra https://api.x.ai/v1/models ved hjælp af OAuth-bærertokenet i stedet for det fastlåste statiske udgangspunkt. Slået fra som standard: xai-oauth fortsætter uændret med at levere det statiske udgangspunkt. Ved enhver fejl under opslaget falder modelregistreringen tilbage til udgangspunktet.",
   "featureFlagDbHealthcheckStartupDeferredEnabledDescription": "Kør integritets-/tilstandskontrollen af databasen ved opstart, efter at serveren er begyndt at acceptere anmodninger, i stedet for at blokere opstarten, indtil kontrollen er fuldført. Slået fra som standard: Opstarten blokeres af kontrollen præcis som før denne ændring, så en beskadiget database stadig opdages, før den første anmodning behandles.",
   "sidebar": {
+    "modelCatalog": "Modeller",
+    "modelCatalogSubtitle": "Modelkatalog for alle tilsluttede udbydere.",
     "home": "Hjem",
     "dashboard": "Kontrolpanel",
     "providers": "Udbydere",

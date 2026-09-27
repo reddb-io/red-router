@@ -1000,6 +1000,8 @@
   "featureFlagXaiOauthLiveModelDiscoveryDescription": "xai-oauth 接続では、固定された静的シードの代わりに、OAuth ベアラートークンを使用して https://api.x.ai/v1/models から最新の xAI モデルカタログを取得します。デフォルトではオフです。オフの場合、xai-oauth は従来どおり静的シードを提供します。解決エラーが発生した場合、ディスカバリーはシードにフォールバックします。",
   "featureFlagDbHealthcheckStartupDeferredEnabledDescription": "起動時のデータベース整合性／ヘルスチェックが完了するまで起動をブロックする代わりに、サーバーがリクエストの受け付けを開始した後でチェックを実行します。デフォルトではオフです。オフの場合、この変更前とまったく同様に、チェックが完了するまで起動がブロックされるため、破損したデータベースは引き続き最初のリクエストが処理される前に検出されます。",
   "sidebar": {
+    "modelCatalog": "モデル",
+    "modelCatalogSubtitle": "接続されているすべてのプロバイダーのモデル カタログ。",
     "home": "ホーム",
     "dashboard": "ダッシュボード",
     "providers": "プロバイダー",

@@ -11,6 +11,23 @@ export const opencode_zenProvider: RegistryEntry = {
   authType: "apikey",
   authHeader: "Authorization",
   authPrefix: "Bearer",
+  systemOneConfig: {
+    baseUrl: "https://opencode.ai/zen/v1/systemone",
+    models: [
+      { id: "jev-1.13", name: "JEV 1.13" },
+      { id: "jev-1.13-free", name: "JEV 1.13 Free" },
+    ],
+    headers: {
+      "x-opencode-client": "desktop",
+      "User-Agent": "opencode/1.18.31",
+    },
+    defaultModel: "jev-1.13-free",
+    modelMap: {
+      "jev-latest": "jev-1.13-free",
+      "jev-1.13": "jev-1.13",
+      "jev-1.13-free": "jev-1.13-free",
+    },
+  },
   defaultContextLength: 200000,
   // Sync with https://opencode.ai/zen/v1/models — this list is regenerated
   // from the live API response so new models work without a code deploy.

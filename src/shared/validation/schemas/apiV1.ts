@@ -726,6 +726,8 @@ export const v1WebFetchSchema = z.object({
       "context7",
       "nimble-search",
       "anysearch-search",
+      "exa-search",
+      "ollama-cloud",
     ])
     .optional(),
   format: z.enum(["markdown", "html", "links", "screenshot"]).default("markdown"),

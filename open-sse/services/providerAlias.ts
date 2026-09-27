@@ -1,4 +1,5 @@
 import { PROVIDER_ID_TO_ALIAS } from "../config/providerModels.ts";
+import { PROVIDER_COMPATIBILITY_ALIASES } from "@/shared/constants/providerCompatibilityAliases";
 
 // Derive alias→provider mapping from the single source of truth (PROVIDER_ID_TO_ALIAS)
 // This prevents the two maps from drifting out of sync
@@ -31,6 +32,7 @@ ALIAS_TO_PROVIDER_ID["agy"] = "antigravity";
 // The canonical provider ID is "amazon-q". Register it so parseModel("aq/<model>")
 // resolves provider = "amazon-q" instead of falling through to the identity fallback.
 ALIAS_TO_PROVIDER_ID["aq"] = "amazon-q";
+Object.assign(ALIAS_TO_PROVIDER_ID, PROVIDER_COMPATIBILITY_ALIASES);
 
 /**
  * Resolve provider alias to provider ID

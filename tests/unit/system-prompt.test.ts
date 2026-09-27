@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 const {
   injectSystemPrompt,
   injectSystemPromptPostTranslation,
+  injectSystemPromptPreTranslation,
   setSystemPromptConfig,
   getSystemPromptConfig,
 } = await import("../../open-sse/services/systemPrompt.ts");
@@ -204,6 +205,26 @@ test("postTranslation: single system → prefix front, suffix back", () => {
   assert.ok(result.messages[0].content.includes("Original"));
   assert.ok(result.messages[0].content.trimEnd().endsWith("SUF"));
   assert.equal(result.messages.length, 2);
+});
+
+test("format-aware prompt injection copies message arrays before changing carriers", () => {
+  setSystemPromptConfig({ enabled: true, prefixPrompt: "PRE", suffixPrompt: "SUF" });
+  const body = {
+    messages: [
+      { role: "system", content: "Original" },
+      { role: "user", content: "hi" },
+    ],
+  };
+  for (const inject of [
+    () => injectSystemPromptPostTranslation(body),
+    () => injectSystemPromptPreTranslation(body, { targetFormat: "kiro" }),
+  ]) {
+    const result = inject();
+    assert.notEqual(result.messages, body.messages);
+    assert.equal(body.messages[0].content, "Original");
+    assert.ok(String(result.messages[0].content).includes("PRE"));
+    assert.ok(String(result.messages[0].content).includes("SUF"));
+  }
 });
 
 test("postTranslation: multiple system/developer → prefix on first, suffix on LAST", () => {

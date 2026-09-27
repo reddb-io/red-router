@@ -7,11 +7,16 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { getKimiWebBaseUrl } from "../../src/lib/kimi/baseUrl.ts";
 
 const mod = await import("../../open-sse/executors/kimi-web.ts");
 const { getModelsByProviderId } = await import("../../open-sse/config/providerModels.ts");
 
 describe("KimiWebExecutor", () => {
+  it("re-exports the shared Kimi Web base URL resolver", () => {
+    assert.equal(mod.getKimiWebBaseUrl, getKimiWebBaseUrl);
+  });
+
   it("can be instantiated", () => {
     const executor = new mod.KimiWebExecutor();
     assert.ok(executor);

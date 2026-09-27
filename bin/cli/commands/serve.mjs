@@ -8,8 +8,7 @@ import {
   writePidFile,
   cleanupPidFile,
   waitForServer,
-  findListeningPids,
-  probePortFree,
+  findPortConflictPids,
   resolveReadyTimeoutMs,
 } from "../utils/pid.mjs";
 import {
@@ -246,18 +245,9 @@ export async function runServe(opts = {}) {
   // BEFORE any pid file is written or any child is spawned. Otherwise the
   // doomed child's EADDRINUSE arrives only after this process has rewritten
   // the pid files of the healthy instance that actually owns the port.
-  // findListeningPids() returning null means the discovery tool itself is
-  // missing or unusable (Termux, slim containers, #14518) — fall back to a
-  // bind probe so the guard still answers before spawning the doomed child.
-  let busyPids = await findListeningPids(dashboardPort);
-  if (busyPids === null) {
-    // Discovery tool missing/unusable (#14518): the bind probe is the guard.
-    if (!(await probePortFree(dashboardPort))) busyPids = [null];
-  } else if (busyPids.length === 0) {
-    // Discovery ran and saw nothing, but that window can race a starting
-    // instance; a bind probe costs nothing and doubles as confirmation.
-    if (!(await probePortFree(dashboardPort))) busyPids = [null];
-  }
+  // A missing/unusable discovery tool returns null; the shared helper bind-
+  // probes and always returns an array, including [] for a free port.
+  const busyPids = await findPortConflictPids(dashboardPort);
   if (busyPids.length > 0) {
     reportPortInUse(dashboardPort, busyPids);
     process.exit(1);

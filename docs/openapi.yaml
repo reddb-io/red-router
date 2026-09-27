@@ -1509,6 +1509,10 @@ paths:
                     properties:
                       queries_used: { type: integer, minimum: 0 }
                       search_cost_usd: { type: number, minimum: 0 }
+                      provider_credits_used:
+                        type: integer
+                        minimum: 0
+                        description: Provider-native credits consumed, when reported. Xquik charges one credit per returned post; no verified USD conversion is applied.
                       llm_tokens: { type: integer, minimum: 0 }
                   metrics:
                     type: object

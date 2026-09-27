@@ -17,6 +17,7 @@ import { getTaskFitness } from "./taskFitness.ts";
 import { clamp01 } from "../../utils/number.ts";
 import { rankBySpeed } from "./speedRanking.ts";
 import type { SpeedCandidate } from "./speedRanking.ts";
+import type { RoutingHint } from "../manifestAdapter.ts";
 
 export interface SlaRoutingPolicy {
   targetP95Ms?: number;
@@ -35,6 +36,7 @@ export interface RoutingContext {
   sla?: SlaRoutingPolicy;
   weights?: ScoringWeights;
   explorationRate?: number;
+  manifestHint?: RoutingHint | null;
 }
 
 export interface RoutingDecision {
@@ -95,7 +97,8 @@ class RulesStrategyImpl implements RouterStrategy {
       eligible.length > 0 ? eligible : pool,
       context.taskType,
       undefined,
-      getTaskFitness
+      getTaskFitness,
+      context.manifestHint
     );
     const best = ranked[0];
     if (!best) throw new Error("[RulesStrategy] No candidates to score");
@@ -123,7 +126,8 @@ class ScoreStrategyImpl implements RouterStrategy {
       eligible.length > 0 ? eligible : pool,
       context.taskType,
       context.weights,
-      getTaskFitness
+      getTaskFitness,
+      context.manifestHint
     );
     if (ranked.length === 0) throw new Error("[ScoreStrategy] No candidates to score");
 

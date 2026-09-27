@@ -52,6 +52,21 @@ export function pickTarball(packJsonOutput) {
   return filename.replace(/\//g, "-");
 }
 
+/** Resolve the globally installed package and its CLI from the packed manifest. */
+export function resolveInstalledPackage(prefix, manifest) {
+  const packageName = manifest.name;
+  const binName = Object.keys(manifest.bin || {}).find(
+    (name) => manifest.bin[name] === "bin/omniroute.mjs"
+  );
+  if (!packageName || !binName) {
+    throw new Error("package manifest must declare its name and server CLI entrypoint");
+  }
+  return {
+    packageRoot: path.join(prefix, "lib", "node_modules", packageName),
+    binPath: path.join(prefix, "bin", binName),
+  };
+}
+
 /**
  * Boot verdict: HTTP 200 + a JSON body reporting the version we just packed.
  * `status` is logged but NOT asserted — a clean install with zero providers may
@@ -311,7 +326,11 @@ function spawnServer(binPath, port, dataDir) {
   return { child, tail };
 }
 
-function derivePackagedCliToken(packageRoot) {
+export function packagedCliTokenEnv(dataDir, env = process.env) {
+  return { ...env, DATA_DIR: dataDir };
+}
+
+function derivePackagedCliToken(packageRoot, dataDir) {
   const cliModuleUrl = pathToFileURL(
     path.join(packageRoot, "bin", "cli", "utils", "cliToken.mjs")
   ).href;
@@ -323,7 +342,7 @@ function derivePackagedCliToken(packageRoot) {
       "import(process.argv[1]).then(async m => process.stdout.write(await m.getCliToken()))",
       cliModuleUrl,
     ],
-    { encoding: "utf8", env: { ...process.env } }
+    { encoding: "utf8", env: packagedCliTokenEnv(dataDir) }
   ).trim();
 }
 
@@ -410,9 +429,8 @@ async function main() {
     );
     process.exit(2);
   }
-  const expectedVersion = JSON.parse(
-    fs.readFileSync(path.join(ROOT, "package.json"), "utf8")
-  ).version;
+  const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8"));
+  const expectedVersion = manifest.version;
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "omniroute-pack-boot-"));
   let child = null;
   let tail = [];
@@ -434,7 +452,7 @@ async function main() {
       encoding: "utf8",
       maxBuffer: 64 * 1024 * 1024,
     });
-    const packageRoot = path.join(prefix, "lib", "node_modules", "omniroute");
+    const { packageRoot, binPath } = resolveInstalledPackage(prefix, manifest);
     const missingSqlJsFiles = findMissingSqlJsRuntimeFiles(packageRoot);
     if (missingSqlJsFiles.length > 0) {
       throw new Error(
@@ -450,11 +468,10 @@ async function main() {
     }
     log("installed package contains the node-machine-id runtime");
 
-    const port = pickPort();
     const dataDir = path.join(tmp, "data");
     fs.mkdirSync(dataDir, { recursive: true });
-    const binPath = path.join(prefix, "bin", "omniroute");
-    const packagedCliToken = derivePackagedCliToken(packageRoot);
+    const packagedCliToken = derivePackagedCliToken(packageRoot, dataDir);
+    const port = pickPort();
 
     // BOOT #1 — boot, prove the forced sql.js tier, PATCH a setting, then shut down cleanly
     // so the sql.js adapter's graceful persist actually lands on disk. The in-flow stopChild

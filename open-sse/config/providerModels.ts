@@ -256,6 +256,15 @@ export function getModelTargetFormat(aliasOrId: string, modelId: string): string
   // provider's endpoint semantics via the global fallback.
   return null;
 }
+
+/** Public model variants can select a different protocol without changing the provider's model ID. */
+export function getModelUpstreamId(aliasOrId: string, modelId: string): string | null {
+  const alias = PROVIDER_ID_TO_ALIAS[aliasOrId] || aliasOrId;
+  const prefixes = [`${aliasOrId}/`, `${alias}/`];
+  const prefix = prefixes.find((value) => modelId.startsWith(value));
+  const bareModelId = prefix ? modelId.slice(prefix.length) : modelId;
+  return PROVIDER_MODELS[alias]?.find((model) => model.id === bareModelId)?.upstreamModelId || null;
+}
 export function getModelStripTypes(aliasOrId: string, modelId: string): string[] {
   const models = PROVIDER_MODELS[aliasOrId];
   if (!models)

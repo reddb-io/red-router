@@ -20,6 +20,7 @@ const combosDb = await import("../../src/lib/db/combos.ts");
 const catalog = await import("../../src/app/api/v1/models/catalog.ts");
 const {
   buildAliasMaps,
+  canEmitSyncedCanonical,
   getComboTargetModelId,
   prefixRoutesToProvider,
   prefixRoutesToCanonicalProvider,
@@ -50,6 +51,13 @@ describe("Combo catalog max_input_tokens and provider prefix stripping", () => {
     assert.equal(prefixRoutesToProvider("opencode", "opencode"), false);
     assert.equal(prefixRoutesToProvider("opencode-zen", "opencode-zen"), true);
     assert.equal(prefixRoutesToProvider("nvidia", "openrouter"), false);
+  });
+
+  it("synced catalog rows never publish the no-auth opencode/ alias", () => {
+    assert.equal(canEmitSyncedCanonical(true, "opencode", "oc", false), false);
+    assert.equal(canEmitSyncedCanonical(true, "openai", "oa", false), true);
+    assert.equal(canEmitSyncedCanonical(false, "openai", "oa", false), false);
+    assert.equal(canEmitSyncedCanonical(true, "openai", "oa", true), false);
   });
 
   it("getComboTargetModelId strips opencode/ prefix from target model string", () => {

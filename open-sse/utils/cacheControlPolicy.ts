@@ -108,6 +108,10 @@ const CACHING_PROVIDERS = new Set([
   // hints and every request is a cache miss.
   "alibaba",
   "alibaba-cn",
+  "alicode",
+  "alicode-intl",
+  "alims-intl",
+  "alitp-intl",
   "qwen-cloud",
 ]);
 
@@ -128,6 +132,10 @@ const OPENAI_FORMAT_CACHE_CONTROL_PROVIDERS = new Set([
   // #2069 — DashScope OpenAI-compatible endpoints accept ephemeral breakpoints.
   "alibaba",
   "alibaba-cn",
+  "alicode",
+  "alicode-intl",
+  "alims-intl",
+  "alitp-intl",
   "qwen-cloud",
   // #3088 — Xiaomi MiMo honors OpenAI-format cache_control breakpoints.
   "xiaomi-mimo",

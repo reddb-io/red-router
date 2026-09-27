@@ -93,7 +93,7 @@ test("lockfile marks the whole ONNX chain optional", () => {
 test("every @huggingface/transformers consumer loads it lazily so absent installs degrade gracefully", () => {
   // If any module ever switches to a STATIC import of the optional chain,
   // startup crashes on platforms where npm skipped it (Android/Termux).
-  // transformersLocal.ts must keep its lazy await import() (D8/D25);
+  // transformersLocal.ts must keep its runtime-built lazy import (D8/D25);
   // onnxWorker.ts must keep its runtime-variable dynamicImport indirection.
 
   const embeddingSrc = readFileSync(
@@ -107,8 +107,8 @@ test("every @huggingface/transformers consumer loads it lazily so absent install
   );
   assert.match(
     embeddingSrc,
-    /await import\(["']@huggingface\/transformers["']\)/,
-    "transformersLocal.ts must load @huggingface/transformers via await import()"
+    /const specifier = ["']@huggingface\/["'] \+ ["']transformers["'];\s*const transformers = await import\(\/\* webpackIgnore: true \*\/ specifier\)/,
+    "transformersLocal.ts must load the optional dependency without Next tracing it"
   );
 
   const workerSrc = readFileSync(

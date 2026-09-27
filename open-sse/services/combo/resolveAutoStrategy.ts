@@ -11,7 +11,8 @@ import {
   parseRequestBudgetFallback,
 } from "../autoCombo/requestControls.ts";
 import { selectWithStrategy } from "../autoCombo/routerStrategy.ts";
-import { buildComplexityRoutingHint } from "../autoCombo/complexityRouter";
+import { buildComplexityRoutingHint, escalateTier } from "../autoCombo/complexityRouter";
+import { parseJevRoutingConfig } from "./jevConfig.ts";
 import { getModePack } from "../autoCombo/modePacks.ts";
 import { recordComboIntent } from "../comboMetrics.ts";
 import { estimateTokens } from "../contextManager.ts";
@@ -313,14 +314,29 @@ export async function resolveAutoStrategyOrder(
   // Complexity-aware routing (2026, opt-in): classify the request's
   // difficulty and feed a tier hint into scoring so tierAffinity /
   // specificityMatch favor candidates whose tier matches the request.
+  const jevConfig = parseJevRoutingConfig(combo);
   const autoManifestHint: RoutingHint | null =
-    config.complexityAwareRouting === true
+    config.complexityAwareRouting === true || jevConfig.mode === "jev"
       ? await buildComplexityRoutingHint(
           eligibleTargets.filter((t) => t.kind === "model"),
           body,
           log
         )
       : null;
+  if (autoManifestHint && jevConfig.mode === "jev") {
+    try {
+      const { classifyJevRoutingTier } = await import("../../../src/sse/services/jevRouting");
+      const jevTier = await classifyJevRoutingTier(body, jevConfig, log);
+      if (jevTier) {
+        autoManifestHint.recommendedMinTier = escalateTier(
+          autoManifestHint.recommendedMinTier,
+          jevTier
+        );
+      }
+    } catch {
+      log.warn("JEV", "Evaluation unavailable; retaining deterministic routing");
+    }
+  }
 
   const { sourceCandidates, candidates, routableCandidates, scoredTargets } =
     await evaluateAutoCandidates({
@@ -379,6 +395,7 @@ export async function resolveAutoStrategyOrder(
             sla: slaPolicy,
             weights,
             explorationRate,
+            manifestHint: autoManifestHint,
           },
           routingStrategy
         );

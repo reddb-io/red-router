@@ -27,6 +27,7 @@ import { calculateModalCost } from "@/lib/usage/costCalculator";
 import { toJsonErrorPayload } from "@/shared/utils/upstreamError";
 import { HTTP_STATUS } from "@omniroute/open-sse/config/constants.ts";
 import { errorResponse } from "@omniroute/open-sse/utils/error.ts";
+import { canUseHostSpeech } from "@/lib/security/hostSpeechAccess";
 
 /**
  * Execute a full combo strategy for a text-to-speech request.
@@ -34,7 +35,8 @@ import { errorResponse } from "@omniroute/open-sse/utils/error.ts";
 export async function executeSpeechCombo(
   comboName: string,
   body: Record<string, unknown>,
-  startTime: number
+  startTime: number,
+  request?: Request
 ): Promise<Response> {
   const combo = await getComboByName(comboName);
   if (!combo) {
@@ -59,6 +61,7 @@ export async function executeSpeechCombo(
     if (!t.modelStr) return false;
     const { provider, model } = parseSpeechModel(t.modelStr, dynamicProviders);
     if (!provider) return false;
+    if (provider === "local-device" && !canUseHostSpeech(request)) return false;
     const config =
       getSpeechProvider(provider) || dynamicProviders.find((dp) => dp.id === provider) || null;
     if (!config) return false;

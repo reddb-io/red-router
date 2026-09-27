@@ -207,8 +207,9 @@ describe("CompressionPanel", () => {
 
     const preview = container.querySelector(`[data-testid="derived-pipeline-preview"]`);
     expect(preview).toBeTruthy();
-    // Only rtk is enabled in the initial config → preview mentions rtk, not caveman.
-    expect(preview?.textContent).toContain("rtk");
+    // A header-less request downgrades lossy RTK to the safe default preview.
+    expect(preview?.textContent).toContain("session-dedup → lite");
+    expect(preview?.textContent).not.toContain("rtk");
     expect(preview?.textContent).not.toContain("caveman");
   });
 });

@@ -6,24 +6,39 @@ lastUpdated: 2026-06-28
 
 # Cluster Decisions — Optional Sidecar Profiles
 
-**Status:** proposal (awaiting @diegosouzapw review)
-**Date:** 2026-06-20
+**Status:** historical proposal; not an active-active deployment guide
+**Date:** 2026-06-20 (runtime topology rechecked 2026-09-26)
 **Refs:** [#3932](https://github.com/diegosouzapw/OmniRoute/issues/3932), PR #4381
+
+> **Current topology:** The checked-in [`docker-compose.yml`](../../docker-compose.yml)
+> defines application variants behind profiles, each mounting the same
+> `./data` path when selected. Select only one application variant for the
+> default SQLite topology. It does **not** launch three replicas or a
+> Caddy load balancer by default. Qdrant and Bifrost are optional sidecars, not
+> replacements for shared control-plane persistence. Do not set multiple
+> replicas against one SQLite file. The supported SQLite topology and the
+> separate-process scale-out option are documented in the
+> [Docker guide](../guides/DOCKER_GUIDE.md#scale-out-n-independent-processes).
 
 ## TL;DR
 
-Two opt-in compose profiles (`memory`, `bifrost`) for the existing 8-service deployment in [`docker-compose.yml`](../../docker-compose.yml). Default-up behaviour is **unchanged**: 3 × `omniroute` replicas + Caddy + Redis + CliproxyAPI. The two new profiles add Qdrant and Bifrost as optional sidecars, gated by `docker compose --profile <name> up`. **No existing service is removed or replaced.**
+This 2026-06 proposal introduced optional `memory` (Qdrant) and `bifrost`
+sidecar profiles, which are present in the current Compose file. It did not
+add a shared SQL backend, replica coordination, or an active-active
+application topology. The current default does not include three application
+replicas or Caddy; select one application profile and keep SQLite single-writer.
 
 ## Why this is conservative
 
-OmniRoute's existing deployment shape is already lean and proven:
+The historical proposal considered these components; read its capacity claims
+as design motivation, not as measured current deployment guarantees:
 
-- **`redis:7-alpine`** handles the rate-limit/cache workload at production scale.
+- **Redis** handles rate-limit/cache workloads, not durable control-plane state.
 - **SQLite + sqlite-vec + FTS5** cover local memory + vector + text-search (see [`src/lib/memory/vectorStore.ts:108`](../../src/lib/memory/vectorStore.ts)).
-- **Caddy** is already the LB + TLS terminator ([`docker-compose.yml`](../../docker-compose.yml)).
+- **Caddy** was part of the proposed topology, not the checked-in Compose stack.
 - **Bifrost** is already integrated as the Tier-1 router in [`src/app/api/v1/relay/chat/completions/bifrost/route.ts`](../../src/app/api/v1/relay/chat/completions/bifrost/route.ts) (sidecar proxy with kill switch via `BIFROST_ENABLED` env var — set `=0` to bypass the sidecar and fall through to the TS path).
 
-The two profiles here are **scale-out options for deployments that hit the SQLite ceiling** — not migrations. Both are default-off.
+The two profiles are default-off sidecar options, not SQLite scale-out or migrations.
 
 ## The two profiles
 
