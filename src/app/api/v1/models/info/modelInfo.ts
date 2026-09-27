@@ -1,3 +1,5 @@
+import { canonicalWebModelId } from "../webLegacyIds";
+
 type CatalogModel = Record<string, unknown>;
 
 const ENDPOINT_BY_KIND: Record<string, string> = {
@@ -36,9 +38,21 @@ export function buildModelInfo(
   id: string,
   requestedKind?: string
 ): Record<string, unknown> | null {
-  const model = models.find(
+  const direct = models.find(
     (entry) => entry.id === id && (!requestedKind || modelInfoKind(entry) === requestedKind)
   );
+  const canonicalId = direct ? undefined : canonicalWebModelId(id);
+  const expectedWebKind = id.endsWith("/fetch") ? "webFetch" : "webSearch";
+  const model =
+    direct ??
+    (canonicalId
+      ? models.find(
+          (entry) =>
+            entry.id === canonicalId &&
+            modelInfoKind(entry) === expectedWebKind &&
+            (!requestedKind || modelInfoKind(entry) === requestedKind)
+        )
+      : undefined);
   if (!model) return null;
 
   const kind = modelInfoKind(model);
@@ -46,7 +60,7 @@ export function buildModelInfo(
     id,
     name: typeof model.name === "string" && model.name ? model.name : id,
     kind,
-    owned_by: model.owned_by ?? id.split("/")[0],
+    owned_by: canonicalId ? id.split("/")[0] : (model.owned_by ?? id.split("/")[0]),
     endpoint: ENDPOINT_BY_KIND[kind] ?? null,
   };
   for (const field of [

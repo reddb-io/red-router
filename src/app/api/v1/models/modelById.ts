@@ -1,5 +1,6 @@
 import { CORS_HEADERS } from "@/shared/utils/cors";
 import { buildErrorBody } from "@omniroute/open-sse/utils/error";
+import { WEB_LEGACY_IDS } from "./webLegacyIds";
 
 /**
  * #4674 — Shared logic for `GET /v1/models/{model}`.
@@ -12,14 +13,6 @@ import { buildErrorBody } from "@omniroute/open-sse/utils/error";
  */
 
 type CatalogModel = { id?: unknown } & Record<string, unknown>;
-
-const WEB_LEGACY_IDS: Record<string, string> = {
-  "exa-search/fetch": "exa/fetch",
-  "ollama-cloud/fetch": "ollama/fetch",
-  "tavily-search/fetch": "tavily/fetch",
-  "exa-search/search": "exa/search",
-  "tavily-search/search": "tavily/search",
-};
 
 /** Only synthesize a legacy alias from a model already visible to this key. */
 function webModelsForLegacyClients(data: CatalogModel[]): CatalogModel[] {

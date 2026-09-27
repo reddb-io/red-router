@@ -51,6 +51,15 @@ test("model info advertises only implemented fetch and voice discovery routes", 
 
   assert.equal(buildModelInfo(models, "exa-search/fetch")?.endpoint, "/v1/web/fetch");
   assert.equal(buildModelInfo(models, "exa-search/search")?.endpoint, "/v1/search");
+  assert.deepEqual(buildModelInfo(models, "exa/fetch", "webFetch"), {
+    id: "exa/fetch",
+    name: "exa/fetch",
+    kind: "webFetch",
+    owned_by: "exa",
+    endpoint: "/v1/web/fetch",
+    params: ["url", "format", "max_characters"],
+  });
+  assert.equal(buildModelInfo(models, "exa/search")?.endpoint, "/v1/search");
   assert.deepEqual(buildModelInfo(models, "exa-search/search")?.searchTypes, ["web", "news"]);
   assert.equal(buildModelInfo(models, "exa-search/search")?.maxResults, 100);
   assert.equal(
@@ -69,4 +78,6 @@ test("model info disambiguates duplicate ids by kind and excludes hidden ids", (
   assert.equal(buildModelInfo(models, "google/gemini-2.5-pro", "llm")?.kind, "llm");
   assert.equal(buildModelInfo(models, "google/gemini-2.5-pro", "image"), null);
   assert.equal(buildModelInfo(models, "missing/model"), null);
+  assert.equal(buildModelInfo([{ id: "exa-search/fetch", type: "chat" }], "exa/fetch"), null);
+  assert.equal(buildModelInfo([{ id: "exa-search/search", type: "webSearch" }], "exa/fetch"), null);
 });
