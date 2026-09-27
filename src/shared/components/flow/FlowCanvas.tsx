@@ -70,11 +70,15 @@ export function FlowCanvas({
   const rfInstance = useRef<ReactFlowInstance | null>(null);
   const initFitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const disposedRef = useRef(false);
   // Bumped on every onInit so queued fitView calls can be invalidated when
   // a new ReactFlow instance mounts (e.g. via fitKey change).
   const generationRef = useRef(0);
 
   const onInit = useCallback((instance: ReactFlowInstance) => {
+    // React Flow can deliver onInit after the parent has unmounted. Do not
+    // schedule a fitView against a disposed jsdom/browser viewport.
+    if (disposedRef.current) return;
     const generation = ++generationRef.current;
     rfInstance.current = instance;
     if (initFitTimerRef.current !== null) clearTimeout(initFitTimerRef.current);
@@ -83,7 +87,7 @@ export function FlowCanvas({
     // timer fires — see Bug #4 in the audit report.
     initFitTimerRef.current = setTimeout(() => {
       initFitTimerRef.current = null;
-      if (generationRef.current === generation) {
+      if (!disposedRef.current && generationRef.current === generation) {
         instance.fitView(FIT_VIEW_OPTIONS);
       }
     }, REFIT_DELAY_MS);
@@ -115,7 +119,9 @@ export function FlowCanvas({
   // tick fired just before the React tree unmounted) cannot reach into a
   // disposed ReactFlow instance.
   useEffect(() => {
+    disposedRef.current = false;
     return () => {
+      disposedRef.current = true;
       if (initFitTimerRef.current !== null) clearTimeout(initFitTimerRef.current);
       initFitTimerRef.current = null;
       rfInstance.current = null;
