@@ -44,6 +44,13 @@ export function hasUsableDecisionConnection(value: unknown): value is UsableDeci
   );
 }
 
+export function isDecisionConnectionAllowed(
+  connectionId: string,
+  allowedConnections: string[] | null | undefined
+): boolean {
+  return allowedConnections == null || allowedConnections.includes(connectionId);
+}
+
 export function readJevTier(payload: unknown): JevTier | null {
   if (!payload || typeof payload !== "object") return null;
   const answers = (payload as { answers?: unknown }).answers;
@@ -77,9 +84,12 @@ export function jevTierToMinimum(tier: JevTier): ComplexityTier {
 export async function classifyJevRoutingTier(
   body: Record<string, unknown>,
   config: JevRoutingConfig,
-  log: { info: (...args: unknown[]) => void; warn: (...args: unknown[]) => void }
+  log: { info: (...args: unknown[]) => void; warn: (...args: unknown[]) => void },
+  options: { allowedConnections?: string[] | null } = {}
 ): Promise<ComplexityTier | null> {
   if (config.mode !== "jev") return null;
+  if (Array.isArray(options.allowedConnections) && options.allowedConnections.length === 0)
+    return null;
   const target = resolveSystemOneTarget(config.model);
   if (!target) return null;
   const state = buildState(body, {
@@ -97,10 +107,12 @@ export async function classifyJevRoutingTier(
       const credentials = await getProviderCredentialsWithQuotaPreflight(
         credentialProvider,
         null,
-        null,
+        options.allowedConnections ?? null,
         target.model
       );
       if (!hasUsableDecisionConnection(credentials)) continue;
+      if (!isDecisionConnectionAllowed(credentials.connectionId, options.allowedConnections))
+        continue;
       if (await isConnectionUnavailableToAuxiliaryActivity(credentials.connectionId)) continue;
       const token = credentials.apiKey || credentials.accessToken;
       const anonymousOpenCode = target.provider === "opencode" && credentials.authType === "none";

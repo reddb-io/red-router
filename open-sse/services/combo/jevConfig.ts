@@ -3,6 +3,16 @@ export type JevRoutingConfig = {
   model: string;
 };
 
+/** Null means no key restriction; [] means a quota/key scope with no usable connection. */
+export function restrictJevConnections(
+  allowedConnections: string[] | null,
+  quotaConnectionIds: string[] | null
+): string[] | null {
+  if (quotaConnectionIds === null) return allowedConnections;
+  if (!allowedConnections) return quotaConnectionIds;
+  return allowedConnections.filter((id) => quotaConnectionIds.includes(id));
+}
+
 /** Persisted auto-combo decision settings; absent means no network evaluation. */
 export function parseJevRoutingConfig(combo: {
   autoConfig?: Record<string, unknown> | null;

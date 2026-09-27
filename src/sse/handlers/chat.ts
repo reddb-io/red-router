@@ -45,6 +45,10 @@ import { isVerifiedNativeCodexRequest } from "@omniroute/open-sse/config/codexId
 import { resolveCompressionSettings } from "@omniroute/open-sse/handlers/chatCore/compressionSettings.ts";
 import type { CompressionExclusions } from "@omniroute/open-sse/services/compression/exclusions.ts";
 import { resolveComboConfig } from "@omniroute/open-sse/services/comboConfig.ts";
+import {
+  parseJevRoutingConfig,
+  restrictJevConnections,
+} from "@omniroute/open-sse/services/combo/jevConfig.ts";
 import { comboPinAllowlist } from "@/lib/combos/steps.ts";
 import { injectHandoffIntoBody } from "@omniroute/open-sse/services/contextHandoff.ts";
 import { runWithTransientBackendRetry } from "@omniroute/open-sse/services/transientBackendRetry.ts";
@@ -1124,8 +1128,28 @@ async function handleChatImplementation(
     // Per-request Auto-Combo controls (#6023 / #6024 / #6025 / #3470): steer an
     // `auto` combo on this single request without mutating its stored config.
     const perRequestAutoControls = resolveRequestAutoControls(request.headers);
+    const jevRoutingConfig = parseJevRoutingConfig(combo);
+    let decisionAllowedConnections = normalizeAllowedConnectionIds(apiKeyInfo?.allowedConnections);
+    if (jevRoutingConfig.mode === "jev" && apiKeyInfo?.allowedQuotas?.length) {
+      try {
+        const quotaScope = await resolveQuotaKeyScope(apiKeyInfo.allowedQuotas);
+        decisionAllowedConnections = restrictJevConnections(
+          decisionAllowedConnections,
+          quotaScope.connectionIds
+        );
+      } catch {
+        // Inconclusive quota scope must not send an auxiliary paid request.
+        decisionAllowedConnections = [];
+      }
+    }
+    const decisionModelAllowed =
+      jevRoutingConfig.mode === "jev" &&
+      (decisionAllowedConnections === null || decisionAllowedConnections.length > 0) &&
+      (await isModelAllowedForKey(apiKey, jevRoutingConfig.model));
     const relayOptions = {
       sessionId,
+      decisionModelAllowed,
+      decisionAllowedConnections,
       ...(combo.strategy === "context-relay" ? { config: relayConfig } : {}),
       ...(bypassProviderQuotaPolicy ? { bypassProviderQuotaPolicy: true } : {}),
       ...perRequestAutoControls,

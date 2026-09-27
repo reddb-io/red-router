@@ -9,9 +9,14 @@ import { selectWithStrategy } from "../../open-sse/services/autoCombo/routerStra
 import { selectProvider } from "../../open-sse/services/autoCombo/engine.ts";
 import { setTierConfig } from "../../open-sse/services/tierResolver.ts";
 import type { RoutingHint } from "../../open-sse/services/manifestAdapter.ts";
-import { parseJevRoutingConfig } from "../../open-sse/services/combo/jevConfig.ts";
 import {
+  parseJevRoutingConfig,
+  restrictJevConnections,
+} from "../../open-sse/services/combo/jevConfig.ts";
+import {
+  classifyJevRoutingTier,
   hasUsableDecisionConnection,
+  isDecisionConnectionAllowed,
   jevTierToMinimum,
   readJevTier,
 } from "../../src/sse/services/jevRouting.ts";
@@ -60,6 +65,28 @@ test("JEV skips terminal and throttled credential selections", () => {
   assert.equal(hasUsableDecisionConnection({ allExpired: true }), false);
   assert.equal(hasUsableDecisionConnection({ connectionId: "a", allRateLimited: true }), false);
   assert.equal(hasUsableDecisionConnection({ connectionId: "a", apiKey: "key" }), true);
+});
+
+test("JEV respects the caller's connection allowlist before making an auxiliary call", () => {
+  assert.equal(isDecisionConnectionAllowed("decision-1", null), true);
+  assert.equal(isDecisionConnectionAllowed("decision-1", []), false);
+  assert.equal(isDecisionConnectionAllowed("decision-1", ["decision-1"]), true);
+  assert.equal(isDecisionConnectionAllowed("decision-1", ["chat-only"]), false);
+  assert.deepEqual(restrictJevConnections(null, ["decision-1"]), ["decision-1"]);
+  assert.deepEqual(restrictJevConnections(["chat-only"], ["decision-1"]), []);
+  assert.deepEqual(restrictJevConnections(["decision-1"], []), []);
+  assert.equal(restrictJevConnections(null, null), null);
+});
+
+test("JEV abstains before credential lookup when the caller has no eligible connection", async () => {
+  const log = { info() {}, warn() {} };
+  const result = await classifyJevRoutingTier(
+    { messages: [{ role: "user", content: "hello" }] },
+    { mode: "jev", model: "typesafe-ai/jev-latest" },
+    log,
+    { allowedConnections: [] }
+  );
+  assert.equal(result, null);
 });
 
 test("score and rules strategies consume the JEV tier hint for primary selection", () => {

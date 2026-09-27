@@ -68,6 +68,8 @@ export interface ResolveAutoStrategyDeps {
   config: { complexityAwareRouting?: boolean; compatFilterFailOpen?: boolean };
   relayOptions?: {
     bypassProviderQuotaPolicy?: boolean;
+    decisionModelAllowed?: boolean;
+    decisionAllowedConnections?: string[] | null;
     sessionId?: string | null;
     /** Per-request X-OmniRoute-Mode value (#6024/#6025). */
     mode?: string | null;
@@ -323,10 +325,12 @@ export async function resolveAutoStrategyOrder(
           log
         )
       : null;
-  if (autoManifestHint && jevConfig.mode === "jev") {
+  if (autoManifestHint && jevConfig.mode === "jev" && relayOptions?.decisionModelAllowed === true) {
     try {
       const { classifyJevRoutingTier } = await import("../../../src/sse/services/jevRouting");
-      const jevTier = await classifyJevRoutingTier(body, jevConfig, log);
+      const jevTier = await classifyJevRoutingTier(body, jevConfig, log, {
+        allowedConnections: relayOptions.decisionAllowedConnections,
+      });
       if (jevTier) {
         autoManifestHint.recommendedMinTier = escalateTier(
           autoManifestHint.recommendedMinTier,

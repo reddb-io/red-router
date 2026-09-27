@@ -99,6 +99,10 @@ export type ComboRelayOptions = {
   sessionId?: string | null;
   config?: Record<string, unknown> | null;
   bypassProviderQuotaPolicy?: boolean;
+  /** Whether the caller's API key may use the combo's configured decision model. */
+  decisionModelAllowed?: boolean;
+  /** Null is unrestricted; an empty list denies auxiliary decision traffic. */
+  decisionAllowedConnections?: string[] | null;
   /** Per-request X-OmniRoute-Mode value (auto-combo preset / mode-pack name) — #6024/#6025. */
   mode?: string | null;
   /** Per-request X-OmniRoute-Budget value (hard cost ceiling in USD) — #6023. */
