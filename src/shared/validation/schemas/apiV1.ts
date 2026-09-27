@@ -729,6 +729,11 @@ export const v1WebFetchSchema = z.object({
       "anysearch-search",
       "exa-search",
       "ollama-cloud",
+      // 9router provider-only IDs; resolved to the canonical transports at the route boundary.
+      "exa",
+      "jina",
+      "ollama",
+      "tavily",
     ])
     .optional(),
   format: z.enum(["text", "markdown", "html", "links", "screenshot"]).default("markdown"),

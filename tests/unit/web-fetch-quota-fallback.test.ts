@@ -132,6 +132,30 @@ test("9router model requests get structured content without changing provider-on
   }
 });
 
+test("9router provider alias selects the canonical transport and structured response", async () => {
+  await seedConnection("exa-search", { apiKey: "exa-key" });
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    assert.equal(String(url), "https://api.exa.ai/contents");
+    return new Response(JSON.stringify({ results: [{ text: "Example body", title: "Example" }] }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+  try {
+    const response = await postWebFetch({ provider: "exa" });
+    const body = (await response.json()) as {
+      provider: string;
+      content: { format: string; text: string; length: number };
+    };
+    assert.equal(response.status, 200);
+    assert.equal(body.provider, "exa");
+    assert.deepEqual(body.content, { format: "markdown", text: "Example body", length: 12 });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 // ── (b) request-time: credentialed provider returns 429 → falls through ────
 
 test("auto-select falls through to jina-reader when firecrawl returns 429 at request time", async () => {

@@ -22,12 +22,23 @@ export type WebFetchModelResolution =
 
 /** A model field is the unambiguous marker for 9router's web-fetch contract. */
 export function resolveWebFetchModel(
-  provider: WebFetchProviderId | undefined,
+  provider: string | undefined,
   model: string | undefined,
   legacyHeader: string | null = null
 ): WebFetchModelResolution {
+  const resolvedProvider = provider
+    ? WEB_FETCH_PROVIDERS.includes(provider as WebFetchProviderId)
+      ? (provider as WebFetchProviderId)
+      : LEGACY_PROVIDER_ALIASES[provider]
+    : undefined;
+  if (provider && !resolvedProvider) return { ok: false };
   if (!model) {
-    return { ok: true, provider, legacyResponse: legacyHeader === "1" };
+    return {
+      ok: true,
+      provider: resolvedProvider,
+      legacyResponse:
+        legacyHeader === "1" || (provider !== undefined && provider !== resolvedProvider),
+    };
   }
   if (model === "fetch-combo") {
     return provider ? { ok: false } : { ok: true, legacyResponse: true };
@@ -36,7 +47,7 @@ export function resolveWebFetchModel(
   const resolved = WEB_FETCH_PROVIDERS.includes(name as WebFetchProviderId)
     ? (name as WebFetchProviderId)
     : LEGACY_PROVIDER_ALIASES[name];
-  if (!resolved || (provider && provider !== resolved)) return { ok: false };
+  if (!resolved || (resolvedProvider && resolvedProvider !== resolved)) return { ok: false };
   return { ok: true, provider: resolved, legacyResponse: true };
 }
 

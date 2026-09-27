@@ -32,7 +32,18 @@ test("9router model IDs resolve to the existing provider transports", () => {
     provider: "firecrawl",
     legacyResponse: true,
   });
+  assert.deepEqual(resolveWebFetchModel("exa", undefined), {
+    ok: true,
+    provider: "exa-search",
+    legacyResponse: true,
+  });
+  assert.deepEqual(resolveWebFetchModel("tavily", "tavily/fetch"), {
+    ok: true,
+    provider: "tavily-search",
+    legacyResponse: true,
+  });
   assert.deepEqual(resolveWebFetchModel("firecrawl", "exa"), { ok: false });
+  assert.deepEqual(resolveWebFetchModel("unknown", undefined), { ok: false });
   assert.deepEqual(resolveWebFetchModel(undefined, "missing/fetch"), { ok: false });
   assert.equal(
     v1WebFetchSchema.parse({ url: "https://example.com", model: "firecrawl/fetch" }).model,
@@ -42,6 +53,10 @@ test("9router model IDs resolve to the existing provider transports", () => {
     v1WebFetchSchema.parse({ url: "https://example.com", model: "firecrawl/fetch", format: "text" })
       .format,
     "text"
+  );
+  assert.equal(
+    v1WebFetchSchema.parse({ url: "https://example.com", provider: "exa" }).provider,
+    "exa"
   );
 });
 
