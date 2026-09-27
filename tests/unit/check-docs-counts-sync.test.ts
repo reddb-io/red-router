@@ -90,8 +90,8 @@ test("readProviderTotal reads a real, positive total from the catalog", () => {
   assert.ok(readTotal() >= 300, "live provider catalog total should be at least 300");
 });
 
-test("countLocales reads a real, positive locale count from config/i18n.json", () => {
-  assert.ok(locales() >= 40, "i18n config should define at least 40 locales");
+test("countLocales reads the English-only catalog count", () => {
+  assert.equal(locales(), 1);
 });
 
 // --- live gate smoke -----------------------------------------------------------------
