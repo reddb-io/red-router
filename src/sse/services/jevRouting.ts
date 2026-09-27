@@ -11,12 +11,18 @@ import {
   resolveSystemOneTarget,
 } from "@omniroute/open-sse/handlers/systemOneCore.ts";
 import { buildState, type JevState } from "@omniroute/open-sse/decision/state.ts";
-import { buildToolQuestions, shortlistTools } from "@omniroute/open-sse/decision/questions.ts";
 import {
+  buildModelQuestions,
+  buildToolQuestions,
+  shortlistTools,
+} from "@omniroute/open-sse/decision/questions.ts";
+import {
+  resolveModelDecision,
   resolveToolDecision,
   type ToolDecisionResult,
 } from "@omniroute/open-sse/decision/decide.ts";
 import { normalizeAnswers } from "@omniroute/open-sse/decision/jev.ts";
+import { resolveCriteria } from "@omniroute/open-sse/decision/modelBriefs.ts";
 import { isEncryptedTask } from "@omniroute/open-sse/decision/signals.ts";
 import {
   extractTools,
@@ -25,6 +31,7 @@ import {
 } from "@omniroute/open-sse/decision/tools.ts";
 import type { ComplexityTier } from "@omniroute/open-sse/services/autoCombo/complexityRouter.ts";
 import type { JevRoutingConfig } from "@omniroute/open-sse/services/combo/jevConfig.ts";
+import type { AutoProviderCandidate } from "@omniroute/open-sse/services/combo/types.ts";
 import { runWithProxyContext } from "@omniroute/open-sse/utils/proxyFetch.ts";
 import { resolveProxyForConnection } from "@/lib/db/settings";
 import { hasBlockingProxyAssignment } from "@/lib/db/proxies";
@@ -33,6 +40,7 @@ import { isConnectionUnavailableToAuxiliaryActivity } from "@/lib/exclusiveLease
 import { saveRequestUsage } from "@/lib/usage/usageHistory";
 
 type JevTier = (typeof JEV_TIERS)[number];
+type JevModelCandidate = Pick<AutoProviderCandidate, "provider" | "model" | "costPer1MTokens">;
 type JevLog = { info: (...args: unknown[]) => void; warn: (...args: unknown[]) => void };
 type JevEvaluationOptions = {
   allowedConnections?: string[] | null;
@@ -92,6 +100,47 @@ export function jevTierToMinimum(tier: JevTier): ComplexityTier {
   if (tier === "SIMPLE") return "free";
   if (tier === "MEDIUM") return "cheap";
   return "premium";
+}
+
+/** The evaluator may see only models the combo can route, within the request's cost cap. */
+export function buildJevModelPool(
+  candidates: JevModelCandidate[],
+  budgetCap: number | null | undefined,
+  estimatedInputTokens: number
+): Array<JevModelCandidate & { id: string }> {
+  const tokens =
+    Number.isFinite(estimatedInputTokens) && estimatedInputTokens > 0 ? estimatedInputTokens : 1000;
+  const pool = new Map<string, JevModelCandidate & { id: string }>();
+  for (const candidate of candidates) {
+    if (!candidate.provider || !candidate.model) continue;
+    const price = candidate.costPer1MTokens;
+    if (budgetCap && (!Number.isFinite(price) || (price * tokens) / 1_000_000 > budgetCap))
+      continue;
+    const id = `${candidate.provider}/${candidate.model}`;
+    if (!pool.has(id)) pool.set(id, { ...candidate, id });
+  }
+  return [...pool.values()];
+}
+
+/** A verdict outside the authorized pool or below the model gate never changes routing. */
+export function readJevModelChoice(
+  payload: unknown,
+  pool: Array<JevModelCandidate & { id: string }>
+): string | null {
+  if (!payload || typeof payload !== "object" || pool.length < 2) return null;
+  const answers = (payload as { answers?: unknown }).answers;
+  if (!answers || typeof answers !== "object" || Array.isArray(answers)) return null;
+  const normalized = normalizeAnswers(answers as Record<string, unknown>);
+  const byId = new Map(pool.map((candidate) => [candidate.id, candidate]));
+  const verdict = resolveModelDecision({
+    answers: normalized,
+    models: [...byId.keys()],
+    priceOf: (id) => {
+      const price = byId.get(id)?.costPer1MTokens;
+      return typeof price === "number" && Number.isFinite(price) ? price : null;
+    },
+  });
+  return verdict.apply && verdict.model && byId.has(verdict.model) ? verdict.model : null;
 }
 
 /** The successful upstream evaluation is never repeated because local usage persistence failed. */
@@ -217,6 +266,38 @@ export async function classifyJevRoutingTier(
   }
   log.info("JEV", `Evaluation tier=${tier}`);
   return jevTierToMinimum(tier);
+}
+
+/** Optional direct Auto-Combo model choice; an inconclusive verdict preserves the existing scorer. */
+export async function decideJevModel(
+  body: Record<string, unknown>,
+  config: JevRoutingConfig,
+  candidates: JevModelCandidate[],
+  budgetCap: number | null | undefined,
+  estimatedInputTokens: number,
+  log: JevLog,
+  options: JevEvaluationOptions = {}
+): Promise<string | null> {
+  if (config.mode !== "jev" || config.modelMode !== "jev" || isEncryptedTask(body)) return null;
+  const pool = buildJevModelPool(candidates, budgetCap, estimatedInputTokens);
+  if (pool.length < 2 || pool.length > 255) return null;
+  const criteria = new Map(
+    pool.map((candidate) => [
+      candidate.id,
+      resolveCriteria({ provider: candidate.provider, model: candidate.model }),
+    ])
+  );
+  // Do not silently omit unknown models from the question or ask JEV to choose
+  // using an uninformative name alone.
+  if ([...criteria.values()].some((description) => !description)) return null;
+  const state = buildState(body, { maxStateChars: JEV_STATE_CHAR_BUDGET, dropSystem: true });
+  if (!state.request && !state.conversation?.length) return null;
+  const { questions } = buildModelQuestions(
+    pool.map((candidate) => candidate.id),
+    (id) => criteria.get(id) ?? null
+  );
+  const result = await askJevFromStoredConnection(config, state, questions, log, options);
+  return readJevModelChoice(result?.payload, pool);
 }
 
 /** Optional tool choice for a combo turn; every inconclusive answer leaves the body untouched. */

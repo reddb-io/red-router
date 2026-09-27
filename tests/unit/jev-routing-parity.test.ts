@@ -15,13 +15,16 @@ import {
   restrictJevConnections,
 } from "../../open-sse/services/combo/jevConfig.ts";
 import {
+  buildJevModelPool,
   classifyJevRoutingTier,
   createJevToolDecision,
+  decideJevModel,
   decideJevTool,
   hasUsableDecisionConnection,
   isDecisionConnectionAllowed,
   jevTierToMinimum,
   readJevTier,
+  readJevModelChoice,
 } from "../../src/sse/services/jevRouting.ts";
 import { applyToolDecision } from "../../open-sse/handlers/chatCore/toolDecision.ts";
 import { normalizeAnswers } from "../../open-sse/decision/jev.ts";
@@ -35,12 +38,13 @@ test("JEV routing remains off unless explicitly configured", () => {
     mode: "off",
     model: "typesafe-ai/jev-latest",
     toolMode: "off",
+    modelMode: "off",
   });
   assert.deepEqual(
     parseJevRoutingConfig({
       config: { auto: { decision: { mode: "jev", model: "opencode-zen/jev-1.13-free" } } },
     }),
-    { mode: "jev", model: "opencode-zen/jev-1.13-free", toolMode: "off" }
+    { mode: "jev", model: "opencode-zen/jev-1.13-free", toolMode: "off", modelMode: "off" }
   );
   assert.equal(
     parseJevRoutingConfig({ autoConfig: { decision: { mode: "unknown" } } }).mode,
@@ -49,6 +53,10 @@ test("JEV routing remains off unless explicitly configured", () => {
   assert.equal(
     parseJevRoutingConfig({ config: { decision: { mode: "jev", toolMode: "hint" } } }).toolMode,
     "hint"
+  );
+  assert.equal(
+    parseJevRoutingConfig({ config: { decision: { mode: "jev", modelMode: "jev" } } }).modelMode,
+    "jev"
   );
 });
 
@@ -69,6 +77,10 @@ test("combo writes bound the decision model and reject unsupported JEV modes", (
   );
   assert.equal(
     comboRuntimeConfigSchema.safeParse({ decision: { mode: "jev", toolMode: "unsafe" } }).success,
+    false
+  );
+  assert.equal(
+    comboRuntimeConfigSchema.safeParse({ decision: { mode: "jev", modelMode: "unsafe" } }).success,
     false
   );
   assert.equal(
@@ -126,6 +138,76 @@ test("JEV tool verdict accepts gateway probabilities when confidence is omitted"
   );
 });
 
+test("JEV model pool deduplicates connections and enforces the request budget", () => {
+  const candidates = [
+    { provider: "anthropic", model: "claude-sonnet-5", costPer1MTokens: 8 },
+    { provider: "anthropic", model: "claude-sonnet-5", costPer1MTokens: 8 },
+    { provider: "openai", model: "gpt-6-luna", costPer1MTokens: 1 },
+  ];
+  assert.deepEqual(
+    buildJevModelPool(candidates, 0.002, 1000).map((candidate) => candidate.id),
+    ["openai/gpt-6-luna"]
+  );
+  assert.deepEqual(
+    buildJevModelPool(candidates, null, 1000).map((candidate) => candidate.id),
+    ["anthropic/claude-sonnet-5", "openai/gpt-6-luna"]
+  );
+});
+
+test("JEV model verdict must be confident and inside the eligible pool", () => {
+  const pool = buildJevModelPool(
+    [
+      { provider: "anthropic", model: "claude-sonnet-5", costPer1MTokens: 8 },
+      { provider: "openai", model: "gpt-6-luna", costPer1MTokens: 1 },
+    ],
+    null,
+    1000
+  );
+  const answers = (choice: string, probabilities: Record<string, number>) => ({
+    answers: {
+      model: { type: "choice", choice, probabilities },
+      needs_reasoning: { type: "noul", noul: 0.5 },
+    },
+  });
+  assert.equal(
+    readJevModelChoice(
+      answers("anthropic/claude-sonnet-5", {
+        "anthropic/claude-sonnet-5": 0.95,
+        "openai/gpt-6-luna": 0.05,
+      }),
+      pool
+    ),
+    "anthropic/claude-sonnet-5"
+  );
+  assert.equal(readJevModelChoice(answers("other/model", { "other/model": 1 }), pool), null);
+  assert.equal(
+    readJevModelChoice(
+      answers("anthropic/claude-sonnet-5", {
+        "anthropic/claude-sonnet-5": 0.51,
+        "openai/gpt-6-luna": 0.49,
+      }),
+      pool
+    ),
+    null
+  );
+});
+
+test("JEV model routing abstains when the API key has no evaluator connection", async () => {
+  const result = await decideJevModel(
+    { messages: [{ role: "user", content: "Implement the feature" }] },
+    { mode: "jev", model: "typesafe-ai/jev-latest", toolMode: "off", modelMode: "jev" },
+    [
+      { provider: "anthropic", model: "claude-sonnet-5", costPer1MTokens: 8 },
+      { provider: "openai", model: "gpt-6-luna", costPer1MTokens: 1 },
+    ],
+    null,
+    1000,
+    { info() {}, warn() {} },
+    { allowedConnections: [] }
+  );
+  assert.equal(result, null);
+});
+
 test("JEV skips terminal and throttled credential selections", () => {
   assert.equal(hasUsableDecisionConnection({ allExpired: true }), false);
   assert.equal(hasUsableDecisionConnection({ connectionId: "a", allRateLimited: true }), false);
@@ -147,7 +229,7 @@ test("JEV abstains before credential lookup when the caller has no eligible conn
   const log = { info() {}, warn() {} };
   const result = await classifyJevRoutingTier(
     { messages: [{ role: "user", content: "hello" }] },
-    { mode: "jev", model: "typesafe-ai/jev-latest", toolMode: "off" },
+    { mode: "jev", model: "typesafe-ai/jev-latest", toolMode: "off", modelMode: "off" },
     log,
     { allowedConnections: [], apiKeyId: "request-key" }
   );
@@ -160,7 +242,7 @@ test("JEV abstains before credential lookup when the client has disconnected", a
   const log = { info() {}, warn() {} };
   const result = await classifyJevRoutingTier(
     { messages: [{ role: "user", content: "hello" }] },
-    { mode: "jev", model: "typesafe-ai/jev-latest", toolMode: "off" },
+    { mode: "jev", model: "typesafe-ai/jev-latest", toolMode: "off", modelMode: "off" },
     log,
     { signal: controller.signal }
   );
@@ -173,6 +255,7 @@ test("JEV tool decision stays opt-in and preserves explicit client choices", asy
     mode: "jev" as const,
     model: "typesafe-ai/jev-latest",
     toolMode: "forced" as const,
+    modelMode: "off" as const,
   };
   assert.equal(createJevToolDecision(config, false, log), null);
   assert.equal(createJevToolDecision({ ...config, toolMode: "off" }, true, log), null);
@@ -193,7 +276,7 @@ test("JEV tool decision stays opt-in and preserves explicit client choices", asy
 test("JEV chat callback abstains without eligible connections and runs only once", async () => {
   const log = { info() {}, warn() {} };
   const callback = createJevToolDecision(
-    { mode: "jev", model: "typesafe-ai/jev-latest", toolMode: "forced" },
+    { mode: "jev", model: "typesafe-ai/jev-latest", toolMode: "forced", modelMode: "off" },
     true,
     log,
     { allowedConnections: [] }

@@ -81,6 +81,7 @@ const jevDecisionConfigSchema = z
     mode: z.enum(["off", "jev"]).optional(),
     model: z.string().trim().min(1).max(200).optional(),
     toolMode: z.enum(["off", "hint", "none", "forced"]).optional(),
+    modelMode: z.enum(["off", "jev"]).optional(),
   })
   .passthrough();
 

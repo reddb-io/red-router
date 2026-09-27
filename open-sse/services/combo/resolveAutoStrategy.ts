@@ -327,7 +327,12 @@ export async function resolveAutoStrategyOrder(
           log
         )
       : null;
-  if (autoManifestHint && jevConfig.mode === "jev" && relayOptions?.decisionModelAllowed === true) {
+  if (
+    autoManifestHint &&
+    jevConfig.mode === "jev" &&
+    jevConfig.modelMode !== "jev" &&
+    relayOptions?.decisionModelAllowed === true
+  ) {
     try {
       const { classifyJevRoutingTier } = await import("../../../src/sse/services/jevRouting");
       const jevTier = await classifyJevRoutingTier(body, jevConfig, log, {
@@ -452,6 +457,48 @@ export async function resolveAutoStrategyOrder(
       selectedModel = selection.model;
       selectedConnectionId = selection.connectionId ?? null;
       selectionReason = `score=${selection.score.toFixed(3)}${selection.isExploration ? " (exploration)" : ""}`;
+    }
+
+    if (jevConfig.modelMode === "jev" && relayOptions?.decisionModelAllowed === true) {
+      try {
+        const { decideJevModel } = await import("../../../src/sse/services/jevRouting");
+        const jevChoice = await decideJevModel(
+          body,
+          jevConfig,
+          routableCandidates,
+          budgetCap,
+          estimatedInputTokens,
+          log,
+          {
+            allowedConnections: relayOptions.decisionAllowedConnections,
+            apiKeyId: relayOptions.decisionApiKeyId,
+            signal: relayOptions.decisionSignal,
+          }
+        );
+        const chosen = jevChoice
+          ? routableCandidates.find(
+              (candidate) => `${candidate.provider}/${candidate.model}` === jevChoice
+            )
+          : null;
+        if (
+          chosen &&
+          scoredTargets.some((entry) => {
+            const parsed = parseModel(entry.target.modelStr);
+            return (
+              entry.target.provider === chosen.provider &&
+              (parsed.model || entry.target.modelStr) === chosen.model
+            );
+          })
+        ) {
+          selectedProvider = chosen.provider;
+          selectedModel = chosen.model;
+          selectedConnectionId = null;
+          selectionReason = "jev:model";
+          autoUsedExplicitRouter = true;
+        }
+      } catch {
+        log.warn("JEV", "Model evaluation unavailable; retaining deterministic selection");
+      }
     }
 
     const rankedTargets = scoredTargets.map((entry) => entry.target);
