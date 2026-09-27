@@ -36,6 +36,13 @@ export const DEFAULT_SWITCH_STRENGTH = 0.6;
 type JsonRecord = Record<string, unknown>;
 type Answer = JsonRecord;
 type PriceOf = (model: string) => number | null;
+type SwitchOptions = {
+  confidence: number;
+  verdict: string | null;
+  previousVerdict?: string | null;
+  minConfidence?: number;
+  switchConfidence?: number;
+};
 
 export type SwitchGate = { change: boolean; reason: string };
 
@@ -51,7 +58,7 @@ export function decideSwitch({
   previousVerdict = null,
   minConfidence = DEFAULT_MIN_CONFIDENCE,
   switchConfidence = DEFAULT_SWITCH_CONFIDENCE,
-} = {}): { change: boolean; reason: string } {
+}: SwitchOptions): SwitchGate {
   if (!verdict) return { change: false, reason: "no_verdict" };
   if (!(confidence >= minConfidence)) return { change: false, reason: "low_confidence" };
   if (confidence >= switchConfidence) return { change: true, reason: "clear" };
@@ -84,8 +91,8 @@ export function rankByCost(models: string[], priceOf: PriceOf): string[] {
 export const TIE_BAND = 0.15;
 
 /** The pool's cheapest entry, or nothing when there is no price to rank by. */
-const cheapestOf = (models: string[], priceOf: PriceOf): string | null =>
-  priceOf ? rankByCost(models, priceOf)[0] : null;
+const cheapestOf = (models: string[], priceOf: PriceOf | null): string | null =>
+  priceOf ? (rankByCost(models, priceOf)[0] ?? null) : null;
 
 /**
  * The cheapest model jev rated as good as its pick.
@@ -130,6 +137,18 @@ export type ModelDecision = {
   downgradedFrom?: string;
 };
 
+type ModelDecisionOptions = {
+  answers: JsonRecord;
+  models?: string[];
+  priceOf?: PriceOf | null;
+  minStrength?: number;
+  switchStrength?: number;
+  previousVerdict?: string | null;
+  needsDeliberation?: boolean;
+  warmMember?: string | null;
+  cacheSwitchStrength?: number | null;
+};
+
 /**
  * Auto-combo: the model for this turn.
  *
@@ -156,7 +175,7 @@ export function resolveModelDecision({
   // verdict needs to move off it (a switch re-pays the whole prompt).
   warmMember = null,
   cacheSwitchStrength = null,
-} = {}): ModelDecision {
+}: ModelDecisionOptions): ModelDecision {
   const pick = answers?.model as Answer | undefined;
   const deliberation = answers?.needs_reasoning as Answer | undefined;
   if (!pick || pick.type !== "choice" || !models.includes(pick.choice as string)) {
@@ -184,7 +203,7 @@ export function resolveModelDecision({
   const strength = winnerStrength(sanitizedPick);
 
   // Reported even when not applied: the caller tracks the previous verdict.
-  const usable: ModelDecision = {
+  const usable: Omit<ModelDecision, "apply" | "reason"> = {
     model: chosen,
     confidence: pick.confidence,
     strength,
@@ -196,14 +215,16 @@ export function resolveModelDecision({
     warmMember &&
     models.includes(warmMember) &&
     chosen !== warmMember &&
+    typeof cacheSwitchStrength === "number" &&
     Number.isFinite(cacheSwitchStrength) &&
-    (cacheSwitchStrength as number) > switchStrength;
+    cacheSwitchStrength > switchStrength;
   const gate = decideStrength({
     strength,
     verdict: chosen,
     previousVerdict,
     minStrength,
-    switchStrength: leavesWarmCache ? (cacheSwitchStrength as number) : switchStrength,
+    switchStrength:
+      leavesWarmCache && cacheSwitchStrength !== null ? cacheSwitchStrength : switchStrength,
   });
   if (!gate.change) {
     // Held back only by the warm cache: say so, so the log explains the stay.
@@ -259,7 +280,13 @@ export function decideStrength({
   previousVerdict = null,
   minStrength = DEFAULT_MIN_STRENGTH,
   switchStrength = DEFAULT_SWITCH_STRENGTH,
-} = {}): { change: boolean; reason: string } {
+}: {
+  strength: number;
+  verdict: string | null;
+  previousVerdict?: string | null;
+  minStrength?: number;
+  switchStrength?: number;
+}): SwitchGate {
   if (!verdict) return { change: false, reason: "no_verdict" };
   if (!(strength >= minStrength)) return { change: false, reason: "no_favourite" };
   if (strength >= switchStrength) return { change: true, reason: "clear" };
@@ -293,7 +320,14 @@ export function resolveToolDecision({
   allowed = "forced",
   minConfidence = DEFAULT_MIN_CONFIDENCE,
   extendedThinking = false,
-} = {}): ToolDecisionResult {
+}: {
+  answers: JsonRecord;
+  tools?: string[];
+  plans?: { name: string; kind?: string }[];
+  allowed?: "off" | "hint" | "none" | "forced";
+  minConfidence?: number;
+  extendedThinking?: boolean;
+}): ToolDecisionResult {
   const rank: Record<string, number> = { off: -1, hint: 0, none: 1, forced: 2 };
   // A pin cannot survive extended thinking, so the ceiling drops to `hint` — the
   // one mode that still reaches the model without writing tool_choice.
