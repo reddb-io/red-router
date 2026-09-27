@@ -2,11 +2,11 @@
  * db/apiKeys.js — API key management.
  */
 
-import { createHash } from "crypto";
 import { v4 as uuidv4 } from "uuid";
 import { getDbInstance, rowToCamel } from "./core";
 import {
   insertInitialKeyQuotaLimitsInTransaction,
+  snapshotInitialKeyQuotaLimits,
   type UpsertKeyQuotaLimitsInput,
 } from "./keyQuota";
 import { backupDbFile } from "./backup";
@@ -70,9 +70,12 @@ import {
 } from "./apiKeys/modelPermissionCache";
 import type { ModelAccessMode } from "./apiKeys/modelAccessMode";
 import {
+  EXCLUSIVE_LEASE_SCOPE,
+  assertExclusiveLeaseKeyPolicy,
   normalizeApiKeyPermissionsUpdate,
   type ApiKeyPermissionsUpdate,
 } from "./apiKeys/permissionsUpdate";
+import { hashKey } from "./apiKeys/keyHash";
 import { getModelCatalogCacheVersion, invalidateModelCatalogCache } from "./readCache";
 import type { AccessSchedule, RateLimitRule } from "./apiKeys/types";
 
@@ -251,20 +254,7 @@ const _lastUsedUpdateCache = new Map<string, number>();
 const CACHE_TTL = 60 * 1000; // 1 minute TTL
 const LAST_USED_UPDATE_TTL = 5 * 60 * 1000;
 const MAX_CACHE_SIZE = 1000;
-const EXCLUSIVE_LEASE_SCOPE = "lease:exclusive";
-
-export class ApiKeyPolicyInvariantError extends Error {
-  readonly code = "LEASE_KEY_POLICY_INVALID";
-}
-
-function assertExclusiveLeaseKeyPolicy(
-  scopes: readonly string[],
-  allowedConnections: readonly string[]
-): void {
-  if (scopes.includes(EXCLUSIVE_LEASE_SCOPE) && allowedConnections.length === 0) {
-    throw new ApiKeyPolicyInvariantError("lease:exclusive requires explicit allowedConnections");
-  }
-}
+export { ApiKeyPolicyInvariantError } from "./apiKeys/permissionsUpdate";
 
 // Prepared statements cache
 let _stmtGetAllKeys: ApiKeysStatements["getAllKeys"] | null = null;
@@ -684,16 +674,6 @@ export async function getApiKeyById(id: string) {
   return camelRow;
 }
 
-async function hashKey(key: string): Promise<string> {
-  if (!key || typeof key !== "string") return "";
-  // CodeQL: This is intentionally SHA-256, NOT password hashing. API keys are
-  // high-entropy random tokens (not user-chosen passwords) and need fast O(1)
-  // comparison for per-request validation. bcrypt/scrypt would add ~100ms per
-  // request, which is unacceptable for an API proxy.
-  // lgtm[js/insufficient-password-hash]
-  return createHash("sha256").update(key).digest("hex"); // nosemgrep: insufficient-password-hash
-}
-
 export async function createApiKey(
   name: string,
   machineId: string,
@@ -714,28 +694,7 @@ export async function createApiKey(
   assertExclusiveLeaseKeyPolicy(scopes, allowedConnections);
   // Snapshot before async key generation so a caller cannot mutate validated
   // limits between validation and the transactional insert.
-  const quotaLimits = options.quotaLimits ? { ...options.quotaLimits } : undefined;
-  if (quotaLimits) {
-    for (const [dimension, value] of Object.entries(quotaLimits)) {
-      if (
-        dimension !== "tpmLimit" &&
-        dimension !== "rpmLimit" &&
-        dimension !== "dailyTokensLimit" &&
-        dimension !== "monthlyAmountUsd"
-      ) {
-        throw new Error(`Unknown API key quota dimension: ${dimension}`);
-      }
-      if (value === null || value === undefined || value === 0) continue;
-      if (
-        typeof value !== "number" ||
-        !Number.isFinite(value) ||
-        value < 0 ||
-        (dimension !== "monthlyAmountUsd" && !Number.isSafeInteger(value))
-      ) {
-        throw new Error(`Invalid API key quota limit: ${dimension}`);
-      }
-    }
-  }
+  const quotaLimits = snapshotInitialKeyQuotaLimits(options.quotaLimits);
 
   const db = getDbInstance() as ApiKeysDbLike;
   const now = new Date().toISOString();

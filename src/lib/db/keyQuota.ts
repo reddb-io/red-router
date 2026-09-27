@@ -145,6 +145,32 @@ export interface UpsertKeyQuotaLimitsInput {
   monthlyAmountUsd?: number | null;
 }
 
+/** Validate and copy before the asynchronous bearer-key generation begins. */
+export function snapshotInitialKeyQuotaLimits(input?: UpsertKeyQuotaLimitsInput) {
+  if (!input) return undefined;
+  const limits = { ...input };
+  for (const [dimension, value] of Object.entries(limits)) {
+    if (
+      dimension !== "tpmLimit" &&
+      dimension !== "rpmLimit" &&
+      dimension !== "dailyTokensLimit" &&
+      dimension !== "monthlyAmountUsd"
+    ) {
+      throw new Error(`Unknown API key quota dimension: ${dimension}`);
+    }
+    if (value === null || value === undefined || value === 0) continue;
+    if (
+      typeof value !== "number" ||
+      !Number.isFinite(value) ||
+      value < 0 ||
+      (dimension !== "monthlyAmountUsd" && !Number.isSafeInteger(value))
+    ) {
+      throw new Error(`Invalid API key quota limit: ${dimension}`);
+    }
+  }
+  return limits;
+}
+
 function writeQuotaLimits(
   db: ReturnType<typeof getDbInstance>,
   apiKeyId: string,

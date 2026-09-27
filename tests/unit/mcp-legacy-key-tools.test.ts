@@ -8,6 +8,7 @@ const secret = "sk-do-not-leak";
 const key = {
   id: "key-1",
   name: "Client",
+  createdAt: "2026-09-27T00:00:00.000Z",
   key: secret,
   keyHash: "private-hash",
   machineId: "private-machine",
@@ -27,9 +28,17 @@ const key = {
 };
 
 function server(isAdmin: boolean): LegacyMcpServer {
+  const caller = { ...key, scopes: isAdmin ? ["manage"] : [] };
   const store: LegacyKeyStore = {
-    getById: async (id) => (id === key.id ? (key as never) : null),
+    getById: async (id) => (id === key.id ? (caller as never) : null),
     list: async () => [key as never],
+    limits: (id) => ({
+      apiKeyId: id,
+      tpmLimit: null,
+      rpmLimit: 5,
+      dailyTokensLimit: 100,
+      monthlyAmountUsd: 2,
+    }),
   };
   return {
     info: { name: "red-router", version: "test" },
@@ -48,6 +57,9 @@ describe("legacy MCP API-key tools", () => {
     const serialized = JSON.stringify(result);
     assert.match(serialized, /"id":"key-1"/);
     assert.match(serialized, /"bound_accounts":1/);
+    assert.match(serialized, /"role":"standard"/);
+    assert.match(serialized, /"tokensPerDay":100/);
+    assert.doesNotMatch(serialized, /"tags":/);
     assert.doesNotMatch(serialized, /sk-do-not-leak|private-hash|private-machine|connection-1/);
   });
 
@@ -65,6 +77,7 @@ describe("legacy MCP API-key tools", () => {
     const result = await handleLegacyMcpBody(call("list_api_keys"), server(true));
     const serialized = JSON.stringify(result);
     assert.match(serialized, /"total":1/);
+    assert.match(serialized, /"role":"admin"/);
     assert.doesNotMatch(serialized, /sk-do-not-leak|private-hash|private-machine|connection-1/);
   });
 });
