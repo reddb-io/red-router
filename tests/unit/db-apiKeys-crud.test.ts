@@ -25,6 +25,7 @@ process.env.API_KEY_SECRET = "test-api-key-secret-for-crc-operations-do-not-use-
 const core = await import("../../src/lib/db/core.ts");
 const apiKeys = await import("../../src/lib/db/apiKeys.ts");
 const apiKeyTags = await import("../../src/lib/db/apiKeys/tags.ts");
+const apiKeyIdFormat = await import("../../src/lib/db/apiKeys/idFormat.ts");
 const keyQuota = await import("../../src/lib/db/keyQuota.ts");
 
 async function resetStorage() {
@@ -123,6 +124,44 @@ test("API key tag and quota batch reads include default values", async () => {
   const bulkIds = Array.from({ length: 401 }, (_, index) => `missing-${index}`);
   assert.equal(apiKeyTags.getApiKeyTagsMany(bulkIds).size, 401);
   assert.equal(keyQuota.getKeyQuotaLimitsMany(bulkIds).size, 401);
+});
+
+test("createApiKey stores a flat model-ID preference with the bearer key", async () => {
+  await resetStorage();
+  const flat = await apiKeys.createApiKey("Flat Key", "machine-flat", [], {
+    modelIdFormat: "flat",
+  });
+  const defaultKey = await apiKeys.createApiKey("Default Key", "machine-prefixed");
+  assert.equal(apiKeyIdFormat.getApiKeyModelIdFormat(flat.id), "flat");
+  assert.equal(apiKeyIdFormat.getApiKeyModelIdFormat(defaultKey.id), "prefixed");
+  await apiKeys.deleteApiKey(flat.id);
+  assert.equal(apiKeyIdFormat.getApiKeyModelIdFormat(flat.id), "prefixed");
+});
+
+test("createApiKey rolls back the bearer key if ID-format persistence fails", async () => {
+  await resetStorage();
+  core.getDbInstance().exec(`
+    CREATE TRIGGER reject_api_key_id_format
+    BEFORE INSERT ON key_value
+    WHEN NEW.namespace = 'api_key_id_format'
+    BEGIN SELECT RAISE(ABORT, 'ID format write rejected'); END;
+  `);
+  await assert.rejects(() =>
+    apiKeys.createApiKey("Must Not Exist", "machine-flat-rollback", [], {
+      modelIdFormat: "flat",
+    })
+  );
+  assert.deepEqual(await apiKeys.getApiKeys(), []);
+});
+
+test("createApiKey rejects invalid ID formats before inserting a bearer key", async () => {
+  await resetStorage();
+  await assert.rejects(() =>
+    apiKeys.createApiKey("Invalid Format", "machine-invalid-format", [], {
+      modelIdFormat: "unprefixed" as "flat",
+    })
+  );
+  assert.deepEqual(await apiKeys.getApiKeys(), []);
 });
 
 test("createApiKey rolls back the bearer key if tag insertion fails", async () => {

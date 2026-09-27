@@ -7,7 +7,6 @@ import { getDbInstance, rowToCamel } from "./core";
 import {
   insertInitialKeyQuotaLimitsInTransaction,
   snapshotInitialKeyQuotaLimits,
-  type UpsertKeyQuotaLimitsInput,
 } from "./keyQuota";
 import { backupDbFile } from "./backup";
 import { registerDbStateResetter } from "./stateReset";
@@ -76,6 +75,12 @@ import {
   type ApiKeyPermissionsUpdate,
 } from "./apiKeys/permissionsUpdate";
 import { hashKey } from "./apiKeys/keyHash";
+import type { CreateApiKeyOptions } from "./apiKeys/createOptions";
+import {
+  deleteApiKeyModelIdFormat,
+  insertInitialApiKeyModelIdFormatInTransaction,
+  validateApiKeyModelIdFormat,
+} from "./apiKeys/idFormat";
 import {
   deleteApiKeyTags,
   insertInitialApiKeyTagsInTransaction,
@@ -94,17 +99,6 @@ type JsonRecord = Record<string, unknown>;
 interface CacheEntry<TValue> {
   timestamp: number;
   value: TValue;
-}
-
-interface CreateApiKeyOptions {
-  modelAccessMode?: ModelAccessMode;
-  allowedModels?: string[];
-  allowedCombos?: string[];
-  allowedConnections?: string[];
-  expiresAt?: string | null;
-  /** Inserted in the same SQLite transaction as the bearer key. */
-  quotaLimits?: UpsertKeyQuotaLimitsInput;
-  tags?: readonly string[];
 }
 
 export type { AccessSchedule, RateLimitRule } from "./apiKeys/types";
@@ -700,6 +694,7 @@ export async function createApiKey(
   assertExclusiveLeaseKeyPolicy(scopes, allowedConnections);
   const quotaLimits = snapshotInitialKeyQuotaLimits(options.quotaLimits);
   const tags = snapshotApiKeyTags(options.tags);
+  const modelIdFormat = validateApiKeyModelIdFormat(options.modelIdFormat ?? "prefixed");
 
   const db = getDbInstance() as ApiKeysDbLike;
   const now = new Date().toISOString();
@@ -744,6 +739,7 @@ export async function createApiKey(
     );
     if (quotaLimits) insertInitialKeyQuotaLimitsInTransaction(apiKey.id, quotaLimits);
     if (tags) insertInitialApiKeyTagsInTransaction(apiKey.id, tags);
+    insertInitialApiKeyModelIdFormatInTransaction(apiKey.id, modelIdFormat);
   })();
   setNoLog(apiKey.id, false);
 
@@ -1196,6 +1192,7 @@ export async function deleteApiKey(id: string) {
   if (result.changes === 0) return false;
 
   deleteApiKeyTags(id);
+  deleteApiKeyModelIdFormat(id);
   db.prepare("DELETE FROM domain_budgets WHERE api_key_id = ?").run(id);
   db.prepare("DELETE FROM domain_cost_history WHERE api_key_id = ?").run(id);
   setNoLog(id, false);
