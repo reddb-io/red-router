@@ -545,21 +545,9 @@ jobs:
           cache: npm
       - uses: ./.github/actions/npm-ci-retry
       - run: npm run check:node-runtime
-      # Hosted runners use Webpack. Restore only its compiler cache, not a
-      # previous build artifact: Next still compiles the current commit and all
-      # downstream package/E2E jobs validate that fresh output. The key changes
-      # with the lockfile, build configuration, Node version and commit; the
-      # prefix permits an incremental restore from earlier commits on this PR
-      # or main. The self-hosted Turbopack lane does not pay cache I/O.
-      - name: Restore Webpack compiler cache (hosted runners)
-        if: ${{ !(vars.USE_VPS_RUNNER == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)) }}
-        uses: actions/cache@v6
-        with:
-          path: .build/next/cache/webpack
-          key: next-webpack-${{ runner.os }}-${{ runner.arch }}-${{ env.CI_NODE_VERSION }}-${{ hashFiles('package-lock.json', 'next.config.mjs', 'scripts/build/build-next-isolated.mjs') }}-${{ github.sha }}
-          restore-keys: |
-            next-webpack-${{ runner.os }}-${{ runner.arch }}-${{ env.CI_NODE_VERSION }}-${{ hashFiles('package-lock.json', 'next.config.mjs', 'scripts/build/build-next-isolated.mjs') }}-
-
+      # Hosted runners use Webpack without a restored compiler cache. A CI
+      # trial showed the 308 MB cache made the build slower on a warm rerun;
+      # do not pay that I/O until a different invalidation strategy is proven.
       #
       # Turbopack production build (Next 16, stable): benchmarked 1.9× faster than the
       # webpack pass (9min0s vs 17min15s on a 32-core box; multi-core Rust vs webpack's
@@ -597,6 +585,7 @@ jobs:
         with:
           name: next-build
           path: ${{ runner.temp }}/e2e-build.tar.gz
+          compression-level: 0
           retention-days: 1
 
   package-artifact:
