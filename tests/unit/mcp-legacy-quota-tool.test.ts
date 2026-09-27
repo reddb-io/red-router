@@ -8,8 +8,10 @@ const readConnections: string[] = [];
 const store: LegacyQuotaStore = {
   keyScope: async (token) =>
     token === "pool-key"
-      ? { allowedConnections: [], allowedQuotas: ["pool-1"] }
-      : { allowedConnections: ["allowed"], allowedQuotas: [] },
+      ? { allowedConnections: [], allowedQuotas: ["pool-1"], quotaConnections: ["allowed"] }
+      : token === "empty-pool-key"
+        ? { allowedConnections: [], allowedQuotas: ["pool-2"], quotaConnections: [] }
+        : { allowedConnections: ["allowed"], allowedQuotas: [], quotaConnections: [] },
   connections: async () => [
     { id: "allowed", provider: "claude", isActive: true },
     { id: "private", provider: "claude", isActive: true },
@@ -47,12 +49,14 @@ describe("legacy MCP quota tool", () => {
     assert.doesNotMatch(serialized, /private/);
   });
 
-  it("fails closed for quota-pool keys and unsupported live refresh", async () => {
+  it("resolves quota-pool keys without widening an empty pool and rejects live refresh", async () => {
     readConnections.length = 0;
     const scoped = await handleLegacyMcpBody(call(), server("pool-key"));
-    assert.match(JSON.stringify(scoped), /unsupported_scope/);
+    assert.match(JSON.stringify(scoped), /"total_accounts":1/);
+    const empty = await handleLegacyMcpBody(call(), server("empty-pool-key"));
+    assert.match(JSON.stringify(empty), /"total_accounts":0/);
     const refresh = await handleLegacyMcpBody(call({ refresh: true }), server());
     assert.match(JSON.stringify(refresh), /unsupported_refresh/);
-    assert.deepEqual(readConnections, []);
+    assert.deepEqual(readConnections, ["allowed"]);
   });
 });

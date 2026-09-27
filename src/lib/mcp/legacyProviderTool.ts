@@ -11,9 +11,11 @@ export interface LegacyProviderConnection {
 }
 
 export interface LegacyProviderStore {
-  keyScope(
-    token: string
-  ): Promise<{ allowedConnections: string[]; allowedQuotas: string[] } | null>;
+  keyScope(token: string): Promise<{
+    allowedConnections: string[];
+    allowedQuotas: string[];
+    quotaConnections: string[];
+  } | null>;
   connections(): Promise<LegacyProviderConnection[]>;
   modelOwners(context: LegacyMcpContext): Promise<Array<{ id: string; ownedBy: string }>>;
 }
@@ -51,10 +53,15 @@ export function createLegacyProviderTool(store: LegacyProviderStore): LegacyMcpT
       if (!context.apiKeyToken) throw new LegacyMcpToolError("forbidden", "API key required");
       const scope = await store.keyScope(context.apiKeyToken);
       if (!scope) throw new LegacyMcpToolError("forbidden", "API key not found");
-      if (scope.allowedQuotas.length > 0) {
-        throw new LegacyMcpToolError("unsupported_scope", "Quota-pool scope is unavailable");
-      }
-      const allowed = scope.allowedConnections.length ? new Set(scope.allowedConnections) : null;
+      const allowed = scope.allowedQuotas.length
+        ? new Set(
+            scope.quotaConnections.filter(
+              (id) => scope.allowedConnections.length === 0 || scope.allowedConnections.includes(id)
+            )
+          )
+        : scope.allowedConnections.length
+          ? new Set(scope.allowedConnections)
+          : null;
       const owners = await store.modelOwners(context);
       const modelIds = new Map<string, Set<string>>();
       for (const model of owners) {

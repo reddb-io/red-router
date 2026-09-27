@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getApiKeyMetadata } from "@/lib/db/apiKeys";
 import { getRawProviderConnections } from "@/lib/db/providers";
 import { getLatestQuotaSnapshotsForConnection } from "@/lib/db/quotaSnapshots";
+import { resolveQuotaKeyScope } from "@/lib/quota/quotaKey";
 import { LegacyMcpToolError, type LegacyMcpTool } from "./legacyProtocol";
 
 interface QuotaConnection {
@@ -19,9 +20,11 @@ interface QuotaWindow {
 }
 
 export interface LegacyQuotaStore {
-  keyScope(
-    token: string
-  ): Promise<{ allowedConnections: string[]; allowedQuotas: string[] } | null>;
+  keyScope(token: string): Promise<{
+    allowedConnections: string[];
+    allowedQuotas: string[];
+    quotaConnections: string[];
+  } | null>;
   connections(): Promise<QuotaConnection[]>;
   windows(connectionId: string): QuotaWindow[];
 }
@@ -29,12 +32,15 @@ export interface LegacyQuotaStore {
 const defaultStore: LegacyQuotaStore = {
   keyScope: async (token) => {
     const metadata = await getApiKeyMetadata(token);
-    return metadata
-      ? {
-          allowedConnections: metadata.allowedConnections,
-          allowedQuotas: metadata.allowedQuotas,
-        }
+    if (!metadata) return null;
+    const quota = metadata.allowedQuotas.length
+      ? await resolveQuotaKeyScope(metadata.allowedQuotas)
       : null;
+    return {
+      allowedConnections: metadata.allowedConnections,
+      allowedQuotas: metadata.allowedQuotas,
+      quotaConnections: quota?.connectionIds ?? [],
+    };
   },
   connections: async () => {
     const rows = await getRawProviderConnections({}, undefined, undefined, [
@@ -93,11 +99,15 @@ export function createLegacyQuotaTool(store: LegacyQuotaStore = defaultStore): L
       if (!context.apiKeyToken) throw new LegacyMcpToolError("forbidden", "API key required");
       const scope = await store.keyScope(context.apiKeyToken);
       if (!scope) throw new LegacyMcpToolError("forbidden", "API key not found");
-      // Quota-pool keys require pool membership resolution. Never fall back to all accounts.
-      if (scope.allowedQuotas.length > 0) {
-        throw new LegacyMcpToolError("unsupported_scope", "Quota-pool scope is unavailable");
-      }
-      const allowed = scope.allowedConnections.length ? new Set(scope.allowedConnections) : null;
+      const allowed = scope.allowedQuotas.length
+        ? new Set(
+            scope.quotaConnections.filter(
+              (id) => scope.allowedConnections.length === 0 || scope.allowedConnections.includes(id)
+            )
+          )
+        : scope.allowedConnections.length
+          ? new Set(scope.allowedConnections)
+          : null;
       const connections = (await store.connections()).filter(
         (connection) =>
           connection.isActive &&

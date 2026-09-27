@@ -1,17 +1,21 @@
 import { getApiKeyMetadata } from "@/lib/db/apiKeys";
 import { getRawProviderConnections } from "@/lib/db/providers";
+import { resolveQuotaKeyScope } from "@/lib/quota/quotaKey";
 import { loadLegacyKeyCatalog } from "./legacyCatalogLoader";
 import type { LegacyProviderStore } from "./legacyProviderTool";
 
 export const legacyProviderStore: LegacyProviderStore = {
   keyScope: async (token) => {
     const metadata = await getApiKeyMetadata(token);
-    return metadata
-      ? {
-          allowedConnections: metadata.allowedConnections,
-          allowedQuotas: metadata.allowedQuotas,
-        }
+    if (!metadata) return null;
+    const quota = metadata.allowedQuotas.length
+      ? await resolveQuotaKeyScope(metadata.allowedQuotas)
       : null;
+    return {
+      allowedConnections: metadata.allowedConnections,
+      allowedQuotas: metadata.allowedQuotas,
+      quotaConnections: quota?.connectionIds ?? [],
+    };
   },
   connections: async () => {
     const rows = await getRawProviderConnections({}, undefined, undefined, [

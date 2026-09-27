@@ -10,8 +10,10 @@ import { handleLegacyMcpBody, type LegacyMcpServer } from "../../src/lib/mcp/leg
 const store: LegacyProviderStore = {
   keyScope: async (token) =>
     token === "pool-key"
-      ? { allowedConnections: [], allowedQuotas: ["pool-1"] }
-      : { allowedConnections: ["allowed"], allowedQuotas: [] },
+      ? { allowedConnections: [], allowedQuotas: ["pool-1"], quotaConnections: ["allowed"] }
+      : token === "empty-pool-key"
+        ? { allowedConnections: [], allowedQuotas: ["pool-2"], quotaConnections: [] }
+        : { allowedConnections: ["allowed"], allowedQuotas: [], quotaConnections: [] },
   connections: async () => [
     {
       id: "allowed",
@@ -63,8 +65,10 @@ describe("legacy MCP provider tool", () => {
     assert.doesNotMatch(serialized, /private|other-provider|codex/);
   });
 
-  it("fails closed for quota-pool keys", async () => {
+  it("resolves quota-pool keys and fails closed on an empty pool", async () => {
     const result = await handleLegacyMcpBody(call, server("pool-key"));
-    assert.match(JSON.stringify(result), /unsupported_scope/);
+    assert.match(JSON.stringify(result), /"total":1/);
+    const empty = await handleLegacyMcpBody(call, server("empty-pool-key"));
+    assert.match(JSON.stringify(empty), /"total":0/);
   });
 });
