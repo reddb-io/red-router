@@ -430,33 +430,34 @@ restores the legacy per-viewer level, timestamp, and wrapping preferences on
 top of the Pino stream, with UI regressions written for CI. The old global
 `console.*` capture and server-side clear behavior must not be copied over
 the structured Pino architecture without a separate security and retention
-review. The old `/v1/mcp` endpoint and its unprefixed tool names also remain
-absent: the imported MCP server has different transport, authorization, and
-result contracts. The old tools module was not retained as dead code; a
-sanitized, key-scoped compatibility adapter plus protocol tests is needed
-before claiming legacy MCP wire parity or merging this integration branch.
+review. The old `/v1/mcp` endpoint has now been restored as a separate,
+key-scoped JSON-RPC adapter; it does not expose the management-scoped
+`/api/mcp/*` transport to ordinary API keys. Its route and protocol have
+written tests, but CI for their latest commit and live legacy-client smoke
+remain pending.
 
 The legacy endpoint was stateless JSON-RPC at `/v1/mcp` with mandatory Bearer
 authentication, a version header, and ten unprefixed tools. The current MCP
-server uses `/api/mcp/*`, three transports, and scoped `omniroute_*` tools.
-The overlap is semantic, not a compatible tool contract:
+server also uses `/api/mcp/*`, three transports, and scoped `omniroute_*`
+tools. The compatibility adapter implements this separate surface:
 
-| Legacy tool(s)                                              | Current capability to reuse                                     | Compatibility still required                                                                    |
-| ----------------------------------------------------------- | --------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| `list_models`, `get_model`, `list_combos`, `list_providers` | Key-filtered `/v1/models`, MCP model/combos catalog             | Legacy names, status and price result shapes, and per-key account filtering.                    |
-| `recommend_models`                                          | `omniroute_best_combo_for_task`, `omniroute_pick_fastest_model` | Requirement/ranking inputs, explanation codes, and no-routing-change guarantee.                 |
-| `get_usage`, `get_quotas`                                   | `omniroute_cost_report`, `omniroute_check_quota`                | Calling-key isolation, admin cross-key access, per-account quota windows, and refresh behavior. |
-| `get_api_key`, `list_api_keys`, `create_api_key`            | API-key domain module and management routes                     | Secret-free reads, admin-only listing/creation, and explicit creation confirmation.             |
+| Legacy tool(s)                                              | Current capability to reuse                                     | Remaining verification                                                    |
+| ----------------------------------------------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| `list_models`, `get_model`, `list_combos`, `list_providers` | Key-filtered `/v1/models`, MCP model/combos catalog             | Confirm result shapes and account filtering against a real legacy client. |
+| `recommend_models`                                          | `omniroute_best_combo_for_task`, `omniroute_pick_fastest_model` | Confirm ranking and explanation behavior against the previous endpoint.   |
+| `get_usage`, `get_quotas`                                   | `omniroute_cost_report`, `omniroute_check_quota`                | Confirm real quota refresh and per-account windows with credentials.      |
+| `get_api_key`, `list_api_keys`, `create_api_key`            | API-key domain module and management routes                     | Confirm admin workflow and secret-free reads in an installed runtime.     |
 
-Do not point `/v1/mcp` directly at the new management-scoped transport: the old
-endpoint admitted ordinary API keys but restricted every result to that key.
-The old JSON-RPC helper also returned raw exception messages; any adapter must
-route dynamic failures through the current error sanitizer and test that no
-stack trace or credential reaches an MCP response.
+The adapter requires a persisted Bearer API key even when the rest of `/v1`
+allows anonymous requests. It hides admin tools from ordinary keys, bounds
+request bodies at 1 MiB, and sanitizes dynamic failures. The authz pipeline
+classifies `/api/v1/mcp` as loopback-only because key creation can reach a
+machine-ID subprocess fallback. The adapter separately rejects foreign browser
+origins without trusting caller-controlled `Host` headers. Remote legacy MCP
+compatibility is **not** restored; remove the loopback restriction only after
+eliminating the subprocess reachability and proving a safe remote policy.
 
-These are semantic
-reconciliation tasks, not reasons to choose the deleted side of a merge
-automatically.
-Preserve or explicitly replace those user-visible contracts and test the
-result through CI before moving development to `main`. No branch was merged
-or rewritten on the remote during this assessment.
+These remain semantic reconciliation tasks, not reasons to choose the deleted
+side of a merge automatically. Verify the contracts through CI and live-client
+smoke before moving development to `main`. No branch has been merged into
+`main` during this assessment.
