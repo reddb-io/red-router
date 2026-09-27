@@ -543,6 +543,13 @@ export async function withEarlyStreamKeepalive(
       };
 
       const onAbort = () => {
+        // The combined request signal also aborts when our own deadline fires.
+        // Treat that as an expiry, not a client disconnect, so the in-band error
+        // frame is not lost if this listener runs before the controller listener.
+        if (deadlineController?.signal.aborted) {
+          onExpired();
+          return;
+        }
         if (aborted) return;
         aborted = true;
         stopDeadline();
