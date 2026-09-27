@@ -144,50 +144,6 @@ Generate OpenCode config (alias for
 omniroute config opencode
 ```
 
-### `config lang`
-
-**Example:**
-
-```bash
-omniroute config lang
-```
-
-### `config get`
-
-**Flags:**
-
-- `--json`
-
-**Example:**
-
-```bash
-omniroute config get
-```
-
-### `config set <code>`
-
-**Flags:**
-
-- `--force`
-
-**Example:**
-
-```bash
-omniroute config set <code>
-```
-
-### `config list`
-
-**Flags:**
-
-- `--json`
-
-**Example:**
-
-```bash
-omniroute config list
-```
-
 ### `env`
 
 Show and manage environment variables

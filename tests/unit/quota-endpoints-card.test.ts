@@ -31,7 +31,6 @@ const PAGE_CLIENT_PATH = join(
 );
 
 const EN_PATH = join(ROOT, "src/i18n/messages/en.json");
-const PT_PATH = join(ROOT, "src/i18n/messages/en.json");
 
 const cardSrc = readFileSync(CARD_PATH, "utf8");
 const pageSrc = readFileSync(PAGE_CLIENT_PATH, "utf8");
@@ -131,25 +130,9 @@ const ENDPOINTS_KEYS = [
   "endpointsBaseUrl",
 ] as const;
 
-test("i18n: all 5 endpoint keys present in en.json quotaShare namespace", () => {
+test("English catalog contains quota endpoint labels", () => {
   const en = JSON.parse(readFileSync(EN_PATH, "utf8")) as Record<string, Record<string, string>>;
-  for (const k of ENDPOINTS_KEYS) {
-    assert.equal(typeof en["quotaShare"]?.[k], "string", `en.json missing quotaShare.${k}`);
-  }
-});
-
-test("i18n: all 5 endpoint keys present in pt-BR.json quotaShare namespace", () => {
-  const pt = JSON.parse(readFileSync(PT_PATH, "utf8")) as Record<string, Record<string, string>>;
-  for (const k of ENDPOINTS_KEYS) {
-    assert.equal(typeof pt["quotaShare"]?.[k], "string", `pt-BR.json missing quotaShare.${k}`);
-  }
-});
-
-test("i18n: full parity — en and pt-BR both have all 5 endpoint keys", () => {
-  const en = JSON.parse(readFileSync(EN_PATH, "utf8")) as Record<string, Record<string, string>>;
-  const pt = JSON.parse(readFileSync(PT_PATH, "utf8")) as Record<string, Record<string, string>>;
-  for (const k of ENDPOINTS_KEYS) {
-    assert.ok(k in (en["quotaShare"] ?? {}), `en.json missing quotaShare.${k}`);
-    assert.ok(k in (pt["quotaShare"] ?? {}), `pt-BR.json missing quotaShare.${k}`);
+  for (const key of ENDPOINTS_KEYS) {
+    assert.equal(typeof en.quotaShare?.[key], "string", `en.json missing quotaShare.${key}`);
   }
 });

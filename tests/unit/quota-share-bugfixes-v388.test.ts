@@ -29,9 +29,6 @@ const endpointsSrc = readFileSync(join(ROOT, QS, "components/QuotaEndpointsCard.
 const en = JSON.parse(readFileSync(join(ROOT, "src/i18n/messages/en.json"), "utf8")) as {
   quotaShare: Record<string, string>;
 };
-const pt = JSON.parse(readFileSync(join(ROOT, "src/i18n/messages/en.json"), "utf8")) as {
-  quotaShare: Record<string, string>;
-};
 
 // ── B1 — wizard never persists the "all" sentinel as a real group ────────────
 
@@ -210,7 +207,7 @@ test("planRegistry seeds xiaomi-mimo (4.1B lite cap) and kimi-coding for manual 
 
 // ── i18n parity for every new key ────────────────────────────────────────────
 
-test("i18n: new quotaShare keys exist in both en and pt-BR", () => {
+test("English catalog contains new quotaShare labels", () => {
   const keys = [
     "deleteGroup",
     "deleteGroupConfirm",
@@ -224,6 +221,5 @@ test("i18n: new quotaShare keys exist in both en and pt-BR", () => {
   ];
   for (const k of keys) {
     assert.ok(en.quotaShare[k], `en.json quotaShare.${k} must exist`);
-    assert.ok(pt.quotaShare[k], `pt-BR.json quotaShare.${k} must exist`);
   }
 });
