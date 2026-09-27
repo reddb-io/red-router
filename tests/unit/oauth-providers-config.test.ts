@@ -49,6 +49,7 @@ const {
   ZED_HOSTED_CONFIG,
   MUSE_CODE_CONFIG,
   WINDSURF_CONFIG,
+  IFLOW_CONFIG,
 } = oauthModule;
 const { getAntigravityLoadCodeAssistMetadata } = antigravityHeadersModule;
 
@@ -83,6 +84,7 @@ const EXPECTED_PROVIDER_KEYS = [
   "zed",
   "zed-hosted",
   "muse-code",
+  "iflow",
 ];
 
 const browserUrl = "http://localhost:20128/callback";
@@ -121,6 +123,7 @@ const EXPECTED_CONFIG_BY_PROVIDER = {
   zed: ZED_CONFIG,
   "zed-hosted": ZED_HOSTED_CONFIG,
   "muse-code": MUSE_CODE_CONFIG,
+  iflow: IFLOW_CONFIG,
 };
 
 const KIRO_REQUIRED_FIELDS = [
@@ -174,6 +177,7 @@ const REQUIRED_FIELDS_BY_PROVIDER = {
   "zed-hosted": ["webBaseUrl", "cloudBaseUrl", "llmBaseUrl", "userInfoUrl", "llmTokenUrl", "modelsUrl"],
   "muse-code": ["deviceCodeUrl", "tokenUrl", "clientId", "mintUrl"],
   "codebuddy-intl": ["stateUrl", "tokenUrl", "refreshUrl", "platform", "userAgent"],
+  iflow: ["clientId", "clientSecret", "authorizeUrl", "tokenUrl", "userInfoUrl"],
 };
 
 function getByPath(object, path) {

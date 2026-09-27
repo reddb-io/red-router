@@ -569,4 +569,5 @@ export const PROVIDERS = {
   ZED: "zed",
   ZED_HOSTED: "zed-hosted",
   MUSE_CODE: "muse-code",
+  IFLOW: "iflow",
 };

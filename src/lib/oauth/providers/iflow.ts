@@ -129,14 +129,14 @@ export const iflow = {
     return { userInfo };
   },
 
-  mapTokens(tokens: Tokens, extra: { userInfo: UserInfo }) {
+  mapTokens(tokens: Tokens, extra?: { userInfo: UserInfo }) {
     return {
       accessToken: tokens.access_token,
       refreshToken: tokens.refresh_token || null,
       expiresIn: tokens.expires_in || null,
-      apiKey: extra.userInfo.apiKey,
-      email: extra.userInfo.email || extra.userInfo.phone,
-      displayName: extra.userInfo.nickname || extra.userInfo.name,
+      apiKey: extra?.userInfo.apiKey,
+      email: extra?.userInfo.email || extra?.userInfo.phone,
+      displayName: extra?.userInfo.nickname || extra?.userInfo.name,
     };
   },
 };
