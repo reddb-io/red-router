@@ -150,8 +150,16 @@ test("trackPendingRequest reuses the same id across a combo's target-attempt ret
   });
 
   assert.equal(secondId, firstId, "retry attempt must reuse the first attempt's id");
-  assert.equal(getPendingById().has(firstId), true, "reused id is live again under the new attempt");
-  assert.equal(getPendingById().get(firstId)?.model, "model-b", "entry reflects the NEW attempt's target");
+  assert.equal(
+    getPendingById().has(firstId),
+    true,
+    "reused id is live again under the new attempt"
+  );
+  assert.equal(
+    getPendingById().get(firstId)?.model,
+    "model-b",
+    "entry reflects the NEW attempt's target"
+  );
 
   clearPendingRequests();
 });
@@ -334,7 +342,7 @@ test("marked entries are removed first when the pending map exceeds the cap", ()
     for (let i = 0; i < 5000; i++) {
       trackPendingRequest("m", "p", `c-fresh-${i}`, true);
     }
-    assert.ok(getPendingById().size > 5000);
+    assert.equal(getPendingById().size, 5003);
 
     const removed = sweepStalePendingRequests(now, HOUR_MS);
     assert.equal(getPendingById().size, 5000);

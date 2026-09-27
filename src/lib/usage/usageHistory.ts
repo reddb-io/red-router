@@ -393,7 +393,7 @@ export function trackPendingRequest(
         // crypto RNG (not Math.random) to satisfy CodeQL js/insecure-randomness —
         // this pending-request id flows into attempt logging; it's a correlation
         // id, not a security secret.
-        id: reusableId ?? `${now}-${globalThis.crypto.randomUUID().slice(0, 6)}`,
+        id: reusableId ?? `${now}-${globalThis.crypto.randomUUID()}`,
         model,
         provider,
         connectionId,
