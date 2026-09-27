@@ -18,7 +18,7 @@ export interface LegacyMcpHttpDependencies {
   appVersion: string;
 }
 
-const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
 const RESPONSE_HEADERS = {
   "x-redrouter-mcp-version": String(LEGACY_MCP_SCHEMA_VERSION),
   "cache-control": "no-store",
@@ -41,7 +41,8 @@ function originAllowed(request: Request): boolean {
   if (!origin) return true;
   try {
     const url = new URL(origin);
-    return LOOPBACK_HOSTS.has(url.hostname) || url.host === request.headers.get("host");
+    // Host is caller-controlled in a DNS-rebinding request to loopback.
+    return LOOPBACK_HOSTS.has(url.hostname);
   } catch {
     return false;
   }

@@ -70,6 +70,19 @@ describe("legacy MCP HTTP boundary", () => {
     );
     assert.equal(response.status, 403);
     assert.equal(authenticated, false);
+
+    const rebound = await handleLegacyMcpHttpRequest(
+      request(rpc("ping"), { origin: "https://attacker.example", host: "attacker.example" }),
+      deps
+    );
+    assert.equal(rebound.status, 403);
+    assert.equal(authenticated, false);
+
+    const loopback = await handleLegacyMcpHttpRequest(
+      request(rpc("ping"), { origin: "http://localhost:3000" }),
+      dependencies()
+    );
+    assert.equal(loopback.status, 200);
   });
 
   it("scopes tool discovery and execution to the calling key", async () => {
