@@ -13,6 +13,20 @@ export function restrictJevConnections(
   return allowedConnections.filter((id) => quotaConnectionIds.includes(id));
 }
 
+/** An optional evaluator may run only after its separate model/connection policy passes. */
+export async function canEvaluateJevModel(
+  config: JevRoutingConfig,
+  allowedConnections: string[] | null,
+  isModelAllowed: (model: string) => Promise<boolean>
+): Promise<boolean> {
+  if (config.mode !== "jev" || allowedConnections?.length === 0) return false;
+  try {
+    return (await isModelAllowed(config.model)) === true;
+  } catch {
+    return false;
+  }
+}
+
 /** Persisted auto-combo decision settings; absent means no network evaluation. */
 export function parseJevRoutingConfig(combo: {
   autoConfig?: Record<string, unknown> | null;

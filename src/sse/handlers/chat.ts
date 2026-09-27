@@ -46,6 +46,7 @@ import { resolveCompressionSettings } from "@omniroute/open-sse/handlers/chatCor
 import type { CompressionExclusions } from "@omniroute/open-sse/services/compression/exclusions.ts";
 import { resolveComboConfig } from "@omniroute/open-sse/services/comboConfig.ts";
 import {
+  canEvaluateJevModel,
   parseJevRoutingConfig,
   restrictJevConnections,
 } from "@omniroute/open-sse/services/combo/jevConfig.ts";
@@ -1142,10 +1143,11 @@ async function handleChatImplementation(
         decisionAllowedConnections = [];
       }
     }
-    const decisionModelAllowed =
-      jevRoutingConfig.mode === "jev" &&
-      (decisionAllowedConnections === null || decisionAllowedConnections.length > 0) &&
-      (await isModelAllowedForKey(apiKey, jevRoutingConfig.model));
+    const decisionModelAllowed = await canEvaluateJevModel(
+      jevRoutingConfig,
+      decisionAllowedConnections,
+      (model) => isModelAllowedForKey(apiKey, model)
+    );
     const relayOptions = {
       sessionId,
       decisionModelAllowed,

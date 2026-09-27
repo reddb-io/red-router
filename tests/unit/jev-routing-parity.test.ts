@@ -10,6 +10,7 @@ import { selectProvider } from "../../open-sse/services/autoCombo/engine.ts";
 import { setTierConfig } from "../../open-sse/services/tierResolver.ts";
 import type { RoutingHint } from "../../open-sse/services/manifestAdapter.ts";
 import {
+  canEvaluateJevModel,
   parseJevRoutingConfig,
   restrictJevConnections,
 } from "../../open-sse/services/combo/jevConfig.ts";
@@ -87,6 +88,24 @@ test("JEV abstains before credential lookup when the caller has no eligible conn
     { allowedConnections: [] }
   );
   assert.equal(result, null);
+});
+
+test("JEV model policy abstains on denial or lookup failure", async () => {
+  const config = { mode: "jev" as const, model: "typesafe-ai/jev-latest" };
+  assert.equal(await canEvaluateJevModel(config, ["decision-1"], async () => true), true);
+  assert.equal(await canEvaluateJevModel(config, ["decision-1"], async () => false), false);
+  assert.equal(
+    await canEvaluateJevModel(config, ["decision-1"], async () => {
+      throw new Error("policy unavailable");
+    }),
+    false
+  );
+  assert.equal(
+    await canEvaluateJevModel(config, [], async () => {
+      throw new Error("must not query policy");
+    }),
+    false
+  );
 });
 
 test("score and rules strategies consume the JEV tier hint for primary selection", () => {
