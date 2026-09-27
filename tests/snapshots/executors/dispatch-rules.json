@@ -42,6 +42,11 @@
       "status": 400,
       "throws": true
     },
+    "glm-search": {
+      "message": "Provider \"glm-search\" is a search provider and does not support chat completions; use the /v1/search endpoint instead.",
+      "status": 400,
+      "throws": true
+    },
     "google-pse-search": {
       "message": "Provider \"google-pse-search\" is a search provider and does not support chat completions; use the /v1/search endpoint instead.",
       "status": 400,
