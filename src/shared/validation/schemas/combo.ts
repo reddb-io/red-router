@@ -76,6 +76,13 @@ export const evalRoutingSchema = z
 
 export const comboStrategySchema = z.enum(ROUTING_STRATEGY_VALUES);
 
+const jevDecisionConfigSchema = z
+  .object({
+    mode: z.enum(["off", "jev"]).optional(),
+    model: z.string().trim().min(1).max(200).optional(),
+  })
+  .passthrough();
+
 export const scoringWeightsSchema = z
   .object({
     quota: z.number().min(0).max(1),
@@ -169,6 +176,8 @@ export const responseValidationSchema = z
 
 export const comboRuntimeConfigSchema = z
   .object({
+    decision: jevDecisionConfigSchema.optional(),
+    auto: z.object({ decision: jevDecisionConfigSchema.optional() }).passthrough().optional(),
     responseValidation: responseValidationSchema.optional(),
     strategy: comboStrategySchema.optional(),
     maxRetries: z.coerce.number().int().min(0).max(10).optional(),

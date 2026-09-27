@@ -22,6 +22,7 @@ import {
   readJevTier,
 } from "../../src/sse/services/jevRouting.ts";
 import { readSystemOneJson } from "../../src/sse/handlers/systemOne.ts";
+import { comboRuntimeConfigSchema } from "../../src/shared/validation/schemas/combo.ts";
 
 test("JEV routing remains off unless explicitly configured", () => {
   assert.deepEqual(parseJevRoutingConfig({ config: {} }), {
@@ -37,6 +38,28 @@ test("JEV routing remains off unless explicitly configured", () => {
   assert.equal(
     parseJevRoutingConfig({ autoConfig: { decision: { mode: "unknown" } } }).mode,
     "off"
+  );
+});
+
+test("combo writes bound the decision model and reject unsupported JEV modes", () => {
+  assert.equal(
+    comboRuntimeConfigSchema.safeParse({
+      auto: { decision: { mode: "jev", model: "typesafe-ai/jev-latest" } },
+    }).success,
+    true
+  );
+  assert.equal(
+    comboRuntimeConfigSchema.safeParse({ decision: { mode: "automatic" } }).success,
+    false
+  );
+  assert.equal(
+    comboRuntimeConfigSchema.safeParse({ decision: { mode: "jev", model: "" } }).success,
+    false
+  );
+  assert.equal(
+    comboRuntimeConfigSchema.safeParse({ decision: { mode: "jev", model: "x".repeat(201) } })
+      .success,
+    false
   );
 });
 
