@@ -49,6 +49,7 @@ const POLL_INTERVAL = 5000; // 5 seconds
 export default function ConsoleLogViewer() {
   const locale = useLocale();
   const t = useTranslations("loggers");
+  const tl = useTranslations("logs");
   const tv = useTranslations("logs.consoleViewer");
   const tc = useTranslations("common");
   const [logs, setLogs] = useState<LogEntry[]>([]);
@@ -68,8 +69,10 @@ export default function ConsoleLogViewer() {
   const searchRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const copyFeedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const logUpdateVersionRef = useRef(0);
 
   const fetchLogs = useCallback(async () => {
+    const version = logUpdateVersionRef.current;
     try {
       const params = new URLSearchParams();
       if (levelFilter !== "all") params.set("level", levelFilter);
@@ -78,26 +81,92 @@ export default function ConsoleLogViewer() {
       const res = await fetch(`/api/logs/console?${params.toString()}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data: LogEntry[] = await res.json();
+      if (version !== logUpdateVersionRef.current) return;
 
       setLogs(data);
       setLastUpdated(new Date());
       setError(null);
     } catch (err: any) {
+      if (version !== logUpdateVersionRef.current) return;
       setError(err.message || tv("fetchFailed"));
     } finally {
-      setLoading(false);
+      if (version === logUpdateVersionRef.current) setLoading(false);
     }
   }, [levelFilter, tv]);
 
-  // Initial fetch + polling
+  // The server sends one snapshot, then only appended lines. Polling remains a
+  // fallback when EventSource is unavailable or the stream disconnects.
   useEffect(() => {
-    const initialFetch = setTimeout(() => void fetchLogs(), 0);
-    const interval = setInterval(fetchLogs, POLL_INTERVAL);
-    return () => {
-      clearTimeout(initialFetch);
-      clearInterval(interval);
+    logUpdateVersionRef.current += 1;
+    let source: EventSource | null = null;
+    let initialFetch: ReturnType<typeof setTimeout> | null = null;
+    let fallbackDelay: ReturnType<typeof setTimeout> | null = null;
+    let interval: ReturnType<typeof setInterval> | null = null;
+
+    const startPolling = () => {
+      if (interval) return;
+      initialFetch = setTimeout(() => void fetchLogs(), 0);
+      interval = setInterval(() => void fetchLogs(), POLL_INTERVAL);
     };
-  }, [fetchLogs]);
+    const stopPolling = () => {
+      if (initialFetch) clearTimeout(initialFetch);
+      if (interval) clearInterval(interval);
+      initialFetch = null;
+      interval = null;
+    };
+
+    if (typeof EventSource === "undefined") {
+      startPolling();
+    } else {
+      try {
+        const params = new URLSearchParams();
+        if (levelFilter !== "all") params.set("level", levelFilter);
+        source = new EventSource(`/api/logs/console/stream?${params.toString()}`);
+        source.onopen = () => {
+          if (fallbackDelay) clearTimeout(fallbackDelay);
+          fallbackDelay = null;
+          stopPolling();
+        };
+        source.onmessage = (event) => {
+          try {
+            const update: unknown = JSON.parse(event.data);
+            if (!update || typeof update !== "object") return;
+            const payload = update as { type?: string; logs?: LogEntry[] };
+            if (payload.type === "error") {
+              setError(tv("fetchFailed"));
+              source?.close();
+              startPolling();
+              return;
+            }
+            if (!Array.isArray(payload.logs)) return;
+            logUpdateVersionRef.current += 1;
+            const incoming = payload.logs;
+            if (payload.type === "snapshot") setLogs(incoming);
+            else if (payload.type === "append") {
+              setLogs((previous) => [...previous, ...incoming].slice(-500));
+            } else return;
+            setLastUpdated(new Date());
+            setLoading(false);
+            setError(null);
+          } catch {
+            source?.close();
+            startPolling();
+          }
+        };
+        source.onerror = () => startPolling();
+        fallbackDelay = setTimeout(startPolling, 3_000);
+      } catch {
+        startPolling();
+      }
+    }
+
+    return () => {
+      logUpdateVersionRef.current += 1;
+      source?.close();
+      if (fallbackDelay) clearTimeout(fallbackDelay);
+      stopPolling();
+    };
+  }, [fetchLogs, levelFilter, tv]);
 
   useEffect(
     () => () => {
@@ -270,7 +339,7 @@ export default function ConsoleLogViewer() {
       link.click();
       setError(null);
     } catch {
-      setError(t("exportFailed"));
+      setError(tl("exportFailed"));
     } finally {
       link?.remove();
       if (url) URL.revokeObjectURL(url);
@@ -366,8 +435,8 @@ export default function ConsoleLogViewer() {
             type="button"
             onClick={handleDownloadShown}
             disabled={filteredLogs.length === 0}
-            aria-label={t("export")}
-            title={t("export")}
+            aria-label={tl("export")}
+            title={tl("export")}
             className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-[var(--color-text-main)] hover:bg-[var(--color-bg-alt)] disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-[var(--color-accent)]"
           >
             <span className="material-symbols-outlined text-[16px]" aria-hidden="true">

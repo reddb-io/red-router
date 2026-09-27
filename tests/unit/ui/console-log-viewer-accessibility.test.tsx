@@ -66,6 +66,7 @@ describe("ConsoleLogViewer accessibility", () => {
     document.body.innerHTML = "";
     vi.useRealTimers();
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it("names icon-only controls and exposes keyboard-visible copy feedback", async () => {
@@ -190,5 +191,101 @@ describe("ConsoleLogViewer accessibility", () => {
     expect(copiedText).toContain("waiting");
     expect(copiedText.split("\n")).toHaveLength(2);
     expect(container.querySelector('[role="status"]')?.textContent).toBe("common.copied");
+    expect(container.querySelector('button[aria-label="logs.export"]')).not.toBeNull();
+  });
+
+  it("uses structured log snapshots and appends from the live stream", async () => {
+    class MockEventSource {
+      static latest: MockEventSource | null = null;
+      onopen: ((event: Event) => void) | null = null;
+      onmessage: ((event: MessageEvent) => void) | null = null;
+      onerror: ((event: Event) => void) | null = null;
+      close = vi.fn();
+
+      constructor(readonly url: string) {
+        MockEventSource.latest = this;
+      }
+    }
+    vi.stubGlobal("EventSource", MockEventSource);
+
+    const container = await renderViewer();
+    const source = MockEventSource.latest;
+    expect(source?.url).toContain("/api/logs/console/stream");
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+
+    await act(async () => {
+      source?.onmessage?.({
+        data: JSON.stringify({
+          type: "snapshot",
+          logs: [{ timestamp: "2026-08-26T00:00:00.000Z", level: "info", message: "first" }],
+        }),
+      } as MessageEvent);
+    });
+    expect(container.textContent).toContain("first");
+
+    await act(async () => {
+      source?.onmessage?.({
+        data: JSON.stringify({
+          type: "append",
+          logs: [{ timestamp: "2026-08-26T00:00:01.000Z", level: "warn", message: "second" }],
+        }),
+      } as MessageEvent);
+    });
+    expect(
+      container.querySelectorAll('button[aria-label="logs.consoleViewer.copyLogEntry"]')
+    ).toHaveLength(2);
+
+    const root = roots.pop();
+    act(() => root?.unmount());
+    expect(source?.close).toHaveBeenCalledOnce();
+  });
+
+  it("does not overwrite a newer stream snapshot with an older polling response", async () => {
+    class MockEventSource {
+      static latest: MockEventSource | null = null;
+      onmessage: ((event: MessageEvent) => void) | null = null;
+      onopen: ((event: Event) => void) | null = null;
+      onerror: ((event: Event) => void) | null = null;
+      close = vi.fn();
+
+      constructor() {
+        MockEventSource.latest = this;
+      }
+    }
+    vi.stubGlobal("EventSource", MockEventSource);
+    let finishFetch: ((value: unknown) => void) | undefined;
+    globalThis.fetch = vi.fn().mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finishFetch = resolve;
+        })
+    );
+
+    const container = await renderViewer();
+    await act(async () => {
+      vi.advanceTimersByTime(3_000);
+      vi.advanceTimersByTime(0);
+    });
+    expect(globalThis.fetch).toHaveBeenCalledOnce();
+
+    await act(async () => {
+      MockEventSource.latest?.onmessage?.({
+        data: JSON.stringify({
+          type: "snapshot",
+          logs: [{ timestamp: "2026-08-26T00:00:01.000Z", level: "info", message: "new" }],
+        }),
+      } as MessageEvent);
+    });
+    await act(async () => {
+      finishFetch?.({
+        ok: true,
+        json: async () => [
+          { timestamp: "2026-08-26T00:00:00.000Z", level: "info", message: "stale" },
+        ],
+      });
+      await Promise.resolve();
+    });
+    expect(container.textContent).toContain("new");
+    expect(container.textContent).not.toContain("stale");
   });
 });
