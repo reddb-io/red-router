@@ -71,6 +71,7 @@ export interface ResolveAutoStrategyDeps {
     decisionModelAllowed?: boolean;
     decisionAllowedConnections?: string[] | null;
     decisionApiKeyId?: string | null;
+    decisionSignal?: AbortSignal | null;
     sessionId?: string | null;
     /** Per-request X-OmniRoute-Mode value (#6024/#6025). */
     mode?: string | null;
@@ -332,6 +333,7 @@ export async function resolveAutoStrategyOrder(
       const jevTier = await classifyJevRoutingTier(body, jevConfig, log, {
         allowedConnections: relayOptions.decisionAllowedConnections,
         apiKeyId: relayOptions.decisionApiKeyId,
+        signal: relayOptions.decisionSignal,
       });
       if (jevTier) {
         autoManifestHint.recommendedMinTier = escalateTier(

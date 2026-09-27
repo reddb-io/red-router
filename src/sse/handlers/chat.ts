@@ -1095,6 +1095,7 @@ async function handleChatImplementation(
       decisionModelAllowed,
       decisionAllowedConnections,
       decisionApiKeyId: apiKeyInfo?.id ?? null,
+      decisionSignal: request.signal,
       ...(combo.strategy === "context-relay" ? { config: relayConfig } : {}),
       ...(bypassProviderQuotaPolicy ? { bypassProviderQuotaPolicy: true } : {}),
       ...perRequestAutoControls,
@@ -1419,6 +1420,7 @@ async function handleSingleModelChat(
     ? createJevToolDecision(jevToolDecision.config, jevToolDecision.allowed, log, {
         allowedConnections: jevToolDecision.allowedConnections,
         apiKeyId: apiKeyInfo?.id ?? null,
+        signal: clientRawRequest?.signal ?? null,
       })
     : null;
   // 1. Resolve model → provider/model

@@ -154,6 +154,19 @@ test("JEV abstains before credential lookup when the caller has no eligible conn
   assert.equal(result, null);
 });
 
+test("JEV abstains before credential lookup when the client has disconnected", async () => {
+  const controller = new AbortController();
+  controller.abort();
+  const log = { info() {}, warn() {} };
+  const result = await classifyJevRoutingTier(
+    { messages: [{ role: "user", content: "hello" }] },
+    { mode: "jev", model: "typesafe-ai/jev-latest", toolMode: "off" },
+    log,
+    { signal: controller.signal }
+  );
+  assert.equal(result, null);
+});
+
 test("JEV tool decision stays opt-in and preserves explicit client choices", async () => {
   const log = { info() {}, warn() {} };
   const config = {

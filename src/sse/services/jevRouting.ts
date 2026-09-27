@@ -37,6 +37,7 @@ type JevLog = { info: (...args: unknown[]) => void; warn: (...args: unknown[]) =
 type JevEvaluationOptions = {
   allowedConnections?: string[] | null;
   apiKeyId?: string | null;
+  signal?: AbortSignal | null;
 };
 
 type UsableDecisionCredentials = {
@@ -101,6 +102,7 @@ async function askJevFromStoredConnection(
   log: JevLog,
   options: JevEvaluationOptions
 ): Promise<{ payload: unknown; latencyMs: number } | null> {
+  if (options.signal?.aborted) return null;
   if (Array.isArray(options.allowedConnections) && options.allowedConnections.length === 0)
     return null;
   const target = resolveSystemOneTarget(config.model);
@@ -110,6 +112,7 @@ async function askJevFromStoredConnection(
       ? (["opencode-zen", "opencode-go"] as const)
       : [target.provider];
   for (const credentialProvider of credentialProviders) {
+    if (options.signal?.aborted) return null;
     try {
       const credentials = await getProviderCredentialsWithQuotaPreflight(
         credentialProvider,
@@ -142,7 +145,7 @@ async function askJevFromStoredConnection(
           target,
           typeof token === "string" ? token : null,
           { state, questions },
-          { timeoutMs: JEV_TIMEOUT_MS }
+          { timeoutMs: JEV_TIMEOUT_MS, signal: options.signal ?? undefined }
         )
       );
       if (!result.response.ok) {

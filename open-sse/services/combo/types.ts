@@ -105,6 +105,8 @@ export type ComboRelayOptions = {
   decisionAllowedConnections?: string[] | null;
   /** Attribute auxiliary evaluator usage to the same API key as the combo request. */
   decisionApiKeyId?: string | null;
+  /** Stop optional evaluator work when the client disconnects. */
+  decisionSignal?: AbortSignal | null;
   /** Per-request X-OmniRoute-Mode value (auto-combo preset / mode-pack name) — #6024/#6025. */
   mode?: string | null;
   /** Per-request X-OmniRoute-Budget value (hard cost ceiling in USD) — #6023. */
