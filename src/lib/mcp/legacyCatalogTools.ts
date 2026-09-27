@@ -32,9 +32,21 @@ const modelSchema = z
   })
   .passthrough();
 const catalogSchema = z.object({ data: z.array(modelSchema) }).passthrough();
-type CatalogModel = z.infer<typeof modelSchema>;
+export type CatalogModel = z.infer<typeof modelSchema>;
 
 export type LegacyCatalogLoader = (context: LegacyMcpContext) => Promise<CatalogModel[]>;
+export type LegacyCatalogHealth = {
+  status: {
+    state: "ok" | "quota_exhausted" | "rate_limited" | "unavailable" | "disabled" | "unknown";
+    until?: string;
+    error_rate?: number;
+  };
+  usable: boolean | null;
+};
+export type LegacyCatalogHealthLoader = (
+  context: LegacyMcpContext,
+  models: CatalogModel[]
+) => Promise<Record<string, LegacyCatalogHealth>>;
 
 export function parseLegacyKeyCatalog(body: unknown): CatalogModel[] {
   const parsed = catalogSchema.safeParse(body);
@@ -117,8 +129,53 @@ const listArgs = z
   .strict();
 const getArgs = z.object({ id: z.string().min(1) }).strict();
 const comboArgs = z.object({ include_flat: z.boolean().optional() }).strict();
+const recommendArgs = z
+  .object({
+    needs: z.array(capabilitySchema).optional(),
+    current: z.string().min(1).optional(),
+    equivalent_to: z.string().min(1).optional(),
+    min_context: z.number().int().positive().optional(),
+    needs_input_tokens: z.number().int().positive().optional(),
+    max_price_per_million: z.number().nonnegative().optional(),
+    free_only: z.boolean().optional(),
+    prefer: z.enum(["cheapest", "largest_context"]).optional(),
+    include_combos: z.boolean().optional(),
+    limit: z.number().int().min(1).max(50).optional(),
+  })
+  .strict();
 
-export function createLegacyCatalogTools(load: LegacyCatalogLoader): LegacyMcpTool[] {
+function totalPrice(price: { input: number | null; output: number | null } | null): number | null {
+  if (!price || price.input === null || price.output === null) return null;
+  return price.input + price.output;
+}
+
+function withHealth(model: CatalogModel, health: Record<string, LegacyCatalogHealth>) {
+  const base = summary(model);
+  const live = health[model.id];
+  return { ...base, status: live?.status ?? base.status, usable: live?.usable ?? null };
+}
+
+function recommendationDelta(
+  base: ReturnType<typeof withHealth>,
+  candidate: ReturnType<typeof withHealth>
+) {
+  const basePrice = totalPrice(base.price_per_million);
+  const candidatePrice = totalPrice(candidate.price_per_million);
+  return {
+    price_delta_pct:
+      basePrice !== null && basePrice > 0 && candidatePrice !== null
+        ? Math.round(((candidatePrice - basePrice) / basePrice) * 1000) / 10
+        : null,
+    context_delta: (candidate.context_length ?? 0) - (base.context_length ?? 0),
+    gained_capabilities: candidate.capabilities.filter((name) => !base.capabilities.includes(name)),
+    lost_capabilities: base.capabilities.filter((name) => !candidate.capabilities.includes(name)),
+  };
+}
+
+export function createLegacyCatalogTools(
+  load: LegacyCatalogLoader,
+  loadHealth?: LegacyCatalogHealthLoader
+): LegacyMcpTool[] {
   return [
     {
       name: "list_models",
@@ -199,6 +256,134 @@ export function createLegacyCatalogTools(load: LegacyCatalogLoader): LegacyMcpTo
       run: async (_rawArgs, context) => {
         const combos = (await load(context)).filter((model) => model.owned_by === "combo");
         return { total: combos.length, combos: combos.map((model) => summary(model)) };
+      },
+    },
+    {
+      name: "recommend_models",
+      title: "Recommend models",
+      description:
+        "Rank key-visible, currently usable models by capabilities, context and price. Suggestions only; ask the user before switching.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          needs: { type: "array", items: { type: "string", enum: capabilityNames } },
+          current: { type: "string" },
+          equivalent_to: { type: "string" },
+          min_context: { type: "integer", minimum: 1 },
+          needs_input_tokens: { type: "integer", minimum: 1 },
+          max_price_per_million: { type: "number", minimum: 0 },
+          free_only: { type: "boolean" },
+          prefer: { type: "string", enum: ["cheapest", "largest_context"] },
+          include_combos: { type: "boolean" },
+          limit: { type: "integer", minimum: 1, maximum: 50 },
+        },
+        additionalProperties: false,
+      },
+      argsSchema: recommendArgs,
+      annotations: readOnly,
+      run: async (rawArgs, context) => {
+        const args = recommendArgs.parse(rawArgs);
+        const entries = await load(context);
+        const byId = new Map(entries.map((model) => [model.id, model]));
+        const find = (id: string | undefined) => {
+          if (!id) return null;
+          const model = byId.get(id);
+          if (!model) throw new LegacyMcpToolError("unknown_model", "Model not found for this key");
+          return model;
+        };
+        const currentModel = find(args.current);
+        const referenceModel = find(args.equivalent_to);
+        const health = loadHealth ? await loadHealth(context, entries) : {};
+        const current = currentModel ? withHealth(currentModel, health) : null;
+        const reference = referenceModel ? withHealth(referenceModel, health) : null;
+        const needs = [...new Set([...(args.needs ?? []), ...(reference?.capabilities ?? [])])];
+        const minContext = Math.max(
+          args.min_context ?? 0,
+          args.needs_input_tokens ?? 0,
+          reference?.context_length ?? 0
+        );
+        const candidates = entries.filter((model) => {
+          if (model.id === current?.id || model.id === reference?.id) return false;
+          if (model.owned_by === "alias") return false;
+          if (args.include_combos === false && model.owned_by === "combo") return false;
+          const candidate = summary(model);
+          return (
+            (candidate.context_length ?? 0) >= minContext &&
+            needs.every((need) => candidate.capabilities.includes(need))
+          );
+        });
+        const prefer = args.prefer ?? "cheapest";
+        const scored = candidates
+          .map((model) => withHealth(model, health))
+          .filter((candidate) => {
+            // /v1/models alone is not a live account probe. Unknown is not usable.
+            if (candidate.usable !== true) return false;
+            const price = totalPrice(candidate.price_per_million);
+            if (
+              args.max_price_per_million !== undefined &&
+              (price === null || price > args.max_price_per_million)
+            )
+              return false;
+            if (args.free_only && candidate.free !== true) return false;
+            if (reference && prefer !== "largest_context") {
+              const referencePrice = totalPrice(reference.price_per_million);
+              const cheaper = referencePrice !== null && price !== null && price < referencePrice;
+              const healthier = reference.usable === false && candidate.usable === true;
+              if (!cheaper && !healthier) return false;
+            }
+            return true;
+          });
+        scored.sort((left, right) => {
+          const contextDelta = (right.context_length ?? 0) - (left.context_length ?? 0);
+          const leftPrice = totalPrice(left.price_per_million) ?? Infinity;
+          const rightPrice = totalPrice(right.price_per_million) ?? Infinity;
+          const priceDelta = leftPrice === rightPrice ? 0 : leftPrice - rightPrice;
+          return (
+            (prefer === "largest_context"
+              ? contextDelta || priceDelta
+              : priceDelta || contextDelta) || left.id.localeCompare(right.id)
+          );
+        });
+        const base = current ?? reference;
+        return {
+          id_format: "catalog",
+          criteria: {
+            needs,
+            min_context: minContext || null,
+            needs_input_tokens: args.needs_input_tokens ?? null,
+            max_price_per_million: args.max_price_per_million ?? null,
+            free_only: args.free_only === true,
+            prefer,
+            current: current?.id ?? null,
+            equivalent_to: reference?.id ?? null,
+          },
+          ...(current ? { current } : {}),
+          considered: candidates.length,
+          recommendations: scored.slice(0, args.limit ?? 5).map((candidate) => {
+            const delta = base ? recommendationDelta(base, candidate) : null;
+            const why: Array<{ code: string; detail: string }> = needs.map((need) => ({
+              code: need,
+              detail: `supports ${need}`,
+            }));
+            if (candidate.free === true) why.push({ code: "free", detail: "no cost per token" });
+            if (delta && delta.price_delta_pct !== null && delta.price_delta_pct < 0) {
+              why.push({ code: "cheaper", detail: `${Math.abs(delta.price_delta_pct)}% cheaper` });
+            }
+            if (delta && delta.context_delta > 0) {
+              why.push({
+                code: "larger_context",
+                detail: `${delta.context_delta} more context tokens`,
+              });
+            }
+            return {
+              ...candidate,
+              ...(delta ? { delta } : {}),
+              why,
+              why_text: why.map((item) => item.detail).join("; "),
+            };
+          }),
+          note: "Suggestions only: switch by sending this id as model, after the user agrees.",
+        };
       },
     },
   ];
