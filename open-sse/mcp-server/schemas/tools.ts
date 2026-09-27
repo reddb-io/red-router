@@ -435,6 +435,10 @@ export const listModelsCatalogOutput = z.object({
       provider: z.string(),
       capabilities: z.array(z.string()),
       status: z.enum(["available", "degraded", "unavailable"]),
+      unavailableReason: z
+        .enum(["quota_exhausted", "model_locked", "rate_limited", "terminal"])
+        .optional(),
+      accounts: z.object({ available: z.number(), total: z.number() }).optional(),
       thinkingEffort: z.string().optional(),
       pricing: z
         .object({

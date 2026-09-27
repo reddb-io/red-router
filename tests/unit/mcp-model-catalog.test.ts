@@ -2,6 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { getMcpModelsCatalog } from "../../open-sse/mcp-server/server.ts";
+import { clearAllModelLockouts, lockModel } from "../../open-sse/services/accountFallback.ts";
+import { __clearForTests, setQuotaCache } from "../../src/domain/quotaCache.ts";
 
 test("getMcpModelsCatalog aggregates only active connection model endpoints", async () => {
   const calls: string[] = [];
@@ -42,6 +44,7 @@ test("getMcpModelsCatalog aggregates only active connection model endpoints", as
         provider: "github",
         capabilities: ["chat"],
         status: "available",
+        accounts: { available: 1, total: 1 },
         pricing: undefined,
       },
       {
@@ -49,11 +52,103 @@ test("getMcpModelsCatalog aggregates only active connection model endpoints", as
         provider: "github",
         capabilities: ["embedding"],
         status: "available",
+        accounts: { available: 1, total: 1 },
         pricing: undefined,
       },
     ],
     source: "api",
   });
+});
+
+test("getMcpModelsCatalog does not label quota-exhausted models available", async () => {
+  __clearForTests();
+  setQuotaCache("mcp-quota-a", "openai", {
+    daily: { remainingPercentage: 0, resetAt: new Date(Date.now() + 60_000).toISOString() },
+  });
+  try {
+    const result = await getMcpModelsCatalog(
+      { provider: "openai" },
+      {
+        listProviderConnections: async () => [
+          { id: "mcp-quota-a", provider: "openai", isActive: true },
+        ],
+        fetchJson: async () => ({ source: "api", models: [{ id: "gpt-4.1" }] }),
+      }
+    );
+    assert.equal(result.models[0]?.status, "unavailable");
+    assert.equal(result.models[0]?.unavailableReason, "quota_exhausted");
+    assert.deepEqual(result.models[0]?.accounts, { available: 0, total: 1 });
+  } finally {
+    __clearForTests();
+  }
+});
+
+test("getMcpModelsCatalog keeps a model available when another account is unlocked", async () => {
+  clearAllModelLockouts();
+  lockModel("openai", "mcp-lock-a", "gpt-4.1", "quota_exhausted", 60_000);
+  try {
+    const result = await getMcpModelsCatalog(
+      { provider: "openai" },
+      {
+        listProviderConnections: async () => [
+          { id: "mcp-lock-a", provider: "openai", isActive: true },
+          { id: "mcp-lock-b", provider: "openai", isActive: true },
+        ],
+        fetchJson: async () => ({ source: "api", models: [{ id: "gpt-4.1" }] }),
+      }
+    );
+    assert.equal(result.models[0]?.status, "available");
+    assert.equal(result.models[0]?.unavailableReason, undefined);
+    assert.deepEqual(result.models[0]?.accounts, { available: 1, total: 2 });
+  } finally {
+    clearAllModelLockouts();
+  }
+});
+
+test("getMcpModelsCatalog reports a locked model and an independent healthy model", async () => {
+  clearAllModelLockouts();
+  lockModel("openai", "mcp-lock-only", "gpt-4.1", "quota_exhausted", 60_000);
+  try {
+    const result = await getMcpModelsCatalog(
+      { provider: "openai" },
+      {
+        listProviderConnections: async () => [
+          { id: "mcp-lock-only", provider: "openai", isActive: true },
+        ],
+        fetchJson: async () => ({
+          source: "api",
+          models: [{ id: "gpt-4.1" }, { id: "gpt-4o" }],
+        }),
+      }
+    );
+    const locked = result.models.find((model) => model.id === "gpt-4.1");
+    const healthy = result.models.find((model) => model.id === "gpt-4o");
+    assert.equal(locked?.status, "unavailable");
+    assert.equal(locked?.unavailableReason, "quota_exhausted");
+    assert.deepEqual(locked?.accounts, { available: 0, total: 1 });
+    assert.equal(healthy?.status, "available");
+  } finally {
+    clearAllModelLockouts();
+  }
+});
+
+test("getMcpModelsCatalog marks a cooling connection unavailable", async () => {
+  const result = await getMcpModelsCatalog(
+    { provider: "openai" },
+    {
+      listProviderConnections: async () => [
+        {
+          id: "mcp-cooldown-only",
+          provider: "openai",
+          isActive: true,
+          rateLimitedUntil: new Date(Date.now() + 60_000).toISOString(),
+        },
+      ],
+      fetchJson: async () => ({ source: "api", models: [{ id: "gpt-4.1" }] }),
+    }
+  );
+  assert.equal(result.models[0]?.status, "unavailable");
+  assert.equal(result.models[0]?.unavailableReason, "rate_limited");
 });
 
 test("getMcpModelsCatalog exposes codex default thinking effort when no override is stored", async () => {
@@ -84,9 +179,7 @@ test("getMcpModelsCatalog includes context_length when present", async () => {
   const result = await getMcpModelsCatalog(
     {},
     {
-      listProviderConnections: async () => [
-        { id: "conn-1", provider: "openai", isActive: true },
-      ],
+      listProviderConnections: async () => [{ id: "conn-1", provider: "openai", isActive: true }],
       fetchJson: async () => ({
         source: "api",
         models: [
