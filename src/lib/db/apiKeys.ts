@@ -5,6 +5,10 @@
 import { createHash } from "crypto";
 import { v4 as uuidv4 } from "uuid";
 import { getDbInstance, rowToCamel } from "./core";
+import {
+  insertInitialKeyQuotaLimitsInTransaction,
+  type UpsertKeyQuotaLimitsInput,
+} from "./keyQuota";
 import { backupDbFile } from "./backup";
 import { registerDbStateResetter } from "./stateReset";
 import { invalidateReasoningRoutingRuleCache } from "./reasoningRoutingRules";
@@ -90,6 +94,8 @@ interface CreateApiKeyOptions {
   allowedCombos?: string[];
   allowedConnections?: string[];
   expiresAt?: string | null;
+  /** Inserted in the same SQLite transaction as the bearer key. */
+  quotaLimits?: UpsertKeyQuotaLimitsInput;
 }
 
 export type { AccessSchedule, RateLimitRule } from "./apiKeys/types";
@@ -194,6 +200,7 @@ interface StatementLike<TRow = unknown> {
 interface ApiKeysDbLike {
   prepare: <TRow = unknown>(sql: string) => StatementLike<TRow>;
   exec: (sql: string) => void;
+  transaction: <T>(fn: () => T) => () => T;
 }
 
 interface ApiKeysStatements {
@@ -705,6 +712,30 @@ export async function createApiKey(
   const allowedModels = modelAccess.allowedModels ?? [];
   const allowedCombos = options.allowedCombos ?? [ALL_COMBOS_ACCESS_RULE];
   assertExclusiveLeaseKeyPolicy(scopes, allowedConnections);
+  // Snapshot before async key generation so a caller cannot mutate validated
+  // limits between validation and the transactional insert.
+  const quotaLimits = options.quotaLimits ? { ...options.quotaLimits } : undefined;
+  if (quotaLimits) {
+    for (const [dimension, value] of Object.entries(quotaLimits)) {
+      if (
+        dimension !== "tpmLimit" &&
+        dimension !== "rpmLimit" &&
+        dimension !== "dailyTokensLimit" &&
+        dimension !== "monthlyAmountUsd"
+      ) {
+        throw new Error(`Unknown API key quota dimension: ${dimension}`);
+      }
+      if (value === null || value === undefined || value === 0) continue;
+      if (
+        typeof value !== "number" ||
+        !Number.isFinite(value) ||
+        value < 0 ||
+        (dimension !== "monthlyAmountUsd" && !Number.isSafeInteger(value))
+      ) {
+        throw new Error(`Invalid API key quota limit: ${dimension}`);
+      }
+    }
+  }
 
   const db = getDbInstance() as ApiKeysDbLike;
   const now = new Date().toISOString();
@@ -729,22 +760,26 @@ export async function createApiKey(
   };
 
   const stmt = getPreparedStatements(db);
-  stmt.insertKey.run(
-    apiKey.id,
-    apiKey.name,
-    apiKey.key,
-    apiKey.machineId,
-    apiKey.modelAccessMode,
-    JSON.stringify(apiKey.allowedModels),
-    JSON.stringify(apiKey.allowedCombos),
-    JSON.stringify(allowedConnections),
-    0,
-    apiKey.createdAt,
-    apiKey.key.slice(0, 12),
-    await hashKey(apiKey.key),
-    JSON.stringify(scopes),
-    apiKey.expiresAt
-  );
+  const keyHash = await hashKey(apiKey.key);
+  db.transaction(() => {
+    stmt.insertKey.run(
+      apiKey.id,
+      apiKey.name,
+      apiKey.key,
+      apiKey.machineId,
+      apiKey.modelAccessMode,
+      JSON.stringify(apiKey.allowedModels),
+      JSON.stringify(apiKey.allowedCombos),
+      JSON.stringify(allowedConnections),
+      0,
+      apiKey.createdAt,
+      apiKey.key.slice(0, 12),
+      keyHash,
+      JSON.stringify(scopes),
+      apiKey.expiresAt
+    );
+    if (quotaLimits) insertInitialKeyQuotaLimitsInTransaction(apiKey.id, quotaLimits);
+  })();
   setNoLog(apiKey.id, false);
 
   backupDbFile("pre-write");

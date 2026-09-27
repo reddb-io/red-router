@@ -145,6 +145,47 @@ export interface UpsertKeyQuotaLimitsInput {
   monthlyAmountUsd?: number | null;
 }
 
+function writeQuotaLimits(
+  db: ReturnType<typeof getDbInstance>,
+  apiKeyId: string,
+  limits: Omit<KeyQuotaLimits, "apiKeyId">
+): void {
+  db.prepare(
+    `INSERT INTO api_key_quota_limits (api_key_id, tpm_limit, rpm_limit, monthly_amount_usd, updated_at)
+     VALUES (?, ?, ?, ?, datetime('now'))
+     ON CONFLICT(api_key_id) DO UPDATE SET
+       tpm_limit = excluded.tpm_limit,
+       rpm_limit = excluded.rpm_limit,
+       monthly_amount_usd = excluded.monthly_amount_usd,
+       updated_at = excluded.updated_at`
+  ).run(apiKeyId, limits.tpmLimit, limits.rpmLimit, limits.monthlyAmountUsd);
+  if (limits.dailyTokensLimit === null) {
+    db.prepare("DELETE FROM api_key_daily_token_limits WHERE api_key_id = ?").run(apiKeyId);
+  } else {
+    db.prepare(
+      `INSERT INTO api_key_daily_token_limits (api_key_id, daily_tokens_limit, updated_at)
+       VALUES (?, ?, datetime('now'))
+       ON CONFLICT(api_key_id) DO UPDATE SET
+         daily_tokens_limit = excluded.daily_tokens_limit,
+         updated_at = excluded.updated_at`
+    ).run(apiKeyId, limits.dailyTokensLimit);
+  }
+}
+
+/** Caller must already own a SQLite transaction with the newly inserted key. */
+export function insertInitialKeyQuotaLimitsInTransaction(
+  apiKeyId: string,
+  input: UpsertKeyQuotaLimitsInput
+): void {
+  const db = getDbInstance();
+  writeQuotaLimits(db, apiKeyId, {
+    tpmLimit: limitToDb(input.tpmLimit),
+    rpmLimit: limitToDb(input.rpmLimit),
+    dailyTokensLimit: limitToDb(input.dailyTokensLimit),
+    monthlyAmountUsd: limitToDb(input.monthlyAmountUsd),
+  });
+}
+
 /**
  * Upsert quota limits for a key. Omitted fields keep their existing value.
  * Returns the resulting limits.
@@ -173,28 +214,14 @@ export function upsertKeyQuotaLimits(
     input.monthlyAmountUsd !== undefined ? input.monthlyAmountUsd : existing.monthlyAmountUsd
   );
 
-  db.transaction(() => {
-    db.prepare(
-      `INSERT INTO api_key_quota_limits (api_key_id, tpm_limit, rpm_limit, monthly_amount_usd, updated_at)
-       VALUES (?, ?, ?, ?, datetime('now'))
-       ON CONFLICT(api_key_id) DO UPDATE SET
-         tpm_limit = excluded.tpm_limit,
-         rpm_limit = excluded.rpm_limit,
-         monthly_amount_usd = excluded.monthly_amount_usd,
-         updated_at = excluded.updated_at`
-    ).run(apiKeyId, tpm, rpm, monthly);
-    if (dailyTokens === null) {
-      db.prepare("DELETE FROM api_key_daily_token_limits WHERE api_key_id = ?").run(apiKeyId);
-    } else {
-      db.prepare(
-        `INSERT INTO api_key_daily_token_limits (api_key_id, daily_tokens_limit, updated_at)
-         VALUES (?, ?, datetime('now'))
-         ON CONFLICT(api_key_id) DO UPDATE SET
-           daily_tokens_limit = excluded.daily_tokens_limit,
-           updated_at = excluded.updated_at`
-      ).run(apiKeyId, dailyTokens);
-    }
-  })();
+  db.transaction(() =>
+    writeQuotaLimits(db, apiKeyId, {
+      tpmLimit: tpm,
+      rpmLimit: rpm,
+      dailyTokensLimit: dailyTokens,
+      monthlyAmountUsd: monthly,
+    })
+  )();
 
   return {
     apiKeyId,

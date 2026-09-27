@@ -24,6 +24,7 @@ process.env.API_KEY_SECRET = "test-api-key-secret-for-crc-operations-do-not-use-
 
 const core = await import("../../src/lib/db/core.ts");
 const apiKeys = await import("../../src/lib/db/apiKeys.ts");
+const keyQuota = await import("../../src/lib/db/keyQuota.ts");
 
 async function resetStorage() {
   apiKeys.resetApiKeyState();
@@ -68,6 +69,43 @@ test("createApiKey rejects empty machineId", async () => {
   await assert.rejects(() => apiKeys.createApiKey("Bad Key", ""), {
     message: /machineId is required/i,
   });
+});
+
+test("createApiKey commits a standard key and its limits together", async () => {
+  await resetStorage();
+  const created = await apiKeys.createApiKey("Limited Key", "machine-limited", [], {
+    quotaLimits: { rpmLimit: 3, dailyTokensLimit: 500, monthlyAmountUsd: 2.5 },
+  });
+  assert.deepEqual((await apiKeys.getApiKeyById(created.id))?.scopes, []);
+  const limits = keyQuota.getKeyQuotaLimits(created.id);
+  assert.equal(limits.rpmLimit, 3);
+  assert.equal(limits.dailyTokensLimit, 500);
+  assert.equal(limits.monthlyAmountUsd, 2.5);
+});
+
+test("createApiKey rolls back the bearer key if quota insertion fails", async () => {
+  await resetStorage();
+  core.getDbInstance().exec(`
+    CREATE TRIGGER reject_daily_key_limit
+    BEFORE INSERT ON api_key_daily_token_limits
+    BEGIN SELECT RAISE(ABORT, 'quota write rejected'); END;
+  `);
+  await assert.rejects(() =>
+    apiKeys.createApiKey("Must Not Exist", "machine-rollback", [], {
+      quotaLimits: { dailyTokensLimit: 100 },
+    })
+  );
+  assert.deepEqual(await apiKeys.getApiKeys(), []);
+});
+
+test("createApiKey rejects invalid quota input before inserting a bearer key", async () => {
+  await resetStorage();
+  await assert.rejects(() =>
+    apiKeys.createApiKey("Invalid Limit", "machine-invalid", [], {
+      quotaLimits: { dailyTokensLimit: -1 },
+    })
+  );
+  assert.deepEqual(await apiKeys.getApiKeys(), []);
 });
 
 // ──────────────── getApiKeys ────────────────
