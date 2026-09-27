@@ -103,16 +103,25 @@ test("auto-select skips a rate-limited firecrawl and falls to jina-reader", asyn
 test("9router model requests get structured content without changing provider-only callers", async () => {
   await seedConnection("firecrawl", { apiKey: "fc-key" });
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = async () =>
-    new Response(JSON.stringify({ data: { markdown: "abcdef", links: [] } }), {
+  const requestedFormats: string[][] = [];
+  globalThis.fetch = async (_url, init) => {
+    requestedFormats.push((JSON.parse(String(init?.body)) as { formats: string[] }).formats);
+    return new Response(JSON.stringify({ data: { markdown: "abcdef", links: [] } }), {
       status: 200,
       headers: { "content-type": "application/json" },
     });
+  };
   try {
     const legacy = await postWebFetch({ model: "firecrawl/fetch", max_characters: 3 });
     const legacyBody = (await legacy.json()) as { content: { text: string; length: number } };
     assert.equal(legacy.status, 200);
     assert.deepEqual(legacyBody.content, { format: "markdown", text: "abc", length: 3 });
+
+    const text = await postWebFetch({ model: "firecrawl/fetch", format: "text" });
+    const textBody = (await text.json()) as { content: { format: string; text: string } };
+    assert.equal(text.status, 200);
+    assert.deepEqual(textBody.content, { format: "text", text: "abcdef", length: 6 });
+    assert.deepEqual(requestedFormats.at(-1), ["markdown"]);
 
     const current = await postWebFetch({ provider: "firecrawl", max_characters: 3 });
     const currentBody = await readJson(current);

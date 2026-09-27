@@ -309,6 +309,9 @@ export async function POST(request: Request) {
 
   log.info("WEB_FETCH", `${target.provider} | ${body.url} | format=${body.format}`);
 
+  // 9router's text format uses the same textual extraction transport as markdown.
+  // Preserve the requested format in the negotiated response contract below.
+  const transportFormat = body.format === "text" ? "markdown" : body.format;
   const upstreamStartedAt = Date.now();
   const {
     result,
@@ -317,7 +320,7 @@ export async function POST(request: Request) {
   } = await executeWithFallback(
     {
       url: body.url,
-      format: body.format,
+      format: transportFormat,
       depth: body.depth as 0 | 1 | 2,
       wait_for_selector: body.wait_for_selector,
       include_metadata: body.include_metadata,

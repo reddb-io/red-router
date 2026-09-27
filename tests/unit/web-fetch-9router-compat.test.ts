@@ -38,6 +38,11 @@ test("9router model IDs resolve to the existing provider transports", () => {
     v1WebFetchSchema.parse({ url: "https://example.com", model: "firecrawl/fetch" }).model,
     "firecrawl/fetch"
   );
+  assert.equal(
+    v1WebFetchSchema.parse({ url: "https://example.com", model: "firecrawl/fetch", format: "text" })
+      .format,
+    "text"
+  );
 });
 
 test("9router response wraps content without inventing billed usage", () => {
