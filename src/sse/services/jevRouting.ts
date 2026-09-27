@@ -143,6 +143,31 @@ export function readJevModelChoice(
   return verdict.apply && verdict.model && byId.has(verdict.model) ? verdict.model : null;
 }
 
+/** Build one bounded model question; an undescribed candidate makes the evaluation abstain. */
+export function buildJevModelDecisionQuestions(
+  pool: Array<JevModelCandidate & { id: string }>,
+  briefs?: Record<string, string>
+): { questions: Record<string, unknown> } | null {
+  const criteria = new Map(
+    pool.map((candidate) => [
+      candidate.id,
+      resolveCriteria({
+        provider: candidate.provider,
+        model: candidate.model,
+        briefs,
+        requireBrief: true,
+      }),
+    ])
+  );
+  // Do not silently omit unknown models from the question or ask JEV to choose
+  // using an uninformative name alone.
+  if ([...criteria.values()].some((description) => !description)) return null;
+  return buildModelQuestions(
+    pool.map((candidate) => candidate.id),
+    (id) => criteria.get(id) ?? null
+  );
+}
+
 /** The successful upstream evaluation is never repeated because local usage persistence failed. */
 async function askJevFromStoredConnection(
   config: JevRoutingConfig,
@@ -281,22 +306,11 @@ export async function decideJevModel(
   if (config.mode !== "jev" || config.modelMode !== "jev" || isEncryptedTask(body)) return null;
   const pool = buildJevModelPool(candidates, budgetCap, estimatedInputTokens);
   if (pool.length < 2 || pool.length > 255) return null;
-  const criteria = new Map(
-    pool.map((candidate) => [
-      candidate.id,
-      resolveCriteria({ provider: candidate.provider, model: candidate.model }),
-    ])
-  );
-  // Do not silently omit unknown models from the question or ask JEV to choose
-  // using an uninformative name alone.
-  if ([...criteria.values()].some((description) => !description)) return null;
+  const question = buildJevModelDecisionQuestions(pool, config.briefs);
+  if (!question) return null;
   const state = buildState(body, { maxStateChars: JEV_STATE_CHAR_BUDGET, dropSystem: true });
   if (!state.request && !state.conversation?.length) return null;
-  const { questions } = buildModelQuestions(
-    pool.map((candidate) => candidate.id),
-    (id) => criteria.get(id) ?? null
-  );
-  const result = await askJevFromStoredConnection(config, state, questions, log, options);
+  const result = await askJevFromStoredConnection(config, state, question.questions, log, options);
   return readJevModelChoice(result?.payload, pool);
 }
 

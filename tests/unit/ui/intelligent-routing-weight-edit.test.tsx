@@ -65,3 +65,33 @@ it("exposes opt-in System One settings without changing scoring or unrelated con
     })
   );
 });
+
+it("adds a per-model JEV brief without dropping other decision settings", () => {
+  const onChange = vi.fn();
+  const t = Object.assign((key: string) => key, { has: () => false });
+  render(
+    <BuilderIntelligentStep
+      t={t}
+      activeProviders={[]}
+      config={{ decision: { mode: "jev", modelMode: "jev", toolMode: "hint" } }}
+      onChange={onChange}
+    />
+  );
+  fireEvent.change(screen.getByLabelText("JEV brief model ID"), {
+    target: { value: "example/unknown-model" },
+  });
+  fireEvent.change(screen.getByLabelText("JEV brief description"), {
+    target: { value: "Use for short legal summaries." },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Add brief" }));
+  expect(onChange).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      decision: {
+        mode: "jev",
+        modelMode: "jev",
+        toolMode: "hint",
+        briefs: { "example/unknown-model": "Use for short legal summaries." },
+      },
+    })
+  );
+});

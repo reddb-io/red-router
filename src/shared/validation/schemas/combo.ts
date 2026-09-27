@@ -82,6 +82,10 @@ const jevDecisionConfigSchema = z
     model: z.string().trim().min(1).max(200).optional(),
     toolMode: z.enum(["off", "hint", "none", "forced"]).optional(),
     modelMode: z.enum(["off", "jev"]).optional(),
+    briefs: z
+      .record(z.string().trim().min(1).max(200), z.string().trim().min(1).max(600))
+      .refine((value) => Object.keys(value).length <= 64, "at most 64 decision model briefs")
+      .optional(),
   })
   .passthrough();
 

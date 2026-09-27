@@ -372,7 +372,10 @@ This is **not** the whole 9router Decisions runtime. The `feat/main-integration`
 branch now wires opt-in tool decisions from `src/sse/handlers/chat.ts` into the
 post-translation hook, and opt-in direct model choice in Auto-Combo through
 `decision.modelMode: "jev"`. The combo builder exposes the evaluation model,
-model choice, and tool choice; all are off by default. Evaluations use a stored
+model choice, tool choice, and bounded per-model briefs for models absent from
+the curated descriptions; evaluation and both choices are off by default. An
+undescribed model still makes direct choice abstain rather than supplying an
+uninformative label. Evaluations use a stored
 connection permitted by the request API key, record reported usage separately, and abstain
 when unavailable or inconclusive. Direct model choice is limited to routable
 candidates under the request cost cap; it does not replace deterministic fallback.

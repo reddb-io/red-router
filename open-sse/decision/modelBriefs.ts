@@ -66,7 +66,8 @@ export const MODEL_BRIEFS: Record<string, string> = {
 
 /**
  * The criteria for one model: the operator's own brief, then the table above, then
- * price + capability flags.
+ * price + capability flags. Direct JEV model choice sets `requireBrief` so that
+ * the weak capability-only fallback cannot decide between unknown models.
  *
  * ponytail: the third step is measured bad (0/4; only the confidence threshold
  * stopped it routing wrong). It is a floor for unknown models, not a substitute
@@ -77,16 +78,29 @@ export function resolveCriteria({
   model,
   briefs = {},
   maxChars = 600,
+  requireBrief = false,
 }: {
   provider: string;
   model: unknown;
   briefs?: Record<string, string>;
   maxChars?: number;
+  requireBrief?: boolean;
 }): string {
   const id = String(model || "");
-  const override = briefs[`${provider}/${id}`] || briefs[id];
-  const curated = MODEL_BRIEFS[id] || briefsFor(vendorSuffix(id)) || matchSuffix(MODEL_BRIEFS, id);
-  return truncateText(override || curated || describeCapabilities(provider, id), maxChars);
+  const qualified = `${provider}/${id}`;
+  const override = Object.hasOwn(briefs, qualified)
+    ? briefs[qualified]
+    : Object.hasOwn(briefs, id)
+      ? briefs[id]
+      : null;
+  const curated =
+    (Object.hasOwn(MODEL_BRIEFS, id) ? MODEL_BRIEFS[id] : null) ||
+    briefsFor(vendorSuffix(id)) ||
+    matchSuffix(MODEL_BRIEFS, id);
+  return truncateText(
+    override || curated || (requireBrief ? "" : describeCapabilities(provider, id)),
+    maxChars
+  );
 }
 
 function describeCapabilities(provider: string, model: string): string {
@@ -112,7 +126,7 @@ function vendorSuffix(id: string): string | null {
 
 function briefsFor(id: string | null): string | null {
   if (!id) return null;
-  return MODEL_BRIEFS[id] || null;
+  return Object.hasOwn(MODEL_BRIEFS, id) ? MODEL_BRIEFS[id] : null;
 }
 
 /** Versioned ids fall back to their family brief. */

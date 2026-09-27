@@ -15,6 +15,7 @@ import {
   restrictJevConnections,
 } from "../../open-sse/services/combo/jevConfig.ts";
 import {
+  buildJevModelDecisionQuestions,
   buildJevModelPool,
   classifyJevRoutingTier,
   createJevToolDecision,
@@ -28,6 +29,7 @@ import {
 } from "../../src/sse/services/jevRouting.ts";
 import { applyToolDecision } from "../../open-sse/handlers/chatCore/toolDecision.ts";
 import { normalizeAnswers } from "../../open-sse/decision/jev.ts";
+import { resolveCriteria } from "../../open-sse/decision/modelBriefs.ts";
 import { resolveToolDecision } from "../../open-sse/decision/decide.ts";
 import { FORMATS } from "../../open-sse/translator/formats.ts";
 import { readSystemOneJson } from "../../src/sse/handlers/systemOne.ts";
@@ -58,6 +60,37 @@ test("JEV routing remains off unless explicitly configured", () => {
     parseJevRoutingConfig({ config: { decision: { mode: "jev", modelMode: "jev" } } }).modelMode,
     "jev"
   );
+  assert.deepEqual(
+    parseJevRoutingConfig({
+      config: {
+        decision: {
+          mode: "jev",
+          briefs: { "example/unknown-model": "Use for short legal summaries." },
+        },
+      },
+    }).briefs,
+    { "example/unknown-model": "Use for short legal summaries." }
+  );
+});
+
+test("JEV model briefs prefer bounded operator descriptions without inherited keys", () => {
+  assert.equal(
+    resolveCriteria({
+      provider: "example",
+      model: "unknown-model",
+      briefs: { "example/unknown-model": "Use for short legal summaries." },
+    }),
+    "Use for short legal summaries."
+  );
+  const inherited = Object.create({ "example/unknown-model": "Never trust this prototype." });
+  assert.notEqual(
+    resolveCriteria({ provider: "example", model: "unknown-model", briefs: inherited }),
+    "Never trust this prototype."
+  );
+  assert.equal(
+    typeof resolveCriteria({ provider: "example", model: "constructor", briefs: {} }),
+    "string"
+  );
 });
 
 test("combo writes bound the decision model and reject unsupported JEV modes", () => {
@@ -86,6 +119,28 @@ test("combo writes bound the decision model and reject unsupported JEV modes", (
   assert.equal(
     comboRuntimeConfigSchema.safeParse({ decision: { mode: "jev", model: "x".repeat(201) } })
       .success,
+    false
+  );
+  assert.equal(
+    comboRuntimeConfigSchema.safeParse({
+      decision: { briefs: { "example/unknown-model": "Use for short legal summaries." } },
+    }).success,
+    true
+  );
+  assert.equal(
+    comboRuntimeConfigSchema.safeParse({
+      decision: { briefs: { "example/unknown-model": "x".repeat(601) } },
+    }).success,
+    false
+  );
+  assert.equal(
+    comboRuntimeConfigSchema.safeParse({
+      decision: {
+        briefs: Object.fromEntries(
+          Array.from({ length: 65 }, (_, index) => [`example/model-${index}`, "Useful model."])
+        ),
+      },
+    }).success,
     false
   );
 });
@@ -151,6 +206,27 @@ test("JEV model pool deduplicates connections and enforces the request budget", 
   assert.deepEqual(
     buildJevModelPool(candidates, null, 1000).map((candidate) => candidate.id),
     ["anthropic/claude-sonnet-5", "openai/gpt-6-luna"]
+  );
+});
+
+test("JEV model questions use operator briefs for otherwise undescribed models", () => {
+  const pool = buildJevModelPool(
+    [
+      { provider: "example", model: "unknown-model", costPer1MTokens: 1 },
+      { provider: "openai", model: "gpt-6-luna", costPer1MTokens: 1 },
+    ],
+    null,
+    1000
+  );
+  assert.equal(buildJevModelDecisionQuestions(pool), null);
+  const result = buildJevModelDecisionQuestions(pool, {
+    "example/unknown-model": "Use for short legal summaries.",
+  });
+  assert.equal(
+    (result?.questions.model as { criteria: Record<string, string> }).criteria[
+      "example/unknown-model"
+    ],
+    "Use for short legal summaries."
   );
 });
 

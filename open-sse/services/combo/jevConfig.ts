@@ -3,6 +3,7 @@ export type JevRoutingConfig = {
   model: string;
   toolMode: "off" | "hint" | "none" | "forced";
   modelMode: "off" | "jev";
+  briefs?: Record<string, string>;
 };
 
 /** Null means no key restriction; [] means a quota/key scope with no usable connection. */
@@ -45,6 +46,23 @@ export function parseJevRoutingConfig(combo: {
     return { mode: "off", model: "typesafe-ai/jev-latest", toolMode: "off", modelMode: "off" };
   }
   const config = nested as Record<string, unknown>;
+  const rawBriefs = config.briefs;
+  const briefs =
+    rawBriefs && typeof rawBriefs === "object" && !Array.isArray(rawBriefs)
+      ? Object.fromEntries(
+          Object.entries(rawBriefs)
+            .slice(0, 64)
+            .filter(
+              ([key, value]) =>
+                key.trim().length > 0 &&
+                key.length <= 200 &&
+                typeof value === "string" &&
+                value.trim().length > 0 &&
+                value.length <= 600
+            )
+            .map(([key, value]) => [key.trim(), (value as string).trim()])
+        )
+      : {};
   return {
     mode: config.mode === "jev" ? "jev" : "off",
     model:
@@ -56,5 +74,6 @@ export function parseJevRoutingConfig(combo: {
         ? config.toolMode
         : "off",
     modelMode: config.modelMode === "jev" ? "jev" : "off",
+    ...(Object.keys(briefs).length > 0 ? { briefs } : {}),
   };
 }

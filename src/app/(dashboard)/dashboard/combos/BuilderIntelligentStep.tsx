@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import Card from "@/shared/components/Card";
 import {
   DEFAULT_INTELLIGENT_WEIGHTS,
@@ -94,6 +94,16 @@ export default function BuilderIntelligentStep({
     config.decision && typeof config.decision === "object" && !Array.isArray(config.decision)
       ? (config.decision as Record<string, unknown>)
       : {};
+  const decisionBriefs =
+    decision.briefs && typeof decision.briefs === "object" && !Array.isArray(decision.briefs)
+      ? Object.fromEntries(
+          Object.entries(decision.briefs).filter(
+            ([key, value]) => key.length > 0 && typeof value === "string"
+          )
+        )
+      : {};
+  const [briefModel, setBriefModel] = useState("");
+  const [briefDescription, setBriefDescription] = useState("");
   const isSlaAwareStrategy = ["sla-aware", "sla"].includes(normalizedConfig.routerStrategy);
   const providerOptions = useMemo(
     () => toProviderOptions(activeProviders, normalizedConfig.candidatePool),
@@ -106,6 +116,26 @@ export default function BuilderIntelligentStep({
 
   const updateDecision = (patch: Record<string, unknown>) => {
     updateConfig({ decision: { ...decision, ...patch } });
+  };
+
+  const addModelBrief = () => {
+    const model = briefModel.trim();
+    const description = briefDescription.trim();
+    if (
+      !model ||
+      !description ||
+      (Object.keys(decisionBriefs).length >= 64 && !decisionBriefs[model])
+    )
+      return;
+    updateDecision({ briefs: { ...decisionBriefs, [model]: description } });
+    setBriefModel("");
+    setBriefDescription("");
+  };
+
+  const removeModelBrief = (model: string) => {
+    const nextBriefs = { ...decisionBriefs };
+    delete nextBriefs[model];
+    updateDecision({ briefs: nextBriefs });
   };
 
   const toggleCandidateProvider = (providerId: string) => {
@@ -137,6 +167,68 @@ export default function BuilderIntelligentStep({
             Intelligent
           </span>
         </div>
+      </Card.Section>
+
+      <Card.Section>
+        <h3 className="text-xs font-semibold text-text-main">JEV model briefs</h3>
+        <p className="text-[11px] text-text-muted mt-1">
+          Describe what an unfamiliar model is best for. Use its full provider/model ID; JEV
+          abstains if any candidate lacks a useful description.
+        </p>
+        <div className="grid grid-cols-1 md:grid-cols-[1fr_2fr_auto] gap-2 mt-3 items-end">
+          <label className="text-xs text-text-main">
+            Model ID
+            <input
+              aria-label="JEV brief model ID"
+              type="text"
+              maxLength={200}
+              value={briefModel}
+              onChange={(event) => setBriefModel(event.target.value)}
+              placeholder="provider/model"
+              className="mt-1 w-full text-xs py-2 px-2 rounded border border-black/10 dark:border-white/10 bg-transparent"
+            />
+          </label>
+          <label className="text-xs text-text-main">
+            Best-use description
+            <input
+              aria-label="JEV brief description"
+              type="text"
+              maxLength={600}
+              value={briefDescription}
+              onChange={(event) => setBriefDescription(event.target.value)}
+              placeholder="Use for..."
+              className="mt-1 w-full text-xs py-2 px-2 rounded border border-black/10 dark:border-white/10 bg-transparent"
+            />
+          </label>
+          <button
+            type="button"
+            onClick={addModelBrief}
+            disabled={
+              !briefModel.trim() ||
+              !briefDescription.trim() ||
+              (Object.keys(decisionBriefs).length >= 64 && !decisionBriefs[briefModel.trim()])
+            }
+            className="text-xs py-2 px-3 rounded border border-primary text-primary disabled:opacity-50"
+          >
+            Add brief
+          </button>
+        </div>
+        {Object.entries(decisionBriefs).map(([model, description]) => (
+          <div key={model} className="flex items-start justify-between gap-2 mt-2 text-xs">
+            <div className="min-w-0">
+              <span className="font-medium text-text-main break-all">{model}</span>
+              <p className="text-text-muted break-words">{description}</p>
+            </div>
+            <button
+              type="button"
+              aria-label={`Remove JEV brief for ${model}`}
+              onClick={() => removeModelBrief(model)}
+              className="shrink-0 text-text-muted hover:text-text-main"
+            >
+              Remove
+            </button>
+          </div>
+        ))}
       </Card.Section>
 
       <Card.Section>
