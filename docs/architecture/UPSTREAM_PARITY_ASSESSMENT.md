@@ -435,6 +435,25 @@ absent: the imported MCP server has different transport, authorization, and
 result contracts. The old tools module was not retained as dead code; a
 sanitized, key-scoped compatibility adapter plus protocol tests is needed
 before claiming legacy MCP wire parity or merging this integration branch.
+
+The legacy endpoint was stateless JSON-RPC at `/v1/mcp` with mandatory Bearer
+authentication, a version header, and ten unprefixed tools. The current MCP
+server uses `/api/mcp/*`, three transports, and scoped `omniroute_*` tools.
+The overlap is semantic, not a compatible tool contract:
+
+| Legacy tool(s)                                              | Current capability to reuse                                     | Compatibility still required                                                                    |
+| ----------------------------------------------------------- | --------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `list_models`, `get_model`, `list_combos`, `list_providers` | Key-filtered `/v1/models`, MCP model/combos catalog             | Legacy names, status and price result shapes, and per-key account filtering.                    |
+| `recommend_models`                                          | `omniroute_best_combo_for_task`, `omniroute_pick_fastest_model` | Requirement/ranking inputs, explanation codes, and no-routing-change guarantee.                 |
+| `get_usage`, `get_quotas`                                   | `omniroute_cost_report`, `omniroute_check_quota`                | Calling-key isolation, admin cross-key access, per-account quota windows, and refresh behavior. |
+| `get_api_key`, `list_api_keys`, `create_api_key`            | API-key domain module and management routes                     | Secret-free reads, admin-only listing/creation, and explicit creation confirmation.             |
+
+Do not point `/v1/mcp` directly at the new management-scoped transport: the old
+endpoint admitted ordinary API keys but restricted every result to that key.
+The old JSON-RPC helper also returned raw exception messages; any adapter must
+route dynamic failures through the current error sanitizer and test that no
+stack trace or credential reaches an MCP response.
+
 These are semantic
 reconciliation tasks, not reasons to choose the deleted side of a merge
 automatically.
