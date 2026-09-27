@@ -1,7 +1,7 @@
 ---
 title: "Upstream parity and persistence assessment"
 status: in-progress
-lastUpdated: 2026-09-26
+lastUpdated: 2026-09-27
 ---
 
 # Upstream parity and persistence assessment
@@ -13,6 +13,20 @@ This is a source snapshot, **not a claim of complete feature parity**. The compa
 Refresh the refs and rerun `node scripts/ad-hoc/upstream-parity-inventory.mjs` before using
 the counts in a later review. The script reads paths and provider IDs; it does not compare
 credentials, transport, model lists, billing, UI, or behavior.
+
+## Verification snapshot
+
+[CI run 36284231331](https://github.com/reddb-io/red-router/actions/runs/36284231331)
+for `8ebb93b0a4` passed build, lint, all eight unit shards, Vitest, integrations,
+security, ecosystem, all nine Playwright shards, package artifact, coverage,
+and Quality Ratchet. No local test suite was run. `Docs Sync (Strict)` failed:
+17 source documents and 589 translated targets are out of sync. This proves
+the covered code paths passed that CI run; it does not establish credentialed
+provider behavior, complete upstream parity, or multi-replica safety.
+`omni-upstream/main` at `443d66996d` also has 12 commits outside the
+inspected release branch. This worktree ports its leading Claude system-text
+hoist (`a3ca33fa64`) with a focused regression test; the other main-only
+commits still need patch-equivalence review before claiming current-main parity.
 
 ## Structural inventory
 
@@ -388,3 +402,24 @@ The safe delivery order is:
 No local test result or CI result currently proves this worktree's feature parity
 or multi-replica safety. Do not publish either claim until the relevant suites,
 provider credential smoke, and deployment topology checks pass.
+
+## Integration with the existing `main`
+
+The product integration is not a mechanical merge. At the inspected refs,
+`origin/main` has four commits not in `origin/omniroute-base`, while the latter
+has ten commits not in `origin/main`. A read-only `git merge-tree --write-tree
+--name-only origin/main origin/omniroute-base` found six modify/delete
+conflicts: `cli/CHANGELOG.md`, `cli/package.json`,
+`src/app/(dashboard)/dashboard/console-log/ConsoleLogClient.js`,
+`src/lib/mcp/redRouterTools.js`, `src/shared/icons/materialToLucide.js`, and
+`tests/unit/mcp-red-router.test.js`.
+
+The `main` side includes #155's quota- and model-lock-aware MCP model status
+and #156's live console full-screen/activity view. The imported MCP catalog
+currently derives `available` from catalog data without applying the full
+connection-selection quota and lockout rules; the imported console uses the
+separate polling-based `ConsoleLogViewer`. These are semantic reconciliation
+tasks, not reasons to choose the deleted side of a merge automatically.
+Preserve or explicitly replace those user-visible contracts and test the
+result through CI before moving development to `main`. No branch was merged
+or rewritten during this assessment.
