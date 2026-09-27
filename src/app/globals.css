@@ -69,6 +69,7 @@
   --color-card: #ffffff;
   --color-sidebar: #f5f5fa;
   --color-border: rgba(0, 0, 0, 0.08);
+  --color-border-subtle: rgba(0, 0, 0, 0.06);
   --color-text-main: #1a1a2e;
   --color-text-primary: #1a1a2e;
   --color-text-muted: #71717a;
@@ -133,6 +134,7 @@
   --color-card: #161b22;
   --color-sidebar: #10141e;
   --color-border: rgba(255, 255, 255, 0.08);
+  --color-border-subtle: rgba(255, 255, 255, 0.06);
   --color-text-main: #e6e6ef;
   --color-text-primary: #e6e6ef;
   --color-text-muted: #a1a1aa;
@@ -265,6 +267,18 @@
 }
 
 /* Base styles */
+/* Tailwind v4 leaves a bare border in currentColor, which is bright white in
+   dark mode. Theme the default without overriding explicit border utilities. */
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--color-border-subtle, currentColor);
+  }
+}
+
 body {
   background-color: var(--color-bg);
   color: var(--color-text-main);
