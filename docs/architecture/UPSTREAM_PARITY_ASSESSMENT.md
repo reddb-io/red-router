@@ -450,12 +450,14 @@ tools. The compatibility adapter implements this separate surface:
 
 The adapter requires a persisted Bearer API key even when the rest of `/v1`
 allows anonymous requests. It hides admin tools from ordinary keys, bounds
-request bodies at 1 MiB, and sanitizes dynamic failures. The authz pipeline
-classifies `/api/v1/mcp` as loopback-only because key creation can reach a
-machine-ID subprocess fallback. The adapter separately rejects foreign browser
-origins without trusting caller-controlled `Host` headers. Remote legacy MCP
-compatibility is **not** restored; remove the loopback restriction only after
-eliminating the subprocess reachability and proving a safe remote policy.
+request bodies at 1 MiB, and sanitizes dynamic failures. Key creation now
+reuses the calling admin key's valid stored machine ID, or generates a fresh
+cryptographic ID when that metadata is absent; that tool no longer probes the
+host or spawns a subprocess. The endpoint remains loopback-only because quota
+refresh can transitively call the machine-ID helper, which still has a
+subprocess fallback. The adapter separately rejects foreign browser origins
+without trusting caller-controlled `Host` headers. Remote compatibility must
+wait for a complete transitive spawn audit and a safe replacement of that path.
 
 These remain semantic reconciliation tasks, not reasons to choose the deleted
 side of a merge automatically. Verify the contracts through CI and live-client

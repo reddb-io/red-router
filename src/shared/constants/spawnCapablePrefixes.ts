@@ -76,7 +76,7 @@ export const SPAWN_CAPABLE_PREFIXES: ReadonlyArray<string> = [
  * CONCRETE resolved request path — an exact regex match, no approximation.
  */
 export const SPAWN_CAPABLE_PATTERNS: ReadonlyArray<RegExp> = [
-  /^\/api\/v1\/mcp\/?$/, // legacy create_api_key reaches machineId subprocess fallbacks
+  /^\/api\/v1\/mcp\/?$/, // legacy quota refresh can reach machineId subprocess fallbacks
   /^\/api\/providers\/[^/]+\/login\/?$/, // pre-existing gap: in LOCAL_ONLY_API_PATTERNS today but never in a spawn-capable deny-list
   /^\/api\/providers\/volcengine-plan\/connect(\/.*)?$/, // launches Playwright to bind a Volcano Engine console session — covers the manual headful flow AND the session-based phone/SMS auto-login sub-routes (/code, /status, /cancel, /resend)
   /^\/api\/providers\/[^/]+\/refresh-cursor\/?$/, // spawns cursor-agent via renewal.ts (Hard Rules #15 + #17)

@@ -54,6 +54,15 @@ The MCP server exposes three transports, all backed by the same `createMcpServer
 
 The active HTTP transport (`sse` or `streamable-http`) is selected by the `mcpTransport` setting. Switching transports closes existing sessions on the other transport.
 
+The separate legacy JSON-RPC endpoint `POST /v1/mcp` preserves the older
+unprefixed tool names. It always requires a persisted `Authorization: Bearer`
+API key, even when other `/v1` routes allow anonymous requests. Its results
+are scoped to that key; listing and creating keys require management scope.
+Unlike `/api/mcp/*`, this adapter does not expose the management tool catalog.
+It is currently restricted to loopback because quota refresh can reach a
+host subprocess fallback. It also rejects browser requests with a non-loopback
+`Origin`. Its request body limit is 1 MiB.
+
 ### Remote access (manage-scope bypass)
 
 `/api/mcp/*` is in the LOCAL_ONLY tier (`src/server/authz/routeGuard.ts`) — by default only loopback hosts (`localhost`, `127.0.0.1`, `::1`) can reach it. Since v3.8.2, non-loopback clients may connect if they present an `Authorization: Bearer <api-key>` whose key carries the `manage` scope. This is the only way to reach the remote MCP server through a tunnel, reverse proxy, or public hostname.

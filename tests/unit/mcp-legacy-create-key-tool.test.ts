@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 
 import {
   createLegacyCreateKeyTool,
+  machineIdForLegacyKey,
   type LegacyCreateKeyStore,
 } from "../../src/lib/mcp/legacyCreateKeyTool.ts";
 import { handleLegacyMcpBody, type LegacyMcpServer } from "../../src/lib/mcp/legacyProtocol.ts";
@@ -25,6 +26,13 @@ function call(args: Record<string, unknown>) {
 }
 
 describe("legacy MCP API-key creation", () => {
+  it("uses the persisted caller machine ID or a non-spawning random fallback", () => {
+    assert.equal(machineIdForLegacyKey("ABCDEF0123456789"), "abcdef0123456789");
+    const fallback = machineIdForLegacyKey(null);
+    assert.match(fallback, /^[0-9a-f]{16}$/);
+    assert.notEqual(fallback, machineIdForLegacyKey(null));
+    assert.match(machineIdForLegacyKey("host-name-with-dashes"), /^[0-9a-f]{16}$/);
+  });
   it("hides creation from ordinary keys", async () => {
     let created = false;
     const store: LegacyCreateKeyStore = {
@@ -45,9 +53,11 @@ describe("legacy MCP API-key creation", () => {
 
   it("creates a standard key with normalized tags, limits and flat preference", async () => {
     let received: Parameters<LegacyCreateKeyStore["create"]>[0] | null = null;
+    let receivedMachineId: string | null | undefined;
     const store: LegacyCreateKeyStore = {
-      create: async (args) => {
+      create: async (args, context) => {
         received = args;
+        receivedMachineId = context.apiKeyMachineId;
         return {
           id: "created-id",
           name: args.name,
@@ -63,8 +73,16 @@ describe("legacy MCP API-key creation", () => {
         limits: { rpm: 5, tokensPerDay: 100, usdPerMonth: 2.5 },
         id_format: "flat",
       }),
-      server(true, store)
+      {
+        ...server(true, store),
+        context: {
+          apiKeyId: "admin-key",
+          isAdmin: true,
+          apiKeyMachineId: "abcdef0123456789",
+        },
+      }
     );
+    assert.equal(receivedMachineId, "abcdef0123456789");
     assert.deepEqual(received, {
       name: "Client",
       tags: ["Team-A", "production"],

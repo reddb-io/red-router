@@ -10,6 +10,7 @@ import {
 export interface LegacyMcpHttpKey {
   id: string;
   isAdmin: boolean;
+  machineId?: string | null;
 }
 
 export interface LegacyMcpHttpDependencies {
@@ -114,7 +115,12 @@ export async function handleLegacyMcpHttpRequest(
       info: { name: "red-router", title: "RedRouter", version: dependencies.appVersion },
       instructions:
         "These tools describe models visible to this API key. Confirm with the user before changing a key or routing choice.",
-      context: { apiKeyId: key.id, isAdmin: key.isAdmin, apiKeyToken: token },
+      context: {
+        apiKeyId: key.id,
+        isAdmin: key.isAdmin,
+        apiKeyMachineId: key.machineId,
+        apiKeyToken: token,
+      },
       tools: dependencies.tools(),
     });
     if (result === null) return new Response(null, { status: 202, headers: RESPONSE_HEADERS });

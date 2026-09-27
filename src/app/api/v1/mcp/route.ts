@@ -12,7 +12,7 @@ export const dynamic = "force-dynamic";
 
 const VERSION_HEADERS = { "x-redrouter-mcp-version": String(LEGACY_MCP_SCHEMA_VERSION) };
 
-/** Legacy Streamable HTTP JSON-RPC transport, restricted to trusted loopback peers. */
+/** Key-scoped legacy Streamable HTTP JSON-RPC transport, restricted to loopback. */
 export async function POST(request: Request): Promise<Response> {
   return handleLegacyMcpHttpRequest(request, {
     appVersion: packageJson.version,
@@ -25,7 +25,7 @@ export async function POST(request: Request): Promise<Response> {
       if (!key || key.id === SYNTHETIC_ENV_API_KEY_ID || !(await validateApiKey(token))) {
         return null;
       }
-      return { id: key.id, isAdmin: hasManageScope(key.scopes) };
+      return { id: key.id, isAdmin: hasManageScope(key.scopes), machineId: key.machineId };
     },
   });
 }

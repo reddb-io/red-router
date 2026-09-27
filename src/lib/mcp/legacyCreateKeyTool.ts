@@ -1,9 +1,9 @@
+import { randomBytes } from "node:crypto";
 import { z } from "zod";
 
 import { createApiKey } from "@/lib/db/apiKeys";
 import { snapshotApiKeyTags } from "@/lib/db/apiKeys/tags";
-import { getConsistentMachineId } from "@/shared/utils/machineId";
-import { LegacyMcpToolError, type LegacyMcpTool } from "./legacyProtocol";
+import { LegacyMcpToolError, type LegacyMcpContext, type LegacyMcpTool } from "./legacyProtocol";
 
 const limitsSchema = z
   .object({
@@ -29,12 +29,20 @@ type CreateArgs = z.infer<typeof argsSchema>;
 type CreatedKey = Awaited<ReturnType<typeof createApiKey>>;
 
 export interface LegacyCreateKeyStore {
-  create(args: CreateArgs): Promise<CreatedKey>;
+  create(args: CreateArgs, context: LegacyMcpContext): Promise<CreatedKey>;
+}
+
+/** Never probe the host for a machine ID from a remotely reachable MCP request. */
+export function machineIdForLegacyKey(callerMachineId?: string | null): string {
+  if (callerMachineId && /^[0-9a-f]{16}$/i.test(callerMachineId)) {
+    return callerMachineId.toLowerCase();
+  }
+  return randomBytes(8).toString("hex");
 }
 
 const defaultStore: LegacyCreateKeyStore = {
-  create: async (args) =>
-    createApiKey(args.name, await getConsistentMachineId(), [], {
+  create: async (args, context) =>
+    createApiKey(args.name, machineIdForLegacyKey(context.apiKeyMachineId), [], {
       tags: args.tags,
       quotaLimits: args.limits
         ? {
@@ -86,7 +94,7 @@ export function createLegacyCreateKeyTool(
       if (!context.isAdmin) throw new LegacyMcpToolError("forbidden", "Management access required");
       const args = argsSchema.parse(rawArgs);
       const tags = snapshotApiKeyTags(args.tags) ?? [];
-      const created = await store.create({ ...args, tags });
+      const created = await store.create({ ...args, tags }, context);
       return {
         api_key: {
           id: created.id,

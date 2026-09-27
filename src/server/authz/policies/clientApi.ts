@@ -59,8 +59,8 @@ function maskKeyId(apiKey: string): string {
 export const clientApiPolicy: RoutePolicy = {
   routeClass: "CLIENT_API",
   async evaluate(ctx: PolicyContext): Promise<AuthOutcome> {
-    // Most /v1 routes are remotely callable, but the legacy MCP adapter can
-    // create keys via machineId fallbacks that spawn on some platforms.
+    // Most /v1 routes are remotely callable, but legacy MCP quota refresh can
+    // still reach a machine-ID subprocess fallback on some platforms.
     if (
       isLocalOnlyPath(ctx.classification.normalizedPath, ctx.request.method) &&
       !isLoopbackRequest(ctx)
