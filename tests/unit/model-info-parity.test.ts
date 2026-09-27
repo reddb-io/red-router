@@ -60,6 +60,16 @@ test("model info advertises only implemented fetch and voice discovery routes", 
     params: ["url", "format", "max_characters"],
   });
   assert.equal(buildModelInfo(models, "exa/search")?.endpoint, "/v1/search");
+  assert.deepEqual(
+    buildModelInfo([{ id: "google-pse-search/search", type: "webSearch" }], "gpse/search"),
+    {
+      id: "gpse/search",
+      name: "gpse/search",
+      kind: "webSearch",
+      owned_by: "gpse",
+      endpoint: "/v1/search",
+    }
+  );
   assert.deepEqual(buildModelInfo(models, "exa-search/search")?.searchTypes, ["web", "news"]);
   assert.equal(buildModelInfo(models, "exa-search/search")?.maxResults, 100);
   assert.equal(

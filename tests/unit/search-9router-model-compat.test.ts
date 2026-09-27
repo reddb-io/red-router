@@ -21,6 +21,10 @@ test("9router search model chooses its provider instead of auto-select", () => {
     ok: true,
     provider: "xquik-search",
   });
+  assert.deepEqual(resolveNineRouterSearchModel("gpse/search", undefined), {
+    ok: true,
+    provider: "google-pse-search",
+  });
   assert.deepEqual(resolveNineRouterSearchModel("tavily", "exa-search"), {
     ok: false,
     reason: "Unknown or conflicting search model",

@@ -73,6 +73,33 @@ test("web discovery includes Ollama and Tavily legacy fetch IDs without duplicat
   );
 });
 
+test("web discovery maps verified 9router search aliases from visible canonical models", async () => {
+  const response = await handleGetWebModels(request, async () =>
+    Response.json({
+      data: [
+        { id: "brave-search/search", type: "webSearch" },
+        { id: "google-pse-search/search", type: "webSearch" },
+        { id: "serper-search/search", type: "webSearch" },
+        { id: "xquik-search/search", type: "webSearch" },
+      ],
+    })
+  );
+  const body = (await response.json()) as { data: Array<{ id: string }> };
+  assert.deepEqual(
+    body.data.map((entry) => entry.id),
+    [
+      "brave-search/search",
+      "google-pse-search/search",
+      "serper-search/search",
+      "xquik-search/search",
+      "brave/search",
+      "gpse/search",
+      "serper/search",
+      "xquik/search",
+    ]
+  );
+});
+
 test("web discovery fails closed on a malformed catalog", async () => {
   const response = await handleGetWebModels(request, async () => Response.json({ data: null }));
   assert.equal(response.status, 502);

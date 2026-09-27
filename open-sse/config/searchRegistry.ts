@@ -443,6 +443,7 @@ export const SEARCH_PROVIDER_ALIASES: Record<string, string> = {
   exa: "exa-search",
   tavily: "tavily-search",
   "google-pse": "google-pse-search",
+  gpse: "google-pse-search",
   linkup: "linkup-search",
   ollama: "ollama-search",
   searchapi: "searchapi-search",
