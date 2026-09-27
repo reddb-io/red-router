@@ -15,6 +15,8 @@ import { isProviderBlockedByIdOrAlias } from "@/shared/utils/noAuthProviders";
 export interface SearchProviderConfig {
   id: string;
   name: string;
+  /** Public /v1/models ID when transport identity differs from the credential owner. */
+  publicModelId?: string;
   baseUrl: string;
   method: "GET" | "POST";
   authType: "apikey" | "none";
@@ -282,6 +284,27 @@ export const SEARCH_PROVIDERS: Record<string, SearchProviderConfig> = {
     cacheTTLMs: 5 * 60 * 1000,
   },
 
+  // 9router's glm/search uses the same MCP transport, but the GLM Coding Plan
+  // connection owns its credential. Keep it separate from zai-search so a
+  // caller cannot silently borrow a different provider's account.
+  "glm-search": {
+    id: "glm-search",
+    name: "GLM Coding Plan Search",
+    publicModelId: "glm/search",
+    baseUrl: "https://api.z.ai/api/mcp/web_search_prime/mcp",
+    method: "POST",
+    authType: "apikey",
+    authHeader: "bearer",
+    costPerQuery: 0,
+    freeMonthlyQuota: 0,
+    searchTypes: ["web"],
+    defaultMaxResults: 5,
+    maxMaxResults: 50,
+    timeoutMs: 10_000,
+    cacheTTLMs: 5 * 60 * 1000,
+    fallbackOnly: true,
+  },
+
   // Jina Search (s.jina.ai). No extra dashboard card — credentials reuse
   // jina-ai / jina-reader / JINA_AI_API_KEY via SEARCH_CREDENTIAL_FALLBACKS.
   "jina-search": {
@@ -417,6 +440,7 @@ export const SEARCH_CREDENTIAL_FALLBACKS: Record<string, string | string[]> = {
   "perplexity-search": "perplexity",
   "ollama-search": "ollama-cloud",
   "zai-search": "zai",
+  "glm-search": "glm",
   "jina-search": "jina-ai",
   "x-search": ["xai-oauth", "xao", "xai"],
 };
@@ -450,6 +474,7 @@ export const SEARCH_PROVIDER_ALIASES: Record<string, string> = {
   youcom: "youcom-search",
   searxng: "searxng-search",
   zai: "zai-search",
+  glm: "glm-search",
   duckduckgo: "duckduckgo-free",
   ctx7: "context7",
   c7: "context7",

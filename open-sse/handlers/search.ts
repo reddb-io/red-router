@@ -1228,7 +1228,7 @@ async function zaiSearchExecute(params: {
     const now = new Date().toISOString();
     const results = items.map((item, idx) =>
       makeResult(
-        "zai-search",
+        params.config.id,
         {
           title: item.title,
           url: item.link,
@@ -1717,7 +1717,7 @@ async function tryProvider(
     return tryDuckDuckGoFreeProvider(config, params, startTime, globalStartTime, log);
   }
 
-  if (config.id === "zai-search" && token) {
+  if ((config.id === "zai-search" || config.id === "glm-search") && token) {
     return tryZaiMCPProvider(
       config,
       params,

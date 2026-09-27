@@ -2,6 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { resolveNineRouterSearchModel } from "../../src/app/api/v1/search/nineRouterCompat.ts";
+import {
+  getSearchCredentialFallbacks,
+  selectProvider,
+} from "../../open-sse/config/searchRegistry.ts";
 import { v1SearchSchema } from "../../src/shared/validation/schemas/apiV1.ts";
 
 test("9router search model chooses its provider instead of auto-select", () => {
@@ -25,6 +29,14 @@ test("9router search model chooses its provider instead of auto-select", () => {
     ok: true,
     provider: "google-pse-search",
   });
+  assert.deepEqual(resolveNineRouterSearchModel("glm/search", undefined), {
+    ok: true,
+    provider: "glm-search",
+  });
+  assert.deepEqual(getSearchCredentialFallbacks("glm-search"), ["glm"]);
+  assert.deepEqual(getSearchCredentialFallbacks("zai-search"), ["zai"]);
+  assert.equal(selectProvider("glm-search", "web")?.id, "glm-search");
+  assert.notEqual(selectProvider(undefined, "web")?.id, "glm-search");
   assert.deepEqual(resolveNineRouterSearchModel("tavily", "exa-search"), {
     ok: false,
     reason: "Unknown or conflicting search model",

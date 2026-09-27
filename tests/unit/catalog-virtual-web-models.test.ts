@@ -55,6 +55,27 @@ test("disabled search provider is never advertised even if connection is eligibl
   assert.deepEqual(models, []);
 });
 
+test("GLM transport advertises the public glm/search ID only when GLM is eligible", () => {
+  const glm = { ...searchProvider, id: "glm-search", publicModelId: "glm/search" };
+  const visible = buildVirtualWebCatalogModels({
+    timestamp: 123,
+    searchProviders: [glm],
+    fetchProviderIds: [],
+    isEligible: (provider) => provider === "glm-search",
+  });
+  assert.deepEqual(
+    visible.map(({ id, owned_by }) => ({ id, owned_by })),
+    [{ id: "glm/search", owned_by: "glm" }]
+  );
+  const hidden = buildVirtualWebCatalogModels({
+    timestamp: 123,
+    searchProviders: [glm],
+    fetchProviderIds: [],
+    isEligible: () => false,
+  });
+  assert.deepEqual(hidden, []);
+});
+
 test("SearXNG needs an operator URL; the catalog localhost is not a live service", () => {
   const searxng = {
     ...searchProvider,

@@ -64,11 +64,12 @@ export function buildVirtualWebCatalogModels(input: {
   const models: VirtualWebCatalogModel[] = [];
   for (const provider of input.searchProviders) {
     if (provider.disabled || !input.isEligible(provider.id, "search", "webSearch")) continue;
+    const id = provider.publicModelId ?? `${provider.id}/search`;
     models.push({
-      id: `${provider.id}/search`,
+      id,
       object: "model",
       created: input.timestamp,
-      owned_by: provider.id,
+      owned_by: id.slice(0, id.lastIndexOf("/")),
       root: "search",
       name: `${provider.name} Search`,
       type: "webSearch",

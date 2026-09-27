@@ -836,89 +836,91 @@ const ZAI_MOCK_RESULTS = [
   },
 ];
 
-test("handleSearch searches with Z.AI Coding Plan via MCP", async () => {
-  const originalFetch = globalThis.fetch;
-  const calls: { url: string; init: RequestInit }[] = [];
-  let capturedArgs: Record<string, unknown> = {};
+for (const provider of ["zai-search", "glm-search"]) {
+  test(`handleSearch searches with ${provider} via Z.AI MCP`, async () => {
+    const originalFetch = globalThis.fetch;
+    const calls: { url: string; init: RequestInit }[] = [];
+    let capturedArgs: Record<string, unknown> = {};
 
-  globalThis.fetch = async (url, init = {}) => {
-    calls.push({ url: String(url), init });
-    const body = init.body ? JSON.parse(String(init.body)) : {};
+    globalThis.fetch = async (url, init = {}) => {
+      calls.push({ url: String(url), init });
+      const body = init.body ? JSON.parse(String(init.body)) : {};
 
-    // MCP initialize handshake
-    if (body.method === "initialize") {
-      return new Response(
-        JSON.stringify({
-          jsonrpc: "2.0",
-          result: {
-            protocolVersion: "2024-11-05",
-            capabilities: {},
-            serverInfo: { name: "zai-mcp", version: "1.0" },
-          },
-          id: body.id,
-        }),
-        {
-          status: 200,
-          headers: { "content-type": "application/json", "mcp-session-id": "session-abc-123" },
-        }
+      // MCP initialize handshake
+      if (body.method === "initialize") {
+        return new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            result: {
+              protocolVersion: "2024-11-05",
+              capabilities: {},
+              serverInfo: { name: "zai-mcp", version: "1.0" },
+            },
+            id: body.id,
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json", "mcp-session-id": "session-abc-123" },
+          }
+        );
+      }
+
+      // notifications/initialized
+      if (body.method === "notifications/initialized") {
+        return new Response(null, { status: 202 });
+      }
+
+      // tools/call
+      if (body.method === "tools/call") {
+        capturedArgs = body.params.arguments;
+        return new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            result: {
+              content: [{ type: "text", text: JSON.stringify(JSON.stringify(ZAI_MOCK_RESULTS)) }],
+            },
+            id: body.id,
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
+
+      // GET (initial probe / transport check)
+      return new Response(null, { status: 405 });
+    };
+
+    try {
+      const result = await handleSearch({
+        query: "zai mcp search",
+        provider,
+        maxResults: 2,
+        searchType: "web",
+        credentials: { apiKey: "zai-token-abc" },
+        log: null,
+      });
+
+      assert.equal(result.success, true);
+      assert.equal(capturedArgs.search_query, "zai mcp search");
+      assert.equal(result.data.provider, provider);
+      assert.equal(result.data.results.length, 2);
+      assert.equal(result.data.results[0].title, "Z.AI Coding Plan Search");
+      assert.equal(result.data.results[0].url, "https://docs.z.ai/search");
+      assert.equal(
+        result.data.results[0].snippet,
+        "Z.AI now supports web search capabilities via Coding Plan"
       );
+      assert.equal(result.data.results[0].display_url, "docs.z.ai/search");
+      assert.equal(result.data.results[0].favicon_url, "https://docs.z.ai/favicon.ico");
+      assert.equal(result.data.results[0].citation.provider, provider);
+      assert.equal(result.data.results[1].title, "Getting Started with Z.AI");
+      assert.equal(result.data.results[1].citation.provider, provider);
+      assert.equal(result.data.usage.queries_used, 1);
+      assert.equal(result.data.usage.search_cost_usd, 0);
+    } finally {
+      globalThis.fetch = originalFetch;
     }
-
-    // notifications/initialized
-    if (body.method === "notifications/initialized") {
-      return new Response(null, { status: 202 });
-    }
-
-    // tools/call
-    if (body.method === "tools/call") {
-      capturedArgs = body.params.arguments;
-      return new Response(
-        JSON.stringify({
-          jsonrpc: "2.0",
-          result: {
-            content: [{ type: "text", text: JSON.stringify(JSON.stringify(ZAI_MOCK_RESULTS)) }],
-          },
-          id: body.id,
-        }),
-        { status: 200, headers: { "content-type": "application/json" } }
-      );
-    }
-
-    // GET (initial probe / transport check)
-    return new Response(null, { status: 405 });
-  };
-
-  try {
-    const result = await handleSearch({
-      query: "zai mcp search",
-      provider: "zai-search",
-      maxResults: 2,
-      searchType: "web",
-      credentials: { apiKey: "zai-token-abc" },
-      log: null,
-    });
-
-    assert.equal(result.success, true);
-    assert.equal(capturedArgs.search_query, "zai mcp search");
-    assert.equal(result.data.provider, "zai-search");
-    assert.equal(result.data.results.length, 2);
-    assert.equal(result.data.results[0].title, "Z.AI Coding Plan Search");
-    assert.equal(result.data.results[0].url, "https://docs.z.ai/search");
-    assert.equal(
-      result.data.results[0].snippet,
-      "Z.AI now supports web search capabilities via Coding Plan"
-    );
-    assert.equal(result.data.results[0].display_url, "docs.z.ai/search");
-    assert.equal(result.data.results[0].favicon_url, "https://docs.z.ai/favicon.ico");
-    assert.equal(result.data.results[0].citation.provider, "zai-search");
-    assert.equal(result.data.results[1].title, "Getting Started with Z.AI");
-    assert.equal(result.data.results[1].citation.provider, "zai-search");
-    assert.equal(result.data.usage.queries_used, 1);
-    assert.equal(result.data.usage.search_cost_usd, 0);
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
-});
+  });
+}
 
 test("handleSearch handles Z.AI Coding Plan empty MCP results", async () => {
   const originalFetch = globalThis.fetch;

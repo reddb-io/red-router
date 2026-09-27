@@ -100,6 +100,21 @@ test("web discovery maps verified 9router search aliases from visible canonical 
   );
 });
 
+test("GLM search appears only when the calling key can see it", async () => {
+  const visible = await handleGetWebModels(request, async () =>
+    Response.json({ data: [{ id: "glm/search", type: "webSearch" }] })
+  );
+  const visibleBody = (await visible.json()) as { data: Array<{ id: string }> };
+  assert.deepEqual(
+    visibleBody.data.map((entry) => entry.id),
+    ["glm/search"]
+  );
+
+  const hidden = await handleGetWebModels(request, async () => Response.json({ data: [] }));
+  const hiddenBody = (await hidden.json()) as { data: Array<{ id: string }> };
+  assert.deepEqual(hiddenBody.data, []);
+});
+
 test("web discovery fails closed on a malformed catalog", async () => {
   const response = await handleGetWebModels(request, async () => Response.json({ data: null }));
   assert.equal(response.status, 502);
