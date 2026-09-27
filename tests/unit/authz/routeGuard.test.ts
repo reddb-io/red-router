@@ -15,6 +15,8 @@ import { CLI_TOKEN_HEADER } from "../../../src/server/authz/headers.ts";
 
 test("isLocalOnlyPath: /api/mcp/ prefix is local-only", () => {
   assert.equal(isLocalOnlyPath("/api/mcp/sse"), true);
+  assert.equal(isLocalOnlyPath("/api/v1/mcp", "POST"), true);
+  assert.equal(isLocalOnlyPath("/api/v1/mcp-other", "POST"), false);
   assert.equal(isLocalOnlyPath("/api/mcp/"), true);
 });
 

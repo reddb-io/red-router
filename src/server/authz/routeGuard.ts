@@ -124,6 +124,7 @@ export const LOCAL_ONLY_API_PREFIXES: ReadonlyArray<string> = [
  *     gated, matching the `/login` precedent's narrow-scoping rationale.
  */
 export const LOCAL_ONLY_API_PATTERNS: ReadonlyArray<RegExp> = [
+  /^\/api\/v1\/mcp\/?$/, // legacy MCP key creation can reach machineId subprocess fallbacks
   /^\/api\/providers\/[^/]+\/login\/?$/,
   /^\/api\/providers\/volcengine-plan\/connect(\/.*)?$/, // manual headful flow + session-based phone/SMS auto-login (both spawn Playwright)
   /^\/api\/providers\/[^/]+\/refresh-cursor\/?$/,

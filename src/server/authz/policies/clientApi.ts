@@ -2,6 +2,8 @@ import { isDashboardSessionAuthenticated } from "@/shared/utils/apiAuth.ts";
 import { isRequireApiKeyEnabled } from "@/shared/utils/featureFlags";
 import { extractApiKey } from "@/sse/services/auth.ts";
 import { extractGoogApiKeyHeader } from "@/sse/services/googApiKeyAuth.ts";
+import { isLocalOnlyPath } from "../routeGuard";
+import { isLoopbackRequest } from "../peerContext";
 import type { AuthOutcome, PolicyContext, RoutePolicy } from "../context";
 import { allow, reject } from "../context";
 
@@ -57,6 +59,14 @@ function maskKeyId(apiKey: string): string {
 export const clientApiPolicy: RoutePolicy = {
   routeClass: "CLIENT_API",
   async evaluate(ctx: PolicyContext): Promise<AuthOutcome> {
+    // Most /v1 routes are remotely callable, but the legacy MCP adapter can
+    // create keys via machineId fallbacks that spawn on some platforms.
+    if (
+      isLocalOnlyPath(ctx.classification.normalizedPath, ctx.request.method) &&
+      !isLoopbackRequest(ctx)
+    ) {
+      return reject(403, "LOCAL_ONLY", "This endpoint is only available from loopback");
+    }
     const bearer = extractBearer(ctx.request as Request);
     if (!bearer) {
       // The WS descriptor handshake is a metadata read; the route handler

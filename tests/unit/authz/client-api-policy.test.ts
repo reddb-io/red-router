@@ -100,6 +100,25 @@ test("clientApiPolicy: missing bearer is rejected with 401", async () => {
   }
 });
 
+test("clientApiPolicy: legacy MCP stays loopback-only before bearer or session auth", async () => {
+  process.env.REQUIRE_API_KEY = "false";
+  const policy = await loadPolicy();
+  const remote = await policy.evaluate(
+    ctx(new Headers({ host: "localhost" }), "POST", "/api/v1/mcp")
+  );
+  assert.equal(remote.allow, false);
+  if (!remote.allow) {
+    assert.equal(remote.status, 403);
+    assert.equal(remote.code, "LOCAL_ONLY");
+  }
+
+  const local = ctx(new Headers(), "POST", "/api/v1/mcp");
+  Object.assign(local.request, { socket: { remoteAddress: "127.0.0.1" } });
+  const admitted = await policy.evaluate(local);
+  // The route still requires a persisted Bearer key even when /v1 is open.
+  assert.equal(admitted.allow, true);
+});
+
 test("clientApiPolicy: websocket descriptor handshake can reach the route handler", async () => {
   const policy = await loadPolicy();
   const out = await policy.evaluate(ctx(new Headers(), "GET", "/api/v1/ws?handshake=1"));
