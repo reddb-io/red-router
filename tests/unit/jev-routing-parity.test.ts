@@ -29,6 +29,8 @@ import {
 } from "../../src/sse/services/jevRouting.ts";
 import { applyToolDecision } from "../../open-sse/handlers/chatCore/toolDecision.ts";
 import { normalizeAnswers } from "../../open-sse/decision/jev.ts";
+import { parseClassificationHint } from "../../open-sse/decision/clientHint.ts";
+import { shouldUseJevTierSignal } from "../../open-sse/services/combo/resolveAutoStrategy.ts";
 import { resolveCriteria } from "../../open-sse/decision/modelBriefs.ts";
 import { resolveToolDecision } from "../../open-sse/decision/decide.ts";
 import { FORMATS } from "../../open-sse/translator/formats.ts";
@@ -310,6 +312,72 @@ test("JEV abstains before credential lookup when the caller has no eligible conn
     { allowedConnections: [], apiKeyId: "request-key" }
   );
   assert.equal(result, null);
+});
+
+test("a valid client tier replaces the paid JEV classification without evaluator credentials", async () => {
+  const log = { info() {}, warn() {} };
+  const config = {
+    mode: "jev" as const,
+    model: "typesafe-ai/jev-latest",
+    toolMode: "off" as const,
+    modelMode: "off" as const,
+  };
+  const body = { messages: [{ role: "user", content: "Review this design" }] };
+  assert.equal(
+    await classifyJevRoutingTier(body, config, log, {
+      allowedConnections: [],
+      hint: parseClassificationHint("tier=reasoning"),
+    }),
+    "premium"
+  );
+  assert.equal(
+    await classifyJevRoutingTier(body, config, log, {
+      allowedConnections: [],
+      hint: parseClassificationHint("tier=invalid"),
+    }),
+    null
+  );
+  assert.equal(
+    await classifyJevRoutingTier(body, { ...config, mode: "off" }, log, {
+      allowedConnections: [],
+      hint: parseClassificationHint("tier=reasoning"),
+    }),
+    null
+  );
+});
+
+test("client tier routing stays opt-in and never defeats a server-decision opt-out", () => {
+  const config = {
+    mode: "jev" as const,
+    model: "typesafe-ai/jev-latest",
+    toolMode: "off" as const,
+    modelMode: "off" as const,
+  };
+  const decisionHint = parseClassificationHint("tier=reasoning");
+  assert.equal(
+    shouldUseJevTierSignal(config, {
+      decisionModelAllowed: false,
+      decisionHint,
+    }),
+    true
+  );
+  assert.equal(
+    shouldUseJevTierSignal(config, {
+      decisionModelAllowed: false,
+      decisionHint,
+      decisionModelOptOut: true,
+    }),
+    false
+  );
+  assert.equal(
+    shouldUseJevTierSignal(config, {
+      decisionModelAllowed: true,
+      decisionServerOptOut: true,
+    }),
+    false
+  );
+  assert.equal(shouldUseJevTierSignal({ ...config, mode: "off" }, { decisionHint }), false);
+  assert.equal(shouldUseJevTierSignal({ ...config, modelMode: "jev" }, { decisionHint }), false);
 });
 
 test("JEV abstains before credential lookup when the client has disconnected", async () => {

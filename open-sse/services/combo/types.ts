@@ -7,6 +7,7 @@
  */
 
 import type { CompressionExclusions } from "../compression/exclusions.ts";
+import type { ClassificationHint } from "../../decision/clientHint.ts";
 import type { ProviderCandidate } from "../autoCombo/scoring.ts";
 import type { PerTargetAdmissionHook } from "../admission/types.ts";
 
@@ -107,6 +108,12 @@ export type ComboRelayOptions = {
   decisionApiKeyId?: string | null;
   /** Stop optional evaluator work when the client disconnects. */
   decisionSignal?: AbortSignal | null;
+  /** Validated client classification; never persisted to the combo definition. */
+  decisionHint?: ClassificationHint | null;
+  /** Per-request opt-out of the server's model decision. */
+  decisionModelOptOut?: boolean;
+  /** Do not make a paid decision call when the client disabled server decisions. */
+  decisionServerOptOut?: boolean;
   /** Per-request X-OmniRoute-Mode value (auto-combo preset / mode-pack name) — #6024/#6025. */
   mode?: string | null;
   /** Per-request X-OmniRoute-Budget value (hard cost ceiling in USD) — #6023. */

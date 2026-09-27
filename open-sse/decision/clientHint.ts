@@ -46,6 +46,8 @@ export const HINT_SOURCE = "client_hint";
 
 /** The request header that opts one request out of the decision engine. */
 export const DECISION_HEADER = "x-red-router-decision";
+/** A bounded classification supplied by the client for this request only. */
+export const HINT_HEADER = "x-red-router-hint";
 
 const MAX_HINT_CHARS = 512;
 const KEY = /^[a-z][a-z0-9_]{0,31}$/;

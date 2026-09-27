@@ -24,6 +24,7 @@ import {
 import { normalizeAnswers } from "@omniroute/open-sse/decision/jev.ts";
 import { resolveCriteria } from "@omniroute/open-sse/decision/modelBriefs.ts";
 import { isEncryptedTask } from "@omniroute/open-sse/decision/signals.ts";
+import { hintTier, type ClassificationHint } from "@omniroute/open-sse/decision/clientHint.ts";
 import {
   extractTools,
   hasPinnedToolChoice,
@@ -46,6 +47,7 @@ type JevEvaluationOptions = {
   allowedConnections?: string[] | null;
   apiKeyId?: string | null;
   signal?: AbortSignal | null;
+  hint?: ClassificationHint | null;
 };
 
 type UsableDecisionCredentials = {
@@ -266,6 +268,10 @@ export async function classifyJevRoutingTier(
   options: JevEvaluationOptions = {}
 ): Promise<ComplexityTier | null> {
   if (config.mode !== "jev") return null;
+  // A valid client classification is already the advisory decision. Avoid a
+  // redundant paid evaluator request, including when no decision key is present.
+  const hintedTier = hintTier(options.hint);
+  if (hintedTier) return jevTierToMinimum(hintedTier as JevTier);
   const state = buildState(body, {
     maxStateChars: JEV_STATE_CHAR_BUDGET,
     dropSystem: true,

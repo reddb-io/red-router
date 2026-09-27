@@ -50,6 +50,12 @@ import {
 } from "@omniroute/open-sse/services/combo/jevConfig.ts";
 import type { JevRoutingConfig } from "@omniroute/open-sse/services/combo/jevConfig.ts";
 import { createJevToolDecision } from "@/sse/services/jevRouting";
+import {
+  DECISION_HEADER,
+  HINT_HEADER,
+  decisionOptOut,
+  parseClassificationHint,
+} from "@omniroute/open-sse/decision/clientHint.ts";
 import { comboPinAllowlist } from "@/lib/combos/steps.ts";
 import { injectHandoffIntoBody } from "@omniroute/open-sse/services/contextHandoff.ts";
 import { runWithTransientBackendRetry } from "@omniroute/open-sse/services/transientBackendRetry.ts";
@@ -1072,6 +1078,13 @@ async function handleChatImplementation(
     // `auto` combo on this single request without mutating its stored config.
     const perRequestAutoControls = resolveRequestAutoControls(request.headers);
     const jevRoutingConfig = parseJevRoutingConfig(combo);
+    const decisionHint = parseClassificationHint(request.headers.get(HINT_HEADER));
+    const decisionServerOptOut =
+      request.headers.get(DECISION_HEADER)?.trim().toLowerCase() === "off";
+    const decisionModelOptOut = decisionOptOut(
+      request.headers.get(DECISION_HEADER),
+      decisionHint
+    ).model;
     let decisionAllowedConnections = normalizeAllowedConnectionIds(apiKeyInfo?.allowedConnections);
     if (jevRoutingConfig.mode === "jev" && apiKeyInfo?.allowedQuotas?.length) {
       try {
@@ -1096,6 +1109,9 @@ async function handleChatImplementation(
       decisionAllowedConnections,
       decisionApiKeyId: apiKeyInfo?.id ?? null,
       decisionSignal: request.signal,
+      decisionHint,
+      decisionModelOptOut,
+      decisionServerOptOut,
       ...(combo.strategy === "context-relay" ? { config: relayConfig } : {}),
       ...(bypassProviderQuotaPolicy ? { bypassProviderQuotaPolicy: true } : {}),
       ...perRequestAutoControls,

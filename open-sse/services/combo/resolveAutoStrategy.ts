@@ -12,7 +12,8 @@ import {
 } from "../autoCombo/requestControls.ts";
 import { selectWithStrategy } from "../autoCombo/routerStrategy.ts";
 import { buildComplexityRoutingHint, escalateTier } from "../autoCombo/complexityRouter";
-import { parseJevRoutingConfig } from "./jevConfig.ts";
+import { hintTier, type ClassificationHint } from "../../decision/clientHint.ts";
+import { parseJevRoutingConfig, type JevRoutingConfig } from "./jevConfig.ts";
 import { getModePack } from "../autoCombo/modePacks.ts";
 import { recordComboIntent } from "../comboMetrics.ts";
 import { estimateTokens } from "../contextManager.ts";
@@ -72,6 +73,9 @@ export interface ResolveAutoStrategyDeps {
     decisionAllowedConnections?: string[] | null;
     decisionApiKeyId?: string | null;
     decisionSignal?: AbortSignal | null;
+    decisionHint?: ClassificationHint | null;
+    decisionModelOptOut?: boolean;
+    decisionServerOptOut?: boolean;
     sessionId?: string | null;
     /** Per-request X-OmniRoute-Mode value (#6024/#6025). */
     mode?: string | null;
@@ -100,6 +104,17 @@ export interface EvaluateAutoCandidatesOptions {
   resilienceSettings?: ResilienceSettings | null;
   manifestHint?: RoutingHint | null;
   buildAutoCandidates: BuildAutoCandidates;
+}
+
+/** A client hint can replace a paid tier evaluation, but never enables JEV on its own. */
+export function shouldUseJevTierSignal(
+  config: JevRoutingConfig,
+  relayOptions: ResolveAutoStrategyDeps["relayOptions"]
+): boolean {
+  if (config.mode !== "jev" || config.modelMode === "jev") return false;
+  if (relayOptions?.decisionModelOptOut === true) return false;
+  if (hintTier(relayOptions?.decisionHint) !== null) return true;
+  return relayOptions?.decisionServerOptOut !== true && relayOptions?.decisionModelAllowed === true;
 }
 
 export async function evaluateAutoCandidates(options: EvaluateAutoCandidatesOptions) {
@@ -327,18 +342,14 @@ export async function resolveAutoStrategyOrder(
           log
         )
       : null;
-  if (
-    autoManifestHint &&
-    jevConfig.mode === "jev" &&
-    jevConfig.modelMode !== "jev" &&
-    relayOptions?.decisionModelAllowed === true
-  ) {
+  if (autoManifestHint && shouldUseJevTierSignal(jevConfig, relayOptions)) {
     try {
       const { classifyJevRoutingTier } = await import("../../../src/sse/services/jevRouting");
       const jevTier = await classifyJevRoutingTier(body, jevConfig, log, {
-        allowedConnections: relayOptions.decisionAllowedConnections,
-        apiKeyId: relayOptions.decisionApiKeyId,
-        signal: relayOptions.decisionSignal,
+        allowedConnections: relayOptions?.decisionAllowedConnections,
+        apiKeyId: relayOptions?.decisionApiKeyId,
+        signal: relayOptions?.decisionSignal,
+        hint: relayOptions?.decisionHint,
       });
       if (jevTier) {
         autoManifestHint.recommendedMinTier = escalateTier(
@@ -459,7 +470,12 @@ export async function resolveAutoStrategyOrder(
       selectionReason = `score=${selection.score.toFixed(3)}${selection.isExploration ? " (exploration)" : ""}`;
     }
 
-    if (jevConfig.modelMode === "jev" && relayOptions?.decisionModelAllowed === true) {
+    if (
+      jevConfig.modelMode === "jev" &&
+      relayOptions?.decisionModelAllowed === true &&
+      relayOptions?.decisionModelOptOut !== true &&
+      relayOptions?.decisionServerOptOut !== true
+    ) {
       try {
         const { decideJevModel } = await import("../../../src/sse/services/jevRouting");
         const jevChoice = await decideJevModel(
