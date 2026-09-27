@@ -545,9 +545,9 @@ jobs:
           cache: npm
       - uses: ./.github/actions/npm-ci-retry
       - run: npm run check:node-runtime
-      # No webpack cache is restored here. The dedicated runner builds with
-      # Turbopack; the hosted fallback uses Webpack without a warm cache and
-      # retains build-next-isolated.mjs's default 8 GB V8 heap.
+      # Hosted runners use Webpack without a restored compiler cache. A CI
+      # trial showed the 308 MB cache made the build slower on a warm rerun;
+      # do not pay that I/O until a different invalidation strategy is proven.
       #
       # Turbopack production build (Next 16, stable): benchmarked 1.9× faster than the
       # webpack pass (9min0s vs 17min15s on a 32-core box; multi-core Rust vs webpack's
@@ -576,15 +576,16 @@ jobs:
         # an explicit tar avoids the double-nesting issue (.build/next/next/...).
         # Keep standalone/node_modules intact: package/electron jobs consume the
         # Next-traced standalone tree and must not replace it with root node_modules.
+        # gzip -1 prioritizes CPU time; downstream jobs still verify the full
+        # freshly built artifact, and tar extraction remains cross-platform.
         run: |
-          tar -czf "$RUNNER_TEMP/e2e-build.tar.gz" \
-            --exclude='.build/next/cache' \
-            .build/next
+          tar -cf - --exclude='.build/next/cache' .build/next | gzip -1 > "$RUNNER_TEMP/e2e-build.tar.gz"
       - name: Upload Next.js build for downstream jobs
         uses: actions/upload-artifact@v7
         with:
           name: next-build
           path: ${{ runner.temp }}/e2e-build.tar.gz
+          compression-level: 0
           retention-days: 1
 
   package-artifact:
