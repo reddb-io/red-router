@@ -27,6 +27,7 @@
     "src/lib/mcp/legacyProtocol.ts",
     "src/lib/mcp/legacyKeyTools.ts",
     "src/lib/mcp/legacyCatalogTools.ts",
+    "src/lib/mcp/legacyUsageTool.ts",
     "src/shared/validation/providerSchema.ts",
     "src/shared/validation/schemas.ts",
     "open-sse/config/providerModels.ts",

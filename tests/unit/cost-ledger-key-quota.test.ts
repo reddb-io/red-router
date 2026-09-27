@@ -156,6 +156,61 @@ test("cost ledger: batch insert writes all rows", () => {
   assert.equal(costLedger.listLedgerEntries("key-1").length, 2);
 });
 
+test("cost ledger: MCP usage read is scoped by key and excludes failed cost", () => {
+  const time = "2026-09-14T10:00:00.000Z";
+  costLedger.recordLedgerEntries([
+    {
+      apiKeyId: "key-1",
+      provider: "a",
+      model: "m1",
+      tokensInput: 10,
+      tokensOutput: 5,
+      amountUsd: 1,
+      timestamp: time,
+    },
+    {
+      apiKeyId: "key-1",
+      provider: "a",
+      model: "m1",
+      tokensInput: 2,
+      tokensOutput: 1,
+      amountUsd: 9,
+      success: false,
+      timestamp: time,
+    },
+    {
+      apiKeyId: "key-2",
+      provider: "a",
+      model: "m1",
+      tokensInput: 900,
+      amountUsd: 90,
+      timestamp: time,
+    },
+    {
+      apiKeyId: "key-1",
+      provider: "b",
+      model: "old",
+      amountUsd: 4,
+      timestamp: "2026-09-13T10:00:00.000Z",
+    },
+  ]);
+  const result = costLedger.getKeyLedgerUsage(
+    "key-1",
+    "2026-09-14T00:00:00.000Z",
+    "2026-09-14T00:00:00.000Z"
+  );
+  assert.deepEqual(result.totals, {
+    requests: 2,
+    errors: 1,
+    prompt_tokens: 12,
+    completion_tokens: 6,
+    cost: 1,
+  });
+  assert.equal(result.by_model.length, 1);
+  assert.equal(result.by_model[0].model, "m1");
+  assert.equal(result.tokens_today, 18);
+});
+
 // ---------------------------------------------------------------------------
 // Key quota — counters + threshold
 // ---------------------------------------------------------------------------
@@ -225,7 +280,14 @@ test("key quota: monthly amount blocks when ledger month total reaches cap", () 
 
   // Clearing the ledger month (simulating a reset) re-allows.
   costLedger.recordLedgerEntries([
-    { apiKeyId: "key-1", provider: "openai", model: "gpt-4o", amountUsd: -3, success: true, timestamp: "2026-09-02T00:00:00.000Z" },
+    {
+      apiKeyId: "key-1",
+      provider: "openai",
+      model: "gpt-4o",
+      amountUsd: -3,
+      success: true,
+      timestamp: "2026-09-02T00:00:00.000Z",
+    },
   ]);
 });
 

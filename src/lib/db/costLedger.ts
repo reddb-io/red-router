@@ -43,6 +43,26 @@ export interface LedgerAggregate {
   requestCount: number;
 }
 
+export interface KeyLedgerUsage {
+  totals: {
+    requests: number;
+    errors: number;
+    prompt_tokens: number;
+    completion_tokens: number;
+    cost: number;
+  };
+  by_model: Array<{
+    model: string;
+    provider: string;
+    requests: number;
+    errors: number;
+    prompt_tokens: number;
+    completion_tokens: number;
+    cost: number;
+  }>;
+  tokens_today: number;
+}
+
 type JsonRecord = Record<string, unknown>;
 
 function asRecord(value: unknown): JsonRecord {
@@ -180,6 +200,76 @@ export function aggregateLedger(
     )
     .get(apiKeyId, sinceIso);
   return getAggRow(row);
+}
+
+/** Bounded grouped read for the legacy MCP get_usage contract. Never scans another key. */
+export function getKeyLedgerUsage(
+  apiKeyId: string,
+  sinceIso: string,
+  todayIso: string
+): KeyLedgerUsage {
+  const empty: KeyLedgerUsage = {
+    totals: { requests: 0, errors: 0, prompt_tokens: 0, completion_tokens: 0, cost: 0 },
+    by_model: [],
+    tokens_today: 0,
+  };
+  if (!apiKeyId) return empty;
+  const db = getDbInstance();
+  const totals = asRecord(
+    db
+      .prepare(
+        `SELECT COUNT(*) AS requests,
+              COALESCE(SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END), 0) AS errors,
+              COALESCE(SUM(tokens_input), 0) AS prompt_tokens,
+              COALESCE(SUM(tokens_output), 0) AS completion_tokens,
+              COALESCE(SUM(CASE WHEN success = 1 THEN amount_usd ELSE 0 END), 0) AS cost
+       FROM request_cost_ledger
+       WHERE api_key_id = ? AND timestamp >= ?`
+      )
+      .get(apiKeyId, sinceIso)
+  );
+  const byModel = db
+    .prepare(
+      `SELECT model, provider, COUNT(*) AS requests,
+            COALESCE(SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END), 0) AS errors,
+            COALESCE(SUM(tokens_input), 0) AS prompt_tokens,
+            COALESCE(SUM(tokens_output), 0) AS completion_tokens,
+            COALESCE(SUM(CASE WHEN success = 1 THEN amount_usd ELSE 0 END), 0) AS cost
+     FROM request_cost_ledger
+     WHERE api_key_id = ? AND timestamp >= ?
+     GROUP BY provider, model
+     ORDER BY cost DESC, requests DESC
+     LIMIT 20`
+    )
+    .all(apiKeyId, sinceIso) as Record<string, unknown>[];
+  const today = asRecord(
+    db
+      .prepare(
+        `SELECT COALESCE(SUM(tokens_input + tokens_output), 0) AS tokens
+       FROM request_cost_ledger
+       WHERE api_key_id = ? AND timestamp >= ?`
+      )
+      .get(apiKeyId, todayIso)
+  );
+  return {
+    totals: {
+      requests: toNumber(totals.requests),
+      errors: toNumber(totals.errors),
+      prompt_tokens: toNumber(totals.prompt_tokens),
+      completion_tokens: toNumber(totals.completion_tokens),
+      cost: toNumber(totals.cost),
+    },
+    by_model: byModel.map((item) => ({
+      model: String(item.model),
+      provider: String(item.provider),
+      requests: toNumber(item.requests),
+      errors: toNumber(item.errors),
+      prompt_tokens: toNumber(item.prompt_tokens),
+      completion_tokens: toNumber(item.completion_tokens),
+      cost: toNumber(item.cost),
+    })),
+    tokens_today: toNumber(today.tokens),
+  };
 }
 
 /**
