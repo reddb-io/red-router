@@ -40,6 +40,7 @@ import { getSettings } from "@/lib/db/settings";
 import { isProviderBlockedByIdOrAlias } from "@/shared/utils/noAuthProviders";
 import { withInjectionGuard } from "@/middleware/promptInjectionGuard";
 import { saveCallLog } from "@/lib/usageDb";
+import { resolveNineRouterSearchModel } from "./nineRouterCompat";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
@@ -134,8 +135,13 @@ async function postHandler(request: Request, context: unknown) {
     return errorResponse(HTTP_STATUS.BAD_REQUEST, formatValidationMessage(validation.error));
   }
   const body = validation.data;
+  const modelResolution = resolveNineRouterSearchModel(body.model, body.provider);
+  if (!modelResolution.ok) {
+    return errorResponse(HTTP_STATUS.BAD_REQUEST, modelResolution.reason);
+  }
+  body.provider = modelResolution.provider;
   if (body.provider === "x_search") body.provider = "x-search";
-  if (body.provider === "x-search") body.search_type = "x";
+  if (body.provider === "x-search" || body.provider === "xquik-search") body.search_type = "x";
 
   // Enforce API key policies — use "search" as model identifier for consistent policy config
   const policy = await enforceApiKeyPolicy(request, "search");

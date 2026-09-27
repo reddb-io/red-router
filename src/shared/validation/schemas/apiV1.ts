@@ -614,6 +614,7 @@ export const v1SearchSchema = z.preprocess(
       // anysearch (plus short aliases resolved by
       // SEARCH_PROVIDER_ALIASES).
       provider: z.string().min(1).optional(),
+      model: z.string().min(1).max(128).optional(),
       max_results: z.coerce.number().int().min(1).max(100).default(5),
       search_type: z.enum(["web", "news", "x"]).default("web"),
       offset: z.coerce.number().int().min(0).default(0),

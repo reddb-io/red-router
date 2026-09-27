@@ -29,11 +29,11 @@ test("web discovery filters only the calling key's catalog", async () => {
   assert.equal(body.object, "list");
   assert.deepEqual(
     body.data.map((entry) => entry.id),
-    ["firecrawl/fetch", "exa-search/fetch", "exa-search/search", "exa/fetch"]
+    ["firecrawl/fetch", "exa-search/fetch", "exa-search/search", "exa/fetch", "exa/search"]
   );
   assert.deepEqual(
     body.data.map((entry) => entry.kind),
-    ["webFetch", "webFetch", "webSearch", "webFetch"]
+    ["webFetch", "webFetch", "webSearch", "webFetch", "webSearch"]
   );
   assert.equal(body.data[3]?.owned_by, "exa");
 });
@@ -52,7 +52,7 @@ test("web discovery never adds a legacy fetch alias hidden from the key", async 
   const body = (await response.json()) as { data: Array<{ id: string }> };
   assert.deepEqual(
     body.data.map((entry) => entry.id),
-    ["exa-search/search"]
+    ["exa-search/search", "exa/search"]
   );
 });
 
