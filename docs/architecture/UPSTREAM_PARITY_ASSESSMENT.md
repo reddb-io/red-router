@@ -425,12 +425,19 @@ now incorporates account quota, model lockout, and cooldown status in
 `open-sse/mcp-server/catalog.ts`, but exact legacy MCP wire compatibility
 remains unverified. The imported `ConsoleLogViewer` now has a bounded Pino-file
 SSE tail with a polling fallback, full-screen/activity controls, copy/download
-of visible lines, and scroll-up pause/resume. It still does not preserve every
-legacy console preference or its old global `console.*` capture and clear
-behavior; the latter must not be copied over the structured Pino architecture
-without a separate security and retention review. These are semantic
+of visible lines, and scroll-up pause/resume. The integration worktree now
+restores the legacy per-viewer level, timestamp, and wrapping preferences on
+top of the Pino stream, with UI regressions written for CI. The old global
+`console.*` capture and server-side clear behavior must not be copied over
+the structured Pino architecture without a separate security and retention
+review. The old `/v1/mcp` endpoint and its unprefixed tool names also remain
+absent: the imported MCP server has different transport, authorization, and
+result contracts. The old tools module was not retained as dead code; a
+sanitized, key-scoped compatibility adapter plus protocol tests is needed
+before claiming legacy MCP wire parity or merging this integration branch.
+These are semantic
 reconciliation tasks, not reasons to choose the deleted side of a merge
 automatically.
 Preserve or explicitly replace those user-visible contracts and test the
 result through CI before moving development to `main`. No branch was merged
-or rewritten during this assessment.
+or rewritten on the remote during this assessment.

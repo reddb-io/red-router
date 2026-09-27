@@ -12,7 +12,11 @@ import { useLocale, useTranslations } from "next-intl";
 
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { copyToClipboard } from "@/shared/utils/clipboard";
-import { bucketLogActivity, LOG_ACTIVITY_MINUTE_MS } from "@/shared/utils/logActivity";
+import {
+  bucketLogActivity,
+  logActivityLevel,
+  LOG_ACTIVITY_MINUTE_MS,
+} from "@/shared/utils/logActivity";
 import ConsoleLogActivity from "@/shared/components/ConsoleLogActivity";
 
 interface LogEntry {
@@ -45,6 +49,30 @@ const LEVEL_BG: Record<string, string> = {
 };
 
 const POLL_INTERVAL = 5000; // 5 seconds
+const PREFS_KEY = "rr.consoleLog.prefs";
+const LEVELS = ["debug", "info", "warn", "error"] as const;
+type LogLevel = (typeof LEVELS)[number];
+type ConsolePrefs = { timestamps: boolean; wrap: boolean; levels: LogLevel[] };
+const DEFAULT_PREFS: ConsolePrefs = {
+  timestamps: true,
+  wrap: false,
+  levels: [...LEVELS],
+};
+
+function readPrefs(): ConsolePrefs {
+  try {
+    const saved = JSON.parse(localStorage.getItem(PREFS_KEY) || "{}") as Partial<ConsolePrefs>;
+    return {
+      timestamps: typeof saved.timestamps === "boolean" ? saved.timestamps : true,
+      wrap: typeof saved.wrap === "boolean" ? saved.wrap : false,
+      levels: Array.isArray(saved.levels)
+        ? LEVELS.filter((level) => saved.levels?.includes(level))
+        : [...LEVELS],
+    };
+  } catch {
+    return DEFAULT_PREFS;
+  }
+}
 
 export default function ConsoleLogViewer() {
   const locale = useLocale();
@@ -55,7 +83,7 @@ export default function ConsoleLogViewer() {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [levelFilter, setLevelFilter] = useState("all");
+  const [prefs, setPrefs] = useState<ConsolePrefs>(DEFAULT_PREFS);
   const [searchText, setSearchText] = useState("");
   const [autoScroll, setAutoScroll] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
@@ -71,11 +99,28 @@ export default function ConsoleLogViewer() {
   const copyFeedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const logUpdateVersionRef = useRef(0);
 
+  useEffect(() => {
+    // Restore browser-only display settings after hydration.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setPrefs(readPrefs());
+  }, []);
+
+  const updatePrefs = (patch: Partial<ConsolePrefs>) => {
+    setPrefs((current) => {
+      const next = { ...current, ...patch };
+      try {
+        localStorage.setItem(PREFS_KEY, JSON.stringify(next));
+      } catch {
+        // Private browsing can reject persistence; keep the current view usable.
+      }
+      return next;
+    });
+  };
+
   const fetchLogs = useCallback(async () => {
     const version = logUpdateVersionRef.current;
     try {
       const params = new URLSearchParams();
-      if (levelFilter !== "all") params.set("level", levelFilter);
       params.set("limit", "500");
 
       const res = await fetch(`/api/logs/console?${params.toString()}`);
@@ -92,7 +137,7 @@ export default function ConsoleLogViewer() {
     } finally {
       if (version === logUpdateVersionRef.current) setLoading(false);
     }
-  }, [levelFilter, tv]);
+  }, [tv]);
 
   // The server sends one snapshot, then only appended lines. Polling remains a
   // fallback when EventSource is unavailable or the stream disconnects.
@@ -120,7 +165,6 @@ export default function ConsoleLogViewer() {
     } else {
       try {
         const params = new URLSearchParams();
-        if (levelFilter !== "all") params.set("level", levelFilter);
         source = new EventSource(`/api/logs/console/stream?${params.toString()}`);
         source.onopen = () => {
           if (fallbackDelay) clearTimeout(fallbackDelay);
@@ -166,7 +210,7 @@ export default function ConsoleLogViewer() {
       if (fallbackDelay) clearTimeout(fallbackDelay);
       stopPolling();
     };
-  }, [fetchLogs, levelFilter, tv]);
+  }, [fetchLogs, tv]);
 
   useEffect(
     () => () => {
@@ -301,18 +345,24 @@ export default function ConsoleLogViewer() {
   const filteredLogs = useMemo(() => {
     const query = searchText.toLowerCase();
     return logs.filter((entry) => {
+      if (!prefs.levels.includes(logActivityLevel(entry))) return false;
       if (query && !JSON.stringify(entry).toLowerCase().includes(query)) return false;
       if (activeMinute === null) return true;
       const timestamp = new Date(entry.timestamp).getTime();
       return timestamp >= activeMinute && timestamp < activeMinute + LOG_ACTIVITY_MINUTE_MS;
     });
-  }, [logs, searchText, activeMinute]);
+  }, [logs, searchText, activeMinute, prefs.levels]);
 
   const shownText = () =>
     filteredLogs
       .map((entry) => {
         const component = getComponent(entry);
-        return [entry.timestamp, entry.level, component ? `[${component}]` : "", getText(entry)]
+        return [
+          prefs.timestamps ? entry.timestamp : "",
+          entry.level,
+          component ? `[${component}]` : "",
+          getText(entry),
+        ]
           .filter(Boolean)
           .join(" ");
       })
@@ -360,19 +410,25 @@ export default function ConsoleLogViewer() {
     >
       {/* Toolbar */}
       <div className="flex flex-wrap items-center gap-3 p-4 rounded-xl bg-[var(--color-surface)] border border-[var(--color-border)]">
-        {/* Level filter */}
-        <select
-          value={levelFilter}
-          onChange={(e) => setLevelFilter(e.target.value)}
-          aria-label={tv("filterByLevel")}
-          className="px-3 py-2 rounded-lg text-sm bg-[var(--color-bg)] border border-[var(--color-border)] text-[var(--color-text-main)] focus:outline-2 focus:outline-[var(--color-accent)]"
-        >
-          <option value="all">{t("allLevels")}</option>
-          <option value="debug">Debug+</option>
-          <option value="info">Info+</option>
-          <option value="warn">Warn+</option>
-          <option value="error">Error+</option>
-        </select>
+        <div role="group" aria-label={tv("filterByLevel")} className="flex flex-wrap gap-1">
+          {LEVELS.map((level) => (
+            <button
+              key={level}
+              type="button"
+              aria-pressed={prefs.levels.includes(level)}
+              onClick={() =>
+                updatePrefs({
+                  levels: prefs.levels.includes(level)
+                    ? prefs.levels.filter((selected) => selected !== level)
+                    : [...prefs.levels, level],
+                })
+              }
+              className={`rounded-lg border border-[var(--color-border)] px-2 py-1 text-xs text-[var(--color-text-main)] ${prefs.levels.includes(level) ? "opacity-100" : "opacity-50"}`}
+            >
+              {level}
+            </button>
+          ))}
+        </div>
 
         {/* Search */}
         <input
@@ -400,6 +456,25 @@ export default function ConsoleLogViewer() {
             {autoScroll ? "vertical_align_bottom" : "lock"}
           </span>
           {tv("autoScroll")}
+        </button>
+
+        <button
+          type="button"
+          aria-label="Show timestamps"
+          aria-pressed={prefs.timestamps}
+          onClick={() => updatePrefs({ timestamps: !prefs.timestamps })}
+          className="rounded-lg border border-[var(--color-border)] px-2 py-1 text-xs text-[var(--color-text-main)]"
+        >
+          Time
+        </button>
+        <button
+          type="button"
+          aria-label="Wrap long lines"
+          aria-pressed={prefs.wrap}
+          onClick={() => updatePrefs({ wrap: !prefs.wrap })}
+          className="rounded-lg border border-[var(--color-border)] px-2 py-1 text-xs text-[var(--color-text-main)]"
+        >
+          Wrap
         </button>
 
         {/* Refresh */}
@@ -551,9 +626,11 @@ export default function ConsoleLogViewer() {
                   }`}
                 >
                   {/* Timestamp */}
-                  <span className="text-[#484f58] whitespace-nowrap shrink-0 select-none">
-                    {formatTime(entry.timestamp)}
-                  </span>
+                  {prefs.timestamps && (
+                    <span className="text-[#484f58] whitespace-nowrap shrink-0 select-none">
+                      {formatTime(entry.timestamp)}
+                    </span>
+                  )}
 
                   {/* Level badge */}
                   <span
@@ -566,7 +643,9 @@ export default function ConsoleLogViewer() {
                   {comp && <span className="text-purple-400/80 shrink-0">[{comp}]</span>}
 
                   {/* Message */}
-                  <span className="text-[#c9d1d9] flex-1 break-all">
+                  <span
+                    className={`text-[#c9d1d9] flex-1 ${prefs.wrap ? "whitespace-pre-wrap break-words" : "whitespace-pre"}`}
+                  >
                     {msg}
                     {/* Extra meta */}
                     {correlationId && (

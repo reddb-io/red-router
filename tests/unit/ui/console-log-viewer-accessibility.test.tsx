@@ -41,6 +41,7 @@ describe("ConsoleLogViewer accessibility", () => {
       globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
     ).IS_REACT_ACT_ENVIRONMENT = true;
     copyToClipboard.mockResolvedValue(true);
+    localStorage.clear();
     vi.useFakeTimers();
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
@@ -211,6 +212,58 @@ describe("ConsoleLogViewer accessibility", () => {
     expect(copiedText.split("\n")).toHaveLength(2);
     expect(container.querySelector('[role="status"]')?.textContent).toBe("common.copied");
     expect(container.querySelector('button[aria-label="logs.export"]')).not.toBeNull();
+  });
+
+  it("restores legacy level, timestamp, and wrapping preferences on the Pino viewer", async () => {
+    localStorage.setItem(
+      "rr.consoleLog.prefs",
+      JSON.stringify({ timestamps: false, wrap: true, levels: ["warn"] })
+    );
+    const container = await renderViewer();
+    const levels = container.querySelector(
+      '[role="group"][aria-label="logs.consoleViewer.filterByLevel"]'
+    );
+
+    expect(levels?.querySelector('button[aria-pressed="true"]')?.textContent).toBe("warn");
+    expect(container.textContent).toContain("waiting");
+    expect(container.textContent).not.toContain("ready");
+    expect(
+      container.querySelector('button[aria-label="Show timestamps"]')?.getAttribute("aria-pressed")
+    ).toBe("false");
+    expect(
+      container.querySelector('button[aria-label="Wrap long lines"]')?.getAttribute("aria-pressed")
+    ).toBe("true");
+    expect(container.querySelector('[role="log"] .whitespace-pre-wrap')).not.toBeNull();
+
+    const copyShown = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="common.copy"]'
+    );
+    await act(async () => {
+      copyShown?.click();
+      await Promise.resolve();
+    });
+    const copiedText = copyToClipboard.mock.lastCall?.[0] as string;
+    expect(copiedText).toContain("waiting");
+    expect(copiedText).not.toContain("2026-08-26T");
+  });
+
+  it("saves independent level choices and ignores malformed legacy preferences", async () => {
+    localStorage.setItem("rr.consoleLog.prefs", "not-json");
+    const container = await renderViewer();
+    const levels = container.querySelector(
+      '[role="group"][aria-label="logs.consoleViewer.filterByLevel"]'
+    );
+    expect(levels?.querySelectorAll('button[aria-pressed="true"]')).toHaveLength(4);
+
+    const info = [...(levels?.querySelectorAll("button") || [])].find(
+      (button) => button.textContent === "info"
+    );
+    await act(async () => info?.click());
+    expect(container.textContent).not.toContain("ready");
+    expect(container.textContent).toContain("waiting");
+    expect(JSON.parse(localStorage.getItem("rr.consoleLog.prefs") || "{}").levels).not.toContain(
+      "info"
+    );
   });
 
   it("uses structured log snapshots and appends from the live stream", async () => {
