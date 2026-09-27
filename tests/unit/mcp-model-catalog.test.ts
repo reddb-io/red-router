@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { getMcpModelsCatalog } from "../../open-sse/mcp-server/server.ts";
+import { listModelsCatalogOutput } from "../../open-sse/mcp-server/schemas/tools.ts";
 import { clearAllModelLockouts, lockModel } from "../../open-sse/services/accountFallback.ts";
 import { __clearForTests, setQuotaCache } from "../../src/domain/quotaCache.ts";
 
@@ -78,6 +79,10 @@ test("getMcpModelsCatalog does not label quota-exhausted models available", asyn
     assert.equal(result.models[0]?.status, "unavailable");
     assert.equal(result.models[0]?.unavailableReason, "quota_exhausted");
     assert.deepEqual(result.models[0]?.accounts, { available: 0, total: 1 });
+    assert.equal(
+      listModelsCatalogOutput.parse(result).models[0]?.unavailableReason,
+      "quota_exhausted"
+    );
   } finally {
     __clearForTests();
   }

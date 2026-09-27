@@ -15,6 +15,7 @@ import { pickFastestModelTool } from "./pickFastestModel.ts";
 import { getActiveSearchProviders } from "./providerEnums";
 import { CCR_MCP_TOOLS } from "./ccrTools.ts";
 import { radarCatalogTool } from "./radarCatalog.ts";
+import { listModelsCatalogOutput } from "./modelCatalog.ts";
 import {
   AUTO_ROUTING_STRATEGY_VALUES,
   ROUTING_STRATEGY_VALUES,
@@ -26,6 +27,7 @@ import {
 export type { AuditLevel, McpToolDefinition } from "./toolDefinition.ts";
 import type { McpToolDefinition } from "./toolDefinition.ts";
 export { pickFastestModelInput, pickFastestModelOutput } from "./pickFastestModel.ts";
+export { listModelsCatalogOutput } from "./modelCatalog.ts";
 export * from "./ccrTools.ts";
 // ============ Phase 1: Essential Tools ============
 
@@ -426,28 +428,6 @@ export const listModelsCatalogInput = z.object({
     .enum(["chat", "embedding", "image", "audio", "video", "rerank", "moderation"])
     .optional()
     .describe("Filter by model capability"),
-});
-
-export const listModelsCatalogOutput = z.object({
-  models: z.array(
-    z.object({
-      id: z.string(),
-      provider: z.string(),
-      capabilities: z.array(z.string()),
-      status: z.enum(["available", "degraded", "unavailable"]),
-      unavailableReason: z
-        .enum(["quota_exhausted", "model_locked", "rate_limited", "terminal"])
-        .optional(),
-      accounts: z.object({ available: z.number(), total: z.number() }).optional(),
-      thinkingEffort: z.string().optional(),
-      pricing: z
-        .object({
-          inputPerMillion: z.number().nullable(),
-          outputPerMillion: z.number().nullable(),
-        })
-        .optional(),
-    })
-  ),
 });
 
 export const listModelsCatalogTool: McpToolDefinition<
