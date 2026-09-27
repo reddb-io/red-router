@@ -94,7 +94,7 @@ export interface LegacyQuotaStore {
   refresh(connectionId: string): Promise<QuotaWindow[]>;
 }
 
-const defaultStore: LegacyQuotaStore = {
+export const legacyQuotaStore: Omit<LegacyQuotaStore, "refresh"> = {
   keyScope: async (token) => {
     const metadata = await getApiKeyMetadata(token);
     if (!metadata) return null;
@@ -141,23 +141,13 @@ const defaultStore: LegacyQuotaStore = {
       };
     });
   },
-  refresh: async (connectionId) => {
-    const { fetchAndPersistProviderLimits } = await import("@/lib/usage/providerLimits");
-    const { usage, cache } = await fetchAndPersistProviderLimits(connectionId, "manual", {
-      allowRotatingRefresh: true,
-    });
-    if (usage._stale === true || cache.message) {
-      throw new Error("quota refresh returned stale data");
-    }
-    return parseLegacyQuotaWindows(cache.quotas, cache.fetchedAt);
-  },
 };
 
 const argsSchema = z
   .object({ provider: z.string().min(1).optional(), refresh: z.boolean().optional() })
   .strict();
 
-export function createLegacyQuotaTool(store: LegacyQuotaStore = defaultStore): LegacyMcpTool {
+export function createLegacyQuotaTool(store: LegacyQuotaStore): LegacyMcpTool {
   return {
     name: "get_quotas",
     title: "Get quotas",

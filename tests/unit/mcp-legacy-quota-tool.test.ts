@@ -6,6 +6,7 @@ import {
   parseLegacyQuotaWindows,
   type LegacyQuotaStore,
 } from "../../src/lib/mcp/legacyQuotaTool.ts";
+import { refreshLegacyQuotaConnection } from "../../src/lib/mcp/legacyQuotaRefresh.ts";
 import { handleLegacyMcpBody, type LegacyMcpServer } from "../../src/lib/mcp/legacyProtocol.ts";
 
 const readConnections: string[] = [];
@@ -71,6 +72,30 @@ function call(args: Record<string, unknown> = {}) {
 }
 
 describe("legacy MCP quota tool", () => {
+  it("uses the returned persisted quota cache and rejects stale refresh results", async () => {
+    const fetcher = async (id: string) => {
+      assert.equal(id, "allowed");
+      return {
+        usage: {},
+        cache: {
+          quotas: { daily: { used: 3, total: 10, remaining: 7 } },
+          fetchedAt: "2026-09-27T02:00:00Z",
+          message: null,
+        },
+      };
+    };
+    const windows = await refreshLegacyQuotaConnection("allowed", fetcher);
+    assert.equal(windows[0].used, 3);
+    assert.equal(windows[0].remainingPct, 70);
+    await assert.rejects(
+      refreshLegacyQuotaConnection("allowed", async () => ({
+        ...(await fetcher("allowed")),
+        usage: { _stale: true },
+      })),
+      /stale data/
+    );
+  });
+
   it("preserves cached absolute values and provider-reported remaining percentage", () => {
     assert.deepEqual(
       parseLegacyQuotaWindows(
