@@ -1045,7 +1045,11 @@ test.describe("API keys flow", () => {
     expect(denyAllPatch.modelAccessMode).toBe("restricted");
     expect(denyAllPatch.allowedModels).toEqual([]);
 
-    await keyRow.locator('button[title="Edit permissions"]').click({ force: true });
+    // PATCH interception happens before the component finishes its refetch and
+    // closes the dialog. Reopening before that point can click through the old
+    // modal overlay instead of the row's edit button.
+    await expect(reopened).not.toBeVisible({ timeout: UI_STABILITY_TIMEOUT_MS });
+    await keyRow.locator('button[title="Edit permissions"]').click();
     const denyAllReopened = page.getByRole("dialog", {
       name: /permissions: provider scope key/i,
     });
