@@ -1,6 +1,28 @@
 import { test, expect } from "@playwright/test";
 
 test.describe("Smoke — Static Pages", () => {
+  test("bare borders use a subtle theme color instead of dark-mode text white", async ({ page }) => {
+    await page.goto("/landing");
+    const borderColor = await page.evaluate(() => {
+      const probe = document.createElement("div");
+      probe.className = "border";
+      document.body.append(probe);
+      const originalDark = document.documentElement.classList.contains("dark");
+      document.documentElement.classList.remove("dark");
+      const light = getComputedStyle(probe).borderTopColor;
+      document.documentElement.classList.add("dark");
+      const dark = getComputedStyle(probe).borderTopColor;
+      probe.remove();
+      document.documentElement.classList.toggle("dark", originalDark);
+      return { light, dark };
+    });
+
+    expect(borderColor).toEqual({
+      light: "rgba(0, 0, 0, 0.06)",
+      dark: "rgba(255, 255, 255, 0.06)",
+    });
+  });
+
   test("landing page renders", async ({ page }) => {
     await page.goto("/landing");
     await expect(page).toHaveTitle(/OmniRoute/i);
