@@ -717,6 +717,7 @@ export const v1BatchCreateSchema = z.object({
 
 export const v1WebFetchSchema = z.object({
   url: z.string().url("url must be a valid URL (http/https)"),
+  model: z.string().min(1).max(128).optional(),
   provider: z
     .enum([
       "firecrawl",

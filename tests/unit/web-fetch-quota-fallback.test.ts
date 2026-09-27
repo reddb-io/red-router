@@ -100,6 +100,29 @@ test("auto-select skips a rate-limited firecrawl and falls to jina-reader", asyn
   }
 });
 
+test("9router model requests get structured content without changing provider-only callers", async () => {
+  await seedConnection("firecrawl", { apiKey: "fc-key" });
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response(JSON.stringify({ data: { markdown: "abcdef", links: [] } }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  try {
+    const legacy = await postWebFetch({ model: "firecrawl/fetch", max_characters: 3 });
+    const legacyBody = (await legacy.json()) as { content: { text: string; length: number } };
+    assert.equal(legacy.status, 200);
+    assert.deepEqual(legacyBody.content, { format: "markdown", text: "abc", length: 3 });
+
+    const current = await postWebFetch({ provider: "firecrawl", max_characters: 3 });
+    const currentBody = await readJson(current);
+    assert.equal(current.status, 200);
+    assert.equal(currentBody.content, "abc");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 // ── (b) request-time: credentialed provider returns 429 → falls through ────
 
 test("auto-select falls through to jina-reader when firecrawl returns 429 at request time", async () => {

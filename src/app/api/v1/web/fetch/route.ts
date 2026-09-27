@@ -41,6 +41,7 @@ import {
   rateLimitedProviderResponse,
   type RateLimitedCredentials,
 } from "@/app/api/v1/_shared/rateLimit";
+import { resolveWebFetchModel, toNineRouterWebFetchResponse } from "./nineRouterCompat";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
@@ -278,6 +279,14 @@ export async function POST(request: Request) {
     return errorResponse(HTTP_STATUS.BAD_REQUEST, validation.error.message);
   }
   const body = validation.data;
+  const modelResolution = resolveWebFetchModel(
+    body.provider,
+    body.model,
+    request.headers.get("x-9router-compat")
+  );
+  if (!modelResolution.ok) {
+    return errorResponse(HTTP_STATUS.BAD_REQUEST, "Unknown or conflicting web-fetch model");
+  }
 
   // Optional auth check — when REQUIRE_API_KEY=false, ignore presented
   // invalid keys so anonymous access works the same as all other client
@@ -295,11 +304,12 @@ export async function POST(request: Request) {
   if (policy.rejection) return policy.rejection;
 
   // Resolve provider + credentials (explicit provider never falls back; #8297)
-  const target = await resolveWebFetchTarget(body.provider);
+  const target = await resolveWebFetchTarget(modelResolution.provider);
   if (!target.ok) return target.response;
 
   log.info("WEB_FETCH", `${target.provider} | ${body.url} | format=${body.format}`);
 
+  const upstreamStartedAt = Date.now();
   const {
     result,
     provider: finalProvider,
@@ -317,6 +327,7 @@ export async function POST(request: Request) {
     !target.isExplicit,
     target.tried
   );
+  const upstreamLatencyMs = Date.now() - upstreamStartedAt;
 
   if (poolExhausted) {
     return unavailableResponse(
@@ -341,11 +352,18 @@ export async function POST(request: Request) {
     log.info("WEB_FETCH", `Fell back from ${target.provider} to ${finalProvider}`);
   }
 
-  return new Response(
-    JSON.stringify(result.data && limitWebFetchContent(result.data, body.max_characters)),
-    {
-      status: 200,
-      headers: { "Content-Type": "application/json", ...CORS_HEADERS },
-    }
-  );
+  const data = result.data && limitWebFetchContent(result.data, body.max_characters);
+  const responseData =
+    data && modelResolution.legacyResponse
+      ? toNineRouterWebFetchResponse(
+          data,
+          body.format,
+          Date.now() - upstreamStartedAt,
+          upstreamLatencyMs
+        )
+      : data;
+  return new Response(JSON.stringify(responseData), {
+    status: 200,
+    headers: { "Content-Type": "application/json", ...CORS_HEADERS },
+  });
 }
