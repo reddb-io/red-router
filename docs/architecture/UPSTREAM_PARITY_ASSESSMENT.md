@@ -147,12 +147,14 @@ Plan, Model Studio, and OpenAI-compatible Token Plan hosts. The pre-existing
 connections still need CI and real-key authentication smoke before operational
 parity can be claimed.
 
-The `iflow` registry and HMAC executor exist, but the OAuth card still has no
-local sign-in implementation. Its connection test previously returned
-"Provider test not supported"; this worktree now builds a signed, one-token
-chat probe using the executor's headers. That probe may consume credits and
-still needs CI and real-account validation. It does not close the OAuth login
-gap, which remains a separate porting task.
+The `iflow` registry and HMAC executor exist. This worktree now registers the
+upstream phone authorization-code flow, exchanges the code using the public
+CLI client, and obtains the inference API key from a bounded user-info
+response. The key, not the login access token, is used for bearer inference
+and HMAC signing. Its connection test previously returned "Provider test not
+supported"; the signed, one-token chat probe may consume credits. The OAuth
+flow and probe have written regression tests, but CI and a real-account login
+are still required before treating iFlow as operationally equivalent.
 
 ### Provider identity gaps confirmed by transport inspection
 
@@ -421,10 +423,14 @@ The `main` side includes #155's quota- and model-lock-aware MCP model status
 and #156's live console full-screen/activity view. The imported MCP catalog
 now incorporates account quota, model lockout, and cooldown status in
 `open-sse/mcp-server/catalog.ts`, but exact legacy MCP wire compatibility
-remains unverified. The imported console uses the separate polling-based
-`ConsoleLogViewer`; its full-screen/activity reconciliation is still in
-progress. These are semantic reconciliation tasks, not reasons to choose the
-deleted side of a merge automatically.
+remains unverified. The imported `ConsoleLogViewer` now has a bounded Pino-file
+SSE tail with a polling fallback, full-screen/activity controls, copy/download
+of visible lines, and scroll-up pause/resume. It still does not preserve every
+legacy console preference or its old global `console.*` capture and clear
+behavior; the latter must not be copied over the structured Pino architecture
+without a separate security and retention review. These are semantic
+reconciliation tasks, not reasons to choose the deleted side of a merge
+automatically.
 Preserve or explicitly replace those user-visible contracts and test the
 result through CI before moving development to `main`. No branch was merged
 or rewritten during this assessment.
