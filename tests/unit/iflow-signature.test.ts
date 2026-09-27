@@ -30,3 +30,20 @@ test("iFlow probe and executor use the same credential-bound HMAC contract", () 
   assert.equal(executorHeaders.Authorization, `Bearer ${credential}`);
   assert.equal(createIFlowSignature(IFLOW_USER_AGENT, "session-test", 1, ""), "");
 });
+
+test("iFlow OAuth inference uses the minted API key, not the login access token", () => {
+  const headers = new IFlowExecutor().buildHeaders(
+    { apiKey: "inference-key", accessToken: "oauth-token" },
+    false
+  );
+  assert.equal(headers.Authorization, "Bearer inference-key");
+  assert.equal(
+    headers["x-iflow-signature"],
+    createIFlowSignature(
+      IFLOW_USER_AGENT,
+      headers["session-id"],
+      Number(headers["x-iflow-timestamp"]),
+      "inference-key"
+    )
+  );
+});
