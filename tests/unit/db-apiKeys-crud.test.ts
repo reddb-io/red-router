@@ -24,6 +24,7 @@ process.env.API_KEY_SECRET = "test-api-key-secret-for-crc-operations-do-not-use-
 
 const core = await import("../../src/lib/db/core.ts");
 const apiKeys = await import("../../src/lib/db/apiKeys.ts");
+const apiKeyTags = await import("../../src/lib/db/apiKeys/tags.ts");
 const keyQuota = await import("../../src/lib/db/keyQuota.ts");
 
 async function resetStorage() {
@@ -81,6 +82,41 @@ test("createApiKey commits a standard key and its limits together", async () => 
   assert.equal(limits.rpmLimit, 3);
   assert.equal(limits.dailyTokensLimit, 500);
   assert.equal(limits.monthlyAmountUsd, 2.5);
+});
+
+test("createApiKey stores tags atomically with the bearer key", async () => {
+  await resetStorage();
+  const input = ["team-a", "production"];
+  const creating = apiKeys.createApiKey("Tagged Key", "machine-tags", [], { tags: input });
+  input.push("after-create");
+  const created = await creating;
+  assert.deepEqual(apiKeyTags.getApiKeyTags(created.id), ["team-a", "production"]);
+  await apiKeys.deleteApiKey(created.id);
+  assert.deepEqual(apiKeyTags.getApiKeyTags(created.id), []);
+});
+
+test("createApiKey rolls back the bearer key if tag insertion fails", async () => {
+  await resetStorage();
+  core.getDbInstance().exec(`
+    CREATE TRIGGER reject_api_key_tags
+    BEFORE INSERT ON key_value
+    WHEN NEW.namespace = 'api_key_tags'
+    BEGIN SELECT RAISE(ABORT, 'tag write rejected'); END;
+  `);
+  await assert.rejects(() =>
+    apiKeys.createApiKey("Must Not Exist", "machine-tags-rollback", [], { tags: ["team-a"] })
+  );
+  assert.deepEqual(await apiKeys.getApiKeys(), []);
+});
+
+test("createApiKey rejects malformed tags before inserting a bearer key", async () => {
+  await resetStorage();
+  await assert.rejects(() =>
+    apiKeys.createApiKey("Invalid Tags", "machine-tags-invalid", [], {
+      tags: ["valid", 42] as unknown as string[],
+    })
+  );
+  assert.deepEqual(await apiKeys.getApiKeys(), []);
 });
 
 test("createApiKey rolls back the bearer key if quota insertion fails", async () => {

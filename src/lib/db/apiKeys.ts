@@ -76,6 +76,11 @@ import {
   type ApiKeyPermissionsUpdate,
 } from "./apiKeys/permissionsUpdate";
 import { hashKey } from "./apiKeys/keyHash";
+import {
+  deleteApiKeyTags,
+  insertInitialApiKeyTagsInTransaction,
+  snapshotApiKeyTags,
+} from "./apiKeys/tags";
 import { getModelCatalogCacheVersion, invalidateModelCatalogCache } from "./readCache";
 import type { AccessSchedule, RateLimitRule } from "./apiKeys/types";
 
@@ -99,6 +104,7 @@ interface CreateApiKeyOptions {
   expiresAt?: string | null;
   /** Inserted in the same SQLite transaction as the bearer key. */
   quotaLimits?: UpsertKeyQuotaLimitsInput;
+  tags?: readonly string[];
 }
 
 export type { AccessSchedule, RateLimitRule } from "./apiKeys/types";
@@ -692,9 +698,8 @@ export async function createApiKey(
   const allowedModels = modelAccess.allowedModels ?? [];
   const allowedCombos = options.allowedCombos ?? [ALL_COMBOS_ACCESS_RULE];
   assertExclusiveLeaseKeyPolicy(scopes, allowedConnections);
-  // Snapshot before async key generation so a caller cannot mutate validated
-  // limits between validation and the transactional insert.
   const quotaLimits = snapshotInitialKeyQuotaLimits(options.quotaLimits);
+  const tags = snapshotApiKeyTags(options.tags);
 
   const db = getDbInstance() as ApiKeysDbLike;
   const now = new Date().toISOString();
@@ -738,6 +743,7 @@ export async function createApiKey(
       apiKey.expiresAt
     );
     if (quotaLimits) insertInitialKeyQuotaLimitsInTransaction(apiKey.id, quotaLimits);
+    if (tags) insertInitialApiKeyTagsInTransaction(apiKey.id, tags);
   })();
   setNoLog(apiKey.id, false);
 
@@ -1189,6 +1195,7 @@ export async function deleteApiKey(id: string) {
 
   if (result.changes === 0) return false;
 
+  deleteApiKeyTags(id);
   db.prepare("DELETE FROM domain_budgets WHERE api_key_id = ?").run(id);
   db.prepare("DELETE FROM domain_cost_history WHERE api_key_id = ?").run(id);
   setNoLog(id, false);

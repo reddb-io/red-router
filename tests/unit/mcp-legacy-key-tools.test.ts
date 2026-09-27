@@ -39,6 +39,7 @@ function server(isAdmin: boolean): LegacyMcpServer {
       dailyTokensLimit: 100,
       monthlyAmountUsd: 2,
     }),
+    tags: () => ["team-a"],
   };
   return {
     info: { name: "red-router", version: "test" },
@@ -59,7 +60,7 @@ describe("legacy MCP API-key tools", () => {
     assert.match(serialized, /"bound_accounts":1/);
     assert.match(serialized, /"role":"standard"/);
     assert.match(serialized, /"tokensPerDay":100/);
-    assert.doesNotMatch(serialized, /"tags":/);
+    assert.match(serialized, /"tags":\["team-a"\]/);
     assert.doesNotMatch(serialized, /sk-do-not-leak|private-hash|private-machine|connection-1/);
   });
 

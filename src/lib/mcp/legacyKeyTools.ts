@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { getApiKeyById, getApiKeys } from "@/lib/db/apiKeys";
 import { getKeyQuotaLimits, type KeyQuotaLimits } from "@/lib/db/keyQuota";
+import { getApiKeyTags } from "@/lib/db/apiKeys/tags";
 import { LegacyMcpToolError, type LegacyMcpTool } from "./legacyProtocol";
 
 type KeyRecord = NonNullable<Awaited<ReturnType<typeof getApiKeyById>>>;
@@ -10,20 +11,23 @@ export interface LegacyKeyStore {
   getById(id: string): Promise<KeyRecord | null>;
   list(): Promise<KeyRecord[]>;
   limits(id: string): KeyQuotaLimits;
+  tags(id: string): string[];
 }
 
 const defaultStore: LegacyKeyStore = {
   getById: getApiKeyById,
   list: () => getApiKeys(),
   limits: getKeyQuotaLimits,
+  tags: getApiKeyTags,
 };
 
 // Never spread a DB row into an MCP result: the row also contains the bearer secret.
-export function publicLegacyKey(key: KeyRecord, quota: KeyQuotaLimits) {
+export function publicLegacyKey(key: KeyRecord, quota: KeyQuotaLimits, tags: string[]) {
   return {
     id: key.id,
     name: key.name,
     role: key.scopes.includes("manage") ? "admin" : "standard",
+    tags,
     is_active: key.isActive,
     created_at: key.createdAt,
     limits: {
@@ -67,7 +71,13 @@ export function createLegacyKeyTools(store: LegacyKeyStore = defaultStore): Lega
       run: async (_args, context) => {
         const key = await store.getById(context.apiKeyId);
         if (!key) throw new LegacyMcpToolError("unknown_key", "API key not found");
-        return { api_key: publicLegacyKey(key, store.limits(context.apiKeyId)) };
+        return {
+          api_key: publicLegacyKey(
+            key,
+            store.limits(context.apiKeyId),
+            store.tags(context.apiKeyId)
+          ),
+        };
       },
     },
     {
@@ -85,7 +95,9 @@ export function createLegacyKeyTools(store: LegacyKeyStore = defaultStore): Lega
         const keys = await store.list();
         return {
           total: keys.length,
-          api_keys: keys.map((key) => publicLegacyKey(key, store.limits(String(key.id)))),
+          api_keys: keys.map((key) =>
+            publicLegacyKey(key, store.limits(String(key.id)), store.tags(String(key.id)))
+          ),
         };
       },
     },
