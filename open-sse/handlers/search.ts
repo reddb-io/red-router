@@ -1198,6 +1198,7 @@ async function zaiSearchExecute(params: {
 
     const args: Record<string, unknown> = {
       search_query: params.query,
+      count: params.params.maxResults,
     };
 
     const { includes } = parseDomainFilter(params.params.domainFilter);
@@ -1226,9 +1227,10 @@ async function zaiSearchExecute(params: {
     }
 
     const now = new Date().toISOString();
+    const responseProviderId = params.config.publicModelId?.split("/")[0] ?? params.config.id;
     const results = items.map((item, idx) =>
       makeResult(
-        params.config.id,
+        responseProviderId,
         {
           title: item.title,
           url: item.link,
@@ -1294,10 +1296,11 @@ async function tryZaiMCPProvider(
       /* non-critical — logging must not block search response */
     });
 
+    const responseProviderId = config.publicModelId?.split("/")[0] ?? config.id;
     return {
       success: true,
       data: {
-        provider: config.id,
+        provider: responseProviderId,
         query,
         results,
         answer: null,

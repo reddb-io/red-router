@@ -901,7 +901,9 @@ for (const provider of ["zai-search", "glm-search"]) {
 
       assert.equal(result.success, true);
       assert.equal(capturedArgs.search_query, "zai mcp search");
-      assert.equal(result.data.provider, provider);
+      assert.equal(capturedArgs.count, 2);
+      const responseProvider = provider === "glm-search" ? "glm" : provider;
+      assert.equal(result.data.provider, responseProvider);
       assert.equal(result.data.results.length, 2);
       assert.equal(result.data.results[0].title, "Z.AI Coding Plan Search");
       assert.equal(result.data.results[0].url, "https://docs.z.ai/search");
@@ -911,9 +913,9 @@ for (const provider of ["zai-search", "glm-search"]) {
       );
       assert.equal(result.data.results[0].display_url, "docs.z.ai/search");
       assert.equal(result.data.results[0].favicon_url, "https://docs.z.ai/favicon.ico");
-      assert.equal(result.data.results[0].citation.provider, provider);
+      assert.equal(result.data.results[0].citation.provider, responseProvider);
       assert.equal(result.data.results[1].title, "Getting Started with Z.AI");
-      assert.equal(result.data.results[1].citation.provider, provider);
+      assert.equal(result.data.results[1].citation.provider, responseProvider);
       assert.equal(result.data.usage.queries_used, 1);
       assert.equal(result.data.usage.search_cost_usd, 0);
     } finally {
