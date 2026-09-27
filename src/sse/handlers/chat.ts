@@ -33,18 +33,16 @@ import { getImageModelEntry } from "@omniroute/open-sse/config/imageRegistry.ts"
 import { acceptHeaderForcesStream } from "@omniroute/open-sse/utils/aiSdkCompat.ts";
 import { applyNoThinkingAlias } from "@omniroute/open-sse/utils/noThinkingAlias.ts";
 import { resolveCcDiscoveryAliasStrip } from "@/lib/ccDiscoveryAliasResolve";
-import {
-  handleComboChat,
-  resolveComboTargets,
-  shouldSkipConnDisable,
-} from "@omniroute/open-sse/services/combo.ts";
+import { handleComboChat, shouldSkipConnDisable } from "@omniroute/open-sse/services/combo.ts";
 import type { ComboLike, SingleModelTarget } from "@omniroute/open-sse/services/combo/types.ts";
 import { mergeAbortSignals } from "@omniroute/open-sse/executors/base.ts";
 import { resolveRequestAutoControls } from "@omniroute/open-sse/services/autoCombo/requestControls.ts";
 import { isVerifiedNativeCodexRequest } from "@omniroute/open-sse/config/codexIdentity.ts";
-import { resolveCompressionSettings } from "@omniroute/open-sse/handlers/chatCore/compressionSettings.ts";
-import type { CompressionExclusions } from "@omniroute/open-sse/services/compression/exclusions.ts";
 import { resolveComboConfig } from "@omniroute/open-sse/services/comboConfig.ts";
+import {
+  isManagedComboUnsupported,
+  resolveComboContextOverflowDeferral,
+} from "./chat/comboPreflight.ts";
 import {
   canEvaluateJevModel,
   parseJevRoutingConfig,
@@ -281,31 +279,6 @@ let combosCacheVersionSnapshot = -1;
 const COMBOS_CACHE_TTL_MS = 10_000;
 const DEFER_METERED_BUDGET = { meteredBudget: "defer-to-candidate" } as const;
 
-/**
- * #10225 — resolve whether this request's combo preflight should DEFER its hard
- * context-overflow rejection so chatCore's compression runs first.
- *
- * Mirrors handleChatCore's own enablement determination (chatCore.ts): defer only
- * when the global compression switch is ON and the API key has not opted out
- * (`apiKeyInfo.compressionEnabled !== false`). Per-target applicability (server-side
- * exclusions) is checked inside getKnownContextOverflow via the returned exclusions.
- * Fail closed (defer=false) on any lookup error — the existing hard preflight stays.
- */
-async function resolveComboContextOverflowDeferral(
-  logger: { warn?: (...args: unknown[]) => void } | null | undefined,
-  apiKeyInfo: { compressionEnabled?: boolean } | null | undefined
-): Promise<{ defer: boolean; exclusions: CompressionExclusions | undefined }> {
-  try {
-    const compression = await resolveCompressionSettings(logger);
-    return {
-      defer: compression.enabled && apiKeyInfo?.compressionEnabled !== false,
-      exclusions: compression.settings?.exclusions,
-    };
-  } catch {
-    return { defer: false, exclusions: undefined };
-  }
-}
-
 async function getCombosCachedForChat(): Promise<ComboLike[]> {
   const now = Date.now();
   // Explicit non-null check: we intentionally cache and return the Promise
@@ -381,39 +354,6 @@ function deriveVideoBridgeLog(
     : [];
   const redaction = reanchorVideoBridgeRedaction(rawRedaction, finalBody);
   return { observed: meta.videoBridgeObserved, redaction };
-}
-
-function isManagedComboUnsupported(
-  combo: ComboLike,
-  settings: Record<string, unknown>,
-  allCombos: ComboLike[],
-  visited = new Set<string>()
-): boolean {
-  if (visited.has(combo.name)) return false;
-  visited.add(combo.name);
-  const strategy = combo.strategy ?? "priority";
-  const config = resolveComboConfig(combo, settings) as Record<string, unknown>;
-  const resolvedTargets = resolveComboTargets(combo, allCombos);
-  const pipeline =
-    strategy === "pipeline" ||
-    (strategy === "auto" && (config.pipeline_enabled === true || combo.name === "auto/smart"));
-  const nestedUnsafe = (combo.models as Array<{ kind?: string; comboName?: string }>).some(
-    (step) => {
-      if (step?.kind !== "combo-ref" || !step.comboName) return false;
-      const nested = allCombos.find((candidate) => candidate.name === step.comboName);
-      return Boolean(nested && isManagedComboUnsupported(nested, settings, allCombos, visited));
-    }
-  );
-  return (
-    strategy === "fusion" ||
-    strategy === "context-relay" ||
-    (config.chaos as { enabled?: boolean } | undefined)?.enabled === true ||
-    (config.shadowRouting as { enabled?: boolean } | undefined)?.enabled === true ||
-    (config.zeroLatencyOptimizationsEnabled === true && config.hedging === true) ||
-    (resolvedTargets.length > 1 &&
-      (pipeline || resolvedTargets.some((target) => Boolean(target.connectionId?.trim())))) ||
-    nestedUnsafe
-  );
 }
 
 const managedComboRejection = () =>
