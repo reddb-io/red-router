@@ -411,15 +411,20 @@ has ten commits not in `origin/main`. A read-only `git merge-tree --write-tree
 --name-only origin/main origin/omniroute-base` found six modify/delete
 conflicts: `cli/CHANGELOG.md`, `cli/package.json`,
 `src/app/(dashboard)/dashboard/console-log/ConsoleLogClient.js`,
-`src/lib/mcp/redRouterTools.js`, `src/shared/icons/materialToLucide.js`, and
-`tests/unit/mcp-red-router.test.js`.
+the legacy MCP tools module, the legacy icon adapter, and the legacy MCP test.
+The last three paths exist on the inspected `main` commit
+[`174c746e`](https://github.com/reddb-io/red-router/tree/174c746ecf470fec986180524b9fd08252e9e919),
+but not in this imported worktree; they are historical merge conflicts, not
+current source-file references.
 
 The `main` side includes #155's quota- and model-lock-aware MCP model status
 and #156's live console full-screen/activity view. The imported MCP catalog
-currently derives `available` from catalog data without applying the full
-connection-selection quota and lockout rules; the imported console uses the
-separate polling-based `ConsoleLogViewer`. These are semantic reconciliation
-tasks, not reasons to choose the deleted side of a merge automatically.
+now incorporates account quota, model lockout, and cooldown status in
+`open-sse/mcp-server/catalog.ts`, but exact legacy MCP wire compatibility
+remains unverified. The imported console uses the separate polling-based
+`ConsoleLogViewer`; its full-screen/activity reconciliation is still in
+progress. These are semantic reconciliation tasks, not reasons to choose the
+deleted side of a merge automatically.
 Preserve or explicitly replace those user-visible contracts and test the
 result through CI before moving development to `main`. No branch was merged
 or rewritten during this assessment.

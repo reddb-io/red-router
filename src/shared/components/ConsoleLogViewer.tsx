@@ -10,8 +10,10 @@ import { useLocale, useTranslations } from "next-intl";
  * Supports level filtering, text search, auto-scroll, and copy-to-clipboard.
  */
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { copyToClipboard } from "@/shared/utils/clipboard";
+import { bucketLogActivity, LOG_ACTIVITY_MINUTE_MS } from "@/shared/utils/logActivity";
+import ConsoleLogActivity from "@/shared/components/ConsoleLogActivity";
 
 interface LogEntry {
   timestamp: string;
@@ -57,6 +59,12 @@ export default function ConsoleLogViewer() {
   const [autoScroll, setAutoScroll] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
+  const [selectedMinute, setSelectedMinute] = useState<number | null>(null);
+  const [now, setNow] = useState(0);
+  const [isFullScreen, setIsFullScreen] = useState(false);
+  const [fullScreenError, setFullScreenError] = useState(false);
+  const frameRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const copyFeedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -96,6 +104,54 @@ export default function ConsoleLogViewer() {
     },
     []
   );
+
+  useEffect(() => {
+    const initial = setTimeout(() => setNow(Date.now()), 0);
+    const timer = setInterval(() => setNow(Date.now()), 10_000);
+    return () => {
+      clearTimeout(initial);
+      clearInterval(timer);
+    };
+  }, []);
+
+  useEffect(() => {
+    const sync = () => setIsFullScreen(document.fullscreenElement === frameRef.current);
+    document.addEventListener("fullscreenchange", sync);
+    return () => document.removeEventListener("fullscreenchange", sync);
+  }, []);
+
+  const toggleFullScreen = useCallback(async () => {
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen();
+      else if (frameRef.current?.requestFullscreen) await frameRef.current.requestFullscreen();
+      else throw new Error("Fullscreen API unavailable");
+      setFullScreenError(false);
+    } catch {
+      setFullScreenError(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+      const target = event.target;
+      if (!(target instanceof Node) || !frameRef.current?.contains(target)) return;
+      if (
+        target instanceof HTMLElement &&
+        target.closest("input, textarea, select, button, a, [contenteditable]")
+      )
+        return;
+      if (event.key === "/") {
+        event.preventDefault();
+        searchRef.current?.focus();
+      } else if (event.key.toLowerCase() === "f") {
+        event.preventDefault();
+        void toggleFullScreen();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [toggleFullScreen]);
 
   // Auto-scroll to bottom on new logs
   useEffect(() => {
@@ -155,15 +211,29 @@ export default function ConsoleLogViewer() {
   const getCorrelationId = (entry: LogEntry) => stringifyValue(entry.correlationId);
 
   // Apply text search filter
-  const filteredLogs = searchText
-    ? logs.filter((entry) => {
-        const full = JSON.stringify(entry).toLowerCase();
-        return full.includes(searchText.toLowerCase());
-      })
-    : logs;
+  const activityBuckets = useMemo(() => bucketLogActivity(logs, now), [logs, now]);
+  const firstMinute = activityBuckets[0].start;
+  const lastMinute = activityBuckets[activityBuckets.length - 1].start;
+  const activeMinute =
+    selectedMinute !== null && selectedMinute >= firstMinute && selectedMinute <= lastMinute
+      ? selectedMinute
+      : null;
+
+  const filteredLogs = useMemo(() => {
+    const query = searchText.toLowerCase();
+    return logs.filter((entry) => {
+      if (query && !JSON.stringify(entry).toLowerCase().includes(query)) return false;
+      if (activeMinute === null) return true;
+      const timestamp = new Date(entry.timestamp).getTime();
+      return timestamp >= activeMinute && timestamp < activeMinute + LOG_ACTIVITY_MINUTE_MS;
+    });
+  }, [logs, searchText, activeMinute]);
 
   return (
-    <div className="flex flex-col gap-4">
+    <div
+      ref={frameRef}
+      className={`flex flex-col gap-4 ${isFullScreen ? "h-screen min-h-0 bg-[var(--color-bg)] p-3" : ""}`}
+    >
       {/* Toolbar */}
       <div className="flex flex-wrap items-center gap-3 p-4 rounded-xl bg-[var(--color-surface)] border border-[var(--color-border)]">
         {/* Level filter */}
@@ -182,6 +252,7 @@ export default function ConsoleLogViewer() {
 
         {/* Search */}
         <input
+          ref={searchRef}
           type="text"
           placeholder={tv("searchPlaceholder")}
           value={searchText}
@@ -218,6 +289,18 @@ export default function ConsoleLogViewer() {
           </span>
         </button>
 
+        <button
+          type="button"
+          onClick={() => void toggleFullScreen()}
+          aria-label={isFullScreen ? "Exit full screen" : "Full screen"}
+          title={isFullScreen ? "Exit full screen (Esc)" : "Full screen (F)"}
+          className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-[var(--color-text-main)] hover:bg-[var(--color-bg-alt)] focus-visible:outline-2 focus-visible:outline-[var(--color-accent)]"
+        >
+          <span className="material-symbols-outlined text-[16px]" aria-hidden="true">
+            {isFullScreen ? "fullscreen_exit" : "fullscreen"}
+          </span>
+        </button>
+
         {/* Status */}
         <div className="flex items-center gap-2 ml-auto text-xs text-[var(--color-text-muted)]">
           <span className="inline-block w-2 h-2 rounded-full bg-green-500 animate-pulse" />
@@ -245,11 +328,30 @@ export default function ConsoleLogViewer() {
         </div>
       )}
 
+      {fullScreenError && (
+        <p role="alert" className="text-sm text-red-400">
+          Full screen is unavailable in this browser.
+        </p>
+      )}
+
+      {now > 0 ? (
+        <ConsoleLogActivity
+          buckets={activityBuckets}
+          selectedMinute={activeMinute}
+          onSelectMinute={setSelectedMinute}
+          locale={locale}
+          warningLabel={tc("warning")}
+          errorLabel={tc("errors")}
+        />
+      ) : (
+        <div className="h-20 rounded-xl bg-[var(--color-surface)]" aria-hidden="true" />
+      )}
+
       {/* Console output */}
       <div
         ref={scrollRef}
-        className="rounded-xl border border-[var(--color-border)] bg-[#0d1117] overflow-auto font-mono text-xs leading-relaxed"
-        style={{ maxHeight: "calc(100vh - 340px)", minHeight: "400px" }}
+        className={`rounded-xl border border-[var(--color-border)] bg-[#0d1117] overflow-auto font-mono text-xs leading-relaxed ${isFullScreen ? "min-h-0 flex-1" : ""}`}
+        style={isFullScreen ? undefined : { maxHeight: "calc(100vh - 340px)", minHeight: "400px" }}
         role="log"
         aria-label={tv("consoleAria")}
         aria-live="polite"

@@ -138,4 +138,38 @@ describe("ConsoleLogViewer accessibility", () => {
     act(() => root?.unmount());
     expect(vi.getTimerCount()).toBe(0);
   });
+
+  it("filters by an activity minute and clears the filter on a second click", async () => {
+    vi.setSystemTime(new Date("2026-08-26T00:00:30.000Z"));
+    const container = await renderViewer();
+    const minute = container.querySelector<HTMLButtonElement>(
+      '[role="group"][aria-label="Log lines per minute"] button[aria-label$="2 lines"]'
+    );
+
+    expect(minute).not.toBeNull();
+    await act(async () => minute?.click());
+    expect(minute?.getAttribute("aria-pressed")).toBe("true");
+    expect(
+      container.querySelectorAll('button[aria-label="logs.consoleViewer.copyLogEntry"]')
+    ).toHaveLength(2);
+
+    await act(async () => minute?.click());
+    expect(minute?.getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("does not intercept fullscreen shortcuts outside the console", async () => {
+    const container = await renderViewer();
+    const frame = container.firstElementChild as HTMLDivElement;
+    const requestFullscreen = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(frame, "requestFullscreen", { value: requestFullscreen });
+
+    document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "f", bubbles: true }));
+    expect(requestFullscreen).not.toHaveBeenCalled();
+
+    await act(async () => {
+      frame.dispatchEvent(new KeyboardEvent("keydown", { key: "f", bubbles: true }));
+      await Promise.resolve();
+    });
+    expect(requestFullscreen).toHaveBeenCalledOnce();
+  });
 });
