@@ -9,6 +9,7 @@ import {
   REQUIRED_MACHINE_TOKEN_RUNTIME_FILES,
   pickTarball,
   resolveInstalledPackage,
+  packagedCliTokenEnv,
   evaluateBoot,
   pickPort,
   findMissingSqlJsRuntimeFiles,
@@ -56,6 +57,19 @@ test("pack boot resolves the installed RedRouter package and executable from its
     () => resolveInstalledPackage("/prefix", { name: "red-router-app", bin: {} }),
     /server CLI entrypoint/
   );
+});
+
+test("pack boot derives the CLI token from the same isolated DATA_DIR as the server", () => {
+  assert.deepEqual(
+    packagedCliTokenEnv("/pack-boot/data", {
+      DATA_DIR: "/operator/data",
+      OMNIROUTE_CLI_SALT: "custom-salt",
+    }),
+    { DATA_DIR: "/pack-boot/data", OMNIROUTE_CLI_SALT: "custom-salt" }
+  );
+  const src = readFileSync(SCRIPT_PATH, "utf8");
+  assert.ok(src.includes("derivePackagedCliToken(packageRoot, dataDir)"));
+  assert.ok(src.includes("env: packagedCliTokenEnv(dataDir)"));
 });
 
 test("evaluateBoot passes on HTTP 200 + matching version, whatever the health status", () => {
