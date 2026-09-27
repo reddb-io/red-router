@@ -10,7 +10,18 @@ import {
   forwardSystemOne,
   resolveSystemOneTarget,
 } from "@omniroute/open-sse/handlers/systemOneCore.ts";
-import { buildState } from "@omniroute/open-sse/decision/state.ts";
+import { buildState, type JevState } from "@omniroute/open-sse/decision/state.ts";
+import { buildToolQuestions, shortlistTools } from "@omniroute/open-sse/decision/questions.ts";
+import {
+  resolveToolDecision,
+  type ToolDecisionResult,
+} from "@omniroute/open-sse/decision/decide.ts";
+import { isEncryptedTask } from "@omniroute/open-sse/decision/signals.ts";
+import {
+  extractTools,
+  hasPinnedToolChoice,
+  UNSUPPORTED_EXECUTORS,
+} from "@omniroute/open-sse/decision/tools.ts";
 import type { ComplexityTier } from "@omniroute/open-sse/services/autoCombo/complexityRouter.ts";
 import type { JevRoutingConfig } from "@omniroute/open-sse/services/combo/jevConfig.ts";
 import { runWithProxyContext } from "@omniroute/open-sse/utils/proxyFetch.ts";
@@ -21,6 +32,11 @@ import { isConnectionUnavailableToAuxiliaryActivity } from "@/lib/exclusiveLease
 import { saveRequestUsage } from "@/lib/usage/usageHistory";
 
 type JevTier = (typeof JEV_TIERS)[number];
+type JevLog = { info: (...args: unknown[]) => void; warn: (...args: unknown[]) => void };
+type JevEvaluationOptions = {
+  allowedConnections?: string[] | null;
+  apiKeyId?: string | null;
+};
 
 type UsableDecisionCredentials = {
   connectionId: string;
@@ -76,28 +92,18 @@ export function jevTierToMinimum(tier: JevTier): ComplexityTier {
   return "premium";
 }
 
-/**
- * Ask a stored System One connection for a bounded tier classification.
- * This is an optional routing signal: unavailable or inconclusive evaluations
- * return null, preserving the deterministic auto-combo result.
- */
-export async function classifyJevRoutingTier(
-  body: Record<string, unknown>,
+/** The successful upstream evaluation is never repeated because local usage persistence failed. */
+async function askJevFromStoredConnection(
   config: JevRoutingConfig,
-  log: { info: (...args: unknown[]) => void; warn: (...args: unknown[]) => void },
-  options: { allowedConnections?: string[] | null } = {}
-): Promise<ComplexityTier | null> {
-  if (config.mode !== "jev") return null;
+  state: JevState,
+  questions: Record<string, unknown>,
+  log: JevLog,
+  options: JevEvaluationOptions
+): Promise<{ payload: unknown; latencyMs: number } | null> {
   if (Array.isArray(options.allowedConnections) && options.allowedConnections.length === 0)
     return null;
   const target = resolveSystemOneTarget(config.model);
   if (!target) return null;
-  const state = buildState(body, {
-    maxStateChars: JEV_STATE_CHAR_BUDGET,
-    dropSystem: true,
-  });
-  if (!state.request && !state.conversation?.length) return null;
-
   const credentialProviders =
     target.provider === "opencode-zen"
       ? (["opencode-zen", "opencode-go"] as const)
@@ -122,7 +128,6 @@ export async function classifyJevRoutingTier(
         undefined,
         credentialProvider
       );
-      // A disabled assigned proxy must not silently expose the host's direct IP.
       if (
         !proxyInfo?.proxy &&
         hasBlockingProxyAssignment(credentials.connectionId, credentialProvider)
@@ -130,20 +135,12 @@ export async function classifyJevRoutingTier(
         log.warn("JEV", `Assigned proxy unavailable via ${credentialProvider}`);
         continue;
       }
+      const startedAt = Date.now();
       const result = await runWithProxyContext(proxyInfo?.proxy || null, () =>
         forwardSystemOne(
           target,
           typeof token === "string" ? token : null,
-          {
-            state,
-            questions: {
-              tier: {
-                type: "choice",
-                instructions: JEV_DEFAULT_INSTRUCTIONS,
-                criteria: JEV_DEFAULT_CRITERIA,
-              },
-            },
-          },
+          { state, questions },
           { timeoutMs: JEV_TIMEOUT_MS }
         )
       );
@@ -155,26 +152,128 @@ export async function classifyJevRoutingTier(
         continue;
       }
       const payload = await result.response.json().catch(() => null);
-      const tier = readJevTier(payload);
       if (result.usage) {
-        await saveRequestUsage({
-          provider: target.provider,
-          model: target.model,
-          connectionId: credentials.connectionId,
-          endpoint: "/v1/systemone",
-          tokens: result.usage,
-          status: "success",
-        });
+        try {
+          await saveRequestUsage({
+            provider: target.provider,
+            model: target.model,
+            connectionId: credentials.connectionId,
+            apiKeyId: options.apiKeyId ?? null,
+            endpoint: "/v1/systemone",
+            tokens: result.usage,
+            status: "success",
+          });
+        } catch {
+          log.warn("JEV", "Evaluation usage could not be persisted; abstaining without retry");
+          return null;
+        }
       }
-      if (!tier) {
-        log.info("JEV", "Evaluation inconclusive; retaining deterministic routing");
-        return null;
-      }
-      log.info("JEV", `Evaluation tier=${tier} provider=${target.provider}`);
-      return jevTierToMinimum(tier);
+      return { payload, latencyMs: Date.now() - startedAt };
     } catch {
       log.warn("JEV", `Evaluation unavailable via ${credentialProvider}`);
     }
   }
   return null;
+}
+
+/**
+ * Ask a stored System One connection for a bounded tier classification.
+ * This is an optional routing signal: unavailable or inconclusive evaluations
+ * return null, preserving the deterministic auto-combo result.
+ */
+export async function classifyJevRoutingTier(
+  body: Record<string, unknown>,
+  config: JevRoutingConfig,
+  log: JevLog,
+  options: JevEvaluationOptions = {}
+): Promise<ComplexityTier | null> {
+  if (config.mode !== "jev") return null;
+  const state = buildState(body, {
+    maxStateChars: JEV_STATE_CHAR_BUDGET,
+    dropSystem: true,
+  });
+  if (!state.request && !state.conversation?.length) return null;
+  const result = await askJevFromStoredConnection(
+    config,
+    state,
+    {
+      tier: {
+        type: "choice",
+        instructions: JEV_DEFAULT_INSTRUCTIONS,
+        criteria: JEV_DEFAULT_CRITERIA,
+      },
+    },
+    log,
+    options
+  );
+  const tier = readJevTier(result?.payload);
+  if (!tier) {
+    log.info("JEV", "Evaluation inconclusive; retaining deterministic routing");
+    return null;
+  }
+  log.info("JEV", `Evaluation tier=${tier}`);
+  return jevTierToMinimum(tier);
+}
+
+/** Optional tool choice for a combo turn; every inconclusive answer leaves the body untouched. */
+export async function decideJevTool(
+  body: Record<string, unknown>,
+  format: string,
+  provider: string,
+  config: JevRoutingConfig,
+  log: JevLog,
+  options: JevEvaluationOptions = {}
+): Promise<(ToolDecisionResult & { latencyMs?: number }) | null> {
+  if (config.mode !== "jev" || config.toolMode === "off") return null;
+  if (UNSUPPORTED_EXECUTORS.has(provider) || hasPinnedToolChoice(body, format)) return null;
+  if (isEncryptedTask(body)) return null;
+  const tools = extractTools(body, format);
+  if (tools.length === 0) return null;
+  const kept = shortlistTools(tools, body);
+  if (kept.length === 0) return null;
+  const state = buildState(body, { maxStateChars: 6000 });
+  if (!state.request && !state.conversation?.length) return null;
+  const { questions } = buildToolQuestions(kept);
+  const result = await askJevFromStoredConnection(config, state, questions, log, options);
+  if (!result?.payload || typeof result.payload !== "object") return null;
+  const answers = (result.payload as { answers?: unknown }).answers;
+  if (!answers || typeof answers !== "object" || Array.isArray(answers)) return null;
+  const thinking = body.thinking;
+  const extendedThinking =
+    thinking !== null &&
+    typeof thinking === "object" &&
+    typeof (thinking as { type?: unknown }).type === "string" &&
+    (thinking as { type: string }).type !== "disabled";
+  const verdict = resolveToolDecision({
+    answers: answers as Record<string, unknown>,
+    tools: kept.map((tool) => tool.name),
+    allowed: config.toolMode,
+    extendedThinking,
+  });
+  return { ...verdict, latencyMs: result.latencyMs };
+}
+
+/** One paid tool evaluation at most per target dispatch, even when chat retries upstream. */
+export function createJevToolDecision(
+  config: JevRoutingConfig,
+  allowed: boolean,
+  log: JevLog,
+  options: JevEvaluationOptions = {}
+) {
+  if (!allowed || config.mode !== "jev" || config.toolMode === "off") return null;
+  let attempted = false;
+  return async ({
+    body,
+    format,
+    provider,
+  }: {
+    body: Record<string, unknown>;
+    format: string;
+    provider: string;
+    model: string;
+  }) => {
+    if (attempted) return null;
+    attempted = true;
+    return decideJevTool(body, format, provider, config, log, options);
+  };
 }

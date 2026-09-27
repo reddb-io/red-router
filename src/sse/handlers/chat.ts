@@ -50,6 +50,8 @@ import {
   parseJevRoutingConfig,
   restrictJevConnections,
 } from "@omniroute/open-sse/services/combo/jevConfig.ts";
+import type { JevRoutingConfig } from "@omniroute/open-sse/services/combo/jevConfig.ts";
+import { createJevToolDecision } from "@/sse/services/jevRouting";
 import { comboPinAllowlist } from "@/lib/combos/steps.ts";
 import { injectHandoffIntoBody } from "@omniroute/open-sse/services/contextHandoff.ts";
 import { runWithTransientBackendRetry } from "@omniroute/open-sse/services/transientBackendRetry.ts";
@@ -1227,6 +1229,11 @@ async function handleChatImplementation(
             reasoningDecision,
             reasoningIntent,
             reasoningRequestTags: requestRoutingTags.tags,
+            jevToolDecision: {
+              config: jevRoutingConfig,
+              allowed: decisionModelAllowed,
+              allowedConnections: decisionAllowedConnections,
+            },
             managedLease,
             videoBridgeLog,
             // #7360 follow-up: without this, a target dispatch abandoned by
@@ -1445,6 +1452,11 @@ async function handleSingleModelChat(
     reasoningDecision?: ReasoningRuleDecision | null;
     reasoningIntent?: ExtractedReasoningIntent | null;
     reasoningRequestTags?: string[];
+    jevToolDecision?: {
+      config: JevRoutingConfig;
+      allowed: boolean;
+      allowedConnections: string[] | null;
+    };
     reasoningTransportFallback?: "skip" | "drop";
     managedLease?: ManagedLeaseDispatchContext | null;
     /** #12150 P1b: video-bridge log/Memory shadow — undefined on every non-video request. */
@@ -1461,6 +1473,13 @@ async function handleSingleModelChat(
   comboStrategy: string | null = null,
   isCombo: boolean = false
 ): Promise<Response> {
+  const jevToolDecision = isCombo ? runtimeOptions.jevToolDecision : undefined;
+  const decideTool = jevToolDecision
+    ? createJevToolDecision(jevToolDecision.config, jevToolDecision.allowed, log, {
+        allowedConnections: jevToolDecision.allowedConnections,
+        apiKeyId: apiKeyInfo?.id ?? null,
+      })
+    : null;
   // 1. Resolve model → provider/model
   const resolved = await resolveModelOrError(
     modelStr,
@@ -2051,6 +2070,7 @@ async function handleSingleModelChat(
             videoBridgeLog: runtimeOptions.videoBridgeLog,
             fallbackAttempts: runtimeOptions.fallbackAttempts,
             forcedConnectionId: hasForcedConnection ? forcedConnectionId : null, // #14116
+            decideTool,
           },
           runtimeOptions
         );

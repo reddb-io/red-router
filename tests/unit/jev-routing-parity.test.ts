@@ -16,11 +16,15 @@ import {
 } from "../../open-sse/services/combo/jevConfig.ts";
 import {
   classifyJevRoutingTier,
+  createJevToolDecision,
+  decideJevTool,
   hasUsableDecisionConnection,
   isDecisionConnectionAllowed,
   jevTierToMinimum,
   readJevTier,
 } from "../../src/sse/services/jevRouting.ts";
+import { applyToolDecision } from "../../open-sse/handlers/chatCore/toolDecision.ts";
+import { FORMATS } from "../../open-sse/translator/formats.ts";
 import { readSystemOneJson } from "../../src/sse/handlers/systemOne.ts";
 import { comboRuntimeConfigSchema } from "../../src/shared/validation/schemas/combo.ts";
 
@@ -28,16 +32,21 @@ test("JEV routing remains off unless explicitly configured", () => {
   assert.deepEqual(parseJevRoutingConfig({ config: {} }), {
     mode: "off",
     model: "typesafe-ai/jev-latest",
+    toolMode: "off",
   });
   assert.deepEqual(
     parseJevRoutingConfig({
       config: { auto: { decision: { mode: "jev", model: "opencode-zen/jev-1.13-free" } } },
     }),
-    { mode: "jev", model: "opencode-zen/jev-1.13-free" }
+    { mode: "jev", model: "opencode-zen/jev-1.13-free", toolMode: "off" }
   );
   assert.equal(
     parseJevRoutingConfig({ autoConfig: { decision: { mode: "unknown" } } }).mode,
     "off"
+  );
+  assert.equal(
+    parseJevRoutingConfig({ config: { decision: { mode: "jev", toolMode: "hint" } } }).toolMode,
+    "hint"
   );
 });
 
@@ -54,6 +63,10 @@ test("combo writes bound the decision model and reject unsupported JEV modes", (
   );
   assert.equal(
     comboRuntimeConfigSchema.safeParse({ decision: { mode: "jev", model: "" } }).success,
+    false
+  );
+  assert.equal(
+    comboRuntimeConfigSchema.safeParse({ decision: { mode: "jev", toolMode: "unsafe" } }).success,
     false
   );
   assert.equal(
@@ -106,11 +119,60 @@ test("JEV abstains before credential lookup when the caller has no eligible conn
   const log = { info() {}, warn() {} };
   const result = await classifyJevRoutingTier(
     { messages: [{ role: "user", content: "hello" }] },
-    { mode: "jev", model: "typesafe-ai/jev-latest" },
+    { mode: "jev", model: "typesafe-ai/jev-latest", toolMode: "off" },
     log,
     { allowedConnections: [] }
   );
   assert.equal(result, null);
+});
+
+test("JEV tool decision stays opt-in and preserves explicit client choices", async () => {
+  const log = { info() {}, warn() {} };
+  const config = {
+    mode: "jev" as const,
+    model: "typesafe-ai/jev-latest",
+    toolMode: "forced" as const,
+  };
+  assert.equal(createJevToolDecision(config, false, log), null);
+  assert.equal(createJevToolDecision({ ...config, toolMode: "off" }, true, log), null);
+  const pinned = {
+    messages: [{ role: "user", content: "Use the search tool" }],
+    tools: [{ type: "function", function: { name: "search" } }],
+    tool_choice: "none",
+  };
+  assert.equal(
+    await decideJevTool(pinned, FORMATS.OPENAI, "openai", config, log, {
+      allowedConnections: [],
+    }),
+    null
+  );
+  assert.equal(pinned.tool_choice, "none");
+});
+
+test("JEV chat callback abstains without eligible connections and runs only once", async () => {
+  const log = { info() {}, warn() {} };
+  const callback = createJevToolDecision(
+    { mode: "jev", model: "typesafe-ai/jev-latest", toolMode: "forced" },
+    true,
+    log,
+    { allowedConnections: [] }
+  );
+  assert.ok(callback);
+  const body = {
+    messages: [{ role: "user", content: "Search" }],
+    tools: [{ type: "function", function: { name: "search" } }],
+  };
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const applied = await applyToolDecision(body, {
+      decideTool: callback,
+      format: FORMATS.OPENAI,
+      provider: "openai",
+      model: "test-model",
+    });
+    assert.equal(applied.toolDecision, null);
+    assert.equal(applied.logLine, null);
+  }
+  assert.equal("tool_choice" in body, false);
 });
 
 test("JEV model policy abstains on denial or lookup failure", async () => {

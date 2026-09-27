@@ -472,6 +472,7 @@ export async function executeChatWithBreaker({
   videoBridgeLog = undefined,
   fallbackAttempts = undefined,
   forcedConnectionId = null,
+  decideTool = null,
 }: ExecuteChatWithBreakerOptions): Promise<ExecuteChatWithBreakerResult> {
   let tlsFingerprintUsed = false;
   const normalizedTrafficType: TrafficType =
@@ -535,6 +536,7 @@ export async function executeChatWithBreaker({
             videoBridgeLog,
             fallbackAttempts,
             forcedConnectionId,
+            decideTool,
             skipResourcePressureGuard: true,
             onCredentialsRefreshed: async (newCreds: any) => {
               await updateProviderCredentials(credentials.connectionId, {
