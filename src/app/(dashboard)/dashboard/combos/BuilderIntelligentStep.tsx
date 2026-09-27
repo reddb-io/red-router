@@ -1,0 +1,579 @@
+"use client";
+
+import { useMemo, useState } from "react";
+import Card from "@/shared/components/Card";
+import {
+  DEFAULT_INTELLIGENT_WEIGHTS,
+  applyIntelligentRoutingConfigPatch,
+  FACTOR_LABELS,
+  MODE_PACK_OPTIONS,
+  ROUTER_STRATEGY_OPTIONS,
+  normalizeIntelligentRoutingConfig,
+} from "@/lib/combos/intelligentRouting";
+import { AI_PROVIDERS } from "@/shared/constants/providers";
+import { compareTr } from "@/shared/utils/turkishText";
+
+function getI18nOrFallback(
+  t: any,
+  key: string,
+  fallback: string,
+  values?: Record<string, unknown>
+) {
+  try {
+    if (typeof t?.has === "function" && t.has(key)) return t(key, values);
+  } catch {
+    // A registered message can require an ICU variable (e.g. {percent}) that
+    // this call site doesn't know about yet -- fall back rather than crash
+    // the whole builder step's render.
+  }
+  return fallback;
+}
+
+function toProviderOptions(activeProviders: any[] = [], candidatePool: string[] = []) {
+  const uniqueProviders = new Map<string, { id: string; label: string; connectionCount: number }>();
+
+  activeProviders.forEach((provider) => {
+    const providerId =
+      typeof provider?.providerId === "string" && provider.providerId.trim().length > 0
+        ? provider.providerId
+        : typeof provider?.provider === "string" && provider.provider.trim().length > 0
+          ? provider.provider
+          : typeof provider?.id === "string" && provider.id.trim().length > 0
+            ? provider.id
+            : null;
+
+    if (!providerId) return;
+
+    const currentEntry = uniqueProviders.get(providerId);
+    const fallbackLabel =
+      typeof provider?.displayName === "string" && provider.displayName.trim().length > 0
+        ? provider.displayName
+        : typeof provider?.providerName === "string" && provider.providerName.trim().length > 0
+          ? provider.providerName
+          : (AI_PROVIDERS as Record<string, any>)[providerId]?.name || providerId;
+    const connectionCount =
+      typeof provider?.activeConnectionCount === "number"
+        ? provider.activeConnectionCount
+        : typeof provider?.connectionCount === "number"
+          ? provider.connectionCount
+          : 1;
+
+    uniqueProviders.set(providerId, {
+      id: providerId,
+      label: currentEntry?.label || fallbackLabel,
+      connectionCount: (currentEntry?.connectionCount || 0) + connectionCount,
+    });
+  });
+
+  candidatePool.forEach((poolId) => {
+    if (!uniqueProviders.has(poolId)) {
+      uniqueProviders.set(poolId, {
+        id: poolId,
+        label: `${poolId} (Offline/Deleted)`,
+        connectionCount: 0,
+      });
+    }
+  });
+
+  return [...uniqueProviders.values()].sort((a, b) => compareTr(a.label, b.label));
+}
+
+export default function BuilderIntelligentStep({
+  t,
+  config,
+  onChange,
+  activeProviders,
+}: {
+  t: any;
+  config: Record<string, unknown>;
+  onChange: (nextConfig: Record<string, unknown>) => void;
+  activeProviders: any[];
+}) {
+  const normalizedConfig = normalizeIntelligentRoutingConfig(config);
+  const decision =
+    config.decision && typeof config.decision === "object" && !Array.isArray(config.decision)
+      ? (config.decision as Record<string, unknown>)
+      : {};
+  const decisionBriefs =
+    decision.briefs && typeof decision.briefs === "object" && !Array.isArray(decision.briefs)
+      ? Object.fromEntries(
+          Object.entries(decision.briefs).filter(
+            ([key, value]) => key.length > 0 && typeof value === "string"
+          )
+        )
+      : {};
+  const [briefModel, setBriefModel] = useState("");
+  const [briefDescription, setBriefDescription] = useState("");
+  const isSlaAwareStrategy = ["sla-aware", "sla"].includes(normalizedConfig.routerStrategy);
+  const providerOptions = useMemo(
+    () => toProviderOptions(activeProviders, normalizedConfig.candidatePool),
+    [activeProviders, normalizedConfig.candidatePool]
+  );
+
+  const updateConfig = (patch: Record<string, unknown>) => {
+    onChange(applyIntelligentRoutingConfigPatch(config, patch));
+  };
+
+  const updateDecision = (patch: Record<string, unknown>) => {
+    updateConfig({ decision: { ...decision, ...patch } });
+  };
+
+  const addModelBrief = () => {
+    const model = briefModel.trim();
+    const description = briefDescription.trim();
+    if (
+      !model ||
+      !description ||
+      (Object.keys(decisionBriefs).length >= 64 && !decisionBriefs[model])
+    )
+      return;
+    updateDecision({ briefs: { ...decisionBriefs, [model]: description } });
+    setBriefModel("");
+    setBriefDescription("");
+  };
+
+  const removeModelBrief = (model: string) => {
+    const nextBriefs = { ...decisionBriefs };
+    delete nextBriefs[model];
+    updateDecision({ briefs: nextBriefs });
+  };
+
+  const toggleCandidateProvider = (providerId: string) => {
+    const nextCandidatePool = normalizedConfig.candidatePool.includes(providerId)
+      ? normalizedConfig.candidatePool.filter((entry) => entry !== providerId)
+      : [...normalizedConfig.candidatePool, providerId];
+
+    updateConfig({ candidatePool: nextCandidatePool });
+  };
+
+  return (
+    <div className="flex flex-col gap-3">
+      <Card.Section>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-semibold text-text-main">
+              {getI18nOrFallback(t, "builderIntelligentTitle", "Intelligent Routing Configuration")}
+            </h3>
+            <p className="text-xs text-text-muted mt-1">
+              {getI18nOrFallback(
+                t,
+                "builderIntelligentDesc",
+                "Configure the multi-factor scoring engine for this auto-routing combo."
+              )}
+            </p>
+          </div>
+          <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-primary">
+            <span className="material-symbols-outlined text-[12px]">auto_awesome</span>
+            Intelligent
+          </span>
+        </div>
+      </Card.Section>
+
+      <Card.Section>
+        <h3 className="text-xs font-semibold text-text-main">JEV model briefs</h3>
+        <p className="text-[11px] text-text-muted mt-1">
+          Describe what an unfamiliar model is best for. Use its full provider/model ID; JEV
+          abstains if any candidate lacks a useful description.
+        </p>
+        <div className="grid grid-cols-1 md:grid-cols-[1fr_2fr_auto] gap-2 mt-3 items-end">
+          <label className="text-xs text-text-main">
+            Model ID
+            <input
+              aria-label="JEV brief model ID"
+              type="text"
+              maxLength={200}
+              value={briefModel}
+              onChange={(event) => setBriefModel(event.target.value)}
+              placeholder="provider/model"
+              className="mt-1 w-full text-xs py-2 px-2 rounded border border-black/10 dark:border-white/10 bg-transparent"
+            />
+          </label>
+          <label className="text-xs text-text-main">
+            Best-use description
+            <input
+              aria-label="JEV brief description"
+              type="text"
+              maxLength={600}
+              value={briefDescription}
+              onChange={(event) => setBriefDescription(event.target.value)}
+              placeholder="Use for..."
+              className="mt-1 w-full text-xs py-2 px-2 rounded border border-black/10 dark:border-white/10 bg-transparent"
+            />
+          </label>
+          <button
+            type="button"
+            onClick={addModelBrief}
+            disabled={
+              !briefModel.trim() ||
+              !briefDescription.trim() ||
+              (Object.keys(decisionBriefs).length >= 64 && !decisionBriefs[briefModel.trim()])
+            }
+            className="text-xs py-2 px-3 rounded border border-primary text-primary disabled:opacity-50"
+          >
+            Add brief
+          </button>
+        </div>
+        {Object.entries(decisionBriefs).map(([model, description]) => (
+          <div key={model} className="flex items-start justify-between gap-2 mt-2 text-xs">
+            <div className="min-w-0">
+              <span className="font-medium text-text-main break-all">{model}</span>
+              <p className="text-text-muted break-words">{description}</p>
+            </div>
+            <button
+              type="button"
+              aria-label={`Remove JEV brief for ${model}`}
+              onClick={() => removeModelBrief(model)}
+              className="shrink-0 text-text-muted hover:text-text-main"
+            >
+              Remove
+            </button>
+          </div>
+        ))}
+      </Card.Section>
+
+      <Card.Section>
+        <div>
+          <h3 className="text-xs font-semibold text-text-main">System One decisions</h3>
+          <p className="text-[11px] text-text-muted mt-1">
+            Optional evaluation through a configured provider connection. If unavailable or
+            inconclusive, normal routing remains in control. Evaluation may incur model usage.
+          </p>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
+          <label className="text-xs text-text-main">
+            Evaluation
+            <select
+              aria-label="System One evaluation"
+              value={decision.mode === "jev" ? "jev" : "off"}
+              onChange={(event) => updateDecision({ mode: event.target.value })}
+              className="mt-1 w-full text-xs py-2 px-2 rounded border border-black/10 dark:border-white/10 bg-transparent"
+            >
+              <option value="off">Off</option>
+              <option value="jev">JEV</option>
+            </select>
+          </label>
+          <label className="text-xs text-text-main">
+            Evaluation model
+            <input
+              aria-label="System One model"
+              type="text"
+              maxLength={200}
+              value={typeof decision.model === "string" ? decision.model : "typesafe-ai/jev-latest"}
+              onChange={(event) => updateDecision({ model: event.target.value })}
+              className="mt-1 w-full text-xs py-2 px-2 rounded border border-black/10 dark:border-white/10 bg-transparent"
+            />
+          </label>
+          <label className="text-xs text-text-main">
+            Model choice
+            <select
+              aria-label="System One model choice"
+              value={decision.modelMode === "jev" ? "jev" : "off"}
+              onChange={(event) => updateDecision({ modelMode: event.target.value })}
+              className="mt-1 w-full text-xs py-2 px-2 rounded border border-black/10 dark:border-white/10 bg-transparent"
+            >
+              <option value="off">Keep deterministic selection</option>
+              <option value="jev">Let JEV choose from routable models</option>
+            </select>
+          </label>
+          <label className="text-xs text-text-main">
+            Tool choice
+            <select
+              aria-label="System One tool choice"
+              value={
+                decision.toolMode === "hint" ||
+                decision.toolMode === "none" ||
+                decision.toolMode === "forced"
+                  ? decision.toolMode
+                  : "off"
+              }
+              onChange={(event) => updateDecision({ toolMode: event.target.value })}
+              className="mt-1 w-full text-xs py-2 px-2 rounded border border-black/10 dark:border-white/10 bg-transparent"
+            >
+              <option value="off">Off</option>
+              <option value="hint">Hint only</option>
+              <option value="none">Allow skipping tools</option>
+              <option value="forced">Allow forcing a tool</option>
+            </select>
+          </label>
+        </div>
+      </Card.Section>
+
+      <Card.Section>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-xs font-semibold text-text-main">
+              {getI18nOrFallback(t, "candidatePoolLabel", "Candidate Pool")}
+            </p>
+            <p className="text-[11px] text-text-muted mt-1">
+              {getI18nOrFallback(
+                t,
+                "candidatePoolHint",
+                "Select which providers this engine should evaluate. Leave empty to use all active providers."
+              )}
+            </p>
+          </div>
+          <span className="text-[10px] text-text-muted">
+            {normalizedConfig.candidatePool.length > 0
+              ? `${normalizedConfig.candidatePool.length} selected`
+              : "All active providers"}
+          </span>
+        </div>
+
+        <div className="mt-3 flex flex-wrap gap-2">
+          {providerOptions.length === 0 && (
+            <span className="text-[11px] text-text-muted">
+              {getI18nOrFallback(t, "candidatePoolEmpty", "No active providers available yet.")}
+            </span>
+          )}
+
+          {providerOptions.map((provider) => {
+            const isSelected = normalizedConfig.candidatePool.includes(provider.id);
+            return (
+              <button
+                key={provider.id}
+                type="button"
+                onClick={() => toggleCandidateProvider(provider.id)}
+                className={`rounded-full border px-3 py-1.5 text-xs transition-colors ${
+                  isSelected
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-black/10 dark:border-white/10 text-text-main hover:border-primary/40 hover:bg-primary/5"
+                }`}
+              >
+                {provider.label}
+                <span className="ml-1 text-[10px] text-text-muted">
+                  {provider.connectionCount} acct
+                  {provider.connectionCount === 1 ? "" : "s"}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </Card.Section>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <Card.Section>
+          <label className="text-xs font-semibold text-text-main block mb-2">
+            {getI18nOrFallback(t, "modePackLabel", "Mode Pack")}
+          </label>
+          <select
+            value={normalizedConfig.modePack}
+            onChange={(event) => updateConfig({ modePack: event.target.value })}
+            className="w-full text-xs py-2 px-2 rounded border border-black/10 dark:border-white/10 bg-transparent focus:border-primary focus:outline-none"
+          >
+            {MODE_PACK_OPTIONS.map((modePack) => (
+              <option key={modePack.id} value={modePack.id}>
+                {getI18nOrFallback(
+                  t,
+                  `modePack${modePack.id[0].toUpperCase()}${modePack.id.slice(1)}`,
+                  modePack.label
+                )}
+              </option>
+            ))}
+          </select>
+        </Card.Section>
+
+        <Card.Section>
+          <label className="text-xs font-semibold text-text-main block mb-2">
+            {getI18nOrFallback(t, "routerStrategyLabel", "Router Strategy")}
+          </label>
+          <select
+            value={normalizedConfig.routerStrategy}
+            onChange={(event) => updateConfig({ routerStrategy: event.target.value })}
+            className="w-full text-xs py-2 px-2 rounded border border-black/10 dark:border-white/10 bg-transparent focus:border-primary focus:outline-none"
+          >
+            {ROUTER_STRATEGY_OPTIONS.map((strategy) => (
+              <option key={strategy.id} value={strategy.id}>
+                {strategy.id === "rules"
+                  ? getI18nOrFallback(t, "strategyRules", strategy.label)
+                  : strategy.label}
+              </option>
+            ))}
+          </select>
+        </Card.Section>
+      </div>
+
+      {isSlaAwareStrategy && (
+        <Card.Section>
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-xs font-semibold text-text-main">
+                {getI18nOrFallback(t, "slaRoutingTitle", "SLA targets")}
+              </p>
+              <p className="text-[11px] text-text-muted mt-1">
+                {getI18nOrFallback(
+                  t,
+                  "slaRoutingHint",
+                  "Prefer providers that satisfy p95 latency, error-rate and optional cost targets."
+                )}
+              </p>
+            </div>
+            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-600 dark:text-emerald-300">
+              <span className="material-symbols-outlined text-[12px]">verified</span>
+              SLA
+            </span>
+          </div>
+
+          <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3">
+            <label className="text-xs font-semibold text-text-main block">
+              {getI18nOrFallback(t, "slaTargetP95Label", "Target p95 latency (ms)")}
+              <input
+                type="number"
+                min="1"
+                step="100"
+                value={normalizedConfig.slaTargetP95Ms ?? ""}
+                placeholder="2000"
+                onChange={(event) =>
+                  updateConfig({
+                    slaTargetP95Ms: event.target.value ? Number(event.target.value) : undefined,
+                  })
+                }
+                className="mt-2 w-full text-xs py-2 px-2 rounded border border-black/10 dark:border-white/10 bg-transparent focus:border-primary focus:outline-none"
+              />
+            </label>
+
+            <label className="text-xs font-semibold text-text-main block">
+              {getI18nOrFallback(t, "slaMaxErrorRateLabel", "Max error rate")}
+              <input
+                type="number"
+                min="0"
+                max="1"
+                step="0.01"
+                value={normalizedConfig.slaMaxErrorRate ?? ""}
+                placeholder="0.05"
+                onChange={(event) =>
+                  updateConfig({
+                    slaMaxErrorRate: event.target.value ? Number(event.target.value) : undefined,
+                  })
+                }
+                className="mt-2 w-full text-xs py-2 px-2 rounded border border-black/10 dark:border-white/10 bg-transparent focus:border-primary focus:outline-none"
+              />
+            </label>
+
+            <label className="text-xs font-semibold text-text-main block">
+              {getI18nOrFallback(t, "slaMaxCostLabel", "Max cost ($ / 1M tokens)")}
+              <input
+                type="number"
+                min="0"
+                step="0.001"
+                value={normalizedConfig.slaMaxCostPer1MTokens ?? ""}
+                placeholder={getI18nOrFallback(t, "slaMaxCostPlaceholder", "No limit")}
+                onChange={(event) =>
+                  updateConfig({
+                    slaMaxCostPer1MTokens: event.target.value
+                      ? Number(event.target.value)
+                      : undefined,
+                  })
+                }
+                className="mt-2 w-full text-xs py-2 px-2 rounded border border-black/10 dark:border-white/10 bg-transparent focus:border-primary focus:outline-none"
+              />
+            </label>
+          </div>
+
+          <label className="mt-3 flex items-center gap-2 text-xs text-text-main">
+            <input
+              type="checkbox"
+              checked={normalizedConfig.slaHardConstraints}
+              onChange={(event) => updateConfig({ slaHardConstraints: event.target.checked })}
+              className="accent-primary"
+            />
+            {getI18nOrFallback(
+              t,
+              "slaHardConstraintsLabel",
+              "Prefer strict SLA-compliant candidates before soft scoring."
+            )}
+          </label>
+        </Card.Section>
+      )}
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <Card.Section>
+          <label className="text-xs font-semibold text-text-main block">
+            {getI18nOrFallback(t, "explorationRateLabel", "Exploration Rate")}
+          </label>
+          <input
+            type="range"
+            min="0"
+            max="1"
+            step="0.01"
+            value={normalizedConfig.explorationRate}
+            onChange={(event) => updateConfig({ explorationRate: Number(event.target.value || 0) })}
+            className="mt-3 w-full accent-primary"
+          />
+          <p className="text-[11px] text-text-muted mt-2">
+            {(() => {
+              const percent = Math.round(normalizedConfig.explorationRate * 100);
+              return getI18nOrFallback(
+                t,
+                "explorationRateHint",
+                "{percent}% of requests can explore non-optimal providers.",
+                { percent }
+              ).replace("{percent}", `${percent}`);
+            })()}
+          </p>
+        </Card.Section>
+
+        <Card.Section>
+          <label className="text-xs font-semibold text-text-main block mb-2">
+            {getI18nOrFallback(t, "budgetCapLabel", "Budget Cap (USD / request)")}
+          </label>
+          <input
+            type="number"
+            min="0"
+            step="0.0001"
+            value={normalizedConfig.budgetCap ?? ""}
+            placeholder={getI18nOrFallback(t, "budgetCapPlaceholder", "No limit")}
+            onChange={(event) =>
+              updateConfig({
+                budgetCap: event.target.value ? Number(event.target.value) : undefined,
+              })
+            }
+            className="w-full text-xs py-2 px-2 rounded border border-black/10 dark:border-white/10 bg-transparent focus:border-primary focus:outline-none"
+          />
+        </Card.Section>
+      </div>
+
+      <details className="rounded-lg border border-black/8 dark:border-white/8 bg-black/2 dark:bg-white/2 p-3">
+        <summary className="cursor-pointer text-xs font-semibold text-text-main">
+          {getI18nOrFallback(t, "advancedWeightsTitle", "Advanced: Scoring Weights")}
+        </summary>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
+          {Object.entries(normalizedConfig.weights).map(([weightKey, weightValue]) => (
+            <div
+              key={weightKey}
+              className="rounded-lg border border-black/6 dark:border-white/6 p-3"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <label className="text-[11px] font-medium text-text-main">
+                  {getI18nOrFallback(
+                    t,
+                    `weight${weightKey[0].toUpperCase()}${weightKey.slice(1)}`,
+                    FACTOR_LABELS[weightKey as keyof typeof DEFAULT_INTELLIGENT_WEIGHTS]
+                  )}
+                </label>
+                <span className="text-[11px] text-text-muted">
+                  {Math.round(Number(weightValue) * 100)}%
+                </span>
+              </div>
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.05"
+                value={weightValue}
+                onChange={(event) =>
+                  updateConfig({
+                    weights: {
+                      ...normalizedConfig.weights,
+                      [weightKey]: Number(event.target.value || 0),
+                    },
+                  })
+                }
+                className="mt-3 w-full accent-primary"
+              />
+            </div>
+          ))}
+        </div>
+      </details>
+    </div>
+  );
+}

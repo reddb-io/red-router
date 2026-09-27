@@ -1,0 +1,18 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "incremental": false,
+    "strictNullChecks": true
+  },
+  "include": [],
+  "files": [
+    "../../open-sse/executors/qoder-cn.ts",
+    "../../tests/unit/qoder-cn-executor.test.ts",
+    "../../tests/unit/qoder-cn-attachments.test.ts",
+    "../../tests/unit/qoder-cn-request.test.ts",
+    "../../tests/unit/qoder-cn-quota.test.ts",
+    "../../tests/unit/qoder-cn-validation.test.ts",
+    "../../src/lib/oauth/qoderCnDeviceFlow.ts",
+    "../../tests/unit/qoder-cn-device-route.test.ts"
+  ]
+}

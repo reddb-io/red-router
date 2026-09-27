@@ -1,0 +1,17 @@
+{
+  "$schema": "./i18n-schema.json",
+  "default": "en",
+  "rtl": [],
+  "uiOnly": ["en"],
+  "docsExcluded": ["en"],
+  "locales": [
+    {
+      "code": "en",
+      "label": "EN",
+      "name": "English",
+      "native": "English",
+      "english": "English",
+      "flag": "🇺🇸"
+    }
+  ]
+}

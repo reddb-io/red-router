@@ -1,5 +1,0 @@
-{
-  "name": "app",
-  "audience": "*",
-  "parents": ["base"]
-}

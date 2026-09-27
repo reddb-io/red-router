@@ -1,0 +1,79 @@
+/**
+ * OAuth Provider Registry — Extracted from monolithic providers.js
+ *
+ * Each provider is now defined in its own module under providers/.
+ * This index re-exports the full PROVIDERS map and utility functions.
+ *
+ * Provider modules follow the interface:
+ *   { config, flowType, buildAuthUrl?, exchangeToken?, requestDeviceCode?, pollToken?, postExchange?, mapTokens }
+ *
+ * @module lib/oauth/providers/index
+ */
+
+import { claude } from "./claude";
+import { codex } from "./codex";
+import { antigravity } from "./antigravity";
+import { agy } from "./agy";
+import { qoder } from "./qoder";
+import { qoderCn } from "./qoder-cn";
+import { kimiCoding } from "./kimi-coding";
+import { github } from "./github";
+import { gheCopilot } from "./ghe-copilot";
+import { gitlabDuo } from "./gitlab-duo";
+import { kiro } from "./kiro";
+import { cursor } from "./cursor";
+import { trae } from "./trae";
+import { kilocode } from "./kilocode";
+import { cline } from "./cline";
+import { devinDesktop } from "./devin-desktop";
+import { windsurf } from "./windsurf";
+import { grokCli } from "./grok-cli";
+import { xaiOauth } from "./xai-oauth";
+import { openference } from "./openference";
+import { codebuddyCn } from "./codebuddy-cn";
+import { codebuddyIntl } from "./codebuddy-intl";
+import { zed } from "./zed";
+import { zedHosted } from "./zed-hosted";
+import { museCode } from "./muse-code";
+import { iflow } from "./iflow";
+
+export const PROVIDERS = {
+  claude,
+  codex,
+  antigravity,
+  agy,
+  qoder,
+  "qoder-cn": qoderCn,
+  "kimi-coding": kimiCoding,
+  github,
+  "ghe-copilot": gheCopilot,
+  "gitlab-duo": gitlabDuo,
+  kiro,
+  "amazon-q": kiro,
+  cursor,
+  trae,
+  kilocode,
+  cline,
+  // clinepass reuses the Cline WorkOS OAuth flow 1:1 (same api.cline.bot host, same token
+  // type) — it is a separate catalog entry advertising the cline-pass/* (ClinePass
+  // subscription) models. See registry/clinepass/index.ts.
+  clinepass: cline,
+  "devin-desktop": devinDesktop,
+  windsurf,
+  // Devin CLI shares the same imported token format and upstream credential contract.
+  "devin-cli": devinDesktop,
+  // grok-cli carries BOTH the browser PKCE flow and the paste-token import flow
+  // under this one entry (#7013) — see grok-cli.ts's mapTokens for the dispatch.
+  "grok-cli": grokCli,
+  "xai-oauth": xaiOauth,
+  openference,
+  "codebuddy-cn": codebuddyCn,
+  "codebuddy-intl": codebuddyIntl,
+  // Zed IDE credential bridge — uses keychain import, not standard OAuth
+  zed,
+  "zed-hosted": zedHosted,
+  "muse-code": museCode,
+  iflow,
+};
+
+export default PROVIDERS;
