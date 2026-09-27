@@ -35,6 +35,7 @@ import { codebuddyIntl } from "./codebuddy-intl";
 import { zed } from "./zed";
 import { zedHosted } from "./zed-hosted";
 import { museCode } from "./muse-code";
+import { iflow } from "./iflow";
 
 export const PROVIDERS = {
   claude,
@@ -72,6 +73,7 @@ export const PROVIDERS = {
   zed,
   "zed-hosted": zedHosted,
   "muse-code": museCode,
+  iflow,
 };
 
 export default PROVIDERS;

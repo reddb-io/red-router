@@ -110,6 +110,18 @@ export const QODER_CN_CONFIG = {
   userInfoUrl: "https://openapi.qoder.com.cn/api/v1/userinfo",
 };
 
+// iFlow's public CLI client uses a phone authorization-code flow. The token
+// exchange returns an OAuth token; the separate user-info call yields the API
+// key used for signed inference requests.
+export const IFLOW_CONFIG = {
+  clientId: resolvePublicCred("iflow_id"),
+  clientSecret: resolvePublicCred("iflow_secret"),
+  authorizeUrl: "https://iflow.cn/oauth",
+  tokenUrl: "https://iflow.cn/oauth/token",
+  userInfoUrl: "https://iflow.cn/api/oauth/getUserInfo",
+  extraParams: { loginMethod: "phone", type: "phone" },
+};
+
 // CodeBuddy CN (Tencent — copilot.tencent.com) OAuth Configuration
 // (Custom Device-Auth Flow: POST stateUrl → open authUrl → GET pollUrl?state=).
 // No client_id/secret — the upstream CLI ships none.

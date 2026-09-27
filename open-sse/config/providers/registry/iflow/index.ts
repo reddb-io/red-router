@@ -10,10 +10,8 @@ import { resolvePublicCred, type RegistryEntry } from "../../shared.ts";
  * per Hard Rule #11). A plain API key also works — the executor signs with
  * whichever credential the connection carries.
  *
- * TODO(fork-port): the legacy OAuth flow (authorizeUrl + `loginMethod=phone`
- * extra params + userInfo endpoint) needs a src/lib/oauth/providers/iflow.ts
- * implementation before the dashboard "Sign in" button works; until then
- * connections can be created with an API key / pasted access token.
+ * Dashboard sign-in uses src/lib/oauth/providers/iflow.ts. Connections can
+ * also be created with an API key / pasted access token.
  */
 export const iflowProvider: RegistryEntry = {
   id: "iflow",
