@@ -7,11 +7,10 @@ import { JEV_DEFAULT_BASE, JEV_DEFAULT_MODEL, JEV_ENDPOINT_PATH } from "../../..
  * Ported from the legacy fork (open-sse/providers/registry/typesafe-ai.js @
  * c66f917c, backed by config/systemOne.js). JEV is NOT a chat provider: it is
  * a routing classifier (unstructured state in, typed probabilities out) that
- * Auto-Combo consults before model ordering — see open-sse/decision/jev.ts.
+ * Auto-Combo consults before model ordering — see src/sse/services/jevRouting.ts.
  * It is registered as an API-key connection so the operator's JEV key is
  * first-class; `systemOneConfig` carries the native contract and decision catalog
- * URL that decisionUrlFor() resolves (resolves the TODO(fork-port) note in
- * open-sse/decision/jev.ts).
+ * URL that resolveSystemOneTarget() reads from the provider registry.
  */
 export const typesafe_aiProvider: RegistryEntry = {
   id: "typesafe-ai",

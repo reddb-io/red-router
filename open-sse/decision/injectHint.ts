@@ -11,8 +11,6 @@ import { FORMATS } from "../translator/formats.ts";
 
 type JsonRecord = Record<string, unknown>;
 
-const SEP = "\n\n";
-
 /** One inert token, nothing to break out of the reminder with. */
 const SAFE_NAME = /^[\p{L}\p{N}_.:/-]{1,128}$/u;
 
@@ -42,8 +40,6 @@ export function injectHint(body: unknown, format: string, tool: unknown): boolea
   }
   return false;
 }
-
-export { SEP };
 
 const isGeminiFormat = (format: string): boolean =>
   format === FORMATS.GEMINI ||

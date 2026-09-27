@@ -1,4 +1,4 @@
-// A classification the client already made, sent in HINT_HEADER so routing can use
+// A classification the client already made, sent in a hint header so routing can use
 // it instead of asking the decision model again. Pure and fail-open: anything that
 // does not parse cleanly is dropped whole and routing runs exactly as without it.
 //
@@ -43,9 +43,6 @@ export const HINT_FEEDBACK = ["agrees", "corrects", "rejects", "neutral"];
 
 /** Recorded wherever a routing input came from the hint instead of the decision model. */
 export const HINT_SOURCE = "client_hint";
-
-/** The request header the hint rides on. */
-export const HINT_HEADER = "x-red-router-hint";
 
 /** The request header that opts one request out of the decision engine. */
 export const DECISION_HEADER = "x-red-router-decision";

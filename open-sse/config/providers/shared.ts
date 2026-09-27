@@ -260,9 +260,9 @@ export interface RegistryEntry {
   alternateFormats?: import("./alternateFormats.ts").AlternateFormat[];
   /**
    * JEV "System One" decision-model contract for decision-model providers
-   * (typesafe-ai). Resolved by decisionUrlFor() in open-sse/decision/jev.ts —
-   * the routing classifier reads `systemOneConfig.baseUrl` (plus the
-   * provider's `baseUrl` as URL base when relative), never the chat route.
+   * (typesafe-ai). Resolved by resolveSystemOneTarget() in
+   * open-sse/handlers/systemOneCore.ts — the routing classifier reads
+   * `systemOneConfig.baseUrl`, never the chat route.
    */
   systemOneConfig?: {
     baseUrl: string;

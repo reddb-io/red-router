@@ -377,8 +377,9 @@ connection permitted by the request API key, record reported usage separately, a
 when unavailable or inconclusive. Direct model choice is limited to routable
 candidates under the request cost cap; it does not replace deterministic fallback.
 This is implementation evidence, not a completed credentialed smoke. Reasoning
-autopilot, client-provided hints, decision traces, and the legacy `askJev`
-transport are not wired as a complete runtime. The current CI, model/connection
+autopilot, client-provided hints, and decision traces are not wired as a complete
+runtime. The unused legacy `askJev` transport was removed; live evaluations use
+`forwardSystemOne()` with the stored-connection policy. The current CI, model/connection
 policy edge cases, and live TypeSafe/OpenCode/OpenRouter evaluations still need
 verification before claiming Decisions parity.
 

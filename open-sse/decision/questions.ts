@@ -6,24 +6,21 @@
 // Questions are cheap: they are evaluated in parallel, so one call can ask both
 // "which one" and "does this even need one".
 //
-// Ported 1:1 from the legacy fork (open-sse/decision/questions.js @ c66f917c).
+// Based on the legacy fork (open-sse/decision/questions.js @ c66f917c).
+// The unused two-pass shortlist and reasoning-only builders are not part of
+// this runtime; tool shortlisting is deterministic before the JEV request.
 
-import { NO_TOOL, MAX_TOOLS } from "./decide.ts";
+import { NO_TOOL } from "./decide.ts";
 
 type JsonRecord = Record<string, unknown>;
 
 const MAX_DESCRIPTION_CHARS = 1024;
 /** Description budget per tool question (~12k tokens). */
 const QUESTION_CHAR_BUDGET = 48000;
-/** Kept per shard by the first pass. */
-export const SHORTLIST_PER_SHARD = 3;
-/** A shard's abstention option. */
-export const NONE_OF_THESE = "none_of_these";
-
-export const MODEL_KEY = "model";
+const MODEL_KEY = "model";
 export const DELIBERATION_KEY = "needs_reasoning";
-export const TOOL_KEY = "tool";
-export const NEEDS_TOOL_KEY = "needs_tool";
+const TOOL_KEY = "tool";
+const NEEDS_TOOL_KEY = "needs_tool";
 
 const DELIBERATION_QUESTION = {
   type: "noul",
@@ -76,57 +73,6 @@ export function buildToolQuestions(tools: { name: string; description?: string }
   };
 }
 
-/** First pass over a roster too large for one question: rank wide, then judge a shortlist. */
-export function buildShortlistQuestions(tools: { name: string; description?: string }[]): {
-  questions: JsonRecord;
-  shards: { name: string; description?: string }[][];
-} {
-  const shardCount = Math.ceil(tools.length / MAX_TOOLS);
-  const size = Math.ceil(tools.length / shardCount);
-  const shards = Array.from({ length: shardCount }, (_, i) =>
-    tools.slice(i * size, (i + 1) * size)
-  );
-  const questions: JsonRecord = {};
-  shards.forEach((shard, index) => {
-    questions[`shard:${index}`] = {
-      type: "choice",
-      instructions:
-        "Given the conversation, which of these tools would best advance the user's " +
-        "latest request if the assistant called it next?",
-      criteria: {
-        ...toolCriteria(shard),
-        [NONE_OF_THESE]: "None of the tools in this list fits the next step.",
-      },
-    };
-  });
-  return { questions, shards };
-}
-
-/** The tools that survived the first pass. */
-export function readShortlist(
-  answers: JsonRecord | null | undefined,
-  shards: { name: string; description?: string }[][]
-): { name: string; description?: string }[] {
-  return shards.flatMap((shard, index) => {
-    const answer = answers?.[`shard:${index}`] as JsonRecord | undefined;
-    if (!answer || answer.type !== "choice") return [];
-    const ranked = Object.entries((answer.probabilities as JsonRecord) || {})
-      .filter(([name]) => name !== NONE_OF_THESE)
-      .sort(([, a], [, b]) => Number(b) - Number(a))
-      .slice(0, SHORTLIST_PER_SHARD)
-      .map(([name]) => name);
-    return shard.filter((tool) => ranked.includes(tool.name));
-  });
-}
-
-/**
- * The reasoning depth the next step needs, as ordered levels. The tier each level
- * maps to is decided in code, not by the model: a rate table is arithmetic, and
- * arithmetic is a documented jaggedness weakness of the decision model. Asking a
- * Choice over models with prices in the criteria measured 0.62 against the same
- * state that scores 0.82 here — the model judged the task fine and the price
- * comparison is what it could not do.
- */
 /**
  * Which model should serve this step, and how much deliberation it needs.
  *
@@ -159,11 +105,6 @@ export function buildModelQuestions(
   // supplies that answer itself instead of paying for the question.
   if (deliberation) questions[DELIBERATION_KEY] = DELIBERATION_QUESTION;
   return { questions };
-}
-
-/** Deliberation alone: the reasoning autopilot's question when no model decision ran. */
-export function buildReasoningQuestions(): { questions: JsonRecord } {
-  return { questions: { [DELIBERATION_KEY]: DELIBERATION_QUESTION } };
 }
 
 /** Tools kept for jev when a roster is too big to judge well. */
