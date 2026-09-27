@@ -103,6 +103,24 @@ describe("legacy MCP catalog tools", () => {
     assert.match(content, /"recommendations":\[\]/);
   });
 
+  it("uses the scoped health loader for list, detail and combo results", async () => {
+    const instance: LegacyMcpServer = {
+      ...server(),
+      tools: createLegacyCatalogTools(load, async () => ({
+        "claude/opus": { status: { state: "ok" }, usable: true },
+        "combo/default": { status: { state: "ok" }, usable: true },
+      })),
+    };
+    for (const [name, args] of [
+      ["list_models", {}],
+      ["get_model", { id: "claude/opus" }],
+      ["list_combos", {}],
+    ] as const) {
+      const result = await handleLegacyMcpBody(call(name, args), instance);
+      assert.match(JSON.stringify(result), /"usable":true/);
+    }
+  });
+
   it("ranks only healthy key-visible models and retains price and capability reasons", async () => {
     const catalog: LegacyCatalogLoader = async () => [
       {

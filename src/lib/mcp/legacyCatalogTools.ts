@@ -149,8 +149,12 @@ function totalPrice(price: { input: number | null; output: number | null } | nul
   return price.input + price.output;
 }
 
-function withHealth(model: CatalogModel, health: Record<string, LegacyCatalogHealth>) {
-  const base = summary(model);
+function withHealth(
+  model: CatalogModel,
+  health: Record<string, LegacyCatalogHealth>,
+  detail = false
+) {
+  const base = summary(model, detail);
   const live = health[model.id];
   return { ...base, status: live?.status ?? base.status, usable: live?.usable ?? null };
 }
@@ -198,6 +202,7 @@ export function createLegacyCatalogTools(
       run: async (rawArgs, context) => {
         const args = listArgs.parse(rawArgs);
         const entries = await load(context);
+        const health = loadHealth ? await loadHealth(context, entries) : {};
         const search = args.search?.toLowerCase();
         const found = entries.filter((model) => {
           if (args.include_combos === false && model.owned_by === "combo") return false;
@@ -217,7 +222,7 @@ export function createLegacyCatalogTools(
         return {
           id_format: "catalog",
           total: found.length,
-          models: found.slice(0, limit).map((model) => summary(model)),
+          models: found.slice(0, limit).map((model) => withHealth(model, health)),
           ...(found.length > limit ? { truncated: true } : {}),
         };
       },
@@ -239,7 +244,8 @@ export function createLegacyCatalogTools(
         const entries = await load(context);
         const entry = entries.find((model) => model.id === id);
         if (!entry) throw new LegacyMcpToolError("unknown_model", "Model not found for this key");
-        return { id_format: "catalog", model: summary(entry, true) };
+        const health = loadHealth ? await loadHealth(context, entries) : {};
+        return { id_format: "catalog", model: withHealth(entry, health, true) };
       },
     },
     {
@@ -254,8 +260,10 @@ export function createLegacyCatalogTools(
       argsSchema: comboArgs,
       annotations: readOnly,
       run: async (_rawArgs, context) => {
-        const combos = (await load(context)).filter((model) => model.owned_by === "combo");
-        return { total: combos.length, combos: combos.map((model) => summary(model)) };
+        const entries = await load(context);
+        const health = loadHealth ? await loadHealth(context, entries) : {};
+        const combos = entries.filter((model) => model.owned_by === "combo");
+        return { total: combos.length, combos: combos.map((model) => withHealth(model, health)) };
       },
     },
     {
