@@ -118,3 +118,22 @@ test("unsettled promises fail without holding the request indefinitely", async (
   assert.equal(context.model, "gpt-4o");
   assert.match(getHook("never-settles")?.lastError ?? "", /did not finish/);
 });
+
+test("a foreign thrown Proxy is never inspected by the host", async () => {
+  registerHook(
+    hook(
+      "foreign-proxy",
+      `Object.prototype.toJSON = function () {
+         throw new Proxy({}, {
+           getPrototypeOf() { throw new Error("host inspected foreign proxy"); },
+           getOwnPropertyDescriptor() { throw new Error("host inspected foreign proxy"); }
+         });
+       };
+       return {};`
+    )
+  );
+  const { context } = await runHooks(ctx());
+  assert.equal(context.model, "gpt-4o");
+  assert.match(getHook("foreign-proxy")?.lastError ?? "", /isolated realm/);
+  assert.doesNotMatch(getHook("foreign-proxy")?.lastError ?? "", /host inspected/);
+});

@@ -134,15 +134,6 @@ function readHookOutput(sandbox: object): string | null {
     : null;
 }
 
-function ownStringMessage(err: unknown): string | null {
-  if (err instanceof Error) return err.message;
-  if (typeof err !== "object" || err === null) return null;
-  const descriptor = Object.getOwnPropertyDescriptor(err, "message");
-  return descriptor && "value" in descriptor && typeof descriptor.value === "string"
-    ? descriptor.value
-    : null;
-}
-
 function toHookInput(context: PreRequestHookContext): string {
   return JSON.stringify({
     body: context.body,
@@ -201,8 +192,10 @@ function compileHookCode(code: string, hookName: string): HookMiddleware {
 
     try {
       script.runInContext(vmContext, { timeout: HOOK_EXECUTION_TIMEOUT_MS });
-    } catch (err: unknown) {
-      throw new Error(ownStringMessage(err) ?? `Hook "${hookName}" failed`);
+    } catch {
+      // A foreign Proxy can trap even instanceof or getOwnPropertyDescriptor.
+      // Never inspect a value thrown across the realm boundary on the host.
+      throw new Error(`Hook "${hookName}" timed out or failed in the isolated realm`);
     }
 
     const raw = readHookOutput(sandbox);
