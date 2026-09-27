@@ -19,6 +19,12 @@ export type VirtualWebCatalogModel = {
   maxResults?: number;
 };
 
+/** Apply operator visibility rules to both the transport and its public owner. */
+export function searchVisibilityProviderIds(provider: SearchProviderConfig): string[] {
+  const owner = provider.publicModelId?.split("/")[0];
+  return owner && owner !== provider.id ? [provider.id, owner] : [provider.id];
+}
+
 const SEARCH_PARAMS = [
   "query",
   "max_results",

@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   buildVirtualWebCatalogModels,
   hasConfiguredSearchUrl,
+  searchVisibilityProviderIds,
   type VirtualWebModelKind,
 } from "../../src/app/api/v1/models/catalogVirtualWebModels.ts";
 import type { SearchProviderConfig } from "../../open-sse/config/searchRegistry.ts";
@@ -74,6 +75,18 @@ test("GLM transport advertises the public glm/search ID only when GLM is eligibl
     isEligible: () => false,
   });
   assert.deepEqual(hidden, []);
+});
+
+test("GLM search visibility checks both internal transport and public credential owner", () => {
+  assert.deepEqual(
+    searchVisibilityProviderIds({
+      ...searchProvider,
+      id: "glm-search",
+      publicModelId: "glm/search",
+    }),
+    ["glm-search", "glm"]
+  );
+  assert.deepEqual(searchVisibilityProviderIds(searchProvider), ["exa-search"]);
 });
 
 test("SearXNG needs an operator URL; the catalog localhost is not a live service", () => {

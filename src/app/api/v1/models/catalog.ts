@@ -150,7 +150,11 @@ import { isModelExposureAllowed } from "@/shared/utils/modelExposureList";
 import { isModelDisabledGlobally } from "@/shared/utils/disabledModelsList";
 import { isCodexDiscoveryModelExcluded } from "@/shared/services/codexDiscoveryPolicy";
 import { buildErrorBody } from "@omniroute/open-sse/utils/error";
-import { buildVirtualWebCatalogModels, hasConfiguredSearchUrl } from "./catalogVirtualWebModels";
+import {
+  buildVirtualWebCatalogModels,
+  hasConfiguredSearchUrl,
+  searchVisibilityProviderIds,
+} from "./catalogVirtualWebModels";
 
 // Public API of this module is preserved after the catalog helper extraction:
 // `isVisionModelId` (vision-detection-consistency.test.ts) and
@@ -1700,13 +1704,15 @@ async function buildUnifiedModelsResponseCore(
         searchProviders: Object.values(SEARCH_PROVIDERS),
         fetchProviderIds: WEB_FETCH_PROVIDERS,
         isEligible: (providerId, modelId, kind) => {
-          if (isProviderBlockedByIdOrAlias(providerId, blockedProviders)) return false;
-          if (isModelHiddenBulk(providerId, modelId, null, kind)) return false;
-          if (isModelHiddenBulk(providerId, modelId)) return false;
-          if (shouldHideByExposure(providerId, modelId)) return false;
+          const search = kind === "webSearch" ? SEARCH_PROVIDERS[providerId] : null;
+          const visibilityIds = search ? searchVisibilityProviderIds(search) : [providerId];
+          if (visibilityIds.some((id) => isProviderBlockedByIdOrAlias(id, blockedProviders)))
+            return false;
+          if (visibilityIds.some((id) => isModelHiddenBulk(id, modelId, null, kind))) return false;
+          if (visibilityIds.some((id) => isModelHiddenBulk(id, modelId))) return false;
+          if (visibilityIds.some((id) => shouldHideByExposure(id, modelId))) return false;
 
           if (kind === "webSearch") {
-            const search = SEARCH_PROVIDERS[providerId];
             if (!search) return false;
             if (!hasConfiguredSearchUrl(search, getConnectionsForProvider(providerId)))
               return false;
