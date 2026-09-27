@@ -545,9 +545,21 @@ jobs:
           cache: npm
       - uses: ./.github/actions/npm-ci-retry
       - run: npm run check:node-runtime
-      # No webpack cache is restored here. The dedicated runner builds with
-      # Turbopack; the hosted fallback uses Webpack without a warm cache and
-      # retains build-next-isolated.mjs's default 8 GB V8 heap.
+      # Hosted runners use Webpack. Restore only its compiler cache, not a
+      # previous build artifact: Next still compiles the current commit and all
+      # downstream package/E2E jobs validate that fresh output. The key changes
+      # with the lockfile, build configuration, Node version and commit; the
+      # prefix permits an incremental restore from earlier commits on this PR
+      # or main. The self-hosted Turbopack lane does not pay cache I/O.
+      - name: Restore Webpack compiler cache (hosted runners)
+        if: ${{ !(vars.USE_VPS_RUNNER == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)) }}
+        uses: actions/cache@v6
+        with:
+          path: .build/next/cache/webpack
+          key: next-webpack-${{ runner.os }}-${{ runner.arch }}-${{ env.CI_NODE_VERSION }}-${{ hashFiles('package-lock.json', 'next.config.mjs', 'scripts/build/build-next-isolated.mjs') }}-${{ github.sha }}
+          restore-keys: |
+            next-webpack-${{ runner.os }}-${{ runner.arch }}-${{ env.CI_NODE_VERSION }}-${{ hashFiles('package-lock.json', 'next.config.mjs', 'scripts/build/build-next-isolated.mjs') }}-
+
       #
       # Turbopack production build (Next 16, stable): benchmarked 1.9× faster than the
       # webpack pass (9min0s vs 17min15s on a 32-core box; multi-core Rust vs webpack's
@@ -576,10 +588,10 @@ jobs:
         # an explicit tar avoids the double-nesting issue (.build/next/next/...).
         # Keep standalone/node_modules intact: package/electron jobs consume the
         # Next-traced standalone tree and must not replace it with root node_modules.
+        # gzip -1 prioritizes CPU time; downstream jobs still verify the full
+        # freshly built artifact, and tar extraction remains cross-platform.
         run: |
-          tar -czf "$RUNNER_TEMP/e2e-build.tar.gz" \
-            --exclude='.build/next/cache' \
-            .build/next
+          tar -cf - --exclude='.build/next/cache' .build/next | gzip -1 > "$RUNNER_TEMP/e2e-build.tar.gz"
       - name: Upload Next.js build for downstream jobs
         uses: actions/upload-artifact@v7
         with:
