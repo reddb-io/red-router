@@ -1,6 +1,8 @@
 import { getDbInstance } from "../core";
 
 const NAMESPACE = "api_key_tags";
+const MAX_TAG_LENGTH = 32;
+const MAX_TAGS = 20;
 
 /** Copy caller input before asynchronous bearer generation and reject malformed tags. */
 export function snapshotApiKeyTags(input?: readonly string[]): string[] | undefined {
@@ -8,7 +10,16 @@ export function snapshotApiKeyTags(input?: readonly string[]): string[] | undefi
   if (!Array.isArray(input) || !input.every((tag) => typeof tag === "string")) {
     throw new Error("API key tags must be an array of strings");
   }
-  return [...input];
+  const tags: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of input) {
+    const tag = raw.trim().slice(0, MAX_TAG_LENGTH);
+    if (!tag || seen.has(tag.toLowerCase())) continue;
+    tags.push(tag);
+    seen.add(tag.toLowerCase());
+    if (tags.length >= MAX_TAGS) break;
+  }
+  return tags;
 }
 
 /** The caller owns the SQLite transaction that inserts the bearer key. */
@@ -26,7 +37,7 @@ export function getApiKeyTags(apiKeyId: string): string[] {
   if (!row) return [];
   try {
     const tags: unknown = JSON.parse(row.value);
-    return Array.isArray(tags) && tags.every((tag) => typeof tag === "string") ? tags : [];
+    return snapshotApiKeyTags(tags as string[]) ?? [];
   } catch {
     return [];
   }

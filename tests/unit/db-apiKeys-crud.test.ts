@@ -86,13 +86,23 @@ test("createApiKey commits a standard key and its limits together", async () => 
 
 test("createApiKey stores tags atomically with the bearer key", async () => {
   await resetStorage();
-  const input = ["team-a", "production"];
+  const input = [" team-a ", "TEAM-A", "production"];
   const creating = apiKeys.createApiKey("Tagged Key", "machine-tags", [], { tags: input });
   input.push("after-create");
   const created = await creating;
   assert.deepEqual(apiKeyTags.getApiKeyTags(created.id), ["team-a", "production"]);
   await apiKeys.deleteApiKey(created.id);
   assert.deepEqual(apiKeyTags.getApiKeyTags(created.id), []);
+});
+
+test("API key tags follow the 9router display-label caps", async () => {
+  await resetStorage();
+  const tags = Array.from({ length: 22 }, (_, index) => `tag-${index}`);
+  tags[0] = "x".repeat(40);
+  const created = await apiKeys.createApiKey("Tagged Limits", "machine-tags-limits", [], { tags });
+  const stored = apiKeyTags.getApiKeyTags(created.id);
+  assert.equal(stored.length, 20);
+  assert.equal(stored[0], "x".repeat(32));
 });
 
 test("createApiKey rolls back the bearer key if tag insertion fails", async () => {
