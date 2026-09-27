@@ -121,7 +121,7 @@ test("JEV abstains before credential lookup when the caller has no eligible conn
     { messages: [{ role: "user", content: "hello" }] },
     { mode: "jev", model: "typesafe-ai/jev-latest", toolMode: "off" },
     log,
-    { allowedConnections: [] }
+    { allowedConnections: [], apiKeyId: "request-key" }
   );
   assert.equal(result, null);
 });

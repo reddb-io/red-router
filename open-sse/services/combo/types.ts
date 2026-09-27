@@ -103,6 +103,8 @@ export type ComboRelayOptions = {
   decisionModelAllowed?: boolean;
   /** Null is unrestricted; an empty list denies auxiliary decision traffic. */
   decisionAllowedConnections?: string[] | null;
+  /** Attribute auxiliary evaluator usage to the same API key as the combo request. */
+  decisionApiKeyId?: string | null;
   /** Per-request X-OmniRoute-Mode value (auto-combo preset / mode-pack name) — #6024/#6025. */
   mode?: string | null;
   /** Per-request X-OmniRoute-Budget value (hard cost ceiling in USD) — #6023. */

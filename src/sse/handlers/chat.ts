@@ -1094,6 +1094,7 @@ async function handleChatImplementation(
       sessionId,
       decisionModelAllowed,
       decisionAllowedConnections,
+      decisionApiKeyId: apiKeyInfo?.id ?? null,
       ...(combo.strategy === "context-relay" ? { config: relayConfig } : {}),
       ...(bypassProviderQuotaPolicy ? { bypassProviderQuotaPolicy: true } : {}),
       ...perRequestAutoControls,
