@@ -34,7 +34,7 @@ function splitCompleteLines(bytes: Buffer): { lines: string[]; partial: Buffer }
 export class ConsoleLogTail {
   private identity: string | null = null;
   private offset = 0;
-  private partial = Buffer.alloc(0);
+  private partial: Buffer<ArrayBufferLike> = Buffer.alloc(0);
   private initialized = false;
 
   constructor(

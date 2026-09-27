@@ -1719,7 +1719,8 @@ async function buildUnifiedModelsResponseCore(
             );
           }
 
-          if (ANONYMOUS_CAPABLE_WEB_FETCH_PROVIDERS.has(providerId)) return true;
+          if ((ANONYMOUS_CAPABLE_WEB_FETCH_PROVIDERS as ReadonlySet<string>).has(providerId))
+            return true;
           return isProviderActive(providerId) && providerSupportsModel(providerId, modelId);
         },
       })

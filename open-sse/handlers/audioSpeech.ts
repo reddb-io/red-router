@@ -819,7 +819,7 @@ async function handleEdgeTtsSpeech(body) {
       typeof body.input === "string" ? body.input : "",
       typeof body.voice === "string" ? body.voice : undefined
     );
-    return new Response(audio, {
+    return new Response(new Uint8Array(audio), {
       status: 200,
       headers: { ...CORS_HEADERS, "Content-Type": "audio/mpeg" },
     });
@@ -840,7 +840,7 @@ async function handleLocalDeviceSpeech(body) {
       typeof body.input === "string" ? body.input : "",
       typeof body.voice === "string" ? body.voice : undefined
     );
-    return new Response(audio, {
+    return new Response(new Uint8Array(audio), {
       status: 200,
       headers: { ...CORS_HEADERS, "Content-Type": "audio/mpeg" },
     });

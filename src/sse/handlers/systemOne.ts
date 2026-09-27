@@ -123,8 +123,16 @@ export async function handleSystemOne(request: Request): Promise<Response> {
         }
       );
       const token = getBearer(credentials);
-      if (!credentials?.connectionId) break;
-      const anonymousOpenCode = target.provider === "opencode" && credentials.authType === "none";
+      if (
+        !credentials ||
+        !("connectionId" in credentials) ||
+        typeof credentials.connectionId !== "string"
+      )
+        break;
+      const anonymousOpenCode =
+        target.provider === "opencode" &&
+        "authType" in credentials &&
+        credentials.authType === "none";
       if (!token && !anonymousOpenCode) break;
       if (requestedConnectionId && requestedConnectionId !== credentials.connectionId) break;
       if (await isConnectionUnavailableToAuxiliaryActivity(credentials.connectionId)) {

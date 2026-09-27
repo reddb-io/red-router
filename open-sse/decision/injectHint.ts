@@ -61,12 +61,11 @@ const lastUser = (messages: JsonRecord[]): JsonRecord | null => {
 function alreadyHas(content: unknown, text: string): boolean {
   if (typeof content === "string") return content.includes(text);
   if (Array.isArray(content))
-    return content.some(
-      (block: unknown) =>
-        block &&
-        typeof (block as JsonRecord).text === "string" &&
-        (block as JsonRecord).text.includes(text)
-    );
+    return content.some((block: unknown) => {
+      if (!block || typeof block !== "object") return false;
+      const blockText = (block as JsonRecord).text;
+      return typeof blockText === "string" && blockText.includes(text);
+    });
   return false;
 }
 

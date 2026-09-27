@@ -261,7 +261,7 @@ export async function createXaiAsyncVideo(
         "Content-Type": contentType,
         ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}),
       },
-      body: forwardBody,
+      body: typeof forwardBody === "string" ? forwardBody : new Uint8Array(forwardBody),
       signal: AbortSignal.any([request.signal, AbortSignal.timeout(CREATE_TIMEOUT_MS)]),
     });
   } catch {

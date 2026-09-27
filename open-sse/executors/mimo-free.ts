@@ -67,8 +67,9 @@ function parseJwtExp(jwt: string): number {
 
 // Ensure the body carries the anti-abuse marker in a system message (idempotent)
 function injectSystemMarker(body: unknown): unknown {
-  const typed = body as { messages?: unknown } | null;
-  const messages = typed?.messages;
+  if (!body || typeof body !== "object" || Array.isArray(body)) return body;
+  const typed = body as Record<string, unknown>;
+  const messages = typed.messages;
   if (!Array.isArray(messages)) return body;
   const hasMarker = messages.some(
     (m) =>
@@ -79,7 +80,7 @@ function injectSystemMarker(body: unknown): unknown {
       ((m as Record<string, unknown>).content as string).includes(MIMO_SYSTEM_MARKER)
   );
   if (hasMarker) return body;
-  return { ...body, messages: [{ role: "system", content: MIMO_SYSTEM_MARKER }, ...messages] };
+  return { ...typed, messages: [{ role: "system", content: MIMO_SYSTEM_MARKER }, ...messages] };
 }
 
 function resetJwtCache(): void {

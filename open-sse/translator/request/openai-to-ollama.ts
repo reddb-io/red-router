@@ -53,7 +53,7 @@ function extractImagesFromContent(content: unknown): string[] {
 }
 
 function normalizeMessages(messages: unknown): unknown[] {
-  if (!Array.isArray(messages)) return messages;
+  if (!Array.isArray(messages)) return [];
   const result: unknown[] = [];
   const toolCallMap = new Map<string, string>();
 
