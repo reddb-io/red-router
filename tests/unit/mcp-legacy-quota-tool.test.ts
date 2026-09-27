@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { createLegacyQuotaTool, type LegacyQuotaStore } from "../../src/lib/mcp/legacyQuotaTool.ts";
+import {
+  createLegacyQuotaTool,
+  parseLegacyQuotaWindows,
+  type LegacyQuotaStore,
+} from "../../src/lib/mcp/legacyQuotaTool.ts";
 import { handleLegacyMcpBody, type LegacyMcpServer } from "../../src/lib/mcp/legacyProtocol.ts";
 
 const readConnections: string[] = [];
@@ -67,6 +71,36 @@ function call(args: Record<string, unknown> = {}) {
 }
 
 describe("legacy MCP quota tool", () => {
+  it("preserves cached absolute values and provider-reported remaining percentage", () => {
+    assert.deepEqual(
+      parseLegacyQuotaWindows(
+        {
+          monthly: {
+            used: 2,
+            total: 10,
+            remaining: 8,
+            remainingPercentage: 73,
+            resetAt: "2026-10-01T00:00:00Z",
+            unlimited: false,
+          },
+        },
+        "2026-09-27T01:00:00Z"
+      ),
+      [
+        {
+          name: "monthly",
+          used: 2,
+          total: 10,
+          remaining: 8,
+          remainingPct: 73,
+          unlimited: false,
+          resetAt: "2026-10-01T00:00:00Z",
+          observedAt: "2026-09-27T01:00:00Z",
+        },
+      ]
+    );
+  });
+
   it("only reads the caller's allowed connection and strips raw provider data", async () => {
     readConnections.length = 0;
     const result = await handleLegacyMcpBody(call(), server());

@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { getApiKeyMetadata } from "@/lib/db/apiKeys";
+import { getProviderLimitsCache } from "@/lib/db/providerLimits";
 import { getRawProviderConnections } from "@/lib/db/providers";
 import { getLatestQuotaSnapshotsForConnection } from "@/lib/db/quotaSnapshots";
 import { resolveQuotaKeyScope } from "@/lib/quota/quotaKey";
@@ -27,7 +28,7 @@ const REFRESH_TIMEOUT_MS = 20_000;
 const REFRESH_BUDGET_MS = 30_000;
 const REFRESH_CONCURRENCY = 4;
 
-function quotaWindows(quotas: unknown, observedAt: string | null): QuotaWindow[] {
+export function parseLegacyQuotaWindows(quotas: unknown, observedAt: string | null): QuotaWindow[] {
   if (!quotas || typeof quotas !== "object" || Array.isArray(quotas)) return [];
   return Object.entries(quotas).map(([name, value]) => {
     const data =
@@ -42,15 +43,20 @@ function quotaWindows(quotas: unknown, observedAt: string | null): QuotaWindow[]
         : total !== null && used !== null
           ? total - used
           : null;
+    const reportedPercentage =
+      typeof data.remainingPercentage === "number" && Number.isFinite(data.remainingPercentage)
+        ? data.remainingPercentage
+        : null;
     return {
       name,
       used,
       total,
       remaining,
       remainingPct:
-        total !== null && total > 0 && remaining !== null
+        reportedPercentage ??
+        (total !== null && total > 0 && remaining !== null
           ? Math.round((remaining / total) * 1_000) / 10
-          : null,
+          : null),
       unlimited: typeof data.unlimited === "boolean" ? data.unlimited : null,
       resetAt:
         typeof data.resetAt === "string"
@@ -115,8 +121,12 @@ const defaultStore: LegacyQuotaStore = {
         isActive: row.isActive !== false && row.isActive !== 0,
       }));
   },
-  windows: (connectionId) =>
-    getLatestQuotaSnapshotsForConnection(connectionId).map((row) => {
+  windows: (connectionId) => {
+    const cache = getProviderLimitsCache(connectionId);
+    if (cache?.quotas && Object.keys(cache.quotas).length > 0) {
+      return parseLegacyQuotaWindows(cache.quotas, cache.fetchedAt);
+    }
+    return getLatestQuotaSnapshotsForConnection(connectionId).map((row) => {
       const normalized = row as unknown as Record<string, unknown>;
       const remaining = normalized.remainingPercentage ?? normalized.remaining_percentage;
       return {
@@ -129,7 +139,8 @@ const defaultStore: LegacyQuotaStore = {
         resetAt: String(normalized.nextResetAt ?? normalized.next_reset_at ?? "") || null,
         observedAt: String(normalized.createdAt ?? normalized.created_at ?? "") || null,
       };
-    }),
+    });
+  },
   refresh: async (connectionId) => {
     const { fetchAndPersistProviderLimits } = await import("@/lib/usage/providerLimits");
     const { usage, cache } = await fetchAndPersistProviderLimits(connectionId, "manual", {
@@ -138,7 +149,7 @@ const defaultStore: LegacyQuotaStore = {
     if (usage._stale === true || cache.message) {
       throw new Error("quota refresh returned stale data");
     }
-    return quotaWindows(cache.quotas, cache.fetchedAt);
+    return parseLegacyQuotaWindows(cache.quotas, cache.fetchedAt);
   },
 };
 
