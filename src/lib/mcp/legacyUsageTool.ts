@@ -83,7 +83,7 @@ export function createLegacyUsageTool(store: LegacyUsageStore = defaultStore): L
         by_model: usage.by_model.map((row) => ({ ...row, cost: roundUsd(row.cost) })),
         limits: {
           rpm: quota.rpmLimit,
-          tokensPerDay: null,
+          tokensPerDay: quota.dailyTokensLimit,
           usdPerMonth: monthlyLimit,
           tpm: quota.tpmLimit,
         },
@@ -91,7 +91,10 @@ export function createLegacyUsageTool(store: LegacyUsageStore = defaultStore): L
         remaining: {
           usd_this_month:
             monthlyLimit !== null ? roundUsd(Math.max(0, monthlyLimit - monthCost)) : null,
-          tokens_today: null,
+          tokens_today:
+            quota.dailyTokensLimit !== null
+              ? Math.max(0, quota.dailyTokensLimit - usage.tokens_today)
+              : null,
         },
       };
     },

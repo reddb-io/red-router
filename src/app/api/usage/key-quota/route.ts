@@ -1,15 +1,11 @@
 import { NextResponse } from "next/server";
 import { requireManagementAuth } from "@/lib/api/requireManagementAuth";
-import {
-  getKeyQuotaStatus,
-  upsertKeyQuotaLimits,
-  clearKeyQuotaLimits,
-} from "@/lib/db/keyQuota";
+import { getKeyQuotaStatus, upsertKeyQuotaLimits, clearKeyQuotaLimits } from "@/lib/db/keyQuota";
 import { setKeyQuotaSchema } from "@/shared/validation/schemas";
 import { isValidationFailure, validateBody } from "@/shared/validation/helpers";
 
 /**
- * GET /api/usage/key-quota?apiKeyId=... — per-key tpm/rpm/monthly quota status
+ * GET /api/usage/key-quota?apiKeyId=... — per-key tpm/rpm/daily-token/monthly quota status
  * (limits + current usage + exceeded flags).
  *
  * POST /api/usage/key-quota — upsert quota limits for a key. Omitted fields
@@ -57,8 +53,13 @@ export async function POST(request: Request) {
     if (isValidationFailure(validation)) {
       return NextResponse.json({ error: validation.error }, { status: 400 });
     }
-    const { apiKeyId, tpmLimit, rpmLimit, monthlyAmountUsd } = validation.data;
-    const limits = upsertKeyQuotaLimits(apiKeyId, { tpmLimit, rpmLimit, monthlyAmountUsd });
+    const { apiKeyId, tpmLimit, rpmLimit, dailyTokensLimit, monthlyAmountUsd } = validation.data;
+    const limits = upsertKeyQuotaLimits(apiKeyId, {
+      tpmLimit,
+      rpmLimit,
+      dailyTokensLimit,
+      monthlyAmountUsd,
+    });
     return NextResponse.json({ success: true, apiKeyId, limits });
   } catch (error) {
     console.error("Error setting key quota:", error);

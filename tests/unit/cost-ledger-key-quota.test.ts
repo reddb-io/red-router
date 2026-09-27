@@ -291,22 +291,64 @@ test("key quota: monthly amount blocks when ledger month total reaches cap", () 
   ]);
 });
 
+test("key quota: daily token cap uses only this key's UTC day and resets at midnight", () => {
+  keyQuotaDb.upsertKeyQuotaLimits("key-1", { dailyTokensLimit: 100 });
+  const add = (apiKeyId: string, timestamp: string, tokensInput: number, tokensOutput = 0) =>
+    costLedger.recordLedgerEntry({
+      apiKeyId,
+      provider: "openai",
+      model: "gpt-4o",
+      amountUsd: 0,
+      tokensInput,
+      tokensOutput,
+      timestamp,
+    });
+
+  add("key-1", "2026-09-13T23:59:59.000Z", 500);
+  add("other-key", "2026-09-14T11:00:00.000Z", 500);
+  add("key-1", "2026-09-14T11:00:00.000Z", 60, 40);
+  add("key-1", "2026-09-15T01:00:00.000Z", 25);
+
+  const today = keyQuotaDomain.checkKeyQuota("key-1", {
+    now: () => Date.parse("2026-09-14T12:00:00.000Z"),
+  });
+  assert.equal(today.allowed, false);
+  assert.equal(today.dimension, "daily_tokens");
+  assert.equal(today.status?.counters.dailyTokensUsed, 100);
+
+  const tomorrow = keyQuotaDomain.checkKeyQuota("key-1", {
+    now: () => Date.parse("2026-09-15T12:00:00.000Z"),
+  });
+  assert.equal(tomorrow.allowed, true);
+  assert.equal(tomorrow.status?.counters.dailyTokensUsed, 25);
+});
+
 test("key quota: 0/null limits mean unlimited, no config means allowed", () => {
   // No config row → allowed.
   assert.equal(keyQuotaDomain.checkKeyQuota("key-1").allowed, true);
 
   // All-zero limits → unlimited.
-  keyQuotaDb.upsertKeyQuotaLimits("key-1", { tpmLimit: 0, rpmLimit: 0, monthlyAmountUsd: 0 });
+  keyQuotaDb.upsertKeyQuotaLimits("key-1", {
+    tpmLimit: 0,
+    rpmLimit: 0,
+    dailyTokensLimit: 0,
+    monthlyAmountUsd: 0,
+  });
   assert.equal(keyQuotaDomain.checkKeyQuota("key-1").allowed, true);
 });
 
 test("key quota: clear resets limits and counters", () => {
-  keyQuotaDb.upsertKeyQuotaLimits("key-1", { rpmLimit: 1, tpmLimit: 50 });
+  keyQuotaDb.upsertKeyQuotaLimits("key-1", {
+    rpmLimit: 1,
+    tpmLimit: 50,
+    dailyTokensLimit: 500,
+  });
   keyQuotaDomain.recordKeyQuotaUsage("key-1", 50);
   assert.equal(keyQuotaDomain.checkKeyQuota("key-1").allowed, false);
 
   keyQuotaDb.clearKeyQuotaLimits("key-1");
   assert.equal(keyQuotaDomain.checkKeyQuota("key-1").allowed, true);
+  assert.equal(keyQuotaDb.getKeyQuotaLimits("key-1").dailyTokensLimit, null);
 });
 
 test("key quota: sliding window lets a new minute window reset usage", () => {

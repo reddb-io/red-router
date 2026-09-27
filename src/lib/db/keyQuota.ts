@@ -1,11 +1,12 @@
 /**
- * db/keyQuota.ts — Per-API-key tpm/rpm/monthly-amount quota (RIC-741 / M3 D5).
+ * db/keyQuota.ts — Per-API-key tpm/rpm/daily-token/monthly-amount quota.
  *
  * KISS counter + threshold quota: a single config row on `api_key_quota_limits`
- * (tpm / rpm / monthly USD) plus 2-bucket sliding-window counters on
+ * (tpm / rpm / daily tokens / monthly USD) plus 2-bucket sliding-window counters on
  * `api_key_quota_counters` for tpm & rpm. The monthly amount is not counted
  * here — it is read from the cost ledger's current-calendar-month SUM
- * (`aggregateLedgerThisMonth`), so one source of truth for money.
+ * (`aggregateLedgerThisMonth`). Daily tokens are likewise read from the
+ * current UTC calendar day in the ledger.
  *
  * A NULL limit means "unlimited" (0 is normalized to unlimited on read).
  *
@@ -26,6 +27,8 @@ export interface KeyQuotaLimits {
   tpmLimit: number | null;
   /** Requests per minute; null/0 = unlimited. */
   rpmLimit: number | null;
+  /** UTC calendar-day input + output token cap; null/0 = unlimited. */
+  dailyTokensLimit: number | null;
   /** Calendar-month USD spend cap; null/0 = unlimited. */
   monthlyAmountUsd: number | null;
 }
@@ -35,6 +38,8 @@ export interface KeyQuotaCounters {
   tpmUsed: number;
   /** Effective requests used in the current minute window. */
   rpmUsed: number;
+  /** UTC calendar-day tokens, only queried when the limit is configured. */
+  dailyTokensUsed: number | null;
   /** Calendar-month USD spend (from the cost ledger). */
   monthlyAmountUsd: number;
 }
@@ -45,6 +50,7 @@ export interface KeyQuotaStatus {
   counters: KeyQuotaCounters;
   tpmExceeded: boolean;
   rpmExceeded: boolean;
+  dailyTokensExceeded: boolean;
   monthlyExceeded: boolean;
   /** ISO timestamp the current minute window ends. */
   windowResetAtIso: string;
@@ -100,6 +106,7 @@ function rowToLimits(row: unknown): KeyQuotaLimits {
     apiKeyId: typeof r.api_key_id === "string" ? r.api_key_id : "",
     tpmLimit: toLimitOrNull(r.tpm_limit),
     rpmLimit: toLimitOrNull(r.rpm_limit),
+    dailyTokensLimit: toLimitOrNull(r.daily_tokens_limit),
     monthlyAmountUsd: toLimitOrNull(r.monthly_amount_usd),
   };
 }
@@ -108,22 +115,33 @@ function rowToLimits(row: unknown): KeyQuotaLimits {
  * Load quota limits for a key. Returns all-null limits when no row exists.
  */
 export function getKeyQuotaLimits(apiKeyId: string): KeyQuotaLimits {
-  if (!apiKeyId) return { apiKeyId, tpmLimit: null, rpmLimit: null, monthlyAmountUsd: null };
+  if (!apiKeyId)
+    return {
+      apiKeyId,
+      tpmLimit: null,
+      rpmLimit: null,
+      dailyTokensLimit: null,
+      monthlyAmountUsd: null,
+    };
   const db = getDbInstance();
   const row = db
     .prepare(
-      `SELECT api_key_id, tpm_limit, rpm_limit, monthly_amount_usd
-       FROM api_key_quota_limits WHERE api_key_id = ?`
+      `SELECT q.api_key_id, q.tpm_limit, q.rpm_limit, d.daily_tokens_limit,
+              q.monthly_amount_usd
+       FROM api_key_quota_limits q
+       LEFT JOIN api_key_daily_token_limits d ON d.api_key_id = q.api_key_id
+       WHERE q.api_key_id = ?`
     )
     .get(apiKeyId);
   return row
     ? rowToLimits(row)
-    : { apiKeyId, tpmLimit: null, rpmLimit: null, monthlyAmountUsd: null };
+    : { apiKeyId, tpmLimit: null, rpmLimit: null, dailyTokensLimit: null, monthlyAmountUsd: null };
 }
 
 export interface UpsertKeyQuotaLimitsInput {
   tpmLimit?: number | null;
   rpmLimit?: number | null;
+  dailyTokensLimit?: number | null;
   monthlyAmountUsd?: number | null;
 }
 
@@ -135,34 +153,66 @@ export function upsertKeyQuotaLimits(
   apiKeyId: string,
   input: UpsertKeyQuotaLimitsInput
 ): KeyQuotaLimits {
-  if (!apiKeyId) return { apiKeyId, tpmLimit: null, rpmLimit: null, monthlyAmountUsd: null };
+  if (!apiKeyId)
+    return {
+      apiKeyId,
+      tpmLimit: null,
+      rpmLimit: null,
+      dailyTokensLimit: null,
+      monthlyAmountUsd: null,
+    };
 
   const db = getDbInstance();
   const existing = getKeyQuotaLimits(apiKeyId);
   const tpm = limitToDb(input.tpmLimit !== undefined ? input.tpmLimit : existing.tpmLimit);
   const rpm = limitToDb(input.rpmLimit !== undefined ? input.rpmLimit : existing.rpmLimit);
+  const dailyTokens = limitToDb(
+    input.dailyTokensLimit !== undefined ? input.dailyTokensLimit : existing.dailyTokensLimit
+  );
   const monthly = limitToDb(
     input.monthlyAmountUsd !== undefined ? input.monthlyAmountUsd : existing.monthlyAmountUsd
   );
 
-  db.prepare(
-    `INSERT INTO api_key_quota_limits (api_key_id, tpm_limit, rpm_limit, monthly_amount_usd, updated_at)
-     VALUES (?, ?, ?, ?, datetime('now'))
-     ON CONFLICT(api_key_id) DO UPDATE SET
-       tpm_limit = excluded.tpm_limit,
-       rpm_limit = excluded.rpm_limit,
-       monthly_amount_usd = excluded.monthly_amount_usd,
-       updated_at = excluded.updated_at`
-  ).run(apiKeyId, tpm, rpm, monthly);
+  db.transaction(() => {
+    db.prepare(
+      `INSERT INTO api_key_quota_limits (api_key_id, tpm_limit, rpm_limit, monthly_amount_usd, updated_at)
+       VALUES (?, ?, ?, ?, datetime('now'))
+       ON CONFLICT(api_key_id) DO UPDATE SET
+         tpm_limit = excluded.tpm_limit,
+         rpm_limit = excluded.rpm_limit,
+         monthly_amount_usd = excluded.monthly_amount_usd,
+         updated_at = excluded.updated_at`
+    ).run(apiKeyId, tpm, rpm, monthly);
+    if (dailyTokens === null) {
+      db.prepare("DELETE FROM api_key_daily_token_limits WHERE api_key_id = ?").run(apiKeyId);
+    } else {
+      db.prepare(
+        `INSERT INTO api_key_daily_token_limits (api_key_id, daily_tokens_limit, updated_at)
+         VALUES (?, ?, datetime('now'))
+         ON CONFLICT(api_key_id) DO UPDATE SET
+           daily_tokens_limit = excluded.daily_tokens_limit,
+           updated_at = excluded.updated_at`
+      ).run(apiKeyId, dailyTokens);
+    }
+  })();
 
-  return { apiKeyId, tpmLimit: tpm, rpmLimit: rpm, monthlyAmountUsd: monthly };
+  return {
+    apiKeyId,
+    tpmLimit: tpm,
+    rpmLimit: rpm,
+    dailyTokensLimit: dailyTokens,
+    monthlyAmountUsd: monthly,
+  };
 }
 
 export function clearKeyQuotaLimits(apiKeyId: string): void {
   if (!apiKeyId) return;
   const db = getDbInstance();
-  db.prepare("DELETE FROM api_key_quota_limits WHERE api_key_id = ?").run(apiKeyId);
-  db.prepare("DELETE FROM api_key_quota_counters WHERE api_key_id = ?").run(apiKeyId);
+  db.transaction(() => {
+    db.prepare("DELETE FROM api_key_quota_limits WHERE api_key_id = ?").run(apiKeyId);
+    db.prepare("DELETE FROM api_key_daily_token_limits WHERE api_key_id = ?").run(apiKeyId);
+    db.prepare("DELETE FROM api_key_quota_counters WHERE api_key_id = ?").run(apiKeyId);
+  })();
 }
 
 // ---------------------------------------------------------------------------
@@ -248,6 +298,7 @@ export function getKeyQuotaCounters(
   return {
     tpmUsed: effectiveWindowCount(apiKeyId, DIMENSION_TPM, nowMs),
     rpmUsed: effectiveWindowCount(apiKeyId, DIMENSION_RPM, nowMs),
+    dailyTokensUsed: null,
     monthlyAmountUsd:
       deps.monthTotalUsd !== undefined ? deps.monthTotalUsd : getLedgerMonthTotal(apiKeyId, nowMs),
   };
@@ -265,20 +316,39 @@ function getLedgerMonthTotal(apiKeyId: string, nowMs: number): number {
   }
 }
 
+function getLedgerDayTokenTotal(apiKeyId: string, nowMs: number): number {
+  const dayStartMs = Math.floor(nowMs / 86_400_000) * 86_400_000;
+  const dayStartIso = new Date(dayStartMs).toISOString();
+  const nextDayIso = new Date(dayStartMs + 86_400_000).toISOString();
+  const row = getDbInstance()
+    .prepare(
+      `SELECT COALESCE(SUM(tokens_input + tokens_output), 0) AS tokens
+       FROM request_cost_ledger
+       WHERE api_key_id = ? AND timestamp >= ? AND timestamp < ?`
+    )
+    .get(apiKeyId, dayStartIso, nextDayIso) as { tokens?: number } | undefined;
+  return toNumber(row?.tokens);
+}
+
 /**
  * Full enforcement-ready status for a key: limits, current usage, and per
  * dimension exceeded flags.
  */
 export function getKeyQuotaStatus(
   apiKeyId: string,
-  deps: { now?: () => number; monthTotalUsd?: number } = {}
+  deps: { now?: () => number; monthTotalUsd?: number; dailyTokensUsed?: number } = {}
 ): KeyQuotaStatus {
   const limits = getKeyQuotaLimits(apiKeyId);
   const counters = getKeyQuotaCounters(apiKeyId, deps);
-  const enabled =
-    limits.tpmLimit !== null || limits.rpmLimit !== null || limits.monthlyAmountUsd !== null;
-
   const nowMs = (deps.now ?? Date.now)();
+  if (limits.dailyTokensLimit !== null) {
+    counters.dailyTokensUsed = deps.dailyTokensUsed ?? getLedgerDayTokenTotal(apiKeyId, nowMs);
+  }
+  const enabled =
+    limits.tpmLimit !== null ||
+    limits.rpmLimit !== null ||
+    limits.dailyTokensLimit !== null ||
+    limits.monthlyAmountUsd !== null;
 
   return {
     enabled,
@@ -286,6 +356,10 @@ export function getKeyQuotaStatus(
     counters,
     tpmExceeded: enabled && limits.tpmLimit !== null && counters.tpmUsed >= limits.tpmLimit,
     rpmExceeded: enabled && limits.rpmLimit !== null && counters.rpmUsed >= limits.rpmLimit,
+    dailyTokensExceeded:
+      limits.dailyTokensLimit !== null &&
+      counters.dailyTokensUsed !== null &&
+      counters.dailyTokensUsed >= limits.dailyTokensLimit,
     monthlyExceeded:
       enabled &&
       limits.monthlyAmountUsd !== null &&

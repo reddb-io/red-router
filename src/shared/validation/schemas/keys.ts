@@ -80,6 +80,7 @@ export const setKeyQuotaSchema = z.object({
   // Negative values are rejected.
   tpmLimit: z.coerce.number().min(0).optional().nullable(),
   rpmLimit: z.coerce.number().min(0).optional().nullable(),
+  dailyTokensLimit: z.coerce.number().int().min(0).optional().nullable(),
   monthlyAmountUsd: z.coerce.number().min(0).optional().nullable(),
 });
 

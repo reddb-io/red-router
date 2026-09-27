@@ -16,7 +16,13 @@ const store: LegacyUsageStore = {
     };
   },
   monthCost: () => 0.4,
-  limits: (id) => ({ apiKeyId: id, rpmLimit: 10, tpmLimit: null, monthlyAmountUsd: 1 }),
+  limits: (id) => ({
+    apiKeyId: id,
+    rpmLimit: 10,
+    tpmLimit: null,
+    dailyTokensLimit: 20,
+    monthlyAmountUsd: 1,
+  }),
 };
 
 function server(isAdmin: boolean): LegacyMcpServer {
@@ -45,6 +51,8 @@ describe("legacy MCP usage tool", () => {
     assert.match(serialized, /"api_key_id":"my-key"/);
     assert.match(serialized, /request_cost_ledger/);
     assert.match(serialized, /"usd_this_month":0.6/);
+    assert.match(serialized, /"tokensPerDay":20/);
+    assert.match(serialized, /"tokens_today":5/);
   });
 
   it("never reads another key for a non-management caller", async () => {

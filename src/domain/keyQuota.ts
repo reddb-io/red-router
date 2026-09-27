@@ -1,7 +1,7 @@
 /**
  * Domain Key Quota Enforcement (RIC-741 / M3 D5) — counter + threshold.
  *
- * A KISS circuit-breaker-style gate over the per-key tpm/rpm/monthly-amount
+ * A KISS circuit-breaker-style gate over the per-key tpm/rpm/daily-token/monthly-amount
  * quota counters. Two entry points mirror the existing quota conventions:
  *
  *   - `checkKeyQuota(apiKeyId, deps)` — PRE-request gate. Returns an
@@ -12,8 +12,8 @@
  *   - `recordKeyQuotaUsage(apiKeyId, billableTokens, deps)` — POST-response
  *     increment of tpm (by tokens) + rpm (by 1 request). Fail-open (B29).
  *
- * The monthly amount dimension is read from the cost ledger (the ledger IS the
- * counter), so money is never double-tracked in two stores.
+ * Daily tokens and monthly amount are read from the cost ledger, so neither
+ * dimension is double-tracked in two stores.
  *
  * @module domain/keyQuota
  */
@@ -31,13 +31,14 @@ import {
 export interface KeyQuotaVerdict {
   allowed: boolean;
   reason: string | null;
-  dimension: "tpm" | "rpm" | "monthly" | null;
+  dimension: "tpm" | "rpm" | "daily_tokens" | "monthly" | null;
   status?: KeyQuotaStatus;
 }
 
 export interface CheckKeyQuotaDeps {
   now?: () => number;
   monthTotalUsd?: number;
+  dailyTokensUsed?: number;
 }
 
 export interface RecordKeyQuotaDeps {
@@ -61,7 +62,9 @@ function verdict(
       ? `Token-per-minute quota exceeded for this API key`
       : dimension === "rpm"
         ? `Request-per-minute quota exceeded for this API key`
-        : `Monthly USD quota exceeded for this API key`);
+        : dimension === "daily_tokens"
+          ? `Daily token quota exceeded for this API key`
+          : `Monthly USD quota exceeded for this API key`);
   return { allowed: false, reason: message, dimension, status };
 }
 
@@ -78,6 +81,7 @@ export function checkKeyQuota(
     if (!status.enabled) return { allowed: true, reason: null, dimension: null, status };
     if (status.tpmExceeded) return verdict(false, "tpm", status);
     if (status.rpmExceeded) return verdict(false, "rpm", status);
+    if (status.dailyTokensExceeded) return verdict(false, "daily_tokens", status);
     if (status.monthlyExceeded) return verdict(false, "monthly", status);
     return verdict(true, null, status);
   } catch {
