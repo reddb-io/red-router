@@ -323,7 +323,9 @@ export async function POST(request: Request) {
       format: transportFormat,
       depth: body.depth as 0 | 1 | 2,
       wait_for_selector: body.wait_for_selector,
-      include_metadata: body.include_metadata,
+      // 9router exposes the page title by default; existing OmniRoute calls
+      // retain their opt-in metadata behavior.
+      include_metadata: body.include_metadata || modelResolution.legacyResponse,
     },
     target.provider,
     target.credentials,

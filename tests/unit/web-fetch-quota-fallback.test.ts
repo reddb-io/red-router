@@ -49,6 +49,7 @@ function postWebFetch(body: Record<string, unknown>) {
 interface WebFetchTestBody {
   provider?: string;
   content?: string;
+  metadata?: { title: string | null } | null;
   error?: { message: string };
 }
 
@@ -127,6 +128,7 @@ test("9router model requests get structured content without changing provider-on
     const currentBody = await readJson(current);
     assert.equal(current.status, 200);
     assert.equal(currentBody.content, "abc");
+    assert.equal(currentBody.metadata, null);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -146,10 +148,12 @@ test("9router provider alias selects the canonical transport and structured resp
     const response = await postWebFetch({ provider: "exa" });
     const body = (await response.json()) as {
       provider: string;
+      title: string | null;
       content: { format: string; text: string; length: number };
     };
     assert.equal(response.status, 200);
     assert.equal(body.provider, "exa");
+    assert.equal(body.title, "Example");
     assert.deepEqual(body.content, { format: "markdown", text: "Example body", length: 12 });
   } finally {
     globalThis.fetch = originalFetch;
