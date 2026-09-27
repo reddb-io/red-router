@@ -16,11 +16,14 @@ beforeAll(() => {
 
 // ── Mocks ─────────────────────────────────────────────────────────────────
 
-// Stub @xyflow/react so ReactFlow renders without canvas/DOM measurement APIs
+// This suite checks the studio shell, not ReactFlow's animation scheduler.
+// Real fitView() starts async updates that can outlive the jsdom environment.
 vi.mock("@xyflow/react", async () => {
-  const actual = (await vi.importActual("@xyflow/react")) as Record<string, unknown>;
+  const { createElement } = await import("react");
   return {
-    ...actual,
+    ReactFlow: ({ children }: { children?: React.ReactNode }) =>
+      createElement("div", { className: "react-flow" }, children),
+    Controls: () => null,
     Handle: (_props: Record<string, unknown>) => null,
     Position: { Left: "left", Right: "right", Top: "top", Bottom: "bottom" },
   };
@@ -134,9 +137,7 @@ describe("ComboLiveStudio", () => {
     it("shows provider names from target nodes", () => {
       const container = mount(<ComboLiveStudio run={SAMPLE_RUN} />);
       const text = container.textContent ?? "";
-      // Node internals rendered via ReactFlow in jsdom — at minimum the toolbar
-      // shows the combo name. Provider names appear in node elements if ReactFlow
-      // renders custom node interiors.
+      // The flow engine is mocked here; the toolbar still identifies the run.
       expect(text).toContain("daily-cascade");
     });
 
