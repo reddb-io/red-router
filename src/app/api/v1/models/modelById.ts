@@ -13,6 +13,32 @@ import { buildErrorBody } from "@omniroute/open-sse/utils/error";
 
 type CatalogModel = { id?: unknown } & Record<string, unknown>;
 
+const WEB_FETCH_LEGACY_IDS: Record<string, string> = {
+  "exa-search/fetch": "exa/fetch",
+  "ollama-cloud/fetch": "ollama/fetch",
+  "tavily-search/fetch": "tavily/fetch",
+};
+
+/** Only synthesize a legacy alias from a model already visible to this key. */
+function webModelsForLegacyClients(data: CatalogModel[]): CatalogModel[] {
+  const visible = data.filter((model) => model.type === "webSearch" || model.type === "webFetch");
+  const ids = new Set(visible.map((model) => model.id));
+  const result = visible.map((model) => ({ ...model, kind: model.type }));
+  for (const model of visible) {
+    if (model.type !== "webFetch" || typeof model.id !== "string") continue;
+    const alias = WEB_FETCH_LEGACY_IDS[model.id];
+    if (!alias || ids.has(alias)) continue;
+    result.push({
+      ...model,
+      id: alias,
+      owned_by: alias.slice(0, -"/fetch".length),
+      kind: model.type,
+    });
+    ids.add(alias);
+  }
+  return result;
+}
+
 /** 9router's /v1/models/web discovery, backed by this key's filtered catalog. */
 export async function handleGetWebModels(
   request: Request,
@@ -37,7 +63,7 @@ export async function handleGetWebModels(
   return Response.json(
     {
       object: "list",
-      data: data.filter((model) => model.type === "webSearch" || model.type === "webFetch"),
+      data: webModelsForLegacyClients(data),
     },
     { headers: CORS_HEADERS }
   );

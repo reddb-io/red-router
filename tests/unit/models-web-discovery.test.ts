@@ -14,6 +14,7 @@ test("web discovery filters only the calling key's catalog", async () => {
       object: "list",
       data: [
         { id: "firecrawl/fetch", type: "webFetch" },
+        { id: "exa-search/fetch", type: "webFetch", owned_by: "exa-search" },
         { id: "exa-search/search", type: "webSearch" },
         { id: "typesafe-ai/jev-latest", type: "systemone" },
         { id: "openai/gpt", type: "chat" },
@@ -21,12 +22,20 @@ test("web discovery filters only the calling key's catalog", async () => {
     });
   });
   assert.equal(response.status, 200);
-  const body = (await response.json()) as { object: string; data: Array<{ id: string }> };
+  const body = (await response.json()) as {
+    object: string;
+    data: Array<{ id: string; kind: string; owned_by?: string }>;
+  };
   assert.equal(body.object, "list");
   assert.deepEqual(
     body.data.map((entry) => entry.id),
-    ["firecrawl/fetch", "exa-search/search"]
+    ["firecrawl/fetch", "exa-search/fetch", "exa-search/search", "exa/fetch"]
   );
+  assert.deepEqual(
+    body.data.map((entry) => entry.kind),
+    ["webFetch", "webFetch", "webSearch", "webFetch"]
+  );
+  assert.equal(body.data[3]?.owned_by, "exa");
 });
 
 test("web discovery preserves catalog authorization failures", async () => {
@@ -34,6 +43,34 @@ test("web discovery preserves catalog authorization failures", async () => {
     Response.json({ error: { message: "Invalid API key" } }, { status: 401 })
   );
   assert.equal(response.status, 401);
+});
+
+test("web discovery never adds a legacy fetch alias hidden from the key", async () => {
+  const response = await handleGetWebModels(request, async () =>
+    Response.json({ data: [{ id: "exa-search/search", type: "webSearch" }] })
+  );
+  const body = (await response.json()) as { data: Array<{ id: string }> };
+  assert.deepEqual(
+    body.data.map((entry) => entry.id),
+    ["exa-search/search"]
+  );
+});
+
+test("web discovery includes Ollama and Tavily legacy fetch IDs without duplicates", async () => {
+  const response = await handleGetWebModels(request, async () =>
+    Response.json({
+      data: [
+        { id: "ollama-cloud/fetch", type: "webFetch" },
+        { id: "tavily-search/fetch", type: "webFetch" },
+        { id: "tavily/fetch", type: "webFetch" },
+      ],
+    })
+  );
+  const body = (await response.json()) as { data: Array<{ id: string }> };
+  assert.deepEqual(
+    body.data.map((entry) => entry.id),
+    ["ollama-cloud/fetch", "tavily-search/fetch", "tavily/fetch", "ollama/fetch"]
+  );
 });
 
 test("web discovery fails closed on a malformed catalog", async () => {
