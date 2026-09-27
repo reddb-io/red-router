@@ -32,8 +32,8 @@ export function insertInitialApiKeyTagsInTransaction(apiKeyId: string, tags: rea
 
 export function getApiKeyTags(apiKeyId: string): string[] {
   const row = getDbInstance()
-    .prepare<{ value: string }>("SELECT value FROM key_value WHERE namespace = ? AND key = ?")
-    .get(NAMESPACE, apiKeyId);
+    .prepare("SELECT value FROM key_value WHERE namespace = ? AND key = ?")
+    .get(NAMESPACE, apiKeyId) as { value: string } | undefined;
   return row ? parseStoredTags(row.value) : [];
 }
 
@@ -55,10 +55,8 @@ export function getApiKeyTagsMany(apiKeyIds: readonly string[]): Map<string, str
     const chunk = apiKeyIds.slice(offset, offset + 400);
     const placeholders = chunk.map(() => "?").join(", ");
     const rows = db
-      .prepare<{ key: string; value: string }>(
-        `SELECT key, value FROM key_value WHERE namespace = ? AND key IN (${placeholders})`
-      )
-      .all(NAMESPACE, ...chunk);
+      .prepare(`SELECT key, value FROM key_value WHERE namespace = ? AND key IN (${placeholders})`)
+      .all(NAMESPACE, ...chunk) as Array<{ key: string; value: string }>;
     for (const row of rows) result.set(row.key, parseStoredTags(row.value));
   }
   return result;

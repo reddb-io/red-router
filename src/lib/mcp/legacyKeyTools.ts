@@ -3,6 +3,11 @@ import { z } from "zod";
 import { getApiKeyById, getApiKeys } from "@/lib/db/apiKeys";
 import { getKeyQuotaLimits, getKeyQuotaLimitsMany, type KeyQuotaLimits } from "@/lib/db/keyQuota";
 import { getApiKeyTags, getApiKeyTagsMany } from "@/lib/db/apiKeys/tags";
+import {
+  getApiKeyModelIdFormat,
+  getApiKeyModelIdFormatsMany,
+  type ApiKeyModelIdFormat,
+} from "@/lib/db/apiKeys/idFormat";
 import { LegacyMcpToolError, type LegacyMcpTool } from "./legacyProtocol";
 
 type KeyRecord = NonNullable<Awaited<ReturnType<typeof getApiKeyById>>>;
@@ -14,6 +19,8 @@ export interface LegacyKeyStore {
   limitsMany(ids: readonly string[]): Map<string, KeyQuotaLimits>;
   tags(id: string): string[];
   tagsMany(ids: readonly string[]): Map<string, string[]>;
+  idFormat(id: string): ApiKeyModelIdFormat;
+  idFormatsMany(ids: readonly string[]): Map<string, ApiKeyModelIdFormat>;
 }
 
 const defaultStore: LegacyKeyStore = {
@@ -23,15 +30,23 @@ const defaultStore: LegacyKeyStore = {
   limitsMany: getKeyQuotaLimitsMany,
   tags: getApiKeyTags,
   tagsMany: getApiKeyTagsMany,
+  idFormat: getApiKeyModelIdFormat,
+  idFormatsMany: getApiKeyModelIdFormatsMany,
 };
 
 // Never spread a DB row into an MCP result: the row also contains the bearer secret.
-export function publicLegacyKey(key: KeyRecord, quota: KeyQuotaLimits, tags: string[]) {
+export function publicLegacyKey(
+  key: KeyRecord,
+  quota: KeyQuotaLimits,
+  tags: string[],
+  idFormat: ApiKeyModelIdFormat
+) {
   return {
     id: key.id,
     name: key.name,
     role: key.scopes.includes("manage") ? "admin" : "standard",
     tags,
+    id_format: idFormat,
     is_active: key.isActive,
     created_at: key.createdAt,
     limits: {
@@ -79,7 +94,8 @@ export function createLegacyKeyTools(store: LegacyKeyStore = defaultStore): Lega
           api_key: publicLegacyKey(
             key,
             store.limits(context.apiKeyId),
-            store.tags(context.apiKeyId)
+            store.tags(context.apiKeyId),
+            store.idFormat(context.apiKeyId)
           ),
         };
       },
@@ -100,13 +116,14 @@ export function createLegacyKeyTools(store: LegacyKeyStore = defaultStore): Lega
         const ids = keys.map((key) => String(key.id));
         const limits = store.limitsMany(ids);
         const tags = store.tagsMany(ids);
+        const formats = store.idFormatsMany(ids);
         return {
           total: keys.length,
           api_keys: keys.map((key) => {
             const id = String(key.id);
             const quota = limits.get(id);
             if (!quota) throw new Error("Missing API key quota data");
-            return publicLegacyKey(key, quota, tags.get(id) ?? []);
+            return publicLegacyKey(key, quota, tags.get(id) ?? [], formats.get(id) ?? "prefixed");
           }),
         };
       },

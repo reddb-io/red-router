@@ -22,9 +22,26 @@ export function insertInitialApiKeyModelIdFormatInTransaction(
 
 export function getApiKeyModelIdFormat(apiKeyId: string): ApiKeyModelIdFormat {
   const row = getDbInstance()
-    .prepare<{ value: string }>("SELECT value FROM key_value WHERE namespace = ? AND key = ?")
-    .get(NAMESPACE, apiKeyId);
+    .prepare("SELECT value FROM key_value WHERE namespace = ? AND key = ?")
+    .get(NAMESPACE, apiKeyId) as { value: string } | undefined;
   return row?.value === "flat" ? "flat" : "prefixed";
+}
+
+export function getApiKeyModelIdFormatsMany(
+  apiKeyIds: readonly string[]
+): Map<string, ApiKeyModelIdFormat> {
+  const result = new Map<string, ApiKeyModelIdFormat>(apiKeyIds.map((id) => [id, "prefixed"]));
+  if (apiKeyIds.length === 0) return result;
+  const db = getDbInstance();
+  for (let offset = 0; offset < apiKeyIds.length; offset += 400) {
+    const chunk = apiKeyIds.slice(offset, offset + 400);
+    const placeholders = chunk.map(() => "?").join(", ");
+    const rows = db
+      .prepare(`SELECT key, value FROM key_value WHERE namespace = ? AND key IN (${placeholders})`)
+      .all(NAMESPACE, ...chunk) as Array<{ key: string; value: string }>;
+    for (const row of rows) result.set(row.key, row.value === "flat" ? "flat" : "prefixed");
+  }
+  return result;
 }
 
 export function deleteApiKeyModelIdFormat(apiKeyId: string): void {

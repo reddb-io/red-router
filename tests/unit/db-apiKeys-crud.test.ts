@@ -124,6 +124,7 @@ test("API key tag and quota batch reads include default values", async () => {
   const bulkIds = Array.from({ length: 401 }, (_, index) => `missing-${index}`);
   assert.equal(apiKeyTags.getApiKeyTagsMany(bulkIds).size, 401);
   assert.equal(keyQuota.getKeyQuotaLimitsMany(bulkIds).size, 401);
+  assert.equal(apiKeyIdFormat.getApiKeyModelIdFormatsMany(bulkIds).size, 401);
 });
 
 test("createApiKey stores a flat model-ID preference with the bearer key", async () => {
@@ -134,6 +135,13 @@ test("createApiKey stores a flat model-ID preference with the bearer key", async
   const defaultKey = await apiKeys.createApiKey("Default Key", "machine-prefixed");
   assert.equal(apiKeyIdFormat.getApiKeyModelIdFormat(flat.id), "flat");
   assert.equal(apiKeyIdFormat.getApiKeyModelIdFormat(defaultKey.id), "prefixed");
+  assert.deepEqual(
+    [...apiKeyIdFormat.getApiKeyModelIdFormatsMany([flat.id, defaultKey.id])],
+    [
+      [flat.id, "flat"],
+      [defaultKey.id, "prefixed"],
+    ]
+  );
   await apiKeys.deleteApiKey(flat.id);
   assert.equal(apiKeyIdFormat.getApiKeyModelIdFormat(flat.id), "prefixed");
 });

@@ -55,6 +55,11 @@ function server(isAdmin: boolean, calls?: { single: number; batch: number }): Le
       if (calls) calls.batch++;
       return new Map(ids.map((id) => [id, ["team-a"]]));
     },
+    idFormat: () => "flat",
+    idFormatsMany: (ids) => {
+      if (calls) calls.batch++;
+      return new Map(ids.map((id) => [id, "flat" as const]));
+    },
   };
   return {
     info: { name: "red-router", version: "test" },
@@ -76,6 +81,7 @@ describe("legacy MCP API-key tools", () => {
     assert.match(serialized, /"role":"standard"/);
     assert.match(serialized, /"tokensPerDay":100/);
     assert.match(serialized, /"tags":\["team-a"\]/);
+    assert.match(serialized, /"id_format":"flat"/);
     assert.doesNotMatch(serialized, /sk-do-not-leak|private-hash|private-machine|connection-1/);
   });
 
@@ -96,6 +102,6 @@ describe("legacy MCP API-key tools", () => {
     assert.match(serialized, /"total":1/);
     assert.match(serialized, /"role":"admin"/);
     assert.doesNotMatch(serialized, /sk-do-not-leak|private-hash|private-machine|connection-1/);
-    assert.deepEqual(calls, { single: 0, batch: 2 });
+    assert.deepEqual(calls, { single: 0, batch: 3 });
   });
 });
