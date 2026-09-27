@@ -34,6 +34,8 @@ export class LegacyMcpToolError extends Error {
 export interface LegacyMcpContext {
   apiKeyId: string;
   isAdmin: boolean;
+  /** Server-side bearer only; never copy it into a tool result. */
+  apiKeyToken?: string;
 }
 
 export interface LegacyMcpTool {
