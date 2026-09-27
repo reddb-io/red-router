@@ -731,6 +731,7 @@ export const v1WebFetchSchema = z.object({
     ])
     .optional(),
   format: z.enum(["markdown", "html", "links", "screenshot"]).default("markdown"),
+  max_characters: z.number().int().min(0).default(0),
   depth: z.union([z.literal(0), z.literal(1), z.literal(2)]).default(0),
   wait_for_selector: z.string().max(256).optional(),
   include_metadata: z.boolean().default(false),

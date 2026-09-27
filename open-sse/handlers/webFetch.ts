@@ -54,6 +54,19 @@ export interface WebFetchResponse {
   screenshot_url: string | null;
 }
 
+/** A zero limit preserves the full result, matching the 9router request convention. */
+export function limitWebFetchContent(
+  response: WebFetchResponse,
+  maxCharacters: number
+): WebFetchResponse {
+  if (maxCharacters <= 0 || response.content.length <= maxCharacters) return response;
+  return {
+    ...response,
+    content: response.content.slice(0, maxCharacters),
+    metadata: response.metadata ? { ...response.metadata, truncated: true } : null,
+  };
+}
+
 export interface WebFetchResult {
   success: boolean;
   status?: number;

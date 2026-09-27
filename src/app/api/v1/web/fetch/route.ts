@@ -18,6 +18,7 @@ import { errorResponse, unavailableResponse } from "@omniroute/open-sse/utils/er
 import { HTTP_STATUS } from "@omniroute/open-sse/config/constants.ts";
 import {
   handleWebFetch,
+  limitWebFetchContent,
   type WebFetchCredentials,
   type WebFetchResult,
   WEB_FETCH_PROVIDERS as SHARED_WEB_FETCH_PROVIDERS,
@@ -340,8 +341,11 @@ export async function POST(request: Request) {
     log.info("WEB_FETCH", `Fell back from ${target.provider} to ${finalProvider}`);
   }
 
-  return new Response(JSON.stringify(result.data), {
-    status: 200,
-    headers: { "Content-Type": "application/json", ...CORS_HEADERS },
-  });
+  return new Response(
+    JSON.stringify(result.data && limitWebFetchContent(result.data, body.max_characters)),
+    {
+      status: 200,
+      headers: { "Content-Type": "application/json", ...CORS_HEADERS },
+    }
+  );
 }
