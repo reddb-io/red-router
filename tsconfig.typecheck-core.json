@@ -24,6 +24,7 @@
     "src/lib/db/providers.ts",
     "src/lib/db/settings.ts",
     "src/lib/db/stateReset.ts",
+    "src/lib/mcp/legacyProtocol.ts",
     "src/shared/validation/providerSchema.ts",
     "src/shared/validation/schemas.ts",
     "open-sse/config/providerModels.ts",
