@@ -1,6 +1,6 @@
 import { handleCorsOptions } from "@/shared/utils/cors";
 import { getUnifiedModelsResponse } from "../catalog";
-import { handleGetModelById } from "../modelById";
+import { handleGetModelById, handleGetWebModels } from "../modelById";
 
 /**
  * Handle CORS preflight
@@ -31,5 +31,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ mode
   const { model } = await params;
   const segments = Array.isArray(model) ? model : [model];
   const requestedId = decodeURIComponent(segments.join("/"));
+  if (segments.length === 1 && requestedId === "web") {
+    return handleGetWebModels(request, getUnifiedModelsResponse);
+  }
   return handleGetModelById(request, requestedId, getUnifiedModelsResponse);
 }

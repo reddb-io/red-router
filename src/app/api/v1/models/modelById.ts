@@ -1,4 +1,5 @@
 import { CORS_HEADERS } from "@/shared/utils/cors";
+import { buildErrorBody } from "@omniroute/open-sse/utils/error";
 
 /**
  * #4674 — Shared logic for `GET /v1/models/{model}`.
@@ -11,6 +12,36 @@ import { CORS_HEADERS } from "@/shared/utils/cors";
  */
 
 type CatalogModel = { id?: unknown } & Record<string, unknown>;
+
+/** 9router's /v1/models/web discovery, backed by this key's filtered catalog. */
+export async function handleGetWebModels(
+  request: Request,
+  getModels: (request: Request, corsHeaders?: Record<string, string>) => Promise<Response>
+): Promise<Response> {
+  const listResp = await getModels(request, CORS_HEADERS);
+  if (!listResp.ok) return listResp;
+
+  let data: CatalogModel[] | undefined;
+  try {
+    const body = (await listResp.json()) as { data?: CatalogModel[] };
+    data = body?.data;
+  } catch {
+    data = undefined;
+  }
+  if (!Array.isArray(data)) {
+    return Response.json(buildErrorBody(502, "Model catalog unavailable"), {
+      status: 502,
+      headers: CORS_HEADERS,
+    });
+  }
+  return Response.json(
+    {
+      object: "list",
+      data: data.filter((model) => model.type === "webSearch" || model.type === "webFetch"),
+    },
+    { headers: CORS_HEADERS }
+  );
+}
 
 /**
  * Find a model entry in the unified catalog `data` array by id.
