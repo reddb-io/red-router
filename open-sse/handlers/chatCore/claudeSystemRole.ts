@@ -189,17 +189,22 @@ export function hoistLeadingTextSystemMessages(payload: Record<string, unknown>)
     if (message == null || typeof message !== "object" || !isSystemRole(message.role)) break;
     if (typeof message.content === "string") {
       if (message.content.length > 0) blocks.push({ type: "text", text: message.content });
+      else kept.push(message);
       continue;
     }
     if (Array.isArray(message.content) && message.content.length > 0) {
-      let hoisted = false;
-      for (const block of message.content as Array<Record<string, unknown>>) {
-        if (block?.type === "text" && typeof block.text === "string" && block.text.length > 0) {
-          blocks.push({ type: "text", text: block.text });
-          hoisted = true;
-        }
+      const content = message.content as Array<Record<string, unknown>>;
+      // The top-level system parameter only accepts text. Do not silently
+      // discard an image, document, or unknown block from a mixed message.
+      if (
+        !content.every(
+          (block) =>
+            block?.type === "text" && typeof block.text === "string" && block.text.length > 0
+        )
+      ) {
+        break;
       }
-      if (!hoisted) kept.push(message);
+      blocks.push(...content.map((block) => ({ ...block })));
       continue;
     }
     kept.push(message);

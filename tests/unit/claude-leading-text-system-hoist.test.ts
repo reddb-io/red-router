@@ -86,3 +86,38 @@ test("does not change a normal user-first request", () => {
   assert.equal(payload.system, "base");
   assert.deepEqual(payload.messages, [{ role: "user", content: "hello" }]);
 });
+
+test("preserves cache metadata on text blocks and does not drop mixed system content", () => {
+  const cacheControl = { type: "ephemeral", ttl: "1h" };
+  const payload: Record<string, unknown> = {
+    messages: [
+      {
+        role: "system",
+        content: [{ type: "text", text: "cached style", cache_control: cacheControl }],
+      },
+      {
+        role: "system",
+        content: [
+          { type: "text", text: "keep together" },
+          { type: "image", source: { type: "url", url: "https://example.invalid/image.png" } },
+        ],
+      },
+      { role: "system", content: "later style" },
+      { role: "user", content: "hello" },
+    ],
+  };
+
+  hoistLeadingTextSystemMessages(payload);
+
+  assert.deepEqual(payload.system, [
+    { type: "text", text: "cached style", cache_control: cacheControl },
+  ]);
+  assert.deepEqual(
+    (payload.messages as Array<{ role: string }>).map((message) => message.role),
+    ["system", "system", "user"]
+  );
+  assert.deepEqual((payload.messages as Array<{ content: unknown }>)[0].content, [
+    { type: "text", text: "keep together" },
+    { type: "image", source: { type: "url", url: "https://example.invalid/image.png" } },
+  ]);
+});
