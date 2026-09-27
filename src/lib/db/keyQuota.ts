@@ -138,6 +138,36 @@ export function getKeyQuotaLimits(apiKeyId: string): KeyQuotaLimits {
     : { apiKeyId, tpmLimit: null, rpmLimit: null, dailyTokensLimit: null, monthlyAmountUsd: null };
 }
 
+/** Batch limits for administrative listings without per-key SQLite queries. */
+export function getKeyQuotaLimitsMany(apiKeyIds: readonly string[]): Map<string, KeyQuotaLimits> {
+  const result = new Map<string, KeyQuotaLimits>(
+    apiKeyIds.map((apiKeyId) => [
+      apiKeyId,
+      { apiKeyId, tpmLimit: null, rpmLimit: null, dailyTokensLimit: null, monthlyAmountUsd: null },
+    ])
+  );
+  if (apiKeyIds.length === 0) return result;
+  const db = getDbInstance();
+  for (let offset = 0; offset < apiKeyIds.length; offset += 400) {
+    const chunk = apiKeyIds.slice(offset, offset + 400);
+    const placeholders = chunk.map(() => "?").join(", ");
+    const rows = db
+      .prepare(
+        `SELECT q.api_key_id, q.tpm_limit, q.rpm_limit, d.daily_tokens_limit,
+                q.monthly_amount_usd
+         FROM api_key_quota_limits q
+         LEFT JOIN api_key_daily_token_limits d ON d.api_key_id = q.api_key_id
+         WHERE q.api_key_id IN (${placeholders})`
+      )
+      .all(...chunk);
+    for (const row of rows) {
+      const limits = rowToLimits(row);
+      result.set(limits.apiKeyId, limits);
+    }
+  }
+  return result;
+}
+
 export interface UpsertKeyQuotaLimitsInput {
   tpmLimit?: number | null;
   rpmLimit?: number | null;

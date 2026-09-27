@@ -1,8 +1,8 @@
 import { z } from "zod";
 
 import { getApiKeyById, getApiKeys } from "@/lib/db/apiKeys";
-import { getKeyQuotaLimits, type KeyQuotaLimits } from "@/lib/db/keyQuota";
-import { getApiKeyTags } from "@/lib/db/apiKeys/tags";
+import { getKeyQuotaLimits, getKeyQuotaLimitsMany, type KeyQuotaLimits } from "@/lib/db/keyQuota";
+import { getApiKeyTags, getApiKeyTagsMany } from "@/lib/db/apiKeys/tags";
 import { LegacyMcpToolError, type LegacyMcpTool } from "./legacyProtocol";
 
 type KeyRecord = NonNullable<Awaited<ReturnType<typeof getApiKeyById>>>;
@@ -11,14 +11,18 @@ export interface LegacyKeyStore {
   getById(id: string): Promise<KeyRecord | null>;
   list(): Promise<KeyRecord[]>;
   limits(id: string): KeyQuotaLimits;
+  limitsMany(ids: readonly string[]): Map<string, KeyQuotaLimits>;
   tags(id: string): string[];
+  tagsMany(ids: readonly string[]): Map<string, string[]>;
 }
 
 const defaultStore: LegacyKeyStore = {
   getById: getApiKeyById,
   list: () => getApiKeys(),
   limits: getKeyQuotaLimits,
+  limitsMany: getKeyQuotaLimitsMany,
   tags: getApiKeyTags,
+  tagsMany: getApiKeyTagsMany,
 };
 
 // Never spread a DB row into an MCP result: the row also contains the bearer secret.
@@ -93,11 +97,17 @@ export function createLegacyKeyTools(store: LegacyKeyStore = defaultStore): Lega
         if (!context.isAdmin)
           throw new LegacyMcpToolError("forbidden", "Management access required");
         const keys = await store.list();
+        const ids = keys.map((key) => String(key.id));
+        const limits = store.limitsMany(ids);
+        const tags = store.tagsMany(ids);
         return {
           total: keys.length,
-          api_keys: keys.map((key) =>
-            publicLegacyKey(key, store.limits(String(key.id)), store.tags(String(key.id)))
-          ),
+          api_keys: keys.map((key) => {
+            const id = String(key.id);
+            const quota = limits.get(id);
+            if (!quota) throw new Error("Missing API key quota data");
+            return publicLegacyKey(key, quota, tags.get(id) ?? []);
+          }),
         };
       },
     },

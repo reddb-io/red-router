@@ -27,19 +27,34 @@ const key = {
   expiresAt: null,
 };
 
-function server(isAdmin: boolean): LegacyMcpServer {
+function server(isAdmin: boolean, calls?: { single: number; batch: number }): LegacyMcpServer {
   const caller = { ...key, scopes: isAdmin ? ["manage"] : [] };
+  const quota = (id: string) => ({
+    apiKeyId: id,
+    tpmLimit: null,
+    rpmLimit: 5,
+    dailyTokensLimit: 100,
+    monthlyAmountUsd: 2,
+  });
   const store: LegacyKeyStore = {
     getById: async (id) => (id === key.id ? (caller as never) : null),
     list: async () => [key as never],
-    limits: (id) => ({
-      apiKeyId: id,
-      tpmLimit: null,
-      rpmLimit: 5,
-      dailyTokensLimit: 100,
-      monthlyAmountUsd: 2,
-    }),
-    tags: () => ["team-a"],
+    limits: (id) => {
+      if (calls) calls.single++;
+      return quota(id);
+    },
+    limitsMany: (ids) => {
+      if (calls) calls.batch++;
+      return new Map(ids.map((id) => [id, quota(id)]));
+    },
+    tags: () => {
+      if (calls) calls.single++;
+      return ["team-a"];
+    },
+    tagsMany: (ids) => {
+      if (calls) calls.batch++;
+      return new Map(ids.map((id) => [id, ["team-a"]]));
+    },
   };
   return {
     info: { name: "red-router", version: "test" },
@@ -75,10 +90,12 @@ describe("legacy MCP API-key tools", () => {
   });
 
   it("allows management-scoped listing without returning secrets", async () => {
-    const result = await handleLegacyMcpBody(call("list_api_keys"), server(true));
+    const calls = { single: 0, batch: 0 };
+    const result = await handleLegacyMcpBody(call("list_api_keys"), server(true, calls));
     const serialized = JSON.stringify(result);
     assert.match(serialized, /"total":1/);
     assert.match(serialized, /"role":"admin"/);
     assert.doesNotMatch(serialized, /sk-do-not-leak|private-hash|private-machine|connection-1/);
+    assert.deepEqual(calls, { single: 0, batch: 2 });
   });
 });

@@ -34,13 +34,34 @@ export function getApiKeyTags(apiKeyId: string): string[] {
   const row = getDbInstance()
     .prepare<{ value: string }>("SELECT value FROM key_value WHERE namespace = ? AND key = ?")
     .get(NAMESPACE, apiKeyId);
-  if (!row) return [];
+  return row ? parseStoredTags(row.value) : [];
+}
+
+function parseStoredTags(value: string): string[] {
   try {
-    const tags: unknown = JSON.parse(row.value);
+    const tags: unknown = JSON.parse(value);
     return snapshotApiKeyTags(tags as string[]) ?? [];
   } catch {
     return [];
   }
+}
+
+/** Bounded IN queries avoid one SQLite round-trip per key in management listings. */
+export function getApiKeyTagsMany(apiKeyIds: readonly string[]): Map<string, string[]> {
+  const result = new Map(apiKeyIds.map((id) => [id, [] as string[]]));
+  if (apiKeyIds.length === 0) return result;
+  const db = getDbInstance();
+  for (let offset = 0; offset < apiKeyIds.length; offset += 400) {
+    const chunk = apiKeyIds.slice(offset, offset + 400);
+    const placeholders = chunk.map(() => "?").join(", ");
+    const rows = db
+      .prepare<{ key: string; value: string }>(
+        `SELECT key, value FROM key_value WHERE namespace = ? AND key IN (${placeholders})`
+      )
+      .all(NAMESPACE, ...chunk);
+    for (const row of rows) result.set(row.key, parseStoredTags(row.value));
+  }
+  return result;
 }
 
 export function deleteApiKeyTags(apiKeyId: string): void {

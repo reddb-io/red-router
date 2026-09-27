@@ -105,6 +105,26 @@ test("API key tags follow the 9router display-label caps", async () => {
   assert.equal(stored[0], "x".repeat(32));
 });
 
+test("API key tag and quota batch reads include default values", async () => {
+  await resetStorage();
+  const tagged = await apiKeys.createApiKey("Tagged Batch", "machine-tags-batch", [], {
+    tags: ["team-a"],
+    quotaLimits: { rpmLimit: 7, dailyTokensLimit: 100 },
+  });
+  const plain = await apiKeys.createApiKey("Plain Batch", "machine-plain-batch");
+  const ids = [tagged.id, plain.id];
+  const tags = apiKeyTags.getApiKeyTagsMany(ids);
+  const limits = keyQuota.getKeyQuotaLimitsMany(ids);
+  assert.deepEqual(tags.get(tagged.id), ["team-a"]);
+  assert.deepEqual(tags.get(plain.id), []);
+  assert.equal(limits.get(tagged.id)?.rpmLimit, 7);
+  assert.equal(limits.get(tagged.id)?.dailyTokensLimit, 100);
+  assert.equal(limits.get(plain.id)?.rpmLimit, null);
+  const bulkIds = Array.from({ length: 401 }, (_, index) => `missing-${index}`);
+  assert.equal(apiKeyTags.getApiKeyTagsMany(bulkIds).size, 401);
+  assert.equal(keyQuota.getKeyQuotaLimitsMany(bulkIds).size, 401);
+});
+
 test("createApiKey rolls back the bearer key if tag insertion fails", async () => {
   await resetStorage();
   core.getDbInstance().exec(`
