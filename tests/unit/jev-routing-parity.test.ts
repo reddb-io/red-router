@@ -24,6 +24,8 @@ import {
   readJevTier,
 } from "../../src/sse/services/jevRouting.ts";
 import { applyToolDecision } from "../../open-sse/handlers/chatCore/toolDecision.ts";
+import { normalizeAnswers } from "../../open-sse/decision/jev.ts";
+import { resolveToolDecision } from "../../open-sse/decision/decide.ts";
 import { FORMATS } from "../../open-sse/translator/formats.ts";
 import { readSystemOneJson } from "../../src/sse/handlers/systemOne.ts";
 import { comboRuntimeConfigSchema } from "../../src/shared/validation/schemas/combo.ts";
@@ -96,6 +98,32 @@ test("JEV requires a confident supported choice and accepts gateway probability 
   assert.equal(jevTierToMinimum("SIMPLE"), "free");
   assert.equal(jevTierToMinimum("MEDIUM"), "cheap");
   assert.equal(jevTierToMinimum("REASONING"), "premium");
+});
+
+test("JEV tool verdict accepts gateway probabilities when confidence is omitted", () => {
+  const answers = normalizeAnswers({
+    tool: {
+      type: "choice",
+      choice: "search",
+      probabilities: { search: 0.91, no_tool_needed: 0.09 },
+    },
+    needs_tool: { type: "noul", noul: 0.95 },
+  });
+  assert.equal((answers.tool as { confidence: number }).confidence, 0.91);
+  assert.deepEqual(resolveToolDecision({ answers, tools: ["search"], allowed: "forced" }), {
+    mode: "forced",
+    tool: "search",
+    confidence: 0.91,
+  });
+  assert.deepEqual(
+    resolveToolDecision({
+      answers,
+      tools: ["search"],
+      plans: [{ name: "search", kind: "hosted" }],
+      allowed: "forced",
+    }),
+    { mode: "passthrough", reason: "hosted_tool_selected", confidence: 0.91 }
+  );
 });
 
 test("JEV skips terminal and throttled credential selections", () => {

@@ -16,6 +16,7 @@ import {
   resolveToolDecision,
   type ToolDecisionResult,
 } from "@omniroute/open-sse/decision/decide.ts";
+import { normalizeAnswers } from "@omniroute/open-sse/decision/jev.ts";
 import { isEncryptedTask } from "@omniroute/open-sse/decision/signals.ts";
 import {
   extractTools,
@@ -245,8 +246,9 @@ export async function decideJevTool(
     typeof (thinking as { type?: unknown }).type === "string" &&
     (thinking as { type: string }).type !== "disabled";
   const verdict = resolveToolDecision({
-    answers: answers as Record<string, unknown>,
+    answers: normalizeAnswers(answers as Record<string, unknown>),
     tools: kept.map((tool) => tool.name),
+    plans: kept,
     allowed: config.toolMode,
     extendedThinking,
   });
