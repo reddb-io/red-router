@@ -172,4 +172,23 @@ describe("ConsoleLogViewer accessibility", () => {
     });
     expect(requestFullscreen).toHaveBeenCalledOnce();
   });
+
+  it("copies the currently visible console lines as text", async () => {
+    const container = await renderViewer();
+    const copyShown = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="common.copy"]'
+    );
+
+    expect(copyShown?.disabled).toBe(false);
+    await act(async () => {
+      copyShown?.click();
+      await Promise.resolve();
+    });
+
+    const copiedText = copyToClipboard.mock.lastCall?.[0] as string;
+    expect(copiedText).toContain("ready");
+    expect(copiedText).toContain("waiting");
+    expect(copiedText.split("\n")).toHaveLength(2);
+    expect(container.querySelector('[role="status"]')?.textContent).toBe("common.copied");
+  });
 });

@@ -59,6 +59,7 @@ export default function ConsoleLogViewer() {
   const [autoScroll, setAutoScroll] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
+  const [copiedAll, setCopiedAll] = useState(false);
   const [selectedMinute, setSelectedMinute] = useState<number | null>(null);
   const [now, setNow] = useState(0);
   const [isFullScreen, setIsFullScreen] = useState(false);
@@ -170,10 +171,12 @@ export default function ConsoleLogViewer() {
 
     setError(null);
     if (copyFeedbackTimerRef.current) clearTimeout(copyFeedbackTimerRef.current);
+    setCopiedAll(false);
     setCopiedIdx(idx);
     copyFeedbackTimerRef.current = setTimeout(() => {
       copyFeedbackTimerRef.current = null;
       setCopiedIdx(null);
+      setCopiedAll(false);
     }, 2000);
   };
 
@@ -228,6 +231,51 @@ export default function ConsoleLogViewer() {
       return timestamp >= activeMinute && timestamp < activeMinute + LOG_ACTIVITY_MINUTE_MS;
     });
   }, [logs, searchText, activeMinute]);
+
+  const shownText = () =>
+    filteredLogs
+      .map((entry) => {
+        const component = getComponent(entry);
+        return [entry.timestamp, entry.level, component ? `[${component}]` : "", getText(entry)]
+          .filter(Boolean)
+          .join(" ");
+      })
+      .join("\n");
+
+  const handleCopyShown = async () => {
+    const success = await copyToClipboard(shownText());
+    if (!success) {
+      setError(tv("copyFailed"));
+      return;
+    }
+    setError(null);
+    if (copyFeedbackTimerRef.current) clearTimeout(copyFeedbackTimerRef.current);
+    setCopiedIdx(null);
+    setCopiedAll(true);
+    copyFeedbackTimerRef.current = setTimeout(() => {
+      copyFeedbackTimerRef.current = null;
+      setCopiedAll(false);
+    }, 2000);
+  };
+
+  const handleDownloadShown = () => {
+    let url: string | null = null;
+    let link: HTMLAnchorElement | null = null;
+    try {
+      url = URL.createObjectURL(new Blob([shownText()], { type: "text/plain;charset=utf-8" }));
+      link = document.createElement("a");
+      link.href = url;
+      link.download = `omniroute-console-${new Date().toISOString().replace(/[:.]/g, "-")}.log`;
+      document.body.appendChild(link);
+      link.click();
+      setError(null);
+    } catch {
+      setError(t("exportFailed"));
+    } finally {
+      link?.remove();
+      if (url) URL.revokeObjectURL(url);
+    }
+  };
 
   return (
     <div
@@ -300,6 +348,38 @@ export default function ConsoleLogViewer() {
             {isFullScreen ? "fullscreen_exit" : "fullscreen"}
           </span>
         </button>
+
+        <div className="flex items-center gap-1" role="group" aria-label={tv("consoleAria")}>
+          <button
+            type="button"
+            onClick={() => void handleCopyShown()}
+            disabled={filteredLogs.length === 0}
+            aria-label={tc("copy")}
+            title={tc("copy")}
+            className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-[var(--color-text-main)] hover:bg-[var(--color-bg-alt)] disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-[var(--color-accent)]"
+          >
+            <span className="material-symbols-outlined text-[16px]" aria-hidden="true">
+              {copiedAll ? "check" : "content_copy"}
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={handleDownloadShown}
+            disabled={filteredLogs.length === 0}
+            aria-label={t("export")}
+            title={t("export")}
+            className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-[var(--color-text-main)] hover:bg-[var(--color-bg-alt)] disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-[var(--color-accent)]"
+          >
+            <span className="material-symbols-outlined text-[16px]" aria-hidden="true">
+              download
+            </span>
+          </button>
+        </div>
+        {copiedAll && (
+          <span className="sr-only" role="status" aria-live="polite">
+            {tc("copied")}
+          </span>
+        )}
 
         {/* Status */}
         <div className="flex items-center gap-2 ml-auto text-xs text-[var(--color-text-muted)]">
