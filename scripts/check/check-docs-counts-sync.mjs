@@ -580,13 +580,6 @@ export function buildChecks() {
       files: ["README.md", "llm.txt"],
       validate: makeVersionClaimValidator(readPackageVersion()),
     },
-    {
-      label: "i18n locales count",
-      actual: countLocales(),
-      docKey: "i18n locales",
-      strict: true,
-      files: ["docs/README.md", "docs/guides/I18N.md"],
-    },
     ...(() => {
       const f = readCodeFacts();
       if (!f)

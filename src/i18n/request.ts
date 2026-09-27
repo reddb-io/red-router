@@ -1,56 +1,5 @@
 import { getRequestConfig } from "next-intl/server";
-import { cookies, headers } from "next/headers";
-import { LOCALES, DEFAULT_LOCALE, LOCALE_COOKIE, LOCALE_ALIASES } from "./config";
-import { resolveRequestedLocale } from "./resolveRequestedLocale";
-
-const FALLBACK_LOCALE = "en";
-
-/**
- * Sentinel prefix written by `scripts/i18n/sync-ui-keys.mjs` when backfilling a
- * locale file with an untranslated key: `__MISSING__:<english value>`. Kept in
- * sync manually with the scripts (plain .mjs, no shared TS module) — see
- * `scripts/i18n/sync-ui-keys.mjs` and `scripts/i18n/check-ui-keys-coverage.mjs`.
- */
-export const PLACEHOLDER_PREFIX = "__MISSING__:";
-
-function isUntranslatedPlaceholder(value: unknown): boolean {
-  return typeof value === "string" && value.startsWith(PLACEHOLDER_PREFIX);
-}
-
-/**
- * Deep merge that mutates `target` with values from `source`.
- * If both have an object at the same key, recurse.
- * Otherwise prefer the existing value in `target` (locale-specific wins) —
- * unless the target value is an untranslated `__MISSING__:` sentinel written
- * by the i18n sync script, in which case it is treated as absent so the
- * clean English fallback value wins instead (#7258).
- */
-export function deepMergeFallback(
-  target: Record<string, unknown>,
-  source: Record<string, unknown>
-): Record<string, unknown> {
-  for (const [key, sourceValue] of Object.entries(source)) {
-    // Guard against prototype pollution from a crafted locale message tree.
-    if (key === "__proto__" || key === "constructor" || key === "prototype") continue;
-    const targetValue = target[key];
-    if (
-      sourceValue !== null &&
-      typeof sourceValue === "object" &&
-      !Array.isArray(sourceValue) &&
-      targetValue !== null &&
-      typeof targetValue === "object" &&
-      !Array.isArray(targetValue)
-    ) {
-      deepMergeFallback(
-        targetValue as Record<string, unknown>,
-        sourceValue as Record<string, unknown>
-      );
-    } else if (targetValue === undefined || isUntranslatedPlaceholder(targetValue)) {
-      target[key] = sourceValue;
-    }
-  }
-  return target;
-}
+import enMessages from "./messages/en.json";
 
 function setNestedValue(target: Record<string, unknown>, dottedKey: string, value: unknown): void {
   const segments = dottedKey.split(".");
@@ -121,47 +70,8 @@ export function normalizeComplianceEventTypes(
 }
 
 export default getRequestConfig(async () => {
-  const cookieStore = await cookies();
-  let locale: string = cookieStore.get(LOCALE_COOKIE)?.value || "";
-
-  if (!locale) {
-    const headerStore = await headers();
-    locale = headerStore.get("x-locale") || "";
-  }
-
-  locale = resolveRequestedLocale(locale, LOCALES, LOCALE_ALIASES, DEFAULT_LOCALE);
-
-  const localeMessages = normalizeComplianceEventTypes(
-    (await import(`./messages/${locale}.json`)).default as Record<string, unknown>
-  );
-
-  // G1: fall back to EN for any missing key. EN is loaded only once per request
-  // and only when the active locale is not EN itself (no-op).
-  let messages = localeMessages as Record<string, unknown>;
-  if (locale !== FALLBACK_LOCALE) {
-    const fallbackMessages = normalizeComplianceEventTypes(
-      (await import(`./messages/${FALLBACK_LOCALE}.json`)).default as Record<string, unknown>
-    );
-    messages = deepMergeFallback({ ...localeMessages }, fallbackMessages);
-  }
-
-  // 4. Merge EN as namespace-level fallback for locales that are missing new namespaces.
-  //    Only applied when the active locale is not EN (avoids a redundant import).
-  //    Merging is shallow at the top-level namespace key — if a namespace is already
-  //    present in the locale file it is kept as-is; missing namespaces fall back to EN.
-  //    This ensures new namespaces (e.g. cliCode, cliAgents, acpAgents, cliCommon added
-  //    in plan 14 F9) are displayed in English for the 39 non-EN/non-pt-BR locales until
-  //    translations are shipped.
-  let mergedMessages: Record<string, unknown> = messages as Record<string, unknown>;
-  if (locale !== DEFAULT_LOCALE) {
-    const enMessages = normalizeComplianceEventTypes(
-      (await import(`./messages/${DEFAULT_LOCALE}.json`)).default as Record<string, unknown>
-    );
-    mergedMessages = { ...enMessages, ...mergedMessages };
-  }
-
   return {
-    locale,
-    messages: mergedMessages,
+    locale: "en",
+    messages: normalizeComplianceEventTypes(enMessages as Record<string, unknown>),
   };
 });

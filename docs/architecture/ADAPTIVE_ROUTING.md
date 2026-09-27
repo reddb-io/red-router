@@ -344,7 +344,6 @@ fully with the evaluator absent.
 | `omniglyph` export mismatch                           | **FIXED (environmental)** | `node_modules` was out of sync with `package-lock.json` (installed 1.3.1 vs locked 1.4.0). Running `npm install omniglyph@1.4.0` restored the locked version; type errors dropped to 0. Manifests unchanged.                                         |
 | Stale `getKnownContextOverflow` tests                 | **KNOWN — not fixed**     | `combo-context-overflow-compression-probe.test.ts` imports a function that no longer exists in `open-sse/services/combo.ts` (only comments reference it). Fixing requires re-implementing or re-writing those tests — unrelated architectural churn. |
 | `combo-runtime-unit-concurrency.test.ts` DB isolation | **KNOWN — not fixed**     | Test-harness SQLite-isolation assertion fails when run directly; fails identically on the base branch.                                                                                                                                               |
-| i18n `llm.txt` drift                                  | **KNOWN — not fixed**     | `docs/i18n/*/llm.txt` differ from root; pre-existing, blocks the docs-sync pre-commit gate.                                                                                                                                                          |
 
 Environmental vs code issues are kept distinct; no unrelated failures are hidden
 behind changed test filters.

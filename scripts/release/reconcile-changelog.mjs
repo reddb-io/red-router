@@ -13,7 +13,7 @@
 // It never touches bullets that already exist in the section (the changelog-integrity gate
 // compares bullet lines against the base), never touches `[Unreleased]`, and never edits any
 // other version section. Run `npm run release:contributors -- <version> --inject` afterwards to
-// (re)build the `### 🙌 Contributors` table, then `release:sync-changelog-i18n`.
+// (re)build the `### 🙌 Contributors` table.
 //
 // Lessons baked in (v3.8.51 reconciliation, 2026-09-07 — PR #12971):
 //   • prefix of a fragment filename is NOT a reliable PR number (issue numbers, closed/recreated
@@ -878,7 +878,7 @@ export function main(argv = process.argv.slice(2)) {
   for (const m of mismatches) console.log(`  review: ${m}`);
   for (const d of dedupDropped) console.log(`  deduped: ${d.slice(0, 90)}`);
   console.log(
-    `[reconcile-changelog] next: npm run release:contributors -- ${version} --inject && npx prettier --write CHANGELOG.md && npm run release:sync-changelog-i18n -- ${version} <prev> && npm run check:changelog-integrity`
+    `[reconcile-changelog] next: npm run release:contributors -- ${version} --inject && npx prettier --write CHANGELOG.md && npm run check:changelog-integrity`
   );
   return 0;
 }

@@ -47,7 +47,6 @@ Simple guides for using OmniRoute — no technical background needed.
 - [KIRO_SETUP.md](guides/KIRO_SETUP.md) — Kiro setup.
 - [ANTIGRAVITY-ONBOARDING.md](guides/ANTIGRAVITY-ONBOARDING.md) — Antigravity (Google One AI) onboarding.
 - [MANAGEMENT-AUTH.md](guides/MANAGEMENT-AUTH.md) — management authentication.
-- [I18N.md](guides/I18N.md) — translation and locale workflow.
 - [TROUBLESHOOTING.md](guides/TROUBLESHOOTING.md) — detailed troubleshooting reference.
 - [UNINSTALL.md](guides/UNINSTALL.md) — clean removal steps.
 
@@ -203,10 +202,6 @@ Release, deployment, proxies, tunnels, coverage, database, monitoring.
 ## diagrams/
 
 Mermaid sources and exported SVG/PNG diagrams referenced from the docs above. See [diagrams/README.md](diagrams/README.md).
-
-## i18n/
-
-Translated mirrors of the documentation in 66 locales (plus the English originals — 67 languages in total). See [i18n/README.md](i18n/README.md) for the supported language list.
 
 ## screenshots/
 

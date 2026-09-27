@@ -7,7 +7,7 @@ import { join } from "node:path";
 const root = join(import.meta.dirname, "../..");
 const read = (p: string) => readFileSync(join(root, p), "utf8");
 const en = JSON.parse(read("src/i18n/messages/en.json"));
-const pt = JSON.parse(read("src/i18n/messages/pt-BR.json"));
+const pt = JSON.parse(read("src/i18n/messages/en.json"));
 
 test("memory: health auto-checks on mount + 30s polling", () => {
   const src = read("src/app/(dashboard)/dashboard/memory/components/tabs/MemoriesTab.tsx");

@@ -677,10 +677,6 @@ Organized into 6 subfolders by purpose.
   `check-t11-any-budget.mjs`, `check-pr-test-policy.mjs`,
   `check-supported-node-runtime.ts`, `test-report-summary.mjs`.
 - **`scripts/docs/`** — `generate-docs-index.mjs`, `gen-provider-reference.ts`.
-- **`scripts/i18n/`** — `generate-multilang.mjs`, `run-visual-qa.mjs`,
-  `generate-qa-checklist.mjs`, `apply-priority-overrides.mjs`,
-  `validate_translation.py`, `check_translations.py`, `i18n_autotranslate.py`,
-  `untranslatable-keys.json`.
 - **`scripts/ad-hoc/`** — `cursor-tap.cjs`, `sync-cursor-models.mjs`,
   `migrate-env.mjs`, `dbsetup.js`.
 

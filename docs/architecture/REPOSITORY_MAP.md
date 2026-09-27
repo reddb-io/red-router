@@ -121,7 +121,7 @@ src/
 ├── domain/              # Pure domain logic (policy engine, fallback, cost, lockout, comboResolver, assessment)
 ├── server/              # Server-only modules (authz pipeline, cors, auth middleware) — cannot import from client
 ├── shared/              # Shared between server and client where safe (constants, types, validation, contracts, utils)
-├── i18n/                # next-intl config + per-locale message JSON (42 locales)
+├── i18n/                # English message catalog for next-intl
 ├── middleware/          # Next.js middleware (request enrichment, locale detection)
 ├── mitm/                # MITM proxy core: cert gen/install, handlers, targets, inspector, masks, passthrough
 │   ├── handlers/        # 9 IDE-agent handler classes extending MitmHandlerBase (antigravity, kiro, copilot, codex, cursor, zed, claudeCode, openCode, trae)
@@ -396,30 +396,29 @@ open-sse/
 | `COVERAGE_PLAN.md`          | Coverage goals and current state                                                      |
 | `FREE_TIERS.md`             | Curated free-tier providers (48+ free + 11 OAuth)                                     |
 | `CLI-TOOLS.md`              | External CLI integrations + Internal OmniRoute CLI                                    |
-| `I18N.md`                   | i18n architecture, adding a language, 42 locales                                      |
 | `UNINSTALL.md`              | Clean uninstall steps                                                                 |
 | `PROVIDER_REFERENCE.md`     | **Auto-generated** catalog of 355 providers (regen: `npm run gen:provider-reference`) |
 
 ### Subsystem deep-dives
 
-| Doc                        | Purpose                                                              |
-| -------------------------- | -------------------------------------------------------------------- |
-| `MCP-SERVER.md`            | MCP server: 110 tools, 3 transports, 33 scopes, REST endpoints       |
-| `A2A-SERVER.md`            | A2A v0.3: JSON-RPC, 6 skills, REST helpers, agent card               |
-| `AGENT_PROTOCOLS_GUIDE.md` | Unified guide: A2A vs ACP vs Cloud Agents                            |
-| `CLOUD_AGENT.md`           | Codex Cloud / Devin / Jules orchestration                            |
-| `SKILLS.md`                | Skills framework (built-in + marketplace + SkillsSH + sandbox)       |
-| `RADAR.md`                 | Radar free-model catalog overlay (`RADAR_ENABLED`, off by default)   |
-| `MEMORY.md`                | Memory system (SQLite FTS5 + Qdrant)                                 |
-| `EVALS.md`                 | Eval framework (suites, runs, rubrics)                               |
-| `GUARDRAILS.md`            | PII masker, prompt injection, vision bridge                          |
-| `COMPLIANCE.md`            | Audit log, retention, noLog opt-out                                  |
-| `WEBHOOKS.md`              | HMAC-signed webhook delivery                                         |
-| `REASONING_REPLAY.md`      | Hybrid memory/SQLite cache for `reasoning_content`                   |
-| `AUTHZ_GUIDE.md`           | Authorization pipeline (`classify` → `policies` → `enforce`)         |
-| `RESILIENCE_GUIDE.md`      | Circuit breaker + cooldown + model lockout                           |
-| `docs/security/STEALTH_GUIDE.md` (git only)         | TLS fingerprinting (JA3/JA4), Claude Code CCH, MITM cert             |
-| `AUTO-COMBO.md`            | Auto Combo engine (16-factor scoring, 6 mode packs, virtual factory) |
+| Doc                                         | Purpose                                                              |
+| ------------------------------------------- | -------------------------------------------------------------------- |
+| `MCP-SERVER.md`                             | MCP server: 110 tools, 3 transports, 33 scopes, REST endpoints       |
+| `A2A-SERVER.md`                             | A2A v0.3: JSON-RPC, 6 skills, REST helpers, agent card               |
+| `AGENT_PROTOCOLS_GUIDE.md`                  | Unified guide: A2A vs ACP vs Cloud Agents                            |
+| `CLOUD_AGENT.md`                            | Codex Cloud / Devin / Jules orchestration                            |
+| `SKILLS.md`                                 | Skills framework (built-in + marketplace + SkillsSH + sandbox)       |
+| `RADAR.md`                                  | Radar free-model catalog overlay (`RADAR_ENABLED`, off by default)   |
+| `MEMORY.md`                                 | Memory system (SQLite FTS5 + Qdrant)                                 |
+| `EVALS.md`                                  | Eval framework (suites, runs, rubrics)                               |
+| `GUARDRAILS.md`                             | PII masker, prompt injection, vision bridge                          |
+| `COMPLIANCE.md`                             | Audit log, retention, noLog opt-out                                  |
+| `WEBHOOKS.md`                               | HMAC-signed webhook delivery                                         |
+| `REASONING_REPLAY.md`                       | Hybrid memory/SQLite cache for `reasoning_content`                   |
+| `AUTHZ_GUIDE.md`                            | Authorization pipeline (`classify` → `policies` → `enforce`)         |
+| `RESILIENCE_GUIDE.md`                       | Circuit breaker + cooldown + model lockout                           |
+| `docs/security/STEALTH_GUIDE.md` (git only) | TLS fingerprinting (JA3/JA4), Claude Code CCH, MITM cert             |
+| `AUTO-COMBO.md`                             | Auto Combo engine (16-factor scoring, 6 mode packs, virtual factory) |
 
 ### Compression
 
@@ -448,7 +447,6 @@ open-sse/
 
 | Subdir                | Purpose                                                                                                                                                                                        |
 | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `docs/i18n/`          | Localized doc translations (41 locales)                                                                                                                                                        |
 | `docs/screenshots/`   | Image assets for guides                                                                                                                                                                        |
 | `_tasks/superpowers/` | Plans/specs from superpowers (`writing-plans`/`brainstorming`) + research — isolated, separately-versioned repo, gitignored by the main tree. See CLAUDE.md → "Planning & Research Artifacts". |
 

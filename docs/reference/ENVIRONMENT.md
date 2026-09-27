@@ -1539,20 +1539,6 @@ value below unset in production deployments.
 | `ELECTRON_SMOKE_COLD_RESTART`          | `0`                              | `scripts/dev/smoke-electron-packaged.mjs` | #7592: relaunch against the same data dir and assert the second launch selects the native SQLite driver.                                                                                                                                   |
 | `CLI_DEVIN_BIN`                        | _(PATH lookup)_                  | `open-sse/executors/devin-cli.ts`         | Override the Devin CLI binary path.                                                                                                                                                                                                        |
 
-### Docs translation pipeline
-
-Used by `scripts/i18n/run-translation.mjs` (the `npm run i18n:run` command).
-All five variables are unset by default — set them in `.env` only on machines
-that should be able to run the docs translator.
-
-| Variable                            | Default   | Source File                        | Description                                                               |
-| ----------------------------------- | --------- | ---------------------------------- | ------------------------------------------------------------------------- |
-| `OMNIROUTE_TRANSLATION_API_URL`     | _(unset)_ | `scripts/i18n/run-translation.mjs` | OpenAI-compatible base URL for the translation backend.                   |
-| `OMNIROUTE_TRANSLATION_API_KEY`     | _(unset)_ | `scripts/i18n/run-translation.mjs` | Bearer token for the translation backend (never logged).                  |
-| `OMNIROUTE_TRANSLATION_MODEL`       | _(unset)_ | `scripts/i18n/run-translation.mjs` | Model id, e.g. `gpt-4o-mini` or `cx/gpt-5.4-mini`.                        |
-| `OMNIROUTE_TRANSLATION_TIMEOUT_MS`  | `60000`   | `scripts/i18n/run-translation.mjs` | Per-request timeout in milliseconds.                                      |
-| `OMNIROUTE_TRANSLATION_CONCURRENCY` | `4`       | `scripts/i18n/run-translation.mjs` | Parallel translation requests when running over multiple files / locales. |
-
 ---
 
 ## 27. Radar Feed (Self-Hosting)

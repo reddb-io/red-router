@@ -19,7 +19,7 @@ const src = readFileSync(PAGE, "utf8");
 const en = JSON.parse(readFileSync(join(ROOT, "src/i18n/messages/en.json"), "utf8")) as {
   apiManager: Record<string, string>;
 };
-const pt = JSON.parse(readFileSync(join(ROOT, "src/i18n/messages/pt-BR.json"), "utf8")) as {
+const pt = JSON.parse(readFileSync(join(ROOT, "src/i18n/messages/en.json"), "utf8")) as {
   apiManager: Record<string, string>;
 };
 

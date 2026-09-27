@@ -105,29 +105,6 @@ Run the app for interaction or visual changes and check both narrow and wide vie
 production build and broader suites; visual behavior still needs a focused component, Playwright,
 or documented manual check appropriate to the change.
 
-### i18n
-
-**Contracts**
-
-- `src/i18n/messages/en.json` is the UI source; `config/i18n.json` is the locale source.
-- CLI catalogs live separately under `bin/cli/locales/`.
-- Preserve ICU placeholders and tags exactly. Do not translate product/provider/model names,
-  protocol and header names, commands, code/JSON identifiers, URLs, environment variables, or
-  protected terms such as `OmniRoute`, `OAuth`, `MCP`, and `A2A`. The current source list is
-  `scripts/i18n/glossary/protected-terms.json`.
-
-**Focused loop**
-
-```bash
-npm run i18n:sync-ui:dry
-npm run i18n:check-ui-coverage
-npm run i18n:check-value-drift
-npm run i18n:check-glossary
-npm run check:cli-i18n          # when CLI strings/catalogs change
-npm run lint
-```
-
-This is guidance for the existing system, not an invitation to expand its tooling or key model.
 Keep i18n patches surgical while the replacement system is being designed. Do not run translation
 commands that call external services unless the task explicitly requires generated translations and
 you have reviewed the resulting diff.

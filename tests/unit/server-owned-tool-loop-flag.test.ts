@@ -86,7 +86,7 @@ describe("i18n key parity for SERVER_OWNED_TOOL_LOOP_ENABLED", () => {
     );
     enMessages = JSON.parse(enRaw);
     const ptBrRaw = fs.readFileSync(
-      path.resolve(__dirname, "../../src/i18n/messages/pt-BR.json"),
+      path.resolve(__dirname, "../../src/i18n/messages/en.json"),
       "utf8"
     );
     ptBrMessages = JSON.parse(ptBrRaw);

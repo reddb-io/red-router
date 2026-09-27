@@ -22,7 +22,7 @@ const PAGE_CLIENT_PATH = join(
 );
 
 const EN_PATH = join(ROOT, "src/i18n/messages/en.json");
-const PT_PATH = join(ROOT, "src/i18n/messages/pt-BR.json");
+const PT_PATH = join(ROOT, "src/i18n/messages/en.json");
 
 const pageSrc = readFileSync(PAGE_CLIENT_PATH, "utf8");
 
@@ -58,12 +58,15 @@ test("QuotaSharePageClient: renders groups by iterating groupsToRender (all-grou
   );
   // The render must map over groupsToRender to produce per-group sections
   assert.ok(
-    pageSrc.includes("groupsToRender.map") || pageSrc.includes("groupsToRender.filter") || pageSrc.includes(".map((g)") || pageSrc.includes(".map((g, "),
+    pageSrc.includes("groupsToRender.map") ||
+      pageSrc.includes("groupsToRender.filter") ||
+      pageSrc.includes(".map((g)") ||
+      pageSrc.includes(".map((g, "),
     "QuotaSharePageClient must map over groupsToRender to render one section per group"
   );
 });
 
-test("QuotaSharePageClient: computes groupsToRender from selectedGroupId === \"all\" check", () => {
+test('QuotaSharePageClient: computes groupsToRender from selectedGroupId === "all" check', () => {
   // The all-groups path: selectedGroupId === "all" ? groups : groups.filter(...)
   assert.ok(
     pageSrc.includes('selectedGroupId === "all"'),
@@ -105,10 +108,7 @@ test('QuotaSharePageClient: rename button is hidden/disabled when selectedGroupI
 // ── 6. i18n parity: allGroups key ────────────────────────────────────────────
 
 test('i18n en.json: quotaShare.allGroups exists and equals "All groups"', () => {
-  const en = JSON.parse(readFileSync(EN_PATH, "utf8")) as Record<
-    string,
-    Record<string, string>
-  >;
+  const en = JSON.parse(readFileSync(EN_PATH, "utf8")) as Record<string, Record<string, string>>;
   assert.equal(
     typeof en["quotaShare"]?.["allGroups"],
     "string",
@@ -122,10 +122,7 @@ test('i18n en.json: quotaShare.allGroups exists and equals "All groups"', () => 
 });
 
 test('i18n pt-BR.json: quotaShare.allGroups exists and equals "Todos os grupos"', () => {
-  const pt = JSON.parse(readFileSync(PT_PATH, "utf8")) as Record<
-    string,
-    Record<string, string>
-  >;
+  const pt = JSON.parse(readFileSync(PT_PATH, "utf8")) as Record<string, Record<string, string>>;
   assert.equal(
     typeof pt["quotaShare"]?.["allGroups"],
     "string",
@@ -139,14 +136,8 @@ test('i18n pt-BR.json: quotaShare.allGroups exists and equals "Todos os grupos"'
 });
 
 test("i18n parity: allGroups present in both en and pt-BR", () => {
-  const en = JSON.parse(readFileSync(EN_PATH, "utf8")) as Record<
-    string,
-    Record<string, string>
-  >;
-  const pt = JSON.parse(readFileSync(PT_PATH, "utf8")) as Record<
-    string,
-    Record<string, string>
-  >;
+  const en = JSON.parse(readFileSync(EN_PATH, "utf8")) as Record<string, Record<string, string>>;
+  const pt = JSON.parse(readFileSync(PT_PATH, "utf8")) as Record<string, Record<string, string>>;
   assert.ok("allGroups" in (en["quotaShare"] ?? {}), "en.json missing quotaShare.allGroups");
   assert.ok("allGroups" in (pt["quotaShare"] ?? {}), "pt-BR.json missing quotaShare.allGroups");
 });

@@ -70,16 +70,7 @@ STATIC_GATES=(
   "node scripts/check/check-complexity.mjs"
   "node scripts/check/check-cognitive-complexity.mjs"
   "env CHANGELOG_BASE_REF=${CHANGELOG_BASE_REF_Q} node scripts/check/check-changelog-integrity.mjs"
-  # i18n contract (2026-09-22): the train is where en.json keys without catalogs and docs
-  # without mirrors slipped into the release tip three times in 48 h despite the PR CI —
-  # each combined tree must carry every en key in all 65 catalogs (UI + CLI), keep the
-  # real-translation ratio, and bring the mirrors of every doc it edits (section-level:
-  # `npm run i18n:run -- --files=<doc>`; UI keys: `npm run i18n:translate-new-keys`).
-  "npm run i18n:check-keys"
-  "npm run i18n:check-keys:cli"
-  "npm run i18n:check-ratio"
-  "node scripts/i18n/check-translation-drift.mjs"
-  # ci.yml:lint family (2026-09-22): the same lesson as the i18n block above, for the
+  # ci.yml:lint family (2026-09-22): the same lesson for the
   # rest of the lint job. A 170-PR drain left the tip red on eleven `ci.yml:lint` /
   # `docs-sync-strict` gates the train never ran — every PR was green on its own and
   # only the combined tree failed. The migration one alone cost a 226-test red (two

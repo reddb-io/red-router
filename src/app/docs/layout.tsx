@@ -3,8 +3,6 @@ import { DocsLayout } from "fumadocs-ui/layouts/docs";
 import { source } from "@/lib/source";
 import type { ReactNode } from "react";
 import type { BaseLayoutProps } from "fumadocs-ui/layouts/shared";
-import { Suspense } from "react";
-import LanguageSelector from "@/shared/components/LanguageSelector";
 import { getTranslations } from "next-intl/server";
 
 export async function generateMetadata() {
@@ -28,11 +26,6 @@ export default async function Layout({ children }: { children: ReactNode }) {
     nav: {
       title: t("layoutNavTitle"),
       url: "/docs",
-      children: (
-        <Suspense fallback={<div className="w-24 h-8" />}>
-          <LanguageSelector />
-        </Suspense>
-      ),
     },
     links: [
       {

@@ -1,15 +1,13 @@
 import "./globals.css";
 import { ThemeProvider } from "@/shared/components/ThemeProvider";
 import { NextIntlClientProvider } from "next-intl";
-import { getMessages, getLocale, getTranslations } from "next-intl/server";
-import { RTL_LOCALES } from "@/i18n/config";
+import { getMessages, getTranslations } from "next-intl/server";
 import { normalizeComplianceEventTypes } from "@/i18n/request";
 import { getRootLayoutSettings } from "@/lib/db/rootLayoutSettings";
 import { brandingCss, loadBranding, publicBranding } from "@/lib/branding/branding";
 import { BrandingProvider } from "@/shared/components/BrandingProvider";
 import type { Viewport } from "next";
 import { PwaRegister } from "@/shared/components/PwaRegister";
-import { LocaleAutoDetect } from "@/shared/components/LocaleAutoDetect";
 import { BasePathNetworkProvider } from "@/shared/components/BasePathNetworkProvider";
 
 export const viewport: Viewport = {
@@ -56,16 +54,14 @@ export async function generateMetadata() {
 }
 
 export default async function RootLayout({ children }) {
-  const locale = await getLocale();
   const t = await getTranslations("sidebar");
   const messages = normalizeComplianceEventTypes((await getMessages()) as Record<string, unknown>);
-  const isRtl = RTL_LOCALES.includes(locale as (typeof RTL_LOCALES)[number]);
   const branding = loadBranding();
   const brand = publicBranding(branding);
   const themeCss = brandingCss(branding);
 
   return (
-    <html lang={locale} dir={isRtl ? "rtl" : "ltr"} suppressHydrationWarning>
+    <html lang="en" dir="ltr" suppressHydrationWarning>
       <head>
         {/* Pre-hydration cleanup: browser extensions (Bitdefender's
             bis_skin_checked, Grammarly's data-gr-ext-installed, LanguageTool's
@@ -148,10 +144,9 @@ export default async function RootLayout({ children }) {
         >
           {t("skipToContent")}
         </a>
-        <NextIntlClientProvider locale={locale} messages={messages}>
+        <NextIntlClientProvider locale="en" messages={messages}>
           <BasePathNetworkProvider>
             <PwaRegister />
-            <LocaleAutoDetect />
             <BrandingProvider value={brand}>
               <ThemeProvider>{children}</ThemeProvider>
             </BrandingProvider>
