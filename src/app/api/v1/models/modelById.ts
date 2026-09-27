@@ -18,7 +18,7 @@ type CatalogModel = { id?: unknown } & Record<string, unknown>;
 function webModelsForLegacyClients(data: CatalogModel[]): CatalogModel[] {
   const visible = data.filter((model) => model.type === "webSearch" || model.type === "webFetch");
   const ids = new Set(visible.map((model) => model.id));
-  const result = visible.map((model) => ({ ...model, kind: model.type }));
+  const result: CatalogModel[] = visible.map((model) => ({ ...model, kind: model.type }));
   for (const model of visible) {
     if (typeof model.id !== "string") continue;
     const alias = WEB_LEGACY_IDS[model.id];

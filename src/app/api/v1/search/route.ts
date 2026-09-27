@@ -136,7 +136,7 @@ async function postHandler(request: Request, context: unknown) {
   }
   const body = validation.data;
   const modelResolution = resolveNineRouterSearchModel(body.model, body.provider);
-  if (!modelResolution.ok) {
+  if (modelResolution.ok === false) {
     return errorResponse(HTTP_STATUS.BAD_REQUEST, modelResolution.reason);
   }
   body.provider = modelResolution.provider;
