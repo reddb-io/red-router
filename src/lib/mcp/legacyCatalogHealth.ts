@@ -1,4 +1,5 @@
 import { resolveProviderId } from "@/shared/constants/providers";
+import { isFreeModel } from "@/shared/utils/freeModels";
 
 import type { CatalogModel, LegacyCatalogHealth } from "./legacyCatalogTools";
 
@@ -30,7 +31,13 @@ function connectionHealth(
 ): LegacyCatalogHealth {
   if (!connection.isActive) return { status: { state: "disabled" }, usable: false };
   const status = connection.testStatus?.toLowerCase();
-  if (status === "credits_exhausted") {
+  if (
+    status === "credits_exhausted" &&
+    !(
+      resolveProviderId(connection.provider) === "openrouter" &&
+      isFreeModel("openrouter", { id: model })
+    )
+  ) {
     return { status: { state: "quota_exhausted" }, usable: false };
   }
   if (status === "banned" || status === "expired") {

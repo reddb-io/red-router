@@ -95,3 +95,19 @@ test("unknown health never becomes a usable recommendation, but one healthy comb
   );
   assert.equal(mixed["combo/fallback"].usable, true);
 });
+
+test("OpenRouter free models are not blocked by exhausted paid credits", () => {
+  const health = buildLegacyCatalogHealth(
+    [
+      { id: "openrouter/openai/gpt-oss-20b:free", owned_by: "openrouter" },
+      { id: "openrouter/openai/gpt-4o", owned_by: "openrouter" },
+    ],
+    [connection("openrouter-key", { provider: "openrouter", testStatus: "credits_exhausted" })],
+    null,
+    noBlocks
+  );
+  assert.equal(health["openrouter/openai/gpt-oss-20b:free"].status.state, "unknown");
+  assert.equal(health["openrouter/openai/gpt-oss-20b:free"].usable, null);
+  assert.equal(health["openrouter/openai/gpt-4o"].status.state, "quota_exhausted");
+  assert.equal(health["openrouter/openai/gpt-4o"].usable, false);
+});
