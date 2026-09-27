@@ -29,6 +29,28 @@ test("deadline signal follows the route request and survives a header-preserving
   assert.equal(getDeadlineController(rebuilt), null);
 });
 
+test("deadline wrapping accepts a Next-style request without native Request private state", async () => {
+  const original = new Request("http://localhost/v1/chat/completions", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ model: "test" }),
+  });
+  const nextStyleRequest = {
+    url: original.url,
+    method: original.method,
+    headers: original.headers,
+    body: original.body,
+    signal: original.signal,
+  } as Request;
+
+  const { wrappedReq, deadlineController } = withDeadlineSignal(nextStyleRequest);
+  assert.equal(wrappedReq.url, original.url);
+  assert.equal(await wrappedReq.text(), JSON.stringify({ model: "test" }));
+  deadlineController.abort();
+  assert.equal(wrappedReq.signal.aborted, true);
+  releaseDeadlineController(deadlineController);
+});
+
 test("deadline routing token is absent from logs and executor headers", () => {
   const request = new Request("http://localhost/v1/chat/completions", {
     headers: { "x-deadline-token": "private-token", "x-user-header": "allowed" },

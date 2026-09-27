@@ -312,9 +312,9 @@ export function __getDeadlineTokenRegistrySizeForTests(): number {
  *
  * The wrapped request MUST be the one the route hands downstream (admission,
  * body parse, `handleChat`): the handler snapshots `request.signal` after
- * admission, so wrapping after that point would not propagate. Rebuilt via
- * `new Request(request, { signal, headers })`, which preserves method, url and
- * body byte-for-byte.
+ * admission, so wrapping after that point would not propagate. Rebuild from
+ * the standard URL/method/body fields: Next may pass a Request wrapper whose
+ * private state is inaccessible to `new Request(request, ...)`.
  *
  * Controller recovery downstream (`getDeadlineController`) is two-layered:
  * the combined signal object (fast path — same object when nothing rebuilds),
@@ -338,7 +338,13 @@ export function withDeadlineSignal(request: Request): {
   // admission rebuilds, which both copy headers but mint new signal objects.
   const token = `dl-${Date.now().toString(36)}-${(deadlineTokenSeq += 1)}`;
   headers.set(DEADLINE_TOKEN_HEADER, token);
-  const wrappedReq = new Request(request, { signal: combined, headers });
+  const wrappedReq = new Request(request.url, {
+    method: request.method,
+    headers,
+    body: request.body,
+    signal: combined,
+    ...(request.body ? { duplex: "half" } : {}),
+  } as RequestInit & { duplex?: "half" });
   deadlineControllers.set(combined, deadlineController);
   deadlineControllersByToken.set(token, new WeakRef(deadlineController));
   deadlineTokenByController.set(deadlineController, token);
