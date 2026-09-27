@@ -19,7 +19,7 @@ import assert from "node:assert/strict";
 import net from "node:net";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { findListeningPids } from "../../bin/cli/utils/pid.mjs";
+import { findListeningPids, findPortConflictPids } from "../../bin/cli/utils/pid.mjs";
 
 const execFileAsync = promisify(execFile);
 
@@ -126,6 +126,32 @@ test("probePortFree is false while a socket holds the port and true after releas
     await new Promise((r) => server.close(r));
   }
   assert.equal(await probePortFree(port), true, "a released port must bind cleanly");
+});
+
+test("serve preflight allows a free port when pid discovery is unavailable", async () => {
+  const owners = await findPortConflictPids(20128, {
+    findPids: async () => null,
+    probe: async () => true,
+  });
+  assert.deepEqual(owners, [], "a successful bind probe must not leave null for serve to read");
+});
+
+test("serve preflight rejects a busy port without pid discovery", async () => {
+  const owners = await findPortConflictPids(20128, {
+    findPids: async () => null,
+    probe: async () => false,
+  });
+  assert.deepEqual(owners, [null], "unknown owner must still block a conflicting start");
+});
+
+test("serve preflight preserves discovered owners without a redundant bind probe", async () => {
+  const owners = await findPortConflictPids(20128, {
+    findPids: async () => [19348],
+    probe: async () => {
+      throw new Error("discovered owner should not need a bind probe");
+    },
+  });
+  assert.deepEqual(owners, [19348]);
 });
 
 test("reportPortInUse degrades gracefully when the owner pid is unknown", async () => {
