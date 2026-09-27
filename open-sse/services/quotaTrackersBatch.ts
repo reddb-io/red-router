@@ -17,6 +17,7 @@ import { registerFirecrawlQuotaFetcher } from "./firecrawlQuotaFetcher.ts";
 import { registerContext7QuotaFetcher } from "./context7QuotaFetcher.ts";
 import { registerLlmgatewayQuotaFetcher } from "./llmgatewayQuotaFetcher.ts";
 import { registerLyceumQuotaFetcher } from "./lyceumQuotaFetcher.ts";
+import { registerTavilyQuotaFetcher } from "./tavilyQuotaFetcher.ts";
 
 export function registerQuotaTrackersBatch(): void {
   registerAgentrouterQuotaFetcher();
@@ -28,6 +29,7 @@ export function registerQuotaTrackersBatch(): void {
   registerContext7QuotaFetcher();
   registerLlmgatewayQuotaFetcher();
   registerLyceumQuotaFetcher();
+  registerTavilyQuotaFetcher();
 }
 
 // Side-effect registration at module load, mirroring the sibling

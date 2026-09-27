@@ -4,6 +4,8 @@ import { withInjectionGuard } from "@/middleware/promptInjectionGuard";
 import { withChatAdmission } from "@/shared/middleware/withChatAdmission";
 import { requireJsonContentType } from "@/shared/middleware/requireJsonContentType";
 import {
+  getDeadlineController,
+  withDeadlineSignal,
   withEarlyStreamKeepalive,
   ANTHROPIC_PING_FRAME,
 } from "@omniroute/open-sse/utils/earlyStreamKeepalive";
@@ -74,6 +76,7 @@ async function postHandler(request: any, context: any, preParsedBody: any = null
       signal: request.signal,
       thresholdMs: resolveKeepaliveThreshold(body?.model),
       keepaliveFrame: ANTHROPIC_PING_FRAME,
+      deadlineController: getDeadlineController(request),
     });
   }
   return await handleChat(request, null, body);
@@ -81,4 +84,19 @@ async function postHandler(request: any, context: any, preParsedBody: any = null
 
 // `logger: null` — the guardrail registry re-evaluates this request inside
 // handleChat with the pino logger (#11936 dedupe).
-export const POST = withChatAdmission(withInjectionGuard(postHandler, { logger: null }));
+// Deadline wrap OUTSIDE the admission HOC so the HOC's own lease release
+// observes the combined signal (client abort OR deadline abort) and frees its
+// slot immediately at expiry — same as the other routes. postHandler recovers
+// the same controller via getDeadlineController (never a second one).
+// The admitted handler may return a bare Response; the async wrapper lifts it.
+function withDeadlineAdmission(handler: (...args: any[]) => Promise<Response> | Response) {
+  return async function deadlineAdmittedHandler(...args: any[]) {
+    const [request, ...rest] = args;
+    const { wrappedReq } = withDeadlineSignal(request);
+    return handler(wrappedReq, ...rest);
+  };
+}
+
+export const POST = withDeadlineAdmission(
+  withChatAdmission(withInjectionGuard(postHandler, { logger: null }))
+);
