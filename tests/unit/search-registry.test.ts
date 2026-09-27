@@ -42,6 +42,9 @@ test("SEARCH_PROVIDERS has all registered providers", () => {
   // #11140: context7 provides library-docs search
   assert.ok(SEARCH_PROVIDERS["context7"], "context7 should exist");
   assert.equal(Object.keys(SEARCH_PROVIDERS).length, 21);
+  for (const [id, provider] of Object.entries(SEARCH_PROVIDERS)) {
+    assert.equal(provider.id, id, "catalog lookup requires each provider id to match its key");
+  }
 });
 
 test("duckduckgo-free config is a no-key, fallback-only provider", () => {

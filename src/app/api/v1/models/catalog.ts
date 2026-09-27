@@ -1713,7 +1713,6 @@ async function buildUnifiedModelsResponseCore(
           if (visibilityIds.some((id) => shouldHideByExposure(id, modelId))) return false;
 
           if (kind === "webSearch") {
-            if (!search) return false;
             if (!hasConfiguredSearchUrl(search, getConnectionsForProvider(providerId)))
               return false;
             if (search.authType === "none") return true;
