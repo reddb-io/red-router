@@ -363,6 +363,20 @@ These are implementation candidates pending CI and external credential smoke.
 System One must remain advisory when unavailable or inconclusive; it must not
 silently approve task completion or compaction.
 
+This is **not** the whole 9router Decisions runtime. In this checkout,
+`src/sse/services/jevRouting.ts` asks JEV for a `tier` and uses it only as an
+optional Auto-Combo complexity signal. `open-sse/handlers/chatCore.ts` has a
+post-translation tool-decision hook, but its `decideTool` parameter defaults to
+`null`, and no production caller supplies a callback. The imported
+`open-sse/decision/` question builders, model-choice gates, cost tie-breakers,
+reasoning autopilot, and `askJev` transport therefore are not proof that chat
+requests actually use those Decisions features. Unit contracts for the pure
+modules also do not establish end-to-end behavior. Before claiming parity,
+wire an explicit opt-in decision-model role and stored connection into chat,
+preserve key/model policy and quota isolation, make inconclusive verdicts
+abstain, record sanitized decision traces, and validate tool/model/reasoning
+choices through CI and credentialed runtime smoke.
+
 ## Persistence and scale boundary
 
 `docs/ops/SQLITE_RUNTIME.md` explicitly defines the default as one SQLite writer
