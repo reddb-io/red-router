@@ -90,6 +90,10 @@ export default function BuilderIntelligentStep({
   activeProviders: any[];
 }) {
   const normalizedConfig = normalizeIntelligentRoutingConfig(config);
+  const decision =
+    config.decision && typeof config.decision === "object" && !Array.isArray(config.decision)
+      ? (config.decision as Record<string, unknown>)
+      : {};
   const isSlaAwareStrategy = ["sla-aware", "sla"].includes(normalizedConfig.routerStrategy);
   const providerOptions = useMemo(
     () => toProviderOptions(activeProviders, normalizedConfig.candidatePool),
@@ -98,6 +102,10 @@ export default function BuilderIntelligentStep({
 
   const updateConfig = (patch: Record<string, unknown>) => {
     onChange(applyIntelligentRoutingConfigPatch(config, patch));
+  };
+
+  const updateDecision = (patch: Record<string, unknown>) => {
+    updateConfig({ decision: { ...decision, ...patch } });
   };
 
   const toggleCandidateProvider = (providerId: string) => {
@@ -128,6 +136,73 @@ export default function BuilderIntelligentStep({
             <span className="material-symbols-outlined text-[12px]">auto_awesome</span>
             Intelligent
           </span>
+        </div>
+      </Card.Section>
+
+      <Card.Section>
+        <div>
+          <h3 className="text-xs font-semibold text-text-main">System One decisions</h3>
+          <p className="text-[11px] text-text-muted mt-1">
+            Optional evaluation through a configured provider connection. If unavailable or
+            inconclusive, normal routing remains in control. Evaluation may incur model usage.
+          </p>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
+          <label className="text-xs text-text-main">
+            Evaluation
+            <select
+              aria-label="System One evaluation"
+              value={decision.mode === "jev" ? "jev" : "off"}
+              onChange={(event) => updateDecision({ mode: event.target.value })}
+              className="mt-1 w-full text-xs py-2 px-2 rounded border border-black/10 dark:border-white/10 bg-transparent"
+            >
+              <option value="off">Off</option>
+              <option value="jev">JEV</option>
+            </select>
+          </label>
+          <label className="text-xs text-text-main">
+            Evaluation model
+            <input
+              aria-label="System One model"
+              type="text"
+              maxLength={200}
+              value={typeof decision.model === "string" ? decision.model : "typesafe-ai/jev-latest"}
+              onChange={(event) => updateDecision({ model: event.target.value })}
+              className="mt-1 w-full text-xs py-2 px-2 rounded border border-black/10 dark:border-white/10 bg-transparent"
+            />
+          </label>
+          <label className="text-xs text-text-main">
+            Model choice
+            <select
+              aria-label="System One model choice"
+              value={decision.modelMode === "jev" ? "jev" : "off"}
+              onChange={(event) => updateDecision({ modelMode: event.target.value })}
+              className="mt-1 w-full text-xs py-2 px-2 rounded border border-black/10 dark:border-white/10 bg-transparent"
+            >
+              <option value="off">Keep deterministic selection</option>
+              <option value="jev">Let JEV choose from routable models</option>
+            </select>
+          </label>
+          <label className="text-xs text-text-main">
+            Tool choice
+            <select
+              aria-label="System One tool choice"
+              value={
+                decision.toolMode === "hint" ||
+                decision.toolMode === "none" ||
+                decision.toolMode === "forced"
+                  ? decision.toolMode
+                  : "off"
+              }
+              onChange={(event) => updateDecision({ toolMode: event.target.value })}
+              className="mt-1 w-full text-xs py-2 px-2 rounded border border-black/10 dark:border-white/10 bg-transparent"
+            >
+              <option value="off">Off</option>
+              <option value="hint">Hint only</option>
+              <option value="none">Allow skipping tools</option>
+              <option value="forced">Allow forcing a tool</option>
+            </select>
+          </label>
         </div>
       </Card.Section>
 

@@ -36,3 +36,31 @@ it("a manual reset slider edit selects custom weights and retains unrelated conf
     })
   );
 });
+
+it("exposes opt-in System One settings without changing scoring or unrelated config", () => {
+  const onChange = vi.fn();
+  const t = Object.assign((key: string) => key, { has: () => false });
+  render(
+    <BuilderIntelligentStep
+      t={t}
+      activeProviders={[]}
+      config={{
+        modePack: "ship-fast",
+        decision: { mode: "off", toolMode: "hint", customField: "keep" },
+        resetWindowWindows: ["weekly"],
+      }}
+      onChange={onChange}
+    />
+  );
+
+  expect(screen.getByLabelText("System One evaluation")).toHaveValue("off");
+  expect(screen.getByLabelText("System One model choice")).toHaveValue("off");
+  fireEvent.change(screen.getByLabelText("System One evaluation"), { target: { value: "jev" } });
+  expect(onChange).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      modePack: "ship-fast",
+      resetWindowWindows: ["weekly"],
+      decision: { mode: "jev", toolMode: "hint", customField: "keep" },
+    })
+  );
+});
