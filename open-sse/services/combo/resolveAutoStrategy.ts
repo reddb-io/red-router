@@ -14,6 +14,7 @@ import { selectWithStrategy } from "../autoCombo/routerStrategy.ts";
 import { buildComplexityRoutingHint, escalateTier } from "../autoCombo/complexityRouter";
 import { hintTier, type ClassificationHint } from "../../decision/clientHint.ts";
 import { parseJevRoutingConfig, type JevRoutingConfig } from "./jevConfig.ts";
+import { recordComboRoutingSignal } from "./decisionTrace.ts";
 import { getModePack } from "../autoCombo/modePacks.ts";
 import { recordComboIntent } from "../comboMetrics.ts";
 import { estimateTokens } from "../contextManager.ts";
@@ -62,6 +63,7 @@ type BuildAutoCandidates = (
 ) => Promise<AutoProviderCandidate[]>;
 
 export interface ResolveAutoStrategyDeps {
+  traceInvocationId?: string;
   orderedTargets: ResolvedComboTarget[];
   body: Record<string, unknown>;
   combo: ComboLike;
@@ -166,6 +168,7 @@ export async function resolveAutoStrategyOrder(
   deps: ResolveAutoStrategyDeps
 ): Promise<ResolveAutoStrategyResult> {
   const {
+    traceInvocationId,
     body,
     combo,
     settings,
@@ -356,9 +359,26 @@ export async function resolveAutoStrategyOrder(
           autoManifestHint.recommendedMinTier,
           jevTier
         );
+        recordComboRoutingSignal(traceInvocationId, {
+          kind: "tier",
+          source: hintTier(relayOptions?.decisionHint) ? "client_hint" : "jev",
+          outcome: "applied",
+          tier: jevTier,
+        });
+      } else {
+        recordComboRoutingSignal(traceInvocationId, {
+          kind: "tier",
+          source: "jev",
+          outcome: "abstained",
+        });
       }
     } catch {
       log.warn("JEV", "Evaluation unavailable; retaining deterministic routing");
+      recordComboRoutingSignal(traceInvocationId, {
+        kind: "tier",
+        source: "jev",
+        outcome: "abstained",
+      });
     }
   }
 
@@ -511,9 +531,26 @@ export async function resolveAutoStrategyOrder(
           selectedConnectionId = null;
           selectionReason = "jev:model";
           autoUsedExplicitRouter = true;
+          recordComboRoutingSignal(traceInvocationId, {
+            kind: "model",
+            source: "jev",
+            outcome: "applied",
+            model: `${chosen.provider}/${chosen.model}`,
+          });
+        } else {
+          recordComboRoutingSignal(traceInvocationId, {
+            kind: "model",
+            source: "jev",
+            outcome: "abstained",
+          });
         }
       } catch {
         log.warn("JEV", "Model evaluation unavailable; retaining deterministic selection");
+        recordComboRoutingSignal(traceInvocationId, {
+          kind: "model",
+          source: "jev",
+          outcome: "abstained",
+        });
       }
     }
 

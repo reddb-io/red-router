@@ -93,12 +93,24 @@ export interface AutoEvaluationTrace {
   transitions: AutoEvaluationTransition[];
 }
 
+export interface ComboRoutingSignal {
+  kind: "tier" | "model";
+  source: "client_hint" | "jev";
+  outcome: "applied" | "abstained";
+  /** Abstract tier only; never the classification payload or prompt. */
+  tier?: "free" | "cheap" | "premium";
+  /** Provider/model selected from the already-authorized candidate pool. */
+  model?: string;
+  ts: number;
+}
+
 export interface ComboTrace {
   invocationId: string;
   createdAt: number;
   strategy: string | null;
   comboName: string | null;
   decisions: ComboTraceEntry[];
+  routingSignals: ComboRoutingSignal[];
   autoEvaluation: AutoEvaluationTrace | null;
   terminal: { status: number | null; errorClass: string | null } | null;
 }
@@ -218,9 +230,47 @@ export function startComboTrace(
       strategy: meta.strategy ?? null,
       comboName: meta.comboName ?? null,
       decisions: [],
+      routingSignals: [],
       autoEvaluation: null,
       terminal: null,
     });
+  }
+}
+
+/** Best-effort, bounded decision metadata for the management-only trace reader. */
+export function recordComboRoutingSignal(
+  invocationId: string | undefined,
+  signal: Omit<ComboRoutingSignal, "ts">
+): void {
+  if (!invocationId) return;
+  try {
+    const trace = traces.get(invocationId);
+    if (!trace || trace.routingSignals.length >= 8) return;
+    if (signal.kind !== "tier" && signal.kind !== "model") return;
+    if (signal.source !== "client_hint" && signal.source !== "jev") return;
+    if (signal.outcome !== "applied" && signal.outcome !== "abstained") return;
+    if (
+      signal.kind === "tier" &&
+      signal.tier !== undefined &&
+      !["free", "cheap", "premium"].includes(signal.tier)
+    )
+      return;
+    const safeModel =
+      signal.kind === "model" &&
+      typeof signal.model === "string" &&
+      /^[A-Za-z0-9._:/@+-]{1,200}$/.test(signal.model)
+        ? signal.model
+        : undefined;
+    trace.routingSignals.push({
+      kind: signal.kind,
+      source: signal.source,
+      outcome: signal.outcome,
+      ...(signal.kind === "tier" && signal.tier ? { tier: signal.tier } : {}),
+      ...(safeModel ? { model: safeModel } : {}),
+      ts: Date.now(),
+    });
+  } catch {
+    // Diagnostics must never change the selected model or fail a request.
   }
 }
 

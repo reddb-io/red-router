@@ -35,6 +35,7 @@ import { resolveCriteria } from "../../open-sse/decision/modelBriefs.ts";
 import { resolveToolDecision } from "../../open-sse/decision/decide.ts";
 import { FORMATS } from "../../open-sse/translator/formats.ts";
 import { readSystemOneJson } from "../../src/sse/handlers/systemOne.ts";
+import { resolveJevClientControls } from "../../src/sse/handlers/chat/jevClientControls.ts";
 import { comboRuntimeConfigSchema } from "../../src/shared/validation/schemas/combo.ts";
 
 test("JEV routing remains off unless explicitly configured", () => {
@@ -378,6 +379,18 @@ test("client tier routing stays opt-in and never defeats a server-decision opt-o
   );
   assert.equal(shouldUseJevTierSignal({ ...config, mode: "off" }, { decisionHint }), false);
   assert.equal(shouldUseJevTierSignal({ ...config, modelMode: "jev" }, { decisionHint }), false);
+});
+
+test("request headers preserve a client tier while suppressing server decision traffic", () => {
+  const headers = new Headers({
+    "x-red-router-hint": "tier=reasoning;deliberation=.8",
+    "x-red-router-decision": " OFF ",
+  });
+  const controls = resolveJevClientControls(headers);
+  assert.equal(controls.decisionHint?.tier, "REASONING");
+  assert.equal(controls.decisionModelOptOut, false);
+  assert.equal(controls.decisionServerOptOut, true);
+  assert.equal(resolveJevClientControls(new Headers()).decisionHint, null);
 });
 
 test("JEV abstains before credential lookup when the client has disconnected", async () => {

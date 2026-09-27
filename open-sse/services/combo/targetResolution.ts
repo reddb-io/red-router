@@ -99,6 +99,7 @@ import type {
 } from "./types.ts";
 
 export interface ResolveComboTargetPipelineDeps {
+  traceInvocationId?: string;
   body: Record<string, unknown>;
   combo: ComboLike;
   strategy: string;
@@ -454,6 +455,7 @@ async function orderByStrategy(
   const { strategy, body, combo, settings, config, log } = deps;
   if (strategy === "auto") {
     const autoResult = await resolveAutoStrategyOrder({
+      traceInvocationId: deps.traceInvocationId,
       orderedTargets: initialOrderedTargets,
       body,
       combo,

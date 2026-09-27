@@ -836,6 +836,7 @@ async function handleComboChatInner({
   const setRetryDelayMs = resolveDelayMs(config.setRetryDelayMs, 2000);
 
   const targetResolution = await resolveComboTargetPipeline({
+    traceInvocationId,
     body,
     combo,
     strategy,

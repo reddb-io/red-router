@@ -15,6 +15,7 @@ const {
   finalizeComboTrace,
   getComboTrace,
   recordComboDecision,
+  recordComboRoutingSignal,
   resetComboTraceStore,
   startComboTrace,
 } = await import("../../../open-sse/services/combo/decisionTrace.ts");
@@ -47,6 +48,55 @@ test("createInvocationId yields unique opaque ids", () => {
   const b = createInvocationId();
   assert.ok(a.startsWith("combo-"));
   assert.notEqual(a, b);
+});
+
+test("routing signals are bounded and project only allowlisted decision metadata", () => {
+  startComboTrace("combo-signals", { strategy: "auto", comboName: "safe" });
+  const unsafe = {
+    kind: "model" as const,
+    source: "jev" as const,
+    outcome: "applied" as const,
+    model: "example/model-a",
+    credential: "must-never-appear",
+    prompt: "must-never-appear",
+  };
+  recordComboRoutingSignal("combo-signals", unsafe);
+  recordComboRoutingSignal("combo-signals", {
+    kind: "tier",
+    source: "client_hint",
+    outcome: "applied",
+    tier: "premium",
+  });
+  recordComboRoutingSignal("combo-signals", {
+    kind: "model",
+    source: "jev",
+    outcome: "abstained",
+    model: "secret with spaces",
+  });
+  for (let index = 0; index < 20; index++) {
+    recordComboRoutingSignal("combo-signals", {
+      kind: "model",
+      source: "jev",
+      outcome: "abstained",
+    });
+  }
+  const signals = getComboTrace("combo-signals")?.routingSignals ?? [];
+  assert.equal(signals.length, 8);
+  assert.deepEqual(
+    signals.slice(0, 3).map(({ kind, source, outcome, tier, model }) => ({
+      kind,
+      source,
+      outcome,
+      ...(tier ? { tier } : {}),
+      ...(model ? { model } : {}),
+    })),
+    [
+      { kind: "model", source: "jev", outcome: "applied", model: "example/model-a" },
+      { kind: "tier", source: "client_hint", outcome: "applied", tier: "premium" },
+      { kind: "model", source: "jev", outcome: "abstained" },
+    ]
+  );
+  assert.equal(JSON.stringify(signals).includes("must-never-appear"), false);
 });
 
 test("skip reasons are allowlisted (unknown reason is rejected)", () => {
