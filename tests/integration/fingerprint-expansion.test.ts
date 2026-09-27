@@ -294,7 +294,7 @@ test("round-robin combo with 3 fingerprints: all requests succeed", async () => 
     assert.equal(
       result.response.status,
       200,
-      `request ${i + 1} failed: ${JSON.stringify(result.json)}`
+      `request ${i + 1} failed: ${JSON.stringify(result.json)}\n${app.stderrLines.slice(-20).join("\n")}`
     );
     assert.equal(result.json.choices[0].message.content, "fingerprint ok");
     // #6426 (v3.8.46): chatCore now unconditionally aligns the non-streaming

@@ -537,7 +537,11 @@ test.before(async () => {
   await patchResilience(app.baseUrl, buildResilienceConfig());
 
   const warmup = await postChat(app.baseUrl, "p2/test-model", "warm up chat route");
-  assert.equal(warmup.response.status, 200, JSON.stringify(warmup.json));
+  assert.equal(
+    warmup.response.status,
+    200,
+    `${JSON.stringify(warmup.json)}\n${app.stderrLines.slice(-20).join("\n")}`
+  );
   relay.resetState(TOKENS.p2);
 });
 
