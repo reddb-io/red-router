@@ -158,6 +158,25 @@ describe("ConsoleLogViewer accessibility", () => {
     expect(minute?.getAttribute("aria-pressed")).toBe("false");
   });
 
+  it("pauses auto-scroll when browsing older lines and resumes at the bottom", async () => {
+    const container = await renderViewer();
+    const output = container.querySelector<HTMLDivElement>('[role="log"]');
+    const toggle = container.querySelector<HTMLButtonElement>(
+      'button[title="logs.consoleViewer.disableAutoScroll"]'
+    );
+    expect(output).not.toBeNull();
+    expect(toggle?.getAttribute("aria-pressed")).toBe("true");
+
+    Object.defineProperty(output, "scrollHeight", { configurable: true, value: 1000 });
+    Object.defineProperty(output, "clientHeight", { configurable: true, value: 200 });
+    await act(async () => output?.dispatchEvent(new Event("scroll", { bubbles: true })));
+    expect(toggle?.getAttribute("aria-pressed")).toBe("false");
+
+    if (output) output.scrollTop = 800;
+    await act(async () => output?.dispatchEvent(new Event("scroll", { bubbles: true })));
+    expect(toggle?.getAttribute("aria-pressed")).toBe("true");
+  });
+
   it("does not intercept fullscreen shortcuts outside the console", async () => {
     const container = await renderViewer();
     const frame = container.firstElementChild as HTMLDivElement;

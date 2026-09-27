@@ -230,6 +230,13 @@ export default function ConsoleLogViewer() {
     }
   }, [logs, autoScroll]);
 
+  const handleConsoleScroll = () => {
+    const element = scrollRef.current;
+    if (!element) return;
+    const atBottom = element.scrollHeight - element.scrollTop - element.clientHeight < 24;
+    setAutoScroll((current) => (current === atBottom ? current : atBottom));
+  };
+
   const handleCopy = async (entry: LogEntry, idx: number) => {
     const text = JSON.stringify(entry, null, 2);
     const success = await copyToClipboard(text);
@@ -381,6 +388,7 @@ export default function ConsoleLogViewer() {
         {/* Auto-scroll toggle */}
         <button
           onClick={() => setAutoScroll(!autoScroll)}
+          aria-pressed={autoScroll}
           title={autoScroll ? tv("disableAutoScroll") : tv("enableAutoScroll")}
           className={`px-3 py-2 rounded-lg text-sm font-medium border transition-colors ${
             autoScroll
@@ -499,6 +507,7 @@ export default function ConsoleLogViewer() {
       {/* Console output */}
       <div
         ref={scrollRef}
+        onScroll={handleConsoleScroll}
         className={`rounded-xl border border-[var(--color-border)] bg-[#0d1117] overflow-auto font-mono text-xs leading-relaxed ${isFullScreen ? "min-h-0 flex-1" : ""}`}
         style={isFullScreen ? undefined : { maxHeight: "calc(100vh - 340px)", minHeight: "400px" }}
         role="log"
