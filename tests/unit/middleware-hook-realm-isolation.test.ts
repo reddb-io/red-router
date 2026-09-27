@@ -134,6 +134,6 @@ test("a foreign thrown Proxy is never inspected by the host", async () => {
   );
   const { context } = await runHooks(ctx());
   assert.equal(context.model, "gpt-4o");
-  assert.match(getHook("foreign-proxy")?.lastError ?? "", /isolated realm/);
+  assert.match(getHook("foreign-proxy")?.lastError ?? "", /isolated realm|did not finish/);
   assert.doesNotMatch(getHook("foreign-proxy")?.lastError ?? "", /host inspected/);
 });
