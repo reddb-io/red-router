@@ -21,14 +21,15 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  publish:
-    name: Publish @reddb-io/red-router
+  build:
+    name: Build and verify RedRouter artifact
     # The Next standalone build exceeds the hosted runner's memory on this tree.
     runs-on: ${{ vars.USE_VPS_RUNNER == 'true' && fromJSON('["self-hosted","omni-build"]') || 'ubuntu-latest' }}
-    environment: npm-release
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
     permissions:
-      contents: write
-      id-token: write
+      contents: read
     steps:
       - name: Checkout release tag
         uses: actions/checkout@v7
@@ -58,9 +59,6 @@ jobs:
           node-version: "24"
           cache: npm
 
-      - name: Install npm with Trusted Publishing support
-        run: npm install --prefix "$RUNNER_TEMP/redrouter-npm" --no-save npm@11.19.1
-
       - name: Install dependencies
         run: npm ci
 
@@ -87,7 +85,6 @@ jobs:
         run: npm run check:pack-boot
 
       - name: Pack and checksum
-        id: pack
         run: |
           set -euo pipefail
           mkdir -p release-artifacts
@@ -96,31 +93,70 @@ jobs:
           test -s "$TARBALL"
           tar -tzf "$TARBALL" | grep -q '^package/bin/omniroute.mjs$'
           tar -tzf "$TARBALL" | grep -q '^package/dist/server.js$'
-          sha256sum "$TARBALL" > release-artifacts/SHA256SUMS
-          echo "tarball=$TARBALL" >> "$GITHUB_OUTPUT"
+          (cd release-artifacts && sha256sum "reddb-io-red-router-${{ steps.version.outputs.version }}.tgz" > SHA256SUMS)
+
+      - name: Upload verified artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: redrouter-release-artifact
+          path: release-artifacts/
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish @reddb-io/red-router
+    needs: build
+    runs-on: ubuntu-latest
+    environment: npm-release
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - name: Download verified artifact
+        uses: actions/download-artifact@v7
+        with:
+          name: redrouter-release-artifact
+          path: release-artifacts
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+
+      - name: Install npm with Trusted Publishing support
+        run: npm install --prefix "$RUNNER_TEMP/redrouter-npm" --no-save npm@11.19.1
+
+      - name: Verify downloaded checksum
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          set -euo pipefail
+          cd release-artifacts
+          sha256sum -c SHA256SUMS
+          test -s "reddb-io-red-router-$VERSION.tgz"
 
       - name: Publish exact tarball to npm
         env:
-          VERSION: ${{ steps.version.outputs.version }}
-          TARBALL: ${{ steps.pack.outputs.tarball }}
+          VERSION: ${{ needs.build.outputs.version }}
         run: |
           set -euo pipefail
           if [ "$(npm view "@reddb-io/red-router@$VERSION" version --prefer-online 2>/dev/null || true)" = "$VERSION" ]; then
             echo "@reddb-io/red-router@$VERSION already published"
           else
-            node "$RUNNER_TEMP/redrouter-npm/node_modules/npm/bin/npm-cli.js" publish "$TARBALL" \
+            node "$RUNNER_TEMP/redrouter-npm/node_modules/npm/bin/npm-cli.js" publish "release-artifacts/reddb-io-red-router-$VERSION.tgz" \
               --access public --provenance --ignore-scripts
           fi
 
       - name: Create GitHub release with checksum
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+          RELEASE_TAG: ${{ needs.build.outputs.tag }}
         run: |
           set -euo pipefail
-          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+          if gh release view "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "GitHub release $RELEASE_TAG already exists; preserving its assets"
           else
             gh release create "$RELEASE_TAG" release-artifacts/*.tgz release-artifacts/SHA256SUMS \
+              -R "$GITHUB_REPOSITORY" \
               --verify-tag --generate-notes --title "$RELEASE_TAG"
           fi
