@@ -91,8 +91,9 @@ jobs:
           npm pack --ignore-scripts --pack-destination release-artifacts >/dev/null
           TARBALL="release-artifacts/reddb-io-red-router-${{ steps.version.outputs.version }}.tgz"
           test -s "$TARBALL"
-          tar -tzf "$TARBALL" | grep -q '^package/bin/omniroute.mjs$'
-          tar -tzf "$TARBALL" | grep -q '^package/dist/server.js$'
+          tar -tzf "$TARBALL" > "$RUNNER_TEMP/redrouter-package-contents.txt"
+          grep -Fxq 'package/bin/omniroute.mjs' "$RUNNER_TEMP/redrouter-package-contents.txt"
+          grep -Fxq 'package/dist/server.js' "$RUNNER_TEMP/redrouter-package-contents.txt"
           (cd release-artifacts && sha256sum "reddb-io-red-router-${{ steps.version.outputs.version }}.tgz" > SHA256SUMS)
 
       - name: Upload verified artifact
