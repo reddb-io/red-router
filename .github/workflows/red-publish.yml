@@ -195,13 +195,30 @@ jobs:
       - name: Publish the exact tarball
         env:
           VERSION: ${{ needs.build.outputs.version }}
+          NPM_PUBLISH_MODE: ${{ vars.NPM_PUBLISH_MODE }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           set -euo pipefail
           if [ "$(npm view "@reddb-io/red-router@$VERSION" version --prefer-online 2>/dev/null || true)" = "$VERSION" ]; then
             echo "@reddb-io/red-router@$VERSION is already published"
           else
-            unset NODE_AUTH_TOKEN
-            npm config delete //registry.npmjs.org/:_authToken || true
+            case "${NPM_PUBLISH_MODE:-oidc}" in
+              token)
+                if [ -z "${NPM_TOKEN:-}" ]; then
+                  echo "NPM_PUBLISH_MODE=token but NPM_TOKEN is unavailable" >&2
+                  exit 1
+                fi
+                npm config set //registry.npmjs.org/:_authToken "$NPM_TOKEN"
+                ;;
+              oidc)
+                unset NODE_AUTH_TOKEN
+                npm config delete //registry.npmjs.org/:_authToken || true
+                ;;
+              *)
+                echo "NPM_PUBLISH_MODE must be token or oidc" >&2
+                exit 1
+                ;;
+            esac
             node "$RUNNER_TEMP/redrouter-npm/node_modules/npm/bin/npm-cli.js" publish \
               "$GITHUB_WORKSPACE/release-artifacts/reddb-io-red-router-$VERSION.tgz" \
               --access public --provenance --ignore-scripts
