@@ -144,7 +144,7 @@ jobs:
           if [ "$(npm view "@reddb-io/red-router@$VERSION" version --prefer-online 2>/dev/null || true)" = "$VERSION" ]; then
             echo "@reddb-io/red-router@$VERSION already published"
           else
-            node "$RUNNER_TEMP/redrouter-npm/node_modules/npm/bin/npm-cli.js" publish "release-artifacts/reddb-io-red-router-$VERSION.tgz" \
+            node "$RUNNER_TEMP/redrouter-npm/node_modules/npm/bin/npm-cli.js" publish "./release-artifacts/reddb-io-red-router-$VERSION.tgz" \
               --access public --provenance --ignore-scripts
           fi
 
