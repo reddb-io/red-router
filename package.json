@@ -282,7 +282,6 @@
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
-    "@lobehub/icons": "^5.16.0",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@monaco-editor/react": "^4.7.0",
     "@ngrok/ngrok": "^1.7.0",
@@ -373,6 +372,7 @@
     "wreq-js": "3.2.0"
   },
   "devDependencies": {
+    "@lobehub/icons": "^5.16.0",
     "@axe-core/playwright": "^4.13.0",
     "@cyclonedx/cyclonedx-npm": "6.0.1",
     "@eslint/compat": "^2.1.1",

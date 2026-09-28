@@ -1,0 +1,11 @@
+{
+  "source": "reddb-io/design-system",
+  "version": "2026.09",
+  "revision": "20b1cc16de0a4c1cc5a16bb96c98873e2ad4563b",
+  "producerRevision": "0e149fb3032c855c39e79ea147c3fe7cc5d0b85e",
+  "consumer": "red-router",
+  "kits": [],
+  "layers": [],
+  "styles": ["application"],
+  "dest": "src/shared/design-system/vendor"
+}

@@ -25,6 +25,22 @@ test("RedRouter is the only active npm publisher and keeps independent provenanc
   assert.match(text, /run.head_sha === process.env.RELEASE_SHA/);
   assert.match(text, /latest.status !== "completed" \|\| latest.conclusion !== "success"/);
   assert.match(text, /@reddb-io\/red-router/);
+  assert.match(text, /MISE_NPM_PACKAGE_MANAGER: aube/);
+  assert.match(text, /mise install --verbose/);
+  assert.match(text, /mise exec -- red-router --version/);
+  assert.match(text, /dist.integrity --prefer-online/);
+  const steps = workflow.jobs.publish.steps;
+  const consumerCheck = steps.findIndex((step: { name: string }) =>
+    step.name.includes("aube trust checks")
+  );
+  const githubRelease = steps.findIndex(
+    (step: { name: string }) => step.name === "Create GitHub release with checksum"
+  );
+  assert.ok(consumerCheck >= 0 && consumerCheck < githubRelease);
+  assert.doesNotMatch(
+    text,
+    /trust_policy_excludes|NODE_TLS_REJECT_UNAUTHORIZED|MISE_INSECURE|npm\.shell_out/
+  );
 });
 
 test("upstream operational jobs remain inert fixtures, not active workflows", () => {

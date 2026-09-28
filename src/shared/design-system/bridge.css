@@ -1,0 +1,66 @@
+/* RedRouter's temporary React token adapter. Canonical values live in vendor/.
+   Keep the existing token API and white-label overrides while adopting the DS.
+   This is foundation adoption, not a claim that the Svelte Kits run in React. */
+:root,
+.dark {
+  --color-primary: var(--reddb-color-primary);
+  --color-primary-hover: var(--reddb-color-brand-active);
+  --color-accent: var(--reddb-color-primary);
+  --color-accent-hover: var(--reddb-color-brand-active);
+  --color-accent-light: var(--reddb-color-primary);
+  --color-error: var(--reddb-color-feedback-danger-foreground);
+  --color-success: var(--reddb-color-feedback-success-foreground);
+  --color-warning: var(--reddb-color-feedback-warning-foreground);
+  --orch-status-success: var(--color-success);
+  --orch-status-warning: var(--color-warning);
+  --orch-status-error: var(--color-error);
+  --orch-status-muted: var(--reddb-color-ink-muted);
+  --orch-status-approval: var(--reddb-color-feedback-info-foreground);
+  --color-traffic-red: var(--color-error);
+  --color-traffic-yellow: var(--color-warning);
+  --color-traffic-green: var(--color-success);
+  --color-bg: var(--reddb-color-background);
+  --color-bg-primary: var(--reddb-color-background);
+  --color-bg-alt: var(--reddb-color-elevation-sunken-surface);
+  --color-bg-subtle: var(--reddb-color-elevation-sunken-surface);
+  --color-surface: var(--reddb-color-elevation-base-surface);
+  --color-card: var(--reddb-color-elevation-raised-surface);
+  --color-sidebar: var(--reddb-color-elevation-sunken-surface);
+  --color-border: var(--reddb-color-elevation-base-border);
+  --color-border-subtle: var(--reddb-color-muted);
+  --color-text-main: var(--reddb-color-foreground);
+  --color-text-primary: var(--reddb-color-foreground);
+  --color-text-muted: var(--reddb-color-ink-muted);
+  --color-fd-background: var(--color-bg);
+  --color-fd-foreground: var(--color-text-main);
+  --color-fd-muted: var(--color-bg-subtle);
+  --color-fd-muted-foreground: var(--color-text-muted);
+  --color-fd-popover: var(--reddb-color-elevation-overlay-surface);
+  --color-fd-popover-foreground: var(--color-text-main);
+  --color-fd-card: var(--color-card);
+  --color-fd-card-foreground: var(--color-text-main);
+  --color-fd-border: var(--color-border);
+  --color-fd-primary: var(--color-primary);
+  --color-fd-primary-foreground: var(--reddb-color-on-primary);
+  --color-fd-secondary: var(--color-bg-subtle);
+  --color-fd-secondary-foreground: var(--color-text-main);
+  --color-fd-accent: color-mix(in srgb, var(--reddb-color-foreground) 10%, transparent);
+  --color-fd-accent-foreground: var(--color-text-main);
+  --color-fd-ring: var(--color-primary);
+  --shadow-soft: var(--reddb-shadow-elevation-base);
+  --shadow-warm: var(--reddb-shadow-elevation-raised);
+  --shadow-elevated: var(--reddb-shadow-elevation-overlay);
+  --grid-line: var(--reddb-color-muted);
+  --grid-size: var(--reddb-spatial-control-height-md);
+  --section-alt: var(--reddb-color-elevation-sunken-surface);
+  --surface-2: var(--reddb-color-elevation-raised-surface);
+  --radius: var(--reddb-radius-lg);
+  --radius-control: var(--reddb-radius-md);
+  /* Legacy consumers expect an image token; use a solid primary fill. */
+  --grad-brand: linear-gradient(var(--color-primary), var(--color-primary));
+  --table-header-bg: var(--reddb-color-elevation-raised-surface);
+  --table-row-zebra: color-mix(in srgb, var(--reddb-color-foreground) 2%, transparent);
+  --table-row-hover: color-mix(in srgb, var(--reddb-color-foreground) 8%, transparent);
+  --table-cell-border: var(--reddb-color-elevation-base-border);
+  --table-row-selected: color-mix(in srgb, var(--reddb-color-foreground) 10%, transparent);
+}

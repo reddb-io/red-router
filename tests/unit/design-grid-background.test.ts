@@ -7,21 +7,19 @@ import fs from "node:fs";
 // remove the grid or re-introduce the opaque wrapper that hides it. See design.md.
 
 const globalsCss = fs.readFileSync(new URL("../../src/app/globals.css", import.meta.url), "utf8");
+const bridgeCss = fs.readFileSync(
+  new URL("../../src/shared/design-system/bridge.css", import.meta.url),
+  "utf8"
+);
 const dashboardLayout = fs.readFileSync(
   new URL("../../src/shared/components/layouts/DashboardLayout.tsx", import.meta.url),
   "utf8"
 );
 
-test("globals.css defines the grid wallpaper tokens for both themes", () => {
-  // light (opacity tuned up from the site's 0.045 so the grid is visible on the
-  // dense dashboard — see the token comment in globals.css)
-  assert.match(globalsCss, /--grid-line:\s*rgba\(0,\s*0,\s*0,\s*0\.07\)/);
-  // dark
-  assert.match(globalsCss, /--grid-line:\s*rgba\(255,\s*255,\s*255,\s*0\.06\)/);
-  // size (shrunk ~30% from 46px for a tighter grid) + alternating-section overlay
-  assert.match(globalsCss, /--grid-size:\s*32px/);
-  assert.match(globalsCss, /--section-alt:\s*rgba\(0,\s*0,\s*0,\s*0\.022\)/);
-  assert.match(globalsCss, /--section-alt:\s*rgba\(255,\s*255,\s*255,\s*0\.018\)/);
+test("grid wallpaper uses the RedDB foundation in both color schemes", () => {
+  assert.match(bridgeCss, /--grid-line:\s*var\(--reddb-color-muted\)/);
+  assert.match(bridgeCss, /--grid-size:\s*var\(--reddb-spatial-control-height-md\)/);
+  assert.match(bridgeCss, /--section-alt:\s*var\(--reddb-color-elevation-sunken-surface\)/);
 });
 
 test("globals.css renders the grid via a body::before fixed layer", () => {
@@ -37,12 +35,11 @@ test("globals.css renders the grid via a body::before fixed layer", () => {
 });
 
 test("globals.css adds the shared identity tokens", () => {
-  assert.match(globalsCss, /--surface-2:\s*#f5f5fa/); // light
-  assert.match(globalsCss, /--surface-2:\s*#1c2230/); // dark
-  assert.match(globalsCss, /--radius:\s*14px/);
+  assert.match(bridgeCss, /--surface-2:\s*var\(--reddb-color-elevation-raised-surface\)/);
+  assert.match(bridgeCss, /--radius:\s*var\(--reddb-radius-lg\)/);
   assert.match(
-    globalsCss,
-    /--grad-brand:\s*linear-gradient\(135deg,\s*var\(--color-primary\),\s*var\(--color-accent-light\)\)/
+    bridgeCss,
+    /--grad-brand:\s*linear-gradient\(var\(--color-primary\),\s*var\(--color-primary\)\)/
   );
   // exposed to Tailwind as bg-surface-2 for later phases
   assert.match(globalsCss, /--color-surface-2:\s*var\(--surface-2\)/);
@@ -65,7 +62,7 @@ test("DashboardLayout wrapper stays transparent so the grid shows through", () =
 const read = (p: string) => fs.readFileSync(new URL(p, import.meta.url), "utf8");
 
 test("globals.css exposes the semantic radius utilities", () => {
-  assert.match(globalsCss, /--radius-control:\s*9px/); // :root value
+  assert.match(bridgeCss, /--radius-control:\s*var\(--reddb-radius-md\)/);
   assert.match(globalsCss, /--radius-card:\s*var\(--radius\)/); // @theme → rounded-card (14px)
   assert.match(globalsCss, /--radius-control:\s*var\(--radius-control\)/); // @theme → rounded-control
 });
@@ -126,10 +123,15 @@ test("status colors come from one canonical module", () => {
   );
   assert.ok(!badge.includes('"#22c55e"'), "TokenHealthBadge no longer hardcodes the success hex");
 
-  // Both themes must define every token these surfaces read.
+  // The adapter follows DS Color Scheme roles instead of duplicating dark/light literals.
   for (const token of ["success", "warning", "error", "muted"]) {
-    const hits = globalsCss.match(new RegExp(`--orch-status-${token}:`, "g")) ?? [];
-    assert.equal(hits.length, 2, `--orch-status-${token} is defined in light AND dark`);
+    assert.match(bridgeCss, new RegExp(`--orch-status-${token}:\\s*var\\(`));
+  }
+  for (const scheme of ["light", "dark"]) {
+    const css = read(`../../src/shared/design-system/vendor/theme/scheme-${scheme}.css`);
+    for (const role of ["success", "warning", "danger"]) {
+      assert.ok(css.includes(`--reddb-color-feedback-${role}-foreground:`));
+    }
   }
 });
 
@@ -205,18 +207,21 @@ test("flow surfaces express state with --orch-status-* tokens, not fixed hex", (
   );
 });
 
-test("globals.css defines a monospace token (site parity)", () => {
-  assert.match(globalsCss, /--font-mono:\s*ui-monospace/);
+test("globals.css uses the canonical self-hosted monospace family", () => {
+  assert.match(globalsCss, /--font-mono:\s*var\(--reddb-font-family-mono\)/);
 });
 
-test("DataTable is theme-aware via --table-* tokens (dark = the exact old values)", () => {
-  // The dark token values must equal the rgba the component used to hardcode, so dark
-  // stays byte-identical while light gets fixed.
-  assert.match(globalsCss, /--table-header-bg:\s*rgba\(15,\s*15,\s*25,\s*0\.95\)/); // dark
-  assert.match(globalsCss, /--table-row-zebra:\s*rgba\(255,\s*255,\s*255,\s*0\.02\)/); // dark
-  assert.match(globalsCss, /--table-row-hover:\s*rgba\(255,\s*255,\s*255,\s*0\.04\)/); // dark
-  assert.match(globalsCss, /--table-cell-border:\s*rgba\(255,\s*255,\s*255,\s*0\.04\)/); // dark
-  assert.match(globalsCss, /--table-header-bg:\s*rgba\(249,\s*249,\s*251,\s*0\.95\)/); // light fix
+test("DataTable stays theme-aware through canonical DS roles and its existing token API", () => {
+  assert.match(bridgeCss, /--table-header-bg:\s*var\(--reddb-color-elevation-raised-surface\)/);
+  assert.match(
+    bridgeCss,
+    /--table-row-zebra:\s*color-mix\(in srgb, var\(--reddb-color-foreground\) 2%, transparent\)/
+  );
+  assert.match(
+    bridgeCss,
+    /--table-row-hover:\s*color-mix\(in srgb, var\(--reddb-color-foreground\) 8%, transparent\)/
+  );
+  assert.match(bridgeCss, /--table-cell-border:\s*var\(--reddb-color-elevation-base-border\)/);
 
   const dt = read("../../src/shared/components/DataTable.tsx");
   assert.ok(dt.includes("var(--table-header-bg)"), "header uses the token");

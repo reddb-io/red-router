@@ -61,7 +61,14 @@ export default async function RootLayout({ children }) {
   const themeCss = brandingCss(branding);
 
   return (
-    <html lang="en" dir="ltr" suppressHydrationWarning>
+    <html
+      lang="en"
+      dir="ltr"
+      data-theme="application"
+      data-color-scheme="light"
+      data-density="comfortable"
+      suppressHydrationWarning
+    >
       <head>
         {/* Pre-hydration cleanup: browser extensions (Bitdefender's
             bis_skin_checked, Grammarly's data-gr-ext-installed, LanguageTool's
@@ -128,8 +135,10 @@ export default async function RootLayout({ children }) {
                 const theme = parsed?.state?.theme || 'system';
                 if (theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
                   document.documentElement.classList.add('dark');
+                  document.documentElement.dataset.colorScheme = 'dark';
                 } else {
                   document.documentElement.classList.remove('dark');
+                  document.documentElement.dataset.colorScheme = 'light';
                 }
               } catch (e) {}
             `,

@@ -1,0 +1,16 @@
+{
+  "name": "@reddb-io/design-system",
+  "version": "0.0.0",
+  "description": "The reddb.io design system: the single application-facing gateway to the Brand.",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./styles.css": "./styles/all.css",
+    "./styles/all.css": "./styles/all.css",
+    "./styles/application.css": "./styles/application.css",
+    "./styles/base.css": "./styles/base.css"
+  },
+  "sideEffects": [
+    "./styles/**/*.css"
+  ]
+}

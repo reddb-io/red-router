@@ -74,6 +74,7 @@ function applyTheme(theme: string) {
   const root = document.documentElement;
   const systemTheme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
   const effectiveTheme = theme === "system" ? systemTheme : theme;
+  root.dataset.colorScheme = effectiveTheme === "dark" ? "dark" : "light";
 
   if (effectiveTheme === "dark") {
     root.classList.add("dark");
@@ -86,6 +87,12 @@ function applyColorTheme(colorTheme: string, customColor: string) {
   if (typeof window === "undefined") return;
 
   const root = document.documentElement;
+  // The legacy default now follows our DS. Explicit custom/named selections stay intact.
+  if (colorTheme === "coral") {
+    root.style.removeProperty("--color-primary");
+    root.style.removeProperty("--color-primary-hover");
+    return;
+  }
   const baseColor =
     colorTheme === "custom"
       ? normalizeHexColor(customColor)

@@ -1,0 +1,27 @@
+{
+  "source": "reddb-io/design-system",
+  "version": "2026.09",
+  "revision": "20b1cc16de0a4c1cc5a16bb96c98873e2ad4563b",
+  "producerRevision": "0e149fb3032c855c39e79ea147c3fe7cc5d0b85e",
+  "files": {
+    "assets/fonts/jetbrains-mono-variable.woff2": "e190ee6595a3b9bd25278613a6f5d3766ee1a708f300ed44fa63dbe84051498f",
+    "assets/fonts/space-grotesk-variable.woff2": "0640890476fc1198ab4de571fb658de443c4d85b66466ec09534a8737ab1ce9d",
+    "assets/fonts.css": "96298dd85bdc6000f2d3e49603fc17d740ca1bd7fbd068f56105f8c22bd01e11",
+    "licenses/jetbrains-mono-OFL.txt": "30f0c136e3c88e422d0791acd97238870f9054a9729bc34cf2ff0d4ed8cac4ad",
+    "licenses/space-grotesk-OFL.txt": "564ce565c371c5e5bbf286006565a7c9aa55a9f56e7ca58d56e05d649dd61a72",
+    "package.json": "68f9d22ac2fd03e701e7aae90645f8d4f86bffd30e0c0ddc92715be103cf77d8",
+    "styles/all.css": "7f6e4e216f1cb553cf976a9e676fd4fab8c7198ef248a385a7579ca5950cb7a9",
+    "styles/application.css": "7f6e4e216f1cb553cf976a9e676fd4fab8c7198ef248a385a7579ca5950cb7a9",
+    "styles/base.css": "3ac555cd4a4864d511e6fc5072fa60c079e6cde713912e360d0fa3bc8afaec34",
+    "theme/scheme-dark.css": "62be4d97784c8f76e2b8420bcc63b73acc59fdeb8cf0d294d0997c8bda208d85",
+    "theme/scheme-light.css": "0f0818c560f6eb605ae6dc483b4ae45f0f8c3eb14062221276a6ad923fe51aba",
+    "theme/theme-application.css": "edd6f05d8cce0f5c4bea54e1adc88c47ccc8d9d3da6381a220d9c22f3731d46a",
+    "theme/theme-base.css": "2912f3aba9c25cfd2fa20d1b89f7e2a5f21669ce58cade4ef50a25eac1808283",
+    "theme/theme.css": "7369d95ebcc11ff1fab5791cc4af0b4babc62c21037f0cbad8cdcba3f587c6a2",
+    "tokens/density-comfortable.css": "bca564a515d1ca1b2eb99c552c4dc45a9cfab92fe83b59e4a5174a5f88c9ce33",
+    "tokens/density-compact.css": "f45110d9c790137c4d890d8b17bbbaefd4e8856296fffbe42fb81959809f6eff",
+    "tokens/density-spacious.css": "1129dadc3852c32f541e88d3c3f9751fb469af3df10088cc3b3674262ee37d37",
+    "tokens/density-tiny.css": "6c8811be8d8f055f6d483fc520a62c5a111f80aabb54b8fdc2ba6c6ce1649e31",
+    "tokens/tokens.css": "acae26e2d4f24fc1fcdb6110ccc09da35c3256cfccee37f2b55abab59c2cfaba"
+  }
+}

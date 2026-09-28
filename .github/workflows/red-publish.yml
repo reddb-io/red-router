@@ -195,6 +195,52 @@ jobs:
               --access public --provenance --ignore-scripts
           fi
 
+      - name: Verify registry propagation and exact tarball integrity
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          set -euo pipefail
+          EXPECTED=$(node --input-type=module -e 'import fs from "node:fs"; import crypto from "node:crypto"; console.log("sha512-" + crypto.createHash("sha512").update(fs.readFileSync(`release-artifacts/reddb-io-red-router-${process.env.VERSION}.tgz`)).digest("base64"));')
+          for attempt in $(seq 1 12); do
+            ACTUAL=$(npm view "@reddb-io/red-router@$VERSION" dist.integrity --prefer-online 2>/dev/null || true)
+            if [ "$ACTUAL" = "$EXPECTED" ]; then
+              exit 0
+            fi
+            if [ -n "$ACTUAL" ]; then
+              echo "Published tarball differs from the verified release artifact" >&2
+              exit 1
+            fi
+            sleep 10
+          done
+          echo "The exact release is not available from npm yet" >&2
+          exit 1
+
+      - name: Setup mise for the real consumer install
+        uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3
+        with:
+          version: "2026.9.12"
+          install: false
+          cache: false
+
+      - name: Install published RedRouter with mise and aube trust checks
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+          MISE_NPM_PACKAGE_MANAGER: aube
+          MISE_DATA_DIR: ${{ runner.temp }}/redrouter-mise-data
+          MISE_CACHE_DIR: ${{ runner.temp }}/redrouter-mise-cache
+          MISE_CONFIG_DIR: ${{ runner.temp }}/redrouter-mise-config
+          DATA_DIR: ${{ runner.temp }}/redrouter-consumer-data
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/redrouter-consumer"
+          cd "$RUNNER_TEMP/redrouter-consumer"
+          # The root package is our own low-volume release. No transitive trust
+          # exclusions, insecure TLS settings, or npm fallback are permitted.
+          node --input-type=module -e 'import fs from "node:fs"; fs.writeFileSync("mise.toml", `[tools]\n"npm:@reddb-io/red-router" = { version = "${process.env.VERSION}", allow_low_downloads = true }\n`);'
+          mise trust mise.toml
+          mise install --verbose
+          test "$(mise exec -- red-router --version)" = "$VERSION"
+
       - name: Create GitHub release with checksum
         env:
           GH_TOKEN: ${{ github.token }}

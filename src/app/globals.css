@@ -12,6 +12,8 @@
    instead of in the component so node:test / esbuild never see a .css import. */
 @import "react18-json-view/src/style.css";
 @import "react18-json-view/src/dark.css";
+@import "../shared/design-system/vendor/styles/application.css";
+@import "../shared/design-system/bridge.css";
 @source "../../node_modules/fumadocs-ui/css/generated/*.css";
 
 /* Keep Tailwind v4 from scanning the entire repository. The UI lives in the
@@ -28,157 +30,14 @@
   --fd-sidebar-width: 220px;
 }
 
-/* OpenClaw × ClawHub Color Palette */
 :root {
   --desktop-safe-top: 0px;
   --desktop-safe-bottom: 0px;
   color-scheme: light;
-
-  /* Primary - Coral Red (OpenClaw) */
-  --color-primary: #e54d5e;
-  --color-primary-hover: #c93d4e;
-
-  /* Accent - Indigo/Violet (buttons, links, gradients) */
-  --color-accent: #6366f1;
-  --color-accent-hover: #8b5cf6;
-  --color-accent-light: #a855f7;
-
-  /* Semantic */
-  --color-error: #ef4444;
-  --color-success: #22c55e;
-  --color-warning: #f59e0b;
-
-  /* Orchestration status tokens — light values (AA sobre fundo claro) */
-  --orch-status-success: #15803d;
-  --orch-status-warning: #b45309;
-  --orch-status-error: #b91c1c;
-  --orch-status-muted: #6b7280;
-  --orch-status-approval: #6d28d9;
-
-  /* Traffic lights */
-  --color-traffic-red: #ff5f56;
-  --color-traffic-yellow: #ffbd2e;
-  --color-traffic-green: #27c93f;
-
-  /* Light theme */
-  --color-bg: #f9f9fb;
-  --color-bg-alt: #f0f0f5;
-  --color-bg-primary: #f9f9fb;
-  --color-bg-subtle: #f0f0f5;
-  --color-surface: #ffffff;
-  --color-card: #ffffff;
-  --color-sidebar: #f5f5fa;
-  --color-border: rgba(0, 0, 0, 0.08);
-  --color-border-subtle: rgba(0, 0, 0, 0.06);
-  --color-text-main: #1a1a2e;
-  --color-text-primary: #1a1a2e;
-  --color-text-muted: #71717a;
-
-  /* Fumadocs light theme */
-  --color-fd-background: #f9f9fb;
-  --color-fd-foreground: #1a1a2e;
-  --color-fd-muted: #f0f0f5;
-  --color-fd-muted-foreground: #71717a;
-  --color-fd-popover: #ffffff;
-  --color-fd-popover-foreground: #1a1a2e;
-  --color-fd-card: #ffffff;
-  --color-fd-card-foreground: #1a1a2e;
-  --color-fd-border: rgba(0, 0, 0, 0.08);
-  --color-fd-primary: #e54d5e;
-  --color-fd-primary-foreground: #ffffff;
-  --color-fd-secondary: #f0f0f5;
-  --color-fd-secondary-foreground: #1a1a2e;
-  --color-fd-accent: rgba(229, 77, 94, 0.08);
-  --color-fd-accent-foreground: #1a1a2e;
-  --color-fd-ring: #e54d5e;
-
-  /* Shadows */
-  --shadow-soft: 0 1px 3px rgba(0, 0, 0, 0.02), 0 4px 12px rgba(0, 0, 0, 0.015);
-  --shadow-warm: 0 2px 12px -2px rgba(229, 77, 94, 0.12);
-  --shadow-elevated: 0 12px 28px -4px rgba(20, 20, 40, 0.06);
-
-  /* Graph-paper wallpaper grid — shared visual identity with the marketing site
-     (_mono_repo/omnirouteSite/css). Light theme values. Rendered by body::before.
-     Opacity tuned up from the site's 0.045 so the wallpaper is actually visible on
-     the dense dashboard (cards/chrome cover most of the viewport). */
-  --grid-line: rgba(0, 0, 0, 0.07);
-  --grid-size: 32px;
-  --section-alt: rgba(0, 0, 0, 0.022);
-
-  /* Identity tokens mirrored from the site. Definitions only in this phase —
-     components are repointed to them in a later phase. */
-  --surface-2: #f5f5fa;
-  --radius: 14px;
-  --radius-control: 9px;
-  --grad-brand: linear-gradient(135deg, var(--color-primary), var(--color-accent-light));
-
-  /* Data-table surfaces — theme-aware. The DARK values (in .dark below) exactly mirror
-     the previous hardcoded rgba in DataTable.tsx so dark stays byte-identical; these
-     light values are the fix (the old code was always-dark via dead var fallbacks). */
-  --table-header-bg: rgba(249, 249, 251, 0.95);
-  --table-row-zebra: rgba(0, 0, 0, 0.02);
-  --table-row-hover: rgba(0, 0, 0, 0.04);
-  --table-cell-border: rgba(0, 0, 0, 0.04);
-  /* Selected row — an accent tint that reads on both themes (inherited by .dark). */
-  --table-row-selected: rgba(99, 102, 241, 0.1);
 }
 
 .dark {
-  /* Dark theme (ClawHub deep) */
   color-scheme: dark;
-  --color-bg: #0b0e14;
-  --color-bg-alt: #111520;
-  --color-bg-primary: #0b0e14;
-  --color-bg-subtle: #111520;
-  --color-surface: #161b22;
-  --color-card: #161b22;
-  --color-sidebar: #10141e;
-  --color-border: rgba(255, 255, 255, 0.08);
-  --color-border-subtle: rgba(255, 255, 255, 0.06);
-  --color-text-main: #e6e6ef;
-  --color-text-primary: #e6e6ef;
-  --color-text-muted: #a1a1aa;
-
-  /* Orchestration status tokens — dark values (previous STATUS_HEX constants) */
-  --orch-status-success: #22c55e;
-  --orch-status-warning: #f59e0b;
-  --orch-status-error: #ef4444;
-  --orch-status-muted: #6b7280;
-  --orch-status-approval: #8b5cf6;
-
-  /* Fumadocs theme mapping */
-  --color-fd-background: #0b0e14;
-  --color-fd-foreground: #e6e6ef;
-  --color-fd-muted: #111520;
-  --color-fd-muted-foreground: #a1a1aa;
-  --color-fd-popover: #161b22;
-  --color-fd-popover-foreground: #e6e6ef;
-  --color-fd-card: #161b22;
-  --color-fd-card-foreground: #e6e6ef;
-  --color-fd-border: rgba(255, 255, 255, 0.08);
-  --color-fd-primary: #e54d5e;
-  --color-fd-primary-foreground: #ffffff;
-  --color-fd-secondary: #111520;
-  --color-fd-secondary-foreground: #e6e6ef;
-  --color-fd-accent: rgba(229, 77, 94, 0.12);
-  --color-fd-accent-foreground: #e6e6ef;
-  --color-fd-ring: #e54d5e;
-
-  /* Dark shadows */
-  --shadow-soft: 0 1px 3px rgba(0, 0, 0, 0.15), 0 4px 12px rgba(0, 0, 0, 0.1);
-  --shadow-warm: 0 2px 12px -2px rgba(229, 77, 94, 0.15);
-  --shadow-elevated: 0 12px 28px -4px rgba(0, 0, 0, 0.3);
-
-  /* Graph-paper wallpaper grid — dark theme values (tuned up from 0.035 for visibility). */
-  --grid-line: rgba(255, 255, 255, 0.06);
-  --section-alt: rgba(255, 255, 255, 0.018);
-  --surface-2: #1c2230;
-
-  /* Data-table surfaces — dark = the exact old hardcoded values (byte-identical). */
-  --table-header-bg: rgba(15, 15, 25, 0.95);
-  --table-row-zebra: rgba(255, 255, 255, 0.02);
-  --table-row-hover: rgba(255, 255, 255, 0.04);
-  --table-cell-border: rgba(255, 255, 255, 0.04);
 }
 
 @theme inline {
@@ -227,11 +86,8 @@
   --shadow-warm: var(--shadow-warm);
   --shadow-elevated: var(--shadow-elevated);
 
-  /* Font - macOS system fonts */
-  --font-sans:
-    -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", system-ui, sans-serif;
-  /* Monospace stack (parity with the site) — code blocks, IDs, endpoints, terminals */
-  --font-mono: ui-monospace, "JetBrains Mono", "Fira Code", "SF Mono", monospace;
+  --font-sans: var(--reddb-font-family-sans);
+  --font-mono: var(--reddb-font-family-mono);
 
   /* Nested surface (enables bg-surface-2) */
   --color-surface-2: var(--surface-2);
