@@ -8,6 +8,23 @@ RedRouter is the product being developed in `reddb-io/red-router`. Its own
 they do not replace RedRouter's interface, README, architecture ownership,
 configuration contracts or release channel. Preserve upstream attribution.
 
+RedRouter has no pre-commit hook. Do not reinstall commit-time linting,
+formatting or tests: validation belongs in CI. This overrides inherited
+pre-commit requirements below. Commit-message and pre-push hooks are separate.
+
+RedRouter does not rerun the wholesale 9router, OmniRoute or LiteLLM suites in
+default CI. Upstreams own their suites; we own local adaptations, integration,
+branding, package installation and runtime contracts. Do not reintroduce inherited
+nightly or other scheduled workflow triggers. Existing product regressions are
+selected in `config/testing/redrouter-suites.json`; new tests go under
+`tests/redrouter/{native,ui,e2e}/` and are discovered automatically.
+`test:unit`, `test:vitest`, `test:e2e` and `test:all` run only those product suites.
+Inherited tests remain opt-in references via `test:upstream:*` and specialized
+commands, not default release requirements. Security analysis and package/boot
+checks remain ours. This overrides inherited full-suite, coverage, documentation
+ratchet and nightly-matrix requirements below. Review changed product docs for
+accuracy; `check:docs-all` remains an optional inherited diagnostic, not a CI gate.
+
 This section takes precedence over inherited OmniRoute operating instructions
 below. Use this repository's GitHub Actions and `main` integration target, not
 another project's release branches, freeze issues, VPS or operator identity.
@@ -24,7 +41,8 @@ The UI and CLI remain English-only; translation endpoints remain valid features.
 Keep Gemini CLI retired as a provider and preserve Antigravity support.
 For this integration, run tests/build validation in CI/CD, not locally. Coverage
 is diagnostic only. Do not claim a stable release until RedRouter regressions
-and the inherited capabilities have been validated through the published package.
+and package installation/boot checks have passed. Upstream test results do not
+prove our adaptations or full feature parity.
 
 RedRouter release ownership is `reddb-io/red-router` and the npm package is
 `@reddb-io/red-router`. Use Changesets for intentional version/changelog changes.
@@ -504,7 +522,11 @@ For any non-trivial change, read the matching deep-dive first:
 
 **Test layer preference**: unit first → integration (multi-module or DB state) → e2e (UI/workflow only). Encode bug reproductions as automated tests before or alongside the fix.
 
-**Both test runners must pass**: `npm run test:unit` (Node native — most tests) AND `npm run test:vitest` (MCP server, autoCombo, cache) cover **non-overlapping files**. Both are wired in CI (jobs `test-unit` and `test-vitest`) and must be green before merging. A PR where only one suite passes may silently ship broken MCP tools or routing regressions.
+**Both product runners must pass**: `npm run test:unit` (RedRouter contracts) AND
+`npm run test:vitest` (RedRouter UI) cover non-overlapping files. Both are wired in
+CI (`test-unit` and `test-vitest`). The build job also runs the selected product
+browser smoke and packed installation/boot checks. The wholesale upstream suites
+are not required.
 
 **Bug fix / issue triage protocol (Hard Rule #18)**: Every fix for a reported issue must be validated by one of the following — no exceptions:
 
@@ -575,11 +597,9 @@ git push -u origin feat/your-feature
 
 **Husky hooks**:
 
-- **pre-commit**: lint-staged + `check-docs-sync` + `check:any-budget:t11` + `check:tracked-artifacts`
+- **pre-commit**: removed for RedRouter; lint, docs and artifact checks run in CI.
 - **commit-msg**: `check:ai-attribution` — rejects AI/bot `Co-Authored-By` trailers and AI-generation footers in the message (Hard Rule #16; human co-authors allowed; also in the `quality.yml` fast-gates loop (PR→`release/**`) and a PR-only `ci.yml` lint step (PR→`main`) — #14436)
-- **pre-push**: intentionally light (PATH/npm sanity only). `any-budget` + `tracked-artifacts`
-  already run on pre-commit; re-running them on every push was pure double-pay. CI still
-  enforces both. (Was Fase 6A.12 full pre-push gate; folded into pre-commit in #6716.)
+- **pre-push**: intentionally light (PATH/npm sanity only). CI owns validation.
 
 ### Worktree isolation (MANDATORY for every development task)
 

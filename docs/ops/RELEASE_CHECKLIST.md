@@ -30,10 +30,13 @@ because an earlier publication succeeded.
 Do not run local tests/builds for this recovery. CI is the validation environment.
 
 - [ ] The latest main push CI run for the exact release SHA completed successfully.
-- [ ] Native unit tests and Vitest both passed; neither substitutes for the other.
-- [ ] Lint, applicable typechecks, security checks and DB/integration regressions passed.
+- [ ] Selected RedRouter native and UI suites both passed; neither substitutes for the other.
+- [ ] Product lint/typechecks, blocking security checks and selected integration regressions passed.
 - [ ] Changes to dashboard workflows have corresponding UI checks.
-- [ ] Changed documentation passed `npm run check:docs-all` in CI.
+- [ ] Review changed product documentation against the implementation; inherited docs ratchets are opt-in.
+- [ ] Upstream wholesale suites are not release gates; new product tests are discovered under
+      `tests/redrouter/{native,ui,e2e}/`, with existing contracts selected in
+      `config/testing/redrouter-suites.json`.
 - [ ] Coverage percentages are diagnostic only, not a merge/release requirement.
 - [ ] Record credentialed provider smoke separately from fixtures and mocks.
 

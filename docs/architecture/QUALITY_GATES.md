@@ -4,7 +4,19 @@ title: Quality Gates Reference
 
 # Quality Gates Reference
 
-This document is the authoritative reference for all CI quality gates in OmniRoute.
+## RedRouter ownership override
+
+The inventory below is historical OmniRoute reference, not the active RedRouter
+CI policy. RedRouter runs its selected contracts/UI tests, one release build,
+browser smoke, package validation and installed-package boot check. Lint,
+typechecks, dependency audit and security analysis apply to our checkout.
+Inherited suites, nightlies, coverage and documentation ratchets are opt-in.
+See [the workflow review](../ops/REDROUTER_WORKFLOW_REVIEW.md) and
+`.github/workflows/ci.yml` for the active configuration.
+
+## Historical upstream reference
+
+This document originally described all CI quality gates in OmniRoute.
 It describes each gate, what it validates, which CI job it runs in, whether it uses
 a ratchet baseline or a pass/fail policy, and whether it blocks the build or is advisory.
 

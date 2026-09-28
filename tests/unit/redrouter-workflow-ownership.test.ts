@@ -53,6 +53,20 @@ test("upstream operational jobs remain inert fixtures, not active workflows", ()
     "npm-publish.yml",
     "electron-release.yml",
     "nightly-release-green.yml",
+    "build.yml",
+    "quality.yml",
+    "release-acceptance.yml",
+    "docker-publish.yml",
+    "opencode-provider-ci.yml",
+    "opencode-plugin-ci.yml",
+    "dast-smoke.yml",
+    "nightly-compat.yml",
+    "nightly-llm-security.yml",
+    "nightly-property.yml",
+    "nightly-resilience.yml",
+    "nightly-schemathesis.yml",
+    "nightly-mutation.yml",
+    "mutation-redundancy.yml",
   ]) {
     assert.equal(existsSync(join(active, file)), false, file);
     assert.equal(existsSync(join(root, "tests/fixtures/upstream-workflows", file)), true, file);
@@ -62,4 +76,21 @@ test("upstream operational jobs remain inert fixtures, not active workflows", ()
   assert.deepEqual(ci.on.pull_request.branches, ["main"]);
   assert.ok(ci.jobs["test-unit"]);
   assert.ok(ci.jobs["test-vitest"]);
+  for (const file of readdirSync(active).filter((name) => /\.ya?ml$/.test(name))) {
+    const workflow = YAML.parse(readFileSync(join(active, file), "utf8"));
+    assert.equal(workflow.on.schedule, undefined, `${file} must not schedule background jobs`);
+  }
+  assert.deepEqual(
+    readdirSync(active)
+      .filter((file) => /\.ya?ml$/.test(file))
+      .sort(),
+    [
+      "api-route-typecheck.yml",
+      "ci.yml",
+      "codeql.yml",
+      "red-publish.yml",
+      "scorecard.yml",
+      "semgrep.yml",
+    ]
+  );
 });

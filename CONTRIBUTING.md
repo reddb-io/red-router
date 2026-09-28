@@ -170,93 +170,52 @@ Scopes (v3.8): `db`, `sse`, `oauth`, `dashboard`, `api`, `cli`, `docker`, `ci`, 
 
 ## Running Tests
 
+For the current recovery, run tests and builds through GitHub Actions, not locally.
+Default commands select RedRouter-owned adaptations and contracts, not the full
+upstream suites:
+
 ```bash
-# All tests (unit + vitest + ecosystem + e2e)
-npm run test:all
+npm run test:unit    # Product contracts: discovery, routing adaptations, DB, packaging
+npm run test:vitest  # Product UI regressions
+npm run test:e2e     # Product browser smoke against the built application
+npm run test:all     # The three product suites, once each
 
-# Single test file (Node.js native test runner — most tests use this)
-node --import tsx/esm --test tests/unit/your-file.test.ts
-
-# Only the unit tests impacted by your change (same TIA selector as the CI gate, #8084)
-npm run test:scoped            # changes in the last commit (or the working tree)
-npm run test:scoped:staged     # staged changes only — pairs well with a pre-commit run
-npm run test:scoped:full       # rebuild the import-graph map first (after adding/moving files)
-# Exit 1 + "run the full suite" means a hub file (tsconfig, package.json, …) or an
-# unmapped source changed — the selector fails safe, it never silently skips.
-
-# Vitest (MCP server, autoCombo, cache)
-npm run test:vitest
-
-# E2E tests (requires Playwright)
-npm run test:e2e
-
-# Protocol clients E2E (MCP transports, A2A)
-npm run test:protocols:e2e
-
-# Ecosystem compatibility tests
-npm run test:ecosystem
-
-# Coverage gate: 60% statements/lines/functions/branches
-npm run test:coverage
-npm run coverage:report
-
-# Lint + format check
-npm run lint
-npm run check
-
-# Gated real-upstream combo smoke (requires VPS access + real provider credits)
-# Hits REAL providers — costs a little. NEVER runs in CI. Skips cleanly without the gate.
-# Needs: ssh root@192.168.0.15 access (sources a read-only DB snapshot from the VPS).
-RUN_COMBO_LIVE=1 npm run test:combo:live
-
-# Phase-3 VPS live smoke — plain Node ESM scripts, hit the live .15 server directly.
-# Requires: ssh root@192.168.0.15 access (combos created/torn down via SSH sqlite).
-# Hits REAL providers (small cost). Creates/deletes only __live_test__* combos. NEVER runs in CI.
-# REQUIRE_API_KEY=false on .15 so no API key needed, but honors COMBO_LIVE_BASE_URL / COMBO_LIVE_API_KEY if set.
-npm run test:combo:live:vps              # 7 HTTP scenarios (priority/round-robin/weighted/cost/fusion/auto + health)
-npm run test:combo:live:vps:failover     # adds a real cross-provider failover scenario (8 total)
+# List selection without executing tests
+node scripts/test/run-redrouter.mjs native --list
+node scripts/test/run-redrouter.mjs ui --list
+node scripts/test/run-redrouter.mjs e2e --list
 ```
 
-Coverage notes:
+Existing retained tests are listed in `config/testing/redrouter-suites.json`.
+New tests go under `tests/redrouter/native/`, `tests/redrouter/ui/` or
+`tests/redrouter/e2e/` and are automatically discovered, including nested folders.
+Add behavioral regressions for our production changes: upstream CI does not test
+our adaptations, account isolation, distribution or product identity.
 
-- `npm run test:coverage` measures source coverage for the main unit test suite, excludes `tests/**`, and includes `open-sse/**`
-- Pull requests must keep the coverage gate at **60%+** statements/lines/functions/branches
-- If a PR changes production code in `src/`, `open-sse/`, `electron/`, or `bin/`, it must add or update automated tests in the same PR
-- `npm run coverage:report` prints the detailed file-by-file report from the latest coverage run
-- `npm run test:coverage:legacy` preserves the older metric for historical comparison
-- See `docs/ops/COVERAGE_PLAN.md` for the phased coverage improvement roadmap
+The inherited sources remain available as references. `test:upstream:unit`,
+`test:upstream:vitest`, `test:upstream:ui` and `test:upstream:e2e` are explicit
+opt-ins; specialized inherited commands also remain available but do not run in
+default CI. Historical tests can assert obsolete upstream policies and may need
+adaptation before use. Their presence is not a claim they currently pass.
 
-### Pull Request Requirements
+### Validation before integration or release
 
-Before opening a PR, use the
-[Contribution Golden Path](docs/ops/CONTRIBUTION_GOLDEN_PATH.md) to run the focused loop for
-what you changed. The full unit suite (4 CI shards), Vitest, the **60%+** coverage gate, and
-the production build are CI's responsibility — running them locally adds no signal the PR
-checks will not already give you, and on smaller machines it can saturate the host (#8084):
+- Check the exact main SHA's CI: product contracts, UI, lint and typechecks.
+- Keep package validation and clean installed-package boot checks.
+- Reuse the CI build for product browser smoke; do not add duplicate full builds.
+- Review changed documentation for verified behavior.
+- Keep security analysis of our checkout; review advisory findings separately.
+- Coverage percentages are not merge or release gates.
+- Do not claim complete upstream parity or faster builds without evidence.
 
-- Run the test files that cover your change: `node --import tsx/esm --test tests/unit/<file>.test.ts`
-- Run `npm run lint`
-- Include or update automated tests in the same PR whenever production code changes
-- Include the changed or added test files in the PR description when production code changed
-- Check the SonarQube result on the PR when the project secrets are configured in CI
-
-Current test status: **122 unit test files** covering:
-
-- Provider translators and format conversion
-- Rate limiting, circuit breaker, and resilience
-- Semantic cache, idempotency, progress tracking
-- Database operations and schema (21 DB modules)
-- OAuth flows and authentication
-- API endpoint validation (Zod v4)
-- MCP server tools and scope enforcement
-- Memory and Skills systems
+There is no pre-commit hook. Validation runs in CI, not on commit.
 
 ---
 
 ## Code Style
 
-- **ESLint** — Run `npm run lint` before committing
-- **Prettier** — Auto-formatted via `lint-staged` on commit (2 spaces, semicolons, double quotes, 100 char width, es5 trailing commas)
+- **ESLint** — Validated in CI; commits do not run lint or tests.
+- **Prettier** — Format changed files explicitly (2 spaces, semicolons, double quotes, 100 char width, es5 trailing commas). No commit-time rewriting.
 - **TypeScript** — All `src/` code uses `.ts`/`.tsx`; `open-sse/` uses `.ts`/`.js`; document with TSDoc (`@param`, `@returns`, `@throws`)
 - **No `eval()`** — ESLint enforces `no-eval`, `no-implied-eval`, `no-new-func`
 - **Zod validation** — Use Zod v4 schemas for all API input validation

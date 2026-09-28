@@ -6,82 +6,80 @@ lastUpdated: 2026-09-28
 
 # RedRouter workflow ownership review
 
-Scope: local inspection of all 28 workflow files present before cleanup. This is
-a structural ownership review, not a successful Actions run or a timing benchmark.
-Changes in this checkout have not been pushed or executed by CI.
+RedRouter is `reddb-io/red-router`, publishing `@reddb-io/red-router`. Upstream
+source inheritance does not transfer another project's operational workflows,
+credentials or wholesale test requirements.
 
-RedRouter is `reddb-io/red-router`, publishing `@reddb-io/red-router`. Upstream source
-inheritance does not transfer another project's operational workflows or credentials.
-Versioning must use Changesets; publishing on every main push is not the release policy.
+This is a local structural review, not a successful Actions run or a timing benchmark.
+The scoped CI changes have not yet been validated in GitHub Actions.
+
+## Active workflows
+
+| Workflow                  | Responsibility                                                                                                                                                     |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `ci.yml`                  | Main pushes/PRs: product contracts and UI, lint/typecheck/audit, one build reused for browser and installed-package smoke.                                         |
+| `red-publish.yml`         | Sole npm publisher: tagged SHA on main, successful exact-SHA CI, checksums, provenance, registry integrity and clean mise/aube installation before GitHub release. |
+| `api-route-typecheck.yml` | Main-only API diagnostic regression check.                                                                                                                         |
+| `codeql.yml`              | Manual security analysis; default-setup compatibility behavior preserved.                                                                                          |
+| `semgrep.yml`             | Main-only advisory code/secrets analysis, not a blocking test suite.                                                                                               |
+| `scorecard.yml`           | Default-branch supply-chain posture analysis.                                                                                                                      |
+
+No active workflow has a scheduled trigger: there are no nightly or weekly jobs.
+Security analysis evaluates our checkout and is retained independently of upstream
+test ownership. The publisher remains tag-driven/manual, not triggered on every push.
+
+## Test ownership
+
+Upstreams own their original suites. RedRouter owns regressions for local
+adaptations and integrations: discovery/catalog isolation, JEV/System One,
+compatibility ports, product identity, design-system behavior and distribution.
+
+`config/testing/redrouter-suites.json` selects existing product tests relative to
+the recorded import snapshot. New tests under `tests/redrouter/{native,ui,e2e}/`
+are discovered automatically. Missing files or empty selections fail closed.
+Default `test:unit`, `test:vitest`, `test:e2e` and `test:all` use that scope.
+No coverage-percentage gate is added.
+
+Inherited sources remain opt-in references through `test:upstream:*` and existing
+specialized commands. They may assert obsolete upstream policies; keeping them
+does not mean they currently pass. We are deliberately reducing test scope, not
+claiming equivalent exhaustive coverage or full feature parity.
+
+## Retired automation
+
+All retired workflow sources are recoverable in `tests/fixtures/upstream-workflows/`;
+GitHub does not execute that directory. The previous large `ci.yml` is archived too.
+
+- Duplicate/foreign publication and operations: `npm-publish`, `electron-release`,
+  `docker-publish`, `deploy-vps`, `lock-released-branch`, `radar-export`,
+  `wiki-sync`, `claude`, `nightly-release-green`.
+- Duplicate build/acceptance and release-branch gates: `build`, `quality`,
+  `release-acceptance`.
+- Inherited plugin matrices: `opencode-provider-ci`, `opencode-plugin-ci`.
+- Inherited dynamic/fuzz/property/mutation/resilience matrices: `dast-smoke`,
+  `nightly-compat`, `nightly-llm-security`, `nightly-property`,
+  `nightly-resilience`, `nightly-schemathesis`, `nightly-mutation`,
+  `mutation-redundancy`.
+
+No runtime feature was deleted. Container/desktop distribution needs an explicitly
+RedRouter-owned pipeline before being offered as a supported release channel.
 
 ## Reference patterns
 
-The sibling repositories were inspected read-only:
+The prior ownership review inspected sibling repositories read-only: dit for
+tagged-tree version validation, redskilled for artifact/provenance verification,
+and red-skills for deliverable-specific CI. Their Rust, fleet, mobile and declarative
+package workflows are not copied into RedRouter.
 
-- `dit/.github/workflows/release.yml`: tagged-tree version validation, build artifacts,
-  release planning. Its Rust/release-plz workflow is not our npm implementation.
-- `redskilled/.github/workflows/red-release.yml` and `red-publish.yml`: separate
-  version preparation from publishing, use the existing release credentials, verify
-  exact artifacts and the registry. Its fleet/plugin/mobile jobs are not copied.
-- `red-skills/.github/workflows/red-workspace-ci.yml`: keep CI specific to the repository's
-  actual deliverable; a declarative skills repository is not a router package.
+## Remaining release work
 
-## Disposition of every original workflow
-
-| Workflow                    | Disposition and reason                                                                                                                                                    |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `red-publish.yml`           | Keep as sole npm publisher. Added repository ownership and exact tagged-SHA/main CI gates. Source-version alignment, Changesets wiring and registry smoke still pending.  |
-| `ci.yml`                    | Keep native tests, Vitest, integration, security, package checks and build. Target main only. Review duplicated gates and upstream runners before optimizing.             |
-| `api-route-typecheck.yml`   | Keep its API-specific diagnostic regression check; reconcile remaining release-branch trigger.                                                                            |
-| `build.yml`                 | Manual build retained pending consolidation with main CI.                                                                                                                 |
-| `quality.yml`               | Release-branch-only automation remains pending consolidation; do not delete unique gates without mapping them to main CI.                                                 |
-| `release-acceptance.yml`    | Shadow fixture-based acceptance, not release evidence. Pending removal or integration into CI.                                                                            |
-| `docker-publish.yml`        | Separate inherited container channel remains pending replacement or retirement; no RedRouter Docker publishing claim.                                                     |
-| `opencode-provider-ci.yml`  | Keep tests for included integration code; remove obsolete release branch and review runtime matrix. No separate package publishing authority.                             |
-| `opencode-plugin-ci.yml`    | Keep integration tests/builds; reconcile main-only triggers. No separate package publishing authority.                                                                    |
-| `codeql.yml`                | Keep security analysis; review activation and duplication.                                                                                                                |
-| `semgrep.yml`               | Keep security analysis; reconcile main-only triggers.                                                                                                                     |
-| `scorecard.yml`             | Keep supply-chain analysis; reconcile main-only triggers.                                                                                                                 |
-| `dast-smoke.yml`            | Keep dynamic security smoke; review overlap/build reuse.                                                                                                                  |
-| `nightly-compat.yml`        | Keep runtime compatibility coverage; replace highest-upstream-release selection with main.                                                                                |
-| `nightly-llm-security.yml`  | Keep prompt/security checks pending relevance and runner review.                                                                                                          |
-| `nightly-property.yml`      | Keep randomized properties; these are not coverage-percentage gates.                                                                                                      |
-| `nightly-resilience.yml`    | Keep resilience checks pending cost, runtime and overlap review.                                                                                                          |
-| `nightly-schemathesis.yml`  | Keep protocol fuzzing pending schema/runner review.                                                                                                                       |
-| `nightly-mutation.yml`      | Pending cost/benefit review; not a RedRouter release requirement.                                                                                                         |
-| `mutation-redundancy.yml`   | Manual diagnostic retained pending consolidation, not a release requirement.                                                                                              |
-| `npm-publish.yml`           | Removed from active workflows: duplicate upstream npm and plugin publishing.                                                                                              |
-| `electron-release.yml`      | Removed from active workflows: upstream desktop release and second npm publishing entry. Application code remains; rebuild a RedRouter-owned desktop pipeline separately. |
-| `deploy-vps.yml`            | Removed: explicitly installed `omniroute@latest` and managed an OmniRoute PM2 deployment.                                                                                 |
-| `lock-released-branch.yml`  | Removed: changes repository branch protection for the upstream release-branch lifecycle, incompatible with main-only development.                                         |
-| `nightly-release-green.yml` | Removed: upstream release-branch selection and maintenance, overlapping main CI.                                                                                          |
-| `radar-export.yml`          | Removed: publishes an upstream Radar service's rolling release asset.                                                                                                     |
-| `wiki-sync.yml`             | Removed: would republish upstream product documentation to our wiki.                                                                                                      |
-| `claude.yml`                | Removed: inherited agent automation requiring its own OAuth credential; not part of RedRouter release/CI.                                                                 |
-
-Removed workflow files are recoverable under `tests/fixtures/upstream-workflows/`.
-Inherited static regression tests read those historical fixtures. They do not
-substitute for tests of `red-publish.yml`; independent checks are in
-`tests/unit/redrouter-workflow-ownership.test.ts`. No runtime feature was deleted.
-
-## Remaining release blockers
-
-1. The root manifest currently identifies `red-router-app@3.8.51`; the published
-   identity is `@reddb-io/red-router`. The publisher currently restamps it from a
-   v0.x tag. Reconcile source identity/version and lockfile before removing this bridge.
-2. Pending Changesets target `@reddb-io/red-router`, but CLI/configuration were lost
-   in the base replacement. Installing the pinned CLI offline failed with
-   `ENOTCACHED`; no dependency or lockfile update was applied. Restore actual
-   Changesets tooling, verify its published-package/workspace targeting, and review
-   generated changelog/version changes before tagging. Do not invent a bump in CI.
-3. Complete the pending dispositions above, including the inherited Docker channel,
-   obsolete branch selectors and runner labels. Do not assume an upstream VPS exists here.
-4. Run RedRouter CI on the exact main SHA. Unit and Vitest suites are non-overlapping
-   and both required; coverage percentages are not a release requirement.
-5. Check tag/source/package version agreement, verify packed boot and checksums,
-   then publish the exact tarball. Verify npm propagation, registry integrity and a
-   clean installed-package smoke before calling the release usable.
-
-Do not claim a 50% build-time reduction without measured comparable runs. Preserve
-test coverage of behavior; remove duplicated builds, obsolete automation and
-unnecessary serialization first. Do not disable tests to hide integration regressions.
+1. Restore Changesets tooling and reconcile the source identity/version
+   (`red-router-app@3.8.51`) with `@reddb-io/red-router` and the lockfile.
+   The publisher's v0.x restamping is transitional, not the desired final flow.
+2. Run the scoped CI on the exact main SHA and inspect failures. If repository
+   protection requires retired job names, reconcile those required checks with the
+   active jobs; local workflow edits cannot change server-side branch rules.
+3. Review generated version/changelog before tagging; publish the exact checked
+   tarball and verify registry availability plus clean consumer installation.
+4. Measure comparable Actions runs before claiming a 50% time reduction. A narrower
+   suite reduces scheduled work but does not prove a particular wall-clock saving.

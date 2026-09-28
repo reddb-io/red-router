@@ -127,9 +127,9 @@
     "electron:build:mac": "npm run build && cd electron && npm run build:mac",
     "electron:build:linux": "npm run build && cd electron && npm run build:linux",
     "electron:smoke:packaged": "node scripts/dev/smoke-electron-packaged.mjs",
-    "test": "cross-env DISABLE_SQLITE_AUTO_BACKUP=true node --max-old-space-size=8192 --import tsx/esm --import ./open-sse/utils/setupPolyfill.ts --import ./tests/_setup/isolateDataDir.ts --test --test-force-exit --test-concurrency=4 tests/unit/*.test.ts \"tests/unit/{api,auth,authz,build,cli,cli-helper,combo,compression,correctness,cors,db,db-adapters,docs,gamification,guardrails,lib,mcp,memory,runtime,security,services,settings,shared,translator,ui,usage}/**/*.test.ts\" \"tests/unit/**/*.test.mjs\" && cross-env DISABLE_SQLITE_AUTO_BACKUP=true node --max-old-space-size=8192 --import tsx --import ./open-sse/utils/setupPolyfill.ts --import ./tests/_setup/isolateDataDir.ts --test --test-force-exit --test-concurrency=4 \"tests/unit/dashboard/**/*.test.ts\" && npm run test:unit:serial",
-    "test:unit": "cross-env DISABLE_SQLITE_AUTO_BACKUP=true node --max-old-space-size=8192 --import tsx/esm --import ./open-sse/utils/setupPolyfill.ts --import ./tests/_setup/isolateDataDir.ts --test --test-force-exit --test-concurrency=4 tests/unit/*.test.ts \"tests/unit/{api,auth,authz,build,cli,cli-helper,combo,compression,correctness,cors,db,db-adapters,docs,gamification,guardrails,lib,mcp,memory,runtime,security,services,settings,shared,translator,ui,usage}/**/*.test.ts\" \"tests/unit/**/*.test.mjs\" && cross-env DISABLE_SQLITE_AUTO_BACKUP=true node --max-old-space-size=8192 --import tsx --import ./open-sse/utils/setupPolyfill.ts --import ./tests/_setup/isolateDataDir.ts --test --test-force-exit --test-concurrency=4 \"tests/unit/dashboard/**/*.test.ts\" && npm run test:unit:serial",
-    "test:unit:ci": "cross-env DISABLE_SQLITE_AUTO_BACKUP=true node --max-old-space-size=8192 --import tsx/esm --import ./open-sse/utils/setupPolyfill.ts --import ./tests/_setup/isolateDataDir.ts --test --test-force-exit --test-concurrency=4 tests/unit/*.test.ts \"tests/unit/{api,auth,authz,build,cli,cli-helper,combo,compression,correctness,cors,db,db-adapters,docs,gamification,guardrails,lib,mcp,memory,runtime,security,services,settings,shared,translator,ui,usage}/**/*.test.ts\" \"tests/unit/**/*.test.mjs\" && cross-env DISABLE_SQLITE_AUTO_BACKUP=true node --max-old-space-size=8192 --import tsx --import ./open-sse/utils/setupPolyfill.ts --import ./tests/_setup/isolateDataDir.ts --test --test-force-exit --test-concurrency=4 \"tests/unit/dashboard/**/*.test.ts\" && npm run test:unit:serial",
+    "test": "node scripts/test/run-redrouter.mjs native",
+    "test:unit": "node scripts/test/run-redrouter.mjs native",
+    "test:unit:ci": "node scripts/test/run-redrouter.mjs native",
     "test:unit:ci:shard": "cross-env DISABLE_SQLITE_AUTO_BACKUP=true node --max-old-space-size=8192 --import tsx/esm --import ./open-sse/utils/setupPolyfill.ts --import ./tests/_setup/isolateDataDir.ts --test --test-force-exit --test-concurrency=4 --test-shard=$TEST_SHARD tests/unit/*.test.ts \"tests/unit/{api,auth,authz,build,cli,cli-helper,combo,compression,correctness,cors,db,db-adapters,docs,gamification,guardrails,lib,mcp,memory,runtime,security,services,settings,shared,translator,ui,usage}/**/*.test.ts\" \"tests/unit/**/*.test.mjs\" && cross-env DISABLE_SQLITE_AUTO_BACKUP=true node --max-old-space-size=8192 --import tsx --import ./open-sse/utils/setupPolyfill.ts --import ./tests/_setup/isolateDataDir.ts --test --test-force-exit --test-concurrency=4 --test-shard=$TEST_SHARD \"tests/unit/dashboard/**/*.test.ts\" && cross-env DISABLE_SQLITE_AUTO_BACKUP=true node --max-old-space-size=8192 --import tsx/esm --import ./open-sse/utils/setupPolyfill.ts --import ./tests/_setup/isolateDataDir.ts --test --test-force-exit --test-concurrency=1 --test-shard=$TEST_SHARD \"tests/unit/serial/**/*.test.ts\"",
     "test:unit:fast": "cross-env DISABLE_SQLITE_AUTO_BACKUP=true node --max-old-space-size=8192 --import tsx/esm --import ./open-sse/utils/setupPolyfill.ts --import ./tests/_setup/isolateDataDir.ts --test --test-force-exit --test-isolation=none tests/unit/*.test.ts \"tests/unit/{api,auth,authz,build,cli,cli-helper,combo,compression,correctness,cors,db,db-adapters,docs,gamification,guardrails,lib,mcp,memory,runtime,security,services,settings,shared,translator,ui,usage}/**/*.test.ts\" \"tests/unit/**/*.test.mjs\" && cross-env DISABLE_SQLITE_AUTO_BACKUP=true node --max-old-space-size=8192 --import tsx --import ./open-sse/utils/setupPolyfill.ts --import ./tests/_setup/isolateDataDir.ts --test --test-force-exit --test-isolation=none \"tests/unit/dashboard/**/*.test.ts\" && npm run test:unit:serial",
     "test:scoped": "bash scripts/quality/test-scoped.sh",
@@ -244,10 +244,10 @@
     "test:boundary:live": "cross-env RUN_BOUNDARY_LIVE=1 DISABLE_SQLITE_AUTO_BACKUP=true node --import tsx/esm --import ./open-sse/utils/setupPolyfill.ts --import ./tests/_setup/isolateDataDir.ts --test --test-force-exit --test-concurrency=1 \"tests/boundary/*.live.test.ts\"",
     "test:heap": "node --expose-gc --import tsx/esm --import ./open-sse/utils/setupPolyfill.ts --import ./tests/_setup/isolateDataDir.ts --test --test-force-exit tests/integration/heap-growth.test.ts",
     "test:chaos": "cross-env RUN_CHAOS_INT=1 node --import tsx/esm --import ./open-sse/utils/setupPolyfill.ts --import ./tests/_setup/isolateDataDir.ts --test --test-force-exit --test-concurrency=1 tests/integration/resilience-chaos.test.ts",
-    "test:e2e": "node scripts/dev/run-playwright-tests.mjs test tests/e2e/*.spec.ts",
+    "test:e2e": "node scripts/test/run-redrouter.mjs e2e",
     "test:protocols:e2e": "node scripts/dev/run-protocol-clients-tests.mjs",
-    "test:vitest": "vitest run --config vitest.mcp.config.ts",
-    "test:vitest:ui": "vitest run --config vitest.config.ts",
+    "test:vitest": "node scripts/test/run-redrouter.mjs ui",
+    "test:vitest:ui": "node scripts/test/run-redrouter.mjs ui",
     "test:mutation": "stryker run",
     "test:ecosystem": "node scripts/dev/run-ecosystem-tests.mjs",
     "test:system": "cross-env DISABLE_SQLITE_AUTO_BACKUP=true node --import tsx/esm --import ./open-sse/utils/setupPolyfill.ts --import ./tests/_setup/isolateDataDir.ts --test --test-force-exit --test-concurrency=1 tests/e2e/system-failover.test.ts",
@@ -259,7 +259,7 @@
     "check:pr-test-policy": "node scripts/check/check-pr-test-policy.mjs",
     "check:pricing-freshness": "node scripts/check/check-pricing-freshness.mjs",
     "coverage:report:legacy": "c8 report --output-dir coverage --exclude=open-sse --reporter=text --reporter=text-summary",
-    "test:all": "npm run test:unit && npm run test:vitest && npm run test:vitest:ui && npm run test:ecosystem && npm run test:e2e",
+    "test:all": "npm run test:unit && npm run test:vitest && npm run test:e2e",
     "check": "npm run lint && npm run test",
     "prepublishOnly": "npm run build:cli-api && npm run build:cli && npm run check:pack-artifact",
     "postinstall": "node scripts/build/postinstall.mjs",
@@ -275,7 +275,11 @@
     "test:coverage:runner": "node --max-old-space-size=8192 --import tsx/esm --import ./open-sse/utils/setupPolyfill.ts --import ./tests/_setup/isolateDataDir.ts --test --test-force-exit --test-concurrency=8 tests/unit/*.test.ts \"tests/unit/{api,auth,authz,build,cli,cli-helper,combo,compression,correctness,cors,db,db-adapters,docs,gamification,guardrails,lib,mcp,memory,runtime,security,services,settings,shared,translator,ui,usage}/**/*.test.ts\" \"tests/unit/**/*.test.mjs\" && cross-env DISABLE_SQLITE_AUTO_BACKUP=true NODE_OPTIONS=--max-old-space-size=8192 c8 --merge-async --output-dir coverage --exclude=tests/** --exclude=**/*.test.* --reporter=text-summary --reporter=html --reporter=json-summary --reporter=lcov --check-coverage --statements 60 --lines 60 --functions 60 --branches 60 node --max-old-space-size=8192 --import tsx --import ./open-sse/utils/setupPolyfill.ts --import ./tests/_setup/isolateDataDir.ts --test --test-force-exit --test-concurrency=8 \"tests/unit/dashboard/**/*.test.ts\" && npm run test:unit:serial",
     "test:unit:serial": "cross-env DISABLE_SQLITE_AUTO_BACKUP=true node --max-old-space-size=8192 --import tsx/esm --import ./open-sse/utils/setupPolyfill.ts --import ./tests/_setup/isolateDataDir.ts --test --test-force-exit --test-concurrency=1 \"tests/unit/serial/**/*.test.ts\"",
     "alibaba:sync-allowlist": "node --import tsx/esm scripts/ops/sync-alibaba-allowlist.mjs",
-    "check:vitest-exclusions": "node scripts/check/check-vitest-exclusions.mjs"
+    "check:vitest-exclusions": "node scripts/check/check-vitest-exclusions.mjs",
+    "test:upstream:unit": "cross-env DISABLE_SQLITE_AUTO_BACKUP=true node --max-old-space-size=8192 --import tsx/esm --import ./open-sse/utils/setupPolyfill.ts --import ./tests/_setup/isolateDataDir.ts --test --test-force-exit --test-concurrency=4 tests/unit/*.test.ts \"tests/unit/{api,auth,authz,build,cli,cli-helper,combo,compression,correctness,cors,db,db-adapters,docs,gamification,guardrails,lib,mcp,memory,runtime,security,services,settings,shared,translator,ui,usage}/**/*.test.ts\" \"tests/unit/**/*.test.mjs\" && cross-env DISABLE_SQLITE_AUTO_BACKUP=true node --max-old-space-size=8192 --import tsx --import ./open-sse/utils/setupPolyfill.ts --import ./tests/_setup/isolateDataDir.ts --test --test-force-exit --test-concurrency=4 \"tests/unit/dashboard/**/*.test.ts\" && npm run test:unit:serial",
+    "test:upstream:vitest": "vitest run --config vitest.mcp.config.ts",
+    "test:upstream:ui": "vitest run --config vitest.config.ts",
+    "test:upstream:e2e": "node scripts/dev/run-playwright-tests.mjs test tests/e2e/*.spec.ts"
   },
   "dependencies": {
     "@aws-sdk/client-bedrock-runtime": "^3.1120.0",
@@ -416,7 +420,6 @@
     "junit-to-ctrf": "^0.0.14",
     "knip": "^6.35.1",
     "license-checker-rseidelsohn": "^5.0.1",
-    "lint-staged": "^17.5.1",
     "lockfile-lint": "^5.0.1",
     "node-loader": "^2.1.0",
     "opencode-ai": "1.18.30",
@@ -432,15 +435,6 @@
     "vitest": "^5.0.0",
     "wait-on": "^9.1.0",
     "wtfnode": "^0.10.1"
-  },
-  "lint-staged": {
-    "*.{js,jsx,ts,tsx,mjs}": [
-      "prettier --write",
-      "eslint --fix --no-error-on-unmatched-pattern --no-warn-ignored --suppressions-location config/quality/eslint-suppressions.json --pass-on-unpruned-suppressions"
-    ],
-    "*.{json,md,yml,yaml,css}": [
-      "prettier --write"
-    ]
   },
   "pnpm": {
     "onlyBuiltDependencies": [
