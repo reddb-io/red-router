@@ -29,6 +29,8 @@ permissions:
 jobs:
   validate:
     name: Validate version
+    # RedRouter v0.x releases use red-publish.yml, not the OmniRoute desktop channel.
+    if: ${{ !startsWith(github.ref_name, 'v0.') }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
