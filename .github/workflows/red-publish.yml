@@ -203,7 +203,7 @@ jobs:
             unset NODE_AUTH_TOKEN
             npm config delete //registry.npmjs.org/:_authToken || true
             node "$RUNNER_TEMP/redrouter-npm/node_modules/npm/bin/npm-cli.js" publish \
-              "release-artifacts/reddb-io-red-router-$VERSION.tgz" \
+              "$GITHUB_WORKSPACE/release-artifacts/reddb-io-red-router-$VERSION.tgz" \
               --access public --provenance --ignore-scripts
           fi
       - name: Verify the public npm tarball
