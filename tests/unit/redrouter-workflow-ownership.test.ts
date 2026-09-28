@@ -58,6 +58,34 @@ test("the one workflow owns exact-artifact npm and GitHub publication", () => {
   assert.ok(smoke >= 0 && smoke < githubRelease);
 });
 
+test("npm propagation recovery promotes the original tested artifact", () => {
+  const workflow = YAML.parse(readFileSync(join(active, "red-publish.yml"), "utf8"));
+  const build = workflow.jobs.build;
+  const release = workflow.jobs.release;
+  const sourceRun = "${{ inputs.artifact_run_id || github.run_id }}";
+  const sourceAttempt = "${{ inputs.artifact_run_attempt || github.run_attempt }}";
+
+  assert.equal(
+    build.steps.find((step: { name?: string }) => step.name === "Build once").if,
+    "${{ inputs.artifact_run_id == '' }}"
+  );
+  assert.equal(
+    build.steps.find((step: { name?: string }) => step.name === "Pack once").if,
+    "${{ inputs.artifact_run_id == '' }}"
+  );
+  const download = release.steps.find(
+    (step: { name?: string }) => step.name === "Download the tested tarball"
+  );
+  assert.equal(download.with["run-id"], sourceRun);
+  assert.equal(download.with.name, `redrouter-release-${sourceRun}-${sourceAttempt}`);
+  const verify = release.steps.find(
+    (step: { name?: string }) => step.name === "Verify artifact identity and checksum"
+  );
+  assert.equal(verify.env.RELEASE_RUN_ID, sourceRun);
+  assert.equal(verify.env.RELEASE_RUN_ATTEMPT, sourceAttempt);
+  assert.equal(release.permissions.actions, "read");
+});
+
 test("foreign upstream operational workflows remain inert fixtures", () => {
   for (const file of [
     "claude.yml",
