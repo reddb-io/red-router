@@ -565,19 +565,6 @@ export default function ProviderDetailPageClient() {
         <ZedImportCard fetchConnections={fetchConnections} notify={notify} />
       )}
       {providerId === "cursor" && <CursorAgentNudge />}
-      {isCompatible && providerNode && (
-        <CompatibleNodeCard
-          providerId={providerId}
-          providerNode={providerNode}
-          isCcCompatible={isCcCompatible}
-          isAnthropicCompatible={isAnthropicCompatible}
-          isAnthropicProtocolCompatible={isAnthropicProtocolCompatible}
-          gateConnectionFlow={gateConnectionFlow}
-          openApiKeyAddFlow={openApiKeyAddFlow}
-          onOpenEditNodeModal={() => setShowEditNodeModal(true)}
-          t={t}
-        />
-      )}
       {!isUpstreamProxyProvider && isFreeNoAuth && (
         <NoAuthProviderControls
           providerId={providerId}
@@ -830,6 +817,21 @@ export default function ProviderDetailPageClient() {
             syncedModelIds={syncedAvailableModels.map((model) => model.id)}
           />
         </Card>
+      )}
+
+      {/* Advanced provider-node settings follow connections and models. */}
+      {isCompatible && providerNode && (
+        <CompatibleNodeCard
+          providerId={providerId}
+          providerNode={providerNode}
+          isCcCompatible={isCcCompatible}
+          isAnthropicCompatible={isAnthropicCompatible}
+          isAnthropicProtocolCompatible={isAnthropicProtocolCompatible}
+          gateConnectionFlow={gateConnectionFlow}
+          openApiKeyAddFlow={openApiKeyAddFlow}
+          onOpenEditNodeModal={() => setShowEditNodeModal(true)}
+          t={t}
+        />
       )}
 
       {/* Search provider info */}
