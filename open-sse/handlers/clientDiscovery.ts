@@ -183,6 +183,7 @@ export async function handleCatalogDiscovery(
             version: deps.version,
             systemone: {
               endpoint: "/v1/systemone",
+              aliases: ["/v1/decisions"],
               models: models.filter((model) => model.type === "systemone").map((model) => model.id),
               // Catalog membership is not a successful credential/health probe.
               availability: "not_probed",

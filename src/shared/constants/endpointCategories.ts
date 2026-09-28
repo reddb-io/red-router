@@ -28,7 +28,7 @@ export const ENDPOINT_CATEGORIES: readonly EndpointCategory[] = [
     id: "decisions",
     label: "Decisions / System One",
     description: "Typed evaluation requests",
-    prefixes: ["/v1/systemone"],
+    prefixes: ["/v1/systemone", "/v1/decisions"],
   },
   {
     id: "search",

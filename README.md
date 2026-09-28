@@ -95,19 +95,19 @@ remain compatibility aliases; new RedRouter configuration should prefer
 These route implementations are present in the current source. Protocol and
 provider parity must be verified separately.
 
-| Interface           | Route                         |
-| ------------------- | ----------------------------- |
-| OpenAI chat         | `POST /v1/chat/completions`   |
-| OpenAI Responses    | `POST /v1/responses`          |
-| Anthropic Messages  | `POST /v1/messages`           |
-| Model discovery     | `GET /v1/models`              |
-| Key discovery       | `GET /v1/key`                 |
-| Grouped catalog     | `GET /v1/catalog`             |
-| Client capabilities | `GET /v1/capabilities`        |
-| Embeddings          | `POST /v1/embeddings`         |
-| System One          | `POST /v1/systemone`          |
-| MCP                 | `/v1/mcp`                     |
-| Audio translation   | `POST /v1/audio/translations` |
+| Interface           | Route                                   |
+| ------------------- | --------------------------------------- |
+| OpenAI chat         | `POST /v1/chat/completions`             |
+| OpenAI Responses    | `POST /v1/responses`                    |
+| Anthropic Messages  | `POST /v1/messages`                     |
+| Model discovery     | `GET /v1/models`                        |
+| Key discovery       | `GET /v1/key`                           |
+| Grouped catalog     | `GET /v1/catalog`                       |
+| Client capabilities | `GET /v1/capabilities`                  |
+| Embeddings          | `POST /v1/embeddings`                   |
+| System One          | `POST /v1/systemone` or `/v1/decisions` |
+| MCP                 | `/v1/mcp`                               |
+| Audio translation   | `POST /v1/audio/translations`           |
 
 The product UI and CLI are English-only. Translation APIs are separate product
 features and remain in scope.
