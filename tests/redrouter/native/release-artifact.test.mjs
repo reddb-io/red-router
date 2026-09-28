@@ -97,8 +97,10 @@ test("artifact verification rejects wrong SHA, run, version, manifest and tamper
 
 test("CI packs once and publication only promotes the verified artifact", async () => {
   const root = new URL("../../../", import.meta.url);
-  const ci = YAML.parse(await readFile(new URL(".github/workflows/ci.yml", root), "utf8"));
-  const build = ci.jobs.build;
+  const workflow = YAML.parse(
+    await readFile(new URL(".github/workflows/red-publish.yml", root), "utf8")
+  );
+  const build = workflow.jobs.build;
   const commands = build.steps.map((step) => step.run).filter(Boolean);
   assert.equal(commands.filter((cmd) => cmd === "npm run release:pack").length, 1);
   assert.ok(
@@ -106,14 +108,18 @@ test("CI packs once and publication only promotes the verified artifact", async 
   );
   assert.equal(build.env.REDROUTER_RELEASE_ARTIFACT_DIR, "release-artifacts");
   assert.equal(build.env.OMNIROUTE_PLAYWRIGHT_SKIP_BUILD, "1");
-  const upload = build.steps.find(
-    (step) => step.name === "Retain the tested main artifact for publication"
-  );
-  assert.equal(upload.if, "github.event_name == 'push' && github.ref == 'refs/heads/main'");
-  const publisher = await readFile(new URL(".github/workflows/red-publish.yml", root), "utf8");
-  assert.doesNotMatch(publisher, /npm run build|npm ci|npm pack|npm pkg set/);
-  assert.match(publisher, /artifact.name === name && !artifact.expired/);
-  assert.match(publisher, /RELEASE_RUN_ATTEMPT:/);
+  const upload = build.steps.find((step) => step.name === "Upload the tested release artifact");
+  assert.match(upload.if, /refs\/tags\/v/);
+  const releaseCommands = workflow.jobs.release.steps
+    .map((step) => step.run)
+    .filter(Boolean)
+    .join("\n");
+  assert.doesNotMatch(releaseCommands, /npm run build|npm ci|npm pack|npm pkg set/);
+  assert.match(releaseCommands, /scripts\/release\/artifact\.mjs verify/);
+  assert.match(releaseCommands, /--provenance --ignore-scripts/);
+  assert.match(releaseCommands, /mise install --verbose/);
+  assert.match(releaseCommands, /sha256sum -c SHA256SUMS/);
+  assert.equal(workflow.jobs.release.needs.includes("build"), true);
 });
 
 test("browser smoke and browser installation use the same Playwright test CLI", async () => {
@@ -121,7 +127,7 @@ test("browser smoke and browser installation use the same Playwright test CLI", 
   const runner = await readFile(new URL("scripts/dev/run-playwright-tests.mjs", root), "utf8");
   assert.ok(runner.includes('require.resolve("@playwright/test/cli")'));
   assert.doesNotMatch(runner, /node_modules\/playwright\/cli\.js/);
-  const ci = YAML.parse(await readFile(new URL(".github/workflows/ci.yml", root), "utf8"));
+  const ci = YAML.parse(await readFile(new URL(".github/workflows/red-publish.yml", root), "utf8"));
   assert.ok(
     ci.jobs.build.steps.some(
       (step) =>

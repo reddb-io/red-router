@@ -12,7 +12,7 @@ browser smoke, package validation and installed-package boot check. Lint,
 typechecks, dependency audit and security analysis apply to our checkout.
 Inherited suites, nightlies, coverage and documentation ratchets are opt-in.
 See [the workflow review](../ops/REDROUTER_WORKFLOW_REVIEW.md) and
-`.github/workflows/ci.yml` for the active configuration.
+`.github/workflows/red-publish.yml` for the active configuration.
 
 ## Historical upstream reference
 

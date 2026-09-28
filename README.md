@@ -156,12 +156,13 @@ imported as chat.
 
 RedRouter publishes `@reddb-io/red-router` from `reddb-io/red-router` using
 `.github/workflows/red-publish.yml`. Changesets are the intended versioning policy,
-and restoration work includes a pending Changeset. The integrated tree still needs
-its Changesets CLI/configuration and package-version identity reconciled before
-the next release; the existing publisher's version restamping is transitional.
-See [the workflow review](docs/ops/REDROUTER_WORKFLOW_REVIEW.md) for completed cleanup
-and remaining work. No feature-parity or successful-release claim follows from
-the presence of a route, workflow, or inherited test.
+and the workflow never chooses or rewrites a version. It validates pull requests and
+main, then publishes only an existing SemVer tag whose package version was prepared
+from `.changeset` files. The exact tarball tested by the tag run is promoted to npm
+and attached to its GitHub Release. See
+[the workflow review](docs/ops/REDROUTER_WORKFLOW_REVIEW.md). No feature-parity or
+successful-release claim follows from the presence of a route, workflow, or
+inherited test.
 
 ## Persistence and scale
 

@@ -1,211 +1,235 @@
-name: Publish RedRouter
+name: RedRouter
 
-# RedRouter keeps its v0.x package/release channel separate from OmniRoute's
-# v3.x channel. Only a tag on the protected, green main commit may publish.
+# One product-owned pipeline:
+# - every PR and main push validates RedRouter;
+# - a SemVer tag runs the same validation, publishes the exact tested tarball,
+#   and creates the matching GitHub Release;
+# - Changesets decides the version before the tag is created.
 on:
   push:
-    tags:
-      - "v0.*"
+    branches: [main]
+    tags: ["v*.*.*"]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
     inputs:
       tag:
-        description: "Existing RedRouter tag (v0.X.Y)"
-        required: true
+        description: "Existing SemVer tag to validate/publish (optional)"
+        required: false
         type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: red-publish-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
-  cancel-in-progress: false
+  group: redrouter-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CI_NODE_VERSION: "24"
+  NEXT_TELEMETRY_DISABLED: "1"
+  DISABLE_SQLITE_AUTO_BACKUP: "true"
+  OMNIROUTE_SKIP_SYSTEM_TRUST: "1"
+  JWT_SECRET: redrouter-ci-only-jwt-secret-not-for-production-2026
+  API_KEY_SECRET: redrouter-ci-only-api-key-secret-not-for-production-2026
 
 jobs:
-  resolve:
-    name: Resolve the verified main artifact
-    if: github.repository == 'reddb-io/red-router'
+  checks:
+    name: Product checks
     runs-on: ubuntu-latest
-    outputs:
-      version: ${{ steps.version.outputs.version }}
-      tag: ${{ steps.version.outputs.tag }}
-      sha: ${{ steps.version.outputs.sha }}
-      run_id: ${{ steps.ci.outputs.run_id }}
-      attempt: ${{ steps.ci.outputs.attempt }}
-    permissions:
-      contents: read
-      actions: read
+    timeout-minutes: 20
     steps:
-      - name: Checkout release tag
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
           fetch-depth: 0
           persist-credentials: false
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
-          node-version: "24"
-      - name: Validate source version and tag without rewriting either
-        id: version
-        env:
-          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
-        run: |
-          set -euo pipefail
-          [[ "$RELEASE_TAG" =~ ^v0\.[0-9]+\.[0-9]+$ ]] || { echo "Invalid RedRouter tag" >&2; exit 1; }
-          test "$(git rev-parse HEAD)" = "$(git rev-parse "$RELEASE_TAG^{commit}")"
-          git merge-base --is-ancestor HEAD origin/main
-          test "$(node -p 'require("./package.json").name')" = '@reddb-io/red-router'
-          VERSION=$(node -p 'require("./package.json").version')
-          test "v$VERSION" = "$RELEASE_TAG"
-          test "$(node -p 'require("./package-lock.json").packages[""].version')" = "$VERSION"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
-          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          node-version: ${{ env.CI_NODE_VERSION }}
+          cache: npm
+      - uses: ./.github/actions/npm-ci-retry
+      - run: npm run check:node-runtime
+      - run: npm run check:tracked-artifacts
+      - run: npm run check:lockfile
+      - run: npm run audit:deps
+      - run: npm run lint
+      - run: npm run typecheck:core
+      - name: Check API route TypeScript diagnostics
+        run: node scripts/check/check-api-typecheck.mjs
+      - name: Check API typecheck gate
+        run: node --import tsx/esm --test tests/unit/build/check-api-typecheck.test.ts
+      - name: Check Changesets root-package versioning
+        run: node scripts/release/check-changesets.mjs
+      - run: npm run release:status
 
-      - name: Require successful exact-SHA main CI and its retained artifact
-        id: ci
-        uses: actions/github-script@v8
-        env:
-          RELEASE_SHA: ${{ steps.version.outputs.sha }}
-        with:
-          script: |
-            const { data } = await github.rest.actions.listWorkflowRuns({
-              owner: "reddb-io",
-              repo: "red-router",
-              workflow_id: "ci.yml",
-              head_sha: process.env.RELEASE_SHA,
-              branch: "main",
-              event: "push",
-              per_page: 100,
-            });
-            const runs = data.workflow_runs.filter(run =>
-              run.head_sha === process.env.RELEASE_SHA &&
-              run.head_branch === "main" && run.event === "push"
-            ).sort((a, b) => b.id - a.id);
-            const latest = runs[0];
-            if (!latest || latest.status !== "completed" || latest.conclusion !== "success") {
-              throw new Error("Finish the latest main CI for this exact SHA before publication.");
-            }
-            const artifacts = await github.paginate(github.rest.actions.listWorkflowRunArtifacts, {
-              owner: "reddb-io", repo: "red-router", run_id: latest.id, per_page: 100,
-            });
-            const name = `redrouter-release-${process.env.RELEASE_SHA}-${latest.run_attempt}`;
-            if (!artifacts.some(artifact => artifact.name === name && !artifact.expired)) {
-              throw new Error("Verified artifact is missing/expired. Rerun ALL jobs of that main push CI; never rebuild in the publisher.");
-            }
-            core.setOutput("run_id", latest.id);
-            core.setOutput("attempt", latest.run_attempt);
-
-  publish:
-    name: Publish @reddb-io/red-router
-    if: github.repository == 'reddb-io/red-router'
-    needs: resolve
+  test-unit:
+    name: RedRouter contracts
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: ${{ env.CI_NODE_VERSION }}
+          cache: npm
+      - uses: ./.github/actions/npm-ci-retry
+      - run: npm run test:unit:ci
+
+  test-vitest:
+    name: RedRouter UI
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: ${{ env.CI_NODE_VERSION }}
+          cache: npm
+      - uses: ./.github/actions/npm-ci-retry
+      - run: npm run test:vitest
+
+  build:
+    name: Build and package smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    outputs:
+      source_sha: ${{ steps.source.outputs.sha }}
+      version: ${{ steps.source.outputs.version }}
+    env:
+      NODE_OPTIONS: --max-old-space-size=6144
+      OMNIROUTE_USE_TURBOPACK: "0"
+      OMNIROUTE_RELEASE_REF: HEAD
+      REDROUTER_RELEASE_ARTIFACT_DIR: release-artifacts
+      OMNIROUTE_PLAYWRIGHT_SKIP_BUILD: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Resolve source identity
+        id: source
+        run: |
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "version=$(node -p 'require("./package.json").version')" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: ${{ env.CI_NODE_VERSION }}
+          cache: npm
+      - uses: ./.github/actions/npm-ci-retry
+      - name: Build once
+        run: npm run build:release
+      - name: Pack once
+        run: npm run release:pack
+      - run: npm run check:pack-artifact
+      - run: npm run check:pack-boot
+      - run: node scripts/dev/run-playwright-tests.mjs install --with-deps chromium
+      - run: npm run test:e2e
+      - name: Upload the tested release artifact
+        if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.tag != '')
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: redrouter-release-${{ github.run_id }}-${{ github.run_attempt }}
+          path: release-artifacts/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+  release:
+    name: Publish npm and GitHub Release
+    if: github.repository == 'reddb-io/red-router' && (startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.tag != ''))
+    needs: [checks, test-unit, test-vitest, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
     environment: npm-release
     permissions:
       contents: write
-      actions: read
       id-token: write
     steps:
-      - name: Checkout the verified release source
+      - name: Checkout the tested source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ needs.resolve.outputs.sha }}
+          ref: ${{ needs.build.outputs.source_sha }}
+          fetch-depth: 0
           persist-credentials: false
-      - name: Download verified artifact
-        uses: actions/download-artifact@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
-          name: redrouter-release-${{ needs.resolve.outputs.sha }}-${{ needs.resolve.outputs.attempt }}
-          path: release-artifacts
-          run-id: ${{ needs.resolve.outputs.run_id }}
-          github-token: ${{ github.token }}
-
-      - name: Setup Node
-        uses: actions/setup-node@v7
-        with:
-          node-version: "24"
-
-      - name: Verify artifact identity against the tagged successful CI run
+          node-version: ${{ env.CI_NODE_VERSION }}
+      - name: Verify tag and package version
         env:
-          RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
-          RELEASE_SHA: ${{ needs.resolve.outputs.sha }}
-          RELEASE_RUN_ID: ${{ needs.resolve.outputs.run_id }}
-          RELEASE_RUN_ATTEMPT: ${{ needs.resolve.outputs.attempt }}
-        run: node scripts/release/artifact.mjs verify release-artifacts
-
-      - name: Install npm with Trusted Publishing support
-        run: npm install --prefix "$RUNNER_TEMP/redrouter-npm" --no-save npm@11.19.1
-
-      - name: Verify downloaded checksum
-        env:
-          VERSION: ${{ needs.resolve.outputs.version }}
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+          VERSION: ${{ needs.build.outputs.version }}
         run: |
           set -euo pipefail
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          git fetch origin main --no-tags
+          test "$(git rev-parse HEAD)" = "$(git rev-parse "$RELEASE_TAG^{commit}")"
+          git merge-base --is-ancestor HEAD origin/main
+          test "v$VERSION" = "$RELEASE_TAG"
+          test "$(node -p 'require("./package.json").name')" = '@reddb-io/red-router'
+          test "$(node -p 'require("./package-lock.json").packages[""].version')" = "$VERSION"
+      - name: Download the tested tarball
+        uses: actions/download-artifact@v7
+        with:
+          name: redrouter-release-${{ github.run_id }}-${{ github.run_attempt }}
+          path: release-artifacts
+      - name: Verify artifact identity and checksum
+        env:
+          RELEASE_VERSION: ${{ needs.build.outputs.version }}
+          RELEASE_SHA: ${{ needs.build.outputs.source_sha }}
+          RELEASE_RUN_ID: ${{ github.run_id }}
+          RELEASE_RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          node scripts/release/artifact.mjs verify release-artifacts
           cd release-artifacts
           sha256sum -c SHA256SUMS
-          test -s "reddb-io-red-router-$VERSION.tgz"
-
-      - name: Publish exact tarball to npm
+      - name: Install npm with trusted publishing support
+        run: npm install --prefix "$RUNNER_TEMP/redrouter-npm" --no-save npm@11.19.1
+      - name: Publish the exact tarball
         env:
-          VERSION: ${{ needs.resolve.outputs.version }}
-          NPM_PUBLISH_MODE: ${{ vars.NPM_PUBLISH_MODE }}
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          VERSION: ${{ needs.build.outputs.version }}
         run: |
           set -euo pipefail
           if [ "$(npm view "@reddb-io/red-router@$VERSION" version --prefer-online 2>/dev/null || true)" = "$VERSION" ]; then
-            echo "@reddb-io/red-router@$VERSION already published"
+            echo "@reddb-io/red-router@$VERSION is already published"
           else
-            case "${NPM_PUBLISH_MODE:-oidc}" in
-              token)
-                if [ -z "${NPM_TOKEN:-}" ]; then
-                  echo "NPM_PUBLISH_MODE=token but NPM_TOKEN is unavailable" >&2
-                  exit 1
-                fi
-                npm config set //registry.npmjs.org/:_authToken "$NPM_TOKEN"
-                ;;
-              oidc)
-                unset NODE_AUTH_TOKEN
-                npm config delete //registry.npmjs.org/:_authToken || true
-                ;;
-              *)
-                echo "NPM_PUBLISH_MODE must be token or oidc" >&2
-                exit 1
-                ;;
-            esac
-            node "$RUNNER_TEMP/redrouter-npm/node_modules/npm/bin/npm-cli.js" publish "./release-artifacts/reddb-io-red-router-$VERSION.tgz" \
+            unset NODE_AUTH_TOKEN
+            npm config delete //registry.npmjs.org/:_authToken || true
+            node "$RUNNER_TEMP/redrouter-npm/node_modules/npm/bin/npm-cli.js" publish \
+              "release-artifacts/reddb-io-red-router-$VERSION.tgz" \
               --access public --provenance --ignore-scripts
           fi
-
-      - name: Verify registry propagation and exact tarball integrity
+      - name: Verify the public npm tarball
         env:
-          VERSION: ${{ needs.resolve.outputs.version }}
+          VERSION: ${{ needs.build.outputs.version }}
         run: |
           set -euo pipefail
           EXPECTED=$(node --input-type=module -e 'import fs from "node:fs"; import crypto from "node:crypto"; console.log("sha512-" + crypto.createHash("sha512").update(fs.readFileSync(`release-artifacts/reddb-io-red-router-${process.env.VERSION}.tgz`)).digest("base64"));')
-          for attempt in $(seq 1 90); do
+          for attempt in $(seq 1 60); do
             ACTUAL=$(npm view "@reddb-io/red-router@$VERSION" dist.integrity --prefer-online --fetch-retries=0 --fetch-timeout=10000 2>/dev/null || true)
-            if [ "$ACTUAL" = "$EXPECTED" ]; then
-              exit 0
-            fi
-            if [ -n "$ACTUAL" ]; then
-              echo "Published tarball differs from the verified release artifact" >&2
-              exit 1
-            fi
-            echo "Waiting for npm processing ($attempt/90)"
+            [ "$ACTUAL" = "$EXPECTED" ] && exit 0
+            [ -z "$ACTUAL" ] || { echo "Published tarball integrity mismatch" >&2; exit 1; }
+            echo "Waiting for npm processing ($attempt/60)"
             sleep 10
           done
-          echo "The exact release is not available from npm yet" >&2
+          echo "The release is still unavailable from npm" >&2
           exit 1
-
-      - name: Setup mise for the real consumer install
+      - name: Install through mise and aube
         uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3
         with:
           version: "2026.9.12"
           install: false
           cache: false
-
-      - name: Install published RedRouter with mise and aube trust checks
+      - name: Smoke the published package
         env:
-          VERSION: ${{ needs.resolve.outputs.version }}
+          VERSION: ${{ needs.build.outputs.version }}
           MISE_NPM_PACKAGE_MANAGER: aube
           MISE_DATA_DIR: ${{ runner.temp }}/redrouter-mise-data
           MISE_CACHE_DIR: ${{ runner.temp }}/redrouter-mise-cache
@@ -215,23 +239,19 @@ jobs:
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/redrouter-consumer"
           cd "$RUNNER_TEMP/redrouter-consumer"
-          # The root package is our own low-volume release. No transitive trust
-          # exclusions, insecure TLS settings, or npm fallback are permitted.
           node --input-type=module -e 'import fs from "node:fs"; fs.writeFileSync("mise.toml", `[tools]\n"npm:@reddb-io/red-router" = { version = "${process.env.VERSION}", allow_low_downloads = true }\n`);'
           mise trust mise.toml
           mise install --verbose
           test "$(mise exec -- red-router --version)" = "$VERSION"
-
-      - name: Create GitHub release with checksum
+      - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
         run: |
           set -euo pipefail
           if gh release view "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "GitHub release $RELEASE_TAG already exists; preserving its assets"
+            echo "$RELEASE_TAG already has a GitHub Release"
           else
             gh release create "$RELEASE_TAG" release-artifacts/*.tgz release-artifacts/SHA256SUMS \
-              -R "$GITHUB_REPOSITORY" \
-              --verify-tag --generate-notes --title "$RELEASE_TAG"
+              -R "$GITHUB_REPOSITORY" --verify-tag --generate-notes --title "$RELEASE_TAG"
           fi

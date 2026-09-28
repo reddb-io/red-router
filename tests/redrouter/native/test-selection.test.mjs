@@ -67,7 +67,7 @@ test("default commands and CI only run the product suites, with one shared build
     "npm run test:unit && npm run test:vitest && npm run test:e2e"
   );
   assert.ok(pkg.scripts["test:upstream:unit"]);
-  const ci = YAML.parse(readFileSync(join(root, ".github/workflows/ci.yml"), "utf8"));
+  const ci = YAML.parse(readFileSync(join(root, ".github/workflows/red-publish.yml"), "utf8"));
   const jobs = Object.values(ci.jobs);
   const commands = jobs.flatMap((job) => job.steps.map((step) => step.run || ""));
   assert.equal(commands.filter((command) => command === "npm run build:release").length, 1);

@@ -13,7 +13,7 @@ test("RedRouter commits do not execute or install pre-commit tooling", () => {
 });
 
 test("removing pre-commit keeps RedRouter contracts and package validation in CI", () => {
-  const ci = readFileSync(new URL(".github/workflows/ci.yml", root), "utf8");
+  const ci = readFileSync(new URL(".github/workflows/red-publish.yml", root), "utf8");
   for (const command of [
     "test:unit:ci",
     "test:vitest",

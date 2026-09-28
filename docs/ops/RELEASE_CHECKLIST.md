@@ -1,6 +1,6 @@
 ---
 title: "RedRouter release checklist"
-version: 0.34.0
+version: 0.34.1
 lastUpdated: 2026-09-28
 ---
 
@@ -32,7 +32,7 @@ The workflow design and remaining validation work are recorded in
 
 Do not run local tests/builds for this recovery. CI is the validation environment.
 
-- [ ] The latest main push CI run for the exact release SHA completed successfully.
+- [ ] The single RedRouter workflow completed successfully for the release tag.
 - [ ] Selected RedRouter native and UI suites both passed; neither substitutes for the other.
 - [ ] Product lint/typechecks, blocking security checks and selected integration regressions passed.
 - [ ] Changes to dashboard workflows have corresponding UI checks.
@@ -46,8 +46,9 @@ Do not run local tests/builds for this recovery. CI is the validation environmen
 ## Build and publish one artifact
 
 `.github/workflows/red-publish.yml` is the sole active npm publisher. It resolves
-a selected v0.x tag on main to a successful main push CI run, then downloads that
-run's tested artifact. It never builds, repacks or changes the package identity.
+a selected SemVer tag on main, runs the same product checks used for pull requests,
+builds and packs once, then passes that run's tested artifact directly to the release
+job. The release job never rebuilds, repacks or changes the package identity.
 
 - [ ] `npm run build:release` succeeds in Actions.
 - [ ] CI runs `npm run release:pack` once. The content and boot checks both consume
@@ -56,25 +57,25 @@ run's tested artifact. It never builds, repacks or changes the package identity.
 - [ ] Preserve the full dashboard and required native/runtime files in the tarball.
 - [ ] Publish the exact checked tarball, verifying SHA256SUMS across jobs.
 - [ ] Keep npm provenance on the GitHub-hosted publishing job.
-- [ ] Use the configured token or OIDC mode for this repository/package.
+- [ ] Keep npm trusted publishing configured for `red-publish.yml` and the
+      `npm-release` environment.
 - [ ] Confirm npm version/tarball availability after upload; processing is not propagation.
 - [ ] Verify registry integrity and a clean installed-package smoke.
 - [ ] Attach the verified tarball and checksum to the matching GitHub release.
 
-CI retains main push artifacts for 14 days, named by source SHA and run attempt.
-The publisher rejects mismatched package/tag versions, commit/run/attempt metadata,
-expired or missing artifacts, checksums and tarball manifests. If retention has
-expired, rerun ALL jobs of the original main push CI before retrying publication;
-a failed-jobs-only rerun may not produce an artifact for the latest attempt.
+Tag runs retain release artifacts for 14 days, named by workflow run and attempt.
+The release job rejects mismatched package/tag versions, source/run metadata,
+checksums and tarball manifests. Rerun the complete tag workflow if its artifact
+has expired or was not produced.
 
-Source identity is now `@reddb-io/red-router`. The restored baseline is 0.34.0,
-not a new publication: pending Changesets must produce the next intentional version
-before tagging. Do not move or recreate existing published tags.
+Source identity is `@reddb-io/red-router@0.34.1`. Pending Changesets must produce
+the next intentional version before tagging. Do not move or recreate existing
+published tags.
 
 The CLI is pinned to `@changesets/cli@3.0.3` through npm exec, not installed as a
 production dependency. It needs registry access on the first invocation. CI checks
 real root-versioning behavior in a temporary fixture and reports pending changes.
-There are no new scheduled workflows or automatic version commits.
+There are no scheduled workflows or automatic version commits.
 
 ## Product acceptance
 

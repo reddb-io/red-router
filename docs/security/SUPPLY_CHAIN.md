@@ -4,6 +4,17 @@ title: "Supply-Chain Gates"
 
 # Supply-Chain Gates (Phase 8 · Block A)
 
+## RedRouter ownership override
+
+The inventory below is historical OmniRoute reference. RedRouter has one active
+workflow, `.github/workflows/red-publish.yml`: dependency auditing runs with the
+product checks, while npm provenance, exact-tarball verification and the clean
+mise/aube consumer smoke run for SemVer tags. GitHub default CodeQL setup remains
+repository-managed. RedRouter does not currently publish Docker images, generate
+release SBOMs or run a separate Scorecard workflow.
+
+## Historical upstream reference
+
 OmniRoute publishes npm + Docker artifacts. These gates provide provenance,
 inventory (SBOM) and CVE scanning, all OSS, plugged into release workflows.
 **Advisory-first** posture — they report now, promote to blocking after the 1st
