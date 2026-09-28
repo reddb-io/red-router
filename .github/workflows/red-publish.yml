@@ -1,0 +1,125 @@
+name: Publish RedRouter
+
+# RedRouter keeps its v0.x package/release channel separate from OmniRoute's
+# v3.x channel. Only a tag on the protected, green main commit may publish.
+on:
+  push:
+    tags:
+      - "v0.*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing RedRouter tag (v0.X.Y)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: red-publish-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish @reddb-io/red-router
+    # The Next standalone build exceeds the hosted runner's memory on this tree.
+    runs-on: ${{ vars.USE_VPS_RUNNER == 'true' && fromJSON('["self-hosted","omni-build"]') || 'ubuntu-latest' }}
+    environment: npm-release
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+
+      - name: Validate tag and source
+        id: version
+        env:
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_TAG" =~ ^v0\.[0-9]+\.[0-9]+$ ]] || { echo "Invalid RedRouter tag" >&2; exit 1; }
+          test "$(git rev-parse HEAD)" = "$(git rev-parse "$RELEASE_TAG^{commit}")"
+          git merge-base --is-ancestor HEAD origin/main || {
+            echo "Release tag must point to a main ancestor" >&2
+            exit 1
+          }
+          echo "version=${RELEASE_TAG#v}" >> "$GITHUB_OUTPUT"
+          echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install npm with Trusted Publishing support
+        run: npm install -g npm@11.19.1
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Set RedRouter package identity
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          npm pkg set 'name=@reddb-io/red-router' "version=$VERSION" 'publishConfig.access=public'
+          test "$(node -p 'require("./package.json").name')" = '@reddb-io/red-router'
+          test "$(node -p 'require("./package.json").version')" = "$VERSION"
+
+      - name: Build release artifact
+        env:
+          JWT_SECRET: ci-build-secret-with-sufficient-length-for-validation
+          API_KEY_SECRET: ci-release-api-key-secret-with-sufficient-length
+          OMNIROUTE_USE_TURBOPACK: "0"
+          NODE_OPTIONS: "--max-old-space-size=6144"
+        run: npm run build:release
+
+      - name: Validate package contents
+        run: npm run check:pack-artifact
+
+      - name: Boot packed RedRouter artifact
+        run: npm run check:pack-boot
+
+      - name: Pack and checksum
+        id: pack
+        run: |
+          set -euo pipefail
+          mkdir -p release-artifacts
+          npm pack --ignore-scripts --pack-destination release-artifacts >/dev/null
+          TARBALL="release-artifacts/reddb-io-red-router-${{ steps.version.outputs.version }}.tgz"
+          test -s "$TARBALL"
+          tar -tzf "$TARBALL" | grep -q '^package/bin/omniroute.mjs$'
+          tar -tzf "$TARBALL" | grep -q '^package/dist/server.js$'
+          sha256sum "$TARBALL" > release-artifacts/SHA256SUMS
+          echo "tarball=$TARBALL" >> "$GITHUB_OUTPUT"
+
+      - name: Publish exact tarball to npm
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          TARBALL: ${{ steps.pack.outputs.tarball }}
+        run: |
+          set -euo pipefail
+          if [ "$(npm view "@reddb-io/red-router@$VERSION" version --prefer-online 2>/dev/null || true)" = "$VERSION" ]; then
+            echo "@reddb-io/red-router@$VERSION already published"
+          else
+            npm publish "$TARBALL" --access public --provenance --ignore-scripts
+          fi
+
+      - name: Create GitHub release with checksum
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "GitHub release $RELEASE_TAG already exists; preserving its assets"
+          else
+            gh release create "$RELEASE_TAG" release-artifacts/*.tgz release-artifacts/SHA256SUMS \
+              --verify-tag --generate-notes --title "$RELEASE_TAG"
+          fi

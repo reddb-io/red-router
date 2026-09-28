@@ -57,6 +57,8 @@ env:
 
 jobs:
   publish:
+    # This fork's v0.x tags belong to @reddb-io/red-router, not omniroute.
+    if: ${{ !startsWith(github.event.release.tag_name, 'v0.') && !startsWith(github.ref_name, 'v0.') }}
     # Same dynamic-runner rule as ci.yml's `build`/`test-unit`: `build:cli` falls back to a
     # full `next build`, whose working set outgrew the 16 GB hosted runner during the
     # v3.8.49 cycle — the publish died with "The runner has received a shutdown signal"
@@ -486,6 +488,7 @@ jobs:
           echo "✅ Published omniroute@$VERSION (dist-tag=$TAG) [DIRECT mode]"
 
   publish-opencode-plugin:
+    if: ${{ !startsWith(github.event.release.tag_name, 'v0.') && !startsWith(github.ref_name, 'v0.') }}
     runs-on: ubuntu-latest
     permissions:
       contents: read

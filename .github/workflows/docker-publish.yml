@@ -42,6 +42,9 @@ permissions:
 jobs:
   prepare:
     name: Resolve Docker release metadata
+    # Do not fan out the OmniRoute Docker channel for RedRouter v0.x tags.
+    # Docker Hub credentials are not configured for this fork.
+    if: ${{ !startsWith(github.event.release.tag_name, 'v0.') && !(github.ref_type == 'tag' && startsWith(github.ref_name, 'v0.')) }}
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
