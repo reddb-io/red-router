@@ -114,3 +114,17 @@ test("CI packs once and publication only promotes the verified artifact", async 
   assert.match(publisher, /artifact.name === name && !artifact.expired/);
   assert.match(publisher, /RELEASE_RUN_ATTEMPT:/);
 });
+
+test("browser smoke and browser installation use the same Playwright test CLI", async () => {
+  const root = new URL("../../../", import.meta.url);
+  const runner = await readFile(new URL("scripts/dev/run-playwright-tests.mjs", root), "utf8");
+  assert.ok(runner.includes('require.resolve("@playwright/test/cli")'));
+  assert.doesNotMatch(runner, /node_modules\/playwright\/cli\.js/);
+  const ci = YAML.parse(await readFile(new URL(".github/workflows/ci.yml", root), "utf8"));
+  assert.ok(
+    ci.jobs.build.steps.some(
+      (step) =>
+        step.run === "node scripts/dev/run-playwright-tests.mjs install --with-deps chromium"
+    )
+  );
+});

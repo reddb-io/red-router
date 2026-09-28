@@ -107,7 +107,7 @@ jobs:
         run: npm run release:pack
       - run: npm run check:pack-artifact
       - run: npm run check:pack-boot
-      - run: npx --no-install playwright install --with-deps chromium
+      - run: node scripts/dev/run-playwright-tests.mjs install --with-deps chromium
       - run: npm run test:e2e
       - name: Retain the tested main artifact for publication
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'

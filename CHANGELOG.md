@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.34.1
+
+### Patch Changes
+
+- Use theme-aware subtle colors for borders without an explicit color, avoiding bright white lines in dark mode.
+- Show provider connections and models before advanced compatible-node settings.
+- Adopt the pinned RedDB design-system application colors and self-hosted fonts in
+  the existing React dashboard, preserving light/dark preferences and custom branding.
+  Keep provider icons in the build instead of the installed production dependency
+  tree, avoiding their unused UI peer-dependency chain. Component Kit adoption is
+  still pending; this change does not introduce a Svelte runtime.
+- Restore RedRouter branding compatibility and partial client discovery at `/v1/key`,
+  `/v1/catalog` and `/v1/capabilities`. Discovery uses the caller's authorized model
+  catalog and explicitly identifies the legacy capabilities that remain unimplemented.
+
+  Restore direct remote-router chat model discovery with automatic per-connection
+  persistence, credential-bound fallback, and invalidation after connection edits.
+  Preserve remote-qualified model IDs and align chat/discovery endpoint URL handling.
+  Multi-hop federation and remote System One dispatch are not included in this change.
+- Restore the RedRouter source package identity and intentional Changesets versioning.
+  Build and pack once in CI, verify the same tarball's contents and installed runtime,
+  and promote only that exact successful main commit's artifact to npm.
+
 ## [Unreleased]
 
 ### ✨ New Features

@@ -31,7 +31,9 @@ try {
     join(fixture, ".changeset/check.md"),
     '---\n"@reddb-io/red-router": patch\n---\n\nCheck root versioning.\n'
   );
+  await runChangesets("status", { root: fixture });
   await runChangesets("version", { root: fixture });
+  await runChangesets("status", { root: fixture });
   const result = JSON.parse(await readFile(join(fixture, "package.json"), "utf8"));
   const lock = JSON.parse(await readFile(join(fixture, "package-lock.json"), "utf8"));
   assert.equal(result.version, "0.34.1");

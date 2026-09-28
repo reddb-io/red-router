@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { spawn } from "node:child_process";
+import { createRequire } from "node:module";
 import { sanitizeColorEnv } from "../build/runtime-env.mjs";
 
 const defaultArgs = ["test", "tests/e2e/*.spec.ts"];
@@ -11,7 +12,10 @@ const playwrightEnv = sanitizeColorEnv(process.env);
 delete playwrightEnv.NO_COLOR;
 delete playwrightEnv.FORCE_COLOR;
 
-const child = spawn(process.execPath, ["./node_modules/playwright/cli.js", ...args], {
+// Resolve the same runner instance that tests import; browser integrations may
+// legitimately install another version of the runtime playwright package.
+const require = createRequire(import.meta.url);
+const child = spawn(process.execPath, [require.resolve("@playwright/test/cli"), ...args], {
   stdio: "inherit",
   env: playwrightEnv,
 });

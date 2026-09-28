@@ -1,4 +1,5 @@
-import { spawn } from "node:child_process";
+import { spawn, execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { cp, mkdtemp, readFile, readdir, rm, writeFile, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -6,6 +7,7 @@ import { fileURLToPath } from "node:url";
 
 export const CHANGESETS_CLI = "@changesets/cli@3.0.3";
 const projectRoot = fileURLToPath(new URL("../../", import.meta.url));
+const exec = promisify(execFile);
 
 export function releasePackage(manifest) {
   if (manifest.name !== "@reddb-io/red-router" || !/^0\.\d+\.\d+$/.test(manifest.version)) {
@@ -60,6 +62,26 @@ export async function runChangesets(command, { root = projectRoot, args = [] } =
   const stage = await mkdtemp(join(tmpdir(), "redrouter-changesets-"));
   let completed = false;
   try {
+    // Changesets status/add use git merge-base even for a single package.
+    // Empty scratch history supplies main without touching the real repository.
+    // Changeset files stay untracked, so no synthetic commit enters changelogs.
+    await exec("git", ["init", "--initial-branch=main", stage]);
+    await exec("git", [
+      "-C",
+      stage,
+      "-c",
+      "core.hooksPath=/dev/null",
+      "-c",
+      "commit.gpgsign=false",
+      "-c",
+      "user.name=RedRouter",
+      "-c",
+      "user.email=releases@reddb.io",
+      "commit",
+      "--allow-empty",
+      "-m",
+      "Release planning baseline",
+    ]);
     await writeFile(
       join(stage, "package.json"),
       JSON.stringify(releasePackage(manifest), null, 2) + "\n"
