@@ -31,6 +31,8 @@ test("RedRouter is the only active npm publisher and keeps independent provenanc
   assert.match(text, /mise install --verbose/);
   assert.match(text, /mise exec -- red-router --version/);
   assert.match(text, /dist.integrity --prefer-online/);
+  assert.match(text, /seq 1 90/);
+  assert.match(text, /--fetch-retries=0 --fetch-timeout=10000/);
   const steps = workflow.jobs.publish.steps;
   const consumerCheck = steps.findIndex((step: { name: string }) =>
     step.name.includes("aube trust checks")

@@ -181,8 +181,8 @@ jobs:
         run: |
           set -euo pipefail
           EXPECTED=$(node --input-type=module -e 'import fs from "node:fs"; import crypto from "node:crypto"; console.log("sha512-" + crypto.createHash("sha512").update(fs.readFileSync(`release-artifacts/reddb-io-red-router-${process.env.VERSION}.tgz`)).digest("base64"));')
-          for attempt in $(seq 1 12); do
-            ACTUAL=$(npm view "@reddb-io/red-router@$VERSION" dist.integrity --prefer-online 2>/dev/null || true)
+          for attempt in $(seq 1 90); do
+            ACTUAL=$(npm view "@reddb-io/red-router@$VERSION" dist.integrity --prefer-online --fetch-retries=0 --fetch-timeout=10000 2>/dev/null || true)
             if [ "$ACTUAL" = "$EXPECTED" ]; then
               exit 0
             fi
@@ -190,6 +190,7 @@ jobs:
               echo "Published tarball differs from the verified release artifact" >&2
               exit 1
             fi
+            echo "Waiting for npm processing ($attempt/90)"
             sleep 10
           done
           echo "The exact release is not available from npm yet" >&2
