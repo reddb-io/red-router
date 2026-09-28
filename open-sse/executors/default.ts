@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { RED_ROUTER_DEFAULT_BASE_URL, redRouterEndpoint } from "../config/redRouter.ts";
 
 import { BaseExecutor, type ExecuteInput } from "./base.ts";
 import { mapNvidiaGlm52ReasoningParams } from "./base/reasoningEffort.ts";
@@ -321,6 +322,11 @@ export class DefaultExecutor extends BaseExecutor {
         );
         return normalizeOpenAIChatUrl(baseUrl);
       }
+      case "red-router":
+        return redRouterEndpoint(
+          credentials?.providerSpecificData?.baseUrl || RED_ROUTER_DEFAULT_BASE_URL,
+          "chat/completions"
+        );
       case "heroku": {
         const baseUrl = this.resolveBaseUrl(credentials);
         return normalizeHerokuChatUrl(baseUrl);

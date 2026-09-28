@@ -13,6 +13,11 @@ import { compatibilityAliasMap, providerId } from "./providerInventoryParse.mjs"
 
 const repo = process.cwd();
 const upstreams = [
+  {
+    name: "RedRouter product baseline",
+    ref: "v0.33.0",
+    providerDir: "open-sse/providers/registry",
+  },
   { name: "9router", ref: "upstream/master", providerDir: "open-sse/providers/registry" },
   {
     name: "OmniRoute",
@@ -145,6 +150,21 @@ const results = upstreams.map(({ name, ref, providerDir }) => {
   };
 });
 
+const inheritance = JSON.parse(readLocal("config/upstream/product-inheritance.json"));
+
 process.stdout.write(
-  `${JSON.stringify({ note: "Structural only; audit auth, models and transport per candidate.", results }, null, 2)}\n`
+  `${JSON.stringify(
+    {
+      note: "Structural only; audit auth, models and transport per candidate. This does not establish feature parity or baseline preservation.",
+      product: inheritance.product,
+      sourceSnapshots: inheritance.sources,
+      // LiteLLM's Python modules cannot be compared as JavaScript provider IDs.
+      // Its pinned source references and unverified capability contracts are
+      // included explicitly instead of being silently omitted or called equal.
+      capabilityFamilies: inheritance.capabilities,
+      results,
+    },
+    null,
+    2
+  )}\n`
 );

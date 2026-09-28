@@ -1,0 +1,340 @@
+{
+  "schemaVersion": 1,
+  "product": "RedRouter",
+  "scope": "Initial capability-family inventory; not exhaustive and not proof of parity.",
+  "recordedAt": "2026-09-28",
+  "sources": [
+    {
+      "id": "redrouter",
+      "role": "product-baseline",
+      "repository": "reddb-io/red-router",
+      "ref": "v0.33.0",
+      "sha": "174c746ecf470fec986180524b9fd08252e9e919"
+    },
+    {
+      "id": "9router",
+      "role": "capability-source",
+      "repository": "decolua/9router",
+      "ref": "master",
+      "sha": "f01fb909e37189008080632ddaf404f096345cde"
+    },
+    {
+      "id": "omniroute",
+      "role": "capability-source",
+      "repository": "diegosouzapw/OmniRoute",
+      "ref": "release/v3.8.51",
+      "sha": "a58000c7685f4091c7a6fd8ddf3ebce7d2ec67c3",
+      "additionalRef": {
+        "ref": "main",
+        "sha": "443d66996d69d7ecf887fd61158404a3cca1b192"
+      }
+    },
+    {
+      "id": "litellm",
+      "role": "capability-source",
+      "repository": "BerriAI/litellm",
+      "ref": "main",
+      "sha": "2c9b0e00acaf2d7cebc962bc9cf6a861796b5c68",
+      "reviewScope": "README, repository tree, license boundaries, budget reservation, Redis Cluster cache and PostgreSQL schema sources; runtime equivalence not reviewed",
+      "licenseBoundary": "MIT outside enterprise/; enterprise/ has a separate license. Preserve notices for any copied MIT implementation."
+    }
+  ],
+  "capabilities": [
+    {
+      "id": "redrouter-product-experience",
+      "sources": ["redrouter"],
+      "status": "regression",
+      "baselinePaths": [
+        "README.md",
+        "docs/readme/hero.svg",
+        "src/app/(dashboard)/dashboard/SetupWorkbench.js",
+        "cli/cli.js",
+        "cli/service.js"
+      ],
+      "localPaths": [
+        "README.md",
+        "docs/readme/hero.svg",
+        "src/app/(dashboard)/dashboard/HomePageClient.tsx",
+        "bin/cli/program.mjs"
+      ],
+      "remaining": "Original README artwork restored locally. Dashboard and service CLI were replaced; product behavior has not been restored or validated.",
+      "acceptance": [
+        "RedRouter dashboard navigation and complete setup/provider/combo/key/usage workflows remain available.",
+        "Documented RedRouter CLI and service commands work from the published package."
+      ]
+    },
+    {
+      "id": "provider-auth-and-catalog",
+      "sources": ["redrouter", "9router", "omniroute", "litellm"],
+      "status": "unverified",
+      "baselinePaths": ["src/lib/remoteRouterCatalog.js"],
+      "localPaths": [
+        "open-sse/config/providerRegistry.ts",
+        "src/lib/oauth/providers/index.ts",
+        "src/lib/providerModels/managedModelImport.ts",
+        "src/lib/providerModels/remoteRouterCatalog.ts",
+        "src/lib/providerModels/remoteRouterDiscovery.ts",
+        "src/lib/db/remoteRouterCatalog.ts",
+        "tests/unit/db/remote-router-catalog.test.ts"
+      ],
+      "upstreamPaths": {
+        "litellm": ["litellm/llms", "model_prices_and_context_window.json"]
+      },
+      "remaining": "Direct remote-router chat discovery is restored locally with credential-bound SQLite persistence, five-minute read freshness, scheduled refresh through the existing scheduler, scoped outage fallback and connection-edit invalidation. Current connection-level proxies are honored; unsupported legacy proxy settings fail closed. CI and credentialed smoke are pending. Multi-hop federation, remote System One and legacy providerSpecificData cache/proxy migration remain unresolved. Audit every other provider's identity, auth/refresh, entitlements, modalities and wire format; filename and alias matches are only candidates.",
+      "acceptance": [
+        "No provider identity is substituted with a different account product.",
+        "Model discoveries persist and are scoped to the connection/key.",
+        "Fixture contracts pass in CI; credentialed smoke is recorded separately.",
+        "Gemini CLI stays retired as a provider; Antigravity remains supported."
+      ]
+    },
+    {
+      "id": "redrouter-client-discovery",
+      "sources": ["redrouter"],
+      "status": "regression",
+      "baselinePaths": [
+        "src/app/api/v1/capabilities/route.js",
+        "src/app/api/v1/catalog/route.js",
+        "src/app/api/v1/key/route.js"
+      ],
+      "localPaths": [
+        "src/app/api/v1/models/route.ts",
+        "src/app/api/v1/mcp/route.ts",
+        "src/app/api/v1/key/route.ts",
+        "src/app/api/v1/catalog/route.ts",
+        "src/app/api/v1/capabilities/route.ts",
+        "open-sse/handlers/clientDiscovery.ts",
+        "tests/unit/redrouter-client-discovery.test.ts"
+      ],
+      "remaining": "Three discovery routes restored locally; CI pending. Key identity/MCP discovery uses persisted-key auth. Catalog/capabilities project the existing authorized model list and explicitly do not claim complete baseline compatibility. Remaining: account metadata/grouping, recommendations, collapsed variants, per-key ID-format application, shared legacy catalog version headers, stable instance identity and global reasoning/session discovery. Tests cover handler projections and authorization delegation, not the full database-backed catalog or credentialed provider behavior.",
+      "acceptance": [
+        "Restore client feature discovery, grouped/account-scoped catalogs and key-role/MCP discovery contracts.",
+        "Compare authenticated and unauthorized responses with RedRouter baseline fixtures.",
+        "Never expose a different key's identity, permissions or connected accounts."
+      ]
+    },
+    {
+      "id": "protocols-and-modalities",
+      "sources": ["redrouter", "9router", "omniroute", "litellm"],
+      "status": "unverified",
+      "localPaths": [
+        "src/app/api/v1/chat/completions/route.ts",
+        "src/app/api/v1/responses/route.ts",
+        "src/app/api/v1/messages/route.ts",
+        "src/app/api/v1/embeddings/route.ts",
+        "src/app/api/v1/audio/translations/route.ts"
+      ],
+      "upstreamPaths": {
+        "litellm": ["litellm/proxy/proxy_server.py"]
+      },
+      "remaining": "Compare request/response/stream/error semantics, tools, reasoning, images, audio, video, files, batches and realtime by provider; HTTP route presence is insufficient.",
+      "acceptance": [
+        "Protocol fixtures cover success, streaming cancellation, tool calls and upstream errors.",
+        "Unsupported capabilities are explicit; translation endpoints remain supported."
+      ]
+    },
+    {
+      "id": "routing-and-resilience",
+      "sources": ["redrouter", "9router", "omniroute", "litellm"],
+      "status": "unverified",
+      "localPaths": [
+        "open-sse/services/combo.ts",
+        "open-sse/services/accountFallback.ts",
+        "src/shared/utils/circuitBreaker.ts"
+      ],
+      "upstreamPaths": {
+        "litellm": ["litellm/router.py", "litellm/router_strategy"]
+      },
+      "remaining": "Preserve RedRouter model/account failover while comparing strategies, retry boundaries, context routing, quotas and connection affinity.",
+      "acceptance": [
+        "Do not retry a request after emitting upstream bytes or replay ambiguous billable writes.",
+        "Account/model errors do not disable a whole provider.",
+        "Equivalent requests produce equivalent routing and error contracts under fixtures."
+      ]
+    },
+    {
+      "id": "jev-and-systemone",
+      "sources": ["redrouter", "omniroute"],
+      "status": "unverified",
+      "baselinePaths": ["open-sse/handlers/systemOneCore.js", "src/sse/handlers/systemOne.js"],
+      "localPaths": [
+        "open-sse/handlers/systemOneCore.ts",
+        "src/sse/handlers/systemOne.ts",
+        "src/sse/services/jevRouting.ts"
+      ],
+      "remaining": "Ported implementations exist. Preserve optional evaluator behavior, typed decision contracts and routing controls; real-provider validation remains separate.",
+      "acceptance": [
+        "System One remains distinct from ordinary chat.",
+        "Unavailable evaluation never becomes an implicit approval.",
+        "Optional decision routing preserves normal behavior when disabled."
+      ]
+    },
+    {
+      "id": "white-label",
+      "sources": ["redrouter", "omniroute"],
+      "status": "regression",
+      "baselinePaths": ["src/lib/branding.js"],
+      "localPaths": ["src/lib/branding/branding.ts"],
+      "remaining": "RED_ROUTER_BRANDING precedence and --reddb-* token acceptance are restored locally with tests/unit/branding-product-contract.test.ts. CI is pending. The original dashboard design and visual token consumers still need restoration and UI validation.",
+      "acceptance": [
+        "Existing RedRouter branding path and token vocabulary are honored.",
+        "Logo, login, favicon and theme work through the RedRouter settings flow."
+      ]
+    },
+    {
+      "id": "dashboard-auth-and-resource-scope",
+      "sources": ["redrouter", "omniroute", "litellm"],
+      "status": "unverified",
+      "baselinePaths": [
+        "src/lib/auth/oidc.js",
+        "src/lib/auth/saml.js",
+        "src/lib/auth/resourceScope.js"
+      ],
+      "localPaths": [
+        "src/app/api/auth/oidc/login/route.ts",
+        "src/app/api/auth/oidc/callback/route.ts"
+      ],
+      "upstreamPaths": {
+        "litellm": [
+          "litellm/proxy/management_endpoints/team_endpoints.py",
+          "litellm/proxy/management_endpoints/organization_endpoints.py"
+        ]
+      },
+      "remaining": "OIDC source is present; no SAML dashboard implementation was located in the integrated tree. Compare resource isolation, keys, teams/organizations, roles and audit behavior independently.",
+      "acceptance": [
+        "RedRouter password/OIDC/SAML workflows and resource scoping are preserved.",
+        "Cross-user and cross-organization reads/writes are denied.",
+        "Enterprise capabilities requiring independent implementation are tracked separately from licensed upstream code."
+      ]
+    },
+    {
+      "id": "virtual-keys-budgets-and-spend",
+      "sources": ["redrouter", "omniroute", "litellm"],
+      "status": "unverified",
+      "localPaths": ["src/shared/utils/apiKeyPolicy.ts", "src/lib/db/apiKeys.ts"],
+      "upstreamPaths": {
+        "litellm": [
+          "litellm/proxy/management_endpoints/key_management_endpoints.py",
+          "litellm/proxy/management_endpoints/budget_management_endpoints.py",
+          "litellm/proxy/spend_tracking/budget_reservation.py"
+        ]
+      },
+      "remaining": "Compare model/account restrictions, key lifecycle, rate/token/spend budgets, reservations and reconciliation, including concurrent requests.",
+      "acceptance": [
+        "Concurrent requests cannot independently spend the same remaining budget.",
+        "Retries, cancellations and stream termination reconcile reservations exactly once.",
+        "Budget scope and reset windows match the documented API."
+      ]
+    },
+    {
+      "id": "usage-export-and-observability",
+      "sources": ["redrouter", "omniroute", "litellm"],
+      "status": "regression",
+      "baselinePaths": [
+        "src/lib/usageSinks/engine.js",
+        "src/lib/usageSinks/webhook.js",
+        "src/lib/usageSinks/sqs.js",
+        "src/lib/usageSinks/kafka.js",
+        "src/lib/usageSinks/reddb.js"
+      ],
+      "localPaths": ["src/lib/logExport/registry.ts", "src/lib/logExport/runner.ts"],
+      "upstreamPaths": {
+        "litellm": ["litellm/integrations", "litellm/proxy/spend_tracking"]
+      },
+      "remaining": "The RedRouter usage-sink engine is absent. A log-export engine is not evidence of equivalent billing payloads, transports, scheduling or delivery semantics.",
+      "acceptance": [
+        "Preserve signed webhook, SQS, Kafka and RedDB delivery contracts.",
+        "Retries keep stable delivery IDs and do not duplicate billable usage.",
+        "Trace and cost attribution survive model/account fallback."
+      ]
+    },
+    {
+      "id": "persistence-and-clustering",
+      "sources": ["redrouter", "omniroute", "litellm"],
+      "status": "unverified",
+      "baselinePaths": ["src/lib/db/kysely.js", "src/lib/db/mode.js"],
+      "localPaths": [
+        "src/lib/db/core.ts",
+        "src/lib/quota/redisQuotaStore.ts",
+        "src/lib/warmupScheduler/redisCircuitBreakerStore.ts"
+      ],
+      "upstreamPaths": {
+        "litellm": ["litellm/proxy/schema.prisma", "litellm/caching/redis_cluster_cache.py"]
+      },
+      "remaining": "SQLite is the initial backend. Optional Redis coordination does not establish distributed persistence. Audit baseline SQL abstraction, then implement durable shared state, migration ownership and replica-safe coordination.",
+      "acceptance": [
+        "Single-node SQLite remains fully usable.",
+        "Two replicas enforce one shared budget and lease ownership under races.",
+        "Usage/job idempotency survives crashes and retries.",
+        "Rolling schema changes and replica failover preserve request correctness."
+      ]
+    },
+    {
+      "id": "caching-and-performance",
+      "sources": ["omniroute", "litellm"],
+      "status": "unverified",
+      "localPaths": ["src/lib/cacheLayer.ts", "open-sse/services/cache/semanticCacheManager.ts"],
+      "upstreamPaths": {
+        "litellm": [
+          "litellm/caching/dual_cache.py",
+          "litellm/caching/redis_cache.py",
+          "litellm/caching/redis_cluster_cache.py"
+        ]
+      },
+      "remaining": "Compare cache isolation, invalidation, streaming behavior, semantic cache, backpressure, concurrency and memory. Measure the RedRouter implementation; do not copy upstream benchmark claims.",
+      "acceptance": [
+        "Cached results never cross key/tenant/policy boundaries.",
+        "Latency and throughput measurements include workload, hardware and error rate.",
+        "Cache failure has an explicit bounded fallback."
+      ]
+    },
+    {
+      "id": "mcp-a2a-and-agent-workflows",
+      "sources": ["redrouter", "omniroute", "litellm"],
+      "status": "unverified",
+      "localPaths": [
+        "src/app/api/v1/mcp/route.ts",
+        "src/lib/a2a/taskExecution.ts",
+        "open-sse/mcp-server"
+      ],
+      "upstreamPaths": {
+        "litellm": ["litellm/proxy/proxy_server.py"]
+      },
+      "remaining": "Compare RedRouter MCP tool contracts with imported server tools, upstream MCP gateway/client behavior, A2A versions, skills, memory and agent workflows.",
+      "acceptance": [
+        "Legacy RedRouter tools preserve schemas, permissions and results.",
+        "MCP server and outbound MCP gateway capabilities are tracked separately.",
+        "A2A clients validate lifecycle, authentication and streaming behavior."
+      ]
+    },
+    {
+      "id": "safety-evals-and-hooks",
+      "sources": ["omniroute", "litellm"],
+      "status": "unverified",
+      "localPaths": ["src/lib/guardrails", "src/lib/evals", "src/lib/middleware/registry.ts"],
+      "upstreamPaths": {
+        "litellm": ["litellm/integrations"]
+      },
+      "remaining": "Compare guardrails, hooks, prompt management, evaluations and observability integrations; identify OSS versus separately licensed implementations.",
+      "acceptance": [
+        "Opt-in features do not silently alter disabled request paths.",
+        "Hooks and guardrails preserve stream cleanup and sanitized error contracts.",
+        "Behavioral comparisons include denied, degraded and timeout paths."
+      ]
+    },
+    {
+      "id": "release-and-client-distribution",
+      "sources": ["redrouter", "omniroute", "litellm"],
+      "status": "unverified",
+      "baselinePaths": [".github/workflows/red-publish.yml", "cli/package.json"],
+      "localPaths": [".github/workflows/red-publish.yml", "package.json"],
+      "remaining": "RedRouter npm upload is restored, but a post-publication install/registry check is missing. Inventory container, desktop, service installation and SDK/client compatibility separately.",
+      "acceptance": [
+        "Publish RedRouter through its GitHub workflow using the same verified tarball.",
+        "Verify public registry metadata, downloaded checksum and clean installation.",
+        "Run RedRouter workflow regressions alongside inherited feature tests in CI.",
+        "No claim of release stability from upstream tests or upload acceptance alone."
+      ]
+    }
+  ]
+}

@@ -610,6 +610,24 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     }
 
     const allFetchedModels = modelsData.models || [];
+    if (logProvider === "red-router") {
+      // Its discovery route commits a credential-bound catalog atomically.
+      // Do not re-import it into provider-global custom models or aliases.
+      const models = await getSyncedAvailableModelsForConnection(logProvider, id);
+      const modelChanges = summarizeModelChanges(
+        previousSyncedAvailableModelsForConnection,
+        models
+      );
+      return NextResponse.json({
+        success: true,
+        syncedModels: models.length,
+        availableModelsCount: models.length,
+        syncedAliases: 0,
+        modelChanges,
+        models,
+        source: "remote-router",
+      });
+    }
     const importFreeOnly = Boolean(
       (connection.providerSpecificData as Record<string, unknown> | undefined)?.importFreeModelsOnly
     );

@@ -5,7 +5,8 @@ import { resolveDataDir } from "@/lib/dataPaths";
 
 // White-label branding: one JSON file changes the visual identity (name, logo,
 // favicon), the login screen and the theme. Nothing else about the app changes.
-// The file is <DATA_DIR>/branding.json, or the path in OMNIROUTE_BRANDING.
+// The file is <DATA_DIR>/branding.json, or the path in RED_ROUTER_BRANDING.
+// OMNIROUTE_BRANDING remains a fallback for imported configurations.
 //
 // {
 //   "name": "Acme AI Gateway",
@@ -49,7 +50,7 @@ const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
 
 // Only custom properties of the app's design tokens, with values that cannot
 // close the declaration or the rule.
-const TOKEN_NAME = /^--(color|font|radius|shadow|grad)-[a-z0-9-]{1,80}$/;
+const TOKEN_NAME = /^--(reddb|color|font|radius|shadow|grad)-[a-z0-9-]{1,80}$/;
 const SAFE_VALUE = /^[^;{}<>\\]{1,200}$/;
 const COLOR =
   /^(#[0-9a-f]{3,8}|(rgb|rgba|hsl|hsla|oklch|oklab|color-mix)\([^;{}<>]{1,120}\)|[a-z]{3,20})$/i;
@@ -142,7 +143,7 @@ function tokens(map: unknown, errors: string[], where: string): Record<string, s
     const parsedName = tokenNameSchema.safeParse(name);
     if (!parsedName.success) {
       errors.push(
-        `${where}: "${name}" is not an allowed token (use --color-*, --font-*, --radius-*, --shadow-*, --grad-*)`
+        `${where}: "${name}" is not an allowed token (use --reddb-*, --color-*, --font-*, --radius-*, --shadow-*, --grad-*)`
       );
       continue;
     }
@@ -227,7 +228,11 @@ export function normalizeBranding(raw: unknown): {
 }
 
 export function brandingFile(env: NodeJS.ProcessEnv = process.env): string {
-  return env.OMNIROUTE_BRANDING || path.join(resolveDataDir(), "branding.json");
+  return (
+    env.RED_ROUTER_BRANDING ||
+    env.OMNIROUTE_BRANDING ||
+    path.join(resolveDataDir(), "branding.json")
+  );
 }
 
 let cached = { file: "", mtimeMs: -1, branding: null as BrandingConfig | null };

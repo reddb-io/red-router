@@ -23,6 +23,7 @@ concurrency:
 jobs:
   build:
     name: Build and verify RedRouter artifact
+    if: github.repository == 'reddb-io/red-router'
     # The Next standalone build exceeds the hosted runner's memory on this tree.
     runs-on: ${{ vars.USE_VPS_RUNNER == 'true' && fromJSON('["self-hosted","omni-build"]') || 'ubuntu-latest' }}
     outputs:
@@ -30,6 +31,7 @@ jobs:
       tag: ${{ steps.version.outputs.tag }}
     permissions:
       contents: read
+      actions: read
     steps:
       - name: Checkout release tag
         uses: actions/checkout@v7
@@ -52,6 +54,31 @@ jobs:
           }
           echo "version=${RELEASE_TAG#v}" >> "$GITHUB_OUTPUT"
           echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Require successful RedRouter CI for the tagged main commit
+        uses: actions/github-script@v8
+        env:
+          RELEASE_SHA: ${{ steps.version.outputs.sha }}
+        with:
+          script: |
+            const { data } = await github.rest.actions.listWorkflowRuns({
+              owner: "reddb-io",
+              repo: "red-router",
+              workflow_id: "ci.yml",
+              head_sha: process.env.RELEASE_SHA,
+              branch: "main",
+              event: "push",
+              per_page: 100,
+            });
+            const runs = data.workflow_runs.filter(run =>
+              run.head_sha === process.env.RELEASE_SHA &&
+              run.head_branch === "main" && run.event === "push"
+            ).sort((a, b) => b.id - a.id);
+            const latest = runs[0];
+            if (!latest || latest.status !== "completed" || latest.conclusion !== "success") {
+              core.setFailed("The tagged commit needs a successful latest CI push run on reddb-io/red-router main. Finish CI, then rerun publication.");
+            }
 
       - name: Setup Node
         uses: actions/setup-node@v7
@@ -106,6 +133,7 @@ jobs:
 
   publish:
     name: Publish @reddb-io/red-router
+    if: github.repository == 'reddb-io/red-router'
     needs: build
     runs-on: ubuntu-latest
     environment: npm-release

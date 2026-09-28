@@ -34,7 +34,11 @@ interface WorkflowDoc {
 const WORKFLOWS_DIR = path.join(process.cwd(), ".github", "workflows");
 
 function loadWorkflow(fileName: string): WorkflowDoc {
-  const raw = fs.readFileSync(path.join(WORKFLOWS_DIR, fileName), "utf8");
+  const directory =
+    fileName === "npm-publish.yml"
+      ? path.join(process.cwd(), "tests", "fixtures", "upstream-workflows")
+      : WORKFLOWS_DIR;
+  const raw = fs.readFileSync(path.join(directory, fileName), "utf8");
   return yaml.load(raw) as WorkflowDoc;
 }
 
@@ -87,7 +91,10 @@ test("npm-publish.yml 'Build CLI bundle (standalone app)' step must NOT be backe
   const publishJob = Object.values(doc.jobs).find((job) =>
     job.steps.some((s) => s.name === "Build CLI bundle (standalone app)")
   );
-  assert.ok(publishJob, "npm-publish.yml must have a job with a 'Build CLI bundle (standalone app)' step");
+  assert.ok(
+    publishJob,
+    "npm-publish.yml must have a job with a 'Build CLI bundle (standalone app)' step"
+  );
   const step = publishJob!.steps.find((s) => s.name === "Build CLI bundle (standalone app)")!;
   assert.equal(
     isBackendOnly(step),

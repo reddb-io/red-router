@@ -7,7 +7,7 @@ import {
 } from "../../scripts/quality/release-acceptance/closeOracle.mjs";
 
 test("nightly still auto-closes the tracker via two steps (deliberate, #12085)", () => {
-  const text = readFileSync(".github/workflows/nightly-release-green.yml", "utf8");
+  const text = readFileSync("tests/fixtures/upstream-workflows/nightly-release-green.yml", "utf8");
   assert.equal(findTrackerCloses(text).length, 2);
   const legacy = readFileSync(
     new URL("../fixtures/release-acceptance/legacy-close-steps.yml", import.meta.url),

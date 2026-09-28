@@ -23,7 +23,10 @@ import { fileURLToPath } from "node:url";
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
 function readPublishWorkflow(): string {
-  return fs.readFileSync(path.join(repoRoot, ".github/workflows/npm-publish.yml"), "utf-8");
+  return fs.readFileSync(
+    path.join(repoRoot, "tests/fixtures/upstream-workflows/npm-publish.yml"),
+    "utf-8"
+  );
 }
 
 /** The `run:` body of the step whose `name:` matches, at any indentation. */

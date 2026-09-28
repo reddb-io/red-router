@@ -323,7 +323,10 @@ test("npm, standalone, Electron, and container assembly carry the wreq license e
 });
 
 test("Electron installs the Linux arm64 binding inside the platform matrix job", () => {
-  const workflow = readFileSync(join(ROOT, ".github/workflows/electron-release.yml"), "utf8");
+  const workflow = readFileSync(
+    join(ROOT, "tests/fixtures/upstream-workflows/electron-release.yml"),
+    "utf8"
+  );
   const webBuildStart = workflow.indexOf("\n  web-build:");
   const buildStart = workflow.indexOf("\n  build:");
   const releaseStart = workflow.indexOf("\n  release:");

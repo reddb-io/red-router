@@ -13,6 +13,7 @@ import { Agent, buildConnector, fetch as undiciFetch, type Dispatcher } from "un
 import { getSettings, updateSettings } from "@/lib/db/settings";
 import { isConnectionUnavailableToAuxiliaryActivity } from "@/lib/exclusiveLeaseIsolation";
 import { getRuntimePorts } from "@/lib/runtime/ports";
+import { shouldAutoSyncModels } from "@/lib/providerModels/discoveryPolicy";
 
 export const DEFAULT_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours
 /** Cycle-wide in-flight cap. Heap cost is total catalog JSON, not one upstream. */
@@ -180,7 +181,7 @@ async function getAutoSyncConnections(): Promise<
         conn.providerSpecificData && typeof conn.providerSpecificData === "object"
           ? (conn.providerSpecificData as Record<string, unknown>)
           : {};
-      if (psd.autoSync !== true) continue;
+      if (!shouldAutoSyncModels(conn.provider, psd)) continue;
       if (typeof conn.id !== "string" || typeof conn.provider !== "string") continue;
       autoSyncConnections.push({
         id: conn.id,

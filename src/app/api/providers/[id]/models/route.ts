@@ -138,6 +138,8 @@ import { getCodexDiscoveryMode } from "@/shared/services/codexDiscoveryPolicy";
 import { maybeHandleConolModelDiscovery } from "./conolDiscovery";
 import { maybeHandleVertexModelDiscovery } from "./vertexDiscovery";
 import { buildNoAuthModelsResponse, filterModelsForRoute } from "./modelRouteProjection";
+import { syncRemoteRouterCatalog } from "@/lib/providerModels/remoteRouterDiscovery";
+import { RemoteRouterDiscoveryError } from "@/lib/providerModels/remoteRouterCatalog";
 
 /**
  * GET /api/providers/[id]/models - Get models list from provider
@@ -203,6 +205,20 @@ export async function GET(
     const provider = connectionProvider;
     if (!provider) {
       return NextResponse.json({ error: "Invalid connection provider" }, { status: 400 });
+    }
+    if (provider === "red-router") {
+      try {
+        const result = await syncRemoteRouterCatalog(connection, refresh);
+        // Never merge a provider-wide cache or custom aliases into a remote key's catalog.
+        const models = excludeHidden
+          ? result.models.filter((model) => !getModelIsHidden(provider, model.id))
+          : result.models;
+        return NextResponse.json({ ...result, models, provider, connectionId: id });
+      } catch (error) {
+        return error instanceof RemoteRouterDiscoveryError
+          ? errorResponse(error.status, error.message)
+          : errorResponse(500, "Remote router discovery unavailable");
+      }
     }
     const usesCuratedModelsOnly = providerUsesCuratedModelsOnly(provider);
 

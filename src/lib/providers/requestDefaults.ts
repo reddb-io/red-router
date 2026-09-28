@@ -6,6 +6,7 @@ import { normalizeRoutingTags } from "@/domain/tagRouter";
 import { normalizeOpenRouterPreset } from "@/shared/constants/openRouterPreset";
 import { isForbiddenCustomHeaderName } from "@/shared/constants/upstreamHeaders";
 import { normalizePeakHourProtection } from "@/lib/providers/peakHourProtection";
+import { applyRemoteRouterDiscoveryDefaults } from "@/lib/providerModels/discoveryPolicy";
 
 export const CODEX_REASONING_EFFORT_VALUES = [
   "none",
@@ -183,7 +184,7 @@ export function normalizeProviderSpecificData(
   provider: string | null | undefined,
   value: unknown
 ): JsonRecord | undefined {
-  const record = asRecord(value);
+  const record = applyRemoteRouterDiscoveryDefaults(provider, asRecord(value));
   if (Object.keys(record).length === 0) return undefined;
 
   const normalized: JsonRecord = { ...record };

@@ -1,3 +1,4 @@
+# Historical upstream reference only. Not an executable RedRouter workflow.
 # Publica o export estável do catálogo consumido pelo OmniRoute Radar numa URL
 # fixa (asset de release `radar-export-latest`), para o servidor privado do Radar
 # (1 GB RAM, nunca clona/builda o OmniRoute) baixá-lo via `RADAR_EXPORT_URL` em

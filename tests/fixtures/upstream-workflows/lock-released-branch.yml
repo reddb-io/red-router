@@ -1,3 +1,4 @@
+# Historical upstream reference only. Not an executable RedRouter workflow.
 name: Lock released branch
 
 # Two responsibilities (defense in depth — Hard Rule #18 enforcement):

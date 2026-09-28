@@ -390,7 +390,7 @@ function main() {
     console.error(
       `\n[check-workflows] FAIL — ${provenanceFindings.length} job(s) publish with --provenance from a self-hosted runner.\n` +
         "  npm rejects that with 422 at the registry. Move the upload step to a github-hosted job\n" +
-        "  (see .github/workflows/npm-publish.yml `stage-npm` for the pattern)."
+        "  (see .github/workflows/red-publish.yml `publish` for the pattern)."
     );
     process.exit(1);
   }

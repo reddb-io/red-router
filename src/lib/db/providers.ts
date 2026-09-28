@@ -41,6 +41,7 @@ import { isMicrosoftDesignerWebRetiredProviderId } from "@/shared/constants/desi
 import { reconcileCodexUsageHistory } from "./providers/usageIdentityReconciliation";
 import { isRuntimeRetiredProviderId } from "@/shared/constants/providerRetirement";
 import { applyCodexChildCooldownClearOnUpdate } from "./providers/codexAccountState";
+import { clearRemoteRouterCatalog } from "./remoteRouterCatalog";
 
 /**
  * normalizeProviderSpecificData + the Codex fingerprint-seed invariant: Codex
@@ -641,6 +642,7 @@ export async function createProviderConnection(data: JsonRecord) {
         });
       }
       _updateConnectionRow(db, existingId, encryptConnectionFields(persistence));
+      if (merged.provider === "red-router") clearRemoteRouterCatalog(existingId);
     })();
     backupDbFile("pre-write");
     invalidateDbCache("connections");
@@ -1026,6 +1028,12 @@ export async function updateProviderConnection(id: string, data: JsonRecord) {
       merged,
     });
     _updateConnectionRow(db, id, encryptConnectionFields({ ...merged }));
+    if (
+      existingRecord.provider === "red-router" &&
+      ("apiKey" in data || "providerSpecificData" in data || "provider" in data)
+    ) {
+      clearRemoteRouterCatalog(id);
+    }
   })();
   backupDbFile("pre-write");
   invalidateDbCache("connections"); // Bust connections read cache

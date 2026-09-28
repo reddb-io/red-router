@@ -10,10 +10,10 @@ import type { RegistryEntry } from "../../shared.ts";
  * operator overrides it via providerSpecificData.baseUrl, which the
  * openai-format DefaultExecutor branch already honors.
  *
- * TODO(fork-port): the legacy fork also carried the router-to-router
- * catalog machinery (config/redRouter.js — chain headers, hop-limit cycle
- * detection, routableRemoteEntries). Only the chat routing entry is ported
- * here; catalog federation is not wired.
+ * Direct chat catalog discovery is persisted per credential by
+ * src/lib/providerModels/remoteRouterDiscovery.ts. Multi-hop federation and
+ * remote System One discovery/dispatch are still pending; discovery excludes
+ * re-exposed router entries and typed non-chat models.
  */
 export const red_routerProvider: RegistryEntry = {
   id: "red-router",

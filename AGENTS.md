@@ -1,4 +1,38 @@
-# OmniRoute agent guide
+# RedRouter agent guide
+
+## RedRouter product ownership
+
+RedRouter is the product being developed in `reddb-io/red-router`. Its own
+`v0.33.0` product experience and contracts are the preservation baseline.
+9router, OmniRoute and LiteLLM supply capabilities to inherit and improve;
+they do not replace RedRouter's interface, README, architecture ownership,
+configuration contracts or release channel. Preserve upstream attribution.
+
+This section takes precedence over inherited OmniRoute operating instructions
+below. Use this repository's GitHub Actions and `main` integration target, not
+another project's release branches, freeze issues, VPS or operator identity.
+Respect the operator's main-only workflow; do not reset the tree, remove other
+sessions' work or bulk-copy an upstream tree over RedRouter.
+
+For upstream work, record the RedRouter baseline, pinned upstream source,
+local implementation, remaining differences and behavioral acceptance checks.
+Path/provider counts and a green upstream suite are not proof of feature parity.
+The initial inventory is `config/upstream/product-inheritance.json`; it is
+deliberately incomplete and must grow as capabilities are audited.
+
+The UI and CLI remain English-only; translation endpoints remain valid features.
+Keep Gemini CLI retired as a provider and preserve Antigravity support.
+For this integration, run tests/build validation in CI/CD, not locally. Coverage
+is diagnostic only. Do not claim a stable release until RedRouter regressions
+and the inherited capabilities have been validated through the published package.
+
+RedRouter release ownership is `reddb-io/red-router` and the npm package is
+`@reddb-io/red-router`. Use Changesets for intentional version/changelog changes.
+The publisher must consume the tagged version, not choose a version during upload.
+Do not inherit OmniRoute's npm/plugin publishers, VPS deployment, release-branch
+management, Radar service publishing or operator credentials. Review CI against
+the local `dit`, `red-skills` and `redskilled` patterns without copying unrelated
+jobs or enabling publication on every push.
 
 > **Single source of truth.** This file holds ALL project rules, conventions, architecture notes
 > and Hard Rules for every AI assistant working this repository (Claude Code, Gemini, Codex,
@@ -46,7 +80,8 @@ Repository map and Reference Documentation sections below.
 
 ## Project at a Glance
 
-**OmniRoute** — unified AI proxy/router. One endpoint, 377 LLM providers, auto-fallback.
+**RedRouter** — a self-hosted control plane for AI model traffic. The implementation
+below includes upstream-derived modules; their presence is not a parity claim.
 
 | Layer         | Location                | Purpose                                                                                                                                                                   |
 | ------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
