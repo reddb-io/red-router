@@ -47,6 +47,10 @@ prove our adaptations or full feature parity.
 RedRouter release ownership is `reddb-io/red-router` and the npm package is
 `@reddb-io/red-router`. Use Changesets for intentional version/changelog changes.
 The publisher must consume the tagged version, not choose a version during upload.
+Run `npm run release:status` / `npm run release:version` for the root-package
+Changesets adapter. Main CI builds and packs once; publication promotes that exact
+successful run attempt's artifact, checking source/version/checksum agreement.
+Never add a rebuild or source-identity rewrite to the publisher.
 Do not inherit OmniRoute's npm/plugin publishers, VPS deployment, release-branch
 management, Radar service publishing or operator credentials. Review CI against
 the local `dit`, `red-skills` and `redskilled` patterns without copying unrelated

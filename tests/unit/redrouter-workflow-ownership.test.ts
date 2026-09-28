@@ -14,13 +14,15 @@ test("RedRouter is the only active npm publisher and keeps independent provenanc
   assert.deepEqual(publishers, ["red-publish.yml"]);
   const text = readFileSync(join(active, "red-publish.yml"), "utf8");
   const workflow = YAML.parse(text);
-  assert.equal(workflow.jobs.build.if, "github.repository == 'reddb-io/red-router'");
+  assert.equal(workflow.jobs.resolve.if, "github.repository == 'reddb-io/red-router'");
   assert.equal(workflow.jobs.publish.if, "github.repository == 'reddb-io/red-router'");
   assert.equal(workflow.jobs.publish["runs-on"], "ubuntu-latest");
   assert.equal(workflow.jobs.publish.permissions["id-token"], "write");
   assert.match(text, /--provenance --ignore-scripts/);
   assert.match(text, /sha256sum -c SHA256SUMS/);
-  assert.match(text, /npm run check:pack-boot/);
+  assert.doesNotMatch(text, /npm run build:release|npm ci|npm pkg set/);
+  assert.match(text, /scripts\/release\/artifact\.mjs verify/);
+  assert.match(text, /run-id: \$\{\{ needs.resolve.outputs.run_id \}\}/);
   assert.match(text, /workflow_id: "ci.yml"/);
   assert.match(text, /run.head_sha === process.env.RELEASE_SHA/);
   assert.match(text, /latest.status !== "completed" \|\| latest.conclusion !== "success"/);

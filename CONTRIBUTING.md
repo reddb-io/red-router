@@ -210,6 +210,19 @@ adaptation before use. Their presence is not a claim they currently pass.
 
 There is no pre-commit hook. Validation runs in CI, not on commit.
 
+### Intentional versions
+
+Use `npm run changeset` to describe a user-visible change. Review
+`npm run release:status`, then prepare the next version with
+`npm run release:version`. Commit the generated package/lockfile version and
+changelog on main. After that commit's CI succeeds, tag that exact version.
+Publishing promotes CI's tested tarball; it does not build or choose a version.
+See [the release checklist](docs/ops/RELEASE_CHECKLIST.md).
+
+The pinned Changesets CLI runs in an isolated root-package workspace; the private
+upstream workspaces are not independently versioned. First use requires registry
+access. Versioning neither commits nor tags automatically.
+
 ---
 
 ## Code Style

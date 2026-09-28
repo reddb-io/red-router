@@ -1,6 +1,6 @@
 ---
 title: "RedRouter workflow ownership review"
-version: 3.8.51
+version: 0.34.0
 lastUpdated: 2026-09-28
 ---
 
@@ -11,7 +11,7 @@ source inheritance does not transfer another project's operational workflows,
 credentials or wholesale test requirements.
 
 This is a local structural review, not a successful Actions run or a timing benchmark.
-The scoped CI changes have not yet been validated in GitHub Actions.
+The artifact-promotion changes have not yet been validated in GitHub Actions.
 
 ## Active workflows
 
@@ -73,9 +73,9 @@ package workflows are not copied into RedRouter.
 
 ## Remaining release work
 
-1. Restore Changesets tooling and reconcile the source identity/version
-   (`red-router-app@3.8.51`) with `@reddb-io/red-router` and the lockfile.
-   The publisher's v0.x restamping is transitional, not the desired final flow.
+1. Source identity and lockfile are restored to `@reddb-io/red-router@0.34.0`.
+   Changesets uses a pinned CLI and a root-package adapter; validate its real-tool
+   CI fixture before preparing the next version. The publisher no longer restamps.
 2. Run the scoped CI on the exact main SHA and inspect failures. If repository
    protection requires retired job names, reconcile those required checks with the
    active jobs; local workflow edits cannot change server-side branch rules.
@@ -83,3 +83,16 @@ package workflows are not copied into RedRouter.
    tarball and verify registry availability plus clean consumer installation.
 4. Measure comparable Actions runs before claiming a 50% time reduction. A narrower
    suite reduces scheduled work but does not prove a particular wall-clock saving.
+
+## Artifact promotion
+
+Main CI builds and packs once, checks the same tarball's content, installed boot
+and persistence, then retains it after browser smoke. The publisher resolves the
+successful exact-SHA main push run and downloads that run attempt's artifact.
+Version, package identity, source SHA, run/attempt, manifest and checksums must agree.
+There is no dependency install or rebuild of the application in the publisher.
+Registry integrity, provenance and clean mise/aube installation remain required.
+
+The current lint configuration tolerates unused historical suppression entries
+while continuing to enforce actual lint errors. This addresses the observed
+unused-suppressions failure without suppressing new violations.

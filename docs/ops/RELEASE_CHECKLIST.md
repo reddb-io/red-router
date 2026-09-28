@@ -1,6 +1,6 @@
 ---
 title: "RedRouter release checklist"
-version: 3.8.51
+version: 0.34.0
 lastUpdated: 2026-09-28
 ---
 
@@ -10,15 +10,18 @@ This checklist belongs to `reddb-io/red-router`, not OmniRoute. The npm package 
 `@reddb-io/red-router`, and `red-router` is the command. Develop on main, preserve
 upstream attribution, and do not deploy or publish another project's package.
 
-The workflow cleanup and source-version/Changesets blockers are recorded in
-[the workflow review](./REDROUTER_WORKFLOW_REVIEW.md). They are not resolved merely
-because an earlier publication succeeded.
+The workflow design and remaining validation work are recorded in
+[the workflow review](./REDROUTER_WORKFLOW_REVIEW.md).
 
 ## Prepare an intentional version
 
 - [ ] Include Changesets describing user-visible changes and their compatibility limits.
-- [ ] Restore the Changesets CLI/configuration and reconcile the published package's
-      source name/version with the lockfile. Verify workspace targeting.
+- [ ] Run `npm run release:status` to review pending Changesets, then
+      `npm run release:version` when preparing a release.
+- [ ] Review the root package/lockfile version and generated changelog together.
+      The adapter uses the pinned official Changesets CLI in an isolated single-package
+      workspace because npm workspace discovery excludes the root deliverable.
+      It does not version the private upstream engine/browser packages.
 - [ ] Review the generated version and changelog. Do not choose or silently bump
       the release version inside the publisher.
 - [ ] Keep all release code on main; do not recreate upstream release branches.
@@ -42,11 +45,13 @@ Do not run local tests/builds for this recovery. CI is the validation environmen
 
 ## Build and publish one artifact
 
-`.github/workflows/red-publish.yml` is the sole active npm publisher. It builds
-a selected v0.x tag that belongs to main, checks the exact SHA's main CI result,
-and restricts publication to this repository.
+`.github/workflows/red-publish.yml` is the sole active npm publisher. It resolves
+a selected v0.x tag on main to a successful main push CI run, then downloads that
+run's tested artifact. It never builds, repacks or changes the package identity.
 
 - [ ] `npm run build:release` succeeds in Actions.
+- [ ] CI runs `npm run release:pack` once. The content and boot checks both consume
+      that tarball through `REDROUTER_RELEASE_ARTIFACT_DIR=release-artifacts`.
 - [ ] `npm run check:pack-artifact` and `npm run check:pack-boot` pass.
 - [ ] Preserve the full dashboard and required native/runtime files in the tarball.
 - [ ] Publish the exact checked tarball, verifying SHA256SUMS across jobs.
@@ -56,9 +61,20 @@ and restricts publication to this repository.
 - [ ] Verify registry integrity and a clean installed-package smoke.
 - [ ] Attach the verified tarball and checksum to the matching GitHub release.
 
-The current source-identity restamping in the publisher is a transitional mechanism,
-not the desired Changesets flow. Replace it with a version-agreement assertion
-after source identity and tooling are reconciled. Do not claim that work is complete.
+CI retains main push artifacts for 14 days, named by source SHA and run attempt.
+The publisher rejects mismatched package/tag versions, commit/run/attempt metadata,
+expired or missing artifacts, checksums and tarball manifests. If retention has
+expired, rerun ALL jobs of the original main push CI before retrying publication;
+a failed-jobs-only rerun may not produce an artifact for the latest attempt.
+
+Source identity is now `@reddb-io/red-router`. The restored baseline is 0.34.0,
+not a new publication: pending Changesets must produce the next intentional version
+before tagging. Do not move or recreate existing published tags.
+
+The CLI is pinned to `@changesets/cli@3.0.3` through npm exec, not installed as a
+production dependency. It needs registry access on the first invocation. CI checks
+real root-versioning behavior in a temporary fixture and reports pending changes.
+There are no new scheduled workflows or automatic version commits.
 
 ## Product acceptance
 

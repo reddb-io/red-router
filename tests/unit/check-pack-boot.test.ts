@@ -50,7 +50,7 @@ test("pack boot resolves the installed RedRouter package and executable from its
     readFileSync(fileURLToPath(new URL("../../package.json", import.meta.url)), "utf8")
   );
   assert.deepEqual(resolveInstalledPackage("/prefix", manifest), {
-    packageRoot: path.join("/prefix", "lib", "node_modules", "red-router-app"),
+    packageRoot: path.join("/prefix", "lib", "node_modules", "@reddb-io/red-router"),
     binPath: path.join("/prefix", "bin", "red-router"),
   });
   assert.throws(

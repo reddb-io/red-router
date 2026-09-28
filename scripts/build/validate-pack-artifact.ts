@@ -1,14 +1,11 @@
 #!/usr/bin/env node
 
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  makeGitAncestryProbe,
-  readBuildSha,
-  resolveBuildProvenance,
-} from "./buildProvenance.ts";
+import { verifyArtifact } from "../release/artifact.mjs";
+import { makeGitAncestryProbe, readBuildSha, resolveBuildProvenance } from "./buildProvenance.ts";
 
 import {
   MCP_CLOSURE_SPOT_CHECK_PATH,
@@ -139,8 +136,27 @@ function formatBytes(bytes: number): string {
 const POLICY_ONLY = process.argv.includes("--policy-only");
 
 try {
-  if (!POLICY_ONLY) ensureAppStagingReady();
-  const packReport = runPackDryRun();
+  const artifactDirectory = process.env.REDROUTER_RELEASE_ARTIFACT_DIR;
+  if (POLICY_ONLY && artifactDirectory)
+    throw new Error("Artifact verification cannot be policy-only");
+  if (!POLICY_ONLY && !artifactDirectory) ensureAppStagingReady();
+  let packReport: PackReport;
+  if (artifactDirectory) {
+    const source = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
+    const { metadata } = await verifyArtifact(artifactDirectory, { version: source.version });
+    const reports = JSON.parse(readFileSync(join(artifactDirectory, "pack-report.json"), "utf8"));
+    if (
+      reports.length !== 1 ||
+      reports[0].filename !== metadata.tarball ||
+      reports[0].integrity !== metadata.integrity ||
+      !Array.isArray(reports[0].files)
+    ) {
+      throw new Error("Pack report does not describe the verified tarball");
+    }
+    packReport = reports[0];
+  } else {
+    packReport = runPackDryRun();
+  }
   const artifactPaths: string[] = packReport.files.map((file) => file.path);
   const unexpectedPaths: string[] = findUnexpectedArtifactPaths(artifactPaths, {
     exactPaths: PACK_ARTIFACT_ALLOWED_EXACT_PATHS,

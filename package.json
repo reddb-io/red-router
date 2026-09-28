@@ -1,6 +1,9 @@
 {
-  "name": "red-router-app",
-  "version": "3.8.51",
+  "name": "@reddb-io/red-router",
+  "version": "0.34.0",
+  "publishConfig": {
+    "access": "public"
+  },
   "description": "Unified AI router with 377 providers, RTK+Caveman compression, auto fallback, MCP/A2A, desktop, PWA, and OpenAI-compatible APIs. RedRouter fork of OmniRoute (MIT, diegosouzapw/OmniRoute).",
   "type": "module",
   "bin": {
@@ -90,6 +93,10 @@
   },
   "homepage": "https://github.com/reddb-io/red-router",
   "scripts": {
+    "changeset": "node scripts/release/changesets.mjs add",
+    "release:status": "node scripts/release/changesets.mjs status",
+    "release:version": "node scripts/release/changesets.mjs version",
+    "release:pack": "node scripts/release/artifact.mjs pack",
     "dev": "node --max-old-space-size=8192 scripts/dev/run-next.mjs dev",
     "prebuild:docs": "node scripts/docs/gen-openapi-module.mjs",
     "gen:provider-reference": "bun scripts/docs/gen-provider-reference.ts",
@@ -117,7 +124,7 @@
     "start": "node scripts/dev/run-next.mjs start",
     "start:fast": "cross-env OMNIROUTE_SKIP_STANDALONE=1 node scripts/dev/run-next.mjs start",
     "homolog": "node scripts/homolog/run.mjs",
-    "lint": "eslint . --cache --cache-location .eslintcache --suppressions-location config/quality/eslint-suppressions.json",
+    "lint": "eslint . --cache --cache-location .eslintcache --suppressions-location config/quality/eslint-suppressions.json --pass-on-unpruned-suppressions",
     "lint:json": "node scripts/quality/run-eslint-json.mjs",
     "lint:md": "npx --yes markdownlint-cli2 \"docs/**/*.md\" \"*.md\" \"!docs/i18n\" \"!docs/research\"",
     "lint:prose": "vale docs",

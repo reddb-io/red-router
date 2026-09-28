@@ -423,7 +423,8 @@ async function readSettingsDebugMode(baseUrl, cliToken) {
 
 async function main() {
   const ROOT = process.cwd();
-  if (!fs.existsSync(path.join(ROOT, "dist", "server.js"))) {
+  const artifactDirectory = process.env.REDROUTER_RELEASE_ARTIFACT_DIR;
+  if (!artifactDirectory && !fs.existsSync(path.join(ROOT, "dist", "server.js"))) {
     console.error(
       "[pack-boot] dist/server.js missing — run `npm run build:cli` first (this is a --with-build gate)"
     );
@@ -439,13 +440,21 @@ async function main() {
   let cleanupError = null; // recorded ONLY in finally, ONLY for a final stopChild failure
   let shutdownConfirmed = false; // process group confirmed stopped → safe to rm the workspace
   try {
-    log(`packing v${expectedVersion}…`);
-    const packOut = execFileSync("npm", ["pack", "--json", "--pack-destination", tmp], {
-      cwd: ROOT,
-      encoding: "utf8",
-      maxBuffer: 64 * 1024 * 1024,
-    });
-    const tarball = path.join(tmp, pickTarball(packOut));
+    let tarball;
+    if (artifactDirectory) {
+      const { verifyArtifact } = await import("../release/artifact.mjs");
+      ({ tarball } = await verifyArtifact(artifactDirectory, { version: expectedVersion }));
+      tarball = path.resolve(tarball);
+      log("using the existing verified release tarball (no repacking)");
+    } else {
+      log(`packing v${expectedVersion}…`);
+      const packOut = execFileSync("npm", ["pack", "--json", "--pack-destination", tmp], {
+        cwd: ROOT,
+        encoding: "utf8",
+        maxBuffer: 64 * 1024 * 1024,
+      });
+      tarball = path.join(tmp, pickTarball(packOut));
+    }
     log(`installing ${path.basename(tarball)} into a clean prefix (postinstall runs for real)…`);
     const prefix = path.join(tmp, "prefix");
     execFileSync("npm", ["install", "-g", "--prefix", prefix, tarball], {
