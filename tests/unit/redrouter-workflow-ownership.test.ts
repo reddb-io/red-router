@@ -58,12 +58,10 @@ test("the one workflow owns exact-artifact npm and GitHub publication", () => {
   assert.ok(smoke >= 0 && smoke < githubRelease);
 });
 
-test("npm propagation recovery promotes the original tested artifact", () => {
+test("npm propagation recovery verifies the original published tarball", () => {
   const workflow = YAML.parse(readFileSync(join(active, "red-publish.yml"), "utf8"));
   const build = workflow.jobs.build;
   const release = workflow.jobs.release;
-  const sourceRun = "${{ inputs.artifact_run_id || github.run_id }}";
-  const sourceAttempt = "${{ inputs.artifact_run_attempt || github.run_attempt }}";
 
   assert.equal(
     build.steps.find((step: { name?: string }) => step.name === "Build once").if,
@@ -76,14 +74,18 @@ test("npm propagation recovery promotes the original tested artifact", () => {
   const download = release.steps.find(
     (step: { name?: string }) => step.name === "Download the tested tarball"
   );
-  assert.equal(download.with["run-id"], sourceRun);
-  assert.equal(download.with.name, `redrouter-release-${sourceRun}-${sourceAttempt}`);
+  assert.equal(download.if, "${{ inputs.artifact_run_id == '' }}");
+  const recovery = release.steps.find(
+    (step: { name?: string }) => step.name === "Recover the original published tarball"
+  );
+  assert.equal(recovery.if, "${{ inputs.artifact_run_id != '' }}");
+  assert.match(recovery.run, /recover-published\.mjs/);
+  assert.equal(recovery.env.RELEASE_RUN_ID, "${{ inputs.artifact_run_id }}");
+  assert.equal(recovery.env.RELEASE_RUN_ATTEMPT, "${{ inputs.artifact_run_attempt }}");
   const verify = release.steps.find(
     (step: { name?: string }) => step.name === "Verify artifact identity and checksum"
   );
-  assert.equal(verify.env.RELEASE_RUN_ID, sourceRun);
-  assert.equal(verify.env.RELEASE_RUN_ATTEMPT, sourceAttempt);
-  assert.equal(release.permissions.actions, "read");
+  assert.equal(verify.if, "${{ inputs.artifact_run_id == '' }}");
 });
 
 test("foreign upstream operational workflows remain inert fixtures", () => {
