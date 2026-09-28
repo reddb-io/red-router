@@ -105,6 +105,7 @@ test("CI packs once and publication only promotes the verified artifact", async 
     commands.indexOf("npm run release:pack") < commands.indexOf("npm run check:pack-artifact")
   );
   assert.equal(build.env.REDROUTER_RELEASE_ARTIFACT_DIR, "release-artifacts");
+  assert.equal(build.env.OMNIROUTE_PLAYWRIGHT_SKIP_BUILD, "1");
   const upload = build.steps.find(
     (step) => step.name === "Retain the tested main artifact for publication"
   );
