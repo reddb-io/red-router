@@ -152,17 +152,18 @@ describe("TierResolver", () => {
 
   describe("classifyTier - caching", () => {
     it("returns cached result on second call", () => {
-      classifyTier("openai", "gpt-4o");
-      const t0 = performance.now();
-      classifyTier("openai", "gpt-4o");
-      const elapsed = performance.now() - t0;
-      expect(elapsed, "cache hit should be <0.1ms").toBeLessThan(0.1);
+      const first = classifyTier("openai", "gpt-4o");
+      const second = classifyTier("openai", "gpt-4o");
+      // A cache hit returns the same assignment object. Wall-clock thresholds are
+      // unreliable under parallel CI load and do not prove that the cache was used.
+      expect(second).toBe(first);
     });
 
     it("clearTierCache() forces re-classification", () => {
       const first = classifyTier("openai", "gpt-4o");
       clearTierCache();
       const second = classifyTier("openai", "gpt-4o");
+      expect(second).not.toBe(first);
       expect(first.tier).toBe(second.tier);
       expect(second.costPer1MInput).toBeGreaterThan(0);
     });
@@ -197,7 +198,7 @@ describe("TierResolver", () => {
         { provider: "openai", model: "gpt-4o" },
         { provider: "openai", model: "gpt-4o" },
       ]);
-// Observable effect of the cache: the duplicate resolves to the same tier and only
+      // Observable effect of the cache: the duplicate resolves to the same tier and only
       // ONE entry is memoized (getTierStats counts cache entries, not classify calls).
       expect(results).toHaveLength(2);
       expect(results[0].tier).toBe(results[1].tier);
