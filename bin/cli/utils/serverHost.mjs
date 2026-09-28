@@ -18,11 +18,12 @@ export function resolveServerHost(
   runtimePlatform = platform(),
   machineHostname = hostname()
 ) {
+  if (env.RED_ROUTER_SERVER_HOST) return env.RED_ROUTER_SERVER_HOST;
   if (env.OMNIROUTE_SERVER_HOST) return env.OMNIROUTE_SERVER_HOST;
   if (runtimePlatform === "win32" && env.HOSTNAME && env.HOSTNAME !== machineHostname) {
     return env.HOSTNAME;
   }
-  return "0.0.0.0";
+  return "127.0.0.1";
 }
 
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
@@ -52,6 +53,7 @@ export function resolveExposureWarning(env = process.env, host = resolveServerHo
     `plane (/v1/*) is reachable by ANY device that can route to this host, and ` +
     `requests are billed to your configured providers. This local-first default ` +
     `is intentional, but on an untrusted network either set REQUIRE_API_KEY=true ` +
-    `or bind loopback with OMNIROUTE_SERVER_HOST=127.0.0.1.`
+    `or bind loopback with RED_ROUTER_SERVER_HOST=127.0.0.1 ` +
+    `(OMNIROUTE_SERVER_HOST remains supported as a compatibility alias).`
   );
 }

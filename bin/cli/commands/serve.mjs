@@ -31,6 +31,7 @@ import {
 } from "../../../scripts/build/runtime-env.mjs";
 import { resolveTlsOptions } from "../../../scripts/dev/tls-options.mjs";
 import { startDetachedTray, validateTrayOptions } from "../tray/detachedTray.mjs";
+import { DEFAULT_PORT, resolvePort } from "../product.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const _pkg = JSON.parse(readFileSync(join(__dirname, "..", "..", "..", "package.json"), "utf8"));
@@ -56,7 +57,10 @@ export function registerServe(program) {
   const command = program
     .command("serve", { isDefault: true })
     .description(t("serve.description"))
-    .option("--port <port>", t("serve.port"))
+    .option("-p, --port <port>", t("serve.port"))
+    .option("-H, --host <host>", "Host to bind")
+    .option("--local", "Bind to 127.0.0.1")
+    .option("--expose", "Bind to 0.0.0.0")
     .option("--no-open", t("serve.no_open"))
     .option("--daemon", t("serve.daemon"))
     .option("--log", t("serve.log"))
@@ -113,12 +117,17 @@ export function resetInstrumentationFailureHintForTests() {
 
 export async function runServe(opts = {}) {
   const startedAt = performance.now();
+  const requestedHost = opts.local
+    ? "127.0.0.1"
+    : opts.expose
+      ? "0.0.0.0"
+      : opts.host || resolveServerHost();
 
   const trayOptionError = validateTrayOptions(opts);
   if (trayOptionError) throw new Error(trayOptionError);
 
   if (opts.tray === true && opts.trayWorker !== true) {
-    const port = parsePort(opts.port ?? process.env.PORT ?? "20128", 20128);
+    const port = parsePort(opts.port ?? resolvePort(), DEFAULT_PORT);
     const tlsCert = opts.tlsCert ?? process.env.OMNIROUTE_TLS_CERT;
     const tlsKey = opts.tlsKey ?? process.env.OMNIROUTE_TLS_KEY;
     urlScheme = resolveTlsOptions({
@@ -131,11 +140,12 @@ export async function runServe(opts = {}) {
     const result = await startDetachedTray({
       cliPath: join(ROOT, "bin", "omniroute.mjs"),
       port,
+      host: requestedHost,
       maxRestarts: opts.maxRestarts ?? 2,
       tlsCert,
       tlsKey,
     });
-    console.log(`\x1b[32m✔ OmniRoute tray started in background\x1b[0m`);
+    console.log(`\x1b[32m✔ RedRouter tray started in background\x1b[0m`);
     console.log(`  \x1b[1mDashboard:\x1b[0m  ${urlScheme}://localhost:${port}`);
     return result;
   }
@@ -149,7 +159,7 @@ export async function runServe(opts = {}) {
   const { getNodeRuntimeSupport, getNodeRuntimeWarning } =
     await import("../../nodeRuntimeSupport.mjs");
 
-  const port = parsePort(opts.port ?? process.env.PORT ?? "20128", 20128);
+  const port = parsePort(opts.port ?? resolvePort(), DEFAULT_PORT);
   const apiPort = parsePort(process.env.API_PORT ?? String(port), port);
   const dashboardPort = parsePort(process.env.DASHBOARD_PORT ?? String(port), port);
   const noOpen = opts.open === false;
@@ -173,7 +183,7 @@ export async function runServe(opts = {}) {
      Supported secure runtimes: ${nodeSupport.supportedDisplay}
      Recommended: use Node.js ${nodeSupport.recommendedVersion} or newer on the 22.x LTS line.
      Workaround:  npm rebuild better-sqlite3
-     Or run:      omniroute runtime repair  (rebuilds into a user-writable runtime; works without a C++ toolchain)\x1b[0m
+     Or run:      red-router runtime repair  (rebuilds into a user-writable runtime; works without a C++ toolchain)\x1b[0m
 `);
   }
 
@@ -181,7 +191,7 @@ export async function runServe(opts = {}) {
   // deliberate local-first choice, but it must be loud at startup — an operator
   // on an untrusted network learns the two escape hatches here, not after a
   // surprise quota bill.
-  const exposureWarning = resolveExposureWarning();
+  const exposureWarning = resolveExposureWarning(process.env, requestedHost);
   if (exposureWarning) {
     console.warn(`\x1b[33m  ⚠  ${exposureWarning}\x1b[0m\n`);
   }
@@ -198,18 +208,18 @@ export async function runServe(opts = {}) {
     const isNvm = nodeExec.includes(".nvm") || nodeExec.includes("nvm");
     if (isMise) {
       console.error(
-        "  \x1b[33m⚠ mise detected:\x1b[0m If you installed via `npm install -g omniroute`,"
+        "  \x1b[33m⚠ mise detected:\x1b[0m If you installed RedRouter through another npm channel,"
       );
-      console.error("    try: \x1b[36mnpx omniroute@latest\x1b[0m  (downloads a fresh copy)");
-      console.error("    or:  \x1b[36mmise exec -- npx omniroute\x1b[0m");
+      console.error("    try: \x1b[36mmise install npm:@reddb-io/red-router@latest\x1b[0m");
+      console.error("    or:  \x1b[36mnpx @reddb-io/red-router@latest\x1b[0m");
     } else if (isNvm) {
       console.error(
         "  \x1b[33m⚠ nvm detected:\x1b[0m Try reinstalling after loading the correct Node version:"
       );
-      console.error("    \x1b[36mnvm use --lts && npm install -g omniroute\x1b[0m");
+      console.error("    \x1b[36mnvm use --lts && npm install -g @reddb-io/red-router\x1b[0m");
     } else {
-      console.error("  Try: \x1b[36mnpm install -g omniroute\x1b[0m  (reinstall)");
-      console.error("  Or:  \x1b[36mnpx omniroute@latest\x1b[0m");
+      console.error("  Try: \x1b[36mnpm install -g @reddb-io/red-router\x1b[0m  (reinstall)");
+      console.error("  Or:  \x1b[36mnpx @reddb-io/red-router@latest\x1b[0m");
     }
     process.exit(1);
   }
@@ -232,7 +242,7 @@ export async function runServe(opts = {}) {
     );
     console.error(`  Run: cd ${APP_DIR} && npm rebuild better-sqlite3`);
     console.error(
-      "  Or run: \x1b[36momniroute runtime repair\x1b[0m" +
+      "  Or run: \x1b[36mred-router runtime repair\x1b[0m" +
         "  (rebuilds into a user-writable runtime; works without a C++ toolchain)"
     );
     if (platform() === "darwin") {
@@ -277,7 +287,9 @@ export async function runServe(opts = {}) {
     // #10492: HOSTNAME is standard shell state on Unix-like systems, not an
     // OmniRoute bind setting. The resolver only keeps its legacy meaning on
     // Windows; OMNIROUTE_SERVER_HOST is the cross-platform explicit setting.
-    HOSTNAME: resolveServerHost(),
+    HOSTNAME: requestedHost,
+    OMNIROUTE_SERVER_HOST: requestedHost,
+    RED_ROUTER_SERVER_HOST: requestedHost,
     NODE_ENV: "production",
     // #5238: preserve a user-set NODE_OPTIONS (incl. their own
     // `--max-old-space-size=…`) instead of clobbering it with the calibrated
@@ -345,11 +357,11 @@ export function reportPortInUse(port, pids = []) {
         : `PIDs ${known.join(", ")}`;
   console.error(`\n\x1b[31m✖ Port ${port} is already in use by ${owner}.\x1b[0m`);
   console.error(
-    `  Another OmniRoute is most likely already serving there, so open` +
+    `  Another RedRouter is most likely already serving there, so open` +
       ` ${urlScheme}://localhost:${port} before starting a second one.`
   );
-  console.error(`  To replace it:    \x1b[36momniroute stop\x1b[0m, then start again`);
-  console.error(`  To run alongside: \x1b[36momniroute serve --port <other-port>\x1b[0m\n`);
+  console.error(`  To replace it:    \x1b[36mred-router stop\x1b[0m, then start again`);
+  console.error(`  To run alongside: \x1b[36mred-router serve --port <other-port>\x1b[0m\n`);
 }
 
 function runDaemon(serverJs, env, memoryLimit, dashboardPort, apiPort) {
@@ -372,7 +384,7 @@ function runDaemon(serverJs, env, memoryLimit, dashboardPort, apiPort) {
   );
   writePidFile("server", server.pid);
   server.unref();
-  console.log(`\x1b[32m✔ OmniRoute started in background (PID: ${server.pid})\x1b[0m`);
+  console.log(`\x1b[32m✔ RedRouter started in background (PID: ${server.pid})\x1b[0m`);
   console.log(`  \x1b[1mDashboard:\x1b[0m  ${urlScheme}://localhost:${dashboardPort}`);
   console.log(`  \x1b[1mAPI Base:\x1b[0m   ${urlScheme}://localhost:${apiPort}/v1`);
 }
@@ -431,7 +443,7 @@ function runWithoutRecovery(serverJs, env, memoryLimit, dashboardPort, apiPort, 
   });
 
   const shutdown = () => {
-    console.log("\n\x1b[33m⏹ Shutting down OmniRoute...\x1b[0m");
+    console.log("\n\x1b[33m⏹ Shutting down RedRouter...\x1b[0m");
     cleanupPidFile("server");
     server.kill("SIGTERM");
     setTimeout(() => {
@@ -630,7 +642,7 @@ async function onReady(dashboardPort, apiPort, noOpen, startedAt) {
       : "0.0";
 
   console.log(`
-  \x1b[32m✔ OmniRoute is running!\x1b[0m \x1b[2m(started in ${elapsed}s)\x1b[0m
+  \x1b[32m✔ RedRouter is running!\x1b[0m \x1b[2m(started in ${elapsed}s)\x1b[0m
 
   \x1b[1m  Dashboard:\x1b[0m  ${dashboardUrl}
   \x1b[1m  API Base:\x1b[0m   ${apiUrl}/v1

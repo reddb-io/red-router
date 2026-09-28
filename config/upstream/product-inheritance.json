@@ -43,7 +43,7 @@
     {
       "id": "redrouter-product-experience",
       "sources": ["redrouter"],
-      "status": "regression",
+      "status": "partial",
       "baselinePaths": [
         "README.md",
         "docs/readme/hero.svg",
@@ -55,9 +55,13 @@
         "README.md",
         "docs/readme/hero.svg",
         "src/app/(dashboard)/dashboard/HomePageClient.tsx",
-        "bin/cli/program.mjs"
+        "bin/cli/program.mjs",
+        "bin/cli/product.mjs",
+        "bin/cli/service.mjs",
+        "bin/cli/commands/service.mjs",
+        "tests/redrouter/native/runtime-compatibility.test.mjs"
       ],
-      "remaining": "Original README artwork restored locally. Dashboard and service CLI were replaced; product behavior has not been restored or validated.",
+      "remaining": "Original README artwork, RedRouter CLI identity, port 25050, loopback bind, ~/.red/router storage and service install/status/uninstall are restored locally. CI and a published mise/red-dev replacement remain pending. The original dashboard experience still needs contract-by-contract restoration.",
       "acceptance": [
         "RedRouter dashboard navigation and complete setup/provider/combo/key/usage workflows remain available.",
         "Documented RedRouter CLI and service commands work from the published package."

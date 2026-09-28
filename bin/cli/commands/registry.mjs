@@ -57,6 +57,7 @@ import { registerCompletion } from "./completion.mjs";
 import { registerRuntime } from "./runtime.mjs";
 import { registerTray } from "./tray.mjs";
 import { registerAutostart } from "./autostart.mjs";
+import { registerService } from "./service.mjs";
 import { registerRepl } from "./repl.mjs";
 import { registerLaunch } from "./launch.mjs";
 import { registerLaunchCodex } from "./launch-codex.mjs";
@@ -144,6 +145,7 @@ export function registerCommands(program) {
   registerRuntime(program);
   registerTray(program);
   registerAutostart(program);
+  registerService(program);
   registerRepl(program);
   registerLaunch(program);
   registerLaunchCodex(program);

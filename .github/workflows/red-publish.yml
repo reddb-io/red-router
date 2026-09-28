@@ -243,6 +243,7 @@ jobs:
           mise trust mise.toml
           mise install --verbose
           test "$(mise exec -- red-router --version)" = "$VERSION"
+          mise exec -- red-router service --help
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}

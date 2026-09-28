@@ -3,19 +3,20 @@ import { execFileSync, execSync } from "node:child_process";
 import { homedir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { resolveDataDir } from "../data-dir.mjs";
 
-const APP_LABEL = "com.omniroute.autostart";
-const WIN_REG_VALUE = "OmniRoute";
-const WIN_STARTUP_FILE = "OmniRoute.vbs";
-const LINUX_SERVICE_NAME = "omniroute.service";
-const LINUX_DESKTOP_NAME = "omniroute.desktop";
+const APP_LABEL = "io.reddb.red-router.autostart";
+const WIN_REG_VALUE = "RedRouter";
+const WIN_STARTUP_FILE = "RedRouter.vbs";
+const LINUX_SERVICE_NAME = "red-router.service";
+const LINUX_DESKTOP_NAME = "red-router.desktop";
 
 function resolveCliPath() {
   const candidates = [];
   if (process.argv[1]) candidates.push(process.argv[1]);
   if (process.platform !== "win32") {
     try {
-      const which = execSync("command -v omniroute 2>/dev/null", { encoding: "utf8" }).trim();
+      const which = execSync("command -v red-router 2>/dev/null", { encoding: "utf8" }).trim();
       if (which) candidates.push(which);
     } catch {
       // command -v unavailable
@@ -115,13 +116,13 @@ function tryEnableLinger() {
 function writeLinuxSystemdUnit(cliPath) {
   const unitDir = dirname(linuxSystemdUnitPath());
   mkdirSync(unitDir, { recursive: true });
-  const envFile = join(userHomeDir(), ".omniroute", ".env");
+  const envFile = join(resolveDataDir(), ".env");
   const nodeBinDir = dirname(process.execPath);
   const userLocalBin = join(userHomeDir(), ".local", "bin");
   const pathEnv = `${nodeBinDir}:${userLocalBin}:/usr/local/sbin:/usr/local/bin:/usr/bin:/bin`;
   const lines = [
     "[Unit]",
-    "Description=OmniRoute AI proxy router",
+    "Description=RedRouter AI routing gateway",
     "After=network-online.target graphical-session.target",
     "Wants=network-online.target",
     "",
@@ -153,8 +154,8 @@ function writeLinuxDesktopEntry(cliPath) {
     [
       "[Desktop Entry]",
       "Type=Application",
-      "Name=OmniRoute",
-      "Comment=AI proxy router with auto fallback",
+      "Name=RedRouter",
+      "Comment=Self-hosted control plane for AI model traffic",
       `Exec=${buildServeExecLine(cliPath, { tray: true })}`,
       "Terminal=false",
       "Hidden=false",

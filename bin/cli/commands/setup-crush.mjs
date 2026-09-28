@@ -32,7 +32,7 @@ export function resolveCrushTarget(opts = {}) {
     } catch {
       /* none */
     }
-    if (!root) root = `http://localhost:${Number(opts.port ?? process.env.PORT ?? 20128) || 20128}`;
+    if (!root) root = `http://localhost:${Number(opts.port ?? process.env.PORT ?? 25050) || 25050}`;
   }
   let apiKey = opts.apiKey ?? opts["api-key"];
   if (!apiKey) {
@@ -154,8 +154,8 @@ export function registerSetupCrush(program) {
   program
     .command("setup-crush")
     .description("Generate the OmniRoute openai-compat provider in ~/.config/crush/crush.json")
-    .option("--port <port>", "Local OmniRoute port (ignored when --remote is set)", "20128")
-    .option("--remote <url>", "Remote OmniRoute URL, e.g. http://192.168.0.15:20128")
+    .option("--port <port>", "Local OmniRoute port (ignored when --remote is set)", "25050")
+    .option("--remote <url>", "Remote OmniRoute URL, e.g. http://192.168.0.15:25050")
     .option("--api-key <key>", "OmniRoute API key (defaults to OMNIROUTE_API_KEY env var)")
     .option("--only <patterns>", "Comma-separated substrings — keep only matching model IDs")
     .option("--config-path <path>", "crush.json path (default: ~/.config/crush/crush.json)")

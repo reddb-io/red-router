@@ -33,7 +33,7 @@ export function resolveRooTarget(opts = {}) {
     } catch {
       /* none */
     }
-    if (!root) root = `http://localhost:${Number(opts.port ?? process.env.PORT ?? 20128) || 20128}`;
+    if (!root) root = `http://localhost:${Number(opts.port ?? process.env.PORT ?? 25050) || 25050}`;
   }
   let apiKey = opts.apiKey ?? opts["api-key"];
   if (!apiKey) {
@@ -188,8 +188,8 @@ export function registerSetupRoo(program) {
     .description(
       "Configure Roo Code for OmniRoute: write a Roo import JSON + autoImport pointer + print UI steps"
     )
-    .option("--port <port>", "Local OmniRoute port (ignored when --remote is set)", "20128")
-    .option("--remote <url>", "Remote OmniRoute URL, e.g. http://192.168.0.15:20128")
+    .option("--port <port>", "Local OmniRoute port (ignored when --remote is set)", "25050")
+    .option("--remote <url>", "Remote OmniRoute URL, e.g. http://192.168.0.15:25050")
     .option("--api-key <key>", "OmniRoute API key (defaults to OMNIROUTE_API_KEY env var)")
     .option("--model <id>", "Model id for Roo (required unless picked interactively)")
     .option(

@@ -122,7 +122,7 @@ export function resolveCodexTarget(opts = {}) {
     }
     baseUrl = fromCtx
       ? stripTrailingSlash(fromCtx).replace(/\/v1$/, "")
-      : `http://localhost:${Number(opts.port ?? process.env.PORT ?? 20128) || 20128}`;
+      : `http://localhost:${Number(opts.port ?? process.env.PORT ?? 25050) || 25050}`;
   }
 
   let authToken = opts.apiKey ?? opts["api-key"];
@@ -277,10 +277,10 @@ export function registerLaunchCodex(program) {
     .description(
       t("launchCodex.description") || "Launch Codex CLI pointed at OmniRoute (local or remote VPS)"
     )
-    .option("--port <port>", "Local OmniRoute port (ignored when --remote is set)", "20128")
+    .option("--port <port>", "Local OmniRoute port (ignored when --remote is set)", "25050")
     .option(
       "--remote <url>",
-      "Remote OmniRoute base URL, e.g. http://192.168.0.15:20128 (overrides --port + context)"
+      "Remote OmniRoute base URL, e.g. http://192.168.0.15:25050 (overrides --port + context)"
     )
     .option("--profile <name>", "Codex profile to activate (passed as --profile <name>)")
     .option("-p, --p <name>", "Alias for --profile")

@@ -4,15 +4,17 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { registerCommands } from "./commands/registry.mjs";
 import { t } from "./i18n.mjs";
+import { applyRedRouterEnvAliases } from "./product.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(join(__dirname, "..", "..", "package.json"), "utf8"));
 
 export function createProgram() {
+  applyRedRouterEnvAliases();
   const program = new Command();
 
   program
-    .name("omniroute")
+    .name("red-router")
     .description(t("program.description"))
     .version(pkg.version, "-v, --version", t("program.version"))
     .addOption(

@@ -49,7 +49,7 @@ const data = await res.json();
 
 Options:
 
-- `baseUrl` — override base URL (default: `OMNIROUTE_BASE_URL` env or `localhost:20128`)
+- `baseUrl` — override base URL (default: `OMNIROUTE_BASE_URL` env or `localhost:25050`)
 - `apiKey` — override API key (default: `OMNIROUTE_API_KEY`)
 - `method`, `body`, `headers` — standard fetch options
 - `timeout` — per-attempt ms (default: `30000`)

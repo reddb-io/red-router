@@ -5,7 +5,7 @@
 #
 #    cp .env.selfhost.example .env   # edit the 2 secrets you want
 #    docker compose -f docker-compose.selfhost.yml up -d
-#    open http://127.0.0.1:20128
+#    open http://127.0.0.1:25050
 #
 #  No profiles, no build step, no multi-tenant anything.
 #  Pulls the published image `reddb-io/red-router:latest`.
@@ -45,7 +45,7 @@ services:
       - REDIS_URL=redis://redis:6379
     ports:
       # Loopback-only by default. Override APP_BIND_HOST in .env to expose.
-      - "${APP_BIND_HOST:-127.0.0.1}:${DASHBOARD_PORT:-20128}:${DASHBOARD_PORT:-20128}"
+      - "${APP_BIND_HOST:-127.0.0.1}:${DASHBOARD_PORT:-25050}:${DASHBOARD_PORT:-25050}"
       - "${APP_BIND_HOST:-127.0.0.1}:${API_PORT:-20129}:${API_PORT:-20129}"
       - "${APP_BIND_HOST:-127.0.0.1}:${LIVE_WS_PORT:-20132}:${LIVE_WS_PORT:-20132}"
     volumes:

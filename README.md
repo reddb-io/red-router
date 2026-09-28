@@ -24,7 +24,7 @@ The original RedRouter remains the product baseline. Existing upstream-derived
 modules are implementation assets; their presence does not establish product parity.
 
 Known gaps in preserving that baseline include the original dashboard experience,
-service CLI, SAML dashboard sign-in, usage-export transports, remote-router
+SAML dashboard sign-in, usage-export transports, remote-router
 catalog behavior, and the complete legacy client-discovery contract. The
 `/v1/key`, `/v1/catalog` and `/v1/capabilities` routes are restored in the working
 tree with partial compatibility; CI validation is pending. Some features,
@@ -76,15 +76,19 @@ Installation requirements and defaults differ between the earlier RedRouter and
 the current integration. The current source requires Node.js
 `>=22.22.2 <23 || >=24.0.0 <27`, as declared in [package.json](package.json).
 
-For the current integrated CLI, choose the RedRouter port explicitly:
+The CLI restores the RedRouter v0.33 runtime defaults: port `25050`, loopback-only
+binding (`127.0.0.1`) and data under `~/.red/router`.
 
 ```bash
-red-router serve --port 25050
+red-router serve
+red-router service install
+red-router service status
 ```
 
-The integrated source still defaults to port `20128`; the earlier RedRouter
-default was `25050`. The earlier `red-router service` workflow is not established
-as compatible with this integration.
+Use `--host 0.0.0.0` or `--expose` only when network access is intentional and
+the inference API is protected. The inherited `OMNIROUTE_*` environment variables
+remain compatibility aliases; new RedRouter configuration should prefer
+`RED_ROUTER_*` names where available.
 
 ## API surfaces
 
@@ -182,7 +186,7 @@ npm run dev
 npm run build:release
 ```
 
-The development server currently uses port `20128`. See
+The development server uses port `25050`. See
 [CONTRIBUTING.md](CONTRIBUTING.md) for the test suites.
 
 For the current integration work, validation runs through GitHub Actions.

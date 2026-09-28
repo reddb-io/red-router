@@ -242,13 +242,13 @@
     }
   },
   "serve": {
-    "description": "Start the OmniRoute server (default action)",
-    "starting": "Starting OmniRoute server on port {port}...",
+    "description": "Start the RedRouter server (default action)",
+    "starting": "Starting RedRouter server on port {port}...",
     "ready": "Ready at http://localhost:{port}",
     "stopping": "Stopping server (PID {pid})...",
     "stopped": "Server stopped.",
     "notRunning": "Server is not running.",
-    "port": "Port to listen on (default: 20128)",
+    "port": "Port to listen on (default: 25050)",
     "no_open": "Do not open browser automatically",
     "daemon": "Run server as a background daemon",
     "log": "Show server logs inline",
@@ -821,14 +821,14 @@
     }
   },
   "program": {
-    "description": "OmniRoute — Smart AI Router with Auto Fallback",
+    "description": "RedRouter — self-hosted control plane for AI model traffic",
     "version": "Print version and exit",
     "output": "Output format (table, json, jsonl, csv)",
     "quiet": "Suppress non-essential output",
     "no_color": "Disable colored output",
     "timeout": "HTTP request timeout in milliseconds",
-    "api_key": "API key for OmniRoute server",
-    "base_url": "OmniRoute server base URL",
+    "api_key": "API key for RedRouter server",
+    "base_url": "RedRouter server base URL",
     "context": "Server context/profile to use for this command",
     "lang": "Set CLI display language (overrides OMNIROUTE_LANG)"
   },
@@ -1261,7 +1261,7 @@
     "quit": "Quit OmniRoute via tray"
   },
   "autostart": {
-    "description": "Manage OmniRoute autostart at boot (Linux: systemd user service)",
+    "description": "Manage RedRouter autostart at boot (Linux: systemd user service)",
     "enable": "Enable autostart at boot",
     "disable": "Disable autostart at boot",
     "toggle": "Toggle autostart at boot",

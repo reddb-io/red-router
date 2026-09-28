@@ -63,25 +63,22 @@ const CRYPTO_SECRETS = {
  *
  * Note: STORAGE_ENCRYPTION_KEY is no longer auto-generated in postinstall.
  * It's generated at server startup in bin/omniroute.mjs and persisted to
- * ~/.omniroute/.env to survive across upgrades.
+ * ~/.red/router/.env to survive across upgrades.
  * @see https://github.com/diegosouzapw/OmniRoute/issues/1622
  */
 const ENCRYPTION_BOUND_KEYS = new Set([]);
 
 // ── Resolve DATA_DIR (mirrors bootstrap-env.mjs / dataPaths.ts) ─────────────
 function resolveDataDir(env = process.env) {
-  const configured = env.DATA_DIR?.trim();
+  const configured = (env.RED_ROUTER_DATA_DIR || env.DATA_DIR)?.trim();
   if (configured) return resolve(configured);
 
   if (process.platform === "win32") {
     const appData = env.APPDATA || join(homedir(), "AppData", "Roaming");
-    return join(appData, "omniroute");
+    return join(appData, "red", "router");
   }
 
-  const xdg = env.XDG_CONFIG_HOME?.trim();
-  if (xdg) return join(resolve(xdg), "omniroute");
-
-  return join(homedir(), ".omniroute");
+  return join(homedir(), ".red", "router");
 }
 
 /**

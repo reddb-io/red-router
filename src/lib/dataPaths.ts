@@ -2,7 +2,8 @@ import path from "path";
 import os from "os";
 import fs from "fs";
 
-export const APP_NAME = "omniroute";
+export const APP_NAME = "red-router";
+const UPSTREAM_APP_NAME = "omniroute";
 
 function fallbackHomeDir() {
   const envHome = process.env.HOME || process.env.USERPROFILE;
@@ -29,42 +30,26 @@ function normalizeConfiguredPath(dir: unknown): string | null {
 }
 
 export function getLegacyDotDataDir() {
-  return path.join(safeHomeDir(), `.${APP_NAME}`);
+  return path.join(safeHomeDir(), `.${UPSTREAM_APP_NAME}`);
 }
 
 export function getDefaultDataDir() {
   const homeDir = safeHomeDir();
-  const legacyDir = getLegacyDotDataDir();
-
-  // Preserve legacy path if it exists to avoid data loss on updates (e.g., Windows migration)
-  if (fs.existsSync(legacyDir)) {
-    try {
-      if (fs.statSync(legacyDir).isDirectory()) {
-        return legacyDir;
-      }
-    } catch {
-      // Ignore stat errors
-    }
-  }
 
   if (process.platform === "win32") {
     const appData = process.env.APPDATA || path.join(homeDir, "AppData", "Roaming");
-    return path.join(appData, APP_NAME);
+    return path.join(appData, "red", "router");
   }
 
-  // Support XDG on Linux/macOS when explicitly configured.
-  const xdgConfigHome = normalizeConfiguredPath(process.env.XDG_CONFIG_HOME);
-  if (xdgConfigHome) {
-    return path.join(xdgConfigHome, APP_NAME);
-  }
-
-  return legacyDir;
+  return path.join(homeDir, ".red", "router");
 }
 
 export function resolveDataDir({ isCloud = false }: { isCloud?: boolean } = {}): string {
   if (isCloud) return "/tmp";
 
-  const configured = normalizeConfiguredPath(process.env.DATA_DIR);
+  const configured = normalizeConfiguredPath(
+    process.env.RED_ROUTER_DATA_DIR || process.env.DATA_DIR
+  );
   if (configured) return configured;
 
   return getDefaultDataDir();
@@ -129,13 +114,15 @@ let testContextCleanupRegistered = false;
 
 export function resolveWritableDataDir({ isCloud = false }: { isCloud?: boolean } = {}): string {
   const resolved = resolveDataDir({ isCloud });
-  const configured = normalizeConfiguredPath(process.env.DATA_DIR);
+  const configured = normalizeConfiguredPath(
+    process.env.RED_ROUTER_DATA_DIR || process.env.DATA_DIR
+  );
 
   // Cloud/serverless never owns a writable home dir; leave its sentinel alone.
   if (isCloud) return resolved;
 
   // #10428: a test/eval-probe run that never chose a DATA_DIR would otherwise open the
-  // OPERATOR'S REAL database (~/.omniroute/storage.sqlite — live provider credentials).
+  // OPERATOR'S REAL database (~/.red/router/storage.sqlite — live provider credentials).
   // Redirect to a throwaway dir instead of throwing: the documented single-file command
   // (`node --import tsx/esm --test tests/unit/x.test.ts`) does not load the isolation
   // setup, and a hard failure there would only teach people to disable the guard.

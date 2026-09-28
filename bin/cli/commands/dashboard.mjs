@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { t } from "../i18n.mjs";
+import { DEFAULT_PORT, resolvePort } from "../product.mjs";
 
 function parsePort(value, fallback) {
   const parsed = parseInt(String(value), 10);
@@ -16,7 +17,7 @@ export function registerDashboard(program) {
     .action(async (opts, cmd) => {
       if (opts.tui) {
         const globalOpts = cmd.optsWithGlobals();
-        const port = parsePort(opts.port ?? process.env.PORT ?? "20128", 20128);
+        const port = parsePort(opts.port ?? resolvePort(), DEFAULT_PORT);
         const baseUrl = globalOpts.baseUrl ?? `http://localhost:${port}`;
         const apiKey = globalOpts.apiKey ?? null;
         const { startInteractiveTui } = await import("../tui/Dashboard.jsx");
@@ -29,7 +30,7 @@ export function registerDashboard(program) {
 }
 
 export async function runDashboardCommand(opts = {}) {
-  const port = parsePort(opts.port ?? process.env.PORT ?? "20128", 20128);
+  const port = parsePort(opts.port ?? resolvePort(), DEFAULT_PORT);
   const dashboardUrl = `http://localhost:${port}`;
 
   if (opts.url) {

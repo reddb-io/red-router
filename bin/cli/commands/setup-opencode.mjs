@@ -32,7 +32,7 @@ export function resolveOpencodeTarget(opts = {}) {
       /* no context */
     }
     if (!baseUrl)
-      baseUrl = `http://localhost:${Number(opts.port ?? process.env.PORT ?? 20128) || 20128}`;
+      baseUrl = `http://localhost:${Number(opts.port ?? process.env.PORT ?? 25050) || 25050}`;
   }
 
   // Precedence: explicit --api-key flag > OMNIROUTE_API_KEY env var > active
@@ -175,8 +175,8 @@ export function registerSetupOpencode(program) {
       "Generate the OmniRoute openai-compatible provider in the active OpenCode config " +
         "from the live model catalog (local or remote VPS)"
     )
-    .option("--port <port>", "Local OmniRoute port (ignored when --remote is set)", "20128")
-    .option("--remote <url>", "Remote OmniRoute URL, e.g. http://192.168.0.15:20128")
+    .option("--port <port>", "Local OmniRoute port (ignored when --remote is set)", "25050")
+    .option("--remote <url>", "Remote OmniRoute URL, e.g. http://192.168.0.15:25050")
     .option("--api-key <key>", "OmniRoute API key (defaults to OMNIROUTE_API_KEY env var)")
     .option("--model <id>", "Set the default top-level model (omniroute/<id>)")
     .option("--only <patterns>", "Comma-separated substrings — keep only matching model IDs")

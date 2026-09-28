@@ -220,7 +220,7 @@ LABEL org.opencontainers.image.title="red-router" \
   org.opencontainers.image.licenses="MIT"
 
 ENV NODE_ENV=production
-ENV PORT=20128
+ENV PORT=25050
 ENV HOSTNAME=0.0.0.0
 # Runtime heap ceiling. 1024MB is enough for normal traffic but can be tight
 # for large fusion-combo panels (many models fanned out in parallel, each
@@ -236,7 +236,7 @@ ENV DATA_DIR=/app/data
 RUN mkdir -p /app/data && chown node:node /app /app/data
 
 # #13679: default the PUBLISHED image to requiring an API key. A bare
-# `docker run -p 20128:20128 … reddb-io/red-router` (README/QUICK-START
+# `docker run -p 25050:25050 … reddb-io/red-router` (README/QUICK-START
 # one-liners) does not pass `--env-file .env`, so without this default the
 # anonymous /v1 LLM proxy would be both keyless AND world-reachable on the
 # published container. This does NOT change the npm/CLI local-dev default
@@ -274,7 +274,7 @@ COPY --chown=node:node --from=builder /app/scripts/dev/healthcheck.mjs ./healthc
 # afterwards: in the overlay filesystem changing ownership rewrites every file
 # into a new layer, which stored the ~2 GB standalone build twice (#13990).
 
-EXPOSE 20128
+EXPOSE 25050
 
 # Drop to non-root before ENTRYPOINT/CMD so every derived stage (runner-cli,
 # runner-web) also runs as a non-root user unless they explicitly switch back.

@@ -63,7 +63,7 @@ export function resolveConfigureTargetOptions(opts = {}) {
   }
 
   if (!explicitRemote) {
-    const localDefault = `http://localhost:${opts.port || process.env.PORT || "20128"}`;
+    const localDefault = `http://localhost:${opts.port || process.env.PORT || "25050"}`;
     const contextBase = String(context?.baseUrl || "").replace(/\/+$/, "");
     if (contextBase && contextBase !== localDefault) {
       resolved.remote = contextBase;
@@ -321,7 +321,7 @@ export function registerConfigure(program) {
       t("configure.description") ||
         "Pick a provider+model from the active server and configure a supported local CLI"
     )
-    .option("--port <port>", "Local OmniRoute port (ignored when --remote is set)", "20128")
+    .option("--port <port>", "Local OmniRoute port (ignored when --remote is set)", "25050")
     .option("--remote <url>", "Remote OmniRoute URL")
     .option("--context <name>", "Named local/remote context")
     .option("--api-key <key>", "OmniRoute API key (defaults to the active context/env)")

@@ -1,6 +1,7 @@
 import { setTimeout as sleep } from "node:timers/promises";
 import { getCliToken, CLI_TOKEN_HEADER } from "./utils/cliToken.mjs";
 import { resolveActiveContext, resolveActiveContextAsync } from "./contexts.mjs";
+import { resolvePort } from "./product.mjs";
 
 export const RETRY_DEFAULTS = Object.freeze({
   maxAttempts: 3,
@@ -23,7 +24,7 @@ const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
 export function getBaseUrl(opts = {}) {
   if (opts.baseUrl) return stripTrailingSlash(opts.baseUrl);
-  const envUrl = process.env.OMNIROUTE_BASE_URL;
+  const envUrl = process.env.RED_ROUTER_BASE_URL || process.env.OMNIROUTE_BASE_URL;
   if (envUrl) return stripTrailingSlash(envUrl);
 
   // Resolve from the active context (canonical store + legacy profile fallback).
@@ -36,7 +37,7 @@ export function getBaseUrl(opts = {}) {
     // Config read failures are not fatal — fall through to default.
   }
 
-  const port = process.env.PORT || "20128";
+  const port = resolvePort();
   return `http://localhost:${port}`;
 }
 

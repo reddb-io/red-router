@@ -61,7 +61,7 @@ export function resolveFivediveTarget(opts = {}) {
       /* no context configured */
     }
     if (!baseUrl)
-      baseUrl = `http://localhost:${Number(opts.port ?? process.env.PORT ?? 20128) || 20128}`;
+      baseUrl = `http://localhost:${Number(opts.port ?? process.env.PORT ?? 25050) || 25050}`;
   }
   let apiKey = opts.apiKey ?? opts["api-key"];
   if (!apiKey) {
@@ -291,7 +291,7 @@ export function registerSetup5dive(program) {
     .description(
       "Point a 5dive agent fleet's claude seats at OmniRoute (writes a 5dive auth profile)"
     )
-    .option("--port <port>", "Local OmniRoute port (ignored when --remote is set)", "20128")
+    .option("--port <port>", "Local OmniRoute port (ignored when --remote is set)", "25050")
     .option("--remote <url>", "Remote OmniRoute URL, e.g. https://omniroute.example.com")
     .option("--context <name>", "Named local/remote context")
     .option("--api-key <key>", "OmniRoute API key (defaults to the active context/env)")

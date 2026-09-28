@@ -9,6 +9,7 @@ import {
 } from "../utils/pid.mjs";
 import { t } from "../i18n.mjs";
 import { stopProcessGracefully } from "../../../src/shared/platform/windowsProcess.ts";
+import { DEFAULT_PORT } from "../product.mjs";
 
 const execFileAsync = promisify(execFile);
 
@@ -68,7 +69,7 @@ export async function runStopCommand(opts = {}, deps = {}) {
     }
   }
 
-  const port = opts.port ? parseInt(String(opts.port), 10) : 20128;
+  const port = opts.port ? parseInt(String(opts.port), 10) : DEFAULT_PORT;
   if (pid === null) {
     console.log(t("stop.portFallback"));
     // #9455: a stale supervisor PID file would let the port-fallback stop also

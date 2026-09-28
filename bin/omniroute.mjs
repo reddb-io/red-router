@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * OmniRoute CLI entry point.
+ * RedRouter CLI entry point.
  *
  * Special bypasses (handled before Commander):
  *   --version / -V (alone)    Fast-path: print the version and exit, skipping the
@@ -26,6 +26,7 @@ try {
 import { isNativeBinaryCompatible } from "../scripts/build/native-binary-compat.mjs";
 import { getNodeRuntimeSupport, getNodeRuntimeWarning } from "./nodeRuntimeSupport.mjs";
 import { getDefaultDataDir } from "./cli/data-dir.mjs";
+import { applyRedRouterEnvAliases } from "./cli/product.mjs";
 import { shouldProvisionStorageKey } from "./cli/utils/storageKeyProvision.mjs";
 import { isVersionFastPath } from "./cli/utils/versionFastPath.mjs";
 import { parseEnvValue } from "./cli/utils/parseEnvValue.mjs";
@@ -39,6 +40,7 @@ import {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const ROOT = join(__dirname, "..");
+applyRedRouterEnvAliases();
 
 // Fast-path a bare `--version`/`-V` query BEFORE the tsx/esm registration, the
 // polyfill import, env-file loading, or Commander's command registration (~70
@@ -214,6 +216,7 @@ function loadEnvFile() {
 }
 
 loadEnvFile();
+applyRedRouterEnvAliases();
 
 // Next.js has no android branch in getCacheDirectory(): if ~/.cache (and tmp)
 // do not already exist it aborts the instrumentation hook, and every request
@@ -230,25 +233,24 @@ loadEnvFile();
 //
 // Only provision for commands that actually touch encrypted storage. Purely
 // informational invocations (`--version`, `--help`, `help`) must not create a
-// key or write ~/.omniroute/.env — running a read-only command should never
+// key or write ~/.red/router/.env — running a read-only command should never
 // mutate the data dir.
 if (shouldProvisionStorageKey(process.argv)) {
   const { randomBytes } = await import("node:crypto");
   const { existsSync, readFileSync } = await import("node:fs");
   const { join } = await import("node:path");
-  const { homedir } = await import("node:os");
 
   // GHSA-2pg2-xm9r-8544: installs created before the fix have a world-readable .env and a
   // world-traversable data dir. Repair them on every run that touches encrypted storage
   // (best-effort; group bits are kept). Informational commands never reach this block.
-  tightenDataDirSecrets(process.env.DATA_DIR || join(homedir(), ".omniroute"));
+  tightenDataDirSecrets(process.env.DATA_DIR || getDefaultDataDir());
 
   if (!process.env.STORAGE_ENCRYPTION_KEY) {
     // Persist the key into DATA_DIR when set — that's the directory mounted as a volume in
     // Docker (where storage.sqlite lives), so the key survives `docker down` / `docker pull`.
-    // Writing only to ~/.omniroute (the container home, not a volume) silently lost the key on
+    // Writing only to the default home data dir (not a volume) silently lost the key on
     // container recreation, leaving the persisted encrypted DB undecryptable (regression of #1622).
-    const dataDir = process.env.DATA_DIR || join(homedir(), ".omniroute");
+    const dataDir = process.env.DATA_DIR || getDefaultDataDir();
     const envPath = join(dataDir, ".env");
     const dbPath = join(dataDir, "storage.sqlite");
 
@@ -319,7 +321,7 @@ process.on("exit", () => {
       isGlobal: true,
       message:
         `Update available: ${_notifier.update.current} → ${_notifier.update.latest}\n` +
-        "Run `npm install -g omniroute` or `omniroute update --apply`",
+        "Run `npm install -g @reddb-io/red-router` or `red-router update --apply`",
     });
   }
 });

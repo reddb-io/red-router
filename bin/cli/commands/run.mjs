@@ -578,7 +578,7 @@ export function registerRun(program) {
     .option(
       "--port <port>",
       "Local OmniRoute port (ignored when --remote or --base-url is set)",
-      "20128"
+      "25050"
     )
     .option(
       "--remote <url>",

@@ -36,7 +36,7 @@ export function resolveQwenTarget(opts = {}) {
 
   if (!root) root = context?.baseUrl || "";
   if (!root) {
-    const port = Number(opts.port ?? process.env.PORT ?? 20128) || 20128;
+    const port = Number(opts.port ?? process.env.PORT ?? 25050) || 25050;
     root = `http://localhost:${port}`;
   }
 
@@ -162,7 +162,7 @@ export function registerSetupQwen(program) {
   program
     .command("setup-qwen")
     .description("Configure Qwen Code's upstream V4 modelProviders format for OmniRoute")
-    .option("--port <port>", "Local OmniRoute port (ignored when --remote is set)", "20128")
+    .option("--port <port>", "Local OmniRoute port (ignored when --remote is set)", "25050")
     .option("--remote <url>", "Remote OmniRoute URL")
     .option("--api-key <key>", "OmniRoute API key")
     .option("--model <id>", "Model id for Qwen Code")

@@ -14,7 +14,7 @@
  * Priority (lowest → highest):
  *   1. Auto-generated defaults
  *   2. {DATA_DIR}/server.env  (persisted on first boot)
- *   3. Preferred config .env  (DATA_DIR/.env -> ~/.omniroute/.env -> ./.env)
+ *   3. Preferred config .env  (DATA_DIR/.env -> ~/.red/router/.env -> ./.env)
  *   4. process.env            (shell / Docker -e flags, highest priority)
  */
 
@@ -36,25 +36,22 @@ const OPTIONAL_OAUTH_SECRETS = [
 function resolveDataDir(overridePath, env = process.env) {
   if (overridePath?.trim()) return resolve(overridePath);
 
-  const configured = env.DATA_DIR?.trim();
+  const configured = (env.RED_ROUTER_DATA_DIR || env.DATA_DIR)?.trim();
   if (configured) return resolve(configured);
 
   if (process.platform === "win32") {
     const appData = env.APPDATA || join(homedir(), "AppData", "Roaming");
-    return join(appData, "omniroute");
+    return join(appData, "red", "router");
   }
-
-  const xdg = env.XDG_CONFIG_HOME?.trim();
-  if (xdg) return join(resolve(xdg), "omniroute");
-
-  return join(homedir(), ".omniroute");
+  return join(homedir(), ".red", "router");
 }
 
 function getPreferredEnvFilePath(env = process.env) {
   const candidates = [];
 
-  if (env.DATA_DIR?.trim()) {
-    candidates.push(join(resolve(env.DATA_DIR.trim()), ".env"));
+  const configured = (env.RED_ROUTER_DATA_DIR || env.DATA_DIR)?.trim();
+  if (configured) {
+    candidates.push(join(resolve(configured), ".env"));
   }
 
   candidates.push(join(resolveDataDir(null, env), ".env"));

@@ -56,7 +56,7 @@ export function warnIfNonLoopbackWithoutApiKey(serverLabel: string, host: string
  *
  * Both entrypoints default to every interface, so the fallback does too.
  */
-export const MAIN_SERVER_DEFAULT_HOST = "0.0.0.0";
+export const MAIN_SERVER_DEFAULT_HOST = "127.0.0.1";
 
 export function resolveMainServerHost(): string {
   return process.env.OMNIROUTE_BOUND_HOST || process.env.HOSTNAME || MAIN_SERVER_DEFAULT_HOST;

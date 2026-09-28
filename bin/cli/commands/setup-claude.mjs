@@ -136,7 +136,7 @@ export async function syncClaudeProfilesFromModels(models, opts = {}) {
  * @returns {Promise<number>}
  */
 export async function runSetupClaudeCommand(opts = {}) {
-  const port = Number(opts.port ?? process.env.PORT ?? 20128) || 20128;
+  const port = Number(opts.port ?? process.env.PORT ?? 25050) || 25050;
   const baseUrl = (opts.remote ?? `http://localhost:${port}`)
     .replace(/\/+$/, "")
     .replace(/\/v1$/, "");
@@ -221,8 +221,8 @@ export function registerSetupClaude(program) {
       "Fetch the live model catalog from OmniRoute (local or remote VPS) and generate " +
         "~/.claude/profiles/<name>/ Claude Code profiles (CLAUDE_CONFIG_DIR) for each model"
     )
-    .option("--port <port>", "Local OmniRoute port (ignored when --remote is set)", "20128")
-    .option("--remote <url>", "Remote OmniRoute URL, e.g. http://192.168.0.15:20128")
+    .option("--port <port>", "Local OmniRoute port (ignored when --remote is set)", "25050")
+    .option("--remote <url>", "Remote OmniRoute URL, e.g. http://192.168.0.15:25050")
     .option("--api-key <key>", "OmniRoute API key (defaults to OMNIROUTE_API_KEY env var)")
     .option("--claude-home <dir>", "Claude home dir (default: ~/.claude)")
     .option(

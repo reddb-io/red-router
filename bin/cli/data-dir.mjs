@@ -1,8 +1,7 @@
-import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const APP_NAME = "omniroute";
+const UPSTREAM_APP_NAME = "omniroute";
 
 function normalizeConfiguredPath(value) {
   if (typeof value !== "string") return null;
@@ -19,36 +18,24 @@ function safeHomeDir() {
 }
 
 export function getLegacyDotDataDir(homeDir = safeHomeDir()) {
-  return path.join(homeDir, `.${APP_NAME}`);
+  return path.join(homeDir, `.${UPSTREAM_APP_NAME}`);
 }
 
 export function getDefaultDataDir() {
   const homeDir = safeHomeDir();
-  const legacyDir = getLegacyDotDataDir(homeDir);
-
-  if (fs.existsSync(legacyDir)) {
-    try {
-      if (fs.statSync(legacyDir).isDirectory()) {
-        return legacyDir;
-      }
-    } catch {
-      // Ignore stat errors and continue to the platform default.
-    }
-  }
 
   if (process.platform === "win32") {
     const appData = process.env.APPDATA || path.join(homeDir, "AppData", "Roaming");
-    return path.join(appData, APP_NAME);
+    return path.join(appData, "red", "router");
   }
 
-  const xdgConfigHome = normalizeConfiguredPath(process.env.XDG_CONFIG_HOME);
-  if (xdgConfigHome) return path.join(xdgConfigHome, APP_NAME);
-
-  return legacyDir;
+  return path.join(homeDir, ".red", "router");
 }
 
 export function resolveDataDir() {
-  const configured = normalizeConfiguredPath(process.env.DATA_DIR);
+  const configured = normalizeConfiguredPath(
+    process.env.RED_ROUTER_DATA_DIR || process.env.DATA_DIR
+  );
   if (configured) return configured;
 
   return getDefaultDataDir();

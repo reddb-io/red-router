@@ -3,7 +3,15 @@ import { randomBytes, timingSafeEqual } from "node:crypto";
 import { createServer, connect } from "node:net";
 
 /** Builds arguments for the hidden process that owns the server and tray. */
-export function buildTrayWorkerArgs({ port, maxRestarts, readyPort, readyToken, tlsCert, tlsKey }) {
+export function buildTrayWorkerArgs({
+  port,
+  host,
+  maxRestarts,
+  readyPort,
+  readyToken,
+  tlsCert,
+  tlsKey,
+}) {
   const args = [
     "serve",
     "--tray",
@@ -18,6 +26,7 @@ export function buildTrayWorkerArgs({ port, maxRestarts, readyPort, readyToken, 
     "--tray-ready-token",
     readyToken,
   ];
+  if (host) args.push("--host", host);
   if (tlsCert) args.push("--tls-cert", tlsCert);
   if (tlsKey) args.push("--tls-key", tlsKey);
   return args;
@@ -119,14 +128,15 @@ export async function notifyTrayReady(port, token) {
 
 /** Starts a detached tray worker and waits until its server and tray are ready. */
 export async function startDetachedTray(
-  { cliPath, port, maxRestarts, tlsCert, tlsKey, timeoutMs = 60000 },
+  { cliPath, port, host, maxRestarts, tlsCert, tlsKey, timeoutMs = 60000 },
   { platform = process.platform, spawnProcess = spawn } = {}
 ) {
   const token = randomBytes(32).toString("hex");
   const readiness = await createTrayReadinessServer(token);
-  const label = `com.omniroute.tray.${process.pid}.${Date.now()}`;
+  const label = `io.reddb.red-router.tray.${process.pid}.${Date.now()}`;
   const workerArgs = buildTrayWorkerArgs({
     port,
+    host,
     maxRestarts,
     readyPort: readiness.port,
     readyToken: token,

@@ -100,7 +100,7 @@ process.env.NODE_ENV = dev ? "development" : "production";
 process.env.OMNIROUTE_INTERNAL_SCHEME = "http";
 
 const { dashboardPort } = runtimePorts;
-const hostname = process.env.HOST || "0.0.0.0";
+const hostname = process.env.HOST || process.env.RED_ROUTER_SERVER_HOST || "127.0.0.1";
 // Publish the interface this server actually binds so in-process TypeScript
 // (src/lib/startup/nonLoopbackApiKeyGuard.ts) can warn about an exposed
 // anonymous /v1 without re-deriving it. The standalone/Docker entrypoint
