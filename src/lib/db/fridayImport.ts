@@ -21,6 +21,7 @@ import { normalizeRoutingStrategy } from "@/shared/constants/routingStrategies";
 import { ALL_COMBOS_ACCESS_RULE } from "@/shared/constants/comboAccess";
 import { normalizeComboRecord } from "@/lib/combos/steps";
 import { validateComboInvariant } from "@/lib/combos/invariants";
+import { ensureApiKeysSchema } from "./apiKeys";
 import { hashKey } from "./apiKeys/keyHash";
 import { snapshotApiKeyTags, insertInitialApiKeyTagsInTransaction } from "./apiKeys/tags";
 import {
@@ -332,6 +333,8 @@ export async function importFridayData(options: FridayImportOptions): Promise<Fr
 }
 
 async function insertKeys(db: SqliteAdapter, keys: MappedKey[]): Promise<void> {
+  // Several api_keys columns are added lazily; a fresh database does not have them yet.
+  ensureApiKeysSchema(db as unknown as Parameters<typeof ensureApiKeysSchema>[0]);
   const hashes = await Promise.all(keys.map((key) => hashKey(key.key)));
   const insert = db.prepare(
     `INSERT OR REPLACE INTO api_keys (

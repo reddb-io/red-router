@@ -438,6 +438,11 @@ function ensureApiKeysColumns(db: ApiKeysDbLike) {
   }
 }
 
+/** Adds any api_keys column this build expects but an older database lacks (idempotent). */
+export function ensureApiKeysSchema(db: ApiKeysDbLike): void {
+  ensureApiKeysColumns(db);
+}
+
 let _stmtDb: ApiKeysDbLike | null = null;
 function getPreparedStatements(db: ApiKeysDbLike): ApiKeysStatements {
   ensureApiKeysColumns(db);
