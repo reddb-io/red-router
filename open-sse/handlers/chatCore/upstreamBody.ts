@@ -4,6 +4,7 @@
  * run afterward. The mutable recovery transcript never receives derived defaults.
  */
 
+import { createHash } from "node:crypto";
 import {
   applyConfiguredPayloadRules,
   resolvePayloadRuleProtocols,
@@ -207,20 +208,51 @@ function defaultImageDetail(bodyToSend: Body, isOpencodeClient: boolean): Body {
   return nextBody;
 }
 
+/**
+ * One cache key per conversation and key holder: OpenAI routes requests that share a prefix AND a
+ * key to the same cache, so a key shared by unrelated conversations (the old prefix hash) piles
+ * them onto one machine while a per-session key keeps every turn of one conversation together.
+ */
+export function sessionPromptCacheKey(
+  apiKeyId: string | null | undefined,
+  sessionKey: string | null | undefined
+): string | null {
+  const session = typeof sessionKey === "string" ? sessionKey.trim() : "";
+  if (!session) return null;
+  const digest = createHash("sha256")
+    .update(`${apiKeyId ?? "local"}:${session}`)
+    .digest("hex");
+  return `rr-${digest.slice(0, 24)}`;
+}
+
+/** Providers that read `prompt_cache_key` on the Responses API (Codex sets it per conversation). */
+const RESPONSES_CACHE_KEY_PROVIDERS = new Set(["openai", "codex"]);
+
 // Inject prompt_cache_key only for providers that support it.
-async function injectPromptCacheKey(
+export async function injectPromptCacheKey(
   bodyToSend: Body,
   provider: string | null | undefined,
   targetFormat: string,
-  connectionCacheOverride: ConnectionCacheOverride | null
+  connectionCacheOverride: ConnectionCacheOverride | null,
+  sessionCacheKey: string | null = null
 ): Promise<Body> {
+  if (bodyToSend.prompt_cache_key) return bodyToSend;
+  if (
+    sessionCacheKey &&
+    targetFormat === FORMATS.OPENAI_RESPONSES &&
+    provider &&
+    RESPONSES_CACHE_KEY_PROVIDERS.has(provider.toLowerCase()) &&
+    bodyToSend.input !== undefined
+  ) {
+    return { ...bodyToSend, prompt_cache_key: sessionCacheKey };
+  }
   if (
     targetFormat === FORMATS.OPENAI &&
     providerSupportsCaching(provider, undefined, connectionCacheOverride) &&
-    !bodyToSend.prompt_cache_key &&
     Array.isArray(bodyToSend.messages) &&
     !["nvidia", "xai"].includes(provider)
   ) {
+    if (sessionCacheKey) return { ...bodyToSend, prompt_cache_key: sessionCacheKey };
     const { generatePromptCacheKey } = await import("@/lib/promptCache");
     const cacheKey = generatePromptCacheKey(bodyToSend.messages);
     if (cacheKey) {
@@ -245,6 +277,8 @@ type PrepareUpstreamBodyOptions = {
   rawBody?: { messages?: unknown } | undefined;
   /** Incoming client request — read for the x-omniroute-effort header (#13448). */
   clientRawRequest?: { headers?: unknown } | undefined;
+  /** The conversation this request belongs to, for a per-session `prompt_cache_key`. */
+  promptCacheSession?: { sessionKey?: string | null; apiKeyId?: string | null };
   log?: LoggerLike;
 };
 
@@ -347,7 +381,8 @@ export async function prepareUpstreamBody(opts: PrepareUpstreamBodyOptions): Pro
     bodyToSend,
     provider,
     targetFormat,
-    connectionCacheOverride
+    connectionCacheOverride,
+    sessionPromptCacheKey(opts.promptCacheSession?.apiKeyId, opts.promptCacheSession?.sessionKey)
   );
 
   // Keep public variant IDs through policy/capability resolution. Only the final

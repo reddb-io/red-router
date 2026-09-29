@@ -3176,6 +3176,7 @@ async function handleChatCoreInner({
         isOpencodeClient,
         rawBody: body,
         clientRawRequest,
+        promptCacheSession: { sessionKey: sessionAffinityKey, apiKeyId: apiKeyInfo?.id ?? null },
       });
 
       // Global System Prompt — SINGLE injection point (post-translation) for
@@ -4617,6 +4618,10 @@ async function handleChatCoreInner({
             isOpencodeClient,
             rawBody: body,
             clientRawRequest,
+            promptCacheSession: {
+              sessionKey: sessionAffinityKey,
+              apiKeyId: apiKeyInfo?.id ?? null,
+            },
           });
           assertManagedLeaseFence(getExecutionConnectionId(getExecutionCredentials()));
           const retryResult = normalizeExecutorResult(
