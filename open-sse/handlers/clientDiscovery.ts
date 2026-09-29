@@ -6,6 +6,7 @@ import {
   RED_ROUTER_CATALOG_VERSION_HEADER,
   RED_ROUTER_COST_HEADER,
   RED_ROUTER_SERVED_MODEL_HEADER,
+  RED_ROUTER_TOKEN_SAVER_HEADER,
 } from "@/shared/constants/redRouterHeaders";
 
 export interface DiscoveryKey {
@@ -208,6 +209,7 @@ export async function handleCatalogDiscovery(
             combos: { strategies: [...deps.strategies] },
             // Response headers a client can rely on (RedCode's served-model and cost features).
             served_model_header: RED_ROUTER_SERVED_MODEL_HEADER,
+            token_saver_header: RED_ROUTER_TOKEN_SAVER_HEADER,
             cost_header: RED_ROUTER_COST_HEADER,
             ...(deps.reasoning
               ? {

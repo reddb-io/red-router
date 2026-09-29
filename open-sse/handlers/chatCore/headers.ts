@@ -1,3 +1,5 @@
+import { RED_ROUTER_TOKEN_SAVER_HEADER } from "@/shared/constants/redRouterHeaders";
+
 export function getHeaderValueCaseInsensitive(
   headers: Record<string, unknown> | Headers | null | undefined,
   targetName: string
@@ -42,7 +44,16 @@ export function resolveCompressionHeader(
   headers: Record<string, unknown> | Headers | null | undefined
 ): string | null {
   const value = (getHeaderValueCaseInsensitive(headers, "x-omniroute-compression") || "").trim();
-  return value || null;
+  if (value) return value;
+  // RedRouter contract (RedCode): `x-red-router-token-saver: off` keeps the prompt intact for a
+  // request whose compaction or validation must see all of it; `on` asks for the panel default.
+  // An explicit `x-omniroute-compression` always wins.
+  const tokenSaver = (getHeaderValueCaseInsensitive(headers, RED_ROUTER_TOKEN_SAVER_HEADER) || "")
+    .trim()
+    .toLowerCase();
+  if (tokenSaver === "off") return "off";
+  if (tokenSaver === "on") return "default";
+  return null;
 }
 
 /**
