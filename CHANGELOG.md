@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.36.0
+
+### Minor Changes
+
+- Import a RedRouter v0.33.0 install on first start: providers, API keys (with quotas, tags, flat model ids and admin role), combos, aliases, the login password and usage history move from `data.sqlite` into the current database. The original file is backed up and never modified, and anything without a mapping yet is listed in `friday-import-report.json`.
+
+### Patch Changes
+
+- Bring the design system's component layer back: the pinned Kit appearance contracts are vendored with a hashed lock, and Button, Badge, Card, Input and Select render through them again instead of OmniRoute's Tailwind classes.
+- List `/v1/systemone` and its `/v1/decisions` alias on the Endpoint page, and restore the RedRouter favicon and app icons (including the 192px icon the web manifest referenced but did not ship) in place of the OmniRoute ones.
+- Keep RedRouter v0.33.0 provider aliases routing: saved models and combos that use `vx/`, `qd/`, `ocg/`, `pw/`, `ch/`, `vercel/` and about a dozen other short prefixes resolve to the same provider again, both when routing and when the catalog lists combo members.
+- Restore `X-RedRouter-Catalog-Version`: a 16-hex digest of the catalog a key sees, identical on `/v1/models`, `/v1/catalog` and `/v1/capabilities`, so RedCode re-reads its cached model list when it changes.
+- Advertise what each combo does on `/v1/models`: `strategy` (v0.33.0 names, `fallback` for priority) and `routing_strategy` (this build's name), plus the ordered `members`, so RedCode knows which combos accept its routing hints and which models they can reach.
+- Restore the RedCode header contract on chat answers: `X-RedRouter-Served-Model` names the provider/model that answered (after combo fallback) and `X-RedRouter-Cost-USD` carries its cost when it can be priced. Browser clients may send the `x-red-router-*` steering headers and read the answer headers.
+- Fix RedCode's System One detection: `/v1/capabilities` now reports `systemone.available` (true when the key's catalog lists a System One model), and `GET /v1/models/systemone` returns those models as an OpenAI list with `id_format`.
+
 ## 0.35.1
 
 ### Patch Changes
