@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.41.4
+
+### Patch Changes
+
+- The side rail and side panel icons are larger (20 px on the rail, 16 px in the panel) so they read clearly next to the design system's density.
+
 ## 0.41.3
 
 ### Patch Changes
