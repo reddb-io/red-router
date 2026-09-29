@@ -50,8 +50,6 @@
   --shadow-soft: var(--reddb-shadow-elevation-base);
   --shadow-warm: var(--reddb-shadow-elevation-raised);
   --shadow-elevated: var(--reddb-shadow-elevation-overlay);
-  --grid-line: var(--reddb-color-muted);
-  --grid-size: var(--reddb-spatial-control-height-md);
   --section-alt: var(--reddb-color-elevation-sunken-surface);
   --surface-2: var(--reddb-color-elevation-raised-surface);
   --radius: var(--reddb-radius-lg);

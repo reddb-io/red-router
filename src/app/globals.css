@@ -143,22 +143,6 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Graph-paper wallpaper grid — one fixed, full-viewport layer behind every screen
-   (dashboard, auth, error pages). A z-index:-1 ::before paints above body's own
-   background but below all in-flow content, so it shows through any transparent
-   wrapper without lowering text contrast. Mirrors the marketing site exactly. */
-body::before {
-  content: "";
-  position: fixed;
-  inset: 0;
-  z-index: -1;
-  pointer-events: none;
-  background-image:
-    linear-gradient(to right, var(--grid-line) 1px, transparent 1px),
-    linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px);
-  background-size: var(--grid-size) var(--grid-size);
-}
-
 body.electron-macos {
   --desktop-safe-top: 30px;
   --desktop-safe-bottom: 8px;

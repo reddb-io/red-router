@@ -2,9 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 
-// Static guards for the shared visual identity (Phase 1: graph-paper grid wallpaper).
+// Static guards for the shared visual identity (RedDB design system: flat, calm surface).
 // These lock in the cross-product design contract so an accidental edit can't silently
-// remove the grid or re-introduce the opaque wrapper that hides it. See design.md.
+// re-introduce the OmniRoute wallpaper or drift the shared primitives off the DS contracts.
 
 const globalsCss = fs.readFileSync(new URL("../../src/app/globals.css", import.meta.url), "utf8");
 const bridgeCss = fs.readFileSync(
@@ -16,22 +16,12 @@ const dashboardLayout = fs.readFileSync(
   "utf8"
 );
 
-test("grid wallpaper uses the RedDB foundation in both color schemes", () => {
-  assert.match(bridgeCss, /--grid-line:\s*var\(--reddb-color-muted\)/);
-  assert.match(bridgeCss, /--grid-size:\s*var\(--reddb-spatial-control-height-md\)/);
+test("no decorative wallpaper: the DS surface is flat and calm (design.md)", () => {
+  // The graph-paper grid was OmniRoute's identity; the RedDB design system argues against
+  // decorative backgrounds, so the fixed body::before layer and its tokens stay gone.
+  assert.ok(!globalsCss.includes("body::before"), "no body::before wallpaper layer");
+  assert.ok(!/--grid-(line|size)/.test(globalsCss + bridgeCss), "no grid tokens");
   assert.match(bridgeCss, /--section-alt:\s*var\(--reddb-color-elevation-sunken-surface\)/);
-});
-
-test("globals.css renders the grid via a body::before fixed layer", () => {
-  // The pseudo-element must exist and be the grid renderer.
-  const before = globalsCss.slice(globalsCss.indexOf("body::before"));
-  assert.ok(before.length > 0, "body::before rule is present");
-  assert.match(before, /position:\s*fixed/);
-  assert.match(before, /z-index:\s*-1/);
-  assert.match(before, /pointer-events:\s*none/);
-  assert.match(before, /linear-gradient\(to right,\s*var\(--grid-line\) 1px, transparent 1px\)/);
-  assert.match(before, /linear-gradient\(to bottom,\s*var\(--grid-line\) 1px, transparent 1px\)/);
-  assert.match(before, /background-size:\s*var\(--grid-size\) var\(--grid-size\)/);
 });
 
 test("globals.css adds the shared identity tokens", () => {

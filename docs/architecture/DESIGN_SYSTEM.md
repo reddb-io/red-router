@@ -3,6 +3,8 @@ title: "Design System & Visual Identity"
 lastUpdated: 2026-07-11
 ---
 
+> **Superseded (2026-09-29):** RedRouter adopts the RedDB design system (`src/shared/design-system/`). The graph-paper wallpaper described below was removed; the guard test is now `tests/unit/design-identity-guard.test.ts`. Sections about the grid are historical.
+
 # OmniRoute — Design System & Visual Identity
 
 > **Status:** reference — the standardization described here is **implemented** (phases 1–6: grid wallpaper, primitives, status-color centralization, mono token, DataTable token migration, focus-ring → accent, Checkbox/Textarea primitives, `cn()` → tailwind-merge, grid on every standalone screen, fluid 4K content shell, opaque data-table surfaces). This document is the canonical description of the dashboard's design tokens, components, and conventions; the phase framing below is kept as the rationale for each decision.

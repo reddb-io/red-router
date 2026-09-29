@@ -14,7 +14,7 @@
     "tests/unit/cost-ledger-key-quota.test.ts",
     "tests/unit/db-video-jobs.test.ts",
     "tests/unit/db/remote-router-catalog.test.ts",
-    "tests/unit/design-grid-background.test.ts",
+    "tests/unit/design-identity-guard.test.ts",
     "tests/unit/exa-web-fetch-parity.test.ts",
     "tests/unit/flush-empty-retry.test.ts",
     "tests/unit/gemini-cli-deprecation.test.ts",
