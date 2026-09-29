@@ -1,5 +1,7 @@
 "use client";
 
+import { SearchX } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState } from "react";
 import { useTranslations } from "next-intl";
 import { AgentCard } from "./AgentCard";
@@ -126,9 +128,7 @@ export function AgentList({
       <div className="p-5 flex flex-col gap-3">
         {filtered.length === 0 ? (
           <div className="py-8 text-center text-text-muted">
-            <span className="material-symbols-outlined text-[36px] block mb-2 text-text-muted/40">
-              search_off
-            </span>
+            <Icon icon={SearchX} size="lg" color="ink-muted" className="block mb-2" style={{ width: 36, height: 36 }} />
             <p className="text-sm">{t("noAgentsMatch") || "No agents match the current filter"}</p>
           </div>
         ) : (

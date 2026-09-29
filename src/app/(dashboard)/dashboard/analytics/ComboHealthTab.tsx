@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowRight, CircleCheck, LoaderCircle, RefreshCw, TriangleAlert } from "lucide-react";
+import { ArrowRight, CircleCheck, LoaderCircle, MonitorCheck, RefreshCw, RefreshCwOff, TriangleAlert } from "lucide-react";
 import Icon from "@/shared/components/Icon";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -939,7 +939,7 @@ export default function ComboHealthTab() {
       {!loading && error ? (
         <Card className="p-8">
           <div className="flex flex-col items-center justify-center gap-4 text-center">
-            <span className="material-symbols-outlined text-[40px] text-error">sync_problem</span>
+            <Icon icon={RefreshCwOff} size="lg" color="current" className="text-error" style={{ width: 40, height: 40 }} />
             <div className="flex flex-col gap-1">
               <div className="font-medium text-text-main">{t("comboHealthUnableToLoad")}</div>
               <div className="text-sm text-text-muted">{error}</div>
@@ -969,9 +969,7 @@ export default function ComboHealthTab() {
       {!loading && !error && combos.length === 0 ? (
         <Card className="p-10">
           <div className="flex flex-col items-center justify-center gap-4 text-center">
-            <span className="material-symbols-outlined text-[40px] text-text-muted/70">
-              monitor_heart
-            </span>
+            <Icon icon={MonitorCheck} size="lg" color="ink-muted" style={{ width: 40, height: 40 }} />
             <div className="text-base font-medium text-text-main">{t("comboHealthNoData")}</div>
             <div className="max-w-md text-sm text-text-muted">
               {t("comboHealthNoDataDescription")}

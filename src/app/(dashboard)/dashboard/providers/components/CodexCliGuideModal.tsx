@@ -1,6 +1,6 @@
 "use client";
 
-import { Terminal } from "lucide-react";
+import { CircleAlert, RefreshCw, Terminal } from "lucide-react";
 import Icon from "@/shared/components/Icon";
 import { useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
@@ -159,9 +159,7 @@ export default function CodexCliGuideModal({ isOpen, onClose }: CodexCliGuideMod
       <div className="max-h-[70vh] overflow-y-auto pr-1">
         {loading && (
           <div className="flex flex-col items-center justify-center py-16 gap-3">
-            <span className="material-symbols-outlined animate-spin text-[28px] text-text-muted/50">
-              sync
-            </span>
+            <Icon icon={RefreshCw} size="lg" color="ink-muted" className="animate-spin" style={{ width: 28, height: 28 }} />
             <p className="text-sm text-text-muted">
               {text("codexCliGuideLoading", "Loading guide...")}
             </p>
@@ -169,9 +167,7 @@ export default function CodexCliGuideModal({ isOpen, onClose }: CodexCliGuideMod
         )}
         {error && (
           <div className="flex flex-col items-center justify-center py-12 text-text-muted gap-3">
-            <span className="material-symbols-outlined text-[40px] text-red-500/50">
-              error_outline
-            </span>
+            <Icon icon={CircleAlert} size="lg" color="feedback-danger-foreground" style={{ width: 40, height: 40 }} />
             <p className="text-sm">
               {text("codexCliGuideLoadFailed", "Could not load the guide.")}
             </p>

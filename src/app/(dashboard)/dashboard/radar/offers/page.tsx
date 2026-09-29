@@ -1,6 +1,6 @@
 "use client";
 
-import { ExternalLink } from "lucide-react";
+import { ExternalLink, Gift } from "lucide-react";
 import Icon from "@/shared/components/Icon";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -177,7 +177,7 @@ export default function RadarOffersPage() {
       ) : !hasSupporterKey ? (
         <Card>
           <div className="flex flex-col items-center gap-4 py-8 text-center">
-            <span className="material-symbols-outlined text-4xl text-violet-400">redeem</span>
+            <Icon icon={Gift} size="lg" color="current" style={{ width: 36, height: 36 }} />
             <h2 className="text-xl font-semibold">{t("keyRequiredTitle")}</h2>
             <p className="max-w-xl text-text-muted">{t("keyRequiredDescription")}</p>
             <div className="flex flex-col sm:flex-row gap-3">

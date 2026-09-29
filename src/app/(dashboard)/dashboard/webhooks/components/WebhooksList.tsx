@@ -1,5 +1,7 @@
 "use client";
 
+import { Webhook } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { WebhookCard, type WebhookItem } from "./WebhookCard";
 
 interface WebhooksListProps {
@@ -30,7 +32,7 @@ export function WebhooksList({
   if (webhooks.length === 0) {
     return (
       <div className="flex flex-col items-center gap-3 py-14 text-center">
-        <span className="material-symbols-outlined text-[48px] text-text-muted">webhook</span>
+        <Icon icon={Webhook} size="lg" color="ink-muted" style={{ width: 48, height: 48 }} />
         <p className="text-sm text-text-muted">{t("noWebhooks")}</p>
       </div>
     );

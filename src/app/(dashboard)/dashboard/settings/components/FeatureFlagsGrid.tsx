@@ -1,6 +1,6 @@
 "use client";
 
-import { Info, RotateCcw } from "lucide-react";
+import { Info, RotateCcw, SearchX } from "lucide-react";
 import Icon from "@/shared/components/Icon";
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { useTranslations } from "next-intl";
@@ -407,7 +407,7 @@ export default function FeatureFlagsGrid() {
         <>
           {filteredFlags.length === 0 ? (
             <div className="py-16 text-center text-text-muted">
-              <span className="material-symbols-outlined text-4xl">search_off</span>
+              <Icon icon={SearchX} size="lg" color="current" style={{ width: 36, height: 36 }} />
               <p className="mt-2 text-sm">{t("noSearchResults")}</p>
             </div>
           ) : (

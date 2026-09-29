@@ -1,6 +1,6 @@
 "use client";
 
-import { Hash, RefreshCw } from "lucide-react";
+import { Hash, Receipt, RefreshCw } from "lucide-react";
 import Icon from "@/shared/components/Icon";
 import {
   useState,
@@ -1222,9 +1222,7 @@ const RequestLoggerV2 = forwardRef<RequestLoggerV2Handle, RequestLoggerV2Initial
               <div className="p-8 text-center text-text-muted">{t("loadingLogs")}</div>
             ) : logs.length === 0 ? (
               <div className="p-8 text-center text-text-muted">
-                <span className="material-symbols-outlined text-[48px] mb-2 block opacity-40">
-                  receipt_long
-                </span>
+                <Icon icon={Receipt} size="lg" color="current" className="mb-2 block opacity-40" style={{ width: 48, height: 48 }} />
                 {t("noLogs")}
               </div>
             ) : sortedLogs.length === 0 ? (

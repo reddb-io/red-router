@@ -1,6 +1,6 @@
 "use client";
 
-import { Copy, LoaderCircle } from "lucide-react";
+import { CircleAlert, CircleCheck, Copy, LoaderCircle, SquareArrowOutUpRight } from "lucide-react";
 import Icon from "@/shared/components/Icon";
 import { useState, useEffect, useRef } from "react";
 import { useTranslations } from "next-intl";
@@ -164,9 +164,7 @@ export default function KiroSocialOAuthModal({
         {step === "polling" && (
           <div className="text-center py-6">
             <div className="size-16 mx-auto mb-4 rounded-full bg-primary/10 flex items-center justify-center">
-              <span className="material-symbols-outlined text-3xl text-primary animate-pulse">
-                open_in_browser
-              </span>
+              <Icon icon={SquareArrowOutUpRight} size="lg" color="primary" className="animate-pulse" style={{ width: 30, height: 30 }} />
             </div>
             <h3 className="text-lg font-semibold mb-2">{t("openIncognito")}</h3>
             <p className="text-sm text-text-muted mb-3">{t("incognitoDescription")}</p>
@@ -212,9 +210,7 @@ export default function KiroSocialOAuthModal({
         {step === "success" && (
           <div className="text-center py-6">
             <div className="size-16 mx-auto mb-4 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
-              <span className="material-symbols-outlined text-3xl text-green-600">
-                check_circle
-              </span>
+              <Icon icon={CircleCheck} size="lg" color="feedback-success-foreground" style={{ width: 30, height: 30 }} />
             </div>
             <h3 className="text-lg font-semibold mb-2">{t("successTitle")}</h3>
             <p className="text-sm text-text-muted mb-4">
@@ -229,7 +225,7 @@ export default function KiroSocialOAuthModal({
         {step === "error" && (
           <div className="text-center py-6">
             <div className="size-16 mx-auto mb-4 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
-              <span className="material-symbols-outlined text-3xl text-red-600">error</span>
+              <Icon icon={CircleAlert} size="lg" color="feedback-danger-foreground" style={{ width: 30, height: 30 }} />
             </div>
             <h3 className="text-lg font-semibold mb-2">{t("errorTitle")}</h3>
             <p className="text-sm text-red-600 mb-4">{error}</p>

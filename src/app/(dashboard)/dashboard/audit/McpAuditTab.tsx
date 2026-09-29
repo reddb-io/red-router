@@ -1,5 +1,7 @@
 "use client";
 
+import { Terminal } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import { Card } from "@/shared/components";
@@ -223,7 +225,7 @@ export default function McpAuditTab() {
           <div className="p-8 text-center text-sm text-text-muted">{t("loading")}</div>
         ) : data.entries.length === 0 ? (
           <div className="p-10 text-center">
-            <span className="material-symbols-outlined text-[40px] text-text-muted">terminal</span>
+            <Icon icon={Terminal} size="lg" color="ink-muted" style={{ width: 40, height: 40 }} />
             <p className="mt-3 text-sm text-text-muted">{t("noMcpEvents")}</p>
           </div>
         ) : (

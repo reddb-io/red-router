@@ -1,6 +1,6 @@
 "use client";
 
-import { CircleAlert, CircleCheck } from "lucide-react";
+import { CircleAlert, CircleCheck, LoaderCircle } from "lucide-react";
 import Icon from "@/shared/components/Icon";
 import { useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
@@ -59,9 +59,7 @@ export default function JsonlValidationStep({
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center py-12 gap-3">
-        <span className="material-symbols-outlined text-3xl text-[var(--color-accent)] animate-spin">
-          progress_activity
-        </span>
+        <Icon icon={LoaderCircle} size="lg" color="current" className="animate-spin" style={{ width: 30, height: 30 }} />
         <span className="text-sm text-[var(--color-text-muted)]">{t("wizardValidating")}</span>
       </div>
     );

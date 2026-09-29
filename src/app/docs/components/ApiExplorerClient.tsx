@@ -1,5 +1,7 @@
 "use client";
 
+import { Plug } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import React, { useState, useCallback, useMemo } from "react";
 import { useTranslations } from "next-intl";
 import {
@@ -284,7 +286,7 @@ export function ApiExplorerClient() {
           </div>
         ) : (
           <div className="text-center py-16 text-text-muted">
-            <span className="material-symbols-outlined text-4xl mb-2 block">api</span>
+            <Icon icon={Plug} size="lg" color="current" className="mb-2 block" style={{ width: 36, height: 36 }} />
             <p className="text-lg font-medium">{t("apiExplorerSelectEndpoint")}</p>
             <p className="text-sm mt-1">{t("apiExplorerChooseApi")}</p>
           </div>

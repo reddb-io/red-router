@@ -1,5 +1,7 @@
 "use client";
 
+import { ChartLine } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useTranslations } from "next-intl";
 import { groupByDay } from "@/lib/audit/timeline";
 import type { AuditLogEntry } from "@/lib/compliance/index";
@@ -21,9 +23,7 @@ export default function ActivityFeed({ entries, referenceNowMs }: ActivityFeedPr
         role="status"
         aria-live="polite"
       >
-        <span className="material-symbols-outlined text-[48px] text-[var(--color-text-muted)] mb-4" aria-hidden="true">
-          timeline
-        </span>
+        <Icon icon={ChartLine} size="lg" color="ink-muted" className="mb-4" style={{ width: 48, height: 48 }} />
         <h3 className="text-base font-semibold text-[var(--color-text-main)] mb-1">
           {t("emptyTitle")}
         </h3>

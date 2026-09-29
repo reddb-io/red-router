@@ -1,5 +1,7 @@
 "use client";
 
+import { CircleAlert } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useTranslations } from "next-intl";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -91,9 +93,7 @@ export default function MemoryCards({
         data-testid="memory-cards"
         className="flex flex-col items-center gap-3 p-6 rounded-xl bg-surface-raised border border-border/40 text-center transition-opacity duration-200"
       >
-        <span className="material-symbols-outlined text-3xl text-red-400" aria-hidden="true">
-          error_outline
-        </span>
+        <Icon icon={CircleAlert} size="lg" color="feedback-danger-foreground" style={{ width: 30, height: 30 }} />
         <p className="text-sm text-text-muted">{error}</p>
         {onRetry && (
           <button

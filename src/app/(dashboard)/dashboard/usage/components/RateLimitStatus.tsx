@@ -1,6 +1,6 @@
 "use client";
 
-import { Clock, Lock } from "lucide-react";
+import { Clock, Lock, LockOpen } from "lucide-react";
 import Icon from "@/shared/components/Icon";
 import { useTranslations } from "next-intl";
 
@@ -58,12 +58,7 @@ export default function RateLimitStatus() {
 
         {data.lockouts.length === 0 ? (
           <div className="text-center py-6 text-text-muted">
-            <span
-              className="material-symbols-outlined text-[32px] mb-2 block opacity-40"
-              aria-hidden="true"
-            >
-              lock_open
-            </span>
+            <Icon icon={LockOpen} size="lg" color="current" className="mb-2 block opacity-40" style={{ width: 32, height: 32 }} />
             <p className="text-sm">{t("noLockouts")}</p>
           </div>
         ) : (

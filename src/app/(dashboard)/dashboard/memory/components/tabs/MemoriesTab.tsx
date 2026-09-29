@@ -1,6 +1,6 @@
 "use client";
 
-import { Pencil } from "lucide-react";
+import { Brain, Pencil } from "lucide-react";
 import Icon from "@/shared/components/Icon";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useTranslations } from "next-intl";
@@ -445,9 +445,7 @@ export default function MemoriesTab() {
               data-testid="memories-empty-state"
               className="flex flex-col items-center justify-center py-12 text-center"
             >
-              <span className="material-symbols-outlined text-[40px] text-text-muted mb-3">
-                psychology
-              </span>
+              <Icon icon={Brain} size="lg" color="ink-muted" className="mb-3" style={{ width: 40, height: 40 }} />
               <p className="text-sm font-medium text-text-main mb-1">{t("emptyState.title")}</p>
               <p className="text-xs text-text-muted max-w-xs">{t("emptyState.description")}</p>
               <Button className="mt-4" size="sm" onClick={() => setAddDialogOpen(true)}>

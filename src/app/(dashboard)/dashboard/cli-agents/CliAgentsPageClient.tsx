@@ -1,6 +1,6 @@
 "use client";
 
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, SearchX } from "lucide-react";
 import Icon from "@/shared/components/Icon";
 import { useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
@@ -132,9 +132,7 @@ export default function CliAgentsPageClient({ machineId: _machineId }: CliAgents
           className="flex flex-col items-center justify-center py-16 gap-3 text-text-muted"
           data-testid="empty-state"
         >
-          <span className="material-symbols-outlined text-[40px]" aria-hidden="true">
-            search_off
-          </span>
+          <Icon icon={SearchX} size="lg" color="current" style={{ width: 40, height: 40 }} />
           <p className="text-sm">{t("emptyState")}</p>
         </div>
       ) : (

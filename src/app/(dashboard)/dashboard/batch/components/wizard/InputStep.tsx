@@ -1,5 +1,7 @@
 "use client";
 
+import { FileUp } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import CsvMappingStep from "./CsvMappingStep";
@@ -156,9 +158,7 @@ export default function InputStep({ input, onChange, destination }: InputStepPro
           ${isReading ? "cursor-wait opacity-60 pointer-events-none" : "cursor-pointer"}
           ${isDragging ? "border-[var(--color-accent)] bg-[var(--color-accent)]/5" : "border-[var(--color-border)] hover:border-[var(--color-accent)]/50"}`}
       >
-        <span className="material-symbols-outlined text-3xl text-[var(--color-text-muted)]">
-          upload_file
-        </span>
+        <Icon icon={FileUp} size="lg" color="ink-muted" style={{ width: 30, height: 30 }} />
         {isReading ? (
           <span className="text-sm text-[var(--color-text-muted)]">{t("wizardInputReading")}</span>
         ) : hasFile ? (

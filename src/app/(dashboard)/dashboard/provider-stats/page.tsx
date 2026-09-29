@@ -7,7 +7,7 @@
  * plus in-memory combo metrics and telemetry data.
  */
 
-import { ChartColumn, CircleCheck, RefreshCw, Server, Timer } from "lucide-react";
+import { ChartColumn, CircleAlert, CircleCheck, RefreshCw, Server, Timer } from "lucide-react";
 import Icon from "@/shared/components/Icon";
 import { useState, useEffect, useCallback, Fragment } from "react";
 import { useTranslations } from "next-intl";
@@ -179,7 +179,7 @@ export default function ProviderStatsPage() {
     return (
       <div>
         <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-6 text-center">
-          <span className="material-symbols-outlined text-red-500 text-[32px] mb-2">error</span>
+          <Icon icon={CircleAlert} size="lg" color="feedback-danger-foreground" className="mb-2" style={{ width: 32, height: 32 }} />
           <p className="text-red-400">{t("loadFailed", { error })}</p>
           <button
             onClick={fetchData}

@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowDownToLine, ChevronLeft, ChevronRight, Code, X } from "lucide-react";
+import { ArrowDownToLine, ChevronLeft, ChevronRight, Code, Info, X } from "lucide-react";
 import Icon from "@/shared/components/Icon";
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useLocale, useTranslations } from "next-intl";
@@ -1226,9 +1226,7 @@ export default function RequestLoggerDetail({
 
               {payloadSections.length === 0 && !requestJson && !responseJson && !loading && (
                 <div className="p-6 text-center text-text-muted">
-                  <span className="material-symbols-outlined text-[32px] mb-2 block opacity-40">
-                    info
-                  </span>
+                  <Icon icon={Info} size="lg" color="current" className="mb-2 block opacity-40" style={{ width: 32, height: 32 }} />
                   <p className="text-sm">{t("noPayload")}</p>
                   <p className="text-xs mt-1">{t("detailedPayloadInfo")}</p>
                 </div>

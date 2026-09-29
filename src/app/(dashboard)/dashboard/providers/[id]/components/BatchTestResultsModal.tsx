@@ -1,5 +1,5 @@
 "use client";
-import { X } from "lucide-react";
+import { CircleAlert, X } from "lucide-react";
 import Icon from "@/shared/components/Icon";
 import { pickDisplayValue } from "@/shared/utils/maskEmail";
 
@@ -60,9 +60,7 @@ export default function BatchTestResultsModal({
           {batchTestResults.error &&
           (!batchTestResults.results || batchTestResults.results.length === 0) ? (
             <div className="text-center py-6">
-              <span className="material-symbols-outlined text-red-500 text-[32px] mb-2 block">
-                error
-              </span>
+              <Icon icon={CircleAlert} size="lg" color="feedback-danger-foreground" className="mb-2 block" style={{ width: 32, height: 32 }} />
               <p className="text-sm text-red-400">{String(batchTestResults.error)}</p>
             </div>
           ) : (

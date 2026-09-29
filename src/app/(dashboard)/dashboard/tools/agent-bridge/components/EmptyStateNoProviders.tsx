@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, Server } from "lucide-react";
 import Icon from "@/shared/components/Icon";
 import { useTranslations } from "next-intl";
 import Link from "next/link";
@@ -15,9 +15,7 @@ export function EmptyStateNoProviders() {
   return (
     <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border/60 bg-card/50 px-8 py-14 text-center gap-4">
       <div className="p-4 rounded-2xl bg-primary/10">
-        <span className="material-symbols-outlined text-[48px] text-primary">
-          dns
-        </span>
+        <Icon icon={Server} size="lg" color="primary" style={{ width: 48, height: 48 }} />
       </div>
       <div>
         <h3 className="text-base font-semibold text-text-main mb-1">

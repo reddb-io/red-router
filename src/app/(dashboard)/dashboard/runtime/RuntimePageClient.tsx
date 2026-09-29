@@ -1,6 +1,6 @@
 "use client";
 
-import { Lock, Zap } from "lucide-react";
+import { Fingerprint, Hourglass, Lock, Radar, Zap } from "lucide-react";
 import Icon from "@/shared/components/Icon";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
@@ -845,9 +845,7 @@ export default function RuntimePageClient() {
           <div className="mt-2 flex flex-col gap-1.5 max-h-[640px] overflow-auto pr-1">
             {filteredFeed.length === 0 ? (
               <div className="text-center py-12 text-text-muted">
-                <span className="material-symbols-outlined text-[40px] opacity-30 block mb-2">
-                  hourglass_empty
-                </span>
+                <Icon icon={Hourglass} size="lg" color="current" className="opacity-30 block mb-2" style={{ width: 40, height: 40 }} />
                 <p className="text-xs">
                   {feed.length === 0 ? t("feedEmptyWaiting") : t("feedEmptyFiltered")}
                 </p>
@@ -901,9 +899,7 @@ export default function RuntimePageClient() {
 
           {(health?.sessions?.top ?? []).length === 0 ? (
             <div className="text-center py-8 text-text-muted">
-              <span className="material-symbols-outlined text-[40px] opacity-30 block mb-2">
-                fingerprint
-              </span>
+              <Icon icon={Fingerprint} size="lg" color="current" className="opacity-30 block mb-2" style={{ width: 40, height: 40 }} />
               <p className="text-sm">{t("sessionsEmptyTitle")}</p>
               <p className="text-xs mt-1">{t("sessionsEmptyHint")}</p>
             </div>
@@ -996,9 +992,7 @@ export default function RuntimePageClient() {
             if (total === 0) {
               return (
                 <div className="text-center py-8 text-text-muted">
-                  <span className="material-symbols-outlined text-[40px] opacity-30 block mb-2">
-                    radar
-                  </span>
+                  <Icon icon={Radar} size="lg" color="current" className="opacity-30 block mb-2" style={{ width: 40, height: 40 }} />
                   <p className="text-sm">{t("allQuotasHealthy")}</p>
                 </div>
               );

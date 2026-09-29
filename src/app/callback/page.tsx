@@ -1,5 +1,7 @@
 "use client";
 
+import { CircleCheck, Info, LoaderCircle } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useTranslations } from "next-intl";
 import { useEffect, useState } from "react";
 
@@ -146,9 +148,7 @@ export default function CallbackPage() {
         {status === "processing" && (
           <>
             <div className="size-16 mx-auto mb-4 rounded-full bg-primary/10 flex items-center justify-center">
-              <span className="material-symbols-outlined text-3xl text-primary animate-spin">
-                progress_activity
-              </span>
+              <Icon icon={LoaderCircle} size="lg" color="primary" className="animate-spin" style={{ width: 30, height: 30 }} />
             </div>
             <h1 className="text-xl font-semibold mb-2">{t("processing")}</h1>
             <p className="text-text-muted">{t("pleaseWait")}</p>
@@ -158,9 +158,7 @@ export default function CallbackPage() {
         {(status === "success" || status === "done") && (
           <>
             <div className="size-16 mx-auto mb-4 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
-              <span className="material-symbols-outlined text-3xl text-green-600">
-                check_circle
-              </span>
+              <Icon icon={CircleCheck} size="lg" color="feedback-success-foreground" style={{ width: 30, height: 30 }} />
             </div>
             <h1 className="text-xl font-semibold mb-2">{t("authSuccess")}</h1>
             <p className="text-text-muted">
@@ -172,7 +170,7 @@ export default function CallbackPage() {
         {status === "manual" && (
           <>
             <div className="size-16 mx-auto mb-4 rounded-full bg-yellow-100 dark:bg-yellow-900/30 flex items-center justify-center">
-              <span className="material-symbols-outlined text-3xl text-yellow-600">info</span>
+              <Icon icon={Info} size="lg" color="feedback-warning-foreground" style={{ width: 30, height: 30 }} />
             </div>
             <h1 className="text-xl font-semibold mb-2">{t("copyUrl")}</h1>
             <p className="text-text-muted mb-4">{t("copyUrlManual")}</p>

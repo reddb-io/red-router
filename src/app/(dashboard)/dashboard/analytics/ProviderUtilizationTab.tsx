@@ -1,6 +1,6 @@
 "use client";
 
-import { CircleCheck, LoaderCircle, RefreshCw, Server, Workflow } from "lucide-react";
+import { ChartLine, CircleAlert, CircleCheck, LoaderCircle, RefreshCw, Server, Workflow } from "lucide-react";
 import Icon from "@/shared/components/Icon";
 import { useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -246,7 +246,7 @@ export default function ProviderUtilizationTab() {
           </div>
         ) : error ? (
           <div className="flex min-h-80 flex-col items-center justify-center gap-4 text-center">
-            <span className="material-symbols-outlined text-[32px] text-error">error</span>
+            <Icon icon={CircleAlert} size="lg" color="current" className="text-error" style={{ width: 32, height: 32 }} />
             <div className="flex flex-col gap-1">
               <p className="text-sm font-medium text-text-main">
                 {t("providerUtilizationFailedToLoad")}
@@ -274,9 +274,7 @@ export default function ProviderUtilizationTab() {
           </div>
         ) : !hasData ? (
           <div className="flex min-h-80 flex-col items-center justify-center gap-4 text-center">
-            <span className="material-symbols-outlined text-[40px] text-text-muted/70">
-              timeline
-            </span>
+            <Icon icon={ChartLine} size="lg" color="ink-muted" style={{ width: 40, height: 40 }} />
             <div className="flex flex-col gap-2">
               <p className="text-sm font-medium text-text-main">{t("providerUtilizationNoData")}</p>
               <p className="max-w-md text-sm text-text-muted">

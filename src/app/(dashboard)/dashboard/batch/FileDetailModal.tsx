@@ -1,6 +1,6 @@
 "use client";
 
-import { CalendarClock, Copy, Download, ScrollText, TriangleAlert, X } from "lucide-react";
+import { CalendarClock, Copy, Download, FileSearch, ScrollText, TriangleAlert, X } from "lucide-react";
 import Icon from "@/shared/components/Icon";
 import { useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
@@ -283,9 +283,7 @@ export default function FileDetailModal({
                 </div>
               ) : (
                 <div className="flex flex-col items-center justify-center h-full py-12 rounded-lg border border-dashed border-[var(--color-border)] text-[var(--color-text-muted)]">
-                  <span className="material-symbols-outlined text-[40px] mb-2 opacity-20">
-                    find_in_page
-                  </span>
+                  <Icon icon={FileSearch} size="lg" color="current" className="mb-2 opacity-20" style={{ width: 40, height: 40 }} />
                   <p className="text-sm">{t("batchFileDetailFailedToLoad")}</p>
                 </div>
               )}

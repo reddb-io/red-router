@@ -1,6 +1,6 @@
 "use client";
 
-import { Route } from "lucide-react";
+import { Route, Waypoints } from "lucide-react";
 import Icon from "@/shared/components/Icon";
 import { useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
@@ -354,7 +354,7 @@ export default function ProviderTopology({
       <div
         className={`${containerClass} flex flex-col items-center justify-center gap-2 text-text-muted`}
       >
-        <span className="material-symbols-outlined text-[32px]">device_hub</span>
+        <Icon icon={Waypoints} size="lg" color="current" style={{ width: 32, height: 32 }} />
         <p className="text-sm">{t("providerTopologyEmpty")}</p>
       </div>
     );

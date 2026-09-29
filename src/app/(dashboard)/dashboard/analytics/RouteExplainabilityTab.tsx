@@ -1,6 +1,6 @@
 "use client";
 
-import { CircleCheck, Info, RefreshCw } from "lucide-react";
+import { CircleCheck, Info, RefreshCw, RouteOff } from "lucide-react";
 import Icon from "@/shared/components/Icon";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
@@ -596,7 +596,7 @@ export default function RouteExplainabilityTab({
       {!logsLoading && !explanationLoading && error ? (
         <Card className="p-8">
           <div className="flex flex-col items-center justify-center gap-3 text-center">
-            <span className="material-symbols-outlined text-[40px] text-error">route_off</span>
+            <Icon icon={RouteOff} size="lg" color="current" className="text-error" style={{ width: 40, height: 40 }} />
             <div className="font-medium text-text-main">{t("routeUnableToLoad")}</div>
             <div className="text-sm text-text-muted">{error}</div>
             <button

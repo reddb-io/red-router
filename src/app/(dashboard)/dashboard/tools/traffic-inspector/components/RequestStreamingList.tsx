@@ -1,5 +1,7 @@
 "use client";
 
+import { Activity } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useRef } from "react";
 import { useTranslations } from "next-intl";
 import type { InterceptedRequest } from "@/mitm/inspector/types";
@@ -51,12 +53,7 @@ export function RequestStreamingList({
           className="flex-1 flex items-center justify-center text-sm text-text-muted"
         >
           <div className="text-center space-y-2">
-            <span
-              className="material-symbols-outlined text-[36px] text-text-muted block"
-              aria-hidden="true"
-            >
-              network_check
-            </span>
+            <Icon icon={Activity} size="lg" color="ink-muted" className="block" style={{ width: 36, height: 36 }} />
             <p>{t("noRequests")}</p>
             <p className="text-xs">{t("noRequestsDesc")}</p>
           </div>

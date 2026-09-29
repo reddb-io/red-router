@@ -1,6 +1,6 @@
 "use client";
 
-import { CircleAlert, Download, LoaderCircle, RefreshCw } from "lucide-react";
+import { CircleAlert, Download, LoaderCircle, RefreshCw, Terminal } from "lucide-react";
 import Icon from "@/shared/components/Icon";
 import { useLocale, useTranslations } from "next-intl";
 
@@ -601,9 +601,7 @@ export default function ConsoleLogViewer() {
         <div className="p-3 space-y-px">
           {filteredLogs.length === 0 && !loading ? (
             <div className="text-[#8b949e] text-center py-12">
-              <span className="material-symbols-outlined text-[40px] block mb-2 opacity-30">
-                terminal
-              </span>
+              <Icon icon={Terminal} size="lg" color="current" className="block mb-2 opacity-30" style={{ width: 40, height: 40 }} />
               <p>{t("noLogEntries")}</p>
               <p className="text-[10px] mt-1 opacity-60">{tv("emptyFileLoggingHint")}</p>
             </div>

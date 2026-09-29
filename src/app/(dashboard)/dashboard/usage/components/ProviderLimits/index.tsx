@@ -1,5 +1,7 @@
 "use client";
 
+import { CloudOff } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useTranslations } from "next-intl";
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
@@ -823,7 +825,7 @@ export default function ProviderLimits({
     return (
       <Card padding="lg">
         <div className="text-center py-12">
-          <span className="material-symbols-outlined text-[64px] opacity-15">cloud_off</span>
+          <Icon icon={CloudOff} size="lg" color="current" className="opacity-15" style={{ width: 64, height: 64 }} />
           <h3 className="mt-4 text-lg font-semibold text-text-main">{t("noProviders")}</h3>
           <p className="mt-2 text-sm text-text-muted max-w-[400px] mx-auto">
             {t("connectProvidersForQuota")}

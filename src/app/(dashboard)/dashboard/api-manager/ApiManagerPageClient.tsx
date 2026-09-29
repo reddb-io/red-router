@@ -1,6 +1,6 @@
 "use client";
 
-import { ArchiveRestore, ArrowRight, Banknote, Braces, Cable, CalendarX, ChartNoAxesCombined, Check, CircleAlert, CircleCheck, CircleDollarSign, Clock, EyeOff, Gauge, Gavel, HandCoins, KeyRound, Landmark, Lock, LockOpen, MonitorSmartphone, Network, Plus, RefreshCw, ShieldUser, SlidersHorizontal, Sparkles, Split, Terminal, Trash2, Users, X } from "lucide-react";
+import { ArchiveRestore, ArrowRight, Banknote, Braces, Cable, CalendarX, ChartNoAxesCombined, Check, CircleAlert, CircleCheck, CircleDollarSign, Clock, EyeOff, Gauge, Gavel, HandCoins, KeyRound, Landmark, Lock, LockOpen, MonitorSmartphone, Network, Plus, RefreshCw, SearchX, ShieldUser, SlidersHorizontal, Sparkles, Split, Terminal, Trash2, Users, X } from "lucide-react";
 import Icon from "@/shared/components/Icon";
 import { useState, useEffect, useMemo, useCallback, memo, useRef, useId } from "react";
 import { Card, Button, Input, Modal, CardSkeleton } from "@/shared/components";
@@ -1091,7 +1091,7 @@ export default function ApiManagerPageClient() {
         ) : filteredKeys.length === 0 ? (
           <div className="text-center py-12 border border-dashed border-border rounded-lg">
             <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-primary/10 text-primary mb-4">
-              <span className="material-symbols-outlined text-[32px]">search_off</span>
+              <Icon icon={SearchX} size="lg" color="current" style={{ width: 32, height: 32 }} />
             </div>
             <p className="text-text-main font-medium mb-2">{t("emptyFilterTitle")}</p>
             <Button onClick={handleClearFilters}>{t("emptyFilterClear")}</Button>

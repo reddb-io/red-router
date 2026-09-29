@@ -1,6 +1,6 @@
 "use client";
 
-import { CircleAlert, Info, LogIn, Network, Terminal } from "lucide-react";
+import { CircleAlert, Info, LogIn, Network, Rocket, ShieldUser, Terminal } from "lucide-react";
 import Icon from "@/shared/components/Icon";
 import { useTranslations } from "next-intl";
 
@@ -157,9 +157,7 @@ export default function LoginPage() {
         >
           <div className="text-center mb-10">
             <div className="inline-flex items-center justify-center w-20 h-20 rounded-3xl bg-gradient-to-br from-primary/10 to-primary/5 border border-primary/10 mb-6">
-              <span className="material-symbols-outlined text-primary text-[40px]">
-                rocket_launch
-              </span>
+              <Icon icon={Rocket} size="lg" color="primary" style={{ width: 40, height: 40 }} />
             </div>
             <h1 className="text-3xl font-bold text-text-main tracking-tight">{t("welcome")}</h1>
             <p className="text-text-muted mt-2">{t("configureInstance")}</p>
@@ -195,9 +193,7 @@ export default function LoginPage() {
         >
           <div className="text-center mb-10">
             <div className="inline-flex items-center justify-center w-20 h-20 rounded-3xl bg-gradient-to-br from-amber-500/10 to-amber-500/5 border border-amber-500/10 mb-6">
-              <span className="material-symbols-outlined text-amber-500 text-[40px]">
-                shield_person
-              </span>
+              <Icon icon={ShieldUser} size="lg" color="feedback-warning-foreground" style={{ width: 40, height: 40 }} />
             </div>
             <h1 className="text-3xl font-bold text-text-main tracking-tight">
               {t("secureYourInstance")}

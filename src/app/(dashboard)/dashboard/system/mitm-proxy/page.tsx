@@ -1,5 +1,7 @@
 "use client";
 
+import { Info } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
@@ -23,7 +25,7 @@ export default function MitmProxyMovedPage() {
     <div className="flex min-h-screen items-center justify-center bg-background p-8">
       <div className="rounded-xl border border-amber-500/40 bg-amber-900/20 p-8 text-center max-w-md w-full space-y-4">
         <div className="flex items-center justify-center gap-2">
-          <span className="material-symbols-outlined text-amber-400 text-[28px]">info</span>
+          <Icon icon={Info} size="lg" color="feedback-warning-foreground" style={{ width: 28, height: 28 }} />
           <h1 className="text-lg font-semibold text-amber-200">{t("title")}</h1>
         </div>
         <p className="text-sm text-amber-300/80">{t("message")}</p>

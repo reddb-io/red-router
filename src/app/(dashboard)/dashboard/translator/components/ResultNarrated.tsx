@@ -1,6 +1,6 @@
 "use client";
 
-import { CircleAlert, Languages, LoaderCircle } from "lucide-react";
+import { CircleAlert, Info, Languages, LoaderCircle } from "lucide-react";
 import Icon from "@/shared/components/Icon";
 import { useCallback } from "react";
 import { useTranslations } from "next-intl";
@@ -86,9 +86,7 @@ export default function ResultNarrated({
         {/* idle */}
         {result.status === "idle" && (
           <div className="flex flex-col items-center justify-center gap-2 py-8 text-center">
-            <span className="material-symbols-outlined text-[40px] text-text-muted/40" aria-hidden="true">
-              info
-            </span>
+            <Icon icon={Info} size="lg" color="ink-muted" style={{ width: 40, height: 40 }} />
             <p className="text-sm text-text-muted">
               {tr("simpleStartWithExamplePlaceholder", "Select a ready-made example")}
             </p>

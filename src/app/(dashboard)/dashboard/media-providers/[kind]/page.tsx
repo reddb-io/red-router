@@ -1,3 +1,5 @@
+import { Shapes } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { notFound } from "next/navigation";
 import { getTranslations } from "next-intl/server";
 import Link from "next/link";
@@ -52,7 +54,7 @@ export default async function MediaProviderKindPage({ params }: PageProps) {
 
       {matchingProviders.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 gap-3 border border-dashed border-border rounded-xl text-text-muted">
-          <span className="material-symbols-outlined text-[32px]">category</span>
+          <Icon icon={Shapes} size="lg" color="current" style={{ width: 32, height: 32 }} />
           <p className="text-sm">{t("noProviders")}</p>
         </div>
       ) : (

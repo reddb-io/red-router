@@ -1,6 +1,6 @@
 "use client";
 
-import { CircleAlert, CircleCheck } from "lucide-react";
+import { CircleAlert, CircleCheck, Key } from "lucide-react";
 import Icon from "@/shared/components/Icon";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
@@ -110,7 +110,7 @@ export default function CodexConnectClient({ token }: { token: string }) {
       <div className="w-full max-w-md rounded-2xl border border-border bg-bg-subtle p-8 shadow-sm">
         <div className="mb-6 text-center">
           <div className="mb-3 inline-flex h-14 w-14 items-center justify-center rounded-full bg-primary/10 text-primary">
-            <span className="material-symbols-outlined text-[28px]">key</span>
+            <Icon icon={Key} size="lg" color="current" style={{ width: 28, height: 28 }} />
           </div>
           <h1 className="text-lg font-semibold text-text-main">{t("connectOpenAiCodexTitle")}</h1>
           <p className="mt-1 text-sm text-text-muted">{t("codexConnectDescription")}</p>

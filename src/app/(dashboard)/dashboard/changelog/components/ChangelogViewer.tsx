@@ -1,6 +1,6 @@
 "use client";
 
-import { ExternalLink, Tag } from "lucide-react";
+import { CircleAlert, ExternalLink, RefreshCw, Tag } from "lucide-react";
 import Icon from "@/shared/components/Icon";
 import { useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
@@ -110,9 +110,7 @@ export default function ChangelogViewer() {
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center space-y-4 py-32">
-        <span className="material-symbols-outlined animate-spin text-[32px] text-text-muted/50">
-          sync
-        </span>
+        <Icon icon={RefreshCw} size="lg" color="ink-muted" className="animate-spin" style={{ width: 32, height: 32 }} />
         <p className="text-sm text-text-muted">{t("loading")}</p>
       </div>
     );
@@ -121,9 +119,7 @@ export default function ChangelogViewer() {
   if (error) {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-text-muted">
-        <span className="material-symbols-outlined mb-4 text-[48px] text-red-500/50">
-          error_outline
-        </span>
+        <Icon icon={CircleAlert} size="lg" color="feedback-danger-foreground" className="mb-4" style={{ width: 48, height: 48 }} />
         <p>{t("changelogLoadFailed")}</p>
         <Button variant="secondary" className="mt-4" onClick={() => globalThis.location.reload()}>
           {t("retry")}

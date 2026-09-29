@@ -1,5 +1,7 @@
 "use client";
 
+import { SearchX } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 
@@ -206,9 +208,7 @@ export default function ModelCatalogPage() {
           </div>
         ) : visibleModels.length === 0 ? (
           <div className="flex min-h-64 flex-col items-center justify-center gap-2 p-8 text-center">
-            <span className="material-symbols-outlined text-3xl text-text-muted" aria-hidden="true">
-              search_off
-            </span>
+            <Icon icon={SearchX} size="lg" color="ink-muted" style={{ width: 30, height: 30 }} />
             <p className="font-medium text-text-main">
               {models.length === 0
                 ? text("noModelsFound", "No models are available yet.")

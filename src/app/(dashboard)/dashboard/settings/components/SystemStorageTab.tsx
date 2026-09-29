@@ -1,6 +1,6 @@
 "use client";
 
-import { Braces, BrushCleaning, ChartColumn, Clock, Download, Eraser, FileArchive, FileOutput, HardDriveUpload, History, LoaderCircle, Minimize2, RefreshCw, RotateCcw, ScrollText, SlidersHorizontal, TimerReset, Trash, TriangleAlert, Upload, Wrench } from "lucide-react";
+import { Braces, BrushCleaning, ChartColumn, Clock, Download, Eraser, FileArchive, FileOutput, FolderX, HardDriveUpload, History, LoaderCircle, Minimize2, RefreshCw, RotateCcw, ScrollText, SlidersHorizontal, TimerReset, Trash, TriangleAlert, Upload, Wrench } from "lucide-react";
 import Icon from "@/shared/components/Icon";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Card, Button, Badge, ConfirmModal } from "@/shared/components";
@@ -831,12 +831,7 @@ export default function SystemStorageTab() {
           </div>
         ) : backups.length === 0 ? (
           <div className="text-center py-6 text-text-muted text-sm">
-            <span
-              className="material-symbols-outlined text-[32px] mb-2 block opacity-40"
-              aria-hidden="true"
-            >
-              folder_off
-            </span>
+            <Icon icon={FolderX} size="lg" color="current" className="mb-2 block opacity-40" style={{ width: 32, height: 32 }} />
             {t("noBackupsYet")}
           </div>
         ) : (

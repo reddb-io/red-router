@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowDownToLine, CircleAlert, CircleCheck, Coins, LoaderCircle, Settings, TriangleAlert } from "lucide-react";
+import { ArrowDownToLine, CircleAlert, CircleCheck, Coins, LoaderCircle, SearchX, Settings, TriangleAlert } from "lucide-react";
 import Icon from "@/shared/components/Icon";
 import { useTranslations } from "next-intl";
 
@@ -994,9 +994,7 @@ function ProviderModelsModal({
 
         {models.length === 0 ? (
           <div className="text-center py-6">
-            <span className="material-symbols-outlined text-[32px] text-text-muted mb-2">
-              search_off
-            </span>
+            <Icon icon={SearchX} size="lg" color="ink-muted" className="mb-2" style={{ width: 32, height: 32 }} />
             <p className="text-sm text-text-muted">{t("noModelsAvailable")}</p>
             <p className="text-xs text-text-muted mt-1">
               {t("configureFirst", { providers: ts("providers") })}

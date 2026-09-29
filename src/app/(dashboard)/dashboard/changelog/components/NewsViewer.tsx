@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, BellOff, CircleAlert, RefreshCw } from "lucide-react";
 import Icon from "@/shared/components/Icon";
 import { useEffect, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
@@ -40,9 +40,7 @@ export default function NewsViewer() {
   if (loading) {
     return (
       <div className="flex justify-center py-20">
-        <span className="material-symbols-outlined animate-spin text-[32px] text-text-muted">
-          sync
-        </span>
+        <Icon icon={RefreshCw} size="lg" color="ink-muted" className="animate-spin" style={{ width: 32, height: 32 }} />
       </div>
     );
   }
@@ -50,9 +48,7 @@ export default function NewsViewer() {
   if (error) {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-text-muted">
-        <span className="material-symbols-outlined mb-4 text-[48px] text-red-500/50">
-          error_outline
-        </span>
+        <Icon icon={CircleAlert} size="lg" color="feedback-danger-foreground" className="mb-4" style={{ width: 48, height: 48 }} />
         <p>{t("announcementsLoadFailed")}</p>
       </div>
     );
@@ -61,9 +57,7 @@ export default function NewsViewer() {
   if (news.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-text-muted">
-        <span className="material-symbols-outlined mb-4 text-[48px] opacity-50">
-          notifications_off
-        </span>
+        <Icon icon={BellOff} size="lg" color="current" className="mb-4 opacity-50" style={{ width: 48, height: 48 }} />
         <p>{t("noAnnouncements")}</p>
       </div>
     );

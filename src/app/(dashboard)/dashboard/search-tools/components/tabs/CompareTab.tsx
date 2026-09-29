@@ -1,5 +1,7 @@
 "use client";
 
+import { LoaderCircle } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useCallback } from "react";
 import { useTranslations } from "next-intl";
 import Link from "next/link";
@@ -289,12 +291,7 @@ export default function CompareTab({ providers, onMetrics }: CompareTabProps) {
       {/* Loading */}
       {loading && (
         <div className="flex items-center justify-center py-10" data-testid="compare-loading">
-          <span
-            className="material-symbols-outlined text-[28px] text-primary animate-spin"
-            aria-hidden="true"
-          >
-            progress_activity
-          </span>
+          <Icon icon={LoaderCircle} size="lg" color="primary" className="animate-spin" style={{ width: 28, height: 28 }} />
         </div>
       )}
 

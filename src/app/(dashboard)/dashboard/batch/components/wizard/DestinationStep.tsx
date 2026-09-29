@@ -1,5 +1,7 @@
 "use client";
 
+import { CloudOff } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useTranslations } from "next-intl";
 import Link from "next/link";
 import { BATCH_SUPPORTED_PROVIDERS, SUPPORTED_BATCH_ENDPOINTS } from "@/lib/batches/types";
@@ -32,9 +34,7 @@ export default function DestinationStep({
   if (batchProviders.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-12 gap-4 text-center">
-        <span className="material-symbols-outlined text-4xl text-[var(--color-text-muted)]">
-          cloud_off
-        </span>
+        <Icon icon={CloudOff} size="lg" color="ink-muted" style={{ width: 36, height: 36 }} />
         <p className="text-sm text-[var(--color-text-muted)] max-w-sm">
           {t("wizardEmptyProviders")}
         </p>

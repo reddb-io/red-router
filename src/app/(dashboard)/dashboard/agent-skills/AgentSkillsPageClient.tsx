@@ -1,5 +1,7 @@
 "use client";
 
+import { SearchX } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useTranslations } from "next-intl";
 import { SkillsConceptCard } from "@/shared/components/SkillsConceptCard";
@@ -283,9 +285,7 @@ export function AgentSkillsPageClient(): JSX.Element {
             Array.from({ length: 6 }).map((_, i) => <SkillCardSkeleton key={i} />)
           ) : filteredSkills.length === 0 ? (
             <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border p-8 text-center">
-              <span className="material-symbols-outlined text-[32px] text-text-muted mb-3">
-                search_off
-              </span>
+              <Icon icon={SearchX} size="lg" color="ink-muted" className="mb-3" style={{ width: 32, height: 32 }} />
               <p className="text-sm text-text-muted">{t("noSkillsFound")}</p>
             </div>
           ) : (

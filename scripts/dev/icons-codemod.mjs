@@ -35,14 +35,14 @@ const sizeOf = (tokens) => {
     const px = token.match(/^text-\[(\d+(?:\.\d+)?)px\]$/);
     if (px) {
       const value = Number(px[1]);
-      // Large decorative glyphs (empty states, hero art) keep their own size: not converted here.
-      if (value >= 28) return { skip: true };
+            if (value >= 28) return { size: "lg", used: token, px: value };
       return { size: value <= 14 ? "sm" : value <= 19 ? "md" : "lg", used: token };
     }
     if (/^text-\[length:[^\]]+\]$/.test(token)) return { size: "lg", used: token };
     if (token === "text-xs" || token === "text-sm") return { size: "sm", used: token };
     if (token === "text-base" || token === "text-lg") return { size: "md", used: token };
-    if (/^text-(3xl|4xl|5xl|6xl)$/.test(token)) return { skip: true };
+    const big = { "3xl": 30, "4xl": 36, "5xl": 48, "6xl": 60 }[token.slice(5)];
+    if (token.startsWith("text-") && big) return { size: "lg", used: token, px: big };
     if (/^text-(xl|2xl)$/.test(token)) return { size: "lg", used: token };
   }
   return { size: "lg", used: null };
@@ -77,7 +77,7 @@ export function convertClassName(className) {
   const tokens = className.split(/\s+/).filter(Boolean);
   const sized = sizeOf(tokens.filter((t) => !STATE_VARIANT.test(t)));
   if (sized.skip) return null;
-  const { size, used } = sized;
+  const { size, used, px } = sized;
   let color = null;
   const keep = [];
   for (const token of tokens) {
@@ -95,7 +95,7 @@ export function convertClassName(className) {
     if (TEXT_SIZE.test(token)) continue;
     keep.push(token);
   }
-  return { size, color: color ?? "current", className: keep.join(" ") };
+  return { size, color: color ?? "current", className: keep.join(" "), px };
 }
 
 export function convertSource(source, mapping, filePath = "") {
@@ -116,6 +116,8 @@ export function convertSource(source, mapping, filePath = "") {
     count++;
     const parts = [`icon={${glyph}}`, `size="${converted.size}"`, `color="${converted.color}"`];
     if (converted.className) parts.push(`className="${converted.className}"`);
+    // Large decorative glyphs (empty states, hero art) keep their own pixel size.
+    if (converted.px) parts.push(`style={{ width: ${converted.px}, height: ${converted.px} }}`);
     return `<Icon ${parts.join(" ")} />`;
   });
   if (count === 0) return { text: source, count: 0, glyphs: [] };

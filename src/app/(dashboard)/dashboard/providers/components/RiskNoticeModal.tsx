@@ -1,5 +1,7 @@
 "use client";
 
+import { Info } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useId, useState } from "react";
 import { useTranslations } from "next-intl";
 
@@ -32,12 +34,7 @@ export default function RiskNoticeModal({
     <Modal isOpen onClose={onCancel} title={t("title")} size="md">
       <div className="flex flex-col gap-5">
         <div className="flex items-start gap-3 rounded-lg border border-amber-500/25 bg-amber-500/10 p-4">
-          <span
-            className="material-symbols-outlined mt-0.5 text-[28px] leading-none text-amber-500"
-            aria-hidden="true"
-          >
-            info
-          </span>
+          <Icon icon={Info} size="lg" color="feedback-warning-foreground" className="mt-0.5 leading-none" style={{ width: 28, height: 28 }} />
           <div className="min-w-0 text-text-main">
             <p className="mb-2 text-sm font-semibold">{providerName}</p>
             <p className="whitespace-pre-line text-sm leading-6 text-text-muted">{t(variant)}</p>

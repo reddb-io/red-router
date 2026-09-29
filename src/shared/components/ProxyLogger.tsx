@@ -1,6 +1,6 @@
 "use client";
 
-import { RefreshCw } from "lucide-react";
+import { GlobeLock, RefreshCw } from "lucide-react";
 import Icon from "@/shared/components/Icon";
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useTranslations } from "next-intl";
@@ -463,9 +463,7 @@ export default function ProxyLogger() {
             <div className="p-8 text-center text-text-muted">{t("loadingProxyLogs")}</div>
           ) : logs.length === 0 ? (
             <div className="p-8 text-center text-text-muted">
-              <span className="material-symbols-outlined text-[48px] mb-2 block opacity-40">
-                vpn_lock
-              </span>
+              <Icon icon={GlobeLock} size="lg" color="current" className="mb-2 block opacity-40" style={{ width: 48, height: 48 }} />
               {t("noProxyLogs")}
             </div>
           ) : sortedLogs.length === 0 ? (

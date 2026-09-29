@@ -1,5 +1,7 @@
 "use client";
 
+import { CircleAlert } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import Button from "@/shared/components/Button";
 import LinkifiedText from "@/shared/components/LinkifiedText";
 
@@ -29,7 +31,7 @@ export default function OAuthErrorStep({
   return (
     <div className="text-center py-6">
       <div className="size-16 mx-auto mb-4 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
-        <span className="material-symbols-outlined text-3xl text-red-600">error</span>
+        <Icon icon={CircleAlert} size="lg" color="feedback-danger-foreground" style={{ width: 30, height: 30 }} />
       </div>
       <h3 className="text-lg font-semibold mb-2">{errorTitle}</h3>
       <p className="text-sm text-red-600 mb-4">

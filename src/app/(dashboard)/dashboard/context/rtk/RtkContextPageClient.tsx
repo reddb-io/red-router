@@ -1,6 +1,6 @@
 "use client";
 
-import { Info } from "lucide-react";
+import { Funnel, Info } from "lucide-react";
 import Icon from "@/shared/components/Icon";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
@@ -159,7 +159,7 @@ export default function RtkContextPageClient() {
       <header className="flex flex-col gap-2">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <span className="material-symbols-outlined text-[30px] text-primary">filter_alt</span>
+            <Icon icon={Funnel} size="lg" color="primary" style={{ width: 30, height: 30 }} />
             <div>
               <h1 className="text-2xl font-bold text-text-main">{t("title")}</h1>
               <p className="text-sm text-text-muted">{t("description")}</p>

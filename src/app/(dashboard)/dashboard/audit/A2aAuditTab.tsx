@@ -1,5 +1,7 @@
 "use client";
 
+import { Waypoints } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import { Card } from "@/shared/components";
@@ -151,9 +153,7 @@ export default function A2aAuditTab() {
           <div className="p-8 text-center text-sm text-text-muted">{t("a2aLoadingTasks")}</div>
         ) : data.tasks.length === 0 ? (
           <div className="p-10 text-center">
-            <span className="material-symbols-outlined text-[40px] text-text-muted">
-              device_hub
-            </span>
+            <Icon icon={Waypoints} size="lg" color="ink-muted" style={{ width: 40, height: 40 }} />
             <p className="mt-3 text-sm text-text-muted">{t("a2aNoTasks")}</p>
           </div>
         ) : (

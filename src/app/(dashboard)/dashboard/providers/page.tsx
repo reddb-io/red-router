@@ -1,6 +1,6 @@
 "use client";
 
-import { CircleQuestionMark, Puzzle, SearchX, X } from "lucide-react";
+import { CircleAlert, CircleQuestionMark, Puzzle, SearchX, X } from "lucide-react";
 import Icon from "@/shared/components/Icon";
 import { useState, useEffect, useCallback, useMemo, Suspense } from "react";
 import { Card, CardSkeleton, Badge, Button, CollapsibleSection } from "@/shared/components";
@@ -1938,7 +1938,7 @@ function ProviderTestResultsView({ results }: { results: ProviderBatchTestResult
   if (results.error && (!results.results || results.results.length === 0)) {
     return (
       <div className="text-center py-6">
-        <span className="material-symbols-outlined text-red-500 text-[32px] mb-2 block">error</span>
+        <Icon icon={CircleAlert} size="lg" color="feedback-danger-foreground" className="mb-2 block" style={{ width: 32, height: 32 }} />
         <p className="text-sm text-red-400">
           {typeof results.error === "object"
             ? results.error?.message || JSON.stringify(results.error)

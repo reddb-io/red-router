@@ -1,5 +1,7 @@
 "use client";
 
+import { CircleCheck } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useTranslations } from "next-intl";
 
@@ -1164,9 +1166,7 @@ export default function OAuthModal({
         {step === "success" && (
           <div className="text-center py-6">
             <div className="size-16 mx-auto mb-4 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
-              <span className="material-symbols-outlined text-3xl text-green-600">
-                check_circle
-              </span>
+              <Icon icon={CircleCheck} size="lg" color="feedback-success-foreground" style={{ width: 30, height: 30 }} />
             </div>
             <h3 className="text-lg font-semibold mb-2">{t("success")}</h3>
             <p className="text-sm text-text-muted mb-4">

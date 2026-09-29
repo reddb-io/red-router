@@ -1,4 +1,4 @@
-import { Info } from "lucide-react";
+import { Construction, Info } from "lucide-react";
 import Icon from "@/shared/components/Icon";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
@@ -9,9 +9,7 @@ export default function MaintenancePage() {
   return (
     <main className="min-h-screen text-text-main flex items-center justify-center p-6">
       <section className="w-full max-w-xl rounded-2xl border border-border bg-surface p-8 shadow-soft text-center">
-        <span className="material-symbols-outlined text-5xl text-primary mb-3" aria-hidden="true">
-          construction
-        </span>
+        <Icon icon={Construction} size="lg" color="primary" className="mb-3" style={{ width: 48, height: 48 }} />
         <h1 className="text-2xl font-semibold">{t("maintenance.title")}</h1>
         <p className="mt-3 text-text-muted leading-relaxed">{t("maintenance.description")}</p>
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { Info, ScanEye } from "lucide-react";
+import { Info, Key, ScanEye } from "lucide-react";
 import Icon from "@/shared/components/Icon";
 import { useState, useEffect } from "react";
 import Link from "next/link";
@@ -179,7 +179,7 @@ export default function MediaProviderPageClient({
           <div className="py-8 text-center text-sm text-text-muted">{t("loading")}</div>
         ) : connections.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-2 py-12 border border-dashed border-border rounded-xl text-text-muted text-sm">
-            <span className="material-symbols-outlined text-[28px]">key_off</span>
+            <Icon icon={Key} size="lg" color="current" style={{ width: 28, height: 28 }} />
             <span>{t("noConnections")}</span>
             <Button
               size="sm"

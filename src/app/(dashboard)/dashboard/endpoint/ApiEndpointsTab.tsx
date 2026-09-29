@@ -1,6 +1,6 @@
 "use client";
 
-import { Braces, CircleAlert, Download, ExternalLink, Folder, Lock, Plug, ScrollText } from "lucide-react";
+import { Braces, CircleAlert, Download, ExternalLink, Folder, Lock, Plug, ScrollText, SearchX } from "lucide-react";
 import Icon from "@/shared/components/Icon";
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { useTranslations } from "next-intl";
@@ -720,9 +720,7 @@ export default function ApiEndpointsTab() {
 
           {filteredEndpoints.length === 0 && (
             <Card className="p-8 text-center">
-              <span className="material-symbols-outlined text-[32px] text-text-muted">
-                search_off
-              </span>
+              <Icon icon={SearchX} size="lg" color="ink-muted" style={{ width: 32, height: 32 }} />
               <p className="text-sm text-text-muted mt-2">{t("apiEndpointsNoMatch")}</p>
             </Card>
           )}

@@ -7,7 +7,7 @@
 
 "use client";
 
-import { CircleCheck, LoaderCircle, Network } from "lucide-react";
+import { CircleCheck, Compass, LoaderCircle, Network, SearchX } from "lucide-react";
 import Icon from "@/shared/components/Icon";
 import { useTranslations } from "next-intl";
 import { useEffect, useState } from "react";
@@ -166,7 +166,7 @@ export default function SearchAnalyticsTab() {
   if (error || !stats) {
     return (
       <div className="card p-6 text-center text-text-muted">
-        <span className="material-symbols-outlined text-[32px] mb-2 block">search_off</span>
+        <Icon icon={SearchX} size="lg" color="current" className="mb-2 block" style={{ width: 32, height: 32 }} />
         {error || t("searchAnalyticsNoData")}
         <p className="text-xs mt-2">
           {t.rich("searchAnalyticsNoDataDescription", {
@@ -238,9 +238,7 @@ export default function SearchAnalyticsTab() {
       {/* Empty state */}
       {stats.total === 0 && (
         <div className="card p-8 text-center text-text-muted">
-          <span className="material-symbols-outlined text-[48px] mb-3 block text-primary opacity-50">
-            travel_explore
-          </span>
+          <Icon icon={Compass} size="lg" color="primary" className="mb-3 block opacity-50" style={{ width: 48, height: 48 }} />
           <p className="font-medium text-text">{t("searchAnalyticsNoSearchesYet")}</p>
           <p className="text-sm mt-1">
             {t.rich("searchAnalyticsEmptyDescription", {

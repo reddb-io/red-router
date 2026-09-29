@@ -1,6 +1,6 @@
 "use client";
 
-import { Download, X } from "lucide-react";
+import { Download, ShieldCheck, X } from "lucide-react";
 import Icon from "@/shared/components/Icon";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
@@ -306,7 +306,7 @@ export default function ComplianceTab() {
           <div className="p-8 text-center text-sm text-text-muted">{t("loading")}</div>
         ) : visibleEntries.length === 0 ? (
           <div className="p-10 text-center">
-            <span className="material-symbols-outlined text-[40px] text-text-muted">policy</span>
+            <Icon icon={ShieldCheck} size="lg" color="ink-muted" style={{ width: 40, height: 40 }} />
             <p className="mt-3 text-sm text-text-muted">{t("noEvents")}</p>
           </div>
         ) : (

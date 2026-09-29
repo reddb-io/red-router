@@ -12,7 +12,7 @@
  * - Latency telemetry & prompt cache
  */
 
-import { Bandage, CircleQuestionMark, Clock, Cpu, Database, Gauge, HeartPulse, LoaderCircle, Lock, LockOpen, Play, Radar, RefreshCw, RotateCcw, Server, Timer, Users } from "lucide-react";
+import { Bandage, CircleAlert, CircleQuestionMark, Clock, Cpu, Database, Gauge, HeartPulse, LoaderCircle, Lock, LockOpen, Play, Radar, RefreshCw, RotateCcw, Server, Timer, Users } from "lucide-react";
 import Icon from "@/shared/components/Icon";
 import { useState, useEffect, useCallback } from "react";
 
@@ -222,7 +222,7 @@ export default function HealthPage() {
     return (
       <div>
         <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-6 text-center">
-          <span className="material-symbols-outlined text-red-500 text-[32px] mb-2">error</span>
+          <Icon icon={CircleAlert} size="lg" color="feedback-danger-foreground" className="mb-2" style={{ width: 32, height: 32 }} />
           <p className="text-red-400">{t("failedToLoad", { error })}</p>
           <button
             onClick={fetchHealth}

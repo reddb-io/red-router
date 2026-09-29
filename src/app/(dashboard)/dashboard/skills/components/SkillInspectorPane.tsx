@@ -1,6 +1,6 @@
 "use client";
 
-import { Sparkles } from "lucide-react";
+import { ScanSearch, Sparkles } from "lucide-react";
 import Icon from "@/shared/components/Icon";
 import { useState, useEffect } from "react";
 import { useLocale, useTranslations } from "next-intl";
@@ -96,7 +96,7 @@ export function SkillInspectorPane({
   if (!selectedSkillId || !skill) {
     return (
       <div className="flex flex-col items-center justify-center h-full min-h-[300px] text-text-muted text-sm text-center p-6">
-        <span className="material-symbols-outlined text-[40px] mb-3 opacity-30">manage_search</span>
+        <Icon icon={ScanSearch} size="lg" color="current" className="mb-3 opacity-30" style={{ width: 40, height: 40 }} />
         <span>{t("selectSkillToInspect")}</span>
       </div>
     );

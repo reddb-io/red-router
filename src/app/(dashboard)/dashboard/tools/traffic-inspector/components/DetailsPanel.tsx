@@ -1,5 +1,7 @@
 "use client";
 
+import { Info } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState } from "react";
 import { useTranslations } from "next-intl";
 import type { InterceptedRequest } from "@/mitm/inspector/types";
@@ -45,9 +47,7 @@ export function DetailsPanel({ request, allRequests }: DetailsPanelProps) {
     return (
       <div className="h-full flex items-center justify-center text-text-muted">
         <div className="text-center space-y-2">
-          <span className="material-symbols-outlined text-[36px] block" aria-hidden="true">
-            info
-          </span>
+          <Icon icon={Info} size="lg" color="current" className="block" style={{ width: 36, height: 36 }} />
           <p className="text-sm">{t("selectRequest")}</p>
         </div>
       </div>

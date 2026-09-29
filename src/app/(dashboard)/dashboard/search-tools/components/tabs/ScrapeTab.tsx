@@ -1,5 +1,7 @@
 "use client";
 
+import { LoaderCircle } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
@@ -132,12 +134,7 @@ export default function ScrapeTab({ configState, onMetrics }: ScrapeTabProps) {
       {/* Loading spinner */}
       {loading && (
         <div className="flex items-center justify-center py-12" data-testid="scrape-loading">
-          <span
-            className="material-symbols-outlined text-[32px] text-primary animate-spin"
-            aria-hidden="true"
-          >
-            progress_activity
-          </span>
+          <Icon icon={LoaderCircle} size="lg" color="primary" className="animate-spin" style={{ width: 32, height: 32 }} />
         </div>
       )}
 

@@ -2,7 +2,7 @@
 
 // src/app/(dashboard)/dashboard/playground/components/tabs/CompareTab.tsx
 
-import { Play, Plus, Square } from "lucide-react";
+import { GitCompare, Play, Plus, Square } from "lucide-react";
 import Icon from "@/shared/components/Icon";
 import { useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
@@ -442,9 +442,7 @@ export default function CompareTab({ configState }: CompareTabProps) {
         {columns.length === 0 && (
           <div className="flex items-center justify-center h-full text-text-muted col-span-4">
             <div className="text-center space-y-2">
-              <span className="material-symbols-outlined text-[48px] text-text-muted/30">
-                compare
-              </span>
+              <Icon icon={GitCompare} size="lg" color="ink-muted" style={{ width: 48, height: 48 }} />
               <p className="text-sm">{t("addModelToCompare")}</p>
               <p className="text-xs text-text-muted/60">
                 {t("modelsSimultaneously", { max: MAX_COLUMNS })}
