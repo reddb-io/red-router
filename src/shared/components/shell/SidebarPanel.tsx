@@ -23,6 +23,15 @@ export interface PanelItem {
   entryId: string;
   /** Rows sharing a group are listed under its micro-label. */
   group?: string;
+  /** The entry's pages, listed under it when it is expanded (an entry with one page has none). */
+  pages?: readonly PanelPage[];
+}
+
+export interface PanelPage {
+  id: string;
+  href: string;
+  label: string;
+  external: boolean;
 }
 
 export interface PanelBlock {
@@ -37,6 +46,10 @@ interface SidebarPanelProps {
   title: string;
   blocks: readonly PanelBlock[];
   activeEntryId: string | null;
+  /** The page being viewed, so it is the selected row inside its expanded entry. */
+  activeHref: string | null;
+  expandedEntryIds: ReadonlySet<string>;
+  onToggleEntry: (id: string) => void;
   pinnedIds: ReadonlySet<string>;
   onTogglePin: (id: string) => void;
   onNavigate?: () => void;
@@ -63,6 +76,9 @@ export default function SidebarPanel({
   title,
   blocks,
   activeEntryId,
+  activeHref,
+  expandedEntryIds,
+  onToggleEntry,
   pinnedIds,
   onTogglePin,
   onNavigate,
@@ -79,14 +95,51 @@ export default function SidebarPanel({
 }: SidebarPanelProps) {
   const slots = sidebarNavigation();
 
+  const linkClass =
+    "flex min-h-[var(--reddb-spatial-control-height-md)] min-w-0 flex-1 items-center gap-[var(--reddb-spatial-gap-md)] px-[var(--reddb-spatial-inset-sm)]";
+
+  const renderPage = (page: PanelPage, entryId: string) => {
+    const active = !page.external && activeHref === page.href;
+    return (
+      <li key={`${entryId}-${page.href}`}>
+        {page.external ? (
+          <a
+            href={page.href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={navItem({ active }).root({
+              class: "min-h-[var(--reddb-spatial-control-height-md)]",
+            })}
+            onClick={onNavigate}
+          >
+            <span className="truncate text-[13px]">{page.label}</span>
+          </a>
+        ) : (
+          <Link
+            href={page.href}
+            prefetch={false}
+            aria-current={active ? "page" : undefined}
+            className={navItem({ active }).root({
+              class: "min-h-[var(--reddb-spatial-control-height-md)]",
+            })}
+            onClick={onNavigate}
+          >
+            <span className="truncate text-[13px]">{page.label}</span>
+          </Link>
+        )}
+      </li>
+    );
+  };
+
   const renderRow = (item: PanelItem) => {
-    const active = !item.external && activeEntryId === item.entryId;
+    const pages = item.pages && item.pages.length > 1 ? item.pages : null;
+    const expanded = Boolean(pages) && expandedEntryIds.has(item.id);
     const pinned = pinnedIds.has(item.id);
+    // An open entry marks the page inside it as current; a closed one marks itself.
+    const active = !item.external && activeEntryId === item.entryId && !expanded;
     const rowClass = navItem({ active }).root({
       class: "group/nav-item relative min-h-[var(--reddb-spatial-control-height-md)] px-0 py-0",
     });
-    const linkClass =
-      "flex min-h-[var(--reddb-spatial-control-height-md)] min-w-0 flex-1 items-center gap-[var(--reddb-spatial-gap-md)] px-[var(--reddb-spatial-inset-sm)]";
     const content = (
       <>
         <Icon icon={navIcon(item.icon)} size="md" color="current" />
@@ -131,7 +184,8 @@ export default function SidebarPanel({
                 onTogglePin(item.id);
               }}
               className={cn(
-                "absolute end-1 top-1/2 -translate-y-1/2 rounded p-0.5 text-ink-muted transition-opacity",
+                "absolute top-1/2 -translate-y-1/2 rounded p-0.5 text-ink-muted transition-opacity",
+                pages ? "end-7" : "end-1",
                 "hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
                 pinned ? "opacity-100" : "opacity-0 group-hover/nav-item:opacity-100"
               )}
@@ -139,7 +193,37 @@ export default function SidebarPanel({
               <Icon icon={navIcon(pinned ? "PinOff" : "Pin")} size="sm" color="current" />
             </button>
           )}
+          {pages && (
+            <button
+              type="button"
+              aria-expanded={expanded}
+              aria-label={`${item.label}: ${expanded ? "collapse" : "expand"}`}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                onToggleEntry(item.id);
+              }}
+              className="absolute end-1 top-1/2 -translate-y-1/2 rounded p-0.5 text-ink-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            >
+              <Icon
+                icon={navIcon(expanded ? "ChevronDown" : "ChevronRight")}
+                size="sm"
+                color="current"
+              />
+            </button>
+          )}
         </div>
+        {expanded && pages && (
+          <ul
+            className={cn(
+              slots.list(),
+              "mt-[var(--reddb-spatial-gap-sm)] ms-[calc(var(--reddb-spatial-inset-sm)+var(--reddb-spatial-icon-size-md)/2)]",
+              "border-s border-elevation-sunken-border ps-[var(--reddb-spatial-gap-md)]"
+            )}
+          >
+            {pages.map((page) => renderPage(page, item.id))}
+          </ul>
+        )}
       </li>
     );
   };

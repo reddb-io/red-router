@@ -73,6 +73,12 @@ function readStoredPinnedItemsRaw() {
 }
 
 const entryItem = (entry: ResolvedNavEntry): PanelItem => ({
+  pages: entry.tabs.map((page) => ({
+    id: page.id ?? page.href,
+    href: page.href,
+    label: page.label,
+    external: page.external === true,
+  })),
   id: entry.id,
   href: entry.href,
   label: entry.label,
@@ -118,6 +124,8 @@ export default function Sidebar({
   const [pinnedItems, setPinnedItems] = useState<Set<string>>(new Set());
   const [pinnedLoaded, setPinnedLoaded] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  // Entries whose pages are listed under them; the one being viewed opens by itself.
+  const [expandedEntries, setExpandedEntries] = useState<Set<string>>(new Set());
   // The area the operator is browsing on the rail; null follows the current page.
   const [browsedArea, setBrowsedArea] = useState<string | null>(null);
   const [prevPathname, setPrevPathname] = useState(pathname);
@@ -199,6 +207,24 @@ export default function Sidebar({
 
   const match = findNavMatch(pathname, sections);
   const activeEntryId = match?.entry.id ?? null;
+  const activeHref = match?.tab.href ?? null;
+  const [prevActiveEntryId, setPrevActiveEntryId] = useState<string | null>(null);
+  if (activeEntryId !== prevActiveEntryId) {
+    setPrevActiveEntryId(activeEntryId);
+    if (activeEntryId) {
+      setExpandedEntries((prev) =>
+        prev.has(activeEntryId) ? prev : new Set([...prev, activeEntryId])
+      );
+    }
+  }
+  const toggleEntry = useCallback((id: string) => {
+    setExpandedEntries((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
   const currentAreaId = match?.section.id ?? sections[0]?.id ?? null;
   const selectedAreaId = browsedArea ?? currentAreaId;
   const selectedSection = sections.find((section) => section.id === selectedAreaId) ?? sections[0];
@@ -381,6 +407,9 @@ export default function Sidebar({
             title={selectedSection?.title ?? brandName}
             blocks={blocks}
             activeEntryId={activeEntryId}
+            activeHref={activeHref}
+            expandedEntryIds={expandedEntries}
+            onToggleEntry={toggleEntry}
             pinnedIds={pinnedItems}
             onTogglePin={togglePinItem}
             onNavigate={onClose}
