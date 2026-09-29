@@ -1,4 +1,5 @@
 import { PROVIDER_MODELS, PROVIDER_ID_TO_ALIAS } from "@/shared/constants/models";
+import { PROVIDER_COMPATIBILITY_ALIASES } from "@/shared/constants/providerCompatibilityAliases";
 import { AI_PROVIDERS } from "@/shared/constants/providers";
 import { isNoAuthProviderKey } from "@/shared/utils/noAuthProviders";
 import { parseModel, resolveCanonicalProviderModel } from "@omniroute/open-sse/services/model";
@@ -67,6 +68,11 @@ export function buildAliasMaps() {
     if (!aliasToProviderId[alias]) aliasToProviderId[alias] = providerId;
     if (!aliasToProviderId[providerId]) aliasToProviderId[providerId] = providerId;
     if (!providerIdToAlias[providerId]) providerIdToAlias[providerId] = alias;
+  }
+
+  // Historical ids and aliases never override an alias this build already owns.
+  for (const [alias, providerId] of Object.entries(PROVIDER_COMPATIBILITY_ALIASES)) {
+    if (!aliasToProviderId[alias]) aliasToProviderId[alias] = providerId;
   }
 
   return { aliasToProviderId, providerIdToAlias };
