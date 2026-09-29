@@ -2,13 +2,14 @@
 
 import { Ban, OctagonAlert, Plug, Shield, TriangleAlert, X } from "lucide-react";
 import Icon from "@/shared/components/Icon";
-import { useState, useEffect } from "react";
+import { Suspense, useState, useEffect } from "react";
 import { Card, Button, Input, Toggle, Modal } from "@/shared/components";
 import { AI_PROVIDERS } from "@/shared/constants/providers";
 import ProviderIcon from "@/shared/components/ProviderIcon";
 import IPFilterSection from "./IPFilterSection";
 import SessionInfoCard from "./SessionInfoCard";
 import AuthzSection from "./AuthzSection";
+import OidcSection from "./OidcSection";
 import { useTranslations } from "next-intl";
 
 export default function SecurityTab() {
@@ -155,7 +156,13 @@ export default function SecurityTab() {
         setPasswords({ current: "", new: "", confirm: "" });
         setSettings((prev: any) => ({ ...prev, hasPassword: true }));
       } else {
-        setPassStatus({ type: "error", message: data.error || t("failedUpdatePassword") });
+        setPassStatus({
+          type: "error",
+          message:
+            typeof data.error === "string"
+              ? data.error
+              : data.error?.message || t("failedUpdatePassword"),
+        });
       }
     } catch {
       setPassStatus({ type: "error", message: t("errorOccurred") });
@@ -277,6 +284,22 @@ export default function SecurityTab() {
               </div>
             </form>
           )}
+          <div className="mt-4 flex items-center justify-between border-t border-elevation-sunken-border pt-4">
+            <div>
+              <p className="font-medium">Check new passwords against known breaches</p>
+              <p className="text-sm text-text-muted">
+                Asks Have I Been Pwned with only the first five characters of the password&apos;s
+                hash. Off by default; if the service is unreachable the change goes through.
+              </p>
+            </div>
+            <Toggle
+              checked={settings.passwordBreachCheckEnabled === true}
+              onChange={() =>
+                updateSetting("passwordBreachCheckEnabled", !settings.passwordBreachCheckEnabled)
+              }
+              disabled={loading}
+            />
+          </div>
         </div>
       </Card>
 
@@ -491,6 +514,9 @@ export default function SecurityTab() {
         </div>
       </Card>
 
+      <Suspense fallback={null}>
+        <OidcSection />
+      </Suspense>
       <AuthzSection />
       <SessionInfoCard />
     </div>

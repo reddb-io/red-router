@@ -108,6 +108,7 @@ export const updateSettingsSchema = z.object({
   theme: z.string().max(50).optional(),
   language: z.string().max(10).optional(),
   requireLogin: z.boolean().optional(),
+  passwordBreachCheckEnabled: z.boolean().optional(),
   oidcEnabled: z.boolean().optional(),
   oidcDisablePasswordLogin: z.boolean().optional(),
   oidcIssuer: z.string().max(500).optional(),

@@ -271,3 +271,25 @@ export async function resetManagementPassword(
     db.close();
   }
 }
+
+/**
+ * Recovery for a locked-out operator: switch single sign-on off (OIDC and SAML) and turn password
+ * login back on, without touching the stored password. Returns whether a password is set, so the
+ * caller can tell the operator to set one when there is none.
+ */
+export async function disableSingleSignOn(dbPath = resolveStoragePath(resolveDataDir())) {
+  const db = await openSqliteDatabase(dbPath);
+  try {
+    db.pragma("journal_mode = WAL");
+    ensureSettingsSchema(db);
+    updateSettings(db, {
+      oidcEnabled: false,
+      oidcDisablePasswordLogin: false,
+      oidcLastTestSucceededAt: null,
+      samlEnabled: false,
+      samlDisablePasswordLogin: false,
+    });
+  } finally {
+    db.close();
+  }
+}

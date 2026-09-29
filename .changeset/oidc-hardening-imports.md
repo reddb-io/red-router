@@ -1,0 +1,5 @@
+---
+"@reddb-io/red-router": minor
+---
+
+Single sign-on and credential import, ported from 9router. OIDC login now uses PKCE (S256), a nonce bound to the browser and random state; Settings → Security gains an OIDC card with a connection check and a real test sign-in, and password login can only be switched off after a test sign-in has worked (changing the OIDC setup makes the test stale). If you are ever locked out, `red-router reset-password --disable-sso` switches SSO off and password login back on. New passwords must meet a local policy (at least 8 characters, not common or repetitive), with an opt-in breach check that sends only a five-character hash prefix to Have I Been Pwned and never blocks a change when the service is unreachable. New management-authenticated import routes: GitLab Duo by personal access token, iFlow by `BXAuth` cookie, and Grok CLI in bulk with per-item results and no tokens echoed. Not ported: 9router's local HTTP password-reset route (a browser-reachable reset is a CSRF risk; the CLI covers it) and its progressive login lockout (RedRouter's login guard already locks after repeated failures).

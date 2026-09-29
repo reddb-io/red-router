@@ -174,6 +174,7 @@ export async function getSettings() {
     maxRetryIntervalSec: 30,
     antigravitySignatureCacheMode: "enabled",
     requireLogin: true,
+    passwordBreachCheckEnabled: false, // opt-in: ask Have I Been Pwned (k-anonymity) on password change
     oidcEnabled: false,
     oidcDisablePasswordLogin: false,
     oidcIssuer: "",

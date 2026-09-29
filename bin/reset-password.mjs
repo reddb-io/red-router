@@ -11,6 +11,10 @@
  *   printf 'NewPass123\nNewPass123\n' | omniroute reset-password
  *   printf 'NewPass123' | omniroute reset-password --password-stdin
  *
+ * Locked out after turning password login off for single sign-on:
+ *   red-router reset-password --disable-sso
+ * switches OIDC/SAML off and password login back on, keeping the stored password.
+ *
  * Resets the admin password for OmniRoute.
  * Prompts for a new password (interactive TTY) or reads it from stdin
  * (non-TTY) and updates the database directly.
@@ -20,7 +24,11 @@
 
 import { createInterface } from "node:readline";
 import { resolveDataDir, resolveStoragePath } from "./cli/data-dir.mjs";
-import { readManagementPasswordState, resetManagementPassword } from "./cli/sqlite.mjs";
+import {
+  disableSingleSignOn,
+  readManagementPasswordState,
+  resetManagementPassword,
+} from "./cli/sqlite.mjs";
 
 // Resolve data directory — same logic as the server
 const DATA_DIR = resolveDataDir();
@@ -93,6 +101,16 @@ async function main() {
     console.error(`   Make sure RedRouter has been started at least once.`);
     console.error(`   Or set DATA_DIR env var to your data directory.\n`);
     process.exit(1);
+  }
+
+  if (process.argv.includes("--disable-sso")) {
+    await disableSingleSignOn(DB_PATH);
+    console.log("\n✅ Single sign-on is off and password login is on again.");
+    if (!passwordState.hasPassword) {
+      console.log("   No password is set yet: run `reset-password` again to set one.");
+    }
+    console.log("   Restart RedRouter for changes to take effect.\n");
+    process.exit(0);
   }
 
   if (passwordState.hasPassword) {

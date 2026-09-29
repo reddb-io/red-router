@@ -48,6 +48,12 @@ import {
   AUTHZ_HEADER_PEER_LOCALITY,
 } from "@/server/authz/headers";
 import { readSubjectFromHeaders } from "@/server/authz/assertAuth";
+import { OIDC_CONFIG_KEYS, OIDC_LAST_TEST_SETTING } from "@/lib/auth/oidcFlow";
+import {
+  PASSWORD_POLICY_MESSAGES,
+  breachCount,
+  checkPasswordPolicy,
+} from "@/lib/auth/passwordPolicy";
 
 /**
  * Force this route to run dynamically per-request and never be cached/prerendered.
@@ -346,6 +352,37 @@ export async function PATCH(request: Request) {
       }) as typeof body.modelLockout;
     }
 
+    // A new password has to meet the local policy, and, when the operator opted in, must not
+    // appear in known breaches. Both run before the current-password gate so a weak choice is
+    // reported without another round trip; neither reveals anything about the stored password.
+    if (typeof body.newPassword === "string" && body.newPassword) {
+      const failure = checkPasswordPolicy(body.newPassword);
+      if (failure) {
+        emitSettingsFailureAudit(request, actor, "PASSWORD_POLICY", attemptedKeys);
+        return NextResponse.json(
+          { error: { code: "PASSWORD_POLICY", message: PASSWORD_POLICY_MESSAGES[failure] } },
+          { status: 400 }
+        );
+      }
+      const policySettings = (await getSettings()) as Record<string, unknown>;
+      if (policySettings.passwordBreachCheckEnabled === true) {
+        const seen = await breachCount(body.newPassword);
+        if (seen !== null && seen > 0) {
+          emitSettingsFailureAudit(request, actor, "PASSWORD_BREACHED", attemptedKeys);
+          return NextResponse.json(
+            {
+              error: {
+                code: "PASSWORD_BREACHED",
+                message:
+                  "That password appears in known data breaches. Choose a different one.",
+              },
+            },
+            { status: 400 }
+          );
+        }
+      }
+    }
+
     if (body.oidcEnabled === true) {
       const current = await getSettings();
       const subjects = Array.isArray(body.oidcAllowedSubjects)
@@ -365,6 +402,32 @@ export async function PATCH(request: Request) {
           { status: 400 }
         );
       }
+    }
+
+    // Switching password login off is a lock-out risk, so it needs a working OIDC sign-in first:
+    // the "test sign-in" stamps this setting and a real change to the OIDC configuration clears it.
+    if (body.oidcDisablePasswordLogin === true || OIDC_CONFIG_KEYS.some((key) => key in body)) {
+      const current = (await getSettings()) as Record<string, unknown>;
+      if (body.oidcDisablePasswordLogin === true && current.oidcDisablePasswordLogin !== true) {
+        if (typeof current[OIDC_LAST_TEST_SETTING] !== "string") {
+          emitSettingsFailureAudit(request, actor, "OIDC_TEST_REQUIRED", attemptedKeys);
+          return NextResponse.json(
+            {
+              error: {
+                code: "OIDC_TEST_REQUIRED",
+                message:
+                  "Run a successful OIDC test sign-in before turning password login off, so you cannot lock yourself out.",
+              },
+            },
+            { status: 400 }
+          );
+        }
+      }
+      const incoming = body as Record<string, unknown>;
+      const configChanged = OIDC_CONFIG_KEYS.some(
+        (key) => key in incoming && JSON.stringify(incoming[key]) !== JSON.stringify(current[key])
+      );
+      if (configChanged) incoming[OIDC_LAST_TEST_SETTING] = null;
     }
 
     // VALIDATED body so we never trip on stray unknown keys. If any security

@@ -5,6 +5,13 @@ import { jwtVerify, createRemoteJWKSet } from "jose";
 import { cookies } from "next/headers";
 import { timingSafeCompare } from "@/shared/utils/timingSafeCompare";
 import {
+  OIDC_LAST_TEST_SETTING,
+  OIDC_NONCE_COOKIE,
+  OIDC_STATE_COOKIE,
+  OIDC_TEST_COOKIE,
+  OIDC_VERIFIER_COOKIE,
+} from "@/lib/auth/oidcFlow";
+import {
   getDashboardJwtSecret,
   mintDashboardSessionToken,
 } from "@/shared/utils/dashboardSessionToken";
@@ -53,27 +60,41 @@ export async function GET(request: Request) {
   const hostEarly = request.headers.get("host") || request.headers.get("Host") || reqUrlEarly.host;
   const originEarly = `${schemeEarly}://${hostEarly}`;
 
-  if (!code || !returnedState) {
-    return NextResponse.redirect(new URL("/login?oidc_error=missing_code", originEarly));
-  }
-
   // Validate state from cookie (via seam so tests can capture)
   const cookieStore = await oidcCallbackInternals.getCookieStore();
-  const storedState = cookieStore.get("oidc_state")?.value;
+  // A test sign-in (started from Settings) reports back there and never opens a session.
+  const testMode = cookieStore.get(OIDC_TEST_COOKIE)?.value === "1";
+  const failTo = (reason: string) =>
+    NextResponse.redirect(
+      new URL(
+        testMode ? `/dashboard/settings/security?oidc_test=${reason}` : `/login?oidc_error=${reason}`,
+        originEarly
+      )
+    );
+
+  if (!code || !returnedState) {
+    return failTo("missing_code");
+  }
+
+  const storedState = cookieStore.get(OIDC_STATE_COOKIE)?.value;
+  const storedNonce = cookieStore.get(OIDC_NONCE_COOKIE)?.value;
+  const storedVerifier = cookieStore.get(OIDC_VERIFIER_COOKIE)?.value;
   // Constant-time: `!==` short-circuits on the first differing byte, so
   // rejection time correlates with matching-prefix length (GHSA-7434-6q4c-33fh).
   // The sibling OAuth callback already compares `state` this way.
   if (!storedState || !timingSafeCompare(storedState, returnedState)) {
-    return NextResponse.redirect(new URL("/login?oidc_error=invalid_state", originEarly));
+    return failTo("invalid_state");
   }
 
-  // Clear state cookie
-  cookieStore.set("oidc_state", "", {
-    httpOnly: true,
-    sameSite: "lax",
-    path: "/",
-    maxAge: 0,
-  });
+  // The flow cookies are single-use: clear them whatever the outcome.
+  for (const name of [
+    OIDC_STATE_COOKIE,
+    OIDC_NONCE_COOKIE,
+    OIDC_VERIFIER_COOKIE,
+    OIDC_TEST_COOKIE,
+  ]) {
+    cookieStore.set(name, "", { httpOnly: true, sameSite: "lax", path: "/", maxAge: 0 });
+  }
 
   const settings = await getCachedSettings();
 
@@ -89,7 +110,7 @@ export async function GET(request: Request) {
       : "/api/auth/oidc/callback";
 
   if (!enabled || !rawIssuer || !clientId || !clientSecret) {
-    return NextResponse.redirect(new URL("/login?oidc_error=not_configured", originEarly));
+    return failTo("not_configured");
   }
 
   // Compute absolute redirect_uri matching what we sent
@@ -138,6 +159,8 @@ export async function GET(request: Request) {
     client_id: clientId,
     client_secret: clientSecret,
   });
+  // PKCE: prove this is the browser that started the flow.
+  if (storedVerifier) tokenParams.set("code_verifier", storedVerifier);
 
   let tokenResp: Response;
   try {
@@ -148,28 +171,28 @@ export async function GET(request: Request) {
       signal: AbortSignal.timeout(10000),
     });
   } catch {
-    return NextResponse.redirect(new URL("/login?oidc_error=token_exchange", originEarly));
+    return failTo("token_exchange");
   }
 
   if (!tokenResp.ok) {
-    return NextResponse.redirect(new URL("/login?oidc_error=token_exchange", originEarly));
+    return failTo("token_exchange");
   }
 
   let tokenData: unknown;
   try {
     tokenData = await tokenResp.json();
   } catch {
-    return NextResponse.redirect(new URL("/login?oidc_error=token_response", originEarly));
+    return failTo("token_response");
   }
 
   if (!tokenData || typeof tokenData !== "object") {
-    return NextResponse.redirect(new URL("/login?oidc_error=token_response", originEarly));
+    return failTo("token_response");
   }
 
   const td = tokenData as Record<string, unknown>;
   const idToken = typeof td.id_token === "string" ? td.id_token : undefined;
   if (!idToken) {
-    return NextResponse.redirect(new URL("/login?oidc_error=no_id_token", originEarly));
+    return failTo("no_id_token");
   }
 
   // Validate ID token
@@ -193,6 +216,16 @@ export async function GET(request: Request) {
       audience: clientId,
     });
 
+    // The nonce we sent with the authorization request must come back in the ID token, so a
+    // token minted for another browser session cannot be replayed here. A flow started by an
+    // older build has no nonce cookie and is checked by state alone.
+    if (storedNonce) {
+      const tokenNonce = typeof payload.nonce === "string" ? payload.nonce : "";
+      if (!tokenNonce || !timingSafeCompare(storedNonce, tokenNonce)) {
+        return failTo("id_token_invalid");
+      }
+    }
+
     // Optional subject / email whitelist
     const allowed = Array.isArray(settings.oidcAllowedSubjects) ? settings.oidcAllowedSubjects : [];
     if (allowed.length > 0) {
@@ -208,11 +241,17 @@ export async function GET(request: Request) {
         return email !== "" && v.toLowerCase() === email;
       });
       if (!ok) {
-        return NextResponse.redirect(new URL("/login?oidc_error=subject_not_allowed", originEarly));
+        return failTo("subject_not_allowed");
       }
     }
+    if (testMode) {
+      // Reached only by a signed-in admin (login?test=1). Record the success so password
+      // login can then be switched off, and report back without minting a session.
+      await updateSettings({ [OIDC_LAST_TEST_SETTING]: new Date().toISOString() });
+      return NextResponse.redirect(new URL("/dashboard/settings/security?oidc_test=ok", originEarly));
+    }
   } catch {
-    return NextResponse.redirect(new URL("/login?oidc_error=id_token_invalid", originEarly));
+    return failTo("id_token_invalid");
   }
   // First successful OIDC login marks setupComplete (like password bootstrap).
   try {
@@ -223,7 +262,7 @@ export async function GET(request: Request) {
   // Mint the exact same dashboard session JWT as password login
   const secret = getDashboardJwtSecret();
   if (!secret) {
-    return NextResponse.redirect(new URL("/login?oidc_error=server_misconfigured", originEarly));
+    return failTo("server_misconfigured");
   }
 
   const forceSecureCookie = process.env.AUTH_COOKIE_SECURE === "true";

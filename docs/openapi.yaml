@@ -5726,6 +5726,100 @@ paths:
         "200":
           description: Token exchange result
 
+  /api/oauth/gitlab/pat:
+    post:
+      tags: [OAuth]
+      summary: Connect GitLab Duo with a Personal Access Token
+      description: >-
+        Requires management authorization. Verifies the token with `GET {baseUrl}/api/v4/user`
+        and stores a `gitlab-duo` connection (`authKind: personal_access_token`). `baseUrl`
+        defaults to gitlab.com and must be an https host name that resolves to a public
+        address. The response never contains the token.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token:
+                  type: string
+                  maxLength: 512
+                baseUrl:
+                  type: string
+                  maxLength: 2048
+      responses:
+        "200":
+          description: Connection created or updated.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "502":
+          description: The GitLab host could not be reached or verified.
+
+  /api/oauth/iflow/cookie:
+    post:
+      tags: [OAuth]
+      summary: Connect iFlow with a BXAuth session cookie
+      description: >-
+        Requires management authorization. Exchanges the cookie for an API key on
+        platform.iflow.cn and stores an `iflow` connection (authType `cookie`). The response
+        never contains the key or the cookie.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [cookie]
+              properties:
+                cookie:
+                  type: string
+                  maxLength: 8192
+                  description: Must contain a `BXAuth=` field.
+      responses:
+        "200":
+          description: Connection created or updated.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "502":
+          description: iFlow could not be reached or returned an unexpected response.
+
+  /api/oauth/grok-cli/bulk-import:
+    post:
+      tags: [OAuth]
+      summary: Bulk-import Grok CLI accounts
+      description: >-
+        Requires management authorization. Imports up to 100 Grok CLI auth entries (a JWT
+        string, a token object with snake_case or camelCase keys, or a whole
+        `~/.grok/auth.json`) and returns one result per item. Bodies over 1 MB are refused.
+        Tokens are never returned.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [items]
+              properties:
+                items:
+                  type: array
+                  minItems: 1
+                  maxItems: 100
+      responses:
+        "200":
+          description: Per-item results (`total`, `success`, `failed`, `results[]`).
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "413":
+          description: Request body is too large.
+
   # ─── Cloud ─────────────────────────────────────────────────────
 
   /api/cloud/auth:

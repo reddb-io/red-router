@@ -1,13 +1,32 @@
 import { NextResponse } from "next/server";
 import { getCachedSettings } from "@/lib/db/readCache";
+import { isAuthenticated } from "@/shared/utils/apiAuth";
+import {
+  OIDC_FLOW_COOKIE_MAX_AGE_SECONDS,
+  OIDC_NONCE_COOKIE,
+  OIDC_STATE_COOKIE,
+  OIDC_TEST_COOKIE,
+  OIDC_VERIFIER_COOKIE,
+  createOidcNonce,
+  createOidcState,
+  createPkcePair,
+} from "@/lib/auth/oidcFlow";
 
 /**
  * GET /api/auth/oidc/login
  * Starts OIDC login for the dashboard admin gate.
  * Builds an authorization URL from settings and redirects the browser.
  * Password login remains available as fallback.
+ *
+ * The request carries PKCE (S256) and a nonce, both bound to this browser through short-lived
+ * httpOnly cookies. `?test=1` runs the same flow as a "test sign-in": it is only available to
+ * an already signed-in admin, and the callback then reports the result without opening a session.
  */
 export async function GET(request: Request) {
+  const isTest = new URL(request.url).searchParams.get("test") === "1";
+  if (isTest && !(await isAuthenticated(request))) {
+    return NextResponse.json({ error: "Sign in to test OIDC." }, { status: 401 });
+  }
   const settings = await getCachedSettings();
 
   const enabled = settings.oidcEnabled === true;
@@ -63,10 +82,9 @@ export async function GET(request: Request) {
   }
 
   const scope = scopes.join(" ");
-  const state =
-    typeof crypto !== "undefined" && crypto.randomUUID
-      ? crypto.randomUUID()
-      : Math.random().toString(36).slice(2);
+  const state = createOidcState();
+  const nonce = createOidcNonce();
+  const pkce = createPkcePair();
 
   const url = new URL(authEndpoint);
   url.searchParams.set("response_type", "code");
@@ -74,16 +92,23 @@ export async function GET(request: Request) {
   url.searchParams.set("redirect_uri", redirectUri);
   url.searchParams.set("scope", scope);
   url.searchParams.set("state", state);
+  url.searchParams.set("nonce", nonce);
+  url.searchParams.set("code_challenge", pkce.challenge);
+  url.searchParams.set("code_challenge_method", "S256");
   const isHttpsRequest = scheme === "https";
   const useSecureCookie = process.env.AUTH_COOKIE_SECURE === "true" || isHttpsRequest;
 
-  const res = NextResponse.redirect(url.toString());
-  res.cookies.set("oidc_state", state, {
+  const cookieOptions = {
     httpOnly: true,
-    sameSite: "lax",
+    sameSite: "lax" as const,
     path: "/",
-    maxAge: 60 * 10,
+    maxAge: OIDC_FLOW_COOKIE_MAX_AGE_SECONDS,
     secure: useSecureCookie,
-  });
+  };
+  const res = NextResponse.redirect(url.toString());
+  res.cookies.set(OIDC_STATE_COOKIE, state, cookieOptions);
+  res.cookies.set(OIDC_NONCE_COOKIE, nonce, cookieOptions);
+  res.cookies.set(OIDC_VERIFIER_COOKIE, pkce.verifier, cookieOptions);
+  if (isTest) res.cookies.set(OIDC_TEST_COOKIE, "1", cookieOptions);
   return res;
 }
