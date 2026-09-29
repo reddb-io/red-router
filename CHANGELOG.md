@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.39.1
+
+### Patch Changes
+
+- Add the prefix stability contract for provider prompt caching: a native test runs every transformation that can rewrite a request before dispatch (compression modes and engines, live zone, routing hint, reasoning level, context compaction, memory injection, Claude body preparation, system hoisting, output styles) over a multi-turn tool-loop and asserts whether turn N's prefix survives byte-identical in turn N+1, with the known-unstable cases and their first divergent message recorded, plus `docs/architecture/CACHE_PREFIX_STABILITY.md` with the causes and recommended fixes. Test and documentation only, no runtime behaviour change.
+- Stop losing the provider prompt cache when a long conversation gets compacted: once the history has to be trimmed, the router now keeps cutting at the same message for that conversation (and cuts a little deeper the next time it has to move), instead of sliding the window and rewriting the start of the prompt on every request. In a 48-turn simulation the prompt start changed 9 times instead of 46.
+- Keep the provider prompt cache warm through tool loops: the routing hint is now added as its own trailing message when the request ends in a tool result (OpenAI chat and Responses/Codex), instead of rewriting the user message that started the loop on every turn.
+
 ## 0.39.0
 
 ### Minor Changes
