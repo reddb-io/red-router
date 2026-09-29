@@ -5,6 +5,7 @@
  * context-optimized, context-relay, and fusion strategies
  */
 
+import { applyCapacityAdapterToCombo } from "./capacityAdapter.ts";
 import { errorResponseWithComboDiagnostics } from "../utils/error.ts";
 
 import { recordComboFailure } from "./combo/failureTracker.ts";
@@ -657,6 +658,13 @@ async function handleComboChatInner({
   requestHeaders = null,
   invocationId,
 }: HandleComboChatOptions): Promise<Response> {
+  // Capacity adapter (opt-in): a request with media no member can take gets the operator's pool
+  // for that modality in front of the combo instead of failing closed.
+  const capacity = applyCapacityAdapterToCombo(combo, body, settings);
+  if (capacity.added.length > 0) {
+    log.info("COMBO", `capacity adapter added ${capacity.added.join(", ")} for "${combo.name}"`);
+    combo = capacity.combo;
+  }
   const comboCtx = createComboContext({ body, combo, settings, relayOptions, log });
   const {
     strategy,

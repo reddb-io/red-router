@@ -99,6 +99,12 @@ const transformObfuscateWordsSchema = z.object({
     .optional(),
 });
 
+const capacityPoolSchema = z.object({
+  enabled: z.boolean(),
+  roundRobin: z.boolean().optional(),
+  models: z.array(z.string().trim().min(1).max(200)).max(20),
+});
+
 export const updateSettingsSchema = z.object({
   /** #7784: opt-in optimistic concurrency — must match GET settingsRevision / ETag. */
   expectedRevision: z.number().int().nonnegative().optional(),
@@ -461,6 +467,15 @@ export const updateSettingsSchema = z.object({
   visionBridgeMaxImages: z.number().int().min(1).max(20).optional(),
   // Modality Bridge settings (new schema — visionBridge* keys above are the
   // deprecated legacy aliases, kept accepted for one release cycle)
+  // Capacity adapter: per-modality fallback pools used when a combo has no member that can take
+  // the request's media. Off unless a pool is enabled; models are named by the operator.
+  capacityAdapter: z
+    .object({
+      vision: capacityPoolSchema.optional(),
+      audio: capacityPoolSchema.optional(),
+      video: capacityPoolSchema.optional(),
+    })
+    .optional(),
   modalityBridgeVisionEnabled: z.boolean().optional(),
   modalityBridgeVisionMode: z.enum(["auto", "describe", "reroute"]).optional(),
   modalityBridgeVisionModel: z.string().max(200).optional(),
