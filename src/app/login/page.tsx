@@ -19,6 +19,7 @@ export default function LoginPage() {
   const [setupComplete, setSetupComplete] = useState<boolean | null>(null);
   const [oidcEnabled, setOidcEnabled] = useState<boolean | null>(null);
   const [oidcDisablePasswordLogin, setOidcDisablePasswordLogin] = useState<boolean | null>(null);
+  const [samlEnabled, setSamlEnabled] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [nodeVersion, setNodeVersion] = useState(null);
   const [nodeCompatible, setNodeCompatible] = useState(true);
@@ -49,6 +50,7 @@ export default function LoginPage() {
           setSetupComplete(!!data.setupComplete);
           setOidcEnabled(!!data.oidcEnabled);
           setOidcDisablePasswordLogin(!!data.oidcDisablePasswordLogin);
+          setSamlEnabled(!!data.samlEnabled);
         } else {
           setHasPassword(true);
           setSetupComplete(true);
@@ -308,6 +310,20 @@ export default function LoginPage() {
                     {t("continue")}
                   </Button>
                 </form>
+
+                {samlEnabled && (
+                  <div className="mt-4">
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      className="w-full h-11 text-sm font-medium flex items-center justify-center gap-2"
+                      onClick={() => (window.location.href = "/api/auth/saml/start")}
+                    >
+                      <Icon icon={LogIn} size="md" color="current" />
+                      Continue with SAML
+                    </Button>
+                  </div>
+                )}
 
                 {oidcEnabled && (
                   <div className="mt-4">

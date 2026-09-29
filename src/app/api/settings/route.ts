@@ -49,6 +49,7 @@ import {
 } from "@/server/authz/headers";
 import { readSubjectFromHeaders } from "@/server/authz/assertAuth";
 import { OIDC_CONFIG_KEYS, OIDC_LAST_TEST_SETTING } from "@/lib/auth/oidcFlow";
+import { samlConfigProblem } from "@/lib/auth/saml";
 import {
   PASSWORD_POLICY_MESSAGES,
   breachCount,
@@ -138,6 +139,10 @@ const SECURITY_IMPACTING_KEYS = [
   "oidcEnabled",
   "oidcDisablePasswordLogin",
   "oidcClientSecret",
+  "samlEnabled",
+  "samlEntryPoint",
+  "samlCert",
+  "samlAllowedEmails",
 ] as const;
 
 /**
@@ -350,6 +355,20 @@ export async function PATCH(request: Request) {
       body.modelLockout = resolveModelLockoutSettings({
         modelLockout: body.modelLockout as Record<string, unknown>,
       }) as typeof body.modelLockout;
+    }
+
+    // SAML can only be switched on with a complete setup, like OIDC needs its allow list.
+    if (body.samlEnabled === true) {
+      const current = (await getSettings()) as Record<string, unknown>;
+      const merged = { ...current, ...(body as Record<string, unknown>) };
+      const problem = samlConfigProblem(merged);
+      if (problem) {
+        emitSettingsFailureAudit(request, actor, "SAML_INCOMPLETE", attemptedKeys);
+        return NextResponse.json(
+          { error: { code: "SAML_INCOMPLETE", message: problem } },
+          { status: 400 }
+        );
+      }
     }
 
     // A new password has to meet the local policy, and, when the operator opted in, must not

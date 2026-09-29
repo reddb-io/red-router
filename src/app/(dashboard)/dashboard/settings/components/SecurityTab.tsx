@@ -10,6 +10,7 @@ import IPFilterSection from "./IPFilterSection";
 import SessionInfoCard from "./SessionInfoCard";
 import AuthzSection from "./AuthzSection";
 import OidcSection from "./OidcSection";
+import SamlSection from "./SamlSection";
 import { useTranslations } from "next-intl";
 
 export default function SecurityTab() {
@@ -516,6 +517,7 @@ export default function SecurityTab() {
 
       <Suspense fallback={null}>
         <OidcSection />
+        <SamlSection />
       </Suspense>
       <AuthzSection />
       <SessionInfoCard />

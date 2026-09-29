@@ -59,6 +59,17 @@ export interface AuthRequiredOptions {
 export function hasConfiguredPassword(settings: Record<string, unknown>): boolean {
   return typeof settings.password === "string" && settings.password.length > 0;
 }
+// Kept free of the SAML library on purpose: this file is loaded everywhere. The full validity
+// check (allow list, https entry point) lives in lib/auth/saml.ts and gates the routes themselves.
+export function hasConfiguredSaml(settings: Record<string, unknown>): boolean {
+  return (
+    settings.samlEnabled === true &&
+    typeof settings.samlEntryPoint === "string" &&
+    settings.samlEntryPoint.trim().length > 0 &&
+    typeof settings.samlCert === "string" &&
+    settings.samlCert.trim().length > 0
+  );
+}
 export function hasConfiguredOidc(settings: Record<string, unknown>): boolean {
   return (
     settings.oidcEnabled === true &&
@@ -474,6 +485,7 @@ export async function isAuthRequired(
     if (
       !hasConfiguredPassword(settings) &&
       !hasConfiguredOidc(settings) &&
+      !hasConfiguredSaml(settings) &&
       !process.env.INITIAL_PASSWORD
     ) {
       if (!request) return false;

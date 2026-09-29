@@ -44,6 +44,12 @@ const PUBLIC_API_ROUTES_EXACT = new Set([
   "/api/auth/login",
   "/api/auth/logout",
   "/api/auth/status",
+  // SAML: the browser reaches these before it has a session. ACS and metadata are called by the
+  // identity provider; start (and its `?test=1`) checks its own auth. `/api/auth/saml/test` is not
+  // public: it needs a management session.
+  "/api/auth/saml/start",
+  "/api/auth/saml/acs",
+  "/api/auth/saml/metadata",
   "/api/init",
   "/api/sync/bundle",
   // Remote-mode bootstrap: exchange the management password for a scoped CLI

@@ -7,7 +7,7 @@ import {
   hashManagementPassword,
 } from "@/lib/auth/managementPassword";
 import { consumeBootstrapToken } from "@/lib/auth/bootstrapToken";
-import { isAuthenticated } from "@/shared/utils/apiAuth";
+import { hasConfiguredSaml, isAuthenticated } from "@/shared/utils/apiAuth";
 import { BOOTSTRAP_TOKEN_HEADER } from "@/server/authz/headers";
 import {
   getDashboardJwtSecret,
@@ -51,6 +51,7 @@ export async function GET() {
     const hasPassword = hasManagementPasswordConfigured(settings);
     const setupComplete = !!settings.setupComplete;
     const oidcEnabled = !!settings.oidcEnabled;
+    const samlEnabled = hasConfiguredSaml(settings);
     const oidcDisablePasswordLogin =
       oidcEnabled &&
       (settings.oidcDisablePasswordLogin === true ||
@@ -64,6 +65,7 @@ export async function GET() {
       setupComplete,
       oidcEnabled,
       oidcDisablePasswordLogin,
+      samlEnabled,
       ...nodeInfo,
     });
   } catch (error) {

@@ -175,6 +175,13 @@ export async function getSettings() {
     antigravitySignatureCacheMode: "enabled",
     requireLogin: true,
     passwordBreachCheckEnabled: false, // opt-in: ask Have I Been Pwned (k-anonymity) on password change
+    samlEnabled: false,
+    samlEntryPoint: "",
+    samlCert: "",
+    samlIssuer: "",
+    samlBaseUrl: "",
+    samlAttributeEmail: "",
+    samlAllowedEmails: [],
     oidcEnabled: false,
     oidcDisablePasswordLogin: false,
     oidcIssuer: "",

@@ -324,6 +324,9 @@ const nextConfig = {
     ],
   },
   serverExternalPackages: [
+    // SAML: xml-crypto/xmldom/xpath do dynamic requires bundlers warn about; it is a plain
+    // dependency, so it resolves from node_modules at runtime.
+    "@node-saml/node-saml",
     "pino",
     "pino-pretty",
     "thread-stream",

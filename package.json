@@ -298,6 +298,7 @@
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@monaco-editor/react": "^4.7.0",
     "@ngrok/ngrok": "^1.7.0",
+    "@node-saml/node-saml": "^5.1.0",
     "@swc/helpers": "0.5.23",
     "@toon-format/toon": "^4.1.1",
     "@types/mdx": "^2.0.13",
