@@ -11,8 +11,8 @@ Check server health, component status, and live metrics from the CLI. Run `healt
 ## Quick install
 
 ```bash
-npm install -g omniroute   # or: npx omniroute
-omniroute --version
+npm install -g omniroute   # or: npx @reddb-io/red-router
+red-router --version
 ```
 
 ## Subcommands
@@ -28,7 +28,7 @@ omniroute --version
 **Example:**
 
 ```bash
-omniroute doctor
+red-router doctor
 ```
 
 ### `health`
@@ -42,7 +42,7 @@ omniroute doctor
 **Example:**
 
 ```bash
-omniroute health
+red-router health
 ```
 
 ### `health components`
@@ -56,7 +56,7 @@ List health components and their status
 **Example:**
 
 ```bash
-omniroute health components
+red-router health components
 ```
 
 ### `health watch`
@@ -70,12 +70,12 @@ Live dashboard — refresh every N seconds
 **Example:**
 
 ```bash
-omniroute health watch
+red-router health watch
 ```
 
 ### `status`
 
-Show OmniRoute status dashboard
+Show RedRouter status dashboard
 
 **Flags:**
 
@@ -84,5 +84,5 @@ Show OmniRoute status dashboard
 **Example:**
 
 ```bash
-omniroute status
+red-router status
 ```

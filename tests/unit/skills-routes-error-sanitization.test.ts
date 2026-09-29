@@ -7,7 +7,7 @@ import path from "node:path";
 // The /api/skills/** routes returned `{ error: err.message }` verbatim on a 500,
 // leaking absolute filesystem paths (skillRegistry writes to disk, so EACCES/ENOSPC
 // surface a real path). These routes are consumed by the dashboard as `{ error: string }`
-// (OmniMarketplaceTab.tsx, OmniSkillsPageClient.tsx), so the fix keeps the string shape
+// (MarketplaceTab.tsx, SkillsPageClient.tsx), so the fix keeps the string shape
 // and only routes the message through sanitizeErrorMessage (Hard Rule #12: no path/stack leak).
 //
 // mock.module is unreliable under this tsx/ESM + node:test runner (see

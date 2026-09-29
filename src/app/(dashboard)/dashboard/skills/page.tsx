@@ -1,6 +1,5 @@
-import { redirect } from "next/navigation";
+import { SkillsPageClient } from "./SkillsPageClient";
 
-// "Skills" is a menu entry with three pages; it opens on the skills themselves.
 export default function Page() {
-  redirect("/dashboard/omni-skills");
+  return <SkillsPageClient />;
 }

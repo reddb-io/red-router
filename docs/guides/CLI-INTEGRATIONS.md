@@ -53,8 +53,6 @@ per-tool deep dives:
 - [Claude Code configuration](./CLAUDE-CODE-CONFIGURATION.md)
 - [Codex CLI configuration](./CODEX-CLI-CONFIGURATION.md)
 - [Remote Mode](./REMOTE-MODE.md) — drive a remote RedRouter (VPS / Tailnet) from your laptop
-- [VS Code Copilot Chat](./VSCODE-COPILOT.md) — the OmniCopilot extension; it can also run these
-  `setup-*` commands for you from inside the editor
 
 ---
 

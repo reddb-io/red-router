@@ -61,6 +61,14 @@ export const COMPAT_LINE = [
 
 const WORD = /(?<![\w./@:$-])OmniRoute(?![\w-])/g;
 const PROXY_WORD = /(?<![\w./@:$-])OmniProxy(?![\w-])/g;
+// Other product-name words that used to carry the prefix.
+const OMNI_WORDS = [
+  [/(?<![\w./@:$-])OmniConductor(?![\w-])/g, "Conductor"],
+  [/(?<![\w./@:$-])OmniGlyph(?![\w-])/g, "Glyph"],
+  [/(?<![\w./@:$-])OmniSkills(?![\w-])/g, "Skills"],
+  [/(?<![\w./@:$-])Omni Skills(?![\w-])/g, "Skills"],
+  [/(?<![\w./@:$-])OmniCopilot(?![\w-])/g, "Copilot"],
+];
 const UPSTREAM_REPO = /github\.com\/diegosouzapw\/OmniRoute/g;
 const CLI_COMMANDS =
   "setup|serve|start|stop|keys|mcp|config|auth|combo|combos|doctor|status|launch|run|login|logout|update|providers|provider|models|test|logs|tray|quota|plugin|redis|completion|connect|configure|import|export|backup|restore|reset|version|help|reset-password|oauth|health|list-combos|list-keys|switch-combo|set-budget";
@@ -75,6 +83,11 @@ export function sweepLine(line, ext) {
     .replace(/\b(an|An) (?=OmniRoute)/g, (m, article) => `${article === "An" ? "A" : "a"} `)
     .replace(WORD, "RedRouter")
     .replace(PROXY_WORD, "Proxy")
+    .replace(OMNI_WORDS[0][0], OMNI_WORDS[0][1])
+    .replace(OMNI_WORDS[1][0], OMNI_WORDS[1][1])
+    .replace(OMNI_WORDS[2][0], OMNI_WORDS[2][1])
+    .replace(OMNI_WORDS[3][0], OMNI_WORDS[3][1])
+    .replace(OMNI_WORDS[4][0], OMNI_WORDS[4][1])
     .replace(CLI_HINT, "red-router")
     .replace(/npx omniroute/g, "npx @reddb-io/red-router");
   if (!/\/(blob|tree)\/[^\s"']*\/skills\//.test(next)) {
@@ -121,7 +134,7 @@ export function findLeftovers(roots) {
       const ext = path.extname(file);
       if (!TEXT_EXTENSIONS.has(ext) || isTestFile(file) || MANUAL_FILES.includes(file)) continue;
       const original = fs.readFileSync(file, "utf8");
-      if (!/omniroute|omniproxy/i.test(original)) continue;
+      if (!/omni/i.test(original)) continue;
       original.split("\n").forEach((line, index) => {
         if (sweepLine(line, ext) !== line)
           found.push(`${file}:${index + 1}: ${line.trim().slice(0, 120)}`);
@@ -143,7 +156,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
       const ext = path.extname(file);
       if (!TEXT_EXTENSIONS.has(ext) || isTestFile(file) || MANUAL_FILES.includes(file)) continue;
       const original = fs.readFileSync(file, "utf8");
-      if (!/omniroute|omniproxy/i.test(original)) continue;
+      if (!/omni/i.test(original)) continue;
       const next = sweepText(original, ext);
       if (residual) {
         next.split("\n").forEach((line, index) => {

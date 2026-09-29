@@ -11,8 +11,8 @@ Configure and test prompt compression from the CLI. Manage RTK filters, Caveman 
 ## Quick install
 
 ```bash
-npm install -g omniroute   # or: npx omniroute
-omniroute --version
+npm install -g omniroute   # or: npx @reddb-io/red-router
+red-router --version
 ```
 
 ## Subcommands

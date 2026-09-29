@@ -168,7 +168,7 @@ test.describe("Agent Skills page", () => {
     expect(previewText?.trim().length).toBeGreaterThan(0);
   });
 
-  test("cross-link 'Understand the difference' navigates to /dashboard/omni-skills", async ({
+  test("cross-link 'Understand the difference' navigates to /dashboard/skills", async ({
     page,
   }) => {
     const skills = makeAgentSkills();
@@ -194,19 +194,19 @@ test.describe("Agent Skills page", () => {
 
     await crossLink.click();
     await page.waitForURL(/\/dashboard\/omni-skills/, { timeout: 15_000 });
-    expect(page.url()).toContain("/dashboard/omni-skills");
+    expect(page.url()).toContain("/dashboard/skills");
   });
 
-  test("/dashboard/skills redirects to /dashboard/omni-skills", async ({ page }) => {
+  test("/dashboard/skills redirects to /dashboard/skills", async ({ page }) => {
     await page.goto("/dashboard/skills", { waitUntil: "commit", timeout: NAVIGATION_TIMEOUT_MS });
-    // Next.js redirects /dashboard/skills → /dashboard/omni-skills (next.config.mjs).
+    // Next.js redirects /dashboard/skills → /dashboard/skills (next.config.mjs).
     // If auth is required the app then client-redirects to /login (bare path, no /dashboard/ prefix).
     await page.waitForURL(/\/(login|onboarding|dashboard\/(omni-skills|onboarding))/, {
       timeout: 15_000,
     });
     const finalUrl = page.url();
     expect(
-      finalUrl.includes("/dashboard/omni-skills") ||
+      finalUrl.includes("/dashboard/skills") ||
         finalUrl.includes("/login") ||
         finalUrl.includes("/onboarding")
     ).toBe(true);

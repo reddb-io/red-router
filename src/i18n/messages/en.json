@@ -1118,7 +1118,7 @@
     "contextLite": "Lite",
     "contextAggressive": "Aggressive",
     "contextUltra": "Ultra",
-    "contextOmniglyph": "OmniGlyph",
+    "contextOmniglyph": "Glyph",
     "contextSettings": "Compression Settings",
     "contextHeadroom": "Headroom",
     "contextSessionDedup": "Session Dedup",
@@ -1847,7 +1847,7 @@
     "headroom": "Headroom",
     "lite": "Lite",
     "llmlingua": "LLMLingua",
-    "omniglyph": "OmniGlyph",
+    "omniglyph": "Glyph",
     "rtk": "RTK",
     "sessionDedup": "Session Dedup",
     "ultra": "Ultra",
@@ -8122,7 +8122,7 @@
         "description": "Heuristic token pruning with an optional SLM."
       },
       "omniglyph": {
-        "label": "OmniGlyph",
+        "label": "Glyph",
         "description": "Context as an image (Claude Fable 5, direct route)."
       }
     },
@@ -8977,7 +8977,7 @@
   },
   "omniglyph": {
     "preview": "Preview",
-    "description": "Context-as-image compression. Renders the system prompt, tool documentation, and dense history as compact PNG pages for the measured Claude Fable 5 path. The published OmniGlyph package also exposes native GPT 5.6 transformers, but RedRouter keeps those routes fail-closed until provider fidelity and reading receipts exist.",
+    "description": "Context-as-image compression. Renders the system prompt, tool documentation, and dense history as compact PNG pages for the measured Claude Fable 5 path. The published Glyph package also exposes native GPT 5.6 transformers, but RedRouter keeps those routes fail-closed until provider fidelity and reading receipts exist.",
     "economicsTitle": "The economics",
     "economics": {
       "fewerTokens": "fewer tokens on the converted block",
@@ -9037,11 +9037,11 @@
         "description": "Routes without transforming. The engine is skipped and the request is forwarded untouched."
       }
     },
-    "profileAria": "Select the OmniGlyph compression profile",
+    "profileAria": "Select the Glyph compression profile",
     "saved": "Saved.",
     "saveFailed": "Could not save.",
-    "enableAria": "Enable the OmniGlyph engine",
-    "title": "OmniGlyph"
+    "enableAria": "Enable the Glyph engine",
+    "title": "Glyph"
   },
   "embeddedServices": {
     "title": "Embedded Services",
@@ -12673,91 +12673,91 @@
   },
   "agentSkills": {
     "catalog": {
-      "omni-auth": {
+      "red-router-auth": {
         "name": "Authentication",
         "description": "Manage API key authentication and session tokens. Start here to authenticate requests via Bearer token, obtain session cookies, and configure login requirements for the RedRouter API."
       },
-      "omni-providers": {
+      "red-router-providers": {
         "name": "Providers",
         "description": "Manage provider connections, API keys, OAuth flows, and connection tests via the REST API. List, add, update, remove, and test AI provider integrations (OpenAI, Anthropic, Gemini, and 160+)."
       },
-      "omni-models": {
+      "red-router-models": {
         "name": "Models",
         "description": "Query available AI models across all configured providers. List models, resolve model aliases, and browse the full model catalog including provider-specific variants."
       },
-      "omni-combos-routing": {
+      "red-router-combos-routing": {
         "name": "Combos & Routing",
         "description": "Create and manage routing combos with 14 strategies (priority, weighted, round-robin, Auto-combo, etc.). Configure fallback chains, test routing outcomes, and retrieve combo metrics."
       },
-      "omni-api-keys": {
+      "red-router-api-keys": {
         "name": "API Keys",
         "description": "Create, list, rotate, and revoke RedRouter API keys. Control per-key scopes, spending limits, and expiration. Keys gate access to all proxy and management endpoints."
       },
-      "omni-usage-logs": {
+      "red-router-usage-logs": {
         "name": "Usage & Logs",
         "description": "Access detailed call logs and usage analytics. Filter by provider, model, time range, status, and cost. Export logs and aggregate token usage across all connections."
       },
-      "omni-budget": {
+      "red-router-budget": {
         "name": "Budget & Rate Limits",
         "description": "Configure spending limits, token quotas, and rate-limit policies per API key or globally. Inspect current consumption and enforce cost controls across providers."
       },
-      "omni-settings": {
+      "red-router-settings": {
         "name": "Settings",
         "description": "Read and update global application settings: system prompts, thinking budget, IP filters, payload rules, combo defaults, and require-login configuration."
       },
-      "omni-proxies": {
+      "red-router-proxies": {
         "name": "Proxy Configuration",
         "description": "Configure HTTP/HTTPS/SOCKS proxies for upstream provider requests. Set per-provider or global proxy rules, test connectivity, and manage proxy rotation."
       },
-      "omni-cache": {
+      "red-router-cache": {
         "name": "Cache",
         "description": "Manage the LLM response cache. View cache statistics, clear entries, configure TTL policies, and control semantic-similarity caching thresholds."
       },
-      "omni-compression": {
+      "red-router-compression": {
         "name": "Compression",
         "description": "Configure RTK (command output), Caveman (prose), and stacked compression modes. Manage language packs, custom rules, and test prompt compression reducing tokens by 60–90%."
       },
-      "omni-context-rtk": {
+      "red-router-context-rtk": {
         "name": "Context & RTK",
         "description": "Configure RTK filters, context engineering rules, and context relay settings. Test compression with real prompt samples and manage context transformation pipelines."
       },
-      "omni-resilience": {
+      "red-router-resilience": {
         "name": "Resilience & Monitoring",
         "description": "Monitor provider health, circuit-breaker states, p50/p95/p99 latency metrics, and budget guard alerts. Inspect connection cooldowns and model lockouts in real time."
       },
-      "omni-cli-tools": {
+      "red-router-cli-tools": {
         "name": "CLI Tools",
         "description": "Manage CLI tool integrations exposed via the API. List, configure, and invoke CLI tool plugins that extend RedRouter's automation surface."
       },
-      "omni-tunnels": {
+      "red-router-tunnels": {
         "name": "Tunnels",
         "description": "Create and manage secure tunnels (ngrok, Cloudflare Tunnel, custom) to expose RedRouter to the internet or share access with remote agents and CI pipelines."
       },
-      "omni-sync-cloud": {
+      "red-router-sync-cloud": {
         "name": "Cloud Sync",
         "description": "Synchronise RedRouter configuration, provider connections, and settings to/from cloud storage. Manage cloud worker authentication and remote backup targets."
       },
-      "omni-db-backups": {
+      "red-router-db-backups": {
         "name": "Database & Backups",
         "description": "Trigger system backups, restore from backup files, and manage the SQLite database lifecycle. Supports export, import, and incremental snapshot strategies."
       },
-      "omni-webhooks": {
+      "red-router-webhooks": {
         "name": "Webhooks",
         "description": "Register, list, test, and remove webhook endpoints. Configure event subscriptions (request.completed, request.failed, quota.exceeded, etc.) and manage delivery retries."
       },
-      "omni-mcp": {
+      "red-router-mcp": {
         "name": "MCP Server",
         "description": "Connect to the RedRouter MCP server (110 tools, 3 transports: SSE/stdio/HTTP). Covers routing, cache, compression, memory, skills, providers, and audit tools across 33 permission scopes."
       },
-      "omni-agents-a2a": {
+      "red-router-agents-a2a": {
         "name": "Agents & A2A Protocol",
         "description": "Interact with RedRouter via JSON-RPC 2.0 agent-to-agent protocol. 6 built-in A2A skills: smart-routing, quota-management, provider-discovery, cost-analysis, health-report, list-capabilities."
       },
-      "omni-version-manager": {
+      "red-router-version-manager": {
         "name": "Version Manager",
         "description": "Install, start, stop, restart, and update embedded services (9Router, CLIProxyAPI). Monitor service status, retrieve logs, and configure auto-start for local-only service endpoints."
       },
-      "omni-inference": {
+      "red-router-inference": {
         "name": "Inference (OpenAI-compatible)",
         "description": "The core OpenAI-compatible inference endpoints: chat completions, embeddings, images, audio (TTS/STT), moderations, rerank, and the Responses API. The primary integration surface for AI agents."
       },
@@ -12849,7 +12849,7 @@
         "name": "Config: Codex CLI",
         "description": "Step-by-step agent workflow to configure the OpenAI Codex CLI on any machine (Linux, macOS, Windows) to use RedRouter as an OpenAI-compatible backend. Detects OS and shell, writes config.toml and 7 named profiles, sets environment variables, and verifies the setup."
       },
-      "omni-github-skills": {
+      "red-router-github-skills": {
         "name": "GitHub Skill Discovery",
         "description": "Search, score, scan, and import agent skills from GitHub repositories that contain SKILL.md, CLAUDE.md, .cursorrules, and similar agent skill files. Discover community skills across 160+ provider categories, evaluate relevance with heuristic scoring, check for malware or hardcoded secrets, and install into Hermes, Claude Code, Gemini CLI, or OpenCode agent directories."
       }
@@ -13842,7 +13842,7 @@
   },
   "vscodeCopilotBanner": {
     "title": "RedRouter now runs inside VS Code Copilot Chat",
-    "description": "Install the free OmniCopilot extension and every RedRouter model shows up right in the Copilot Chat model picker you already use.",
+    "description": "Install the free Copilot extension and every RedRouter model shows up right in the Copilot Chat model picker you already use.",
     "cta": "Get the Extension",
     "secondaryNote": "Also on Open VSX (Cursor, Windsurf, VSCodium…)",
     "dismissAriaLabel": "Dismiss"

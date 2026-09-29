@@ -31,6 +31,7 @@ const AREAS = [
   "docs/ops",
   "docs/openapi.yaml",
   ".env.example",
+  "skills",
 ];
 
 test("no user-visible text names the inherited product", () => {
@@ -70,4 +71,16 @@ test("the setup diagram and public metadata carry the product name", () => {
   }
   assert.match(fs.readFileSync("public/sw.js", "utf8"), /title: "RedRouter"/);
   assert.match(fs.readFileSync("docs/openapi.yaml", "utf8"), /^\s*title: RedRouter API/m);
+});
+
+test("no skill, page or component still carries the old prefix", () => {
+  const skills = fs.readdirSync("skills");
+  assert.deepEqual(
+    skills.filter((name) => name.startsWith("omni-")),
+    []
+  );
+  assert.equal(fs.existsSync("src/app/(dashboard)/dashboard/omni-skills"), false);
+  assert.ok(fs.existsSync("src/app/(dashboard)/dashboard/skills/page.tsx"));
+  const catalog = fs.readFileSync("src/shared/constants/agentSkills.ts", "utf8");
+  assert.equal(/id: "omni-/.test(catalog), false);
 });

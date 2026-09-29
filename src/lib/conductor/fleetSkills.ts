@@ -88,7 +88,7 @@ function deriveSkills(runners: z.infer<typeof runnersSchema>): FleetSkill[] {
       id: `conductor-cli-${profile}`,
       name: `Conductor fleet: ${profile} CLI`,
       description:
-        `Delegate coding tasks to the OmniConductor fleet's ${profile} CLI ` +
+        `Delegate coding tasks to the Conductor fleet's ${profile} CLI ` +
         `(${info.count} runner(s) online${models.length ? `; models: ${models.join(", ")}` : ""}). ` +
         "Tasks run in disposable git worktrees; results come back as branches with graduated manifests.",
       tags: ["conductor", "fleet", "cli", profile],
@@ -98,7 +98,7 @@ function deriveSkills(runners: z.infer<typeof runnersSchema>): FleetSkill[] {
     skills.push({
       id: `conductor-skill-${s}`,
       name: `Conductor fleet skill: ${s}`,
-      description: `OASF skill "${s}" declared by online runners of the OmniConductor fleet.`,
+      description: `OASF skill "${s}" declared by online runners of the Conductor fleet.`,
       tags: ["conductor", "fleet", "skill"],
     });
   }

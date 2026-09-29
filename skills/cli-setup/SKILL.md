@@ -11,8 +11,8 @@ Run initial setup, configure global CLI settings, manage environment variables, 
 ## Quick install
 
 ```bash
-npm install -g omniroute   # or: npx omniroute
-omniroute --version
+npm install -g omniroute   # or: npx @reddb-io/red-router
+red-router --version
 ```
 
 ## Subcommands
@@ -64,7 +64,7 @@ Show or update CLI tool configuration
 **Example:**
 
 ```bash
-omniroute config
+red-router config
 ```
 
 ### `config list`
@@ -78,7 +78,7 @@ List all CLI tools and config status
 **Example:**
 
 ```bash
-omniroute config list
+red-router config list
 ```
 
 ### `config get <tool>`
@@ -92,7 +92,7 @@ Show current config for a tool
 **Example:**
 
 ```bash
-omniroute config get <tool>
+red-router config get <tool>
 ```
 
 ### `config set <tool>`
@@ -109,7 +109,7 @@ Write config for a tool
 **Example:**
 
 ```bash
-omniroute config set <tool>
+red-router config set <tool>
 ```
 
 ### `config validate <tool>`
@@ -124,7 +124,7 @@ Validate config format without writing
 **Example:**
 
 ```bash
-omniroute config validate <tool>
+red-router config validate <tool>
 ```
 
 ### `config opencode`
@@ -141,7 +141,7 @@ Generate OpenCode config (alias for
 **Example:**
 
 ```bash
-omniroute config opencode
+red-router config opencode
 ```
 
 ### `env`
@@ -206,7 +206,7 @@ omniroute env set <key> <value>
 **Example:**
 
 ```bash
-omniroute setup
+red-router setup
 ```
 
 ### `update`
@@ -223,5 +223,5 @@ omniroute setup
 **Example:**
 
 ```bash
-omniroute update
+red-router update
 ```

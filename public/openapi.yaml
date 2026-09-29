@@ -5110,7 +5110,7 @@ paths:
       summary: Get a single agent skill
       description: |
         Returns metadata for a single agent skill by its canonical ID
-        (e.g. `omni-providers`, `cli-serve`). No authentication required.
+        (e.g. `red-router-providers`, `cli-serve`). No authentication required.
       parameters:
         - name: id
           in: path
@@ -5119,7 +5119,7 @@ paths:
             type: string
             pattern: "^[a-z][a-z0-9-]*$"
           description: Canonical skill ID
-          example: omni-providers
+          example: red-router-providers
       responses:
         "200":
           description: Agent skill metadata
@@ -5150,7 +5150,7 @@ paths:
             type: string
             pattern: "^[a-z][a-z0-9-]*$"
           description: Canonical skill ID
-          example: omni-providers
+          example: red-router-providers
       responses:
         "200":
           description: SKILL.md content as Markdown
@@ -5577,8 +5577,8 @@ components:
         id:
           type: string
           pattern: "^[a-z][a-z0-9-]*$"
-          description: Canonical skill ID (e.g. "omni-providers", "cli-serve")
-          example: omni-providers
+          description: Canonical skill ID (e.g. "red-router-providers", "cli-serve")
+          example: red-router-providers
         name:
           type: string
           minLength: 1
@@ -5625,12 +5625,12 @@ components:
           type: string
           format: uri
           description: GitHub raw URL of the SKILL.md file
-          example: "https://raw.githubusercontent.com/diegosouzapw/OmniRoute/refs/heads/main/skills/omni-providers/SKILL.md"
+          example: "https://raw.githubusercontent.com/diegosouzapw/OmniRoute/refs/heads/main/skills/red-router-providers/SKILL.md"
         githubUrl:
           type: string
           format: uri
           description: GitHub blob URL for viewing the SKILL.md in the browser
-          example: "https://github.com/diegosouzapw/OmniRoute/blob/main/skills/omni-providers/SKILL.md"
+          example: "https://github.com/diegosouzapw/OmniRoute/blob/main/skills/red-router-providers/SKILL.md"
 
     SkillCoverage:
       type: object

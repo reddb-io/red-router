@@ -183,12 +183,12 @@ test("GET /api/agent-skills?category=invalid — returns 400 with sanitized erro
 // ═════════════════════════════════════════════════════════════════════════════
 
 test("GET /api/agent-skills/[id] — returns skill for valid id", async () => {
-  const req = makeRequest("GET", "http://localhost/api/agent-skills/omni-providers");
-  const res = await idRoute.GET(req, { params: Promise.resolve({ id: "omni-providers" }) });
+  const req = makeRequest("GET", "http://localhost/api/agent-skills/red-router-providers");
+  const res = await idRoute.GET(req, { params: Promise.resolve({ id: "red-router-providers" }) });
 
   assert.equal(res.status, 200);
   const body = (await res.json()) as { id: string; category: string };
-  assert.equal(body.id, "omni-providers");
+  assert.equal(body.id, "red-router-providers");
   assert.equal(body.category, "api");
 });
 
@@ -244,8 +244,8 @@ test("GET /api/agent-skills/[id]/raw — returns markdown or 502 for valid id (n
   //   - 502 if GitHub fetch fails
   // We test the 502 branch explicitly here by using a skill where the rawUrl won't work.
 
-  const req = makeRequest("GET", "http://localhost/api/agent-skills/omni-providers/raw");
-  const res = await rawRoute.GET(req, { params: Promise.resolve({ id: "omni-providers" }) });
+  const req = makeRequest("GET", "http://localhost/api/agent-skills/red-router-providers/raw");
+  const res = await rawRoute.GET(req, { params: Promise.resolve({ id: "red-router-providers" }) });
 
   // Either 200 (network available) or 502 (no network) is acceptable
   assert.ok(

@@ -11,8 +11,8 @@ Create, list, update, and delete routing combos from the CLI. Test routing strat
 ## Quick install
 
 ```bash
-npm install -g omniroute   # or: npx omniroute
-omniroute --version
+npm install -g omniroute   # or: npx @reddb-io/red-router
+red-router --version
 ```
 
 ## Subcommands
@@ -39,7 +39,7 @@ omniroute suggest
 **Example:**
 
 ```bash
-omniroute combo combo
+red-router combo combo
 ```
 
 ### `combo list`
@@ -53,7 +53,7 @@ List configured routing combos
 **Example:**
 
 ```bash
-omniroute combo list
+red-router combo list
 ```
 
 ### `combo switch <name>`
@@ -63,7 +63,7 @@ Activate a routing combo
 **Example:**
 
 ```bash
-omniroute combo switch <name>
+red-router combo switch <name>
 ```
 
 ### `combo create <name>`
@@ -78,7 +78,7 @@ Create a new routing combo
 **Example:**
 
 ```bash
-omniroute combo create <name>
+red-router combo create <name>
 ```
 
 ### `combo delete <name>`
@@ -92,5 +92,5 @@ Delete a routing combo
 **Example:**
 
 ```bash
-omniroute combo delete <name>
+red-router combo delete <name>
 ```

@@ -132,7 +132,7 @@ describe("SkillsConceptCard", () => {
     expect(card).not.toBeNull();
   });
 
-  it("agent variant cross-link points to /dashboard/omni-skills", async () => {
+  it("agent variant cross-link points to /dashboard/skills", async () => {
     const { SkillsConceptCard } = await import(
       "../../src/shared/components/SkillsConceptCard.tsx"
     );
@@ -144,7 +144,7 @@ describe("SkillsConceptCard", () => {
 
     const link = container.querySelector("a");
     expect(link).not.toBeNull();
-    expect(link?.getAttribute("href")).toBe("/dashboard/omni-skills");
+    expect(link?.getAttribute("href")).toBe("/dashboard/skills");
   });
 
   it("omni variant cross-link points to /dashboard/agent-skills", async () => {

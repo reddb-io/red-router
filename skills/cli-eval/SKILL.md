@@ -11,8 +11,8 @@ Create and run evaluation suites, watch live benchmark progress, view scorecards
 ## Quick install
 
 ```bash
-npm install -g omniroute   # or: npx omniroute
-omniroute --version
+npm install -g omniroute   # or: npx @reddb-io/red-router
+red-router --version
 ```
 
 ## Subcommands
@@ -152,13 +152,13 @@ omniroute simulate [prompt]
 <!-- skill:custom-start -->
 <!-- Migrated from skills/omniroute-cli-eval/SKILL.md (preserved curated content) -->
 
-# OmniRoute — CLI Evals
+# RedRouter — CLI Evals
 
 Requires the `omniroute` CLI. See [CLI entry-point skill](https://raw.githubusercontent.com/diegosouzapw/OmniRoute/main/skills/omniroute-cli/SKILL.md) for install + global flags.
 
 ## What are evals?
 
-Evals are automated test suites that score LLM outputs against expected answers or rubrics. OmniRoute stores suites and run results in its local database.
+Evals are automated test suites that score LLM outputs against expected answers or rubrics. RedRouter stores suites and run results in its local database.
 
 ## Eval suites
 
@@ -257,7 +257,7 @@ python3 -c "import sys; score=float('$SCORE'); sys.exit(0 if score >= 0.90 else 
 ## Errors
 
 - `suites create` fails with `invalid rubric` → use one of: `exact-match`, `contains`, `llm-judge`, `regex`
-- `suites run` returns `model not found` → verify model ID with `omniroute models --search <name>`
-- `eval get` shows `status: failed` → check `omniroute logs --search eval` for error details
+- `suites run` returns `model not found` → verify model ID with `red-router models --search <name>`
+- `eval get` shows `status: failed` → check `red-router logs --search eval` for error details
 - `scorecard` returns empty results → the run may still be `running`; poll `omniroute eval get <runId>` until `status` is `completed`
 <!-- skill:custom-end -->

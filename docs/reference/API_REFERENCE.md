@@ -414,8 +414,7 @@ GET /v1/models?prefix=canonical    # only the full provider-id prefix
 A `dual`-mode mirror can also be recognised without the query parameter: it carries a `parent`
 field pointing at the primary id.
 
-Clients that render a model picker should request `?prefix=alias` — this is what the
-[OmniCopilot VS Code extension](../guides/VSCODE-COPILOT.md) does.
+Clients that render a model picker should request `?prefix=alias`.
 
 ### No-thinking model variants
 
@@ -712,7 +711,7 @@ completion.
 ## Self-service usage (`/api/usage/om-usage`)
 
 Any API key can read **its own** usage and quotas — no management auth. This is the endpoint a
-client (CLI, the OmniCopilot panel) uses to show a key holder their spend.
+client (CLI, the Copilot panel) uses to show a key holder their spend.
 
 ```bash
 # Text form (the historical contract — plain text for a terminal)

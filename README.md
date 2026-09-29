@@ -13,12 +13,12 @@ applies API-key policies, handles fallback, and records usage and cost.
 RedRouter owns the product: its interface, workflows, configuration contracts,
 documentation and release channel. It incorporates and improves capabilities from
 [9router](https://github.com/decolua/9router),
-[OmniRoute](https://github.com/diegosouzapw/OmniRoute) and
+[RedRouter](https://github.com/reddb-io/red-router) and
 [LiteLLM](https://github.com/BerriAI/litellm).
 
 ## Integration status
 
-The current development tree contains a large OmniRoute integration. It has **not**
+The current development tree contains a large RedRouter integration. It has **not**
 been established as a feature-preserving replacement for RedRouter `v0.33.0`.
 The original RedRouter remains the product baseline. Existing upstream-derived
 modules are implementation assets; their presence does not establish product parity.

@@ -4,7 +4,7 @@
 
 import type { AgentSkill, SkillArea, SkillCategory } from "@/lib/agentSkills/types";
 
-const REPO = "diegosouzapw/OmniRoute";
+const REPO = "reddb-io/red-router";
 const BRANCH = "main";
 const SKILL_PATH = "skills";
 
@@ -42,7 +42,7 @@ export const CURATED_SKILLS: CuratedSkillEntry[] = [
   // ── API Skills (23) ─────────────────────────────────────────────────────────
 
   {
-    id: "omni-auth",
+    id: "red-router-auth",
     name: "Authentication",
     description:
       "Manage API key authentication and session tokens. Start here to authenticate requests via Bearer token, obtain session cookies, and configure login requirements for the RedRouter API.",
@@ -52,7 +52,7 @@ export const CURATED_SKILLS: CuratedSkillEntry[] = [
     isEntry: true,
   },
   {
-    id: "omni-providers",
+    id: "red-router-providers",
     name: "Providers",
     description:
       "Manage provider connections, API keys, OAuth flows, and connection tests via the REST API. List, add, update, remove, and test AI provider integrations across RedRouter's 327-provider catalog.",
@@ -61,7 +61,7 @@ export const CURATED_SKILLS: CuratedSkillEntry[] = [
     icon: "key",
   },
   {
-    id: "omni-models",
+    id: "red-router-models",
     name: "Models",
     description:
       "Query available AI models across all configured providers. List models, resolve model aliases, and browse the full model catalog including provider-specific variants.",
@@ -70,7 +70,7 @@ export const CURATED_SKILLS: CuratedSkillEntry[] = [
     icon: "neurology",
   },
   {
-    id: "omni-combos-routing",
+    id: "red-router-combos-routing",
     name: "Combos & Routing",
     description:
       "Create and manage routing combos with 19 strategies (priority, weighted, round-robin, Auto-combo, and more). Configure fallback chains, test routing outcomes, and retrieve combo metrics.",
@@ -80,7 +80,7 @@ export const CURATED_SKILLS: CuratedSkillEntry[] = [
     isNew: true,
   },
   {
-    id: "omni-api-keys",
+    id: "red-router-api-keys",
     name: "API Keys",
     description:
       "Create, list, rotate, and revoke RedRouter API keys. Control per-key scopes, spending limits, and expiration. Keys gate access to all proxy and management endpoints.",
@@ -89,7 +89,7 @@ export const CURATED_SKILLS: CuratedSkillEntry[] = [
     icon: "vpn_key",
   },
   {
-    id: "omni-usage-logs",
+    id: "red-router-usage-logs",
     name: "Usage & Logs",
     description:
       "Access detailed call logs and usage analytics. Filter by provider, model, time range, status, and cost. Export logs and aggregate token usage across all connections.",
@@ -98,7 +98,7 @@ export const CURATED_SKILLS: CuratedSkillEntry[] = [
     icon: "bar_chart",
   },
   {
-    id: "omni-budget",
+    id: "red-router-budget",
     name: "Budget & Rate Limits",
     description:
       "Configure spending limits, token quotas, and rate-limit policies per API key or globally. Inspect current consumption and enforce cost controls across providers.",
@@ -107,7 +107,7 @@ export const CURATED_SKILLS: CuratedSkillEntry[] = [
     icon: "savings",
   },
   {
-    id: "omni-settings",
+    id: "red-router-settings",
     name: "Settings",
     description:
       "Read and update global application settings: system prompts, thinking budget, IP filters, payload rules, combo defaults, and require-login configuration.",
@@ -116,7 +116,7 @@ export const CURATED_SKILLS: CuratedSkillEntry[] = [
     icon: "settings",
   },
   {
-    id: "omni-proxies",
+    id: "red-router-proxies",
     name: "Proxy Configuration",
     description:
       "Configure HTTP/HTTPS/SOCKS proxies for upstream provider requests. Set per-provider or global proxy rules, test connectivity, and manage proxy rotation.",
@@ -125,7 +125,7 @@ export const CURATED_SKILLS: CuratedSkillEntry[] = [
     icon: "swap_horiz",
   },
   {
-    id: "omni-cache",
+    id: "red-router-cache",
     name: "Cache",
     description:
       "Manage the LLM response cache. View cache statistics, clear entries, configure TTL policies, and control semantic-similarity caching thresholds.",
@@ -134,7 +134,7 @@ export const CURATED_SKILLS: CuratedSkillEntry[] = [
     icon: "cached",
   },
   {
-    id: "omni-compression",
+    id: "red-router-compression",
     name: "Compression",
     description:
       "Configure RTK (command output), Caveman (prose), and stacked compression modes. Manage language packs, custom rules, and test prompt compression reducing tokens by 60–90%.",
@@ -144,7 +144,7 @@ export const CURATED_SKILLS: CuratedSkillEntry[] = [
     isNew: true,
   },
   {
-    id: "omni-context-rtk",
+    id: "red-router-context-rtk",
     name: "Context & RTK",
     description:
       "Configure RTK filters, context engineering rules, and context relay settings. Test compression with real prompt samples and manage context transformation pipelines.",
@@ -154,7 +154,7 @@ export const CURATED_SKILLS: CuratedSkillEntry[] = [
     isNew: true,
   },
   {
-    id: "omni-resilience",
+    id: "red-router-resilience",
     name: "Resilience & Monitoring",
     description:
       "Monitor provider health, circuit-breaker states, p50/p95/p99 latency metrics, and budget guard alerts. Inspect connection cooldowns and model lockouts in real time.",
@@ -164,7 +164,7 @@ export const CURATED_SKILLS: CuratedSkillEntry[] = [
     isNew: true,
   },
   {
-    id: "omni-cli-tools",
+    id: "red-router-cli-tools",
     name: "CLI Tools",
     description:
       "Manage CLI tool integrations exposed via the API. List, configure, and invoke CLI tool plugins that extend RedRouter's automation surface.",
@@ -173,7 +173,7 @@ export const CURATED_SKILLS: CuratedSkillEntry[] = [
     icon: "terminal",
   },
   {
-    id: "omni-tunnels",
+    id: "red-router-tunnels",
     name: "Tunnels",
     description:
       "Create and manage secure tunnels (ngrok, Cloudflare Tunnel, custom) to expose RedRouter to the internet or share access with remote agents and CI pipelines.",
@@ -182,7 +182,7 @@ export const CURATED_SKILLS: CuratedSkillEntry[] = [
     icon: "vpn_lock",
   },
   {
-    id: "omni-sync-cloud",
+    id: "red-router-sync-cloud",
     name: "Cloud Sync",
     description:
       "Synchronise RedRouter configuration, provider connections, and settings to/from cloud storage. Manage cloud worker authentication and remote backup targets.",
@@ -191,7 +191,7 @@ export const CURATED_SKILLS: CuratedSkillEntry[] = [
     icon: "cloud_sync",
   },
   {
-    id: "omni-db-backups",
+    id: "red-router-db-backups",
     name: "Database & Backups",
     description:
       "Trigger system backups, restore from backup files, and manage the SQLite database lifecycle. Supports export, import, and incremental snapshot strategies.",
@@ -200,7 +200,7 @@ export const CURATED_SKILLS: CuratedSkillEntry[] = [
     icon: "backup",
   },
   {
-    id: "omni-webhooks",
+    id: "red-router-webhooks",
     name: "Webhooks",
     description:
       "Register, list, test, and remove webhook endpoints. Configure event subscriptions (request.completed, request.failed, quota.exceeded, etc.) and manage delivery retries.",
@@ -209,7 +209,7 @@ export const CURATED_SKILLS: CuratedSkillEntry[] = [
     icon: "webhook",
   },
   {
-    id: "omni-mcp",
+    id: "red-router-mcp",
     name: "MCP Server",
     description:
       "Connect to the RedRouter MCP server (110 tools, 3 transports: SSE/stdio/HTTP). Covers routing, cache, compression, memory, skills, providers, and audit tools across 33 permission scopes.",
@@ -218,7 +218,7 @@ export const CURATED_SKILLS: CuratedSkillEntry[] = [
     icon: "electrical_services",
   },
   {
-    id: "omni-agents-a2a",
+    id: "red-router-agents-a2a",
     name: "Agents & A2A Protocol",
     description:
       "Interact with RedRouter via JSON-RPC 2.0 agent-to-agent protocol. 6 built-in A2A skills: smart-routing, quota-management, provider-discovery, cost-analysis, health-report, list-capabilities.",
@@ -227,7 +227,7 @@ export const CURATED_SKILLS: CuratedSkillEntry[] = [
     icon: "device_hub",
   },
   {
-    id: "omni-version-manager",
+    id: "red-router-version-manager",
     name: "Version Manager",
     description:
       "Install, start, stop, restart, and update embedded services (9Router, CLIProxyAPI). Monitor service status, retrieve logs, and configure auto-start for local-only service endpoints.",
@@ -236,7 +236,7 @@ export const CURATED_SKILLS: CuratedSkillEntry[] = [
     icon: "manage_history",
   },
   {
-    id: "omni-inference",
+    id: "red-router-inference",
     name: "Inference (OpenAI-compatible)",
     description:
       "The core OpenAI-compatible inference endpoints: chat completions, embeddings, images, audio (TTS/STT), moderations, rerank, and the Responses API. The primary integration surface for AI agents.",
@@ -414,7 +414,7 @@ export const CURATED_SKILLS: CuratedSkillEntry[] = [
     id: "cli-plugins-skills",
     name: "CLI: Plugins, Skills & Memory",
     description:
-      "Manage Omni Skills (list, install, test, remove), plugins (create, configure), and persistent memory (search, add, clear) from the CLI.",
+      "Manage Skills (list, install, test, remove), plugins (create, configure), and persistent memory (search, add, clear) from the CLI.",
     category: "cli",
     area: "cli-plugins-skills",
     icon: "extension",
@@ -454,7 +454,7 @@ export const CURATED_SKILLS: CuratedSkillEntry[] = [
   // ── GitHub Skills ─────────────────────────────────────────────────────────
 
   {
-    id: "omni-github-skills",
+    id: "red-router-github-skills",
     name: "GitHub Skill Discovery",
     description:
       "Search, score, scan, and import agent skills from GitHub repositories that contain SKILL.md, CLAUDE.md, .cursorrules, and similar agent skill files. Discover community skills across many tool and provider categories, evaluate relevance with heuristic scoring, check for malware or hardcoded secrets, and install into Hermes, Claude Code, Gemini CLI, or OpenCode agent directories.",

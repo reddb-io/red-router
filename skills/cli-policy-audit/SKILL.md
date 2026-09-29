@@ -11,8 +11,8 @@ Inspect audit logs, manage access policies, view telemetry data, and review requ
 ## Quick install
 
 ```bash
-npm install -g omniroute   # or: npx omniroute
-omniroute --version
+npm install -g omniroute   # or: npx @reddb-io/red-router
+red-router --version
 ```
 
 ## Subcommands
@@ -116,7 +116,7 @@ omniroute audit get <id>
 **Example:**
 
 ```bash
-omniroute logs
+red-router logs
 ```
 
 ### `policy`

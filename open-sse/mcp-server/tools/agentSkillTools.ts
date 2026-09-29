@@ -19,7 +19,7 @@ export const AgentSkillsListSchema = z.object({
 });
 
 export const AgentSkillsGetSchema = z.object({
-  id: z.string().describe("Canonical skill ID (e.g. 'omni-providers', 'cli-serve')"),
+  id: z.string().describe("Canonical skill ID (e.g. 'red-router-providers', 'cli-serve')"),
 });
 
 export const AgentSkillsCoverageSchema = z.object({});

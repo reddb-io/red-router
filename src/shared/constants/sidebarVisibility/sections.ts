@@ -201,7 +201,7 @@ export const COMPRESSION_CONTEXT_GROUP: SidebarItemGroup = {
       id: "context-omniglyph",
       href: "/dashboard/context/omniglyph",
       i18nKey: "contextOmniglyph",
-      labelFallback: "OmniGlyph",
+      labelFallback: "Glyph",
       subtitleKey: "contextOmniglyphSubtitle",
       subtitleFallback: "Context-as-image",
       icon: "grain",
@@ -627,7 +627,7 @@ const AGENTIC_FEATURES_ITEMS: readonly SidebarSectionChild[] = [
   },
   {
     id: "skills",
-    href: "/dashboard/omni-skills",
+    href: "/dashboard/skills",
     i18nKey: "omniSkills",
     subtitleKey: "omniSkillsSubtitle",
     icon: "auto_fix_high",

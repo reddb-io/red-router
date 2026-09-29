@@ -11,8 +11,8 @@ Manage context engineering configurations, RTK filter sets, and conversation ses
 ## Quick install
 
 ```bash
-npm install -g omniroute   # or: npx omniroute
-omniroute --version
+npm install -g omniroute   # or: npx @reddb-io/red-router
+red-router --version
 ```
 
 ## Subcommands

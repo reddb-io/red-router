@@ -5,7 +5,7 @@ import { parseOpenapi } from "../../src/lib/agentSkills/openapiParser.ts";
 import { buildApiOperationExample } from "../../src/lib/agentSkills/apiOperationExample.ts";
 
 test("generated CLI skill uses header previews and original-input dry-run application", () => {
-  const { body, references } = buildSkillMarkdown("omni-cli-tools", {
+  const { body, references } = buildSkillMarkdown("red-router-cli-tools", {
     openapi: parseOpenapi(),
     cliRegistry: { commands: new Map(), families: new Map() },
   });

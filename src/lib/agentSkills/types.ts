@@ -54,7 +54,7 @@ export type SkillArea =
   | "external";
 
 export interface AgentSkill {
-  id: string; // canonical id (e.g. "omni-providers", "cli-serve")
+  id: string; // canonical id (e.g. "red-router-providers", "cli-serve")
   name: string; // human-readable
   description: string; // 1-paragraph
   category: SkillCategory;

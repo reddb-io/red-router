@@ -12,7 +12,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const TEST_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "omni-version-manager-"));
+const TEST_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "red-router-version-manager-"));
 process.env.DATA_DIR = TEST_DATA_DIR;
 process.env.API_KEY_SECRET = "version-manager-api-key-secret";
 process.env.JWT_SECRET = "version-manager-jwt-secret";

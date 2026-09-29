@@ -2776,7 +2776,7 @@ async function handleChatCoreInner({
         }
         log?.info?.(
           "COMPRESSION",
-          `Post-translation OmniGlyph applied (${sourceFormat} → ${targetFormat})`
+          `Post-translation Glyph applied (${sourceFormat} → ${targetFormat})`
         );
       }
     } catch (error) {
@@ -2784,7 +2784,7 @@ async function handleChatCoreInner({
       // must never turn an otherwise valid translated request into a 500.
       log?.warn?.(
         "COMPRESSION",
-        "Post-translation OmniGlyph skipped: " +
+        "Post-translation Glyph skipped: " +
           (error instanceof Error ? error.message : String(error))
       );
     }

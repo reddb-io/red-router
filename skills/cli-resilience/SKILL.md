@@ -11,8 +11,8 @@ Inspect and manage circuit-breaker states, connection cooldowns, quota limits, a
 ## Quick install
 
 ```bash
-npm install -g omniroute   # or: npx omniroute
-omniroute --version
+npm install -g omniroute   # or: npx @reddb-io/red-router
+red-router --version
 ```
 
 ## Subcommands
@@ -27,17 +27,17 @@ omniroute --version
 **Example:**
 
 ```bash
-omniroute quota
+red-router quota
 ```
 
 ### `quota status`
 
-Show truthful OmniRoute gateway, quota, pool, and circuit state
+Show truthful RedRouter gateway, quota, pool, and circuit state
 
 **Example:**
 
 ```bash
-omniroute quota status
+red-router quota status
 ```
 
 ### `quota preview`
@@ -51,7 +51,7 @@ Preview allocation enforcement without an upstream request
 **Example:**
 
 ```bash
-omniroute quota preview
+red-router quota preview
 ```
 
 ### `quota ensure <json>`
@@ -61,7 +61,7 @@ Idempotently create or update a quota pool from a JSON object
 **Example:**
 
 ```bash
-omniroute quota ensure <json>
+red-router quota ensure <json>
 ```
 
 ### `resilience`

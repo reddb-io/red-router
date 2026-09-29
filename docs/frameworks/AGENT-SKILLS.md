@@ -9,7 +9,7 @@ lastUpdated: 2026-08-02
 > **Source of truth:** `src/lib/agentSkills/` (catalog, generator, parsers) + `skills/` directory (SKILL.md files)
 > **Last updated:** 2026-08-02 — v3.8.50
 
-Agent Skills are structured SKILL.md files that teach external agents, MCP clients, and A2A orchestrators how to use RedRouter's REST API and CLI. Unlike [Omni Skills](./SKILLS.md) (which are LLM tool definitions executed inside RedRouter), Agent Skills are a _documentation catalog_ — static markdown that can be fed directly into agent context.
+Agent Skills are structured SKILL.md files that teach external agents, MCP clients, and A2A orchestrators how to use RedRouter's REST API and CLI. Unlike [Skills](./SKILLS.md) (which are LLM tool definitions executed inside RedRouter), Agent Skills are a _documentation catalog_ — static markdown that can be fed directly into agent context.
 
 ---
 
@@ -17,7 +17,7 @@ Agent Skills are structured SKILL.md files that teach external agents, MCP clien
 
 The catalog contains **45 Agent Skills** (23 REST API + 21 CLI + 1 configuration workflow). Each skill has:
 
-- A **canonical ID** (`omni-auth`, `cli-serve`, etc.)
+- A **canonical ID** (`red-router-auth`, `cli-serve`, etc.)
 - A **SKILL.md** file in `skills/{id}/SKILL.md` with YAML frontmatter (`name`, `description`) + rich markdown body
 - **REST endpoints** (API skills) or **CLI subcommands** (CLI skills) derived from the OpenAPI spec and CLI registry
 - A **GitHub raw URL** for live fetch: `https://raw.githubusercontent.com/diegosouzapw/OmniRoute/refs/heads/main/skills/{id}/SKILL.md`
@@ -55,7 +55,7 @@ src/lib/a2a/skills/listCapabilities.ts        — A2A skill: list-capabilities
 
 ```markdown
 ---
-name: omni-providers
+name: red-router-providers
 description: "Manage provider connections: add, test, rotate, and remove credentials."
 ---
 
@@ -84,7 +84,7 @@ description: "Manage provider connections: add, test, rotate, and remove credent
 
 The generator preserves content between `<!-- skill:custom-start -->` and `<!-- skill:custom-end -->` on regeneration. Ten skills have curated custom blocks:
 
-`omni-mcp`, `omni-compression`, `cli-providers`, `cli-eval`, `omni-agents-a2a`, `omni-combos-routing`, `omni-auth`, `omni-resilience`, `omni-inference`, `cli-serve`.
+`red-router-mcp`, `red-router-compression`, `cli-providers`, `cli-eval`, `red-router-agents-a2a`, `red-router-combos-routing`, `red-router-auth`, `red-router-resilience`, `red-router-inference`, `cli-serve`.
 
 ---
 
@@ -107,7 +107,7 @@ curl "http://localhost:20128/api/agent-skills?category=api"
 Example — fetch a single SKILL.md:
 
 ```bash
-curl -H "Accept: text/markdown" "http://localhost:20128/api/agent-skills/omni-providers/raw"
+curl -H "Accept: text/markdown" "http://localhost:20128/api/agent-skills/red-router-providers/raw"
 ```
 
 ---
@@ -152,28 +152,28 @@ See [A2A-SERVER.md](./A2A-SERVER.md) for protocol details.
 
 | ID                     | Area            | Entry Point                          |
 | :--------------------- | :-------------- | :----------------------------------- |
-| `omni-auth`            | auth            | Auth + session management            |
-| `omni-providers`       | providers       | Provider connection management       |
-| `omni-models`          | models          | Model catalog and capabilities       |
-| `omni-combos-routing`  | combos-routing  | Combo routing strategies             |
-| `omni-api-keys`        | api-keys        | API key management                   |
-| `omni-usage-logs`      | usage-logs      | Usage and cost logs                  |
-| `omni-budget`          | budget          | Budget guards                        |
-| `omni-settings`        | settings        | Global settings                      |
-| `omni-proxies`         | proxies         | Proxy pool management                |
-| `omni-cache`           | cache           | Semantic + prompt cache              |
-| `omni-compression`     | compression     | Context compression engines          |
-| `omni-context-rtk`     | context-rtk     | RTK compression                      |
-| `omni-resilience`      | resilience      | Circuit breakers + cooldowns         |
-| `omni-cli-tools`       | cli-tools       | CLI tools REST proxy                 |
-| `omni-tunnels`         | tunnels         | Tunnel management                    |
-| `omni-sync-cloud`      | sync-cloud      | Cloud sync                           |
-| `omni-db-backups`      | db-backups      | Database backups                     |
-| `omni-webhooks`        | webhooks        | Webhook event dispatcher             |
-| `omni-mcp`             | mcp             | MCP server (110 tools, 3 transports) |
-| `omni-agents-a2a`      | agents-a2a      | A2A agent protocol                   |
-| `omni-version-manager` | version-manager | Version and update management        |
-| `omni-inference`       | inference       | Direct inference / completions       |
+| `red-router-auth`            | auth            | Auth + session management            |
+| `red-router-providers`       | providers       | Provider connection management       |
+| `red-router-models`          | models          | Model catalog and capabilities       |
+| `red-router-combos-routing`  | combos-routing  | Combo routing strategies             |
+| `red-router-api-keys`        | api-keys        | API key management                   |
+| `red-router-usage-logs`      | usage-logs      | Usage and cost logs                  |
+| `red-router-budget`          | budget          | Budget guards                        |
+| `red-router-settings`        | settings        | Global settings                      |
+| `red-router-proxies`         | proxies         | Proxy pool management                |
+| `red-router-cache`           | cache           | Semantic + prompt cache              |
+| `red-router-compression`     | compression     | Context compression engines          |
+| `red-router-context-rtk`     | context-rtk     | RTK compression                      |
+| `red-router-resilience`      | resilience      | Circuit breakers + cooldowns         |
+| `red-router-cli-tools`       | cli-tools       | CLI tools REST proxy                 |
+| `red-router-tunnels`         | tunnels         | Tunnel management                    |
+| `red-router-sync-cloud`      | sync-cloud      | Cloud sync                           |
+| `red-router-db-backups`      | db-backups      | Database backups                     |
+| `red-router-webhooks`        | webhooks        | Webhook event dispatcher             |
+| `red-router-mcp`             | mcp             | MCP server (110 tools, 3 transports) |
+| `red-router-agents-a2a`      | agents-a2a      | A2A agent protocol                   |
+| `red-router-version-manager` | version-manager | Version and update management        |
+| `red-router-inference`       | inference       | Direct inference / completions       |
 
 ### CLI Skills (21)
 
@@ -218,7 +218,7 @@ See [A2A-SERVER.md](./A2A-SERVER.md) for protocol details.
 curl "http://your-omniroute/api/agent-skills" | jq '.skills[] | {id, name, category}'
 
 # Get SKILL.md for context injection
-curl "http://your-omniroute/api/agent-skills/omni-providers/raw" > omni-providers.md
+curl "http://your-omniroute/api/agent-skills/red-router-providers/raw" > red-router-providers.md
 ```
 
 ### 2. Discovery via MCP
@@ -247,7 +247,7 @@ table = resp.json()["result"]["artifacts"][0]["content"]
 
 ```bash
 BASE="https://raw.githubusercontent.com/diegosouzapw/OmniRoute/refs/heads/main/skills"
-curl "${BASE}/omni-providers/SKILL.md"
+curl "${BASE}/red-router-providers/SKILL.md"
 ```
 
 ---
@@ -273,14 +273,14 @@ curl -X POST http://localhost:20128/api/agent-skills/generate \
 curl -X POST http://localhost:20128/api/agent-skills/generate \
   -H "Authorization: Bearer <admin-key>" \
   -H "Content-Type: application/json" \
-  -d '{"dryRun":false,"onlyIds":["omni-providers","cli-serve"]}'
+  -d '{"dryRun":false,"onlyIds":["red-router-providers","cli-serve"]}'
 ```
 
 The generator response is a `GeneratorReport`:
 
 ```json
 {
-  "generated": ["omni-providers", "cli-serve"],
+  "generated": ["red-router-providers", "cli-serve"],
   "unchanged": [],
   "pruned": [],
   "orphansDetected": [],
@@ -310,7 +310,7 @@ curl "http://localhost:20128/api/agent-skills/coverage"
 
 ## Related
 
-- [SKILLS.md](./SKILLS.md) — Omni Skills framework (LLM tool injection + marketplace)
+- [SKILLS.md](./SKILLS.md) — Skills framework (LLM tool injection + marketplace)
 - [MCP-SERVER.md](./MCP-SERVER.md) — MCP tool catalog (`omniroute_agent_skills_*` tools)
 - [A2A-SERVER.md](./A2A-SERVER.md) — A2A protocol (`list-capabilities` skill)
 - `src/lib/agentSkills/` — catalog, generator, parsers

@@ -50,7 +50,7 @@ vi.mock("next/dynamic", () => ({
 
 function makeSkill(overrides: Partial<AgentSkill> = {}): AgentSkill {
   return {
-    id: "omni-providers",
+    id: "red-router-providers",
     name: "Providers",
     description: "Manage provider connections and API keys.",
     category: "api",
@@ -58,8 +58,8 @@ function makeSkill(overrides: Partial<AgentSkill> = {}): AgentSkill {
     icon: "hub",
     endpoints: ["POST /api/providers", "GET /api/providers"],
     rawUrl:
-      "https://raw.githubusercontent.com/diegosouzapw/OmniRoute/refs/heads/main/skills/omni-providers/SKILL.md",
-    githubUrl: "https://github.com/diegosouzapw/OmniRoute/blob/main/skills/omni-providers/SKILL.md",
+      "https://raw.githubusercontent.com/diegosouzapw/OmniRoute/refs/heads/main/skills/red-router-providers/SKILL.md",
+    githubUrl: "https://github.com/diegosouzapw/OmniRoute/blob/main/skills/red-router-providers/SKILL.md",
     ...overrides,
   };
 }
@@ -624,7 +624,7 @@ describe("SkillPreviewPane", () => {
     await act(async () => {
       localRoot.render(
         <SkillPreviewPane
-          skillId="omni-providers"
+          skillId="red-router-providers"
           markdown="# Providers\nContent here."
           loading={false}
         />
@@ -644,7 +644,7 @@ describe("SkillPreviewPane", () => {
     const container = makeContainer();
     const localRoot = createRoot(container);
     await act(async () => {
-      localRoot.render(<SkillPreviewPane skillId="omni-providers" markdown="" loading={false} />);
+      localRoot.render(<SkillPreviewPane skillId="red-router-providers" markdown="" loading={false} />);
     });
 
     // markdown is "" (falsy) — should show error state

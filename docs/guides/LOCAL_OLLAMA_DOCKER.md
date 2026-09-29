@@ -6,12 +6,12 @@ lastUpdated: 2026-09-29
 
 # Local Ollama + Docker RedRouter
 
-Guide for running **RedRouter in Docker** while **Ollama runs natively on the host** — the setup used with VS Code OmniCopilot and other OpenAI-compatible clients.
+Guide for running **RedRouter in Docker** while **Ollama runs natively on the host** — the setup used with VS Code Copilot and other OpenAI-compatible clients.
 
 ## Architecture
 
 ```
-VS Code / OmniCopilot
+VS Code / Copilot
         ↓  :20128
 RedRouter (Docker)
         ↓  host.docker.internal:11434
@@ -35,7 +35,7 @@ your model (e.g. qwen35b-highctx:latest)
    - **Prefix:** `ollama` (optional, for `ollama/model-name` routing)
 
 4. Point your client at RedRouter:
-   - **VS Code OmniCopilot:** `omnicopilot.baseUrl` → `http://<host-ip>:20128`
+   - **VS Code / other OpenAI-compatible clients:** base URL `http://<host-ip>:20128/v1`
    - **Model:** `ollama/<model-name>`
 
 ## Verify Docker → Ollama connectivity
@@ -52,7 +52,7 @@ docker exec omniroute node -e \
 
 ### Root cause
 
-This 504 originates in **RedRouter**, not OmniCopilot. The direct (no-proxy) fetch path uses `resolveDirectHeadersTimeoutMs()` in `open-sse/utils/directResponseStartTimeout.ts`. When `OMNIROUTE_DIRECT_HEADERS_TIMEOUT_MS` is unset, the default per-attempt budget is **30 seconds**. RedRouter retries once on a fresh socket, so failures often appear at **~60 seconds** total.
+This 504 originates in **RedRouter**, not Copilot. The direct (no-proxy) fetch path uses `resolveDirectHeadersTimeoutMs()` in `open-sse/utils/directResponseStartTimeout.ts`. When `OMNIROUTE_DIRECT_HEADERS_TIMEOUT_MS` is unset, the default per-attempt budget is **30 seconds**. RedRouter retries once on a fresh socket, so failures often appear at **~60 seconds** total.
 
 Large local models (22B+ MoE) and VS Code Copilot agent requests (big system prompt + tools) can exceed 30s **time-to-first-byte**, especially on cold start.
 
@@ -81,4 +81,3 @@ Heavy agent sessions can also hit `RATE_LIMIT_EXECUTION_TIMEOUT` when concurrent
 ## Related
 
 - [DOCKER_GUIDE.md](./DOCKER_GUIDE.md) — full compose profiles
-- [OmniCopilot](https://github.com/diegosouzapw/OmniCopilot) — VS Code extension (no request timeout settings; errors come from RedRouter)

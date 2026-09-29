@@ -5,8 +5,8 @@
  *  1. All 46 skill IDs from the catalog have a skills/{id}/ folder with SKILL.md.
  *  2. Zero omniroute-* folders remain (post-prune: old omniroute-* skill dirs were removed).
  *  3. 14 specific IDs have <!-- skill:custom-start --> ... <!-- skill:custom-end --> blocks:
- *     omni-mcp, omni-compression, cli-providers, cli-eval, omni-agents-a2a,
- *     omni-combos-routing, omni-auth, omni-resilience, omni-inference, cli-serve.
+ *     red-router-mcp, red-router-compression, cli-providers, cli-eval, red-router-agents-a2a,
+ *     red-router-combos-routing, red-router-auth, red-router-resilience, red-router-inference, cli-serve.
  *
  * Does NOT spin up a server.
  */
@@ -24,18 +24,18 @@ const ALL_IDS = getCatalog().map((skill) => skill.id);
 // IDs that must have a custom block
 const CUSTOM_BLOCK_IDS = [
   "cli-skill-collector",
-  "omni-mcp",
-  "omni-compression",
+  "red-router-mcp",
+  "red-router-compression",
   "cli-providers",
   "cli-eval",
-  "omni-agents-a2a",
-  "omni-combos-routing",
-  "omni-auth",
-  "omni-resilience",
-  "omni-inference",
+  "red-router-agents-a2a",
+  "red-router-combos-routing",
+  "red-router-auth",
+  "red-router-resilience",
+  "red-router-inference",
   "cli-serve",
-  "omni-providers",
-  "omni-settings",
+  "red-router-providers",
+  "red-router-settings",
   "config-codex-cli",
   "ponytail",
 ] as const;

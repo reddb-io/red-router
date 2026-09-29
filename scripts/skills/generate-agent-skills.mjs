@@ -7,7 +7,7 @@
  *   node scripts/skills/generate-agent-skills.mjs --apply    # write SKILL.md files
  *   node scripts/skills/generate-agent-skills.mjs --prune    # detect orphans (dry-run)
  *   node scripts/skills/generate-agent-skills.mjs --apply --prune  # write + delete orphans
- *   node scripts/skills/generate-agent-skills.mjs --only=omni-providers,cli-serve
+ *   node scripts/skills/generate-agent-skills.mjs --only=red-router-providers,cli-serve
  *   node scripts/skills/generate-agent-skills.mjs --json     # JSON output to stdout
  *
  * Exit codes:

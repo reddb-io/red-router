@@ -22,19 +22,19 @@ test("agent skills schemas module exposes runtime validators", async () => {
 
 test("AgentSkillSchema — valid api skill parses successfully", () => {
   const input = {
-    id: "omni-providers",
+    id: "red-router-providers",
     name: "Providers",
     description: "Manage LLM providers",
     category: "api" as const,
     area: "providers",
     endpoints: ["GET /api/providers", "POST /api/providers"],
-    rawUrl: "https://raw.githubusercontent.com/owner/repo/main/skills/omni-providers/SKILL.md",
-    githubUrl: "https://github.com/owner/repo/blob/main/skills/omni-providers/SKILL.md",
+    rawUrl: "https://raw.githubusercontent.com/owner/repo/main/skills/red-router-providers/SKILL.md",
+    githubUrl: "https://github.com/owner/repo/blob/main/skills/red-router-providers/SKILL.md",
   };
   const result = AgentSkillSchema.safeParse(input);
   assert.equal(result.success, true);
   if (result.success) {
-    assert.equal(result.data.id, "omni-providers");
+    assert.equal(result.data.id, "red-router-providers");
     assert.equal(result.data.category, "api");
   }
 });
@@ -61,8 +61,8 @@ test("AgentSkillSchema — invalid id (uppercase) fails", () => {
     description: "Manage LLM providers",
     category: "api",
     area: "providers",
-    rawUrl: "https://raw.githubusercontent.com/owner/repo/main/skills/omni-providers/SKILL.md",
-    githubUrl: "https://github.com/owner/repo/blob/main/skills/omni-providers/SKILL.md",
+    rawUrl: "https://raw.githubusercontent.com/owner/repo/main/skills/red-router-providers/SKILL.md",
+    githubUrl: "https://github.com/owner/repo/blob/main/skills/red-router-providers/SKILL.md",
   };
   const result = AgentSkillSchema.safeParse(input);
   assert.equal(result.success, false);
@@ -70,13 +70,13 @@ test("AgentSkillSchema — invalid id (uppercase) fails", () => {
 
 test("AgentSkillSchema — invalid category fails", () => {
   const input = {
-    id: "omni-providers",
+    id: "red-router-providers",
     name: "Providers",
     description: "Manage LLM providers",
     category: "unknown",
     area: "providers",
-    rawUrl: "https://raw.githubusercontent.com/owner/repo/main/skills/omni-providers/SKILL.md",
-    githubUrl: "https://github.com/owner/repo/blob/main/skills/omni-providers/SKILL.md",
+    rawUrl: "https://raw.githubusercontent.com/owner/repo/main/skills/red-router-providers/SKILL.md",
+    githubUrl: "https://github.com/owner/repo/blob/main/skills/red-router-providers/SKILL.md",
   };
   const result = AgentSkillSchema.safeParse(input);
   assert.equal(result.success, false);
@@ -84,13 +84,13 @@ test("AgentSkillSchema — invalid category fails", () => {
 
 test("AgentSkillSchema — non-url rawUrl fails", () => {
   const input = {
-    id: "omni-providers",
+    id: "red-router-providers",
     name: "Providers",
     description: "Manage LLM providers",
     category: "api",
     area: "providers",
     rawUrl: "not-a-url",
-    githubUrl: "https://github.com/owner/repo/blob/main/skills/omni-providers/SKILL.md",
+    githubUrl: "https://github.com/owner/repo/blob/main/skills/red-router-providers/SKILL.md",
   };
   const result = AgentSkillSchema.safeParse(input);
   assert.equal(result.success, false);
@@ -98,13 +98,13 @@ test("AgentSkillSchema — non-url rawUrl fails", () => {
 
 test("AgentSkillSchema — optional fields absent parses successfully", () => {
   const input = {
-    id: "omni-providers",
+    id: "red-router-providers",
     name: "Providers",
     description: "Manage LLM providers",
     category: "api",
     area: "providers",
-    rawUrl: "https://raw.githubusercontent.com/owner/repo/main/skills/omni-providers/SKILL.md",
-    githubUrl: "https://github.com/owner/repo/blob/main/skills/omni-providers/SKILL.md",
+    rawUrl: "https://raw.githubusercontent.com/owner/repo/main/skills/red-router-providers/SKILL.md",
+    githubUrl: "https://github.com/owner/repo/blob/main/skills/red-router-providers/SKILL.md",
   };
   const result = AgentSkillSchema.safeParse(input);
   assert.equal(result.success, true);
@@ -255,10 +255,10 @@ test("GenerateBodySchema — explicit dryRun=false parses", () => {
 });
 
 test("GenerateBodySchema — onlyIds array parses", () => {
-  const result = GenerateBodySchema.safeParse({ onlyIds: ["omni-providers", "cli-serve"] });
+  const result = GenerateBodySchema.safeParse({ onlyIds: ["red-router-providers", "cli-serve"] });
   assert.equal(result.success, true);
   if (result.success) {
-    assert.deepEqual(result.data.onlyIds, ["omni-providers", "cli-serve"]);
+    assert.deepEqual(result.data.onlyIds, ["red-router-providers", "cli-serve"]);
   }
 });
 

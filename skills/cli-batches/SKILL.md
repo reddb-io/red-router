@@ -11,8 +11,8 @@ Submit and monitor batch inference jobs from the CLI. Upload and manage files fo
 ## Quick install
 
 ```bash
-npm install -g omniroute   # or: npx omniroute
-omniroute --version
+npm install -g omniroute   # or: npx @reddb-io/red-router
+red-router --version
 ```
 
 ## Subcommands

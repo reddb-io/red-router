@@ -11,8 +11,8 @@ View cost breakdowns, token usage, and call logs from the CLI. Filter by provide
 ## Quick install
 
 ```bash
-npm install -g omniroute   # or: npx omniroute
-omniroute --version
+npm install -g omniroute   # or: npx @reddb-io/red-router
+red-router --version
 ```
 
 ## Subcommands

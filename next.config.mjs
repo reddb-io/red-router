@@ -531,8 +531,8 @@ const nextConfig = {
     return [
       // Dashboard routes
       {
-        source: "/dashboard/skills",
-        destination: "/dashboard/omni-skills",
+        source: "/dashboard/omni-skills",
+        destination: "/dashboard/skills",
         permanent: true,
       },
       {

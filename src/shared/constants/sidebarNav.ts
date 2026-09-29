@@ -176,7 +176,7 @@ export const SIDEBAR_NAV_SECTIONS: readonly SidebarNavSection[] = [
         label: "Skills",
         icon: "Sparkles",
         tabs: [
-          tab("skills", "/dashboard/omni-skills", "Skills"),
+          tab("skills", "/dashboard/skills", "Skills"),
           tab("agent-skills", "/dashboard/agent-skills", "Catalog"),
           tab(undefined, "/dashboard/skills/styles", "Prompt styles"),
         ],

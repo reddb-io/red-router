@@ -19,10 +19,10 @@ RedRouter compression is built around engine contracts. A mode can run one engin
 | `aggressive` | Caveman + history/tool summarizers                                                    | Long chat sessions                           |
 | `ultra`      | Caveman + pruning helpers                                                             | Context-limit recovery                       |
 | `rtk`        | RTK                                                                                   | Terminal, shell, build, test, and git output |
-| `omniglyph`  | OmniGlyph                                                                             | Context-as-image on the native provider wire |
+| `omniglyph`  | Glyph                                                                             | Context-as-image on the native provider wire |
 | `stacked`    | Pipeline. The request default is `session-dedup -> lite`. `rtk -> caveman` is opt-in. | Mixed tool logs and prose, max savings       |
 
-### OmniGlyph compression profiles
+### Glyph compression profiles
 
 The `omniglyph` engine (package `omniglyph`, 1.4.0+) accepts a named semantic profile, set
 globally through `omniglyph.profile` in the compression settings or per step through the

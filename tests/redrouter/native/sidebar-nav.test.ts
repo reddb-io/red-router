@@ -87,7 +87,6 @@ const OFF_MENU: Record<string, string> = {
   "/dashboard/system/1proxy": "redirects to Outbound proxies",
   "/dashboard/system/mitm-proxy": "redirects to Agent bridge",
   "/dashboard/onboarding": "first-run wizard, opened by Setup",
-  "/dashboard/skills": "redirects to Skills",
 };
 
 test("every dashboard page is a menu page, a detail of one, or listed as off-menu", () => {
@@ -138,7 +137,7 @@ test("a URL belongs to the entry with the longest matching page", () => {
   );
   assert.equal(findNavMatch("/dashboard/providers/abc", sections)?.tab.label, "Providers");
   assert.equal(findNavMatch("/dashboard/context/caveman", sections)?.entry.id, "token-saver");
-  assert.equal(findNavMatch("/dashboard/omni-skills", sections)?.entry.label, "Skills");
+  assert.equal(findNavMatch("/dashboard/skills", sections)?.entry.label, "Skills");
   assert.equal(findNavMatch("/dashboard/skills/styles", sections)?.tab.label, "Prompt styles");
   assert.equal(findNavMatch("/home", sections)?.entry.id, "home");
   assert.equal(findNavMatch("/dashboard/nowhere", sections), null);
