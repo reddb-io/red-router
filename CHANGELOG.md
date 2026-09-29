@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.44.0
+
+### Minor Changes
+
+- Capacity adapter, ported from RedRouter v0.33.0 / 9router. In Settings → Routing you can name fallback models per input type (images, audio, video). When a request carries media and no member of the combo can read it, those models are tried first instead of the request failing; a combo that already has a capable member is never changed, a pool member that cannot take the media is never used, and nothing happens unless a pool is enabled and lists models (there is no built-in default, since every pool member is a model on one of your accounts).
+- Single sign-on and credential import, ported from 9router. OIDC login now uses PKCE (S256), a nonce bound to the browser and random state; Settings → Security gains an OIDC card with a connection check and a real test sign-in, and password login can only be switched off after a test sign-in has worked (changing the OIDC setup makes the test stale). If you are ever locked out, `red-router reset-password --disable-sso` switches SSO off and password login back on. New passwords must meet a local policy (at least 8 characters, not common or repetitive), with an opt-in breach check that sends only a five-character hash prefix to Have I Been Pwned and never blocks a change when the service is unreachable. New management-authenticated import routes: GitLab Duo by personal access token, iFlow by `BXAuth` cookie, and Grok CLI in bulk with per-item results and no tokens echoed. Not ported: 9router's local HTTP password-reset route (a browser-reachable reset is a CSRF risk; the CLI covers it) and its progressive login lockout (RedRouter's login guard already locks after repeated failures).
+- Routing failures now carry machine-readable headers: `X-RedRouter-Reason` (`model_disabled`, `model_not_allowed`, `api_key_limit`, `quota_exhausted`, `overloaded`, `no_active_credentials`) and `X-RedRouter-Retry-At`, with `X-9Router-Reason` / `X-9Router-Retry-At` as aliases for clients that already read the v0.33.0 names. The combos page gains bulk actions (select combos to delete them or change their strategy at once, reported per combo) and one-click default combos for Claude Code and Cursor, which only add what is missing and never overwrite a combo you built.
+- SAML 2.0 sign-in for the dashboard (Settings → Security → SAML, "Continue with SAML" on the login page), ported from 9router with its gaps closed. A response is accepted only if it answers an AuthnRequest this server sent (the request id lives in a single-use, expiring server-side store, so IdP-initiated and replayed responses fail), the assertion must be signed with the configured certificate and addressed to our entity ID, only e-mails on your allow list are let in (9router opens the dashboard to anyone the identity provider signs in), and every failure redirects with a fixed code instead of echoing the error. There is a static setup check, a real test sign-in that opens no session, and the service-provider metadata to register at the identity provider. Password login always stays available next to SAML, and `red-router reset-password --disable-sso` also switches SAML off.
+
+### Patch Changes
+
+- The startup banner now spells RedRouter instead of the inherited product name, shell completions (bash, zsh, fish) are registered for the `red-router` binary and read the completion cache from RedRouter's own data directory (they targeted a command that does not exist and a folder that is never written), and the hints the CLI and dashboard print (`red-router runtime repair`, `red-router env get`, `red-router contexts use default`, the MITM Kiro instructions, …) name the command you actually run.
+
 ## 0.43.0
 
 ### Minor Changes
