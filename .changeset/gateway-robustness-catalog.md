@@ -1,5 +1,0 @@
----
-"@reddb-io/red-router": minor
----
-
-Gateway robustness and catalog refresh, ported from 9router v0.5.91. A Claude `refusal` now ends as `content_filter` and keeps its explanation, and the reverse mapping is done for Claude clients. Antigravity requests never end on a model turn (a trailing function call gets a synthetic response). Screenshots inside tool results reach Claude-compatible gateways that drop them (Anthropic itself, Vertex and Bedrock keep them in place). Chat Completions clients that set `reasoning_effort` get Claude's thinking text back as `reasoning_content`. Applying Claude Code settings keeps an existing auth token unless a key is picked explicitly. New OpenCode Go and Zen models (including `union-alpha`), Codex `gpt-5.4`, `gpt-5.4-mini` and `gpt-5.3-codex-spark`, the DeepSeek V4.1 effort ladder, and `cline-free/*` priced at zero. Not ported: dropping Antigravity's `requestType: "agent"` (the upstream false-429 has no reproduction and the real client sends it) and the OpenRouter `/v1/messages` transport (needs executor plumbing, tracked for a later release).
