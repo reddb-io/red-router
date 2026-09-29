@@ -259,3 +259,19 @@ test("every icon the menu names is a glyph the shell can draw", async () => {
     }
   }
 });
+
+test("Settings → Sidebar edits the menu that is shown, keeps stored ids and keeps itself reachable", () => {
+  const editor = readFileSync(
+    "src/app/(dashboard)/dashboard/settings/components/SidebarTab.tsx",
+    "utf8"
+  );
+  assert.ok(editor.includes("SIDEBAR_NAV_SECTIONS"));
+  assert.ok(editor.includes("SIDEBAR_PRESETS"));
+  assert.equal(editor.includes("SIDEBAR_SECTIONS"), false, "the old page registry");
+  assert.equal(editor.includes("@dnd-kit"), false, "ordering is gone with the old sections");
+  assert.ok(editor.includes('"settings-sidebar"'));
+  // Every page of the menu that has an id can be toggled, and the ids are the stored ones.
+  for (const tab of allNavTabs()) {
+    if (tab.id) assert.ok((HIDEABLE_SIDEBAR_ITEM_IDS as readonly string[]).includes(tab.id));
+  }
+});

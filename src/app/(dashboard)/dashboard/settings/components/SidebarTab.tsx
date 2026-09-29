@@ -1,385 +1,115 @@
 "use client";
 
+// Settings → Sidebar: which areas, entries and pages the menu shows. The tree is the menu itself
+// (rail area → panel entry → page tab); every page keeps the hideable id it always had, so saved
+// settings and presets keep working. An entry disappears when all of its identified pages are hidden.
 import { useState, useEffect, useCallback } from "react";
-import {
-  DndContext,
-  closestCenter,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-} from "@dnd-kit/core";
-import {
-  SortableContext,
-  useSortable,
-  verticalListSortingStrategy,
-  arrayMove,
-} from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
 import { Card, Toggle } from "@/shared/components";
+import Icon from "@/shared/components/Icon";
 import { cn } from "@/shared/utils/cn";
 import { useTranslations } from "next-intl";
-import {
-  HIDDEN_SIDEBAR_GROUP_LABELS_SETTING_KEY,
-  HIDEABLE_SIDEBAR_GROUP_IDS,
-  normalizeHiddenSidebarGroupLabels,
-  type HideableSidebarGroupId,
-} from "@/shared/constants/sidebarGroupVisibility";
+import { navIcon } from "@/shared/icons/navIcons";
 import {
   HIDDEN_SIDEBAR_ITEMS_SETTING_KEY,
+  SIDEBAR_PRESET_KEY,
   SIDEBAR_SECTION_ORDER_KEY,
   SIDEBAR_ITEM_ORDER_KEY,
-  SIDEBAR_PRESET_KEY,
   SIDEBAR_SETTINGS_UPDATED_EVENT,
-  SIDEBAR_SECTIONS,
   SIDEBAR_PRESETS,
-  applySectionOrder,
-  applyItemOrder,
   normalizeHiddenSidebarItems,
-  HIDEABLE_SIDEBAR_ITEM_IDS,
-  resolveRuntimeSidebarSections,
   type HideableSidebarItemId,
-  type SidebarItemId,
-  type SidebarSectionId,
-  type SidebarItemOrder,
   type SidebarPresetId,
-  type SidebarSectionDefinition,
-  type SidebarSectionChild,
-  type SidebarItemDefinition,
-  type SidebarItemGroup,
 } from "@/shared/constants/sidebarVisibility";
+import { HIDDEN_SIDEBAR_GROUP_LABELS_SETTING_KEY } from "@/shared/constants/sidebarGroupVisibility";
+import {
+  SIDEBAR_NAV_SECTIONS,
+  type SidebarNavEntry,
+  type SidebarNavTab,
+} from "@/shared/constants/sidebarNav";
 
-// ─── Sortable section row ──────────────────────────────────────────────────────
+// Pages that can never be hidden, so Settings → Sidebar itself always stays reachable.
+const PROTECTED_ITEM_IDS = new Set<string>(["settings-sidebar"]);
 
-interface SortableSectionProps {
-  section: SidebarSectionDefinition & { title: string };
-  hiddenSet: Set<HideableSidebarItemId>;
-  hiddenGroupLabelsSet: Set<HideableSidebarGroupId>;
-  itemOrder: string[];
-  onToggleItem: (id: HideableSidebarItemId) => void;
-  onToggleGroupLabel: (id: HideableSidebarGroupId) => void;
-  onItemReorder: (sectionId: SidebarSectionId, newOrder: string[]) => void;
-  getLabel: (key: string, fallback: string) => string;
+const pageIds = (entry: SidebarNavEntry): HideableSidebarItemId[] =>
+  [
+    ...entry.tabs.flatMap((page) => [page.id, ...(page.children ?? []).map((child) => child.id)]),
+  ].filter((id): id is HideableSidebarItemId => Boolean(id));
+
+interface EntryRowProps {
+  entry: SidebarNavEntry;
+  hidden: ReadonlySet<string>;
+  disabled: boolean;
+  onSetIds: (ids: readonly HideableSidebarItemId[], visible: boolean) => void;
+  shownLabel: string;
+  alwaysLabel: string;
 }
 
-function SortableSection({
-  section,
-  hiddenSet,
-  hiddenGroupLabelsSet,
-  itemOrder,
-  onToggleItem,
-  onToggleGroupLabel,
-  onItemReorder,
-  getLabel,
-}: SortableSectionProps) {
-  const tSidebar = useTranslations("sidebar");
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id: section.id,
-  });
-  const style = { transform: CSS.Transform.toString(transform), transition };
-
-  const [expanded, setExpanded] = useState(true);
-
-  const allChildren = section.children as SidebarSectionChild[];
-  const getChildId = (c: SidebarSectionChild) =>
-    "type" in c && c.type === "group" ? c.id : (c as SidebarItemDefinition).id;
-
-  const orderedChildren = applyItemOrder(allChildren, itemOrder);
-  const childIds = orderedChildren.map(getChildId);
-  const sensors = useSensors(useSensor(PointerSensor));
-
-  const handleItemDragEnd = (event: DragEndEvent) => {
-    const { active, over } = event;
-    if (!over || active.id === over.id) return;
-    const oldIdx = childIds.indexOf(active.id as string);
-    const newIdx = childIds.indexOf(over.id as string);
-    if (oldIdx === -1 || newIdx === -1) return;
-    onItemReorder(section.id as SidebarSectionId, arrayMove(childIds, oldIdx, newIdx));
-  };
+function EntryRow({ entry, hidden, disabled, onSetIds, shownLabel, alwaysLabel }: EntryRowProps) {
+  const ids = pageIds(entry);
+  const visibleIds = ids.filter((id) => !hidden.has(id));
+  const entryVisible = visibleIds.length > 0;
+  const protectedEntry = ids.some((id) => PROTECTED_ITEM_IDS.has(id));
+  const identifiedTabs = entry.tabs.filter((page: SidebarNavTab) => page.id);
 
   return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      className={cn(
-        "rounded-lg border border-border bg-surface/40 transition-shadow",
-        isDragging && "shadow-lg opacity-80"
-      )}
-    >
-      {/* Section header */}
-      <div className="flex items-center gap-2 px-4 py-3 border-b border-border/70">
-        <button
-          {...listeners}
-          {...attributes}
-          className="text-text-muted/40 hover:text-text-muted/80 cursor-grab active:cursor-grabbing touch-none shrink-0"
-          title={tSidebar("dragReorderSection")}
-          aria-label={tSidebar("dragReorderSection")}
-        >
-          <span className="material-symbols-outlined text-[18px]">drag_indicator</span>
-        </button>
-        <button
-          onClick={() => setExpanded((p) => !p)}
-          className="flex-1 flex items-center gap-2 text-left"
-        >
-          <span className="text-xs font-semibold uppercase tracking-wider text-text-muted/70">
-            {section.title}
-          </span>
-          <span
-            className={cn(
-              "material-symbols-outlined text-[14px] text-text-muted/40 transition-transform ml-auto",
-              expanded && "rotate-180"
-            )}
-          >
-            expand_more
-          </span>
-        </button>
-      </div>
-
-      {/* Section children with inner DnD */}
-      {expanded && (
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCenter}
-          onDragEnd={handleItemDragEnd}
-        >
-          <SortableContext items={childIds} strategy={verticalListSortingStrategy}>
-            <div className="divide-y divide-border/70">
-              {orderedChildren.map((child) => {
-                if ("type" in child && child.type === "group") {
-                  const group = child as SidebarItemGroup;
-                  return (
-                    <SortableChildRow key={group.id} id={group.id}>
-                      <GroupRow
-                        group={group}
-                        hiddenSet={hiddenSet}
-                        hiddenGroupLabelsSet={hiddenGroupLabelsSet}
-                        onToggleItem={onToggleItem}
-                        onToggleGroupLabel={onToggleGroupLabel}
-                        getLabel={getLabel}
-                      />
-                    </SortableChildRow>
-                  );
-                }
-                const item = child as SidebarItemDefinition;
-                return (
-                  <SortableChildRow key={item.id} id={item.id}>
-                    <ItemRow
-                      item={item}
-                      hiddenSet={hiddenSet}
-                      onToggleItem={onToggleItem}
-                      getLabel={getLabel}
-                    />
-                  </SortableChildRow>
-                );
-              })}
-            </div>
-          </SortableContext>
-        </DndContext>
-      )}
-    </div>
-  );
-}
-
-// ─── Sortable child row wrapper ────────────────────────────────────────────────
-
-function SortableChildRow({ id, children }: { id: string; children: React.ReactNode }) {
-  const tSidebar = useTranslations("sidebar");
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id,
-  });
-  const style = { transform: CSS.Transform.toString(transform), transition };
-  return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      className={cn("flex items-start gap-2", isDragging && "opacity-60")}
-    >
-      <button
-        {...listeners}
-        {...attributes}
-        className="mt-3.5 ml-4 text-text-muted/30 hover:text-text-muted/70 cursor-grab active:cursor-grabbing touch-none shrink-0"
-        title={tSidebar("dragReorderItem")}
-        aria-label={tSidebar("dragReorderItem")}
-      >
-        <span className="material-symbols-outlined text-[14px]">drag_indicator</span>
-      </button>
-      <div className="flex-1 min-w-0">{children}</div>
-    </div>
-  );
-}
-
-// ─── Item row ─────────────────────────────────────────────────────────────────
-
-interface ItemRowProps {
-  item: SidebarItemDefinition;
-  hiddenSet: Set<HideableSidebarItemId>;
-  onToggleItem: (id: HideableSidebarItemId) => void;
-  getLabel: (key: string, fallback: string) => string;
-}
-
-// Items that must always remain visible (safety guard)
-const PROTECTED_ITEM_IDS = new Set<SidebarItemId>(["proxy", "settings-sidebar"]);
-
-function isHideableSidebarItemId(id: SidebarItemId): id is HideableSidebarItemId {
-  return HIDEABLE_SIDEBAR_ITEM_IDS.includes(id as HideableSidebarItemId);
-}
-
-function GroupItemVisibilityControl({
-  item,
-  hiddenSet,
-  onToggleItem,
-}: {
-  item: SidebarItemDefinition;
-  hiddenSet: Set<HideableSidebarItemId>;
-  onToggleItem: (id: HideableSidebarItemId) => void;
-}) {
-  const tSidebar = useTranslations("sidebar");
-  const hideableId = isHideableSidebarItemId(item.id) ? item.id : null;
-  if (hideableId !== null) {
-    return (
-      <Toggle
-        size="sm"
-        checked={!hiddenSet.has(hideableId)}
-        onChange={() => onToggleItem(hideableId)}
-      />
-    );
-  }
-
-  return (
-    <span
-      className="material-symbols-outlined text-[16px] text-text-muted/40"
-      title={tSidebar("cannotHide")}
-      aria-label={tSidebar("alwaysVisible")}
-    >
-      lock
-    </span>
-  );
-}
-
-function ItemRow({ item, hiddenSet, onToggleItem, getLabel }: ItemRowProps) {
-  const tSidebar = useTranslations("sidebar");
-  const hideableId = isHideableSidebarItemId(item.id) ? item.id : null;
-  const isProtected = PROTECTED_ITEM_IDS.has(item.id) || hideableId === null;
-  return (
-    <div className="flex items-center justify-between gap-4 px-4 py-3">
-      <div className="flex items-center gap-2 min-w-0">
-        <span className="material-symbols-outlined text-[16px] text-text-muted/50 shrink-0">
-          {item.icon}
-        </span>
-        <p className="font-medium truncate">
-          {getLabel(item.i18nKey, item.labelFallback ?? item.id)}
-        </p>
-      </div>
-      {isProtected ? (
-        <span
-          className="material-symbols-outlined text-[16px] text-text-muted/40"
-          title={tSidebar("cannotHide")}
-          aria-label={tSidebar("alwaysVisible")}
-        >
-          lock
-        </span>
-      ) : (
-        <Toggle checked={!hiddenSet.has(hideableId)} onChange={() => onToggleItem(hideableId)} />
-      )}
-    </div>
-  );
-}
-
-// ─── Group row (items inside group, no sub-DnD) ───────────────────────────────
-
-interface GroupRowProps {
-  group: SidebarItemGroup;
-  hiddenSet: Set<HideableSidebarItemId>;
-  hiddenGroupLabelsSet: Set<HideableSidebarGroupId>;
-  onToggleItem: (id: HideableSidebarItemId) => void;
-  onToggleGroupLabel: (id: HideableSidebarGroupId) => void;
-  getLabel: (key: string, fallback: string) => string;
-}
-
-function GroupRow({
-  group,
-  hiddenSet,
-  hiddenGroupLabelsSet,
-  onToggleItem,
-  onToggleGroupLabel,
-  getLabel,
-}: GroupRowProps) {
-  const [open, setOpen] = useState(true);
-  const groupId = group.id as HideableSidebarGroupId;
-  const canToggleSeparator = HIDEABLE_SIDEBAR_GROUP_IDS.includes(groupId);
-  const separatorVisible = !hiddenGroupLabelsSet.has(groupId);
-  const separatorLabel = getLabel("groupSeparatorLabel", "Separator");
-
-  return (
-    <div className="w-full">
-      <div className="flex items-center gap-2 px-4 py-2.5 hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
-        <button
-          onClick={() => setOpen((p) => !p)}
-          className="flex min-w-0 flex-1 items-center gap-2 text-left"
-        >
-          <span
-            className={cn(
-              "material-symbols-outlined text-[12px] text-text-muted/40 transition-transform",
-              open && "rotate-90"
-            )}
-          >
-            chevron_right
-          </span>
-          <span className="truncate text-[10px] font-semibold uppercase tracking-widest text-text-muted/50">
-            {getLabel(group.titleKey, group.titleFallback)}
-          </span>
-        </button>
-        <span className="text-xs text-text-muted/40">
-          {group.items.filter((i) => !isHideableSidebarItemId(i.id) || !hiddenSet.has(i.id)).length}
-          /{group.items.length}
-        </span>
-        {canToggleSeparator && (
-          <div className="flex items-center gap-2 border-l border-border/60 pl-3">
-            <span className="text-[10px] font-medium text-text-muted/50">{separatorLabel}</span>
-            <Toggle
-              size="sm"
-              checked={separatorVisible}
-              onChange={() => onToggleGroupLabel(groupId)}
-            />
-          </div>
-        )}
-      </div>
-      {open && (
-        <div className="divide-y divide-border/50 pl-2">
-          {group.items.map((item) => (
-            <div key={item.id} className="flex items-center justify-between gap-4 px-4 py-2.5">
-              <div className="flex items-center gap-2 min-w-0">
-                <span className="material-symbols-outlined text-[14px] text-text-muted/40 shrink-0">
-                  {item.icon}
-                </span>
-                <p className="text-sm font-medium truncate">
-                  {getLabel(item.i18nKey, item.labelFallback ?? item.id)}
-                </p>
-              </div>
-              <GroupItemVisibilityControl
-                item={item}
-                hiddenSet={hiddenSet}
-                onToggleItem={onToggleItem}
-              />
-            </div>
-          ))}
+    <div className="border-t border-border/50 first:border-t-0">
+      <div className="flex items-center justify-between gap-4 px-4 py-2.5">
+        <div className="flex min-w-0 items-center gap-2">
+          <Icon icon={navIcon(entry.icon)} size="sm" color="ink-muted" />
+          <p className="truncate text-sm font-medium">{entry.label}</p>
+          {entry.group && <span className="text-xs text-ink-muted">· {entry.group}</span>}
         </div>
+        <Toggle
+          size="sm"
+          checked={entryVisible}
+          disabled={disabled || protectedEntry}
+          ariaLabel={`${shownLabel}: ${entry.label}`}
+          onChange={() => onSetIds(ids, !entryVisible)}
+        />
+      </div>
+      {identifiedTabs.length > 1 && (
+        <ul className="m-0 list-none pb-2 ps-10 pe-4">
+          {identifiedTabs.map((page) => {
+            const pageHidden = page.id ? hidden.has(page.id) : false;
+            const protectedPage = Boolean(page.id && PROTECTED_ITEM_IDS.has(page.id));
+            return (
+              <li key={page.href} className="flex items-center justify-between gap-4 py-1">
+                <span
+                  className={cn(
+                    "truncate text-sm",
+                    pageHidden ? "text-ink-muted" : "text-foreground"
+                  )}
+                >
+                  {page.label}
+                  {page.secondary && <span className="text-xs text-ink-muted"> · More</span>}
+                </span>
+                <Toggle
+                  size="sm"
+                  checked={!pageHidden}
+                  disabled={disabled || protectedPage}
+                  ariaLabel={`${shownLabel}: ${entry.label} › ${page.label}`}
+                  onChange={() =>
+                    page.id &&
+                    onSetIds(
+                      [page.id, ...(page.children ?? []).flatMap((c) => (c.id ? [c.id] : []))],
+                      pageHidden
+                    )
+                  }
+                />
+              </li>
+            );
+          })}
+          {entry.tabs.some((page: SidebarNavTab) => !page.id) && (
+            <li className="py-1 text-xs text-ink-muted">{alwaysLabel}</li>
+          )}
+        </ul>
       )}
     </div>
   );
 }
-
-// ─── Main component ───────────────────────────────────────────────────────────
 
 export default function SidebarTab() {
   const t = useTranslations("settings");
-  const tSidebar = useTranslations("sidebar");
-
-  const getLabel = useCallback(
-    (key: string, fallback: string) =>
-      typeof tSidebar.has === "function" && tSidebar.has(key) ? tSidebar(key) : fallback,
-    [tSidebar]
-  );
   const getSettingsLabel = useCallback(
     (key: string, fallback: string) =>
       typeof t.has === "function" && t.has(key) ? t(key) : fallback,
@@ -388,15 +118,8 @@ export default function SidebarTab() {
 
   const [loading, setLoading] = useState(true);
   const [hiddenSidebarItems, setHiddenSidebarItems] = useState<HideableSidebarItemId[]>([]);
-  const [hiddenSidebarGroupLabels, setHiddenSidebarGroupLabels] = useState<
-    HideableSidebarGroupId[]
-  >([]);
-  const [sectionOrder, setSectionOrder] = useState<SidebarSectionId[]>([]);
-  const [itemOrder, setItemOrder] = useState<SidebarItemOrder>({});
   const [activePreset, setActivePreset] = useState<SidebarPresetId | null>(null);
   const [confirmPreset, setConfirmPreset] = useState<SidebarPresetId | null>(null);
-  const [showDebug, setShowDebug] = useState(false);
-  const [radarAdminUrl, setRadarAdminUrl] = useState<unknown>(null);
 
   useEffect(() => {
     fetch("/api/settings")
@@ -405,20 +128,7 @@ export default function SidebarTab() {
         setHiddenSidebarItems(
           normalizeHiddenSidebarItems(data?.[HIDDEN_SIDEBAR_ITEMS_SETTING_KEY])
         );
-        setHiddenSidebarGroupLabels(
-          normalizeHiddenSidebarGroupLabels(data?.[HIDDEN_SIDEBAR_GROUP_LABELS_SETTING_KEY])
-        );
-        setSectionOrder(
-          Array.isArray(data?.[SIDEBAR_SECTION_ORDER_KEY]) ? data[SIDEBAR_SECTION_ORDER_KEY] : []
-        );
-        setItemOrder(
-          data?.[SIDEBAR_ITEM_ORDER_KEY] && typeof data[SIDEBAR_ITEM_ORDER_KEY] === "object"
-            ? data[SIDEBAR_ITEM_ORDER_KEY]
-            : {}
-        );
         setActivePreset(data?.[SIDEBAR_PRESET_KEY] ?? null);
-        setShowDebug(data?.debugMode === true);
-        setRadarAdminUrl(data?.radarAdminUrl ?? null);
         setLoading(false);
       })
       .catch(() => setLoading(false));
@@ -441,60 +151,17 @@ export default function SidebarTab() {
     }
   };
 
-  const toggleItem = (id: HideableSidebarItemId) => {
-    // Protected items can never be hidden
-    if (PROTECTED_ITEM_IDS.has(id)) return;
-    const next = hiddenSidebarItems.includes(id)
-      ? hiddenSidebarItems.filter((x) => x !== id)
-      : [...hiddenSidebarItems, id];
+  const hidden = new Set<string>(hiddenSidebarItems);
+
+  const setIds = (ids: readonly HideableSidebarItemId[], visible: boolean) => {
+    const changing = ids.filter((id) => !PROTECTED_ITEM_IDS.has(id));
+    const next = visible
+      ? hiddenSidebarItems.filter((id) => !changing.includes(id))
+      : [...new Set([...hiddenSidebarItems, ...changing])];
     setHiddenSidebarItems(next);
     // Any manual change → custom mode
     setActivePreset(null);
     patch({ [HIDDEN_SIDEBAR_ITEMS_SETTING_KEY]: next, [SIDEBAR_PRESET_KEY]: null });
-  };
-
-  const hiddenSet = new Set(hiddenSidebarItems);
-  const hiddenGroupLabelsSet = new Set(hiddenSidebarGroupLabels);
-
-  const toggleGroupLabel = (id: HideableSidebarGroupId) => {
-    const next = hiddenSidebarGroupLabels.includes(id)
-      ? hiddenSidebarGroupLabels.filter((x) => x !== id)
-      : [...hiddenSidebarGroupLabels, id];
-    setHiddenSidebarGroupLabels(next);
-    setActivePreset(null);
-    patch({ [HIDDEN_SIDEBAR_GROUP_LABELS_SETTING_KEY]: next, [SIDEBAR_PRESET_KEY]: null });
-  };
-
-  const visibleSections = resolveRuntimeSidebarSections(SIDEBAR_SECTIONS, {
-    radarAdminUrl,
-  }).filter((s) => s.visibility !== "debug" || showDebug);
-
-  const orderedSections = applySectionOrder(visibleSections, sectionOrder).map((s) => ({
-    ...s,
-    title: getLabel(s.titleKey, s.titleFallback),
-  }));
-
-  const sectionIds = orderedSections.map((s) => s.id);
-
-  const sensors = useSensors(useSensor(PointerSensor));
-
-  const handleSectionDragEnd = (event: DragEndEvent) => {
-    const { active, over } = event;
-    if (!over || active.id === over.id) return;
-    const oldIdx = sectionIds.indexOf(active.id as SidebarSectionId);
-    const newIdx = sectionIds.indexOf(over.id as SidebarSectionId);
-    if (oldIdx === -1 || newIdx === -1) return;
-    const newOrder = arrayMove(sectionIds, oldIdx, newIdx) as SidebarSectionId[];
-    setSectionOrder(newOrder);
-    setActivePreset(null);
-    patch({ [SIDEBAR_SECTION_ORDER_KEY]: newOrder, [SIDEBAR_PRESET_KEY]: null });
-  };
-
-  const handleItemReorder = (sectionId: SidebarSectionId, newOrder: string[]) => {
-    const next = { ...itemOrder, [sectionId]: newOrder };
-    setItemOrder(next);
-    setActivePreset(null);
-    patch({ [SIDEBAR_ITEM_ORDER_KEY]: next, [SIDEBAR_PRESET_KEY]: null });
   };
 
   const applyPreset = (presetId: SidebarPresetId) => {
@@ -503,21 +170,17 @@ export default function SidebarTab() {
     // Ensure protected items are never hidden, even if a preset includes them
     const safeHidden = preset.hiddenItems.filter((id) => !PROTECTED_ITEM_IDS.has(id));
     setHiddenSidebarItems(safeHidden);
-    setHiddenSidebarGroupLabels([]);
-    setSectionOrder([]);
-    setItemOrder({});
     setActivePreset(presetId);
     setConfirmPreset(null);
     patch({
       [HIDDEN_SIDEBAR_ITEMS_SETTING_KEY]: safeHidden,
+      // The menu no longer has orderable sections or group labels; clear what older versions saved.
       [HIDDEN_SIDEBAR_GROUP_LABELS_SETTING_KEY]: [],
       [SIDEBAR_SECTION_ORDER_KEY]: [],
       [SIDEBAR_ITEM_ORDER_KEY]: {},
       [SIDEBAR_PRESET_KEY]: presetId,
     });
   };
-
-  const resetToDefault = () => applyPreset("all");
 
   const presetLabels: Record<SidebarPresetId, string> = {
     all: getSettingsLabel("presetAll", "All"),
@@ -540,11 +203,9 @@ export default function SidebarTab() {
 
   return (
     <Card>
-      <div className="flex items-center gap-3 mb-4">
-        <div className="p-2 rounded-lg bg-indigo-500/10 text-indigo-500">
-          <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
-            view_sidebar
-          </span>
+      <div className="mb-4 flex items-center gap-3">
+        <div className="rounded-lg bg-muted p-2 text-ink-muted">
+          <Icon icon={navIcon("PanelLeft")} size="md" color="current" />
         </div>
         <div>
           <h3 className="text-lg font-semibold">
@@ -553,7 +214,7 @@ export default function SidebarTab() {
           <p className="text-sm text-text-muted">
             {getSettingsLabel(
               "settingsSidebarDesc",
-              "Control which items appear in the sidebar and their order"
+              "Choose which areas, entries and pages the menu shows"
             )}
           </p>
         </div>
@@ -572,17 +233,16 @@ export default function SidebarTab() {
             </p>
           </div>
 
-          {/* Active preset badge */}
           <div className="mb-3 flex items-center gap-2 text-sm">
             <span className="text-text-muted">
               {getSettingsLabel("activePresetLabel", "Active:")}
             </span>
             <span
               className={cn(
-                "px-2 py-0.5 rounded-full text-xs font-medium",
+                "rounded-full px-2 py-0.5 text-xs font-medium",
                 activePreset
-                  ? "bg-primary/10 text-primary"
-                  : "bg-surface border border-border text-text-muted"
+                  ? "bg-foreground/10 text-foreground"
+                  : "border border-border bg-surface text-text-muted"
               )}
             >
               {activePreset
@@ -591,47 +251,33 @@ export default function SidebarTab() {
             </span>
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             {SIDEBAR_PRESETS.map((preset) => {
               const isActive = activePreset === preset.id;
               return (
                 <button
                   key={preset.id}
+                  type="button"
                   disabled={loading}
+                  aria-pressed={isActive}
                   onClick={() => {
-                    if (activePreset === preset.id) return;
-                    if (
-                      activePreset !== null ||
-                      hiddenSidebarItems.length > 0 ||
-                      hiddenSidebarGroupLabels.length > 0 ||
-                      sectionOrder.length > 0
-                    ) {
+                    if (isActive) return;
+                    if (activePreset !== null || hiddenSidebarItems.length > 0) {
                       setConfirmPreset(preset.id);
                     } else {
                       applyPreset(preset.id);
                     }
                   }}
                   className={cn(
-                    "flex flex-col items-center gap-1.5 p-3 rounded-lg border transition-colors disabled:opacity-60",
+                    "flex flex-col items-center gap-1.5 rounded-lg border p-3 transition-colors disabled:opacity-60",
                     isActive
-                      ? "border-primary bg-primary/10 text-primary"
-                      : "border-border hover:border-primary/40 bg-surface/40 text-text-main"
+                      ? "border-primary bg-foreground/10 text-foreground"
+                      : "border-border bg-surface/40 text-text-main hover:bg-foreground/8"
                   )}
                 >
-                  <span
-                    className="material-symbols-outlined text-[22px]"
-                    style={isActive ? { fontVariationSettings: "'FILL' 1" } : {}}
-                    aria-hidden="true"
-                  >
-                    {preset.icon}
-                  </span>
+                  <Icon icon={navIcon(preset.icon)} size="lg" color="current" />
                   <span className="text-sm font-semibold">{presetLabels[preset.id]}</span>
-                  <span
-                    className={cn(
-                      "text-[10px] text-center",
-                      isActive ? "text-primary/70" : "text-text-muted"
-                    )}
-                  >
+                  <span className="text-center text-[10px] text-text-muted">
                     {presetDescriptions[preset.id]}
                   </span>
                 </button>
@@ -639,28 +285,27 @@ export default function SidebarTab() {
             })}
           </div>
 
-          {/* Confirm preset dialog */}
           {confirmPreset && (
-            <div className="mt-3 p-3 rounded-lg border border-amber-500/30 bg-amber-500/5 flex items-center gap-3">
-              <span className="material-symbols-outlined text-amber-500 text-[18px] shrink-0">
-                warning
-              </span>
-              <p className="text-sm flex-1">
+            <div className="mt-3 flex items-center gap-3 rounded-lg border border-feedback-warning-border bg-feedback-warning-surface p-3">
+              <Icon icon={navIcon("TriangleAlert")} size="md" color="feedback-warning-foreground" />
+              <p className="flex-1 text-sm">
                 {getSettingsLabel(
                   "presetConfirmWarning",
-                  `Applying "${presetLabels[confirmPreset]}" will replace your current visibility and order settings.`
+                  `Applying "${presetLabels[confirmPreset]}" will replace your current visibility settings.`
                 )}
               </p>
-              <div className="flex gap-2 shrink-0">
+              <div className="flex shrink-0 gap-2">
                 <button
+                  type="button"
                   onClick={() => setConfirmPreset(null)}
-                  className="px-3 py-1.5 text-sm rounded-md border border-border hover:bg-surface/80 transition-colors"
+                  className="rounded-md border border-border px-3 py-1.5 text-sm transition-colors hover:bg-foreground/8"
                 >
                   {getSettingsLabel("cancelLabel", "Cancel")}
                 </button>
                 <button
+                  type="button"
                   onClick={() => applyPreset(confirmPreset)}
-                  className="px-3 py-1.5 text-sm rounded-md bg-primary text-white hover:bg-primary/90 transition-colors"
+                  className="rounded-md border border-primary bg-foreground/10 px-3 py-1.5 text-sm font-medium transition-colors hover:bg-foreground/15"
                 >
                   {getSettingsLabel("applyLabel", "Apply")}
                 </button>
@@ -669,57 +314,61 @@ export default function SidebarTab() {
           )}
         </div>
 
-        {/* Visibility & order */}
+        {/* Visibility */}
         <div>
           <div className="mb-3 flex items-start justify-between gap-4">
             <div>
-              <p className="font-medium">
-                {getSettingsLabel("sidebarOrder", "Visibility & Order")}
-              </p>
+              <p className="font-medium">{getSettingsLabel("sidebarVisibility", "Visibility")}</p>
               <p className="text-sm text-text-muted">
                 {getSettingsLabel(
-                  "sidebarOrderDesc",
-                  "Toggle items on/off and drag to reorder sections and their entries."
+                  "sidebarVisibilityDesc",
+                  "Turn an entry off to hide it and all of its pages, or hide single pages. Pages you hide stay reachable from the search and the command palette."
                 )}
               </p>
             </div>
             <button
-              onClick={resetToDefault}
+              type="button"
+              onClick={() => applyPreset("all")}
               disabled={loading}
-              className="shrink-0 text-sm text-text-muted hover:text-text-main border border-border rounded-md px-3 py-1.5 hover:bg-surface/80 transition-colors disabled:opacity-50"
+              className="shrink-0 rounded-md border border-border px-3 py-1.5 text-sm text-text-muted transition-colors hover:bg-foreground/8 hover:text-text-main disabled:opacity-50"
             >
               {getSettingsLabel("resetDefault", "Reset to default")}
             </button>
           </div>
 
           <div className="flex flex-col gap-3">
-            <DndContext
-              sensors={sensors}
-              collisionDetection={closestCenter}
-              onDragEnd={handleSectionDragEnd}
-            >
-              <SortableContext items={sectionIds} strategy={verticalListSortingStrategy}>
-                {orderedSections.map((section) => (
-                  <SortableSection
-                    key={section.id}
-                    section={section}
-                    hiddenSet={hiddenSet}
-                    hiddenGroupLabelsSet={hiddenGroupLabelsSet}
-                    itemOrder={itemOrder[section.id as SidebarSectionId] ?? []}
-                    onToggleItem={toggleItem}
-                    onToggleGroupLabel={toggleGroupLabel}
-                    onItemReorder={handleItemReorder}
-                    getLabel={getLabel}
+            {SIDEBAR_NAV_SECTIONS.map((section) => (
+              <section
+                key={section.id}
+                aria-label={section.title}
+                className="overflow-hidden rounded-lg border border-border bg-surface/40"
+              >
+                <h4 className="flex items-center gap-2 border-b border-border/70 px-4 py-3 text-sm font-semibold">
+                  <Icon icon={navIcon(section.icon)} size="sm" color="ink-muted" />
+                  {section.title}
+                </h4>
+                {section.entries.map((entry) => (
+                  <EntryRow
+                    key={entry.id}
+                    entry={entry}
+                    hidden={hidden}
+                    disabled={loading}
+                    onSetIds={setIds}
+                    shownLabel={getSettingsLabel("sidebarShown", "Show")}
+                    alwaysLabel={getSettingsLabel(
+                      "sidebarAlwaysShown",
+                      "Other pages of this entry are always shown with it."
+                    )}
                   />
                 ))}
-              </SortableContext>
-            </DndContext>
+              </section>
+            ))}
           </div>
 
           <p className="mt-3 text-xs text-text-muted">
             {getSettingsLabel(
               "sidebarVisibilityHint",
-              "A sidebar section hides automatically when all of its entries are hidden"
+              "An entry hides automatically when all of its pages are hidden. Settings → Sidebar cannot be hidden."
             )}
           </p>
         </div>
