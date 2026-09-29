@@ -112,7 +112,7 @@ jobs:
       source_sha: ${{ steps.source.outputs.sha }}
       version: ${{ steps.source.outputs.version }}
     env:
-      NODE_OPTIONS: --max-old-space-size=6144
+      NODE_OPTIONS: --max-old-space-size=10240
       OMNIROUTE_USE_TURBOPACK: "0"
       OMNIROUTE_RELEASE_REF: HEAD
       REDROUTER_RELEASE_ARTIFACT_DIR: release-artifacts
