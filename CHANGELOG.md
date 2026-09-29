@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.38.0
+
+### Minor Changes
+
+- Sync the OmniRoute engine with release v3.8.52 (258 upstream commits, most of them fixes).
+  
+  Security:
+  
+  - GHSA-7j4q-6gx6-pg77: virtual `auto/*` and `qtSd/*` routes are now matched against an API key's combo allow-list, so a restricted key can no longer reach them.
+  - GHSA-jmq6-8j86-8xqj: the provider connection test runs its local CLI probe only for local callers.
+  - GHSA-mh4f-3xj9-4gc4: `server.env` is written 0600 in a 0700 data directory, and older installs are repaired on start (the CLI and the desktop app).
+  - GHSA-9p9m-h9rj-rhhg: pre-request hooks run in an isolated realm and only JSON crosses the boundary (RedRouter already carried an equivalent, stricter implementation, which is kept).
+  - Also brought in: tightened OAuth, authorization and login handling (#15038-#15073), a constant-time compare for the environment passthrough key, `ip-address` 10.7.2 and `undici` 8.11.2.
+  
+  Notable fixes: request-scoped streaming refusals fall back without locking the model, model-scoped 429s stay scoped to the model, streamed TTFT and tokens-per-second over generation time, per-request added-wait and resilience-action columns in the call log, the slow-stream deadline is created only for streaming requests (the previous wrapper answered HTTP 500 under the Next.js request proxy), proxy pool set-aside and selector control, per-key token limits for daily, weekly and monthly windows, and a better-sqlite3 native prebuild target.
+  
+  Database: upstream's new migrations are numbered 195-201 so the RedRouter migrations 190-194 keep their versions. Databases already migrated by a RedRouter build apply the new ones once; fresh installs apply all of them.
+
+### Patch Changes
+
+- Resolve the remaining 9router short aliases that were unresolved in this build: `ag/` (Antigravity), `ocz/` (OpenCode Zen), `brave/`, `fish/` and `gpse/`. Saved models and combos that use them route again, and the model catalog lists their members under the same providers.
+- Add Claude Opus 5.5 (found by the 9router study: RedRouter v0.33.0 had it, the OmniRoute base did not): listed in the Claude registry with the full effort ladder and a native 1M context, priced at $4/$20 per million tokens, first in its fallback chain, and treated like Fable 5.1 for its two quirks — adaptive thinking cannot be disabled and a forced `tool_choice` is not sent. The Claude Code client version comes with the OmniRoute 3.8.52 sync.
+- Keep Friday's per-user scoping when importing a RedRouter v0.33.0 install: the owners of connections, API keys and combos, the scope and SSO settings, per-owner overrides and per-user preferences are staged (no secrets) under the `friday_legacy` namespace for the future users/tenants model instead of being dropped, and the import report warns when Friday admin keys are imported with this build's management scope.
+- Refuse to replace a provider key silently: creating an API-key connection whose provider and name already exist now answers 409 `PROVIDER_NAME_CONFLICT` with the existing id, unless the request sets `allowOverwrite: true`. OAuth re-login and edits of an existing connection still update it in place. (Found by the 9router study; 9router made the same change upstream.)
+- Restore the guided Setup page from v0.33.0 (Setup in the sidebar, `/dashboard/setup`): connect a provider, create an API key, copy the client configuration, validate the route and apply the recommended `default`, `fast` and `review` combos. `GET`/`POST /api/combos/recommended` preview and apply them idempotently (create, update, unchanged or blocked when no connected account can serve a role). Built on existing modules instead of parallel ones: the connected-account model catalog is the combo builder's `getComboBuilderOptions()`, subscription versus metered accounts come from the auto-combo connection-billing classifier, vision from `modelIdLikelyVision`, System One from its registry, combos are written through `src/lib/db/combos.ts`, route validation reuses `/api/setup/validate`, and the page reuses the design-system `Button`, `Card`, `Badge`, `Input`, `Select` and the onboarding's `useDisplayBaseUrl`. Added on top: Friday's ranking tables and roles (`src/lib/modelRecommendations.ts`), the preview/apply planner (`src/lib/recommendedCombos.ts`) and the Setup workbench UI.
+- Honour `x-red-router-token-saver` (RedCode): `off` keeps the prompt intact for a request whose compaction or validation must see all of it, `on` asks for the panel default. It maps onto OmniRoute's per-request compression override, which still wins when `x-omniroute-compression` is sent, and `/v1/capabilities` advertises `token_saver_header`.
+- Restore the v0.33.0 usage sinks beyond the signed webhook: Amazon SQS, Kafka and RedDB queue transports, `POST /api/usage-sinks/{id}/test`, `GET /api/usage-sinks/{id}/deliveries` (paged, filterable by status), `POST /api/usage-sinks/{id}/deliveries/{deliveryId}/retry`, and the Usage Sinks dashboard page (`/dashboard/usage-sinks`, under Integrations in the sidebar): list, create and edit for every transport, per-request or per-window delivery, a searchable API key picker that scales to many keys (`GET /api/keys/search`), Send test and a deliveries table with retry.
+  
+  The sink engine stays the billing contract: outbox, deterministic `ue_`/`ub_` delivery ids, cursor compare-and-set, frozen window high-water mark, delivery lease and the 8-step retry schedule are unchanged and shared by every transport, which only put one payload on the wire behind a single interface (`src/lib/usageSinks/transports/`). The delivery id is the message identity everywhere: `webhook-id` header, SQS `redrouter-delivery-id` attribute (FIFO queues also get it as `MessageDeduplicationId` with the sink id as `MessageGroupId`), Kafka `redrouter-delivery-id` header with the sink id as the record key, and the RedDB `QUEUE PUSH ... DEDUP '<id>'` key. Manual retry goes through the same lease, keeps the delivery id and gives a dead delivery a fresh retry budget. Migration 194 adds `type` and `config` to `redrouter_usage_sinks`; existing webhook sinks are backfilled and the original webhook-only request bodies keep working.
+  
+  Reused instead of built again: the log-export secret handling (`src/lib/logExport/secrets.ts`, whose encrypt/decrypt/redact/keep-on-edit primitives now also take a field list) encrypts each credential per field at rest and returns only the `__stored__` placeholder, refusing to store credentials without `STORAGE_ENCRYPTION_KEY`; log-export's field-descriptor type drives the transport form and the transport registry mirrors its destination registry; the existing SigV4 signer (`open-sse/utils/awsSigV4.ts`) signs SQS; `fetchWebhookUrl` (DNS-pinned, no redirects, cloud metadata always refused, private addresses only with the private-provider-URL opt-in) carries SQS and RedDB requests, while the signed webhook keeps refusing private addresses outright. Kafka is raw TCP, so kafkajs gets a socket factory that resolves through a guarded lookup and refuses metadata and (without the opt-in) private answers, including for broker addresses returned in cluster metadata. Dependency note: `kafkajs` (already in the lockfile as a dev-only transitive package) is now a direct runtime dependency, added with a lock-only install.
+
 ## 0.37.0
 
 ### Minor Changes
