@@ -2,6 +2,10 @@ import { getProviderAlias } from "@/shared/constants/providers";
 import { OMNIROUTE_RESPONSE_HEADERS } from "@/shared/constants/headers";
 import { APP_CONFIG } from "@/shared/constants/appConfig";
 import {
+  RED_ROUTER_COST_HEADER,
+  RED_ROUTER_SERVED_MODEL_HEADER,
+} from "@/shared/constants/redRouterHeaders";
+import {
   generationDurationMs,
   tokensPerSecond,
 } from "@omniroute/open-sse/utils/generationThroughput";
@@ -76,6 +80,11 @@ export function getOmniRouteTokenCounts(usage: UsageLike): { input: number; outp
         usage.outputTokens
     ),
   };
+}
+
+/** Plain decimal (never exponent notation), trailing zeros trimmed: `0.0123`, `2`. */
+export function formatRedRouterCost(cost: number): string {
+  return cost.toFixed(10).replace(/0+$/, "").replace(/\.$/, "");
 }
 
 export function formatOmniRouteCost(costUsd: unknown): string {
@@ -186,6 +195,14 @@ export function buildOmniRouteResponseMetaHeaders({
       formatOmniRouteCost(costSavedUsd)
     );
   }
+
+  // RedRouter contract (RedCode): the addressed provider/model that answered, and its
+  // USD cost when it is positive (an unpriced or free answer carries no cost header).
+  if (typeof model === "string" && model.trim().length > 0 && typeof provider === "string") {
+    headers[RED_ROUTER_SERVED_MODEL_HEADER] = toHeaderValue(`${provider}/${model}`);
+  }
+  const cost = toFiniteNumber(costUsd);
+  if (cost > 0) headers[RED_ROUTER_COST_HEADER] = toHeaderValue(formatRedRouterCost(cost));
 
   const attempts = toNonNegativeInteger(fallbackAttempts);
   if (attempts > 0) {
