@@ -19,6 +19,7 @@ import {
   toggleExpandedSection,
 } from "@/shared/utils/sidebarExpansionState";
 import { APP_CONFIG } from "@/shared/constants/appConfig";
+import { displayInstanceName } from "@/shared/constants/productBranding";
 import { useBranding } from "@/shared/components/BrandingProvider";
 import { navItem } from "@/shared/design-system/contracts/nav-item.variants";
 import Button from "./Button";
@@ -162,7 +163,7 @@ export default function Sidebar({
   const brand = useBranding();
   // A branding.json is the white-label source of truth; the dashboard
   // instance-name/logo settings apply when there is no branding file.
-  const brandName = brand.custom ? brand.name : customAppName || APP_CONFIG.name;
+  const brandName = brand.custom ? brand.name : displayInstanceName(customAppName);
   const brandLogo = brand.custom ? brand.logo : customLogo;
 
   // Load persisted state once the client has hydrated. A stored [] intentionally

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-label="RedDB system tray cog">
+  <title>RedDB system tray cog</title>
+  <g fill="none" stroke="#ff2056" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="16" cy="16" r="9.5"/>
+    <circle cx="16" cy="16" r="3.25"/>
+    <path d="M16 2.75v3.4m0 19.7v3.4M2.75 16h3.4m19.7 0h3.4M6.63 6.63l2.4 2.4m13.94 13.94 2.4 2.4M25.37 6.63l-2.4 2.4M9.03 22.97l-2.4 2.4"/>
+  </g>
+</svg>

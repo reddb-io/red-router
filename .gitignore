@@ -305,3 +305,5 @@ docker-compose.yml.bak
 # local session worktrees (never track, never build)
 .red/worktrees/
 /release-artifacts/
+.red/tmp/
+.red/state/

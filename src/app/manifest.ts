@@ -2,9 +2,9 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "OmniRoute AI 网关",
-    short_name: "OmniRoute",
-    description: "OmniRoute 是一个面向多提供者 LLM 的 AI 网关。一个端点连接您所有的 AI 提供者。",
+    name: "RedRouter AI Gateway",
+    short_name: "RedRouter",
+    description: "RedRouter is an AI gateway for multiple LLM providers through one endpoint.",
     start_url: "/dashboard",
     scope: "/",
     display: "standalone",
@@ -46,7 +46,7 @@ export default function manifest(): MetadataRoute.Manifest {
         sizes: "1280x720",
         type: "image/png",
         form_factor: "wide",
-        label: "OmniRoute Dashboard",
+        label: "RedRouter Dashboard",
       },
     ],
   };

@@ -64,7 +64,7 @@ test("root layout settings reader does not initialize the database", async () =>
   process.env.INITIAL_PASSWORD = "must-not-trigger-startup";
 
   assert.deepEqual(await getRootLayoutSettings(), {
-    instanceName: "OmniRoute",
+    instanceName: "RedRouter",
     customFaviconUrl: "",
     customFaviconBase64: "",
   });
@@ -89,6 +89,15 @@ test("root layout settings reader returns only the persisted metadata fields", a
   });
 });
 
+test("root layout settings reader maps the inherited default without changing custom names", async () => {
+  const db = core.getDbInstance();
+  db.prepare(
+    "INSERT INTO key_value (namespace, key, value) VALUES ('settings', 'instanceName', ?)"
+  ).run(JSON.stringify("OmniRoute"));
+
+  assert.equal((await getRootLayoutSettings()).instanceName, "RedRouter");
+});
+
 test("root layout settings reader is read-only and falls back safely", async () => {
   process.env.INITIAL_PASSWORD = "must-not-trigger-onboarding";
   const db = core.getDbInstance();
@@ -97,7 +106,7 @@ test("root layout settings reader is read-only and falls back safely", async () 
   ).run("not-json");
 
   assert.deepEqual(await getRootLayoutSettings(), {
-    instanceName: "OmniRoute",
+    instanceName: "RedRouter",
     customFaviconUrl: "",
     customFaviconBase64: "",
   });

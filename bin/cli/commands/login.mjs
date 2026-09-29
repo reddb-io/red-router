@@ -66,7 +66,7 @@ function defaultStartServer(preferredPort) {
       const params = Object.fromEntries(url.searchParams.entries());
       res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
       res.end(
-        "<!doctype html><meta charset=utf-8><title>OmniRoute</title>" +
+        "<!doctype html><meta charset=utf-8><title>RedRouter</title>" +
           '<body style="font-family:system-ui;padding:2rem">' +
           "<h2>✅ Authorization received</h2>" +
           "<p>Return to your terminal — you can close this tab.</p></body>"

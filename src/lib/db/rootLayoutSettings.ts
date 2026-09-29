@@ -1,3 +1,4 @@
+import { DEFAULT_INSTANCE_NAME, displayInstanceName } from "@/shared/constants/productBranding";
 import { getExistingDbInstance } from "./singleton";
 
 export interface RootLayoutSettings {
@@ -21,7 +22,7 @@ const ROOT_LAYOUT_SETTING_KEYS = [
 const ROOT_LAYOUT_SETTING_KEY_SET = new Set<string>(ROOT_LAYOUT_SETTING_KEYS);
 
 const DEFAULT_ROOT_LAYOUT_SETTINGS: RootLayoutSettings = {
-  instanceName: "OmniRoute",
+  instanceName: DEFAULT_INSTANCE_NAME,
   customFaviconUrl: "",
   customFaviconBase64: "",
 };
@@ -57,6 +58,6 @@ export async function getRootLayoutSettings(): Promise<RootLayoutSettings> {
     settings[row.key as RootLayoutSettingKey] = value;
   }
 
-  if (!settings.instanceName) settings.instanceName = DEFAULT_ROOT_LAYOUT_SETTINGS.instanceName;
+  settings.instanceName = displayInstanceName(settings.instanceName);
   return settings;
 }

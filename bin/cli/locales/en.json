@@ -1,7 +1,7 @@
 {
   "common": {
     "error": "Error: {message}",
-    "serverOffline": "OmniRoute server is offline. Start it with: omniroute serve",
+    "serverOffline": "RedRouter server is offline. Start it with: red-router serve",
     "authRequired": "Authentication required. Set OMNIROUTE_API_KEY or run: omniroute setup",
     "rateLimited": "Rate limit exceeded. Retry after {seconds}s.",
     "timeout": "Request timed out after {ms}ms.",
@@ -15,7 +15,7 @@
     "yesOpt": "Skip confirmation prompt"
   },
   "setup": {
-    "title": "OmniRoute Setup",
+    "title": "RedRouter Setup",
     "passwordPrompt": "Admin password",
     "providerPrompt": "Default provider (leave blank to skip)",
     "done": "Setup complete",
@@ -30,7 +30,7 @@
     "opencode": "Install and configure the bundled @omniroute/opencode-plugin for OpenCode"
   },
   "doctor": {
-    "title": "OmniRoute Doctor",
+    "title": "RedRouter Doctor",
     "dbOk": "Database: OK ({path})",
     "dbMissing": "Database: not initialized — run `omniroute setup`",
     "portOk": "Port {port}: available",
@@ -82,7 +82,7 @@
       "providerOpt": "Filter by provider name",
       "header": "ID         Provider       Name                     Expiry Status  Test Status  Cooldown Until",
       "noData": "No provider connection data available.",
-      "requiresServer": "providers status requires the OmniRoute server to be running."
+      "requiresServer": "providers status requires the RedRouter server to be running."
     }
   },
   "keys": {
@@ -90,8 +90,8 @@
     "addDescription": "Add or update an API key for a provider",
     "listDescription": "List all configured API keys",
     "removeDescription": "Remove an API key for a provider",
-    "regenerateDescription": "Regenerate an OmniRoute API key",
-    "revokeDescription": "Revoke an OmniRoute API key",
+    "regenerateDescription": "Regenerate an RedRouter API key",
+    "revokeDescription": "Revoke an RedRouter API key",
     "revealDescription": "Reveal the unmasked API key value",
     "usageDescription": "Show recent usage for an API key",
     "usageLimitOpt": "Number of recent requests",
@@ -223,7 +223,7 @@
     "noCombo": "No matching combo found. Configure one with: omniroute combo create"
   },
   "chat": {
-    "description": "Send a one-shot chat prompt to OmniRoute",
+    "description": "Send a one-shot chat prompt to RedRouter",
     "file": "Read prompt from file",
     "stdin": "Read prompt from stdin",
     "system": "System prompt",
@@ -262,7 +262,7 @@
   },
   "backup": {
     "title": "Backup",
-    "description": "Create a backup of OmniRoute data",
+    "description": "Create a backup of RedRouter data",
     "creating": "Creating backup...",
     "done": "Backup saved to {path}",
     "noFiles": "No files to backup (database not initialized)",
@@ -274,7 +274,7 @@
     "noBackups": "No backups found.",
     "notFound": "Backup not found: {name}",
     "confirmRestore": "Overwrite current data with backup from {ts}?",
-    "createDescription": "Create a backup of OmniRoute data",
+    "createDescription": "Create a backup of RedRouter data",
     "nameOpt": "Custom backup name",
     "cloudOpt": "Upload backup to cloud storage",
     "encryptOpt": "Encrypt backup with AES-256-GCM",
@@ -318,7 +318,7 @@
     "clearFailed": "Failed to clear cache."
   },
   "redis": {
-    "description": "Launch a 1-click local Redis container (Podman or Docker) for OmniRoute caching and quota tracking"
+    "description": "Launch a 1-click local Redis container (Podman or Docker) for RedRouter caching and quota tracking"
   },
   "test": {
     "description": "Test a provider connection",
@@ -416,7 +416,7 @@
     }
   },
   "policy": {
-    "description": "Manage OmniRoute authorization policies",
+    "description": "Manage RedRouter authorization policies",
     "list": {
       "description": "List policies",
       "kind": "Filter by kind (allow|deny|rate-limit|cost-cap)",
@@ -453,7 +453,7 @@
     }
   },
   "compression": {
-    "description": "Configure and inspect the OmniRoute compression pipeline",
+    "description": "Configure and inspect the RedRouter compression pipeline",
     "status": {
       "description": "Show current compression status and settings"
     },
@@ -507,18 +507,18 @@
     "confirmRotate": "Rotate tunnel {type}? (a new URL will be generated)"
   },
   "stop": {
-    "description": "Stop the OmniRoute server",
+    "description": "Stop the RedRouter server",
     "stopping": "Stopping server (PID {pid})...",
     "stopped": "Server stopped.",
     "notRunning": "No server is running.",
     "portFallback": "No PID file found, attempting port-based stop..."
   },
   "restart": {
-    "description": "Restart the OmniRoute server",
-    "restarting": "Restarting OmniRoute server..."
+    "description": "Restart the RedRouter server",
+    "restarting": "Restarting RedRouter server..."
   },
   "dashboard": {
-    "description": "Open the OmniRoute dashboard in a browser",
+    "description": "Open the RedRouter dashboard in a browser",
     "opening": "Opening dashboard at {url}",
     "urlOnly": "Print dashboard URL without opening browser",
     "tui": "Open interactive TUI dashboard (terminal UI, 7 tabs)"
@@ -558,7 +558,7 @@
     }
   },
   "skills": {
-    "description": "Manage OmniRoute skills (sandbox, builtin, custom, hybrid, skillssh)",
+    "description": "Manage RedRouter skills (sandbox, builtin, custom, hybrid, skillssh)",
     "list": {
       "description": "List installed skills",
       "type": "Filter by type (sandbox|custom|builtin|hybrid|skillssh)",
@@ -631,7 +631,7 @@
     }
   },
   "memory": {
-    "description": "Manage OmniRoute conversational memory (FTS5 + vector)",
+    "description": "Manage RedRouter conversational memory (FTS5 + vector)",
     "search": {
       "description": "Search memory entries by semantic query",
       "type": "Filter by memory type (user|feedback|project|reference)",
@@ -789,7 +789,7 @@
     }
   },
   "webhooks": {
-    "description": "Manage OmniRoute webhooks",
+    "description": "Manage RedRouter webhooks",
     "events": {
       "description": "List all available webhook event types"
     },
@@ -1079,7 +1079,7 @@
     }
   },
   "openapi": {
-    "description": "Access and test the OmniRoute OpenAPI spec",
+    "description": "Access and test the RedRouter OpenAPI spec",
     "dump": {
       "description": "Dump OpenAPI spec to stdout or file",
       "format": "Output format: yaml|json (default: yaml)",
@@ -1149,7 +1149,7 @@
     }
   },
   "open": {
-    "description": "Open a specific OmniRoute dashboard page in the browser",
+    "description": "Open a specific RedRouter dashboard page in the browser",
     "url": "Print URL only, do not open browser"
   },
   "telemetry": {
@@ -1166,7 +1166,7 @@
     }
   },
   "sync": {
-    "description": "Sync configuration between OmniRoute instances",
+    "description": "Sync configuration between RedRouter instances",
     "push": {
       "description": "Push config to cloud or remote instance",
       "target": "Target (cloud or context:name)",
@@ -1242,7 +1242,7 @@
     "filter": "Filter by level (error,warn,info) — comma-separated",
     "lines": "Number of lines to fetch",
     "timeout": "Connection timeout in ms",
-    "baseUrl": "OmniRoute API base URL",
+    "baseUrl": "RedRouter API base URL",
     "requestId": "Filter by request ID",
     "apiKey": "Filter by API key",
     "combo": "Filter by combo name",
@@ -1258,7 +1258,7 @@
     "description": "Control the system tray icon",
     "show": "Show the tray icon (if server is running with --tray)",
     "hide": "Hide the tray icon",
-    "quit": "Quit OmniRoute via tray"
+    "quit": "Quit RedRouter via tray"
   },
   "autostart": {
     "description": "Manage RedRouter autostart at boot (Linux: systemd user service)",
@@ -1293,19 +1293,19 @@
     "scaffold": "Scaffold a new plugin boilerplate"
   },
   "launch": {
-    "description": "Launch Claude Code pointed at OmniRoute (local or remote, with --profile)",
+    "description": "Launch Claude Code pointed at RedRouter (local or remote, with --profile)",
     "token": "Token the Claude client should send (ANTHROPIC_AUTH_TOKEN)",
-    "notRunning": "OmniRoute is not reachable at {port}. Start it with 'omniroute serve'.",
+    "notRunning": "RedRouter is not reachable at {port}. Start it with 'red-router serve'.",
     "notFound": "The 'claude' CLI was not found in PATH."
   },
   "run": {
-    "description": "Launch a supported CLI target through OmniRoute"
+    "description": "Launch a supported CLI target through RedRouter"
   },
   "setupClaude": {
-    "description": "Generate ~/.claude/profiles Claude Code profiles from the OmniRoute model catalog"
+    "description": "Generate ~/.claude/profiles Claude Code profiles from the RedRouter model catalog"
   },
   "connect": {
-    "description": "Connect to a remote OmniRoute server and enter remote mode"
+    "description": "Connect to a remote RedRouter server and enter remote mode"
   },
   "tokens": {
     "description": "Manage scoped CLI access tokens (remote mode)"
@@ -1314,10 +1314,10 @@
     "description": "Pick a provider+model from the active server and configure a supported local CLI"
   },
   "launchCodex": {
-    "description": "Launch Codex CLI pointed at OmniRoute (local or remote VPS)"
+    "description": "Launch Codex CLI pointed at RedRouter (local or remote VPS)"
   },
   "setupCodex": {
-    "description": "Generate ~/.codex profile files from OmniRoute live model catalog"
+    "description": "Generate ~/.codex profile files from RedRouter live model catalog"
   },
   "packs": {
     "description": "Manage optional runtime packs (ML / browser automation)",
@@ -1330,7 +1330,7 @@
     "errUnknown": "unknown pack: {name}",
     "errNoIndex": "pack index not found; pass --source <dir> holding the pack payload (desktop bundles ship it next to the app)",
     "installed": "pack \"{name}\" installed and verified at {dir}",
-    "restartHint": "restart the OmniRoute server (or desktop app) so the runtime picks the pack up",
+    "restartHint": "restart the RedRouter server (or desktop app) so the runtime picks the pack up",
     "removed": "pack \"{name}\" removed",
     "notInstalled": "pack \"{name}\" was not installed",
     "verifyOk": "all installed packs verified",
