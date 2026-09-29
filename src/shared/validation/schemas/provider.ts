@@ -94,6 +94,9 @@ export const createProviderSchema = z
     globalPriority: z.number().int().min(1).max(100).nullable().optional(),
     defaultModel: z.string().max(200).nullable().optional(),
     testStatus: z.string().max(50).optional(),
+    // Replace the key of an existing connection with the same provider and name instead of
+    // answering 409 PROVIDER_NAME_CONFLICT.
+    allowOverwrite: z.boolean().optional(),
     providerSpecificData: z
       .record(z.string(), z.unknown())
       .optional()

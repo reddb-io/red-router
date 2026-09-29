@@ -189,6 +189,7 @@ export async function POST(request: Request) {
       defaultModel,
       testStatus,
       providerSpecificData: incomingPsd,
+      allowOverwrite,
     } = validation.data;
     const provider = resolveProviderId(requestedProvider);
     const retirementResponse =
@@ -283,6 +284,27 @@ export async function POST(request: Request) {
     }
 
     providerSpecificData = normalizeProviderSpecificData(provider, providerSpecificData) || null;
+
+    // A second POST with the same provider and name used to replace the stored key silently
+    // (data loss with no warning). Refuse it unless the caller asks for the overwrite.
+    if (!allowOverwrite) {
+      const sameName = (
+        (await getProviderConnections({ provider, authType: "apikey" })) as Array<{
+          id?: string;
+          name?: string;
+        }>
+      ).find((connection) => connection.name === name);
+      if (sameName) {
+        return NextResponse.json(
+          {
+            error: "A connection with this provider and name already exists",
+            code: "PROVIDER_NAME_CONFLICT",
+            existingId: sameName.id ?? null,
+          },
+          { status: 409 }
+        );
+      }
+    }
 
     const newConnection = await createProviderConnection({
       provider,
