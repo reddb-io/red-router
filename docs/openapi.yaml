@@ -5759,6 +5759,33 @@ paths:
         "502":
           description: The GitLab host could not be reached or verified.
 
+  /api/oauth/kiro/import-cli-proxy:
+    post:
+      tags: [OAuth]
+      summary: Import a CLIProxyAPI Kiro external_idp auth file
+      description: >-
+        Requires management authorization. Accepts a CLIProxyAPI `type: "kiro"` auth file with
+        `auth_method: "external_idp"` (the file itself, or wrapped in `cliProxyAuth`, `auth` or
+        `json`, as an object or JSON text) and stores a `kiro` connection. `refresh_token`,
+        `client_id`, `token_endpoint` (https, supported identity provider), `scopes` and
+        `profile_arn` are required; `access_token` is optional. Re-importing the same account
+        updates it. The response never contains tokens.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Connection created or updated.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "413":
+          description: Request body exceeds 1 MB.
+
   /api/oauth/iflow/cookie:
     post:
       tags: [OAuth]

@@ -14,10 +14,20 @@ import { CORS_HEADERS, handleCorsOptions } from "@/shared/utils/cors";
 import { errorResponse } from "@omniroute/open-sse/utils/error.ts";
 import { resolvePublicCred } from "@omniroute/open-sse/utils/publicCreds.ts";
 import { isConnectionUnavailableToAuxiliaryActivity } from "@/lib/exclusiveLeaseIsolation";
-import { normalizeVoices, type VoiceProvider } from "./voiceCatalog";
+import { MINIMAX_VOICE_TYPES, normalizeVoices, type VoiceProvider } from "./voiceCatalog";
 
 const querySchema = z.object({
-  provider: z.enum(["elevenlabs", "deepgram", "inworld", "edge-tts", "local-device"]),
+  provider: z.enum([
+    "elevenlabs",
+    "deepgram",
+    "inworld",
+    "edge-tts",
+    "minimax",
+    "minimax-cn",
+    "local-device",
+  ]),
+  // MiniMax only: which voice groups get_voice should return.
+  voice_type: z.enum(MINIMAX_VOICE_TYPES).default("all"),
   lang: z
     .string()
     .regex(/^[A-Za-z]{2,3}(?:-[A-Za-z]{2,4})?$/)
@@ -28,6 +38,8 @@ const URLS: Record<VoiceProvider, string> = {
   elevenlabs: "https://api.elevenlabs.io/v1/voices",
   deepgram: "https://api.deepgram.com/v1/models",
   inworld: "https://api.inworld.ai/tts/v1/voices",
+  minimax: "https://api.minimax.io/v1/get_voice",
+  "minimax-cn": "https://api.minimaxi.com/v1/get_voice",
   "edge-tts": "https://speech.platform.bing.com/consumer/speech/synthesize/readaloud/voices/list",
 };
 
@@ -59,6 +71,7 @@ export async function GET(request: Request): Promise<Response> {
   const query = querySchema.safeParse({
     provider: url.searchParams.get("provider"),
     lang: url.searchParams.get("lang") ?? undefined,
+    voice_type: url.searchParams.get("voice_type") ?? undefined,
   });
   if (!query.success) return withCors(errorResponse(400, "Invalid voice provider or language"));
 
@@ -99,9 +112,18 @@ export async function GET(request: Request): Promise<Response> {
   if (provider === "elevenlabs") headers.set("xi-api-key", token);
   if (provider === "deepgram") headers.set("Authorization", `Token ${token}`);
   if (provider === "inworld") headers.set("Authorization", `Basic ${token}`);
+  const isMiniMax = provider === "minimax" || provider === "minimax-cn";
+  if (isMiniMax) {
+    headers.set("Authorization", `Bearer ${token}`);
+    headers.set("Content-Type", "application/json");
+  }
 
   try {
     const upstream = await fetch(upstreamUrl, {
+      // MiniMax get_voice is a POST with the voice group in the body.
+      ...(isMiniMax
+        ? { method: "POST", body: JSON.stringify({ voice_type: query.data.voice_type }) }
+        : {}),
       headers,
       cache: "no-store",
       signal: AbortSignal.any([request.signal, AbortSignal.timeout(10_000)]),

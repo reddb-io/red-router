@@ -12,8 +12,14 @@ process.env.DATA_DIR = dataDir;
 const { tryOpenSync } = await import("../../../src/lib/db/adapters/driverFactory.ts");
 const { getDbInstance, resetDbInstance } = await import("../../../src/lib/db/core.ts");
 const { getKeyQuotaLimits } = await import("../../../src/lib/db/keyQuota.ts");
-const { fridayImportPending, importFridayData, FRIDAY_IMPORT_MARKER } =
-  await import("../../../src/lib/db/fridayImport.ts");
+const {
+  fridayImportPending,
+  importFridayData,
+  mapFridayProxyPools,
+  collectFridayProxyBindings,
+  FRIDAY_IMPORT_MARKER,
+  FRIDAY_IMPORT_REPORT,
+} = await import("../../../src/lib/db/fridayImport.ts");
 
 const HASH = "$2b$10$abcdefghijklmnopqrstuuABCDEFGHIJKLMNOPQRSTUVWXYZ012345";
 const sourceFile = join(dataDir, "data.sqlite");
@@ -33,6 +39,8 @@ function buildFridayDatabase() {
     CREATE TABLE settings (id INTEGER PRIMARY KEY, data TEXT);
     CREATE TABLE kv (scope TEXT, key TEXT, value TEXT);
     CREATE TABLE providerNodes (id TEXT PRIMARY KEY, data TEXT);
+    CREATE TABLE proxyPools (id TEXT PRIMARY KEY, isActive INTEGER DEFAULT 1, testStatus TEXT,
+      data TEXT NOT NULL, createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL);
     CREATE TABLE usageHistory (id INTEGER PRIMARY KEY, timestamp TEXT, provider TEXT, model TEXT,
       connectionId TEXT, apiKey TEXT, endpoint TEXT, promptTokens INTEGER, completionTokens INTEGER,
       cost REAL, status TEXT, tokens TEXT, meta TEXT);
@@ -43,13 +51,30 @@ function buildFridayDatabase() {
     JSON.stringify({
       accessToken: "at", refreshToken: "rt", expiresAt: "2026-10-01T00:00:00.000Z", scope: "x",
       testStatus: "active", "modelLock_claude-opus-5-5": 123, unknownFridayField: true,
+      providerSpecificData: { proxyPoolId: "pool-relay" },
     }),
     now, now, "alice@example.test"
   );
   db.prepare("INSERT INTO providerConnections VALUES (?,?,?,?,?,?,?,?,?,?,?)").run(
     "conn-key", "openrouter", "apikey", "OR", null, 2, 1,
-    JSON.stringify({ apiKey: "sk-or-fixture", providerSpecificData: { region: "us" } }),
+    JSON.stringify({
+      apiKey: "sk-or-fixture",
+      providerSpecificData: { region: "us", proxyPoolId: "pool-http" },
+    }),
     now, now, null
+  );
+  db.prepare("INSERT INTO proxyPools VALUES (?,?,?,?,?,?)").run(
+    "pool-http", 1, "active",
+    JSON.stringify({
+      name: "Corp proxy", type: "http", proxyUrl: "http://alice:p%40ss@proxy.example.test:3128",
+      noProxy: "localhost,.internal", strictProxy: true, testStatus: "active",
+    }),
+    now, now
+  );
+  db.prepare("INSERT INTO proxyPools VALUES (?,?,?,?,?,?)").run(
+    "pool-relay", 1, "unknown",
+    JSON.stringify({ name: "Edge relay", type: "vercel", proxyUrl: "https://relay.example.test" }),
+    now, now
   );
   db.prepare("INSERT INTO apiKeys VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)").run(
     "key-admin", "sk-admin-fixture-0001", "Admin", "machine1", 1, now,
@@ -119,6 +144,10 @@ test("a Friday install is detected, and a dry run writes nothing", async () => {
   assert.equal(existsSync(join(dataDir, "backups")) ? readdirSync(join(dataDir, "backups")).length : 0, 0);
   const row = getDbInstance().prepare("SELECT COUNT(*) AS n FROM provider_connections").get() as { n: number };
   assert.equal(row.n, 0);
+  assert.equal(report.imported.proxies, 2);
+  assert.equal(report.imported.proxyAssignments, 2);
+  const registry = getDbInstance().prepare("SELECT COUNT(*) AS n FROM proxy_registry").get() as { n: number };
+  assert.equal(registry.n, 0, "a dry run writes no proxies");
   assert.equal(sha256(sourceFile), before);
 });
 
@@ -218,6 +247,40 @@ test("the import maps connections, keys, combos, settings and usage, and reports
   assert.equal(report.notMapped["kv.disabledModels"], 1);
   assert.equal(Object.keys(report.notMapped).some((name) => name.includes("modelLock")), false);
 
+  // Proxy pools become registry proxies and each bound connection gets an account-scope assignment.
+  const proxies = db.prepare("SELECT * FROM proxy_registry ORDER BY name").all() as Record<string, unknown>[];
+  assert.equal(proxies.length, 2);
+  const corp = proxies.find((proxy) => proxy.name === "Corp proxy");
+  assert.ok(corp);
+  assert.deepEqual(
+    [corp.type, corp.host, corp.port, corp.username, corp.password, corp.status],
+    ["http", "proxy.example.test", 3128, "alice", "p@ss", "active"]
+  );
+  assert.match(String(corp.notes), /localhost,\.internal/);
+  const relay = proxies.find((proxy) => proxy.name === "Edge relay");
+  assert.ok(relay);
+  assert.deepEqual(
+    [relay.type, relay.host, relay.port, relay.source, relay.status],
+    ["vercel", "relay.example.test", 443, "vercel-relay", "active"]
+  );
+  const assignmentOf = (connection: string) =>
+    (db.prepare("SELECT proxy_id FROM proxy_assignments WHERE scope = 'account' AND scope_id = ?").get(connection) as { proxy_id: string } | undefined)?.proxy_id;
+  assert.equal(assignmentOf("conn-key"), corp.id);
+  assert.equal(assignmentOf("conn-oauth"), relay.id);
+  assert.equal(report.imported.proxies, 2);
+  assert.equal(report.imported.proxyAssignments, 2);
+  // The Friday pool id is gone from the connection: the assignment replaced it.
+  assert.equal("proxyPoolId" in JSON.parse(String(apikey.provider_specific_data)), false);
+  // Counts are truthful: whole-table counting is replaced by what is really left over.
+  assert.equal(report.notMapped.proxyPools, undefined);
+  assert.equal(report.notMapped["proxyPools.noProxy (bypass list is not enforced)"], 1);
+  assert.equal(report.notMapped["proxyPools.strictProxy"], 1);
+  assert.equal(Object.keys(report.notMapped).some((name) => name.includes("proxyPoolId")), false);
+  assert.match(report.warnings.join(" "), /relay pool\(s\).*without relay authentication/);
+  // Credentials never reach the report, on disk or in memory.
+  const reportText = JSON.stringify(report) + readFileSync(join(dataDir, FRIDAY_IMPORT_REPORT), "utf8");
+  assert.equal(/alice:|p%40ss|p@ss/.test(reportText), false);
+
   // The original is untouched; a verified copy and a marker exist.
   assert.equal(sha256(sourceFile), before);
   assert.equal(fridayImportPending(dataDir), false);
@@ -234,5 +297,62 @@ test("a completed import is not repeated unless forced, and forcing never duplic
   assert.equal(
     (db.prepare("SELECT COUNT(*) AS n FROM key_value WHERE namespace = 'api_key_tags'").get() as { n: number }).n,
     1
+  );
+  // Forcing again reuses the proxies and keeps the assignments: nothing is duplicated.
+  assert.equal((db.prepare("SELECT COUNT(*) AS n FROM proxy_registry").get() as { n: number }).n, 2);
+  assert.equal((db.prepare("SELECT COUNT(*) AS n FROM proxy_assignments").get() as { n: number }).n, 2);
+  assert.equal(report.imported.proxies, 2);
+  assert.equal(report.imported.proxyAssignments, 0);
+});
+
+test("pool mapping: schemes, relays, duplicates, unusable pools and unbound connections", () => {
+  const notMapped: Record<string, number> = {};
+  const pool = (id: string, data: Record<string, unknown>, isActive = 1) => ({
+    id, isActive, data: JSON.stringify(data),
+  });
+  const mapping = mapFridayProxyPools(
+    [
+      pool("socks", { name: "S", proxyUrl: "socks5h://u:pw@10.0.0.1:1080" }),
+      pool("bare", { proxyUrl: "10.0.0.2:8080" }, 0),
+      pool("dup", { name: "dup", proxyUrl: "http://10.0.0.2:8080" }),
+      pool("cf", { name: "CF", type: "cloudflare", proxyUrl: "https://w.example.workers.dev" }),
+      pool("deno", { name: "D", type: "deno", proxyUrl: "https://d.example.deno.dev:8443" }),
+      pool("v4", { proxyUrl: "socks4://10.0.0.3:1080" }),
+      pool("empty", { proxyUrl: "" }),
+      pool("odd", { type: "weird", proxyUrl: "https://10.0.0.4", extra: 1 }),
+    ],
+    notMapped
+  );
+  const byId = (id: string) => mapping.proxies.find((proxy) => proxy.poolIds.includes(id))?.payload;
+  assert.deepEqual([byId("socks")?.type, byId("socks")?.port, byId("socks")?.username], ["socks5", 1080, "u"]);
+  assert.deepEqual([byId("bare")?.type, byId("bare")?.port, byId("bare")?.status, byId("bare")?.name], ["http", 8080, "inactive", "10.0.0.2:8080"]);
+  assert.equal(mapping.keyByPoolId.get("dup"), mapping.keyByPoolId.get("bare"), "same host/port/user collapses");
+  assert.deepEqual([byId("cf")?.type, byId("cf")?.port, byId("cf")?.source], ["cloudflare", 443, "cloudflare-relay"]);
+  assert.deepEqual([byId("deno")?.type, byId("deno")?.port, byId("deno")?.source], ["deno", 8443, "deno-relay"]);
+  assert.deepEqual([byId("odd")?.type, byId("odd")?.port], ["https", 443]);
+  assert.equal(mapping.keyByPoolId.has("v4"), false);
+  assert.equal(mapping.keyByPoolId.has("empty"), false);
+  assert.equal(mapping.proxies.length, 5);
+  assert.equal(notMapped["proxyPools.mergedDuplicate"], 1);
+  assert.equal(notMapped["proxyPools.unmappable (unsupported scheme socks4)"], 1);
+  assert.equal(notMapped["proxyPools.unmappable (no usable proxyUrl)"], 1);
+  assert.equal(notMapped["proxyPools.unknownType (imported as http)"], 1);
+  assert.equal(notMapped["proxyPools.data.extra"], 1);
+  // Credentials are never part of a report key.
+  assert.equal(Object.keys(notMapped).some((name) => name.includes("pw")), false);
+
+  const connection = (id: string, poolId?: unknown) => ({
+    id,
+    data: JSON.stringify({ providerSpecificData: poolId === undefined ? {} : { proxyPoolId: poolId } }),
+  });
+  assert.deepEqual(
+    collectFridayProxyBindings([
+      connection("a", "socks"),
+      connection("b", "__none__"),
+      connection("c", ""),
+      connection("d"),
+      connection("e", 7),
+    ]),
+    [{ connectionId: "a", poolId: "socks" }]
   );
 });

@@ -13,6 +13,8 @@
 import { promises as fs } from "fs";
 import path from "path";
 
+import { normalizeKiroExternalIdpAuth } from "@/lib/oauth/kiroExternalIdp";
+
 type JsonRecord = Record<string, unknown>;
 
 /**
@@ -26,6 +28,8 @@ export const CLIPROXY_TYPE_TO_PROVIDER: Record<string, string> = {
   antigravity: "antigravity",
   kimi: "kimi",
   meta: "muse-code",
+  // Only Kiro `auth_method: "external_idp"` files import; other Kiro auth shapes are skipped.
+  kiro: "kiro",
 };
 
 export interface ParsedCliProxyAuth {
@@ -78,6 +82,24 @@ export function parseCliProxyAuthRecord(raw: unknown, now: number = 0): ParsedCl
   const provider = CLIPROXY_TYPE_TO_PROVIDER[type];
   if (!provider) return null;
   const accessToken = asString(record.access_token);
+  if (provider === "kiro") {
+    // The access token is optional here: the stored refresh token mints one on first use.
+    try {
+      const kiro = normalizeKiroExternalIdpAuth(record, now || Date.now());
+      return {
+        provider,
+        type,
+        email: kiro.email,
+        accessToken: kiro.accessToken,
+        refreshToken: kiro.refreshToken,
+        expiresAt: kiro.expiresAt,
+        projectId: null,
+        providerSpecificData: { ...kiro.providerSpecificData, importedFrom: "cliproxyapi" },
+      };
+    } catch {
+      return null;
+    }
+  }
   if (provider === "muse-code") {
     const dcaToken =
       asString(record.dca_token) ||
