@@ -3,8 +3,8 @@
   "generatedAt": "2026-09-29",
   "baseline": {
     "redrouter": "v0.33.0",
-    "head": "6bf58ed77b",
-    "omniroute": "3.8.51 (sync to 3.8.52 in progress)",
+    "head": "14911cf0ec",
+    "omniroute": "3.8.52 (synced 2026-09-29, base 86870a8233; see config/upstream/omniroute-sync.json)",
     "9router": "f01fb909e3 (v0.5.91; fork point 17c4cc7687)",
     "pentatonic": "07bad5a458 (pentatonic/master, 2026-09-23)",
     "litellm": "1.104.0"
@@ -667,6 +667,61 @@
       "size": "S",
       "dependsOn": [],
       "origin": "new"
+    },
+    {
+      "id": "X-CACHE1",
+      "title": "Prompt-cache prefix diagnostics and efficiency view",
+      "wave": 0,
+      "size": "M",
+      "dependsOn": [],
+      "origin": "cache-economy-sprint"
+    },
+    {
+      "id": "X-CACHE2",
+      "title": "Prefix stability contract test",
+      "wave": 0,
+      "size": "S",
+      "dependsOn": [],
+      "origin": "cache-economy-sprint"
+    },
+    {
+      "id": "X-CACHE3",
+      "title": "Stabilise the prefix for caching providers (live zone / prefix freeze / position-independent compression)",
+      "wave": 0,
+      "size": "S",
+      "dependsOn": [
+        "X-CACHE1",
+        "X-CACHE2"
+      ],
+      "origin": "cache-economy-sprint"
+    },
+    {
+      "id": "X-CACHE4",
+      "title": "Stable thinking level for cache-sensitive providers",
+      "wave": 0,
+      "size": "S",
+      "dependsOn": [
+        "X-CACHE1"
+      ],
+      "origin": "cache-economy-sprint"
+    },
+    {
+      "id": "X-CACHE5",
+      "title": "prompt_cache_key per session and connection affinity",
+      "wave": 0,
+      "size": "S",
+      "dependsOn": [
+        "X-CACHE1"
+      ],
+      "origin": "cache-economy-sprint"
+    },
+    {
+      "id": "X-CACHE6",
+      "title": "Save cheap requests (System One evaluation cache, local scorer skip)",
+      "wave": 0,
+      "size": "S",
+      "dependsOn": [],
+      "origin": "cache-economy-sprint"
     }
   ],
   "ia": "docs/architecture/PRODUCT_INTEGRATION_PLAN.md",
@@ -1485,7 +1540,7 @@
             "friday": "has"
           },
           "head": "partial",
-          "headEvidence": "src/shared/constants/providerCompatibilityAliases.ts:32-36 (ag, ocz, brave, fish, gpse done, commit 050213e338); gc and if retirement guard not verified",
+          "headEvidence": "src/shared/constants/providerCompatibilityAliases.ts (25+ aliases incl. ag, ocz, brave, fish, gpse); open: gc/ and if/ to answer 410 PROVIDER_RETIRED (wave 1)",
           "ownUnique": false,
           "value": "H",
           "effort": "S",
@@ -1572,8 +1627,8 @@
             "omniroute": "no",
             "friday": "has"
           },
-          "head": "partial",
-          "headEvidence": "registry/claude/index.ts:54 has claude-opus-5-5 (commit 39ae7cfb64); CLAUDE_CODE_CLIENT_VERSION still 2.1.258",
+          "head": "equivalent",
+          "headEvidence": "open-sse/config/providers/registry/claude/index.ts (claude-opus-5-5), src/shared/constants/modelSpecs.ts, providerCostData.ts; CLAUDE_CODE_CLIENT_VERSION 2.1.280 from the OmniRoute 3.8.52 sync; tests/redrouter/native/claude-opus-5-5.test.ts",
           "ownUnique": false,
           "value": "H",
           "effort": "S",
@@ -3027,7 +3082,7 @@
             "friday": "has"
           },
           "head": "partial",
-          "headEvidence": "fridayImport.ts drops owner; role admin mapped to manage scope (study-9router B.3.6)",
+          "headEvidence": "src/lib/db/fridayImport.ts stages owners, scope/SSO settings and per-user preferences under key_value namespace friday_legacy (no secrets); still open: narrowing the imported admin key from the manage scope (E-A4)",
           "ownUnique": true,
           "value": "H",
           "effort": "S",
@@ -3604,8 +3659,8 @@
             "omniroute": "has",
             "friday": "no"
           },
-          "head": "partial",
-          "headEvidence": "in progress: OmniRoute sync 3.8.52 by another agent",
+          "head": "equivalent",
+          "headEvidence": "config/upstream/omniroute-sync.json (3.8.52 merged); GHSA-7j4q/jmq6/mh4f/9p9m covered by upstream tests run in the sync, plus tests/redrouter/native/migration-ledger.test.ts",
           "ownUnique": false,
           "value": "H",
           "effort": "M",
@@ -3773,6 +3828,28 @@
           "ux": {
             "home": "Operate > Context Savings > PXPIPE",
             "pattern": "One flat DS card per setting group with a description line; no nested cards"
+          }
+        },
+        {
+          "id": "cc-prefix-diagnostics",
+          "title": "Prompt-cache prefix diagnostics and efficiency view",
+          "description": "Per request: did the cacheable prefix (tools, system, messages, thinking) stay identical to the previous request, where did it diverge and why; per-model read/write shares in the Cache page.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "no",
+            "omniroute": "partial",
+            "friday": "no"
+          },
+          "head": "equivalent",
+          "headEvidence": "src/lib/promptCache/prefixDiagnostics.ts, src/lib/db/cachePrefixObservations.ts (migration 202), open-sse/handlers/chatCore/prefixObservation.ts, Cache page Prefix efficiency tab",
+          "ownUnique": true,
+          "value": "H",
+          "effort": "M",
+          "slice": "X-CACHE1",
+          "ux": {
+            "home": "Operate > Context Savings > Cache > Prefix efficiency",
+            "pattern": "Per-model table with append-only share, cache read/write shares and a warning badge for writes that are never read"
           }
         }
       ]
