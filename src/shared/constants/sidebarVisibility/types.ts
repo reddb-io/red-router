@@ -89,11 +89,6 @@ export const HIDEABLE_SIDEBAR_ITEM_IDS = [
   "mcp",
   "a2a",
   "plugins",
-  // Gamification
-  "leaderboard",
-  "profile",
-  "tokens",
-  "gamification-admin",
   // Other Features — flat
   "media",
   // Other Features > Batch
@@ -115,7 +110,6 @@ export const HIDEABLE_SIDEBAR_ITEM_IDS = [
   // Help
   "docs",
   "issues",
-  "changelog",
 ] as const;
 
 export type HideableSidebarItemId = (typeof HIDEABLE_SIDEBAR_ITEM_IDS)[number];

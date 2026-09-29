@@ -2,7 +2,6 @@ import { getMachineId } from "@/shared/utils/machine";
 import { loadHomeSettings } from "./loadHomeSettings";
 import HomePageClient from "../dashboard/HomePageClient";
 import BootstrapBanner from "../dashboard/BootstrapBanner";
-import NewsBanner from "../dashboard/NewsBanner";
 import FirstRunReadinessCard from "../dashboard/FirstRunReadinessCard";
 
 export const dynamic = "force-dynamic";
@@ -15,7 +14,6 @@ export default async function HomePage() {
     <>
       {isBootstrapped && <BootstrapBanner />}
       <FirstRunReadinessCard setupComplete={Boolean(settings.setupComplete)} />
-      <NewsBanner />
       <HomePageClient machineId={machineId} />
     </>
   );

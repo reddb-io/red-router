@@ -10,11 +10,6 @@ import {
   getLatestVersionFromRegistry,
 } from "../../../src/lib/system/versionCheck.ts";
 import { APP_CONFIG } from "../../../src/shared/constants/appConfig.ts";
-import {
-  CHANGELOG_GITHUB_URL,
-  CHANGELOG_RAW_URL,
-  NEWS_JSON_URL,
-} from "../../../src/shared/utils/releaseNotes.ts";
 
 test("all version lookup channels use the RedRouter release identity", async () => {
   let npmArgs: string[] = [];
@@ -62,11 +57,4 @@ test("dashboard update cannot install an upstream package or switch the main wor
   assert.match(home, /reddb-io\/red-router\/releases/);
   assert.doesNotMatch(cli, /npm install -g omniroute|execSync\(/);
   assert.match(cli, /Automatic install is disabled/);
-});
-
-test("release notes and announcements are owned by RedRouter", () => {
-  for (const url of [NEWS_JSON_URL, CHANGELOG_RAW_URL, CHANGELOG_GITHUB_URL]) {
-    assert.match(url, /reddb-io\/red-router/);
-    assert.doesNotMatch(url, /diegosouzapw\/OmniRoute/);
-  }
 });

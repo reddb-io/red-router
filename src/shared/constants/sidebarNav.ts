@@ -397,29 +397,11 @@ export const SIDEBAR_NAV_SECTIONS: readonly SidebarNavSection[] = [
         ],
       },
       {
-        id: "changelog",
-        label: "Changelog",
-        icon: "Megaphone",
-        tabs: [tab("changelog", "/dashboard/changelog", "Changelog")],
-      },
-      {
         id: "chaos",
         label: "Chaos mode",
         icon: "Zap",
         group: "Labs",
         tabs: [tab("chaos-config", "/dashboard/chaos", "Chaos mode")],
-      },
-      {
-        id: "gamification",
-        label: "Gamification",
-        icon: "Trophy",
-        group: "Labs",
-        tabs: [
-          tab("leaderboard", "/dashboard/leaderboard", "Leaderboard"),
-          tab("profile", "/dashboard/profile", "Profile"),
-          tab("tokens", "/dashboard/tokens", "Tokens"),
-          tab("gamification-admin", "/dashboard/gamification/admin", "Admin"),
-        ],
       },
       {
         id: "batch",

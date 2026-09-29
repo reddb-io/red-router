@@ -697,7 +697,6 @@
     "learnedFromHeaders": "Learned From Headers",
     "totalRequests": "Total Requests",
     "cloudUnstableNote": "Cloud Unstable Note",
-    "gamificationAdmin": "Gamification Admin",
     "monitorAnomaliesAndHealth": "Monitor anomalies and system health",
     "flaggedAnomalies": "Flagged Anomalies",
     "noAnomaliesDetected": "No anomalies detected",
@@ -770,14 +769,11 @@
     "batchListSearchPlaceholder": "Search by ID, endpoint, model…",
     "batchListDeleteAllCompletedTitle": "Delete all completed batches",
     "batchListBatchesTable": "Batches",
-    "changelogViewerLoading": "Loading changelog from GitHub...",
     "profile": "Profile",
     "profileLoading": "Loading profile...",
     "profileHowToEarn": "How to earn",
     "bootstrapBannerDismiss": "Dismiss",
     "batchListDeleteBatchTitle": "Delete batch and its files",
-    "leaderboardYourRank": "Your Rank",
-    "leaderboardLoading": "Loading leaderboard...",
     "batchFileDetailCopyId": "Copy ID",
     "batchFileDetailClose": "Close",
     "batchFileDetailFailedToLoad": "Failed to load file contents",
@@ -1110,7 +1106,6 @@
     "themeCustom": "Theme Custom",
     "hideHealthLogsDesc": "Hide Health Logs Desc",
     "faviconPreview": "Favicon Preview",
-    "changelog": "Changelog",
     "contextSection": "Context & Cache",
     "contextCaveman": "Caveman",
     "contextRtk": "RTK",
@@ -1202,7 +1197,6 @@
     "agenticFeaturesSection": "Agentic Features",
     "otherFeaturesSection": "Other Features",
     "compressionContextGroup": "Compression Context",
-    "gamificationGroup": "Gamification",
     "toolsGroup": "Tools",
     "integrationsGroup": "Integrations",
     "proxyGroup": "Proxy",
@@ -1224,14 +1218,10 @@
     "proxySubtitle": "HTTP proxy settings",
     "mitmProxySubtitle": "MITM interception",
     "oneProxySubtitle": "Public proxy gateway",
-    "leaderboard": "Leaderboard",
     "profile": "Profile",
     "tokens": "Tokens",
-    "gamificationAdmin": "Gamification Admin",
-    "leaderboardSubtitle": "Rankings and achievements",
     "profileSubtitle": "Account and preferences",
     "tokensSubtitle": "Token usage and budgets",
-    "gamificationAdminSubtitle": "Anomaly monitoring and anti-cheat",
     "usageSubtitle": "Traffic and usage stats",
     "analyticsComboHealthSubtitle": "Combo target reliability",
     "analyticsUtilizationSubtitle": "Provider utilization",
@@ -1280,7 +1270,6 @@
     "settingsAuthzSubtitle": "Route inventory and bypass policy",
     "docsSubtitle": "Documentation",
     "issuesSubtitle": "Report a bug",
-    "changelogSubtitle": "Release notes",
     "costsQuotaPlans": "Plans & Quotas",
     "costsQuotaPlansSubtitle": "Configure plans by provider",
     "activity": "Activity",
@@ -1709,7 +1698,6 @@
     "contextCavemanDescription": "Rule-based message compression, language packs, analytics and output mode controls.",
     "contextRtkDescription": "Command-aware compression for tool output, terminal logs and build results.",
     "contextCombosDescription": "Define how engines are combined for different routing scenarios.",
-    "changelogDescription": "Stay up to date with the latest platform features and announcements.",
     "agentsDescription": "Manage and configure AI agent tools: Codex, Devin, Jules, and custom agents",
     "cloudAgentsDescription": "Orchestrate cloud-based AI agents with live task tracking and plan approval",
     "memoryDescription": "Persistent conversational memory with semantic search and FTS5 full-text indexing",
@@ -1836,7 +1824,6 @@
     "files": "Files",
     "media": "Media",
     "cache": "Cache",
-    "changelog": "Changelog",
     "chaos": "Chaos",
     "cloudAgents": "Cloud Agents",
     "live": "Live",
@@ -1859,8 +1846,6 @@
     "radar": "Radar",
     "setup": "Setup",
     "freeTiers": "Free Tiers",
-    "gamification": "Gamification",
-    "leaderboard": "Leaderboard",
     "limits": "Limits",
     "profile": "Profile",
     "plugins": "Plugins",
@@ -10232,7 +10217,6 @@
     "dataLocationWindows": "Windows:",
     "product": "Product",
     "dashboardLink": "Dashboard",
-    "changelog": "Changelog",
     "resources": "Resources",
     "documentation": "Documentation",
     "npm": "NPM",
@@ -13041,179 +13025,6 @@
     "directEgress": "Direct (no proxy)",
     "ownProxy": "Own proxy"
   },
-  "gamification": {
-    "leaderboardScopes": {
-      "allTime": "All Time",
-      "weekly": "Weekly",
-      "monthly": "Monthly",
-      "tokensShared": "Tokens Shared"
-    },
-    "leaderboardLoadFailed": "Failed to load leaderboard (HTTP {status})",
-    "scope": "Scope",
-    "tokensShared": "tokens shared",
-    "points": "points",
-    "rank": "Rank",
-    "name": "Name",
-    "score": "Score",
-    "leaderboardEmpty": "No entries yet for this scope. Start using RedRouter to appear on the leaderboard!",
-    "profileLoadFailed": "Failed to load profile data",
-    "levelTitles": {
-      "beginner": "Beginner",
-      "explorer": "Explorer",
-      "expert": "Expert",
-      "master": "Master",
-      "legend": "Legend"
-    },
-    "tiers": {
-      "bronze": "Bronze",
-      "silver": "Silver",
-      "gold": "Gold",
-      "platinum": "Platinum",
-      "diamond": "Diamond"
-    },
-    "tierLabel": "Tier: {tier}",
-    "dayStreak": "{count}-day streak",
-    "levelProgress": "Level {current} → {next}",
-    "totalXpEarned": "{count} total XP earned",
-    "maintainStreak": "Keep using RedRouter every day to maintain your streak!",
-    "badgesTitle": "Badges ({earned}/{total})",
-    "noBadges": "No badges are available yet.",
-    "hiddenBadge": "Hidden achievement",
-    "earnedDate": "Earned {date}",
-    "earnedOn": "Earned on {date}",
-    "category": "Category",
-    "rarities": {
-      "common": "Common",
-      "uncommon": "Uncommon",
-      "rare": "Rare",
-      "epic": "Epic",
-      "legendary": "Legendary"
-    },
-    "categories": {
-      "usage": "Usage",
-      "sharing": "Sharing",
-      "contribution": "Contribution",
-      "streak": "Streak",
-      "rare": "Rare achievements"
-    },
-    "badges": {
-      "radar-supporter": {
-        "name": "Radar Supporter",
-        "description": "Verified a live RedRouter Radar supporter feed",
-        "criteria": "Verify a signed live Radar supporter feed."
-      },
-      "first-token": {
-        "name": "First Token",
-        "description": "Made your first API request",
-        "criteria": "Complete your first API request through RedRouter."
-      },
-      "token-consumer": {
-        "name": "Token Consumer",
-        "description": "Made 1,000 API requests",
-        "criteria": "Complete 1,000 API requests through RedRouter."
-      },
-      "token-machine": {
-        "name": "Token Machine",
-        "description": "Made 10,000 API requests",
-        "criteria": "Complete 10,000 API requests through RedRouter."
-      },
-      "token-whale": {
-        "name": "Token Whale",
-        "description": "Made 100,000 API requests",
-        "criteria": "Complete 100,000 API requests through RedRouter."
-      },
-      "generous": {
-        "name": "Generous",
-        "description": "Shared 1,000 tokens with others",
-        "criteria": "Share a total of 1,000 tokens with other users."
-      },
-      "philanthropist": {
-        "name": "Philanthropist",
-        "description": "Shared 10,000 tokens with others",
-        "criteria": "Share a total of 10,000 tokens with other users."
-      },
-      "token-santa": {
-        "name": "Token Santa",
-        "description": "Shared 100,000 tokens with others",
-        "criteria": "Share a total of 100,000 tokens with other users."
-      },
-      "community-hero": {
-        "name": "Community Hero",
-        "description": "Shared 1,000,000 tokens with others",
-        "criteria": "Share a total of 1,000,000 tokens with other users."
-      },
-      "explorer": {
-        "name": "Explorer",
-        "description": "Used 5 different providers",
-        "criteria": "Use at least 5 different AI providers."
-      },
-      "polyglot": {
-        "name": "Polyglot",
-        "description": "Used 10 different models",
-        "criteria": "Use at least 10 different AI models."
-      },
-      "architect": {
-        "name": "Architect",
-        "description": "Created 3 combo routes",
-        "criteria": "Create 3 combo routes."
-      },
-      "speedster": {
-        "name": "Speedster",
-        "description": "Maintained under 500 ms average latency for 100 requests",
-        "criteria": "Keep average latency below 500 ms across 100 requests."
-      },
-      "resilient": {
-        "name": "Resilient",
-        "description": "Maintained 100% uptime for 7 days",
-        "criteria": "Maintain 100% uptime for 7 consecutive days."
-      },
-      "daily-user": {
-        "name": "Daily User",
-        "description": "Active for 3 consecutive days",
-        "criteria": "Use RedRouter for 3 consecutive days."
-      },
-      "weekly-warrior": {
-        "name": "Weekly Warrior",
-        "description": "Active for 7 consecutive days",
-        "criteria": "Use RedRouter for 7 consecutive days."
-      },
-      "monthly-master": {
-        "name": "Monthly Master",
-        "description": "Active for 30 consecutive days",
-        "criteria": "Use RedRouter for 30 consecutive days."
-      },
-      "unstoppable": {
-        "name": "Unstoppable",
-        "description": "Active for 365 consecutive days",
-        "criteria": "Use RedRouter for 365 consecutive days."
-      },
-      "early-adopter": {
-        "name": "Early Adopter",
-        "description": "Joined within the first month of gamification",
-        "criteria": "Join within the first month after gamification launches."
-      },
-      "bug-hunter": {
-        "name": "Bug Hunter",
-        "description": "Reported 5 issues",
-        "criteria": "Report 5 valid issues."
-      },
-      "contributor": {
-        "name": "Contributor",
-        "description": "Merged 1 pull request",
-        "criteria": "Have 1 pull request merged into RedRouter."
-      },
-      "community-leader": {
-        "name": "Community Leader",
-        "description": "Reached the top 10 on any leaderboard",
-        "criteria": "Reach the top 10 on any leaderboard."
-      },
-      "secret-badge": {
-        "name": "???",
-        "description": "A hidden achievement awaits...",
-        "criteria": "Complete the hidden achievement to reveal this badge."
-      }
-    }
-  },
   "featureFlags": {
     "title": "Feature Flags",
     "activeCount": "{count} active",
@@ -13640,17 +13451,6 @@
       "reactivateConnection": "Reactivate connection",
       "clearModelLockout": "Clear model lockout"
     }
-  },
-  "changelogPage": {
-    "newsTab": "News",
-    "changelogTab": "Changelog",
-    "loading": "Loading changelog...",
-    "announcementsLoadFailed": "Could not load announcements. Please try again later.",
-    "noAnnouncements": "No new announcements at this time.",
-    "learnMore": "Learn more",
-    "changelogLoadFailed": "Could not load the changelog. Please try again later.",
-    "retry": "Retry",
-    "viewFullHistory": "View full history on GitHub"
   },
   "reasoningRouting": {
     "editor": {

@@ -649,43 +649,6 @@ const AGENTIC_FEATURES_ITEMS: readonly SidebarSectionChild[] = [
   },
 ];
 
-const GAMIFICATION_GROUP: SidebarItemGroup = {
-  type: "group",
-  id: "gamification",
-  titleKey: "gamificationGroup",
-  titleFallback: "Gamification",
-  items: [
-    {
-      id: "leaderboard",
-      href: "/dashboard/leaderboard",
-      i18nKey: "leaderboard",
-      subtitleKey: "leaderboardSubtitle",
-      icon: "emoji_events",
-    },
-    {
-      id: "profile",
-      href: "/dashboard/profile",
-      i18nKey: "profile",
-      subtitleKey: "profileSubtitle",
-      icon: "person",
-    },
-    {
-      id: "tokens",
-      href: "/dashboard/tokens",
-      i18nKey: "tokens",
-      subtitleKey: "tokensSubtitle",
-      icon: "toll",
-    },
-    {
-      id: "gamification-admin",
-      href: "/dashboard/gamification/admin",
-      i18nKey: "gamificationAdmin",
-      subtitleKey: "gamificationAdminSubtitle",
-      icon: "admin_panel_settings",
-    },
-  ],
-};
-
 const OTHER_FEATURES_ITEMS: readonly SidebarItemDefinition[] = [
   {
     id: "media",
@@ -824,13 +787,6 @@ const HELP_ITEMS: readonly SidebarItemDefinition[] = [
     icon: "bug_report",
     external: true,
   },
-  {
-    id: "changelog",
-    href: "/dashboard/changelog",
-    i18nKey: "changelog",
-    subtitleKey: "changelogSubtitle",
-    icon: "campaign",
-  },
 ];
 
 // ─── Sections ────────────────────────────────────────────────────────────────
@@ -889,7 +845,7 @@ export const SIDEBAR_SECTIONS: readonly SidebarSectionDefinition[] = [
     id: "other-features",
     titleKey: "otherFeaturesSection",
     titleFallback: "Other Features",
-    children: [GAMIFICATION_GROUP, ...OTHER_FEATURES_ITEMS, BATCH_GROUP],
+    children: [...OTHER_FEATURES_ITEMS, BATCH_GROUP],
   },
   {
     id: "configuration",

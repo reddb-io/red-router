@@ -199,7 +199,7 @@ test("the rail has one area per job and the panel lists the entries of an area",
   const labs = SIDEBAR_NAV_SECTIONS.flatMap((s) => s.entries).filter((e) => e.group === "Labs");
   assert.deepEqual(
     labs.map((e) => e.id),
-    ["chaos", "gamification", "batch"]
+    ["chaos", "batch"]
   );
 });
 

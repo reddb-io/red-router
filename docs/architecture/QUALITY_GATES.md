@@ -167,7 +167,7 @@ Runs after `build`. Blocks merge on failure.
 
 | Suite            | Validates                                                | Blocking                                                                                                      |
 | ---------------- | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `test:vitest`    | MCP server (110 tools), autoCombo, cache — vitest runner | Yes                                                                                                           |
+| `test:vitest`    | MCP server (102 tools), autoCombo, cache — vitest runner | Yes                                                                                                           |
 | `test:vitest:ui` | UI component tests — vitest runner                       | **Blocking** — pre-existing failures are explicitly excluded in `vitest.config.ts`; new failures fail the job |
 
 ### Nightly workflows (scheduled, advisory)

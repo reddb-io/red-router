@@ -535,6 +535,12 @@ const nextConfig = {
         destination: "/dashboard/skills",
         permanent: true,
       },
+      // Changelog and gamification were removed from the product.
+      ...["changelog", "leaderboard", "profile", "tokens", "gamification/:path*"].map((page) => ({
+        source: `/dashboard/${page}`,
+        destination: "/home",
+        permanent: true,
+      })),
       {
         source: "/dashboard/providers/freepik",
         destination: "/dashboard/providers/magnific",
@@ -609,11 +615,6 @@ const nextConfig = {
       },
       { source: "/docs/cloud-agent", destination: "/docs/frameworks/cloud-agent", permanent: true },
       { source: "/docs/evals", destination: "/docs/frameworks/evals", permanent: true },
-      {
-        source: "/docs/gamification",
-        destination: "/docs/frameworks/gamification",
-        permanent: true,
-      },
       { source: "/docs/mcp-server", destination: "/docs/frameworks/mcp-server", permanent: true },
       { source: "/docs/memory", destination: "/docs/frameworks/memory", permanent: true },
       { source: "/docs/opencode", destination: "/docs/frameworks/opencode", permanent: true },

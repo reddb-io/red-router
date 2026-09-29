@@ -49,14 +49,6 @@ export default function Footer() {
             >
               {t("dashboardLink")}
             </a>
-            <a
-              className="text-gray-400 hover:text-[#E54D5E] text-sm transition-colors"
-              href="https://github.com/reddb-io/red-router/releases"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              {t("changelog")}
-            </a>
           </div>
 
           {/* Resources */}

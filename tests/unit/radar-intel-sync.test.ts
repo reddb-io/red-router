@@ -68,14 +68,12 @@ test("Intel sync gates before fetch and only accepts exact signed live bytes", a
 
   const bytes = await fixtureBytes();
   const writes: intelSync.RadarIntelCacheEntry[] = [];
-  const supporterIdentities: string[] = [];
   let authorization = "";
   const result = await intelSync.syncRadarIntel({
     getFlag: () => true,
     getSettings: () => liveSettings,
     getCache: () => null,
     setCache: (entry) => writes.push(entry),
-    recognizeSupporter: async (identity) => supporterIdentities.push(identity),
     fetch: (async (_input, init) => {
       authorization = new Headers(init?.headers).get("authorization") ?? "";
       return response(bytes, {
@@ -91,7 +89,6 @@ test("Intel sync gates before fetch and only accepts exact signed live bytes", a
   assert.equal(writes[0]?.payload, bytes.toString("utf8"));
   assert.equal(writes[0]?.tier, "live");
   assert.match(writes[0]?.supporterIdentity ?? "", /^radar:[a-f0-9]{64}$/);
-  assert.deepEqual(supporterIdentities, [writes[0]?.supporterIdentity]);
   assert.ok(!writes[0]?.supporterIdentity.includes(supporterKey));
 });
 

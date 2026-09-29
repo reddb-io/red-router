@@ -4372,8 +4372,8 @@
         },
         {
           "id": "am-omni-extras",
-          "title": "Memory, plugins, evals, gamification",
-          "description": "FTS5/Qdrant memory, plugin system, eval suites, gamification and leaderboard (hidden by default).",
+          "title": "Memory, plugins, evals",
+          "description": "FTS5/Qdrant memory, plugin system, eval suites (gamification and leaderboard were removed from RedRouter).",
           "sources": {
             "ninerouter": "no",
             "pentatonic": "no",
@@ -4382,7 +4382,7 @@
             "friday": "no"
           },
           "head": "equivalent",
-          "headEvidence": "src/lib/{memory,plugins,evals}; dashboard/{gamification,leaderboard,tokens}",
+          "headEvidence": "src/lib/{memory,plugins,evals}; dashboard (gamification removed)",
           "ownUnique": false,
           "value": "M",
           "effort": "S",

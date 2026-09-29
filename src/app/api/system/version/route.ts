@@ -2,7 +2,6 @@
 import { createHash } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { isAuthenticated } from "@/shared/utils/apiAuth";
-import { NEWS_JSON_URL, parseActiveNewsPayload } from "@/shared/utils/releaseNotes";
 import { isNewer, resolveLatestVersionCached } from "@/lib/system/versionCheck";
 import { APP_CONFIG } from "@/shared/constants/appConfig";
 
@@ -11,31 +10,16 @@ export const dynamic = "force-dynamic";
 const UPDATE_GUIDANCE =
   "Update RedRouter with your package manager (mise upgrade or npm install -g @reddb-io/red-router@latest).";
 
-async function getNews() {
-  try {
-    const response = await fetch(NEWS_JSON_URL, { next: { revalidate: 3600 } });
-    if (!response.ok) return null;
-    return parseActiveNewsPayload(await response.json());
-  } catch {
-    return null;
-  }
-}
-
 export async function GET(req: NextRequest) {
   if (!(await isAuthenticated(req))) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const current = APP_CONFIG.version;
-  const [latest, news] = await Promise.all([
-    resolveLatestVersionCached({
-      bypassCache: /(?:^|,)\s*(?:no-cache|no-store)\b/i.test(
-        req.headers.get("Cache-Control") ?? ""
-      ),
-      storeResult: !/(?:^|,)\s*no-store\b/i.test(req.headers.get("Cache-Control") ?? ""),
-    }),
-    getNews(),
-  ]);
+  const latest = await resolveLatestVersionCached({
+    bypassCache: /(?:^|,)\s*(?:no-cache|no-store)\b/i.test(req.headers.get("Cache-Control") ?? ""),
+    storeResult: !/(?:^|,)\s*no-store\b/i.test(req.headers.get("Cache-Control") ?? ""),
+  });
   const body = {
     current,
     latest: latest ?? "unavailable",
@@ -43,7 +27,6 @@ export async function GET(req: NextRequest) {
     channel: "package-manager",
     autoUpdateSupported: false,
     autoUpdateError: UPDATE_GUIDANCE,
-    news,
   };
   const serialized = JSON.stringify(body);
   const etag = `"${createHash("sha256").update(serialized).digest("base64url")}"`;

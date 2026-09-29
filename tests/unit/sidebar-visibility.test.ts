@@ -127,7 +127,7 @@ test("sidebar visibility drops stale entries from saved settings", () => {
   ]);
 });
 
-test("help sidebar exposes changelog after docs and issues", () => {
+test("help sidebar lists docs and issues", () => {
   const items = sectionItems("help");
   assert.deepEqual(
     items.map((item) => ({
@@ -142,10 +142,9 @@ test("help sidebar exposes changelog after docs and issues", () => {
         href: "https://github.com/reddb-io/red-router/issues",
         i18nKey: "issues",
       },
-      { id: "changelog", href: "/dashboard/changelog", i18nKey: "changelog" },
     ]
   );
-  assert.equal(sidebarVisibility.HIDEABLE_SIDEBAR_ITEM_IDS.includes("changelog"), true);
+  assert.equal(sidebarVisibility.HIDEABLE_SIDEBAR_ITEM_IDS.includes("changelog" as never), false);
 });
 
 test("plugins has a discoverable sidebar entry (#3656 follow-up)", async () => {

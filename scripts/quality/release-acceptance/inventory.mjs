@@ -7,7 +7,7 @@ import {
 
 const UNIT_CI_GLOBS = new Set([
   "tests/unit/*.test.ts",
-  "tests/unit/{api,auth,authz,build,cli,cli-helper,combo,compression,correctness,cors,db,db-adapters,docs,gamification,guardrails,lib,mcp,memory,runtime,security,services,settings,shared,translator,ui,usage}/**/*.test.ts",
+  "tests/unit/{api,auth,authz,build,cli,cli-helper,combo,compression,correctness,cors,db,db-adapters,docs,guardrails,lib,mcp,memory,runtime,security,services,settings,shared,translator,ui,usage}/**/*.test.ts",
   "tests/unit/dashboard/**/*.test.ts",
   "tests/unit/serial/**/*.test.ts",
   "tests/unit/**/*.test.mjs",

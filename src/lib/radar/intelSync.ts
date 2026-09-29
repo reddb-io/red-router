@@ -42,7 +42,6 @@ export interface IntelSyncDeps {
   getSettings?: () => RadarSettingsSnapshot;
   getCache?: () => RadarIntelCacheEntry | null;
   setCache?: (entry: RadarIntelCacheEntry) => void;
-  recognizeSupporter?: (identity: string) => Promise<void>;
 }
 
 async function readBoundedBytes(response: Response): Promise<Buffer | null> {
@@ -79,11 +78,6 @@ function supporterIdentity(key: string): string {
   return `radar:${crypto.createHash("sha256").update(key, "utf8").digest("hex")}`;
 }
 
-async function recognizeVerifiedSupporter(identity: string): Promise<void> {
-  const { emitGamificationEvent } = await import("@/lib/gamification/events");
-  await emitGamificationEvent({ apiKeyId: identity, action: "radar_supporter" });
-}
-
 export async function syncRadarIntel(deps: IntelSyncDeps = {}): Promise<IntelSyncStatus> {
   const {
     fetch: fetchFn = globalThis.fetch,
@@ -92,7 +86,6 @@ export async function syncRadarIntel(deps: IntelSyncDeps = {}): Promise<IntelSyn
     getSettings: getSettingsFn,
     getCache: getCacheFn,
     setCache: setCacheFn,
-    recognizeSupporter = recognizeVerifiedSupporter,
   } = deps;
 
   try {
@@ -153,7 +146,6 @@ export async function syncRadarIntel(deps: IntelSyncDeps = {}): Promise<IntelSyn
 
     // Recognition is local and best-effort. It runs only after the signed live
     // bytes have been accepted and persisted, and never changes sync success.
-    await recognizeSupporter(identity).catch(() => undefined);
     return { status: "updated", version: feed.version };
   } catch (error: unknown) {
     const reason = (sanitizeErrorMessage(error) || "Radar Intel sync failed").replace(

@@ -68,7 +68,6 @@ const HEADER_DESCRIPTIONS: Partial<Record<HideableSidebarItemId, string>> = {
   webhooks: "webhooksDescription",
   health: "healthDescription",
   proxy: "proxyDescription",
-  changelog: "changelogDescription",
   // Protocols
   mcp: "mcpDescription",
   a2a: "a2aDescription",

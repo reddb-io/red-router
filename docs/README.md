@@ -105,7 +105,6 @@ Pluggable subsystems exposed to clients, agents, and operators.
 - [MEMORY.md](frameworks/MEMORY.md) — persistent memory (FTS5 + Qdrant).
 - [WEBHOOKS.md](frameworks/WEBHOOKS.md) — webhook events and dispatch.
 - [EVALS.md](frameworks/EVALS.md) — eval suites.
-- [GAMIFICATION.md](frameworks/GAMIFICATION.md) — gamification & leaderboard system.
 - [EMBEDDED-SERVICES.md](frameworks/EMBEDDED-SERVICES.md) — embedded sidecar services (9Router, CLIProxyAPI).
 - [NOTION_CONTEXT.md](frameworks/NOTION_CONTEXT.md) — Notion context source.
 - [OBSIDIAN_CONTEXT.md](frameworks/OBSIDIAN_CONTEXT.md) — Obsidian context source.

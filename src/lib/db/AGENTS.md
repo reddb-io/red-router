@@ -33,7 +33,6 @@ Live count: `ls src/lib/db/*.ts | wc -l` (currently 137). Migrations: `ls src/li
 | `reasoningCache.ts`    | reasoning cache           | Hybrid in-memory + SQLite reasoning replay          |
 | `skills.ts`            | `skills`                  | Skill registration and metadata                     |
 | `plugins.ts`           | `plugins`                 | Plugin marketplace state                            |
-| `gamification.ts`      | gamification tables       | Levels, badges, leaderboard                         |
 | `notion.ts`            | notion tables             | Notion integration state                            |
 | `obsidian.ts`          | obsidian tables           | Obsidian vault integration state                    |
 | `files.ts`             | file storage              | Uploaded file management                            |

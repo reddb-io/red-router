@@ -9,11 +9,6 @@ const footerLinks = {
   product: [
     { key: "featuresLink", href: "#features" },
     { key: "pricing", href: "#pricing" },
-    {
-      key: "changelog",
-      href: "https://github.com/reddb-io/red-router/releases",
-      external: true,
-    },
   ],
   resources: [
     { key: "documentation", href: "/docs" },

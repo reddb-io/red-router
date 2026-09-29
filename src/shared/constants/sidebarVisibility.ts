@@ -127,7 +127,6 @@ const MINIMAL_SHOWN: ReadonlySet<HideableSidebarItemId> = new Set([
   "settings-general",
   "settings-sidebar",
   "docs",
-  "changelog",
 ]);
 
 const DEVELOPER_SHOWN: ReadonlySet<HideableSidebarItemId> = new Set([
@@ -165,7 +164,6 @@ const DEVELOPER_SHOWN: ReadonlySet<HideableSidebarItemId> = new Set([
   "settings-sidebar",
   "docs",
   "issues",
-  "changelog",
 ]);
 
 const ADMIN_SHOWN: ReadonlySet<HideableSidebarItemId> = new Set([
@@ -200,7 +198,6 @@ const ADMIN_SHOWN: ReadonlySet<HideableSidebarItemId> = new Set([
   "settings-feature-flags",
   "settings-sidebar",
   "docs",
-  "changelog",
 ]);
 
 function buildHiddenList(shown: ReadonlySet<HideableSidebarItemId>): HideableSidebarItemId[] {

@@ -302,11 +302,6 @@
       "count": 2
     }
   },
-  "open-sse/mcp-server/tools/gamificationTools.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    }
-  },
   "open-sse/mcp-server/tools/githubSkillTools.ts": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1
@@ -3440,11 +3435,6 @@
       "count": 5
     }
   },
-  "tests/unit/db-gamification-federation-3500.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 1
-    }
-  },
   "tests/unit/db-health-check.test.ts": {
     "@typescript-eslint/no-explicit-any": {
       "count": 25
@@ -3750,16 +3740,6 @@
   "tests/unit/functional-gateway-mirrors-append.test.ts": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1
-    }
-  },
-  "tests/unit/gamification/events.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 1
-    }
-  },
-  "tests/unit/gamification/leaderboard.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 3
     }
   },
   "tests/unit/gemini-finish-reason-normalization.test.ts": {
