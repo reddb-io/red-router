@@ -111,7 +111,7 @@ export default function SidebarRail({
                   onKeyDown={(event) => onKeyDown(event, index)}
                 >
                   <span className={slots.fallback()}>
-                    <Icon icon={navIcon(area.icon)} size="md" color="current" />
+                    <Icon icon={navIcon(area.icon)} size="lg" color="current" />
                   </span>
                 </button>
               </li>
@@ -135,7 +135,7 @@ export default function SidebarRail({
                     onMouseLeave={hideTip}
                   >
                     <span className={slots.fallback()}>
-                      <Icon icon={navIcon(action.icon)} size="md" color="current" />
+                      <Icon icon={navIcon(action.icon)} size="lg" color="current" />
                     </span>
                   </button>
                 </li>

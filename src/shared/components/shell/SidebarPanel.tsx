@@ -89,7 +89,7 @@ export default function SidebarPanel({
       "flex min-h-[var(--reddb-spatial-control-height-md)] min-w-0 flex-1 items-center gap-[var(--reddb-spatial-gap-md)] px-[var(--reddb-spatial-inset-sm)]";
     const content = (
       <>
-        <Icon icon={navIcon(item.icon)} size="sm" color="current" />
+        <Icon icon={navIcon(item.icon)} size="md" color="current" />
         <span className="min-w-0 flex-1 truncate text-[13px]">{item.label}</span>
       </>
     );
