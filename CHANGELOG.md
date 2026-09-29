@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.42.0
+
+### Minor Changes
+
+- The side panel now holds the whole page hierarchy: an entry expands to list its pages, and the breadcrumb and tab bar above the page are gone. Changelog and Gamification (leaderboard, profile, tokens, the gamification MCP tools and API) were removed from the product; their old URLs redirect to Home.
+
 ## 0.41.6
 
 ### Patch Changes
