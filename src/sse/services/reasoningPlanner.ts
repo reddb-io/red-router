@@ -58,6 +58,11 @@ export interface PlanReasoningInput {
   /** A deliberation the caller already measured (an auto combo's decision, or the hint). */
   deliberation?: number | null;
   contextWindow?: number | null;
+  /**
+   * The upstream caches the conversation and a change of thinking settings throws that cache
+   * away (Claude): the level then moves far less often. See `CACHE_SENSITIVE_DWELL_TURNS`.
+   */
+  cacheSensitive?: boolean;
   log?: Log;
   /** Asks System One for deliberation (0..1); null when unavailable. Injected by the chat path. */
   askDeliberation?: (body: JsonRecord) => Promise<number | null>;
@@ -67,6 +72,13 @@ interface SessionEntry {
   state: AutopilotState;
   memo: { hash: string; deliberation: number } | null;
 }
+
+/**
+ * Turns a level is held when a change would invalidate the provider's prompt cache. A change
+ * re-writes the whole conversation at 1.25x, so the level only moves after this many turns
+ * (upward moves for trouble stay immediate).
+ */
+export const CACHE_SENSITIVE_DWELL_TURNS = 8;
 
 const SESSION_TTL_MS = 30 * 60 * 1000;
 const SESSION_MAX_ENTRIES = 5000;
@@ -136,7 +148,10 @@ export async function planReasoning(input: PlanReasoningInput): Promise<Reasonin
   ) {
     return null;
   }
-  const config = requested ? { ...configured, mode: "enforce" } : configured;
+  const base = requested ? { ...configured, mode: "enforce" } : configured;
+  const config = input.cacheSensitive
+    ? { ...base, minDwellTurns: Math.max(base.minDwellTurns, CACHE_SENSITIVE_DWELL_TURNS) }
+    : base;
 
   const signals = extractSignals(body, {
     userAgent: input.userAgent ?? "",

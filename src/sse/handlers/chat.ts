@@ -715,6 +715,8 @@ async function handleChatImplementation(
       apiKeyId: apiKeyInfo?.id ?? null,
       comboName: modelStr,
       sessionId,
+      // A Claude client's conversation is cached upstream; flipping its thinking level rewrites it.
+      cacheSensitive: clientFormatOf(url.pathname, body) === "claude",
       userAgent: request.headers.get("user-agent") ?? "",
       log,
       askDeliberation: (asked) =>

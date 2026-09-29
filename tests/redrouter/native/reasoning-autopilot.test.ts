@@ -35,7 +35,10 @@ test("a level in the header, or in the hint, is applied as stated without asking
     headerValue: "high",
     askDeliberation,
   });
-  assert.deepEqual([byHeader?.level, byHeader?.cause, byHeader?.target?.level], ["high", "header", "high"]);
+  assert.deepEqual(
+    [byHeader?.level, byHeader?.cause, byHeader?.target?.level],
+    ["high", "header", "high"]
+  );
   const byHint = await planReasoning({
     body: body("hi"),
     settings: {},
@@ -100,7 +103,11 @@ test("the level holds through a turn's tool loop and System One is asked once pe
       model: "redrouter/auto",
       messages: [
         { role: "user", content: "Investigate the flaky deployment and fix it" },
-        { role: "assistant", content: null, tool_calls: [{ id: "1", type: "function", function: { name: "read", arguments: "{}" } }] },
+        {
+          role: "assistant",
+          content: null,
+          tool_calls: [{ id: "1", type: "function", function: { name: "read", arguments: "{}" } }],
+        },
         { role: "tool", tool_call_id: "1", content: "ok" },
       ],
     },
@@ -153,20 +160,65 @@ test("the response header names the client's level, the chosen one and why", () 
 test("the level lands in the client's own field, and only there", () => {
   const chat = applyReasoningLevel({ model: "m", messages: [] }, "high", "openai");
   assert.deepEqual(chat, { model: "m", messages: [], reasoning_effort: "high" });
-  const responses = applyReasoningLevel({ input: "x", reasoning: { summary: "auto" } }, "low", "responses");
+  const responses = applyReasoningLevel(
+    { input: "x", reasoning: { summary: "auto" } },
+    "low",
+    "responses"
+  );
   assert.deepEqual(responses.reasoning, { summary: "auto", effort: "low" });
-  const claude = applyReasoningLevel({ messages: [], output_config: { format: "x" } }, "medium", "claude");
+  const claude = applyReasoningLevel(
+    { messages: [], output_config: { format: "x" } },
+    "medium",
+    "claude"
+  );
   assert.deepEqual(claude.output_config, { format: "x", effort: "medium" });
-  const off = applyReasoningLevel({ messages: [], output_config: { effort: "high" } }, "none", "claude");
+  const off = applyReasoningLevel(
+    { messages: [], output_config: { effort: "high" } },
+    "none",
+    "claude"
+  );
   assert.deepEqual(off.thinking, { type: "disabled" });
   assert.equal("output_config" in off, false);
   // A nested effort stays equal to the flat one.
-  const nested = applyReasoningLevel({ messages: [], reasoning: { effort: "low" } }, "high", "openai");
-  assert.deepEqual([nested.reasoning_effort, (nested.reasoning as { effort: string }).effort], ["high", "high"]);
+  const nested = applyReasoningLevel(
+    { messages: [], reasoning: { effort: "low" } },
+    "high",
+    "openai"
+  );
+  assert.deepEqual(
+    [nested.reasoning_effort, (nested.reasoning as { effort: string }).effort],
+    ["high", "high"]
+  );
 });
 
 test("the client format follows the endpoint and body shape", () => {
   assert.equal(clientFormatOf("/v1/messages", {}), "claude");
   assert.equal(clientFormatOf("/v1/responses", { input: "x" }), "responses");
   assert.equal(clientFormatOf("/v1/chat/completions", { messages: [] }), "openai");
+});
+
+test("a cached (Claude) conversation keeps its thinking level far longer than an uncached one", async () => {
+  const levelsOver = async (cacheSensitive: boolean) => {
+    resetReasoningSessions();
+    const levels: string[] = [];
+    // System One keeps changing its mind: hard, easy, hard, easy... one human turn each.
+    for (let turn = 0; turn < 12; turn++) {
+      const plan = await planReasoning({
+        body: body(`Turn ${turn}: ${"a detailed request ".repeat(turn + 1)}`),
+        settings: { reasoningAutopilot: { mode: "enforce", all: true } },
+        headerValue: "auto",
+        sessionId: `session-${cacheSensitive}`,
+        cacheSensitive,
+        askDeliberation: async () => (turn % 2 === 0 ? 0.95 : 0.05),
+      });
+      levels.push(plan?.level ?? "none");
+    }
+    return levels;
+  };
+  const changes = (levels: string[]) =>
+    levels.filter((level, i) => i > 0 && level !== levels[i - 1]).length;
+  const uncached = changes(await levelsOver(false));
+  const cached = changes(await levelsOver(true));
+  assert.ok(uncached >= 3 && uncached > cached, `an uncached session should follow the signal (${uncached} changes)`);
+  assert.ok(cached <= 2, `a cached session should almost never flip (${cached} changes)`);
 });
