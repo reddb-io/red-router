@@ -85,7 +85,12 @@ export default function SidebarRail({
 
   return (
     <>
-      <nav aria-label={label} className={slots.root()} style={{ paddingTop }}>
+      <nav
+        aria-label={label}
+        data-density="spacious"
+        className={slots.root()}
+        style={{ paddingTop }}
+      >
         {top && <div className={slots.region()}>{top}</div>}
         <div className={slots.middle()}>
           <ul className={slots.list()}>

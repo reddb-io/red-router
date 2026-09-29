@@ -70,10 +70,18 @@ export const SIDEBAR_NAV_SECTIONS: readonly SidebarNavSection[] = [
     icon: "House",
     entries: [
       {
-        id: "home",
-        label: "Home",
-        icon: "LayoutDashboard",
-        tabs: [tab("home", "/home", "Home", { exact: true })],
+        id: "analytics",
+        label: "Usage",
+        icon: "ChartColumn",
+        tabs: [
+          tab("analytics", "/dashboard/analytics", "Usage"),
+          tab("home", "/home", "Topology", { exact: true }),
+          tab("analytics-combo-health", "/dashboard/analytics/combo-health", "Combo health"),
+          tab("analytics-utilization", "/dashboard/analytics/utilization", "Utilization"),
+          tab("analytics-search", "/dashboard/analytics/search", "Search"),
+          tab("analytics-evals", "/dashboard/analytics/evals", "Evals"),
+          tab("provider-stats", "/dashboard/provider-stats", "Provider stats"),
+        ],
       },
       {
         id: "setup",
@@ -233,19 +241,6 @@ export const SIDEBAR_NAV_SECTIONS: readonly SidebarNavSection[] = [
     title: "Observe",
     icon: "Activity",
     entries: [
-      {
-        id: "analytics",
-        label: "Usage",
-        icon: "ChartColumn",
-        tabs: [
-          tab("analytics", "/dashboard/analytics", "Usage"),
-          tab("analytics-combo-health", "/dashboard/analytics/combo-health", "Combo health"),
-          tab("analytics-utilization", "/dashboard/analytics/utilization", "Utilization"),
-          tab("analytics-search", "/dashboard/analytics/search", "Search"),
-          tab("analytics-evals", "/dashboard/analytics/evals", "Evals"),
-          tab("provider-stats", "/dashboard/provider-stats", "Provider stats"),
-        ],
-      },
       {
         id: "costs",
         label: "Costs",

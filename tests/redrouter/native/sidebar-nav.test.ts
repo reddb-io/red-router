@@ -139,7 +139,9 @@ test("a URL belongs to the entry with the longest matching page", () => {
   assert.equal(findNavMatch("/dashboard/context/caveman", sections)?.entry.id, "token-saver");
   assert.equal(findNavMatch("/dashboard/skills", sections)?.entry.label, "Skills");
   assert.equal(findNavMatch("/dashboard/skills/styles", sections)?.tab.label, "Prompt styles");
-  assert.equal(findNavMatch("/home", sections)?.entry.id, "home");
+  assert.equal(findNavMatch("/home", sections)?.entry.id, "analytics");
+  assert.equal(findNavMatch("/home", sections)?.tab.label, "Topology");
+  assert.equal(findNavMatch("/dashboard/analytics", sections)?.section.id, "home");
   assert.equal(findNavMatch("/dashboard/nowhere", sections), null);
 });
 
@@ -156,7 +158,7 @@ test("the presets keep a usable menu", () => {
     assert.ok(entries.length > 0, preset.id);
     if (preset.id === "essentials") {
       assert.ok(entries.length <= 8, `essentials shows ${entries.length} entries`);
-      for (const id of ["home", "endpoint-keys", "providers"]) {
+      for (const id of ["analytics", "endpoint-keys", "providers"]) {
         assert.ok(
           entries.some((entry) => entry.id === id),
           `essentials lacks ${id}`
@@ -206,6 +208,7 @@ test("Quota lives with Providers and Integrations with Observe", () => {
   assert.equal(findNavMatch("/dashboard/quota", sections)?.entry.id, "providers");
   assert.equal(findNavMatch("/dashboard/quota", sections)?.section.id, "proxy");
   assert.equal(findNavMatch("/dashboard/webhooks", sections)?.section.id, "observe");
+  assert.equal(findNavMatch("/dashboard/provider-stats", sections)?.section.id, "home");
   assert.equal(findNavMatch("/dashboard/playground", sections)?.section.id, "tools");
 });
 
@@ -273,4 +276,26 @@ test("Settings → Sidebar edits the menu that is shown, keeps stored ids and ke
   for (const tab of allNavTabs()) {
     if (tab.id) assert.ok((HIDEABLE_SIDEBAR_ITEM_IDS as readonly string[]).includes(tab.id));
   }
+});
+
+test("Home opens on Usage: the landing page, the logo and /dashboard all go there", () => {
+  const sections = resolveNavSections(none, {});
+  const home = sections.find((section) => section.id === "home");
+  assert.equal(home?.entries[0].id, "analytics");
+  assert.equal(home?.entries[0].href, "/dashboard/analytics");
+  assert.match(
+    readFileSync("src/app/(dashboard)/dashboard/page.tsx", "utf8"),
+    /redirect\("\/dashboard\/analytics"\)/
+  );
+  assert.ok(
+    readFileSync("src/shared/components/Sidebar.tsx", "utf8").includes(
+      'href="/dashboard/analytics"'
+    )
+  );
+  // Usage exists once: it is not repeated under Observe.
+  const observe = sections.find((section) => section.id === "observe");
+  assert.equal(
+    observe?.entries.some((entry) => entry.id === "analytics"),
+    false
+  );
 });

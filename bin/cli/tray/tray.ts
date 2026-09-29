@@ -23,9 +23,9 @@ export interface TrayInstance {
   destroy(): void;
 }
 
-// Minimal 16x16 OmniRoute icon as base64 PNG (fallback when file missing)
+// Minimal 16x16 RedRouter mark as base64 PNG (fallback when file missing)
 const FALLBACK_ICON_BASE64 =
-  "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAABGdBTUEAALGPC/xhBQAAAAlwSFlzAAALEwAACxMBAJqcGAAAAHpJREFUOE9jYBgFgwEwMjIy/Gdg+P8fyP4PxP8ZGBgEcBnGyMjIsICBgSEAhyH/gfgBUNN8XJoZsdkCVL8Ah+b/QPwbqvkBMvk/AwMDAzYX/GdgYAhAN+A/SICRWAMYGfFEJSMjzriEiwDR/xmIa2RkZCSqnZERb3QCAAo3KxzxbKe1AAAAAElFTkSuQmCC";
+  "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAABQklEQVR4nKSSP0vDUBTFz3tJU9tKJMGixaJBsEvp6h9Egm6CoCg6CH4BXcRR/Aw66YewxVUcHByKm0sHJwUdgqMN/kkw6fMlkghNQ0p64MHj3svvcc67ItN2GBLF7kCxTp7r7e4ORV8iOlw02cRmOSXAY5AqROGeTW5V0wH+IGVQ2mTath6Wggwef0w07LdwNsOrK9kiZiWlB4nZ6LA98tqoh4CrbwO77YfIaE2UcasuQKaZLgZj/PmjiIULuQZrfA3vY6s4Ga6g5Zi4tAz0sEN4AmexGQwRAceFGf/+2XHixiDGNWzm4vTjCTIRsZEr9Q/YN1v+CXTOLU0J+VhAxMJhfho36jyulTksZhQccNiL+5UMCPa5IhagS6NY5l/oHU+GYyUD0irMoChIWJJUlGg2bGo059dGaGzW/5uYVgNb+AUAAP//a0jBEwAAAAZJREFUAwBCk1ZVj8qi2AAAAABJRU5ErkJggg==";
 
 export function getIconPath(): string {
   const isWin = process.platform === "win32";

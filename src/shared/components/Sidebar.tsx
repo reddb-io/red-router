@@ -360,7 +360,12 @@ export default function Sidebar({
           onSelect={selectArea}
           paddingTop={safeTop}
           top={
-            <Link href="/home" prefetch={false} title={brandName} aria-label={brandName}>
+            <Link
+              href="/dashboard/analytics"
+              prefetch={false}
+              title={brandName}
+              aria-label={brandName}
+            >
               <img
                 src={brandLogo || "/favicon.svg"}
                 alt=""
