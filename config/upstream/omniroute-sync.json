@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "product": "RedRouter",
+  "source": {
+    "repository": "diegosouzapw/OmniRoute",
+    "remote": "omni-upstream",
+    "license": "MIT"
+  },
+  "importCommit": "7c0db21dbf8eec3054ec22658d973a1530092bae",
+  "baseCommit": "86870a8233355de977c064781da6c02d62e5d188",
+  "baseNote": "The tree imported by 7c0db21dbf equals OmniRoute 86870a8233 (verified: no difference outside .gitignore, package.json, tsconfig.json and .red/). It is NOT release/v3.8.51's later tip ae2ba35852, which is 26 upstream commits newer; the merge base used for this sync is therefore 86870a8233 so those 26 commits are included instead of being silently skipped.",
+  "targetRef": "release/v3.8.52",
+  "targetCommit": "666ea59b4c5980062c4012ee9228135ee4dd8989",
+  "syncedAt": "2026-09-29",
+  "method": "Three-way merge (git ort) of RedRouter main against omni-upstream/release/v3.8.52 with an explicit merge base of 86870a8233, then hand resolution. Histories are unrelated, so the result is committed as a normal single-parent commit; nothing of upstream's history is imported.",
+  "nextSyncBase": "666ea59b4c5980062c4012ee9228135ee4dd8989",
+  "notes": [
+    "Not synced: translations. docs/i18n/** and every src/i18n/messages/<locale>.json except en.json (the product is English-only), plus .i18n-state.json.",
+    "Not synced: upstream .github/workflows. RedRouter owns CI (red-publish.yml); codeql.yml stays removed. Upstream's workflow edits were applied only to the reference copies in tests/fixtures/upstream-workflows/.",
+    "Not synced: identity and release files. AGENTS.md, README.md, llm.txt, CHANGELOG.md, CONTRIBUTING.md, package name/version/bin, electron/package.json and open-sse/package.json versions. Releases go through Changesets.",
+    "Not synced: upstream changelog.d/** fragments and docs/changelog/fragments/**; they feed upstream's release tooling. The fixes are summarised in .changeset/omniroute-sync-3-8-52.md.",
+    "Kept RedRouter's version: src/lib/middleware/registry.ts (GHSA-9p9m-h9rj-rhhg). RedRouter already shipped a stricter variant of the same isolated-realm design (it also never inspects a value thrown across the realm boundary); upstream's copy passes the same isolation cases against it.",
+    "Migrations renumbered: RedRouter owns 190_video_jobs, 191_api_key_daily_token_quota, 192_redrouter_cost_usage_sinks, 193_redrouter_usage_window_watermarks and 194_redrouter_usage_sink_transports, so upstream's 190-196 became 195-201 (same relative order, so 195_call_logs_content_provenance ... 201_token_limits_unique_per_window). The runner records versions as a primary key and refuses duplicate prefixes. Guarded by tests/redrouter/native/migration-ledger.test.ts. Next upstream migration must take 202 or later (or the next free RedRouter-safe number); map by NAME, never by number.",
+    "Version-keyed runner logic follows the renumbering: migrationRunner.ts isSchemaAlreadyApplied() case '199' (was upstream '194', proxy_logs.headers_ms).",
+    "Adapted for RedRouter: tests/unit/bootstrap-env-private-modes.test.ts uses ~/.red/router; tests/unit/cli-serve-port-in-use-preflight.test.mjs accepts the red-router command name; serve.mjs keeps RedRouter's findPortConflictPids helper and exposes upstream's resolveServeBusyPids as a thin wrapper.",
+    "Stream deadline: the routes use upstream's createStreamDeadlineSignal (streaming requests only) instead of the earlier withDeadlineSignal wrapping of every request, which upstream fixed after it broke every request under the Next.js request proxy. RedRouter's /v1/responses/compact entry point (handleResponsesPost) is kept.",
+    "Providers: Gemini CLI stays retired, Antigravity stays supported, docs/reference/REMOVED_PROVIDERS.md still applies."
+  ]
+}
