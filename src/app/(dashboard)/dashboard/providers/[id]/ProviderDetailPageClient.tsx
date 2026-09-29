@@ -832,6 +832,22 @@ export default function ProviderDetailPageClient() {
           gateConnectionFlow={gateConnectionFlow}
           openApiKeyAddFlow={openApiKeyAddFlow}
           onOpenEditNodeModal={() => setShowEditNodeModal(true)}
+          // Renames the provider on its own: the update endpoint wants the whole node, so the
+          // stored fields go back unchanged with the new name.
+          onRenameNode={(name) =>
+            handleUpdateNode({
+              name,
+              prefix: providerNode.prefix,
+              baseUrl: providerNode.baseUrl,
+              chatPath: providerNode.chatPath ?? "",
+              modelsPath: providerNode.modelsPath ?? "",
+              iconUrl: providerNode.iconUrl ?? "",
+              customHeaders: providerNode.customHeaders ?? undefined,
+              dailyQuotaResetTimezone: providerNode.dailyQuotaResetTimezone ?? null,
+              dailyQuotaResetHour: providerNode.dailyQuotaResetHour ?? null,
+              ...(isAnthropicCompatible ? {} : { apiType: providerNode.apiType }),
+            })
+          }
           t={t}
         />
       )}
