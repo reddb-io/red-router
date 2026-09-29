@@ -1,141 +1,47 @@
-/** RedRouter costed-usage webhook delivery: atomic outbox and at-least-once send. */
-import { createHash, createHmac } from "node:crypto";
-import { decrypt } from "@/lib/db/encryption";
+/**
+ * RedRouter costed-usage delivery: atomic outbox and at-least-once send.
+ *
+ * This module owns the billing contract, whatever the transport: deterministic delivery ids,
+ * the transactional cursor + outbox commit, the frozen window high-water mark, the lease that
+ * lets only one worker send a delivery, and the retry schedule. A transport (`./transports/`)
+ * only puts one payload on the wire and reports whether a failure is worth retrying.
+ */
+import { createHash, randomUUID } from "node:crypto";
+import { decryptSecretFields } from "@/lib/logExport/secrets";
 import {
   claimUsageDelivery,
   commitUsageBatch,
   finishUsageDelivery,
   getOrStartUsageWindow,
+  getUsageDelivery,
   getUsageSink,
   listCostedUsageAfter,
   listDueUsageDeliveries,
   listUsageSinks,
+  requeueUsageDelivery,
   setNextUsageWindow,
-  type CostedUsageRow,
+  type UsageDelivery,
   type UsageSink,
 } from "@/lib/db/usageSinks";
-import { fetchWebhookUrl } from "@/shared/network/webhookFetch";
+import { eventPayload, samplePayload, windowPayload } from "./payloads";
+import { getTransport } from "./transports";
+import { blankResult, permanentFailure } from "./transports/http";
+import type { DeliveryResult, TransportDeps } from "./transports/types";
+
+export { signUsageWebhook } from "./transports/webhook";
 
 const PAGE_SIZE = 500;
-const BACKOFF_SECONDS = [30, 120, 600, 1800, 3600, 7200, 14400, 28800];
+const LEASE_MS = 30_000;
+export const BACKOFF_SECONDS = [30, 120, 600, 1800, 3600, 7200, 14400, 28800];
+
+/** Injection points for tests: a clock and the transports' network/client factories. */
+export interface UsageSinkDeps extends TransportDeps {
+  now?: () => Date;
+}
 
 function deliveryId(prefix: string, sinkId: string, range: string): string {
   const digest = createHash("sha256").update(`${sinkId}:${range}`).digest("hex").slice(0, 24);
   return `${prefix}_${digest}`;
-}
-
-export function signUsageWebhook(
-  id: string,
-  timestamp: string,
-  body: string,
-  secret: string
-): string {
-  const bytes = secret.startsWith("whsec_")
-    ? Buffer.from(secret.slice(6), "base64")
-    : Buffer.from(secret, "utf8");
-  return `v1,${createHmac("sha256", bytes).update(`${id}.${timestamp}.${body}`).digest("base64")}`;
-}
-
-function keyIdentity(row: CostedUsageRow) {
-  return { id: row.apiKeyId, name: row.apiKeyName };
-}
-
-function eventPayload(sink: UsageSink, row: CostedUsageRow, id: string) {
-  return {
-    type: "usage.recorded",
-    version: 1,
-    id,
-    source: "request_cost_ledger",
-    coverage: "costed-requests-only",
-    sink: { id: sink.id, name: sink.name },
-    event: {
-      usageId: row.id,
-      requestId: row.requestId,
-      timestamp: row.timestamp,
-      apiKey: keyIdentity(row),
-      provider: row.provider,
-      model: row.model,
-      status: row.success ? "ok" : "error",
-      tokens: {
-        promptTokens: row.tokensInput,
-        completionTokens: row.tokensOutput,
-        cachedTokens: row.tokensCacheRead,
-      },
-      cost: row.amountUsd,
-    },
-  };
-}
-
-function windowPayload(
-  sink: UsageSink,
-  rows: CostedUsageRow[],
-  id: string,
-  range: { fromId: number; toId: number },
-  start: string,
-  end: string
-) {
-  type Totals = {
-    requests: number;
-    errors: number;
-    promptTokens: number;
-    completionTokens: number;
-    cachedTokens: number;
-    cost: number;
-  };
-  const empty = (): Totals => ({
-    requests: 0,
-    errors: 0,
-    promptTokens: 0,
-    completionTokens: 0,
-    cachedTokens: 0,
-    cost: 0,
-  });
-  const add = (total: Totals, row: CostedUsageRow) => {
-    total.requests++;
-    if (!row.success) total.errors++;
-    total.promptTokens += row.tokensInput;
-    total.completionTokens += row.tokensOutput;
-    total.cachedTokens += row.tokensCacheRead;
-    total.cost += row.amountUsd;
-  };
-  const groups = new Map<
-    string,
-    {
-      apiKey: ReturnType<typeof keyIdentity>;
-      totals: Totals;
-      byModel: Map<string, Totals & { provider: string; model: string }>;
-    }
-  >();
-  for (const row of rows) {
-    let group = groups.get(row.apiKeyId);
-    if (!group) {
-      group = { apiKey: keyIdentity(row), totals: empty(), byModel: new Map() };
-      groups.set(row.apiKeyId, group);
-    }
-    add(group.totals, row);
-    const modelKey = JSON.stringify([row.provider, row.model]);
-    let model = group.byModel.get(modelKey);
-    if (!model) {
-      model = { provider: row.provider, model: row.model, ...empty() };
-      group.byModel.set(modelKey, model);
-    }
-    add(model, row);
-  }
-  return {
-    type: "usage.window",
-    version: 1,
-    id,
-    source: "request_cost_ledger",
-    coverage: "costed-requests-only",
-    sink: { id: sink.id, name: sink.name },
-    window: { start, end, sizeSec: sink.windowSec },
-    range,
-    keys: [...groups.values()].map((group) => ({
-      apiKey: group.apiKey,
-      totals: group.totals,
-      byModel: [...group.byModel.values()],
-    })),
-  };
 }
 
 function nextBoundary(nowMs: number, seconds: number): string {
@@ -198,80 +104,148 @@ export function aggregateUsageSink(sink: UsageSink, now = new Date()): number {
     : 0;
 }
 
-export async function dispatchUsageDeliveries(now = new Date()): Promise<number> {
+/**
+ * Send one payload through the sink's transport. Credentials are decrypted here, for the
+ * duration of the call, and the stored config is re-validated so an egress policy that got
+ * stricter since the sink was saved applies to sends too.
+ */
+async function sendViaTransport(
+  sink: UsageSink,
+  id: string,
+  payload: Record<string, unknown>,
+  now: Date,
+  deps: UsageSinkDeps
+): Promise<DeliveryResult> {
+  const transport = getTransport(sink.type);
+  if (!transport) return permanentFailure(null, `Unknown sink type "${sink.type}"`);
+  const decrypted = decryptSecretFields(transport.secretFields, sink.config);
+  const unreadable = transport.secretFields.some(
+    (key) => typeof sink.config[key] === "string" && sink.config[key] && !decrypted[key]
+  );
+  if (unreadable) {
+    return permanentFailure(
+      null,
+      "Stored credentials cannot be decrypted (check STORAGE_ENCRYPTION_KEY)"
+    );
+  }
+  const parsed = transport.configSchema.safeParse(decrypted);
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    return {
+      ...blankResult(null),
+      error: `Configuration is not valid: ${issue?.path.join(".") || "config"}: ${issue?.message ?? "invalid"}`,
+    };
+  }
+  return transport.send(
+    { config: parsed.data, id, sinkId: sink.id, payload, now: now.getTime() },
+    deps
+  );
+}
+
+/** Record the outcome of an attempt on a claimed delivery. */
+function finishAttempt(
+  delivery: UsageDelivery,
+  leaseUntil: string,
+  result: DeliveryResult,
+  now: Date
+): void {
+  const attempts = delivery.attempts + 1;
+  if (result.ok) {
+    finishUsageDelivery(delivery.id, leaseUntil, {
+      status: "delivered",
+      nextAttemptAt: null,
+      httpStatus: result.status,
+      error: null,
+      deliveredAt: now.toISOString(),
+    });
+    return;
+  }
+  const dead = !result.retryable || attempts > BACKOFF_SECONDS.length;
+  finishUsageDelivery(delivery.id, leaseUntil, {
+    status: dead ? "dead" : "pending",
+    nextAttemptAt: dead
+      ? null
+      : new Date(now.getTime() + BACKOFF_SECONDS[attempts - 1] * 1000).toISOString(),
+    httpStatus: result.status,
+    error: result.error ?? "Delivery failed",
+    deliveredAt: null,
+  });
+}
+
+/** Claim (with a lease) and send one due delivery. False when another worker holds it. */
+async function attemptDelivery(
+  delivery: UsageDelivery,
+  sink: UsageSink,
+  now: Date,
+  deps: UsageSinkDeps
+): Promise<DeliveryResult | null> {
+  const leaseUntil = new Date(now.getTime() + LEASE_MS).toISOString();
+  if (!claimUsageDelivery(delivery.id, now.toISOString(), leaseUntil)) return null;
+  let result: DeliveryResult;
+  try {
+    result = await sendViaTransport(sink, delivery.id, delivery.payload, now, deps);
+  } catch (error) {
+    // Transports resolve failures instead of throwing; this keeps a bug in one from stranding
+    // the delivery in `sending` until its lease runs out.
+    console.error(`[RedRouter UsageSinks] Transport ${sink.type} threw:`, error);
+    result = { ...blankResult(null), error: "Unexpected transport failure" };
+  }
+  finishAttempt(delivery, leaseUntil, result, now);
+  return result;
+}
+
+export async function dispatchUsageDeliveries(
+  now = new Date(),
+  deps: UsageSinkDeps = {}
+): Promise<number> {
   const due = listDueUsageDeliveries(now.toISOString(), 100);
   let attempted = 0;
   for (const delivery of due) {
     const sink = getUsageSink(delivery.sinkId);
     if (!sink?.enabled) continue;
-    const leaseUntil = new Date(now.getTime() + 30_000).toISOString();
-    if (!claimUsageDelivery(delivery.id, now.toISOString(), leaseUntil)) continue;
-    attempted++;
-    const attempts = delivery.attempts + 1;
-    const secret = decrypt(sink.secretEncrypted);
-    if (!secret) {
-      finishUsageDelivery(delivery.id, leaseUntil, {
-        status: "dead",
-        nextAttemptAt: null,
-        httpStatus: null,
-        error: "Webhook secret cannot be decrypted",
-        deliveredAt: null,
-      });
-      continue;
-    }
-    const body = JSON.stringify(delivery.payload);
-    const timestamp = String(Math.floor(now.getTime() / 1000));
-    try {
-      const { response } = await fetchWebhookUrl(
-        sink.url,
-        {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-            "user-agent": "RedRouter-UsageSinks/1",
-            "webhook-id": delivery.id,
-            "webhook-timestamp": timestamp,
-            "webhook-signature": signUsageWebhook(delivery.id, timestamp, body, secret),
-          },
-          body,
-        },
-        { signal: AbortSignal.timeout(10_000), allowPrivate: false, maxRedirects: 0 }
-      );
-      await response.body?.cancel().catch(() => {});
-      if (response.ok) {
-        finishUsageDelivery(delivery.id, leaseUntil, {
-          status: "delivered",
-          nextAttemptAt: null,
-          httpStatus: response.status,
-          error: null,
-          deliveredAt: now.toISOString(),
-        });
-      } else {
-        const dead = response.status === 410 || attempts > BACKOFF_SECONDS.length;
-        finishUsageDelivery(delivery.id, leaseUntil, {
-          status: dead ? "dead" : "pending",
-          nextAttemptAt: dead
-            ? null
-            : new Date(now.getTime() + BACKOFF_SECONDS[attempts - 1] * 1000).toISOString(),
-          httpStatus: response.status,
-          error: `HTTP ${response.status}`,
-          deliveredAt: null,
-        });
-      }
-    } catch {
-      const dead = attempts > BACKOFF_SECONDS.length;
-      finishUsageDelivery(delivery.id, leaseUntil, {
-        status: dead ? "dead" : "pending",
-        nextAttemptAt: dead
-          ? null
-          : new Date(now.getTime() + BACKOFF_SECONDS[attempts - 1] * 1000).toISOString(),
-        httpStatus: null,
-        error: "Webhook request failed",
-        deliveredAt: null,
-      });
-    }
+    if (await attemptDelivery(delivery, sink, now, deps)) attempted++;
   }
   return attempted;
+}
+
+export type ManualRetryOutcome =
+  | { outcome: "not_found" }
+  | { outcome: "delivered" }
+  | { outcome: "in_flight" }
+  | { outcome: "attempted"; result: DeliveryResult };
+
+/**
+ * Operator-triggered retry of one delivery, through the same lease and outbox rules as the
+ * scheduled dispatch, with the same delivery id so the receiver can still dedupe it. A dead
+ * delivery gets a fresh retry budget. It works on a paused sink too: the operator asked.
+ */
+export async function retryUsageDelivery(
+  sinkId: string,
+  deliveryId: string,
+  deps: UsageSinkDeps = {}
+): Promise<ManualRetryOutcome> {
+  const sink = getUsageSink(sinkId);
+  const current = sink ? getUsageDelivery(sinkId, deliveryId) : null;
+  if (!sink || !current) return { outcome: "not_found" };
+  if (current.status === "delivered") return { outcome: "delivered" };
+  const now = (deps.now ?? (() => new Date()))();
+  if (!requeueUsageDelivery(sinkId, deliveryId, now.toISOString())) return { outcome: "in_flight" };
+  const delivery = getUsageDelivery(sinkId, deliveryId);
+  const result = delivery ? await attemptDelivery(delivery, sink, now, deps) : null;
+  return result ? { outcome: "attempted", result } : { outcome: "in_flight" };
+}
+
+/**
+ * Send a made-up delivery (marked `test: true`, id `test_<uuid>`) right now, outside the outbox
+ * and without touching any cursor. `sink` may carry an unsaved config.
+ */
+export async function sendUsageSinkTest(
+  sink: UsageSink,
+  deps: UsageSinkDeps = {}
+): Promise<DeliveryResult> {
+  const now = (deps.now ?? (() => new Date()))();
+  const id = `test_${randomUUID()}`;
+  return sendViaTransport(sink, id, samplePayload(sink, id, now), now, deps);
 }
 
 export async function runUsageSinksTick(): Promise<{ created: number; attempted: number }> {

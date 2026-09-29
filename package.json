@@ -324,6 +324,7 @@
     "jose": "^6.2.10",
     "js-yaml": "^5.4.1",
     "jsonc-parser": "^3.3.1",
+    "kafkajs": "^2.2.4",
     "lowdb": "^7.0.1",
     "lucide-react": "^1.33.0",
     "marked": "^18.0.11",
