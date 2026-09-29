@@ -20,7 +20,7 @@ import {
 } from "@/shared/utils/sidebarExpansionState";
 import { APP_CONFIG } from "@/shared/constants/appConfig";
 import { useBranding } from "@/shared/components/BrandingProvider";
-import OmniRouteLogo from "./OmniRouteLogo";
+import { navItem } from "@/shared/design-system/contracts/nav-item.variants";
 import Button from "./Button";
 import Input from "./Input";
 import { ConfirmModal } from "./Modal";
@@ -513,13 +513,10 @@ export default function Sidebar({
     const active = !item.external && activeHref === item.href;
     const isItemPinned = pinnedItems.has(item.id);
     const itemKey = keyPrefix ? `${keyPrefix}-${item.href}` : item.href;
-    const className = cn(
-      "flex items-center gap-3 rounded-lg transition-all group",
-      collapsed ? "justify-center px-2 py-2.5" : "px-3 py-1.5",
-      active
-        ? "bg-primary/10 text-primary"
-        : "text-text-muted hover:bg-surface/50 hover:text-text-main"
-    );
+    // The DS nav item: neutral selection surface plus a 2px primary bar on the start edge.
+    const className = navItem({ active }).root({
+      class: cn("group transition-colors", collapsed && "justify-center px-2"),
+    });
     const iconClassName = cn(
       "material-symbols-outlined text-[18px] shrink-0",
       active ? "fill-1" : "group-hover/nav-item:text-primary transition-colors"
@@ -604,13 +601,11 @@ export default function Sidebar({
       </button>
     );
 
-    const containerClassName = cn(
-      "group/nav-item flex items-center rounded-lg transition-all",
-      active
-        ? "bg-primary/10 text-primary"
-        : "text-text-muted hover:bg-surface/50 hover:text-text-main"
-    );
-    const innerLinkClassName = "flex min-w-0 flex-1 items-center gap-3 px-3 py-1.5";
+    const containerClassName = navItem({ active }).root({
+      class: "group/nav-item px-0 py-0 transition-colors",
+    });
+    const innerLinkClassName =
+      "flex min-w-0 flex-1 items-center gap-[var(--reddb-spatial-gap-md)] px-[var(--reddb-spatial-inset-sm)] py-1.5";
 
     if (item.external) {
       return (
@@ -663,7 +658,7 @@ export default function Sidebar({
           {t("skipToContent")}
         </a>
 
-        {(onToggleCollapse || !isMacElectron) && (
+        {onToggleCollapse && (
           <div
             className={cn(
               "flex items-center gap-2 pb-2",
@@ -672,13 +667,6 @@ export default function Sidebar({
             )}
             aria-hidden="true"
           >
-            {!isMacElectron && (
-              <>
-                <div className="w-3 h-3 rounded-full bg-[#FF5F56]" />
-                <div className="w-3 h-3 rounded-full bg-[#FFBD2E]" />
-                <div className="w-3 h-3 rounded-full bg-[#27C93F]" />
-              </>
-            )}
             {!collapsed && <div className="flex-1" />}
             {onToggleCollapse && (
               <button
@@ -706,13 +694,12 @@ export default function Sidebar({
             prefetch={false}
             className={cn("flex items-center", collapsed ? "justify-center" : "gap-2.5")}
           >
-            <div className="flex items-center justify-center size-8 rounded bg-linear-to-br from-[#E54D5E] to-[#C93D4E] shrink-0">
-              {brandLogo ? (
-                <img src={brandLogo} alt={brandName} className="size-5 object-contain" />
-              ) : (
-                <OmniRouteLogo size={18} className="text-white" />
-              )}
-            </div>
+            {/* The operator's logo, or the RedRouter mark (public/favicon.svg). */}
+            <img
+              src={brandLogo || "/favicon.svg"}
+              alt={brandName}
+              className="size-8 shrink-0 object-contain"
+            />
             {!collapsed && (
               <div className="flex flex-col min-w-0">
                 <h1 className="text-sm font-semibold tracking-tight text-text-main truncate">
