@@ -38,7 +38,6 @@ export default function AppearanceTab() {
   const isValidHex = /^#([0-9a-fA-F]{6})$/.test(
     customThemeColor.startsWith("#") ? customThemeColor : `#${customThemeColor}`
   );
-  const showQuickStartOnHome = settings.showQuickStartOnHome !== false;
   const showProviderTopologyOnHome = settings.showProviderTopologyOnHome !== false;
   const autoRefreshProviderQuota = settings.autoRefreshProviderQuota === true;
   const autoRefreshProviderQuotaInterval = Number.isFinite(
@@ -196,25 +195,6 @@ export default function AppearanceTab() {
 
           <div className="rounded-lg border border-border bg-surface/40 overflow-hidden">
             <div className="divide-y divide-border/70">
-              <div className="flex items-start justify-between gap-4 px-4 py-3">
-                <div>
-                  <p className="font-medium">{getSettingsLabel("homeQuickStart", "Quick Start")}</p>
-                  <p className="text-sm text-text-muted">
-                    {getSettingsLabel(
-                      "homeQuickStartDesc",
-                      "Show the Quick Start panel on the Home page."
-                    )}
-                  </p>
-                </div>
-                <Toggle
-                  checked={showQuickStartOnHome}
-                  onChange={async (checked) => {
-                    await updateSetting("showQuickStartOnHome", checked);
-                  }}
-                  disabled={loading}
-                />
-              </div>
-
               <div className="flex items-start justify-between gap-4 px-4 py-3">
                 <div>
                   <p className="font-medium">

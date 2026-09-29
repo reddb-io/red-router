@@ -2,10 +2,9 @@
 
 import { useTranslations } from "next-intl";
 
-import { useState, useEffect, useMemo, useCallback, useRef, useSyncExternalStore } from "react";
-import Link from "next/link";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { Card, CardSkeleton, Button, Modal } from "@/shared/components";
+import { CardSkeleton, Button, Modal } from "@/shared/components";
 import ProviderIcon from "@/shared/components/ProviderIcon";
 import { AI_PROVIDERS, NOAUTH_PROVIDERS, OAUTH_PROVIDERS } from "@/shared/constants/providers";
 import {
@@ -99,18 +98,6 @@ function mergeUpdateStep(steps: UpdateStep[], nextStep: UpdateStep) {
   return next;
 }
 
-// Quick-start link classes, extracted so each <Link> still fits on one line with
-// prefetch={false} (#8281) — this file is size-frozen.
-const INLINE_LINK = "text-primary hover:underline";
-const DOCS_LINK =
-  "hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-border text-text-muted hover:text-text-main hover:bg-bg-subtle transition-colors";
-
-// Stable no-op subscription for useSyncExternalStore reads of never-changing
-// browser globals (location.origin does not change without a full navigation).
-function emptySubscribe() {
-  return () => {};
-}
-
 export default function HomePageClient({ machineId }: HomePageClientProps) {
   const router = useRouter();
   const t = useTranslations("home");
@@ -118,13 +105,6 @@ export default function HomePageClient({ machineId }: HomePageClientProps) {
   const [providerConnections, setProviderConnections] = useState([]);
   const [models, setModels] = useState([]);
   const [loading, setLoading] = useState(true);
-  // useSyncExternalStore keeps SSR/hydration consistent ("/v1" on the server,
-  // the real origin after hydration) without a setState-in-effect round-trip.
-  const baseUrl = useSyncExternalStore(
-    emptySubscribe,
-    () => `${globalThis.location.origin}/v1`,
-    () => "/v1"
-  );
   const [selectedProvider, setSelectedProvider] = useState(null);
   const [providerMetrics, setProviderMetrics] = useState<Record<string, ProviderMetricSummary>>({});
   const [providerTopology, setProviderTopology] = useState({ lastProvider: "", errorProvider: "" });
@@ -145,7 +125,6 @@ export default function HomePageClient({ machineId }: HomePageClientProps) {
   const [updatePhase, setUpdatePhase] = useState<"idle" | "running" | "done" | "failed">("idle");
 
   // Appearance settings for home page pinning
-  const [showQuickStartOnHome, setShowQuickStartOnHome] = useState(true); // default on
   // #4596: default hidden until appearance settings load, so the live-WS
   // topology connection is never opened before we know the user wants it.
   const [showProviderTopologyOnHome, setShowProviderTopologyOnHome] = useState(false);
@@ -157,9 +136,6 @@ export default function HomePageClient({ machineId }: HomePageClientProps) {
       .then((r) => (r.ok ? r.json() : {}))
       .then((data) => {
         if (data) {
-          if (typeof data.showQuickStartOnHome === "boolean") {
-            setShowQuickStartOnHome(data.showQuickStartOnHome);
-          }
           // #4596 regression fix: the topology card defaults ON (matches the
           // AppearanceTab toggle's `!== false`). Honoring only an explicit boolean
           // left the card hidden whenever the setting was never persisted
@@ -718,8 +694,6 @@ export default function HomePageClient({ machineId }: HomePageClientProps) {
     );
   }
 
-  const currentEndpoint = baseUrl;
-
   return (
     <div className="flex flex-col gap-8">
       {/* Update Progress Overlay */}
@@ -879,98 +853,6 @@ export default function HomePageClient({ machineId }: HomePageClientProps) {
             </div>
           </div>
         </div>
-      )}
-
-      {/* Quick Start (controlled by Appearance setting, default on) */}
-      {showQuickStartOnHome && (
-        <Card>
-          <div className="flex flex-col gap-5">
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-lg font-semibold">{t("quickStart")}</h2>
-                <p className="text-sm text-text-muted">{t("quickStartDesc")}</p>
-              </div>
-              <Link href="/docs" prefetch={false} className={DOCS_LINK}>
-                <span className="material-symbols-outlined text-[14px]">menu_book</span>
-                {t("fullDocs")}
-              </Link>
-            </div>
-
-            <ol className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-              <li className="rounded-lg border border-border bg-bg-subtle p-4 flex gap-3">
-                <div className="flex items-center justify-center size-8 rounded-lg bg-primary/10 text-primary shrink-0">
-                  <span className="material-symbols-outlined text-[18px]">key</span>
-                </div>
-                <div>
-                  <span className="font-semibold">{t("step1Title")}</span>
-                  <p className="text-text-muted mt-0.5">
-                    {t.rich("step1Desc", {
-                      endpoint: (chunks) => (
-                        <Link
-                          href="/dashboard/api-manager"
-                          prefetch={false}
-                          className={INLINE_LINK}
-                        >
-                          {chunks}
-                        </Link>
-                      ),
-                    })}
-                  </p>
-                </div>
-              </li>
-              <li className="rounded-lg border border-border bg-bg-subtle p-4 flex gap-3">
-                <div className="flex items-center justify-center size-8 rounded-lg bg-green-500/10 text-green-500 shrink-0">
-                  <span className="material-symbols-outlined text-[18px]">dns</span>
-                </div>
-                <div>
-                  <span className="font-semibold">{t("step2Title")}</span>
-                  <p className="text-text-muted mt-0.5">
-                    {t.rich("step2Desc", {
-                      providers: (chunks) => (
-                        <Link href="/dashboard/providers" prefetch={false} className={INLINE_LINK}>
-                          {chunks}
-                        </Link>
-                      ),
-                    })}
-                  </p>
-                </div>
-              </li>
-              <li className="rounded-lg border border-border bg-bg-subtle p-4 flex gap-3">
-                <div className="flex items-center justify-center size-8 rounded-lg bg-blue-500/10 text-blue-500 shrink-0">
-                  <span className="material-symbols-outlined text-[18px]">link</span>
-                </div>
-                <div>
-                  <span className="font-semibold">{t("step3Title")}</span>
-                  <p className="text-text-muted mt-0.5">
-                    {t("step3Desc", { url: currentEndpoint })}
-                  </p>
-                </div>
-              </li>
-              <li className="rounded-lg border border-border bg-bg-subtle p-4 flex gap-3">
-                <div className="flex items-center justify-center size-8 rounded-lg bg-amber-500/10 text-amber-500 shrink-0">
-                  <span className="material-symbols-outlined text-[18px]">analytics</span>
-                </div>
-                <div>
-                  <span className="font-semibold">{t("step4Title")}</span>
-                  <p className="text-text-muted mt-0.5">
-                    {t.rich("step4Desc", {
-                      logs: (chunks) => (
-                        <Link href="/dashboard/logs" prefetch={false} className={INLINE_LINK}>
-                          {chunks}
-                        </Link>
-                      ),
-                      analytics: (chunks) => (
-                        <Link href="/dashboard/analytics" prefetch={false} className={INLINE_LINK}>
-                          {chunks}
-                        </Link>
-                      ),
-                    })}
-                  </p>
-                </div>
-              </li>
-            </ol>
-          </div>
-        </Card>
       )}
 
       {showProviderTopologyOnHome && (

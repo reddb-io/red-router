@@ -18,7 +18,6 @@ const here = dirname(fileURLToPath(import.meta.url));
 const src = (p: string) => readFileSync(resolve(here, "../../", p), "utf8");
 
 const COMPARE = "src/lib/system/versionCompare.ts";
-const GATE = "src/app/(dashboard)/dashboard/kimiSponsorBannerGate.ts";
 
 test("versionCompare.ts is dependency-free (no server-only imports)", () => {
   // Match actual import/require statements, not the word appearing in the
@@ -35,15 +34,6 @@ test("versionCompare.ts is dependency-free (no server-only imports)", () => {
   }
   // The file must in fact have no import statements at all (fully self-contained).
   assert.equal(importLines.length, 0, "versionCompare.ts should have zero imports");
-});
-
-test("the client-reachable Kimi banner gate imports helpers from versionCompare, not versionCheck", () => {
-  const code = src(GATE);
-  assert.match(code, /from "@\/lib\/system\/versionCompare"/);
-  assert.ok(
-    !/from "@\/lib\/system\/versionCheck"/.test(code),
-    "kimiSponsorBannerGate.ts must NOT import from versionCheck (drags child_process into the client bundle)"
-  );
 });
 
 test("versionCompare exports working isNewer/normalizeVersion", async () => {
