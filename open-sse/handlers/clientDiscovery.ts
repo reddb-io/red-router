@@ -171,6 +171,7 @@ export async function handleCatalogDiscovery(
     if (!source.ok) return privateResponse(source);
     const models = catalogSchema.parse(await source.json()).data;
     const version = catalogVersion(models);
+    const systemOneModels = models.filter((model) => model.type === "systemone");
     const body =
       kind === "catalog"
         ? {
@@ -184,7 +185,10 @@ export async function handleCatalogDiscovery(
             systemone: {
               endpoint: "/v1/systemone",
               aliases: ["/v1/decisions"],
-              models: models.filter((model) => model.type === "systemone").map((model) => model.id),
+              models: systemOneModels.map((model) => model.id),
+              // RedCode gates System One on this flag: true when the key's scoped catalog
+              // lists at least one System One model, i.e. the key can reach it.
+              available: systemOneModels.length > 0,
               // Catalog membership is not a successful credential/health probe.
               availability: "not_probed",
             },

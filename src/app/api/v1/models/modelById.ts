@@ -65,6 +65,49 @@ export async function handleGetWebModels(
 }
 
 /**
+ * RedRouter's /v1/models/{kind} discovery: the entries of one kind from this key's filtered
+ * catalog. RedCode reads /v1/models/systemone to find the evaluator models it may use.
+ * Only kinds whose catalog `type` is verified are listed here.
+ */
+const MODEL_KIND_TYPES: Record<string, string> = { systemone: "systemone" };
+
+export function isModelKind(value: string): boolean {
+  return Object.prototype.hasOwnProperty.call(MODEL_KIND_TYPES, value);
+}
+
+export async function handleGetModelsByKind(
+  request: Request,
+  kind: string,
+  getModels: (request: Request, corsHeaders?: Record<string, string>) => Promise<Response>
+): Promise<Response> {
+  const listResp = await getModels(request, CORS_HEADERS);
+  if (!listResp.ok) return listResp;
+
+  let data: CatalogModel[] | undefined;
+  try {
+    const body = (await listResp.json()) as { data?: CatalogModel[] };
+    data = body?.data;
+  } catch {
+    data = undefined;
+  }
+  if (!Array.isArray(data)) {
+    return Response.json(buildErrorBody(502, "Model catalog unavailable"), {
+      status: 502,
+      headers: CORS_HEADERS,
+    });
+  }
+  const type = MODEL_KIND_TYPES[kind];
+  return Response.json(
+    {
+      object: "list",
+      id_format: "prefixed",
+      data: data.filter((model) => (model as { type?: unknown }).type === type),
+    },
+    { headers: CORS_HEADERS }
+  );
+}
+
+/**
  * Find a model entry in the unified catalog `data` array by id.
  *
  * Exact-case matches win; failing that we fall back to a case-insensitive match

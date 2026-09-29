@@ -317,7 +317,7 @@ describe("RedRouter catalog and capability discovery", () => {
     assert.deepEqual(capabilities.systemone.models, ["typesafe-ai/jev-latest"]);
     assert.deepEqual(capabilities.systemone.aliases, ["/v1/decisions"]);
     assert.equal(capabilities.systemone.availability, "not_probed");
-    assert.ok(!("available" in capabilities.systemone));
+    assert.equal(capabilities.systemone.available, true);
     assert.equal(capabilities.product, "red-router");
     assert.equal(capabilities.version, "test-version");
     assert.equal(capabilities.catalog.recommendations, false);
