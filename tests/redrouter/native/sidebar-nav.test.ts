@@ -299,3 +299,26 @@ test("Home opens on Usage: the landing page, the logo and /dashboard all go ther
     false
   );
 });
+
+test("pages that were in-page tabs are routes, so no page shows two tab bars for the same thing", () => {
+  const sections = resolveNavSections(none, {});
+  // MCP and A2A live inside the Endpoint page; their own routes keep that tab selected.
+  assert.equal(findNavMatch("/dashboard/mcp", sections)?.tab.label, "Endpoint");
+  assert.equal(findNavMatch("/dashboard/a2a", sections)?.tab.label, "Endpoint");
+  const endpoint = SIDEBAR_NAV_SECTIONS.flatMap((s) => s.entries).find(
+    (e) => e.id === "endpoint-keys"
+  );
+  assert.deepEqual(
+    endpoint?.tabs.map((tab) => tab.label),
+    ["Endpoint", "API keys", "Key routing"]
+  );
+  // The usage page no longer carries its own tab strip; its siblings are routes.
+  const usage = readFileSync("src/app/(dashboard)/dashboard/analytics/page.tsx", "utf8");
+  assert.equal(usage.includes('role="tablist"'), false);
+  for (const route of ["cache-health", "route-trace"]) {
+    assert.ok(
+      readFileSync(`src/app/(dashboard)/dashboard/analytics/${route}/page.tsx`, "utf8").length > 0
+    );
+    assert.equal(findNavMatch(`/dashboard/analytics/${route}`, sections)?.section.id, "home");
+  }
+});

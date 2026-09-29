@@ -78,8 +78,10 @@ export const SIDEBAR_NAV_SECTIONS: readonly SidebarNavSection[] = [
           tab("home", "/home", "Topology", { exact: true }),
           tab("analytics-combo-health", "/dashboard/analytics/combo-health", "Combo health"),
           tab("analytics-utilization", "/dashboard/analytics/utilization", "Utilization"),
-          tab("analytics-search", "/dashboard/analytics/search", "Search"),
-          tab("analytics-evals", "/dashboard/analytics/evals", "Evals"),
+          tab("analytics-search", "/dashboard/analytics/search", "Search", { secondary: true }),
+          tab("analytics-evals", "/dashboard/analytics/evals", "Evals", { secondary: true }),
+          tab(undefined, "/dashboard/analytics/cache-health", "Cache health", { secondary: true }),
+          tab(undefined, "/dashboard/analytics/route-trace", "Route trace", { secondary: true }),
           tab("provider-stats", "/dashboard/provider-stats", "Provider stats"),
         ],
       },
@@ -101,11 +103,15 @@ export const SIDEBAR_NAV_SECTIONS: readonly SidebarNavSection[] = [
         label: "Endpoint & Keys",
         icon: "Plug",
         tabs: [
-          tab("endpoints", "/dashboard/endpoint", "Endpoint"),
+          tab("endpoints", "/dashboard/endpoint", "Endpoint", {
+            // MCP and A2A are tabs inside the Endpoint page itself; their own routes keep it selected.
+            children: [
+              { id: "mcp", href: "/dashboard/mcp" },
+              { id: "a2a", href: "/dashboard/a2a" },
+            ],
+          }),
           tab("api-manager", "/dashboard/api-manager", "API keys"),
           tab(undefined, "/dashboard/api-manager/routing", "Key routing"),
-          tab("mcp", "/dashboard/mcp", "MCP"),
-          tab("a2a", "/dashboard/a2a", "A2A"),
         ],
       },
       {
