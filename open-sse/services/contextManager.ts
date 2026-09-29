@@ -12,6 +12,7 @@ import {
 } from "../../src/lib/modelCapabilities.ts";
 import { parseModel } from "./model.ts";
 import { jsonLength } from "../utils/jsonSize.ts";
+import { jsonSha256 } from "../utils/jsonHash.ts";
 
 // Default token limits per provider (fallbacks when not in registry)
 const DEFAULT_LIMITS: Record<string, number> = {
@@ -474,6 +475,8 @@ export function compressContext(
     maxTokens?: number;
     reserveTokens?: number;
     keepLatestImages?: number;
+    /** Identifies the conversation, so the window keeps cutting at the same message. */
+    anchorKey?: string;
   } = {}
 ) {
   if (!body || !body.messages || !Array.isArray(body.messages)) {
@@ -548,7 +551,7 @@ export function compressContext(
   }
 
   // Layer 3: Aggressive purification — drop oldest messages keeping system + last N pairs
-  messages = purifyHistory(messages, targetTokens);
+  messages = purifyHistory(messages, targetTokens, options.anchorKey);
   currentTokens = estimateTokens(messages); // #8594: object-path keeps the #8368 image estimate
   stats.layers.push({ name: "purify_history", tokens: currentTokens });
 
@@ -620,10 +623,65 @@ function compressThinking(messages: Record<string, unknown>[]) {
 
 // ─── Layer 3: Aggressive Purification ───────────────────────────────────────
 
-function purifyHistory(messages: Record<string, unknown>[], targetTokens: number) {
+// A sliding window rewrites the start of the prompt on every request, which throws away the
+// provider's prompt cache. The first message kept is remembered per conversation instead, so
+// later requests cut at the same place until the window really stops fitting; when it does, it
+// is cut deeper than needed so the next several requests can just append.
+const PURIFY_ANCHOR_TTL_MS = 30 * 60 * 1000;
+const PURIFY_ANCHOR_MAX = 2000;
+const PURIFY_REFIT_RATIO = 0.7;
+const purifyAnchors = new Map<string, { digest: string; expiresAt: number }>();
+
+export function resetPurifyAnchors(): void {
+  purifyAnchors.clear();
+}
+
+function readPurifyAnchor(key: string): string | null {
+  const entry = purifyAnchors.get(key);
+  if (!entry) return null;
+  if (entry.expiresAt <= Date.now()) {
+    purifyAnchors.delete(key);
+    return null;
+  }
+  return entry.digest;
+}
+
+function writePurifyAnchor(key: string, digest: string | null): void {
+  purifyAnchors.delete(key);
+  if (digest === null) return;
+  if (purifyAnchors.size >= PURIFY_ANCHOR_MAX) {
+    const oldest = purifyAnchors.keys().next().value;
+    if (oldest !== undefined) purifyAnchors.delete(oldest);
+  }
+  purifyAnchors.set(key, { digest, expiresAt: Date.now() + PURIFY_ANCHOR_TTL_MS });
+}
+
+const messageDigest = (message: unknown): string => {
+  try {
+    return jsonSha256(message).slice(0, 16);
+  } catch {
+    return "unhashable";
+  }
+};
+
+function purifyHistory(
+  messages: Record<string, unknown>[],
+  targetTokens: number,
+  anchorKey?: string
+) {
   // Keep system message(s) and the last N message pairs
   const system = messages.filter((m) => m.role === "system" || m.role === "developer");
   const nonSystem = messages.filter((m) => m.role !== "system" && m.role !== "developer");
+
+  const anchored = anchorKey ? readPurifyAnchor(anchorKey) : null;
+  if (anchored) {
+    const index = nonSystem.findIndex((m) => messageDigest(m) === anchored);
+    if (index >= 0) {
+      const reused = buildPurified(system, nonSystem, nonSystem.length - index);
+      if (estimateTokens(reused) <= targetTokens) return reused;
+    }
+  }
+  const searchTarget = anchorKey ? Math.floor(targetTokens * PURIFY_REFIT_RATIO) : targetTokens;
 
   // Binary search for how many messages to keep from the end
   let keep = nonSystem.length;
@@ -638,10 +696,24 @@ function purifyHistory(messages: Record<string, unknown>[], targetTokens: number
     // #8594: measure the candidate structure directly so image-bearing turns are not
     // over-counted and pruned during the binary search.
     const tokens = estimateTokens(candidate);
-    if (tokens <= targetTokens) break;
+    if (tokens <= searchTarget) break;
     keep = Math.max(2, Math.floor(keep * 0.7)); // Drop 30% each iteration
   }
 
+  if (anchorKey) {
+    writePurifyAnchor(
+      anchorKey,
+      keep < nonSystem.length ? messageDigest(nonSystem[nonSystem.length - keep]) : null
+    );
+  }
+  return buildPurified(system, nonSystem, keep);
+}
+
+function buildPurified(
+  system: Record<string, unknown>[],
+  nonSystem: Record<string, unknown>[],
+  keep: number
+) {
   let result = [...system, ...nonSystem.slice(-keep)];
   result = fixToolPairs(result);
   result = fixToolAdjacency(result);

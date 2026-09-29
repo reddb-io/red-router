@@ -1,3 +1,4 @@
+import { conversationKeyOf } from "@/lib/promptCache/prefixDiagnostics";
 import {
   extractRequestToolMetadata,
   resolveResponseToolNameMap,
@@ -2167,6 +2168,14 @@ async function handleChatCoreInner({
         model: effectiveModel,
         maxTokens: threshold,
         reserveTokens: 0,
+        // The window keeps cutting at the same message while it fits: a cut that slides every
+        // request rewrites the prompt prefix and loses the provider's prompt cache.
+        anchorKey: conversationKeyOf({
+          body: (clientRawRequest?.body ?? preCompressionBody) as Record<string, unknown>,
+          apiKeyId: apiKeyInfo?.id ?? null,
+          provider,
+          model: effectiveModel,
+        }),
       });
 
       if (compressionResult.compressed && compressionResult.body) {
