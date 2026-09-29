@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.37.0
+
+### Minor Changes
+
+- Restore the reasoning autopilot, the "auto" effort of the dual reasoning mode. A request with `x-red-router-reasoning: auto` (RedCode's `auto` effort variant), or a key or combo covered by `settings.reasoningAutopilot`, lets System One's read of how much deliberation the next step needs choose the effort level; a level the client states itself (`off`, a level, or a hint `effort`) is never overridden. The level holds through a turn's tool loop, is applied to the client's own effort field so the existing reasoning pipeline translates it per provider, and is reported in `X-RedRouter-Reasoning`. `/v1/capabilities` now advertises the reasoning contract and the served-model and cost headers, which switches on RedCode's `reasoning-auto`, `served-model` and `cost` features.
+
+### Patch Changes
+
+- Keep `qianfan/` routing to its own Baidu Qianfan provider (the RedRouter v0.33.0 alias compatibility list wrongly redirected it), and carry the custom chat models of a RedRouter v0.33.0 install through the first-start import.
+- Sidebar on the design system: navigation items use the DS nav item (neutral selection surface with a primary bar on the start edge), the fake window-control dots and the OmniRoute logo tile are gone, and the RedRouter mark (or the operator's logo) leads the sidebar.
+
 ## 0.36.0
 
 ### Minor Changes
