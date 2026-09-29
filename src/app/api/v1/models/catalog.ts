@@ -1,4 +1,6 @@
 import { PROVIDER_MODELS, PROVIDER_ID_TO_ALIAS } from "@/shared/constants/models";
+import { catalogVersionFromBody } from "@/lib/catalogVersion";
+import { RED_ROUTER_CATALOG_VERSION_HEADER } from "@/shared/constants/redRouterHeaders";
 import { NOAUTH_PROVIDERS } from "@/shared/constants/providers";
 import { getCombos } from "@/lib/db/combos";
 import { isComboNameAllowedForKey } from "@/shared/utils/apiKeyPolicy";
@@ -283,6 +285,9 @@ async function buildCatalogPayload(
   built.headers.forEach((value, key) => {
     headers[key] = value;
   });
+  // RedCode re-reads its cached catalog when this differs; computed once per cache entry.
+  const version = built.status === 200 ? catalogVersionFromBody(body) : null;
+  if (version) headers[RED_ROUTER_CATALOG_VERSION_HEADER] = version;
   // Read the configurable cache TTL from database settings.
   // Falls back to the hardcoded default if not set or on error.
   let cacheTTL = CATALOG_CACHE_TTL_MS_DEFAULT;

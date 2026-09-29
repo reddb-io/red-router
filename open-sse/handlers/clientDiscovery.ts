@@ -1,7 +1,8 @@
-import { createHash } from "node:crypto";
 import { z } from "zod";
 
 import { errorResponse } from "../utils/error";
+import { computeCatalogVersion } from "@/lib/catalogVersion";
+import { RED_ROUTER_CATALOG_VERSION_HEADER } from "@/shared/constants/redRouterHeaders";
 
 export interface DiscoveryKey {
   id: string;
@@ -136,10 +137,7 @@ function groupedCatalog(models: Model[]) {
 }
 
 function catalogVersion(models: Model[]): string {
-  // `created` is the catalog build time, not a model revision. Ignore it so
-  // rebuilding an otherwise unchanged catalog does not invalidate clients.
-  const stable = models.map(({ created: _created, ...model }) => model);
-  return createHash("sha256").update(JSON.stringify(stable)).digest("hex");
+  return computeCatalogVersion(models);
 }
 
 /** These documents are projections of the authorized catalog, never the registry. */
@@ -213,6 +211,7 @@ export async function handleCatalogDiscovery(
           };
     const responseHeaders = privateHeaders(source.headers);
     responseHeaders.set("Content-Type", "application/json");
+    responseHeaders.set(RED_ROUTER_CATALOG_VERSION_HEADER, version);
     for (const header of ["content-length", "content-encoding", "etag", "last-modified"]) {
       responseHeaders.delete(header);
     }

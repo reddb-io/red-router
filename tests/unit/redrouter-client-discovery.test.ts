@@ -307,13 +307,22 @@ describe("RedRouter catalog and capability discovery", () => {
           ],
         }),
     });
-    const catalog = await (
-      await handleCatalogDiscovery(request("catalog"), deps, "catalog")
-    ).json();
-    const capabilities = await (
-      await handleCatalogDiscovery(request("capabilities"), deps, "capabilities")
-    ).json();
+    const catalogResponse = await handleCatalogDiscovery(request("catalog"), deps, "catalog");
+    const capabilitiesResponse = await handleCatalogDiscovery(
+      request("capabilities"),
+      deps,
+      "capabilities"
+    );
+    const catalog = await catalogResponse.json();
+    const capabilities = await capabilitiesResponse.json();
     assert.equal(catalog.version, capabilities.catalog.version);
+    assert.match(catalog.version, /^[0-9a-f]{16}$/);
+    // RedCode watches this header on every catalog answer.
+    assert.equal(catalogResponse.headers.get("X-RedRouter-Catalog-Version"), catalog.version);
+    assert.equal(
+      capabilitiesResponse.headers.get("X-RedRouter-Catalog-Version"),
+      catalog.version
+    );
     assert.deepEqual(capabilities.systemone.models, ["typesafe-ai/jev-latest"]);
     assert.deepEqual(capabilities.systemone.aliases, ["/v1/decisions"]);
     assert.equal(capabilities.systemone.availability, "not_probed");
