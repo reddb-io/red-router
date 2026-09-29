@@ -20,8 +20,6 @@ const VARIANTS = {
 
 export type ButtonVariant = keyof typeof VARIANTS;
 
-const SIZES = ["sm", "md", "lg"] as const;
-
 // The explicit `length:` hint keeps tailwind-merge from reading a bare
 // `text-[var(...)]` as a colour and dropping it.
 const ICON_SIZES = {
@@ -33,7 +31,7 @@ const ICON_SIZES = {
 interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   children?: React.ReactNode;
   variant?: ButtonVariant;
-  size?: (typeof SIZES)[number];
+  size?: keyof typeof ICON_SIZES;
   icon?: string;
   iconRight?: string;
   loading?: boolean;
