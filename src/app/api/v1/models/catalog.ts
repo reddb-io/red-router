@@ -1,5 +1,6 @@
 import { PROVIDER_MODELS, PROVIDER_ID_TO_ALIAS } from "@/shared/constants/models";
 import { catalogVersionFromBody } from "@/lib/catalogVersion";
+import { comboMemberIds, comboStrategyForClients } from "./catalogComboRouting";
 import { RED_ROUTER_CATALOG_VERSION_HEADER } from "@/shared/constants/redRouterHeaders";
 import { NOAUTH_PROVIDERS } from "@/shared/constants/providers";
 import { getCombos } from "@/lib/db/combos";
@@ -993,6 +994,13 @@ async function buildUnifiedModelsResponseCore(
       if (visibleTargets.length === 0) continue;
 
       const comboMetadata = buildComboCatalogMetadata(combo, visibleTargets);
+      const comboMembers = comboMemberIds(
+        visibleTargets.flatMap((target) => {
+          const resolved = getComboTargetModelId(target);
+          return resolved ? [resolved] : [];
+        }),
+        (providerId) => providerIdToPrefix[providerId] || providerIdToAlias[providerId] || providerId
+      );
 
       listedIds.add(combo.name);
       // #13670 follow-up: advertise the combo's own description. Claude Code's
@@ -1019,6 +1027,9 @@ async function buildUnifiedModelsResponseCore(
         ...(comboDisplayName ? { display_name: comboDisplayName } : {}),
         ...(comboDescription ? { description: comboDescription } : {}),
         ...comboMetadata,
+        // RedCode: what the combo does and which models it can route to.
+        ...comboStrategyForClients(combo.strategy ?? (combo.config as { strategy?: unknown } | undefined)?.strategy),
+        ...(comboMembers.length > 0 ? { members: comboMembers } : {}),
       });
 
       // #9147: combos can number hundreds at catalog scale — yield periodically.
