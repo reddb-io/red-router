@@ -1,0 +1,5081 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-09-29",
+  "baseline": {
+    "redrouter": "v0.33.0",
+    "head": "6bf58ed77b",
+    "omniroute": "3.8.51 (sync to 3.8.52 in progress)",
+    "9router": "f01fb909e3 (v0.5.91; fork point 17c4cc7687)",
+    "pentatonic": "07bad5a458 (pentatonic/master, 2026-09-23)",
+    "litellm": "1.104.0"
+  },
+  "waves": [
+    {
+      "id": 0,
+      "title": "Protect and pin"
+    },
+    {
+      "id": 1,
+      "title": "Upgrade safety and correctness"
+    },
+    {
+      "id": 2,
+      "title": "RedCode contract completion and routing gaps"
+    },
+    {
+      "id": 3,
+      "title": "Own the look: design system, IA, branding, RedRouter pages"
+    },
+    {
+      "id": 4,
+      "title": "Identity foundation"
+    },
+    {
+      "id": 5,
+      "title": "Money: prices, budgets, attribution, observability"
+    },
+    {
+      "id": 6,
+      "title": "Governance: guardrails, teams, SSO, groups"
+    },
+    {
+      "id": 7,
+      "title": "Surface breadth: API, MCP gateway, prompts, providers, tools"
+    },
+    {
+      "id": 8,
+      "title": "Scale: Postgres and HA"
+    },
+    {
+      "id": 9,
+      "title": "Deferred"
+    }
+  ],
+  "slices": [
+    {
+      "id": "S0",
+      "title": "9router ledger and audit script",
+      "wave": 0,
+      "size": "S",
+      "dependsOn": [],
+      "origin": "study-9router"
+    },
+    {
+      "id": "L0",
+      "title": "LiteLLM ledger and drift audit",
+      "wave": 0,
+      "size": "S",
+      "dependsOn": [],
+      "origin": "study-litellm"
+    },
+    {
+      "id": "X-OMNI",
+      "title": "OmniRoute ledger and sync 3.8.52 (in progress elsewhere)",
+      "wave": 0,
+      "size": "S",
+      "dependsOn": [],
+      "origin": "new"
+    },
+    {
+      "id": "X-GUARD",
+      "title": "RedRouter-only feature regression contract",
+      "wave": 0,
+      "size": "S",
+      "dependsOn": [],
+      "origin": "new"
+    },
+    {
+      "id": "E-A0",
+      "title": "Friday importer fidelity for ownership and narrow admin keys",
+      "wave": 1,
+      "size": "S",
+      "dependsOn": [],
+      "origin": "study-9router"
+    },
+    {
+      "id": "X-IMPORT",
+      "title": "Friday importer completion: legacy data dirs, stale db.json guard, proxy and prefs mapping",
+      "wave": 1,
+      "size": "M",
+      "dependsOn": [],
+      "origin": "new"
+    },
+    {
+      "id": "S1",
+      "title": "Claude Code 2.1.280 adoption and Claude Code fidelity check",
+      "wave": 1,
+      "size": "S",
+      "dependsOn": [],
+      "origin": "study-9router"
+    },
+    {
+      "id": "S2",
+      "title": "Alias compatibility and retired guard (gc, if)",
+      "wave": 1,
+      "size": "S",
+      "dependsOn": [],
+      "origin": "study-9router"
+    },
+    {
+      "id": "S3",
+      "title": "Provider create conflict guard (done)",
+      "wave": 1,
+      "size": "S",
+      "dependsOn": [],
+      "origin": "study-9router"
+    },
+    {
+      "id": "S4",
+      "title": "Translator robustness bundle",
+      "wave": 1,
+      "size": "M",
+      "dependsOn": [],
+      "origin": "study-9router"
+    },
+    {
+      "id": "S5",
+      "title": "Catalog refresh",
+      "wave": 1,
+      "size": "M",
+      "dependsOn": [],
+      "origin": "study-9router"
+    },
+    {
+      "id": "X-DOCKER",
+      "title": "Docker image and GHCR publish",
+      "wave": 1,
+      "size": "M",
+      "dependsOn": [],
+      "origin": "new"
+    },
+    {
+      "id": "X-NETWORK",
+      "title": "Network access setting, API, CLI",
+      "wave": 1,
+      "size": "M",
+      "dependsOn": [],
+      "origin": "new"
+    },
+    {
+      "id": "X-DIAG",
+      "title": "Rotating diagnostics log",
+      "wave": 1,
+      "size": "M",
+      "dependsOn": [],
+      "origin": "new"
+    },
+    {
+      "id": "X-CIFIX",
+      "title": "CI fixture e2e and conformance",
+      "wave": 1,
+      "size": "M",
+      "dependsOn": [],
+      "origin": "new"
+    },
+    {
+      "id": "X-CLISMALL",
+      "title": "Small CLI and route leftovers",
+      "wave": 1,
+      "size": "S",
+      "dependsOn": [],
+      "origin": "new"
+    },
+    {
+      "id": "X-RC1",
+      "title": "RedCode error headers, expose list, key headers",
+      "wave": 2,
+      "size": "S",
+      "dependsOn": [
+        "X-GUARD"
+      ],
+      "origin": "new"
+    },
+    {
+      "id": "X-RC2",
+      "title": "RedCode /v1/models entry contract and usage.cost stream",
+      "wave": 2,
+      "size": "M",
+      "dependsOn": [
+        "X-GUARD"
+      ],
+      "origin": "new"
+    },
+    {
+      "id": "X-RC3",
+      "title": "RedCode capabilities superset, grouped catalog, catalog version everywhere",
+      "wave": 2,
+      "size": "M",
+      "dependsOn": [
+        "X-RC2"
+      ],
+      "origin": "new"
+    },
+    {
+      "id": "X-RC4",
+      "title": "Header-keyed combo session affinity",
+      "wave": 2,
+      "size": "M",
+      "dependsOn": [],
+      "origin": "new"
+    },
+    {
+      "id": "X-RC5",
+      "title": "Router chaining and remote System One",
+      "wave": 2,
+      "size": "M",
+      "dependsOn": [
+        "X-RC3"
+      ],
+      "origin": "new"
+    },
+    {
+      "id": "X-DECISION",
+      "title": "Global decision router default",
+      "wave": 2,
+      "size": "M",
+      "dependsOn": [
+        "X-GUARD"
+      ],
+      "origin": "new"
+    },
+    {
+      "id": "X-PREFIX",
+      "title": "Per-connection model prefix",
+      "wave": 2,
+      "size": "M",
+      "dependsOn": [],
+      "origin": "new"
+    },
+    {
+      "id": "X-FLAT",
+      "title": "Flat model ids per key and Models page",
+      "wave": 2,
+      "size": "M",
+      "dependsOn": [
+        "X-RC2"
+      ],
+      "origin": "new"
+    },
+    {
+      "id": "X-COMBOPOL",
+      "title": "Combo cost-class policy and stream soft-failure fallback",
+      "wave": 2,
+      "size": "M",
+      "dependsOn": [],
+      "origin": "new"
+    },
+    {
+      "id": "X-DS1",
+      "title": "Design-system foundation completion",
+      "wave": 3,
+      "size": "S",
+      "dependsOn": [],
+      "origin": "new"
+    },
+    {
+      "id": "X-DS2",
+      "title": "Primitives long tail",
+      "wave": 3,
+      "size": "M",
+      "dependsOn": [
+        "X-DS1"
+      ],
+      "origin": "new"
+    },
+    {
+      "id": "X-DS3",
+      "title": "Icon wrapper and codemod",
+      "wave": 3,
+      "size": "L",
+      "dependsOn": [
+        "X-DS1"
+      ],
+      "origin": "new"
+    },
+    {
+      "id": "X-DS4",
+      "title": "Shell: PageHeading, BrandMark, breadcrumbs, application-shell",
+      "wave": 3,
+      "size": "M",
+      "dependsOn": [
+        "X-DS1"
+      ],
+      "origin": "new"
+    },
+    {
+      "id": "X-DS5",
+      "title": "Behaviour primitives: dialog, switch, tabs, table, tooltip, empty-state",
+      "wave": 3,
+      "size": "M",
+      "dependsOn": [
+        "X-DS2"
+      ],
+      "origin": "new"
+    },
+    {
+      "id": "X-IA",
+      "title": "Information architecture, curated sidebar, redirects, quick nav",
+      "wave": 3,
+      "size": "M",
+      "dependsOn": [
+        "X-DS4"
+      ],
+      "origin": "new"
+    },
+    {
+      "id": "X-BRAND1",
+      "title": "Branding sweep and public assets",
+      "wave": 3,
+      "size": "M",
+      "dependsOn": [],
+      "origin": "new"
+    },
+    {
+      "id": "X-BRAND2",
+      "title": "Branding API and editor",
+      "wave": 3,
+      "size": "S",
+      "dependsOn": [],
+      "origin": "new"
+    },
+    {
+      "id": "X-SETUP",
+      "title": "Setup workbench and recommended combos (shipped, verify)",
+      "wave": 3,
+      "size": "S",
+      "dependsOn": [],
+      "origin": "new"
+    },
+    {
+      "id": "X-AUTOPILOT",
+      "title": "Autopilot page: decision, reasoning, Test run",
+      "wave": 3,
+      "size": "M",
+      "dependsOn": [
+        "X-DECISION",
+        "X-IA"
+      ],
+      "origin": "new"
+    },
+    {
+      "id": "X-MEDIA",
+      "title": "Media and web tools pages",
+      "wave": 3,
+      "size": "M",
+      "dependsOn": [
+        "X-IA"
+      ],
+      "origin": "new"
+    },
+    {
+      "id": "X-MODELBROWSER",
+      "title": "Provider model browser",
+      "wave": 3,
+      "size": "M",
+      "dependsOn": [],
+      "origin": "new"
+    },
+    {
+      "id": "E-A",
+      "title": "Users, tenants, roles, ownership epic",
+      "wave": 4,
+      "size": "L",
+      "dependsOn": [
+        "E-A0"
+      ],
+      "origin": "study-9router"
+    },
+    {
+      "id": "L1",
+      "title": "Price and context data v2",
+      "wave": 5,
+      "size": "M",
+      "dependsOn": [],
+      "origin": "study-litellm"
+    },
+    {
+      "id": "L2",
+      "title": "Budgets engine at key scope",
+      "wave": 5,
+      "size": "M",
+      "dependsOn": [],
+      "origin": "study-litellm"
+    },
+    {
+      "id": "L3",
+      "title": "Attribution stamping",
+      "wave": 5,
+      "size": "M",
+      "dependsOn": [
+        "L2"
+      ],
+      "origin": "study-litellm"
+    },
+    {
+      "id": "L4",
+      "title": "Observability: Prometheus, destinations, alerts",
+      "wave": 5,
+      "size": "M",
+      "dependsOn": [
+        "L2"
+      ],
+      "origin": "study-litellm"
+    },
+    {
+      "id": "S6",
+      "title": "Capacity adapter, presets and bulk combo actions",
+      "wave": 5,
+      "size": "L",
+      "dependsOn": [],
+      "origin": "study-9router"
+    },
+    {
+      "id": "X-SINKS",
+      "title": "Usage sinks payload v1, tag filter, ledger coverage",
+      "wave": 5,
+      "size": "M",
+      "dependsOn": [
+        "L3"
+      ],
+      "origin": "new"
+    },
+    {
+      "id": "X-TOKENSAVER",
+      "title": "Token saver parity: flags import, RTK filters, per-owner",
+      "wave": 5,
+      "size": "M",
+      "dependsOn": [
+        "E-A0"
+      ],
+      "origin": "new"
+    },
+    {
+      "id": "L5",
+      "title": "Guardrail assignment, policies, content filter",
+      "wave": 6,
+      "size": "L",
+      "dependsOn": [
+        "L2"
+      ],
+      "origin": "study-litellm"
+    },
+    {
+      "id": "L6",
+      "title": "Teams",
+      "wave": 6,
+      "size": "L",
+      "dependsOn": [
+        "L2",
+        "E-A"
+      ],
+      "origin": "study-litellm"
+    },
+    {
+      "id": "L7",
+      "title": "SSO, SAML, JWT mapping, invitations, login hardening",
+      "wave": 6,
+      "size": "L",
+      "dependsOn": [
+        "E-A"
+      ],
+      "origin": "study-litellm"
+    },
+    {
+      "id": "L8",
+      "title": "Access groups",
+      "wave": 6,
+      "size": "M",
+      "dependsOn": [
+        "L6"
+      ],
+      "origin": "study-litellm"
+    },
+    {
+      "id": "L13",
+      "title": "Key lifecycle and rotation",
+      "wave": 6,
+      "size": "M",
+      "dependsOn": [
+        "L2"
+      ],
+      "origin": "study-litellm"
+    },
+    {
+      "id": "L9",
+      "title": "Routing extras: retries, content-policy fallback, probes, stall, reroute",
+      "wave": 7,
+      "size": "M",
+      "dependsOn": [
+        "L5"
+      ],
+      "origin": "study-litellm"
+    },
+    {
+      "id": "L10",
+      "title": "API surface additions",
+      "wave": 7,
+      "size": "M",
+      "dependsOn": [
+        "L2"
+      ],
+      "origin": "study-litellm"
+    },
+    {
+      "id": "L11",
+      "title": "MCP gateway and A2A registry",
+      "wave": 7,
+      "size": "L",
+      "dependsOn": [
+        "L5",
+        "L6",
+        "L8"
+      ],
+      "origin": "study-litellm"
+    },
+    {
+      "id": "L12",
+      "title": "Prompt registry",
+      "wave": 7,
+      "size": "M",
+      "dependsOn": [],
+      "origin": "study-litellm"
+    },
+    {
+      "id": "L15",
+      "title": "Cache extras",
+      "wave": 7,
+      "size": "S",
+      "dependsOn": [],
+      "origin": "study-litellm"
+    },
+    {
+      "id": "L16",
+      "title": "UX slices delivered with the feature they front",
+      "wave": 7,
+      "size": "S",
+      "dependsOn": [
+        "L3",
+        "L6"
+      ],
+      "origin": "study-litellm"
+    },
+    {
+      "id": "S7",
+      "title": "Xiaomi MiMo clusters and login",
+      "wave": 7,
+      "size": "L",
+      "dependsOn": [],
+      "origin": "study-9router"
+    },
+    {
+      "id": "S8",
+      "title": "Quota extras",
+      "wave": 7,
+      "size": "S",
+      "dependsOn": [],
+      "origin": "study-9router"
+    },
+    {
+      "id": "S9",
+      "title": "CLI tool cards: Amp, Devin, Cowork, OpenDesign",
+      "wave": 7,
+      "size": "M",
+      "dependsOn": [],
+      "origin": "study-9router"
+    },
+    {
+      "id": "S10",
+      "title": "Antigravity requestType live check",
+      "wave": 7,
+      "size": "S",
+      "dependsOn": [],
+      "origin": "study-9router"
+    },
+    {
+      "id": "S11",
+      "title": "Gemini Live STT",
+      "wave": 7,
+      "size": "M",
+      "dependsOn": [],
+      "origin": "study-9router"
+    },
+    {
+      "id": "X-CREDIMP",
+      "title": "Credential import routes",
+      "wave": 7,
+      "size": "M",
+      "dependsOn": [],
+      "origin": "new"
+    },
+    {
+      "id": "X-HEADROOM",
+      "title": "Headroom proxy path, restart, extras",
+      "wave": 7,
+      "size": "M",
+      "dependsOn": [],
+      "origin": "new"
+    },
+    {
+      "id": "X-PXPIPE",
+      "title": "PXPIPE service",
+      "wave": 7,
+      "size": "L",
+      "dependsOn": [],
+      "origin": "new"
+    },
+    {
+      "id": "X-UPDATER",
+      "title": "RedRouter-owned updater",
+      "wave": 7,
+      "size": "M",
+      "dependsOn": [],
+      "origin": "new"
+    },
+    {
+      "id": "X-SKILLS",
+      "title": "RedRouter skill pack restore",
+      "wave": 7,
+      "size": "S",
+      "dependsOn": [],
+      "origin": "new"
+    },
+    {
+      "id": "E-B",
+      "title": "Enterprise epic: Postgres, leases, admin request-details",
+      "wave": 8,
+      "size": "L",
+      "dependsOn": [
+        "E-A",
+        "L2"
+      ],
+      "origin": "study-9router"
+    },
+    {
+      "id": "L14",
+      "title": "Deploy and HA extras",
+      "wave": 8,
+      "size": "M",
+      "dependsOn": [
+        "E-B"
+      ],
+      "origin": "study-litellm"
+    },
+    {
+      "id": "X-DEFER",
+      "title": "Explicitly deferred or not taken",
+      "wave": 9,
+      "size": "S",
+      "dependsOn": [],
+      "origin": "new"
+    }
+  ],
+  "ia": "docs/architecture/PRODUCT_INTEGRATION_PLAN.md",
+  "domains": [
+    {
+      "id": "gateway-protocols",
+      "title": "Gateway, protocols and the RedCode client contract",
+      "capabilities": [
+        {
+          "id": "gw-chat",
+          "title": "Chat and legacy completions with SSE streaming",
+          "description": "OpenAI-format chat and /v1/completions, streaming and non-streaming, through one request pipeline.",
+          "sources": {
+            "ninerouter": "has",
+            "pentatonic": "has",
+            "litellm": "has",
+            "omniroute": "has",
+            "friday": "has"
+          },
+          "head": "equivalent",
+          "headEvidence": "src/app/api/v1/chat/completions/route.ts; src/app/api/v1/completions/route.ts; open-sse/handlers/chatCore.ts",
+          "ownUnique": false,
+          "value": "H",
+          "effort": "S",
+          "slice": "S0",
+          "ux": {
+            "home": "Operate > Endpoint & Keys > Endpoints",
+            "pattern": "Key-value rows in a DS description-list with copy buttons"
+          }
+        },
+        {
+          "id": "gw-model-catalog",
+          "title": "Model catalog endpoints",
+          "description": "/v1/models, /v1/models/info and /v1/catalog list what the calling key can use.",
+          "sources": {
+            "ninerouter": "has",
+            "pentatonic": "has",
+            "litellm": "has",
+            "omniroute": "has",
+            "friday": "has"
+          },
+          "head": "equivalent",
+          "headEvidence": "src/app/api/v1/models/*; src/app/api/v1/catalog",
+          "ownUnique": false,
+          "value": "H",
+          "effort": "S",
+          "slice": "S0",
+          "ux": {
+            "home": "Operate > Models",
+            "pattern": "Dense DS table with sortable columns, row actions in a menu, one primary button top right"
+          }
+        },
+        {
+          "id": "gw-responses",
+          "title": "Responses API (create, compact, input_tokens)",
+          "description": "OpenAI Responses create/compact/input_tokens with continuation store and streaming transformer.",
+          "sources": {
+            "ninerouter": "has",
+            "pentatonic": "has",
+            "litellm": "has",
+            "omniroute": "has",
+            "friday": "has"
+          },
+          "head": "equivalent",
+          "headEvidence": "src/app/api/v1/responses/route.ts; open-sse/transformer/responsesTransformer.ts",
+          "ownUnique": false,
+          "value": "H",
+          "effort": "S",
+          "slice": "S0",
+          "ux": {
+            "home": "Operate > Endpoint & Keys > Endpoints",
+            "pattern": "Key-value rows in a DS description-list with copy buttons"
+          }
+        },
+        {
+          "id": "gw-responses-store",
+          "title": "Stored Responses: retrieve, cancel, input_items",
+          "description": "GET/DELETE/cancel of a stored response id, scoped to the key that created it.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "has",
+            "omniroute": "partial",
+            "friday": "no"
+          },
+          "head": "partial",
+          "headEvidence": "src/app/api/v1/responses/[...path]/route.ts exists; retrieve/cancel/input_items behaviour not verified (study: POST only)",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "S",
+          "slice": "L10",
+          "ux": {
+            "home": "Operate > Endpoint & Keys > Endpoints",
+            "pattern": "Key-value rows in a DS description-list with copy buttons"
+          }
+        },
+        {
+          "id": "gw-messages",
+          "title": "Anthropic /v1/messages and count_tokens",
+          "description": "Anthropic-format requests including token counting for Claude clients.",
+          "sources": {
+            "ninerouter": "has",
+            "pentatonic": "has",
+            "litellm": "has",
+            "omniroute": "has",
+            "friday": "has"
+          },
+          "head": "equivalent",
+          "headEvidence": "src/app/api/v1/messages/route.ts; messages/count_tokens/route.ts",
+          "ownUnique": false,
+          "value": "H",
+          "effort": "S",
+          "slice": "S0",
+          "ux": {
+            "home": "Operate > Endpoint & Keys > Endpoints",
+            "pattern": "Key-value rows in a DS description-list with copy buttons"
+          }
+        },
+        {
+          "id": "gw-gemini-native",
+          "title": "Gemini native /v1beta generateContent",
+          "description": "Google GenAI native paths (generate, stream, countTokens).",
+          "sources": {
+            "ninerouter": "partial",
+            "pentatonic": "has",
+            "litellm": "has",
+            "omniroute": "has",
+            "friday": "has"
+          },
+          "head": "equivalent",
+          "headEvidence": "src/app/api/v1beta/models/[...path]",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "S",
+          "slice": "S0",
+          "ux": {
+            "home": "Operate > Endpoint & Keys > Endpoints",
+            "pattern": "Key-value rows in a DS description-list with copy buttons"
+          }
+        },
+        {
+          "id": "gw-google-interactions",
+          "title": "Google Interactions and agents API",
+          "description": "Gemini Interactions API and /v1beta/agents.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "has",
+            "omniroute": "no",
+            "friday": "no"
+          },
+          "head": "missing",
+          "headEvidence": "absent (study-litellm a6)",
+          "ownUnique": false,
+          "value": "L",
+          "effort": "M",
+          "slice": "X-DEFER",
+          "ux": {
+            "home": "Operate > Endpoint & Keys > Endpoints",
+            "pattern": "No dedicated UI: behaviour is visible through headers, API and existing pages"
+          }
+        },
+        {
+          "id": "gw-media-endpoints",
+          "title": "Embeddings, images, audio, video, rerank, moderation, OCR",
+          "description": "OpenAI-format media and model-utility endpoints with per-provider registries; video remix/characters/content not verified.",
+          "sources": {
+            "ninerouter": "has",
+            "pentatonic": "has",
+            "litellm": "has",
+            "omniroute": "has",
+            "friday": "has"
+          },
+          "head": "partial",
+          "headEvidence": "src/app/api/v1/{embeddings,images,audio,videos,rerank,moderations,ocr}; open-sse/config/imageRegistry.ts; tests/unit/audio-voices-parity.test.ts",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "S",
+          "slice": "S0",
+          "ux": {
+            "home": "Tools > Media & Search",
+            "pattern": "Dense DS table with sortable columns, row actions in a menu, one primary button top right"
+          }
+        },
+        {
+          "id": "gw-batches-files",
+          "title": "Batches and files",
+          "description": "OpenAI-style batch jobs and file storage, tenant-isolated by key.",
+          "sources": {
+            "ninerouter": "partial",
+            "pentatonic": "has",
+            "litellm": "has",
+            "omniroute": "has",
+            "friday": "has"
+          },
+          "head": "equivalent",
+          "headEvidence": "src/app/api/v1/batches; files; open-sse/services/batchProcessor.ts",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "S",
+          "slice": "L0",
+          "ux": {
+            "home": "Tools > Media & Search",
+            "pattern": "Dense DS table with sortable columns, row actions in a menu, one primary button top right"
+          }
+        },
+        {
+          "id": "gw-search-api",
+          "title": "Search API with provider registry",
+          "description": "Unified web search across search providers with analytics.",
+          "sources": {
+            "ninerouter": "has",
+            "pentatonic": "has",
+            "litellm": "has",
+            "omniroute": "has",
+            "friday": "has"
+          },
+          "head": "equivalent",
+          "headEvidence": "src/app/api/v1/search; open-sse/handlers/search.ts",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "S",
+          "slice": "S0",
+          "ux": {
+            "home": "Tools > Media & Search",
+            "pattern": "Dense DS table with sortable columns, row actions in a menu, one primary button top right"
+          }
+        },
+        {
+          "id": "gw-translator",
+          "title": "Translator lab and translation endpoints",
+          "description": "Detect, translate and send between formats; translation endpoints stay a product feature.",
+          "sources": {
+            "ninerouter": "has",
+            "pentatonic": "has",
+            "litellm": "no",
+            "omniroute": "has",
+            "friday": "has"
+          },
+          "head": "equivalent",
+          "headEvidence": "src/app/(dashboard)/dashboard/translator; src/app/api/translator/*",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "S",
+          "slice": "S0",
+          "ux": {
+            "home": "Debug > Translator",
+            "pattern": "Two-pane list and detail editor; Save and Discard in a sticky footer"
+          }
+        },
+        {
+          "id": "gw-passthrough-provider",
+          "title": "Allow-listed raw provider passthrough",
+          "description": "Forward /anthropic/*, /vertex_ai/*, /gemini/* style paths with key swap and cost logging.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "has",
+            "omniroute": "no",
+            "friday": "no"
+          },
+          "head": "missing",
+          "headEvidence": "absent; only same-format passthrough inside chat (chatCore/passthroughHelpers.ts)",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "M",
+          "slice": "L10",
+          "ux": {
+            "home": "Operate > Endpoint & Keys > Endpoints",
+            "pattern": "DS field/form in a right-side drawer; primary red button only for Save; Advanced group collapsed"
+          }
+        },
+        {
+          "id": "gw-realtime",
+          "title": "Realtime sessions",
+          "description": "/v1/realtime sessions metered and stopped at budget.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "has",
+            "omniroute": "no",
+            "friday": "no"
+          },
+          "head": "missing",
+          "headEvidence": "absent (v1/ws is the dashboard socket)",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "L",
+          "slice": "L10",
+          "ux": {
+            "home": "Operate > Endpoint & Keys > Endpoints",
+            "pattern": "No dedicated UI: behaviour is visible through headers, API and existing pages"
+          }
+        },
+        {
+          "id": "gw-vector-stores",
+          "title": "Vector stores and RAG",
+          "description": "Vector store API and RAG ingest/query scoped to the key.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "has",
+            "omniroute": "no",
+            "friday": "no"
+          },
+          "head": "missing",
+          "headEvidence": "absent as an API; internal semantic-cache vector store exists (open-sse/services/cache/vectorStore.ts)",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "L",
+          "slice": "L10",
+          "ux": {
+            "home": "Tools > Media & Search",
+            "pattern": "Dense DS table with sortable columns, row actions in a menu, one primary button top right"
+          }
+        },
+        {
+          "id": "gw-finetune-assistants",
+          "title": "Fine-tuning, assistants, containers and evals APIs",
+          "description": "Legacy OpenAI management APIs proxied to providers.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "has",
+            "omniroute": "no",
+            "friday": "no"
+          },
+          "head": "missing",
+          "headEvidence": "absent (study-litellm a15, a16, a22)",
+          "ownUnique": false,
+          "value": "L",
+          "effort": "L",
+          "slice": "X-DEFER",
+          "ux": {
+            "home": "Operate > Endpoint & Keys > Endpoints",
+            "pattern": "No dedicated UI: behaviour is visible through headers, API and existing pages"
+          }
+        },
+        {
+          "id": "gw-litellm-minor-surface",
+          "title": "LiteLLM minor surface: Azure paths, transform-request, priority queue",
+          "description": "Azure-style deployment paths, a transform-request utility and a priority queue endpoint; low demand.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "has",
+            "omniroute": "no",
+            "friday": "no"
+          },
+          "head": "missing",
+          "headEvidence": "messages/count_tokens and compression/preview exist; Azure paths not found (nv); admission control open-sse/services/admission/controller.ts is not a queue endpoint",
+          "ownUnique": false,
+          "value": "L",
+          "effort": "S",
+          "slice": "X-DEFER",
+          "ux": {
+            "home": "Debug > Translator",
+            "pattern": "Two-pane list and detail editor; Save and Discard in a sticky footer"
+          }
+        },
+        {
+          "id": "gw-stream-robustness",
+          "title": "Stream robustness: in-band abort errors and early keepalive",
+          "description": "A stream that fails after HTTP 200 reports an error frame; client SSE opens before routing.",
+          "sources": {
+            "ninerouter": "has",
+            "pentatonic": "has",
+            "litellm": "no",
+            "omniroute": "has",
+            "friday": "no"
+          },
+          "head": "equivalent",
+          "headEvidence": "open-sse/utils/streamHandler.ts:464 buildStreamErrorChunks; open-sse/utils/earlyStreamKeepalive.ts",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "S",
+          "slice": "S0",
+          "ux": {
+            "home": "Debug > Logs",
+            "pattern": "No dedicated UI: behaviour is visible through headers, API and existing pages"
+          }
+        },
+        {
+          "id": "gw-web-search-emulation",
+          "title": "Anthropic web_search emulation",
+          "description": "Gateway fallback tool serving web_search for models without it, with SearXNG option.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "partial",
+            "litellm": "no",
+            "omniroute": "has",
+            "friday": "has"
+          },
+          "head": "equivalent",
+          "headEvidence": "open-sse/handlers/chatCore.ts:959-1010",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "S",
+          "slice": "X-OMNI",
+          "ux": {
+            "home": "Tools > Media & Search",
+            "pattern": "No dedicated UI: behaviour is visible through headers, API and existing pages"
+          }
+        },
+        {
+          "id": "gw-claude-code-passthrough",
+          "title": "Claude Code passthrough and fidelity",
+          "description": "Claude Code traffic keeps native identity, betas, tool naming and thinking display through the router.",
+          "sources": {
+            "ninerouter": "has",
+            "pentatonic": "has",
+            "litellm": "no",
+            "omniroute": "has",
+            "friday": "has"
+          },
+          "head": "partial",
+          "headEvidence": "open-sse/services/claudeCode*.ts; CLAUDE_CODE_CLIENT_VERSION still 2.1.258 (src/shared/constants/claudeCodeClient.ts:11); parity vs Friday not verified",
+          "ownUnique": true,
+          "value": "H",
+          "effort": "S",
+          "slice": "S1",
+          "ux": {
+            "home": "Tools > CLI Tools",
+            "pattern": "One flat DS card per setting group with a description line; no nested cards"
+          }
+        },
+        {
+          "id": "gw-translator-robustness",
+          "title": "Translator robustness bundle",
+          "description": "Claude refusal to content_filter, Gemini terminal model turn guard, tool-result image hoist for Claude-compatible gateways, OpenRouter claude-format to /v1/messages.",
+          "sources": {
+            "ninerouter": "has",
+            "pentatonic": "has",
+            "litellm": "no",
+            "omniroute": "no",
+            "friday": "has"
+          },
+          "head": "missing",
+          "headEvidence": "claude-to-openai.ts:418-430 maps unknown reasons to stop; no guard in translator/helpers/geminiHelper.ts; claude-to-openai.ts:487-500 lifts images one way only; openrouter registry has no messages alternate",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "S",
+          "slice": "S4",
+          "ux": {
+            "home": "Debug > Translator",
+            "pattern": "No dedicated UI: behaviour is visible through headers, API and existing pages"
+          }
+        },
+        {
+          "id": "gw-gemini-live-stt",
+          "title": "Gemini Live STT over WebSocket",
+          "description": "STT with live-only Gemini models through the Live transport.",
+          "sources": {
+            "ninerouter": "has",
+            "pentatonic": "no",
+            "litellm": "no",
+            "omniroute": "no",
+            "friday": "no"
+          },
+          "head": "missing",
+          "headEvidence": "no BidiGenerateContent transport",
+          "ownUnique": false,
+          "value": "L",
+          "effort": "M",
+          "slice": "S11",
+          "ux": {
+            "home": "Tools > Media & Search",
+            "pattern": "No dedicated UI: behaviour is visible through headers, API and existing pages"
+          }
+        },
+        {
+          "id": "rcx-served-cost-headers",
+          "title": "X-RedRouter-Served-Model and X-RedRouter-Cost-USD",
+          "description": "Successful chat responses name the provider/model that answered (combo member after fallback) and a plain decimal USD cost when priced; never on errors.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "no",
+            "omniroute": "no",
+            "friday": "has"
+          },
+          "head": "equivalent",
+          "headEvidence": "src/domain/omnirouteResponseMeta.ts:202,205 (cost only when > 0, not verified against Friday for free-but-priced turns); src/shared/constants/redRouterHeaders.ts; tests/redrouter/native/redcode-headers.test.ts",
+          "ownUnique": true,
+          "value": "H",
+          "effort": "S",
+          "slice": "X-GUARD",
+          "ux": {
+            "home": "Debug > Logs",
+            "pattern": "No dedicated UI: behaviour is visible through headers, API and existing pages"
+          }
+        },
+        {
+          "id": "rcx-usage-cost-stream",
+          "title": "usage.cost in the final stream event",
+          "description": "Streams inject the USD cost into the usage chunk beside the served-model header.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "no",
+            "omniroute": "no",
+            "friday": "has"
+          },
+          "head": "missing",
+          "headEvidence": "no writer found (only cost_in_usd_ticks reads, open-sse/utils/usageTracking.ts:842)",
+          "ownUnique": true,
+          "value": "H",
+          "effort": "M",
+          "slice": "X-RC2",
+          "ux": {
+            "home": "Debug > Logs",
+            "pattern": "No dedicated UI: behaviour is visible through headers, API and existing pages"
+          }
+        },
+        {
+          "id": "rcx-catalog-version",
+          "title": "X-RedRouter-Catalog-Version per key",
+          "description": "Per-key digest of the LLM catalog so clients refresh when combos, keys or disabled models change.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "no",
+            "omniroute": "no",
+            "friday": "has"
+          },
+          "head": "partial",
+          "headEvidence": "src/lib/catalogVersion.ts; emitted on /v1/models (catalog.ts:291) and discovery; chat-response emission not verified",
+          "ownUnique": true,
+          "value": "H",
+          "effort": "S",
+          "slice": "X-RC3",
+          "ux": {
+            "home": "Debug > Logs",
+            "pattern": "No dedicated UI: behaviour is visible through headers, API and existing pages"
+          }
+        },
+        {
+          "id": "rcx-reasoning-headers",
+          "title": "x-red-router-reasoning request and X-RedRouter-Reasoning response",
+          "description": "Request forces off/auto/level; response reports client level to applied level with cause and shadow flag.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "no",
+            "omniroute": "no",
+            "friday": "has"
+          },
+          "head": "equivalent",
+          "headEvidence": "src/sse/handlers/chat/reasoningHeader.ts:21; src/sse/services/reasoningPlanner.ts; tests/redrouter/native/reasoning-autopilot.test.ts",
+          "ownUnique": true,
+          "value": "H",
+          "effort": "S",
+          "slice": "X-GUARD",
+          "ux": {
+            "home": "Operate > Autopilot",
+            "pattern": "No dedicated UI: behaviour is visible through headers, API and existing pages"
+          }
+        },
+        {
+          "id": "rcx-request-headers",
+          "title": "x-red-router-hint, -decision and -token-saver request headers",
+          "description": "Hint replaces decision questions; decision off disables router routing for a request; token-saver off/on overrides every token saver.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "partial",
+            "litellm": "no",
+            "omniroute": "no",
+            "friday": "has"
+          },
+          "head": "equivalent",
+          "headEvidence": "open-sse/decision/clientHint.ts:48,50; src/sse/handlers/chat/jevClientControls.ts; tests/redrouter/native/token-saver-header.test.ts",
+          "ownUnique": true,
+          "value": "H",
+          "effort": "S",
+          "slice": "X-GUARD",
+          "ux": {
+            "home": "Operate > Autopilot",
+            "pattern": "No dedicated UI: behaviour is visible through headers, API and existing pages"
+          }
+        },
+        {
+          "id": "rcx-error-headers",
+          "title": "X-9Router-Reason / Retry-At routing error headers",
+          "description": "Machine-readable reasons (model_disabled, model_not_allowed, api_key_limit) on routing failures.",
+          "sources": {
+            "ninerouter": "has",
+            "pentatonic": "has",
+            "litellm": "no",
+            "omniroute": "no",
+            "friday": "has"
+          },
+          "head": "missing",
+          "headEvidence": "grep of X-9Router-Reason at HEAD found none (audit A12)",
+          "ownUnique": true,
+          "value": "M",
+          "effort": "S",
+          "slice": "X-RC1",
+          "ux": {
+            "home": "Debug > Logs",
+            "pattern": "No dedicated UI: behaviour is visible through headers, API and existing pages"
+          }
+        },
+        {
+          "id": "rcx-header-leftovers",
+          "title": "Expose list, key-role/MCP headers and connection-id alias",
+          "description": "Access-Control-Expose-Headers for RedRouter names, x-redrouter-key-role and x-redrouter-mcp on /v1/models, x-red-router-connection-id on video create.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "no",
+            "omniroute": "no",
+            "friday": "has"
+          },
+          "head": "missing",
+          "headEvidence": "absent (audit A11, A17, A18, A20); xaiAsyncVideo.ts:80-84 emits x-9router and x-omniroute names only",
+          "ownUnique": true,
+          "value": "M",
+          "effort": "S",
+          "slice": "X-RC1",
+          "ux": {
+            "home": "Debug > Logs",
+            "pattern": "No dedicated UI: behaviour is visible through headers, API and existing pages"
+          }
+        },
+        {
+          "id": "rcx-capabilities",
+          "title": "GET /v1/capabilities superset",
+          "description": "Feature discovery: system one availability, decision, reasoning, session, catalog and header names; never advertises unimplemented features.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "no",
+            "omniroute": "no",
+            "friday": "has"
+          },
+          "head": "partial",
+          "headEvidence": "open-sse/handlers/clientDiscovery.ts:150-250 (systemone.available and reasoning present; no instance_id, session{}, recommendations:false at :236)",
+          "ownUnique": true,
+          "value": "H",
+          "effort": "M",
+          "slice": "X-RC3",
+          "ux": {
+            "home": "Operate > Endpoint & Keys",
+            "pattern": "Key-value rows in a DS description-list with copy buttons"
+          }
+        },
+        {
+          "id": "rcx-catalog-recommended",
+          "title": "Grouped /v1/catalog with recommended roles",
+          "description": "Catalog groups by serving provider and returns recommended default/fast/review/systemone/vision.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "no",
+            "omniroute": "no",
+            "friday": "has"
+          },
+          "head": "partial",
+          "headEvidence": "clientDiscovery.ts:151 returns recommended: {}; src/lib/modelRecommendations.ts exists and feeds recommended combos",
+          "ownUnique": true,
+          "value": "M",
+          "effort": "M",
+          "slice": "X-RC3",
+          "ux": {
+            "home": "Operate > Models",
+            "pattern": "Dense DS table with sortable columns, row actions in a menu, one primary button top right"
+          }
+        },
+        {
+          "id": "rcx-models-entry",
+          "title": "/v1/models entry contract and kind lists",
+          "description": "Entries carry parameters, thinking_levels, provider identity, aliases, id_format, deterministic created; combos carry strategy and members; /v1/models/{kind} lists work.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "no",
+            "omniroute": "no",
+            "friday": "has"
+          },
+          "head": "partial",
+          "headEvidence": "combo strategy/members (src/app/api/v1/models/catalogComboRouting.ts) and kind lists (tests/redrouter/native/redcode-models-kind.test.ts) done; parameters{}, thinking_levels, provider{}, aliases absent",
+          "ownUnique": true,
+          "value": "H",
+          "effort": "M",
+          "slice": "X-RC2",
+          "ux": {
+            "home": "Operate > Models",
+            "pattern": "Dense DS table with sortable columns, row actions in a menu, one primary button top right"
+          }
+        },
+        {
+          "id": "rcx-session-affinity",
+          "title": "Header-keyed combo member stickiness",
+          "description": "x-session-affinity and x-parent-session-id keep a session on one combo member (30 min TTL) and derive prompt_cache_key.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "no",
+            "omniroute": "no",
+            "friday": "has"
+          },
+          "head": "partial",
+          "headEvidence": "different mechanism: prompt-cache account affinity open-sse/services/combo/promptCacheAffinity.ts; no header-keyed member stickiness",
+          "ownUnique": true,
+          "value": "M",
+          "effort": "M",
+          "slice": "X-RC4",
+          "ux": {
+            "home": "Operate > Combos",
+            "pattern": "DS switch with a one-line description; effect shown inline after change"
+          }
+        },
+        {
+          "id": "rcx-chain-headers",
+          "title": "x-red-router-chain and instance headers",
+          "description": "Router-to-router hop list, loop guard (508) and stable instance id.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "no",
+            "omniroute": "no",
+            "friday": "has"
+          },
+          "head": "partial",
+          "headEvidence": "constants only (src/shared/constants/redRouterHeaders.ts); no emitter or loop guard (grep of chain users empty)",
+          "ownUnique": true,
+          "value": "M",
+          "effort": "M",
+          "slice": "X-RC5",
+          "ux": {
+            "home": "System > Providers > Remote routers",
+            "pattern": "DS badge and status-indicator for state only (feedback colours), never for decoration"
+          }
+        },
+        {
+          "id": "rcx-mcp-legacy-tools",
+          "title": "RedRouter MCP endpoint /v1/mcp with 10 tools",
+          "description": "list_models, get_model, list_combos, list_providers, recommend_models, get_usage, get_quotas, get_api_key, list_api_keys, create_api_key; schema version 4.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "no",
+            "omniroute": "no",
+            "friday": "has"
+          },
+          "head": "equivalent",
+          "headEvidence": "src/lib/mcp/legacy*.ts; nine mcp-legacy-* tests in config/testing/redrouter-suites.json; origin check is loopback-only",
+          "ownUnique": true,
+          "value": "H",
+          "effort": "S",
+          "slice": "X-GUARD",
+          "ux": {
+            "home": "Operate > Endpoint & Keys > MCP",
+            "pattern": "Key-value rows in a DS description-list with copy buttons"
+          }
+        }
+      ]
+    },
+    {
+      "id": "providers-accounts",
+      "title": "Providers, accounts and model registry",
+      "capabilities": [
+        {
+          "id": "pa-registry",
+          "title": "Provider registry (about 270 providers)",
+          "description": "Provider ids, aliases, formats and models in one registry; audit LiteLLM-only candidates (sagemaker, parasail, crusoe, cometapi) before adding.",
+          "sources": {
+            "ninerouter": "has",
+            "pentatonic": "has",
+            "litellm": "has",
+            "omniroute": "has",
+            "friday": "has"
+          },
+          "head": "better",
+          "headEvidence": "open-sse/config/providers/registry/ (270 dirs, study-litellm b1); LiteLLM has 181 slugs",
+          "ownUnique": false,
+          "value": "H",
+          "effort": "S",
+          "slice": "X-OMNI",
+          "ux": {
+            "home": "System > Providers",
+            "pattern": "Dense DS table with sortable columns, row actions in a menu, one primary button top right"
+          }
+        },
+        {
+          "id": "pa-accounts",
+          "title": "Accounts: OAuth pools, API keys, custom nodes, connection tests",
+          "description": "Multiple connections per provider with refresh, cooldowns, quota tracking, custom compatible nodes and test-before-save.",
+          "sources": {
+            "ninerouter": "has",
+            "pentatonic": "has",
+            "litellm": "has",
+            "omniroute": "has",
+            "friday": "has"
+          },
+          "head": "equivalent",
+          "headEvidence": "src/lib/oauth/providers/index.ts; src/lib/tokenHealthCheck.ts; src/app/api/provider-nodes; src/app/api/providers/test-batch/route.ts",
+          "ownUnique": false,
+          "value": "H",
+          "effort": "S",
+          "slice": "S0",
+          "ux": {
+            "home": "System > Providers",
+            "pattern": "Dense DS table with sortable columns, row actions in a menu, one primary button top right"
+          }
+        },
+        {
+          "id": "pa-alias-compat",
+          "title": "Compatibility aliases for saved model ids",
+          "description": "Saved 9router and Friday ids (ag/, ocz/, brave/, gc/, if/, ollama/) resolve or fail visibly.",
+          "sources": {
+            "ninerouter": "has",
+            "pentatonic": "has",
+            "litellm": "no",
+            "omniroute": "no",
+            "friday": "has"
+          },
+          "head": "partial",
+          "headEvidence": "src/shared/constants/providerCompatibilityAliases.ts:32-36 (ag, ocz, brave, fish, gpse done, commit 050213e338); gc and if retirement guard not verified",
+          "ownUnique": false,
+          "value": "H",
+          "effort": "S",
+          "slice": "S2",
+          "ux": {
+            "home": "System > Providers",
+            "pattern": "No dedicated UI: behaviour is visible through headers, API and existing pages"
+          }
+        },
+        {
+          "id": "pa-gemini-cli-retired",
+          "title": "Gemini CLI stays retired; Antigravity preserved",
+          "description": "gemini-cli returns 410 PROVIDER_RETIRED; Antigravity keeps working.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "no",
+            "omniroute": "has",
+            "friday": "has"
+          },
+          "head": "equivalent",
+          "headEvidence": "src/shared/constants/providerRetirement.ts:11",
+          "ownUnique": false,
+          "value": "H",
+          "effort": "S",
+          "slice": "X-GUARD",
+          "ux": {
+            "home": "System > Providers",
+            "pattern": "DS badge and status-indicator for state only (feedback colours), never for decoration"
+          }
+        },
+        {
+          "id": "pa-removed-blocklist",
+          "title": "Removed-providers blocklist",
+          "description": "Providers removed at their operator's request can never be reintroduced.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "no",
+            "omniroute": "has",
+            "friday": "no"
+          },
+          "head": "equivalent",
+          "headEvidence": "tests/unit/removed-providers-blocklist.test.ts; docs/reference/REMOVED_PROVIDERS.md",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "S",
+          "slice": "X-OMNI",
+          "ux": {
+            "home": "System > Providers",
+            "pattern": "No dedicated UI: behaviour is visible through headers, API and existing pages"
+          }
+        },
+        {
+          "id": "pa-name-conflict",
+          "title": "Refuse silent key overwrite on create",
+          "description": "POST create with an existing apikey connection name returns 409 PROVIDER_NAME_CONFLICT.",
+          "sources": {
+            "ninerouter": "has",
+            "pentatonic": "no",
+            "litellm": "no",
+            "omniroute": "no",
+            "friday": "no"
+          },
+          "head": "equivalent",
+          "headEvidence": "src/app/api/providers/route.ts; tests/redrouter/native/provider-name-conflict.test.ts (commit 6bf58ed77b)",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "S",
+          "slice": "S3",
+          "ux": {
+            "home": "System > Providers",
+            "pattern": "No dedicated UI: behaviour is visible through headers, API and existing pages"
+          }
+        },
+        {
+          "id": "pa-claude-opus-5-5",
+          "title": "Claude Opus 5.5 and Claude Code 2.1.280",
+          "description": "Model listed with efforts and pricing; native Claude requests carry the current client version.",
+          "sources": {
+            "ninerouter": "has",
+            "pentatonic": "has",
+            "litellm": "no",
+            "omniroute": "no",
+            "friday": "has"
+          },
+          "head": "partial",
+          "headEvidence": "registry/claude/index.ts:54 has claude-opus-5-5 (commit 39ae7cfb64); CLAUDE_CODE_CLIENT_VERSION still 2.1.258",
+          "ownUnique": false,
+          "value": "H",
+          "effort": "S",
+          "slice": "S1",
+          "ux": {
+            "home": "System > Providers",
+            "pattern": "No dedicated UI: behaviour is visible through headers, API and existing pages"
+          }
+        },
+        {
+          "id": "pa-catalog-refresh",
+          "title": "Catalog refresh bundle",
+          "description": "deepseek-v4.1-flash, OpenCode Go models, union-alpha, mimo-v2.6, Codex review/image ids and DeepSeek effort ladder.",
+          "sources": {
+            "ninerouter": "has",
+            "pentatonic": "partial",
+            "litellm": "no",
+            "omniroute": "no",
+            "friday": "partial"
+          },
+          "head": "missing",
+          "headEvidence": "study-9router C.3 gaps (literal-id search, some may be false positives)",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "S",
+          "slice": "S5",
+          "ux": {
+            "home": "System > Providers",
+            "pattern": "Dense DS table with sortable columns, row actions in a menu, one primary button top right"
+          }
+        },
+        {
+          "id": "pa-mimo-login",
+          "title": "Xiaomi MiMo clusters and server-assisted login",
+          "description": "Five regional clusters, v2.6 models and login session.",
+          "sources": {
+            "ninerouter": "has",
+            "pentatonic": "no",
+            "litellm": "no",
+            "omniroute": "no",
+            "friday": "partial"
+          },
+          "head": "missing",
+          "headEvidence": "xiaomi-mimo is API-key only (open-sse/config/providers/shared.ts:508-511)",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "L",
+          "slice": "S7",
+          "ux": {
+            "home": "System > Providers",
+            "pattern": "Numbered steps on one page (Step n of N), one primary action per step, inline validation list"
+          }
+        },
+        {
+          "id": "pa-quota-extras",
+          "title": "Claude free-limit reset and Ollama monthly window",
+          "description": "Quota tracker shows and redeems Claude resets and the Ollama free monthly window.",
+          "sources": {
+            "ninerouter": "has",
+            "pentatonic": "no",
+            "litellm": "no",
+            "omniroute": "no",
+            "friday": "no"
+          },
+          "head": "missing",
+          "headEvidence": "only Codex reset credits exist (src/lib/usage/codexResetCredits.ts)",
+          "ownUnique": false,
+          "value": "L",
+          "effort": "S",
+          "slice": "S8",
+          "ux": {
+            "home": "Operate > Quota",
+            "pattern": "Thin DS meter, neutral fill, warning/danger feedback colour only past thresholds"
+          }
+        },
+        {
+          "id": "pa-antigravity-requesttype",
+          "title": "Antigravity requestType false 429",
+          "description": "Drop requestType agent if a live test shows the false 429.",
+          "sources": {
+            "ninerouter": "has",
+            "pentatonic": "no",
+            "litellm": "no",
+            "omniroute": "no",
+            "friday": "no"
+          },
+          "head": "partial",
+          "headEvidence": "open-sse/executors/antigravity.ts:818-847 still sends agent; needs live repro",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "S",
+          "slice": "S10",
+          "ux": {
+            "home": "System > Providers",
+            "pattern": "No dedicated UI: behaviour is visible through headers, API and existing pages"
+          }
+        },
+        {
+          "id": "pa-credential-import",
+          "title": "Credential import routes",
+          "description": "Import tokens for GitLab PAT, Grok CLI bulk, iFlow cookie, Xiaomi MiMo, Kiro CLI proxy.",
+          "sources": {
+            "ninerouter": "has",
+            "pentatonic": "has",
+            "litellm": "no",
+            "omniroute": "no",
+            "friday": "has"
+          },
+          "head": "partial",
+          "headEvidence": "codex/cursor/kiro import routes exist; gitlab/pat, grok-cli/bulk-import, iflow/cookie, xiaomi-mimo absent (audit A4)",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "S",
+          "slice": "X-CREDIMP",
+          "ux": {
+            "home": "System > Providers",
+            "pattern": "DS field/form in a right-side drawer; primary red button only for Save; Advanced group collapsed"
+          }
+        },
+        {
+          "id": "pa-model-browser",
+          "title": "Provider model browser",
+          "description": "Browse models.dev and live lists with presets, filters and multi-add per provider.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "no",
+            "omniroute": "partial",
+            "friday": "has"
+          },
+          "head": "partial",
+          "headEvidence": "settings/components/ModelsDevSyncTab.tsx, /api/models/openrouter-catalog exist; no /api/models/browse",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "M",
+          "slice": "X-MODELBROWSER",
+          "ux": {
+            "home": "System > Providers > Models",
+            "pattern": "Dense DS table with sortable columns, row actions in a menu, one primary button top right"
+          }
+        },
+        {
+          "id": "pa-connection-prefix",
+          "title": "Per-connection model prefix",
+          "description": "Route <prefix>/<model> to the connections whose prefix matches, saved ids stay readable.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "no",
+            "omniroute": "no",
+            "friday": "has"
+          },
+          "head": "missing",
+          "headEvidence": "only provider-node prefixes (src/lib/providerNodePrefixes.ts); audit A4",
+          "ownUnique": true,
+          "value": "M",
+          "effort": "M",
+          "slice": "X-PREFIX",
+          "ux": {
+            "home": "System > Providers",
+            "pattern": "DS field/form in a right-side drawer; primary red button only for Save; Advanced group collapsed"
+          }
+        },
+        {
+          "id": "pa-remote-router",
+          "title": "Remote RedRouter as a provider",
+          "description": "A remote router's catalog appears as a provider with credential-bound persistence and scoped outage fallback.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "no",
+            "omniroute": "no",
+            "friday": "has"
+          },
+          "head": "partial",
+          "headEvidence": "src/lib/providerModels/remoteRouterCatalog.ts; multi-hop and remote System One pending (registry/red-router/index.ts:14-16)",
+          "ownUnique": true,
+          "value": "M",
+          "effort": "M",
+          "slice": "X-RC5",
+          "ux": {
+            "home": "System > Providers > Remote routers",
+            "pattern": "Dense DS table with sortable columns, row actions in a menu, one primary button top right"
+          }
+        },
+        {
+          "id": "pa-bedrock",
+          "title": "Amazon Bedrock",
+          "description": "Bedrock with discovery, inference profiles, Converse and prompt caching.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "has",
+            "litellm": "partial",
+            "omniroute": "no",
+            "friday": "no"
+          },
+          "head": "equivalent",
+          "headEvidence": "open-sse/executors/bedrock.ts; open-sse/config/bedrock.ts (credit ceiling and Claude-Code tool-def sanitising not verified)",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "S",
+          "slice": "X-OMNI",
+          "ux": {
+            "home": "System > Providers",
+            "pattern": "Dense DS table with sortable columns, row actions in a menu, one primary button top right"
+          }
+        },
+        {
+          "id": "pa-models-dev-sync",
+          "title": "models.dev catalog sync",
+          "description": "Capabilities, pricing and limits synced from models.dev.",
+          "sources": {
+            "ninerouter": "has",
+            "pentatonic": "has",
+            "litellm": "no",
+            "omniroute": "has",
+            "friday": "has"
+          },
+          "head": "equivalent",
+          "headEvidence": "src/lib/modelsDevSync*",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "S",
+          "slice": "S0",
+          "ux": {
+            "home": "System > Pricing",
+            "pattern": "DS description-list (Source / Revision / Loaded) plus a secondary Reload button; failures as inline alert"
+          }
+        },
+        {
+          "id": "pa-price-context-db",
+          "title": "LiteLLM price and context DB v2 with provenance panel",
+          "description": "Curated provider map, context windows, capability flags, tiered prices, deprecation, integrity guard and a Source/Revision/Loaded panel; opt-in.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "has",
+            "omniroute": "partial",
+            "friday": "no"
+          },
+          "head": "partial",
+          "headEvidence": "src/lib/pricingSync.ts:97-131 maps ~19 of 135 providers, token and media prices only; no provenance panel",
+          "ownUnique": false,
+          "value": "H",
+          "effort": "M",
+          "slice": "L1",
+          "ux": {
+            "home": "System > Pricing",
+            "pattern": "DS description-list (Source / Revision / Loaded) plus a secondary Reload button; failures as inline alert"
+          }
+        },
+        {
+          "id": "pa-model-aliases-custom",
+          "title": "User model aliases, custom and hidden models",
+          "description": "Per-user aliases, custom models and hidden models.",
+          "sources": {
+            "ninerouter": "has",
+            "pentatonic": "has",
+            "litellm": "has",
+            "omniroute": "has",
+            "friday": "has"
+          },
+          "head": "equivalent",
+          "headEvidence": "src/app/api/models/alias; src/lib/db/models.ts:78-354; settings/model-aliases",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "S",
+          "slice": "S0",
+          "ux": {
+            "home": "Operate > Models",
+            "pattern": "Dense DS table with sortable columns, row actions in a menu, one primary button top right"
+          }
+        },
+        {
+          "id": "pa-free-web-families",
+          "title": "Free-tier, web-session provider families and Radar",
+          "description": "Cookie/web-session providers, free lanes, rankings and free-model overlay beyond 9router.",
+          "sources": {
+            "ninerouter": "partial",
+            "pentatonic": "no",
+            "litellm": "no",
+            "omniroute": "has",
+            "friday": "no"
+          },
+          "head": "equivalent",
+          "headEvidence": "open-sse/config/providers/registry (g4f, web-cookie families); dashboard/{free-tiers,free-provider-rankings,radar}",
+          "ownUnique": false,
+          "value": "L",
+          "effort": "S",
+          "slice": "X-OMNI",
+          "ux": {
+            "home": "Advanced > Radar",
+            "pattern": "Dense DS table with sortable columns, row actions in a menu, one primary button top right"
+          }
+        }
+      ]
+    },
+    {
+      "id": "routing-combos",
+      "title": "Routing, combos and resilience",
+      "capabilities": [
+        {
+          "id": "rc-strategies",
+          "title": "Combo strategies (19), fusion panel and auto scoring",
+          "description": "priority, weighted, round-robin, p2c, headroom, fusion with judge, pipeline, auto scoring with LKGP and self-healing.",
+          "sources": {
+            "ninerouter": "partial",
+            "pentatonic": "partial",
+            "litellm": "has",
+            "omniroute": "has",
+            "friday": "has"
+          },
+          "head": "better",
+          "headEvidence": "src/shared/constants/routingStrategies.ts:92; open-sse/services/combo.ts; open-sse/services/combo/fusionPanel.ts; open-sse/services/autoCombo/*",
+          "ownUnique": false,
+          "value": "H",
+          "effort": "S",
+          "slice": "X-OMNI",
+          "ux": {
+            "home": "Operate > Combos",
+            "pattern": "Dense DS table with sortable columns, row actions in a menu, one primary button top right"
+          }
+        },
+        {
+          "id": "rc-live-explain",
+          "title": "Live routing view, explain and simulate",
+          "description": "Live cascade view, explain why a target was chosen, simulate a route before saving.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "partial",
+            "omniroute": "has",
+            "friday": "no"
+          },
+          "head": "equivalent",
+          "headEvidence": "dashboard/combos live; src/app/api/v1/explain/routing; playground simulate-route",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "S",
+          "slice": "X-OMNI",
+          "ux": {
+            "home": "Operate > Combos > Live",
+            "pattern": "Dense table plus right drawer (DS drawer) with monospace JSON; filters as a chip row"
+          }
+        },
+        {
+          "id": "rc-tag-wildcard",
+          "title": "Tag routing and wildcard model groups",
+          "description": "Connection tags matched to request tags; openai/* style group access and provider wildcards.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "has",
+            "omniroute": "has",
+            "friday": "no"
+          },
+          "head": "equivalent",
+          "headEvidence": "open-sse/services/combo/autoStrategy.ts:242; open-sse/services/combo/providerWildcard.ts:1",
+          "ownUnique": false,
+          "value": "L",
+          "effort": "S",
+          "slice": "L0",
+          "ux": {
+            "home": "Operate > Combos",
+            "pattern": "DS field/form in a right-side drawer; primary red button only for Save; Advanced group collapsed"
+          }
+        },
+        {
+          "id": "rc-fallback-ladders",
+          "title": "Fallback ladders and context-overflow fallback",
+          "description": "Ordered fallback with context window pre-checks.",
+          "sources": {
+            "ninerouter": "has",
+            "pentatonic": "has",
+            "litellm": "has",
+            "omniroute": "has",
+            "friday": "has"
+          },
+          "head": "equivalent",
+          "headEvidence": "open-sse/handlers/chatCore.ts:4887; src/app/api/fallback",
+          "ownUnique": false,
+          "value": "H",
+          "effort": "S",
+          "slice": "S0",
+          "ux": {
+            "home": "Operate > Combos",
+            "pattern": "Two-pane list and detail editor; Save and Discard in a sticky footer"
+          }
+        },
+        {
+          "id": "rc-retry-fallback-policy",
+          "title": "Per-exception retry and content-policy fallback",
+          "description": "Retry counts per error class and a configured fallback on a content-filter stop.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "has",
+            "omniroute": "no",
+            "friday": "no"
+          },
+          "head": "partial",
+          "headEvidence": "combo.config.maxRetries only (open-sse/services/comboConfig.ts:98); validateQuality.ts:328 is a predicate, not a fallback",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "S",
+          "slice": "L9",
+          "ux": {
+            "home": "System > Settings > Routing",
+            "pattern": "DS field/form in a right-side drawer; primary red button only for Save; Advanced group collapsed"
+          }
+        },
+        {
+          "id": "rc-resilience-layers",
+          "title": "Circuit breaker, connection cooldown, model lockout, request-scoped 4xx",
+          "description": "Three temporary-failure layers with lazy recovery; a request-scoped 4xx never cools an account.",
+          "sources": {
+            "ninerouter": "has",
+            "pentatonic": "has",
+            "litellm": "partial",
+            "omniroute": "has",
+            "friday": "has"
+          },
+          "head": "better",
+          "headEvidence": "src/shared/utils/circuitBreaker.ts:218; open-sse/services/accountFallback.ts; open-sse/services/combo/comboPredicates.ts:280",
+          "ownUnique": false,
+          "value": "H",
+          "effort": "S",
+          "slice": "X-OMNI",
+          "ux": {
+            "home": "System > Health",
+            "pattern": "DS badge and status-indicator for state only (feedback colours), never for decoration"
+          }
+        },
+        {
+          "id": "rc-health-probes",
+          "title": "Scheduled model health probes",
+          "description": "Background probes feeding routing decisions.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "has",
+            "omniroute": "no",
+            "friday": "no"
+          },
+          "head": "partial",
+          "headEvidence": "test-batch and token-health exist; scheduled probes feeding routing not found (nv)",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "M",
+          "slice": "L9",
+          "ux": {
+            "home": "System > Health",
+            "pattern": "DS badge and status-indicator for state only (feedback colours), never for decoration"
+          }
+        },
+        {
+          "id": "rc-prompt-cache-affinity",
+          "title": "Prompt-cache account affinity",
+          "description": "Rendezvous-hash account affinity from prompt_cache_key or prefix.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "has",
+            "omniroute": "has",
+            "friday": "no"
+          },
+          "head": "equivalent",
+          "headEvidence": "open-sse/services/combo/promptCacheAffinity.ts",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "S",
+          "slice": "X-OMNI",
+          "ux": {
+            "home": "Operate > Combos",
+            "pattern": "DS switch with a one-line description; effect shown inline after change"
+          }
+        },
+        {
+          "id": "rc-capacity-adapter",
+          "title": "Capacity adapter (vision, pdf, audio, video fallback pools)",
+          "description": "A request needing a modality routes to a pool model when the combo has none.",
+          "sources": {
+            "ninerouter": "has",
+            "pentatonic": "has",
+            "litellm": "no",
+            "omniroute": "no",
+            "friday": "has"
+          },
+          "head": "missing",
+          "headEvidence": "no capacityAdapter at HEAD; modality-bridge guardrail and comboStructure.ts:469-900 differ",
+          "ownUnique": false,
+          "value": "H",
+          "effort": "L",
+          "slice": "S6",
+          "ux": {
+            "home": "Operate > Combos > Capacity",
+            "pattern": "DS field/form in a right-side drawer; primary red button only for Save; Advanced group collapsed"
+          }
+        },
+        {
+          "id": "rc-combo-presets-bulk",
+          "title": "Combo presets and bulk actions",
+          "description": "Cursor/Claude default presets, bulk select, delete and strategy update.",
+          "sources": {
+            "ninerouter": "has",
+            "pentatonic": "no",
+            "litellm": "no",
+            "omniroute": "no",
+            "friday": "has"
+          },
+          "head": "missing",
+          "headEvidence": "no presets route or bulk ops; only /api/combos/recommended",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "M",
+          "slice": "S6",
+          "ux": {
+            "home": "Operate > Combos",
+            "pattern": "Dense DS table with sortable columns, row actions in a menu, one primary button top right"
+          }
+        },
+        {
+          "id": "rc-recommended-combos",
+          "title": "Recommended combos (default, fast, review)",
+          "description": "Preview and apply recommended combos from connected accounts, updating in place.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "no",
+            "omniroute": "no",
+            "friday": "has"
+          },
+          "head": "equivalent",
+          "headEvidence": "src/lib/recommendedCombos.ts; src/app/api/combos/recommended; tests/redrouter/native/recommended-combos*.test.ts (commit cac646d53d)",
+          "ownUnique": true,
+          "value": "H",
+          "effort": "S",
+          "slice": "X-SETUP",
+          "ux": {
+            "home": "System > Setup",
+            "pattern": "Numbered steps on one page (Step n of N), one primary action per step, inline validation list"
+          }
+        },
+        {
+          "id": "rc-flat-model-ids",
+          "title": "Flat model ids per API key",
+          "description": "vendor/model ids executing as implicit fallback combos over offers, cheapest first, per key.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "no",
+            "omniroute": "no",
+            "friday": "has"
+          },
+          "head": "partial",
+          "headEvidence": "key format stored (src/lib/db/apiKeys/idFormat.ts) but not applied: key_id_format_applied:false (clientDiscovery.ts:238)",
+          "ownUnique": true,
+          "value": "H",
+          "effort": "M",
+          "slice": "X-FLAT",
+          "ux": {
+            "home": "Operate > Models",
+            "pattern": "Two-pane list and detail editor; Save and Discard in a sticky footer"
+          }
+        },
+        {
+          "id": "rc-cost-class-policy",
+          "title": "Cost-class policy for combos",
+          "description": "allow, no-metered or same-class members per combo.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "no",
+            "omniroute": "no",
+            "friday": "has"
+          },
+          "head": "missing",
+          "headEvidence": "no costClassPolicy at HEAD (audit A4)",
+          "ownUnique": true,
+          "value": "M",
+          "effort": "M",
+          "slice": "X-COMBOPOL",
+          "ux": {
+            "home": "Operate > Combos",
+            "pattern": "DS field/form in a right-side drawer; primary red button only for Save; Advanced group collapsed"
+          }
+        },
+        {
+          "id": "rc-soft-failure-stream",
+          "title": "Soft-failure stream fallback",
+          "description": "A stream that fails after HTTP 200 falls to the next member.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "no",
+            "omniroute": "no",
+            "friday": "has"
+          },
+          "head": "partial",
+          "headEvidence": "responseValidation.ts covers non-stream; streaming soft-failure not verified",
+          "ownUnique": true,
+          "value": "M",
+          "effort": "S",
+          "slice": "X-COMBOPOL",
+          "ux": {
+            "home": "Operate > Combos",
+            "pattern": "No dedicated UI: behaviour is visible through headers, API and existing pages"
+          }
+        },
+        {
+          "id": "rc-complexity-stall",
+          "title": "Stall escalation and heuristic-first routing",
+          "description": "A repeated identical tool call bumps the tier once; cheap heuristics before the classifier.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "has",
+            "omniroute": "no",
+            "friday": "no"
+          },
+          "head": "missing",
+          "headEvidence": "open-sse/services/autoCombo/complexityRouter.ts has tiers only",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "M",
+          "slice": "L9",
+          "ux": {
+            "home": "Operate > Autopilot",
+            "pattern": "DS field/form in a right-side drawer; primary red button only for Save; Advanced group collapsed"
+          }
+        },
+        {
+          "id": "rc-dynamic-limiter",
+          "title": "Priority-aware dynamic rate limiter",
+          "description": "Key/team priority tiers reserve capacity under saturation.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "has",
+            "omniroute": "no",
+            "friday": "no"
+          },
+          "head": "partial",
+          "headEvidence": "adaptive admission open-sse/services/admission/*; no priority tiers",
+          "ownUnique": false,
+          "value": "L",
+          "effort": "M",
+          "slice": "L9",
+          "ux": {
+            "home": "System > Settings > Routing",
+            "pattern": "DS field/form in a right-side drawer; primary red button only for Save; Advanced group collapsed"
+          }
+        },
+        {
+          "id": "rc-budget-routing-caps",
+          "title": "Budget-aware routing and agent-loop caps",
+          "description": "Skip a provider/model whose USD budget is spent; max iterations and max USD per session id.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "has",
+            "omniroute": "no",
+            "friday": "no"
+          },
+          "head": "missing",
+          "headEvidence": "quota-aware strategies (quotaStrategies.ts) only; max_sessions counts concurrency, not loops",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "S",
+          "slice": "L2",
+          "ux": {
+            "home": "Govern > Budgets",
+            "pattern": "DS field/form in a right-side drawer; primary red button only for Save; Advanced group collapsed"
+          }
+        },
+        {
+          "id": "rc-sensitive-reroute",
+          "title": "Sensitive-data reroute",
+          "description": "A PII hit pins the session to a private model.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "has",
+            "omniroute": "no",
+            "friday": "no"
+          },
+          "head": "missing",
+          "headEvidence": "PII masker exists; no reroute action",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "M",
+          "slice": "L9",
+          "ux": {
+            "home": "Govern > Guardrails",
+            "pattern": "DS field/form in a right-side drawer; primary red button only for Save; Advanced group collapsed"
+          }
+        },
+        {
+          "id": "rc-deferred-routers",
+          "title": "Semantic, adaptive, quality routers and end-user region routing",
+          "description": "Embedding-utterance, bandit and quality routers; allowed_model_region per end user. Low demand signal, deferred.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "has",
+            "omniroute": "no",
+            "friday": "no"
+          },
+          "head": "missing",
+          "headEvidence": "intentClassifier.ts only",
+          "ownUnique": false,
+          "value": "L",
+          "effort": "L",
+          "slice": "X-DEFER",
+          "ux": {
+            "home": "Operate > Combos",
+            "pattern": "No dedicated UI: behaviour is visible through headers, API and existing pages"
+          }
+        },
+        {
+          "id": "rc-thinking-caps",
+          "title": "Per-model and per-combo thinking caps",
+          "description": "Learned and configured maximum thinking level.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "has",
+            "litellm": "no",
+            "omniroute": "partial",
+            "friday": "partial"
+          },
+          "head": "partial",
+          "headEvidence": "open-sse/services/learnedThinkingCaps.ts; per-combo cap UI missing",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "S",
+          "slice": "X-AUTOPILOT",
+          "ux": {
+            "home": "Operate > Autopilot",
+            "pattern": "DS field/form in a right-side drawer; primary red button only for Save; Advanced group collapsed"
+          }
+        }
+      ]
+    },
+    {
+      "id": "reasoning-decisions",
+      "title": "System One, JEV decisions and the reasoning autopilot",
+      "capabilities": [
+        {
+          "id": "rd-systemone-endpoint",
+          "title": "System One decision endpoint /v1/systemone",
+          "description": "Typed decision questions answered by a JEV evaluator, distinct from chat; /v1/decisions alias.",
+          "sources": {
+            "ninerouter": "has",
+            "pentatonic": "has",
+            "litellm": "partial",
+            "omniroute": "no",
+            "friday": "has"
+          },
+          "head": "equivalent",
+          "headEvidence": "src/app/api/v1/systemone/route.ts; src/app/api/v1/decisions; tests/redrouter/native/systemone-decisions-alias.test.ts",
+          "ownUnique": true,
+          "value": "H",
+          "effort": "S",
+          "slice": "X-GUARD",
+          "ux": {
+            "home": "Operate > Autopilot",
+            "pattern": "Key-value rows in a DS description-list with copy buttons"
+          }
+        },
+        {
+          "id": "rd-jev-combo-routing",
+          "title": "JEV routing per combo",
+          "description": "Combo opts into model and tool decisions; fail-open when the evaluator is unavailable.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "partial",
+            "litellm": "no",
+            "omniroute": "no",
+            "friday": "has"
+          },
+          "head": "equivalent",
+          "headEvidence": "src/sse/services/jevRouting.ts; src/sse/handlers/chat.ts:1075",
+          "ownUnique": true,
+          "value": "H",
+          "effort": "S",
+          "slice": "X-GUARD",
+          "ux": {
+            "home": "Operate > Autopilot",
+            "pattern": "Two-pane list and detail editor; Save and Discard in a sticky footer"
+          }
+        },
+        {
+          "id": "rd-jev-global-default",
+          "title": "Global decision router default",
+          "description": "Settings decisionRouter feeds JEV for non-combo chats and combos without explicit config.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "no",
+            "omniroute": "no",
+            "friday": "has"
+          },
+          "head": "missing",
+          "headEvidence": "grep decisionRouter in src and open-sse finds nothing",
+          "ownUnique": true,
+          "value": "H",
+          "effort": "M",
+          "slice": "X-DECISION",
+          "ux": {
+            "home": "Operate > Autopilot",
+            "pattern": "One flat DS card per setting group with a description line; no nested cards"
+          }
+        },
+        {
+          "id": "rd-reasoning-autopilot",
+          "title": "Reasoning autopilot (dual reasoning mode auto effort)",
+          "description": "Router chooses the thinking level per turn from System One or hint; explicit client levels are never overridden.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "no",
+            "omniroute": "no",
+            "friday": "has"
+          },
+          "head": "equivalent",
+          "headEvidence": "src/sse/services/reasoningPlanner.ts; open-sse/decision/reasoningAutopilot.ts; tests/redrouter/native/reasoning-autopilot.test.ts (commit 54e720ee92)",
+          "ownUnique": true,
+          "value": "H",
+          "effort": "S",
+          "slice": "X-GUARD",
+          "ux": {
+            "home": "Operate > Autopilot",
+            "pattern": "One flat DS card per setting group with a description line; no nested cards"
+          }
+        },
+        {
+          "id": "rd-autopilot-page",
+          "title": "Autopilot page: decision router, reasoning, Test run",
+          "description": "One page to configure the decision gateway/model, reasoning floor/ceiling per key or combo, run in Test mode logging decisions without changing requests, and see a summary.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "no",
+            "omniroute": "no",
+            "friday": "has"
+          },
+          "head": "missing",
+          "headEvidence": "only per-combo BuilderIntelligentStep.tsx and ReasoningRoutingRules.tsx; no settings key or UI for reasoningAutopilot (only read at src/lib/clientDiscovery.ts:61)",
+          "ownUnique": true,
+          "value": "H",
+          "effort": "M",
+          "slice": "X-AUTOPILOT",
+          "ux": {
+            "home": "Operate > Autopilot",
+            "pattern": "One flat DS card per setting group with a description line; no nested cards"
+          }
+        },
+        {
+          "id": "rd-decision-logging",
+          "title": "Decision recorded as its own request",
+          "description": "Every decision is logged with reasoning block so operators can audit it.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "partial",
+            "litellm": "no",
+            "omniroute": "no",
+            "friday": "has"
+          },
+          "head": "partial",
+          "headEvidence": "open-sse/handlers/chatCore/toolDecision.ts:40-58 logs a reasoning block; no Test run view",
+          "ownUnique": true,
+          "value": "M",
+          "effort": "S",
+          "slice": "X-AUTOPILOT",
+          "ux": {
+            "home": "Debug > Logs",
+            "pattern": "Dense table plus right drawer (DS drawer) with monospace JSON; filters as a chip row"
+          }
+        },
+        {
+          "id": "rd-model-briefs",
+          "title": "Model briefs and tool routing",
+          "description": "Decision model briefs derived from pricing tier and capabilities.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "partial",
+            "litellm": "no",
+            "omniroute": "no",
+            "friday": "has"
+          },
+          "head": "equivalent",
+          "headEvidence": "open-sse/decision/modelBriefs.ts:37; open-sse/decision/tools.ts",
+          "ownUnique": true,
+          "value": "M",
+          "effort": "S",
+          "slice": "X-GUARD",
+          "ux": {
+            "home": "Operate > Autopilot",
+            "pattern": "No dedicated UI: behaviour is visible through headers, API and existing pages"
+          }
+        },
+        {
+          "id": "rd-complexity-router",
+          "title": "Complexity router tiers",
+          "description": "SIMPLE/MEDIUM/COMPLEX/REASONING tiers for auto-combo.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "has",
+            "omniroute": "has",
+            "friday": "no"
+          },
+          "head": "equivalent",
+          "headEvidence": "open-sse/services/autoCombo/complexityRouter.ts; open-sse/config/jev.ts:13",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "S",
+          "slice": "X-OMNI",
+          "ux": {
+            "home": "Operate > Combos",
+            "pattern": "DS field/form in a right-side drawer; primary red button only for Save; Advanced group collapsed"
+          }
+        },
+        {
+          "id": "rd-classify",
+          "title": "Text classification endpoint",
+          "description": "/v1/classify with client hint and typesafe-ai provider.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "no",
+            "omniroute": "no",
+            "friday": "has"
+          },
+          "head": "equivalent",
+          "headEvidence": "src/app/api/v1/classify; open-sse/decision/clientHint.ts",
+          "ownUnique": true,
+          "value": "L",
+          "effort": "S",
+          "slice": "X-GUARD",
+          "ux": {
+            "home": "Tools > Media & Search",
+            "pattern": "Key-value rows in a DS description-list with copy buttons"
+          }
+        }
+      ]
+    },
+    {
+      "id": "cost-usage-billing",
+      "title": "Cost, usage, budgets and billing export",
+      "capabilities": [
+        {
+          "id": "cu-ledger",
+          "title": "Request cost ledger",
+          "description": "Append-only ledger of priced requests per key, provider and model.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "has",
+            "omniroute": "has",
+            "friday": "no"
+          },
+          "head": "equivalent",
+          "headEvidence": "src/lib/db/migrations/182_*.sql; src/lib/usage/costCalculator.ts",
+          "ownUnique": false,
+          "value": "H",
+          "effort": "S",
+          "slice": "X-OMNI",
+          "ux": {
+            "home": "Operate > Usage",
+            "pattern": "Dense DS table with sortable columns, row actions in a menu, one primary button top right"
+          }
+        },
+        {
+          "id": "cu-analytics",
+          "title": "Usage, cost and token analytics",
+          "description": "Charts and tables per provider, model, key and period.",
+          "sources": {
+            "ninerouter": "has",
+            "pentatonic": "has",
+            "litellm": "has",
+            "omniroute": "has",
+            "friday": "has"
+          },
+          "head": "equivalent",
+          "headEvidence": "src/app/(dashboard)/dashboard/{analytics,costs,tokens,usage}",
+          "ownUnique": false,
+          "value": "H",
+          "effort": "S",
+          "slice": "S0",
+          "ux": {
+            "home": "Operate > Usage",
+            "pattern": "DS tabs (underline, start-edge indicator in red) inside one page with one H1"
+          }
+        },
+        {
+          "id": "cu-pricing-editor",
+          "title": "Pricing editor and user overrides",
+          "description": "User pricing overrides on top of synced prices.",
+          "sources": {
+            "ninerouter": "has",
+            "pentatonic": "has",
+            "litellm": "has",
+            "omniroute": "has",
+            "friday": "has"
+          },
+          "head": "equivalent",
+          "headEvidence": "src/app/(dashboard)/dashboard/settings/pricing; src/lib/db/settings/pricing.ts",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "S",
+          "slice": "S0",
+          "ux": {
+            "home": "System > Pricing",
+            "pattern": "Two-pane list and detail editor; Save and Discard in a sticky footer"
+          }
+        },
+        {
+          "id": "cu-margin-block-unpriced",
+          "title": "Cost margin, discount and block-unpriced",
+          "description": "Apply a margin/discount and optionally refuse models without pricing.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "has",
+            "omniroute": "no",
+            "friday": "no"
+          },
+          "head": "missing",
+          "headEvidence": "user overrides only (study-litellm b4)",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "S",
+          "slice": "L1",
+          "ux": {
+            "home": "System > Pricing",
+            "pattern": "DS field/form in a right-side drawer; primary red button only for Save; Advanced group collapsed"
+          }
+        },
+        {
+          "id": "cu-key-limits",
+          "title": "Per-key limits (four mechanisms)",
+          "description": "USD daily/weekly, monthly USD, daily tokens, tpm/rpm, model/provider/global token limits.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "has",
+            "litellm": "has",
+            "omniroute": "has",
+            "friday": "partial"
+          },
+          "head": "partial",
+          "headEvidence": "src/domain/costRules.ts:1; src/lib/db/tokenLimits.ts:16; src/lib/db/keyQuota.ts:1; apiKeyPolicy.ts:534",
+          "ownUnique": false,
+          "value": "H",
+          "effort": "M",
+          "slice": "L2",
+          "ux": {
+            "home": "Operate > Endpoint & Keys > Keys",
+            "pattern": "DS field/form in a right-side drawer; primary red button only for Save; Advanced group collapsed"
+          }
+        },
+        {
+          "id": "cu-budget-engine",
+          "title": "Reusable budgets with scopes",
+          "description": "Budget objects (max, soft, tpm/rpm, model max, duration, on_exceed) assigned to key, team, user, tag, tenant.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "partial",
+            "litellm": "no",
+            "omniroute": "no",
+            "friday": "no"
+          },
+          "head": "missing",
+          "headEvidence": "no budgets tables; per-key columns only",
+          "ownUnique": false,
+          "value": "H",
+          "effort": "M",
+          "slice": "L2",
+          "ux": {
+            "home": "Govern > Budgets",
+            "pattern": "Dense DS table with sortable columns, row actions in a menu, one primary button top right"
+          }
+        },
+        {
+          "id": "cu-budget-behaviours",
+          "title": "Soft budget, throttle and per-hop budget re-check",
+          "description": "One alert per window at the soft threshold, throttle instead of block, and budget/access re-check on every fallback hop.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "has",
+            "omniroute": "no",
+            "friday": "no"
+          },
+          "head": "missing",
+          "headEvidence": "warningThreshold in costRules only; no budgets so no per-hop check",
+          "ownUnique": false,
+          "value": "H",
+          "effort": "S",
+          "slice": "L2",
+          "ux": {
+            "home": "Govern > Budgets",
+            "pattern": "Thin DS meter, neutral fill, warning/danger feedback colour only past thresholds"
+          }
+        },
+        {
+          "id": "cu-account-spend-cap",
+          "title": "Per-key per-account spend cap",
+          "description": "Cap consumption-billed accounts per key with 80 percent warning and 402 when the pool is empty.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "has",
+            "litellm": "no",
+            "omniroute": "no",
+            "friday": "no"
+          },
+          "head": "partial",
+          "headEvidence": "src/lib/spend/batchWriter.ts; semantics not compared",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "M",
+          "slice": "L2",
+          "ux": {
+            "home": "Govern > Budgets",
+            "pattern": "DS field/form in a right-side drawer; primary red button only for Save; Advanced group collapsed"
+          }
+        },
+        {
+          "id": "cu-attribution",
+          "title": "Attribution stamping, end users and tags",
+          "description": "Ledger rows carry session_id, end_user, tags, connection_id and savings columns; tag rollups and tag budgets.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "has",
+            "omniroute": "no",
+            "friday": "no"
+          },
+          "head": "missing",
+          "headEvidence": "ledger has key/provider/model only; key tags exist",
+          "ownUnique": false,
+          "value": "H",
+          "effort": "M",
+          "slice": "L3",
+          "ux": {
+            "home": "Operate > Usage",
+            "pattern": "DS tabs (underline, start-edge indicator in red) inside one page with one H1"
+          }
+        },
+        {
+          "id": "cu-savings",
+          "title": "Savings attribution",
+          "description": "Compression and prompt-cache savings shown separately from cost.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "has",
+            "omniroute": "no",
+            "friday": "no"
+          },
+          "head": "partial",
+          "headEvidence": "compressionAnalytics.ts tracks savings separately",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "S",
+          "slice": "L3",
+          "ux": {
+            "home": "Operate > Usage",
+            "pattern": "Dense DS table with sortable columns, row actions in a menu, one primary button top right"
+          }
+        },
+        {
+          "id": "cu-team-user-budgets",
+          "title": "Team, user and tenant budgets",
+          "description": "Budgets at team, member, user and tenant scope with per-member permissions.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "partial",
+            "litellm": "no",
+            "omniroute": "no",
+            "friday": "no"
+          },
+          "head": "missing",
+          "headEvidence": "no teams or users",
+          "ownUnique": false,
+          "value": "H",
+          "effort": "M",
+          "slice": "L6",
+          "ux": {
+            "home": "Govern > Budgets",
+            "pattern": "Dense DS table with sortable columns, row actions in a menu, one primary button top right"
+          }
+        },
+        {
+          "id": "cu-quota-tracker",
+          "title": "Provider quota tracker and quota share",
+          "description": "Subscription quota windows with auto refresh and shared quota accounting.",
+          "sources": {
+            "ninerouter": "has",
+            "pentatonic": "has",
+            "litellm": "no",
+            "omniroute": "has",
+            "friday": "has"
+          },
+          "head": "equivalent",
+          "headEvidence": "src/app/(dashboard)/dashboard/quota; sidebar item costs-quota-share (sections.ts:92)",
+          "ownUnique": false,
+          "value": "H",
+          "effort": "S",
+          "slice": "S0",
+          "ux": {
+            "home": "Operate > Quota",
+            "pattern": "Thin DS meter, neutral fill, warning/danger feedback colour only past thresholds"
+          }
+        },
+        {
+          "id": "cu-sinks-engine",
+          "title": "Usage sinks engine: transports, outbox, stable ids",
+          "description": "Webhook, SQS, Kafka, RedDB queue behind one interface; stable ue_/ub_ delivery ids as message identity, backoff, lease fencing, retry and replay.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "no",
+            "omniroute": "no",
+            "friday": "has"
+          },
+          "head": "equivalent",
+          "headEvidence": "src/lib/usageSinks/transports/*.ts; src/lib/usageSinks/engine.ts:15-42; tests/redrouter/native/usage-sinks-outbox.test.ts, usage-sink-transports.test.ts (injected clients only, no real broker)",
+          "ownUnique": true,
+          "value": "H",
+          "effort": "S",
+          "slice": "X-GUARD",
+          "ux": {
+            "home": "System > Integrations > Usage sinks",
+            "pattern": "Dense DS table with sortable columns, row actions in a menu, one primary button top right"
+          }
+        },
+        {
+          "id": "cu-sinks-payload",
+          "title": "Usage sinks payload v1, tag filter and coverage",
+          "description": "Friday payload fields, key-tag filter, importing existing sinks and a ledger row for every request.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "no",
+            "omniroute": "no",
+            "friday": "has"
+          },
+          "head": "partial",
+          "headEvidence": "config/upstream/product-inheritance.json usage-export-and-observability: costed-requests-only; tag filter and Friday sink import remain",
+          "ownUnique": true,
+          "value": "H",
+          "effort": "M",
+          "slice": "X-SINKS",
+          "ux": {
+            "home": "System > Integrations > Usage sinks",
+            "pattern": "DS field/form in a right-side drawer; primary red button only for Save; Advanced group collapsed"
+          }
+        },
+        {
+          "id": "cu-sinks-ui",
+          "title": "Usage sinks page",
+          "description": "Sink list, deliveries, retry, test and key picker.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "no",
+            "omniroute": "no",
+            "friday": "has"
+          },
+          "head": "equivalent",
+          "headEvidence": "src/app/(dashboard)/dashboard/usage-sinks; tests/redrouter/native/usage-sinks-ui.test.ts (not rendered in a browser)",
+          "ownUnique": true,
+          "value": "M",
+          "effort": "S",
+          "slice": "X-GUARD",
+          "ux": {
+            "home": "System > Integrations > Usage sinks",
+            "pattern": "Dense DS table with sortable columns, row actions in a menu, one primary button top right"
+          }
+        },
+        {
+          "id": "cu-cost-export",
+          "title": "Cost export to CloudZero, Vantage, FOCUS",
+          "description": "Third-party cost exports.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "has",
+            "omniroute": "no",
+            "friday": "no"
+          },
+          "head": "missing",
+          "headEvidence": "sinks cover generic export (study-litellm e9)",
+          "ownUnique": false,
+          "value": "L",
+          "effort": "M",
+          "slice": "X-DEFER",
+          "ux": {
+            "home": "System > Integrations",
+            "pattern": "DS field/form in a right-side drawer; primary red button only for Save; Advanced group collapsed"
+          }
+        }
+      ]
+    },
+    {
+      "id": "access-identity-tenancy",
+      "title": "Access, identity, tenancy and governance",
+      "capabilities": [
+        {
+          "id": "ai-dashboard-password",
+          "title": "Dashboard password login and reset",
+          "description": "Bcrypt password, require-login toggle, loopback default-password guard, CLI reset.",
+          "sources": {
+            "ninerouter": "has",
+            "pentatonic": "has",
+            "litellm": "has",
+            "omniroute": "has",
+            "friday": "has"
+          },
+          "head": "equivalent",
+          "headEvidence": "src/app/api/auth/login/route.ts; bin/reset-password.mjs",
+          "ownUnique": false,
+          "value": "H",
+          "effort": "S",
+          "slice": "S0",
+          "ux": {
+            "home": "System > Settings > Security",
+            "pattern": "DS field/form in a right-side drawer; primary red button only for Save; Advanced group collapsed"
+          }
+        },
+        {
+          "id": "ai-oidc-gate",
+          "title": "OIDC login, auth modes and SSO-only admin list",
+          "description": "Code+PKCE login with start and Test sign-in, authMode (password/sso/both) and admin e-mail list with recovery path.",
+          "sources": {
+            "ninerouter": "has",
+            "pentatonic": "has",
+            "litellm": "has",
+            "omniroute": "partial",
+            "friday": "has"
+          },
+          "head": "partial",
+          "headEvidence": "src/app/api/auth/oidc/{login,callback}/route.ts admin gate only; no test route or authMode",
+          "ownUnique": false,
+          "value": "H",
+          "effort": "S",
+          "slice": "L7",
+          "ux": {
+            "home": "Govern > Identity",
+            "pattern": "DS field/form in a right-side drawer; primary red button only for Save; Advanced group collapsed"
+          }
+        },
+        {
+          "id": "ai-saml",
+          "title": "SAML SP login",
+          "description": "SAML entry, ACS, metadata and test.",
+          "sources": {
+            "ninerouter": "has",
+            "pentatonic": "has",
+            "litellm": "has",
+            "omniroute": "no",
+            "friday": "has"
+          },
+          "head": "missing",
+          "headEvidence": "no saml routes or dependency (audit A1)",
+          "ownUnique": false,
+          "value": "H",
+          "effort": "M",
+          "slice": "L7",
+          "ux": {
+            "home": "Govern > Identity",
+            "pattern": "DS field/form in a right-side drawer; primary red button only for Save; Advanced group collapsed"
+          }
+        },
+        {
+          "id": "ai-users-roles",
+          "title": "Users, memberships and roles",
+          "description": "users table, memberships platform_admin/tenant_admin/member/viewer, static permission map.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "partial",
+            "litellm": "has",
+            "omniroute": "no",
+            "friday": "partial"
+          },
+          "head": "missing",
+          "headEvidence": "no users, owner or role concept (study-9router B.3.6)",
+          "ownUnique": false,
+          "value": "H",
+          "effort": "L",
+          "slice": "E-A",
+          "ux": {
+            "home": "Govern > People",
+            "pattern": "Dense DS table with sortable columns, row actions in a menu, one primary button top right"
+          }
+        },
+        {
+          "id": "ai-tenants",
+          "title": "Tenants (organizations)",
+          "description": "Optional tenant layer, off by default, default tenant seeded.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "has",
+            "omniroute": "no",
+            "friday": "no"
+          },
+          "head": "missing",
+          "headEvidence": "tenant = API key id only (src/sse/handlers/chatAdmission.ts:18-133)",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "L",
+          "slice": "E-A",
+          "ux": {
+            "home": "Govern > People",
+            "pattern": "Dense DS table with sortable columns, row actions in a menu, one primary button top right"
+          }
+        },
+        {
+          "id": "ai-resource-scope",
+          "title": "Per-user resource ownership and shared pool",
+          "description": "Own plus shared connections, keys and combos; shared editable by admin only; per-user disable/hide.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "has",
+            "litellm": "no",
+            "omniroute": "no",
+            "friday": "has"
+          },
+          "head": "missing",
+          "headEvidence": "no owner column in migrations; importer only reports it (src/lib/db/fridayImport.ts:106,136)",
+          "ownUnique": false,
+          "value": "H",
+          "effort": "L",
+          "slice": "E-A",
+          "ux": {
+            "home": "Operate > Combos",
+            "pattern": "Dense DS table with sortable columns, row actions in a menu, one primary button top right"
+          }
+        },
+        {
+          "id": "ai-import-owner-fidelity",
+          "title": "Friday import keeps ownership and narrow admin keys",
+          "description": "Importer stages owner, scope settings and kv prefs; Friday admin keys do not become manage-scope keys.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "no",
+            "omniroute": "no",
+            "friday": "has"
+          },
+          "head": "partial",
+          "headEvidence": "fridayImport.ts drops owner; role admin mapped to manage scope (study-9router B.3.6)",
+          "ownUnique": true,
+          "value": "H",
+          "effort": "S",
+          "slice": "E-A0",
+          "ux": {
+            "home": "System > Data > Import",
+            "pattern": "Numbered steps on one page (Step n of N), one primary action per step, inline validation list"
+          }
+        },
+        {
+          "id": "ai-identity-linking",
+          "title": "Identity linking by issuer and subject",
+          "description": "Identity is (issuer, subject); e-mail is an attribute; verified e-mail required to link.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "has",
+            "omniroute": "no",
+            "friday": "no"
+          },
+          "head": "missing",
+          "headEvidence": "callback mints authenticated:true only (src/app/api/auth/oidc/callback/route.ts:90)",
+          "ownUnique": false,
+          "value": "H",
+          "effort": "M",
+          "slice": "E-A",
+          "ux": {
+            "home": "Govern > Identity",
+            "pattern": "Dense DS table with sortable columns, row actions in a menu, one primary button top right"
+          }
+        },
+        {
+          "id": "ai-settings-overrides",
+          "title": "Per-user and per-tenant settings overrides",
+          "description": "Allow-listed overrides (token saver, capacity adapter, autopilot defaults) resolved user > tenant > global.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "has",
+            "litellm": "no",
+            "omniroute": "no",
+            "friday": "has"
+          },
+          "head": "missing",
+          "headEvidence": "tokenSaverByOwner absent",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "M",
+          "slice": "E-A",
+          "ux": {
+            "home": "System > Settings",
+            "pattern": "One flat DS card per setting group with a description line; no nested cards"
+          }
+        },
+        {
+          "id": "ai-admin-key-rest",
+          "title": "Administration keys acting as their owner",
+          "description": "One admin key per user authenticates management routes as that owner; refused on /v1.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "has",
+            "litellm": "no",
+            "omniroute": "no",
+            "friday": "partial"
+          },
+          "head": "missing",
+          "headEvidence": "management_key kind exists (src/server/authz/policies/management.ts) but no owner",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "M",
+          "slice": "E-A",
+          "ux": {
+            "home": "Operate > Endpoint & Keys > Keys",
+            "pattern": "DS field/form in a right-side drawer; primary red button only for Save; Advanced group collapsed"
+          }
+        },
+        {
+          "id": "ai-mcp-admin-keys",
+          "title": "MCP admin keys",
+          "description": "A key with admin role gets MCP tools to list and create keys within its scope.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "no",
+            "omniroute": "no",
+            "friday": "has"
+          },
+          "head": "partial",
+          "headEvidence": "src/lib/mcp/legacyKeyTools.ts:47 (role admin = manage scope); import over-broadens it",
+          "ownUnique": true,
+          "value": "H",
+          "effort": "S",
+          "slice": "E-A0",
+          "ux": {
+            "home": "Operate > Endpoint & Keys > MCP",
+            "pattern": "Key-value rows in a DS description-list with copy buttons"
+          }
+        },
+        {
+          "id": "ai-key-policy",
+          "title": "API key policy, bindings, tags and search",
+          "description": "Model allow/deny, allowed combos and connections, IP allowlist, schedule, rate limits, no_log, expiry, ban, tags and a search picker.",
+          "sources": {
+            "ninerouter": "has",
+            "pentatonic": "has",
+            "litellm": "has",
+            "omniroute": "has",
+            "friday": "has"
+          },
+          "head": "better",
+          "headEvidence": "src/lib/db/apiKeys.ts:466; src/shared/utils/apiKeyPolicy.ts; src/app/api/keys/search; src/lib/db/apiKeys/tags.ts",
+          "ownUnique": false,
+          "value": "H",
+          "effort": "S",
+          "slice": "X-OMNI",
+          "ux": {
+            "home": "Operate > Endpoint & Keys > Keys",
+            "pattern": "DS field/form in a right-side drawer; primary red button only for Save; Advanced group collapsed"
+          }
+        },
+        {
+          "id": "ai-key-lifecycle",
+          "title": "Key rotation with grace, bulk update, archive",
+          "description": "Scheduled rotation where the old key works for a grace period; deleted-key archive.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "has",
+            "omniroute": "no",
+            "friday": "no"
+          },
+          "head": "partial",
+          "headEvidence": "src/app/api/keys/[id]/regenerate only",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "M",
+          "slice": "L13",
+          "ux": {
+            "home": "Operate > Endpoint & Keys > Keys",
+            "pattern": "DS field/form in a right-side drawer; primary red button only for Save; Advanced group collapsed"
+          }
+        },
+        {
+          "id": "ai-key-groups-teams",
+          "title": "Teams (evolving key groups)",
+          "description": "Teams share budget and model rules; members are keys first, users later.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "has",
+            "omniroute": "no",
+            "friday": "no"
+          },
+          "head": "partial",
+          "headEvidence": "src/lib/db/apiKeyGroups.ts; enforced apiKeys.ts:1677; no UI found",
+          "ownUnique": false,
+          "value": "H",
+          "effort": "L",
+          "slice": "L6",
+          "ux": {
+            "home": "Govern > People > Teams",
+            "pattern": "Dense DS table with sortable columns, row actions in a menu, one primary button top right"
+          }
+        },
+        {
+          "id": "ai-access-groups",
+          "title": "Access groups",
+          "description": "Shared object spanning models, combos, MCP servers and agents assigned to teams and keys.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "has",
+            "omniroute": "no",
+            "friday": "no"
+          },
+          "head": "missing",
+          "headEvidence": "no shared object",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "M",
+          "slice": "L8",
+          "ux": {
+            "home": "Govern > People > Access groups",
+            "pattern": "Dense DS table with sortable columns, row actions in a menu, one primary button top right"
+          }
+        },
+        {
+          "id": "ai-jwt-mapping",
+          "title": "JWT claim mapping, invitations and JIT provisioning",
+          "description": "IdP claim to team/role/key mapping, invite by link, provision on first login when allowed.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "has",
+            "omniroute": "no",
+            "friday": "no"
+          },
+          "head": "missing",
+          "headEvidence": "dashboard JWT only; no users",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "M",
+          "slice": "L7",
+          "ux": {
+            "home": "Govern > Identity",
+            "pattern": "DS field/form in a right-side drawer; primary red button only for Save; Advanced group collapsed"
+          }
+        },
+        {
+          "id": "ai-login-hardening",
+          "title": "Login hardening and local password reset",
+          "description": "Throttle, password policy, breach screening; CLI reset exists, local HTTP reset route absent.",
+          "sources": {
+            "ninerouter": "has",
+            "pentatonic": "has",
+            "litellm": "has",
+            "omniroute": "partial",
+            "friday": "has"
+          },
+          "head": "partial",
+          "headEvidence": "src/server/auth/loginGuard.ts:59; bin/reset-password.mjs; no reset route or policy (audit A1)",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "S",
+          "slice": "L7",
+          "ux": {
+            "home": "System > Settings > Security",
+            "pattern": "DS field/form in a right-side drawer; primary red button only for Save; Advanced group collapsed"
+          }
+        },
+        {
+          "id": "ai-scim-oauth2",
+          "title": "SCIM v2 and OAuth2 token validation",
+          "description": "Directory sync and API token validation against an IdP; independent implementation only.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "has",
+            "omniroute": "no",
+            "friday": "no"
+          },
+          "head": "missing",
+          "headEvidence": "absent; LiteLLM versions are enterprise-licensed",
+          "ownUnique": false,
+          "value": "L",
+          "effort": "L",
+          "slice": "X-DEFER",
+          "ux": {
+            "home": "Govern > Identity",
+            "pattern": "DS field/form in a right-side drawer; primary red button only for Save; Advanced group collapsed"
+          }
+        },
+        {
+          "id": "ai-cli-access-tokens",
+          "title": "CLI access tokens with scopes",
+          "description": "oma_* tokens with read/write/admin scope.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "no",
+            "omniroute": "has",
+            "friday": "no"
+          },
+          "head": "equivalent",
+          "headEvidence": "src/server/authz/accessTokenAuth.ts; migrations/100_cli_access_tokens.sql",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "S",
+          "slice": "X-OMNI",
+          "ux": {
+            "home": "System > Settings > Security",
+            "pattern": "Dense DS table with sortable columns, row actions in a menu, one primary button top right"
+          }
+        },
+        {
+          "id": "ai-audit-log",
+          "title": "Audit log with actor and target, plus MCP/A2A audit",
+          "description": "Who changed what (before/after diffs not verified) and MCP/A2A tool audit tables.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "has",
+            "omniroute": "has",
+            "friday": "no"
+          },
+          "head": "equivalent",
+          "headEvidence": "src/lib/compliance/index.ts; src/app/api/compliance/audit-log; src/app/api/mcp/audit; mcp_tool_audit table",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "S",
+          "slice": "L0",
+          "ux": {
+            "home": "Govern > Audit",
+            "pattern": "Dense table plus right drawer (DS drawer) with monospace JSON; filters as a chip row"
+          }
+        },
+        {
+          "id": "ai-ip-allowlist",
+          "title": "IP allowlist and loopback-only guards",
+          "description": "Per-key and global IP filtering; isLocalOnlyPath keeps process-spawning routes off the network.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "has",
+            "omniroute": "has",
+            "friday": "no"
+          },
+          "head": "equivalent",
+          "headEvidence": "open-sse/services/ipFilter.ts:85; apiKeys.ts:466; src/server/authz/routeGuard.ts (Hard Rules 15, 17)",
+          "ownUnique": false,
+          "value": "H",
+          "effort": "S",
+          "slice": "L0",
+          "ux": {
+            "home": "System > Settings > Security",
+            "pattern": "DS field/form in a right-side drawer; primary red button only for Save; Advanced group collapsed"
+          }
+        },
+        {
+          "id": "ai-tenancy-visibility",
+          "title": "Role-aware navigation and page guards",
+          "description": "Admin-only pages hidden and refused for non-admins when scoping is on.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "has",
+            "litellm": "no",
+            "omniroute": "no",
+            "friday": "has"
+          },
+          "head": "missing",
+          "headEvidence": "Sidebar has no adminOnly filter at HEAD (src/shared/components/Sidebar.tsx)",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "S",
+          "slice": "E-A",
+          "ux": {
+            "home": "System > Settings > Sidebar",
+            "pattern": "No dedicated UI: behaviour is visible through headers, API and existing pages"
+          }
+        }
+      ]
+    },
+    {
+      "id": "safety-guardrails",
+      "title": "Safety, guardrails and compliance",
+      "capabilities": [
+        {
+          "id": "sg-registry",
+          "title": "Guardrail registry (PII, injection, credential)",
+          "description": "Always-on registry with per-call opt-out header.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "has",
+            "omniroute": "has",
+            "friday": "no"
+          },
+          "head": "partial",
+          "headEvidence": "src/lib/guardrails/registry.ts:95; GET /api/guardrails",
+          "ownUnique": false,
+          "value": "H",
+          "effort": "S",
+          "slice": "L5",
+          "ux": {
+            "home": "Govern > Guardrails",
+            "pattern": "Dense DS table with sortable columns, row actions in a menu, one primary button top right"
+          }
+        },
+        {
+          "id": "sg-pii-optin",
+          "title": "PII masking and response sanitising, opt-in",
+          "description": "Redaction and SSE sanitising never on by default.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "has",
+            "omniroute": "has",
+            "friday": "no"
+          },
+          "head": "equivalent",
+          "headEvidence": "src/lib/guardrails/piiMasker.ts:203; Hard Rule 20; tests/unit/pii-opt-in-default.test.ts",
+          "ownUnique": true,
+          "value": "H",
+          "effort": "S",
+          "slice": "X-GUARD",
+          "ux": {
+            "home": "Govern > Guardrails",
+            "pattern": "DS switch with a one-line description; effect shown inline after change"
+          }
+        },
+        {
+          "id": "sg-builtin-guards",
+          "title": "Prompt-injection guard and credential masking",
+          "description": "Built-in guardrails that detect injection and mask secrets in prompts.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "has",
+            "omniroute": "has",
+            "friday": "no"
+          },
+          "head": "equivalent",
+          "headEvidence": "src/lib/guardrails/promptInjection.ts; src/lib/guardrails/credentialMasker.ts",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "S",
+          "slice": "L0",
+          "ux": {
+            "home": "Govern > Guardrails",
+            "pattern": "DS switch with a one-line description; effect shown inline after change"
+          }
+        },
+        {
+          "id": "sg-modality-bridges",
+          "title": "Vision, audio and video bridges",
+          "description": "Convert media to text for models without the modality.",
+          "sources": {
+            "ninerouter": "has",
+            "pentatonic": "no",
+            "litellm": "no",
+            "omniroute": "has",
+            "friday": "has"
+          },
+          "head": "better",
+          "headEvidence": "src/lib/guardrails/{visionBridge,audioBridge,videoBridge}.ts; settings/modality-bridge",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "S",
+          "slice": "X-OMNI",
+          "ux": {
+            "home": "System > Settings > Routing",
+            "pattern": "One flat DS card per setting group with a description line; no nested cards"
+          }
+        },
+        {
+          "id": "sg-assignment",
+          "title": "Guardrail assignment and priority",
+          "description": "Attach guardrails to key, team, model or tag with inheritance and priority.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "has",
+            "omniroute": "no",
+            "friday": "no"
+          },
+          "head": "missing",
+          "headEvidence": "global registry only",
+          "ownUnique": false,
+          "value": "H",
+          "effort": "M",
+          "slice": "L5",
+          "ux": {
+            "home": "Govern > Guardrails",
+            "pattern": "Dense DS table with sortable columns, row actions in a menu, one primary button top right"
+          }
+        },
+        {
+          "id": "sg-policies-resolve",
+          "title": "Versioned policies and resolve/explain",
+          "description": "Draft/published policy versions with attachments, and an explain of which guardrails, budgets and model rules apply to key K on model M.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "has",
+            "omniroute": "no",
+            "friday": "no"
+          },
+          "head": "missing",
+          "headEvidence": "src/domain/policyEngine.ts is routing/cost, not guardrails; routing explain only",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "L",
+          "slice": "L5",
+          "ux": {
+            "home": "Govern > Guardrails",
+            "pattern": "Two-pane list and detail editor; Save and Discard in a sticky footer"
+          }
+        },
+        {
+          "id": "sg-content-filter",
+          "title": "Content filter and blocked keywords",
+          "description": "Blocked words, regex and categories with sanitised errors.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "has",
+            "omniroute": "no",
+            "friday": "no"
+          },
+          "head": "missing",
+          "headEvidence": "none",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "S",
+          "slice": "L5",
+          "ux": {
+            "home": "Govern > Guardrails",
+            "pattern": "DS field/form in a right-side drawer; primary red button only for Save; Advanced group collapsed"
+          }
+        },
+        {
+          "id": "sg-generic-http",
+          "title": "Generic HTTP guardrail and first-party adapters",
+          "description": "One contract for external guardrail services, plus two or three adapters.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "has",
+            "omniroute": "no",
+            "friday": "no"
+          },
+          "head": "missing",
+          "headEvidence": "none; vendor sprawl deliberately avoided",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "M",
+          "slice": "L5",
+          "ux": {
+            "home": "Govern > Guardrails",
+            "pattern": "DS field/form in a right-side drawer; primary red button only for Save; Advanced group collapsed"
+          }
+        },
+        {
+          "id": "sg-monitoring",
+          "title": "Guardrail monitoring",
+          "description": "Per-guardrail usage, block rate and latency.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "has",
+            "omniroute": "no",
+            "friday": "no"
+          },
+          "head": "missing",
+          "headEvidence": "none",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "M",
+          "slice": "L5",
+          "ux": {
+            "home": "Govern > Guardrails",
+            "pattern": "Dense DS table with sortable columns, row actions in a menu, one primary button top right"
+          }
+        },
+        {
+          "id": "sg-compliance",
+          "title": "Retention, no-log, compliance and sanitised errors",
+          "description": "No-log per key, retention purge, provider audit, and no raw stacks or messages in responses.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "has",
+            "omniroute": "has",
+            "friday": "no"
+          },
+          "head": "equivalent",
+          "headEvidence": "src/lib/compliance/{noLog,providerAudit}.ts; open-sse/utils/error.ts buildErrorBody; Hard Rule 12",
+          "ownUnique": false,
+          "value": "H",
+          "effort": "S",
+          "slice": "L0",
+          "ux": {
+            "home": "Govern > Audit",
+            "pattern": "One flat DS card per setting group with a description line; no nested cards"
+          }
+        },
+        {
+          "id": "sg-omni-security-fixes",
+          "title": "OmniRoute 3.8.52 security fixes",
+          "description": "GHSA-7j4q-6gx6-pg77, GHSA-jmq6-8j86-8xqj, GHSA-mh4f-3xj9-4gc4, GHSA-9p9m-h9rj-rhhg and 193 fixes.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "no",
+            "omniroute": "has",
+            "friday": "no"
+          },
+          "head": "partial",
+          "headEvidence": "in progress: OmniRoute sync 3.8.52 by another agent",
+          "ownUnique": false,
+          "value": "H",
+          "effort": "M",
+          "slice": "X-OMNI",
+          "ux": {
+            "home": "System > Health",
+            "pattern": "No dedicated UI: behaviour is visible through headers, API and existing pages"
+          }
+        }
+      ]
+    },
+    {
+      "id": "cache-compression",
+      "title": "Caching, compression and token saving",
+      "capabilities": [
+        {
+          "id": "cc-semantic-cache",
+          "title": "Semantic and exact-match cache",
+          "description": "Memory and Redis vector stores plus exact-match cache with isolation by key.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "has",
+            "omniroute": "has",
+            "friday": "no"
+          },
+          "head": "equivalent",
+          "headEvidence": "open-sse/services/cache/semanticCacheManager.ts; src/app/api/cache",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "S",
+          "slice": "L0",
+          "ux": {
+            "home": "Operate > Context Savings > Cache",
+            "pattern": "One flat DS card per setting group with a description line; no nested cards"
+          }
+        },
+        {
+          "id": "cc-cache-extras",
+          "title": "Per-request cache controls and extra backends",
+          "description": "ttl, namespace, no-store, per-key allow-list; disk, S3, GCS and Azure Blob backends.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "has",
+            "omniroute": "partial",
+            "friday": "no"
+          },
+          "head": "partial",
+          "headEvidence": "x-omniroute-no-cache only (semanticCacheManager.ts:206-211); memory and Redis backends only",
+          "ownUnique": false,
+          "value": "L",
+          "effort": "S",
+          "slice": "L15",
+          "ux": {
+            "home": "Operate > Context Savings > Cache",
+            "pattern": "DS field/form in a right-side drawer; primary red button only for Save; Advanced group collapsed"
+          }
+        },
+        {
+          "id": "cc-prompt-cache",
+          "title": "Provider prompt-cache management",
+          "description": "cache_control handling and cache-aware routing.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "has",
+            "omniroute": "has",
+            "friday": "no"
+          },
+          "head": "equivalent",
+          "headEvidence": "open-sse/handlers/chatCore.ts:157",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "S",
+          "slice": "X-OMNI",
+          "ux": {
+            "home": "Operate > Context Savings > Cache",
+            "pattern": "One flat DS card per setting group with a description line; no nested cards"
+          }
+        },
+        {
+          "id": "cc-compression-engines",
+          "title": "Compression engines (RTK, Caveman, Headroom native, Lite, Aggressive, Ultra, LLMLingua)",
+          "description": "Multiple engines with a cascade studio, per-model exclusions and savings analytics.",
+          "sources": {
+            "ninerouter": "has",
+            "pentatonic": "has",
+            "litellm": "no",
+            "omniroute": "has",
+            "friday": "has"
+          },
+          "head": "better",
+          "headEvidence": "src/app/(dashboard)/dashboard/context/*; open-sse/services/compression/engines; src/lib/db/compressionAnalytics.ts",
+          "ownUnique": false,
+          "value": "H",
+          "effort": "S",
+          "slice": "X-OMNI",
+          "ux": {
+            "home": "Operate > Context Savings",
+            "pattern": "DS tabs (underline, start-edge indicator in red) inside one page with one H1"
+          }
+        },
+        {
+          "id": "cc-output-modes",
+          "title": "RTK, caveman, ponytail and ADHD output modes",
+          "description": "Output styles and input filters as RedRouter's token saver family.",
+          "sources": {
+            "ninerouter": "has",
+            "pentatonic": "has",
+            "litellm": "no",
+            "omniroute": "partial",
+            "friday": "has"
+          },
+          "head": "partial",
+          "headEvidence": "open-sse/services/compression/outputStyles/catalog.ts:57,121,193; RTK filter parity and importing Friday flags not verified",
+          "ownUnique": true,
+          "value": "H",
+          "effort": "M",
+          "slice": "X-TOKENSAVER",
+          "ux": {
+            "home": "Operate > Context Savings",
+            "pattern": "DS tabs (underline, start-edge indicator in red) inside one page with one H1"
+          }
+        },
+        {
+          "id": "cc-headroom-proxy",
+          "title": "Headroom external proxy path",
+          "description": "Call the external Headroom proxy fail-open, with extras install, restart and per-key project.",
+          "sources": {
+            "ninerouter": "has",
+            "pentatonic": "has",
+            "litellm": "no",
+            "omniroute": "no",
+            "friday": "has"
+          },
+          "head": "partial",
+          "headEvidence": "src/lib/headroom/{detect,process}.ts and start/stop/status routes; no chat-path call; restart/extras absent",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "M",
+          "slice": "X-HEADROOM",
+          "ux": {
+            "home": "Operate > Context Savings > Headroom",
+            "pattern": "One flat DS card per setting group with a description line; no nested cards"
+          }
+        },
+        {
+          "id": "cc-pxpipe",
+          "title": "PXPIPE compression service",
+          "description": "Install/start/stop service with stats and history for Claude-format requests.",
+          "sources": {
+            "ninerouter": "has",
+            "pentatonic": "has",
+            "litellm": "no",
+            "omniroute": "no",
+            "friday": "has"
+          },
+          "head": "missing",
+          "headEvidence": "grep pxpipe across src, open-sse, bin empty",
+          "ownUnique": false,
+          "value": "L",
+          "effort": "L",
+          "slice": "X-PXPIPE",
+          "ux": {
+            "home": "Operate > Context Savings > PXPIPE",
+            "pattern": "One flat DS card per setting group with a description line; no nested cards"
+          }
+        }
+      ]
+    },
+    {
+      "id": "observability",
+      "title": "Observability, logs and alerting",
+      "capabilities": [
+        {
+          "id": "ob-request-logs",
+          "title": "Request logs and detail",
+          "description": "Filtered request logs, detail drawer and timeline.",
+          "sources": {
+            "ninerouter": "has",
+            "pentatonic": "has",
+            "litellm": "has",
+            "omniroute": "has",
+            "friday": "has"
+          },
+          "head": "equivalent",
+          "headEvidence": "RequestLoggerV2.tsx; dashboard/logs/{activity,proxy,timeline}",
+          "ownUnique": false,
+          "value": "H",
+          "effort": "S",
+          "slice": "S0",
+          "ux": {
+            "home": "Debug > Logs",
+            "pattern": "Dense table plus right drawer (DS drawer) with monospace JSON; filters as a chip row"
+          }
+        },
+        {
+          "id": "ob-log-drawer-viewers",
+          "title": "Guardrail, tool and cost viewers, session tree",
+          "description": "Per-request sections for guardrails and cost breakdown and a session history tree.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "has",
+            "omniroute": "no",
+            "friday": "no"
+          },
+          "head": "partial",
+          "headEvidence": "RequestLoggerDetail.tsx has core detail only (nv)",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "M",
+          "slice": "L16",
+          "ux": {
+            "home": "Debug > Logs",
+            "pattern": "Dense table plus right drawer (DS drawer) with monospace JSON; filters as a chip row"
+          }
+        },
+        {
+          "id": "ob-console",
+          "title": "Console log viewer",
+          "description": "Level filter, follow, fullscreen and events-per-minute bars.",
+          "sources": {
+            "ninerouter": "has",
+            "pentatonic": "has",
+            "litellm": "no",
+            "omniroute": "has",
+            "friday": "has"
+          },
+          "head": "equivalent",
+          "headEvidence": "src/shared/components/ConsoleLogViewer.tsx; tests/unit/console-log-stream-route.test.ts",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "S",
+          "slice": "S0",
+          "ux": {
+            "home": "Debug > Console",
+            "pattern": "Dense table plus right drawer (DS drawer) with monospace JSON; filters as a chip row"
+          }
+        },
+        {
+          "id": "ob-prometheus",
+          "title": "Prometheus metrics endpoint",
+          "description": "Opt-in /metrics with requests, tokens, cost, latency and breaker state.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "has",
+            "omniroute": "no",
+            "friday": "no"
+          },
+          "head": "missing",
+          "headEvidence": "no # HELP anywhere (study-litellm h2)",
+          "ownUnique": false,
+          "value": "H",
+          "effort": "M",
+          "slice": "L4",
+          "ux": {
+            "home": "System > Integrations > Metrics",
+            "pattern": "DS switch with a one-line description; effect shown inline after change"
+          }
+        },
+        {
+          "id": "ob-destinations",
+          "title": "Log destinations and full OTLP traces",
+          "description": "Langfuse, Datadog, S3, GCS destinations beyond BigQuery and one OTLP trace per request with cost.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "has",
+            "omniroute": "partial",
+            "friday": "no"
+          },
+          "head": "partial",
+          "headEvidence": "src/lib/logExport/registry.ts:10 BigQuery only; open-sse/services/routing/otel.ts:30 routing decisions only",
+          "ownUnique": false,
+          "value": "H",
+          "effort": "S",
+          "slice": "L4",
+          "ux": {
+            "home": "System > Integrations > Log export",
+            "pattern": "Dense DS table with sortable columns, row actions in a menu, one primary button top right"
+          }
+        },
+        {
+          "id": "ob-alerts",
+          "title": "Webhooks, chat integrations and alert events",
+          "description": "Signed webhook events with Slack/Discord/Telegram formatting; add budget, cooldown, slow, hanging, db-error events with digest mode.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "has",
+            "omniroute": "has",
+            "friday": "no"
+          },
+          "head": "partial",
+          "headEvidence": "six events (src/lib/webhooks/eventDescriptions.ts:1-13); src/lib/webhooks/integrations",
+          "ownUnique": false,
+          "value": "H",
+          "effort": "M",
+          "slice": "L4",
+          "ux": {
+            "home": "System > Integrations > Webhooks",
+            "pattern": "Dense DS table with sortable columns, row actions in a menu, one primary button top right"
+          }
+        },
+        {
+          "id": "ob-health-endpoints",
+          "title": "Readiness, drain and backlog endpoints",
+          "description": "Liveness, readiness with DB check, drain and backlog depth.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "has",
+            "omniroute": "partial",
+            "friday": "no"
+          },
+          "head": "partial",
+          "headEvidence": "src/app/api/health, health/ping; readiness/drain not found",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "S",
+          "slice": "L14",
+          "ux": {
+            "home": "System > Health",
+            "pattern": "DS badge and status-indicator for state only (feedback colours), never for decoration"
+          }
+        },
+        {
+          "id": "ob-diagnostics-log",
+          "title": "Rotating diagnostics log and logs --path",
+          "description": "Launcher log with rotation, redaction and per-OS path.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "no",
+            "omniroute": "no",
+            "friday": "has"
+          },
+          "head": "missing",
+          "headEvidence": "no XDG_STATE_HOME/red-router.log path in bin or src (audit A6)",
+          "ownUnique": true,
+          "value": "M",
+          "effort": "M",
+          "slice": "X-DIAG",
+          "ux": {
+            "home": "Debug > Console",
+            "pattern": "One flat DS card per setting group with a description line; no nested cards"
+          }
+        },
+        {
+          "id": "ob-provider-stats",
+          "title": "Provider and combo metrics, chaos lab",
+          "description": "Per-provider and combo latency, errors, health; fault-injection lab.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "has",
+            "omniroute": "has",
+            "friday": "no"
+          },
+          "head": "equivalent",
+          "headEvidence": "src/app/api/provider-stats; provider-metrics; combos/metrics; dashboard/chaos",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "S",
+          "slice": "X-OMNI",
+          "ux": {
+            "home": "Operate > Usage",
+            "pattern": "Dense DS table with sortable columns, row actions in a menu, one primary button top right"
+          }
+        },
+        {
+          "id": "ob-entity-usage",
+          "title": "Usage by team, tag and end user",
+          "description": "One usage layout with an entity selector and CSV export.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "has",
+            "omniroute": "no",
+            "friday": "no"
+          },
+          "head": "missing",
+          "headEvidence": "no entities",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "M",
+          "slice": "L16",
+          "ux": {
+            "home": "Operate > Usage",
+            "pattern": "DS tabs (underline, start-edge indicator in red) inside one page with one H1"
+          }
+        },
+        {
+          "id": "ob-admin-request-details",
+          "title": "Admin request-details API scoped by key owner",
+          "description": "Management API over request details.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "has",
+            "litellm": "no",
+            "omniroute": "no",
+            "friday": "no"
+          },
+          "head": "missing",
+          "headEvidence": "absent (study-9router B.2)",
+          "ownUnique": false,
+          "value": "L",
+          "effort": "M",
+          "slice": "E-B",
+          "ux": {
+            "home": "Debug > Logs",
+            "pattern": "No dedicated UI: behaviour is visible through headers, API and existing pages"
+          }
+        }
+      ]
+    },
+    {
+      "id": "agents-mcp-tools",
+      "title": "Agents, MCP, skills and client tools",
+      "capabilities": [
+        {
+          "id": "am-mcp-server",
+          "title": "MCP server with 110 tools",
+          "description": "Stdio, SSE and Streamable HTTP transports with scopes.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "partial",
+            "omniroute": "no",
+            "friday": "no"
+          },
+          "head": "better",
+          "headEvidence": "open-sse/mcp-server/server.ts",
+          "ownUnique": false,
+          "value": "H",
+          "effort": "S",
+          "slice": "X-OMNI",
+          "ux": {
+            "home": "Operate > Endpoint & Keys > MCP",
+            "pattern": "Dense DS table with sortable columns, row actions in a menu, one primary button top right"
+          }
+        },
+        {
+          "id": "am-agent-gateways",
+          "title": "MCP gateway and A2A agent registry",
+          "description": "Register external MCP servers and agents, aggregate /mcp, per-key tool ACL, toolsets, OAuth/BYOK, per-agent keys and kill switch.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "has",
+            "omniroute": "no",
+            "friday": "no"
+          },
+          "head": "missing",
+          "headEvidence": "MCP and A2A servers only",
+          "ownUnique": false,
+          "value": "H",
+          "effort": "L",
+          "slice": "L11",
+          "ux": {
+            "home": "Operate > Endpoint & Keys > MCP",
+            "pattern": "Dense DS table with sortable columns, row actions in a menu, one primary button top right"
+          }
+        },
+        {
+          "id": "am-tool-permissions",
+          "title": "Tool permissions and policies",
+          "description": "Allow/deny per tool per key or team.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "has",
+            "omniroute": "no",
+            "friday": "no"
+          },
+          "head": "missing",
+          "headEvidence": "skills interception only (src/lib/skills/interception.ts)",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "M",
+          "slice": "L5",
+          "ux": {
+            "home": "Operate > Endpoint & Keys > MCP",
+            "pattern": "Dense DS table with sortable columns, row actions in a menu, one primary button top right"
+          }
+        },
+        {
+          "id": "am-agents-omni",
+          "title": "A2A server, cloud/ACP agents, conductor",
+          "description": "JSON-RPC A2A with six skills, cloud and ACP agent management, multi-agent conductor and orchestration.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "has",
+            "omniroute": "has",
+            "friday": "no"
+          },
+          "head": "equivalent",
+          "headEvidence": "src/lib/a2a/taskExecution.ts; src/lib/cloudAgent; dashboard/{cloud-agents,acp-agents,conductor,orchestration}",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "S",
+          "slice": "X-OMNI",
+          "ux": {
+            "home": "Tools > Agents",
+            "pattern": "Dense DS table with sortable columns, row actions in a menu, one primary button top right"
+          }
+        },
+        {
+          "id": "am-cli-tools",
+          "title": "CLI tool configuration",
+          "description": "One-click config of coding CLIs against the router (39 tool ids).",
+          "sources": {
+            "ninerouter": "has",
+            "pentatonic": "has",
+            "litellm": "no",
+            "omniroute": "has",
+            "friday": "has"
+          },
+          "head": "better",
+          "headEvidence": "src/shared/constants/cliTools.ts; dashboard/{cli-code,cli-agents}",
+          "ownUnique": false,
+          "value": "H",
+          "effort": "S",
+          "slice": "S0",
+          "ux": {
+            "home": "Tools > CLI Tools",
+            "pattern": "One flat DS card per setting group with a description line; no nested cards"
+          }
+        },
+        {
+          "id": "am-cli-tools-extras",
+          "title": "Amp, Devin CLI, Cowork, OpenDesign cards",
+          "description": "Additional CLI tool cards and Cowork MCP bridge.",
+          "sources": {
+            "ninerouter": "has",
+            "pentatonic": "has",
+            "litellm": "no",
+            "omniroute": "no",
+            "friday": "has"
+          },
+          "head": "missing",
+          "headEvidence": "no amp/devin/opendesign/cowork routes (study-9router D)",
+          "ownUnique": false,
+          "value": "L",
+          "effort": "M",
+          "slice": "S9",
+          "ux": {
+            "home": "Tools > CLI Tools",
+            "pattern": "One flat DS card per setting group with a description line; no nested cards"
+          }
+        },
+        {
+          "id": "am-agent-bridge",
+          "title": "Agent bridge (MITM) and traffic inspector",
+          "description": "Intercept desktop agent traffic with model mapping.",
+          "sources": {
+            "ninerouter": "has",
+            "pentatonic": "has",
+            "litellm": "no",
+            "omniroute": "has",
+            "friday": "has"
+          },
+          "head": "equivalent",
+          "headEvidence": "dashboard/tools/agent-bridge; src/mitm",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "S",
+          "slice": "S0",
+          "ux": {
+            "home": "Tools > Agent Bridge",
+            "pattern": "One flat DS card per setting group with a description line; no nested cards"
+          }
+        },
+        {
+          "id": "am-skills",
+          "title": "Skills framework",
+          "description": "Sandboxed skills, builtins and skills.sh integration.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "has",
+            "omniroute": "has",
+            "friday": "has"
+          },
+          "head": "equivalent",
+          "headEvidence": "src/lib/skills",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "S",
+          "slice": "X-OMNI",
+          "ux": {
+            "home": "Tools > Skills",
+            "pattern": "Dense DS table with sortable columns, row actions in a menu, one primary button top right"
+          }
+        },
+        {
+          "id": "am-redrouter-skills",
+          "title": "RedRouter skill pack for coding agents",
+          "description": "Nine red-router skills (chat, image, tts, stt, embeddings, video, web-search, web-fetch) with raw URLs.",
+          "sources": {
+            "ninerouter": "has",
+            "pentatonic": "no",
+            "litellm": "no",
+            "omniroute": "no",
+            "friday": "has"
+          },
+          "head": "missing",
+          "headEvidence": "HEAD skills/ has omni-*/cli-* only; agentSkills.ts:7 points at OmniRoute",
+          "ownUnique": true,
+          "value": "M",
+          "effort": "S",
+          "slice": "X-SKILLS",
+          "ux": {
+            "home": "Tools > Skills",
+            "pattern": "One flat DS card per setting group with a description line; no nested cards"
+          }
+        },
+        {
+          "id": "am-prompts",
+          "title": "Prompt registry",
+          "description": "Versioned prompts with prompt_id and variables on requests.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "has",
+            "omniroute": "partial",
+            "friday": "no"
+          },
+          "head": "partial",
+          "headEvidence": "src/lib/db/prompts.ts orphan module, no API or UI",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "M",
+          "slice": "L12",
+          "ux": {
+            "home": "Tools > Prompts",
+            "pattern": "Two-pane list and detail editor; Save and Discard in a sticky footer"
+          }
+        },
+        {
+          "id": "am-playground",
+          "title": "Playground and chat",
+          "description": "Compare columns, params, tools, reasoning; persistent multi-session chat is not verified.",
+          "sources": {
+            "ninerouter": "has",
+            "pentatonic": "has",
+            "litellm": "has",
+            "omniroute": "has",
+            "friday": "has"
+          },
+          "head": "partial",
+          "headEvidence": "playground/PlaygroundStudio.tsx",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "M",
+          "slice": "X-IA",
+          "ux": {
+            "home": "Tools > Playground",
+            "pattern": "Two-pane list and detail editor; Save and Discard in a sticky footer"
+          }
+        },
+        {
+          "id": "am-media-pages",
+          "title": "Media provider pages and media combos",
+          "description": "Per-kind pages, System One kind page, media combo detail and combined Web Fetch and Search.",
+          "sources": {
+            "ninerouter": "has",
+            "pentatonic": "no",
+            "litellm": "no",
+            "omniroute": "partial",
+            "friday": "has"
+          },
+          "head": "partial",
+          "headEvidence": "media-providers/[kind]; no systemone kind page or combo detail",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "M",
+          "slice": "X-MEDIA",
+          "ux": {
+            "home": "Tools > Media & Search",
+            "pattern": "Dense DS table with sortable columns, row actions in a menu, one primary button top right"
+          }
+        },
+        {
+          "id": "am-omni-extras",
+          "title": "Memory, plugins, evals, gamification",
+          "description": "FTS5/Qdrant memory, plugin system, eval suites, gamification and leaderboard (hidden by default).",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "has",
+            "omniroute": "has",
+            "friday": "no"
+          },
+          "head": "equivalent",
+          "headEvidence": "src/lib/{memory,plugins,evals}; dashboard/{gamification,leaderboard,tokens}",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "S",
+          "slice": "X-IA",
+          "ux": {
+            "home": "Advanced > Plugins",
+            "pattern": "Dense DS table with sortable columns, row actions in a menu, one primary button top right"
+          }
+        },
+        {
+          "id": "am-claude-marketplace",
+          "title": "Claude Code plugin marketplace and skills API",
+          "description": "Host a Claude Code marketplace and Anthropic skills API.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "has",
+            "omniroute": "no",
+            "friday": "no"
+          },
+          "head": "missing",
+          "headEvidence": "absent (study-litellm a5)",
+          "ownUnique": false,
+          "value": "L",
+          "effort": "M",
+          "slice": "L10",
+          "ux": {
+            "home": "Tools > Skills",
+            "pattern": "No dedicated UI: behaviour is visible through headers, API and existing pages"
+          }
+        }
+      ]
+    },
+    {
+      "id": "network-deploy",
+      "title": "Network, deployment, service and release",
+      "capabilities": [
+        {
+          "id": "nd-loopback-default",
+          "title": "Loopback default bind",
+          "description": "Server binds 127.0.0.1 by default; LAN needs --expose.",
+          "sources": {
+            "ninerouter": "has",
+            "pentatonic": "has",
+            "litellm": "no",
+            "omniroute": "has",
+            "friday": "has"
+          },
+          "head": "equivalent",
+          "headEvidence": "bin/cli/product.mjs:3-4; bin/cli/utils/serverHost.mjs",
+          "ownUnique": true,
+          "value": "H",
+          "effort": "S",
+          "slice": "X-GUARD",
+          "ux": {
+            "home": "System > Network",
+            "pattern": "DS badge and status-indicator for state only (feedback colours), never for decoration"
+          }
+        },
+        {
+          "id": "nd-network-access",
+          "title": "Network access setting and CLI",
+          "description": "This machine only or whole network, shown with source and LAN addresses; red-router network.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "no",
+            "omniroute": "no",
+            "friday": "has"
+          },
+          "head": "missing",
+          "headEvidence": "only /api/network/info lists LAN URLs",
+          "ownUnique": true,
+          "value": "H",
+          "effort": "M",
+          "slice": "X-NETWORK",
+          "ux": {
+            "home": "System > Network",
+            "pattern": "One flat DS card per setting group with a description line; no nested cards"
+          }
+        },
+        {
+          "id": "nd-service-tray",
+          "title": "Headless service and tray",
+          "description": "systemd/launchd service install/status/uninstall and detached tray attach.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "no",
+            "omniroute": "no",
+            "friday": "has"
+          },
+          "head": "equivalent",
+          "headEvidence": "bin/cli/service.mjs; tests/redrouter/native/runtime-compatibility.test.mjs; tray attach 0.35.1",
+          "ownUnique": true,
+          "value": "H",
+          "effort": "S",
+          "slice": "X-GUARD",
+          "ux": {
+            "home": "System > Health",
+            "pattern": "DS badge and status-indicator for state only (feedback colours), never for decoration"
+          }
+        },
+        {
+          "id": "nd-cli",
+          "title": "RedRouter CLI (about 80 commands) and small leftovers",
+          "description": "serve, TUI, setup-*, providers, keys, logs; missing xai video and logs --path.",
+          "sources": {
+            "ninerouter": "has",
+            "pentatonic": "has",
+            "litellm": "partial",
+            "omniroute": "no",
+            "friday": "has"
+          },
+          "head": "equivalent",
+          "headEvidence": "bin/cli/commands; bin/cli/product.mjs; no xai video command; logs is API tail (bin/cli/commands/logs.mjs)",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "S",
+          "slice": "X-CLISMALL",
+          "ux": {
+            "home": "System > Health",
+            "pattern": "No dedicated UI: behaviour is visible through headers, API and existing pages"
+          }
+        },
+        {
+          "id": "nd-tunnels-mitm",
+          "title": "Tunnels and MITM proxy",
+          "description": "Cloudflare, Tailscale, ngrok tunnels and root CA / DNS aliasing for desktop agents.",
+          "sources": {
+            "ninerouter": "has",
+            "pentatonic": "has",
+            "litellm": "no",
+            "omniroute": "has",
+            "friday": "has"
+          },
+          "head": "equivalent",
+          "headEvidence": "src/app/api/tunnels; src/lib/{cloudflaredTunnel,tailscaleTunnel,ngrokTunnel}.ts; src/mitm",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "S",
+          "slice": "S0",
+          "ux": {
+            "home": "Operate > Endpoint & Keys > Endpoints",
+            "pattern": "One flat DS card per setting group with a description line; no nested cards"
+          }
+        },
+        {
+          "id": "nd-proxy-pools",
+          "title": "Proxy pools and relay deploy",
+          "description": "Pool CRUD with test, bulk import and Vercel/Cloudflare/Deno relays; legacy provider proxy migration unresolved.",
+          "sources": {
+            "ninerouter": "has",
+            "pentatonic": "has",
+            "litellm": "no",
+            "omniroute": "has",
+            "friday": "has"
+          },
+          "head": "partial",
+          "headEvidence": "settings/components/ProxyRegistryManager.tsx; proxy/*RelayModal.tsx; product-inheritance provider-auth-and-catalog",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "S",
+          "slice": "S0",
+          "ux": {
+            "home": "System > Network",
+            "pattern": "Dense DS table with sortable columns, row actions in a menu, one primary button top right"
+          }
+        },
+        {
+          "id": "nd-friday-import",
+          "title": "Friday data import and legacy dir migration",
+          "description": "First-start import of data.sqlite with backup, marker and report; ~/.red-router and ~/.9router dirs; stale db.json guard.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "no",
+            "omniroute": "no",
+            "friday": "has"
+          },
+          "head": "partial",
+          "headEvidence": "src/lib/db/fridayImport.ts; fridayBoot.ts; tests/redrouter/native/friday-import.test.ts (legacy dirs and db.json guard not verified)",
+          "ownUnique": true,
+          "value": "H",
+          "effort": "M",
+          "slice": "X-IMPORT",
+          "ux": {
+            "home": "System > Data > Import",
+            "pattern": "Numbered steps on one page (Step n of N), one primary action per step, inline validation list"
+          }
+        },
+        {
+          "id": "nd-docker-ghcr",
+          "title": "Docker image and GHCR publish",
+          "description": "Tarball-based image with /data and single port 25050 published from the tested artifact.",
+          "sources": {
+            "ninerouter": "has",
+            "pentatonic": "no",
+            "litellm": "no",
+            "omniroute": "has",
+            "friday": "has"
+          },
+          "head": "missing",
+          "headEvidence": "Dockerfile:235 uses /app/data and split ports; no GHCR job in red-publish.yml (audit A6)",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "M",
+          "slice": "X-DOCKER",
+          "ux": {
+            "home": "System > Data",
+            "pattern": "No dedicated UI: behaviour is visible through headers, API and existing pages"
+          }
+        },
+        {
+          "id": "nd-release-pipeline",
+          "title": "Single-build release with tagged version",
+          "description": "Build and pack once, promote the exact artifact, Changesets versions.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "no",
+            "omniroute": "no",
+            "friday": "has"
+          },
+          "head": "equivalent",
+          "headEvidence": ".github/workflows/red-publish.yml; tests/redrouter/native/release-artifact.test.mjs",
+          "ownUnique": true,
+          "value": "H",
+          "effort": "S",
+          "slice": "X-GUARD",
+          "ux": {
+            "home": "System > Data",
+            "pattern": "No dedicated UI: behaviour is visible through headers, API and existing pages"
+          }
+        },
+        {
+          "id": "nd-ci-fixtures",
+          "title": "CI fixture e2e (routing, remote router, system one, conformance)",
+          "description": "Fixture-upstream scripts and OpenAI schema conformance run against the packed server.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "no",
+            "omniroute": "no",
+            "friday": "has"
+          },
+          "head": "missing",
+          "headEvidence": "not in red-publish.yml (audit A6)",
+          "ownUnique": false,
+          "value": "H",
+          "effort": "M",
+          "slice": "X-CIFIX",
+          "ux": {
+            "home": "System > Data",
+            "pattern": "No dedicated UI: behaviour is visible through headers, API and existing pages"
+          }
+        },
+        {
+          "id": "nd-updater",
+          "title": "RedRouter-owned updater",
+          "description": "Discovery exists; one-click update disabled by design.",
+          "sources": {
+            "ninerouter": "has",
+            "pentatonic": "no",
+            "litellm": "no",
+            "omniroute": "has",
+            "friday": "has"
+          },
+          "head": "partial",
+          "headEvidence": "src/app/api/system/version (autoUpdateSupported false); tests/redrouter/native/update-ownership.test.ts",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "M",
+          "slice": "X-UPDATER",
+          "ux": {
+            "home": "System > Data > Updates",
+            "pattern": "DS description-list (Source / Revision / Loaded) plus a secondary Reload button; failures as inline alert"
+          }
+        },
+        {
+          "id": "nd-postgres-ha",
+          "title": "Postgres distributed mode, leases, Redis coordination",
+          "description": "Shared state across instances with lease-owned OAuth refresh and jobs; Redis stores exist but do not provide shared persistence.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "has",
+            "litellm": "has",
+            "omniroute": "has",
+            "friday": "has"
+          },
+          "head": "missing",
+          "headEvidence": "SQLite better-sqlite3 only; src/lib/quota/redisQuotaStore.ts; docs/architecture/persistence-backend-boundary.md proposes the boundary",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "M",
+          "slice": "E-B",
+          "ux": {
+            "home": "System > Health",
+            "pattern": "No dedicated UI: behaviour is visible through headers, API and existing pages"
+          }
+        },
+        {
+          "id": "nd-deploy-extras",
+          "title": "Helm, declarative config, secret managers, plane split",
+          "description": "Helm chart, GitOps config import/export, Vault/AWS SM adapters, data-plane split.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "has",
+            "omniroute": "partial",
+            "friday": "no"
+          },
+          "head": "partial",
+          "headEvidence": "export-json/import-json exist; no Helm or secret managers",
+          "ownUnique": false,
+          "value": "L",
+          "effort": "M",
+          "slice": "L14",
+          "ux": {
+            "home": "System > Data",
+            "pattern": "No dedicated UI: behaviour is visible through headers, API and existing pages"
+          }
+        },
+        {
+          "id": "nd-omni-extras",
+          "title": "Electron app, embedded services, free proxies",
+          "description": "Desktop shell, loopback-only embedded helper services, free proxy sources.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "no",
+            "omniroute": "has",
+            "friday": "no"
+          },
+          "head": "equivalent",
+          "headEvidence": "electron/; src/lib/services/bootstrap.ts; dashboard/system/1proxy",
+          "ownUnique": false,
+          "value": "L",
+          "effort": "S",
+          "slice": "X-OMNI",
+          "ux": {
+            "home": "System > Health",
+            "pattern": "No dedicated UI: behaviour is visible through headers, API and existing pages"
+          }
+        }
+      ]
+    },
+    {
+      "id": "admin-ux-branding",
+      "title": "Admin UX, design system and white-label",
+      "capabilities": [
+        {
+          "id": "ux-ds-foundation",
+          "title": "Design-system foundation",
+          "description": "Tokens, schemes, density and reddb styles pinned with a lock; design.md and PRODUCT.md restored.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "no",
+            "omniroute": "no",
+            "friday": "has"
+          },
+          "head": "partial",
+          "headEvidence": "src/shared/design-system/{vendor,contracts,bridge.css}; density comfortable at src/app/layout.tsx:69; no design.md at root",
+          "ownUnique": false,
+          "value": "H",
+          "effort": "S",
+          "slice": "X-DS1",
+          "ux": {
+            "home": "System > Settings > Appearance",
+            "pattern": "One flat DS card per setting group with a description line; no nested cards"
+          }
+        },
+        {
+          "id": "ux-ds-primitives",
+          "title": "Primitives on DS contracts",
+          "description": "Button, Card, Badge, Input and Select render through DS variants.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "no",
+            "omniroute": "no",
+            "friday": "has"
+          },
+          "head": "partial",
+          "headEvidence": "Card/Badge/Button/Input/Select import src/shared/design-system/contracts; long tail of raw buttons and palette classes remains",
+          "ownUnique": false,
+          "value": "H",
+          "effort": "M",
+          "slice": "X-DS2",
+          "ux": {
+            "home": "System > Settings > Appearance",
+            "pattern": "No dedicated UI: behaviour is visible through headers, API and existing pages"
+          }
+        },
+        {
+          "id": "ux-icons",
+          "title": "Lucide Icon wrapper",
+          "description": "One Icon over lucide replacing the Material Symbols font.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "no",
+            "omniroute": "no",
+            "friday": "has"
+          },
+          "head": "missing",
+          "headEvidence": "no Icon component; lucide-react not imported (audit dashboard)",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "L",
+          "slice": "X-DS3",
+          "ux": {
+            "home": "System > Settings > Appearance",
+            "pattern": "No dedicated UI: behaviour is visible through headers, API and existing pages"
+          }
+        },
+        {
+          "id": "ux-shell",
+          "title": "Shell: sidebar, header, page heading, breadcrumbs, brand mark",
+          "description": "Sidebar on nav-item, header on application-shell, one PageHeading per page, BrandMark.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "no",
+            "omniroute": "no",
+            "friday": "has"
+          },
+          "head": "partial",
+          "headEvidence": "Sidebar.tsx and contracts nav-item/page-heading exist; no PageHeading component or BrandMark in BrandingProvider.tsx",
+          "ownUnique": false,
+          "value": "H",
+          "effort": "M",
+          "slice": "X-DS4",
+          "ux": {
+            "home": "Operate > Home",
+            "pattern": "No dedicated UI: behaviour is visible through headers, API and existing pages"
+          }
+        },
+        {
+          "id": "ux-behaviour-primitives",
+          "title": "Dialog, switch, tabs, table, tooltip, empty-state on DS",
+          "description": "Native dialog Modal, switch Toggle, toggle-group, table, tooltip, alert, empty-state and toast contracts.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "no",
+            "omniroute": "no",
+            "friday": "has"
+          },
+          "head": "missing",
+          "headEvidence": "Modal.tsx is a div role=dialog (audit dashboard)",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "M",
+          "slice": "X-DS5",
+          "ux": {
+            "home": "System > Settings > Appearance",
+            "pattern": "No dedicated UI: behaviour is visible through headers, API and existing pages"
+          }
+        },
+        {
+          "id": "ux-curated-sidebar",
+          "title": "Curated sidebar preset and section model",
+          "description": "Five sections with a default-visible preset and an Advanced set reachable by search.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "no",
+            "omniroute": "no",
+            "friday": "has"
+          },
+          "head": "missing",
+          "headEvidence": "97 items in 10 sections (src/shared/constants/sidebarVisibility/sections.ts)",
+          "ownUnique": false,
+          "value": "H",
+          "effort": "M",
+          "slice": "X-IA",
+          "ux": {
+            "home": "System > Settings > Sidebar",
+            "pattern": "DS switch with a one-line description; effect shown inline after change"
+          }
+        },
+        {
+          "id": "ux-quick-nav",
+          "title": "Quick navigation",
+          "description": "Keyboard command palette across pages, keys, combos and providers.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "no",
+            "omniroute": "has",
+            "friday": "has"
+          },
+          "head": "partial",
+          "headEvidence": "sidebar search exists; DS command-palette not adopted",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "S",
+          "slice": "X-IA",
+          "ux": {
+            "home": "Operate > Home",
+            "pattern": "No dedicated UI: behaviour is visible through headers, API and existing pages"
+          }
+        },
+        {
+          "id": "ux-setup-workbench",
+          "title": "Setup workbench",
+          "description": "Five steps: connect, key, snippet, validate, recommended combos.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "no",
+            "omniroute": "no",
+            "friday": "has"
+          },
+          "head": "equivalent",
+          "headEvidence": "src/app/(dashboard)/dashboard/setup; tests/redrouter/native/setup-workbench.test.ts (0.37.0; not browser-verified)",
+          "ownUnique": true,
+          "value": "H",
+          "effort": "S",
+          "slice": "X-SETUP",
+          "ux": {
+            "home": "System > Setup",
+            "pattern": "Numbered steps on one page (Step n of N), one primary action per step, inline validation list"
+          }
+        },
+        {
+          "id": "ux-onboarding",
+          "title": "First-run onboarding and readiness card",
+          "description": "Security, provider add and tier tour; readiness card on Home.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "no",
+            "omniroute": "has",
+            "friday": "has"
+          },
+          "head": "equivalent",
+          "headEvidence": "dashboard/onboarding; FirstRunReadinessCard.tsx",
+          "ownUnique": false,
+          "value": "L",
+          "effort": "S",
+          "slice": "X-IA",
+          "ux": {
+            "home": "Operate > Home",
+            "pattern": "Numbered steps on one page (Step n of N), one primary action per step, inline validation list"
+          }
+        },
+        {
+          "id": "ux-models-page",
+          "title": "Models page: one row per flat model id",
+          "description": "All offers serving a model, reorder, switch off, price display, admin policy.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "no",
+            "omniroute": "no",
+            "friday": "has"
+          },
+          "head": "missing",
+          "headEvidence": "models/page.tsx is a read-only catalog table",
+          "ownUnique": true,
+          "value": "H",
+          "effort": "M",
+          "slice": "X-FLAT",
+          "ux": {
+            "home": "Operate > Models",
+            "pattern": "Two-pane list and detail editor; Save and Discard in a sticky footer"
+          }
+        },
+        {
+          "id": "ux-white-label",
+          "title": "White-label branding library",
+          "description": "RED_ROUTER_BRANDING precedence, --reddb-* tokens, asset route and theme injection.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "no",
+            "omniroute": "no",
+            "friday": "has"
+          },
+          "head": "equivalent",
+          "headEvidence": "src/lib/branding/branding.ts; tests/unit/branding-product-contract.test.ts",
+          "ownUnique": true,
+          "value": "H",
+          "effort": "S",
+          "slice": "X-GUARD",
+          "ux": {
+            "home": "System > Settings > Appearance",
+            "pattern": "One flat DS card per setting group with a description line; no nested cards"
+          }
+        },
+        {
+          "id": "ux-branding-editor",
+          "title": "Branding API and editor",
+          "description": "GET /api/branding, GET/PUT/DELETE /api/settings/branding with dryRun, BrandingCard.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "no",
+            "omniroute": "no",
+            "friday": "has"
+          },
+          "head": "missing",
+          "headEvidence": "only /api/branding/asset exists",
+          "ownUnique": true,
+          "value": "M",
+          "effort": "S",
+          "slice": "X-BRAND2",
+          "ux": {
+            "home": "System > Settings > Appearance",
+            "pattern": "Two-pane list and detail editor; Save and Discard in a sticky footer"
+          }
+        },
+        {
+          "id": "ux-branding-sweep",
+          "title": "Visible branding sweep and public assets",
+          "description": "RedRouter names, icons, manifest and repo links instead of OmniRoute; persisted CLI names keep dual recognition.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "no",
+            "omniroute": "no",
+            "friday": "has"
+          },
+          "head": "partial",
+          "headEvidence": "branding diff still uncommitted in the main checkout (visible-string sweep, not in HEAD); 1,564 OmniRoute hits in src (audit dashboard C.2)",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "M",
+          "slice": "X-BRAND1",
+          "ux": {
+            "home": "System > Settings > Appearance",
+            "pattern": "No dedicated UI: behaviour is visible through headers, API and existing pages"
+          }
+        },
+        {
+          "id": "ux-legacy-redirects",
+          "title": "Friday route redirects and landing decision",
+          "description": "/dashboard/console-log, cli-tools, mitm, tools-providers, basic-chat, token-saver, keys, proxy-pools redirect to new homes; choose Home or Usage as landing.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "no",
+            "omniroute": "no",
+            "friday": "has"
+          },
+          "head": "missing",
+          "headEvidence": "not in next.config.mjs (audit dashboard slice 2); dashboard redirects to /home, Friday landed on Usage",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "S",
+          "slice": "X-IA",
+          "ux": {
+            "home": "Operate > Home",
+            "pattern": "No dedicated UI: behaviour is visible through headers, API and existing pages"
+          }
+        },
+        {
+          "id": "ux-key-create-flow",
+          "title": "Create-key flow: owner first, advanced collapsed",
+          "description": "Right-side sheet asking owner, models, then collapsed limits, guardrails, budgets.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "has",
+            "omniroute": "no",
+            "friday": "no"
+          },
+          "head": "partial",
+          "headEvidence": "api-manager/ApiManagerPageClient.tsx exists without owner/team fields",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "M",
+          "slice": "L16",
+          "ux": {
+            "home": "Operate > Endpoint & Keys > Keys",
+            "pattern": "DS field/form in a right-side drawer; primary red button only for Save; Advanced group collapsed"
+          }
+        },
+        {
+          "id": "ux-entity-detail",
+          "title": "Entity detail template (Overview, Members, Settings)",
+          "description": "One template for team, tenant and key detail with a spent-of-budget meter.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "has",
+            "omniroute": "no",
+            "friday": "no"
+          },
+          "head": "missing",
+          "headEvidence": "no teams",
+          "ownUnique": false,
+          "value": "M",
+          "effort": "M",
+          "slice": "L16",
+          "ux": {
+            "home": "Govern > People",
+            "pattern": "DS tabs (underline, start-edge indicator in red) inside one page with one H1"
+          }
+        },
+        {
+          "id": "ux-small-patterns",
+          "title": "Route preview panel and public catalog snippets",
+          "description": "Preview which target would be chosen inside combo editing; a catalog page with curl/SDK snippets.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "no",
+            "litellm": "has",
+            "omniroute": "no",
+            "friday": "no"
+          },
+          "head": "partial",
+          "headEvidence": "playground simulate-route exists as a page; v1/catalog exists as API only",
+          "ownUnique": false,
+          "value": "L",
+          "effort": "S",
+          "slice": "L16",
+          "ux": {
+            "home": "Operate > Combos",
+            "pattern": "Two-pane list and detail editor; Save and Discard in a sticky footer"
+          }
+        },
+        {
+          "id": "ux-promo-news",
+          "title": "Promo banners and news/changelog surfaces",
+          "description": "OmniRoute sponsor banners and 9Remote promos are not part of RedRouter; news banner and changelog page point at RedRouter releases.",
+          "sources": {
+            "ninerouter": "has",
+            "pentatonic": "no",
+            "litellm": "no",
+            "omniroute": "has",
+            "friday": "has"
+          },
+          "head": "partial",
+          "headEvidence": "KimiSponsorBanner.tsx, CheaperInferenceSponsorBanner.tsx at HEAD; dashboard/changelog",
+          "ownUnique": false,
+          "value": "L",
+          "effort": "S",
+          "slice": "X-BRAND1",
+          "ux": {
+            "home": "Operate > Home",
+            "pattern": "No dedicated UI: behaviour is visible through headers, API and existing pages"
+          }
+        },
+        {
+          "id": "ux-english-only",
+          "title": "English-only UI and CLI",
+          "description": "Translation endpoints stay; UI and CLI strings are English only.",
+          "sources": {
+            "ninerouter": "no",
+            "pentatonic": "partial",
+            "litellm": "no",
+            "omniroute": "has",
+            "friday": "has"
+          },
+          "head": "equivalent",
+          "headEvidence": "AGENTS.md product ownership",
+          "ownUnique": true,
+          "value": "M",
+          "effort": "S",
+          "slice": "X-GUARD",
+          "ux": {
+            "home": "System > Settings > General",
+            "pattern": "No dedicated UI: behaviour is visible through headers, API and existing pages"
+          }
+        }
+      ]
+    }
+  ]
+}

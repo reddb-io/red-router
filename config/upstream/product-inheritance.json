@@ -2,7 +2,8 @@
   "schemaVersion": 1,
   "product": "RedRouter",
   "scope": "Initial capability-family inventory; not exhaustive and not proof of parity.",
-  "recordedAt": "2026-09-28",
+  "recordedAt": "2026-09-29",
+  "capabilityMap": "config/upstream/capability-map.json",
   "sources": [
     {
       "id": "redrouter",
