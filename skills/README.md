@@ -5,10 +5,32 @@ consume RedRouter via OpenAI-compatible REST in one fetch.
 
 ## Entry points
 
-| Type | Skill                                       | Manifest                                 |
-| ---- | ------------------------------------------- | ---------------------------------------- |
+| Type | Skill                                       | Manifest                                             |
+| ---- | ------------------------------------------- | ---------------------------------------------------- |
 | API  | Authentication (start here for REST access) | [red-router-auth/SKILL.md](red-router-auth/SKILL.md) |
-| CLI  | Serve (start here for CLI access)           | [cli-serve/SKILL.md](cli-serve/SKILL.md) |
+| CLI  | Serve (start here for CLI access)           | [cli-serve/SKILL.md](cli-serve/SKILL.md)             |
+
+## Capability pack for coding agents
+
+Paste one link to your agent and it can call RedRouter's OpenAI-compatible endpoints. Start with
+the entry skill; it covers `@reddb-io/red-router` installation, `RED_ROUTER_BASE_URL` /
+`RED_ROUTER_API_KEY` setup and model discovery.
+
+| Capability                  | Skill                                                   |
+| --------------------------- | ------------------------------------------------------- |
+| Entry / setup (start here)  | [red-router](red-router/SKILL.md)                       |
+| Chat / code generation      | [red-router-chat](red-router-chat/SKILL.md)             |
+| Image generation            | [red-router-image](red-router-image/SKILL.md)           |
+| Text-to-speech              | [red-router-tts](red-router-tts/SKILL.md)               |
+| Speech-to-text              | [red-router-stt](red-router-stt/SKILL.md)               |
+| Embeddings                  | [red-router-embeddings](red-router-embeddings/SKILL.md) |
+| Video generation            | [red-router-video](red-router-video/SKILL.md)           |
+| Web search                  | [red-router-web-search](red-router-web-search/SKILL.md) |
+| Web fetch (URL to markdown) | [red-router-web-fetch](red-router-web-fetch/SKILL.md)   |
+
+```
+Read this skill and use it: https://raw.githubusercontent.com/reddb-io/red-router/main/skills/red-router/SKILL.md
+```
 
 ## How agents discover capabilities
 
@@ -24,8 +46,8 @@ See [`docs/frameworks/AGENT-SKILLS.md`](../docs/frameworks/AGENT-SKILLS.md) for 
 Each manifest URL follows the pattern:
 `https://raw.githubusercontent.com/diegosouzapw/OmniRoute/main/skills/<id>/SKILL.md`
 
-| ID                     | Name                          | Description                                                                                                                                                                                    |
-| ---------------------- | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ID                           | Name                          | Description                                                                                                                                                                                    |
+| ---------------------------- | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `red-router-auth`            | Authentication                | Manage API key authentication and session tokens. Start here to authenticate requests via Bearer token, obtain session cookies, and configure login requirements.                              |
 | `red-router-providers`       | Providers                     | Manage provider connections, API keys, OAuth flows, and connection tests across RedRouter's 327-provider catalog.                                                                              |
 | `red-router-models`          | Models                        | Query available AI models across all configured providers. List models, resolve model aliases, and browse the full model catalog including provider-specific variants.                         |
@@ -74,7 +96,7 @@ Each manifest URL follows the pattern:
 | `cli-policy-audit`    | CLI: Policy & Audit           | Inspect audit logs, manage access policies, view telemetry data, and review request history from the CLI. Filter by event type, user, or time range for compliance workflows.                  |
 | `cli-batches`         | CLI: Batches & Files          | Submit and monitor batch inference jobs from the CLI. Upload and manage files for batch processing, retrieve results, and integrate batch pipelines with CI/CD workflows.                      |
 | `cli-eval`            | CLI: Evals                    | Create and run evaluation suites, watch live benchmark progress, view scorecards, compare model performance, and integrate eval runs with CI workflows from the CLI.                           |
-| `cli-plugins-skills`  | CLI: Plugins, Skills & Memory | Manage Skills (list, install, test, remove), plugins (create, configure), and persistent memory (search, add, clear) from the CLI.                                                        |
+| `cli-plugins-skills`  | CLI: Plugins, Skills & Memory | Manage Skills (list, install, test, remove), plugins (create, configure), and persistent memory (search, add, clear) from the CLI.                                                             |
 | `cli-setup`           | CLI: Setup & Config           | Run initial setup, configure global CLI settings, manage environment variables, check for updates, and configure autostart via the CLI setup and config commands.                              |
 | `cli-skill-collector` | CLI: Skill Collector          | Detect installed coding CLI tools, search GitHub for matching agent skills, and plan their installation into the detected tools' skill directories.                                            |
 

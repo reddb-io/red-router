@@ -5,7 +5,7 @@
  * Auth tested via requireManagementAuth with live DB in temp directory.
  *
  * Coverage goals:
- * - GET  /api/agent-skills           — happy path (46 skills), filters, invalid category
+ * - GET  /api/agent-skills           — happy path (55 skills), filters, invalid category
  * - GET  /api/agent-skills/[id]      — found, 404 not found
  * - GET  /api/agent-skills/[id]/raw  — found, 404 not found, 502 on GitHub failure
  * - GET  /api/agent-skills/coverage  — happy path
@@ -101,16 +101,16 @@ test.after(() => {
 // GET /api/agent-skills
 // ═════════════════════════════════════════════════════════════════════════════
 
-// 46 = 23 api + 21 cli + 1 config + 1 external ("ponytail", added in #9058 / 2e799b33a7).
-test("GET /api/agent-skills — returns 46 skills with count and coverage", async () => {
+// 55 = 23 api + 21 cli + 1 config + 10 external (ponytail + the RedRouter skill pack).
+test("GET /api/agent-skills — returns 55 skills with count and coverage", async () => {
   const req = makeRequest("GET", "http://localhost/api/agent-skills");
   const res = await listRoute.GET(req);
 
   assert.equal(res.status, 200);
   const body = (await res.json()) as { skills: unknown[]; count: number; coverage: unknown };
-  assert.equal(body.count, 46, `Expected 46 skills but got ${body.count}`);
+  assert.equal(body.count, 55, `Expected 55 skills but got ${body.count}`);
   assert.equal(Array.isArray(body.skills), true);
-  assert.equal(body.skills.length, 46);
+  assert.equal(body.skills.length, 55);
   assert.ok(body.coverage !== undefined, "coverage should be present");
 });
 

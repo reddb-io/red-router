@@ -8,7 +8,7 @@ const REPO = "reddb-io/red-router";
 const BRANCH = "main";
 const SKILL_PATH = "skills";
 
-export const AGENT_SKILLS_RAW_BASE = `https://raw.githubusercontent.com/${REPO}/refs/heads/${BRANCH}/${SKILL_PATH}`;
+export const AGENT_SKILLS_RAW_BASE = `https://raw.githubusercontent.com/${REPO}/${BRANCH}/${SKILL_PATH}`;
 export const AGENT_SKILLS_BLOB_BASE = `https://github.com/${REPO}/blob/${BRANCH}/${SKILL_PATH}`;
 
 export function getAgentSkillRawUrl(id: string): string {
@@ -35,9 +35,9 @@ export interface CuratedSkillEntry {
   isNew?: boolean;
 }
 
-// ── Canonical 46-entry curated list (D28) ────────────────────────────────────
+// ── Canonical curated list (46 generated entries + the RedRouter skill pack) ──
 
-/** Curated metadata for all 46 agent skills. Source-of-truth for the catalog. */
+/** Curated metadata for every agent skill. Source-of-truth for the catalog. */
 export const CURATED_SKILLS: CuratedSkillEntry[] = [
   // ── API Skills (23) ─────────────────────────────────────────────────────────
 
@@ -474,6 +474,98 @@ export const CURATED_SKILLS: CuratedSkillEntry[] = [
     category: "external",
     area: "external",
     icon: "compress",
+    isNew: true,
+  },
+
+  // ── RedRouter skill pack (hand-authored, category "external") ───────────────
+  // Capability skills for coding agents: the SKILL.md body lives inside the
+  // <!-- skill:custom-start --> block, which the generator preserves verbatim.
+  {
+    id: "red-router",
+    name: "RedRouter (Entry Point)",
+    description:
+      "Entry point for the RedRouter skill pack. Covers installing @reddb-io/red-router, the RED_ROUTER_BASE_URL and RED_ROUTER_API_KEY setup, model discovery, and links to the capability skills for chat, image, speech, embeddings, video, web search and web fetch.",
+    category: "external",
+    area: "external",
+    icon: "hub",
+    isEntry: true,
+    isNew: true,
+  },
+  {
+    id: "red-router-chat",
+    name: "Chat",
+    description:
+      "Chat and code generation through the OpenAI-compatible chat completions, Anthropic messages and Responses endpoints, with streaming and combo fallback.",
+    category: "external",
+    area: "external",
+    icon: "chat",
+    isNew: true,
+  },
+  {
+    id: "red-router-image",
+    name: "Image Generation",
+    description:
+      "Generate, edit and upscale images through the OpenAI-compatible images endpoints.",
+    category: "external",
+    area: "external",
+    icon: "image",
+    isNew: true,
+  },
+  {
+    id: "red-router-tts",
+    name: "Text-to-Speech",
+    description: "Convert text to speech through the audio speech endpoint and discover voices.",
+    category: "external",
+    area: "external",
+    icon: "record_voice_over",
+    isNew: true,
+  },
+  {
+    id: "red-router-stt",
+    name: "Speech-to-Text",
+    description: "Transcribe audio through the OpenAI Whisper-compatible transcriptions endpoint.",
+    category: "external",
+    area: "external",
+    icon: "mic",
+    isNew: true,
+  },
+  {
+    id: "red-router-embeddings",
+    name: "Embeddings",
+    description:
+      "Generate vector embeddings for semantic search and retrieval through the embeddings endpoint.",
+    category: "external",
+    area: "external",
+    icon: "hub",
+    isNew: true,
+  },
+  {
+    id: "red-router-video",
+    name: "Video Generation",
+    description:
+      "Generate, edit and extend videos, including the asynchronous job flow with polling.",
+    category: "external",
+    area: "external",
+    icon: "movie",
+    isNew: true,
+  },
+  {
+    id: "red-router-web-search",
+    name: "Web Search",
+    description:
+      "Search the web through the unified search endpoint with provider auto-selection and fallback.",
+    category: "external",
+    area: "external",
+    icon: "search",
+    isNew: true,
+  },
+  {
+    id: "red-router-web-fetch",
+    name: "Web Fetch",
+    description: "Fetch a URL as markdown, text or HTML through the unified web fetch endpoint.",
+    category: "external",
+    area: "external",
+    icon: "travel_explore",
     isNew: true,
   },
 ];

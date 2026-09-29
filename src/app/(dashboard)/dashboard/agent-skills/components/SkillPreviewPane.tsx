@@ -5,6 +5,7 @@ import Icon from "@/shared/components/Icon";
 import { useCallback } from "react";
 import dynamic from "next/dynamic";
 import { useTranslations } from "next-intl";
+import { getAgentSkillBlobUrl, getAgentSkillRawUrl } from "@/shared/constants/agentSkills";
 
 // Lazy-load react-markdown to reduce initial bundle size.
 const ReactMarkdown = dynamic(() => import("react-markdown"), {
@@ -45,17 +46,14 @@ export function SkillPreviewPane({
 
   const handleCopyRawUrl = useCallback(async () => {
     if (!skillId) return;
-    const rawUrl = `https://raw.githubusercontent.com/diegosouzapw/OmniRoute/refs/heads/main/skills/${skillId}/SKILL.md`;
     try {
-      await navigator.clipboard.writeText(rawUrl);
+      await navigator.clipboard.writeText(getAgentSkillRawUrl(skillId));
     } catch {
       // clipboard not available — silently ignore
     }
   }, [skillId]);
 
-  const githubUrl = skillId
-    ? `https://github.com/diegosouzapw/OmniRoute/blob/main/skills/${skillId}/SKILL.md`
-    : null;
+  const githubUrl = skillId ? getAgentSkillBlobUrl(skillId) : null;
 
   // Empty state
   if (!skillId) {

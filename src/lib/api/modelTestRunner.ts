@@ -326,6 +326,33 @@ export function detectTestKind(modelStr: string, customModel: any, nodeApiType?:
   return { isRerank, isEmbedding, isAudioTranscription, isResponses, isNonChatGeneration };
 }
 
+export type ModelTestKind =
+  "chat" | "responses" | "embedding" | "rerank" | "transcription" | "non-chat";
+
+/**
+ * Which internal endpoint `runSingleModelTest` would dispatch a model to. Uses the same
+ * metadata lookups and `detectTestKind` rules as the runner, so a caller can label a probe
+ * result without re-implementing the routing.
+ */
+export async function resolveModelTestKind(
+  providerId: string,
+  modelId: string
+): Promise<ModelTestKind> {
+  const fullModelStr = modelId.includes("/") ? modelId : `${providerId}/${modelId}`;
+  const [customModel, nodeApiType] = await Promise.all([
+    findCustomModelMetadata(providerId, fullModelStr),
+    findProviderNodeApiType(providerId),
+  ]);
+  const { isRerank, isEmbedding, isAudioTranscription, isResponses, isNonChatGeneration } =
+    detectTestKind(fullModelStr, customModel, nodeApiType);
+  if (isAudioTranscription) return "transcription";
+  if (isRerank) return "rerank";
+  if (isEmbedding) return "embedding";
+  if (isResponses) return "responses";
+  if (isNonChatGeneration) return "non-chat";
+  return "chat";
+}
+
 /**
  * Parse a Retry-After header value (seconds-as-number or HTTP-date) into seconds.
  * Returns undefined if the value is missing or unparseable.

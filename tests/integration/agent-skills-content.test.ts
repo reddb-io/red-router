@@ -2,7 +2,7 @@
  * Integration tests for Agent Skills content integrity.
  *
  * Verifies:
- *  1. All 46 skill IDs from the catalog have a skills/{id}/ folder with SKILL.md.
+ *  1. All 55 skill IDs from the catalog have a skills/{id}/ folder with SKILL.md.
  *  2. Zero omniroute-* folders remain (post-prune: old omniroute-* skill dirs were removed).
  *  3. 14 specific IDs have <!-- skill:custom-start --> ... <!-- skill:custom-end --> blocks:
  *     red-router-mcp, red-router-compression, cli-providers, cli-eval, red-router-agents-a2a,
@@ -38,11 +38,21 @@ const CUSTOM_BLOCK_IDS = [
   "red-router-settings",
   "config-codex-cli",
   "ponytail",
+  // RedRouter skill pack: hand-authored body kept inside the custom block.
+  "red-router",
+  "red-router-chat",
+  "red-router-image",
+  "red-router-tts",
+  "red-router-stt",
+  "red-router-embeddings",
+  "red-router-video",
+  "red-router-web-search",
+  "red-router-web-fetch",
 ] as const;
 
-// ── §1: All 46 catalog IDs have skills/{id}/SKILL.md ─────────────────────────
+// ── §1: All 55 catalog IDs have skills/{id}/SKILL.md ─────────────────────────
 
-test("all 46 catalog IDs have a skills/{id}/ directory", () => {
+test("all 55 catalog IDs have a skills/{id}/ directory", () => {
   const missing: string[] = [];
   for (const id of ALL_IDS) {
     const dirPath = path.join(SKILLS_DIR, id);
@@ -53,7 +63,7 @@ test("all 46 catalog IDs have a skills/{id}/ directory", () => {
   assert.deepEqual(missing, [], `Missing skill directories: ${missing.join(", ")}`);
 });
 
-test("all 46 catalog IDs have a skills/{id}/SKILL.md file", () => {
+test("all 55 catalog IDs have a skills/{id}/SKILL.md file", () => {
   const missing: string[] = [];
   for (const id of ALL_IDS) {
     const skillPath = path.join(SKILLS_DIR, id, "SKILL.md");
@@ -111,7 +121,7 @@ for (const id of CUSTOM_BLOCK_IDS) {
 
 // ── Additional integrity checks ───────────────────────────────────────────────
 
-test("exactly 14 skills have custom blocks", () => {
+test("exactly 24 skills have custom blocks", () => {
   const withCustomBlocks: string[] = [];
   for (const id of ALL_IDS) {
     const skillPath = path.join(SKILLS_DIR, id, "SKILL.md");
@@ -121,12 +131,12 @@ test("exactly 14 skills have custom blocks", () => {
       withCustomBlocks.push(id);
     }
   }
-  // Verify exactly the expected 14 IDs have custom blocks
+  // Verify exactly the expected 24 IDs have custom blocks
   const expectedIds = [...CUSTOM_BLOCK_IDS].sort();
   assert.deepEqual(
     withCustomBlocks.sort(),
     expectedIds,
-    `Expected exactly these 14 custom-block IDs: ${expectedIds.join(", ")}\nActual: ${withCustomBlocks.join(", ")}`
+    `Expected exactly these 24 custom-block IDs: ${expectedIds.join(", ")}\nActual: ${withCustomBlocks.join(", ")}`
   );
 });
 

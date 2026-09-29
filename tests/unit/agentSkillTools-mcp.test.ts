@@ -58,12 +58,12 @@ test("each agentSkillTool has name, description, inputSchema, and handler", () =
 
 // ─── omniroute_agent_skills_list ────────────────────────────────────────────
 
-// 46 since #9058 added the ponytail external entry (45 canonical + 1 external).
-test("omniroute_agent_skills_list with no filters returns all 46 skills", async () => {
+// 55 since #9058 added the ponytail external entry (45 canonical + 10 external).
+test("omniroute_agent_skills_list with no filters returns all 55 skills", async () => {
   const result = await agentSkillTools.omniroute_agent_skills_list.handler({});
-  assert.equal(result.count, 46, `Expected 46 but got ${result.count}`);
+  assert.equal(result.count, 55, `Expected 55 but got ${result.count}`);
   assert.ok(Array.isArray(result.skills));
-  assert.equal(result.skills.length, 46);
+  assert.equal(result.skills.length, 55);
 });
 
 test("omniroute_agent_skills_list({category:'api'}) returns exactly 23 entries", async () => {

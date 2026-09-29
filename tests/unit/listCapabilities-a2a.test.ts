@@ -3,7 +3,7 @@
  *
  * Verifies:
  *  - Return shape matches §3.7 contract
- *  - Markdown table contains all 45 categorized skill IDs (the 46th catalog
+ *  - Markdown table contains all 45 categorized skill IDs (the remaining 10 catalog
  *    entry, "ponytail", is category "external" and lives outside the
  *    api/cli/config canonical lists — #9058)
  *  - Coverage bounds are within declared totals
@@ -37,7 +37,7 @@ test("executeListCapabilities returns shape matching §3.7 contract", async () =
   const { metadata } = result;
   assert.ok(metadata, "metadata exists");
   assert.equal(metadata.source, "agent-skills-catalog", "metadata.source matches");
-  assert.equal(metadata.totalSkills, 46, "metadata.totalSkills === 46");
+  assert.equal(metadata.totalSkills, 55, "metadata.totalSkills === 55");
   assert.ok(metadata.coverage, "metadata.coverage exists");
   assert.ok(metadata.coverage.api, "metadata.coverage.api exists");
   assert.ok(metadata.coverage.cli, "metadata.coverage.cli exists");
@@ -50,7 +50,7 @@ test("executeListCapabilities markdown table contains all categorized skill IDs"
   const result = await executeListCapabilities(stubTask);
   const content = result.artifacts[0].content;
 
-  // 45 categorized IDs; the 46th catalog entry ("ponytail") is category
+  // 45 categorized IDs; the remaining 10 catalog entries ("ponytail" and the RedRouter skill pack) are category
   // "external" and intentionally absent from these canonical lists (#9058).
   const allIds = [...API_SKILL_IDS, ...CLI_SKILL_IDS, ...CONFIG_SKILL_IDS] as string[];
   assert.equal(allIds.length, 45, "canonical api/cli/config lists declare 45 skill IDs");
