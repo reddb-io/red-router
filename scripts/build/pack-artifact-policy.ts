@@ -229,6 +229,8 @@ export const PACK_ARTIFACT_REQUIRED_PATHS: string[] = [
   "dist/head-response-guard.cjs",
   "dist/webdav-handler.mjs",
   "bin/cli/program.mjs",
+  // RedRouter product identity (name, data dir, command) imported by the CLI on every boot.
+  "bin/cli/product.mjs",
   // Direct imports of bin/omniroute.mjs — bin/cli/ is only an allowlist PREFIX, so a
   // file vanishing from the tarball never fails the unexpected-paths check; only these
   // required entries make its absence loud (#7065 class; derived + enforced by
