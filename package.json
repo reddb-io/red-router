@@ -1,6 +1,6 @@
 {
   "name": "@reddb-io/red-router",
-  "version": "0.41.1",
+  "version": "0.41.2",
   "publishConfig": {
     "access": "public"
   },
