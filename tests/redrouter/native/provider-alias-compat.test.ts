@@ -25,6 +25,11 @@ const FRIDAY_ALIASES: Record<string, string> = {
   ernie: "baidu",
   morphllm: "morph",
   typesafe: "typesafe-ai",
+  ag: "antigravity",
+  ocz: "opencode-zen",
+  brave: "brave-search",
+  fish: "fishaudio",
+  gpse: "google-pse-search",
   // Already kept before this change.
   cmc: "command-code",
   ark: "volcengine-coding-plan",

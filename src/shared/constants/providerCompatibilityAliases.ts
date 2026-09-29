@@ -28,6 +28,12 @@ export const PROVIDER_COMPATIBILITY_ALIASES = {
   ernie: "baidu",
   morphllm: "morph",
   typesafe: "typesafe-ai",
+  // 9router short aliases for providers this build knows under longer ids.
+  ag: "antigravity",
+  ocz: "opencode-zen",
+  brave: "brave-search",
+  fish: "fishaudio",
+  gpse: "google-pse-search",
 } as const;
 
 export function resolveProviderCompatibilityAlias(provider: string): string {
