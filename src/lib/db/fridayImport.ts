@@ -192,7 +192,7 @@ interface MappedKey {
 }
 
 /** Friday's `apiKeys` row → what this schema stores (tags, quotas and id format live elsewhere). */
-export function mapFridayKey(row: Row, notMapped: Record<string, number>): MappedKey {
+export function mapFridayKey(row: Row): MappedKey {
   const access = parseJson<{ mode?: string; patterns?: unknown }>(row.modelAccess, {});
   const patterns = Array.isArray(access.patterns) ? access.patterns.map(String) : [];
   const limits = parseJson<{ rpm?: number; tokensPerDay?: number; usdPerMonth?: number }>(
@@ -341,7 +341,7 @@ export async function importFridayData(options: FridayImportOptions): Promise<Fr
     );
     const rawConnections = all(reader, "providerConnections");
     const rawKeys = all(reader, "apiKeys");
-    const keyRows = rawKeys.map((row) => mapFridayKey(row, notMapped));
+    const keyRows = rawKeys.map((row) => mapFridayKey(row));
     const allCombos = all(reader, "combos");
     const combos = allCombos.filter((row) => {
       if (row.kind) bump(notMapped, `combos.kind.${String(row.kind)}`);
