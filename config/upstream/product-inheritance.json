@@ -241,11 +241,18 @@
         "src/lib/usageSinks/kafka.js",
         "src/lib/usageSinks/reddb.js"
       ],
-      "localPaths": ["src/lib/logExport/registry.ts", "src/lib/logExport/runner.ts"],
+      "localPaths": [
+        "src/lib/logExport/registry.ts",
+        "src/lib/logExport/runner.ts",
+        "src/lib/usageSinks/engine.ts",
+        "src/lib/db/usageSinks.ts",
+        "src/app/api/usage-sinks/route.ts",
+        "tests/redrouter/native/usage-sinks-outbox.test.ts"
+      ],
       "upstreamPaths": {
         "litellm": ["litellm/integrations", "litellm/proxy/spend_tracking"]
       },
-      "remaining": "The RedRouter usage-sink engine is absent. A log-export engine is not evidence of equivalent billing payloads, transports, scheduling or delivery semantics.",
+      "remaining": "RedRouter-owned SQLite outbox, stable IDs, signed HTTPS webhook, instant/window aggregation and management API are implemented for request_cost_ledger rows, pending CI verification. This is costed-requests-only, not complete usage or billing parity: some request paths still do not write priced ledger rows, and SQS, Kafka, RedDB, key-tag filters, manual retry, dashboard UI and transport-specific acceptance tests remain. Log export is a separate capability.",
       "acceptance": [
         "Preserve signed webhook, SQS, Kafka and RedDB delivery contracts.",
         "Retries keep stable delivery IDs and do not duplicate billable usage.",

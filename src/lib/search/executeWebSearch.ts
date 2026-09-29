@@ -300,7 +300,11 @@ export async function executeWebSearch(
 
   if (!cached && input.apiKeyId && input.apiKeyId !== "local" && data.usage?.search_cost_usd > 0) {
     try {
-      recordCost(input.apiKeyId, data.usage.search_cost_usd);
+      recordCost(input.apiKeyId, data.usage.search_cost_usd, {
+        provider: providerConfig.id,
+        model: "web-search",
+        success: true,
+      });
     } catch (error: any) {
       log.warn("SEARCH", `Cost recording failed: ${error?.message || String(error)}`);
     }

@@ -416,7 +416,11 @@ async function postHandler(request: Request, context: unknown) {
     // Record cost for budget tracking (skip cache hits — no provider cost)
     if (!cached && policy.apiKeyInfo?.id && searchResult.usage?.search_cost_usd > 0) {
       try {
-        recordCost(policy.apiKeyInfo.id, searchResult.usage.search_cost_usd);
+        recordCost(policy.apiKeyInfo.id, searchResult.usage.search_cost_usd, {
+          provider: providerConfig.id,
+          model: "web-search",
+          success: true,
+        });
       } catch (e: any) {
         log.warn("SEARCH", `Cost recording failed: ${e?.message}`);
       }

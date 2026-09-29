@@ -39,6 +39,8 @@ export interface WebhookFetchOptions {
   pinDns?: boolean;
   maxRedirects?: number;
   signal?: AbortSignal;
+  /** Some financial/usage callbacks must never reach private networks even when provider URLs may. */
+  allowPrivate?: boolean;
 }
 
 export interface WebhookFetchResult {
@@ -50,8 +52,11 @@ export interface WebhookFetchResult {
 }
 
 /** Reject a resolved address set that includes a metadata or (non-opted-in) private IP. */
-function assertAddressesAllowed(addresses: DnsLookupResult[], url: URL): boolean {
-  const allowPrivate = arePrivateProviderUrlsAllowed();
+function assertAddressesAllowed(
+  addresses: DnsLookupResult[],
+  url: URL,
+  allowPrivate: boolean
+): boolean {
   let sawPrivate = false;
   for (const { address } of addresses) {
     if (isCloudMetadataHost(address)) {
@@ -77,7 +82,8 @@ function assertAddressesAllowed(addresses: DnsLookupResult[], url: URL): boolean
 
 async function resolveHop(
   currentUrl: string | URL,
-  lookup: DnsLookup
+  lookup: DnsLookup,
+  allowPrivate: boolean
 ): Promise<{ url: URL; addresses: DnsLookupResult[]; redactBody: boolean }> {
   const url = parseOutboundUrl(currentUrl);
   let addresses: DnsLookupResult[];
@@ -90,7 +96,7 @@ async function resolveHop(
       hostname: url.hostname || null,
     });
   }
-  const redactBody = assertAddressesAllowed(addresses, url);
+  const redactBody = assertAddressesAllowed(addresses, url, allowPrivate);
   return { url, addresses, redactBody };
 }
 
@@ -100,7 +106,8 @@ function pickFetchImpl(
   addresses: DnsLookupResult[]
 ): typeof fetch {
   if (fetchImpl) return fetchImpl;
-  if (pinDns && addresses.length) return createPinnedFetch(addresses[0].address, addresses[0].family);
+  if (pinDns && addresses.length)
+    return createPinnedFetch(addresses[0].address, addresses[0].family);
   return fetch;
 }
 
@@ -139,11 +146,12 @@ export async function fetchWebhookUrl(
   const lookup = options.lookup ?? defaultDnsLookup;
   const maxRedirects = options.maxRedirects ?? DEFAULT_MAX_REDIRECTS;
   const pinDns = options.pinDns !== false;
+  const allowPrivate = options.allowPrivate ?? arePrivateProviderUrlsAllowed();
   let currentUrl: string | URL = input;
   let redactBody = false;
 
   for (let redirectCount = 0; redirectCount <= maxRedirects; redirectCount++) {
-    const hop = await resolveHop(currentUrl, lookup);
+    const hop = await resolveHop(currentUrl, lookup, allowPrivate);
     redactBody = redactBody || hop.redactBody;
     const fetchImpl = pickFetchImpl(options.fetchImpl, pinDns, hop.addresses);
     const response = await fetchImpl(hop.url.toString(), {

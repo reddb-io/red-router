@@ -27,6 +27,7 @@ import {
   spendBatchWriter,
 } from "@/lib/spend/batchWriter";
 import { recordLedgerFromCost } from "@/lib/usage/costLedgerRecorder";
+import { recordLedgerEntrySafe } from "@/lib/db/costLedger";
 
 export type BudgetResetInterval = "daily" | "weekly" | "monthly";
 
@@ -419,6 +420,16 @@ export function recordCost(apiKeyId: string, cost: number, details?: RecordCostD
         success: details.success,
         timestamp: details.timestamp,
         requestId: details.requestId,
+      });
+    } else if (apiKeyId && Number.isFinite(cost) && cost > 0) {
+      // Search and other amount-only charges previously disappeared from the
+      // request ledger, so quotas and downstream cost export undercounted them.
+      recordLedgerEntrySafe({
+        apiKeyId,
+        provider: "unknown",
+        model: "unknown",
+        amountUsd: cost,
+        success: true,
       });
     }
   } catch {
