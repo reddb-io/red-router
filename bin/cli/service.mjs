@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { resolveDataDir } from "./data-dir.mjs";
@@ -27,12 +27,64 @@ function systemdQuote(value) {
 export function servicePaths(home = process.env.HOME || homedir()) {
   return {
     linux: join(home, ".config", "systemd", "user", LINUX_SERVICE_NAME),
+    linuxTray: join(home, ".config", "autostart", "red-router.desktop"),
     darwin: join(home, "Library", "LaunchAgents", `${DARWIN_SERVICE_LABEL}.plist`),
   };
 }
 
+function desktopQuote(value) {
+  return `"${String(value).replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
+}
+
+export function buildTrayDesktopEntry({ misePath, port = DEFAULT_PORT } = {}) {
+  const executable = misePath ? desktopQuote(misePath) : "/usr/bin/env";
+  const command = misePath
+    ? `${executable} exec red-router -- red-router tray attach --port ${port}`
+    : `${executable} red-router tray attach --port ${port}`;
+  return [
+    "[Desktop Entry]",
+    "Type=Application",
+    "Name=RedRouter Tray",
+    "Comment=Attach the RedRouter tray to the existing local service",
+    `Exec=${command}`,
+    "Terminal=false",
+    "Hidden=false",
+    "X-GNOME-Autostart-enabled=true",
+    "X-RedRouter-Managed=service-tray",
+    "",
+  ].join("\n");
+}
+
+export function isRouterDesktopEntry(content) {
+  return (
+    /\bX-RedRouter-Managed=service-tray\b/.test(content) ||
+    (/^Name=RedRouter\s*$/m.test(content) && /^Exec=.*(?:red-router|omniroute)/m.test(content))
+  );
+}
+
+function installLinuxTrayDesktop(paths, port) {
+  if (existsSync(paths.linuxTray) && !isRouterDesktopEntry(readFileSync(paths.linuxTray, "utf8"))) {
+    return;
+  }
+  let misePath;
+  try {
+    misePath = execFileSync("which", ["mise"], { encoding: "utf8" }).trim();
+  } catch {
+    // A conventional npm installation can still use a PATH-resolved red-router.
+  }
+  mkdirSync(dirname(paths.linuxTray), { recursive: true });
+  writeFileSync(paths.linuxTray, buildTrayDesktopEntry({ misePath, port }), { mode: 0o644 });
+}
+
 export function resolveCliPath() {
   return fileURLToPath(new URL("../omniroute.mjs", import.meta.url));
+}
+
+export function resolveServiceNodePath(nodePath = process.execPath) {
+  const nodeInstallRoot = dirname(dirname(dirname(nodePath)));
+  if (basename(nodeInstallRoot) !== "node") return nodePath;
+  const stablePath = join(nodeInstallRoot, "latest", "bin", "node");
+  return existsSync(stablePath) ? stablePath : nodePath;
 }
 
 export function buildServiceArgs({ port = DEFAULT_PORT, host = DEFAULT_HOST } = {}) {
@@ -40,7 +92,7 @@ export function buildServiceArgs({ port = DEFAULT_PORT, host = DEFAULT_HOST } = 
 }
 
 export function buildSystemdUnit({
-  nodePath = process.execPath,
+  nodePath = resolveServiceNodePath(),
   cliPath = resolveCliPath(),
   dataDir = resolveDataDir(),
   port = DEFAULT_PORT,
@@ -74,7 +126,7 @@ export function buildSystemdUnit({
 }
 
 export function buildLaunchdPlist({
-  nodePath = process.execPath,
+  nodePath = resolveServiceNodePath(),
   cliPath = resolveCliPath(),
   dataDir = resolveDataDir(),
   port = DEFAULT_PORT,
@@ -120,6 +172,7 @@ export function installService({ port = DEFAULT_PORT, host = DEFAULT_HOST } = {}
     writeFileSync(paths.linux, buildSystemdUnit({ port, host }), { mode: 0o644 });
     run("systemctl", ["--user", "daemon-reload"]);
     run("systemctl", ["--user", "enable", "--now", LINUX_SERVICE_NAME]);
+    installLinuxTrayDesktop(paths, port);
     return { ok: true, kind: "systemd --user", path: paths.linux, port, host };
   }
   if (process.platform === "darwin") {
@@ -145,6 +198,12 @@ export function uninstallService() {
       ignoreFailure: true,
     });
     rmSync(paths.linux, { force: true });
+    if (
+      existsSync(paths.linuxTray) &&
+      /\bX-RedRouter-Managed=service-tray\b/.test(readFileSync(paths.linuxTray, "utf8"))
+    ) {
+      rmSync(paths.linuxTray, { force: true });
+    }
     run("systemctl", ["--user", "daemon-reload"], { ignoreFailure: true });
     return { ok: true, kind: "systemd --user" };
   }

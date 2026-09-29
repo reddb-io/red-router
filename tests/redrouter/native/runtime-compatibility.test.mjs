@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { homedir } from "node:os";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
@@ -10,7 +10,11 @@ import {
   buildLaunchdPlist,
   buildServiceArgs,
   buildSystemdUnit,
+  buildTrayDesktopEntry,
+  isRouterDesktopEntry,
   LINUX_SERVICE_NAME,
+  resolveServiceNodePath,
+  servicePaths,
 } from "../../../bin/cli/service.mjs";
 import { resolveServerHost } from "../../../bin/cli/utils/serverHost.mjs";
 
@@ -78,4 +82,34 @@ test("service command and release consumer smoke are package-owned gates", () =>
   assert.equal(pkg.scripts["test:unit"], "node scripts/test/run-redrouter.mjs native");
   assert.equal(pkg.scripts["test:unit:ci"], "node scripts/test/run-redrouter.mjs native");
   assert.match(workflow, /mise exec -- red-router service --help/);
+});
+
+test("desktop tray attaches to the mise-selected RedRouter without pinning Node or starting a server", () => {
+  const desktop = buildTrayDesktopEntry({ misePath: "/home/test/.local/bin/mise", port: 25050 });
+  assert.match(
+    desktop,
+    /Exec="\/home\/test\/\.local\/bin\/mise" exec red-router -- red-router tray attach --port 25050/
+  );
+  assert.doesNotMatch(desktop, /\/installs\/node\/|serve --tray|0\.11\.7/);
+  assert.match(desktop, /X-RedRouter-Managed=service-tray/);
+  assert.equal(isRouterDesktopEntry(desktop), true);
+  assert.equal(isRouterDesktopEntry("[Desktop Entry]\nName=Other\nExec=/somewhere/other\n"), false);
+  assert.equal(
+    servicePaths("/home/test").linuxTray,
+    "/home/test/.config/autostart/red-router.desktop"
+  );
+});
+
+test("service Node path follows mise latest only when that alias exists", () => {
+  assert.equal(resolveServiceNodePath("/opt/node/bin/node"), "/opt/node/bin/node");
+  const root = mkdtempSync(join(tmpdir(), "redrouter-node-alias-"));
+  try {
+    const latest = join(root, "node", "latest", "bin", "node");
+    mkdirSync(join(root, "node", "26.10.0", "bin"), { recursive: true });
+    mkdirSync(join(root, "node", "latest", "bin"), { recursive: true });
+    writeFileSync(latest, "");
+    assert.equal(resolveServiceNodePath(join(root, "node", "26.10.0", "bin", "node")), latest);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

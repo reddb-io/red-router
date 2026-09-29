@@ -37,7 +37,7 @@ function getIconBase64() {
 }
 
 export async function initSystrayUnix(
-  { port, onQuit, onOpenDashboard, onShowLogs },
+  { port, trayOnly = false, onQuit, onOpenDashboard, onShowLogs },
   loadCtor = loadSystray2
 ) {
   const SysTray = await loadCtor();
@@ -45,14 +45,18 @@ export async function initSystrayUnix(
 
   const autostartEnabled = isAutostartEnabled();
   const items = [
-    { title: `OmniRoute  •  port ${port}`, tooltip: "Server running", enabled: false },
+    { title: `RedRouter  •  port ${port}`, tooltip: "Open the local service", enabled: false },
     { title: "Open Dashboard", enabled: true },
     { title: "Show Logs", enabled: true },
     {
-      title: autostartEnabled ? "✓ Auto-start (click to disable)" : "Enable Auto-start",
-      enabled: true,
+      title: trayOnly
+        ? "Tray starts with desktop session"
+        : autostartEnabled
+          ? "✓ Auto-start (click to disable)"
+          : "Enable Auto-start",
+      enabled: !trayOnly,
     },
-    { title: "Quit OmniRoute", enabled: true },
+    { title: trayOnly ? "Quit RedRouter tray" : "Quit RedRouter", enabled: true },
   ];
 
   let tray;
@@ -65,7 +69,7 @@ export async function initSystrayUnix(
         // (the icon looked "missing" even when the tray loaded). (PR #1080)
         isTemplateIcon: false,
         title: "",
-        tooltip: `OmniRoute — port ${port}`,
+        tooltip: `RedRouter — port ${port}`,
         items,
       },
       debug: false,
@@ -80,7 +84,7 @@ export async function initSystrayUnix(
       onOpenDashboard?.();
     } else if (action.seq_id === MENU_INDEX.LOGS) {
       onShowLogs?.();
-    } else if (action.seq_id === MENU_INDEX.AUTOSTART) {
+    } else if (action.seq_id === MENU_INDEX.AUTOSTART && !trayOnly) {
       const { enable, disable, isAutostartEnabled: isEnabled } = await import("./autostart.mjs");
       const wasOn = isEnabled();
       if (wasOn) disable();

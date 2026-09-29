@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolveDataDir } from "../data-dir.mjs";
+import { buildTrayDesktopEntry } from "../service.mjs";
 
 const APP_LABEL = "io.reddb.red-router.autostart";
 const WIN_REG_VALUE = "RedRouter";
@@ -150,6 +151,16 @@ function writeLinuxSystemdUnit(cliPath) {
 function writeLinuxDesktopEntry(cliPath) {
   const dir = dirname(linuxDesktopPath());
   mkdirSync(dir, { recursive: true });
+  if (isSystemdServiceEnabled()) {
+    let misePath;
+    try {
+      misePath = execFileSync("which", ["mise"], { encoding: "utf8" }).trim();
+    } catch {
+      // A conventional npm installation can use a PATH-resolved red-router.
+    }
+    writeFileSync(linuxDesktopPath(), buildTrayDesktopEntry({ misePath }), { mode: 0o644 });
+    return;
+  }
   const desktop =
     [
       "[Desktop Entry]",
