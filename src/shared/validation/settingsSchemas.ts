@@ -127,6 +127,7 @@ export const updateSettingsSchema = z.object({
   oidcIssuer: z.string().max(500).optional(),
   oidcClientId: z.string().max(200).optional(),
   oidcClientSecret: z.string().max(500).optional(),
+  prometheusMetricsEnabled: z.boolean().optional(),
   oidcScopes: z.array(z.string().max(100)).optional(),
   oidcRedirectPath: z.string().max(500).optional(),
   oidcAllowedSubjects: z.array(z.string().max(200)).optional(),

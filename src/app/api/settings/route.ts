@@ -143,6 +143,9 @@ const SECURITY_IMPACTING_KEYS = [
   "samlEntryPoint",
   "samlCert",
   "samlAllowedEmails",
+  // Turning the Prometheus scrape endpoint on exposes usage/cost/health data to whoever holds
+  // the scrape token, so it takes the same current-password gate as the other exposure switches.
+  "prometheusMetricsEnabled",
 ] as const;
 
 /**

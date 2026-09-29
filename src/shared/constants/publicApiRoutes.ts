@@ -50,6 +50,11 @@ const PUBLIC_API_ROUTES_EXACT = new Set([
   "/api/auth/saml/start",
   "/api/auth/saml/acs",
   "/api/auth/saml/metadata",
+  // Prometheus scrapers cannot do cookie logins. This entry only bypasses the dashboard cookie
+  // gate; the handler enforces its own auth (management credential OR the dedicated scrape
+  // bearer token) and answers 404 while the feature is off. `/api/metrics/token` (mint/revoke)
+  // is deliberately NOT public: it needs a management session and the current password.
+  "/api/metrics",
   "/api/init",
   "/api/sync/bundle",
   // Remote-mode bootstrap: exchange the management password for a scoped CLI

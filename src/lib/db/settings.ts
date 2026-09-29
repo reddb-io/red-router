@@ -187,6 +187,11 @@ export async function getSettings() {
     oidcIssuer: "",
     oidcClientId: "",
     oidcClientSecret: "",
+    // Opt-in Prometheus scrape endpoint (GET /api/metrics). Off by default: the endpoint answers
+    // 404 until an operator enables it. Its scrape token is NOT a settings key — see
+    // src/lib/db/metricsToken.ts (kept out of getSettings() so it can never leak through
+    // GET /api/settings or an export of the settings object).
+    prometheusMetricsEnabled: false,
     oidcScopes: ["openid", "profile", "email"],
     oidcRedirectPath: "/api/auth/oidc/callback",
     oidcAllowedSubjects: [], // optional sub or email whitelist
