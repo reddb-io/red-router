@@ -15,7 +15,7 @@ export const TRANSPORTS = {
   sqs: sqsTransport,
   kafka: kafkaTransport,
   reddb: redDbTransport,
-} as const satisfies Record<UsageSinkType, UsageSinkTransport<never>>;
+} as const satisfies Record<UsageSinkType, { type: UsageSinkType }>;
 
 export const USAGE_SINK_TYPES = Object.keys(TRANSPORTS) as [UsageSinkType, ...UsageSinkType[]];
 

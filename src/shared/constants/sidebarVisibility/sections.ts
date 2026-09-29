@@ -330,6 +330,15 @@ const INTEGRATIONS_GROUP: SidebarItemGroup = {
       labelFallback: "Log export",
       subtitleFallback: "Ship call logs out",
     },
+    {
+      id: "usage-sinks",
+      href: "/dashboard/usage-sinks",
+      i18nKey: "usageSinks",
+      subtitleKey: "usageSinksSubtitle",
+      icon: "payments",
+      labelFallback: "Usage Sinks",
+      subtitleFallback: "Send usage to billing",
+    },
   ],
 };
 

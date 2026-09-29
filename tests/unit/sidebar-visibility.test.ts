@@ -75,6 +75,7 @@ test("primary sidebar items place limits after cache", () => {
       "api-endpoints",
       "webhooks",
       "log-export",
+      "usage-sinks",
       "proxy",
     ]
   );

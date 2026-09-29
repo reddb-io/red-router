@@ -40,6 +40,7 @@ export const HIDEABLE_SIDEBAR_ITEM_IDS = [
   "api-endpoints",
   "webhooks",
   "log-export",
+  "usage-sinks",
   // OmniProxy — proxy tools
   "mitm-proxy",
   "1proxy",
