@@ -254,7 +254,9 @@ const kafkaConfigSchema = z
   })
   .transform((config): KafkaConfig => {
     const { saslMechanism, saslUsername, saslPassword, ...rest } = config;
-    return saslMechanism ? { ...rest, saslMechanism, saslUsername, saslPassword } : { ...rest };
+    return (
+      saslMechanism ? { ...rest, saslMechanism, saslUsername, saslPassword } : { ...rest }
+    ) as KafkaConfig;
   });
 
 const where = (config: KafkaConfig): string | null =>

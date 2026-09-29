@@ -174,8 +174,9 @@ export function createUsageSink(
     id: number;
   };
   const type: UsageSinkType = input.type ?? "webhook";
+  const raw = input as { url?: string; secretEncrypted?: string; config?: Record<string, unknown> };
   const config: Record<string, unknown> =
-    input.type === undefined ? { url: input.url, secret: input.secretEncrypted } : input.config;
+    input.type === undefined ? { url: raw.url, secret: raw.secretEncrypted } : raw.config;
   const legacy = legacyWebhookColumns(type, config);
   db.prepare(
     `INSERT INTO redrouter_usage_sinks

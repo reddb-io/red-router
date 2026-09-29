@@ -79,7 +79,7 @@ export const webhookTransport: UsageSinkTransport<WebhookConfig> = {
       helpFallback: "At least 16 characters. Verify webhook-signature with it (HMAC-SHA256).",
     },
   ],
-  configSchema: webhookConfigSchema,
+  configSchema: webhookConfigSchema as unknown as z.ZodType<WebhookConfig>,
   summary: (config) => `POST ${displayUrl(config.url) ?? ""}`,
 
   async send({ config, id, payload, now }, deps = {}): Promise<DeliveryResult> {

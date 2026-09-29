@@ -18,8 +18,13 @@ import {
 } from "@/lib/logExport/secrets";
 import { getTransport } from "./transports";
 
-export type ResolvedConfig =
-  { ok: true; stored: Record<string, unknown> } | { ok: false; error: string };
+// A flat shape rather than a discriminated union: this project compiles without strictNullChecks,
+// where `if (!result.ok)` does not narrow. `stored` is set when `ok`, `error` when not.
+export interface ResolvedConfig {
+  ok: boolean;
+  stored?: Record<string, unknown>;
+  error?: string;
+}
 
 /**
  * Validate `incoming` for `type`, merged over `storedEncrypted` when editing, and return the

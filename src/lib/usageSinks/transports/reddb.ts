@@ -96,7 +96,7 @@ export const redDbTransport: UsageSinkTransport<RedDbConfig> = {
     },
     { key: "tenant", labelFallback: "Tenant (optional)", type: "text" },
   ],
-  configSchema: redDbConfigSchema,
+  configSchema: redDbConfigSchema as unknown as z.ZodType<RedDbConfig>,
   summary: (config) =>
     `QUEUE ${config.queue || "?"} @ ${String(config.url || "").replace(/^https?:\/\//, "")}`,
 
