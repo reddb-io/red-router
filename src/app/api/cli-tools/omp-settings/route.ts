@@ -141,13 +141,13 @@ export async function POST(request: Request) {
 
     await fs.writeFile(getOmpModelsYmlPath(), yamlDump(modelsYml, { lineWidth: -1 }), "utf-8");
 
-    // 2. Write auth_credentials — so omp sees omniroute as "logged in"
+    // 2. Write auth_credentials — so omp sees red-router as "logged in"
     saveOmpCredentials(PROVIDER_ID, keyRef, normalizedBaseUrl);
 
     return NextResponse.json({
       success: true,
       message:
-        "Oh My Pi settings applied! Run omp and all RedRouter models appear under omniroute in /model.",
+        "Oh My Pi settings applied! Run omp and all RedRouter models appear under red-router in /model.",
       configPath: getOmpModelsYmlPath(),
     });
   } catch (error) {

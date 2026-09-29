@@ -22,8 +22,8 @@ test("runCompletionCommand bash retorna 0 e string não-vazia", async () => {
     (process.stdout as any).write = orig;
   }
   const out = chunks.join("");
-  assert.ok(out.includes("omniroute"), "bash script should mention omniroute");
-  assert.ok(out.includes("_omniroute"), "bash script should define _omniroute function");
+  assert.ok(out.includes("red-router"), "bash script should mention red-router");
+  assert.ok(out.includes("_red_router"), "bash script should define _red_router function");
 });
 
 test("runCompletionCommand zsh contém compdef", async () => {
@@ -59,7 +59,7 @@ test("runCompletionCommand fish retorna 0", async () => {
     (process.stdout as any).write = orig;
   }
   const out = chunks.join("");
-  assert.ok(out.includes("omniroute"), "fish script should mention omniroute");
+  assert.ok(out.includes("red-router"), "fish script should mention red-router");
 });
 
 test("runCompletionCommand shell inválido retorna 1", async () => {
@@ -89,7 +89,7 @@ test("completion scripts incluem combos/providers/models no cache dinamicamente"
   }
   const out = chunks.join("");
   assert.ok(
-    out.includes("completion-cache.json") || out.includes("omniroute_get_cache"),
+    out.includes("completion-cache.json") || out.includes("red_router_get_cache"),
     "should reference cache"
   );
 });

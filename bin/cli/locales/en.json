@@ -236,7 +236,7 @@
     "combo": "Force a specific combo by name",
     "responses_api": "Use /v1/responses instead of /v1/chat/completions",
     "stream": "Stream response incrementally",
-    "no_history": "Do not save to ~/.omniroute/cli-history.jsonl",
+    "no_history": "Do not save to cli-history.jsonl in the data directory",
     "error": {
       "empty_prompt": "Error: prompt is required (positional arg, --file, or --stdin)"
     }

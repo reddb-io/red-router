@@ -38,7 +38,7 @@ import { DEFAULT_PORT, resolvePort } from "../product.mjs";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const _pkg = JSON.parse(readFileSync(join(__dirname, "..", "..", "..", "package.json"), "utf8"));
 
-// URL scheme for the "OmniRoute is running" banner — flipped to https when
+// URL scheme for the "RedRouter is running" banner — flipped to https when
 // opt-in TLS (#5242) is active. Process-scoped: one `serve` run = one scheme.
 let urlScheme = "http";
 const ROOT = join(__dirname, "..", "..", "..");
@@ -167,12 +167,11 @@ export async function runServe(opts = {}) {
   const noOpen = opts.open === false;
 
   console.log(`
-\x1b[36m   ____                  _ ____              _
-   / __ \\                (_) __ \\            | |
-  | |  | |_ __ ___  _ __ _| |__) |___  _   _| |_ ___
-  | |  | | '_ \` _ \\| '_ \\ |  _  // _ \\| | | | __/ _ \\
-  | |__| | | | | | | | | | | | \\ \\ (_) | |_| | ||  __/
-   \\____/|_| |_| |_|_| |_|_|_|  \\_\\___/ \\__,_|\\__\\___|
+\x1b[36m  ____          _ ____              _
+ |  _ \\ ___  __| |  _ \\ ___  _   _| |_ ___ _ __
+ | |_) / _ \\/ _\` | |_) / _ \\| | | | __/ _ \\ '__|
+ |  _ <  __/ (_| |  _ < (_) | |_| | ||  __/ |
+ |_| \\_\\___|\\__,_|_| \\_\\___/ \\__,_|\\__\\___|_|
 \x1b[0m`);
   console.log(`\x1b[2m  v${_pkg.version}\x1b[0m\n`);
 

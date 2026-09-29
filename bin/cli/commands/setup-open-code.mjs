@@ -1,9 +1,9 @@
 /**
- * omniroute setup opencode — Wire the bundled @omniroute/opencode-plugin
+ * red-router setup opencode — Wire the bundled @omniroute/opencode-plugin
  * into a local OpenCode install.
  *
  * Closes the gap where `npm install -g @reddb-io/red-router` ships the plugin
- * inside the omniroute package (`@omniroute/opencode-plugin/dist/`) but
+ * inside the red-router package (`@omniroute/opencode-plugin/dist/`) but
  * OpenCode discovers plugins via `~/.config/opencode/plugins/` or
  * via entries in `opencode.json`. Without this command, the user has
  * to extract the tarball and wire it up by hand (see the plugin README,
@@ -35,7 +35,7 @@ import { guardHostConfigTarget } from "../utils/config-home-guard.mjs";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// We walk up from this file to find the omniroute package root. The script
+// We walk up from this file to find the red-router package root. The script
 // lives at `<omniroute>/bin/cli/commands/setup-open-code.mjs`, so the
 // package root is three levels up. Using import.meta.url (not process.cwd())
 // means the command works the same way whether you run it from the source
@@ -84,7 +84,7 @@ function resolveOpenCodeDirs() {
  * present in two states:
  *
  *   - Built (`dist/index.cjs` + `dist/index.js` exist) — preferred,
- *     ships from a published omniroute tarball after Step 8.8 of
+ *     ships from a published red-router tarball after Step 8.8 of
  *     `scripts/build/prepublish.ts` runs.
  *   - Unbuilt (only `src/index.ts`) — local dev / fresh clone. We surface
  *     a clear error instead of running tsup here, because the CLI runtime
@@ -96,7 +96,7 @@ function resolveBundledPlugin() {
   if (!existsSync(BUNDLED_PLUGIN_DIR)) {
     throw new Error(
       `Bundled @omniroute/opencode-plugin not found at ${BUNDLED_PLUGIN_DIR}.\n` +
-        `This usually means omniroute was installed from a source tree that does not ` +
+        `This usually means red-router was installed from a source tree that does not ` +
         `include the workspace package. Try reinstalling omniroute (npm install -g @reddb-io/red-router) ` +
         `or run \`cd @omniroute/opencode-plugin && npm install && npm run build\` from the source repo.`
     );
@@ -121,7 +121,7 @@ function resolveBundledPlugin() {
  * copy the entire package (dist/ + package.json) so the dist file's
  * require/import of `zod` and `@opencode-ai/plugin` resolves against the
  * copy's own node_modules. Without the copy, OpenCode would need to
- * resolve the peer deps from the omniroute package's tree, which is
+ * resolve the peer deps from the red-router package's tree, which is
  * unreliable.
  */
 function installPluginToOpenCode(pluginInfo, opencodeConfigDir) {
@@ -395,9 +395,9 @@ export async function runSetupOpenCodeCommand(opts = {}) {
 }
 
 /**
- * Register the `omniroute setup opencode` subcommand on the parent
+ * Register the `red-router setup opencode` subcommand on the parent
  * `setup` command. Commander builds the doc/help from the chain, so
- * `omniroute setup --help` automatically shows the new subcommand.
+ * `red-router setup --help` automatically shows the new subcommand.
  *
  * @param {import("commander").Command} setupCommand  the registered `setup` command
  */

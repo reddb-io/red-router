@@ -4,7 +4,7 @@ import { createPrompt, printSuccess, printError, printInfo } from "../io.mjs";
 import { t } from "../i18n.mjs";
 
 /**
- * `omniroute connect <host>` — remote mode.
+ * `red-router connect <host>` — remote mode.
  *
  * Logs into a remote OmniRoute server and saves the result as the active context
  * so every subsequent command targets that server. Two flows:
@@ -113,7 +113,7 @@ export async function runConnectCommand(host, opts = {}) {
 
   printSuccess(`Connected to ${baseUrl} — context '${name}' (scope: ${scope})`);
   printInfo("All commands now target this server.");
-  printInfo("Switch back to local with: omniroute contexts use default");
+  printInfo("Switch back to local with: red-router contexts use default");
   return 0;
 }
 

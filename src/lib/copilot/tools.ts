@@ -367,7 +367,7 @@ export const COPILOT_TOOLS: CopilotTool[] = [
   {
     name: "runOmniRouteCli",
     description:
-      "Execute a 'red-router' CLI command to configure or query the RedRouter app. Gives complete control over the app — use for advanced operations not covered by other tools. Common commands: red-router list-keys, red-router switch-combo [id], red-router set-budget 10, omniroute set-strategy [id] priority, red-router health, red-router mcp (starts MCP server), omniroute db-health, red-router reset-password.",
+      "Execute a 'red-router' CLI command to configure or query the RedRouter app. Gives complete control over the app — use for advanced operations not covered by other tools. Common commands: red-router list-keys, red-router switch-combo [id], red-router set-budget 10, red-router set-strategy [id] priority, red-router health, red-router mcp (starts MCP server), red-router db-health, red-router reset-password.",
     parameters: [
       {
         name: "command",

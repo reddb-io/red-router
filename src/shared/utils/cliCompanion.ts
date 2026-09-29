@@ -38,7 +38,7 @@ export const validCompanionModel = (value: string): boolean =>
 
 export function buildCompanionCommands(target: CompanionTarget, context: string, model: string) {
   const commands: { contexts: string; configure?: string; run?: string } = {
-    contexts: "omniroute contexts list\nomniroute contexts current",
+    contexts: "red-router contexts list\nomniroute contexts current",
   };
   if (!/^[a-z0-9][a-z0-9-]*$/.test(target.id) || !validCompanionContext(context)) return commands;
   const suffix = context ? ` --context ${context}` : "";

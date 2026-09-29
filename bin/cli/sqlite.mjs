@@ -21,7 +21,7 @@ async function loadSqlite() {
 // #7586: unlike the real server (src/lib/db/adapters/driverFactory.ts::tryOpenSync),
 // this CLI helper historically had NO fallback beyond better-sqlite3 — so on any
 // machine where better-sqlite3's native binary is unavailable (Windows without a
-// prebuilt addon, etc.), every `omniroute doctor` DB check reported a false FAIL
+// prebuilt addon, etc.), every `red-router doctor` DB check reported a false FAIL
 // even when the actual server was healthy via its own (correct) driver cascade.
 // Reuse that same cascade here instead of re-deriving it.
 async function openWithSyncDriverFallback(dbPath, options, importError) {
@@ -96,7 +96,7 @@ export function createSqliteNativeError(error) {
     return new Error(
       `better-sqlite3 native binding is incompatible with this runtime. ` +
         `Run \`${rebuildCmd}\` in the RedRouter project and try again. ` +
-        `Or run: omniroute runtime repair  ` +
+        `Or run: red-router runtime repair  ` +
         `(rebuilds into a user-writable runtime; works without a C++ toolchain).`
     );
   }
@@ -107,7 +107,7 @@ export function createSqliteNativeError(error) {
   ) {
     return new Error(
       `better-sqlite3 native binding could not be found (no prebuilt addon for this platform). ` +
-        `Run: omniroute runtime repair  ` +
+        `Run: red-router runtime repair  ` +
         `(rebuilds into a user-writable runtime; works without a C++ toolchain).`
     );
   }
