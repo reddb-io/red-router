@@ -36,11 +36,37 @@ export function assertRuntimeProviderAvailable(providerId: unknown): void {
   throw error;
 }
 
+/**
+ * `gc/` was Gemini CLI, retired; the prefix now belongs to Grok Build. A request that still asks
+ * for a Gemini model through it would reach Grok Build and fail with a confusing "model not found",
+ * so it is answered with the retirement and a pointer to the provider that replaced it.
+ */
+const RETIRED_PREFIX_MODELS: ReadonlyArray<{ prefix: string; model: RegExp; message: string }> = [
+  {
+    prefix: "gc",
+    model: /^gemini/i,
+    message:
+      "Gemini CLI (gc/) is retired and unavailable; use antigravity/<model> for Gemini models. " +
+      "The gc/ prefix now belongs to Grok Build.",
+  },
+];
+
 export function assertRuntimeModelProviderAvailable(modelId: unknown): void {
   if (typeof modelId !== "string") return;
   const slashIndex = modelId.indexOf("/");
   if (slashIndex <= 0) return;
-  assertRuntimeProviderAvailable(modelId.slice(0, slashIndex));
+  const prefix = modelId.slice(0, slashIndex).trim().toLowerCase();
+  const model = modelId.slice(slashIndex + 1);
+  const rule = RETIRED_PREFIX_MODELS.find(
+    (entry) => entry.prefix === prefix && entry.model.test(model)
+  );
+  if (rule) {
+    const error = new Error(rule.message) as RuntimeProviderRetirementError;
+    error.code = RUNTIME_PROVIDER_RETIRED_ERROR_CODE;
+    error.status = 410;
+    throw error;
+  }
+  assertRuntimeProviderAvailable(prefix);
 }
 
 export function isRuntimeProviderRetirementError(
