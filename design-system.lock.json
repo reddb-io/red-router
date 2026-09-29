@@ -33,6 +33,11 @@
     "input.variants.ts": "4bba78ed10c129c686630ed1cadc8fd4f0a13f7c6bdc3b610b2586441a13d396",
     "nav-item.variants.ts": "56c77163a98fe9678eeb6edda5272aaaa2e6183d40f95c853e0d36fd294543a5",
     "page-heading.variants.ts": "a02b6d6b1d97f542eb340a2c431062934196a0c81faa0be8eb4b67093924f3fc",
-    "select.variants.ts": "a87eb0d9563b45066f65258a1d0d069bdfc05d5148106e04b07ac46de24889ba"
+    "select.variants.ts": "a87eb0d9563b45066f65258a1d0d069bdfc05d5148106e04b07ac46de24889ba",
+    "sidebar-layout.variants.ts": "1dc64691aab55798fa2911b51b52c860a4884975678a3b17c873b9537cd18e2b",
+    "sidebar-navigation.variants.ts": "8f6147d7558f34f37f2473bc0a89804cee6e5162f2741a844825ee633c3ac4e0",
+    "sidebar-rail.variants.ts": "af7843a76cbb05090b7eb02c472c2341777d7edac384a37582038a611a339f47",
+    "tabs.variants.ts": "f90f653a427c956a36af0214aa443fd9c1b03c594fe07be0c3121fc53ed25e2c",
+    "tooltip.variants.ts": "f7e4a59f7716cfff68a88a3bcc0bbfb807b445b05f1b2c0acd8f410419e31492"
   }
 }

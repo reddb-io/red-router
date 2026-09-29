@@ -1,9 +1,13 @@
-/** The dashboard sidebar's width: the limits, the stored value and the step of a keyboard resize. */
+/**
+ * The dashboard side panel's width (the rail beside it is fixed by the design system): the limits, the
+ * stored value and the step of a keyboard resize. The limits and the default follow the DS showcase.
+ */
 
-export const SIDEBAR_WIDTH_KEY = "sidebar-width";
-export const SIDEBAR_MIN_WIDTH = 200;
-export const SIDEBAR_MAX_WIDTH = 380;
-export const SIDEBAR_DEFAULT_WIDTH = 240;
+export const SIDEBAR_WIDTH_KEY = "sidebar-panel-width";
+export const SIDEBAR_PANEL_OPEN_KEY = "sidebar-panel-open";
+export const SIDEBAR_MIN_WIDTH = 240;
+export const SIDEBAR_MAX_WIDTH = 480;
+export const SIDEBAR_DEFAULT_WIDTH = 288;
 export const SIDEBAR_KEYBOARD_STEP = 8;
 
 type StorageLike = Pick<Storage, "getItem" | "setItem">;
@@ -53,4 +57,24 @@ export function sidebarWidthForKey(current: number, key: string, rtl = false): n
   if (key === "Home") return SIDEBAR_MIN_WIDTH;
   if (key === "End") return SIDEBAR_MAX_WIDTH;
   return null;
+}
+
+/** Whether the panel next to the rail is open; open unless the operator closed it. */
+export function readSidebarPanelOpen(storage: StorageLike | null = browserStorage()): boolean {
+  try {
+    return storage?.getItem(SIDEBAR_PANEL_OPEN_KEY) !== "false";
+  } catch {
+    return true;
+  }
+}
+
+export function writeSidebarPanelOpen(
+  open: boolean,
+  storage: StorageLike | null = browserStorage()
+): void {
+  try {
+    storage?.setItem(SIDEBAR_PANEL_OPEN_KEY, String(open));
+  } catch {
+    // The choice just is not remembered.
+  }
 }

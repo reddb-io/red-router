@@ -18,23 +18,13 @@ import {
 } from "@/shared/utils/dashboardCsrf";
 import { installBasePathFetch } from "@/shared/utils/basePathFetch";
 
-const SIDEBAR_COLLAPSED_KEY = "sidebar-collapsed";
 const isE2EMode = process.env.NEXT_PUBLIC_OMNIROUTE_E2E_MODE === "1";
 
 export default function DashboardLayout({ children }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const isElectron = useIsElectron();
-  const [collapsed, setCollapsed] = useState(false);
   const sidebarWidth = useSidebarWidth();
-
-  useEffect(() => {
-    try {
-      if (localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "true") {
-        setTimeout(() => setCollapsed(true), 0);
-      }
-    } catch {}
-  }, []);
 
   const isMacElectron =
     isElectron &&
@@ -74,12 +64,6 @@ export default function DashboardLayout({ children }) {
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, []);
 
-  const handleToggleCollapse = () => {
-    const next = !collapsed;
-    setCollapsed(next);
-    localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(next));
-  };
-
   return (
     // No bg-bg here: the body grid wallpaper (globals.css body::before) shows through
     // this transparent wrapper into the content area. body's --color-bg is the base fill.
@@ -99,14 +83,15 @@ export default function DashboardLayout({ children }) {
       <div
         className="dashboard-sidebar-desktop relative"
         data-resizing={sidebarWidth.resizing ? "true" : undefined}
-        style={{ "--rr-sidebar-width": `${sidebarWidth.width}px` } as React.CSSProperties}
+        style={{ "--rr-sidebar-panel-width": `${sidebarWidth.width}px` } as React.CSSProperties}
       >
         <Sidebar
-          collapsed={collapsed}
-          onToggleCollapse={handleToggleCollapse}
+          panelOpen={sidebarWidth.open}
+          onPanelOpenChange={sidebarWidth.setOpen}
+          onOpenCommandPalette={() => setCommandPaletteOpen(true)}
           isMacElectron={isMacElectron}
         />
-        {!collapsed && (
+        {sidebarWidth.open && (
           <SidebarResizeHandle
             width={sidebarWidth.width}
             resizing={sidebarWidth.resizing}
@@ -117,20 +102,27 @@ export default function DashboardLayout({ children }) {
         )}
       </div>
 
-      {/* Sidebar - Mobile: full viewport height with proper scroll containment */}
+      {/* Sidebar - Mobile: rail and panel side by side, full viewport height */}
       <div
-        className={`fixed start-0 z-50 transform lg:hidden transition-transform duration-300 ease-in-out h-dvh overflow-y-auto ${
+        className={`fixed start-0 z-50 transform lg:hidden transition-transform duration-300 ease-in-out h-dvh ${
           sidebarOpen ? "translate-x-0" : "-translate-x-full"
         }`}
         style={
           {
             top: "var(--ios-safe-top, 0px)",
             bottom: "var(--ios-safe-bottom, 0px)",
-            "--rr-sidebar-width": "288px",
+            "--rr-sidebar-panel-width": "min(18rem, calc(100vw - 4.5rem))",
           } as React.CSSProperties
         }
       >
-        <Sidebar onClose={() => setSidebarOpen(false)} isMacElectron={isMacElectron} />
+        <Sidebar
+          onClose={() => setSidebarOpen(false)}
+          onOpenCommandPalette={() => {
+            setSidebarOpen(false);
+            setCommandPaletteOpen(true);
+          }}
+          isMacElectron={isMacElectron}
+        />
       </div>
 
       {/* Main content */}

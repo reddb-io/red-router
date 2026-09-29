@@ -4,8 +4,10 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "
 import {
   SIDEBAR_DEFAULT_WIDTH,
   clampSidebarWidth,
+  readSidebarPanelOpen,
   readSidebarWidth,
   sidebarWidthForKey,
+  writeSidebarPanelOpen,
   writeSidebarWidth,
 } from "@/shared/utils/sidebarWidth";
 
@@ -14,10 +16,19 @@ import {
 const noopSubscribe = () => () => {};
 const readStored = () => readSidebarWidth();
 const readServer = () => SIDEBAR_DEFAULT_WIDTH;
+const readStoredOpen = () => readSidebarPanelOpen();
+const readServerOpen = () => true;
 
-/** The resizable sidebar width: pointer drag, keyboard steps, double-click to reset, remembered. */
+/** The side panel's width and open state: pointer drag, keyboard steps, double-click to reset, remembered. */
 export function useSidebarWidth() {
   const stored = useSyncExternalStore(noopSubscribe, readStored, readServer);
+  const storedOpen = useSyncExternalStore(noopSubscribe, readStoredOpen, readServerOpen);
+  const [openOverride, setOpenOverride] = useState<boolean | null>(null);
+  const open = openOverride ?? storedOpen;
+  const setOpen = useCallback((next: boolean) => {
+    setOpenOverride(next);
+    writeSidebarPanelOpen(next);
+  }, []);
   const [override, setOverride] = useState<number | null>(null);
   const [resizing, setResizing] = useState(false);
   const width = override ?? stored;
@@ -69,5 +80,5 @@ export function useSidebarWidth() {
 
   const reset = useCallback(() => commit(SIDEBAR_DEFAULT_WIDTH), [commit]);
 
-  return { width, resizing, startDrag, onKeyDown, reset };
+  return { width, resizing, startDrag, onKeyDown, reset, open, setOpen };
 }

@@ -6,7 +6,9 @@
   "consumer": "red-router",
   "kits": [],
   "layers": [],
-  "styles": ["application"],
+  "styles": [
+    "application"
+  ],
   "dest": "src/shared/design-system/vendor",
   "contracts": [
     "application-shell",
@@ -17,7 +19,12 @@
     "input",
     "nav-item",
     "page-heading",
-    "select"
+    "select",
+    "sidebar-layout",
+    "sidebar-navigation",
+    "sidebar-rail",
+    "tabs",
+    "tooltip"
   ],
   "contractsDest": "src/shared/design-system/contracts"
 }
