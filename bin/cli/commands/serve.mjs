@@ -8,7 +8,9 @@ import {
   writePidFile,
   cleanupPidFile,
   waitForServer,
+  findListeningPids,
   findPortConflictPids,
+  probePortFree,
   resolveReadyTimeoutMs,
 } from "../utils/pid.mjs";
 import {
@@ -255,9 +257,7 @@ export async function runServe(opts = {}) {
   // BEFORE any pid file is written or any child is spawned. Otherwise the
   // doomed child's EADDRINUSE arrives only after this process has rewritten
   // the pid files of the healthy instance that actually owns the port.
-  // A missing/unusable discovery tool returns null; the shared helper bind-
-  // probes and always returns an array, including [] for a free port.
-  const busyPids = await findPortConflictPids(dashboardPort);
+  const busyPids = await resolveServeBusyPids(dashboardPort);
   if (busyPids.length > 0) {
     reportPortInUse(dashboardPort, busyPids);
     process.exit(1);
@@ -341,6 +341,24 @@ export async function runServe(opts = {}) {
       readyTimeoutMs: resolveReadyTimeoutMs({ timeoutMs: opts.readyTimeout }),
     }
   );
+}
+
+/**
+ * Listeners blocking `serve` on `port`. Discovery returning null means the
+ * tool is missing (#14518); the bind probe then decides. A free port is an
+ * empty list — leaving null throws on the caller's `.length` (#14800).
+ *
+ * @param {number} port
+ * @param {object} [deps]
+ * @param {typeof findListeningPids} [deps.findListeningPids]
+ * @param {typeof probePortFree} [deps.probePortFree]
+ * @returns {Promise<Array<number|null>>}
+ */
+export async function resolveServeBusyPids(port, deps = {}) {
+  return findPortConflictPids(port, {
+    findPids: deps.findListeningPids ?? findListeningPids,
+    probe: deps.probePortFree ?? probePortFree,
+  });
 }
 
 /**

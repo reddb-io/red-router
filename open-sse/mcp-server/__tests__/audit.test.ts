@@ -19,6 +19,16 @@ function createStatementMock() {
   };
 }
 
+// The production path must use runtimeRequire(): a dynamic node:module import is
+// compiled incorrectly in the standalone webpack bundle (`createRequire` becomes
+// a non-function), disabling every MCP audit write at runtime.
+it("uses the bundle-safe runtime loader for better-sqlite3", () => {
+  const source = fs.readFileSync(path.join(process.cwd(), "open-sse/mcp-server/audit.ts"), "utf8");
+  expect(source).toContain('runtimeRequire("better-sqlite3")');
+  expect(source).not.toContain('await import("node:module")');
+  expect(source).not.toContain("createRequire(import.meta.url)");
+});
+
 // The shutdown tests inject through the audit connection cache
 // (globalThis.__omnirouteMcpAuditDb), and the fallback test uses the
 // __setBetterSqliteLoaderForTests seam.

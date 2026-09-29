@@ -59,31 +59,64 @@ test("normalizeExecutorResult rejects malformed executor output", () => {
     /must contain a Response/
   );
 });
-test("executeWithUpstreamStartTimeout forwards client abort after headers resolve", async () => {
+test("executeWithUpstreamStartTimeout leaves no abort listener on the client signal after a resolving execute", async () => {
   const client = new AbortController();
   const before = getEventListeners(client.signal, "abort").length;
-  let upstreamSignal: AbortSignal | undefined;
   const result = await executeWithUpstreamStartTimeout({
     executor: {},
     provider: "test-provider",
     model: "test-model",
     connectionTimeoutMs: 5_000,
     signal: client.signal,
-    execute: async (signal) => {
-      upstreamSignal = signal;
-      return "ok";
-    },
+    execute: async () => "ok",
   });
   assert.equal(result, "ok");
-  assert.ok(upstreamSignal);
-  assert.equal(upstreamSignal.aborted, false);
   assert.equal(
     getEventListeners(client.signal, "abort").length,
-    before + 1,
-    "the active upstream stream retains exactly one client-abort link"
+    before,
+    "every listener registered for the race must be removed once it settles"
   );
-  client.abort("client disconnected");
-  assert.equal(upstreamSignal.aborted, true);
+});
+
+test("executeWithUpstreamStartTimeout releases the client-abort link when the settled Response has no body", async () => {
+  const client = new AbortController();
+  const before = getEventListeners(client.signal, "abort").length;
+  let inner: AbortSignal | null = null;
+  const result = await executeWithUpstreamStartTimeout({
+    executor: {},
+    provider: "test-provider",
+    model: "test-model",
+    connectionTimeoutMs: 5_000,
+    signal: client.signal,
+    execute: async (s) => {
+      inner = s;
+      return { response: new Response(null, { status: 204 }) };
+    },
+  });
+  assert.equal(result.response.status, 204);
+  assert.equal(getEventListeners(client.signal, "abort").length, before);
+  client.abort();
+  assert.equal(inner!.aborted, false, "no live body, so the link must already be gone");
+});
+
+test("executeWithUpstreamStartTimeout keeps exactly one client-abort link while the settled body can still stream (#14342)", async () => {
+  const client = new AbortController();
+  const before = getEventListeners(client.signal, "abort").length;
+  let inner: AbortSignal | null = null;
+  await executeWithUpstreamStartTimeout({
+    executor: {},
+    provider: "test-provider",
+    model: "test-model",
+    connectionTimeoutMs: 5_000,
+    signal: client.signal,
+    execute: async (s) => {
+      inner = s;
+      return { response: new Response(new ReadableStream({ pull() {} })) };
+    },
+  });
+  assert.equal(getEventListeners(client.signal, "abort").length, before + 1);
+  client.abort("client_gone");
+  assert.equal(inner!.aborted, true, "a client abort after headers must reach the upstream signal");
   assert.equal(getEventListeners(client.signal, "abort").length, before);
 });
 

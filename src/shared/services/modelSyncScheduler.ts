@@ -14,6 +14,7 @@ import { getSettings, updateSettings } from "@/lib/db/settings";
 import { isConnectionUnavailableToAuxiliaryActivity } from "@/lib/exclusiveLeaseIsolation";
 import { getRuntimePorts } from "@/lib/runtime/ports";
 import { shouldAutoSyncModels } from "@/lib/providerModels/discoveryPolicy";
+import { timingSafeCompare } from "@/shared/utils/timingSafeCompare";
 
 export const DEFAULT_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours
 /** Cycle-wide in-flight cap. Heap cost is total catalog JSON, not one upstream. */
@@ -157,7 +158,9 @@ export function isModelSyncInternalRequest(request: { headers: Headers }): boole
     internalAuthToken = globalState.__omnirouteModelSyncInternalAuthToken;
   }
   const headerToken = request.headers.get(MODEL_SYNC_INTERNAL_AUTH_HEADER);
-  return Boolean(headerToken && internalAuthToken && headerToken === internalAuthToken);
+  return Boolean(
+    headerToken && internalAuthToken && timingSafeCompare(headerToken, internalAuthToken)
+  );
 }
 
 /**

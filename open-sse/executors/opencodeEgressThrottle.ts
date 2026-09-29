@@ -18,7 +18,13 @@
 import { sleepAbortable } from "./opencodeTransientFailure.ts";
 import { classifyUpstream429, type RateLimit429Verdict } from "./opencodeRateLimited.ts";
 import { proxyKeyOf } from "./opencodeGeoBlock.ts";
-import { noteProxyRefusal, proxyEgressKey } from "../utils/proxyRefusalMemory.ts";
+import { pickAccount, type RotatableAccount } from "./accountRotation.ts";
+import {
+  hasSlowOverrunEvidence,
+  noteProxyRefusal,
+  proxyEgressKey,
+  recordSlowOverrun,
+} from "../utils/proxyRefusalMemory.ts";
 
 export const DIRECT_EGRESS_SENTINEL = "direct";
 
@@ -500,6 +506,37 @@ export function noteRefusedMember(
 }
 
 /**
+ * Set-aside note for one settled headers-wait overrun: records the overrun,
+ * then hands the refusal to the proxy memory only on repetition (three settled
+ * overruns through the same egress key inside five minutes) and only when the
+ * opt-in is on. A lone slow wait is the upstream queue, not the member.
+ * The key resolves through the same seam as the 429 note: the effective egress
+ * really applied to the attempt (dedicated proxy fast path, ambient reader for
+ * proxyless accounts, direct sentinel as no-op). Returns the set-aside
+ * duration for the log, or null when nothing was set aside.
+ */
+export function noteSlowOverrun(
+  account: AppliedEgressAccount,
+  skipRecentlyFailed: boolean,
+  readApplied?: AppliedEgressReader | null,
+  nowMs: number = Date.now()
+): number | null {
+  if (!skipRecentlyFailed) return null;
+  if (account.proxy !== null) {
+    const key = proxyEgressKey(account.proxy);
+    if (key === null) return null;
+    recordSlowOverrun(key, nowMs);
+    if (!hasSlowOverrunEvidence(key, nowMs)) return null;
+    return noteProxyRefusal(key, "slow", nowMs);
+  }
+  const key = resolveAppliedEgressKey(account, readApplied);
+  if (key === DIRECT_EGRESS_SENTINEL) return null;
+  recordSlowOverrun(key, nowMs);
+  if (!hasSlowOverrunEvidence(key, nowMs)) return null;
+  return noteProxyRefusal(key, "slow", nowMs);
+}
+
+/**
  * Resolve the 429 verdict for one refused dispatch. When the rate-limited
  * early-stop is on, the classifier decides; a rate-limit verdict stays on the
  * early-stop path and never reaches the burst counter. When the early-stop is
@@ -599,13 +636,15 @@ export function throwPacedError(release: (() => void) | null, err: unknown): nev
 /**
  * Rotation-loop wiring for the stall arm: the tried-set plus a mutable stall
  * counter, bundled so the arm holds one call. The loop owns `stalled` and the
- * helper reads-then-bumps it.
+ * helper reads-then-bumps it. The optional slow note records one settled
+ * headers-wait overrun per call; the stall arm never passes it.
  */
 export interface StallLoopWiring {
   tried: Set<string>;
   stalled: { attempts: number };
   cooldown: (account: { proxy: { host: string; port: number } | null }) => void;
   markDirect: () => void;
+  slow?: { account: AppliedEgressAccount; enabled: boolean; read: AppliedEgressReader | null };
 }
 
 /**
@@ -626,6 +665,8 @@ export function settleStalledDispatch(
   else loop.markDirect();
   const first = loop.stalled.attempts === 0;
   loop.stalled.attempts++;
+  const slow = loop.slow;
+  if (slow) noteSlowOverrun(slow.account, slow.enabled, slow.read ?? null);
   return first;
 }
 
@@ -663,4 +704,43 @@ export function _touchEgressKeyForTest(key: string, nowMs: number = Date.now()):
 /** Inject RNG for the suspect duration (deterministic tests). Tests only. */
 export function _setSuspectRandForTest(rand: (() => number) | null): void {
   suspectSeedRand = rand;
+}
+
+/**
+ * One real call after a 429 when no account is a candidate. The rotation guard
+ * skips a non-candidate without calling it, so members excluded only by state
+ * left by earlier requests (proxy set aside, account cooling down) were never
+ * tried and the request served the 429. `take` returns, once per request, an
+ * account whose proxy this request has not refused yet, or null; the caller
+ * lets that returned account through the guard.
+ *
+ * Proxy-less accounts are never handed out: a 429 on one records no key, so
+ * the request cannot tell whether the shared direct egress already refused it,
+ * and calling it could replay that 429. A rejected pick leaves the rotation
+ * cursor where it was.
+ */
+export function lastResort429<A extends RotatableAccount>(
+  accounts: A[],
+  cursor: { nextAccountIdx: number; lastHealthyFingerprint?: string },
+  ...refusedHere: Set<string>[]
+) {
+  let spent = false;
+  const isOpen = (account: A): boolean => {
+    const key = proxyKeyOf(account.proxy);
+    return key !== null && !refusedHere.some((keys) => keys.has(key));
+  };
+  return {
+    take(lastStatus: number | null, account: A, isCandidate: (a: A) => boolean): A | null {
+      if (spent || lastStatus !== 429 || isCandidate(account)) return null;
+      const saved = { ...cursor };
+      const spare = pickAccount(accounts, cursor, isOpen);
+      if (!isOpen(spare)) {
+        cursor.nextAccountIdx = saved.nextAccountIdx;
+        cursor.lastHealthyFingerprint = saved.lastHealthyFingerprint;
+        return null;
+      }
+      spent = true;
+      return spare;
+    },
+  };
 }

@@ -1,14 +1,15 @@
 import { handleChat } from "@/sse/handlers/chat";
+import { generateRequestId } from "@/shared/utils/requestId";
+import { resolveIncomingCorrelationId } from "@/shared/utils/correlationPreserve.ts";
 import { initTranslators } from "@omniroute/open-sse/translator/index.ts";
 import { withInjectionGuard } from "@/middleware/promptInjectionGuard";
 import { withChatAdmission } from "@/shared/middleware/withChatAdmission";
 import { requireJsonContentType } from "@/shared/middleware/requireJsonContentType";
 import {
-  getDeadlineController,
-  withDeadlineSignal,
   withEarlyStreamKeepalive,
   ANTHROPIC_PING_FRAME,
 } from "@omniroute/open-sse/utils/earlyStreamKeepalive";
+import { createStreamDeadlineSignal } from "@omniroute/open-sse/utils/streamDeadlineSignal";
 import { resolveKeepaliveThreshold } from "@omniroute/open-sse/utils/keepaliveThreshold";
 import { resolveStreamFlag } from "@omniroute/open-sse/utils/aiSdkCompat";
 
@@ -72,31 +73,28 @@ async function postHandler(request: any, context: any, preParsedBody: any = null
   const accept = String(request.headers?.get?.("accept") || "");
   const wantsStreaming = resolveStreamFlag(body?.stream, accept, "claude");
   if (wantsStreaming) {
-    return await withEarlyStreamKeepalive(handleChat(request, null, body), {
-      signal: request.signal,
-      thresholdMs: resolveKeepaliveThreshold(body?.model),
-      keepaliveFrame: ANTHROPIC_PING_FRAME,
-      deadlineController: getDeadlineController(request),
-    });
+    // Single id for handler + keepalive bytes + deadline warn (matches the
+    // chat/completions convention: caller id preserved, generated when absent).
+    const correlationId =
+      resolveIncomingCorrelationId(request.headers.get("x-correlation-id")) ?? generateRequestId();
+    const { signal: streamSignal, deadlineController } = createStreamDeadlineSignal(request.signal);
+    return await withEarlyStreamKeepalive(
+      handleChat(request, null, body, correlationId, streamSignal),
+      {
+        signal: streamSignal,
+        thresholdMs: resolveKeepaliveThreshold(body?.model),
+        keepaliveFrame: ANTHROPIC_PING_FRAME,
+        correlationId,
+        deadlineController,
+      }
+    );
   }
   return await handleChat(request, null, body);
 }
 
 // `logger: null` — the guardrail registry re-evaluates this request inside
 // handleChat with the pino logger (#11936 dedupe).
-// Deadline wrap OUTSIDE the admission HOC so the HOC's own lease release
-// observes the combined signal (client abort OR deadline abort) and frees its
-// slot immediately at expiry — same as the other routes. postHandler recovers
-// the same controller via getDeadlineController (never a second one).
-// The admitted handler may return a bare Response; the async wrapper lifts it.
-function withDeadlineAdmission(handler: (...args: any[]) => Promise<Response> | Response) {
-  return async function deadlineAdmittedHandler(...args: any[]) {
-    const [request, ...rest] = args;
-    const { wrappedReq } = withDeadlineSignal(request);
-    return handler(wrappedReq, ...rest);
-  };
-}
-
-export const POST = withDeadlineAdmission(
-  withChatAdmission(withInjectionGuard(postHandler, { logger: null }))
-);
+// The outer admission wrapper still owns the route-level lease. On a stream deadline,
+// the synthetic SSE body closes, so its response lifecycle releases that lease while
+// handleChat receives the explicit streamSignal and tears provider work down directly.
+export const POST = withChatAdmission(withInjectionGuard(postHandler, { logger: null }));
