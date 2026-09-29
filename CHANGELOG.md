@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.45.0
+
+### Minor Changes
+
+- More 9router parity. MiniMax (and MiniMax China) voices are listed by `GET /v1/audio/voices`, grouped into system, cloned, generated and music voices. A CLIProxyAPI Kiro auth file (`auth_method: external_idp`) can be imported, either from the CLIProxy folder scan or by pasting it to the new management-authenticated `POST /api/oauth/kiro/import-cli-proxy`; the account refreshes on first use. Importing a 9router database now brings its proxy pools across as registry proxies and re-binds each connection's pool, idempotently; relay-type pools arrive without relay auth and the import report says so.
+- A Claude-format client asking OpenRouter for an `anthropic/*` model is now sent to OpenRouter's Anthropic Messages endpoint as-is instead of being translated through chat/completions and back, so tool use, thinking and cache markers survive. A Docker image built from the published npm package is published to `ghcr.io/reddb-io/red-router` after a tagged release (a separate workflow, so it can never block the npm release; the version tag is pushed first and `latest` only moves after the image answers its health check).
+- The Playground chat keeps your conversations. Chats are saved in your browser (nothing is sent anywhere), listed in a session sidebar that collapses to a menu on small screens, titled from the first message, and can be created, renamed, cleared and deleted. History is capped (50 chats, 200 messages each, about 2 MB, oldest and image data go first), and switching chats is locked while a response streams so text can never land in the wrong one. Ported from 9router's basic chat.
+- A RedRouter skill pack for coding agents: `red-router` (an index) plus one skill each for chat, image, text-to-speech, speech-to-text, embeddings, video, web search and web fetch, written against RedRouter's real endpoints, environment variables (`RED_ROUTER_BASE_URL`, `RED_ROUTER_API_KEY`) and install command, and served from this repository. The agent-skills page now links to reddb-io/red-router instead of the inherited repository. New management-authenticated `POST /api/providers/{id}/test-models` probes a connection's models in one call (up to 50, at most 3 at a time, per-model and overall time limits, fixed error messages, stops early on repeated rate limits).
+
 ## 0.44.0
 
 ### Minor Changes
