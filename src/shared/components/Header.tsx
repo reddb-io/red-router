@@ -204,7 +204,7 @@ export default function Header({
 
   return (
     <header
-      className="sticky top-0 z-10 flex items-center justify-between border-b border-black/5 bg-bg px-8 py-4 dark:border-white/5"
+      className="sticky top-0 z-10 flex items-center justify-between border-b border-border-subtle bg-bg px-8 py-4"
       style={{
         paddingTop: isMacElectron ? "calc(1rem + var(--desktop-safe-top))" : undefined,
       }}
@@ -224,9 +224,9 @@ export default function Header({
       {/* Page title with icon - desktop */}
       <div className="hidden lg:flex items-center gap-3">
         {(icon || providerId) && (
-          <div className="flex items-center justify-center size-9 rounded-lg bg-primary/10 shrink-0">
+          <div className="flex items-center justify-center size-9 rounded-lg bg-muted shrink-0">
             {icon ? (
-              <span className="material-symbols-outlined text-primary text-[20px]">{icon}</span>
+              <span className="material-symbols-outlined text-ink-muted text-[20px]">{icon}</span>
             ) : (
               providerId && <ProviderIcon providerId={providerId} size={22} type="color" />
             )}
@@ -247,7 +247,7 @@ export default function Header({
             <button
               type="button"
               onClick={onOpenCommandPalette}
-              className="hidden md:inline-flex items-center gap-2 px-2.5 py-1.5 rounded-lg border border-black/10 dark:border-white/10 bg-bg-subtle text-text-muted hover:text-text-main hover:bg-black/[0.04] dark:hover:bg-white/[0.04] transition-colors"
+              className="hidden md:inline-flex items-center gap-2 px-2.5 py-1.5 rounded-lg border border-control-edge bg-bg-subtle text-text-muted hover:text-text-main hover:bg-muted/50 transition-colors"
               title={t("quickNavigationTitle")}
               aria-label={t("openQuickNavigation")}
             >
