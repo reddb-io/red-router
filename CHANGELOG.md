@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.46.0
+
+### Minor Changes
+
+- Budgets, first slice (Costs → Budget → Budgets). A budget has a limit in USD, an optional soft threshold (default 80%), a window (daily, weekly, monthly or total, with an optional reset time) and what happens when it is reached: block, or throttle (delay the request). Assign it to API keys and to key groups (teams). It is checked before every dispatch, including each hop of a combo fallback, and the strictest budget wins; it is additive to the existing per-key budget and limits, which behave as before. Spend counts only metered usage, so flat-rate subscriptions never burn a budget. Crossing the soft threshold fires one `budget.warning` webhook per window, even across restarts. Blocked requests answer 429 `BUDGET_EXCEEDED` with `Retry-After`, `reset_at` and `X-RedRouter-Reason: api_key_limit`. If the budget tables cannot be read, requests are let through with a warning. Users, tags, tenants, token-rate limits and per-model caps come in later slices.
+- Opt-in Prometheus metrics. Turn on "Prometheus metrics" in Settings → Advanced (it asks for your password), generate a scrape token (shown once, stored encrypted, never returned by any settings call) and point Prometheus at `GET /api/metrics` with `Authorization: Bearer <token>`; a signed-in admin can read it too. It answers 404 while off. The families are `redrouter_requests_total`, `redrouter_tokens_total`, `redrouter_cost_usd_total`, a `redrouter_request_duration_seconds` histogram, `redrouter_circuit_breaker_state`, `redrouter_connections`, `redrouter_build_info` and `redrouter_uptime_seconds`, computed when scraped (cached 15 s), with at most 200 provider/model pairs labelled and no key, connection or user identifiers.
+
+### Patch Changes
+
+- The Docker image workflow can now be run by hand for a release cut before its Dockerfile existed: it takes `Dockerfile.npm` from `main` when the tag has none. The image is still built from the published npm package.
+- Fixes the release contract test that rejected the Docker image workflow, which stopped 0.45.0 from publishing. That version's changes (playground chat sessions, MiniMax voices, Kiro CLIProxy import, proxy-pool import, skills pack, OpenRouter Messages transport) ship in this release, together with Prometheus metrics and the first slice of budgets.
+
 ## 0.45.0
 
 ### Minor Changes

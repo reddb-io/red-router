@@ -1,5 +1,0 @@
----
-"@reddb-io/red-router": minor
----
-
-Budgets, first slice (Costs → Budget → Budgets). A budget has a limit in USD, an optional soft threshold (default 80%), a window (daily, weekly, monthly or total, with an optional reset time) and what happens when it is reached: block, or throttle (delay the request). Assign it to API keys and to key groups (teams). It is checked before every dispatch, including each hop of a combo fallback, and the strictest budget wins; it is additive to the existing per-key budget and limits, which behave as before. Spend counts only metered usage, so flat-rate subscriptions never burn a budget. Crossing the soft threshold fires one `budget.warning` webhook per window, even across restarts. Blocked requests answer 429 `BUDGET_EXCEEDED` with `Retry-After`, `reset_at` and `X-RedRouter-Reason: api_key_limit`. If the budget tables cannot be read, requests are let through with a warning. Users, tags, tenants, token-rate limits and per-model caps come in later slices.
