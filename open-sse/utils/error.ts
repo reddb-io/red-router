@@ -11,6 +11,12 @@ import type { ModelCooldownErrorPayload } from "@/types";
 import { buildPassthroughErrorResponse } from "./upstreamErrorPassthrough.ts";
 import { isFeatureFlagEnabled } from "@/shared/utils/featureFlags";
 import { resolveRetryAfterInstant } from "./retryAfterInstant.ts";
+import {
+  LEGACY_ROUTING_REASON_HEADER,
+  LEGACY_ROUTING_RETRY_AT_HEADER,
+  RED_ROUTER_REASON_HEADER,
+  RED_ROUTER_RETRY_AT_HEADER,
+} from "@/shared/constants/redRouterHeaders";
 
 export { parseRetryAfterHeader, resolveRetryAfterInstant } from "./retryAfterInstant.ts";
 
@@ -64,6 +70,7 @@ const SAFE_PUBLIC_ERROR_IDENTIFIERS = new Set([
   "antigravity_pool_busy",
   "antigravity_pre_response_timeout",
   "api_error",
+  "api_key_limit",
   "auth_error",
   "authentication_error",
   "authentication_required",
@@ -201,8 +208,10 @@ const SAFE_PUBLIC_ERROR_IDENTIFIERS = new Set([
   "missing_tool_use_id",
   "mixed_tool_narrative",
   "model_cooldown",
+  "model_disabled",
   "model_excluded",
   "model_lockout",
+  "model_not_allowed",
   "model_not_found",
   "model_not_supported",
   "model_shutdown",
@@ -211,6 +220,7 @@ const SAFE_PUBLIC_ERROR_IDENTIFIERS = new Set([
   "native_codex_pinned_model_unavailable",
   "network_error",
   "no_active_connection",
+  "no_active_credentials",
   "no_free_eligible_connection",
   "no_local_login",
   "no_refresh_token",
@@ -218,6 +228,7 @@ const SAFE_PUBLIC_ERROR_IDENTIFIERS = new Set([
   "oauth_missing_project_id",
   "origin_rejected",
   "orphan_tool_result",
+  "overloaded",
   "payload_too_large",
   "payment_required",
   "peer_hop_limit_exceeded",
@@ -280,6 +291,7 @@ const SAFE_PUBLIC_ERROR_IDENTIFIERS = new Set([
   "structured_output",
   "structured_output_validation_failed",
   "subscription_required",
+  "temporarily_unavailable",
   "timeout",
   "timeout_error",
   "tls_circuit_open",
@@ -604,6 +616,7 @@ export function errorResponseWithComboDiagnostics(
   );
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
+    ...routingErrorHeaders(statusCode, body),
     "x-omniroute-combo-pool-size": String(safe.poolSize),
     "x-omniroute-combo-attempted": String(safe.attempted),
     "x-omniroute-combo-excluded": excludedHeader,
@@ -635,6 +648,53 @@ export function errorResponseWithComboDiagnostics(
   });
 }
 
+const ROUTING_REASON_BY_CODE: Record<string, string> = {
+  model_disabled: "model_disabled",
+  model_not_allowed: "model_not_allowed",
+  rate_limit_exceeded: "api_key_limit",
+  budget_exceeded: "api_key_limit",
+  insufficient_quota: "quota_exhausted",
+  quota_exceeded: "quota_exhausted",
+  ALL_ACCOUNTS_INACTIVE: "no_active_credentials",
+};
+
+/** Reasons that mean the caller may not use the model at all, so a combo should skip the member. */
+export const ACCESS_DENIED_ROUTING_REASONS = new Set(["model_disabled", "model_not_allowed"]);
+
+/** Header values are single-line and short; anything else is dropped rather than emitted. */
+function headerSafe(value: string): string | null {
+  const trimmed = value.trim();
+  return trimmed && trimmed.length <= 512 && !/[\r\n\0]/.test(trimmed) ? trimmed : null;
+}
+
+/**
+ * The machine-readable routing headers for an error body: the reason (explicit, else derived from
+ * the code or a 529) and the instant a retry may succeed. Empty when nothing routing-specific is
+ * known, so ordinary errors keep their headers untouched.
+ */
+export function routingErrorHeaders(
+  statusCode: number,
+  body: ErrorResponseBody
+): Record<string, string> {
+  const code = body.error.code;
+  const reason =
+    body.error.reason ??
+    (code ? ROUTING_REASON_BY_CODE[code] : undefined) ??
+    (statusCode === 529 ? "overloaded" : undefined);
+  const headers: Record<string, string> = {};
+  const safeReason = reason ? headerSafe(reason) : null;
+  if (safeReason) {
+    headers[RED_ROUTER_REASON_HEADER] = safeReason;
+    headers[LEGACY_ROUTING_REASON_HEADER] = safeReason;
+  }
+  const safeRetryAt = body.error.reset_at ? headerSafe(body.error.reset_at) : null;
+  if (safeReason && safeRetryAt) {
+    headers[RED_ROUTER_RETRY_AT_HEADER] = safeRetryAt;
+    headers[LEGACY_ROUTING_RETRY_AT_HEADER] = safeRetryAt;
+  }
+  return headers;
+}
+
 /**
  * Create error Response object (for non-streaming)
  * @param {number} statusCode - HTTP status code
@@ -647,7 +707,10 @@ export function errorResponse(
   classification?: ErrorBodyClassification
 ): Response {
   const body = buildErrorBody(statusCode, sanitizeErrorMessage(message), undefined, classification);
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...routingErrorHeaders(statusCode, body),
+  };
   if (typeof body.error.retry_after === "number")
     headers["Retry-After"] = String(body.error.retry_after);
   return new Response(JSON.stringify(body), { status: statusCode, headers });

@@ -27,6 +27,15 @@ export const RED_ROUTER_CATALOG_VERSION_HEADER = "X-RedRouter-Catalog-Version";
 // Response: what the reasoning autopilot (or the request header) chose.
 export const RED_ROUTER_REASONING_RESPONSE_HEADER = "X-RedRouter-Reasoning";
 
+// Response, failed routing: a machine-readable reason (model_disabled, model_not_allowed,
+// api_key_limit, quota_exhausted, overloaded, ...) and, when known, the ISO instant a retry may
+// succeed. The X-9Router-* names are the v0.33.0 spelling RedCode already reads; both are emitted
+// with the same values.
+export const RED_ROUTER_REASON_HEADER = "X-RedRouter-Reason";
+export const RED_ROUTER_RETRY_AT_HEADER = "X-RedRouter-Retry-At";
+export const LEGACY_ROUTING_REASON_HEADER = "X-9Router-Reason";
+export const LEGACY_ROUTING_RETRY_AT_HEADER = "X-9Router-Retry-At";
+
 export const RED_ROUTER_REQUEST_HEADERS = [
   RED_ROUTER_HINT_HEADER,
   RED_ROUTER_REASONING_HEADER,
@@ -40,4 +49,9 @@ export const RED_ROUTER_RESPONSE_HEADERS = [
   RED_ROUTER_COST_HEADER,
   RED_ROUTER_CATALOG_VERSION_HEADER,
   RED_ROUTER_REASONING_RESPONSE_HEADER,
+  RED_ROUTER_REASON_HEADER,
+  RED_ROUTER_RETRY_AT_HEADER,
+  LEGACY_ROUTING_REASON_HEADER,
+  LEGACY_ROUTING_RETRY_AT_HEADER,
+  "Retry-After",
 ] as const;

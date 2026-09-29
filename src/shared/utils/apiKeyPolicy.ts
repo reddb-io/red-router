@@ -19,7 +19,9 @@ import { checkTokenLimits } from "@omniroute/open-sse/services/tokenLimitCounter
 import {
   errorResponse,
   buildErrorBody,
+  routingErrorHeaders,
   sanitizeErrorMessage,
+  type ErrorBodyClassification,
 } from "@omniroute/open-sse/utils/error.ts";
 import { HTTP_STATUS } from "@omniroute/open-sse/config/constants.ts";
 import * as log from "@/sse/utils/logger";
@@ -236,10 +238,11 @@ function policyErrorResponse(
   message: string,
   anthropicMessage = message,
   anthropicErrorType = "permission_error",
-  anthropicStatusCode = statusCode
+  anthropicStatusCode = statusCode,
+  classification?: ErrorBodyClassification
 ): Response {
   if (!isAnthropicMessagesRequest(request)) {
-    return errorResponse(statusCode, message);
+    return errorResponse(statusCode, message, classification);
   }
 
   const safeMessage = sanitizeErrorMessage(anthropicMessage);
@@ -253,7 +256,12 @@ function policyErrorResponse(
     }),
     {
       status: anthropicStatusCode,
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...routingErrorHeaders(anthropicStatusCode, {
+          error: { message: safeMessage, code: classification?.code, reason: classification?.reason },
+        }),
+      },
     }
   );
 }
@@ -405,7 +413,8 @@ async function validateStandardRoutingTarget(
       `Model "${modelStr}" is not allowed for this API key`,
       `Model "${modelStr}" is not enabled or quota is insufficient. Choose another allowed model.`,
       "invalid_request_error",
-      HTTP_STATUS.BAD_REQUEST
+      HTTP_STATUS.BAD_REQUEST,
+      { reason: "model_not_allowed" }
     );
   }
   return null;
@@ -636,7 +645,8 @@ async function validateModelAccess(context: PolicyContext): Promise<Response | n
       `Auto combo "${modelStr}" is not allowed for this API key`,
       `Auto combos are not enabled for this API key. Choose an explicit model or combo.`,
       "invalid_request_error",
-      HTTP_STATUS.BAD_REQUEST
+      HTTP_STATUS.BAD_REQUEST,
+      { reason: "model_not_allowed" }
     );
   }
   const comboAccess = await validateComboAccess(apiKeyInfo.allowedCombos, modelStr);
@@ -667,7 +677,8 @@ async function validateModelAccess(context: PolicyContext): Promise<Response | n
     `Model "${modelStr}" is not allowed for this API key`,
     `Model "${modelStr}" is not enabled or quota is insufficient. Choose another allowed model.`,
     "invalid_request_error",
-    HTTP_STATUS.BAD_REQUEST
+    HTTP_STATUS.BAD_REQUEST,
+    { reason: "model_not_allowed" }
   );
 }
 
@@ -683,7 +694,8 @@ async function validateComboAccess(
       comboName: comboAccess.comboName,
       rejection: errorResponse(
         HTTP_STATUS.FORBIDDEN,
-        comboCannotBeUsedMessage(modelStr, comboAccess.comboName)
+        comboCannotBeUsedMessage(modelStr, comboAccess.comboName),
+        { reason: "model_not_allowed" }
       ),
     };
   } catch (error) {
@@ -850,6 +862,7 @@ async function validateGlobalDisabledModels(
   }
   const openAiRejection = errorResponse(HTTP_STATUS.FORBIDDEN, `Model "${modelStr}" is disabled`, {
     code: "model_disabled",
+    reason: "model_disabled",
   });
   if (!isAnthropicMessagesRequest(request)) return openAiRejection;
   return policyErrorResponse(
@@ -857,7 +870,9 @@ async function validateGlobalDisabledModels(
     HTTP_STATUS.FORBIDDEN,
     `Model "${modelStr}" is disabled`,
     `Model "${modelStr}" is disabled. Choose another model.`,
-    "permission_error"
+    "permission_error",
+    HTTP_STATUS.FORBIDDEN,
+    { code: "model_disabled", reason: "model_disabled" }
   );
 }
 

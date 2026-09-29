@@ -92,6 +92,7 @@ import { modelFamily } from "@/lib/combos/invariants";
 import { resolveProviderAlias } from "@omniroute/open-sse/services/providerAlias.ts";
 import { resolveServerErrorMessage } from "@/lib/api/serverErrorMessage";
 import { useTranslations } from "next-intl";
+import ComboBulkBar from "./ComboBulkBar";
 
 const ModelSelectModal = dynamic(() => import("@/shared/components/ModelSelectModal"), {
   ssr: false,
@@ -839,6 +840,7 @@ function CombosPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [combos, setCombos] = useState([]);
+  const [bulkSelectedIds, setBulkSelectedIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editingCombo, setEditingCombo] = useState(null);
@@ -1393,10 +1395,17 @@ function CombosPageContent() {
         </Card>
       ) : (
         <div className="flex flex-col gap-4">
+          <ComboBulkBar
+            visibleIds={filteredCombos.map((combo) => combo.id)}
+            selectedIds={bulkSelectedIds}
+            onSelectedChange={setBulkSelectedIds}
+            onChanged={fetchData}
+          />
           {filteredCombos.map((combo, index) => (
             <div
               key={combo.id}
               data-testid={`combo-card-${combo.id}`}
+              className="flex items-start gap-2"
               onClick={() => {
                 if (isIntelligentStrategy(combo?.strategy)) {
                   setSelectedIntelligentComboId(combo.id);
@@ -1405,28 +1414,45 @@ function CombosPageContent() {
               onDragOver={(e) => handleComboDragOver(e, index)}
               onDrop={(e) => handleComboDrop(e, index)}
             >
-              <ComboCard
-                combo={combo}
-                metrics={metrics[combo.name]}
-                compressionEnabled={promptCompressionEnabled}
-                providerNodes={providerNodes}
-                copied={copied}
-                onCopy={copy}
-                onEdit={() => setEditingCombo(combo)}
-                onDelete={() => handleDelete(combo.id)}
-                onDuplicate={() => handleDuplicate(combo)}
-                onTest={() => handleTestCombo(combo)}
-                testing={testingCombo === combo.name}
-                onProxy={() => setProxyTargetCombo(combo)}
-                hasProxy={comboProxyAssignedIds.has(combo.id) || !!proxyConfig?.combos?.[combo.id]}
-                onToggle={() => handleToggleCombo(combo)}
-                dragDisabled={savingComboOrder || activeFilter !== "all" || combos.length < 2}
-                isDragged={comboDragIndex === index}
-                isDropTarget={comboDragOverIndex === index && comboDragIndex !== index}
-                isSelected={selectedIntelligentCombo?.id === combo.id}
-                onDragStart={(e) => handleComboDragStart(e, index)}
-                onDragEnd={handleComboDragEnd}
+              <input
+                type="checkbox"
+                aria-label={`Select ${combo.name}`}
+                className="mt-4 shrink-0"
+                checked={bulkSelectedIds.has(combo.id)}
+                onClick={(event) => event.stopPropagation()}
+                onChange={(event) =>
+                  setBulkSelectedIds((previous) => {
+                    const next = new Set(previous);
+                    if (event.target.checked) next.add(combo.id);
+                    else next.delete(combo.id);
+                    return next;
+                  })
+                }
               />
+              <div className="min-w-0 flex-1">
+                <ComboCard
+                  combo={combo}
+                  metrics={metrics[combo.name]}
+                  compressionEnabled={promptCompressionEnabled}
+                  providerNodes={providerNodes}
+                  copied={copied}
+                  onCopy={copy}
+                  onEdit={() => setEditingCombo(combo)}
+                  onDelete={() => handleDelete(combo.id)}
+                  onDuplicate={() => handleDuplicate(combo)}
+                  onTest={() => handleTestCombo(combo)}
+                  testing={testingCombo === combo.name}
+                  onProxy={() => setProxyTargetCombo(combo)}
+                  hasProxy={comboProxyAssignedIds.has(combo.id) || !!proxyConfig?.combos?.[combo.id]}
+                  onToggle={() => handleToggleCombo(combo)}
+                  dragDisabled={savingComboOrder || activeFilter !== "all" || combos.length < 2}
+                  isDragged={comboDragIndex === index}
+                  isDropTarget={comboDragOverIndex === index && comboDragIndex !== index}
+                  isSelected={selectedIntelligentCombo?.id === combo.id}
+                  onDragStart={(e) => handleComboDragStart(e, index)}
+                  onDragEnd={handleComboDragEnd}
+                />
+              </div>
             </div>
           ))}
         </div>
