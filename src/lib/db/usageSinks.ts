@@ -1,5 +1,6 @@
 /** SQLite ownership for RedRouter's costed-usage webhook outbox. */
 import { randomUUID } from "node:crypto";
+import type { UsageSinkType } from "@/lib/usageSinks/transports/types";
 import { getDbInstance } from "./core";
 
 export type UsageSinkMode = "instant" | "window";
@@ -8,6 +9,10 @@ export type DeliveryStatus = "pending" | "sending" | "delivered" | "dead";
 export interface UsageSink {
   id: string;
   name: string;
+  type: UsageSinkType;
+  /** Transport settings as stored: every credential field is encrypted. */
+  config: Record<string, unknown>;
+  /** Webhook sinks only (mirrors config.url / config.secret); '' for other transports. */
   url: string;
   secretEncrypted: string;
   mode: UsageSinkMode;
@@ -45,6 +50,7 @@ export interface UsageDelivery {
   lastStatus: number | null;
   lastError: string | null;
   deliveredAt: string | null;
+  createdAt: string;
 }
 
 export interface UsageWindow {
@@ -69,10 +75,24 @@ function parseStringArray(value: unknown): string[] {
   }
 }
 
+function parseConfig(row: Row): Record<string, unknown> {
+  try {
+    const parsed: unknown = JSON.parse(asString(row.config) || "null");
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+  } catch {
+    // Fall through to the legacy webhook columns.
+  }
+  return { url: asString(row.url), secret: asString(row.secret_encrypted) };
+}
+
 function mapSink(row: Row): UsageSink {
   return {
     id: asString(row.id),
     name: asString(row.name),
+    type: (asString(row.type) || "webhook") as UsageSinkType,
+    config: parseConfig(row),
     url: asString(row.url),
     secretEncrypted: asString(row.secret_encrypted),
     mode: row.mode === "window" ? "window" : "instant",
@@ -97,6 +117,7 @@ function mapDelivery(row: Row): UsageDelivery {
     lastStatus: row.last_status == null ? null : asNumber(row.last_status),
     lastError: row.last_error == null ? null : asString(row.last_error),
     deliveredAt: row.delivered_at == null ? null : asString(row.delivered_at),
+    createdAt: asString(row.created_at),
   };
 }
 
@@ -115,31 +136,59 @@ export function getUsageSink(id: string): UsageSink | null {
   return row ? mapSink(row) : null;
 }
 
-export function createUsageSink(input: {
-  name: string;
-  url: string;
-  secretEncrypted: string;
-  mode: UsageSinkMode;
-  windowSec?: number;
-  apiKeyIds?: string[];
-  enabled?: boolean;
-}): UsageSink {
+/**
+ * The legacy url / secret_encrypted columns keep mirroring a webhook sink's config (they are NOT
+ * NULL); every other transport stores '' there and lives in `config` alone.
+ */
+function legacyWebhookColumns(
+  type: UsageSinkType,
+  config: Record<string, unknown>
+): { url: string; secretEncrypted: string } {
+  if (type !== "webhook") return { url: "", secretEncrypted: "" };
+  return {
+    url: typeof config.url === "string" ? config.url : "",
+    secretEncrypted: typeof config.secret === "string" ? config.secret : "",
+  };
+}
+
+/**
+ * Create a sink. Pass `{ type, config }` (credential fields already encrypted), or the original
+ * webhook-only `{ url, secretEncrypted }` form.
+ */
+export function createUsageSink(
+  input: {
+    name: string;
+    mode: UsageSinkMode;
+    windowSec?: number;
+    apiKeyIds?: string[];
+    enabled?: boolean;
+  } & (
+    | { type?: undefined; url: string; secretEncrypted: string }
+    | { type: UsageSinkType; config: Record<string, unknown> }
+  )
+): UsageSink {
   const db = getDbInstance();
   const id = randomUUID();
   const now = new Date().toISOString();
   const head = db.prepare("SELECT COALESCE(MAX(id), 0) AS id FROM request_cost_ledger").get() as {
     id: number;
   };
+  const type: UsageSinkType = input.type ?? "webhook";
+  const config: Record<string, unknown> =
+    input.type === undefined ? { url: input.url, secret: input.secretEncrypted } : input.config;
+  const legacy = legacyWebhookColumns(type, config);
   db.prepare(
     `INSERT INTO redrouter_usage_sinks
-      (id, name, url, secret_encrypted, mode, window_sec, api_key_ids, enabled,
+      (id, name, type, config, url, secret_encrypted, mode, window_sec, api_key_ids, enabled,
        cursor_id, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     id,
     input.name,
-    input.url,
-    input.secretEncrypted,
+    type,
+    JSON.stringify(config),
+    legacy.url,
+    legacy.secretEncrypted,
     input.mode,
     input.mode === "window" ? (input.windowSec ?? 900) : null,
     JSON.stringify(input.apiKeyIds ?? []),
@@ -155,28 +204,57 @@ export function updateUsageSink(
   id: string,
   patch: {
     name?: string;
+    /** Whole new config (credential fields already encrypted); the type never changes. */
+    config?: Record<string, unknown>;
+    /** Webhook-only shorthand, kept for the original API. */
     url?: string;
     secretEncrypted?: string;
+    mode?: UsageSinkMode;
+    windowSec?: number | null;
     enabled?: boolean;
     apiKeyIds?: string[];
   }
 ): UsageSink | null {
   const current = getUsageSink(id);
   if (!current) return null;
-  getDbInstance()
-    .prepare(
-      `UPDATE redrouter_usage_sinks SET name = ?, url = ?,
-      secret_encrypted = ?, enabled = ?, api_key_ids = ?, updated_at = ? WHERE id = ?`
-    )
-    .run(
+  const config: Record<string, unknown> =
+    patch.config ??
+    (current.type === "webhook" && (patch.url !== undefined || patch.secretEncrypted !== undefined)
+      ? {
+          ...current.config,
+          url: patch.url ?? current.url,
+          secret: patch.secretEncrypted ?? current.secretEncrypted,
+        }
+      : current.config);
+  const legacy = legacyWebhookColumns(current.type, config);
+  const mode = patch.mode ?? current.mode;
+  const windowSec = mode === "window" ? (patch.windowSec ?? current.windowSec ?? 900) : null;
+  // A new mode or window size starts a fresh schedule at the next boundary. The cursor is kept,
+  // so nothing already recorded is skipped or sent twice; only an in-progress window's frozen
+  // high-water mark is dropped.
+  const rescheduled = mode !== current.mode || windowSec !== current.windowSec;
+  const db = getDbInstance();
+  db.transaction(() => {
+    db.prepare(
+      `UPDATE redrouter_usage_sinks SET name = ?, config = ?, url = ?,
+      secret_encrypted = ?, mode = ?, window_sec = ?, enabled = ?, api_key_ids = ?,
+      next_window_end = CASE WHEN ? THEN NULL ELSE next_window_end END, updated_at = ?
+      WHERE id = ?`
+    ).run(
       patch.name ?? current.name,
-      patch.url ?? current.url,
-      patch.secretEncrypted ?? current.secretEncrypted,
+      JSON.stringify(config),
+      legacy.url,
+      legacy.secretEncrypted,
+      mode,
+      windowSec,
       (patch.enabled ?? current.enabled) ? 1 : 0,
       JSON.stringify(patch.apiKeyIds ?? current.apiKeyIds),
+      rescheduled ? 1 : 0,
       new Date().toISOString(),
       id
     );
+    if (rescheduled) db.prepare("DELETE FROM redrouter_usage_windows WHERE sink_id = ?").run(id);
+  })();
   return getUsageSink(id);
 }
 
@@ -371,4 +449,79 @@ export function listUsageDeliveries(sinkId: string, limit = 50): UsageDelivery[]
       )
       .all(sinkId, Math.min(Math.max(limit, 1), 100)) as Row[]
   ).map(mapDelivery);
+}
+
+export type DeliveryStatusFilter = DeliveryStatus | "failed";
+
+/** One page of a sink's deliveries, newest first. `failed` is the UI name for `dead`. */
+export function listUsageDeliveriesPage(
+  sinkId: string,
+  options: { limit?: number; offset?: number; status?: DeliveryStatusFilter } = {}
+): { deliveries: UsageDelivery[]; total: number } {
+  const limit = Math.min(Math.max(options.limit ?? 25, 1), 100);
+  const offset = Math.max(options.offset ?? 0, 0);
+  const status = options.status === "failed" ? "dead" : options.status;
+  const db = getDbInstance();
+  const filter = status ? "AND status = ?" : "";
+  const args: unknown[] = status ? [sinkId, status] : [sinkId];
+  const total = (
+    db
+      .prepare(`SELECT COUNT(*) AS n FROM redrouter_usage_deliveries WHERE sink_id = ? ${filter}`)
+      .get(...args) as { n: number }
+  ).n;
+  const rows = db
+    .prepare(
+      `SELECT * FROM redrouter_usage_deliveries WHERE sink_id = ? ${filter}
+      ORDER BY created_at DESC, id LIMIT ? OFFSET ?`
+    )
+    .all(...args, limit, offset) as Row[];
+  return { deliveries: rows.map(mapDelivery), total: asNumber(total) };
+}
+
+export function getUsageDelivery(sinkId: string, id: string): UsageDelivery | null {
+  const row = getDbInstance()
+    .prepare("SELECT * FROM redrouter_usage_deliveries WHERE id = ? AND sink_id = ?")
+    .get(id, sinkId) as Row | undefined;
+  return row ? mapDelivery(row) : null;
+}
+
+/**
+ * Make one delivery due right now, for a manual retry. A dead delivery gets a fresh retry budget;
+ * a pending one keeps its attempt count. A delivered one, or one another worker holds a live
+ * lease on, is left alone (false). The delivery keeps its id, so the receiver can still dedupe.
+ */
+export function requeueUsageDelivery(sinkId: string, id: string, now: string): boolean {
+  return (
+    getDbInstance()
+      .prepare(
+        `UPDATE redrouter_usage_deliveries
+    SET status = 'pending', next_attempt_at = ?, lease_until = NULL,
+        attempts = CASE WHEN status = 'dead' THEN 0 ELSE attempts END
+    WHERE id = ? AND sink_id = ?
+      AND (status IN ('pending', 'dead') OR (status = 'sending' AND lease_until <= ?))`
+      )
+      .run(now, id, sinkId, now).changes === 1
+  );
+}
+
+/** Delivery counts per sink for the dashboard list (`sending` counts as pending). */
+export function getUsageDeliveryStats(): Record<
+  string,
+  { pending: number; delivered: number; dead: number }
+> {
+  const rows = getDbInstance()
+    .prepare(
+      `SELECT sink_id, status, COUNT(*) AS n FROM redrouter_usage_deliveries
+      GROUP BY sink_id, status`
+    )
+    .all() as Row[];
+  const stats: Record<string, { pending: number; delivered: number; dead: number }> = {};
+  for (const row of rows) {
+    const sinkId = asString(row.sink_id);
+    stats[sinkId] ||= { pending: 0, delivered: 0, dead: 0 };
+    const bucket =
+      row.status === "delivered" ? "delivered" : row.status === "dead" ? "dead" : "pending";
+    stats[sinkId][bucket] += asNumber(row.n);
+  }
+  return stats;
 }
