@@ -1,5 +1,7 @@
 "use client";
 
+import Icon from "@/shared/components/Icon";
+import { navIcon } from "@/shared/icons/navIcons";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
@@ -264,9 +266,7 @@ function CommandPaletteDialog({ onClose }: { onClose: () => void }) {
         aria-label={t("commandPalette.title")}
       >
         <div className="flex items-center gap-3 px-6 py-4 border-b border-black/5 dark:border-white/5">
-          <span className="material-symbols-outlined text-[20px] text-text-muted shrink-0">
-            search
-          </span>
+          <Icon icon={navIcon("Search")} size="lg" color="ink-muted" />
           <input
             ref={inputRef}
             type="text"
@@ -290,7 +290,7 @@ function CommandPaletteDialog({ onClose }: { onClose: () => void }) {
               tabIndex={-1}
               aria-label={t("commandPalette.clearSearch")}
             >
-              <span className="material-symbols-outlined text-[16px]">close</span>
+              <Icon icon={navIcon("X")} size="sm" color="current" />
             </button>
           )}
           <kbd className="hidden sm:inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-mono bg-black/5 dark:bg-white/5 text-text-muted border border-black/10 dark:border-white/10 shrink-0">
@@ -342,13 +342,11 @@ function CommandPaletteDialog({ onClose }: { onClose: () => void }) {
                               onClick={() => handleNavigate(item.href, item.external)}
                               onMouseEnter={() => setSelectedIndex(flatIndex)}
                             >
-                              <span
-                                className={`material-symbols-outlined text-[18px] shrink-0 ${
-                                  flatIndex === selectedIndex ? "text-accent" : "text-text-muted"
-                                }`}
-                              >
-                                {item.icon}
-                              </span>
+                              <Icon
+                                icon={navIcon(item.icon)}
+                                size="md"
+                                color={flatIndex === selectedIndex ? "foreground" : "ink-muted"}
+                              />
                               <div className="flex-1 min-w-0">
                                 <p className="text-sm font-medium truncate">{item.label}</p>
                                 {item.subtitle && (
@@ -364,9 +362,7 @@ function CommandPaletteDialog({ onClose }: { onClose: () => void }) {
                                 )}
                               </div>
                               {item.external && (
-                                <span className="material-symbols-outlined text-[14px] text-text-muted shrink-0">
-                                  open_in_new
-                                </span>
+                                <Icon icon={navIcon("ExternalLink")} size="sm" color="ink-muted" />
                               )}
                             </button>
                           </li>

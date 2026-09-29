@@ -51,17 +51,19 @@ describe("DashboardLayout — mobile sidebar drawer uses logical classes", () =>
 
 // ─── Sidebar.tsx ─────────────────────────────────────────────────────────────
 
-describe("Sidebar — collapse toggle button uses logical margin", () => {
-  const code = src("src/shared/components/Sidebar.tsx");
-
-  it("uses ms-auto (not ml-auto) for the macOS collapse-toggle alignment", () => {
-    // ml-auto is a physical class; ms-auto mirrors in RTL.
-    expect(code).toContain("ms-auto");
-  });
-
-  it("does not use bare ml-auto in the collapse-toggle className", () => {
-    expect(code).not.toContain("ml-auto");
-  });
+describe("Sidebar — the rail and panel use logical inset classes", () => {
+  for (const file of [
+    "src/shared/components/Sidebar.tsx",
+    "src/shared/components/shell/SidebarRail.tsx",
+    "src/shared/components/shell/SidebarPanel.tsx",
+    "src/shared/components/SidebarResizeHandle.tsx",
+  ]) {
+    it(`${file} has no physical left/right spacing classes`, () => {
+      const code = src(file);
+      expect(code).not.toMatch(/\b(ml|mr|pl|pr)-\d/);
+      expect(code).not.toMatch(/\b(left|right)-\d/);
+    });
+  }
 });
 
 // ─── Select.tsx ───────────────────────────────────────────────────────────────

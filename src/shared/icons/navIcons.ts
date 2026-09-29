@@ -1,5 +1,10 @@
 import {
   Activity,
+  LogOut,
+  Boxes,
+  Cable,
+  LayoutDashboard,
+  ListChecks,
   Archive,
   ArrowLeft,
   ArrowRight,
@@ -115,6 +120,11 @@ import { lucideForMaterial } from "./materialToLucide";
  */
 export const NAV_ICONS: Record<string, IconGlyph> = {
   Activity,
+  LogOut,
+  Boxes,
+  Cable,
+  LayoutDashboard,
+  ListChecks,
   Archive,
   ArrowLeft,
   ArrowRight,

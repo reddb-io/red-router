@@ -5,7 +5,6 @@ import { HIDEABLE_SIDEBAR_ITEM_IDS } from "./sidebarVisibility/types";
 import { parseRadarAdminUrl } from "../validation/radarAdminUrl";
 import type {
   HideableSidebarItemId,
-  SidebarItemId,
   SidebarSectionId,
   SidebarItemDefinition,
   SidebarSectionChild,

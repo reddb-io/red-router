@@ -2,6 +2,8 @@
 
 import { useSyncExternalStore } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import Icon from "@/shared/components/Icon";
+import { navIcon } from "@/shared/icons/navIcons";
 
 const subscribePlatform = () => () => {};
 const getPlatformIsMac = () => {
@@ -218,7 +220,7 @@ export default function Header({
             onClick={onMenuClick}
             className="text-text-main hover:text-primary transition-colors"
           >
-            <span className="material-symbols-outlined">menu</span>
+            <Icon icon={navIcon("Menu")} size="lg" color="current" />
           </button>
         )}
       </div>
@@ -228,7 +230,7 @@ export default function Header({
         {(icon || providerId) && (
           <div className="flex items-center justify-center size-9 rounded-lg bg-muted shrink-0">
             {icon ? (
-              <span className="material-symbols-outlined text-ink-muted text-[20px]">{icon}</span>
+              <Icon icon={navIcon(icon)} size="lg" color="ink-muted" />
             ) : (
               providerId && <ProviderIcon providerId={providerId} size={22} type="color" />
             )}
@@ -253,7 +255,7 @@ export default function Header({
               title={t("quickNavigationTitle")}
               aria-label={t("openQuickNavigation")}
             >
-              <span className="material-symbols-outlined text-[16px]">search</span>
+              <Icon icon={navIcon("Search")} size="sm" color="current" />
               <span className="text-xs">{t("quickNavigation")}</span>
               <kbd className="hidden lg:inline-flex font-mono text-[10px] px-1 py-0.5 rounded bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10">
                 {isMac ? "⌘K" : "Ctrl+K"}
@@ -265,7 +267,7 @@ export default function Header({
               className="md:hidden p-2 rounded-lg text-text-muted hover:text-text-main hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
               aria-label={t("openQuickNavigation")}
             >
-              <span className="material-symbols-outlined">search</span>
+              <Icon icon={navIcon("Search")} size="md" color="current" />
             </button>
           </>
         )}
@@ -274,11 +276,11 @@ export default function Header({
         {!isE2EMode && <TokenHealthBadge />}
         <button
           onClick={handleLogout}
-          className="flex items-center justify-center p-2 rounded-lg text-text-muted hover:text-red-500 hover:bg-red-500/10 transition-all"
+          className="flex items-center justify-center p-2 rounded-lg text-text-muted hover:text-feedback-danger-foreground hover:bg-feedback-danger-surface transition-all"
           title={t("logout")}
           aria-label={t("logout")}
         >
-          <span className="material-symbols-outlined">logout</span>
+          <Icon icon={navIcon("LogOut")} size="md" color="current" />
         </button>
       </div>
     </header>

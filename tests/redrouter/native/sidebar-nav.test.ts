@@ -8,6 +8,7 @@ import {
   findNavMatch,
   resolveNavEntry,
   resolveNavSections,
+  splitNavTabs,
 } from "../../../src/shared/constants/sidebarNav.ts";
 import {
   HIDEABLE_SIDEBAR_ITEM_IDS,
@@ -183,4 +184,78 @@ test("Caveman and Ponytail are prompt styles under Skills, not menu entries", ()
   );
   assert.ok(page.includes("OUTPUT_STYLE_IDS"));
   assert.ok(page.includes("Caveman"));
+});
+
+test("the rail has one area per job and the panel lists the entries of an area", () => {
+  assert.deepEqual(
+    SIDEBAR_NAV_SECTIONS.map((section) => section.title),
+    ["Home", "Proxy", "Optimize", "Agents", "Observe", "Tools", "System"]
+  );
+  for (const section of SIDEBAR_NAV_SECTIONS) {
+    assert.ok(section.icon, `${section.id} has a rail icon`);
+    assert.ok(section.entries.length <= 12, `${section.id} panel stays short`);
+  }
+  const labs = SIDEBAR_NAV_SECTIONS.flatMap((s) => s.entries).filter((e) => e.group === "Labs");
+  assert.deepEqual(
+    labs.map((e) => e.id),
+    ["chaos", "gamification", "batch"]
+  );
+});
+
+test("Quota lives with Providers and Integrations with Observe", () => {
+  const sections = resolveNavSections(none, {});
+  assert.equal(findNavMatch("/dashboard/quota", sections)?.entry.id, "providers");
+  assert.equal(findNavMatch("/dashboard/quota", sections)?.section.id, "proxy");
+  assert.equal(findNavMatch("/dashboard/webhooks", sections)?.section.id, "observe");
+  assert.equal(findNavMatch("/dashboard/playground", sections)?.section.id, "tools");
+});
+
+test("every engine page keeps the Engines tab selected instead of being a tab", () => {
+  const sections = resolveNavSections(none, {});
+  const saver = SIDEBAR_NAV_SECTIONS.flatMap((s) => s.entries).find((e) => e.id === "token-saver");
+  assert.ok(saver);
+  assert.ok(saver.tabs.length <= 8, `${saver.tabs.length} tabs`);
+  for (const engine of [
+    "caveman",
+    "rtk",
+    "headroom",
+    "session-dedup",
+    "ccr",
+    "llmlingua",
+    "lite",
+    "aggressive",
+    "ultra",
+    "omniglyph",
+  ]) {
+    const match = findNavMatch(`/dashboard/context/${engine}`, sections);
+    assert.equal(match?.entry.id, "token-saver", engine);
+    assert.equal(match?.tab.label, "Engines", engine);
+  }
+  assert.equal(findNavMatch("/dashboard/context/engines", sections)?.tab.label, "Engines");
+});
+
+test("long entries keep a short tab bar and put the rarely used pages under More", () => {
+  const settings = SIDEBAR_NAV_SECTIONS.flatMap((s) => s.entries).find((e) => e.id === "settings");
+  assert.ok(settings);
+  const { primary, more } = splitNavTabs(settings.tabs);
+  assert.ok(primary.length <= 8, `${primary.length} primary tabs`);
+  assert.deepEqual(
+    more.map((tab) => tab.label),
+    ["Modality bridge", "Access tokens", "Feature flags", "Cache", "Sidebar", "Outbound proxies"]
+  );
+  for (const entry of SIDEBAR_NAV_SECTIONS.flatMap((s) => s.entries)) {
+    assert.ok(splitNavTabs(entry.tabs).primary.length <= 8, `${entry.id} has too many tabs`);
+  }
+  const short = splitNavTabs(SIDEBAR_NAV_SECTIONS[1].entries[0].tabs);
+  assert.deepEqual(short.more, []);
+});
+
+test("every icon the menu names is a glyph the shell can draw", async () => {
+  const { NAV_ICONS } = await import("../../../src/shared/icons/navIcons.ts");
+  for (const section of SIDEBAR_NAV_SECTIONS) {
+    assert.ok(section.icon in NAV_ICONS, `${section.id}: ${section.icon}`);
+    for (const entry of section.entries) {
+      assert.ok(entry.icon in NAV_ICONS, `${entry.id}: ${entry.icon}`);
+    }
+  }
 });

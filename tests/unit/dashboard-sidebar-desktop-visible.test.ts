@@ -22,7 +22,7 @@ test("DashboardLayout desktop sidebar uses the explicit visibility class, not th
   // The desktop sidebar wrapper must reference the dedicated class.
   assert.match(
     source,
-    /className="dashboard-sidebar-desktop"/,
+    /className="dashboard-sidebar-desktop[ "]/,
     "Desktop sidebar wrapper must use the dashboard-sidebar-desktop class"
   );
 

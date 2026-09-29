@@ -10,6 +10,8 @@ import {
   readSidebarWidth,
   sidebarWidthForKey,
   writeSidebarWidth,
+  readSidebarPanelOpen,
+  writeSidebarPanelOpen,
 } from "../../../src/shared/utils/sidebarWidth.ts";
 
 const memoryStorage = (initial: Record<string, string> = {}) => {
@@ -56,33 +58,49 @@ test("the width is remembered, and a missing or broken store is harmless", () =>
 });
 
 test("arrow keys resize in steps, Home and End jump to the limits, RTL flips the arrows", () => {
-  assert.equal(sidebarWidthForKey(240, "ArrowRight"), 248);
-  assert.equal(sidebarWidthForKey(240, "ArrowLeft"), 232);
-  assert.equal(sidebarWidthForKey(240, "ArrowRight", true), 232);
+  assert.equal(sidebarWidthForKey(288, "ArrowRight"), 296);
+  assert.equal(sidebarWidthForKey(288, "ArrowLeft"), 280);
+  assert.equal(sidebarWidthForKey(288, "ArrowRight", true), 280);
   assert.equal(sidebarWidthForKey(SIDEBAR_MAX_WIDTH, "ArrowRight"), SIDEBAR_MAX_WIDTH);
   assert.equal(sidebarWidthForKey(SIDEBAR_MIN_WIDTH, "ArrowLeft"), SIDEBAR_MIN_WIDTH);
-  assert.equal(sidebarWidthForKey(240, "Home"), SIDEBAR_MIN_WIDTH);
-  assert.equal(sidebarWidthForKey(240, "End"), SIDEBAR_MAX_WIDTH);
-  assert.equal(sidebarWidthForKey(240, "a"), null);
+  assert.equal(sidebarWidthForKey(288, "Home"), SIDEBAR_MIN_WIDTH);
+  assert.equal(sidebarWidthForKey(288, "End"), SIDEBAR_MAX_WIDTH);
+  assert.equal(sidebarWidthForKey(288, "a"), null);
 });
 
 const read = (file: string) => readFileSync(new URL(`../../../${file}`, import.meta.url), "utf8");
 
-test("the sidebar is one-line, compact and driven by the width variable", () => {
-  const sidebar = read("src/shared/components/Sidebar.tsx");
-  assert.ok(sidebar.includes('data-density="compact"'));
-  assert.ok(sidebar.includes("w-[var(--rr-sidebar-width,240px)]"));
-  assert.equal(sidebar.includes("w-[220px]"), false);
-  // The subtitle is no longer a second line; it is the row's tooltip.
-  assert.equal(sidebar.includes("text-[10px] text-text-muted/60"), false);
-  assert.ok(sidebar.includes("title={rowTitle}"));
+test("the panel is compact and driven by the width variable, next to a fixed rail", () => {
+  const panel = read("src/shared/components/shell/SidebarPanel.tsx");
+  assert.ok(panel.includes('data-density="compact"'));
+  assert.ok(panel.includes("var(--rr-sidebar-panel-width, 288px)"));
+  assert.ok(panel.includes("title={item.description ?? item.label}"));
+  // The rail is as wide as the design system says, not as wide as we like.
+  assert.equal(read("src/shared/components/shell/SidebarRail.tsx").includes("w-[220px]"), false);
 });
 
-test("the desktop layout owns the width and renders the resize handle", () => {
+test("the panel is 288px by default and stays within the DS showcase limits", () => {
+  assert.equal(SIDEBAR_DEFAULT_WIDTH, 288);
+  assert.equal(SIDEBAR_MIN_WIDTH, 240);
+  assert.equal(SIDEBAR_MAX_WIDTH, 480);
+  assert.equal(SIDEBAR_WIDTH_KEY, "sidebar-panel-width");
+});
+
+test("the desktop layout owns the panel width and renders the resize handle", () => {
   const layout = read("src/shared/components/layouts/DashboardLayout.tsx");
-  assert.ok(layout.includes('"--rr-sidebar-width"'));
+  assert.ok(layout.includes('"--rr-sidebar-panel-width"'));
   assert.ok(layout.includes("<SidebarResizeHandle"));
   const handle = read("src/shared/components/SidebarResizeHandle.tsx");
   assert.ok(handle.includes('role="separator"'));
   assert.ok(handle.includes("onDoubleClick"));
+});
+
+test("the panel is open unless the operator closed it", () => {
+  const storage = memoryStorage();
+  assert.equal(readSidebarPanelOpen(storage), true);
+  writeSidebarPanelOpen(false, storage);
+  assert.equal(readSidebarPanelOpen(storage), false);
+  writeSidebarPanelOpen(true, storage);
+  assert.equal(readSidebarPanelOpen(storage), true);
+  assert.equal(readSidebarPanelOpen(null), true);
 });

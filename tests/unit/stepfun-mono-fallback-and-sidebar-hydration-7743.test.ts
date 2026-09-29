@@ -30,27 +30,26 @@ test("lobeProviderIcons never imports the removed Stepfun Color sub-component", 
 });
 
 test("lobeProviderIcons maps both Stepfun mono and color slots to StepfunMonoIcon", () => {
-  const stepfunEntry = lobeProviderIconsSrc.match(/Stepfun:\s*{\s*mono:\s*(\w+),\s*color:\s*(\w+)\s*}/);
+  const stepfunEntry = lobeProviderIconsSrc.match(
+    /Stepfun:\s*{\s*mono:\s*(\w+),\s*color:\s*(\w+)\s*}/
+  );
   assert.ok(stepfunEntry, "Stepfun entry must exist in LOBE_ICON_COMPONENTS");
   const [, mono, color] = stepfunEntry;
   assert.equal(mono, "StepfunMonoIcon");
   assert.equal(color, "StepfunMonoIcon", "color slot must fall back to the Mono icon");
 });
 
-test("DashboardLayout does not read localStorage synchronously inside the collapsed useState initializer", () => {
-  const collapsedStateMatch = dashboardLayoutSrc.match(/const \[collapsed, setCollapsed\] = useState\(([^)]*)\)/);
-  assert.ok(collapsedStateMatch, "collapsed useState declaration must exist");
-  assert.equal(
-    collapsedStateMatch[1].trim(),
-    "false",
-    "collapsed must initialize to a constant so server and first client render match (no hydration mismatch)"
+test("the sidebar's stored state is read without a hydration mismatch", () => {
+  // The panel width and open state come from useSyncExternalStore with a constant server snapshot,
+  // so the server render and the first client render agree; DashboardLayout itself reads nothing.
+  const hookSrc = fs.readFileSync(
+    new URL("../../src/shared/hooks/useSidebarWidth.ts", import.meta.url),
+    "utf8"
   );
-});
-
-test("DashboardLayout defers the sidebar-collapsed localStorage read to a useEffect", () => {
-  const effectIndex = dashboardLayoutSrc.indexOf("useEffect(() => {");
-  assert.ok(effectIndex >= 0, "a useEffect must exist");
-  const effectBody = dashboardLayoutSrc.slice(effectIndex, dashboardLayoutSrc.indexOf("}, []);", effectIndex));
-  assert.match(effectBody, /localStorage\.getItem\(SIDEBAR_COLLAPSED_KEY\)/);
-  assert.match(effectBody, /setCollapsed\(true\)/);
+  assert.match(hookSrc, /useSyncExternalStore\(\s*noopSubscribe,\s*readStored,\s*readServer\s*\)/);
+  assert.match(
+    hookSrc,
+    /useSyncExternalStore\(\s*noopSubscribe,\s*readStoredOpen,\s*readServerOpen\s*\)/
+  );
+  assert.doesNotMatch(dashboardLayoutSrc, /localStorage\./);
 });
