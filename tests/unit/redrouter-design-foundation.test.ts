@@ -36,6 +36,25 @@ test("DS styles are pinned and byte-identical, including self-hosted fonts and l
   }
 });
 
+test("DS contracts are the pinned, byte-identical Kit appearance seams", () => {
+  const dir = join(root, manifest.contractsDest);
+  const actual = files(dir).sort();
+  assert.deepEqual(
+    actual,
+    manifest.contracts.map((name: string) => `${name}.variants.ts`).sort()
+  );
+  assert.deepEqual(actual, Object.keys(lock.contracts).sort());
+  for (const file of actual) {
+    const source = readFileSync(join(dir, file), "utf8");
+    assert.equal(createHash("sha256").update(source).digest("hex"), lock.contracts[file], file);
+    // The contracts must stay free of Svelte and of any import but tailwind-variants.
+    const imports = source.match(/^import .* from "[^"]+";$/gm) ?? [];
+    assert.ok(imports.every((line) => line.endsWith('from "tailwind-variants";')), file);
+  }
+  const pkg = JSON.parse(read("package.json"));
+  assert.ok(pkg.dependencies["tailwind-variants"], "tailwind-variants is a runtime dependency");
+});
+
 test("React foundation adoption brings neither Svelte nor component runtime dependencies", () => {
   assert.deepEqual(manifest.kits, []);
   assert.deepEqual(manifest.layers, []);

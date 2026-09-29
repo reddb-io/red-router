@@ -3,6 +3,7 @@
 import { useId, useState, useCallback } from "react";
 import { useTranslations } from "next-intl";
 import { cn } from "@/shared/utils/cn";
+import { input } from "@/shared/design-system/contracts/input.variants";
 
 interface InputProps extends Omit<React.InputHTMLAttributes<HTMLInputElement>, "size"> {
   label?: React.ReactNode;
@@ -75,7 +76,7 @@ export default function Input({
         <label htmlFor={inputId} className="text-sm font-medium text-text-main">
           {label}
           {required && (
-            <span className="text-red-500 ml-1" aria-hidden="true">
+            <span className="text-feedback-danger-foreground ml-1" aria-hidden="true">
               *
             </span>
           )}
@@ -111,25 +112,22 @@ export default function Input({
             setCapsLockOn(false);
             props.onBlur?.(e);
           }}
-          className={cn(
-            "w-full py-2 px-3 text-sm text-text-main",
-            "bg-white dark:bg-white/5 border border-black/10 dark:border-white/10 rounded-control",
-            "placeholder-text-muted/60",
-            "focus:ring-1 focus:ring-accent/30 focus:border-accent/50 focus:outline-none",
-            "transition-all shadow-inner disabled:opacity-50 disabled:cursor-not-allowed",
-            // iOS zoom fix
-            "text-[16px] sm:text-sm",
-            icon && "pl-10",
-            error ? "border-red-500 focus:border-red-500 focus:ring-red-500/20" : "",
-            inputClassName
-          )}
+          className={input({
+            class: [
+              // design.md: 44px targets on touch; iOS zooms into fields under 16px
+              "pointer-coarse:min-h-11 transition-[border-color,box-shadow,opacity] duration-150 ease-out",
+              "text-[16px] sm:text-sm",
+              icon && "pl-10",
+              inputClassName,
+            ],
+          })}
           {...props}
         />
       </div>
       {showCapsLock && (
         <p
           id={capsLockId}
-          className="text-xs text-amber-500 dark:text-amber-400 flex items-center gap-1 animate-in fade-in duration-200"
+          className="text-xs text-feedback-warning-foreground flex items-center gap-1 animate-in fade-in duration-200"
           role="status"
           aria-live="polite"
         >
@@ -140,7 +138,11 @@ export default function Input({
         </p>
       )}
       {error && (
-        <p id={errorId} className="text-xs text-red-500 flex items-center gap-1" role="alert">
+        <p
+          id={errorId}
+          className="text-xs text-feedback-danger-foreground flex items-center gap-1"
+          role="alert"
+        >
           <span className="material-symbols-outlined text-[14px]" aria-hidden="true">
             error
           </span>

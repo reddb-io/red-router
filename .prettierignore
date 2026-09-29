@@ -29,3 +29,4 @@ docs/i18n/*/CHANGELOG.md
 
 # Byte-identical DS release artifacts, verified by design-system.lock.json.
 src/shared/design-system/vendor/
+src/shared/design-system/contracts/

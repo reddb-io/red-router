@@ -13,6 +13,13 @@ the DS. Normal RedRouter CI/build/install needs no sibling checkout or DS networ
 
 The manifest intentionally routes no Kits or Layers. The delivered package has
 no runtime dependencies: React imports CSS directly, not Svelte components.
+
+`contracts/` holds the Kits' `*.variants.ts` appearance seams (`tailwind-variants`
+only, no Svelte), copied verbatim from the same pinned release and hashed in
+`design-system.lock.json`. React primitives (`Button`, `Badge`, `Card`, `Input`,
+`Select`) render through them, so classes come from the DS and are never restated.
+List a contract in `design-system.manifest.json` → `contracts` and re-run the sync
+to add one; do not edit the copies by hand.
 `bridge.css` temporarily maps existing RedRouter tokens to canonical DS roles.
 The root selects the Application Theme, comfortable Density and the persisted
 light/dark Color Scheme. White-label overrides remain supported.

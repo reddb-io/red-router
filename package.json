@@ -359,6 +359,7 @@
     "socks": "^2.8.7",
     "sql.js": "^1.14.2",
     "tailwind-merge": "^3.6.0",
+    "tailwind-variants": "^3.3.1",
     "tiktoken": "^1.0.22",
     "tsx": "^4.23.13",
     "turndown": "7.2.4",
@@ -383,10 +384,10 @@
     "wreq-js": "3.2.0"
   },
   "devDependencies": {
-    "@lobehub/icons": "^5.16.0",
     "@axe-core/playwright": "^4.13.0",
     "@cyclonedx/cyclonedx-npm": "6.0.1",
     "@eslint/compat": "^2.1.1",
+    "@lobehub/icons": "^5.16.0",
     "@playwright/test": "^1.63.0",
     "@size-limit/file": "^13.0.3",
     "@stryker-mutator/core": "^10.0.0",

@@ -3,6 +3,7 @@
 import { useId } from "react";
 import { useTranslations } from "next-intl";
 import { cn } from "@/shared/utils/cn";
+import { select } from "@/shared/design-system/contracts/select.variants";
 
 interface SelectOption {
   value: string;
@@ -50,7 +51,7 @@ export default function Select({
         <label htmlFor={selectId} className="text-sm font-medium text-text-main">
           {label}
           {required && (
-            <span className="text-red-500 ml-1" aria-hidden="true">
+            <span className="text-feedback-danger-foreground ml-1" aria-hidden="true">
               *
             </span>
           )}
@@ -66,15 +67,14 @@ export default function Select({
           aria-required={required || undefined}
           aria-invalid={error ? true : undefined}
           aria-describedby={describedBy}
-          className={cn(
-            "w-full py-2 px-3 pe-10 text-sm text-text-main",
-            "bg-surface border border-black/10 dark:border-white/10 rounded-control appearance-none",
-            "focus:ring-1 focus:ring-accent/30 focus:border-accent/50 focus:outline-none",
-            "transition-all disabled:opacity-50 disabled:cursor-not-allowed",
-            "text-[16px] sm:text-sm",
-            error ? "border-red-500 focus:border-red-500 focus:ring-red-500/20" : "",
-            selectClassName
-          )}
+          className={select({
+            class: [
+              // design.md: 44px targets on touch; iOS zooms into fields under 16px
+              "appearance-none pe-10 pointer-coarse:min-h-11 transition-[border-color,box-shadow,opacity] duration-150",
+              "text-[16px] sm:text-sm",
+              selectClassName,
+            ],
+          })}
           {...props}
         >
           {!children && (placeholder ?? t("selectOption")) && (
@@ -98,7 +98,11 @@ export default function Select({
         </div>
       </div>
       {error && (
-        <p id={errorId} className="text-xs text-red-500 flex items-center gap-1" role="alert">
+        <p
+          id={errorId}
+          className="text-xs text-feedback-danger-foreground flex items-center gap-1"
+          role="alert"
+        >
           <span className="material-symbols-outlined text-[14px]" aria-hidden="true">
             error
           </span>

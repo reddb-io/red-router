@@ -7,5 +7,17 @@
   "kits": [],
   "layers": [],
   "styles": ["application"],
-  "dest": "src/shared/design-system/vendor"
+  "dest": "src/shared/design-system/vendor",
+  "contracts": [
+    "application-shell",
+    "badge",
+    "breadcrumbs",
+    "button",
+    "card",
+    "input",
+    "nav-item",
+    "page-heading",
+    "select"
+  ],
+  "contractsDest": "src/shared/design-system/contracts"
 }

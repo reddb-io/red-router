@@ -35,6 +35,9 @@ if ((await git("status", "--porcelain", "--", "scripts/producer")).trim()) {
   throw new Error("The DS producer has local changes; review and pin it before synchronizing");
 }
 
+if (manifest.contractsDest !== "src/shared/design-system/contracts") {
+  throw new Error("Refusing to copy contracts outside the dedicated DS contracts directory");
+}
 if (manifest.kits.length || manifest.layers.length) {
   throw new Error("This React consumer currently adopts Styles only; route Kits through ds-sync");
 }
@@ -42,6 +45,7 @@ const producer = (file) => import(pathToFileURL(join(source, "scripts/producer/s
 const { planConsumerStyles, writeConsumerStyles } = await producer("consumer-styles.ts");
 const { assemblePackage } = await producer("packaging.ts");
 const destination = join(root, manifest.dest);
+const contractsDestination = join(root, manifest.contractsDest);
 const work = mkdtempSync(join(tmpdir(), "redrouter-ds-sync-"));
 try {
   const release = join(work, "release");
@@ -66,6 +70,16 @@ try {
   );
   writeConsumerStyles(destination, plan);
   writeFileSync(join(destination, "package.json"), JSON.stringify(pkg, null, 2) + "\n");
+  // Contracts are the Kits' `*.variants.ts` appearance seams. They import only
+  // tailwind-variants, so copying them verbatim gives React the canonical classes
+  // without Svelte sources or a Kit runtime; the lock pins their bytes.
+  rmSync(contractsDestination, { recursive: true, force: true });
+  mkdirSync(contractsDestination, { recursive: true });
+  for (const name of manifest.contracts) {
+    const found = contractSources(release).filter((file) => file.endsWith(`/${name}.variants.ts`));
+    if (found.length !== 1) throw new Error(`Contract ${name} must exist exactly once; found ${found.length}`);
+    cpSync(found[0], join(contractsDestination, `${name}.variants.ts`));
+  }
   // The DS style delivery includes font bytes; retain their licenses from the same pin.
   for (const family of ["space-grotesk", "jetbrains-mono"]) {
     const target = join(destination, "licenses", `${family}-OFL.txt`);
@@ -74,6 +88,14 @@ try {
   }
 } finally {
   rmSync(work, { recursive: true, force: true });
+}
+function contractSources(release) {
+  const walk = (directory) =>
+    readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+      const file = join(directory, entry.name);
+      return entry.isDirectory() ? walk(file) : [file];
+    });
+  return ["base", "app"].flatMap((kit) => walk(join(release, "kits", kit, "src")));
 }
 function digests(directory, prefix = "") {
   return readdirSync(directory, { withFileTypes: true })
@@ -95,11 +117,12 @@ writeFileSync(
       revision: manifest.revision,
       producerRevision: manifest.producerRevision,
       files: Object.fromEntries(digests(destination)),
+      contracts: Object.fromEntries(digests(contractsDestination)),
     },
     null,
     2
   ) + "\n"
 );
 console.log(
-  `Synced ${manifest.version}: ${manifest.styles.join(", ")}; no component runtime installed.`
+  `Synced ${manifest.version}: ${manifest.styles.join(", ")}; ${manifest.contracts.length} contracts; no component runtime installed.`
 );

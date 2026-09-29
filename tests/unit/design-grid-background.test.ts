@@ -67,28 +67,29 @@ test("globals.css exposes the semantic radius utilities", () => {
   assert.match(globalsCss, /--radius-control:\s*var\(--radius-control\)/); // @theme → rounded-control
 });
 
-test("Button uses the brand gradient + accent variant + control radius", () => {
+test("Button, Badge and Card render through the canonical DS contracts", () => {
   const button = read("../../src/shared/components/Button.tsx");
-  assert.match(button, /primary:\s*"bg-\[image:var\(--grad-brand\)\]/);
-  assert.match(button, /accent:\s*"bg-accent/);
-  assert.ok(
-    !button.includes("from-primary to-primary-hover"),
-    "the flat red→red gradient is replaced by --grad-brand"
-  );
-  assert.ok(button.includes("rounded-control"), "button sizes use the control radius");
+  assert.ok(button.includes("design-system/contracts/button.variants"));
+  assert.ok(!button.includes("--grad-brand"), "no brand gradient: the DS primary is a flat fill");
+  for (const name of ["Badge", "Card"]) {
+    const src = read(`../../src/shared/components/${name}.tsx`);
+    assert.ok(
+      src.includes(`design-system/contracts/${name.toLowerCase()}.variants`),
+      `${name} adopts its DS contract`
+    );
+  }
 });
 
-test("Card / Modal / Input / Select adopt the radius scale and border token", () => {
-  const card = read("../../src/shared/components/Card.tsx");
+test("Modal keeps the card radius; Input / Select adopt their DS contracts", () => {
   const modal = read("../../src/shared/components/Modal.tsx");
   const input = read("../../src/shared/components/Input.tsx");
   const select = read("../../src/shared/components/Select.tsx");
-  assert.ok(card.includes("border border-border"), "card uses the --color-border token");
-  assert.ok(card.includes("rounded-card"), "card uses rounded-card (14px)");
-  assert.ok(!card.includes("border-black/5"), "the under-weight /5 border is gone");
   assert.ok(modal.includes("rounded-card"), "modal uses rounded-card");
-  assert.ok(input.includes("rounded-control"), "input uses rounded-control (9px)");
-  assert.ok(select.includes("rounded-control"), "select uses rounded-control (9px)");
+  assert.ok(input.includes("design-system/contracts/input.variants"), "input uses the DS contract");
+  assert.ok(
+    select.includes("design-system/contracts/select.variants"),
+    "select uses the DS contract"
+  );
 });
 
 // ── Phase 3 (partial): status hex centralized + mono font token ──
@@ -266,7 +267,8 @@ test("form controls focus on the accent ring, not the red primary", () => {
   // controls to it so keyboard focus is one consistent violet everywhere and the
   // red focus ring no longer collides with the red error state.
   assert.match(globalsCss, /--focus-ring:.*var\(--color-accent\)/);
-  for (const name of ["Input", "Select", "Textarea", "Toggle", "Checkbox"]) {
+  // Input and Select take their focus ring from the DS contracts (ring-primary).
+  for (const name of ["Textarea", "Toggle", "Checkbox"]) {
     const src = read(`../../src/shared/components/${name}.tsx`);
     assert.ok(/ring-accent\/30/.test(src), `${name} uses the accent focus ring`);
     assert.ok(

@@ -23,5 +23,16 @@
     "tokens/density-spacious.css": "1129dadc3852c32f541e88d3c3f9751fb469af3df10088cc3b3674262ee37d37",
     "tokens/density-tiny.css": "6c8811be8d8f055f6d483fc520a62c5a111f80aabb54b8fdc2ba6c6ce1649e31",
     "tokens/tokens.css": "acae26e2d4f24fc1fcdb6110ccc09da35c3256cfccee37f2b55abab59c2cfaba"
+  },
+  "contracts": {
+    "application-shell.variants.ts": "6584ad9fe2394ec07d4b1cbc48840abec1412e56e4989176ffe406ebdefc2316",
+    "badge.variants.ts": "d758190107f2773d6ad28063b3996c9a34fe58d6fad1e3721cc410d676788945",
+    "breadcrumbs.variants.ts": "be0626a25080e326c95f1359f612a7aed69bb11c2247e2ba5333201295c8602b",
+    "button.variants.ts": "df7ccbb3e1b770f45422396d3b7da3ad1fec2280f650ee28ec9ef136ca491b70",
+    "card.variants.ts": "dc4efd9636a2f948fa6099790207a0e5c52fcba57e5cf4ec8ac8844d3609b01d",
+    "input.variants.ts": "4bba78ed10c129c686630ed1cadc8fd4f0a13f7c6bdc3b610b2586441a13d396",
+    "nav-item.variants.ts": "56c77163a98fe9678eeb6edda5272aaaa2e6183d40f95c853e0d36fd294543a5",
+    "page-heading.variants.ts": "a02b6d6b1d97f542eb340a2c431062934196a0c81faa0be8eb4b67093924f3fc",
+    "select.variants.ts": "a87eb0d9563b45066f65258a1d0d069bdfc05d5148106e04b07ac46de24889ba"
   }
 }
