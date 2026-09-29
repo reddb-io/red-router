@@ -1,3 +1,8 @@
+---
+title: "Product Integration Plan"
+lastUpdated: 2026-09-29
+---
+
 # Product integration plan
 
 Status: blueprint, 2026-09-29. Evidence base: `config/upstream/capability-map.json` (machine-readable, one row per
