@@ -350,6 +350,7 @@ export default function APIPageClient({ machineId }: Readonly<APIPageClientProps
     );
     const moderation = allModels.filter((m) => m.type === "moderation" && !m.parent);
     const music = allModels.filter((m) => m.type === "music" && !m.parent);
+    const systemone = allModels.filter((m) => m.type === "systemone" && !m.parent);
     return {
       chat,
       embeddings,
@@ -360,6 +361,7 @@ export default function APIPageClient({ machineId }: Readonly<APIPageClientProps
       audioSpeech,
       moderation,
       music,
+      systemone,
     };
   }, [allModels]);
 
@@ -382,7 +384,10 @@ export default function APIPageClient({ machineId }: Readonly<APIPageClientProps
     const modelUtility =
       (endpointData.rerank.length > 0 ? 1 : 0) + (endpointData.moderation.length > 0 ? 1 : 0);
     const searchCount = searchProviders.length > 0 ? 1 : 0;
-    return chatCount + imageCount + otherMedia + utilityFixed + modelUtility + searchCount;
+    const systemOneCount = endpointData.systemone.length > 0 ? 2 : 0; // /v1/systemone + /v1/decisions
+    return (
+      chatCount + imageCount + otherMedia + utilityFixed + modelUtility + searchCount + systemOneCount
+    );
   }, [endpointData, searchProviders]);
 
   const postCloudAction = async (action, timeoutMs = CLOUD_ACTION_TIMEOUT_MS) => {
@@ -2044,6 +2049,31 @@ export default function APIPageClient({ machineId }: Readonly<APIPageClientProps
               title={t("moderations")}
               path="/v1/moderations"
               models={endpointData.moderation}
+              copy={copy}
+              copied={copied}
+              baseUrl={currentEndpoint}
+              modelsLoading={modelsLoading}
+            />
+            <EndpointCard
+              icon="psychology"
+              iconColor="text-rose-500"
+              iconBg="bg-rose-500/10"
+              title={t("systemOne")}
+              path="/v1/systemone"
+              models={endpointData.systemone}
+              copy={copy}
+              copied={copied}
+              baseUrl={currentEndpoint}
+              modelsLoading={modelsLoading}
+            />
+            <EndpointCard
+              icon="alt_route"
+              iconColor="text-rose-500"
+              iconBg="bg-rose-500/10"
+              title={t("decisions")}
+              path="/v1/decisions"
+              models={endpointData.systemone}
+              badge="alias"
               copy={copy}
               copied={copied}
               baseUrl={currentEndpoint}

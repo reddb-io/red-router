@@ -3947,6 +3947,8 @@
     "musicDesc": "Generate music and audio tracks via ComfyUI (Stable Audio, MusicGen)",
     "moderations": "Moderations",
     "moderationsDesc": "Content moderation and safety classification",
+    "systemOne": "System One",
+    "decisions": "Decisions",
     "responsesDesc": "OpenAI Responses API for Codex and advanced agentic workflows",
     "listModelsDesc": "List all available models across all connected providers",
     "settingsApiDesc": "Read and modify OmniRoute configuration via API",
