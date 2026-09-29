@@ -2701,8 +2701,8 @@
             "omniroute": "no",
             "friday": "no"
           },
-          "head": "missing",
-          "headEvidence": "no budgets tables; per-key columns only",
+          "head": "partial",
+          "headEvidence": "budgets/budget_assignments/budget_windows (migration 203), key + key-group scopes, /api/budgets, Costs>Budget>Budgets table; user/tag/tenant scopes, tpm/rpm and per-model caps pending",
           "ownUnique": false,
           "value": "H",
           "effort": "M",
@@ -2723,8 +2723,8 @@
             "omniroute": "no",
             "friday": "no"
           },
-          "head": "missing",
-          "headEvidence": "warningThreshold in costRules only; no budgets so no per-hop check",
+          "head": "partial",
+          "headEvidence": "soft threshold with one durable budget.warning webhook per window, throttle vs block, re-check on every combo hop via meteredBudgetPolicy; budget-aware candidate skip in executeTargetGates pending",
           "ownUnique": false,
           "value": "H",
           "effort": "S",
@@ -3935,8 +3935,8 @@
             "omniroute": "no",
             "friday": "no"
           },
-          "head": "missing",
-          "headEvidence": "no # HELP anywhere (study-litellm h2)",
+          "head": "equivalent",
+          "headEvidence": "GET /api/metrics opt-in (prometheusMetricsEnabled, scrape token in _prometheusMetricsToken); src/lib/metrics/*, src/lib/db/metricsAggregates.ts; tests/redrouter/native/prometheus-metrics.test.ts",
           "ownUnique": false,
           "value": "H",
           "effort": "M",

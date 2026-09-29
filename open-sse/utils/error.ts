@@ -653,6 +653,8 @@ const ROUTING_REASON_BY_CODE: Record<string, string> = {
   model_not_allowed: "model_not_allowed",
   rate_limit_exceeded: "api_key_limit",
   budget_exceeded: "api_key_limit",
+  // The per-candidate budget gate (lib/usage/meteredBudgetPolicy) keeps its upper-case code.
+  BUDGET_EXCEEDED: "api_key_limit",
   insufficient_quota: "quota_exhausted",
   quota_exceeded: "quota_exhausted",
   ALL_ACCOUNTS_INACTIVE: "no_active_credentials",

@@ -34,6 +34,7 @@
  */
 
 import { checkBudget } from "@/domain/costRules";
+import { checkBudgets, MAX_THROTTLE_DELAY_MS } from "@/domain/budgetEngine";
 import { isFlatRateProvider } from "./flatRateProviders";
 import { errorResponse } from "@omniroute/open-sse/utils/error.ts";
 import { HTTP_STATUS } from "@omniroute/open-sse/config/constants.ts";
@@ -71,6 +72,10 @@ export interface MeteredBudgetDecision {
   allowed: boolean;
   /** Client-facing reason, present only when `allowed` is false. */
   reason?: string;
+  /** Epoch ms the exhausted window ends, when known (drives Retry-After). */
+  retryAfter?: number;
+  /** Throttle: the candidate is allowed, but only after waiting this many ms. */
+  delayMs?: number;
 }
 
 const ALLOWED: MeteredBudgetDecision = { allowed: true };
@@ -86,17 +91,40 @@ const ALLOWED: MeteredBudgetDecision = { allowed: true };
  * A key with no budget configured, or with budget remaining, is allowed for
  * every provider. A key whose allowance is spent is allowed only for providers
  * that do not consume it.
+ *
+ * Two independent budgets are consulted and either can refuse: the per-key
+ * budget (`domain/costRules`) and the reusable budgets assigned to the key or
+ * its groups (`domain/budgetEngine`). The latter can also answer "throttle"
+ * (allowed, after a delay).
  */
 export function checkMeteredBudgetForProvider(
   apiKeyId: string | null | undefined,
-  providerId: string | null | undefined
+  providerId: string | null | undefined,
+  model?: string | null
 ): MeteredBudgetDecision {
   if (!apiKeyId) return ALLOWED;
   if (!consumesMeteredBudget(providerId)) return ALLOWED;
   const budget = checkBudget(apiKeyId);
-  if (budget.allowed) return ALLOWED;
-  return { allowed: false, reason: budget.reason || "Budget limit exceeded" };
+  if (!budget.allowed) {
+    return {
+      allowed: false,
+      reason: budget.reason || "Budget limit exceeded",
+      ...(budget.budgetResetAt ? { retryAfter: budget.budgetResetAt } : {}),
+    };
+  }
+  const engine = checkBudgets({ keyId: apiKeyId, provider: providerId, model });
+  if (engine.state === "blocked") {
+    return {
+      allowed: false,
+      reason: engine.reason || "Budget limit exceeded",
+      ...(engine.resetAt ? { retryAfter: engine.resetAt } : {}),
+    };
+  }
+  if (engine.state === "throttle") return { allowed: true, delayMs: engine.delayMs };
+  return ALLOWED;
 }
+
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 /**
  * The per-dispatch monetary-eligibility gate: called once a candidate provider
@@ -105,18 +133,26 @@ export function checkMeteredBudgetForProvider(
  * rate limit and cool a healthy connection). Returns the 429 to send, or null to
  * proceed. Kept out of the handler to stay under its frozen file-size ratchet.
  */
-export function rejectIfMeteredBudgetExceeded(
+export async function rejectIfMeteredBudgetExceeded(
   apiKeyId: string | null | undefined,
   providerId: string | null | undefined,
   modelStr: string
-): Response | null {
-  const decision = checkMeteredBudgetForProvider(apiKeyId, providerId);
-  if (decision.allowed) return null;
+): Promise<Response | null> {
+  const decision = checkMeteredBudgetForProvider(apiKeyId, providerId, modelStr);
+  if (decision.allowed) {
+    if (decision.delayMs && decision.delayMs > 0) {
+      const waitMs = Math.min(decision.delayMs, MAX_THROTTLE_DELAY_MS);
+      log.info("BUDGET", `Throttling ${modelStr} by ${waitMs}ms — a budget on this key is spent`);
+      await sleep(waitMs);
+    }
+    return null;
+  }
   log.info(
     "BUDGET",
     `Rejecting ${modelStr} — ${providerId} draws on the metered budget and it is exhausted`
   );
   return errorResponse(HTTP_STATUS.RATE_LIMITED, decision.reason || "Budget limit exceeded", {
     code: "BUDGET_EXCEEDED",
+    retryAfter: decision.retryAfter,
   });
 }

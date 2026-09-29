@@ -1,7 +1,49 @@
 "use client";
 
+import { useState } from "react";
+import { useTranslations } from "next-intl";
+import { tabs } from "@/shared/design-system/contracts/tabs.variants";
 import BudgetTab from "../../usage/components/BudgetTab";
+import BudgetsTable from "./BudgetsTable";
+
+type TabValue = "budgets" | "per-key";
 
 export default function CostsBudgetPage() {
-  return <BudgetTab />;
+  const t = useTranslations("budgets");
+  const [active, setActive] = useState<TabValue>("budgets");
+  const styles = tabs();
+  const items: { value: TabValue; label: string }[] = [
+    { value: "budgets", label: t("tabBudgets") },
+    { value: "per-key", label: t("tabPerKey") },
+  ];
+
+  return (
+    <div className={styles.root()}>
+      <div role="tablist" aria-label={t("tabsLabel")} className={styles.list()}>
+        {items.map((item) => (
+          <button
+            key={item.value}
+            type="button"
+            role="tab"
+            id={`budget-tab-${item.value}`}
+            aria-selected={active === item.value}
+            aria-controls={`budget-panel-${item.value}`}
+            data-state={active === item.value ? "active" : "inactive"}
+            className={styles.trigger()}
+            onClick={() => setActive(item.value)}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+      <div
+        role="tabpanel"
+        id={`budget-panel-${active}`}
+        aria-labelledby={`budget-tab-${active}`}
+        className={styles.content()}
+      >
+        {active === "budgets" ? <BudgetsTable /> : <BudgetTab />}
+      </div>
+    </div>
+  );
 }

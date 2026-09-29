@@ -2,6 +2,7 @@ export type WebhookEvent =
   | "request.completed"
   | "request.failed"
   | "quota.exceeded"
+  | "budget.warning"
   | "proxy.set_aside"
   | "proxy.pool.exhausted"
   | "test.ping";
@@ -10,6 +11,7 @@ export const WEBHOOK_EVENT_VALUES = [
   "request.completed",
   "request.failed",
   "quota.exceeded",
+  "budget.warning",
   "proxy.set_aside",
   "proxy.pool.exhausted",
   "test.ping",
@@ -51,6 +53,24 @@ export const EVENT_DESCRIPTIONS: Record<WebhookEvent, EventDescription> = {
     emoji: "📊",
     description: "A usage threshold (e.g. 95% of quota) was reached.",
     exampleData: { quota: "daily_tokens", used: 950000, limit: 1000000, pct: 95 },
+  },
+  "budget.warning": {
+    label: "Budget Warning",
+    emoji: "💸",
+    description:
+      "Triggered once per window when spend on a budget reaches its soft threshold. Carries ids and amounts only.",
+    exampleData: {
+      budgetId: "0b6f3c1e-1f4e-4a54-9d2a-6c7a2f1b9a10",
+      budgetName: "Team monthly cap",
+      scopeType: "group",
+      scopeValue: "5d1c0a2e-3a55-4e0c-8a35-2b7c0f6e1c44",
+      spentUsd: 80.4,
+      softUsd: 80,
+      maxUsd: 100,
+      duration: "monthly",
+      windowStart: "2026-09-01T00:00:00.000Z",
+      resetAt: "2026-10-01T00:00:00.000Z",
+    },
   },
   "proxy.set_aside": {
     label: "Proxy Set Aside",

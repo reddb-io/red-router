@@ -12,7 +12,7 @@ describe("webhook catalogue", () => {
     assert.equal(keys.includes("provider.error"), false);
     assert.equal(keys.includes("provider.recovered"), false);
     assert.equal(keys.includes("combo.switched"), false);
-    assert.equal(keys.length, 6); // completed, failed, quota.exceeded, test.ping, proxy.set_aside, proxy.pool.exhausted
+    assert.equal(keys.length, 7); // completed, failed, quota.exceeded, budget.warning, test.ping, proxy.set_aside, proxy.pool.exhausted
     assert.equal(keys.includes("proxy.set_aside"), true);
     assert.equal(keys.includes("proxy.pool.exhausted"), true);
   });
