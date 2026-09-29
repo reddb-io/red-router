@@ -7,11 +7,13 @@ import YAML from "yaml";
 const root = process.cwd();
 const active = join(root, ".github/workflows");
 
+// red-docker.yml only publishes an image built from the already-published npm package; it has no
+// push/pull_request/schedule trigger and cannot affect the release workflow (see docker-workflow.test.ts).
 test("RedRouter has one product-owned validation and release workflow", () => {
   const files = readdirSync(active)
     .filter((file) => /\.ya?ml$/.test(file))
     .sort();
-  assert.deepEqual(files, ["red-publish.yml"]);
+  assert.deepEqual(files, ["red-docker.yml", "red-publish.yml"]);
 
   const text = readFileSync(join(active, "red-publish.yml"), "utf8");
   const workflow = YAML.parse(text);
