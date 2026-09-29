@@ -5,10 +5,13 @@
 import { LoaderCircle, MessageSquare, RefreshCw, Send, Square, Trash2 } from "lucide-react";
 import Icon from "@/shared/components/Icon";
 import { useState, useRef, useEffect } from "react";
+import { ConfirmModal } from "@/shared/components";
 import { useTranslations } from "next-intl";
 import MarkdownMessage from "../MarkdownMessage";
 import TokenCostCounter from "../TokenCostCounter";
 import { useStreamMetrics } from "../../hooks/useStreamMetrics";
+import { useChatSessions } from "../../hooks/useChatSessions";
+import ChatSessionSidebar from "./ChatSessionSidebar";
 import { getModelPricing } from "@/lib/playground/types";
 import type { ConfigState } from "../StudioConfigPane";
 import type { StreamMetrics } from "@/shared/schemas/playground";
@@ -44,7 +47,11 @@ export default function ChatTab({ configState, onMetricsUpdate }: ChatTabProps) 
   const pricing = getModelPricing(configState.model);
   const streamMetrics = useStreamMetrics(pricing ?? undefined);
 
-  const [messages, setMessages] = useState<Message[]>([]);
+  // Messages live in the active persistent chat session (localStorage); setMessages keeps the
+  // React state-setter contract, including functional updaters.
+  const chat = useChatSessions<Message>();
+  const { messages, setMessages } = chat;
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -287,13 +294,36 @@ export default function ChatTab({ configState, onMetricsUpdate }: ChatTabProps) 
     abortRef.current?.abort();
   };
 
-  const handleClear = () => {
-    setMessages([]);
+  const resetTransientState = () => {
     setError(null);
     setResponseStatus(null);
     setResponseDuration(null);
     streamMetrics.reset();
   };
+
+  const handleClear = () => {
+    if (chat.activeId) chat.clearSession(chat.activeId);
+    else setMessages([]);
+    resetTransientState();
+  };
+
+  const handleSelectSession = (id: string) => {
+    chat.selectSession(id);
+    resetTransientState();
+  };
+
+  const handleNewChat = () => {
+    chat.newChat();
+    resetTransientState();
+  };
+
+  const handleConfirmDelete = () => {
+    if (pendingDeleteId) chat.deleteSession(pendingDeleteId);
+    setPendingDeleteId(null);
+    resetTransientState();
+  };
+
+  const pendingDelete = chat.sessions.find((s) => s.id === pendingDeleteId) ?? null;
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -305,150 +335,169 @@ export default function ChatTab({ configState, onMetricsUpdate }: ChatTabProps) 
   const hasAssistantMessage = messages.some((m) => m.role === "assistant");
 
   return (
-    <div className="flex flex-col h-full">
-      {/* Status bar */}
-      <div className="flex items-center justify-between px-4 py-2 border-b border-border bg-bg-alt text-xs text-text-muted">
-        <div className="flex items-center gap-2">
-          <Icon icon={MessageSquare} size="md" color="current" />
-          <span className="font-medium">{t("tabChat")}</span>
-          {responseStatus !== null && (
-            <span
-              className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                responseStatus < 400
-                  ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
-                  : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
-              }`}
-            >
-              {responseStatus}
-            </span>
-          )}
-          {responseDuration !== null && <span>{responseDuration}ms</span>}
-        </div>
-        <div className="flex items-center gap-2">
-          {hasAssistantMessage && !loading && (
-            <button
-              onClick={() => void handleRegenerate()}
-              className="flex items-center gap-1 text-xs text-text-muted hover:text-text-main transition-colors"
-              title={t("regenerateLastResponse")}
-            >
-              <Icon icon={RefreshCw} size="sm" color="current" />
-              {t("regenerate")}
-            </button>
-          )}
-          <button
-            onClick={handleClear}
-            className="p-1 rounded hover:bg-red-500/10 text-text-muted hover:text-red-500 transition-colors"
-            title={t("clearChat")}
-          >
-            <Icon icon={Trash2} size="md" color="current" />
-          </button>
-        </div>
-      </div>
-
-      {/* Messages area */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {messages.length === 0 && !loading && (
-          <div className="flex items-center justify-center h-full text-text-muted text-sm">
-            <div className="text-center space-y-2">
-              <span className="material-symbols-outlined text-[48px] text-text-muted/30">chat</span>
-              <p>{t("startConversation")}</p>
-              {!configState.model && (
-                <p className="text-amber-500 text-xs">{t("setModelInConfigFirst")}</p>
-              )}
-            </div>
-          </div>
-        )}
-
-        {messages.map((msg, i) => {
-          if (msg.role === "system") return null;
-          return (
-            <div
-              key={i}
-              className={`flex flex-col max-w-[85%] ${
-                msg.role === "user" ? "ml-auto items-end" : "mr-auto items-start"
-              }`}
-            >
-              <span className="text-[10px] text-text-muted uppercase mb-1 px-1">
-                {t(`role.${msg.role}`)}
-              </span>
-              <div
-                className={`px-4 py-2.5 rounded-2xl text-sm ${
-                  msg.role === "user"
-                    ? "bg-primary text-primary-foreground rounded-tr-sm"
-                    : "bg-bg-alt border border-border text-text-main rounded-tl-sm"
+    <div className="flex h-full flex-col sm:flex-row">
+      <ChatSessionSidebar
+        sessions={chat.sessions}
+        activeId={chat.activeId}
+        disabled={loading}
+        onSelect={handleSelectSession}
+        onNew={handleNewChat}
+        onRename={chat.renameSession}
+        onRequestDelete={setPendingDeleteId}
+      />
+      <ConfirmModal
+        isOpen={pendingDelete !== null}
+        onClose={() => setPendingDeleteId(null)}
+        onConfirm={handleConfirmDelete}
+        title={t("deleteChatTitle")}
+        message={t("deleteChatMessage", { title: pendingDelete?.title ?? "" })}
+        confirmText={t("deleteChat")}
+      />
+      <div className="flex flex-col h-full min-h-0 min-w-0 flex-1">
+        {/* Status bar */}
+        <div className="flex items-center justify-between px-4 py-2 border-b border-border bg-bg-alt text-xs text-text-muted">
+          <div className="flex items-center gap-2">
+            <Icon icon={MessageSquare} size="md" color="current" />
+            <span className="font-medium">{t("tabChat")}</span>
+            {responseStatus !== null && (
+              <span
+                className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                  responseStatus < 400
+                    ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+                    : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
                 }`}
               >
-                {msg.role === "assistant" ? (
-                  <MarkdownMessage content={msg.content} />
-                ) : (
-                  <span className="whitespace-pre-wrap">{msg.content}</span>
+                {responseStatus}
+              </span>
+            )}
+            {responseDuration !== null && <span>{responseDuration}ms</span>}
+          </div>
+          <div className="flex items-center gap-2">
+            {hasAssistantMessage && !loading && (
+              <button
+                onClick={() => void handleRegenerate()}
+                className="flex items-center gap-1 text-xs text-text-muted hover:text-text-main transition-colors"
+                title={t("regenerateLastResponse")}
+              >
+                <Icon icon={RefreshCw} size="sm" color="current" />
+                {t("regenerate")}
+              </button>
+            )}
+            <button
+              onClick={handleClear}
+              className="p-1 rounded hover:bg-red-500/10 text-text-muted hover:text-red-500 transition-colors"
+              title={t("clearChat")}
+            >
+              <Icon icon={Trash2} size="md" color="current" />
+            </button>
+          </div>
+        </div>
+
+        {/* Messages area */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          {messages.length === 0 && !loading && (
+            <div className="flex items-center justify-center h-full text-text-muted text-sm">
+              <div className="text-center space-y-2">
+                <Icon icon={MessageSquare} size="lg" color="ink-muted" />
+                <p>{t("startConversation")}</p>
+                {!configState.model && (
+                  <p className="text-amber-500 text-xs">{t("setModelInConfigFirst")}</p>
                 )}
               </div>
-              {/* Token/cost per message */}
-              {msg.role === "assistant" && msg.metrics && (
-                <div className="mt-1 px-1">
-                  <TokenCostCounter
-                    tokensIn={msg.metrics.tokensIn}
-                    tokensOut={msg.metrics.tokensOut}
-                    costUsd={msg.metrics.costUsd}
-                  />
+            </div>
+          )}
+
+          {messages.map((msg, i) => {
+            if (msg.role === "system") return null;
+            return (
+              <div
+                key={i}
+                className={`flex flex-col max-w-[85%] ${
+                  msg.role === "user" ? "ml-auto items-end" : "mr-auto items-start"
+                }`}
+              >
+                <span className="text-[10px] text-text-muted uppercase mb-1 px-1">
+                  {t(`role.${msg.role}`)}
+                </span>
+                <div
+                  className={`px-4 py-2.5 rounded-2xl text-sm ${
+                    msg.role === "user"
+                      ? "bg-primary text-primary-foreground rounded-tr-sm"
+                      : "bg-bg-alt border border-border text-text-main rounded-tl-sm"
+                  }`}
+                >
+                  {msg.role === "assistant" ? (
+                    <MarkdownMessage content={msg.content} />
+                  ) : (
+                    <span className="whitespace-pre-wrap">{msg.content}</span>
+                  )}
                 </div>
-              )}
+                {/* Token/cost per message */}
+                {msg.role === "assistant" && msg.metrics && (
+                  <div className="mt-1 px-1">
+                    <TokenCostCounter
+                      tokensIn={msg.metrics.tokensIn}
+                      tokensOut={msg.metrics.tokensOut}
+                      costUsd={msg.metrics.costUsd}
+                    />
+                  </div>
+                )}
+              </div>
+            );
+          })}
+
+          {/* Loading indicator */}
+          {loading && messages[messages.length - 1]?.role === "user" && (
+            <div className="flex flex-col max-w-[85%] mr-auto items-start">
+              <span className="text-[10px] text-text-muted uppercase mb-1 px-1">
+                {t("role.assistant")}
+              </span>
+              <div className="px-4 py-2 rounded-2xl text-sm bg-bg-alt border border-border rounded-tl-sm text-text-muted flex items-center gap-2">
+                <Icon icon={LoaderCircle} size="md" color="current" className="animate-spin" />
+                {t("generating")}
+              </div>
             </div>
-          );
-        })}
+          )}
 
-        {/* Loading indicator */}
-        {loading && messages[messages.length - 1]?.role === "user" && (
-          <div className="flex flex-col max-w-[85%] mr-auto items-start">
-            <span className="text-[10px] text-text-muted uppercase mb-1 px-1">
-              {t("role.assistant")}
-            </span>
-            <div className="px-4 py-2 rounded-2xl text-sm bg-bg-alt border border-border rounded-tl-sm text-text-muted flex items-center gap-2">
-              <Icon icon={LoaderCircle} size="md" color="current" className="animate-spin" />
-              {t("generating")}
+          {error && (
+            <div className="text-center p-2 text-sm text-red-500 bg-red-500/10 rounded border border-red-500/20">
+              {error}
             </div>
-          </div>
-        )}
+          )}
 
-        {error && (
-          <div className="text-center p-2 text-sm text-red-500 bg-red-500/10 rounded border border-red-500/20">
-            {error}
-          </div>
-        )}
+          <div ref={messagesEndRef} />
+        </div>
 
-        <div ref={messagesEndRef} />
-      </div>
-
-      {/* Input area */}
-      <div className="p-3 border-t border-border bg-bg-alt flex gap-2 shrink-0">
-        <textarea
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder={t("typeMessageWithShortcut")}
-          className="flex-1 min-h-[44px] max-h-[120px] bg-surface border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary resize-y"
-          rows={1}
-          disabled={loading}
-        />
-        {loading ? (
-          <button
-            onClick={handleCancel}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border text-sm text-text-muted hover:text-text-main hover:bg-black/5 transition-colors shrink-0"
-          >
-            <Icon icon={Square} size="md" color="current" />
-            {t("stop")}
-          </button>
-        ) : (
-          <button
-            onClick={() => void handleSend()}
-            disabled={!input.trim()}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-primary/90 transition-colors shrink-0"
-          >
-            <Icon icon={Send} size="md" color="current" />
-            {t("send")}
-          </button>
-        )}
+        {/* Input area */}
+        <div className="p-3 border-t border-border bg-bg-alt flex gap-2 shrink-0">
+          <textarea
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder={t("typeMessageWithShortcut")}
+            className="flex-1 min-h-[44px] max-h-[120px] bg-surface border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary resize-y"
+            rows={1}
+            disabled={loading}
+          />
+          {loading ? (
+            <button
+              onClick={handleCancel}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border text-sm text-text-muted hover:text-text-main hover:bg-black/5 transition-colors shrink-0"
+            >
+              <Icon icon={Square} size="md" color="current" />
+              {t("stop")}
+            </button>
+          ) : (
+            <button
+              onClick={() => void handleSend()}
+              disabled={!input.trim()}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-primary/90 transition-colors shrink-0"
+            >
+              <Icon icon={Send} size="md" color="current" />
+              {t("send")}
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );
