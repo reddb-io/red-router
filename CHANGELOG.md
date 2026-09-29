@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.34.4
+
+### Patch Changes
+
+- Restore the RedRouter setup-readiness endpoint and add an encrypted, signed webhook outbox for costed usage with stable delivery IDs. Freeze window high-water marks and fence expired delivery leases so retries cannot overwrite another worker. Record amount-only charges in the cost ledger and identify search charges by provider. The usage sink explicitly reports costed-request coverage; full Friday billing-source and transport parity is still in progress.
+- Use RedRouter-owned npm and GitHub releases for version discovery and release notes. Disable inherited one-click update paths that could install OmniRoute or change a source checkout until a RedRouter-owned updater is available.
+
 ## 0.34.3
 
 ### Patch Changes
