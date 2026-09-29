@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHmac } from "node:crypto";
 import { beforeEach, describe, test } from "node:test";
 
 // Transports run against injected fetch / Kafka clients: nothing here touches the network.
@@ -51,6 +52,12 @@ describe("webhook transport", () => {
       headers["webhook-signature"],
       signUsageWebhook("ub_1", headers["webhook-timestamp"], '{"a":1}', config.secret)
     );
+    // A receiver verifying per the spec: HMAC-SHA256 over "id.timestamp.body" keyed with the
+    // decoded whsec_ bytes, base64, prefixed v1.
+    const expected = createHmac("sha256", Buffer.from(config.secret.slice(6), "base64"))
+      .update(`ub_1.${headers["webhook-timestamp"]}.{"a":1}`)
+      .digest("base64");
+    assert.equal(headers["webhook-signature"], `v1,${expected}`);
   });
 
   test("410 Gone stops retries, other HTTP failures keep them", async () => {
