@@ -44,7 +44,7 @@ function buildFridayDatabase() {
       accessToken: "at", refreshToken: "rt", expiresAt: "2026-10-01T00:00:00.000Z", scope: "x",
       testStatus: "active", "modelLock_claude-opus-5-5": 123, unknownFridayField: true,
     }),
-    now, now, null
+    now, now, "alice@example.test"
   );
   db.prepare("INSERT INTO providerConnections VALUES (?,?,?,?,?,?,?,?,?,?,?)").run(
     "conn-key", "openrouter", "apikey", "OR", null, 2, 1,
@@ -53,7 +53,7 @@ function buildFridayDatabase() {
   );
   db.prepare("INSERT INTO apiKeys VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)").run(
     "key-admin", "sk-admin-fixture-0001", "Admin", "machine1", 1, now,
-    JSON.stringify(["conn-key"]), JSON.stringify(["team-a"]), null,
+    JSON.stringify(["conn-key"]), JSON.stringify(["team-a"]), "bob@example.test",
     JSON.stringify({ mode: "allow", patterns: ["claude/*"] }),
     JSON.stringify({ rpm: 30, tokensPerDay: 5000, usdPerMonth: 12 }), "flat", "admin"
   );
@@ -62,13 +62,24 @@ function buildFridayDatabase() {
     null, null, null, null, null, null, null
   );
   db.prepare("INSERT INTO combos VALUES (?,?,?,?,?,?,?)").run(
-    "combo-1", "fast", null, JSON.stringify(["claude/claude-opus-5-5", "openrouter/x/y"]), null, now, now
+    "combo-1", "fast", null, JSON.stringify(["claude/claude-opus-5-5", "openrouter/x/y"]), "alice@example.test", now, now
   );
   db.prepare("INSERT INTO settings VALUES (1, ?)").run(
-    JSON.stringify({ password: HASH, requireLogin: true, tunnelEnabled: true })
+    JSON.stringify({
+      password: HASH,
+      requireLogin: true,
+      tunnelEnabled: true,
+      scopeResourcesByUser: true,
+      ssoAdminEmails: ["alice@example.test"],
+      oidcIssuer: "https://idp.example.test",
+      oidcClientSecret: "super-secret-value",
+    })
   );
   db.prepare("INSERT INTO kv VALUES (?,?,?)").run("modelAliases", "fast-alias", JSON.stringify("claude/x"));
   db.prepare("INSERT INTO kv VALUES (?,?,?)").run("disabledModels", "claude", JSON.stringify(["a"]));
+  db.prepare("INSERT INTO kv VALUES (?,?,?)").run(
+    "disabledSharedAccounts", "bob@example.test", JSON.stringify(["conn-key"])
+  );
   db.prepare("INSERT INTO kv VALUES (?,?,?)").run(
     "customModels", "ocg|deepseek-v4.1-flash|llm",
     JSON.stringify({ providerAlias: "ocg", id: "deepseek-v4.1-flash", type: "llm", name: "DS Flash" })
@@ -176,6 +187,30 @@ test("the import maps connections, keys, combos, settings and usage, and reports
   assert.equal(report.imported.customModels, 1);
   assert.equal(report.notMapped["customModels.tts"], 1);
   assert.equal(report.notMapped["kv.customModels"], undefined);
+
+  // Friday's per-user scoping is staged, not lost, and no secret is written next to it.
+  const staged = (key: string) =>
+    JSON.parse(
+      (db.prepare("SELECT value FROM key_value WHERE namespace = 'friday_legacy' AND key = ?").get(key) as { value: string }).value
+    );
+  assert.deepEqual(staged("owners"), {
+    providerConnections: { "conn-oauth": "alice@example.test" },
+    apiKeys: { "key-admin": "bob@example.test" },
+    combos: { "combo-1": "alice@example.test" },
+  });
+  const legacySettings = staged("settings");
+  assert.equal(legacySettings.scopeResourcesByUser, true);
+  assert.deepEqual(legacySettings.ssoAdminEmails, ["alice@example.test"]);
+  assert.equal(legacySettings.oidcIssuer, "https://idp.example.test");
+  assert.equal("oidcClientSecret" in legacySettings, false);
+  assert.equal(JSON.stringify(legacySettings).includes("super-secret-value"), false);
+  assert.deepEqual(staged("preferences"), { disabledSharedAccounts: { "bob@example.test": ["conn-key"] } });
+  assert.equal(report.notMapped["settings.oidcClientSecret (secret, not staged)"], 1);
+  assert.equal(report.notMapped["settings.scopeResourcesByUser"], undefined);
+  assert.equal(report.notMapped["kv.disabledSharedAccounts"], undefined);
+  assert.ok(report.imported.legacyStaged >= 6);
+  // The admin key is imported with the management scope; the report says so.
+  assert.match(report.warnings.join(" "), /management scope/);
 
   // Nothing is dropped silently, and transient per-model locks are not carried over.
   assert.equal(report.notMapped["providerConnections.data.unknownFridayField"], 1);

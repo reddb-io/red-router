@@ -52,10 +52,78 @@ export interface FridayImportReport {
     settings: number;
     modelAliases: number;
     customModels: number;
+    /** Owners, scope/SSO settings and user preferences carried into the staging namespace. */
+    legacyStaged: number;
   };
+  warnings: string[];
   /** Friday data the importer read but has no mapping for yet, by name → count. */
   notMapped: Record<string, number>;
   providers: string[];
+}
+
+// Friday's per-user scoping (owners of connections, keys and combos, the scope and SSO settings,
+// per-owner overrides and per-user preferences) has no model in this build yet. It is carried into
+// a staging namespace so nothing is lost and the users/tenants migration can read it later.
+export const FRIDAY_LEGACY_NAMESPACE = "friday_legacy";
+const LEGACY_SETTING_KEYS = new Set([
+  "scopeResourcesByUser",
+  "ssoAdminEmails",
+  "authMode",
+  "ssoType",
+  "tokenSaverByOwner",
+  "capacityAdapterByOwner",
+]);
+const LEGACY_SETTING_PREFIX = /^(oidc|saml|sso)/i;
+const SECRET_LOOKING = /secret|password|private|cert|token|credential/i;
+const LEGACY_KV_SCOPES = new Set(["disabledSharedAccounts", "hiddenGlobalCombos"]);
+
+export interface FridayLegacyState {
+  owners: {
+    providerConnections: Record<string, string>;
+    apiKeys: Record<string, string>;
+    combos: Record<string, string>;
+  };
+  settings: Record<string, unknown>;
+  preferences: Record<string, Record<string, unknown>>;
+}
+
+/** What of Friday's user scoping to stage. Secrets are never staged: they are reported instead. */
+export function collectFridayLegacy(input: {
+  connections: Row[];
+  keys: Row[];
+  combos: Row[];
+  settings: Row;
+  kv: Row[];
+  notMapped: Record<string, number>;
+}): FridayLegacyState {
+  const ownersOf = (rows: Row[]) =>
+    Object.fromEntries(
+      rows.filter((row) => row.owner).map((row) => [String(row.id), String(row.owner)])
+    );
+  const settings: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(input.settings)) {
+    if (!LEGACY_SETTING_KEYS.has(key) && !LEGACY_SETTING_PREFIX.test(key)) continue;
+    if (SECRET_LOOKING.test(key)) {
+      bump(input.notMapped, `settings.${key} (secret, not staged)`);
+      continue;
+    }
+    settings[key] = value;
+  }
+  const preferences: Record<string, Record<string, unknown>> = {};
+  for (const row of input.kv) {
+    const scope = String(row.scope);
+    if (!LEGACY_KV_SCOPES.has(scope)) continue;
+    (preferences[scope] ??= {})[String(row.key)] = parseJson<unknown>(row.value, null);
+  }
+  return {
+    owners: {
+      providerConnections: ownersOf(input.connections),
+      apiKeys: ownersOf(input.keys),
+      combos: ownersOf(input.combos),
+    },
+    settings,
+    preferences,
+  };
 }
 
 const BCRYPT = /^\$2[aby]\$\d{2}\$/;
@@ -103,7 +171,6 @@ export function mapFridayConnection(row: Row, notMapped: Record<string, number>)
     else if (!TRANSIENT_PREFIXES.some((prefix) => key.startsWith(prefix)))
       bump(notMapped, `providerConnections.data.${key}`);
   }
-  if (row.owner) bump(notMapped, "providerConnections.owner");
   return connection;
 }
 
@@ -133,7 +200,6 @@ export function mapFridayKey(row: Row, notMapped: Record<string, number>): Mappe
     {}
   );
   const format = row.modelIdFormat === "flat" ? "flat" : "prefixed";
-  if (row.owner) bump(notMapped, "apiKeys.owner");
   return {
     id: String(row.id),
     name: String(row.name ?? "Imported key"),
@@ -273,8 +339,11 @@ export async function importFridayData(options: FridayImportOptions): Promise<Fr
     const connections = all(reader, "providerConnections").map((row) =>
       mapFridayConnection(row, notMapped)
     );
-    const keyRows = all(reader, "apiKeys").map((row) => mapFridayKey(row, notMapped));
-    const combos = all(reader, "combos").filter((row) => {
+    const rawConnections = all(reader, "providerConnections");
+    const rawKeys = all(reader, "apiKeys");
+    const keyRows = rawKeys.map((row) => mapFridayKey(row, notMapped));
+    const allCombos = all(reader, "combos");
+    const combos = allCombos.filter((row) => {
       if (row.kind) bump(notMapped, `combos.kind.${String(row.kind)}`);
       try {
         validateComboInvariant(
@@ -301,11 +370,22 @@ export async function importFridayData(options: FridayImportOptions): Promise<Fr
       bump(notMapped, table, all(reader, table).length);
     for (const row of kv) {
       const scope = String(row.scope);
-      if (!["modelAliases", "pricing", "mitmAlias", "customModels"].includes(scope))
+      if (!["modelAliases", "pricing", "mitmAlias", "customModels"].includes(scope) && !LEGACY_KV_SCOPES.has(scope))
         bump(notMapped, `kv.${scope}`);
     }
-    for (const key of Object.keys(settings))
-      if (!(SETTINGS_KEPT as readonly string[]).includes(key)) bump(notMapped, `settings.${key}`);
+    const staging = collectFridayLegacy({
+      connections: rawConnections,
+      keys: rawKeys,
+      combos: allCombos,
+      settings,
+      kv,
+      notMapped,
+    });
+    for (const key of Object.keys(settings)) {
+      const staged = LEGACY_SETTING_KEYS.has(key) || LEGACY_SETTING_PREFIX.test(key);
+      if (!(SETTINGS_KEPT as readonly string[]).includes(key) && !staged)
+        bump(notMapped, `settings.${key}`);
+    }
 
     const customModels = mapFridayCustomModels(
       kv.filter((row) => row.scope === "customModels"),
@@ -339,7 +419,20 @@ export async function importFridayData(options: FridayImportOptions): Promise<Fr
         settings: Object.keys(keptSettings).length,
         modelAliases: Object.keys(kvOf("modelAliases")).length,
         customModels: Object.values(customModels).reduce((sum, list) => sum + list.length, 0),
+        legacyStaged:
+          Object.keys(staging.owners.providerConnections).length +
+          Object.keys(staging.owners.apiKeys).length +
+          Object.keys(staging.owners.combos).length +
+          Object.keys(staging.settings).length +
+          Object.values(staging.preferences).reduce((sum, map) => sum + Object.keys(map).length, 0),
       },
+      warnings: keyRows.some((key) => key.scopes.includes("manage"))
+        ? [
+            `${keyRows.filter((key) => key.scopes.includes("manage")).length} Friday admin key(s) ` +
+              "were imported with the management scope (this build's admin role), which is broader " +
+              "than Friday's MCP-only admin key; review them in Endpoint & Keys.",
+          ]
+        : [],
       notMapped,
       providers: [...new Set(connections.map((c) => String(c.provider)))].sort(),
     };
@@ -367,6 +460,7 @@ export async function importFridayData(options: FridayImportOptions): Promise<Fr
     runJsonMigration(target, legacy);
     await insertKeys(target, keyRows);
     mergeCustomModels(target, customModels);
+    stageLegacy(target, staging);
 
     fs.writeFileSync(
       path.join(dataDir, FRIDAY_IMPORT_MARKER),
@@ -436,5 +530,17 @@ function mergeCustomModels(db: SqliteAdapter, byProvider: Record<string, CustomM
       for (const model of models) if (!existing.some((entry) => entry.id === model.id)) merged.push(model);
       write.run(provider, JSON.stringify(merged));
     }
+  })();
+}
+
+/** Writes Friday's user scoping to `key_value` (namespace friday_legacy) for the tenancy migration. */
+function stageLegacy(db: SqliteAdapter, legacy: FridayLegacyState): void {
+  const write = db.prepare(
+    "INSERT OR REPLACE INTO key_value (namespace, key, value) VALUES (?, ?, ?)"
+  );
+  db.transaction(() => {
+    write.run(FRIDAY_LEGACY_NAMESPACE, "owners", JSON.stringify(legacy.owners));
+    write.run(FRIDAY_LEGACY_NAMESPACE, "settings", JSON.stringify(legacy.settings));
+    write.run(FRIDAY_LEGACY_NAMESPACE, "preferences", JSON.stringify(legacy.preferences));
   })();
 }
