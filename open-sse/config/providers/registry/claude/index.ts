@@ -51,6 +51,18 @@ export const claudeProvider: RegistryEntry = {
       unsupportedParams: ["temperature", "top_p", "top_k"],
     },
     {
+      id: "claude-opus-5-5",
+      name: "Claude Opus 5.5",
+      contextLength: 1000000,
+      maxOutputTokens: 128000,
+      // Adaptive thinking cannot be disabled and a forced tool_choice is rejected (see
+      // modelSpecs); reasoning is steered by output_config.effort over the full ladder.
+      supportsReasoning: true,
+      supportedThinkingEfforts: ["low", "medium", "high", "xhigh", "max"],
+      supportsXHighEffort: true,
+      unsupportedParams: ["temperature", "top_p", "top_k"],
+    },
+    {
       id: "claude-opus-5",
       name: "Claude Opus 5",
       contextLength: 1000000,
