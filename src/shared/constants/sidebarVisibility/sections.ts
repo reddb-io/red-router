@@ -16,6 +16,15 @@ const HOME_ITEMS: readonly SidebarItemDefinition[] = [
     icon: "home",
     exact: true,
   },
+  {
+    id: "setup",
+    href: "/dashboard/setup",
+    i18nKey: "setup",
+    labelFallback: "Setup",
+    subtitleKey: "setupSubtitle",
+    subtitleFallback: "Connect, key, validate, organize",
+    icon: "rocket_launch",
+  },
 ];
 
 const OMNI_PROXY_ITEMS: readonly SidebarItemDefinition[] = [
