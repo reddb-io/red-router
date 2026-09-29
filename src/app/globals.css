@@ -399,6 +399,11 @@ select option {
   }
 }
 
+/* The sidebar follows --rr-sidebar-width (set by DashboardLayout); no easing while it is dragged. */
+.dashboard-sidebar-desktop[data-resizing="true"] aside {
+  transition: none;
+}
+
 /* ═══════════════════════════════════════════════════════════════
    RTL (Right-to-Left) Compatibility — fixes #7680
    ═══════════════════════════════════════════════════════════════ */

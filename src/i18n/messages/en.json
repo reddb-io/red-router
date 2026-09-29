@@ -1063,6 +1063,8 @@
     "serverDisconnectedMsg": "The proxy server has been stopped or is restarting.",
     "expandSidebar": "Expand sidebar",
     "collapseSidebar": "Collapse sidebar",
+    "resizeSidebar": "Resize sidebar",
+    "resizeSidebarHint": "Drag to resize, double-click to reset",
     "themes": "Themes",
     "presetColors": "Popular colors",
     "createTheme": "Create theme",

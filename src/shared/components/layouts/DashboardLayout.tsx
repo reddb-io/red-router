@@ -2,6 +2,7 @@
 
 import { Suspense, useEffect, useInsertionEffect, useState } from "react";
 import Sidebar from "../Sidebar";
+import SidebarResizeHandle from "../SidebarResizeHandle";
 import Header from "../Header";
 import NotificationToast from "../NotificationToast";
 import Breadcrumbs from "../Breadcrumbs";
@@ -9,6 +10,7 @@ import MaintenanceBanner from "../MaintenanceBanner";
 import CommandPalette from "../CommandPalette";
 import NavigationProgress from "../NavigationProgress";
 import { useIsElectron } from "@/shared/hooks/useElectron";
+import { useSidebarWidth } from "@/shared/hooks/useSidebarWidth";
 import {
   installDashboardCsrfFetch,
   prefetchDashboardCsrfToken,
@@ -23,6 +25,7 @@ export default function DashboardLayout({ children }) {
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const isElectron = useIsElectron();
   const [collapsed, setCollapsed] = useState(false);
+  const sidebarWidth = useSidebarWidth();
 
   useEffect(() => {
     try {
@@ -92,12 +95,25 @@ export default function DashboardLayout({ children }) {
       )}
 
       {/* Sidebar - Desktop: keep visibility independent from Tailwind hidden/lg:flex ordering. */}
-      <div className="dashboard-sidebar-desktop">
+      <div
+        className="dashboard-sidebar-desktop relative"
+        data-resizing={sidebarWidth.resizing ? "true" : undefined}
+        style={{ "--rr-sidebar-width": `${sidebarWidth.width}px` } as React.CSSProperties}
+      >
         <Sidebar
           collapsed={collapsed}
           onToggleCollapse={handleToggleCollapse}
           isMacElectron={isMacElectron}
         />
+        {!collapsed && (
+          <SidebarResizeHandle
+            width={sidebarWidth.width}
+            resizing={sidebarWidth.resizing}
+            onPointerDown={sidebarWidth.startDrag}
+            onKeyDown={sidebarWidth.onKeyDown}
+            onReset={sidebarWidth.reset}
+          />
+        )}
       </div>
 
       {/* Sidebar - Mobile: full viewport height with proper scroll containment */}
@@ -105,10 +121,13 @@ export default function DashboardLayout({ children }) {
         className={`fixed start-0 z-50 transform lg:hidden transition-transform duration-300 ease-in-out h-dvh overflow-y-auto ${
           sidebarOpen ? "translate-x-0" : "-translate-x-full"
         }`}
-        style={{
-          top: "var(--ios-safe-top, 0px)",
-          bottom: "var(--ios-safe-bottom, 0px)",
-        }}
+        style={
+          {
+            top: "var(--ios-safe-top, 0px)",
+            bottom: "var(--ios-safe-bottom, 0px)",
+            "--rr-sidebar-width": "288px",
+          } as React.CSSProperties
+        }
       >
         <Sidebar onClose={() => setSidebarOpen(false)} isMacElectron={isMacElectron} />
       </div>
