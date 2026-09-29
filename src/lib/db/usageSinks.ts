@@ -47,6 +47,13 @@ export interface UsageDelivery {
   deliveredAt: string | null;
 }
 
+export interface UsageWindow {
+  targetId: number;
+  startAt: string;
+  endAt: string;
+  nextWindowEnd: string;
+}
+
 type Row = Record<string, unknown>;
 const asString = (value: unknown) => (typeof value === "string" ? value : "");
 const asNumber = (value: unknown) => (typeof value === "number" ? value : Number(value) || 0);
@@ -176,21 +183,26 @@ export function updateUsageSink(
 export function deleteUsageSink(id: string): boolean {
   const db = getDbInstance();
   return db.transaction(() => {
+    db.prepare("DELETE FROM redrouter_usage_windows WHERE sink_id = ?").run(id);
     db.prepare("DELETE FROM redrouter_usage_deliveries WHERE sink_id = ?").run(id);
     return db.prepare("DELETE FROM redrouter_usage_sinks WHERE id = ?").run(id).changes > 0;
   })();
 }
 
-export function listCostedUsageAfter(cursorId: number, limit: number): CostedUsageRow[] {
+export function listCostedUsageAfter(
+  cursorId: number,
+  limit: number,
+  upToId?: number
+): CostedUsageRow[] {
   const rows = getDbInstance()
     .prepare(
       `SELECT l.id, l.api_key_id, k.name AS api_key_name,
       l.provider, l.model, l.tokens_input, l.tokens_output, l.tokens_cache_read,
       l.amount_usd, l.success, l.timestamp, l.request_id
       FROM request_cost_ledger l LEFT JOIN api_keys k ON k.id = l.api_key_id
-      WHERE l.id > ? ORDER BY l.id LIMIT ?`
+      WHERE l.id > ? AND l.id <= ? ORDER BY l.id LIMIT ?`
     )
-    .all(cursorId, limit) as Row[];
+    .all(cursorId, upToId ?? Number.MAX_SAFE_INTEGER, limit) as Row[];
   return rows.map((row) => ({
     id: asNumber(row.id),
     apiKeyId: asString(row.api_key_id),
@@ -213,7 +225,8 @@ export function commitUsageBatch(
   expectedCursor: number,
   nextCursor: number,
   deliveries: Array<{ id: string; payload: Record<string, unknown> }>,
-  nextWindowEnd?: string
+  nextWindowEnd?: string,
+  completeWindow = false
 ): boolean {
   const db = getDbInstance();
   const now = new Date().toISOString();
@@ -232,7 +245,54 @@ export function commitUsageBatch(
     for (const delivery of deliveries) {
       insert.run(delivery.id, sinkId, JSON.stringify(delivery.payload), now, now);
     }
+    if (completeWindow) {
+      db.prepare("DELETE FROM redrouter_usage_windows WHERE sink_id = ?").run(sinkId);
+    }
     return true;
+  })();
+}
+
+function mapWindow(row: Row): UsageWindow {
+  return {
+    targetId: asNumber(row.target_id),
+    startAt: asString(row.start_at),
+    endAt: asString(row.end_at),
+    nextWindowEnd: asString(row.next_window_end),
+  };
+}
+
+/** First closer fixes the ledger high-water mark; later ticks resume the same window. */
+export function getOrStartUsageWindow(
+  sinkId: string,
+  expectedBoundary: string,
+  startAt: string,
+  endAt: string,
+  nextWindowEnd: string
+): UsageWindow | null {
+  const db = getDbInstance();
+  return db.transaction(() => {
+    const existing = db
+      .prepare("SELECT * FROM redrouter_usage_windows WHERE sink_id = ?")
+      .get(sinkId) as Row | undefined;
+    if (existing) return mapWindow(existing);
+    const sink = db
+      .prepare(
+        `SELECT next_window_end, enabled FROM redrouter_usage_sinks
+      WHERE id = ?`
+      )
+      .get(sinkId) as Row | undefined;
+    if (!sink || sink.next_window_end !== expectedBoundary || asNumber(sink.enabled) !== 1) {
+      return null;
+    }
+    const head = db.prepare("SELECT COALESCE(MAX(id), 0) AS id FROM request_cost_ledger").get() as {
+      id: number;
+    };
+    db.prepare(
+      `INSERT INTO redrouter_usage_windows
+      (sink_id, target_id, start_at, end_at, next_window_end, created_at)
+      VALUES (?, ?, ?, ?, ?, ?)`
+    ).run(sinkId, head.id, startAt, endAt, nextWindowEnd, new Date().toISOString());
+    return { targetId: head.id, startAt, endAt, nextWindowEnd };
   })();
 }
 
@@ -274,6 +334,7 @@ export function claimUsageDelivery(id: string, now: string, leaseUntil: string):
 
 export function finishUsageDelivery(
   id: string,
+  leaseUntil: string,
   input: {
     status: "pending" | "delivered" | "dead";
     nextAttemptAt: string | null;
@@ -281,14 +342,24 @@ export function finishUsageDelivery(
     error: string | null;
     deliveredAt: string | null;
   }
-): void {
-  getDbInstance()
-    .prepare(
-      `UPDATE redrouter_usage_deliveries SET status = ?,
+): boolean {
+  return (
+    getDbInstance()
+      .prepare(
+        `UPDATE redrouter_usage_deliveries SET status = ?,
     next_attempt_at = ?, lease_until = NULL, last_status = ?, last_error = ?, delivered_at = ?
-    WHERE id = ? AND status = 'sending'`
-    )
-    .run(input.status, input.nextAttemptAt, input.httpStatus, input.error, input.deliveredAt, id);
+    WHERE id = ? AND status = 'sending' AND lease_until = ?`
+      )
+      .run(
+        input.status,
+        input.nextAttemptAt,
+        input.httpStatus,
+        input.error,
+        input.deliveredAt,
+        id,
+        leaseUntil
+      ).changes === 1
+  );
 }
 
 export function listUsageDeliveries(sinkId: string, limit = 50): UsageDelivery[] {

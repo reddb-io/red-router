@@ -252,7 +252,7 @@
       "upstreamPaths": {
         "litellm": ["litellm/integrations", "litellm/proxy/spend_tracking"]
       },
-      "remaining": "RedRouter-owned SQLite outbox, stable IDs, signed HTTPS webhook, instant/window aggregation and management API are implemented for request_cost_ledger rows, pending CI verification. This is costed-requests-only, not complete usage or billing parity: some request paths still do not write priced ledger rows, and SQS, Kafka, RedDB, key-tag filters, manual retry, dashboard UI and transport-specific acceptance tests remain. Log export is a separate capability.",
+      "remaining": "RedRouter-owned SQLite outbox, stable IDs, signed HTTPS webhook, instant/window aggregation and management API are implemented for request_cost_ledger rows. Window high-water marks and delivery lease fencing need CI verification. This is costed-requests-only, not complete usage or billing parity: some request paths still do not write priced ledger rows, and SQS, Kafka, RedDB, key-tag filters, manual retry, dashboard UI and transport-specific acceptance tests remain. Log export is a separate capability.",
       "acceptance": [
         "Preserve signed webhook, SQS, Kafka and RedDB delivery contracts.",
         "Retries keep stable delivery IDs and do not duplicate billable usage.",

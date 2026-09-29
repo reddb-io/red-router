@@ -5,6 +5,7 @@ import {
   claimUsageDelivery,
   commitUsageBatch,
   finishUsageDelivery,
+  getOrStartUsageWindow,
   getUsageSink,
   listCostedUsageAfter,
   listDueUsageDeliveries,
@@ -150,7 +151,21 @@ export function aggregateUsageSink(sink: UsageSink, now = new Date()): number {
   }
   if (sink.mode === "window" && Date.parse(sink.nextWindowEnd || "") > now.getTime()) return 0;
 
-  const rows = listCostedUsageAfter(sink.cursorId, PAGE_SIZE);
+  const size = (sink.windowSec || 900) * 1000;
+  const closedEnd = Math.floor(now.getTime() / size) * size;
+  const window =
+    sink.mode === "window"
+      ? getOrStartUsageWindow(
+          sink.id,
+          sink.nextWindowEnd || "",
+          new Date(Date.parse(sink.nextWindowEnd || "") - size).toISOString(),
+          new Date(closedEnd).toISOString(),
+          new Date(closedEnd + size).toISOString()
+        )
+      : null;
+  if (sink.mode === "window" && !window) return 0;
+
+  const rows = listCostedUsageAfter(sink.cursorId, PAGE_SIZE, window?.targetId);
   const lastId = rows.at(-1)?.id ?? sink.cursorId;
   const matched =
     sink.apiKeyIds.length === 0
@@ -158,26 +173,27 @@ export function aggregateUsageSink(sink: UsageSink, now = new Date()): number {
       : rows.filter((row) => sink.apiKeyIds.includes(row.apiKeyId));
   const deliveries: Array<{ id: string; payload: Record<string, unknown> }> = [];
   let nextWindowEnd: string | undefined;
+  let completeWindow = false;
   if (sink.mode === "instant") {
     for (const row of matched) {
       const id = deliveryId("ue", sink.id, String(row.id));
       deliveries.push({ id, payload: eventPayload(sink, row, id) });
     }
   } else {
-    const size = (sink.windowSec || 900) * 1000;
-    const closedEnd = Math.floor(now.getTime() / size) * size;
-    const start = new Date(Date.parse(sink.nextWindowEnd || "") - size).toISOString();
-    const end = new Date(closedEnd).toISOString();
-    // A full page may leave backlog. Keep this window open until all rows that
-    // were present at the boundary have been converted into outbox deliveries.
-    if (rows.length < PAGE_SIZE) nextWindowEnd = new Date(closedEnd + size).toISOString();
+    // The persisted high-water mark keeps later ledger writes out of this
+    // window even if draining its source needs several scheduled ticks.
+    completeWindow = rows.length < PAGE_SIZE || lastId >= window!.targetId;
+    if (completeWindow) nextWindowEnd = window!.nextWindowEnd;
     if (matched.length > 0) {
       const range = { fromId: sink.cursorId + 1, toId: lastId };
       const id = deliveryId("ub", sink.id, `${range.fromId}:${range.toId}`);
-      deliveries.push({ id, payload: windowPayload(sink, matched, id, range, start, end) });
+      deliveries.push({
+        id,
+        payload: windowPayload(sink, matched, id, range, window!.startAt, window!.endAt),
+      });
     }
   }
-  return commitUsageBatch(sink.id, sink.cursorId, lastId, deliveries, nextWindowEnd)
+  return commitUsageBatch(sink.id, sink.cursorId, lastId, deliveries, nextWindowEnd, completeWindow)
     ? deliveries.length
     : 0;
 }
@@ -194,7 +210,7 @@ export async function dispatchUsageDeliveries(now = new Date()): Promise<number>
     const attempts = delivery.attempts + 1;
     const secret = decrypt(sink.secretEncrypted);
     if (!secret) {
-      finishUsageDelivery(delivery.id, {
+      finishUsageDelivery(delivery.id, leaseUntil, {
         status: "dead",
         nextAttemptAt: null,
         httpStatus: null,
@@ -223,7 +239,7 @@ export async function dispatchUsageDeliveries(now = new Date()): Promise<number>
       );
       await response.body?.cancel().catch(() => {});
       if (response.ok) {
-        finishUsageDelivery(delivery.id, {
+        finishUsageDelivery(delivery.id, leaseUntil, {
           status: "delivered",
           nextAttemptAt: null,
           httpStatus: response.status,
@@ -232,7 +248,7 @@ export async function dispatchUsageDeliveries(now = new Date()): Promise<number>
         });
       } else {
         const dead = response.status === 410 || attempts > BACKOFF_SECONDS.length;
-        finishUsageDelivery(delivery.id, {
+        finishUsageDelivery(delivery.id, leaseUntil, {
           status: dead ? "dead" : "pending",
           nextAttemptAt: dead
             ? null
@@ -244,7 +260,7 @@ export async function dispatchUsageDeliveries(now = new Date()): Promise<number>
       }
     } catch {
       const dead = attempts > BACKOFF_SECONDS.length;
-      finishUsageDelivery(delivery.id, {
+      finishUsageDelivery(delivery.id, leaseUntil, {
         status: dead ? "dead" : "pending",
         nextAttemptAt: dead
           ? null

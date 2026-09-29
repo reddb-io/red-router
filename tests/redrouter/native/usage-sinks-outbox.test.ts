@@ -7,7 +7,8 @@ import { join } from "node:path";
 const taskDir = mkdtempSync(join(tmpdir(), "redrouter-usage-sinks-"));
 process.env.DATA_DIR = taskDir;
 const { getDbInstance, resetDbInstance } = await import("../../../src/lib/db/core.ts");
-const { recordLedgerEntry } = await import("../../../src/lib/db/costLedger.ts");
+const { recordLedgerEntry, recordLedgerEntries } =
+  await import("../../../src/lib/db/costLedger.ts");
 const {
   createUsageSink,
   listUsageDeliveries,
@@ -18,6 +19,7 @@ const {
 } = await import("../../../src/lib/db/usageSinks.ts");
 const { aggregateUsageSink, signUsageWebhook } =
   await import("../../../src/lib/usageSinks/engine.ts");
+const { fetchWebhookUrl } = await import("../../../src/shared/network/webhookFetch.ts");
 
 after(() => {
   resetDbInstance();
@@ -68,14 +70,84 @@ test("delivery lease prevents a second worker claiming the same event", () => {
   const leaseUntil = "2100-01-01T00:00:30.000Z";
   assert.equal(claimUsageDelivery(delivery.id, now, leaseUntil), true);
   assert.equal(claimUsageDelivery(delivery.id, now, leaseUntil), false);
-  finishUsageDelivery(delivery.id, {
-    status: "delivered",
-    nextAttemptAt: null,
-    httpStatus: 200,
-    error: null,
-    deliveredAt: now,
-  });
+  const later = "2100-01-01T00:00:31.000Z";
+  const nextLease = "2100-01-01T00:01:01.000Z";
+  assert.equal(claimUsageDelivery(delivery.id, later, nextLease), true);
+  assert.equal(
+    finishUsageDelivery(delivery.id, leaseUntil, {
+      status: "delivered",
+      nextAttemptAt: null,
+      httpStatus: 200,
+      error: null,
+      deliveredAt: now,
+    }),
+    false,
+    "a stale worker cannot overwrite the newer claim"
+  );
+  assert.equal(
+    finishUsageDelivery(delivery.id, nextLease, {
+      status: "delivered",
+      nextAttemptAt: null,
+      httpStatus: 200,
+      error: null,
+      deliveredAt: later,
+    }),
+    true
+  );
   assert.equal(listUsageDeliveries(sink.id)[0].status, "delivered");
+});
+
+test("a paginated window excludes rows written after its high-water mark", () => {
+  const sink = createUsageSink({
+    name: "High-volume callback",
+    url: "https://example.test/usage",
+    secretEncrypted: "fixture-secret",
+    mode: "window",
+    windowSec: 300,
+    enabled: true,
+  });
+  const open = new Date("2026-09-28T11:00:00.000Z");
+  const close = new Date("2026-09-28T11:05:00.000Z");
+  aggregateUsageSink(sink, open);
+  recordLedgerEntries(
+    Array.from({ length: 501 }, (_, i) => ({
+      apiKeyId: "key-window",
+      provider: "openai",
+      model: "sample",
+      amountUsd: 0.01,
+      requestId: `before-${i}`,
+    }))
+  );
+  assert.equal(aggregateUsageSink(getUsageSink(sink.id)!, close), 1);
+  recordLedgerEntry({
+    apiKeyId: "key-window",
+    provider: "openai",
+    model: "sample",
+    amountUsd: 0.02,
+    requestId: "after-close",
+  });
+  assert.equal(aggregateUsageSink(getUsageSink(sink.id)!, close), 1);
+  const firstWindow = listUsageDeliveries(sink.id);
+  assert.equal(firstWindow.length, 2);
+  assert.equal(
+    firstWindow.reduce(
+      (total, delivery) =>
+        total +
+        ((delivery.payload.keys as Array<{ totals: { requests: number } }>)[0]?.totals.requests ||
+          0),
+      0
+    ),
+    501
+  );
+  assert.equal(aggregateUsageSink(getUsageSink(sink.id)!, close), 0);
+  assert.equal(aggregateUsageSink(getUsageSink(sink.id)!, new Date("2026-09-28T11:10:00.000Z")), 1);
+  const firstIds = new Set(firstWindow.map((delivery) => delivery.id));
+  const nextWindow = listUsageDeliveries(sink.id).find((delivery) => !firstIds.has(delivery.id));
+  assert.ok(nextWindow);
+  assert.equal(
+    (nextWindow.payload.keys as Array<{ totals: { requests: number } }>)[0].totals.requests,
+    1
+  );
 });
 
 test("window sink groups priced ledger rows per key and model", () => {
@@ -118,4 +190,27 @@ test("Standard Webhooks signature is stable for the same body and timestamp", ()
   assert.equal(a, signUsageWebhook("ue_123", "12345", "{}", "secret"));
   assert.match(a, /^v1,[A-Za-z0-9+/]+=*$/);
   assert.notEqual(a, signUsageWebhook("ue_123", "12346", "{}", "secret"));
+});
+
+test("costed-usage webhooks cannot resolve to a private address", async () => {
+  let sent = false;
+  await assert.rejects(() =>
+    fetchWebhookUrl(
+      "https://billing.example.test/usage",
+      {
+        method: "POST",
+        body: "{}",
+      },
+      {
+        allowPrivate: false,
+        maxRedirects: 0,
+        lookup: async () => [{ address: "127.0.0.1", family: 4 }],
+        fetchImpl: (async () => {
+          sent = true;
+          return new Response(null, { status: 204 });
+        }) as typeof fetch,
+      }
+    )
+  );
+  assert.equal(sent, false);
 });
