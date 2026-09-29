@@ -22,7 +22,7 @@ export const DELIBERATION_KEY = "needs_reasoning";
 const TOOL_KEY = "tool";
 const NEEDS_TOOL_KEY = "needs_tool";
 
-const DELIBERATION_QUESTION = {
+export const DELIBERATION_QUESTION = {
   type: "noul",
   instructions:
     "Does this next step need real deliberation (multi-step reasoning, " +

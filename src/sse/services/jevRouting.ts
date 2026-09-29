@@ -22,6 +22,7 @@ import {
   type ToolDecisionResult,
 } from "@omniroute/open-sse/decision/decide.ts";
 import { normalizeAnswers } from "@omniroute/open-sse/decision/jev.ts";
+import { DELIBERATION_KEY, DELIBERATION_QUESTION } from "@omniroute/open-sse/decision/questions.ts";
 import { resolveCriteria } from "@omniroute/open-sse/decision/modelBriefs.ts";
 import { isEncryptedTask } from "@omniroute/open-sse/decision/signals.ts";
 import { hintTier, type ClassificationHint } from "@omniroute/open-sse/decision/clientHint.ts";
@@ -382,4 +383,33 @@ export function createJevToolDecision(
     attempted = true;
     return decideJevTool(body, format, provider, config, log, options);
   };
+}
+
+/**
+ * Ask a stored System One connection how much deliberation the next step needs (0..1). This is
+ * the "System One decides System Two's effort" question of the dual reasoning mode. Unavailable
+ * or inconclusive evaluations return null and the caller falls back to local signals.
+ */
+export async function askJevDeliberation(
+  body: Record<string, unknown>,
+  config: JevRoutingConfig,
+  log: JevLog,
+  options: JevEvaluationOptions = {}
+): Promise<number | null> {
+  const state = buildState(body, { maxStateChars: JEV_STATE_CHAR_BUDGET, dropSystem: true });
+  if (!state.request && !state.conversation?.length) return null;
+  const result = await askJevFromStoredConnection(
+    config,
+    state,
+    { [DELIBERATION_KEY]: DELIBERATION_QUESTION },
+    log,
+    options
+  );
+  const answers = (result?.payload as { answers?: Record<string, unknown> } | null)?.answers;
+  const answer = normalizeAnswers(answers)[DELIBERATION_KEY] as
+    | { type?: string; noul?: unknown }
+    | undefined;
+  return answer?.type === "noul" && typeof answer.noul === "number" && Number.isFinite(answer.noul)
+    ? answer.noul
+    : null;
 }

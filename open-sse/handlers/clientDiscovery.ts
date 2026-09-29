@@ -2,7 +2,11 @@ import { z } from "zod";
 
 import { errorResponse } from "../utils/error";
 import { computeCatalogVersion } from "@/lib/catalogVersion";
-import { RED_ROUTER_CATALOG_VERSION_HEADER } from "@/shared/constants/redRouterHeaders";
+import {
+  RED_ROUTER_CATALOG_VERSION_HEADER,
+  RED_ROUTER_COST_HEADER,
+  RED_ROUTER_SERVED_MODEL_HEADER,
+} from "@/shared/constants/redRouterHeaders";
 
 export interface DiscoveryKey {
   id: string;
@@ -19,6 +23,16 @@ export interface DiscoveryDependencies {
   mcpSchemaVersion: number;
   strategies: readonly string[];
   decision: { header: string; hintHeader: string; hintKeys: readonly string[] };
+  /**
+   * The reasoning autopilot's request contract. `applies` is true when the operator's configured
+   * autopilot already covers the key, so the router decides without being asked.
+   */
+  reasoning?: {
+    header: string;
+    responseHeader: string;
+    accepts: readonly string[];
+    applies(key: DiscoveryKey | null): Promise<boolean>;
+  };
 }
 
 const querySchema = z
@@ -148,7 +162,8 @@ export async function handleCatalogDiscovery(
 ): Promise<Response> {
   try {
     const token = credential(request);
-    if (token !== null && (!token || !(await deps.authenticate(token)))) return invalidKey();
+    const key = token ? await deps.authenticate(token) : null;
+    if (token !== null && (!token || !key)) return invalidKey();
     const query = querySchema.safeParse(Object.fromEntries(new URL(request.url).searchParams));
     if (!query.success) {
       return privateResponse(
@@ -191,6 +206,19 @@ export async function handleCatalogDiscovery(
               availability: "not_probed",
             },
             combos: { strategies: [...deps.strategies] },
+            // Response headers a client can rely on (RedCode's served-model and cost features).
+            served_model_header: RED_ROUTER_SERVED_MODEL_HEADER,
+            cost_header: RED_ROUTER_COST_HEADER,
+            ...(deps.reasoning
+              ? {
+                  reasoning: {
+                    header: deps.reasoning.header,
+                    response_header: deps.reasoning.responseHeader,
+                    accepts: [...deps.reasoning.accepts],
+                    applies: await deps.reasoning.applies(key),
+                  },
+                }
+              : {}),
             decision: {
               scope: "combo",
               header: deps.decision.header,

@@ -51,6 +51,11 @@ import {
 import type { JevRoutingConfig } from "@omniroute/open-sse/services/combo/jevConfig.ts";
 import { createJevToolDecision } from "@/sse/services/jevRouting";
 import { resolveJevClientControls } from "./chat/jevClientControls.ts";
+import { applyReasoningLevel, clientFormatOf } from "./chat/reasoningLevel.ts";
+import { rememberReasoningPlan, withReasoningHeader } from "./chat/reasoningHeader.ts";
+import { planReasoning } from "@/sse/services/reasoningPlanner";
+import { askJevDeliberation } from "@/sse/services/jevRouting";
+import { RED_ROUTER_REASONING_HEADER } from "@/shared/constants/redRouterHeaders";
 import { comboPinAllowlist } from "@/lib/combos/steps.ts";
 import { injectHandoffIntoBody } from "@omniroute/open-sse/services/contextHandoff.ts";
 import { runWithTransientBackendRetry } from "@omniroute/open-sse/services/transientBackendRetry.ts";
@@ -691,6 +696,43 @@ async function handleChatImplementation(
     (settingsForContinuation as { responsesPreviousResponseIdMode?: unknown })
       .responsesPreviousResponseIdMode
   );
+  // Reasoning autopilot (the "auto" of the dual reasoning mode): RedCode's `auto` effort variant
+  // or a configured autopilot lets System One choose how hard System Two thinks for this turn.
+  // A level the client stated itself is never overridden (`x-red-router-reasoning: off`).
+  try {
+    const plan = await planReasoning({
+      body,
+      settings: settingsForContinuation as Record<string, unknown>,
+      headerValue: request.headers.get(RED_ROUTER_REASONING_HEADER),
+      hint: resolveJevClientControls(request.headers).decisionHint,
+      apiKey,
+      apiKeyId: apiKeyInfo?.id ?? null,
+      comboName: modelStr,
+      sessionId,
+      userAgent: request.headers.get("user-agent") ?? "",
+      log,
+      askDeliberation: (asked) =>
+        askJevDeliberation(
+          asked,
+          { mode: "jev", model: "", toolMode: "off", modelMode: "off" },
+          log,
+          {
+            allowedConnections: normalizeAllowedConnectionIds(apiKeyInfo?.allowedConnections),
+            apiKeyId: apiKeyInfo?.id ?? null,
+            signal: clientRawRequest?.signal ?? null,
+          }
+        ),
+    });
+    if (plan) {
+      rememberReasoningPlan(request, plan);
+      if (plan.target) {
+        body = applyReasoningLevel(body, plan.level, clientFormatOf(url.pathname, body));
+      }
+    }
+  } catch (error) {
+    log.warn("REASONING", `Autopilot skipped: ${error instanceof Error ? error.message : "error"}`);
+  }
+
   if (
     previousResponseIdMode !== "preserve" &&
     !isChatGptWebCodexModel(modelStr) &&
@@ -1369,7 +1411,10 @@ async function handleChatImplementation(
   );
 }
 
-export const handleChat = chatAdmission.withChatAdmission(handleChatImplementation);
+export const handleChat = chatAdmission.withChatAdmission(
+  async (request, ...rest: [any, any, any, any]) =>
+    withReasoningHeader(request, await handleChatImplementation(request, ...rest))
+);
 
 /** Handle one resolved model through gates, credentials, and retry/fallback. */
 async function handleSingleModelChat(

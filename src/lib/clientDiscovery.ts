@@ -9,6 +9,17 @@ import { ROUTING_STRATEGY_VALUES } from "@/shared/constants/routingStrategies";
 import { DECISION_HEADER, HINT_HEADER, HINT_KEYS } from "@omniroute/open-sse/decision/clientHint";
 import type { DiscoveryDependencies } from "@omniroute/open-sse/handlers/clientDiscovery";
 
+import {
+  RED_ROUTER_REASONING_HEADER,
+  RED_ROUTER_REASONING_RESPONSE_HEADER,
+} from "@/shared/constants/redRouterHeaders";
+import { getSettings } from "@/lib/db/settings";
+import {
+  REASONING_HEADER_VALUES,
+  autopilotApplies,
+  normalizeAutopilotConfig,
+} from "@omniroute/open-sse/decision/reasoningAutopilot";
+
 import packageJson from "../../package.json";
 
 export const clientDiscoveryDependencies: DiscoveryDependencies = {
@@ -40,4 +51,16 @@ export const clientDiscoveryDependencies: DiscoveryDependencies = {
   mcpSchemaVersion: LEGACY_MCP_SCHEMA_VERSION,
   strategies: ROUTING_STRATEGY_VALUES,
   decision: { header: DECISION_HEADER, hintHeader: HINT_HEADER, hintKeys: HINT_KEYS },
+  reasoning: {
+    header: RED_ROUTER_REASONING_HEADER,
+    responseHeader: RED_ROUTER_REASONING_RESPONSE_HEADER,
+    accepts: REASONING_HEADER_VALUES,
+    async applies(key) {
+      const settings = (await getSettings().catch(() => ({}))) as Record<string, unknown>;
+      const config = normalizeAutopilotConfig(
+        (settings.reasoningAutopilot as Record<string, unknown> | undefined) ?? null
+      );
+      return autopilotApplies(config, { apiKeyId: key?.id ?? null });
+    },
+  },
 };

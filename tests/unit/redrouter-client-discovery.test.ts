@@ -292,6 +292,31 @@ describe("RedRouter catalog and capability discovery", () => {
     }
   });
 
+  it("advertises the reasoning autopilot and the response headers RedCode relies on", async () => {
+    const deps = dependencies({
+      reasoning: {
+        header: "x-red-router-reasoning",
+        responseHeader: "X-RedRouter-Reasoning",
+        accepts: ["off", "auto", "low", "high"],
+        applies: async (key) => key?.id === "key-1",
+      },
+    });
+    const capabilities = await (
+      await handleCatalogDiscovery(request("capabilities"), deps, "capabilities")
+    ).json();
+    assert.equal(capabilities.reasoning.header, "x-red-router-reasoning");
+    assert.equal(capabilities.reasoning.response_header, "X-RedRouter-Reasoning");
+    assert.ok(capabilities.reasoning.accepts.includes("auto"));
+    assert.equal(capabilities.reasoning.applies, true);
+    assert.equal(capabilities.served_model_header, "X-RedRouter-Served-Model");
+    assert.equal(capabilities.cost_header, "X-RedRouter-Cost-USD");
+    // Without the autopilot dependency the router does not claim it.
+    const bare = await (
+      await handleCatalogDiscovery(request("capabilities"), dependencies(), "capabilities")
+    ).json();
+    assert.equal("reasoning" in bare, false);
+  });
+
   it("shares a content version across discovery documents, ignoring build timestamps", async () => {
     let created = 1;
     const deps = dependencies({
