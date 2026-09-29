@@ -5,7 +5,7 @@ const { resolveCompressionHeader } = await import("../../../open-sse/handlers/ch
 
 test("x-red-router-token-saver off keeps the prompt intact, on asks for the panel default", () => {
   assert.equal(resolveCompressionHeader({ "x-red-router-token-saver": "off" }), "off");
-  assert.equal(resolveCompressionHeader({ "X-RedRouter-Token-Saver": " ON " }), "default");
+  assert.equal(resolveCompressionHeader({ "X-Red-Router-Token-Saver": " ON " }), "default");
   assert.equal(resolveCompressionHeader({ "x-red-router-token-saver": "maybe" }), null);
   assert.equal(resolveCompressionHeader({}), null);
 });
