@@ -127,7 +127,7 @@ function parseRows<T extends z.ZodTypeAny>(raw: unknown, schema: T): z.infer<T>[
 async function fetchJson(url: string): Promise<unknown> {
   const res = await fetch(url, {
     headers: {
-      "User-Agent": "OmniRoute/2.0",
+      "User-Agent": "RedRouter/2.0",
       Accept: "application/json",
     },
     signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),

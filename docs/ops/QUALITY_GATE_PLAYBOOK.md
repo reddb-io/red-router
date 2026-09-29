@@ -4,7 +4,7 @@ title: "Quality Gate Playbook"
 
 # Quality-Gate System — Critical Assessment, Catalog and Replication Playbook
 
-> **What this document is.** A critical assessment of OmniRoute's quality-gate system,
+> **What this document is.** A critical assessment of RedRouter's quality-gate system,
 > compared to industry best practices, **plus** a comprehensive catalog of all quality
 > checkpoints and a **tool-agnostic replication plan** to apply the same system to
 > any project. Generated on 2026-06-16 from the real repository state (not from memory).
@@ -101,62 +101,62 @@ to replicate on any stack.
 
 ### 1. Style & formatting (deterministic, fast)
 
-- **OmniRoute:** Prettier + ESLint via lint-staged (pre-commit), 2-spaces/double-quotes/100col.
+- **RedRouter:** Prettier + ESLint via lint-staged (pre-commit), 2-spaces/double-quotes/100col.
 - **Generic:** one auto-fixable formatter + one linter, running in pre-commit on staged files.
 
 ### 2. Types
 
-- **OmniRoute:** `typecheck:core` (blocking) + `typecheck:noimplicit:core` (advisory) + `type-coverage` ratchet 92.17% + per-file any-budget.
+- **RedRouter:** `typecheck:core` (blocking) + `typecheck:noimplicit:core` (advisory) + `type-coverage` ratchet 92.17% + per-file any-budget.
 - **Generic:** strict typecheck in CI + ratcheted type-coverage metric + per-file `any`/escape-hatch budget.
 
 ### 3. Tests (intensity)
 
-- **OmniRoute:** 2 non-overlapping runners (Node native + vitest), 8 shards, global coverage 60/60/60/60 + ratchet ~76% + **8 per-module floors for critical modules** + nightly property tests + **mutation testing** nightly.
+- **RedRouter:** 2 non-overlapping runners (Node native + vitest), 8 shards, global coverage 60/60/60/60 + ratchet ~76% + **8 per-module floors for critical modules** + nightly property tests + **mutation testing** nightly.
 - **Generic:** test runner(s) + **absolute** coverage floor (anti-zero) + coverage **ratchet** (anti-regression) + **per-module floors for high-risk code** (anti-Goodhart) + property-based for pure logic + **mutation testing** nightly as the real measure of test quality.
 
 ### 4. Test policy (anti-gaming)
 
-- **OmniRoute:** `pr-test-policy` (prod code requires a test), `check-test-masking` (blocks weakened asserts), `pr-evidence` (success claim requires evidence block), `test-discovery` (every test collected by a runner).
+- **RedRouter:** `pr-test-policy` (prod code requires a test), `check-test-masking` (blocks weakened asserts), `pr-evidence` (success claim requires evidence block), `test-discovery` (every test collected by a runner).
 - **Generic:** "new code ⇒ new test" gate + assert-removed/tautology detector + evidence requirement (TDD or living test) + guarantee that no test is orphaned outside the globs.
 
 ### 5. Complexity & code health (ratchets)
 
-- **OmniRoute:** ESLint-warnings (3769↓), jscpd duplication (5.72%↓), cyclomatic+max-lines complexity (1800↓), cognitive complexity sonarjs (753↓), dead-code/unused-exports knip (339↓), per-file file-size (frozen, shrink-only), circular-deps (custom Tarjan, blocking).
+- **RedRouter:** ESLint-warnings (3769↓), jscpd duplication (5.72%↓), cyclomatic+max-lines complexity (1800↓), cognitive complexity sonarjs (753↓), dead-code/unused-exports knip (339↓), per-file file-size (frozen, shrink-only), circular-deps (custom Tarjan, blocking).
 - **Generic:** ratchet every health metric (warnings, duplication, cyclomatic **and** cognitive complexity, dead code, file size, import cycles). Direction always "don't regress".
 
 ### 6. Static security (SAST + secrets)
 
-- **OmniRoute:** CodeQL (ratchet alerts = 0), gitleaks (`[extend] useDefault=true` — critical!), SonarQube, custom security rules (public-creds, error-helper, route-guard-membership, route-validation).
+- **RedRouter:** CodeQL (ratchet alerts = 0), gitleaks (`[extend] useDefault=true` — critical!), SonarQube, custom security rules (public-creds, error-helper, route-guard-membership, route-validation).
 - **Generic:** SAST (CodeQL/Sonar/semgrep) with alert ratchet + secrets scanner with **inherited default ruleset** (custom config that overrides the default = blind) + project-specific Hard Rule security gates.
 
 ### 7. Supply-chain (dependencies)
 
-- **OmniRoute:** osv-scanner + npm-audit + Trivy + Dependabot (SCA), license-checker (SPDX allowlist), lockfile-lint (HTTPS+sha512+registry), `check-deps` anti-slopsquatting (allowlist + age ≥72h).
+- **RedRouter:** osv-scanner + npm-audit + Trivy + Dependabot (SCA), license-checker (SPDX allowlist), lockfile-lint (HTTPS+sha512+registry), `check-deps` anti-slopsquatting (allowlist + age ≥72h).
 - **Generic:** multi-source SCA + license allowlist + lockfile integrity check + dependency allowlist with age/typosquatting check + grouped update bot.
 
 ### 8. Supply-chain (build & release)
 
-- **OmniRoute:** SBOM (CycloneDX + syft), SLSA provenance (`--provenance`), OpenSSF Scorecard (weekly), workflow hardening (zizmor: artipacked→`persist-credentials:false`, cache-poisoning, token-permissions).
+- **RedRouter:** SBOM (CycloneDX + syft), SLSA provenance (`--provenance`), OpenSSF Scorecard (weekly), workflow hardening (zizmor: artipacked→`persist-credentials:false`, cache-poisoning, token-permissions).
 - **Generic:** generate SBOM on publish + signed provenance (SLSA L2+) + scheduled Scorecard + harden all workflows (minimum-privilege tokens, no persisted credentials on non-pusher checkout, actions pinned by SHA).
 
 ### 9. Contracts & API
 
-- **OmniRoute:** oasdiff (breaking-change OpenAPI), schemathesis (contract fuzz nightly), openapi-coverage (% documented routes, ratchet 38.3%), openapi-security-tiers (spec vs route-guard).
+- **RedRouter:** oasdiff (breaking-change OpenAPI), schemathesis (contract fuzz nightly), openapi-coverage (% documented routes, ratchet 38.3%), openapi-security-tiers (spec vs route-guard).
 - **Generic:** breaking-change contract diff (oasdiff/buf) + property-based fuzz against the spec (schemathesis) + ratcheted documentation coverage + spec↔code consistency.
 
 ### 10. Docs & i18n (anti-rot)
 
-- **OmniRoute:** docs-sync (mirrored versions), docs-counts-sync (numbers in docs vs code), env-doc-sync, doc-links, fabricated-docs, cli-i18n, i18n-ui-coverage (`--threshold=65` + ratchet 80.1%).
+- **RedRouter:** docs-sync (mirrored versions), docs-counts-sync (numbers in docs vs code), env-doc-sync, doc-links, fabricated-docs, cli-i18n, i18n-ui-coverage (`--threshold=65` + ratchet 80.1%).
 - **Generic:** sync versions/counts/env-vars between docs and code (gate, not trust) + validate internal links + ratcheted i18n coverage.
 
 ### 11. Anti-hallucination / consistency (the rare category)
 
-- **OmniRoute:** known-symbols (string dispatch ⇒ living symbol), provider-consistency, fetch-targets (client fetch ⇒ real route), docs-symbols, db-rules (Hard Rules #2/#5), migration-numbering.
+- **RedRouter:** known-symbols (string dispatch ⇒ living symbol), provider-consistency, fetch-targets (client fetch ⇒ real route), docs-symbols, db-rules (Hard Rules #2/#5), migration-numbering.
 - **Generic:** for every "duplicated source of truth" (registry, string dispatch, cross-layer references), a gate that proves both sides match. Catches the rot that typecheck/test don't.
 
 ### 12. Resilience & domain (product-specific)
 
-- **OmniRoute:** chaos (fault-injection), heap-growth (leak), k6 (soak), promptfoo+garak (LLM red-team OWASP LLM Top 10), the 3 resilience laws (circuit-breaker/cooldown/lockout).
+- **RedRouter:** chaos (fault-injection), heap-growth (leak), k6 (soak), promptfoo+garak (LLM red-team OWASP LLM Top 10), the 3 resilience laws (circuit-breaker/cooldown/lockout).
 - **Generic:** identify the failure modes of **your** domain and have a gate (even if nightly) for each. For AI apps: injection red-team. For distributed systems: chaos + leak + soak.
 
 ---

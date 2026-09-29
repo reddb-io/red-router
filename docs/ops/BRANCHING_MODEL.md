@@ -5,7 +5,7 @@ lastUpdated: 2026-07-22
 
 # Branching & Release Model
 
-OmniRoute uses a **parallel-cycle** release model: a dedicated `release/vX.Y.Z`
+RedRouter uses a **parallel-cycle** release model: a dedicated `release/vX.Y.Z`
 branch for the active cycle, `main` for the published line, and an immutable
 `vX.Y.Z` tag when that cycle ships. Seeing commits land on `release/*` *and* on
 `main` is expected — not a mix-up.

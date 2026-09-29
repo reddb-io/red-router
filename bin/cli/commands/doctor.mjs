@@ -310,7 +310,7 @@ async function checkNativeBinary(rootDir) {
   const prebuildName = prebuiltBinaryName();
   const candidates = [
     ...buildRoots.map((root) => path.join(root, "build", "Release", "better_sqlite3.node")),
-    // Prebuilt layout — what `npm i -g omniroute` actually installs. Without
+    // Prebuilt layout — what `npm i -g @reddb-io/red-router` actually installs. Without
     // these, doctor warns on every prebuilt install even though the binary is
     // present and loading fine.
     ...buildRoots.map((root) => path.join(root, "prebuilds", prebuildName)),
@@ -549,7 +549,7 @@ export async function checkMachineTokenAuth(options = {}) {
     if (response.status === 401 || response.status === 403) {
       return warn(
         "CLI machine token",
-        "Server rejected the local machine token; if the CLI and server are on different hosts or container boundaries, run `omniroute connect <host> --key <oma_live_...>`",
+        "Server rejected the local machine token; if the CLI and server are on different hosts or container boundaries, run `red-router connect <host> --key <oma_live_...>`",
         {
           url,
           status: response.status,
@@ -654,7 +654,7 @@ export async function runDoctorCommand(opts = {}, context = {}) {
   if (isJson) {
     console.log(JSON.stringify(result, null, 2));
   } else {
-    printHeading("OmniRoute Doctor");
+    printHeading("RedRouter Doctor");
     console.log(`Data dir: ${result.dataDir}`);
     console.log(`Database: ${result.dbPath}\n`);
     for (const check of result.checks) {

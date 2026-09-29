@@ -7,7 +7,7 @@ lastUpdated: 2026-08-20
 # Adaptive Routing: Routing Events, Quality Feedback & Explainability
 
 This document describes the feedback-driven adaptive routing foundation added to
-OmniRoute. It is deliberately small: it introduces a typed routing-outcome
+RedRouter. It is deliberately small: it introduces a typed routing-outcome
 channel, an online quality signal that feeds the existing auto-combo scorer, an
 optional OpenTelemetry exporter, and an explainability endpoint. It does **not**
 replace the existing resilience stack (circuit breaker, connection cooldown,
@@ -15,7 +15,7 @@ model lockout, health matrix, autopilot) — it complements it.
 
 ## 1. Architectural context
 
-OmniRoute is a data plane with a **request hot path** and a **control/intelligence
+RedRouter is a data plane with a **request hot path** and a **control/intelligence
 plane**. The hot path must stay fast, memory-efficient, asynchronous, resilient and
 predictable. Evaluation, quality scoring, experiments and historical analysis belong
 to the control plane.
@@ -25,7 +25,7 @@ AI Agent / IDE
       │
       ▼
 ┌─────────────────────┐
-│    OmniRoute        │   data plane (fast, sync, in-memory)
+│    RedRouter        │   data plane (fast, sync, in-memory)
 │  routing / failover │
 │  health / guardrail │
 │  cache / streaming  │
@@ -235,7 +235,7 @@ Files: `open-sse/services/routing/otel.ts`
   `@opentelemetry/*` SDK).
 - Spans follow GenAI semantic conventions (`gen_ai.provider.name`,
   `gen_ai.request.model`, `gen_ai.usage.input_tokens/output_tokens`,
-  `gen_ai.completion.finish_reason`, `gen_ai.system`) plus OmniRoute routing
+  `gen_ai.completion.finish_reason`, `gen_ai.system`) plus RedRouter routing
   attributes (outcome, status, ttft, retries, fallback).
 - `record()` only enqueues into a bounded buffer (O(1)); a background timer
   flushes via `POST {endpoint}/v1/traces` asynchronously. Under overload the
@@ -257,7 +257,7 @@ Files: `open-sse/services/routing/otel.ts`
 
 ## 6. Evaluation-plane integration (Future AGI readiness)
 
-OmniRoute treats Future AGI (or any evaluator) as a **potential
+RedRouter treats Future AGI (or any evaluator) as a **potential
 intelligence/evaluation backend, not a dependency**. The seams:
 
 - A `RoutingEventSink` can forward events to an evaluator asynchronously.

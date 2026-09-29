@@ -43,7 +43,7 @@ or external integration is currently available.
 | Supporter offers                 | Implemented as a separate signed, live-only feed and dashboard page. The client revalidates the closed benefit schema, preserves the last good cache, filters expired entries, and labels partner offers explicitly.     |
 | Intel and supporter recognition  | Implemented as a strict signed live-only feed with Radar-owned ELO, factual catalog freshness/trend, a verified local supporter badge, dashboard page, and local-only CLI status/sync commands.                          |
 | Payments and transactional email | Not implemented in the OSS client. Purchase, donation, receipt review, recovery, and mail delivery belong to the private service; hosted availability still depends on its supervised deploy and provider configuration. |
-| Research-agent workstream        | Not part of this client release. Curated feed contents remain server-side data; no autonomous research agent runs in an OmniRoute installation.                                                                          |
+| Research-agent workstream        | Not part of this client release. Curated feed contents remain server-side data; no autonomous research agent runs in a RedRouter installation.                                                                          |
 
 ---
 
@@ -121,7 +121,7 @@ When both are on, the sync path is:
    of the IP for manual abuse review; those tables persist neither the key nor the IP in raw form.
    Infrastructure access logs and the encrypted delivery outbox are separate operational
    boundaries.
-3. OmniRoute never sends prompts, responses, conversations, provider credentials, model traffic,
+3. RedRouter never sends prompts, responses, conversations, provider credentials, model traffic,
    uptime, latency, or the local provider configuration to the Radar service.
 4. The response is verified, validated, and cached locally (see
    [Security model](#security-model)). Radar has exactly four server-side network paths:
@@ -245,13 +245,13 @@ who already has one activates it.
 ### End-to-end activation and guided setup
 
 The private feed service and this OSS client have a deliberately narrow boundary: the service
-issues and validates the supporter key, while the local OmniRoute installation encrypts the key,
+issues and validates the supporter key, while the local RedRouter installation encrypts the key,
 syncs signed artifacts server-side, and guides provider setup. The assisted validation order is:
 
 1. Obtain a newly issued or recovered key from the contributor claim, plans/checkout, recovery
    journey, or an authorized private server operator. Do not paste the raw key into logs,
    screenshots, issue comments, or command-line arguments.
-2. Enable the `RADAR_ENABLED` feature flag on the local OmniRoute installation. This exposes the UI
+2. Enable the `RADAR_ENABLED` feature flag on the local RedRouter installation. This exposes the UI
    but remains network-inert until the separate opt-in is saved.
 3. Open `/dashboard/radar`, paste the key, and activate. The browser sends one local
    `POST /api/radar/settings` with `{ optIn: true, supporterKey }`; the key is encrypted locally and
@@ -316,7 +316,7 @@ re-synced.
 ### Fork-friendly env overrides
 
 Two env vars let forks and self-hosters point the client at their own feed instead of
-the default OmniRoute service — see
+the default RedRouter service — see
 [How to self-host a feed](#how-to-self-host-a-feed) below:
 
 | Var                 | Purpose                                                                                                      |
@@ -470,7 +470,7 @@ A feed `enabled: false` remains the safety exception: it wins over a stale local
 Catalog publications use `schemaVersion: 2`. `contextWindow` and each of `tools`, `vision`, and
 `thinking` are independently `number | null` / `boolean | null`: `null` means unknown, while
 `false` means a D16-confirmed official provider source explicitly says the capability is absent.
-Internal OmniRoute registry/model-spec flags are never promoted directly to feed facts. The client
+Internal RedRouter registry/model-spec flags are never promoted directly to feed facts. The client
 still accepts v1 snapshots; because the old builder used `false` as an absence placeholder, v1 `false` is
 normalized to unknown while v1 `true` remains factual. Unknown schema versions fail closed and the
 last valid cache remains available. Every v2 model with a non-null context/capability must carry a
@@ -531,7 +531,7 @@ The local Radar route families below back the UI under `src/app/api/radar/`:
 | `/api/radar/local-model-state` | DELETE | Clears editable override fields while preserving any tombstone.                                                       |
 
 **Hard rule: these routes never proxy the feed service.** The browser only ever talks
-to the local OmniRoute server. The four modules that touch the Radar service are
+to the local RedRouter server. The four modules that touch the Radar service are
 `src/lib/radar/sync.ts` (catalog), `src/lib/radar/referralsSync.ts` (referrals), and
 `src/lib/radar/offersSync.ts` (offers) plus `src/lib/radar/intelSync.ts` (Intel); all run
 server-side, never client-side. This keeps
@@ -601,7 +601,7 @@ it never updates leaderboards or reuses `token_share`. `/dashboard/radar/intel` 
 only from verified local cache metadata.
 
 The CLI exposes `omniroute radar status` and `omniroute radar sync`. Both communicate only with the
-local OmniRoute API. `status` performs a read-only `GET /api/radar/status`; `sync` sends one
+local RedRouter API. `status` performs a read-only `GET /api/radar/status`; `sync` sends one
 `POST /api/radar/sync-all` and prints a result per feed. Neither command reads, accepts, or prints
 the supporter key, and neither contacts the Radar service directly.
 

@@ -1,14 +1,14 @@
 {
   "name": "omniroute-desktop",
   "version": "3.8.51",
-  "description": "OmniRoute Desktop Application",
+  "description": "RedRouter Desktop Application",
   "main": "main.js",
   "author": {
-    "name": "OmniRoute Team",
+    "name": "RedRouter Team",
     "email": "support@omniroute.online"
   },
   "license": "MIT",
-  "homepage": "https://omniroute.online",
+  "homepage": "https://github.com/reddb-io/red-router",
   "engines": {
     "node": ">=22.22.2 <23 || >=24.0.0 <27"
   },
@@ -41,8 +41,8 @@
   },
   "build": {
     "appId": "online.omniroute.desktop",
-    "productName": "OmniRoute",
-    "copyright": "Copyright © 2025 OmniRoute",
+    "productName": "RedRouter",
+    "copyright": "Copyright © 2025 RedRouter",
     "buildDependenciesFromSource": false,
     "npmRebuild": false,
     "afterPack": "../scripts/build/afterpack-copy-node-modules.mjs",
@@ -52,8 +52,8 @@
     },
     "publish": {
       "provider": "github",
-      "owner": "diegosouzapw",
-      "repo": "OmniRoute"
+      "owner": "reddb-io",
+      "repo": "red-router"
     },
     "files": [
       "main.js",

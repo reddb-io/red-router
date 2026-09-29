@@ -8,7 +8,7 @@ lastUpdated: 2026-06-28
 
 **Status:** historical proposal; not an active-active deployment guide
 **Date:** 2026-06-20 (runtime topology rechecked 2026-09-26)
-**Refs:** [#3932](https://github.com/diegosouzapw/OmniRoute/issues/3932), PR #4381
+**Refs:** [#3932](https://github.com/reddb-io/red-router/issues/3932), PR #4381
 
 > **Current topology:** The checked-in [`docker-compose.yml`](../../docker-compose.yml)
 > defines application variants behind profiles, each mounting the same
@@ -66,7 +66,7 @@ The two profiles are default-off sidecar options, not SQLite scale-out or migrat
 
 - You run ≥3 `omniroute` replicas and want provider rotation centralised in a single Go process.
 - You want a single audit/logging surface for upstream-provider requests across all replicas.
-- You want horizontal scaling of the Tier-1 routing layer independent of the OmniRoute replicas.
+- You want horizontal scaling of the Tier-1 routing layer independent of the RedRouter replicas.
 
 **What it adds:**
 

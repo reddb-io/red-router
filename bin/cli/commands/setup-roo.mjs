@@ -52,9 +52,9 @@ export function resolveRooTarget(opts = {}) {
 export function buildRooImport({ baseUrl, apiKey, model }) {
   return {
     providerProfiles: {
-      currentApiConfigName: "OmniRoute",
+      currentApiConfigName: "RedRouter",
       apiConfigs: {
-        OmniRoute: {
+        RedRouter: {
           apiProvider: "openai",
           openAiBaseUrl: baseUrl,
           openAiApiKey: apiKey || "sk_omniroute",
@@ -105,7 +105,7 @@ export async function runSetupRooCommand(opts = {}) {
 
   const guard = await guardHostConfigTarget(importPath, {
     toolLabel: "Roo Code",
-    hostCommand: "omniroute setup-roo",
+    hostCommand: "red-router setup-roo",
     allowContainerWrite: Boolean(opts.allowContainerWrite ?? opts["allow-container-write"]),
     dryRun,
   });
@@ -115,7 +115,7 @@ export async function runSetupRooCommand(opts = {}) {
     opts["vscode-settings"] ??
     join(os.homedir(), ".config", "Code", "User", "settings.json");
 
-  printHeading("OmniRoute → Roo Code (OpenAI-compatible)");
+  printHeading("RedRouter → Roo Code (OpenAI-compatible)");
   printInfo(`Server: ${baseUrl}`);
 
   let model = opts.model;
@@ -149,7 +149,7 @@ export async function runSetupRooCommand(opts = {}) {
           providerProfiles: {
             ...importDoc.providerProfiles,
             apiConfigs: {
-              OmniRoute: {
+              RedRouter: {
                 ...importDoc.providerProfiles.apiConfigs.OmniRoute,
                 openAiApiKey: apiKey ? "set" : "sk_omniroute",
               },
@@ -186,11 +186,11 @@ export function registerSetupRoo(program) {
   program
     .command("setup-roo")
     .description(
-      "Configure Roo Code for OmniRoute: write a Roo import JSON + autoImport pointer + print UI steps"
+      "Configure Roo Code for RedRouter: write a Roo import JSON + autoImport pointer + print UI steps"
     )
-    .option("--port <port>", "Local OmniRoute port (ignored when --remote is set)", "25050")
-    .option("--remote <url>", "Remote OmniRoute URL, e.g. http://192.168.0.15:25050")
-    .option("--api-key <key>", "OmniRoute API key (defaults to OMNIROUTE_API_KEY env var)")
+    .option("--port <port>", "Local RedRouter port (ignored when --remote is set)", "25050")
+    .option("--remote <url>", "Remote RedRouter URL, e.g. http://192.168.0.15:25050")
+    .option("--api-key <key>", "RedRouter API key (defaults to OMNIROUTE_API_KEY env var)")
     .option("--model <id>", "Model id for Roo (required unless picked interactively)")
     .option(
       "--import-path <path>",

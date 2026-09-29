@@ -60,7 +60,7 @@ async function runConfigListCommand(opts = {}) {
 
 async function runConfigGetCommand(toolId, opts = {}) {
   if (!toolId) {
-    printError("Tool ID required. Usage: omniroute config get <tool>");
+    printError("Tool ID required. Usage: red-router config get <tool>");
     return 1;
   }
   const { detectTool } = await import("../../../src/lib/cli-helper/tool-detector.ts");
@@ -87,7 +87,7 @@ async function runConfigGetCommand(toolId, opts = {}) {
 
 async function runConfigSetCommand(toolId, opts = {}) {
   if (!toolId) {
-    printError("Tool ID required. Usage: omniroute config set <tool> [options]");
+    printError("Tool ID required. Usage: red-router config set <tool> [options]");
     return 1;
   }
 
@@ -110,7 +110,7 @@ async function runConfigSetCommand(toolId, opts = {}) {
 
   const guard = await guardHostConfigTarget(result.configPath, {
     toolLabel: toolId,
-    hostCommand: `omniroute config set ${toolId}`,
+    hostCommand: `red-router config set ${toolId}`,
     allowContainerWrite: Boolean(opts.allowContainerWrite ?? opts["allow-container-write"]),
   });
   if (guard !== 0) return guard;
@@ -152,7 +152,7 @@ async function runConfigSetCommand(toolId, opts = {}) {
 
 async function runConfigValidateCommand(toolId, opts = {}) {
   if (!toolId) {
-    printError("Tool ID required. Usage: omniroute config validate <tool>");
+    printError("Tool ID required. Usage: red-router config validate <tool>");
     return 1;
   }
 
@@ -206,7 +206,7 @@ export function registerConfig(program) {
     .option("--yes", "Skip confirmation prompt")
     .option(
       "--allow-container-write",
-      "Write the config even when OmniRoute runs in a container and the target is not mounted from the host"
+      "Write the config even when RedRouter runs in a container and the target is not mounted from the host"
     )
     .action(async (tool, opts, cmd) => {
       const globalOpts = cmd.parent.optsWithGlobals();
@@ -245,7 +245,7 @@ export function registerConfig(program) {
     .option("--yes", "Skip confirmation prompt")
     .option(
       "--allow-container-write",
-      "Write the config even when OmniRoute runs in a container and the target is not mounted from the host"
+      "Write the config even when RedRouter runs in a container and the target is not mounted from the host"
     )
     .action(async (opts, cmd) => {
       const globalOpts = cmd.parent.optsWithGlobals();

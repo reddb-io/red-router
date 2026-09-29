@@ -245,7 +245,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       success: true,
-      message: "Settings applied. Restart Letta CLI, then use /model to select a OmniRoute model.",
+      message: "Settings applied. Restart Letta CLI, then use /model to select a RedRouter model.",
       needsRestart: true,
     });
   } catch (error) {
@@ -312,8 +312,8 @@ export async function DELETE(request: Request) {
     }
 
     const message = restored
-      ? "OmniRoute config removed. Your original LM Studio provider has been restored. Restart Letta CLI to take effect."
-      : "OmniRoute config removed. Restart Letta CLI to take effect.";
+      ? "RedRouter config removed. Your original LM Studio provider has been restored. Restart Letta CLI to take effect."
+      : "RedRouter config removed. Restart Letta CLI to take effect.";
 
     return NextResponse.json({
       success: true,

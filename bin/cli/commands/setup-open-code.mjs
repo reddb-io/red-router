@@ -2,7 +2,7 @@
  * omniroute setup opencode — Wire the bundled @omniroute/opencode-plugin
  * into a local OpenCode install.
  *
- * Closes the gap where `npm install -g omniroute` ships the plugin
+ * Closes the gap where `npm install -g @reddb-io/red-router` ships the plugin
  * inside the omniroute package (`@omniroute/opencode-plugin/dist/`) but
  * OpenCode discovers plugins via `~/.config/opencode/plugins/` or
  * via entries in `opencode.json`. Without this command, the user has
@@ -97,7 +97,7 @@ function resolveBundledPlugin() {
     throw new Error(
       `Bundled @omniroute/opencode-plugin not found at ${BUNDLED_PLUGIN_DIR}.\n` +
         `This usually means omniroute was installed from a source tree that does not ` +
-        `include the workspace package. Try reinstalling omniroute (npm install -g omniroute) ` +
+        `include the workspace package. Try reinstalling omniroute (npm install -g @reddb-io/red-router) ` +
         `or run \`cd @omniroute/opencode-plugin && npm install && npm run build\` from the source repo.`
     );
   }
@@ -164,7 +164,7 @@ function registerPluginInOpenCodeConfig({
     } catch (err) {
       throw new Error(
         `Failed to parse existing ${configPath}: ${err.message}\n` +
-          `Fix or remove the file manually, then re-run \`omniroute setup opencode\`.`
+          `Fix or remove the file manually, then re-run \`red-router setup opencode\`.`
       );
     }
   }
@@ -309,7 +309,7 @@ export async function runSetupOpenCodeCommand(opts = {}) {
   const wantsAuth = Boolean(opts.auth);
   const nonInteractive = Boolean(opts.nonInteractive);
 
-  printHeading("OmniRoute → OpenCode Plugin Setup");
+  printHeading("RedRouter → OpenCode Plugin Setup");
 
   const resolvedDirs = resolveOpenCodeDirs();
   const opencodeConfigDir = opts.configDir || resolvedDirs.configDir;
@@ -319,7 +319,7 @@ export async function runSetupOpenCodeCommand(opts = {}) {
 
   const guard = await guardHostConfigTarget(opencodeConfigDir, {
     toolLabel: "OpenCode",
-    hostCommand: "omniroute setup opencode",
+    hostCommand: "red-router setup opencode",
     allowContainerWrite: Boolean(opts.allowContainerWrite ?? opts["allow-container-write"]),
   });
   if (guard !== 0) return { exitCode: guard };
@@ -415,11 +415,11 @@ export function registerSetupOpenCode(setupCommand) {
     )
     .option(
       "--base-url <url>",
-      "OmniRoute base URL the plugin should talk to (default: active context or http://localhost:25050)"
+      "RedRouter base URL the plugin should talk to (default: active context or http://localhost:25050)"
     )
     .option(
       "--remote <url>",
-      "Remote OmniRoute URL, e.g. http://192.168.0.15:25050 (overrides --base-url and the context)"
+      "Remote RedRouter URL, e.g. http://192.168.0.15:25050 (overrides --base-url and the context)"
     )
     .option("--display-name <name>", "Display name in the OpenCode UI (optional)")
     .option(

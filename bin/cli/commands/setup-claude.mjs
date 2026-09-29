@@ -70,10 +70,10 @@ export function formatManualLaunchHint(profileDir, platform = process.platform) 
   if (platform === "win32") {
     return (
       `$env:CLAUDE_CONFIG_DIR="${profileDir}"; ` +
-      `$env:ANTHROPIC_AUTH_TOKEN="<your OmniRoute key>"; claude`
+      `$env:ANTHROPIC_AUTH_TOKEN="<your RedRouter key>"; claude`
     );
   }
-  return `CLAUDE_CONFIG_DIR="${profileDir}" ANTHROPIC_AUTH_TOKEN="<your OmniRoute key>" claude`;
+  return `CLAUDE_CONFIG_DIR="${profileDir}" ANTHROPIC_AUTH_TOKEN="<your RedRouter key>" claude`;
 }
 
 /**
@@ -93,7 +93,7 @@ export function inheritedAnthropicKeyWarning(env = process.env) {
     "ANTHROPIC_API_KEY is set in this shell. Claude Code sends it as x-api-key and asks " +
     "\"Detected a custom API key in your environment\" — if ANTHROPIC_BASE_URL is not " +
     "picked up, that key goes to api.anthropic.com and you get a real Anthropic 401. " +
-    "Unset it, or use `omniroute launch --profile <name>` (it strips every inherited " +
+    "Unset it, or use `red-router launch --profile <name>` (it strips every inherited " +
     "ANTHROPIC_* var before spawning claude)."
   );
 }
@@ -198,12 +198,12 @@ export async function runSetupClaudeCommand(opts = {}) {
   const profilesRoot = join(claudeHome, "profiles");
   const dryRun = Boolean(opts.dryRun ?? opts["dry-run"]);
 
-  printHeading("OmniRoute → Claude Code profile generator");
+  printHeading("RedRouter → Claude Code profile generator");
   printInfo(`Connecting to ${baseUrl} …`);
 
   const guard = await guardHostConfigTarget(profilesRoot, {
     toolLabel: "Claude Code",
-    hostCommand: "omniroute setup-claude",
+    hostCommand: "red-router setup-claude",
     allowContainerWrite: Boolean(opts.allowContainerWrite ?? opts["allow-container-write"]),
     dryRun,
   });
@@ -233,8 +233,8 @@ export async function runSetupClaudeCommand(opts = {}) {
   } catch (err) {
     printError(`Failed to fetch models: ${err.message}`);
     printInfo(
-      "Make sure OmniRoute is running and the --remote URL is correct.\n" +
-        "You may also need --api-key if OmniRoute requires authentication."
+      "Make sure RedRouter is running and the --remote URL is correct.\n" +
+        "You may also need --api-key if RedRouter requires authentication."
     );
     return 1;
   }
@@ -256,7 +256,7 @@ export async function runSetupClaudeCommand(opts = {}) {
     printSuccess(`${written} Claude Code profiles written to ${profilesRoot}`);
     if (skipped > 0) printInfo(`${skipped} models skipped (no matching profile pattern)`);
     console.log("\nTo use a profile:");
-    console.log("  omniroute launch --profile <name>     # e.g. omniroute launch --profile glm52");
+    console.log("  red-router launch --profile <name>     # e.g. red-router launch --profile glm52");
     // Absolute path, host-shell syntax: Claude Code does not expand `~` in
     // CLAUDE_CONFIG_DIR, and a config dir that does not resolve silently drops
     // ANTHROPIC_BASE_URL — the request then goes to api.anthropic.com (#11525).
@@ -279,12 +279,12 @@ export function registerSetupClaude(program) {
   program
     .command("setup-claude")
     .description(
-      "Fetch the live model catalog from OmniRoute (local or remote VPS) and generate " +
+      "Fetch the live model catalog from RedRouter (local or remote VPS) and generate " +
         "~/.claude/profiles/<name>/ Claude Code profiles (CLAUDE_CONFIG_DIR) for each model"
     )
-    .option("--port <port>", "Local OmniRoute port (ignored when --remote is set)", "25050")
-    .option("--remote <url>", "Remote OmniRoute URL, e.g. http://192.168.0.15:25050")
-    .option("--api-key <key>", "OmniRoute API key (defaults to OMNIROUTE_API_KEY env var)")
+    .option("--port <port>", "Local RedRouter port (ignored when --remote is set)", "25050")
+    .option("--remote <url>", "Remote RedRouter URL, e.g. http://192.168.0.15:25050")
+    .option("--api-key <key>", "RedRouter API key (defaults to OMNIROUTE_API_KEY env var)")
     .option("--claude-home <dir>", "Claude home dir (default: ~/.claude)")
     .option(
       "--only <patterns>",

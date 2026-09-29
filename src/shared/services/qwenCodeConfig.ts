@@ -27,7 +27,7 @@ export const isManagedQwenCodeModel = (value: unknown): boolean => {
 
   return (
     typeof value.name === "string" &&
-    value.name.endsWith(" (OmniRoute)") &&
+    (value.name.endsWith(" (RedRouter)") || value.name.endsWith(" (OmniRoute)")) &&
     typeof value.envKey === "string" &&
     LEGACY_ENV_KEYS.has(value.envKey)
   );
@@ -90,7 +90,7 @@ export const buildQwenCodeModel = ({
 
   return {
     id: normalizedModel,
-    name: `${String(modelName || normalizedModel).trim()} (OmniRoute)`,
+    name: `${String(modelName || normalizedModel).trim()} (RedRouter)`,
     envKey: QWEN_CODE_ENV_KEY,
     baseUrl: normalizedBaseUrl,
   };
@@ -165,7 +165,7 @@ export const findOmniRouteQwenCodeModel = (settings: unknown): JsonRecord | unde
 export const hasOmniRouteQwenCodeConfig = (settings: unknown): boolean =>
   findOmniRouteQwenCodeModel(settings) !== undefined;
 
-/** Remove only OmniRoute-owned Qwen Code entries and selection state. */
+/** Remove only RedRouter-owned Qwen Code entries and selection state. */
 export const removeQwenCodeSettings = (existing: unknown): JsonRecord => {
   const next = cloneRecord(existing);
   const originalProviders = next.modelProviders;

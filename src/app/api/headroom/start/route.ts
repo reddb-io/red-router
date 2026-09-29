@@ -23,7 +23,7 @@ export async function POST(): Promise<Response> {
     if (!isLoopbackHeadroomUrl(url)) {
       return createErrorResponse({
         status: 400,
-        message: "External Headroom proxies must be started outside OmniRoute",
+        message: "External Headroom proxies must be started outside RedRouter",
         type: "invalid_request",
       });
     }

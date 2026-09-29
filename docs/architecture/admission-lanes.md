@@ -6,7 +6,7 @@ lastUpdated: 2026-08-10
 
 # Admission lanes (#9654) — two lane systems, what gates each, where each reports
 
-OmniRoute has **two** process-local lane systems with different scopes. They are
+RedRouter has **two** process-local lane systems with different scopes. They are
 complementary; operators should know which one they are looking at.
 
 ## 1. Byte-level process-wide admission (`chatBodyAdmission.ts`)
@@ -126,7 +126,7 @@ another") is enforced by system 1 unconditionally and by system 2 once opt-in is
 
 ## 4. One-process long `/v1/responses` (healthy-headroom)
 
-[#10437](https://github.com/diegosouzapw/OmniRoute/pull/10437) added
+[#10437](https://github.com/reddb-io/red-router/pull/10437) added
 `tryAcquireHealthyHeadroom` so a second structurally-heavy request is admitted
 when the heap is below `OMNIROUTE_CHAT_ADMISSION_HEAP_SHED_RATIO`. The BYTE
 path used by `admitChatRequest` (bodies ≥ `OMNIROUTE_CHAT_LARGE_BODY_BYTES`,

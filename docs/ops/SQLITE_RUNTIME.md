@@ -4,7 +4,7 @@ title: "SQLite Runtime Resolution"
 
 # SQLite Runtime Resolution
 
-OmniRoute resolves its SQLite driver at startup through a 5-step fallback chain:
+RedRouter resolves its SQLite driver at startup through a 5-step fallback chain:
 
 1. **Bundled `better-sqlite3`** (via `dependencies` in `package.json`)
    — fastest, native binary, installed by `npm install` when build tools are present.
@@ -22,19 +22,19 @@ OmniRoute resolves its SQLite driver at startup through a 5-step fallback chain:
 
 ## Why this complexity?
 
-- **Windows EBUSY**: `npm install -g omniroute@latest` can fail if the previous
+- **Windows EBUSY**: `npm install -g @reddb-io/red-router@latest` can fail if the previous
   version's `better_sqlite3.node` is locked by a running process. The runtime
   install in `~/.omniroute/runtime/` sidesteps the global npm cache.
 - **No build tools**: Some environments (corporate Windows without VS Build
   Tools, minimal Docker images) cannot compile `better-sqlite3`. The runtime
   installer resolves a pre-built binary from the npm registry; the fallback
-  drivers ensure OmniRoute still boots even if that fails.
+  drivers ensure RedRouter still boots even if that fails.
 - **Air-gapped systems**: If the npm registry is unreachable, `node:sqlite`
   or `sql.js` guarantee baseline functionality.
 
 ## Magic-byte validation
 
-Before loading a runtime-installed `.node` file, OmniRoute reads the first 8
+Before loading a runtime-installed `.node` file, RedRouter reads the first 8
 bytes and matches against known platform magics:
 
 | Platform              | Bytes (hex)   | Label       |
@@ -61,14 +61,14 @@ const info = getDriverInfo();
 
 ```bash
 # Skip postinstall warm-up (for fast CI installs)
-OMNIROUTE_SKIP_POSTINSTALL=1 npm install -g omniroute
+OMNIROUTE_SKIP_POSTINSTALL=1 npm install -g @reddb-io/red-router
 
 # Force-reinstall runtime better-sqlite3
 rm -rf ~/.omniroute/runtime
 omniroute  # will reinstall on next start
 
 # Check what driver is active
-omniroute config db-info  # (if CLI command exists)
+red-router config db-info  # (if CLI command exists)
 ```
 
 ## Reference
@@ -84,9 +84,9 @@ Implementation:
 ## Single-writer topology (HA unsupported)
 
 The driver fallback chain above still runs in **one process**. Default SQLite
-OmniRoute is a **single writer**:
+RedRouter is a **single writer**:
 
-- Do not attach two OmniRoute replicas to the same `storage.sqlite` file.
+- Do not attach two RedRouter replicas to the same `storage.sqlite` file.
 - A container restart, Recreate deploy, OOM kill, or HEALTHCHECK restart drops
   every in-flight SSE session. There is no session drain on the stock path.
 - Orchestrator liveness that treats a slow `/healthz` as dead will kill the only

@@ -9,9 +9,9 @@ lastUpdated: 2026-09-27
 This is a source snapshot, **not a claim of complete feature parity**. The comparison uses
 `upstream/master` at `f01fb909e37189008080632ddaf404f096345cde` (9router),
 `omni-upstream/release/v3.8.51` at `a58000c7685f4091c7a6fd8ddf3ebce7d2ec67c3`
-(OmniRoute), and the local `feat/main-integration` worktree (inventory run at
+(RedRouter), and the local `feat/main-integration` worktree (inventory run at
 `70602300e6`).
-The OmniRoute release head advanced by two commits from the earlier snapshot;
+The RedRouter release head advanced by two commits from the earlier snapshot;
 one includes the pre-request-hook realm isolation advisory. This branch
 contains corresponding isolation and a stricter foreign-exception boundary in
 `src/lib/middleware/registry.ts`; this is a source comparison, not a security audit.
@@ -38,7 +38,7 @@ commits still need patch-equivalence review before claiming current-main parity.
 | Source        | Provider-file IDs | Local equivalent-file candidates missing | `/v1` route files | Local route-file candidates missing |
 | ------------- | ----------------: | ---------------------------------------: | ----------------: | ----------------------------------: |
 | 9router       |               129 |                                       51 |                21 |                                   0 |
-| OmniRoute     |               273 |                                        0 |               100 |                                   0 |
+| RedRouter     |               273 |                                        0 |               100 |                                   0 |
 | This worktree |               287 |                                        — |               108 |                                   — |
 
 The 51 9router provider IDs are **not 51 proven missing providers**. For example,
@@ -56,7 +56,7 @@ structural clues. These are search aids, **not semantic pass/fail totals**.
 The scanner now reads the declared provider entry rather than mistaking the
 first model's `id` for a provider when model arrays precede the entry. It also
 recognizes untyped provider-builder entries such as `seekai`; this corrected
-the OmniRoute/local provider-file counts from 272/286 to 273/287.
+the RedRouter/local provider-file counts from 272/286 to 273/287.
 Even an alias match can hide
 model drift: `featherless-ai` had only two old static models, so this worktree
 adds 9router's seven current static IDs and the upstream `/v1/models` catalog
@@ -335,7 +335,7 @@ shape or live credential works; the written tests still need CI.
 
 The path inventory now has **zero missing 9router `/v1` route files**, but that
 does not prove behavioral parity. `/v1/videos/generations` preserves the existing
-synchronous OmniRoute result by default and opts into durable async xAI jobs with
+synchronous RedRouter result by default and opts into durable async xAI jobs with
 `Prefer: respond-async`; 9router uses async by default on the same path. That
 contract conflict remains open. The new `190_video_jobs.sql` table gives SQLite
 durable job reservation and account-bound polling, not multi-replica execution.
@@ -397,7 +397,7 @@ The reproducible [SQLite coupling inventory](SQLITE_COUPLING_INVENTORY.md)
 identifies the concrete lifecycle, migration, routing, cooldown, quota,
 affinity, cache, and video-job boundaries that must be proven before replicas.
 
-The OmniRoute snapshot's `docs/architecture/cluster-decisions.md` is a
+The RedRouter snapshot's `docs/architecture/cluster-decisions.md` is a
 historical sidecar proposal, not proof of database HA. Its claim of three
 default application replicas plus Caddy conflicts with the checked-in
 `docker-compose.yml`: application services are profile-selected, share a

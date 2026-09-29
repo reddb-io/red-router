@@ -1,16 +1,16 @@
 ---
-title: "🗜️ Prompt Compression Guide — OmniRoute"
+title: "🗜️ Prompt Compression Guide — RedRouter"
 version: 3.8.40
 lastUpdated: 2026-06-28
 ---
 
-# 🗜️ Prompt Compression Guide — OmniRoute
+# 🗜️ Prompt Compression Guide — RedRouter
 
 > Save 15-95% on eligible context automatically. For a quick overview, see the [README Compression section](../README.md#%EF%B8%8F-prompt-compression--save-15-95-eligible-tokens-automatically).
 
 ## Overview
 
-OmniRoute implements a modular prompt compression pipeline that runs **proactively** before requests hit upstream providers. This means your token savings happen transparently — no changes needed to your workflow.
+RedRouter implements a modular prompt compression pipeline that runs **proactively** before requests hit upstream providers. This means your token savings happen transparently — no changes needed to your workflow.
 
 ```
 Client Request
@@ -120,15 +120,15 @@ compression combos assigned to routing combos.
 
 ## Upstream Savings Math
 
-OmniRoute documents compression savings from two sources: upstream project benchmarks and
-OmniRoute's own engine composition.
+RedRouter documents compression savings from two sources: upstream project benchmarks and
+RedRouter's own engine composition.
 
 | Source  | Upstream README number used here                                                                                      |
 | ------- | --------------------------------------------------------------------------------------------------------------------- |
 | Caveman | `~75%` fewer output tokens, `65%` benchmark average output savings, `22-87%` range, and `~46%` input compression tool |
 | RTK     | `60-90%` command-output savings; sample session `~118,000 -> ~23,900` tokens, or `79.7%` saved (`~80%`)               |
 
-For overlapping tool/context payloads, the default OmniRoute combo stacks the engines:
+For overlapping tool/context payloads, the default RedRouter combo stacks the engines:
 
 ```txt
 RTK -> Caveman
@@ -328,7 +328,7 @@ RTK mode is inspired by **[RTK - Rust Token Killer](https://github.com/rtk-ai/rt
 
 ## Advanced Compression Systems
 
-Beyond the 7 standard modes, OmniRoute includes several advanced compression
+Beyond the 7 standard modes, RedRouter includes several advanced compression
 systems that work automatically based on context.
 
 ### Cache-Aware Compression

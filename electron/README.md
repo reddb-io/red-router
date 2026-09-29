@@ -1,6 +1,6 @@
-# OmniRoute Electron Desktop App
+# RedRouter Electron Desktop App
 
-This directory contains the Electron desktop application wrapper for OmniRoute.
+This directory contains the Electron desktop application wrapper for RedRouter.
 
 ## Architecture (v1.6.4)
 
@@ -108,9 +108,9 @@ Built applications are placed in `dist-electron/`:
 
 ### macOS
 
-1. Download the latest `.dmg` from the [Releases](https://github.com/diegosouzapw/OmniRoute/releases) page.
+1. Download the latest `.dmg` from the [Releases](https://github.com/reddb-io/red-router/releases) page.
 2. Open the `.dmg` file.
-3. Drag `OmniRoute.app` to the Applications folder.
+3. Drag `RedRouter.app` to the Applications folder.
 4. Launch from Applications.
 
 > ⚠️ **Note:** The app is not signed with an Apple Developer certificate yet. If macOS blocks the app, run:
@@ -125,18 +125,18 @@ Built applications are placed in `dist-electron/`:
 
 **Installer (Recommended):**
 
-1. Download `OmniRoute.Setup.*.exe` from [Releases](https://github.com/diegosouzapw/OmniRoute/releases).
+1. Download `RedRouter.Setup.*.exe` from [Releases](https://github.com/reddb-io/red-router/releases).
 2. Run the installer.
 3. Launch from Start Menu or Desktop shortcut.
 
 **Portable (No Installation):**
 
-1. Download `OmniRoute.exe` from [Releases](https://github.com/diegosouzapw/OmniRoute/releases).
+1. Download `RedRouter.exe` from [Releases](https://github.com/reddb-io/red-router/releases).
 2. Run directly from any folder.
 
 ### Linux
 
-1. Download the `.AppImage` from [Releases](https://github.com/diegosouzapw/OmniRoute/releases).
+1. Download the `.AppImage` from [Releases](https://github.com/reddb-io/red-router/releases).
 2. Make it executable:
    ```bash
    chmod +x OmniRoute-*.AppImage
@@ -151,7 +151,7 @@ Built applications are placed in `dist-electron/`:
 - **Server Readiness** — Waits for health check before showing window
 - **System Tray** — Minimize to tray with quick actions (open, port change, quit)
 - **Port Management** — Change port from tray menu (server restarts automatically)
-- **Remote Server Mode** — Point the shell at an already-running OmniRoute server (e.g. a Docker/OrbStack container, or another machine) instead of spawning a local one — see below
+- **Remote Server Mode** — Point the shell at an already-running RedRouter server (e.g. a Docker/OrbStack container, or another machine) instead of spawning a local one — see below
 - **Window Controls** — Custom minimize, maximize, close via IPC
 - **Content Security Policy** — Restrictive CSP via session headers
 - **Offline Support** — Bundled Next.js standalone server
@@ -160,7 +160,7 @@ Built applications are placed in `dist-electron/`:
 ## Remote Server Mode
 
 By default the desktop shell spawns and manages its own bundled Next.js server. If you
-already run OmniRoute elsewhere — most commonly in a Docker/OrbStack container, so
+already run RedRouter elsewhere — most commonly in a Docker/OrbStack container, so
 provider credentials and env-var handling stay isolated from the host — you can point the
 shell at that instance instead, so it's purely a native window + tray onto a server you
 already run.

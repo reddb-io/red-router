@@ -1,10 +1,10 @@
 ---
-title: "OmniRoute CLI Plugin System"
+title: "RedRouter CLI Plugin System"
 version: 3.8.40
 lastUpdated: 2026-06-28
 ---
 
-# OmniRoute CLI Plugin System
+# RedRouter CLI Plugin System
 
 Extend the `omniroute` CLI without modifying its core. Plugins follow the `omniroute-cmd-*` naming convention, similar to `gh extension` or `kubectl plugin`.
 
@@ -12,18 +12,18 @@ Extend the `omniroute` CLI without modifying its core. Plugins follow the `omnir
 
 ```bash
 # Install a plugin from npm
-omniroute plugin install stripe
+red-router plugin install stripe
 
 # Install a local plugin in development
-omniroute plugin install ./my-plugin
+red-router plugin install ./my-plugin
 
 # List installed plugins
-omniroute plugin list
+red-router plugin list
 
 # Scaffold a new plugin
-omniroute plugin scaffold myplugin
+red-router plugin scaffold myplugin
 cd omniroute-cmd-myplugin
-omniroute plugin install .
+red-router plugin install .
 ```
 
 ## Plugin anatomy
@@ -56,7 +56,7 @@ omniroute-cmd-myplugin/
 export const meta = {
   name: "myplugin",
   version: "0.1.0",
-  description: "My plugin for OmniRoute",
+  description: "My plugin for RedRouter",
   omnirouteApi: ">=4.0.0",
 };
 
@@ -83,7 +83,7 @@ The `ctx` object passed to `register(program, ctx)`:
 
 | Property                     | Type             | Description                                        |
 | ---------------------------- | ---------------- | -------------------------------------------------- |
-| `ctx.apiFetch(path, opts)`   | `async function` | Authenticated fetch to the OmniRoute server        |
+| `ctx.apiFetch(path, opts)`   | `async function` | Authenticated fetch to the RedRouter server        |
 | `ctx.emit(data, opts)`       | `function`       | Output in table/json/jsonl/csv per `--output` flag |
 | `ctx.t(key)`                 | `async function` | i18n translation lookup                            |
 | `ctx.withSpinner(label, fn)` | `async function` | Wraps async fn with ora spinner                    |
@@ -107,13 +107,13 @@ Loading errors are caught and printed as warnings — a broken plugin never cras
 
 ## Security
 
-Plugins run with the same Node.js process privileges as `omniroute`. Only install plugins from sources you trust. `omniroute plugin install` shows an explicit warning and requires `--yes` or interactive confirmation.
+Plugins run with the same Node.js process privileges as `omniroute`. Only install plugins from sources you trust. `red-router plugin install` shows an explicit warning and requires `--yes` or interactive confirmation.
 
 ## Publishing
 
 1. Ensure `package.json` has `"keywords": ["omniroute-plugin"]`
 2. `npm publish` as normal
-3. Users discover via `omniroute plugin search <query>` (searches npm registry)
+3. Users discover via `red-router plugin search <query>` (searches npm registry)
 
 ## Example plugin
 

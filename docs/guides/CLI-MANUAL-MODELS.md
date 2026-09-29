@@ -6,14 +6,14 @@ lastUpdated: "2026-09-21"
 
 # CLI model catalog and manual metadata
 
-`omniroute models` reads the selected server's public model catalog first, including
+`red-router models` reads the selected server's public model catalog first, including
 its custom and synchronized entries. `--output json` and `--output jsonl` return all
 matching rows, without a table truncation message. Interactive tables show at most
 50 rows. JSON preserves public context limits, modalities, capabilities, model source
 when supplied by the server, and API-format metadata; credentials and compatibility
 headers are not output. A legacy `/api/models` fallback is used only when the public
 endpoint returns HTTP 404, 405 or 501, never after an authentication failure.
-`omniroute completion refresh` uses that same catalog. A failed model-catalog request
+`red-router completion refresh` uses that same catalog. A failed model-catalog request
 returns a nonzero exit code and preserves the previous completion cache. Bash, Zsh
 and Fish completion scripts advertise the manual model subcommands.
 
@@ -26,14 +26,14 @@ model ID containing slashes is valid. Use a configured management context rather
 than putting credentials into command arguments.
 
 ```bash
-omniroute models openai --output json
-omniroute models manual openai
-omniroute models add openai my-model --name "My model" --context-window 32768 --dry-run
-omniroute models add openai my-model --name "My model" --context-window 32768
-omniroute models edit openai my-model --context-window 65536
-omniroute models edit openai my-model --clear-context-window
-omniroute models remove openai my-model --dry-run
-omniroute models remove openai my-model --yes
+red-router models openai --output json
+red-router models manual openai
+red-router models add openai my-model --name "My model" --context-window 32768 --dry-run
+red-router models add openai my-model --name "My model" --context-window 32768
+red-router models edit openai my-model --context-window 65536
+red-router models edit openai my-model --clear-context-window
+red-router models remove openai my-model --dry-run
+red-router models remove openai my-model --yes
 ```
 
 Examples describe syntax; replace provider/model IDs with entries belonging to your

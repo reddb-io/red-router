@@ -200,7 +200,7 @@ export async function DELETE(request: Request) {
       throw err;
     }
 
-    // Remove OmniRoute-managed fields
+    // Remove RedRouter-managed fields
     delete existing.baseUrl;
     delete existing.apiKey;
     delete existing.model;
@@ -219,7 +219,7 @@ export async function DELETE(request: Request) {
       /* non-critical */
     }
 
-    return NextResponse.json({ success: true, message: "Pi OmniRoute settings removed" });
+    return NextResponse.json({ success: true, message: "Pi RedRouter settings removed" });
   } catch (err) {
     return NextResponse.json(
       { error: { message: sanitizeErrorMessage(err) } },

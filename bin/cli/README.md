@@ -1,4 +1,4 @@
-# bin/cli — OmniRoute CLI internals
+# bin/cli — RedRouter CLI internals
 
 This directory contains the CLI runtime, helpers, and commands for the `omniroute` binary.
 
@@ -37,7 +37,7 @@ bin/cli/
 
 ### `apiFetch(path, opts)` — `api.mjs`
 
-All HTTP calls to the OmniRoute server must go through this wrapper.
+All HTTP calls to the RedRouter server must go through this wrapper.
 
 ```js
 import { apiFetch } from "./api.mjs";

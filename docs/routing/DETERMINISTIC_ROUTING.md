@@ -4,9 +4,9 @@ title: "Deterministic Routing Strategies"
 
 # Deterministic routing strategies
 
-OmniRoute's self-hosted gateway entry (`/v1/chat/completions`, RIC-738) routes to a
+RedRouter's self-hosted gateway entry (`/v1/chat/completions`, RIC-738) routes to a
 single provider by default. When you configure a `strategy:` block, the route decision
-becomes a **deterministic, explainable policy** — the OmniRoute differentiator vs
+becomes a **deterministic, explainable policy** — the RedRouter differentiator vs
 NotDiamond/Martian "predict" black-box routing.
 
 Every decision is:

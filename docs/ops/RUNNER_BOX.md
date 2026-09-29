@@ -13,7 +13,7 @@ Measured 2026-08-28 (v3.8.50 postmortem, Parte III):
 | swap      | 15 GB                                                                                                          | it swapped its way through the v3.8.50 publish; pressure shows in `/proc/pressure/memory`                                                     |
 | `/tmp`    | **12 GB tmpfs = RAM**                                                                                          | anything parked there is memory; leftovers are swept after 3 h                                                                                |
 | disk      | 188 GB                                                                                                         | `_work` checkouts of 8 runners reach ~70 GB with no cap                                                                                       |
-| runners   | **6 listeners**: 4 OmniRoute (1 `omni-build` + 1 `omni-release`-only + 2 `omni-light`) + OmniHeuris + OmniMind | all share the memory above; `omniroute-113-3/-4/-7/-8` are disabled (`systemctl enable --now` brings one back)                                |
+| runners   | **6 listeners**: 4 RedRouter (1 `omni-build` + 1 `omni-release`-only + 2 `omni-light`) + OmniHeuris + OmniMind | all share the memory above; `omniroute-113-3/-4/-7/-8` are disabled (`systemctl enable --now` brings one back)                                |
 
 ## Install the janitor (one-time, on the box)
 
@@ -41,7 +41,7 @@ omniroute/other breakdown). Exit 1 = attention needed; read the log.
 
 The runner's default `KillMode=process` leaves `Runner.Worker → npm → next-build`
 alive when a unit is stopped or restarted — an orphan build keeps eating RAM and
-CPU with no job attached. Every OmniRoute unit carries a drop-in
+CPU with no job attached. Every RedRouter unit carries a drop-in
 (`/etc/systemd/system/actions.runner.diegosouzapw-OmniRoute.<name>.service.d/10-killmode.conf`)
 with `KillMode=mixed`: SIGTERM to the listener first, SIGKILL to the whole cgroup at
 `TimeoutStop`. It takes effect on the unit's next restart — restart **one runner at
@@ -77,7 +77,7 @@ a time, only when idle**, with the idle check and the restart in the same comman
   died on `release/v3.8.51` with nobody watching. Worst case on the box is 2 heavy + 2 light ≈
   30 + 12 GB — over 31 GB of RAM, inside the 16 GB of swap; the real fix for headroom is more RAM
   on the Proxmox VM (`tomni-proxmox-113`), which turns the label ceilings into 3 heavy + 2 light.
-- **Fewer listeners on purpose.** Four OmniRoute units were disabled on 2026-08-29 — with only
+- **Fewer listeners on purpose.** Four RedRouter units were disabled on 2026-08-29 — with only
   `ci.yml` `Build` and the nightlies using the box, 8 listeners were idle and each extra one is a
   potential 14 GB tenant. The janitor ceiling is 6 (`MAX_ACTIVE_RUNNERS=6` in cron): it counts
   every `Runner.Listener` on the box, and OmniHeuris + OmniMind add two to our four.

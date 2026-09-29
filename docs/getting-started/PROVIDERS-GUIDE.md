@@ -1,18 +1,18 @@
 ---
-title: "Providers Guide: Connect AI Models to OmniRoute"
+title: "Providers Guide: Connect AI Models to RedRouter"
 version: 3.8.50
 lastUpdated: 2026-08-06
 ---
 
-# Providers Guide: Connect AI Models to OmniRoute
+# Providers Guide: Connect AI Models to RedRouter
 
-> **TL;DR**: A provider is a connection to an AI service (like OpenAI, Anthropic, Google). You need at least one provider to use OmniRoute.
+> **TL;DR**: A provider is a connection to an AI service (like OpenAI, Anthropic, Google). You need at least one provider to use RedRouter.
 
 ---
 
 ## What Is a Provider?
 
-Think of a provider like a **phone carrier**. Just as you need a phone carrier to make calls, you need an AI provider to use AI models. OmniRoute is like a phone that works with **all carriers** — you can switch between them automatically.
+Think of a provider like a **phone carrier**. Just as you need a phone carrier to make calls, you need an AI provider to use AI models. RedRouter is like a phone that works with **all carriers** — you can switch between them automatically.
 
 ### Types of Providers
 
@@ -33,8 +33,8 @@ See **[WEB-COOKIE-GUIDE.md](./WEB-COOKIE-GUIDE.md)** for general setup instructi
 ### Optional first-run free-provider setup
 
 The first-run wizard offers an explicit **Set up free providers** card. It derives the current
-eligible list from OmniRoute's no-auth provider registry, then lets you review and deselect each
-provider before confirming. OmniRoute shows the provider's caution notice and a link to its site
+eligible list from RedRouter's no-auth provider registry, then lets you review and deselect each
+provider before confirming. RedRouter shows the provider's caution notice and a link to its site
 so you can review third-party terms, privacy, availability, and rate limits first.
 
 This action is optional: finishing the wizard never creates free-provider connections silently.
@@ -83,7 +83,7 @@ safely retry only the failures after a partial result.
 
 ### Option D: Local MLX Models (Apple Silicon)
 
-For Apple Silicon Macs with unified memory, OmniRoute supports connecting to local MLX models running via `mlx-lm.server` as regular OpenAI-compatible local providers.
+For Apple Silicon Macs with unified memory, RedRouter supports connecting to local MLX models running via `mlx-lm.server` as regular OpenAI-compatible local providers.
 
 #### Prerequisites
 
@@ -113,14 +113,14 @@ For Apple Silicon Macs with unified memory, OmniRoute supports connecting to loc
    uv run mlx_lm.server --model maglun/Qwen3.8-27B-MLX-Mixed-3.80bpw --port 11436 --host 127.0.0.1
    ```
 
-3. **Connect in OmniRoute Dashboard**:
+3. **Connect in RedRouter Dashboard**:
    - Go to **Providers** → **Add Provider**
    - Select **MLX Gemma 26B** or **MLX Qwen 3.8 27B**
    - Click **Connect** (no API key needed)
 
 4. **Use with OpenCode**:
    ```bash
-   # Configure OpenCode to use OmniRoute
+   # Configure OpenCode to use RedRouter
    opencode config set api.base_url http://localhost:20128/v1
    opencode config set api.key <your-omniroute-api-key>
 
@@ -142,7 +142,7 @@ You must manage this manually:
 - Run both on separate machines, or
 - Stop one before starting the other
 
-OmniRoute does not automatically manage MLX server processes — it only routes requests to the OpenAI-compatible endpoints you configure.
+RedRouter does not automatically manage MLX server processes — it only routes requests to the OpenAI-compatible endpoints you configure.
 
 #### Tool Calling Support
 
@@ -167,7 +167,7 @@ curl -X POST http://localhost:20128/v1/chat/completions \
 | Out of memory      | Ensure only one model runs; close other apps; check Activity Monitor          |
 | Connection refused | Verify server is running on correct port (11435/11436)                        |
 | Slow responses     | First request loads model into memory (~30-60s); subsequent requests are fast |
-| Tool calling fails | Ensure model supports tools; check OmniRoute logs for translation errors      |
+| Tool calling fails | Ensure model supports tools; check RedRouter logs for translation errors      |
 
 ---
 
@@ -241,12 +241,12 @@ Your provider is now connected. You can use it with `model: "auto"` or specify t
 
 ## Using Multiple Providers
 
-OmniRoute works best with **multiple providers**. This gives you:
+RedRouter works best with **multiple providers**. This gives you:
 
-- **Automatic fallback** — If one provider fails, OmniRoute tries the next
-- **Cost optimization** — OmniRoute picks the cheapest provider for each request
-- **Speed optimization** — OmniRoute picks the fastest provider for each request
-- **Quality optimization** — OmniRoute picks the best provider for each task
+- **Automatic fallback** — If one provider fails, RedRouter tries the next
+- **Cost optimization** — RedRouter picks the cheapest provider for each request
+- **Speed optimization** — RedRouter picks the fastest provider for each request
+- **Quality optimization** — RedRouter picks the best provider for each task
 
 ### Recommended Setup
 
@@ -256,7 +256,7 @@ Connect at least **3 providers** for the best experience:
 2. **One fast provider** (Groq, Cerebras) — For quick responses
 3. **One quality provider** (OpenAI, Anthropic, Google) — For complex tasks
 
-Then use `model: "auto"` and OmniRoute will automatically pick the best one for each request.
+Then use `model: "auto"` and RedRouter will automatically pick the best one for each request.
 
 ---
 
@@ -265,40 +265,40 @@ Then use `model: "auto"` and OmniRoute will automatically pick the best one for 
 ### OpenAI
 
 1. Get API key: https://platform.openai.com/api-keys
-2. In OmniRoute: Providers → Add Provider → OpenAI
+2. In RedRouter: Providers → Add Provider → OpenAI
 3. Paste API key → Connect
 
 ### Anthropic
 
 1. Get API key: https://console.anthropic.com/
-2. In OmniRoute: Providers → Add Provider → Anthropic
+2. In RedRouter: Providers → Add Provider → Anthropic
 3. Paste API key → Connect
 
 ### Google (Gemini)
 
 1. Get API key: https://aistudio.google.com/apikey
-2. In OmniRoute: Providers → Add Provider → Gemini
+2. In RedRouter: Providers → Add Provider → Gemini
 3. Paste API key → Connect
 
 ### DeepSeek
 
 1. Get API key: https://platform.deepseek.com/
-2. In OmniRoute: Providers → Add Provider → DeepSeek
+2. In RedRouter: Providers → Add Provider → DeepSeek
 3. Paste API key → Connect
 
 ### Groq
 
 1. Get API key: https://console.groq.com/
-2. In OmniRoute: Providers → Add Provider → Groq
+2. In RedRouter: Providers → Add Provider → Groq
 3. Paste API key → Connect
 
 ---
 
 ## Common Questions
 
-### "Do I need to pay to use OmniRoute?"
+### "Do I need to pay to use RedRouter?"
 
-**No!** OmniRoute is free and open-source. You can use free providers (Kiro, OpenCode Free, Pollinations) without paying anything. You only pay if you choose to use paid providers.
+**No!** RedRouter is free and open-source. You can use free providers (Kiro, OpenCode Free, Pollinations) without paying anything. You only pay if you choose to use paid providers.
 
 ### "Which provider should I start with?"
 
@@ -306,11 +306,11 @@ Start with **Kiro AI** — it's free, requires no API key, and gives you access 
 
 ### "Can I use multiple providers at once?"
 
-**Yes!** That's the whole point of OmniRoute. Connect multiple providers and use `model: "auto"` to let OmniRoute pick the best one for each request.
+**Yes!** That's the whole point of RedRouter. Connect multiple providers and use `model: "auto"` to let RedRouter pick the best one for each request.
 
 ### "What if a provider goes down?"
 
-OmniRoute automatically skips failed providers and tries the next one. You don't need to do anything.
+RedRouter automatically skips failed providers and tries the next one. You don't need to do anything.
 
 ### "How do I disconnect a provider?"
 
@@ -318,13 +318,13 @@ Go to Providers → click on the provider → click **Disconnect**.
 
 ### "Can I use my existing API keys?"
 
-**Yes!** If you already have API keys for OpenAI, Anthropic, Google, etc., you can use them in OmniRoute. Just paste them when connecting the provider.
+**Yes!** If you already have API keys for OpenAI, Anthropic, Google, etc., you can use them in RedRouter. Just paste them when connecting the provider.
 
 ---
 
 ## What's Next?
 
-- **[Auto-Combo Guide](./AUTO-COMBO-GUIDE.md)** — Let OmniRoute pick the best AI for you
+- **[Auto-Combo Guide](./AUTO-COMBO-GUIDE.md)** — Let RedRouter pick the best AI for you
 - **[Free Tiers Guide](./FREE-TIERS-GUIDE.md)** — Get free AI with no credit card
 - **[Troubleshooting](../guides/TROUBLESHOOTING.md)** — Fix common issues
 - **[Provider Reference](../reference/PROVIDER_REFERENCE.md)** — Full list of 226 providers

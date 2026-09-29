@@ -6,9 +6,9 @@ lastUpdated: 2026-07-02
 
 # Router Backends & Embedded Services — architecture contract (ADR)
 
-> **Status:** Accepted · **Context:** [#5670](https://github.com/diegosouzapw/OmniRoute/issues/5670),
-> [#5603](https://github.com/diegosouzapw/OmniRoute/issues/5603) · **Contract:** `domain/routing/routerBackends.ts`
-> (typed registry — code lands with [#5868](https://github.com/diegosouzapw/OmniRoute/pull/5868))
+> **Status:** Accepted · **Context:** [#5670](https://github.com/reddb-io/red-router/issues/5670),
+> [#5603](https://github.com/reddb-io/red-router/issues/5603) · **Contract:** `domain/routing/routerBackends.ts`
+> (typed registry — code lands with [#5868](https://github.com/reddb-io/red-router/pull/5868))
 
 This ADR pins down how `ts` (native), `bifrost`, `cliproxy`, `9router`, and
 VibeProxy-compatible engines relate to each other, so contributors stop
@@ -22,10 +22,10 @@ An engine's role is described by **two independent axes**, encoded together in t
 registry's `RouterBackendDefinition`:
 
 1. **Lifecycle** (`RouterBackendLifecycle`) — _how the engine runs_:
-   - `in-process` — runs inside the OmniRoute Node process (the native TS pipeline).
-   - `supervised` — a local child process OmniRoute installs/starts/stops/health-checks
+   - `in-process` — runs inside the RedRouter Node process (the native TS pipeline).
+   - `supervised` — a local child process RedRouter installs/starts/stops/health-checks
      via `ServiceSupervisor`, then consumes as a provider connection.
-   - `external` — an HTTP endpoint OmniRoute dispatches to but does **not** manage
+   - `external` — an HTTP endpoint RedRouter dispatches to but does **not** manage
      (configured by an env base URL).
    - `disabled` — registered but not selectable.
 2. **Selection axis** (relay routing backend) — _whether the relay dispatches to it_:
@@ -41,7 +41,7 @@ was `external`-only.
 ## The registry — single source of truth
 
 The `domain/routing/routerBackends.ts` contract (code lands with
-[#5868](https://github.com/diegosouzapw/OmniRoute/pull/5868)) declares every engine once, with its
+[#5868](https://github.com/reddb-io/red-router/pull/5868)) declares every engine once, with its
 lifecycle, capabilities, service identity, default port, health config, and
 telemetry support. Consumers look engines up via `getRouterBackend(id)`,
 `listRouterBackends()`, and `listRouterBackendsByCapability(cap)` instead of
@@ -57,7 +57,7 @@ special-casing each sidecar.
 
 ¹ Bifrost's promotion to a `supervised` embedded service (installable/startable
 from `/api/services/bifrost/`) is tracked in
-[#5817](https://github.com/diegosouzapw/OmniRoute/pull/5817); until it merges,
+[#5817](https://github.com/reddb-io/red-router/pull/5817); until it merges,
 Bifrost is `external`-only (reachable solely via `BIFROST_BASE_URL`).
 
 `capabilities` (`chat`, `responses`, `streaming`, `tools`, `vision`,
@@ -125,8 +125,8 @@ backend; the main `/api/v1/chat/completions` surface never consults
 Selection is **all-or-nothing at the relay level today** — there is no per-provider
 or per-request engine swap on `release/v3.8.43`. The per-request gate is being added
 by the sidecar-manifest work
-([#5869](https://github.com/diegosouzapw/OmniRoute/pull/5869) manifest +
-[#5870](https://github.com/diegosouzapw/OmniRoute/pull/5870) `shouldTryBifrostForRequest`),
+([#5869](https://github.com/reddb-io/red-router/pull/5869) manifest +
+[#5870](https://github.com/reddb-io/red-router/pull/5870) `shouldTryBifrostForRequest`),
 which lets `auto` route only manifest-eligible providers through Bifrost.
 
 ## Dashboard integration

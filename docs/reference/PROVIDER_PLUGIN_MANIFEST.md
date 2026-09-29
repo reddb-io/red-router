@@ -16,7 +16,7 @@ executor code, OAuth defaults, headers, or process environment state.
 The same manifest is available over HTTP at
 `GET /api/v1/provider-plugin-manifest` for sidecars that run out-of-process.
 
-OmniRoute advertises that URL to Bifrost and CLIProxyAPI via the
+RedRouter advertises that URL to Bifrost and CLIProxyAPI via the
 `X-OmniRoute-Provider-Manifest-Url` request header. Set
 `OMNIROUTE_PROVIDER_MANIFEST_URL` when the sidecar needs a public or container
 network URL instead of the local request origin.
@@ -32,7 +32,7 @@ the sidecar must issue an unconditional request instead of accepting a `304`.
 ## Goal
 
 Move provider metadata toward a plugin contract so the hot request path can
-eventually be owned by a lower-latency sidecar while OmniRoute keeps the
+eventually be owned by a lower-latency sidecar while RedRouter keeps the
 TypeScript route as the policy gate and fallback. The manifest is additive: it
 does not change request routing by itself.
 
@@ -76,7 +76,7 @@ re-reading the TypeScript sources.
 | `usage-fetch`        | Has a wired usage or quota fetcher (`getUsageForProvider`).       |
 | `usage-supported`    | The usage API accepts this provider (`isSupportedUsageConnection`). |
 
-`usage-fetch` is discovery only. It reports that OmniRoute knows how to read usage for the
+`usage-fetch` is discovery only. It reports that RedRouter knows how to read usage for the
 provider; it does not activate fetching, change quota semantics, or imply that the
 Dashboard quota widget is enabled for the provider — that widget is gated separately by
 `USAGE_SUPPORTED_PROVIDERS`. The source of truth is `USAGE_FETCHER_PROVIDERS` in

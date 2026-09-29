@@ -9,7 +9,7 @@ lastUpdated: 2026-06-28
 > **Source of truth:** `src/lib/gamification/`, `src/lib/db/gamification.ts`, `src/app/api/gamification/`
 > **Last updated:** 2026-06-28 — v3.8.40
 
-OmniRoute includes a local-first gamification layer that rewards users for
+RedRouter includes a local-first gamification layer that rewards users for
 engaging with the platform — making requests, switching providers, creating
 combos, sharing tokens, and contributing to the community. All state lives in
 SQLite; federation with community servers is opt-in and push-based.
@@ -38,7 +38,7 @@ sharing, invite rewards).
 | Leaderboards      | Global, weekly, monthly, token-sharing, and contribution scopes |
 | Token Sharing     | Transfer credits between users via double-entry ledger          |
 | Invite & Redeem   | Referral codes with SHA-256 hashed storage                      |
-| Community Servers | Federate with external OmniRoute instances                      |
+| Community Servers | Federate with external RedRouter instances                      |
 | Anti-Cheat        | Server-side scoring, rate limiting, z-score anomaly detection   |
 
 ### Design Principles
@@ -116,7 +116,7 @@ src/app/api/gamification/
 
 ### Database Tables
 
-All tables live in the main OmniRoute SQLite database, created by migration
+All tables live in the main RedRouter SQLite database, created by migration
 `060_create_gamification.sql`. WAL journaling is inherited from the singleton
 `getDbInstance()` in `src/lib/db/core.ts`.
 
@@ -175,7 +175,7 @@ All tables live in the main OmniRoute SQLite database, created by migration
 
 ### Domain Module: `src/lib/db/gamification.ts`
 
-Follows the standard OmniRoute pattern — imports `getDbInstance()` from
+Follows the standard RedRouter pattern — imports `getDbInstance()` from
 `core.ts`, exports typed CRUD functions. No raw SQL in route handlers.
 
 Key functions:
@@ -238,7 +238,7 @@ xp_for_level(n) = floor(100 * n^1.5)
 
 | Action            | XP  | Description                                              |
 | ----------------- | --- | -------------------------------------------------------- |
-| `request`         | 1   | Per API request routed through OmniRoute                 |
+| `request`         | 1   | Per API request routed through RedRouter                 |
 | `provider_switch` | 5   | Switching to a different provider                        |
 | `model_switch`    | 3   | Switching to a different model                           |
 | `combo_create`    | 10  | Creating a new combo                                     |
@@ -586,7 +586,7 @@ export async function transferTokens(
 | `code`       | `A3K9X7M2` (unique, indexed) |
 | `token_hash` | SHA-256(raw_token)           |
 
-The raw token is returned to the user exactly once at creation time. OmniRoute
+The raw token is returned to the user exactly once at creation time. RedRouter
 never stores or displays it again — only the hash persists.
 
 ### Self-Referral Prevention
@@ -720,7 +720,7 @@ Admins can query the full audit trail via `GET /api/gamification/anomalies`.
 
 ## API Routes
 
-All routes follow the standard OmniRoute pattern:
+All routes follow the standard RedRouter pattern:
 
 ```
 Route → CORS preflight → Body validation (Zod) → Auth (extractApiKey)

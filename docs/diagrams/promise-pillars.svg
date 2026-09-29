@@ -1,4 +1,4 @@
-<svg viewBox="0 0 1200 540" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="The OmniRoute promise: one endpoint and 377 providers. Six pillars. Resilient fallback: automatic routing continues while another healthy target is available. Save up to 95 percent of eligible tokens: RTK plus Caveman stacked compression averages about 89 percent on tool-heavy sessions. Zero dollars to start: 150+ providers with a free tier and 54 recurring or keyless free-forever providers. Every tool works: 36 CLI and agent integration records, including Claude Code, Codex, Cursor, Cline, Copilot and Antigravity, through one config. One endpoint: OpenAI, Claude, Gemini and Responses API translation at /v1. Production controls: circuit breakers, TLS stealth, MCP with 110 tools, A2A, memory, guardrails, evals, and 39,000+ static test declarations across 5,100+ tracked test files.">
+<svg viewBox="0 0 1200 540" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="The RedRouter promise: one endpoint and 377 providers. Six pillars. Resilient fallback: automatic routing continues while another healthy target is available. Save up to 95 percent of eligible tokens: RTK plus Caveman stacked compression averages about 89 percent on tool-heavy sessions. Zero dollars to start: 150+ providers with a free tier and 54 recurring or keyless free-forever providers. Every tool works: 36 CLI and agent integration records, including Claude Code, Codex, Cursor, Cline, Copilot and Antigravity, through one config. One endpoint: OpenAI, Claude, Gemini and Responses API translation at /v1. Production controls: circuit breakers, TLS stealth, MCP with 110 tools, A2A, memory, guardrails, evals, and 39,000+ static test declarations across 5,100+ tracked test files.">
   <desc>Animated promise card: six pillar tiles fade in in reading order, then a soft colored border highlight sweeps from tile to tile in a continuous cycle.</desc>
   <defs>
     <pattern id="gridPaperP" width="32" height="32" patternUnits="userSpaceOnUse">
@@ -21,7 +21,7 @@
     <line x1="150" y1="53" x2="1160" y2="53" stroke="#232b38" stroke-width="1.5"/>
   </g>
   <g>
-    <text x="40" y="100" font-family="Inter, 'Segoe UI', Arial, Helvetica, system-ui, sans-serif" font-size="23" font-weight="600" fill="#c9d1d9">One endpoint. <tspan fill="#a78bfa" font-weight="800">377 providers.</tspan> Never stop building — OmniRoute picks <tspan fill="#7ee787" font-weight="700">the cheapest one that works</tspan>.</text>
+    <text x="40" y="100" font-family="Inter, 'Segoe UI', Arial, Helvetica, system-ui, sans-serif" font-size="23" font-weight="600" fill="#c9d1d9">One endpoint. <tspan fill="#a78bfa" font-weight="800">377 providers.</tspan> Never stop building — RedRouter picks <tspan fill="#7ee787" font-weight="700">the cheapest one that works</tspan>.</text>
   </g>
 
   <g font-family="Inter, 'Segoe UI', Arial, Helvetica, system-ui, sans-serif">
@@ -133,7 +133,7 @@
 
   <!-- footer -->
   <g>
-    <text x="40" y="516" font-family="Consolas, 'Courier New', monospace" font-size="12" fill="#71717a">$ npm i -g omniroute&#160;&#160;·&#160;&#160;point your tool at http://localhost:20128/v1&#160;&#160;·&#160;&#160;$0</text>
+    <text x="40" y="516" font-family="Consolas, 'Courier New', monospace" font-size="12" fill="#71717a">$ npm i -g @reddb-io/red-router&#160;&#160;·&#160;&#160;point your tool at http://localhost:20128/v1&#160;&#160;·&#160;&#160;$0</text>
     <text x="1160" y="516" text-anchor="end" font-family="Consolas, 'Courier New', monospace" font-size="12" letter-spacing="1.5" fill="#71717a">MIT · OPEN SOURCE</text>
   </g>
 </svg>

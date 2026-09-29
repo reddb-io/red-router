@@ -1606,7 +1606,7 @@ function ComboUsageGuide({ onHide, onHideForever, onCreateCombo }) {
           {getI18nOrFallback(
             t,
             "usageGuideInvokeOpenrouterNote",
-            "openrouter/auto is a real paid OpenRouter product (Auto Best Available), not an OmniRoute alias — exclude it via Settings → Routing → Hide paid models."
+            "openrouter/auto is a real paid OpenRouter product (Auto Best Available), not a RedRouter alias — exclude it via Settings → Routing → Hide paid models."
           )}
         </p>
       </div>
@@ -4475,7 +4475,7 @@ function ComboFormModal({
                           help={getI18nOrFallback(
                             t,
                             "contextRelayHandoffThresholdHelp",
-                            "When quota usage reaches this threshold, OmniRoute generates a structured handoff summary before the account is exhausted."
+                            "When quota usage reaches this threshold, RedRouter generates a structured handoff summary before the account is exhausted."
                           )}
                           showHelp={!isExpertMode}
                         />

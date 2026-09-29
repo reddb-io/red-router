@@ -6,7 +6,7 @@ lastUpdated: 2026-08-02
 
 # Free Provider Rankings (Arena ELO)
 
-> **TL;DR**: OmniRoute ranks its **free** providers by model quality using **Arena AI
+> **TL;DR**: RedRouter ranks its **free** providers by model quality using **Arena AI
 > (LMArena-style) ELO scores**. Open the **Free Provider Rankings** page in the
 > dashboard to see which free providers ship the strongest models for your task —
 > overall, or filtered by category (coding, review, documentation, debugging).
@@ -15,7 +15,7 @@ lastUpdated: 2026-08-02
 
 ## What It Is
 
-OmniRoute registers 329 providers, including 155 catalog entries marked **free/no-auth**
+RedRouter registers 329 providers, including 155 catalog entries marked **free/no-auth**
 (no-auth,
 free-tier OAuth, or free-tier API key — see the
 [Free Tiers Guide](../getting-started/FREE-TIERS-GUIDE.md) and the full
@@ -131,9 +131,9 @@ and `code` — from the Arena AI leaderboard API
 (`https://api.wulong.dev/arena-ai-leaderboards/v1/leaderboard`). Each leaderboard entry
 carries a model name, vendor, ELO `score`, confidence interval, and vote count.
 
-Leaderboard categories map to OmniRoute task categories:
+Leaderboard categories map to RedRouter task categories:
 
-| Arena leaderboard | OmniRoute task categories                         |
+| Arena leaderboard | RedRouter task categories                         |
 | ----------------- | ------------------------------------------------- |
 | `text`            | `default`, `review`, `documentation`, `debugging` |
 | `code`            | `coding`                                          |
@@ -170,7 +170,7 @@ The sync runs **on by default**:
 
 - It runs once at server startup and then on a periodic timer
   (`src/lib/arenaEloSync.ts`, wired from `src/instrumentation-node.ts`).
-- It is **non-blocking and never fatal** — if the upstream fetch fails, OmniRoute keeps
+- It is **non-blocking and never fatal** — if the upstream fetch fails, RedRouter keeps
   running and the rankings simply show the last good data (or an empty state).
 
 Two environment variables control it (documented in
@@ -205,7 +205,7 @@ flexible matching (`findMatchingIntelligence` in `src/lib/freeProviderRankings.t
 3. Prefix match (a leaderboard model name is a prefix of the registry ID).
 
 On the sync side, known vendor prefixes (`anthropic/`, `openai/`, `google/`, …) are
-stripped and a small alias map expands canonical names into the variants OmniRoute uses
+stripped and a small alias map expands canonical names into the variants RedRouter uses
 internally, so models stay findable under any name.
 
 ### How a provider is ranked

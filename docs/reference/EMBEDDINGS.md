@@ -5,9 +5,9 @@ lastUpdated: 2026-08-17
 
 # Embeddings client runbook
 
-Operator notes for `POST /v1/embeddings` when OmniRoute sits in front of
+Operator notes for `POST /v1/embeddings` when RedRouter sits in front of
 Hindsight 0.9.1 (text-only `encode(list[str])`) and Memorix 1.6.0 (Jina media
-gate). Live-verified 2026-08-17 against OmniRoute 3.8.49 at
+gate). Live-verified 2026-08-17 against RedRouter 3.8.49 at
 `https://omniroute.jaguar-fish.ts.net/v1`. No secrets below.
 
 ## Working model ids
@@ -80,7 +80,7 @@ curl -sS https://omniroute.example/v1/embeddings \
 
 Native `gemini-embedding-2` cannot succeed from GitOps alone. A Google AI
 Studio key must be added as a `gemini` provider connection (dashboard or
-`GEMINI_API_KEY` imported into OmniRoute). That secret is not in this repo.
+`GEMINI_API_KEY` imported into RedRouter). That secret is not in this repo.
 
 ### Jina multimodal path
 
@@ -101,7 +101,7 @@ Use `POST /v1/embeddings` until an alias exists.
 
 ### Jina / Memorix image object
 
-OmniRoute canonical image item (28×28 PNG, 784 pixels — Jina rejects 1×1):
+RedRouter canonical image item (28×28 PNG, 784 pixels — Jina rejects 1×1):
 
 ```json
 {
@@ -150,7 +150,7 @@ Actual: HTTP **400**
 
 Hindsight embeddings are text-only (`encode(list[str])`). It does not send
 image objects. Point Hindsight's OpenAI-compatible embeddings base URL at
-OmniRoute `/v1` and use a working id from the table above
+RedRouter `/v1` and use a working id from the table above
 (`jina-ai/jina-embeddings-v5-omni-small` or
 `openrouter/google/gemini-embedding-2`). Do not set the model to bare
 `gemini-embedding-2` unless a `gemini` API key exists on the gateway.
@@ -158,11 +158,11 @@ OmniRoute `/v1` and use a working id from the table above
 ### Memorix 1.6.0
 
 Memorix only treats `baseUrl` matching `/jina\.ai/i` as native media. An
-OmniRoute URL stays on the text-only path even when the model is Jina omni.
-That gate is a Memorix client issue. Independently, OmniRoute still rejects
+RedRouter URL stays on the text-only path even when the model is Jina omni.
+That gate is a Memorix client issue. Independently, RedRouter still rejects
 the Jina `{image: "data:..."}` body that Memorix would send if the gate
-opened, so Jina-compatible clients cannot embed images through OmniRoute
+opened, so Jina-compatible clients cannot embed images through RedRouter
 without the canonical `{type,source}` schema.
 
 Use `jina-ai/jina-embeddings-v5-omni-small` for text. Do not point Memorix
-`base_url` at `https://api.jina.ai` — keep OmniRoute as the only hop.
+`base_url` at `https://api.jina.ai` — keep RedRouter as the only hop.

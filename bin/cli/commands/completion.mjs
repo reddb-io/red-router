@@ -24,7 +24,7 @@ function readCache() {
     if (raw && typeof raw.ts === "number" && Date.now() - raw.ts < CACHE_TTL_MS) return raw;
   } catch (err) {
     if (process.env.OMNIROUTE_DEBUG_COMPLETION) {
-      console.error("[omniroute completion] readCache failed:", err?.message ?? err);
+      console.error("[red-router completion] readCache failed:", err?.message ?? err);
     }
   }
   return null;
@@ -50,7 +50,7 @@ async function refreshCache(opts = {}) {
     }
   } catch (err) {
     if (process.env.OMNIROUTE_DEBUG_COMPLETION) {
-      console.error("[omniroute completion] refreshCache failed:", err?.message ?? err);
+      console.error("[red-router completion] refreshCache failed:", err?.message ?? err);
     }
   }
   const data = { combos, providers, models, ts: Date.now() };
@@ -59,7 +59,7 @@ async function refreshCache(opts = {}) {
     writeFileSync(cachePath(), JSON.stringify(data));
   } catch (err) {
     if (process.env.OMNIROUTE_DEBUG_COMPLETION) {
-      console.error("[omniroute completion] writeCache failed:", err?.message ?? err);
+      console.error("[red-router completion] writeCache failed:", err?.message ?? err);
     }
   }
   return data;
@@ -97,7 +97,7 @@ _omniroute_get_cache() {
     mtime=$(stat -c %Y "$cache" 2>/dev/null || stat -f %m "$cache" 2>/dev/null || echo 0)
   fi
   if [[ $((now - mtime)) -gt 3600 ]]; then
-    omniroute completion refresh --quiet >/dev/null 2>&1
+    red-router completion refresh --quiet >/dev/null 2>&1
   fi
   if command -v python3 &>/dev/null && [[ -f "$cache" ]]; then
     python3 -c "import json,sys;d=json.load(open('$cache'));print(' '.join(d.get('$key',[])))" 2>/dev/null
@@ -107,10 +107,10 @@ _omniroute_get_cache() {
 _omniroute() {
   local -a commands
   commands=(
-    'serve:Start the OmniRoute server'
+    'serve:Start the RedRouter server'
     'stop:Stop the server'
     'restart:Restart the server'
-    'setup:Configure OmniRoute'
+    'setup:Configure RedRouter'
     'doctor:Run health diagnostics'
     'status:Show server status'
     'logs:View application logs'
@@ -137,12 +137,12 @@ _omniroute() {
     'completion:Shell completion'
     'memory:Manage memory store'
     'skills:Manage skills'
-    'connect:Connect to a local or remote OmniRoute server'
+    'connect:Connect to a local or remote RedRouter server'
     'contexts:Manage local and remote server contexts'
     'configure:Configure a supported AI CLI'
-    'launch:Launch an AI CLI through OmniRoute'
-    'launch-codex:Launch Codex through OmniRoute'
-    'run:Run a supported AI CLI through OmniRoute'
+    'launch:Launch an AI CLI through RedRouter'
+    'launch-codex:Launch Codex through RedRouter'
+    'run:Run a supported AI CLI through RedRouter'
     'runtime:Inspect CLI runtime capabilities'
     'repair:Repair native runtime dependencies'
   )
@@ -219,7 +219,7 @@ _omniroute_get_cache() {
   local mtime=0
   [[ -f "$cache" ]] && mtime=$(stat -c %Y "$cache" 2>/dev/null || stat -f %m "$cache" 2>/dev/null || echo 0)
   if (( now - mtime > 3600 )); then
-    omniroute completion refresh --quiet >/dev/null 2>&1
+    red-router completion refresh --quiet >/dev/null 2>&1
   fi
   if command -v python3 &>/dev/null && [[ -f "$cache" ]]; then
     python3 -c "import json,sys;d=json.load(open('$cache'));print(' '.join(d.get('$key',[])))" 2>/dev/null
@@ -267,7 +267,7 @@ complete -F _omniroute omniroute
 }
 
 function generateFishScript(modelCommands) {
-  return `# OmniRoute CLI fish completion (dynamic)
+  return `# RedRouter CLI fish completion (dynamic)
 complete -c omniroute -f
 
 set -l commands serve stop restart setup doctor status logs providers config keys models combo chat stream completion dashboard open backup restore health quota cache mcp a2a tunnel env memory skills connect contexts configure launch launch-codex update test run runtime repair
@@ -297,7 +297,7 @@ function __omniroute_cache_get
   set -l mtime 0
   test -f $cache; and set mtime (stat -c %Y $cache 2>/dev/null; or stat -f %m $cache 2>/dev/null; or echo 0)
   if test (math $now - $mtime) -gt 3600
-    omniroute completion refresh --quiet >/dev/null 2>&1
+    red-router completion refresh --quiet >/dev/null 2>&1
   end
   if command -q python3; and test -f $cache
     python3 -c "import json,sys;d=json.load(open('$cache'));print('\\n'.join(d.get('$key',[])))" 2>/dev/null

@@ -6,7 +6,7 @@ title: Quality Gates Reference
 
 ## RedRouter ownership override
 
-The inventory below is historical OmniRoute reference, not the active RedRouter
+The inventory below is historical RedRouter reference, not the active RedRouter
 CI policy. RedRouter runs its selected contracts/UI tests, one release build,
 browser smoke, package validation and installed-package boot check. Lint,
 typechecks, dependency audit and security analysis apply to our checkout.
@@ -16,7 +16,7 @@ See [the workflow review](../ops/REDROUTER_WORKFLOW_REVIEW.md) and
 
 ## Historical upstream reference
 
-This document originally described all CI quality gates in OmniRoute.
+This document originally described all CI quality gates in RedRouter.
 It describes each gate, what it validates, which CI job it runs in, whether it uses
 a ratchet baseline or a pass/fail policy, and whether it blocks the build or is advisory.
 
@@ -179,7 +179,7 @@ These run on a cron schedule (and `workflow_dispatch`), never on PRs. All are ad
 | `nightly-property`     | fast-check property tests with a random seed + high run count                                                                                       | **Advisory** |
 | `nightly-resilience`   | heap-growth gate, chaos fault-injection, k6 load/soak                                                                                               | **Advisory** |
 | `nightly-llm-security` | promptfoo injection guard (block mode) + garak probes (skipped without a provider secret)                                                           | **Advisory** |
-| `nightly-schemathesis` | OpenAPI contract fuzzing (schemathesis) against a live OmniRoute using `docs/openapi.yaml` — surfaces spec violations / unhandled 500s (Fase 8 B.4) | **Advisory** |
+| `nightly-schemathesis` | OpenAPI contract fuzzing (schemathesis) against a live RedRouter using `docs/openapi.yaml` — surfaces spec violations / unhandled 500s (Fase 8 B.4) | **Advisory** |
 | `nightly-mutation`     | Stryker mutation-testing score over the fast unit lane — surviving mutants surface weak asserts                                                     | **Advisory** |
 | `nightly-compat`       | Node engine compatibility matrix across the supported `engines.node` ranges                                                                         | **Advisory** |
 
@@ -442,7 +442,7 @@ allowlist is a false sense of quality.
 
 ## Agent tooling: LSP-in-the-loop (opt-in)
 
-Beyond the CI gates, OmniRoute ships an **opt-in** `agent-lsp` scaffold
+Beyond the CI gates, RedRouter ships an **opt-in** `agent-lsp` scaffold
 (a project-level `.mcp.json`, Fase 7 Task 15). Create `.mcp.json`
 to expose a TypeScript language server to coding agents, so they resolve symbols /
 diagnostics **before** writing code — a compile-before-claim companion to

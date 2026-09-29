@@ -112,7 +112,7 @@ function TransportSelector({
   ];
 
   const urlMap: Record<McpTransport, string> = {
-    stdio: "omniroute --mcp",
+    stdio: "red-router --mcp",
     sse: `${baseUrl}/api/mcp/sse`,
     "streamable-http": `${baseUrl}/api/mcp/stream`,
   };

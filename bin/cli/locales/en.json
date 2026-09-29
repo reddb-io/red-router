@@ -2,7 +2,7 @@
   "common": {
     "error": "Error: {message}",
     "serverOffline": "RedRouter server is offline. Start it with: red-router serve",
-    "authRequired": "Authentication required. Set OMNIROUTE_API_KEY or run: omniroute setup",
+    "authRequired": "Authentication required. Set OMNIROUTE_API_KEY or run: red-router setup",
     "rateLimited": "Rate limit exceeded. Retry after {seconds}s.",
     "timeout": "Request timed out after {ms}ms.",
     "success": "Done.",
@@ -32,17 +32,17 @@
   "doctor": {
     "title": "RedRouter Doctor",
     "dbOk": "Database: OK ({path})",
-    "dbMissing": "Database: not initialized — run `omniroute setup`",
+    "dbMissing": "Database: not initialized — run `red-router setup`",
     "portOk": "Port {port}: available",
     "portConflict": "Port {port}: in use by another process",
     "encryptionOk": "Encryption key: configured",
-    "encryptionMissing": "Encryption key missing — run `omniroute setup`",
+    "encryptionMissing": "Encryption key missing — run `red-router setup`",
     "allGood": "All checks passed.",
     "warnings": "{count} warning(s) — see above."
   },
   "providers": {
     "title": "Providers",
-    "noProviders": "No providers configured. Run: omniroute setup",
+    "noProviders": "No providers configured. Run: red-router setup",
     "testing": "Testing {name}...",
     "available": "{count} provider(s) available",
     "connected": "Connected",
@@ -71,7 +71,7 @@
       "dryRunOpt": "Print what would change without writing",
       "confirmPrompt": "Replace API key for connection \"{name}\" ({id})? [y/N] ",
       "dryRunResult": "[dry-run] Would rotate key for \"{name}\" ({id}). No changes made.",
-      "oauthHint": "OAuth connection — run: omniroute oauth {provider}",
+      "oauthHint": "OAuth connection — run: red-router oauth {provider}",
       "envVarEmpty": "Environment variable {var} is not set or is empty.",
       "success": "Key rotated for \"{name}\". Run `providers test {id}` to verify.",
       "testPassed": "Post-rotation test passed.",
@@ -142,7 +142,7 @@
     "warning": "⚠ This prints/writes DECRYPTED plaintext API keys and OAuth tokens. Make sure your screen, shell history, and any output file stay private.",
     "confirmHeading": "⚠ WARNING: this exports DECRYPTED provider credentials in plaintext",
     "confirmBody": "This command decrypts and prints/writes apiKey, accessToken, refreshToken, and\nidToken for the selected connection(s). Treat the output as a secret.",
-    "confirmFooter": "To confirm, run:\n  omniroute auth export --force",
+    "confirmFooter": "To confirm, run:\n  red-router auth export --force",
     "missingKey": "STORAGE_ENCRYPTION_KEY is required to export credentials.",
     "notFound": "Connection not found: {id}",
     "invalidFormat": "Invalid format: {format}. Use json or env."
@@ -220,7 +220,7 @@
     "reasoning": "Reasoning effort level (low|medium|high)",
     "thinking": "Extended thinking token budget",
     "explain": "Print fallback tree and cost range to stderr",
-    "noCombo": "No matching combo found. Configure one with: omniroute combo create"
+    "noCombo": "No matching combo found. Configure one with: red-router combo create"
   },
   "chat": {
     "description": "Send a one-shot chat prompt to RedRouter",
@@ -292,14 +292,14 @@
       "statusDescription": "Show current backup schedule status",
       "cronOpt": "Cron expression for schedule (default: daily at 3am)",
       "enabled": "Automatic backup enabled (cron: {cron}).",
-      "hint": "  The schedule is read by omniroute serve on startup.",
+      "hint": "  The schedule is read by red-router serve on startup.",
       "disabled": "Automatic backup disabled.",
       "notConfigured": "No backup schedule configured."
     }
   },
   "health": {
     "description": "Check server health and component status",
-    "noServer": "Server not running. Start with: omniroute serve",
+    "noServer": "Server not running. Start with: red-router serve",
     "title": "Health",
     "status": "Status: {status}",
     "uptime": "Uptime: {uptime}",
@@ -308,12 +308,12 @@
   },
   "quota": {
     "description": "Show provider quota usage",
-    "noServer": "Server not running. Start with: omniroute serve",
+    "noServer": "Server not running. Start with: red-router serve",
     "noData": "No quota information available."
   },
   "cache": {
     "description": "Manage response cache",
-    "noServer": "Server not running. Start with: omniroute serve",
+    "noServer": "Server not running. Start with: red-router serve",
     "cleared": "Cache cleared.",
     "clearFailed": "Failed to clear cache."
   },
@@ -322,7 +322,7 @@
   },
   "test": {
     "description": "Test a provider connection",
-    "noServer": "Server not running. Start with: omniroute serve",
+    "noServer": "Server not running. Start with: red-router serve",
     "testing": "Testing {provider} / {model}...",
     "passed": "Connection successful!",
     "failed": "Connection failed: {error}",
@@ -334,7 +334,7 @@
     "saved": "Results saved to {path}",
     "compareTitle": "Model Comparison",
     "compareMinTwo": "At least two models required for --compare (comma-separated)",
-    "noProviders": "No providers configured. Add one with: omniroute keys add"
+    "noProviders": "No providers configured. Add one with: red-router keys add"
   },
   "update": {
     "checking": "Checking for updates...",
@@ -348,7 +348,7 @@
     "running": "MCP server running ({transport})",
     "stopped": "MCP server stopped.",
     "restarted": "MCP server restarted.",
-    "stoppedHint": "Run `omniroute mcp enable` to turn it on.",
+    "stoppedHint": "Run `red-router mcp enable` to turn it on.",
     "enabled": "MCP server enabled.",
     "disabled": "MCP server disabled.",
     "enable": {
@@ -526,7 +526,7 @@
   "models": {
     "description": "List available models (requires server)",
     "search": "Filter models by id, name, provider, or description",
-    "noServer": "Server not running. Start with: omniroute serve",
+    "noServer": "Server not running. Start with: red-router serve",
     "noModels": "No models found."
   },
   "audit": {
@@ -1222,8 +1222,8 @@
       "listTitle": "Available Languages",
       "current": "Language: {code} ({name})",
       "saved": "Language set to {code} ({name}).",
-      "noCode": "Language code required. Run 'omniroute config lang list' to see available codes.",
-      "unknown": "Unknown language code: {code}. Run 'omniroute config lang list' to see available codes.",
+      "noCode": "Language code required. Run 'red-router config lang list' to see available codes.",
+      "unknown": "Unknown language code: {code}. Run 'red-router config lang list' to see available codes.",
       "alreadySet": "Language is already set to {code}.",
       "envHint": "Tip: you can also set OMNIROUTE_LANG={code} in your environment."
     }

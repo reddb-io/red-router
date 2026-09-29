@@ -439,7 +439,7 @@ export function createStreamController({
     const handleClientAbort = () => {
       const reason = clientAbortSignal.reason;
       if (isDeadlineAbortReason(reason)) {
-        // An AbortSignal can represent an OmniRoute-owned deadline as well as
+        // An AbortSignal can represent an RedRouter-owned deadline as well as
         // a caller disconnect. Preserve deadline failures as 504; classifying
         // them as client disconnects writes a misleading 499 to the call log.
         abortController.abort(reason);

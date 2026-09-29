@@ -250,7 +250,7 @@ function genericEnv(baseEnv, kind, baseUrl, authToken, model) {
       provider: {
         omniroute: {
           npm: "@ai-sdk/openai-compatible",
-          name: "OmniRoute",
+          name: "RedRouter",
           options: {
             baseURL: ensureV1BaseUrl(baseUrl),
             apiKey: "{env:OMNIROUTE_API_KEY}",
@@ -297,7 +297,7 @@ function buildQwenSettings(baseUrl, model) {
         openai: [
           {
             id: model,
-            name: `${model} (OmniRoute)`,
+            name: `${model} (RedRouter)`,
             envKey: "OMNIROUTE_API_KEY",
             baseUrl: qwenBaseUrl,
           },
@@ -319,7 +319,7 @@ async function buildGenericPlan(target, rawOpts, args = []) {
   const commandSpec = resolveGenericSpawn(target);
   const model = resolveModelFromTargetOptions(rawOpts);
   if (manifestRequiresModel(target) && !model) {
-    throw new Error("Qwen Code requires --model in non-interactive OmniRoute launches");
+    throw new Error("Qwen Code requires --model in non-interactive RedRouter launches");
   }
   const modelArgs = modelArgsForTarget(target, model);
   const fullArgs = [...modelArgs, ...args];
@@ -364,13 +364,13 @@ async function runGenericTarget(target, rawOpts, args) {
     apiKey: resolveAuthTokenOption(rawOpts),
   });
   if (!(await healthCheckForRun(baseUrl))) {
-    console.error(`OmniRoute is not reachable at ${baseUrl}. Start it or check --remote.`);
+    console.error(`RedRouter is not reachable at ${baseUrl}. Start it or check --remote.`);
     return 1;
   }
 
   const model = resolveModelFromTargetOptions(rawOpts);
   if (manifestRequiresModel(target) && !model) {
-    console.error("Qwen Code requires --model in non-interactive OmniRoute launches.");
+    console.error("Qwen Code requires --model in non-interactive RedRouter launches.");
     return 2;
   }
   const modelArgs = modelArgsForTarget(target, model);
@@ -574,17 +574,17 @@ export async function runCliTarget(target, opts = {}, args = []) {
 export function registerRun(program) {
   program
     .command("run <target>")
-    .description(t("run.description") || "Run a supported CLI target through OmniRoute")
+    .description(t("run.description") || "Run a supported CLI target through RedRouter")
     .option(
       "--port <port>",
-      "Local OmniRoute port (ignored when --remote or --base-url is set)",
+      "Local RedRouter port (ignored when --remote or --base-url is set)",
       "25050"
     )
     .option(
       "--remote <url>",
-      "Remote OmniRoute base URL (overrides --port, --base-url, and the active context)"
+      "Remote RedRouter base URL (overrides --port, --base-url, and the active context)"
     )
-    .option("--base-url <url>", "OmniRoute base URL (alias for --remote)")
+    .option("--base-url <url>", "RedRouter base URL (alias for --remote)")
     .option("--context <name>", "Named local/remote context to use for URL and credentials")
     .option("--provider <id>", "Provider id for shorthand model composition")
     .option("--model <id>", "Model id to inject in the launched target where supported")

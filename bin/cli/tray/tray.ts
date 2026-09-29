@@ -59,10 +59,10 @@ export function isTraySupported(): boolean {
 
 export function buildMenuItems(args: { port: number; autostartEnabled: boolean }): MenuItem[] {
   return [
-    { title: "Open OmniRoute Dashboard", enabled: true },
+    { title: "Open RedRouter Dashboard", enabled: true },
     { title: `Port: ${args.port}`, enabled: false },
     { title: args.autostartEnabled ? "Disable Autostart" : "Enable Autostart", enabled: true },
-    { title: "Quit OmniRoute", enabled: true },
+    { title: "Quit RedRouter", enabled: true },
   ];
 }
 
@@ -86,7 +86,7 @@ async function initWindowsTrayInstance(options: TrayOptions): Promise<TrayInstan
   let handle: WinTrayHandle | null = null;
   handle = initWindowsTray({
     iconPath,
-    tooltip: `OmniRoute :${options.port}`,
+    tooltip: `RedRouter :${options.port}`,
     onEvent: async (evt) => {
       if (evt.type !== "click") return;
       switch (evt.index) {
@@ -128,8 +128,8 @@ async function initUnixTray(options: TrayOptions): Promise<TrayInstance | null> 
       // RGBA logo; template mode would render it as a solid white square
       // because macOS template icons only use the alpha channel. (PR #1080)
       isTemplateIcon: false,
-      title: "OmniRoute",
-      tooltip: `OmniRoute :${options.port}`,
+      title: "RedRouter",
+      tooltip: `RedRouter :${options.port}`,
       items: menuItems.map((it) => ({
         title: it.title,
         tooltip: "",

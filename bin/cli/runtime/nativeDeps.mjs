@@ -69,7 +69,7 @@ export function ensureRuntimeDir() {
           name: "omniroute-runtime",
           version: "1.0.0",
           private: true,
-          description: "User-writable runtime deps for OmniRoute (native binaries)",
+          description: "User-writable runtime deps for RedRouter (native binaries)",
           // #14355: npm 11+ rejects `--allow-scripts=<pkg>` as a CLI flag for
           // project-scoped installs ("Add the entries to the 'allowScripts'
           // field in package.json, or to .npmrc, instead") — this is the

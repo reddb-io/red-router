@@ -1,12 +1,12 @@
 ---
-title: "Antigravity (Google One AI) — Onboarding with OmniRoute"
+title: "Antigravity (Google One AI) — Onboarding with RedRouter"
 version: 3.8.50
 lastUpdated: 2026-07-31
 ---
 
-# OmniRoute Antigravity (Google One AI) Onboarding Guide
+# RedRouter Antigravity (Google One AI) Onboarding Guide
 
-> **What you get**: Access to Gemini 3.1 Pro, Gemini 3.7 Flash, Claude Sonnet 4.6, and other models through your Google One AI Pro subscription — routed through OmniRoute as a unified gateway.
+> **What you get**: Access to Gemini 3.1 Pro, Gemini 3.7 Flash, Claude Sonnet 4.6, and other models through your Google One AI Pro subscription — routed through RedRouter as a unified gateway.
 
 **Official references**:
 
@@ -29,7 +29,7 @@ Both providers share the **same Google backend** — identical OAuth client, tok
 | **Google product**   | Antigravity 2.0 / Antigravity IDE         | Antigravity CLI                                     |
 | **Backend**          | Same Google Cloud Code API                | Same Google Cloud Code API                          |
 | **OAuth / Token**    | Same client, same refresh                 | Same client, same refresh                           |
-| **Model catalog**    | Static curated list (OmniRoute hardcoded) | Live-probed from Google via `:fetchAvailableModels` |
+| **Model catalog**    | Static curated list (RedRouter hardcoded) | Live-probed from Google via `:fetchAvailableModels` |
 | **Claude models**    | Sonnet 4.6, Opus 4.6 (4 variants each)    | Sonnet 4.6, Opus 4.6 (4 variants each)              |
 | **Gemini naming**    | Clean labels (Low/Medium/High)            | Upstream IDs (extra-low/low/agent)                  |
 | **Extra models**     | `gpt-oss-120b-medium`                     | May include additional models from Google           |
@@ -91,11 +91,11 @@ Credits are purchased separately and deducted at standard API pricing.
 
 ### Key Details
 
-- Quota is **account-level shared** — the same Google account in Antigravity IDE, CLI, and OmniRoute shares one quota pool
+- Quota is **account-level shared** — the same Google account in Antigravity IDE, CLI, and RedRouter shares one quota pool
 - Each Google account has its own independent quota — multiple accounts = multiple quota pools
 - AI Pro users have reported **7-day lockouts** instead of 5-hour resets when weekly baseline is hit (Google confirmed this is by design for high demand)
 
-**When your account is exhausted**: OmniRoute automatically retries with the next available account in the combo route. No manual intervention needed.
+**When your account is exhausted**: RedRouter automatically retries with the next available account in the combo route. No manual intervention needed.
 
 ---
 
@@ -105,9 +105,9 @@ Every antigravity/agy connection needs a Google Cloud Code `projectId`. Without 
 
 ### Method A: Automatic (Recommended)
 
-OmniRoute handles this automatically. When you add a new Google account via Dashboard OAuth:
+RedRouter handles this automatically. When you add a new Google account via Dashboard OAuth:
 
-1. OmniRoute refreshes the token
+1. RedRouter refreshes the token
 2. Calls `loadCodeAssist` to discover the projectId
 3. If no project exists, calls `onboardUser` to create one
 4. Retries `loadCodeAssist` to get the newly created projectId
@@ -130,14 +130,14 @@ agy login
 # This triggers Cloud Code registration and assigns a projectId
 ```
 
-After `agy login` succeeds, refresh the token in OmniRoute Dashboard. The projectId will be discovered automatically.
+After `agy login` succeeds, refresh the token in RedRouter Dashboard. The projectId will be discovered automatically.
 
 ### How to verify
 
 Check the database:
 
 ```bash
-# Inside OmniRoute container
+# Inside RedRouter container
 node -e "const db=require('better-sqlite3')('/app/data/storage.sqlite'); \
   console.log(JSON.stringify(db.prepare(\
     'SELECT email,project_id FROM provider_connections WHERE provider=\"agy\"'\
@@ -156,7 +156,7 @@ podman logs omniroute 2>&1 | grep "projectId discovered"
 
 ### The Problem
 
-Google OAuth requires a valid redirect URI. OmniRoute's default uses `http://127.0.0.1:20128/callback` (loopback). This works for local builds but **fails for remote deployments** (e.g., a server accessed via LAN IP).
+Google OAuth requires a valid redirect URI. RedRouter's default uses `http://127.0.0.1:20128/callback` (loopback). This works for local builds but **fails for remote deployments** (e.g., a server accessed via LAN IP).
 
 Google rejects redirect URIs that:
 
@@ -167,7 +167,7 @@ Google rejects redirect URIs that:
 
 **Option A: Use the built-in OAuth flow (default)**
 
-- Works when you access OmniRoute from `localhost` or `127.0.0.1`
+- Works when you access RedRouter from `localhost` or `127.0.0.1`
 - No configuration needed
 
 **Option B: Custom OAuth credentials**
@@ -182,9 +182,9 @@ Google rejects redirect URIs that:
 
 **Option C: Use agy CLI for initial login**
 
-- Run `agy login` on the machine that will access OmniRoute
+- Run `agy login` on the machine that will access RedRouter
 - The OAuth flow completes locally, tokens are stored
-- Import the connection into OmniRoute via Dashboard
+- Import the connection into RedRouter via Dashboard
 
 ### Limitations
 
@@ -195,7 +195,7 @@ Google rejects redirect URIs that:
 
 ## 5. Troubleshooting: When Automatic Setup Fails
 
-OmniRoute handles projectId discovery and onboarding automatically for most accounts. When it fails, the root cause is usually one of these:
+RedRouter handles projectId discovery and onboarding automatically for most accounts. When it fails, the root cause is usually one of these:
 
 ### Account region is blocked
 
@@ -223,7 +223,7 @@ OmniRoute handles projectId discovery and onboarding automatically for most acco
 
 **Root cause**: The account has never been registered with Google Cloud Code, and the automatic onboarding failed.
 
-**Fix**: Run `agy login` manually to trigger Cloud Code registration, then refresh the token in OmniRoute Dashboard.
+**Fix**: Run `agy login` manually to trigger Cloud Code registration, then refresh the token in RedRouter Dashboard.
 
 ### Token expired or revoked
 
@@ -275,4 +275,4 @@ Account not working?
 
 ---
 
-_Last updated: 2026-07-31. Based on OmniRoute v3.8.50._
+_Last updated: 2026-07-31. Based on RedRouter v3.8.50._

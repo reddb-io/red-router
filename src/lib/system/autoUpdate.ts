@@ -293,7 +293,7 @@ export async function validateAutoUpdateRuntime(
   if (!(await existsImpl("/var/run/docker.sock"))) {
     return {
       supported: false,
-      reason: "Docker socket is not mounted into the OmniRoute container.",
+      reason: "Docker socket is not mounted into the RedRouter container.",
       composeCommand: null,
     };
   }
@@ -303,7 +303,7 @@ export async function validateAutoUpdateRuntime(
   } catch {
     return {
       supported: false,
-      reason: "git is not available inside the OmniRoute container.",
+      reason: "git is not available inside the RedRouter container.",
       composeCommand: null,
     };
   }
@@ -313,7 +313,7 @@ export async function validateAutoUpdateRuntime(
     return {
       supported: false,
       reason:
-        "Neither docker compose nor docker-compose is available inside the OmniRoute container.",
+        "Neither docker compose nor docker-compose is available inside the RedRouter container.",
       composeCommand: null,
     };
   }
@@ -342,7 +342,7 @@ export function buildNpmUpdateScript(latest: string): string {
     // --include=optional keeps the optionalDependencies (better-sqlite3, keytar,
     // tls-client, and the llmlingua SLM stack) installed on every update so an
     // `omit=optional` config / .npmrc cannot silently drop them.
-    `npm install -g omniroute@${latest} --include=optional --ignore-scripts --legacy-peer-deps`,
+    `npm install -g @reddb-io/red-router@${latest} --include=optional --ignore-scripts --legacy-peer-deps`,
     "if command -v pm2 >/dev/null 2>&1; then",
     "  pm2 restart omniroute || true",
     "fi",
@@ -368,7 +368,7 @@ export function buildSourceUpdateScript(latest: string, gitRemote = "origin"): s
     "node scripts/dev/sync-env.mjs 2>/dev/null || true",
     "npm run build",
     "if command -v pm2 >/dev/null 2>&1; then",
-    "  pm2 restart omniroute --update-env || true",
+    "  pm2 restart red-router --update-env || true",
     "fi",
     `echo "[AutoUpdate] Successfully updated to ${targetTag}."`,
   ].join("\n");

@@ -214,7 +214,7 @@ export function applyVideoBridgeLogRedaction(
 
 /**
  * Extract the OpenAI Responses API response id this attempt produced, so it
- * can be indexed for OmniRoute-native `previous_response_id` continuation
+ * can be indexed for RedRouter-native `previous_response_id` continuation
  * (see src/lib/db/responsesContinuationStore.ts). Only meaningful when the
  * client actually used the Responses endpoint -- a Chat Completions
  * `chatcmpl-*` id must never be mistaken for a Responses response id.

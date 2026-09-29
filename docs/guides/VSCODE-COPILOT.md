@@ -6,7 +6,7 @@ lastUpdated: 2026-08-18
 
 # VS Code Copilot Chat — OmniCopilot extension
 
-**OmniCopilot** puts every model your OmniRoute serves into the _native_ GitHub Copilot Chat
+**OmniCopilot** puts every model your RedRouter serves into the _native_ GitHub Copilot Chat
 model picker. No second sidebar, no separate chat UI — Copilot's agent mode, tool calling,
 MCP servers and custom instructions all keep working, just running on the model you pick.
 
@@ -25,13 +25,13 @@ MCP servers and custom instructions all keep working, just running on the model 
 
 ## Setup
 
-1. **Run OmniRoute** — `npm install -g omniroute && omniroute` (dashboard on `http://localhost:20128`).
-2. **Install the extension** — search "OmniRoute" in the Extensions view.
-3. **Pick a model** — Copilot Chat → model picker → **Manage Models…** → **OmniRoute**, then tick
+1. **Run RedRouter** — `npm install -g @reddb-io/red-router && red-router` (dashboard on `http://localhost:20128`).
+2. **Install the extension** — search "RedRouter" in the Extensions view.
+3. **Pick a model** — Copilot Chat → model picker → **Manage Models…** → **RedRouter**, then tick
    what you want.
 
-Nothing to configure when OmniRoute runs on the default port. For a remote instance, open the
-**OmniRoute icon in the Activity Bar** (or run `OmniRoute: Manage Connection`) and set:
+Nothing to configure when RedRouter runs on the default port. For a remote instance, open the
+**RedRouter icon in the Activity Bar** (or run `RedRouter: Manage Connection`) and set:
 
 - **Server URL** — the server root, e.g. `http://192.168.0.15:20128`. The `/v1` suffix is
   appended by the extension; do not include it.
@@ -77,7 +77,7 @@ HTTP 400 — Model '<id>' is an image-generation model and cannot be used on
 
 so they are filtered out by their `type` field before reaching the picker. **Responses-API
 models are kept** — every Codex / GPT-5.x entry advertises `supported_endpoints: ["responses"]`,
-and OmniRoute translates those for `/v1/chat/completions`, so they are perfectly usable.
+and RedRouter translates those for `/v1/chat/completions`, so they are perfectly usable.
 
 ### Providers you never configured
 
@@ -90,7 +90,7 @@ extension.
 
 ## Dashboard inside a VS Code tab
 
-`omnicopilot.dashboardOpen: "editor"` renders the OmniRoute dashboard in an editor tab via the
+`omnicopilot.dashboardOpen: "editor"` renders the RedRouter dashboard in an editor tab via the
 Simple Browser instead of an external browser. Embedding is **opt-in on the server** through
 `DASHBOARD_ALLOW_EMBED=vscode`, which serves the HTML pages with
 `frame-ancestors 'self' vscode-webview:` instead of the default `frame-ancestors 'none'` +
@@ -111,19 +111,19 @@ npm start
 | How you installed          | Can you enable embedding?                                                                                                               |
 | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
 | From source                | ✅ set the variable on the build command, as above                                                                                      |
-| `npm install -g omniroute` | ❌ the published package ships a prebuilt bundle — build from source instead                                                            |
+| `npm install -g @reddb-io/red-router` | ❌ the published package ships a prebuilt bundle — build from source instead                                                            |
 | Docker image               | ✅ `docker build --build-arg DASHBOARD_ALLOW_EMBED=vscode -t omniroute:embed .` — the prebuilt image on Docker Hub is not embed-enabled |
 
 Without an embed-enabled build the page refuses to frame, the extension detects that from the
 response headers and falls back to the external browser — nothing breaks, and it says so once.
 See [`ENVIRONMENT.md`](../reference/ENVIRONMENT.md) and issue
-[#10273](https://github.com/diegosouzapw/OmniRoute/issues/10273).
+[#10273](https://github.com/reddb-io/red-router/issues/10273).
 
 ---
 
 ## Configuring your other tools from inside VS Code
 
-**`OmniRoute: Configure Coding CLI`** drives the `omniroute` CLI to write ready-to-use profiles
+**`RedRouter: Configure Coding CLI`** drives the `omniroute` CLI to write ready-to-use profiles
 for Codex CLI, Claude Code, Cline, Continue, Cursor, Aider, OpenCode, Goose, Crush, Qwen Code,
 Kilo and Roo — the same configs described in
 [`CLI-INTEGRATIONS.md`](CLI-INTEGRATIONS.md). The API key is handed to the CLI through the
@@ -135,18 +135,18 @@ Kilo and Roo — the same configs described in
 
 | Symptom                                              | Cause / fix                                                                                                                                                                                                                                              |
 | ---------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| No OmniRoute models in the picker                    | Server unreachable. The status-bar dot goes grey; run `OmniRoute: Check Connection`. Discovery is silent by design and contributes no models rather than prompting.                                                                                      |
+| No RedRouter models in the picker                    | Server unreachable. The status-bar dot goes grey; run `RedRouter: Check Connection`. Discovery is silent by design and contributes no models rather than prompting.                                                                                      |
 | Every model appears twice                            | You are on an OmniCopilot older than 1.0.1 — update. The extension now requests `?prefix=alias`.                                                                                                                                                         |
 | An image/audio model used to be listed and is gone   | Intentional since 1.0.1 — it could never answer a chat request.                                                                                                                                                                                          |
-| Panel missing from the Activity Bar                  | VS Code moves extra view containers into the **"…"** overflow at the bottom of the Activity Bar, and a container hidden via right-click stays hidden. Right-click the Activity Bar → tick **OmniRoute**, or open it with `OmniRoute: Manage Connection`. |
+| Panel missing from the Activity Bar                  | VS Code moves extra view containers into the **"…"** overflow at the bottom of the Activity Bar, and a container hidden via right-click stays hidden. Right-click the Activity Bar → tick **RedRouter**, or open it with `RedRouter: Manage Connection`. |
 | Dashboard opens in the browser despite `editor` mode | The server was not **built** with `DASHBOARD_ALLOW_EMBED=vscode` (see above) — setting it at startup on a prebuilt install does nothing. The fallback is deliberate.                                                                                     |
-| Models list is stale after changing providers        | `OmniRoute: Refresh Models`, or the ↻ link in the panel.                                                                                                                                                                                                 |
+| Models list is stale after changing providers        | `RedRouter: Refresh Models`, or the ↻ link in the panel.                                                                                                                                                                                                 |
 
 ---
 
 ## See also
 
 - [`CLI-INTEGRATIONS.md`](CLI-INTEGRATIONS.md) — every other coding tool
-- [`REMOTE-MODE.md`](REMOTE-MODE.md) — driving a remote OmniRoute
+- [`REMOTE-MODE.md`](REMOTE-MODE.md) — driving a remote RedRouter
 - [`../reference/API_REFERENCE.md`](../reference/API_REFERENCE.md) — the `/v1/models` contract
 - [`docs/CATALOG.md`](https://github.com/diegosouzapw/OmniCopilot/blob/main/docs/CATALOG.md) — the extension's own catalog notes

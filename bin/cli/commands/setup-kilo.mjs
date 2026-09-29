@@ -63,7 +63,7 @@ export function buildKiloAuth(existing, { apiKey, baseUrl, model }) {
 export function buildKiloVscodeSettings(existing, { apiKey, baseUrl, model }) {
   const s = { ...(existing || {}) };
   s["kilocode.customProvider"] = {
-    name: "OmniRoute",
+    name: "RedRouter",
     baseURL: baseUrl,
     apiKey: apiKey || "sk_omniroute",
   };
@@ -107,7 +107,7 @@ export async function runSetupKiloCommand(opts = {}) {
 
   const guard = await guardHostConfigTarget(authPath, {
     toolLabel: "Kilo Code",
-    hostCommand: "omniroute setup-kilo",
+    hostCommand: "red-router setup-kilo",
     allowContainerWrite: Boolean(opts.allowContainerWrite ?? opts["allow-container-write"]),
     dryRun,
   });
@@ -117,7 +117,7 @@ export async function runSetupKiloCommand(opts = {}) {
     opts["vscode-settings"] ??
     join(os.homedir(), ".config", "Code", "User", "settings.json");
 
-  printHeading("OmniRoute → Kilo Code (OpenAI-compatible)");
+  printHeading("RedRouter → Kilo Code (OpenAI-compatible)");
   printInfo(`Server: ${baseUrl}`);
 
   let model = opts.model;
@@ -188,11 +188,11 @@ export function registerSetupKilo(program) {
   program
     .command("setup-kilo")
     .description(
-      "Configure Kilo Code for OmniRoute: write ~/.local/share/kilo/auth.json (CLI) + VS Code kilocode.* settings"
+      "Configure Kilo Code for RedRouter: write ~/.local/share/kilo/auth.json (CLI) + VS Code kilocode.* settings"
     )
-    .option("--port <port>", "Local OmniRoute port (ignored when --remote is set)", "25050")
-    .option("--remote <url>", "Remote OmniRoute URL, e.g. http://192.168.0.15:25050")
-    .option("--api-key <key>", "OmniRoute API key (defaults to OMNIROUTE_API_KEY env var)")
+    .option("--port <port>", "Local RedRouter port (ignored when --remote is set)", "25050")
+    .option("--remote <url>", "Remote RedRouter URL, e.g. http://192.168.0.15:25050")
+    .option("--api-key <key>", "RedRouter API key (defaults to OMNIROUTE_API_KEY env var)")
     .option("--model <id>", "Model id for Kilo (required unless picked interactively)")
     .option(
       "--auth-path <path>",

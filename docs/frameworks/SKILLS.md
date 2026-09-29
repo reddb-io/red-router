@@ -9,29 +9,29 @@ lastUpdated: 2026-06-28
 > **Source of truth:** `src/lib/skills/` and `src/app/api/skills/`
 > **Last updated:** 2026-06-28 — v3.8.40
 
-OmniRoute exposes an extensible Skills framework that lets language models (and operators) compose reusable capabilities — from filesystem reads and HTTP requests to sandboxed code execution and curated marketplace skills.
+RedRouter exposes an extensible Skills framework that lets language models (and operators) compose reusable capabilities — from filesystem reads and HTTP requests to sandboxed code execution and curated marketplace skills.
 
-A skill is a versioned, schema-defined unit of work. OmniRoute can inject skills as tool definitions into outbound requests, intercept tool calls coming back from the model, run the matching handler, and feed the result back to the model so the conversation can continue. The model never sees the implementation — only the tool interface.
+A skill is a versioned, schema-defined unit of work. RedRouter can inject skills as tool definitions into outbound requests, intercept tool calls coming back from the model, run the matching handler, and feed the result back to the model so the conversation can continue. The model never sees the implementation — only the tool interface.
 
 ---
 
 ## Agent Skills vs Omni Skills
 
-OmniRoute has two distinct but complementary skill systems:
+RedRouter has two distinct but complementary skill systems:
 
 | Dimension       | **Omni Skills** (this doc)                                    | **Agent Skills**                                                                            |
 | :-------------- | :------------------------------------------------------------ | :------------------------------------------------------------------------------------------ |
 | Purpose         | LLM tool injection + sandboxed execution                      | SKILL.md catalog for external agents to discover and consume                                |
 | Source of truth | `src/lib/skills/` + marketplace                               | `src/lib/agentSkills/` + `skills/` directory                                                |
 | Runtime mode    | Injected into outbound requests, executed on tool-call events | Static markdown catalog + REST/MCP/A2A discovery endpoints                                  |
-| Who uses it     | OmniRoute itself (combo routing, inbound LLM calls)           | External agents, MCP clients, A2A orchestrators                                             |
+| Who uses it     | RedRouter itself (combo routing, inbound LLM calls)           | External agents, MCP clients, A2A orchestrators                                             |
 | Count           | Variable (marketplace-driven)                                 | 45 catalog entries (23 API + 21 CLI + 1 config)                                               |
 | Format          | `SkillDefinition` with tool schema + handler                  | `SKILL.md` frontmatter + markdown body                                                      |
 | Discovery       | `/api/skills/*` REST + `omniroute_skills_*` MCP tools         | `/api/agent-skills/*` REST + `omniroute_agent_skills_*` MCP tools + A2A `list-capabilities` |
 
-**Omni Skills** are the execution engine — they define what OmniRoute _can do_ when an LLM invokes a tool.
+**Omni Skills** are the execution engine — they define what RedRouter _can do_ when an LLM invokes a tool.
 
-**Agent Skills** are the documentation catalog — they explain to external agents _how to use_ OmniRoute's REST API and CLI, with structured SKILL.md files that can be fed directly into agent prompts.
+**Agent Skills** are the documentation catalog — they explain to external agents _how to use_ RedRouter's REST API and CLI, with structured SKILL.md files that can be fed directly into agent prompts.
 
 For the Agent Skills catalog, generator, MCP tools, and A2A skill, see [docs/frameworks/AGENT-SKILLS.md](./AGENT-SKILLS.md).
 
@@ -43,14 +43,14 @@ For the Agent Skills catalog, generator, MCP tools, and A2A skill, see [docs/fra
 
 Three sources of skills coexist in the same registry:
 
-1. **Built-in skills** (`src/lib/skills/builtins.ts`) — shipped with OmniRoute. Cover the common cases:
+1. **Built-in skills** (`src/lib/skills/builtins.ts`) — shipped with RedRouter. Cover the common cases:
    - `file_read`, `file_write` — per-API-key sandbox workspace under `<DATA_DIR>/skills/workspaces/<hashed-key>/`
    - `http_request` — outbound HTTP through `safeOutboundFetch` with `guard: "public-only"`
    - `web_search` — pluggable search provider with caching (`executeWebSearch`)
    - `eval_code` — Docker-sandboxed `node` or `python` execution
    - `execute_command` — Docker-sandboxed shell command
    - `browser` — Playwright-backed scaffolding, disabled by default (`builtin/browser.ts`)
-2. **SkillsMP** (the OmniRoute Marketplace) — fetched from `https://skillsmp.com/api/v1/skills/search`. Requires `skillsmpApiKey` in Settings.
+2. **SkillsMP** (the RedRouter Marketplace) — fetched from `https://skillsmp.com/api/v1/skills/search`. Requires `skillsmpApiKey` in Settings.
 3. **SkillsSH** (`skills.sh` community catalog) — fetched from `https://skills.sh/api/search`. No auth needed; SKILL.md content pulled from GitHub raw.
 
 A single "active provider" controls which catalog the dashboard installs from (`src/lib/skills/providerSettings.ts`). Switch it under **Settings → Memory & Skills**. Default: `skillsmp`.
@@ -444,7 +444,7 @@ document; there is no float `0.6`-style threshold and no `registry.ts` scoring.
 
 ## Built-in Skills Catalog
 
-OmniRoute ships with a curated set of built-in skills in `src/lib/skills/builtin/`. The most common ones:
+RedRouter ships with a curated set of built-in skills in `src/lib/skills/builtin/`. The most common ones:
 
 ### Browser Automation Skill
 

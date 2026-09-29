@@ -11,12 +11,12 @@ confirm it in source. Nothing here proves parity: it records what each north con
 not regress. Rules that govern the work are in `AGENTS.md` (English-only UI, PII opt-in, no scheduled triggers, CI
 validates, `main` integration).
 
-RedRouter's baseline is its own v0.33.0 (Friday) experience. The code at HEAD is an OmniRoute v3.8.51 TypeScript base
+RedRouter's baseline is its own v0.33.0 (Friday) experience. The code at HEAD is a RedRouter v3.8.51 TypeScript base
 (sync to 3.8.52, including four GHSA security fixes, is in progress elsewhere and treated as slice `X-OMNI`).
 Four norths supply capability; none replaces our interface, contracts or release channel.
 
 Reading the map: `sources` says who has a capability (`has`, `partial`, `no`, `n/a` for 9router, Pentatonic, LiteLLM,
-OmniRoute, Friday); `head` is our state (`equivalent`, `partial`, `missing`, `better`); `slice` is the unit of work
+RedRouter, Friday); `head` is our state (`equivalent`, `partial`, `missing`, `better`); `slice` is the unit of work
 (sections 4 and 6); `ux.home` is the page in the target IA (section 2); `ownUnique` marks RedRouter-only features
 (section 5).
 
@@ -27,7 +27,7 @@ OmniRoute, Friday); `head` is our state (`equivalent`, `partial`, `missing`, `be
 | 9router (`decolua`, v0.5.91 `f01fb909e3`) | Provider breadth and OAuth/free lanes, CLI tool configs, combo presets and capacity adapter, token-saver family, quota tracker, tunnels and proxy pools, media provider pages | providers-accounts, routing-combos, cache-compression; slices S0-S11 | 9Remote promos and NEW badges, its dashboard look and extra locales, its Docker/publish pipeline, `_ide` tool-name cloak, its hidden Basic Chat and PXPIPE menu entries, wholesale test suites |
 | Pentatonic fork (`07bad5a458`) | Owner scoping as the seed for users/tenants, admin keys per owner, per-key spend caps, Postgres and leases, admin request-details API, Bedrock parity checks | access-identity-tenancy, cost-usage-billing, network-deploy; E-A0, E-A, L2, E-B | E-mail string as identity and the `@admin` sentinel, per-user blobs inside global settings, dropping System One dynamic routing (we keep the decision router), its nightly upstream-sync workflow |
 | LiteLLM 1.104.0 | Reusable budgets and spend attribution, teams and access groups, guardrail assignment with policy resolve, observability destinations and Prometheus, price and context DB, API surface holes, MCP and A2A gateways, key rotation, cache controls, UX patterns (owner-first key form, entity detail tabs, price provenance) | cost-usage-billing, safety-guardrails, observability, agents-mcp-tools; slices L0-L16 | `enterprise/` code or behaviour copied from licensed files, enterprise gating and upsell banners, route-string permissions, YAML as source of truth, mandatory Postgres and Redis, prompts stored in spend logs, ~50 vendor guardrail hooks, "Ask AI", raw passthrough without an allow-list, startup phone-home fetches, bandit/quality routers as first slices |
-| OmniRoute 3.8.51 (code base) | Already in HEAD: ~270 providers, 19 combo strategies, three resilience layers, guardrails, compression engines, MCP/A2A servers, batch, memory, skills, MITM, cost ledger, key policy | all domains; slice `X-OMNI` (ledger and sync) | Its product identity and branding, grid wallpaper, sponsor banners, extra locales, gamification visible by default, npm/VPS/release-branch publishers, nightly workflows, operator identity |
+| RedRouter 3.8.51 (code base) | Already in HEAD: ~270 providers, 19 combo strategies, three resilience layers, guardrails, compression engines, MCP/A2A servers, batch, memory, skills, MITM, cost ledger, key policy | all domains; slice `X-OMNI` (ledger and sync) | Its product identity and branding, grid wallpaper, sponsor banners, extra locales, gamification visible by default, npm/VPS/release-branch publishers, nightly workflows, operator identity |
 | RedRouter (own, none of the four) | See section 5: RedCode header contract, System One/JEV, reasoning autopilot, flat ids per key, usage sinks, recommended combos and Setup, white-label, MCP admin keys, chained routers, Claude Code passthrough, RTK/caveman/ponytail/ADHD, headless service and tray, Friday importer | first-class in every domain (`ownUnique` rows) | n/a |
 
 Upstream attribution stays in the ledgers and CHANGELOG. LiteLLM behaviour is re-implemented independently; only MIT
@@ -35,7 +35,7 @@ files may be read for design.
 
 ## 2. Target information architecture
 
-Starting point is the Friday sidebar (Operate, Tools, System, Debug). HEAD carries 97 `href` entries in 10 OmniRoute
+Starting point is the Friday sidebar (Operate, Tools, System, Debug). HEAD carries 97 `href` entries in 10 RedRouter
 sections (`src/shared/constants/sidebarVisibility/sections.ts`) over 124 `page.tsx` files. The target keeps five sections plus
 a hidden Advanced set, and moves the rest into tabs so each page answers one question.
 
@@ -61,7 +61,7 @@ a hidden Advanced set, and moves the rest into tabs so each page answers one que
 | Govern | Who may do what, how much, under which rules | Budgets; People (Users, Teams, Access groups, Tenants); Identity (Providers, Test sign-in); Guardrails (Rules, Attachments, Policies, Monitor); Audit | Entirely new grouping; Budgets, Guardrails and Audit are visible in Local Mode, People and Identity only when tenancy is on |
 | System | Set up and maintain the router | Setup; Providers (Accounts, Custom nodes, Remote routers, Model browser, Free tier); Integrations (Usage sinks, Webhooks, Log export, Metrics); Network (Bind and access, Proxies, Free proxies); Pricing (Prices, Data source); Settings (General, Security, Appearance and branding, Routing, Resilience, Feature flags, Sidebar); Health (Health, Runtime, Embedded services, Version); Data (Import, Backup and export, Updates, Changelog) | Setup, Usage sinks exist at HEAD; Network, Data, Metrics, Pricing source are new homes |
 | Debug | Find out why something happened | Logs (Requests, Timeline, Proxy, Activity, Conversations); Console; Translator; Simulate (route explain); Chaos | Simulate is the playground route simulator promoted |
-| Advanced (hidden) | OmniRoute long tail | Radar, Free provider rankings, Gamification (Leaderboard, Profile, Tokens), Plugins, Evals, Batch extras | Off by default; enabled in Settings > Sidebar or found with quick search |
+| Advanced (hidden) | RedRouter long tail | Radar, Free provider rankings, Gamification (Leaderboard, Profile, Tokens), Plugins, Evals, Batch extras | Off by default; enabled in Settings > Sidebar or found with quick search |
 
 ### 2.3 Default visibility (curated preset "Essential")
 
@@ -175,7 +175,7 @@ plug in later without a schema break. Full per-slice list: section 6.
 | Q4 | Build Postgres/HA (`E-B`) at all, or stay single-node SQLite? It needs an ADR first (sync SQLite layer) | Stay SQLite; ADR only |
 | Q5 | DS seam: copy `*.variants.ts` (Option B) or adopt the official kit Sync; make `compact` the root density? | Option B; compact |
 | Q6 | Sidebar preset: confirm the 20 entries in 2.3 and Govern hidden until tenancy or budgets are used? | As proposed |
-| Q7 | Drop 9Remote promos and OmniRoute sponsor banners? | Drop |
+| Q7 | Drop 9Remote promos and RedRouter sponsor banners? | Drop |
 | Q8 | Restore persistent multi-session Chat as a Playground tab, or leave Basic Chat retired? | Retired |
 | Q9 | `if/` resolves to Qoder at HEAD (iFlow was retired): return 410 or keep Qoder? `ollama/` cloud vs local stays as is with a warning? | 410 for `gc/` and `if/`; keep `ollama/` |
 | Q10 | Usage-sink payload: accept a delivery-id break versus Friday consumers when moving to payload v1? | Keep HEAD ids, document |
@@ -194,7 +194,7 @@ plug in later without a schema break. Full per-slice list: section 6.
 | Budget overshoot on single-writer SQLite | In-memory counters, batched persistence, bounded overshoot documented, counters rebuilt from the ledger at boot |
 | Rebrand breaks persisted CLI config names and wire headers | Dual recognition (read old, write new) plus tests; keep `X-OmniRoute-*` and env names |
 | Visual regressions cannot be checked on this machine (`next dev` runs out of memory) | CI browser smoke in light and dark, operator screenshot review per DS phase |
-| OmniRoute sync 3.8.52 conflicts with our edits (`en.json`, `manifest.ts`, `Sidebar.tsx`) | Land branding and IA slices in small PRs; ledger records the sync state per file |
+| RedRouter sync 3.8.52 conflicts with our edits (`en.json`, `manifest.ts`, `Sidebar.tsx`) | Land branding and IA slices in small PRs; ledger records the sync state per file |
 | Licence contamination from LiteLLM enterprise files | Behaviour-only re-implementation; never open `enterprise/` while implementing |
 | Sprawl: 120 pages in one product | Essential preset, tabs over menu items, Advanced hidden, quick search |
 
@@ -203,9 +203,9 @@ plug in later without a schema break. Full per-slice list: section 6.
 No schedules and no inherited nightly triggers (AGENTS.md). A ledger plus a manual audit script:
 
 1. Pin the last audited ref of each north in `config/upstream/product-inheritance.json` (9router `f01fb909e3`, Pentatonic
-   `07bad5a458`, LiteLLM `1.104.0`, OmniRoute `3.8.51`, sync 3.8.52 in progress).
+   `07bad5a458`, LiteLLM `1.104.0`, RedRouter `3.8.51`, sync 3.8.52 in progress).
 2. One ledger per north under `config/upstream/` (`9router-ledger.json`, `litellm-ledger.json`, plus Pentatonic and
-   OmniRoute): rows `{sha or capability, status: ported|equivalent|na|pending|blocked, evidence, decidedAt}`; `equivalent`
+   RedRouter): rows `{sha or capability, status: ported|equivalent|na|pending|blocked, evidence, decidedAt}`; `equivalent`
    and `ported` cite a HEAD file and a `tests/redrouter/native/` test.
 3. `scripts/ci/upstream-audit.mjs` (slices `S0`, `L0`, `X-OMNI`; run by hand, `workflow_dispatch` optional, never on push):
    fetches the remotes, lists commits since the pin, applies patch-id and path mapping, reports unclassified commits and
@@ -291,7 +291,7 @@ Highest-value gaps (`head` missing or partial, value H), ordered by effort, then
 | ux-curated-sidebar: Curated sidebar preset and section model | missing | M | X-IA | System > Settings > Sidebar |
 | nd-friday-import: Friday data import and legacy dir migration | partial | M | X-IMPORT | System > Data > Import |
 | nd-network-access: Network access setting and CLI | missing | M | X-NETWORK | System > Network |
-| sg-omni-security-fixes: OmniRoute 3.8.52 security fixes | partial | M | X-OMNI | System > Health |
+| sg-omni-security-fixes: RedRouter 3.8.52 security fixes | partial | M | X-OMNI | System > Health |
 | rcx-usage-cost-stream: usage.cost in the final stream event | missing | M | X-RC2 | Debug > Logs |
 | rcx-models-entry: /v1/models entry contract and kind lists | partial | M | X-RC2 | Operate > Models |
 | rcx-capabilities: GET /v1/capabilities superset | partial | M | X-RC3 | Operate > Endpoint & Keys |
@@ -315,7 +315,7 @@ Slice registry: every slice id used in this plan is defined here and referenced 
 | L0 | LiteLLM ledger and drift audit | 0 | S | - | 7 |
 | S0 | 9router ledger and audit script | 0 | S | - | 23 |
 | X-GUARD | RedRouter-only feature regression contract | 0 | S | - | 18 |
-| X-OMNI | OmniRoute ledger and sync 3.8.52 (in progress elsewhere) | 0 | S | - | 22 |
+| X-OMNI | RedRouter ledger and sync 3.8.52 (in progress elsewhere) | 0 | S | - | 22 |
 | E-A0 | Friday importer fidelity for ownership and narrow admin keys | 1 | S | - | 2 |
 | S1 | Claude Code 2.1.280 adoption and Claude Code fidelity check | 1 | S | - | 2 |
 | S2 | Alias compatibility and retired guard (gc, if) | 1 | S | - | 1 |

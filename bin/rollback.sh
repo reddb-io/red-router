@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# bin/rollback.sh — roll OmniRoute back to a previous release to mitigate a bad
+# bin/rollback.sh — roll RedRouter back to a previous release to mitigate a bad
 # deploy. Part of the deploy-rollback incident-recovery flow.
 #
 # Methods (auto-detected; override with --method):
-#   • npm    — `npm install -g omniroute@<version>` and, if PM2 manages it,
+#   • npm    — `npm install -g @reddb-io/red-router@<version>` and, if PM2 manages it,
 #              `pm2 restart omniroute`. This is how the VPS deploy runs.
 #   • docker — re-tag the local image omniroute:<version> to omniroute:prod and
 #              recreate the prod service from docker-compose.prod.yml. (That
@@ -20,7 +20,7 @@ usage() {
   cat <<'EOF'
 Usage: bin/rollback.sh [<version>] [--method npm|docker] [--yes|-y] [-h|--help]
 
-Rolls OmniRoute back to <version> (e.g. 3.8.35 or v3.8.35). With no version,
+Rolls RedRouter back to <version> (e.g. 3.8.35 or v3.8.35). With no version,
 picks the highest published release below the current package.json version.
 Auto-detects npm vs docker deployment; override with --method.
 EOF
@@ -75,14 +75,14 @@ if [ -z "$VERSION" ]; then
 fi
 
 ops_log "target: omniroute@$VERSION via $METHOD"
-ops_confirm "Roll OmniRoute back to $VERSION via $METHOD?" || ops_die "aborted"
+ops_confirm "Roll RedRouter back to $VERSION via $METHOD?" || ops_die "aborted"
 
 case "$METHOD" in
   npm)
     ops_require_cmd npm
     npm install -g "omniroute@$VERSION"
     if command -v pm2 >/dev/null 2>&1 && pm2 jlist 2>/dev/null | grep -q '"name":"omniroute"'; then
-      pm2 restart omniroute --update-env
+      pm2 restart red-router --update-env
       ops_log "pm2 restarted omniroute"
     else
       ops_log "installed omniroute@$VERSION — restart the service to apply (no PM2 'omniroute' process found)"

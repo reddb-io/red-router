@@ -19,14 +19,14 @@ not install tools. Missing executables produce `HOLD-missing-binary`; a timeout
 produces `HOLD-timeout`. Any FAIL makes the process exit with code 1; HOLD makes
 it exit with code 2. All targets must PASS for exit code 0.
 
-Each target runs through `omniroute run` against a disposable HTTP server bound to
+Each target runs through `red-router run` against a disposable HTTP server bound to
 `127.0.0.1`, using a fixed, non-secret sentinel credential. HOME, XDG directories,
-CLI configuration homes, and the OmniRoute data directory are temporary. Provider
+CLI configuration homes, and the RedRouter data directory are temporary. Provider
 credentials, proxy variables, runtime-loader flags, and existing configurations
 are not inherited. No real upstream credentials are required or accepted.
 
 The explicit `--inherit-isolated-env` harness option forwards `--inherit-env` to
-`omniroute run`, allowing harness-controlled metadata/update suppression flags to
+`red-router run`, allowing harness-controlled metadata/update suppression flags to
 reach the third-party child. It is off by default and still rebuilds the outer
 environment from the same narrow allowlist: it never inherits the caller's secrets,
 `NODE_OPTIONS`, `NODE_PATH`, `LD_PRELOAD`, `PYTHONPATH`, or proxy settings. Storage

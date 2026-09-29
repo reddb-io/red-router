@@ -4,7 +4,7 @@ title: "Self-Hosted OpenAI-Compatible Entry"
 
 # Self-hosted unified OpenAI-compatible entry
 
-When enabled, OmniRoute's existing `/v1/chat/completions` (and the OpenAI-compatible
+When enabled, RedRouter's existing `/v1/chat/completions` (and the OpenAI-compatible
 contract it serves) becomes a **self-hosted gateway**: one OpenAI-compatible request
 in, auto-routed to the provider of your choice through the provider adapters, with a
 standard OpenAI error shape out. Client code does not change.
@@ -65,7 +65,7 @@ curl ... -d '{"model":"claude/claude-sonnet","messages":[...]}'
 
 Optional `OMNIROUTE_SELF_HOSTED_API_KEY`. When set, requests must carry
 `Authorization: Bearer <key>`. Unset = open route (loopback / trusted network),
-mirroring how OmniRoute's existing local providers work. The D5 quota/quota-自治
+mirroring how RedRouter's existing local providers work. The D5 quota/quota-自治
 key system is expected to take over this header.
 
 ## Failure contract

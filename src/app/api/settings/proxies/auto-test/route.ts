@@ -83,7 +83,7 @@ async function testSingleProxy(proxy: {
       method,
       signal: controller.signal,
       dispatcher,
-      headers: { "User-Agent": "OmniRoute/1.0" },
+      headers: { "User-Agent": "RedRouter/1.0" },
     });
     const latencyMs = Date.now() - start;
     const outcome = classifyProbeStatus(resp.status);

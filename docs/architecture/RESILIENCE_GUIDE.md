@@ -6,7 +6,7 @@ lastUpdated: 2026-06-28
 
 # Resilience Guide
 
-OmniRoute has three distinct but related resilience mechanisms. Each has a different scope and purpose. Keep them separate when debugging routing behavior.
+RedRouter has three distinct but related resilience mechanisms. Each has a different scope and purpose. Keep them separate when debugging routing behavior.
 
 ![3-layer resilience model](../diagrams/exported/resilience-3layers.svg)
 
@@ -188,7 +188,7 @@ The three session-affinity headers are never forwarded upstream — executors bu
 
 ### Exclusive managed session connection leases
 
-**Scope:** one active managed HTTP client/session owns one eligible OmniRoute connection.
+**Scope:** one active managed HTTP client/session owns one eligible RedRouter connection.
 
 **Purpose:** provide durable exclusive connection ownership for clients that need a hard routing
 fence across requests. This differs from session affinity, which is a soft continuity preference:
@@ -210,7 +210,7 @@ active connection ID. Lease control headers are removed from logs, retained requ
 upstream executor headers.
 
 If ordinary routing has eligible managed candidates but every free candidate is occupied by a
-foreign active lease, OmniRoute returns HTTP `429`, lease-capacity-unavailable code, a
+foreign active lease, RedRouter returns HTTP `429`, lease-capacity-unavailable code, a
 waiting-for-capacity state, and a bounded `Retry-After` derived from the earliest relevant expiry.
 Ordinary empty eligibility is not lease contention and keeps its existing routing error semantics.
 
@@ -233,7 +233,7 @@ to (`resolveLockoutScope()` in `open-sse/services/accountFallback/exactModelLock
   for codex the whole `codex` / `spark` scope (every `gpt-5*` model of the
   connection), for other providers `getQuotaScopedModelForProvider()`.
 - `404` locks the bare model (`getModelLockKey()` narrows `not_found`).
-- Any other status — `5xx` transport/server failures and OmniRoute's own
+- Any other status — `5xx` transport/server failures and RedRouter's own
   synthesized `502` from quality validation — locks the **exact**
   provider/connection/model tuple only. A bad stream on one model is not evidence
   about the account's quota; before this rule one empty response on

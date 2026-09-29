@@ -6,12 +6,12 @@ lastUpdated: 2026-08-22
 
 # OpenAI Codex — App-Server provider (`codex-app-server`)
 
-OmniRoute exposes **two** ways to use OpenAI Codex:
+RedRouter exposes **two** ways to use OpenAI Codex:
 
 | Provider | How it talks to OpenAI | Usage caveat |
 |---|---|---|
 | **`codex`** | Replays your ChatGPT/OpenAI OAuth token directly to the Responses API | **Yes** — the official session is not authorized for proxy/router use |
-| **`codex-app-server`** | Drives the **Codex CLI's own `codex app-server`** over JSON-RPC/WebSocket; the CLI owns and self-refreshes its OAuth (`~/.codex/auth.json`) exactly like an interactive `codex` session | **No** — OmniRoute never replays a token to the API |
+| **`codex-app-server`** | Drives the **Codex CLI's own `codex app-server`** over JSON-RPC/WebSocket; the CLI owns and self-refreshes its OAuth (`~/.codex/auth.json`) exactly like an interactive `codex` session | **No** — RedRouter never replays a token to the API |
 
 Because `codex-app-server` never replays a token, it does not carry the
 session-replay usage caveat. It does require a **Codex CLI reachable at the
@@ -22,7 +22,7 @@ configured app-server URL**, and that CLI must be **signed in**.
 ## 1. Architecture
 
 ```
-┌─ OmniRoute app ─────────────────┐        ┌─ codex-app-server sidecar ─────────┐
+┌─ RedRouter app ─────────────────┐        ┌─ codex-app-server sidecar ─────────┐
 │  CodexAppServerExecutor          │  WS    │  codex app-server                   │
 │  ws://codex-app-server:1456 ─────┼───────▶│  --listen ws://0.0.0.0:1456         │
 │  (+ capability token)            │  JSON  │  --ws-auth capability-token         │
@@ -75,7 +75,7 @@ only when the file is absent or its token is stale (a backup is always taken).
   `~/.codex` into the sidecar (`codex-appserver-home`) and skip the sign-in step.
 - **Public user, no codex installed locally** — irrelevant: the sidecar has the
   CLI. The user only authenticates through the dashboard.
-- **Bare-metal OmniRoute (no sidecar, host codex)** — point
+- **Bare-metal RedRouter (no sidecar, host codex)** — point
   `OMNIROUTE_CODEX_APPSERVER_WS` at your own `codex app-server` and ensure the
   host codex is signed in; the "codex not installed" hint appears if the binary
   is missing.

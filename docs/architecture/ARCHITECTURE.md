@@ -1,16 +1,16 @@
 ---
-title: "OmniRoute Architecture"
+title: "RedRouter Architecture"
 version: 3.8.40
 lastUpdated: 2026-06-28
 ---
 
-# OmniRoute Architecture
+# RedRouter Architecture
 
 _Last updated: 2026-06-28_
 
 ## Executive Summary
 
-OmniRoute is a local AI routing gateway and dashboard built on Next.js.
+RedRouter is a local AI routing gateway and dashboard built on Next.js.
 It provides a single OpenAI-compatible endpoint (`/v1/*`) and routes traffic across multiple upstream providers with translation, fallback, token refresh, and usage tracking.
 
 Core capabilities:
@@ -164,7 +164,7 @@ flowchart LR
         BROWSER[Browser Dashboard]
     end
 
-    subgraph Router[OmniRoute Local Process]
+    subgraph Router[RedRouter Local Process]
         API[V1 Compatibility API\n/v1/*]
         DASH[Dashboard + Management API\n/api/*]
         CORE[SSE + Translation Core\nopen-sse + src/sse]
@@ -327,7 +327,7 @@ OAuth provider modules (22 individual files under `src/lib/oauth/providers/`):
 
 ## 5) Embedded Services (v3.8.4)
 
-OmniRoute can install, supervise, and route to locally-running AI tool processes
+RedRouter can install, supervise, and route to locally-running AI tool processes
 called **embedded services**. Five are shipped: 9Router, CLIProxyAPI, Bifrost, Mux and Dario.
 
 Architecture layers:
@@ -436,7 +436,7 @@ have to assemble lockout/budget/fallback logic themselves.
 - Quota cache: `src/domain/quotaCache.ts`
 - Degradation state: `src/domain/degradation.ts`
 - Configuration audit: `src/domain/configAudit.ts`
-- OmniRoute response metadata builder: `src/domain/omnirouteResponseMeta.ts`
+- RedRouter response metadata builder: `src/domain/omnirouteResponseMeta.ts`
 - Assessment subsystem: `src/domain/assessment/` — periodic evaluation jobs
 
 ### E. Authorization Pipeline
@@ -813,7 +813,7 @@ flowchart LR
         Browser[Dashboard Browser]
     end
 
-    subgraph ContainerOrProcess[OmniRoute Runtime]
+    subgraph ContainerOrProcess[RedRouter Runtime]
         Next[Next.js Server\nPORT=20128]
         Core[SSE Core + Executors]
         MainDB[(storage.sqlite)]
@@ -932,7 +932,7 @@ All other providers (including custom compatible nodes) use the `DefaultExecutor
 ## Provider Compatibility Matrix
 
 > **Note:** The matrix below is a representative sample of the 351 registered providers in
-> OmniRoute v3.8.0. For the canonical and continuously-updated list, refer to
+> RedRouter v3.8.0. For the canonical and continuously-updated list, refer to
 > [`docs/reference/PROVIDER_REFERENCE.md`](../reference/PROVIDER_REFERENCE.md) (auto-generated) or the source of
 > truth at `src/shared/constants/providers.ts` (Zod-validated at load).
 
@@ -1114,7 +1114,7 @@ Detailed request payload capture stores up to four JSON payload stages per route
 - raw request received from the client
 - translated request actually sent upstream
 - provider response reconstructed as JSON; streamed responses are compacted to the final summary plus stream metadata
-- final client response returned by OmniRoute; streamed responses are stored in the same compact summary form
+- final client response returned by RedRouter; streamed responses are stored in the same compact summary form
 
 ## Security-Sensitive Boundaries
 

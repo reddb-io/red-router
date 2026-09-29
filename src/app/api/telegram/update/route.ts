@@ -73,7 +73,7 @@ function buildMiniAppLink(botUsername?: string): string {
 }
 
 const START_HELP =
-  "👋 Welcome! This bot bridges Telegram and your OmniRoute gateway.\n\n" +
+  "👋 Welcome! This bot bridges Telegram and your RedRouter gateway.\n\n" +
   "• Send any message and I'll route it through your configured models.\n" +
   "• Open the Mini App for a full chat UI.";
 

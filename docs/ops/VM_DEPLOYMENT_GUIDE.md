@@ -1,12 +1,12 @@
 ---
-title: "OmniRoute — Deployment Guide on VM with Cloudflare"
+title: "RedRouter — Deployment Guide on VM with Cloudflare"
 version: 3.8.40
 lastUpdated: 2026-06-28
 ---
 
-# OmniRoute — Deployment Guide on VM with Cloudflare
+# RedRouter — Deployment Guide on VM with Cloudflare
 
-Complete guide to install and configure OmniRoute on a VM (VPS) with domain managed via Cloudflare.
+Complete guide to install and configure RedRouter on a VM (VPS) with domain managed via Cloudflare.
 
 ---
 
@@ -84,7 +84,7 @@ ufw enable
 
 ---
 
-## 2. Install OmniRoute
+## 2. Install RedRouter
 
 ### 2.1 Create configuration directory
 
@@ -148,7 +148,7 @@ docker run -d \
 
 ```bash
 docker ps | grep omniroute
-docker logs omniroute --tail 20
+docker logs red-router --tail 20
 ```
 
 It should display: `[DB] SQLite database ready` and `listening on port 20128`.
@@ -194,7 +194,7 @@ server {
     return 444;
 }
 
-# OmniRoute — HTTPS
+# RedRouter — HTTPS
 server {
     listen 443 ssl;
     listen [::]:443 ssl;
@@ -237,16 +237,16 @@ server {
 NGINX
 ```
 
-Keep reverse-proxy stream timeouts aligned with your OmniRoute timeout env vars. If you raise
+Keep reverse-proxy stream timeouts aligned with your RedRouter timeout env vars. If you raise
 `FETCH_TIMEOUT_MS` / `STREAM_IDLE_TIMEOUT_MS`, raise `proxy_read_timeout` / `proxy_send_timeout`
 above the same threshold.
 
-OmniRoute uses `NEXT_PUBLIC_BASE_URL` as the canonical browser-facing origin for OAuth
+RedRouter uses `NEXT_PUBLIC_BASE_URL` as the canonical browser-facing origin for OAuth
 callbacks and generated public links. Authenticated dashboard writes use same-origin requests
 plus session-bound CSRF protection, so they do not require a static public base URL. The
 `X-Forwarded-*` headers above are still useful routing metadata, but they are not a replacement
 for setting the explicit public URL when OAuth or generated browser links need one. Only enable
-`OMNIROUTE_TRUST_PROXY` if OmniRoute is not directly reachable by clients and your proxy
+`OMNIROUTE_TRUST_PROXY` if RedRouter is not directly reachable by clients and your proxy
 strips/rebuilds incoming forwarded headers.
 
 ### 3.3 Enable and Test
@@ -255,7 +255,7 @@ strips/rebuilds incoming forwarded headers.
 # Remove default configuration
 rm -f /etc/nginx/sites-enabled/default
 
-# Enable OmniRoute
+# Enable RedRouter
 ln -sf /etc/nginx/sites-available/omniroute /etc/nginx/sites-enabled/omniroute
 
 # Test and reload
@@ -302,7 +302,7 @@ curl -sI https://llms.seudominio.com/health
 ```bash
 docker pull reddb-io/red-router:latest
 docker stop omniroute && docker rm omniroute
-docker run -d --name omniroute --restart unless-stopped \
+docker run -d --name red-router --restart unless-stopped \
   --env-file /opt/omniroute/.env \
   -p 20128:20128 \
   -v omniroute-data:/app/data \
@@ -313,7 +313,7 @@ docker run -d --name omniroute --restart unless-stopped \
 
 ```bash
 docker logs -f omniroute          # Real-time stream
-docker logs omniroute --tail 50   # Last 50 lines
+docker logs red-router --tail 50   # Last 50 lines
 ```
 
 ### Manual database backup
@@ -419,7 +419,7 @@ See also [TUNNELS_GUIDE.md](./TUNNELS_GUIDE.md) for the in-repo Cloudflare Tunne
 | 22    | SSH         | Public (with fail2ban)     |
 | 80    | nginx HTTP  | Redirect → HTTPS           |
 | 443   | nginx HTTPS | Via Cloudflare Proxy       |
-| 20128 | OmniRoute   | Localhost only (via nginx) |
+| 20128 | RedRouter   | Localhost only (via nginx) |
 
 ## Low-Memory / Small VPS Optimization
 
@@ -430,4 +430,4 @@ For deployments on small VPS instances (1 GB RAM or less):
 - **Cap the V8 heap** — set `OMNIROUTE_MEMORY_MB` (e.g. `512`) so the runtime does not calibrate a ceiling larger than the VM. See `docs/reference/ENVIRONMENT.md`.
 - **Heavyweight admission auto-scales with the heap cap** -- once `OMNIROUTE_MEMORY_MB` is set above, the ingest byte budget (`OMNIROUTE_CHAT_MAX_INFLIGHT_BYTES`) derives itself from that same ceiling, so a memory-constrained VM already gets a smaller concurrent-request budget with no extra tuning; excess requests get a retryable `503` with `Retry-After` instead of competing for memory. Set the legacy `OMNIROUTE_CHAT_MAX_HEAVY_IN_FLIGHT` request-count cap only if you need a hard ceiling on top of that.
 - **Avoid `next build` on the VPS** — build locally and deploy the standalone output (`.next/standalone/`).
-- **Monitor with `top` / `free -m`** — OmniRoute typically uses 200-400 MB RSS at idle on a 1 GB VM.
+- **Monitor with `top` / `free -m`** — RedRouter typically uses 200-400 MB RSS at idle on a 1 GB VM.

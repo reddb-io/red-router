@@ -1,12 +1,12 @@
 ---
-title: "OmniRoute — Dashboard Features Gallery"
+title: "RedRouter — Dashboard Features Gallery"
 version: 3.8.40
 lastUpdated: 2026-06-28
 ---
 
-# OmniRoute — Dashboard Features Gallery
+# RedRouter — Dashboard Features Gallery
 
-Visual guide to every section of the OmniRoute dashboard.
+Visual guide to every section of the RedRouter dashboard.
 
 > 📅 **Last updated:** 2026-06-28 — **v3.8.40**
 
@@ -36,7 +36,7 @@ The v3.7.x → v3.8.0 cycle added zero-config auto routing, new providers, OAuth
 - 🚦 **Per-provider 429 classification** + `useUpstream429BreakerHints` toggle — finer breaker behavior using upstream rate-limit hints
 - 🩺 **Model cooldowns dashboard** — observe per-model lockouts and manually re-enable from the UI
 - 🔒 **MITM dynamic Linux cert detection** — works across Debian/Ubuntu, Fedora/RHEL, Arch, and other distros
-- 💻 **CLI enhancement suite** — 20+ commands including `omniroute providers`, `omniroute combos`, `omniroute doctor`, `omniroute setup`
+- 💻 **CLI enhancement suite** — 20+ commands including `red-router providers`, `red-router combos`, `red-router doctor`, `red-router setup`
 - 🔍 **Qdrant embedding model discovery** — automatic vector-store model probe
 - 🔑 **API Keys / Bearer keys with `manage` scope** — perform admin operations programmatically via API
 - 🏥 **Combo target health analytics** + **structured combo builder** — per-target health & UI builder for assembling `(provider, model, connection)` steps
@@ -51,7 +51,7 @@ The v3.7.x → v3.8.0 cycle added zero-config auto routing, new providers, OAuth
 
 Manage AI provider connections: OAuth providers (Claude Code, Codex), API key providers (Groq, DeepSeek, OpenRouter), and free providers (Qoder, Kiro). Kiro accounts include credit balance tracking — remaining credits, total allowance, and renewal date visible in Dashboard → Usage.
 
-OpenRouter connections can store a per-connection `preset` in Advanced Settings. When set, OmniRoute sends it as the OpenRouter top-level request field, for example `"preset": "email-copywriter"`, unless the client request already supplied its own `preset`.
+OpenRouter connections can store a per-connection `preset` in Advanced Settings. When set, RedRouter sends it as the OpenRouter top-level request field, for example `"preset": "email-copywriter"`, unless the client request already supplied its own `preset`.
 
 ![Providers Dashboard](../screenshots/01-providers.png)
 
@@ -157,7 +157,7 @@ Dashboard for discovering and managing CLI agents. Shows a grid of 16 built-in a
 
 ## 🔗 Context Relay _(v3.5.5+)_
 
-A combo strategy that preserves session continuity when account rotation happens mid-conversation. Before the active account is exhausted, OmniRoute generates a structured handoff summary in the background. After the next request resolves to a different account, the summary is injected as a system message so the new account continues with full context.
+A combo strategy that preserves session continuity when account rotation happens mid-conversation. Before the active account is exhausted, RedRouter generates a structured handoff summary in the background. After the next request resolves to a different account, the summary is injected as a system message so the new account continues with full context.
 
 Configurable via combo-level or global settings:
 
@@ -267,7 +267,7 @@ Administrative action tracking with filtering by action type, actor, target, IP 
 
 ## 🖥️ Desktop Application
 
-Native Electron desktop app for Windows, macOS, and Linux. Run OmniRoute as a standalone application with system tray integration, offline support, auto-update, and one-click install.
+Native Electron desktop app for Windows, macOS, and Linux. Run RedRouter as a standalone application with system tray integration, offline support, auto-update, and one-click install.
 
 Key features:
 
@@ -286,7 +286,7 @@ Key features:
 
 ## 🌐 V1 WebSocket Bridge _(v3.6.6+)_
 
-OmniRoute now supports **OpenAI-compatible WebSocket clients** via the `/v1/ws` upgrade endpoint. The custom `scripts/dev/v1-ws-bridge.mjs` server wraps Next.js and upgrades WS connections to full bidirectional streaming sessions. Authentication uses the same API key or session cookie as HTTP requests.
+RedRouter now supports **OpenAI-compatible WebSocket clients** via the `/v1/ws` upgrade endpoint. The custom `scripts/dev/v1-ws-bridge.mjs` server wraps Next.js and upgrades WS connections to full bidirectional streaming sessions. Authentication uses the same API key or session cookie as HTTP requests.
 
 Key behaviours:
 
@@ -312,7 +312,7 @@ The config bundle is built by `src/lib/sync/bundle.ts`. Consumers compare the `E
 
 **GLM Thinking (`glmt`)** is now a registered first-class provider: 65 536 max output tokens, 24 576 thinking budget, 900 s default timeout, Claude-compatible API format, and shared usage sync with the GLM family.
 
-**Hybrid token counting** also lands in v3.6.6: when a Claude-compatible provider exposes `/messages/count_tokens`, OmniRoute calls it before large requests with graceful estimation fallback.
+**Hybrid token counting** also lands in v3.6.6: when a Claude-compatible provider exposes `/messages/count_tokens`, RedRouter calls it before large requests with graceful estimation fallback.
 
 ---
 

@@ -143,7 +143,7 @@ export async function POST(request: Request) {
       if (missingTables.length > 0) {
         return NextResponse.json(
           {
-            error: `Invalid OmniRoute database. Missing tables: ${missingTables.join(", ")}`,
+            error: `Invalid RedRouter database. Missing tables: ${missingTables.join(", ")}`,
           },
           { status: 400 }
         );

@@ -6,7 +6,7 @@ lastUpdated: 2026-06-28
 
 # open-sse Architecture
 
-> **TL;DR**: `open-sse/` is the core streaming engine that powers every LLM request in OmniRoute. It contains ~1,400 files implementing the request pipeline, executors, services, MCP server, and translation layer. This guide explains how the pieces fit together.
+> **TL;DR**: `open-sse/` is the core streaming engine that powers every LLM request in RedRouter. It contains ~1,400 files implementing the request pipeline, executors, services, MCP server, and translation layer. This guide explains how the pieces fit together.
 
 **Source:** `open-sse/` (workspace package, ~1,440 non-test `.ts` files)
 
@@ -14,10 +14,10 @@ lastUpdated: 2026-06-28
 
 ## Why a Separate Workspace Package?
 
-`open-sse/` is a **standalone workspace** in the OmniRoute monorepo for several reasons:
+`open-sse/` is a **standalone workspace** in the RedRouter monorepo for several reasons:
 
 1. **Reusability** — `open-sse` is published as `@omniroute/open-sse` on npm, so other projects can use it independently
-2. **Clean boundaries** — the streaming engine is decoupled from the OmniRoute-specific UI/DB layer
+2. **Clean boundaries** — the streaming engine is decoupled from the RedRouter-specific UI/DB layer
 3. **Performance** — the engine has no Next.js dependencies, enabling faster cold starts in CLI/serverless contexts
 4. **Versioning** — `open-sse` can release on its own cadence
 
@@ -459,7 +459,7 @@ if (!hasScope(apiKey, "providers:read")) {
 
 ### Why a Separate Transformer?
 
-The Responses API is OpenAI's new format with **stateful conversations** (`previous_response_id`). When a client sends a Responses request, OmniRoute:
+The Responses API is OpenAI's new format with **stateful conversations** (`previous_response_id`). When a client sends a Responses request, RedRouter:
 
 1. Converts Responses → Chat Completions internally
 2. Sends to provider (any provider that supports Chat Completions)

@@ -13,11 +13,11 @@ lastUpdated: 2026-06-28
 
 ## What it is
 
-OmniRoute can connect to a **Notion** workspace as a **context source** — a read/write
+RedRouter can connect to a **Notion** workspace as a **context source** — a read/write
 knowledge base that agents reach through the built-in MCP server. Once a Notion
 integration token is configured, the MCP tools let an LLM search pages and databases,
 read page content and block trees, query databases with filters/sorts, and append new
-blocks — all proxied through OmniRoute (with retry, timeout, and error classification)
+blocks — all proxied through RedRouter (with retry, timeout, and error classification)
 so the model never touches the Notion API directly.
 
 The integration is a thin, hardened wrapper over the official Notion REST API
@@ -42,7 +42,7 @@ dashboard (`ObsidianSourceCard`'s sibling `NotionSourceCard`), or via the settin
 > [!NOTE]
 > The token is a **Notion internal integration token**. Create an integration at
 > <https://www.notion.com/my-integrations>, then share the pages/databases you want
-> OmniRoute to access with that integration (Notion's permission model is share-based,
+> RedRouter to access with that integration (Notion's permission model is share-based,
 > not workspace-wide).
 
 ### Configure via REST
@@ -61,7 +61,7 @@ curl -X DELETE http://localhost:20128/api/settings/notion
 ```
 
 All three methods require dashboard authentication (`isAuthenticated`). On `POST`,
-OmniRoute saves the token and immediately runs a 1-result test search; if Notion
+RedRouter saves the token and immediately runs a 1-result test search; if Notion
 returns an error object the token is cleared and the call fails with `400`.
 
 ## MCP tools (6)

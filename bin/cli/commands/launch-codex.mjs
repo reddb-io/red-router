@@ -175,7 +175,7 @@ export function buildCodexProviderArgs(baseUrl, model) {
     "-c",
     tomlAssign("model_provider", "omniroute"),
     "-c",
-    tomlAssign("model_providers.omniroute.name", "OmniRoute"),
+    tomlAssign("model_providers.omniroute.name", "RedRouter"),
     "-c",
     tomlAssign("model_providers.omniroute.base_url", `${baseUrl}/v1`),
     "-c",
@@ -208,7 +208,7 @@ export async function runLaunchCodexCommand(opts = {}, codexArgs = []) {
     console.error(
       (
         t("launch.notRunning") ||
-        "OmniRoute is not reachable at {port}. Start it with 'omniroute serve'."
+        "RedRouter is not reachable at {port}. Start it with 'red-router serve'."
       ).replace("{port}", baseUrl)
     );
     return 1;
@@ -275,18 +275,18 @@ export function registerLaunchCodex(program) {
   program
     .command("launch-codex")
     .description(
-      t("launchCodex.description") || "Launch Codex CLI pointed at OmniRoute (local or remote VPS)"
+      t("launchCodex.description") || "Launch Codex CLI pointed at RedRouter (local or remote VPS)"
     )
-    .option("--port <port>", "Local OmniRoute port (ignored when --remote is set)", "25050")
+    .option("--port <port>", "Local RedRouter port (ignored when --remote is set)", "25050")
     .option(
       "--remote <url>",
-      "Remote OmniRoute base URL, e.g. http://192.168.0.15:25050 (overrides --port + context)"
+      "Remote RedRouter base URL, e.g. http://192.168.0.15:25050 (overrides --port + context)"
     )
     .option("--profile <name>", "Codex profile to activate (passed as --profile <name>)")
     .option("-p, --p <name>", "Alias for --profile")
     .option(
       "--api-key <key>",
-      "OmniRoute API key (overrides OMNIROUTE_API_KEY env var for this invocation)"
+      "RedRouter API key (overrides OMNIROUTE_API_KEY env var for this invocation)"
     )
     .allowUnknownOption(true)
     .allowExcessArguments(true)

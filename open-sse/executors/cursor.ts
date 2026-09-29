@@ -1239,7 +1239,7 @@ export class CursorExecutor extends BaseExecutor {
       return {
         response: buildErrorResponse(
           501,
-          "Cursor provider requires Node.js http2, which is unavailable in this runtime (Edge / Cloudflare Workers / similar). Run OmniRoute on a Node.js runtime to use cursor.",
+          "Cursor provider requires Node.js http2, which is unavailable in this runtime (Edge / Cloudflare Workers / similar). Run RedRouter on a Node.js runtime to use cursor.",
           "unsupported_runtime"
         ),
         url,

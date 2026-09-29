@@ -1023,7 +1023,7 @@
     "cloudAgents": "Cloud Agents",
     "memory": "Memory",
     "skills": "Skills",
-    "omniSkills": "OmniSkills",
+    "omniSkills": "Skills",
     "agentSkills": "AgentSkills",
     "chaosConfig": "Chaos Mode",
     "docs": "Docs",
@@ -4123,7 +4123,7 @@
     "openMcpDashboard": "Open MCP management",
     "openA2aDashboard": "Open A2A management",
     "mcpQuickStartTitle": "MCP Quick Start",
-    "mcpQuickStartStep1": "Run the MCP server via `omniroute --mcp`.",
+    "mcpQuickStartStep1": "Run the MCP server via `red-router --mcp`.",
     "mcpQuickStartStep2": "Configure your MCP client to connect over stdio transport.",
     "mcpQuickStartStep3": "Invoke tools such as `omniroute_get_health` and `omniroute_list_combos`.",
     "a2aQuickStartTitle": "A2A Quick Start",
@@ -4343,7 +4343,7 @@
     "disableLabel": "Disable {label}",
     "enableLabel": "Enable {label}",
     "transportMode": "Transport Mode",
-    "transportStdioDesc": "Local — IDE spawns process via omniroute --mcp",
+    "transportStdioDesc": "Local — IDE spawns process via red-router --mcp",
     "transportSseDesc": "Remote — Server-Sent Events over HTTP",
     "transportStreamableHttpDesc": "Remote — Modern bidirectional HTTP",
     "copy": "Copy",
@@ -5213,7 +5213,7 @@
       },
       "configure": "Configure providers"
     },
-    "tierFlowDiagramAlt": "RedRouter 3-tier fallback diagram",
+    "tierFlowDiagramAlt": "RedRouter 4-tier fallback diagram",
     "apiKeyMgmt": "API Key Management",
     "freeProviders": {
       "title": "Set up free providers",
@@ -8040,7 +8040,7 @@
     "redisLauncherRunning": "Running",
     "redisLauncherReachable": "Reachable",
     "redisLauncherError": "Error: {message}",
-    "redisLauncherHint": "Equivalent to running `omniroute redis up`. The container is named `omniroute-redis` and listens on 127.0.0.1:6379.",
+    "redisLauncherHint": "Equivalent to running `red-router redis up`. The container is named `omniroute-redis` and listens on 127.0.0.1:6379.",
     "compressionSettingsAutoTriggerMode": "Auto trigger mode",
     "compressionSettingsMcpDescriptionCompression": "MCP description compression",
     "mcpAccessibilityTitle": "MCP accessibility output",
@@ -10380,7 +10380,7 @@
     "protocolsDescription": "RedRouter exposes two operational protocols in addition to OpenAI-compatible APIs: MCP for tool execution and A2A for agent-to-agent workflows.",
     "protocolMcpTitle": "MCP (Model Context Protocol)",
     "protocolMcpDesc": "Use MCP over stdio to let clients discover and call RedRouter tools with audit visibility.",
-    "protocolMcpStep1": "Start MCP transport with `omniroute --mcp`.",
+    "protocolMcpStep1": "Start MCP transport with `red-router --mcp`.",
     "protocolMcpStep2": "Point your MCP client to stdio transport.",
     "protocolMcpStep3": "Call `omniroute_get_health` and `omniroute_list_combos` to validate connectivity.",
     "protocolA2aTitle": "A2A (Agent2Agent)",
@@ -12066,7 +12066,7 @@
     "installedTab": "Installed",
     "marketplaceTab": "Marketplace",
     "marketplaceUrlLabel": "Custom Marketplace URL",
-    "marketplaceUrlPlaceholder": "Leave empty for official Omniroute registry",
+    "marketplaceUrlPlaceholder": "Leave empty for official RedRouter registry",
     "saveMarketplaceUrl": "Save & Reload",
     "marketplaceUrlSaved": "Marketplace URL updated",
     "marketplaceEmpty": "No plugins found in marketplace.",
@@ -12562,20 +12562,20 @@
       "open": "Open →",
       "code": {
         "title": "Code tool",
-        "desc": "Points to Omni",
-        "flow": "you → CLI → Omni → provider",
+        "desc": "Points to RedRouter",
+        "flow": "you → CLI → RedRouter → provider",
         "examples": "e.g.: claude, codex"
       },
       "agent": {
         "title": "Broad autonomous agent",
-        "desc": "Points to Omni",
-        "flow": "you → agent → Omni",
+        "desc": "Points to RedRouter",
+        "flow": "you → agent → RedRouter",
         "examples": "e.g.: hermes, goose"
       },
       "acp": {
-        "title": "CLI used as backend by Omni",
+        "title": "CLI used as backend by RedRouter",
         "desc": "Reverse execution",
-        "flow": "Omni → spawn CLI → resp",
+        "flow": "RedRouter → spawn CLI → resp",
         "examples": "e.g.: claude, codex (ACP)"
       }
     },
@@ -12835,7 +12835,7 @@
       },
       "cli-plugins-skills": {
         "name": "CLI: Plugins, Skills & Memory",
-        "description": "Manage Omni Skills (list, install, test, remove), plugins (create, configure), and persistent memory (search, add, clear) from the CLI."
+        "description": "Manage skills (list, install, test, remove), plugins (create, configure), and persistent memory (search, add, clear) from the CLI."
       },
       "cli-setup": {
         "name": "CLI: Setup & Config",
@@ -12863,13 +12863,13 @@
         "crossLinkLabel": "Understand the difference →"
       },
       "omni": {
-        "title": "Omni Skills — Inbound",
-        "description": "Omni Skills are sandbox tools that RedRouter injects into the model's context on every request. They are executed by RedRouter, not read by the agent.",
+        "title": "Skills — Inbound",
+        "description": "Skills are sandbox tools that RedRouter injects into the model's context on every request. They are executed by RedRouter, not read by the agent.",
         "crossLinkLabel": "Understand the difference →"
       },
       "comparison": {
         "colAgent": "Agent Skills",
-        "colOmni": "Omni Skills",
+        "colOmni": "Skills",
         "whatIs": {
           "label": "What it is",
           "agent": "Machine-readable SKILL.md that teaches an external agent to operate RedRouter",
@@ -14417,7 +14417,7 @@
   },
   "conductor": {
     "title": "Conductor — CLI-agent fleet",
-    "subtitle": "OmniConductor hub: runners, task queue and councils, live",
+    "subtitle": "Conductor hub: runners, task queue and councils, live",
     "runners": "Runners",
     "tasks": "Tasks",
     "colName": "Name",

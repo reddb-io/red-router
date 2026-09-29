@@ -741,7 +741,7 @@ async function saveCallLogOperation(entry: any): Promise<void> {
       sessionTag: entry.sessionTag || null,
       // OpenAI Responses API response id, when this attempt produced one --
       // indexed so a later request's `previous_response_id` can resolve
-      // this row's artifact for OmniRoute-native continuation. See
+      // this row's artifact for RedRouter-native continuation. See
       // src/lib/db/responsesContinuationStore.ts.
       responseId: typeof entry.responseId === "string" ? entry.responseId : null,
       // #12150 P2 surface 2: 1 when this request's persisted client snapshot had

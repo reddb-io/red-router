@@ -6,7 +6,7 @@ lastUpdated: 2026-06-28
 
 # Compression Engines
 
-OmniRoute compression is built around engine contracts. A mode can run one engine directly
+RedRouter compression is built around engine contracts. A mode can run one engine directly
 (`caveman` or `rtk`) or a deterministic stacked pipeline that executes multiple engines in order.
 
 ## Modes
@@ -45,9 +45,9 @@ accumulated history yet stops at `below_min_chars` and the engine transforms not
 is why the default is `aggressive` rather than the safest profile.
 
 The package resolves its own model scope and profile from its environment configuration.
-OmniRoute never delegates the decision: the adapter pins the model gate to the package's
+RedRouter never delegates the decision: the adapter pins the model gate to the package's
 most restrictive scope, so host environment settings can only narrow the allowlist, never
-widen it past OmniRoute's measured receipts.
+widen it past RedRouter's measured receipts.
 
 ## Engine Registry
 
@@ -111,7 +111,7 @@ Caveman mode focuses on semantic condensation of normal prose:
 The dashboard surface is `Dashboard -> Context & Cache -> Caveman`.
 
 Caveman upstream reports `~75%` fewer output tokens, `65%` average output savings in benchmarks
-with a `22-87%` range, and a `~46%` input-compression tool. OmniRoute uses the Caveman input-side
+with a `22-87%` range, and a `~46%` input-compression tool. RedRouter uses the Caveman input-side
 number when documenting stacked prompt/context savings; Caveman output mode remains a separate
 response-behavior feature.
 
@@ -206,7 +206,7 @@ Per environment:
 
 - **Dev / `npm install`** — installed automatically unless you passed `--omit=optional`
   (or `--no-optional`). No action needed.
-- **Global npm (`npm i -g omniroute`) / standalone** — run the install command above inside
+- **Global npm (`npm i -g @reddb-io/red-router`) / standalone** — run the install command above inside
   the installed package directory, or reinstall without omitting optional deps.
 - **Docker** — add the install command in a derived image layer; the published image
   ships slim by design.

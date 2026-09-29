@@ -6,7 +6,7 @@ lastUpdated: 2026-06-28
 
 # User Guide
 
-Complete guide for configuring providers, creating combos, integrating CLI tools, and deploying OmniRoute.
+Complete guide for configuring providers, creating combos, integrating CLI tools, and deploying RedRouter.
 
 ---
 
@@ -137,10 +137,10 @@ Models:
   cc/claude-haiku-4-5-20251001
 ```
 
-**Pro Tip:** Use Opus for complex tasks, Sonnet for speed. OmniRoute tracks quota per model!
+**Pro Tip:** Use Opus for complex tasks, Sonnet for speed. RedRouter tracks quota per model!
 
 Claude and Claude Code-compatible routes preserve `max` thinking effort for Opus and Sonnet
-models. Haiku models do not accept the `max` effort tier, so OmniRoute downgrades that
+models. Haiku models do not accept the `max` effort tier, so RedRouter downgrades that
 request to a high thinking budget before sending it upstream.
 
 #### OpenAI Codex (Plus/Pro)
@@ -262,7 +262,7 @@ Cost: currently listed as $0; terms and availability may change
 
 ### Cursor IDE
 
-**Using Cursor as an OmniRoute client** (route Cursor chat through OmniRoute):
+**Using Cursor as a RedRouter client** (route Cursor chat through RedRouter):
 
 ```
 Settings → Models → Advanced:
@@ -271,7 +271,7 @@ Settings → Models → Advanced:
   Model: cc/claude-opus-4-7
 ```
 
-**Using OmniRoute as a Cursor provider** (OmniRoute calls Cursor upstream): prefer
+**Using RedRouter as a Cursor provider** (RedRouter calls Cursor upstream): prefer
 **Dashboard → Providers → Cursor → Login with Cursor**. In Docker, see
 [`docs/providers/CURSOR-DOCKER.md`](../providers/CURSOR-DOCKER.md).
 
@@ -340,7 +340,7 @@ Model: cc/claude-opus-4-7
 ### Global npm install (Recommended)
 
 ```bash
-npm install -g omniroute
+npm install -g @reddb-io/red-router
 
 # Create config directory
 mkdir -p ~/.omniroute
@@ -351,17 +351,17 @@ cp .env.example ~/.omniroute/.env
 # Start server
 omniroute
 # Or with custom port:
-omniroute --port 3000
+red-router --port 3000
 ```
 
 The CLI automatically loads `.env` from `~/.omniroute/.env` or `./.env`.
 
 ### Tray mode
 
-Start OmniRoute in the system tray:
+Start RedRouter in the system tray:
 
 ```bash
-omniroute serve --tray
+red-router serve --tray
 ```
 
 The command returns after the server and tray are ready.
@@ -375,7 +375,7 @@ Use the tray menu for these actions:
 - Open the dashboard.
 - Open `/dashboard/logs`.
 - Change auto-start.
-- Stop OmniRoute.
+- Stop RedRouter.
 
 Do not combine `--tray` with these options:
 
@@ -401,20 +401,20 @@ omniroute autostart disable
 
 ### Uninstalling
 
-When you no longer need OmniRoute, we provide two quick scripts for a clean removal:
+When you no longer need RedRouter, we provide two quick scripts for a clean removal:
 
 | Command                  | Action                                                                              |
 | ------------------------ | ----------------------------------------------------------------------------------- |
 | `npm run uninstall`      | Removes the system app but **keeps your DB and configurations** in `~/.omniroute`.  |
 | `npm run uninstall:full` | Removes the app AND permanently **erases all configurations, keys, and databases**. |
 
-> Note: To run these commands, navigate to the OmniRoute project folder (if you cloned it) and run them. Alternatively, if globally installed, you can simply run `npm uninstall -g omniroute`.
+> Note: To run these commands, navigate to the RedRouter project folder (if you cloned it) and run them. Alternatively, if globally installed, you can simply run `npm uninstall -g omniroute`.
 
 ### VPS Deployment
 
 ```bash
-git clone https://github.com/diegosouzapw/OmniRoute.git
-cd OmniRoute && npm install && npm run build
+git clone https://github.com/reddb-io/red-router.git
+cd RedRouter && npm install && npm run build
 
 export JWT_SECRET="your-secure-secret-change-this"
 export INITIAL_PASSWORD="your-password"
@@ -480,7 +480,7 @@ For host-integrated mode with CLI binaries, see the Docker section in the main d
 
 ### Void Linux (xbps-src)
 
-Void Linux users can package and install OmniRoute natively using the `xbps-src` cross-compilation framework. This automates the Node.js standalone build along with the required `better-sqlite3` native bindings.
+Void Linux users can package and install RedRouter natively using the `xbps-src` cross-compilation framework. This automates the Node.js standalone build along with the required `better-sqlite3` native bindings.
 
 <details>
 <summary><b>View xbps-src template</b></summary>
@@ -495,8 +495,8 @@ depends="openssl"
 short_desc="Universal AI gateway with smart routing for multiple LLM providers"
 maintainer="zenobit <zenobit@disroot.org>"
 license="MIT"
-homepage="https://github.com/diegosouzapw/OmniRoute"
-distfiles="https://github.com/diegosouzapw/OmniRoute/archive/refs/tags/v${version}.tar.gz"
+homepage="https://github.com/reddb-io/red-router"
+distfiles="https://github.com/reddb-io/red-router/archive/refs/tags/v${version}.tar.gz"
 checksum=009400afee90a9f32599d8fe734145cfd84098140b7287990183dde45ae2245b
 system_accounts="_omniroute"
 omniroute_homedir="/var/lib/omniroute"
@@ -660,7 +660,7 @@ For the full environment variable reference, see the [README](../README.md).
 
 **Other compatible providers** (selected): `cohere`, `databricks`, `snowflake`, `together`, `vertex`, `alibaba`, `alibaba-cn`, `bedrock` (via `aws-bedrock`), `azure-ai`, `openrouter` (passthrough catalog), `siliconflow`, `hyperbolic`, `huggingface`, `featherless-ai`, `cloudflare-ai`, `scaleway`, `deepinfra`, `vercel-ai-gateway`, `bazaarlink`, `friendliai`, `nous-research`, `reka`, `volcengine`, `ai21`, `gigachat`. Each maintains its own model list in `providerRegistry.ts` and can be auto-synced when the provider exposes a `/models` endpoint.
 
-**Note on model IDs:** OmniRoute uses provider-native IDs (`claude-opus-4-8`, `gpt-5.5`, `glm-5.1`, `MiniMax-M2.7`, `kimi-k2.5`, `grok-4.20-0309-reasoning`). Some IDs include dotted versions because that is how the upstream API expects them. If a model is not listed above, run `omniroute models --search <term>` or hit `GET /api/models/catalog` to confirm availability.
+**Note on model IDs:** RedRouter uses provider-native IDs (`claude-opus-4-8`, `gpt-5.5`, `glm-5.1`, `MiniMax-M2.7`, `kimi-k2.5`, `grok-4.20-0309-reasoning`). Some IDs include dotted versions because that is how the upstream API expects them. If a model is not listed above, run `red-router models --search <term>` or hit `GET /api/models/catalog` to confirm availability.
 
 </details>
 
@@ -726,9 +726,9 @@ error that names a built-in provider or its credentials, check whether the node'
 reserved: nodes saved before this rule existed are still stored, but their prefix routes to
 the built-in provider. Edit the node and give it a new prefix.
 
-### Chaining OmniRoute Peers
+### Chaining RedRouter Peers
 
-Another OmniRoute gateway can be added as a **Custom OpenAI-compatible** provider. Use the
+Another RedRouter gateway can be added as a **Custom OpenAI-compatible** provider. Use the
 peer's `/v1` base URL and a dedicated, least-privilege API key issued by that peer.
 
 For reciprocal or multi-hop chains, enable the opt-in loop guard on every gateway:
@@ -754,7 +754,7 @@ budget with HTTP `508 Loop Detected`; ordinary upstream providers receive no pee
 Peer chaining is not database replication or host failover. Each gateway keeps independent
 SQLite state, caches, rate counters, and sessions. Use a health-checked reverse proxy or client
 failover for active/passive or active/active availability, and never mount one SQLite database
-into multiple running OmniRoute instances.
+into multiple running RedRouter instances.
 
 ### Dedicated Provider Routes
 
@@ -805,7 +805,7 @@ Returns models grouped by provider with types (`chat`, `embedding`, `image`).
 - Available in **Dashboard → Endpoints** for Docker and other self-hosted deployments
 - Creates a temporary `https://*.trycloudflare.com` URL that forwards to your current OpenAI-compatible `/v1` endpoint
 - First enable installs `cloudflared` only when needed; later restarts reuse the same managed binary
-- Quick Tunnels are not auto-restored after an OmniRoute or container restart; re-enable them from the dashboard when needed
+- Quick Tunnels are not auto-restored after a RedRouter or container restart; re-enable them from the dashboard when needed
 - Tunnel URLs are ephemeral and change every time you stop/start the tunnel
 - Managed Quick Tunnels default to HTTP/2 transport to avoid noisy QUIC UDP buffer warnings in constrained containers
 - Set `CLOUDFLARED_PROTOCOL=quic` or `auto` if you want to override the managed transport choice
@@ -822,7 +822,7 @@ Returns models grouped by provider with types (`chat`, `embedding`, `image`).
 
 ### Translator Playground
 
-Access via **Dashboard → Translator**. Debug and visualize how OmniRoute translates API requests between providers.
+Access via **Dashboard → Translator**. Debug and visualize how RedRouter translates API requests between providers.
 
 | Mode             | Purpose                                                                                |
 | ---------------- | -------------------------------------------------------------------------------------- |
@@ -875,7 +875,7 @@ For external session affinity (for example, Claude Code/Codex agents behind reve
 X-Session-Id: your-session-key
 ```
 
-OmniRoute also accepts `x_session_id` and returns the effective session key in `X-OmniRoute-Session-Id`.
+RedRouter also accepts `x_session_id` and returns the effective session key in `X-OmniRoute-Session-Id`.
 
 If you use Nginx and send underscore-form headers, enable:
 
@@ -911,7 +911,7 @@ Chain: production-fallback
 
 Configure via **Dashboard → Settings → Resilience**.
 
-OmniRoute implements provider-level resilience with five components:
+RedRouter implements provider-level resilience with five components:
 
 1. **Request Queue & Pacing** — System-level request shaping:
    - **Requests Per Minute (RPM)** — Maximum requests per minute per account
@@ -936,7 +936,7 @@ OmniRoute implements provider-level resilience with five components:
 
    The provider breaker runtime state is shown on **Dashboard → Health** only.
 
-4. **Wait For Cooldown** — If every candidate connection is already cooling down, OmniRoute can wait for the earliest cooldown and retry the same client request automatically.
+4. **Wait For Cooldown** — If every candidate connection is already cooling down, RedRouter can wait for the earliest cooldown and retry the same client request automatically.
 
 5. **Rate Limit Auto-Detection** — When upstream providers return explicit wait windows, those hints override the local connection cooldown when the setting is enabled.
 
@@ -970,7 +970,7 @@ curl -X POST http://localhost:20128/api/db-backups/import \
 
 **Use Cases:**
 
-- Migrate OmniRoute between machines
+- Migrate RedRouter between machines
 - Create external backups for disaster recovery
 - Share configurations between team members (export all → share archive)
 
@@ -1022,7 +1022,7 @@ curl http://localhost:20128/api/usage/budget
 
 ### Audio Transcription
 
-OmniRoute supports audio transcription via the OpenAI-compatible endpoint:
+RedRouter supports audio transcription via the OpenAI-compatible endpoint:
 
 ```bash
 POST /v1/audio/transcriptions
@@ -1098,7 +1098,7 @@ Disable **Reasoning token buffer** when upstream providers require strict
 `max_tokens` / `maxOutputTokens` limits. When enabled, combo routing only adds reasoning-model
 headroom for models with a known output cap and leaves the client token limit unchanged when the
 safe buffered value would exceed that cap. If the client limit is already above a known cap,
-OmniRoute clamps it down to that cap before sending the upstream request.
+RedRouter clamps it down to that cap before sending the upstream request.
 
 ---
 
@@ -1121,7 +1121,7 @@ Access via **Dashboard → Health**. Real-time system health overview with 6 car
 
 ## 🤖 Auto-Routing (Zero-config)
 
-OmniRoute ships with a **score-driven auto-router** that picks the best model for each request across every connected provider — no combo to maintain. Just send the request with one of the `auto/*` prefixes and OmniRoute will assemble a virtual combo on the fly, scoring candidates on latency, cost, success rate, context fit, model fitness for the task, recent failures, quota, and circuit-breaker state.
+RedRouter ships with a **score-driven auto-router** that picks the best model for each request across every connected provider — no combo to maintain. Just send the request with one of the `auto/*` prefixes and RedRouter will assemble a virtual combo on the fly, scoring candidates on latency, cost, success rate, context fit, model fitness for the task, recent failures, quota, and circuit-breaker state.
 
 | Prefix         | Optimizes for                                                                               |
 | -------------- | ------------------------------------------------------------------------------------------- |
@@ -1152,13 +1152,13 @@ The auto-router is fully described in [AUTO-COMBO.md](../routing/AUTO-COMBO.md) 
 
 ## 🔌 MCP & A2A Integration
 
-OmniRoute is both an **MCP server** (Model Context Protocol) and an **A2A server** (Agent-to-Agent JSON-RPC 2.0). Any MCP-compatible IDE or agent host can call OmniRoute tools directly — no extra wrapper required.
+RedRouter is both an **MCP server** (Model Context Protocol) and an **A2A server** (Agent-to-Agent JSON-RPC 2.0). Any MCP-compatible IDE or agent host can call RedRouter tools directly — no extra wrapper required.
 
 ### MCP transports
 
 - **SSE**: `http://localhost:20128/api/mcp/sse`
 - **Streamable HTTP**: `http://localhost:20128/api/mcp/stream`
-- **stdio**: `omniroute --mcp` (for IDE plugins that prefer stdio)
+- **stdio**: `red-router --mcp` (for IDE plugins that prefer stdio)
 
 ### Connect Claude Desktop
 
@@ -1187,7 +1187,7 @@ MCP currently defines 32 named scopes. Each Bearer key can be limited to specifi
 
 ## 🧠 Skills System
 
-OmniRoute exposes an extensible **skill framework** (`src/lib/skills/`) so agents and the A2A endpoint can run domain-specific routines (e.g. `code-review`, `summarize`, `extract-facts`, `web-research`).
+RedRouter exposes an extensible **skill framework** (`src/lib/skills/`) so agents and the A2A endpoint can run domain-specific routines (e.g. `code-review`, `summarize`, `extract-facts`, `web-research`).
 
 - **Marketplace UI** — Browse and install skills from **Dashboard → Skills**
 - **Per-key scopes** — Restrict which API keys can invoke which skills
@@ -1199,7 +1199,7 @@ Full reference: [SKILLS.md](../frameworks/SKILLS.md).
 
 ## 💾 Memory System
 
-OmniRoute persists **long-term conversational memory** with hybrid retrieval:
+RedRouter persists **long-term conversational memory** with hybrid retrieval:
 
 - **SQLite FTS5** for keyword search across past turns
 - **Qdrant vector store** (optional) for semantic recall
@@ -1212,7 +1212,7 @@ Manage memories in **Dashboard → Memory** (search, edit, export, purge). The H
 
 ## 🔔 Webhooks
 
-Subscribe to OmniRoute events for real-time monitoring and automation.
+Subscribe to RedRouter events for real-time monitoring and automation.
 
 - Create a webhook in **Dashboard → Webhooks** with target URL and HMAC signing secret
 - Available events: `request.completed`, `request.failed`, `provider.unavailable`, `budget.exceeded`, `combo.switched`, `circuit_breaker.opened`, `circuit_breaker.closed`
@@ -1225,11 +1225,11 @@ Full schema in [WEBHOOKS.md](../frameworks/WEBHOOKS.md).
 
 ## ☁️ Cloud Agents
 
-OmniRoute integrates with cloud coding agents (**OpenAI Codex Cloud**, **Devin**, **Jules**, **Antigravity**) so you can dispatch long-running tasks from the same dashboard that handles your local routing.
+RedRouter integrates with cloud coding agents (**OpenAI Codex Cloud**, **Devin**, **Jules**, **Antigravity**) so you can dispatch long-running tasks from the same dashboard that handles your local routing.
 
 - Create tasks in **Dashboard → Cloud Agents** or via `POST /api/v1/agents/tasks`
 - Track status, logs, and artifacts per task
-- Bring-your-own API key per provider — credentials never leave the OmniRoute instance
+- Bring-your-own API key per provider — credentials never leave the RedRouter instance
 
 Full reference: [CLOUD_AGENT.md](../frameworks/CLOUD_AGENT.md).
 
@@ -1237,7 +1237,7 @@ Full reference: [CLOUD_AGENT.md](../frameworks/CLOUD_AGENT.md).
 
 ## 🛠️ Programmatic Management
 
-You can manage every OmniRoute resource (providers, combos, keys, settings) over HTTP using a **Bearer key with the `manage` scope**.
+You can manage every RedRouter resource (providers, combos, keys, settings) over HTTP using a **Bearer key with the `manage` scope**.
 
 Generate the key in **Dashboard → API Keys → New Key → Scope: manage**, then:
 
@@ -1270,38 +1270,38 @@ See [API_REFERENCE.md](../reference/API_REFERENCE.md) for the full endpoint cata
 
 ## 💻 Internal CLI
 
-OmniRoute ships an internal CLI (`omniroute …`) for setup, diagnostics, and runtime control. This is **separate from the "CLI Tools" page in the dashboard**, which configures third-party CLIs (Claude Code, Cursor, Codex, Cline, …) so they can talk to OmniRoute.
+RedRouter ships an internal CLI (`omniroute …`) for setup, diagnostics, and runtime control. This is **separate from the "CLI Tools" page in the dashboard**, which configures third-party CLIs (Claude Code, Cursor, Codex, Cline, …) so they can talk to RedRouter.
 
 ```bash
-omniroute setup                    # Interactive wizard (password, providers, combos)
-omniroute setup --non-interactive  # CI-friendly
-omniroute doctor                   # Health diagnostics (data dir, DB, providers, ports)
-omniroute providers available      # List supported providers
-omniroute providers list           # List configured connections
-omniroute providers test <id>      # Live test a provider connection
-omniroute combos list              # List combos
-omniroute combos switch <name>     # Set default combo
-omniroute models                   # List available models (--json, --search)
-omniroute keys add | list | remove # Manage API keys from the terminal
-omniroute backup                   # Snapshot config + DB
-omniroute restore [<timestamp>]    # Restore from a snapshot
-omniroute health                   # Detailed health (breakers, cache, memory)
-omniroute quota                    # Provider quota usage
-omniroute mcp status               # MCP server status
+red-router setup                    # Interactive wizard (password, providers, combos)
+red-router setup --non-interactive  # CI-friendly
+red-router doctor                   # Health diagnostics (data dir, DB, providers, ports)
+red-router providers available      # List supported providers
+red-router providers list           # List configured connections
+red-router providers test <id>      # Live test a provider connection
+red-router combos list              # List combos
+red-router combos switch <name>     # Set default combo
+red-router models                   # List available models (--json, --search)
+red-router keys add | list | remove # Manage API keys from the terminal
+red-router backup                   # Snapshot config + DB
+red-router restore [<timestamp>]    # Restore from a snapshot
+red-router health                   # Detailed health (breakers, cache, memory)
+red-router quota                    # Provider quota usage
+red-router mcp status               # MCP server status
 omniroute a2a status               # A2A server status
 omniroute tunnel list|create|stop  # Cloudflare/Tailscale/ngrok tunnels
-omniroute reset-password           # Reset the admin password
-omniroute --mcp                    # Start MCP server over stdio
-omniroute --port 3000              # Start the server on a custom port
+red-router reset-password           # Reset the admin password
+red-router --mcp                    # Start MCP server over stdio
+red-router --port 3000              # Start the server on a custom port
 ```
 
-Tip: pair `omniroute doctor --json` with your monitoring tool to alert on unhealthy provider connections.
+Tip: pair `red-router doctor --json` with your monitoring tool to alert on unhealthy provider connections.
 
 ---
 
 ## 🖥️ Desktop Application (Electron)
 
-OmniRoute is available as a native desktop application for Windows, macOS, and Linux.
+RedRouter is available as a native desktop application for Windows, macOS, and Linux.
 
 ### Installation
 

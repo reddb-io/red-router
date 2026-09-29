@@ -1,15 +1,15 @@
 ---
-title: "OmniRoute Agent Skills Catalog"
+title: "RedRouter Agent Skills Catalog"
 version: 3.8.50
 lastUpdated: 2026-08-02
 ---
 
-# OmniRoute Agent Skills Catalog
+# RedRouter Agent Skills Catalog
 
 > **Source of truth:** `src/lib/agentSkills/` (catalog, generator, parsers) + `skills/` directory (SKILL.md files)
 > **Last updated:** 2026-08-02 — v3.8.50
 
-Agent Skills are structured SKILL.md files that teach external agents, MCP clients, and A2A orchestrators how to use OmniRoute's REST API and CLI. Unlike [Omni Skills](./SKILLS.md) (which are LLM tool definitions executed inside OmniRoute), Agent Skills are a _documentation catalog_ — static markdown that can be fed directly into agent context.
+Agent Skills are structured SKILL.md files that teach external agents, MCP clients, and A2A orchestrators how to use RedRouter's REST API and CLI. Unlike [Omni Skills](./SKILLS.md) (which are LLM tool definitions executed inside RedRouter), Agent Skills are a _documentation catalog_ — static markdown that can be fed directly into agent context.
 
 ---
 
@@ -179,26 +179,26 @@ See [A2A-SERVER.md](./A2A-SERVER.md) for protocol details.
 
 | ID                    | Area               | CLI Command Root        |
 | :-------------------- | :----------------- | :---------------------- |
-| `cli-serve`           | cli-serve          | `omniroute serve`       |
-| `cli-health`          | cli-health         | `omniroute health`      |
-| `cli-providers`       | cli-providers      | `omniroute providers`   |
-| `cli-keys`            | cli-keys           | `omniroute keys`        |
-| `cli-models`          | cli-models         | `omniroute models`      |
+| `cli-serve`           | cli-serve          | `red-router serve`       |
+| `cli-health`          | cli-health         | `red-router health`      |
+| `cli-providers`       | cli-providers      | `red-router providers`   |
+| `cli-keys`            | cli-keys           | `red-router keys`        |
+| `cli-models`          | cli-models         | `red-router models`      |
 | `cli-chat`            | cli-chat           | `omniroute chat`        |
 | `cli-routing`         | cli-routing        | `omniroute routing`     |
 | `cli-resilience`      | cli-resilience     | `omniroute resilience`  |
 | `cli-compression`     | cli-compression    | `omniroute compression` |
 | `cli-contexts`        | cli-contexts       | `omniroute contexts`    |
 | `cli-cost-usage`      | cli-cost-usage     | `omniroute cost`        |
-| `cli-mcp`             | cli-mcp            | `omniroute mcp`         |
+| `cli-mcp`             | cli-mcp            | `red-router mcp`         |
 | `cli-a2a`             | cli-a2a            | `omniroute a2a`         |
 | `cli-tunnel`          | cli-tunnel         | `omniroute tunnel`      |
-| `cli-backup-sync`     | cli-backup-sync    | `omniroute backup`      |
+| `cli-backup-sync`     | cli-backup-sync    | `red-router backup`      |
 | `cli-policy-audit`    | cli-policy-audit   | `omniroute policy`      |
 | `cli-batches`         | cli-batches        | `omniroute batch`       |
 | `cli-eval`            | cli-eval           | `omniroute eval`        |
 | `cli-plugins-skills`  | cli-plugins-skills | `omniroute plugins`     |
-| `cli-setup`           | cli-setup          | `omniroute setup`       |
+| `cli-setup`           | cli-setup          | `red-router setup`       |
 | `cli-skill-collector` | cli-setup          | `omniroute skills`      |
 
 ### Configuration workflow (1)

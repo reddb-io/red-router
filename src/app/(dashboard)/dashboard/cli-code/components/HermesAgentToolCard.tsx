@@ -195,13 +195,13 @@ export default function HermesAgentToolCard({
     onToggle();
   };
 
-  const setRoleSelection = (roleId: string, model: string, provider = "OmniRoute") => {
+  const setRoleSelection = (roleId: string, model: string, provider = "RedRouter") => {
     setSelections((prev) => ({ ...prev, [roleId]: { model, provider } }));
   };
 
   const applyToAll = (model: string) => {
     const newSel: Record<string, RoleSelection> = {};
-    HERMES_ROLES.forEach((r) => (newSel[r.id] = { model, provider: "OmniRoute" }));
+    HERMES_ROLES.forEach((r) => (newSel[r.id] = { model, provider: "RedRouter" }));
     setSelections(newSel);
   };
 
@@ -443,7 +443,7 @@ export default function HermesAgentToolCard({
 
               if (sel) {
                 // pending change made via the Select modal / quick apply → will be routed via OmniRoute
-                const prov = sel.provider || "OmniRoute";
+                const prov = sel.provider || "RedRouter";
                 badge = {
                   label: t("hermesViaOmniRoute", { provider: prov }),
                   pending: true,
@@ -456,7 +456,7 @@ export default function HermesAgentToolCard({
                   (current?.base_url || "").includes("localhost");
 
                 if (isOmni) {
-                  badge = { label: "OmniRoute", pending: false, outsideOmniRoute: false };
+                  badge = { label: "RedRouter", pending: false, outsideOmniRoute: false };
                 } else {
                   const realProvider = current.provider || t("other");
                   badge = {
@@ -609,7 +609,7 @@ export default function HermesAgentToolCard({
             if (modelValue) {
               // Capture a useful provider label from the modal selection when available
               const prov =
-                (model && (model.provider || model.providerId || model.group)) || "OmniRoute";
+                (model && (model.provider || model.providerId || model.group)) || "RedRouter";
               setRoleSelection(modalRole, modelValue, prov);
             }
           }

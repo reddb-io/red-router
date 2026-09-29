@@ -15,7 +15,7 @@ lastUpdated: 2026-07-20
 ## What it is
 
 Local Corpus lets an operator expose one explicitly approved directory of text files to
-OmniRoute's MCP server. Files stay in their original directory: OmniRoute stores only
+RedRouter's MCP server. Files stay in their original directory: RedRouter stores only
 the canonical root path in SQLite and maintains an in-memory search index. It does not
 copy corpus content into the repository or database.
 

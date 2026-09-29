@@ -1,4 +1,4 @@
-// Adaptive reasoning effort — the OmniRoute-side counterpart of Hermes'
+// Adaptive reasoning effort — the RedRouter-side counterpart of Hermes'
 // `effort: "auto"` (NousResearch/hermes-agent#109044). One implementation at
 // the gateway covers every harness (Claude Code, Cursor, Codex, opencode,
 // Hermes) because the full request body passes through here before any

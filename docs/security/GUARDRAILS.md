@@ -11,7 +11,7 @@ lastUpdated: 2026-08-29
 > not yet server-verified — clarified per #11661)
 
 Guardrails enforce safety, policy, and content transformations at the boundary
-between OmniRoute and upstream providers. Each guardrail can inspect (and
+between RedRouter and upstream providers. Each guardrail can inspect (and
 optionally reject, transform, or annotate) request payloads (`preCall`) and
 upstream responses (`postCall`).
 
@@ -101,7 +101,7 @@ Low-detail sampling degrades OCR accuracy for exactly the text-transcription
 task this prompt asks for, so the describe call itself always asks for high
 detail regardless of what detail level the original inbound request used. This
 only affects the internal describe request body; it does not change how
-OmniRoute forwards the caller's own `image_url.detail` on the primary request —
+RedRouter forwards the caller's own `image_url.detail` on the primary request —
 that default is applied separately, and only for detected OpenCode clients, in
 `defaultImageDetail()` (`open-sse/handlers/chatCore/upstreamBody.ts`). The
 Anthropic wire-format branch of the describe self-loop has no `detail` field
@@ -219,7 +219,7 @@ new page; it no longer owns a second copy of the form. Media Providers also
 links Image-to-Text and Speech-to-Text workflows to the corresponding Modality
 Bridge tabs without removing the existing Speech-to-Text playground.
 
-**Self-loop admission bypass:** when the describe call routes through OmniRoute's
+**Self-loop admission bypass:** when the describe call routes through RedRouter's
 own `/v1` self-loop (non-standard provider model), the sub-request sends
 `x-omniroute-admission-bypass: internal` and is authenticated with the resolved
 self-loop credential — the local `sk_omniroute` sentinel in local mode, or the
@@ -409,7 +409,7 @@ estimate; the script never fabricates either result.
 
 Each frame is limited to 4 MiB, all raw frames together to 23 MiB, and the
 serialized broker response to 32 MiB. A private temporary directory is removed
-in `finally`. OmniRoute does not bundle FFmpeg and does not accept a custom
+in `finally`. RedRouter does not bundle FFmpeg and does not accept a custom
 executable path. Before captioning, the bridge applies a conservative visual
 deduplication pass: each JPEG is reduced to a 16×16 grayscale buffer and is
 compared only with the last frame retained. For a requested caption budget
@@ -451,12 +451,12 @@ part when they already possess aligned text. Each cue must carry `text`, a
 finite `start`/`end` interval inside the probed duration, and a whitelisted
 `source` (`client`, `embedded`, or `audio-bridge`); `confidence` defaults to
 `1` and must remain between `0` and `1`. Exact duplicate cues are collapsed.
-OmniRoute never starts transcription from this metadata: validated cues are
+RedRouter never starts transcription from this metadata: validated cues are
 copied into the described result with source, confidence, and interval, and
 are rendered as untrusted observations alongside the frame captions. Invalid,
 out-of-range, or provenance-free text is rejected rather than mixed into the
 caption stream. The `source` field is presently caller-declared, not
-server-verified: OmniRoute enforces that the value is one of the three
+server-verified: RedRouter enforces that the value is one of the three
 allowed strings, but does not yet cryptographically confirm that an
 `embedded` or `audio-bridge` label actually came from a server-owned
 extraction. Treat `source` as an untrusted hint until that verification
@@ -923,7 +923,7 @@ dispatch) has two jobs:
   previous instructions…", DAN-style jailbreaks) asserts the response carries
   `error.code === "SECURITY_001"`, i.e. the guard actually rejected the request.
 - **`garak` (advisory)** — runs garak `--probes promptinject,dan,leakreplay`
-  against a local OmniRoute instance (`http://localhost:20128/v1`). Gated on a
+  against a local RedRouter instance (`http://localhost:20128/v1`). Gated on a
   provider secret (`PROMPTFOO_PROVIDER_KEY`); skips gracefully and is suffixed
   `|| true`, so it reports without failing CI.
 

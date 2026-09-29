@@ -24,7 +24,7 @@ export async function POST(request: Request) {
   if (!mcpEnabled) {
     return NextResponse.json(
       {
-        error: "MCP is disabled; enable it first (`omniroute mcp enable`).",
+        error: "MCP is disabled; enable it first (`red-router mcp enable`).",
       },
       { status: 409 }
     );
@@ -36,7 +36,7 @@ export async function POST(request: Request) {
         error:
           "MCP restart is not supported for the stdio transport — stdio clients spawn their " +
           "own subprocess with no in-process handle to restart. Switch to sse/streamable-http " +
-          "(`omniroute mcp enable --transport sse`) or restart the client instead.",
+          "(`red-router mcp enable --transport sse`) or restart the client instead.",
       },
       { status: 501 }
     );

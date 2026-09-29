@@ -54,7 +54,7 @@ time. This is the same IP-and-key-bound rate limiter that causes
 intermittent `400 content-blocked` errors when Claude Code or Codex CLI
 makes multiple tool-use / message-send calls in quick succession.
 
-## Mitigations already applied in OmniRoute
+## Mitigations already applied in RedRouter
 
 1. **`open-sse/services/wafRateLimit.ts`** — burst guard that enforces a
    500 ms minimum gap between outbound requests to any `agentrouter:*`

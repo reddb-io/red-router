@@ -245,7 +245,7 @@ export async function runAntigravityLogin(opts = {}, deps = {}) {
   print(
     "\n" +
       "Antigravity authorized. Copy the line below and paste it into your remote\n" +
-      'OmniRoute dashboard: Providers → Antigravity → Connect → "Paste credentials".\n' +
+      'RedRouter dashboard: Providers → Antigravity → Connect → "Paste credentials".\n' +
       "(This contains a refresh token — treat it like a password.)\n\n" +
       blob +
       "\n\n"
@@ -271,7 +271,7 @@ async function runLoginAntigravity(opts) {
 export function registerLogin(program) {
   const login = program
     .command("login")
-    .description("Local OAuth helpers for remote OmniRoute installs (run on your own machine)");
+    .description("Local OAuth helpers for remote RedRouter installs (run on your own machine)");
 
   login
     .command("antigravity")

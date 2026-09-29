@@ -42,10 +42,10 @@ export function buildCompanionCommands(target: CompanionTarget, context: string,
   };
   if (!/^[a-z0-9][a-z0-9-]*$/.test(target.id) || !validCompanionContext(context)) return commands;
   const suffix = context ? ` --context ${context}` : "";
-  if (target.configure) commands.configure = `omniroute configure ${target.id}${suffix}`;
+  if (target.configure) commands.configure = `red-router configure ${target.id}${suffix}`;
   if (target.run && (!target.requiresModel || validCompanionModel(model))) {
     const modelArg = target.requiresModel ? ` --model ${model}` : "";
-    commands.run = `omniroute run ${target.id}${suffix}${modelArg} --dry-run`;
+    commands.run = `red-router run ${target.id}${suffix}${modelArg} --dry-run`;
   }
   return commands;
 }

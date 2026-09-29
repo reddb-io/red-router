@@ -77,7 +77,7 @@ if (shouldProvisionStorageKey(process.argv)) {
         `  ${runtimeWarning}\n` +
         `  Supported runtimes: ${nodeSupport.supportedDisplay}\n` +
         `  Recommended: Node.js ${nodeSupport.recommendedVersion}\n` +
-        `  If you installed OmniRoute globally, run \`node -v\` and confirm \`omniroute\` is not resolving to\n` +
+        `  If you installed RedRouter globally, run \`node -v\` and confirm \`omniroute\` is not resolving to\n` +
         `  a stale/distro-packaged \`nodejs\` binary (e.g. /usr/bin/node) instead of the version you expect —\n` +
         `  that mismatch is the most common cause even when package.json's engines range is correct.`
     );

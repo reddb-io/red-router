@@ -47,7 +47,9 @@ export function resolveGrokBuildConfigPath(env: NodeJS.ProcessEnv, configHome: s
 
 const UNSET_SENTINEL = "__omniroute_unset__";
 const MANAGED_MARKER = '# omniroute-managed = "true"';
+// Written by earlier versions; still recognised so those sections keep being treated as ours.
 const LEGACY_DESCRIPTION = "Routed via OmniRoute gateway";
+const DESCRIPTION = "Routed via RedRouter gateway";
 const MODELS_SECTION = "models";
 const SUBAGENT_MODELS_SECTION = "subagents.models";
 
@@ -138,7 +140,7 @@ const buildModelSection = (options: {
     `model = ${tomlString(options.model)}`,
     `base_url = ${tomlString(options.baseUrl)}`,
     `name = ${tomlString(options.name)}`,
-    `description = ${tomlString(LEGACY_DESCRIPTION)}`,
+    `description = ${tomlString(DESCRIPTION)}`,
     'api_backend = "chat_completions"',
   ];
   if (options.apiKey) lines.push(`api_key = ${tomlString(options.apiKey)}`);
@@ -231,7 +233,7 @@ const assertMainSlotOwnership = (toml: string): void => {
 
 export class GrokBuildConfigConflictError extends Error {
   constructor() {
-    super("The [model.omniroute] table exists and OmniRoute does not own it");
+    super("The [model.omniroute] table exists and RedRouter does not own it");
     this.name = "GrokBuildConfigConflictError";
   }
 }
@@ -265,7 +267,7 @@ export function applyGrokBuildConfig(toml: string, options: GrokBuildApplyOption
     baseUrl: options.baseUrl,
     apiKey: options.apiKey,
     contextWindow: options.contextWindow,
-    name: "OmniRoute",
+    name: "RedRouter",
   });
   next = setSectionString(next, MODELS_SECTION, "default", GROK_MAIN_MODEL_SLOT);
 
@@ -281,7 +283,7 @@ export function applyGrokBuildConfig(toml: string, options: GrokBuildApplyOption
           baseUrl: options.baseUrl,
           apiKey: options.apiKey,
           contextWindow: selected.contextWindow,
-          name: `OmniRoute ${type}`,
+          name: `RedRouter ${type}`,
         });
         next = setSectionString(next, SUBAGENT_MODELS_SECTION, type, slot);
       } else {

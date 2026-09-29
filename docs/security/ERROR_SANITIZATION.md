@@ -183,7 +183,7 @@ Sanitization rules applied to `upstreamDetails`:
 3. Depth cap: nesting beyond 4 levels is replaced with the string `"[truncated]"`.
 4. Arrays are capped at 32 elements.
 
-Only call sites with a parsed provider error body should pass `upstreamDetails`. Internal OmniRoute
+Only call sites with a parsed provider error body should pass `upstreamDetails`. Internal RedRouter
 errors (SSE parse failures, empty content, guardrail blocks) must not include it.
 
 Do NOT pass raw `err.stack`, `err.message`, or any string from a runtime exception to
@@ -194,7 +194,7 @@ Selective upstream 4xx passthrough preserves the provider's safe JSON shape and 
 client auto-recovery, but it is not byte-for-byte passthrough: the recursive sanitizer always runs
 before serialization. Cyclic, BigInt-bearing, or hostile `toJSON()` bodies fail closed and are not
 eligible for passthrough. OCR and moderation apply the same rule; non-JSON, blank, or mislabeled
-upstream bodies are converted to the canonical OmniRoute JSON error envelope.
+upstream bodies are converted to the canonical RedRouter JSON error envelope.
 
 ## Known CodeQL limitation: custom sanitizers not recognized
 

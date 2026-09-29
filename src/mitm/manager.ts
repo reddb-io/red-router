@@ -53,7 +53,7 @@ export function interpretMitmStartupError(stderr: string, port: number): string 
     return `MITM server failed to start: permission denied for port ${port} (run with elevated privileges, or use a port ≥ 1024)`;
   }
   if (lower.includes("router_api_key")) {
-    return "MITM server failed to start: no API key was provided (ROUTER_API_KEY is required). Set a router API key in OmniRoute and retry.";
+    return "MITM server failed to start: no API key was provided (ROUTER_API_KEY is required). Set a router API key in RedRouter and retry.";
   }
 
   // Surface the first "❌ <message>" diagnostic line verbatim (marker stripped),

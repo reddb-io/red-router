@@ -163,7 +163,7 @@ export async function POST(request: Request) {
       type: "openai-compat",
       base_url: normalizedBaseUrl,
       api_key: apiKey,
-      models: [{ id: model, name: `OmniRoute: ${model}`, context_window: DEFAULT_CONTEXT_WINDOW }],
+      models: [{ id: model, name: `RedRouter: ${model}`, context_window: DEFAULT_CONTEXT_WINDOW }],
     };
 
     const updated: Record<string, unknown> = {
@@ -221,7 +221,7 @@ export async function DELETE(request: Request) {
       throw err;
     }
 
-    // Remove only the OmniRoute-managed provider entry — preserve the rest
+    // Remove only the RedRouter-managed provider entry — preserve the rest
     // of the user's providers map (Crush supports multiple providers).
     const providers = { ...((existing.providers as Record<string, unknown>) || {}) };
     delete providers.omniroute;
@@ -245,7 +245,7 @@ export async function DELETE(request: Request) {
       /* non-critical */
     }
 
-    return NextResponse.json({ success: true, message: "Crush OmniRoute settings removed" });
+    return NextResponse.json({ success: true, message: "Crush RedRouter settings removed" });
   } catch (err) {
     return NextResponse.json({ error: { message: sanitizeErrorMessage(err) } }, { status: 500 });
   }

@@ -9,7 +9,7 @@ import {
  * Claude Code matches upstream error wording to auto-disable capabilities
  * (thinking / output_config) for the rest of the conversation. This path keeps
  * the wording and JSON shape required for that recovery after applying the
- * canonical recursive sanitizer. OmniRoute-generated errors MUST keep using
+ * canonical recursive sanitizer. RedRouter-generated errors MUST keep using
  * buildErrorBody() (Hard Rule #12).
  */
 const PASSTHROUGH_MIN = 400;

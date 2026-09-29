@@ -6,7 +6,7 @@ lastUpdated: 2026-06-28
 
 # MITM TPROXY Transparent Decrypt
 
-TPROXY transparent decrypt is OmniRoute's **5th capture mode** for the
+TPROXY transparent decrypt is RedRouter's **5th capture mode** for the
 [Traffic Inspector](../frameworks/TRAFFIC_INSPECTOR.md) / [AgentBridge](../frameworks/AGENTBRIDGE.md)
 MITM stack. It intercepts and **decrypts** local outbound HTTPS traffic on Linux
 using kernel TPROXY + policy routing — **without** spoofing `/etc/hosts` and
@@ -55,7 +55,7 @@ Use it when you want to capture and decrypt traffic from a process that:
 - you do not want to disturb with a system-wide proxy change.
 
 Because interception happens in the kernel, the originating process needs **no
-configuration change** — but the process must trust the dynamic CA OmniRoute
+configuration change** — but the process must trust the dynamic CA RedRouter
 installs (see [§4](#4-the-per-sni-dynamic-ca-and-trust-store-installer)).
 
 ---
@@ -74,7 +74,7 @@ addon not built), the addon loader (`src/mitm/tproxy/transparentSocket.ts::loadT
 returns `null` rather than throwing. The capture-mode status then reports
 `available: false`, the dashboard toggle is **disabled** with the tooltip
 "TPROXY decrypt requires Linux + root + the native addon", and the rest of
-OmniRoute keeps working.
+RedRouter keeps working.
 
 ---
 
@@ -257,7 +257,7 @@ forward path defends against this with a bypass socket mark (**SO_MARK**):
 | **Error sanitization**           | The route's error responses go through `sanitizeErrorMessage()` (Hard Rule #12).                                                                                                                                                                                                                                                                                   |
 
 **The MITM CA is a powerful capability.** A CA trusted by the OS that can sign any
-host means anything OmniRoute intercepts can be decrypted. It is gated behind the
+host means anything RedRouter intercepts can be decrypted. It is gated behind the
 explicit, local-only TPROXY capture mode, off by default, and the trust-store
 entry is removed when you stop the mode.
 
@@ -367,7 +367,7 @@ returns `available: false` when the addon is missing.
 ### Stale firewall rules after a crash
 
 `revertTproxy()` is the exact inverse of apply and is idempotent. Stopping the
-mode reverts the rules; if OmniRoute was killed mid-session, use the AgentBridge
+mode reverts the rules; if RedRouter was killed mid-session, use the AgentBridge
 **Repair** action (`POST /api/tools/agent-bridge/repair`) to undo orphaned system
 state (DNS spoof, root CA, system proxy). The TPROXY `mangle` rules and route also
 flush automatically on reboot.

@@ -100,13 +100,13 @@ export async function runSetupQwenCommand(opts = {}) {
     opts.configPath ?? opts["config-path"] ?? path.join(os.homedir(), ".qwen", "settings.json");
   const envPath = opts.envPath ?? opts["env-path"] ?? path.join(path.dirname(settingsPath), ".env");
 
-  printHeading("OmniRoute → Qwen Code (OpenAI-compatible)");
+  printHeading("RedRouter → Qwen Code (OpenAI-compatible)");
   printInfo(`baseUrl: ${baseUrl}`);
 
   for (const target of [settingsPath, envPath]) {
     const guard = await guardHostConfigTarget(target, {
       toolLabel: "Qwen Code",
-      hostCommand: "omniroute setup-qwen",
+      hostCommand: "red-router setup-qwen",
       allowContainerWrite: Boolean(opts.allowContainerWrite ?? opts["allow-container-write"]),
       dryRun,
     });
@@ -161,10 +161,10 @@ export async function runSetupQwenCommand(opts = {}) {
 export function registerSetupQwen(program) {
   program
     .command("setup-qwen")
-    .description("Configure Qwen Code's upstream V4 modelProviders format for OmniRoute")
-    .option("--port <port>", "Local OmniRoute port (ignored when --remote is set)", "25050")
-    .option("--remote <url>", "Remote OmniRoute URL")
-    .option("--api-key <key>", "OmniRoute API key")
+    .description("Configure Qwen Code's upstream V4 modelProviders format for RedRouter")
+    .option("--port <port>", "Local RedRouter port (ignored when --remote is set)", "25050")
+    .option("--remote <url>", "Remote RedRouter URL")
+    .option("--api-key <key>", "RedRouter API key")
     .option("--model <id>", "Model id for Qwen Code")
     .option("--config-path <path>", "Qwen Code settings.json path")
     .option("--env-path <path>", "Qwen Code .env path")

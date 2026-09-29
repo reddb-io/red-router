@@ -7,13 +7,13 @@ lastUpdated: 2026-09-22
 # CLI Companion
 
 The CLI Code dashboard includes a copy-only companion for the executable CLI
-targets supported by this OmniRoute version. It does not start a process, write
+targets supported by this RedRouter version. It does not start a process, write
 configuration, test inference or send credentials to the clipboard.
 
 ## Server detection is not browser detection
 
 Detection, runtime and configuration status describe the machine running the
-OmniRoute server. If you open a remote dashboard from your laptop, a missing CLI
+RedRouter server. If you open a remote dashboard from your laptop, a missing CLI
 on that server says nothing about the CLI installed on your laptop. Unknown and
 failed detection remain explicit; they are not treated as “not installed”. Raw
 diagnostic errors and configuration endpoints are not shown in this panel.
@@ -36,8 +36,8 @@ server. The dashboard does not read your terminal's context store, create a
 context or copy its credentials. For example, if `office` already exists:
 
 ```sh
-omniroute configure claude --context office
-omniroute run claude --context office --dry-run
+red-router configure claude --context office
+red-router run claude --context office --dry-run
 ```
 
 `configure` is interactive and writes configuration on the machine where you

@@ -200,8 +200,8 @@ function buildCliBody(skill: AgentSkill, sources: BuildSources): string {
 
   lines.push("## Quick install\n");
   lines.push("```bash");
-  lines.push("npm install -g omniroute   # or: npx omniroute");
-  lines.push("omniroute --version");
+  lines.push("npm install -g @reddb-io/red-router   # or: npx @reddb-io/red-router");
+  lines.push("red-router --version");
   lines.push("```");
   lines.push("");
 

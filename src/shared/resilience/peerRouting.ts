@@ -85,13 +85,13 @@ export function inspectPeerRequest(
   if (trace.includes(instanceId)) {
     return {
       code: "peer_loop_detected",
-      message: "OmniRoute peer routing loop detected",
+      message: "RedRouter peer routing loop detected",
     };
   }
   if (trace.length >= getMaxPeerHops(env)) {
     return {
       code: "peer_hop_limit_exceeded",
-      message: "OmniRoute peer routing hop limit exceeded",
+      message: "RedRouter peer routing hop limit exceeded",
     };
   }
   return null;

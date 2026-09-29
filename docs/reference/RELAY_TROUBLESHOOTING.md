@@ -7,9 +7,9 @@ lastUpdated: 2026-07-11
 # Relay Troubleshooting
 
 Relays (Vercel, Deno, Cloudflare) terminate the upstream connection on a
-serverless backend so OmniRoute can egress from a stable region while keeping
+serverless backend so RedRouter can egress from a stable region while keeping
 the provider API key server-side. This document covers the two failure modes
-that operators hit in production and the recovery paths OmniRoute ships for
+that operators hit in production and the recovery paths RedRouter ships for
 each.
 
 ## How relay auth is stored
@@ -37,7 +37,7 @@ no auth.
 1. Open **Settings → Proxy Pool**.
 2. Relay rows whose auth is missing show a yellow `auth missing` badge and a
    **Repair** button.
-3. Click **Repair**. OmniRoute calls
+3. Click **Repair**. RedRouter calls
    `POST /api/settings/proxies/[id]/repair-relay`, which:
    - decrypts `relayAuthEnc` with the **current** key,
    - writes the plaintext `relayAuth` back into `notes`,
@@ -69,7 +69,7 @@ token is unrecoverable, so you never have to hunt for it manually.
 **Symptom:** the proxy test (`speed` button) shows the relay up but requests
 still fail intermittently.
 
-Check the relay awareness headers returned by OmniRoute's auto-test probe
+Check the relay awareness headers returned by RedRouter's auto-test probe
 (see **Settings → Proxy Pool** and the `relayTested` / `relayAlive` counters):
 
 - `x-relay-url` — which relay backend answered.

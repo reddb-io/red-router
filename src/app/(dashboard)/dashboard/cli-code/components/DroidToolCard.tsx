@@ -363,7 +363,7 @@ export default function DroidToolCard({
           {!checkingDroid && cliReady && (
             <>
               <div className="flex flex-col gap-2">
-                {/* Current Base URL — first OmniRoute entry, any index (#618) */}
+                {/* Current Base URL — first RedRouter entry, any index (#618) */}
                 {droidStatus?.settings?.customModels?.find(isOmniRouteEntry)?.baseUrl && (
                   <div className="flex items-center gap-2">
                     <span className="w-32 shrink-0 text-sm font-semibold text-text-main text-right">

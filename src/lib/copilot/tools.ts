@@ -65,10 +65,13 @@ function formatCodeGraphResult(result: CodeGraphQueryResult): string {
 
 function getOmniRouteCliPath(): string | null {
   try {
-    const result = execSync("which omniroute 2>/dev/null || command -v omniroute 2>/dev/null", {
-      encoding: "utf-8",
-      timeout: 3000,
-    }).trim();
+    const result = execSync(
+      "which red-router 2>/dev/null || command -v red-router 2>/dev/null || which omniroute 2>/dev/null",
+      {
+        encoding: "utf-8",
+        timeout: 3000,
+      }
+    ).trim();
     return result || null;
   } catch {
     return null;
@@ -251,7 +254,7 @@ export const COPILOT_TOOLS: CopilotTool[] = [
   {
     name: "searchCodeGraph",
     description:
-      "Search for symbols in the OmniRoute codebase by name (functions, classes, types, variables). Use this to understand how the app works internally.",
+      "Search for symbols in the RedRouter codebase by name (functions, classes, types, variables). Use this to understand how the app works internally.",
     parameters: [
       {
         name: "query",
@@ -294,7 +297,7 @@ export const COPILOT_TOOLS: CopilotTool[] = [
   {
     name: "findCallees",
     description:
-      "Find all functions/symbols that a specific function calls. Useful for understanding dependencies and code flow within OmniRoute.",
+      "Find all functions/symbols that a specific function calls. Useful for understanding dependencies and code flow within RedRouter.",
     parameters: [
       {
         name: "symbol",
@@ -364,13 +367,13 @@ export const COPILOT_TOOLS: CopilotTool[] = [
   {
     name: "runOmniRouteCli",
     description:
-      "Execute an 'omniroute' CLI command to configure or query the OmniRoute app. Gives complete control over the app — use for advanced operations not covered by other tools. Common commands: omniroute list-keys, omniroute switch-combo [id], omniroute set-budget 10, omniroute set-strategy [id] priority, omniroute health, omniroute mcp (starts MCP server), omniroute db-health, omniroute reset-password.",
+      "Execute a 'red-router' CLI command to configure or query the RedRouter app. Gives complete control over the app — use for advanced operations not covered by other tools. Common commands: red-router list-keys, red-router switch-combo [id], red-router set-budget 10, omniroute set-strategy [id] priority, red-router health, red-router mcp (starts MCP server), omniroute db-health, red-router reset-password.",
     parameters: [
       {
         name: "command",
         type: "string",
         description:
-          "CLI command arguments (everything after 'omniroute'). Example: 'list-keys', 'switch-combo abc123', 'health'",
+          "CLI command arguments (everything after 'red-router'). Example: 'list-keys', 'switch-combo abc123', 'health'",
         required: true,
       },
     ],
@@ -379,7 +382,7 @@ export const COPILOT_TOOLS: CopilotTool[] = [
       if (!cmd) return "Please provide a command to execute.";
 
       const cliPath = getOmniRouteCliPath();
-      if (!cliPath) return "omniroute CLI not found in PATH. Install OmniRoute first.";
+      if (!cliPath) return "red-router CLI not found in PATH. Install RedRouter first.";
 
       try {
         const trimmedCmd = cmd.trim();

@@ -1,4 +1,4 @@
-<svg viewBox="0 0 1200 430" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Works the second you install it — zero config. Three steps: 1. Install — npm install -g omniroute, one command, server on localhost port 20128. 2. Point your tool at http://localhost:20128/v1 — any OpenAI-compatible tool. 3. It answers — call model auto and get an instant reply with no API key, no signup, no configuration. Keyless provider OpenCode Free is pre-wired into the auto combo, so a fresh install responds out of the box.">
+<svg viewBox="0 0 1200 430" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Works the second you install it — zero config. Three steps: 1. Install — npm install -g @reddb-io/red-router, one command, server on localhost port 20128. 2. Point your tool at http://localhost:20128/v1 — any OpenAI-compatible tool. 3. It answers — call model auto and get an instant reply with no API key, no signup, no configuration. Keyless provider OpenCode Free is pre-wired into the auto combo, so a fresh install responds out of the box.">
   <desc>Animated flow card: three step tiles (Install, Point your tool, It answers) fade in left to right, a dot travels along the connectors between them in a loop, and the final check pulses.</desc>
   <defs>
     <pattern id="gridW" width="32" height="32" patternUnits="userSpaceOnUse">
@@ -53,7 +53,7 @@
         <path d="M 3 19 L 19 19"/>
       </g>
       <text x="140" y="179" font-size="18" font-weight="800" fill="#74b9ff">Install</text>
-      <text x="66" y="222" font-family="Consolas, 'Courier New', monospace" font-size="14" fill="#e6edf3">$ npm i -g omniroute</text>
+      <text x="66" y="222" font-family="Consolas, 'Courier New', monospace" font-size="14" fill="#e6edf3">$ npm i -g @reddb-io/red-router</text>
       <text x="66" y="258" font-size="13.5" fill="#a1a1aa">One command. Server boots on</text>
       <text x="66" y="279" font-family="Consolas, 'Courier New', monospace" font-size="13" fill="#8b949e">localhost:20128</text>
     </g>
@@ -89,7 +89,7 @@
       </g>
       <text x="930" y="179" font-size="18" font-weight="800" fill="#7ee787">It answers</text>
       <text x="856" y="222" font-family="Consolas, 'Courier New', monospace" font-size="14" fill="#e6edf3">model: <tspan fill="#7ee787" font-weight="700">"auto"</tspan> → reply</text>
-      <text x="856" y="258" font-size="13.5" fill="#a1a1aa">Instant. OmniRoute builds a virtual</text>
+      <text x="856" y="258" font-size="13.5" fill="#a1a1aa">Instant. RedRouter builds a virtual</text>
       <text x="856" y="279" font-size="13.5" fill="#a1a1aa">combo from keyless free providers.</text>
     </g>
   </g>

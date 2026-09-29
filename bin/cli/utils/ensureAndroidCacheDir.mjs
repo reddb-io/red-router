@@ -138,7 +138,7 @@ export function formatAndroidInstrumentationFailureHint(cacheDir) {
   const dir = cacheDir || join(homedir(), ".cache");
   return (
     `\n\x1b[31m✖ Next.js instrumentation failed on Android/Termux (likely missing cache dir).\x1b[0m\n` +
-    `  OmniRoute tried to create a writable cache at:\n` +
+    `  RedRouter tried to create a writable cache at:\n` +
     `    \x1b[36m${dir}\x1b[0m\n` +
     `  Manual workaround (survives reinstalls — do NOT patch dist/server.js):\n` +
     `    \x1b[36mmkdir -p ~/.cache\x1b[0m\n` +

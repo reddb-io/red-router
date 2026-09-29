@@ -1,10 +1,10 @@
 ---
-title: "OmniRoute Plugin SDK"
+title: "RedRouter Plugin SDK"
 version: 3.8.40
 lastUpdated: 2026-06-28
 ---
 
-# OmniRoute Plugin SDK
+# RedRouter Plugin SDK
 
 ## Quick Start
 

@@ -6,7 +6,7 @@ lastUpdated: 2026-06-28
 
 # AgentBridge
 
-AgentBridge is OmniRoute's MITM (Man-in-the-Middle) proxy that intercepts HTTPS traffic from IDE AI agents and reroutes it through OmniRoute's unified routing engine. It supports **10 IDE agents** — Antigravity, Kiro, GitHub Copilot, GHE Copilot, OpenAI Codex, Cursor, Zed, Claude Code, Open Code, and Trae (investigating) — making OmniRoute the broadest-coverage MITM proxy for AI coding assistants on the market.
+AgentBridge is RedRouter's MITM (Man-in-the-Middle) proxy that intercepts HTTPS traffic from IDE AI agents and reroutes it through RedRouter's unified routing engine. It supports **10 IDE agents** — Antigravity, Kiro, GitHub Copilot, GHE Copilot, OpenAI Codex, Cursor, Zed, Claude Code, Open Code, and Trae (investigating) — making RedRouter the broadest-coverage MITM proxy for AI coding assistants on the market.
 
 **Dashboard location:** `/dashboard/tools/agent-bridge`
 **Sidebar group:** Tools (after Cloud Agents)
@@ -18,18 +18,18 @@ AgentBridge is OmniRoute's MITM (Man-in-the-Middle) proxy that intercepts HTTPS 
 
 ### What is AgentBridge?
 
-When an IDE agent (e.g., GitHub Copilot, Cursor, Claude Code) makes an API call, it connects directly to the upstream AI provider (OpenAI, Anthropic, etc.). AgentBridge intercepts that connection transparently at the TLS level — without requiring any agent configuration change — and rewrites the request through OmniRoute.
+When an IDE agent (e.g., GitHub Copilot, Cursor, Claude Code) makes an API call, it connects directly to the upstream AI provider (OpenAI, Anthropic, etc.). AgentBridge intercepts that connection transparently at the TLS level — without requiring any agent configuration change — and rewrites the request through RedRouter.
 
 This means you can:
 
-- **Reroute any agent to any provider**: Copilot talking to OpenAI? Redirect it to Anthropic Claude, Gemini, or any of OmniRoute's 352 providers.
+- **Reroute any agent to any provider**: Copilot talking to OpenAI? Redirect it to Anthropic Claude, Gemini, or any of RedRouter's 352 providers.
 - **Apply model mappings**: `gemini-3-flash` → `claude-sonnet-4.7` transparently at the handler level.
 - **Observe all agent traffic**: every intercepted request is published to the [Traffic Inspector](./TRAFFIC_INSPECTOR.md).
-- **Apply OmniRoute resilience**: combo routing, circuit breakers, fallbacks, and cost tracking work for IDE agent traffic too.
+- **Apply RedRouter resilience**: combo routing, circuit breakers, fallbacks, and cost tracking work for IDE agent traffic too.
 
 ### Positioning vs. the market
 
-| Feature           | 9router | anti-api | llm-interceptor | **OmniRoute AgentBridge** |
+| Feature           | 9router | anti-api | llm-interceptor | **RedRouter AgentBridge** |
 | ----------------- | :-----: | :------: | :-------------: | :-----------------------: |
 | Antigravity       |    ✓    |    ✓     |        —        |             ✓             |
 | GitHub Copilot    |    ✓    |    ✓     |        —        |             ✓             |
@@ -42,7 +42,7 @@ This means you can:
 | Trae              |    —    |    —     |        —        |     🔍 Investigating      |
 | Dashboard UI      |    ✓    |    ✗     |        ✗        |             ✓             |
 | Traffic Inspector |    ✗    |    ✗     |        ✓        |             ✓             |
-| OmniRoute routing |    ✗    |    ✗     |        ✗        |             ✓             |
+| RedRouter routing |    ✗    |    ✗     |        ✗        |             ✓             |
 | Model mapping UI  |    ✗    |    ✗     |        ✗        |             ✓             |
 | Bypass list       |    ✗    |    ✗     |        ✓        |             ✓             |
 | Upstream CA cert  |    ✗    |    ✗     |        ✓        |             ✓             |
@@ -64,7 +64,7 @@ src/mitm/server.cjs  (port 443, CJS child process)
     │  resolves target by Host header SNI
     │  generates per-SNI TLS cert signed by AgentBridge CA
     ├── Bypass list match? → TCP passthrough (no decrypt)
-    ├── Target match? → fetch → OmniRoute router (port 20128)
+    ├── Target match? → fetch → RedRouter router (port 20128)
     │       └── handler.intercept() — TypeScript
     │               ├── maskSecrets() on request body/headers
     │               ├── TrafficBuffer.push() — publishes to Traffic Inspector
@@ -207,7 +207,7 @@ The AgentBridge CA certificate must be trusted by the OS before IDEs will accept
 **Linux (NSS — Chrome/Firefox):**
 
 ```bash
-certutil -A -d sql:$HOME/.pki/nssdb -n "OmniRoute AgentBridge" -t CT,, -i ~/.omniroute/mitm/ca.crt
+certutil -A -d sql:$HOME/.pki/nssdb -n "RedRouter AgentBridge" -t CT,, -i ~/.omniroute/mitm/ca.crt
 ```
 
 **macOS (Keychain):**
@@ -263,7 +263,7 @@ Example `/etc/hosts` entries for GitHub Copilot:
 
 Use the Model Mapping Table in each agent card to define source → target mappings:
 
-| Source model (agent native) | Target model (OmniRoute) |
+| Source model (agent native) | Target model (RedRouter) |
 | --------------------------- | ------------------------ |
 | `gpt-4o`                    | `claude-sonnet-4.7`      |
 | `*` (wildcard)              | `claude-haiku-4.7`       |
@@ -279,7 +279,7 @@ Wildcard `*` maps any unrecognized model to the specified target. Persisted in `
 
 ### 3.5 Risk notice
 
-AgentBridge intercepts credentials (OAuth tokens, API keys) that the IDE uses to authenticate with upstream providers. These are **masked before logging** (see §2.7) but are visible to OmniRoute's MITM layer. First activation of each agent shows a dismissible risk notice modal.
+AgentBridge intercepts credentials (OAuth tokens, API keys) that the IDE uses to authenticate with upstream providers. These are **masked before logging** (see §2.7) but are visible to RedRouter's MITM layer. First activation of each agent shows a dismissible risk notice modal.
 
 ### 3.6 Maintenance & Diagnostics
 
@@ -397,7 +397,7 @@ Detection uses OS-specific paths and binary checks (e.g., `code --list-extension
 
 ### Bypass list for sensitive hosts
 
-The bypass list ensures that financial institutions, OAuth/SSO providers, and other sensitive hosts are **never decrypted**. Their TLS traffic passes through as a transparent TCP tunnel — OmniRoute never sees the plaintext.
+The bypass list ensures that financial institutions, OAuth/SSO providers, and other sensitive hosts are **never decrypted**. Their TLS traffic passes through as a transparent TCP tunnel — RedRouter never sees the plaintext.
 
 Default bypass patterns include:
 
@@ -448,7 +448,7 @@ Alternatively, configure a non-privileged port in AgentBridge settings and set u
 
 If the IDE shows TLS errors after starting AgentBridge:
 
-1. Verify the cert was installed: `security find-certificate -c "OmniRoute AgentBridge"` (macOS) or `certutil -L -d sql:$HOME/.pki/nssdb` (Linux/NSS)
+1. Verify the cert was installed: `security find-certificate -c "RedRouter AgentBridge"` (macOS) or `certutil -L -d sql:$HOME/.pki/nssdb` (Linux/NSS)
 2. Some apps maintain their own trust store (Firefox, Chrome on Linux). Run "Trust Cert" again and check the NSS/Firefox-specific cert store.
 3. Restart the IDE after trusting — in-flight TLS sessions use the old trust state.
 
@@ -499,7 +499,7 @@ Auto-detection uses common installation paths. If detection fails but the IDE is
 If AgentBridge intercepts but all requests fail:
 
 1. Verify at least one provider is connected at `/dashboard/providers`
-2. Check OmniRoute server logs: `APP_LOG_LEVEL=debug` in `.env`
+2. Check RedRouter server logs: `APP_LOG_LEVEL=debug` in `.env`
 3. Verify `OMNIROUTE_BASE_URL` points to the correct router endpoint (default: `http://127.0.0.1:20128`)
 
 ---

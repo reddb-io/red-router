@@ -50,7 +50,7 @@ async function readErrorMessage(res) {
 export async function runConnectCommand(host, opts = {}) {
   const baseUrl = normalizeBaseUrl(host, opts.port || "25050");
   if (!baseUrl) {
-    printError("A host is required, e.g. omniroute connect 192.168.0.15");
+    printError("A host is required, e.g. red-router connect 192.168.0.15");
     return 2;
   }
   const name = opts.name || hostLabel(host);
@@ -106,7 +106,7 @@ export async function runConnectCommand(host, opts = {}) {
     baseUrl,
     accessToken,
     scope,
-    description: `Remote OmniRoute (${host})`,
+    description: `Remote RedRouter (${host})`,
   };
   cfg.currentContext = name;
   await saveContextsSecure(cfg);
@@ -121,7 +121,7 @@ export function registerConnect(program) {
   program
     .command("connect <host>")
     .description(
-      t("connect.description") || "Connect to a remote OmniRoute server and enter remote mode"
+      t("connect.description") || "Connect to a remote RedRouter server and enter remote mode"
     )
     .option("--port <port>", "Server port when the host has none", "25050")
     .option("--key <token>", "Use a pre-generated scoped access token (skips the password prompt)")

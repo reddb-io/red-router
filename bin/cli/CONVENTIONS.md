@@ -1,4 +1,4 @@
-# OmniRoute CLI — Internal Conventions
+# RedRouter CLI — Internal Conventions
 
 > Status: normative. Source: `_tasks/features-v3.8.0/cli/fase-0-preparacao/0.3-definir-convencoes.md`.
 > This file is the authoritative reference for every new or migrated CLI command.
@@ -10,15 +10,15 @@
 **Standard**: `git`-style nested verbs.
 
 ```
-omniroute keys add openai sk-xxx
-omniroute combo switch fastest
+red-router keys add openai sk-xxx
+red-router combo switch fastest
 omniroute memory search "react hooks"
 ```
 
 **Not allowed**:
 
 ```
-omniroute --add-key openai sk-xxx     # ❌ flag-as-verb
+red-router --add-key openai sk-xxx     # ❌ flag-as-verb
 omniroute add-key openai sk-xxx       # ❌ hyphen at the top level
 ```
 

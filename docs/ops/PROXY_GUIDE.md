@@ -1,14 +1,14 @@
 ---
-title: "🌐 OmniRoute Proxy Guide"
+title: "🌐 RedRouter Proxy Guide"
 version: 3.8.40
 lastUpdated: 2026-06-28
 ---
 
-# 🌐 OmniRoute Proxy Guide
+# 🌐 RedRouter Proxy Guide
 
 > **Bypass geographic blocks, protect your identity, and route AI traffic through any proxy — with zero configuration complexity.**
 
-OmniRoute includes a full-featured proxy management system that lets you route upstream AI provider traffic through HTTP, HTTPS, or SOCKS5 proxies. Whether you're in a blocked region, need IP rotation, or want stealth fingerprinting — this guide covers everything.
+RedRouter includes a full-featured proxy management system that lets you route upstream AI provider traffic through HTTP, HTTPS, or SOCKS5 proxies. Whether you're in a blocked region, need IP rotation, or want stealth fingerprinting — this guide covers everything.
 
 ---
 
@@ -53,7 +53,7 @@ Even outside blocked regions, proxies are useful for:
 
 ```
 ┌───────────────────────────────────────────────────────────────┐
-│                       OmniRoute Server                        │
+│                       RedRouter Server                        │
 │                                                               │
 │  ┌─────────────┐    ┌──────────────┐    ┌──────────────────┐  │
 │  │ Proxy       │    │ Proxy        │    │ Proxy            │  │
@@ -84,7 +84,7 @@ Even outside blocked regions, proxies are useful for:
 
 ## 4-Level Proxy System
 
-OmniRoute supports proxy configuration at **four independent scopes**, resolved in priority order:
+RedRouter supports proxy configuration at **four independent scopes**, resolved in priority order:
 
 ```
 Priority Resolution Order (highest → lowest):
@@ -97,7 +97,7 @@ Priority Resolution Order (highest → lowest):
 
 ### How Resolution Works
 
-When OmniRoute sends a request to an upstream provider, it calls `resolveProxyForConnectionFromRegistry()` which checks each level in order:
+When RedRouter sends a request to an upstream provider, it calls `resolveProxyForConnectionFromRegistry()` which checks each level in order:
 
 1. **Account-level** — Is there a proxy assigned to this specific connection ID?
 2. **Provider-level** — Is there a proxy assigned to this provider (e.g., `openai`)?
@@ -239,7 +239,7 @@ curl -X POST http://localhost:20128/api/v1/management/proxies/bulk-assign \
 
 ### Import/Export
 
-Proxies are included in the **Backup/Restore** system. When you export your OmniRoute configuration:
+Proxies are included in the **Backup/Restore** system. When you export your RedRouter configuration:
 
 1. Go to **Dashboard → Settings → Backup**
 2. Click **Export** — proxy registry and assignments are included
@@ -249,7 +249,7 @@ The proxy registry also supports **upsert by host+port** — if you import a pro
 
 ### Legacy Migration
 
-If you configured proxies in an older version (pre-registry), OmniRoute automatically migrates them:
+If you configured proxies in an older version (pre-registry), RedRouter automatically migrates them:
 
 ```
 Legacy key_value store → proxy_registry + proxy_assignments
@@ -261,9 +261,9 @@ This happens once on first startup after upgrade. Use `migrateLegacyProxyConfigT
 
 ## 1proxy Free Proxy Marketplace
 
-> 🆕 **Contributed by [@oyi77](https://github.com/oyi77)** — PR [#1847](https://github.com/diegosouzapw/OmniRoute/pull/1847) (Issue [#1788](https://github.com/diegosouzapw/OmniRoute/issues/1788))
+> 🆕 **Contributed by [@oyi77](https://github.com/oyi77)** — PR [#1847](https://github.com/reddb-io/red-router/pull/1847) (Issue [#1788](https://github.com/reddb-io/red-router/issues/1788))
 
-OmniRoute integrates with the **[1proxy](https://1proxy-api.aitradepulse.com)** community platform to provide access to **hundreds of free, validated proxies** from around the world. This is perfect for users who don't have their own proxy infrastructure.
+RedRouter integrates with the **[1proxy](https://1proxy-api.aitradepulse.com)** community platform to provide access to **hundreds of free, validated proxies** from around the world. This is perfect for users who don't have their own proxy infrastructure.
 
 ### How It Works
 
@@ -274,7 +274,7 @@ OmniRoute integrates with the **[1proxy](https://1proxy-api.aitradepulse.com)** 
 └─────────────┘    proxies    └─────────────────┘               └──────────┘
 ```
 
-1. **Sync** — OmniRoute fetches validated proxies from the 1proxy API
+1. **Sync** — RedRouter fetches validated proxies from the 1proxy API
 2. **Store** — Proxies are saved in the same `proxy_registry` table with `source = 'oneproxy'`
 3. **Filter** — Filter by protocol, country, quality score
 4. **Rotate** — Pick the best proxy using quality, random, or sequential strategies
@@ -374,7 +374,7 @@ curl -X DELETE "http://localhost:20128/api/settings/oneproxy?clearAll=1"
 
 ## Anti-Detection & Stealth
 
-OmniRoute doesn't just route traffic through a proxy — it makes the traffic look legitimate:
+RedRouter doesn't just route traffic through a proxy — it makes the traffic look legitimate:
 
 ### TLS Fingerprint Spoofing
 
@@ -408,11 +408,11 @@ The badge also shows the resolved proxy IP for verification.
 
 ## Upstream Proxy Modes
 
-For providers that use the CLIProxyAPI pattern, OmniRoute supports three upstream proxy modes:
+For providers that use the CLIProxyAPI pattern, RedRouter supports three upstream proxy modes:
 
 | Mode          | Description                                        |
 | ------------- | -------------------------------------------------- |
-| `native`      | OmniRoute handles proxy routing directly (default) |
+| `native`      | RedRouter handles proxy routing directly (default) |
 | `cliproxyapi` | Delegates to an external CLIProxyAPI instance      |
 | `fallback`    | Tries native first, falls back to CLIProxyAPI      |
 
@@ -477,7 +477,7 @@ curl -X PUT "http://localhost:20128/api/upstream-proxy/openai" \
 
 ### Tunnels API
 
-For exposing your OmniRoute instance to the public internet (Cloudflare/ngrok/Tailscale) instead of routing outbound through a proxy, see [TUNNELS_GUIDE.md](./TUNNELS_GUIDE.md). The tunnel REST API lives under `/api/tunnels/{cloudflared,ngrok,tailscale}/*` and is orthogonal to the outbound proxy chain documented above.
+For exposing your RedRouter instance to the public internet (Cloudflare/ngrok/Tailscale) instead of routing outbound through a proxy, see [TUNNELS_GUIDE.md](./TUNNELS_GUIDE.md). The tunnel REST API lives under `/api/tunnels/{cloudflared,ngrok,tailscale}/*` and is orthogonal to the outbound proxy chain documented above.
 
 ### 1proxy API
 
@@ -517,7 +517,7 @@ Set `ENABLE_SOCKS5_PROXY=true` in your `.env` file and restart.
 
 ### "socket hang up" errors through proxy
 
-This is normal with cheap proxies that drop idle connections. OmniRoute already handles this by:
+This is normal with cheap proxies that drop idle connections. RedRouter already handles this by:
 
 - Disabling keep-alive on proxy connections (`keepAliveTimeout: 1`)
 - Disabling pipelining (`pipelining: 0`)
@@ -527,7 +527,7 @@ If it persists, try a different proxy or use the 1proxy rotation feature.
 
 ### "unsupported_country_region_territory" during OAuth
 
-Make sure the proxy is configured **before** starting the OAuth flow. OmniRoute routes OAuth token exchange through the configured proxy. Set a global or provider-level proxy first, then connect.
+Make sure the proxy is configured **before** starting the OAuth flow. RedRouter routes OAuth token exchange through the configured proxy. Set a global or provider-level proxy first, then connect.
 
 ### Proxy not being used
 
@@ -595,7 +595,7 @@ CREATE TABLE proxy_assignments (
 
 ## Proxy Health Checking (v3.8.16+)
 
-OmniRoute's **proxy fast-fail** mechanism (`src/lib/proxyHealth.ts`) detects dead proxies in <2s via a quick TCP connection check, then **caches the result** to avoid per-request overhead.
+RedRouter's **proxy fast-fail** mechanism (`src/lib/proxyHealth.ts`) detects dead proxies in <2s via a quick TCP connection check, then **caches the result** to avoid per-request overhead.
 
 ### How It Works
 
@@ -660,11 +660,11 @@ Custom ports in the URL (`http://host:9999`) always take precedence over the sch
 
 ## Proxy Analytics & Observability
 
-OmniRoute tracks per-proxy usage to help operators diagnose routing patterns, latency spikes, and recurring failures.
+RedRouter tracks per-proxy usage to help operators diagnose routing patterns, latency spikes, and recurring failures.
 
 ### What's Tracked
 
-For every request through a configured proxy, OmniRoute records:
+For every request through a configured proxy, RedRouter records:
 
 | Metric       | Description                                     |
 | ------------ | ----------------------------------------------- |
@@ -726,7 +726,7 @@ ORDER BY latency_ms DESC;
 
 ## Rotation Strategy Decision Tree
 
-When multiple proxies are assigned to a scope, OmniRoute uses a **rotation strategy** to pick which one to use for each request. The strategy is configured at the scope level (global, per-provider, per-account, per-combo).
+When multiple proxies are assigned to a scope, RedRouter uses a **rotation strategy** to pick which one to use for each request. The strategy is configured at the scope level (global, per-provider, per-account, per-combo).
 
 ### Available Strategies
 

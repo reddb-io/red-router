@@ -96,13 +96,13 @@ export async function runSetupAiderCommand(opts = {}) {
 
   const guard = await guardHostConfigTarget(configPath, {
     toolLabel: "Aider",
-    hostCommand: "omniroute setup-aider",
+    hostCommand: "red-router setup-aider",
     allowContainerWrite: Boolean(opts.allowContainerWrite ?? opts["allow-container-write"]),
     dryRun,
   });
   if (guard !== 0) return guard;
 
-  printHeading("OmniRoute → Aider (openai-compatible via LiteLLM)");
+  printHeading("RedRouter → Aider (openai-compatible via LiteLLM)");
   printInfo(`OPENAI_API_BASE: ${apiBase}   (no /v1 — LiteLLM appends it)`);
 
   let model = opts.model;
@@ -145,10 +145,10 @@ export async function runSetupAiderCommand(opts = {}) {
 export function registerSetupAider(program) {
   program
     .command("setup-aider")
-    .description("Configure Aider for OmniRoute: write ~/.aider.conf.yml + print the env recipe")
-    .option("--port <port>", "Local OmniRoute port (ignored when --remote is set)", "25050")
-    .option("--remote <url>", "Remote OmniRoute URL, e.g. http://192.168.0.15:25050")
-    .option("--api-key <key>", "OmniRoute API key (defaults to OMNIROUTE_API_KEY env var)")
+    .description("Configure Aider for RedRouter: write ~/.aider.conf.yml + print the env recipe")
+    .option("--port <port>", "Local RedRouter port (ignored when --remote is set)", "25050")
+    .option("--remote <url>", "Remote RedRouter URL, e.g. http://192.168.0.15:25050")
+    .option("--api-key <key>", "RedRouter API key (defaults to OMNIROUTE_API_KEY env var)")
     .option("--model <id>", "Model id (the openai/ prefix is added automatically)")
     .option("--config-path <path>", ".aider.conf.yml path (default: ~/.aider.conf.yml)")
     .option("--yes", "Non-interactive: do not prompt (requires --model)")

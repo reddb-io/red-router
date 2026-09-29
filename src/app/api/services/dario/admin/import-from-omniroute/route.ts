@@ -24,7 +24,7 @@
  * Dario has no live filesystem watch on ~/.dario/accounts (confirmed against
  * its source — the running proxy only re-reads that directory on its own
  * boot, or via an admin login-start+complete round trip). So after writing
- * the file we stop+start the OmniRoute-managed supervisor to force a clean
+ * the file we stop+start the RedRouter-managed supervisor to force a clean
  * pickup, rather than relying on any undocumented hot-reload behavior.
  */
 

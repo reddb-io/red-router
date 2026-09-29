@@ -91,7 +91,7 @@ export async function checkToolConfigStatus(
       case "openclaw":
       case "cline":
       case "kilo": {
-        // Generic check: look for OmniRoute-specific markers in the config
+        // Generic check: look for RedRouter-specific markers in the config
         const configStr = JSON.stringify(config).toLowerCase();
         if (
           configStr.includes("omniroute") ||

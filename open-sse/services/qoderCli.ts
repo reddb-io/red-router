@@ -539,7 +539,7 @@ function formatMessage(message: unknown): string {
 export function buildQoderPrompt(body: unknown): string {
   const requestBody = asRecord(body);
   const lines = [
-    "You are answering an OmniRoute OpenAI-compatible request through the Qoder CLI transport.",
+    "You are answering a RedRouter OpenAI-compatible request through the Qoder CLI transport.",
     "Respond as a plain language model only.",
     "Do not use your own tools, do not inspect files, and do not run commands.",
     "Do not mention the adapter unless the user explicitly asks.",
@@ -948,7 +948,7 @@ export async function validateQoderCliPat({
     return {
       valid: false,
       error:
-        "qodercli timed out while validating the token. Check network/proxy access from the OmniRoute host.",
+        "qodercli timed out while validating the token. Check network/proxy access from the RedRouter host.",
       unsupported: false,
     };
   }

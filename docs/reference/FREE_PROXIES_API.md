@@ -6,7 +6,7 @@ lastUpdated: 2026-07-11
 
 # Free Proxies API
 
-OmniRoute ships a curated pool of free proxies in the `free_proxies` table,
+RedRouter ships a curated pool of free proxies in the `free_proxies` table,
 synced from external providers (1proxy, proxifly, iplocate, webshare). The
 dashboard surfaces these under **Settings → Free Proxies**. This document
 covers the server-side filtering, sorting, counting, and sync-error reporting

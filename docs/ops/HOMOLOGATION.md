@@ -6,7 +6,7 @@ lastUpdated: 2026-07-14
 
 # Homologation Suite (`npm run homolog`)
 
-Real-environment E2E validation of the OmniRoute deploy running on the homologation VPS
+Real-environment E2E validation of the RedRouter deploy running on the homologation VPS
 (`HOMOLOG_BASE_URL`, e.g. `http://192.168.0.15:20128`). One command replaces the manual
 release STOP #2 checklist with an automated, evidence-producing run.
 

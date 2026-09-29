@@ -63,7 +63,7 @@ export default function ProviderPageHeader({
   const kimiPartnerLinkNote = providerText(
     t,
     "kimiPartnerLinkNote",
-    "Partner link — supports OmniRoute at no extra cost to you"
+    "Partner link — supports RedRouter at no extra cost to you"
   );
 
   // Resolve the API-key registration link: prefer apiKeyUrl, fall back to

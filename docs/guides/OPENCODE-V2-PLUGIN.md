@@ -6,7 +6,7 @@ lastUpdated: 2026-09-06
 
 # OpenCode v2 plugin — install and configure
 
-`@omniroute/opencode-plugin-v2` puts your whole OmniRoute catalog — models, combos and
+`@omniroute/opencode-plugin-v2` puts your whole RedRouter catalog — models, combos and
 auto-combos — into OpenCode v2's model picker, with display names, pricing and free-tier
 budgets.
 
@@ -17,7 +17,7 @@ shared between them, so upgrading one never forces the other.
 ## Requirements
 
 - OpenCode v2.
-- A reachable OmniRoute gateway (`http://localhost:20128` by default).
+- A reachable RedRouter gateway (`http://localhost:20128` by default).
 - Node.js 22 or 24.
 
 ## Install
@@ -80,7 +80,7 @@ naming the endpoint and what was lost — so a degraded picker is never a myster
 | `baseURL`                        | required                                       | Gateway root, `http(s)` only; the `/v1` suffix is added where needed                                   |
 | `apiKey`                         | connected credential, then `OMNIROUTE_API_KEY` | Chat key for `/v1/*`                                                                                   |
 | `managementReadToken`            | falls back to `apiKey`                         | Key for `/api/*` — usually **not** the same one                                                        |
-| `displayName`                    | `"OmniRoute"`                                  | Provider name in the picker                                                                            |
+| `displayName`                    | `"RedRouter"`                                  | Provider name in the picker                                                                            |
 | `timeoutMs`                      | `10000`                                        | Per-endpoint fetch timeout (auto-combos use 5s)                                                        |
 | `modelCacheTtlMs`                | `300000`                                       | Catalog cache TTL; a disk snapshot warms cold starts                                                   |
 | `timeouts`                       | falls back to `timeoutMs`                      | Per-endpoint budgets in ms: `models`, `combos`, `autoCombos`, `enrichment`                             |
@@ -122,7 +122,7 @@ Set `"geminiSanitization": false` to turn it off.
 
 | Symptom                               | Cause                                                                                                    |
 | ------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| Picker shows no OmniRoute model       | No key resolved (check the startup warning), or the gateway is unreachable                               |
+| Picker shows no RedRouter model       | No key resolved (check the startup warning), or the gateway is unreachable                               |
 | Raw model ids, no combos, no pricing  | The management endpoints refused the token — set `managementReadToken`                                   |
 | A session pinned to `opencode-<id>/…` | The v1 plugin published `opencode-<id>`; v2 publishes `<id>` bare, so re-select the model under `<id>/…` |
 

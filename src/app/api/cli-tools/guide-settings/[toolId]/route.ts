@@ -20,16 +20,16 @@ import { guardCliConfigWrite } from "@/lib/api/cliConfigWriteGuard";
 const GUIDE_TOOL_TARGETS: Record<string, { resolve: () => string; hostCommand: string }> = {
   continue: {
     resolve: () => path.join(os.homedir(), ".continue", "config.json"),
-    hostCommand: "omniroute setup-continue",
+    hostCommand: "red-router setup-continue",
   },
   opencode: {
     resolve: () => getOpenCodeConfigPath(),
-    hostCommand: "omniroute setup-opencode",
+    hostCommand: "red-router setup-opencode",
   },
   hermes: {
     resolve: () =>
       getCliPrimaryConfigPath("hermes") || path.join(os.homedir(), ".hermes", "config.yaml"),
-    hostCommand: "omniroute config set hermes",
+    hostCommand: "red-router config set hermes",
   },
 };
 

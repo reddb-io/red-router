@@ -1,18 +1,18 @@
 ---
-title: "OmniRoute — Uninstall Guide"
+title: "RedRouter — Uninstall Guide"
 version: 3.8.40
 lastUpdated: 2026-06-28
 ---
 
-# OmniRoute — Uninstall Guide
+# RedRouter — Uninstall Guide
 
-This guide covers how to cleanly remove OmniRoute from your system.
+This guide covers how to cleanly remove RedRouter from your system.
 
 ---
 
 ## Quick Uninstall (v3.6.2+)
 
-OmniRoute provides two built-in scripts for clean removal:
+RedRouter provides two built-in scripts for clean removal:
 
 ### Keep Your Data
 
@@ -20,7 +20,7 @@ OmniRoute provides two built-in scripts for clean removal:
 npm run uninstall
 ```
 
-This removes the OmniRoute application but **preserves** your database, configurations, API keys, and provider settings in `~/.omniroute/`. Use this if you plan to reinstall later and want to keep your setup.
+This removes the RedRouter application but **preserves** your database, configurations, API keys, and provider settings in `~/.omniroute/`. Use this if you plan to reinstall later and want to keep your setup.
 
 ### Full Removal
 
@@ -87,12 +87,12 @@ docker compose down -v
 
 **Windows:**
 
-- Open `Settings → Apps → OmniRoute → Uninstall`
+- Open `Settings → Apps → RedRouter → Uninstall`
 - Or run the NSIS uninstaller from the install directory
 
 **macOS:**
 
-- Drag `OmniRoute.app` from `/Applications` to Trash
+- Drag `RedRouter.app` from `/Applications` to Trash
 - Remove data: `rm -rf ~/Library/Application Support/omniroute`
 
 **Linux:**
@@ -114,7 +114,7 @@ rm -rf ~/.omniroute
 
 ## Data Directories
 
-OmniRoute stores data in the following locations by default:
+RedRouter stores data in the following locations by default:
 
 | Platform      | Default Path                  | Override                  |
 | ------------- | ----------------------------- | ------------------------- |

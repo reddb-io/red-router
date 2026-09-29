@@ -1,10 +1,10 @@
 ---
-title: "OmniRoute MCP Server Documentation"
+title: "RedRouter MCP Server Documentation"
 version: 3.8.51
 lastUpdated: 2026-09-22
 ---
 
-# OmniRoute MCP Server Documentation
+# RedRouter MCP Server Documentation
 
 > Model Context Protocol server with 110 tools across routing, cache, compression, memory, skills, proxy, pool, Radar, and context source operations.
 >
@@ -12,17 +12,17 @@ lastUpdated: 2026-09-22
 
 ## Installation
 
-OmniRoute MCP is built-in. Start it with:
+RedRouter MCP is built-in. Start it with:
 
 ```bash
-omniroute --mcp
+red-router --mcp
 ```
 
 Or via the open-sse transport:
 
 ```bash
 # HTTP streamable transport (port 20130)
-omniroute --dev  # MCP auto-starts on /mcp endpoint
+red-router --dev  # MCP auto-starts on /mcp endpoint
 ```
 
 The HTTP transports (`sse` / `streamable-http`, served in-process by the dashboard server) are
@@ -30,10 +30,10 @@ off by default and were previously toggleable only from the `/dashboard/mcp` pag
 the CLI has parity:
 
 ```bash
-omniroute mcp status                                  # enabled/online, transport, tool count
-omniroute mcp enable [--transport stdio|sse|streamable-http]
-omniroute mcp disable
-omniroute mcp restart                                 # resets active sse/streamable-http sessions
+red-router mcp status                                  # enabled/online, transport, tool count
+red-router mcp enable [--transport stdio|sse|streamable-http]
+red-router mcp disable
+red-router mcp restart                                 # resets active sse/streamable-http sessions
 ```
 
 `mcp enable`/`mcp disable` PATCH the same `mcpEnabled` (and optionally `mcpTransport`) setting
@@ -100,7 +100,7 @@ Cursor, Cline, and compatible MCP client setup.
 | `omniroute_switch_combo`        | `write:combos`        | Activate or deactivate a combo                                                                                                 |
 | `omniroute_create_combo`        | `write:combos`        | Create a validated combo through the existing combo API                                                                        |
 | `omniroute_check_quota`         | `read:quota`          | Quota used/total, percent remaining, reset time, token health                                                                  |
-| `omniroute_route_request`       | `execute:completions` | Send a chat completion through OmniRoute routing                                                                               |
+| `omniroute_route_request`       | `execute:completions` | Send a chat completion through RedRouter routing                                                                               |
 | `omniroute_cost_report`         | `read:usage`          | Cost report by period (session/day/week/month)                                                                                 |
 | `omniroute_list_models_catalog` | `read:models`         | Full model catalog with capabilities, status, pricing                                                                          |
 | `omniroute_radar_catalog`       | `read:radar`          | Local signed Radar catalog; optional provider/family filters                                                                   |
@@ -163,7 +163,7 @@ receipts and are marked with `source: "mcp_metadata_estimate"`.
 
 ### MCP Accessibility Tree Filter (v3.8.0)
 
-Separate from the compression tools above, OmniRoute includes a post-execution filter that
+Separate from the compression tools above, RedRouter includes a post-execution filter that
 compresses the **tool results** of MCP browser/accessibility tools before they are returned to the
 agent. This filter is not itself a tool — it runs transparently on any tool result that contains
 verbose accessibility-tree or browser-snapshot text (≥2000 chars).
@@ -260,7 +260,7 @@ frameworks ship alongside the MCP server in v3.8.0 and are documented separately
 ### Cloud Agents
 
 Cloud Agents are out-of-process AI coding agents (codex-cloud, cursor-cloud, devin, jules) wired into
-OmniRoute through the same connection model used for LLM providers. They are exposed via
+RedRouter through the same connection model used for LLM providers. They are exposed via
 their own REST surface (`/api/v1/agents/*`) and are **not** part of the MCP tool catalog
 — calling a Cloud Agent does not consume an MCP scope.
 
@@ -477,7 +477,7 @@ per-key path take precedence once it is. stdio has no per-caller identity (see
 
 | Variable                                | Default                            | Purpose                                                                                                                  |
 | :-------------------------------------- | :--------------------------------- | :----------------------------------------------------------------------------------------------------------------------- |
-| `OMNIROUTE_BASE_URL`                    | `http://localhost:20128`           | Base URL the MCP server uses when calling OmniRoute internal APIs                                                        |
+| `OMNIROUTE_BASE_URL`                    | `http://localhost:20128`           | Base URL the MCP server uses when calling RedRouter internal APIs                                                        |
 | `OMNIROUTE_API_KEY`                     | (empty)                            | API key forwarded as `Authorization: Bearer` to internal API calls                                                       |
 | `OMNIROUTE_MCP_ENFORCE_SCOPES`          | `false` (only `"true"` enables it) | When enabled, missing scopes deny tool calls and log `scope_denied:<reason>` in audit log                                |
 | `OMNIROUTE_MCP_SCOPES`                  | (empty)                            | Comma-separated allowlist of scopes considered "available" by default (used when caller does not provide its own scopes) |
@@ -517,10 +517,10 @@ Description compression shrinks each tool's metadata; **tool-cardinality reducti
 
 ```bash
 # Drop two tools from the catalog
-MCP_TOOL_DENY="omniroute_get_health,omniroute_list_combos" omniroute --mcp
+MCP_TOOL_DENY="omniroute_get_health,omniroute_list_combos" red-router --mcp
 
 # Announce only the routing + quota tools (allow-list mode)
-MCP_TOOL_ALLOW="omniroute_route_request,omniroute_check_quota" omniroute --mcp
+MCP_TOOL_ALLOW="omniroute_route_request,omniroute_check_quota" red-router --mcp
 ```
 
 **How filtered tools are removed:** registration always succeeds; a tool the profile rejects is then `.disable()`d on the MCP SDK handle, so it never appears in `tools/list` but the wiring stays intact (clean enable/disable, no re-registration). The profile parser is `readMcpToolProfileFromEnv(process.env)`, which returns `null` (no filtering) when both vars are empty.

@@ -112,7 +112,7 @@ export function buildQoderCliNotFoundHint(runError: string): string {
     /* best-effort — the path list is only advisory for the error message */
   }
   return (
-    `Qoder CLI (qodercli) was not found on the OmniRoute host (${runError}).` +
+    `Qoder CLI (qodercli) was not found on the RedRouter host (${runError}).` +
     searchedHint +
     " Install it from https://qoder.com, or set CLI_QODER_BIN to the absolute path " +
     "of the qodercli binary (e.g. %APPDATA%\\npm\\qodercli.cmd on Windows). " +

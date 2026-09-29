@@ -49,7 +49,7 @@ JWT exposed via a tunnel **cannot** trigger this code path.
 | Linux+Firefox/Chromium | per-profile NSS DB update via `certutil -d sql:<profile>`                          |
 
 These are the same commands used by `mitmproxy`, Charles Proxy, Fiddler, and
-Caddy. The fact that they exist in OmniRoute is documented at
+Caddy. The fact that they exist in RedRouter is documented at
 `docs/security/STEALTH_GUIDE.md`.
 
 **v3.8.6 mitigation**:
@@ -109,7 +109,7 @@ behaviour for operators who haven't yet updated their automation. It will be
 removed in v3.9.
 
 **Why we keep it**: Zed import is the friendliest onboarding path for users
-who already use Zed and want to mirror their provider keys into OmniRoute
+who already use Zed and want to mirror their provider keys into RedRouter
 without re-pasting.
 
 ---
@@ -121,7 +121,7 @@ without re-pasting.
 **Why flagged**: the chunk re-exports `execFileWithPassword`,
 `runElevatedPowerShell`, and the shared `quotePowerShell` helper. Socket.dev's
 AI classifier sees them as a generic "host execution + privilege elevation
-toolkit." Within OmniRoute they are only used by the MITM cert install path
+toolkit." Within RedRouter they are only used by the MITM cert install path
 (§1) and by `execFileWithPassword` for `sudo` command execution.
 
 **v3.8.6 mitigation**:
@@ -171,7 +171,7 @@ service (think: WordPress-style plugin) — strict opt-in.
 
 ---
 
-## §5 — OmniRoute Cloud Sync credential write-back (`api/keys/[id]/route.js`)
+## §5 — RedRouter Cloud Sync credential write-back (`api/keys/[id]/route.js`)
 
 **Source files**:
 
@@ -204,7 +204,7 @@ provider OAuth tokens silently.
    `rateLimitedUntil`, `updatedAt`). This is a **breaking change** for users
    who relied on remote token sync — they must explicitly opt in.
 
-**Why we keep it**: Cloud Sync is the only way for an OmniRoute Cloud tenant
+**Why we keep it**: Cloud Sync is the only way for a RedRouter Cloud tenant
 to centralise team credentials. The fix makes the threat model honest:
 "server signs, client verifies, operator opts in."
 

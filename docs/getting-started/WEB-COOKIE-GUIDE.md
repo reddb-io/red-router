@@ -6,7 +6,7 @@ lastUpdated: 2026-07-20
 
 # Web Cookie Providers
 
-Web Cookie providers let OmniRoute use an AI service through your existing browser session instead of an API key. They are useful when you already have access to a service through its website and want OmniRoute to use the same authenticated session.
+Web Cookie providers let RedRouter use an AI service through your existing browser session instead of an API key. They are useful when you already have access to a service through its website and want RedRouter to use the same authenticated session.
 
 Unlike API-key providers, Web Cookie providers authenticate using the credentials that your browser sends to the website.
 
@@ -51,7 +51,7 @@ DevTools
 
 The `Cookie` request header contains the exact authentication information that your browser successfully used.
 
-For most Web Cookie providers, this is the value that should be pasted into OmniRoute.
+For most Web Cookie providers, this is the value that should be pasted into RedRouter.
 
 ---
 
@@ -65,7 +65,7 @@ The setup process is the same for most Web Cookie providers.
 4. Refresh the page.
 5. Open an authenticated chat or conversation request.
 6. Copy the required authentication credentials.
-7. Open OmniRoute.
+7. Open RedRouter.
 8. Go to **Providers → Add Provider**.
 9. Select your Web Cookie provider.
 10. Paste the credentials.
@@ -150,7 +150,7 @@ Application
 
 ---
 
-## Cookie Works in Browser but Not in OmniRoute
+## Cookie Works in Browser but Not in RedRouter
 
 Some providers include cookies that are only sent during authenticated requests.
 

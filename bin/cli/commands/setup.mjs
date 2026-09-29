@@ -203,7 +203,7 @@ export async function runSetupCommand(opts = {}) {
   const prompt = createPrompt();
 
   try {
-    printHeading("OmniRoute Setup");
+    printHeading("RedRouter Setup");
     const { db, dbPath } = await openOmniRouteDb();
     printInfo(`Database: ${dbPath}`);
 

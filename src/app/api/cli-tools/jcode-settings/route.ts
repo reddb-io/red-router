@@ -25,7 +25,7 @@ const TOOL_ID = "jcode";
  * wrote a ~/.jcode/config.json that jcode never reads). Reference:
  * https://github.com/1jehuang/jcode#openai-compatible-providers
  *
- * The OmniRoute-managed profile is kept inside a marker-delimited block so
+ * The RedRouter-managed profile is kept inside a marker-delimited block so
  * apply/reset round-trips without disturbing the rest of the user's config.
  */
 const MANAGED_BEGIN = "# >>> managed by OmniRoute (jcode provider profile) >>>";
@@ -179,7 +179,7 @@ export async function POST(request: Request) {
             {
               error: {
                 message:
-                  "config.toml already defines [providers.omniroute] outside the OmniRoute-managed block; remove it or manage it manually",
+                  "config.toml already defines [providers.omniroute] outside the RedRouter-managed block; remove it or manage it manually",
               },
             },
             { status: 409 }
@@ -191,7 +191,7 @@ export async function POST(request: Request) {
         {
           error: {
             message:
-              "existing ~/.jcode/config.toml is not valid TOML; fix it before applying OmniRoute settings",
+              "existing ~/.jcode/config.toml is not valid TOML; fix it before applying RedRouter settings",
           },
         },
         { status: 409 }
@@ -222,7 +222,7 @@ export async function POST(request: Request) {
   }
 }
 
-// DELETE — remove the OmniRoute-managed block from jcode's config.toml
+// DELETE — remove the RedRouter-managed block from jcode's config.toml
 export async function DELETE(request: Request) {
   const authError = await requireCliToolsAuth(request);
   if (authError) return authError;
@@ -263,7 +263,7 @@ export async function DELETE(request: Request) {
       /* non-critical */
     }
 
-    return NextResponse.json({ success: true, message: "jcode OmniRoute settings removed" });
+    return NextResponse.json({ success: true, message: "jcode RedRouter settings removed" });
   } catch (err) {
     return NextResponse.json({ error: { message: sanitizeErrorMessage(err) } }, { status: 500 });
   }

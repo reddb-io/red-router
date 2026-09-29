@@ -8,7 +8,7 @@ export XKB_DEFAULT_LAYOUT=us
 export XKB_DEFAULT_RULES=evdev
 export WAYLAND_DISPLAY=wayland-1
 
-# OmniRoute: republish Chromium's loopback DevTools (127.0.0.1:9222) onto
+# RedRouter: republish Chromium's loopback DevTools (127.0.0.1:9222) onto
 # 0.0.0.0:9223 so the host can harvest cookies. Chromium must already be
 # listening, so we delay a moment. Backgrounded; the DE takes over below.
 ( sleep 8; python3 /usr/local/bin/cdp-bridge.py >/proc/1/fd/2 2>&1 ) &

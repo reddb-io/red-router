@@ -183,7 +183,7 @@ export function mergeAntigravityCatalog(
         id: m.id,
         name: m.id,
         displayName: m.displayName || m.id,
-        descriptionText: m.description || `OmniRoute dynamic model (${m.id})`,
+        descriptionText: m.description || `RedRouter dynamic model (${m.id})`,
       });
     }
     result.models = modelsArr;
@@ -213,7 +213,7 @@ export function mergeAntigravityCatalog(
         ...(typeof templateModel.id === "string" ? { id: m.id } : {}),
         ...(typeof templateModel.name === "string" ? { name: m.id } : {}),
         displayName: m.displayName || m.id,
-        descriptionText: m.description || `OmniRoute dynamic model (${m.id})`,
+        descriptionText: m.description || `RedRouter dynamic model (${m.id})`,
       };
     }
     result.models = modelsObj;
@@ -326,7 +326,7 @@ export class AntigravityHandler extends MitmHandlerBase {
 
       if (!upstream.ok) {
         const errText = await upstream.text().catch(() => "");
-        throw new Error(`OmniRoute ${upstream.status}: ${errText}`);
+        throw new Error(`RedRouter ${upstream.status}: ${errText}`);
       }
 
       const sink = createBoundedCollector();

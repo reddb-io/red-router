@@ -7,12 +7,12 @@ lastUpdated: 2026-07-23
 # ADR: Pluggable persistence boundary
 
 - **Status:** Proposed — requires maintainer approval before runtime work begins
-- **Tracking issue:** [#8075](https://github.com/diegosouzapw/OmniRoute/issues/8075)
+- **Tracking issue:** [#8075](https://github.com/reddb-io/red-router/issues/8075)
 - **Scope:** Persistence architecture only; this decision does not add or select an external database
 
 ## Context
 
-OmniRoute currently presents domain-oriented persistence functions from `src/lib/db/`, while the
+RedRouter currently presents domain-oriented persistence functions from `src/lib/db/`, while the
 shared connection returned by `src/lib/db/core.ts` implements the synchronous `SqliteAdapter`
 contract in `src/lib/db/adapters/types.ts`. That adapter supports several SQLite runtimes, but its
 surface remains SQLite-shaped: synchronous prepared statements, `pragma`, deferred and immediate

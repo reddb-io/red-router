@@ -6,7 +6,7 @@ lastUpdated: 2026-06-28
 
 # Cost & Spend Tracking
 
-How OmniRoute estimates, records, and reports the cost of every request — and why the
+How RedRouter estimates, records, and reports the cost of every request — and why the
 dashboard number is a **savings tracker**, not a bill.
 
 See also: [User Guide](./USER_GUIDE.md) · [Features Gallery](./FEATURES.md)
@@ -15,11 +15,11 @@ See also: [User Guide](./USER_GUIDE.md) · [Features Gallery](./FEATURES.md)
 
 ## What it is (and what it is not)
 
-OmniRoute attributes a per-request USD cost to every completion by multiplying token
+RedRouter attributes a per-request USD cost to every completion by multiplying token
 counts by a model's pricing rates. These numbers power the **Costs** dashboard, the
 `omniroute cost` / `omniroute usage` CLI, CSV/JSON exports, and per-API-key budgets.
 
-> **The dashboard "cost" is a savings tracker, not a bill.** OmniRoute never charges you
+> **The dashboard "cost" is a savings tracker, not a bill.** RedRouter never charges you
 > — it routes your requests to providers you have already connected (your own
 > subscriptions, free tiers, and API keys). A "$290 total cost" accrued entirely on free
 > models means roughly **$290 you did _not_ pay** a paid API. The figure is an _estimate_
@@ -31,7 +31,7 @@ This framing is stated directly in the project [README](../../README.md) ("the d
 
 Because the number is an estimate:
 
-- It depends on the pricing table OmniRoute has for each model. A model with no pricing
+- It depends on the pricing table RedRouter has for each model. A model with no pricing
   entry contributes `0` cost (it shows as a "Legacy / Free" row in the explorer).
 - Free-tier and subscription traffic still accrues an _estimated_ cost — that is the
   amount you are saving, not an amount owed.
@@ -49,7 +49,7 @@ Costs come from a pricing table resolved in this precedence order
 2. **Synced external pricing** — fetched from LiteLLM's public
    `model_prices_and_context_window.json` when sync is enabled (stored in a separate
    `pricing_synced` namespace so it never clobbers your overrides).
-3. **Hardcoded defaults** — shipped with OmniRoute.
+3. **Hardcoded defaults** — shipped with RedRouter.
 
 External pricing sync is **opt-in**, disabled by default. Relevant env vars
 (see [`.env.example`](../../.env.example)):
@@ -194,7 +194,7 @@ noted.
 
 ## CLI
 
-OmniRoute's CLI exposes cost, usage, and pricing commands (registered in
+RedRouter's CLI exposes cost, usage, and pricing commands (registered in
 [`bin/cli/commands/registry.mjs`](../../bin/cli/commands/registry.mjs)).
 
 ### `omniroute cost`

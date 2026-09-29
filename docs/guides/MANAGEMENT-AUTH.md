@@ -6,7 +6,7 @@ lastUpdated: 2026-09-22
 
 # Management Authentication
 
-OmniRoute has **four credential families** that can authorize management routes.
+RedRouter has **four credential families** that can authorize management routes.
 They are not interchangeable. Inference API keys (`sk-…`) do **not** manage the
 server unless they were explicitly granted `manage` or `admin` scope.
 
@@ -16,7 +16,7 @@ Canonical implementation: `src/lib/api/requireManagementAuth.ts`.
 | --------------------- | ----------------------------------- | --------------------------------------------------- | ----------------------------- | -------------------------------------------------------------------------------------- |
 | Dashboard JWT session | `auth_token` cookie                 | Dashboard login                                     | Browser UI                    | Full dashboard management, subject to CSRF, locality, and always-protected-route rules |
 | CLI machine-id token  | internal / local                    | CLI bootstrap (`omniroute` on the same machine)     | Local CLI                     | Local management only                                                                  |
-| Scoped Access Token   | `oma_live_…`                        | **Settings → Access Tokens** or `omniroute connect` | Remote CLI and management API | Must satisfy the route's required `read`, `write`, or `admin` scope                    |
+| Scoped Access Token   | `oma_live_…`                        | **Settings → Access Tokens** or `red-router connect` | Remote CLI and management API | Must satisfy the route's required `read`, `write`, or `admin` scope                    |
 | Inference API key     | `sk-…` (and other API-key prefixes) | **API Manager / API Keys**                          | `/v1/*` inference             | **None** unless the key metadata includes `manage` or `admin`                          |
 
 `oma_` credentials are management/CLI credentials. They are **not** inference API keys.
@@ -79,7 +79,7 @@ chat client key for automation unless you deliberately granted that scope.
 ### Scoped Access Token (`oma_live_…`)
 
 1. Dashboard: **Settings → Access Tokens** → create (name + scope). **The secret is shown once.**
-2. Or CLI: `omniroute connect <host>` (password → token). See [Remote Mode](./REMOTE-MODE.md).
+2. Or CLI: `red-router connect <host>` (password → token). See [Remote Mode](./REMOTE-MODE.md).
 3. Header: `Authorization: Bearer oma_live_…`
 4. Revoke from the same Access Tokens page (or delete the CLI context).
 5. Server stores only a hash. Treat the plaintext like a password.
@@ -157,6 +157,6 @@ uses the session cookie.
 | ------------------------------------------ | ----------------------------------------------- |
 | Browser                                    | Dashboard session                               |
 | CLI on the server host                     | Machine token                                   |
-| CLI on a laptop talking to a remote server | `oma_live_…` from `omniroute connect`           |
+| CLI on a laptop talking to a remote server | `oma_live_…` from `red-router connect`           |
 | CI / scripts (management only)             | `oma_live_…` with the smallest scope that works |
 | CI that must call both `/v1` and `/api`    | API key with `manage` **or** two credentials    |

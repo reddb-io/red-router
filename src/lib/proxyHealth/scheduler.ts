@@ -507,7 +507,7 @@ async function testOneProxy(proxy: {
       method,
       signal: controller.signal,
       dispatcher,
-      headers: { "User-Agent": "OmniRoute/1.0" },
+      headers: { "User-Agent": "RedRouter/1.0" },
     });
     return { outcome: classifyProbeStatus(resp.status), status: resp.status, target };
   } catch (error) {

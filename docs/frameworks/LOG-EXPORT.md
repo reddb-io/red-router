@@ -6,7 +6,7 @@ lastUpdated: 2026-08-29
 
 # Log export
 
-Continuous, incremental export of OmniRoute call logs to an external analytics store.
+Continuous, incremental export of RedRouter call logs to an external analytics store.
 
 The Logs dashboard tab keeps request history in SQLite (`call_logs`), which is bounded by
 rotation and retention. Log export ships the same record set out on a schedule so it can outlive

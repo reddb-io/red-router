@@ -306,11 +306,11 @@ export async function runSetupCodexCommand(opts = {}) {
   const dryRun = Boolean(opts.dryRun ?? opts["dry-run"]);
   const onlyFilter = opts.only ? opts.only.split(",").map((s) => s.trim()) : null;
 
-  printHeading(`OmniRoute → Codex CLI profile generator`);
+  printHeading(`RedRouter → Codex CLI profile generator`);
 
   const guard = await guardHostConfigTarget(codexHome, {
     toolLabel: "Codex",
-    hostCommand: "omniroute setup-codex",
+    hostCommand: "red-router setup-codex",
     allowContainerWrite: Boolean(opts.allowContainerWrite ?? opts["allow-container-write"]),
     dryRun,
   });
@@ -333,8 +333,8 @@ export async function runSetupCodexCommand(opts = {}) {
   } catch (err) {
     printError(`Failed to fetch models: ${err.message}`);
     printInfo(
-      "Make sure OmniRoute is running and the --remote URL is correct.\n" +
-        "You may also need --api-key if OmniRoute requires authentication."
+      "Make sure RedRouter is running and the --remote URL is correct.\n" +
+        "You may also need --api-key if RedRouter requires authentication."
     );
     return 1;
   }
@@ -371,17 +371,17 @@ export function registerSetupCodex(program) {
   program
     .command("setup-codex")
     .description(
-      "Fetch the live model catalog from OmniRoute (local or remote VPS) and generate " +
+      "Fetch the live model catalog from RedRouter (local or remote VPS) and generate " +
         "~/.codex/<name>.config.toml profiles for each supported model"
     )
-    .option("--port <port>", "Local OmniRoute port (ignored when --remote is set)", "25050")
+    .option("--port <port>", "Local RedRouter port (ignored when --remote is set)", "25050")
     .option(
       "--remote <url>",
-      "Remote OmniRoute URL, e.g. http://100.67.86.91:25050 — fetches models from there"
+      "Remote RedRouter URL, e.g. http://100.67.86.91:25050 — fetches models from there"
     )
     .option(
       "--api-key <key>",
-      "OmniRoute API key for the remote instance (defaults to OMNIROUTE_API_KEY env var)"
+      "RedRouter API key for the remote instance (defaults to OMNIROUTE_API_KEY env var)"
     )
     .option("--codex-home <dir>", "Directory where profile files are written (default: ~/.codex)")
     .option(

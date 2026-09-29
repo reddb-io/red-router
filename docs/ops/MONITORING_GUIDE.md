@@ -6,7 +6,7 @@ lastUpdated: 2026-08-13
 
 # Monitoring & Observability Guide
 
-> **TL;DR**: OmniRoute ships with built-in health monitoring, provider autopilot, quota tracking, and observability hooks. This guide covers the dashboard, alerts, and troubleshooting.
+> **TL;DR**: RedRouter ships with built-in health monitoring, provider autopilot, quota tracking, and observability hooks. This guide covers the dashboard, alerts, and troubleshooting.
 
 **Sources:**
 
@@ -22,7 +22,7 @@ lastUpdated: 2026-08-13
 
 ## Overview
 
-OmniRoute has **3 layers of monitoring**:
+RedRouter has **3 layers of monitoring**:
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
@@ -103,7 +103,7 @@ Per-combo:
 
 ## Health Check API
 
-OmniRoute exposes **two** HTTP health surfaces. They are not interchangeable for orchestrators.
+RedRouter exposes **two** HTTP health surfaces. They are not interchangeable for orchestrators.
 
 | Path                         | Purpose                                                       | Weight                            | Use for                                                          |
 | ---------------------------- | ------------------------------------------------------------- | --------------------------------- | ---------------------------------------------------------------- |
@@ -182,7 +182,7 @@ endpoint. Use `failed` + `failedConnections` for live probe failures, and
 
 ### Kubernetes probe recommendations
 
-OmniRoute is a **single Node process** (one event loop). Stock Docker `HEALTHCHECK` targets lightweight `/healthz`. `/api/monitoring/health` is **too heavy** for kubelet liveness intervals.
+RedRouter is a **single Node process** (one event loop). Stock Docker `HEALTHCHECK` targets lightweight `/healthz`. `/api/monitoring/health` is **too heavy** for kubelet liveness intervals.
 
 | Probe           | Recommended target                                                               | Notes                                                                                                                                                                                                                                                                                                                               |
 | --------------- | -------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -225,7 +225,7 @@ livenessProbe:
 
 **Do not** point kubelet **liveness** at `/api/monitoring/health`. That path does real DB/monitoring work and will false-positive under load.
 
-Related: [#10052](https://github.com/diegosouzapw/OmniRoute/issues/10052) (probes while the event loop is busy), [#9685](https://github.com/diegosouzapw/OmniRoute/issues/9685) / [#10055](https://github.com/diegosouzapw/OmniRoute/pull/10055) (catalog pricing hog), [#10117](https://github.com/diegosouzapw/OmniRoute/issues/10117) (compression token-count hog).
+Related: [#10052](https://github.com/reddb-io/red-router/issues/10052) (probes while the event loop is busy), [#9685](https://github.com/reddb-io/red-router/issues/9685) / [#10055](https://github.com/reddb-io/red-router/pull/10055) (catalog pricing hog), [#10117](https://github.com/reddb-io/red-router/issues/10117) (compression token-count hog).
 
 ### Optional request-path work (memory, skills, token refresh)
 
@@ -414,7 +414,7 @@ Token health check configuration is handled internally by `tokenHealthCheck.ts`.
 
 ### Built-in Channels
 
-OmniRoute supports **3 alert channels**:
+RedRouter supports **3 alert channels**:
 
 | Channel          | Setup         | Use case                     |
 | ---------------- | ------------- | ---------------------------- |
@@ -530,7 +530,7 @@ Create a `~/.omniroute/dashboard.json`:
 ### "Quota says healthy but I see 429s"
 
 - 429 means the provider says you've used your quota
-- OmniRoute's quota tracking may be **stale** — the provider's truth is upstream
+- RedRouter's quota tracking may be **stale** — the provider's truth is upstream
 - Quota data refreshes automatically via the internal quota monitor
 
 ### "Combo is failing but all targets look healthy"
@@ -543,7 +543,7 @@ Create a `~/.omniroute/dashboard.json`:
 
 - Run `sqlite3 ~/.omniroute/storage.sqlite "PRAGMA integrity_check;"`
 - If "ok" — false alarm, the health check is being too strict
-- If anything else — **stop OmniRoute** and follow the [disaster recovery guide](./DATABASE_GUIDE.md#disaster-recovery)
+- If anything else — **stop RedRouter** and follow the [disaster recovery guide](./DATABASE_GUIDE.md#disaster-recovery)
 
 ### "Memory heap pressure is critical"
 

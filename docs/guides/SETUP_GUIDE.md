@@ -1,12 +1,12 @@
 ---
-title: "📖 Setup Guide — OmniRoute"
+title: "📖 Setup Guide — RedRouter"
 version: 3.8.50
 lastUpdated: 2026-08-18
 ---
 
-# 📖 Setup Guide — OmniRoute
+# 📖 Setup Guide — RedRouter
 
-> Complete setup reference for OmniRoute. For the quick version, see the [Quick Start in README](../README.md#-quick-start).
+> Complete setup reference for RedRouter. For the quick version, see the [Quick Start in README](../README.md#-quick-start).
 
 ## Table of Contents
 
@@ -25,7 +25,7 @@ lastUpdated: 2026-08-18
 ### npm (recommended)
 
 ```bash
-npm install -g omniroute
+npm install -g @reddb-io/red-router
 omniroute
 ```
 
@@ -47,7 +47,7 @@ yay -S omniroute-bin
 systemctl --user enable --now omniroute.service
 ```
 
-The [AUR package](https://aur.archlinux.org/packages/omniroute-bin) installs OmniRoute and provides a systemd user service.
+The [AUR package](https://aur.archlinux.org/packages/omniroute-bin) installs RedRouter and provides a systemd user service.
 
 ### From Source
 
@@ -56,7 +56,7 @@ npm install
 PORT=20128 DASHBOARD_PORT=20129 NEXT_PUBLIC_BASE_URL=http://localhost:20129 npm run dev
 ```
 
-> **Windows note:** By default, OmniRoute uses `%APPDATA%\omniroute` when the legacy `%USERPROFILE%\.omniroute` directory is not present. Set `DATA_DIR` to choose a different data-directory location.
+> **Windows note:** By default, RedRouter uses `%APPDATA%\omniroute` when the legacy `%USERPROFILE%\.omniroute` directory is not present. Set `DATA_DIR` to choose a different data-directory location.
 
 > **Note:** `npm install` auto-generates `.env` from `.env.example` on first run. Subsequent installs will not overwrite an existing `.env`, so customizations are preserved. To re-seed, delete `.env` before re-running.
 
@@ -66,7 +66,7 @@ See the [Docker Guide](./DOCKER_GUIDE.md) for complete Docker setup including Co
 
 ### Desktop App (Electron)
 
-OmniRoute ships a desktop wrapper built on Electron 41 + electron-builder 26.10. Available scripts (workspace root):
+RedRouter ships a desktop wrapper built on Electron 41 + electron-builder 26.10. Available scripts (workspace root):
 
 ```bash
 npm run electron:dev          # Run desktop with hot-reload
@@ -84,56 +84,56 @@ Releases of the desktop installers are attached to GitHub Releases. For the full
 For unattended setups (Docker, Kubernetes, CI), use:
 
 ```bash
-omniroute setup --non-interactive
-omniroute providers test-batch
+red-router setup --non-interactive
+red-router providers test-batch
 ```
 
-Combined with env vars (`INITIAL_PASSWORD`, `OMNIROUTE_WS_BRIDGE_SECRET`, etc.), this lets you spin up an OmniRoute instance fully scriptable.
+Combined with env vars (`INITIAL_PASSWORD`, `OMNIROUTE_WS_BRIDGE_SECRET`, etc.), this lets you spin up a RedRouter instance fully scriptable.
 
 ### CLI Options
 
 | Command                 | Description                                                    |
 | ----------------------- | -------------------------------------------------------------- |
 | `omniroute`             | Start server (`PORT=20128`, API and dashboard on same port)    |
-| `omniroute setup`       | Guided CLI onboarding for password and first provider          |
-| `omniroute doctor`      | Run local health checks without starting the server            |
-| `omniroute providers`   | Discover, list, validate, and test providers from CLI          |
-| `omniroute config`      | CLI tool configuration — list, get, set, validate configs      |
-| `omniroute status`      | Offline status dashboard — version, DB, tools, config          |
-| `omniroute logs`        | Stream usage logs from the API (supports `--follow`)           |
-| `omniroute update`      | Check for or apply OmniRoute updates                           |
-| `omniroute provider`    | Manage provider connections — add, list, remove, test, default |
-| `omniroute --port 3000` | Set canonical/API port to 3000                                 |
-| `omniroute --mcp`       | Start MCP server (stdio transport)                             |
-| `omniroute --no-open`   | Don't auto-open browser                                        |
-| `omniroute --help`      | Show help                                                      |
+| `red-router setup`       | Guided CLI onboarding for password and first provider          |
+| `red-router doctor`      | Run local health checks without starting the server            |
+| `red-router providers`   | Discover, list, validate, and test providers from CLI          |
+| `red-router config`      | CLI tool configuration — list, get, set, validate configs      |
+| `red-router status`      | Offline status dashboard — version, DB, tools, config          |
+| `red-router logs`        | Stream usage logs from the API (supports `--follow`)           |
+| `red-router update`      | Check for or apply RedRouter updates                           |
+| `red-router provider`    | Manage provider connections — add, list, remove, test, default |
+| `red-router --port 3000` | Set canonical/API port to 3000                                 |
+| `red-router --mcp`       | Start MCP server (stdio transport)                             |
+| `red-router --no-open`   | Don't auto-open browser                                        |
+| `red-router --help`      | Show help                                                      |
 
 Headless setup can be scripted with flags or environment variables:
 
 ```bash
-omniroute setup --non-interactive --password "$OMNIROUTE_PASSWORD"
-omniroute setup --non-interactive --add-provider --provider openai --api-key "$OPENAI_API_KEY"
-omniroute setup --non-interactive --add-provider --provider openai --api-key "$OPENAI_API_KEY" --test-provider
+red-router setup --non-interactive --password "$OMNIROUTE_PASSWORD"
+red-router setup --non-interactive --add-provider --provider openai --api-key "$OPENAI_API_KEY"
+red-router setup --non-interactive --add-provider --provider openai --api-key "$OPENAI_API_KEY" --test-provider
 ```
 
 Run local diagnostics without opening the dashboard:
 
 ```bash
-omniroute doctor
-omniroute doctor --json
-omniroute doctor --no-liveness
+red-router doctor
+red-router doctor --json
+red-router doctor --no-liveness
 ```
 
 Manage providers from SSH or scripts without opening the dashboard:
 
 ```bash
-omniroute providers available
-omniroute providers available --search openai
-omniroute providers available --category api-key
-omniroute providers list
-omniroute providers test <id-or-name>
-omniroute providers test-all
-omniroute providers validate
+red-router providers available
+red-router providers available --search openai
+red-router providers available --category api-key
+red-router providers list
+red-router providers test <id-or-name>
+red-router providers test-all
+red-router providers validate
 ```
 
 ---
@@ -167,30 +167,30 @@ Works with Claude Code, Codex CLI, Cursor, Cline, OpenClaw, OpenCode, and OpenAI
 
 #### Auto-configure with `setup-*`
 
-Instead of pasting the base URL and key by hand, let OmniRoute write each tool's
+Instead of pasting the base URL and key by hand, let RedRouter write each tool's
 own config from the live model catalog. One command per tool:
 
 ```bash
-omniroute setup-codex        # ~/.codex/<name>.config.toml profiles
-omniroute setup-claude       # ~/.claude/profiles/<name>/settings.json
-omniroute setup-opencode     # ~/.config/opencode/opencode.json (openai-compatible)
-omniroute setup-cline        # Cline CLI + VS Code extension settings
-omniroute setup-kilo         # Kilo Code
-omniroute setup-continue     # ~/.continue/config.yaml (Continue / cn)
-omniroute setup-cursor       # prints Cursor's in-app steps
-omniroute setup-roo          # Roo Code import + autoImport pointer
-omniroute setup-crush        # ~/.config/crush/crush.json
-omniroute setup-goose        # ~/.config/goose/config.yaml
-omniroute setup-aider        # ~/.aider.conf.yml
-omniroute setup-qwen         # ~/.qwen/settings.json + ~/.qwen/.env
+red-router setup-codex        # ~/.codex/<name>.config.toml profiles
+red-router setup-claude       # ~/.claude/profiles/<name>/settings.json
+red-router setup-opencode     # ~/.config/opencode/opencode.json (openai-compatible)
+red-router setup-cline        # Cline CLI + VS Code extension settings
+red-router setup-kilo         # Kilo Code
+red-router setup-continue     # ~/.continue/config.yaml (Continue / cn)
+red-router setup-cursor       # prints Cursor's in-app steps
+red-router setup-roo          # Roo Code import + autoImport pointer
+red-router setup-crush        # ~/.config/crush/crush.json
+red-router setup-goose        # ~/.config/goose/config.yaml
+red-router setup-aider        # ~/.aider.conf.yml
+red-router setup-qwen         # ~/.qwen/settings.json + ~/.qwen/.env
 ```
 
 Each accepts `--remote <url> --api-key <key>` to configure a local tool against a
-**remote** OmniRoute, plus `--dry-run` to preview. To launch a CLI with the right
+**remote** RedRouter, plus `--dry-run` to preview. To launch a CLI with the right
 env injected and no config written at all, use the generic launcher
-`omniroute run <target>` (claude, codex, aider, goose, opencode, qwen, gemini);
-the legacy per-tool launchers `omniroute launch` (Claude Code) and
-`omniroute launch-codex` (Codex) remain available.
+`red-router run <target>` (claude, codex, aider, goose, opencode, qwen, gemini);
+the legacy per-tool launchers `red-router launch` (Claude Code) and
+`red-router launch-codex` (Codex) remain available.
 
 For the full table (what each command writes, every flag, local vs remote, base-URL
 `/v1` conventions), see **[CLI Integrations](./CLI-INTEGRATIONS.md)**.
@@ -206,14 +206,14 @@ For detailed per-tool configuration (Claude Code, Codex CLI, Cursor, Cline, Open
 Start MCP transport in stdio mode:
 
 ```bash
-omniroute --mcp
+red-router --mcp
 ```
 
 Recommended validation flow:
 
 ```bash
 # 1. Start MCP server
-omniroute --mcp
+red-router --mcp
 
 # 2. From your MCP client, call:
 omniroute_get_health        # Should return system health
@@ -228,7 +228,7 @@ npm run test:protocols:e2e
 **Claude Code:**
 
 ```bash
-claude mcp add-server omniroute --type http --url http://localhost:20128/api/mcp/stream
+claude mcp add-server red-router --type http --url http://localhost:20128/api/mcp/stream
 ```
 
 **Cursor / Cline:**
@@ -278,15 +278,15 @@ For most deployments, you only need these two variables:
 | Variable                 | Default                       | Purpose                                                                                                                                      |
 | ------------------------ | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
 | `REQUEST_TIMEOUT_MS`     | `600000`                      | Shared baseline for upstream response-start timeout, hidden Undici timeouts, TLS fingerprint requests, and API bridge request/proxy timeouts |
-| `STREAM_IDLE_TIMEOUT_MS` | inherits `REQUEST_TIMEOUT_MS` | Maximum gap between streaming chunks before OmniRoute aborts the SSE stream                                                                  |
+| `STREAM_IDLE_TIMEOUT_MS` | inherits `REQUEST_TIMEOUT_MS` | Maximum gap between streaming chunks before RedRouter aborts the SSE stream                                                                  |
 
 Backward compatibility is preserved: existing `FETCH_TIMEOUT_MS`, `API_BRIDGE_PROXY_TIMEOUT_MS`, and other per-layer timeout vars still work and override the shared baseline.
 
 ### Provider-Specific Notes
 
-For Claude Code-compatible upstreams (`anthropic-compatible-cc-*`), OmniRoute derives the outbound `X-Stainless-Timeout` header from the resolved fetch timeout so provider-side read timeouts stay aligned with your env configuration.
+For Claude Code-compatible upstreams (`anthropic-compatible-cc-*`), RedRouter derives the outbound `X-Stainless-Timeout` header from the resolved fetch timeout so provider-side read timeouts stay aligned with your env configuration.
 
-For third-party Claude Code-compatible reverse proxies, OmniRoute keeps the default `anthropic-beta` set conservative and, when `Client Cache Control` is left on `Auto`, only forwards client-provided `cache_control` markers. Enable the per-connection "Enable redact-thinking beta" toggle only when the upstream specifically requires redacted Claude thinking streams.
+For third-party Claude Code-compatible reverse proxies, RedRouter keeps the default `anthropic-beta` set conservative and, when `Client Cache Control` is left on `Auto`, only forwards client-provided `cache_control` markers. Enable the per-connection "Enable redact-thinking beta" toggle only when the upstream specifically requires redacted Claude thinking streams.
 
 ### Advanced Timeout Overrides
 
@@ -304,11 +304,11 @@ For third-party Claude Code-compatible reverse proxies, OmniRoute keeps the defa
 | `API_BRIDGE_SERVER_KEEPALIVE_TIMEOUT_MS` | `5000`                                     | Keep-alive timeout on the API bridge server                          |
 | `API_BRIDGE_SERVER_SOCKET_TIMEOUT_MS`    | `0`                                        | Socket inactivity timeout on the API bridge server (`0` disables it) |
 
-> **Note:** For streaming requests, `FETCH_TIMEOUT_MS` only covers connection setup / waiting for the first upstream response. Once the stream is active, OmniRoute will only abort on an actual stall (`STREAM_IDLE_TIMEOUT_MS`) or Undici body inactivity (`FETCH_BODY_TIMEOUT_MS`).
+> **Note:** For streaming requests, `FETCH_TIMEOUT_MS` only covers connection setup / waiting for the first upstream response. Once the stream is active, RedRouter will only abort on an actual stall (`STREAM_IDLE_TIMEOUT_MS`) or Undici body inactivity (`FETCH_BODY_TIMEOUT_MS`).
 
 ### Reverse Proxy Compatibility
 
-If you run OmniRoute behind Nginx, Caddy, Cloudflare, or another reverse proxy, make sure the proxy timeouts are also higher than your OmniRoute stream/fetch timeouts.
+If you run RedRouter behind Nginx, Caddy, Cloudflare, or another reverse proxy, make sure the proxy timeouts are also higher than your RedRouter stream/fetch timeouts.
 
 ---
 
@@ -338,10 +338,10 @@ depends="openssl"
 short_desc="Universal AI gateway with smart routing for multiple LLM providers"
 maintainer="zenobit <zenobit@disroot.org>"
 license="MIT"
-homepage="https://github.com/diegosouzapw/OmniRoute"
-distfiles="https://github.com/diegosouzapw/OmniRoute/archive/refs/tags/v${version}.tar.gz"
+homepage="https://github.com/reddb-io/red-router"
+distfiles="https://github.com/reddb-io/red-router/archive/refs/tags/v${version}.tar.gz"
 # Regenerate the checksum for each release with:
-#   curl -L -o /tmp/omniroute.tar.gz "https://github.com/diegosouzapw/OmniRoute/archive/refs/tags/v${version}.tar.gz" && sha256sum /tmp/omniroute.tar.gz
+#   curl -L -o /tmp/omniroute.tar.gz "https://github.com/reddb-io/red-router/archive/refs/tags/v${version}.tar.gz" && sha256sum /tmp/omniroute.tar.gz
 checksum=PLACEHOLDER_REGENERATE_PER_RELEASE
 system_accounts="_omniroute"
 omniroute_homedir="/var/lib/omniroute"

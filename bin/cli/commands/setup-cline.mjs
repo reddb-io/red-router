@@ -99,13 +99,13 @@ export async function runSetupClineCommand(opts = {}) {
 
   const guard = await guardHostConfigTarget(clineDir, {
     toolLabel: "Cline",
-    hostCommand: "omniroute setup-cline",
+    hostCommand: "red-router setup-cline",
     allowContainerWrite: Boolean(opts.allowContainerWrite ?? opts["allow-container-write"]),
     dryRun,
   });
   if (guard !== 0) return guard;
 
-  printHeading("OmniRoute → Cline (OpenAI-compatible)");
+  printHeading("RedRouter → Cline (OpenAI-compatible)");
   printInfo(`Server: ${baseUrl}`);
 
   // Resolve the model (Cline needs one explicit id — no auto-discovery).
@@ -169,11 +169,11 @@ export function registerSetupCline(program) {
   program
     .command("setup-cline")
     .description(
-      "Configure Cline for OmniRoute: write ~/.cline/data (CLI mode) + print VS Code extension settings"
+      "Configure Cline for RedRouter: write ~/.cline/data (CLI mode) + print VS Code extension settings"
     )
-    .option("--port <port>", "Local OmniRoute port (ignored when --remote is set)", "25050")
-    .option("--remote <url>", "Remote OmniRoute URL, e.g. http://192.168.0.15:25050")
-    .option("--api-key <key>", "OmniRoute API key (defaults to OMNIROUTE_API_KEY env var)")
+    .option("--port <port>", "Local RedRouter port (ignored when --remote is set)", "25050")
+    .option("--remote <url>", "Remote RedRouter URL, e.g. http://192.168.0.15:25050")
+    .option("--api-key <key>", "RedRouter API key (defaults to OMNIROUTE_API_KEY env var)")
     .option("--model <id>", "Model id for Cline (required unless picked interactively)")
     .option("--cline-dir <dir>", "Cline data dir (default: ~/.cline/data)")
     .option("--yes", "Non-interactive: do not prompt (requires --model)")

@@ -1,19 +1,19 @@
 ---
-title: "Local Ollama + Docker OmniRoute"
+title: "Local Ollama + Docker RedRouter"
 version: 3.8.51
 lastUpdated: 2026-09-29
 ---
 
-# Local Ollama + Docker OmniRoute
+# Local Ollama + Docker RedRouter
 
-Guide for running **OmniRoute in Docker** while **Ollama runs natively on the host** — the setup used with VS Code OmniCopilot and other OpenAI-compatible clients.
+Guide for running **RedRouter in Docker** while **Ollama runs natively on the host** — the setup used with VS Code OmniCopilot and other OpenAI-compatible clients.
 
 ## Architecture
 
 ```
 VS Code / OmniCopilot
         ↓  :20128
-OmniRoute (Docker)
+RedRouter (Docker)
         ↓  host.docker.internal:11434
 Ollama (native, GPU)
         ↓
@@ -24,17 +24,17 @@ your model (e.g. qwen35b-highctx:latest)
 
 1. Install and start Ollama on the host (`ollama serve`, bound to `0.0.0.0:11434` if remote clients need access).
 
-2. Start OmniRoute with the local Ollama compose overlay:
+2. Start RedRouter with the local Ollama compose overlay:
 
    ```bash
    docker compose -f docker-compose.ollama-local.yml up -d
    ```
 
-3. In the OmniRoute dashboard, add an **OpenAI-compatible** provider:
+3. In the RedRouter dashboard, add an **OpenAI-compatible** provider:
    - **Base URL:** `http://host.docker.internal:11434/v1`
    - **Prefix:** `ollama` (optional, for `ollama/model-name` routing)
 
-4. Point your client at OmniRoute:
+4. Point your client at RedRouter:
    - **VS Code OmniCopilot:** `omnicopilot.baseUrl` → `http://<host-ip>:20128`
    - **Model:** `ollama/<model-name>`
 
@@ -52,7 +52,7 @@ docker exec omniroute node -e \
 
 ### Root cause
 
-This 504 originates in **OmniRoute**, not OmniCopilot. The direct (no-proxy) fetch path uses `resolveDirectHeadersTimeoutMs()` in `open-sse/utils/directResponseStartTimeout.ts`. When `OMNIROUTE_DIRECT_HEADERS_TIMEOUT_MS` is unset, the default per-attempt budget is **30 seconds**. OmniRoute retries once on a fresh socket, so failures often appear at **~60 seconds** total.
+This 504 originates in **RedRouter**, not OmniCopilot. The direct (no-proxy) fetch path uses `resolveDirectHeadersTimeoutMs()` in `open-sse/utils/directResponseStartTimeout.ts`. When `OMNIROUTE_DIRECT_HEADERS_TIMEOUT_MS` is unset, the default per-attempt budget is **30 seconds**. RedRouter retries once on a fresh socket, so failures often appear at **~60 seconds** total.
 
 Large local models (22B+ MoE) and VS Code Copilot agent requests (big system prompt + tools) can exceed 30s **time-to-first-byte**, especially on cold start.
 
@@ -60,7 +60,7 @@ Simple `curl` tests with small prompts may succeed while Copilot fails.
 
 ### Fix (v3.8.51+)
 
-OmniRoute now auto-raises the direct response-start floor to **300s** for local/self-hosted targets (`host.docker.internal`, `192.168.x.x`, `localhost`, etc.).
+RedRouter now auto-raises the direct response-start floor to **300s** for local/self-hosted targets (`host.docker.internal`, `192.168.x.x`, `localhost`, etc.).
 
 For older images or explicit control, set in `docker-compose.ollama-local.yml`:
 
@@ -81,4 +81,4 @@ Heavy agent sessions can also hit `RATE_LIMIT_EXECUTION_TIMEOUT` when concurrent
 ## Related
 
 - [DOCKER_GUIDE.md](./DOCKER_GUIDE.md) — full compose profiles
-- [OmniCopilot](https://github.com/diegosouzapw/OmniCopilot) — VS Code extension (no request timeout settings; errors come from OmniRoute)
+- [OmniCopilot](https://github.com/diegosouzapw/OmniCopilot) — VS Code extension (no request timeout settings; errors come from RedRouter)

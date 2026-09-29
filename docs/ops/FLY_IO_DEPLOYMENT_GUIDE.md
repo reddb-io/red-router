@@ -1,12 +1,12 @@
 ---
-title: "OmniRoute Fly.io Deployment Guide"
+title: "RedRouter Fly.io Deployment Guide"
 version: 3.8.40
 lastUpdated: 2026-06-28
 ---
 
-# OmniRoute Fly.io Deployment Guide
+# RedRouter Fly.io Deployment Guide
 
-This document describes the actual deployment process for OmniRoute on Fly.io, covering two scenarios:
+This document describes the actual deployment process for RedRouter on Fly.io, covering two scenarios:
 
 - Deploying the current project to Fly.io for the first time
 - Publishing subsequent code updates
@@ -91,8 +91,8 @@ flyctl version
 ### 4.1 Clone the Code and Enter the Directory
 
 ```powershell
-git clone https://github.com/diegosouzapw/OmniRoute.git
-cd OmniRoute
+git clone https://github.com/reddb-io/red-router.git
+cd RedRouter
 ```
 
 ### 4.2 Confirm the Application Name
@@ -295,7 +295,7 @@ Fly will automatically perform a rolling update of machines.
 
 ### 9.1 Tracking Upstream Repository Updates While Preserving Your Fork's `fly.toml`
 
-If the current repository is a fork and you want to sync updates from the upstream `https://github.com/diegosouzapw/OmniRoute`, follow the workflow below.
+If the current repository is a fork and you want to sync updates from the upstream `https://github.com/reddb-io/red-router`, follow the workflow below.
 
 First, verify your remotes:
 
@@ -311,7 +311,7 @@ You should see at least:
 If `upstream` is not configured, add it:
 
 ```powershell
-git remote add upstream https://github.com/diegosouzapw/OmniRoute.git
+git remote add upstream https://github.com/reddb-io/red-router.git
 ```
 
 Before syncing with upstream, fetch the latest commits and tags:

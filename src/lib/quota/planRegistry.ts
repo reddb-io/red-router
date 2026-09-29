@@ -73,7 +73,7 @@ const KNOWN_PLANS: Record<string, KnownPlanShape> = {
     ],
   },
   // Muse Code subscriptions (Everyday / High / Power / contributor) have no
-  // OmniRoute-side balance API. Upstream 429 bodies carry `error.resets_at`.
+  // RedRouter-side balance API. Upstream 429 bodies carry `error.resets_at`.
   "muse-code": {
     provider: "muse-code",
     dimensions: [{ unit: "tokens", window: "weekly", limit: Number.EPSILON }],

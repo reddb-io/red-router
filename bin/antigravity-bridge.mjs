@@ -117,22 +117,22 @@ const MODEL_ROUTING_MAP = {
   "auto/gemma": "groq/qwen/qwen3.8-27b",
 
   // Human-readable Display Names (in case CLI sends displayName in envelope)
-  "Auto: Best Fast (OmniRoute)": "groq/openai/gpt-oss-120b",
-  "Auto: Best Coding (OmniRoute)": "mistral/codestral-latest",
-  "Auto: Best Reasoning (OmniRoute)": "nvidia/nvidia/nemotron-3-super-120b-a12b",
-  "Auto: Best Free (OmniRoute)": "groq/qwen/qwen3.8-27b",
-  "Auto: Best Vision (OmniRoute)": "nvidia/meta/llama-3.2-90b-vision-instruct",
-  "Auto: Coding Pro (OmniRoute)": "mistral/codestral-latest",
-  "Auto: Coding Fast (OmniRoute)": "groq/openai/gpt-oss-120b",
-  "Auto: Coding Free (OmniRoute)": "groq/qwen/qwen3.8-27b",
-  "Auto: Coding Reliable (OmniRoute)": "mistral/codestral-latest",
-  "Auto: Reasoning Pro (OmniRoute)": "nvidia/nvidia/nemotron-3-super-120b-a12b",
-  "Auto: Smart (OmniRoute)": "nvidia/nvidia/nemotron-3-super-120b-a12b",
-  "Auto: Claude Sonnet (OmniRoute)": "mistral/codestral-latest",
-  "Auto: Claude Opus (OmniRoute)": "nvidia/nvidia/nemotron-3-super-120b-a12b",
-  "Auto: Gemini (OmniRoute)": "gemini/gemini-2.5-flash",
-  "Auto: Llama (OmniRoute)": "groq/openai/gpt-oss-120b",
-  "Auto: Gemma (OmniRoute)": "groq/qwen/qwen3.8-27b",
+  "Auto: Best Fast (RedRouter)": "groq/openai/gpt-oss-120b",
+  "Auto: Best Coding (RedRouter)": "mistral/codestral-latest",
+  "Auto: Best Reasoning (RedRouter)": "nvidia/nvidia/nemotron-3-super-120b-a12b",
+  "Auto: Best Free (RedRouter)": "groq/qwen/qwen3.8-27b",
+  "Auto: Best Vision (RedRouter)": "nvidia/meta/llama-3.2-90b-vision-instruct",
+  "Auto: Coding Pro (RedRouter)": "mistral/codestral-latest",
+  "Auto: Coding Fast (RedRouter)": "groq/openai/gpt-oss-120b",
+  "Auto: Coding Free (RedRouter)": "groq/qwen/qwen3.8-27b",
+  "Auto: Coding Reliable (RedRouter)": "mistral/codestral-latest",
+  "Auto: Reasoning Pro (RedRouter)": "nvidia/nvidia/nemotron-3-super-120b-a12b",
+  "Auto: Smart (RedRouter)": "nvidia/nvidia/nemotron-3-super-120b-a12b",
+  "Auto: Claude Sonnet (RedRouter)": "mistral/codestral-latest",
+  "Auto: Claude Opus (RedRouter)": "nvidia/nvidia/nemotron-3-super-120b-a12b",
+  "Auto: Gemini (RedRouter)": "gemini/gemini-2.5-flash",
+  "Auto: Llama (RedRouter)": "groq/openai/gpt-oss-120b",
+  "Auto: Gemma (RedRouter)": "groq/qwen/qwen3.8-27b",
 
   // Fail-safe self-healing for dead/retired models
   "nvidia/deepseek-ai/deepseek-v4-pro-0813": "groq/openai/gpt-oss-120b",
@@ -167,85 +167,85 @@ function resolveTargetModel(model) {
 const OMNIROUTE_BUILTIN_GROUPS = [
   {
     id: "auto/best-coding",
-    displayName: "Auto: Best Coding (OmniRoute)",
+    displayName: "Auto: Best Coding (RedRouter)",
     descriptionText:
-      "OmniRoute dynamic routing to the highest benchmark coding model available (Mistral Codestral)",
+      "RedRouter dynamic routing to the highest benchmark coding model available (Mistral Codestral)",
   },
   {
     id: "auto/best-reasoning",
-    displayName: "Auto: Best Reasoning (OmniRoute)",
+    displayName: "Auto: Best Reasoning (RedRouter)",
     descriptionText:
-      "OmniRoute dynamic routing to the highest benchmark reasoning model available (Nemotron 3 Super 120B)",
+      "RedRouter dynamic routing to the highest benchmark reasoning model available (Nemotron 3 Super 120B)",
   },
   {
     id: "auto/best-fast",
-    displayName: "Auto: Best Fast (OmniRoute)",
-    descriptionText: "OmniRoute sub-second lowest latency high-throughput model (Groq LPUs)",
+    displayName: "Auto: Best Fast (RedRouter)",
+    descriptionText: "RedRouter sub-second lowest latency high-throughput model (Groq LPUs)",
   },
   {
     id: "auto/best-vision",
-    displayName: "Auto: Best Vision (OmniRoute)",
-    descriptionText: "OmniRoute multimodal & computer vision routing",
+    displayName: "Auto: Best Vision (RedRouter)",
+    descriptionText: "RedRouter multimodal & computer vision routing",
   },
   {
     id: "auto/best-free",
-    displayName: "Auto: Best Free (OmniRoute)",
-    descriptionText: "OmniRoute 100% unmetered free tier model routing (Qwen 3.8 27B)",
+    displayName: "Auto: Best Free (RedRouter)",
+    descriptionText: "RedRouter 100% unmetered free tier model routing (Qwen 3.8 27B)",
   },
   {
     id: "auto/coding:pro",
-    displayName: "Auto: Coding Pro (OmniRoute)",
-    descriptionText: "OmniRoute frontier pro-tier coding model (Codestral)",
+    displayName: "Auto: Coding Pro (RedRouter)",
+    descriptionText: "RedRouter frontier pro-tier coding model (Codestral)",
   },
   {
     id: "auto/coding:fast",
-    displayName: "Auto: Coding Fast (OmniRoute)",
-    descriptionText: "OmniRoute fast sub-second daily coding model (Groq 120B)",
+    displayName: "Auto: Coding Fast (RedRouter)",
+    descriptionText: "RedRouter fast sub-second daily coding model (Groq 120B)",
   },
   {
     id: "auto/coding:free",
-    displayName: "Auto: Coding Free (OmniRoute)",
-    descriptionText: "OmniRoute zero-cost free coding model",
+    displayName: "Auto: Coding Free (RedRouter)",
+    descriptionText: "RedRouter zero-cost free coding model",
   },
   {
     id: "auto/coding:reliable",
-    displayName: "Auto: Coding Reliable (OmniRoute)",
-    descriptionText: "OmniRoute maximum uptime and reliability coding model",
+    displayName: "Auto: Coding Reliable (RedRouter)",
+    descriptionText: "RedRouter maximum uptime and reliability coding model",
   },
   {
     id: "auto/reasoning:pro",
-    displayName: "Auto: Reasoning Pro (OmniRoute)",
-    descriptionText: "OmniRoute deep reasoning frontier model",
+    displayName: "Auto: Reasoning Pro (RedRouter)",
+    descriptionText: "RedRouter deep reasoning frontier model",
   },
   {
     id: "auto/smart",
-    displayName: "Auto: Smart (OmniRoute)",
-    descriptionText: "OmniRoute highest intelligence general-purpose model",
+    displayName: "Auto: Smart (RedRouter)",
+    descriptionText: "RedRouter highest intelligence general-purpose model",
   },
   {
     id: "auto/claude-sonnet",
-    displayName: "Auto: Claude Sonnet (OmniRoute)",
-    descriptionText: "OmniRoute automated routing across Claude Sonnet providers",
+    displayName: "Auto: Claude Sonnet (RedRouter)",
+    descriptionText: "RedRouter automated routing across Claude Sonnet providers",
   },
   {
     id: "auto/claude-opus",
-    displayName: "Auto: Claude Opus (OmniRoute)",
-    descriptionText: "OmniRoute automated routing across Claude Opus providers",
+    displayName: "Auto: Claude Opus (RedRouter)",
+    descriptionText: "RedRouter automated routing across Claude Opus providers",
   },
   {
     id: "auto/gemini",
-    displayName: "Auto: Gemini (OmniRoute)",
-    descriptionText: "OmniRoute automated routing across Gemini providers",
+    displayName: "Auto: Gemini (RedRouter)",
+    descriptionText: "RedRouter automated routing across Gemini providers",
   },
   {
     id: "auto/llama",
-    displayName: "Auto: Llama (OmniRoute)",
-    descriptionText: "OmniRoute automated routing across Llama providers",
+    displayName: "Auto: Llama (RedRouter)",
+    descriptionText: "RedRouter automated routing across Llama providers",
   },
   {
     id: "auto/gemma",
-    displayName: "Auto: Gemma (OmniRoute)",
-    descriptionText: "OmniRoute automated routing across Gemma providers",
+    displayName: "Auto: Gemma (RedRouter)",
+    descriptionText: "RedRouter automated routing across Gemma providers",
   },
   // Active, verified provider models
   {
@@ -350,7 +350,7 @@ const internalApp = http.createServer(async (req, res) => {
   if (shouldIntercept) {
     const resolvedModel = resolveTargetModel(model);
     console.log(
-      `[Bridge] 🔀 INTERCEPTING -> OmniRoute: "${model || "default"}" => "${resolvedModel}" (${url})`
+      `[Bridge] 🔀 INTERCEPTING -> RedRouter: "${model || "default"}" => "${resolvedModel}" (${url})`
     );
 
     let outgoingBuffer = bodyBuffer;
@@ -389,10 +389,10 @@ const internalApp = http.createServer(async (req, res) => {
       upstreamReq.setNoDelay(true);
 
       upstreamReq.on("error", (err) => {
-        console.error(`[Bridge] ❌ Error forwarding to OmniRoute: ${err.message}`);
+        console.error(`[Bridge] ❌ Error forwarding to RedRouter: ${err.message}`);
         if (!res.headersSent) {
           res.writeHead(502, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({ error: { message: `OmniRoute bridge error: ${err.message}` } }));
+          res.end(JSON.stringify({ error: { message: `RedRouter bridge error: ${err.message}` } }));
         }
       });
 
@@ -400,7 +400,7 @@ const internalApp = http.createServer(async (req, res) => {
       upstreamReq.end();
       return;
     } catch (err) {
-      console.error(`[Bridge] ❌ Failed to invoke OmniRoute: ${err.message}`);
+      console.error(`[Bridge] ❌ Failed to invoke RedRouter: ${err.message}`);
     }
   }
 
@@ -510,7 +510,7 @@ internalApp.headersTimeout = 66000;
 const proxyServer = http.createServer((req, res) => {
   // Plain HTTP request (non-CONNECT)
   res.writeHead(200, { "Content-Type": "text/plain" });
-  res.end("OmniRoute Antigravity Bridge Proxy Active\n");
+  res.end("RedRouter Antigravity Bridge Proxy Active\n");
 });
 
 proxyServer.keepAliveTimeout = 65000;
@@ -575,7 +575,7 @@ const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPat
 
 if (isMain) {
   proxyServer.listen(PORT, "127.0.0.1", () => {
-    console.log(`🚀 OmniRoute Antigravity Bridge listening on 127.0.0.1:${PORT}`);
+    console.log(`🚀 RedRouter Antigravity Bridge listening on 127.0.0.1:${PORT}`);
     console.log(`   Routing non-Gemini 3.8 model traffic -> ${ROUTER_URL}`);
     console.log(`   Preserving Gemini 3.8 native traffic -> Google`);
   });

@@ -232,7 +232,7 @@ export const OAUTH_TEST_CONFIG: Record<string, OAuthTestConfigEntry> = {
     method: "GET",
     authHeader: "Authorization",
     authPrefix: "Bearer ",
-    extraHeaders: { "User-Agent": "OmniRoute", Accept: "application/vnd.github+json" },
+    extraHeaders: { "User-Agent": "RedRouter", Accept: "application/vnd.github+json" },
   },
   "gitlab-duo": {
     getUrl: (connection: any) =>
@@ -373,7 +373,7 @@ export const OAUTH_TEST_CONFIG: Record<string, OAuthTestConfigEntry> = {
     method: "GET",
     authHeader: "Authorization",
     authPrefix: "Bearer ",
-    extraHeaders: { "User-Agent": "OmniRoute", Accept: "application/vnd.github+json" },
+    extraHeaders: { "User-Agent": "RedRouter", Accept: "application/vnd.github+json" },
     refreshable: true,
   },
   // Openference: first-party OAuth gateway — list models to verify the JWT without

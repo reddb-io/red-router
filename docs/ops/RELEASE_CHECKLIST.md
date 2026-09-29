@@ -6,7 +6,7 @@ lastUpdated: 2026-09-28
 
 # RedRouter release checklist
 
-This checklist belongs to `reddb-io/red-router`, not OmniRoute. The npm package is
+This checklist belongs to `reddb-io/red-router`, not RedRouter. The npm package is
 `@reddb-io/red-router`, and `red-router` is the command. Develop on main, preserve
 upstream attribution, and do not deploy or publish another project's package.
 

@@ -19,12 +19,12 @@ const applySchema = configRequestSchema.extend({
 
 /** The host-side command that does the same job when OmniRoute is containerised. */
 const HOST_SETUP_COMMANDS: Record<string, string> = {
-  claude: "omniroute setup-claude",
-  codex: "omniroute setup-codex",
-  opencode: "omniroute setup-opencode",
-  cline: "omniroute setup-cline",
-  kilo: "omniroute setup-kilo",
-  continue: "omniroute setup-continue",
+  claude: "red-router setup-claude",
+  codex: "red-router setup-codex",
+  opencode: "red-router setup-opencode",
+  cline: "red-router setup-cline",
+  kilo: "red-router setup-kilo",
+  continue: "red-router setup-continue",
 };
 
 function ensureBackup(configPath: string): string | null {

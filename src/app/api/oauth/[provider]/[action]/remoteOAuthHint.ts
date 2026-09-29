@@ -23,7 +23,7 @@ export function buildRemoteOAuthHint(hostHeader: string | null, port: number): R
     remoteHost: true,
     tunnelCommand: `ssh -L ${port}:127.0.0.1:${port} <user>@<omniroute-host>`,
     message:
-      `OmniRoute appears to be running on a remote host (${hostHeader}). ` +
+      `RedRouter appears to be running on a remote host (${hostHeader}). ` +
       `The OAuth callback returns to localhost:${port} on THIS machine, not the server, ` +
       `so the login will hang. Open a reverse tunnel first (see tunnelCommand), then retry — ` +
       `or use the token import flow instead.`,

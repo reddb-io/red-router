@@ -1090,7 +1090,7 @@ async function handleGeminiImageGeneration({ model, providerConfig, body, creden
       status: 400,
       startTime,
       error:
-        "Missing Google projectId for Antigravity account. Please reconnect OAuth in Providers so OmniRoute can fetch your Cloud Code project.",
+        "Missing Google projectId for Antigravity account. Please reconnect OAuth in Providers so RedRouter can fetch your Cloud Code project.",
       requestBody: logRequestBody,
     });
   }
@@ -3280,7 +3280,7 @@ export async function normalizeNanoBananaTaskResult(taskData, body, log) {
 
     if (urlCandidates.length > 0) {
       const firstUrl = urlCandidates[0];
-      // Upstream-supplied result URL, not an OmniRoute-controlled host — public-only +
+      // Upstream-supplied result URL, not an RedRouter-controlled host — public-only +
       // DNS-pinned policy lives in fetchUntrustedRemoteImage.
       const remoteImage = await fetchUntrustedRemoteImage(firstUrl);
       const base64 = remoteImage.buffer.toString("base64");

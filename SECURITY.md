@@ -2,10 +2,10 @@
 
 ## Reporting Vulnerabilities
 
-If you discover a security vulnerability in OmniRoute, please report it responsibly:
+If you discover a security vulnerability in RedRouter, please report it responsibly:
 
 1. **DO NOT** open a public GitHub issue
-2. Use [GitHub Security Advisories](https://github.com/diegosouzapw/OmniRoute/security/advisories/new)
+2. Use [GitHub Security Advisories](https://github.com/reddb-io/red-router/security/advisories/new)
 3. Include: description, reproduction steps, and potential impact
 
 ## Response Timeline
@@ -28,7 +28,7 @@ If you discover a security vulnerability in OmniRoute, please report it responsi
 
 ## Security Architecture
 
-OmniRoute implements a multi-layered security model:
+RedRouter implements a multi-layered security model:
 
 ```
 Request → CORS → Authz pipeline (classify → policies → enforce)
@@ -65,7 +65,7 @@ STORAGE_ENCRYPTION_KEY=$(openssl rand -hex 32)
 
 ### 🛡️ Guardrails Framework
 
-OmniRoute ships a hot-reloadable **guardrails registry** (`src/lib/guardrails/`) with 3 built-in guardrails ordered by priority:
+RedRouter ships a hot-reloadable **guardrails registry** (`src/lib/guardrails/`) with 3 built-in guardrails ordered by priority:
 
 | Guardrail          | Priority | Purpose                                                                                 |
 | ------------------ | -------- | --------------------------------------------------------------------------------------- |

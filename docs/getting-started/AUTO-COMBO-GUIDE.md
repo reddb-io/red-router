@@ -1,18 +1,18 @@
 ---
-title: "Auto-Combo: Let OmniRoute Pick the Best AI for You"
+title: "Auto-Combo: Let RedRouter Pick the Best AI for You"
 version: 3.8.50
 lastUpdated: 2026-08-06
 ---
 
-# Auto-Combo: Let OmniRoute Pick the Best AI for You
+# Auto-Combo: Let RedRouter Pick the Best AI for You
 
-> **TL;DR**: Set your model to `auto` and OmniRoute automatically picks the best AI provider for each request. No configuration needed.
+> **TL;DR**: Set your model to `auto` and RedRouter automatically picks the best AI provider for each request. No configuration needed.
 
 ---
 
 ## What It Does
 
-Instead of choosing a specific AI model (like GPT-4o or Claude), you can let OmniRoute **automatically pick the best one** for each request. It considers:
+Instead of choosing a specific AI model (like GPT-4o or Claude), you can let RedRouter **automatically pick the best one** for each request. It considers:
 
 - **Health** — Is the provider working right now?
 - **Speed** — How fast is it?
@@ -20,7 +20,7 @@ Instead of choosing a specific AI model (like GPT-4o or Claude), you can let Omn
 - **Quality** — Is it good at this type of task?
 - **Capacity** — Does it have quota remaining?
 
-OmniRoute scores all your connected providers and picks the best one. If it fails, it automatically tries the next one.
+RedRouter scores all your connected providers and picks the best one. If it fails, it automatically tries the next one.
 
 ---
 
@@ -32,7 +32,7 @@ OmniRoute scores all your connected providers and picks the best one. If it fail
 model: "auto"
 ```
 
-**Step 2**: That's it! OmniRoute handles the rest.
+**Step 2**: That's it! RedRouter handles the rest.
 
 **Step 3** (optional): Use a variant for specific tasks:
 
@@ -78,7 +78,7 @@ curl http://localhost:20128/v1/chat/completions \
 
 ## How It Works (Simple Version)
 
-When you send a request with `model: "auto"`, OmniRoute:
+When you send a request with `model: "auto"`, RedRouter:
 
 1. **Looks at all your connected providers** — Every provider you've added (OpenAI, Anthropic, Google, etc.)
 2. **Scores each one**, weighing among other things:
@@ -88,7 +88,7 @@ When you send a request with `model: "auto"`, OmniRoute:
    - How fast is it? (speed)
    - Is it good at this task? (quality)
 3. **Picks the best one** — The highest-scoring provider gets your request
-4. **Auto-recovers** — If it fails, OmniRoute tries the next one automatically
+4. **Auto-recovers** — If it fails, RedRouter tries the next one automatically
 
 ### The Scoring System
 
@@ -122,11 +122,11 @@ Each variant uses different weights:
 
 ## How It Handles Failures
 
-OmniRoute has **three layers of protection**:
+RedRouter has **three layers of protection**:
 
 ### 1. Auto-Fallback
 
-If the best provider fails, OmniRoute automatically tries the next one. You don't need to do anything.
+If the best provider fails, RedRouter automatically tries the next one. You don't need to do anything.
 
 ### 2. Self-Healing
 
@@ -138,13 +138,13 @@ If a provider keeps failing:
 
 ### 3. Emergency Fallback
 
-If all providers fail, OmniRoute routes to stable free providers (like Kiro or Qoder) as a last resort.
+If all providers fail, RedRouter routes to stable free providers (like Kiro or Qoder) as a last resort.
 
 ---
 
 ## Multi-Account Support
 
-If you have multiple accounts for the same provider (e.g., two OpenAI keys), OmniRoute treats each as a **separate candidate**. This means:
+If you have multiple accounts for the same provider (e.g., two OpenAI keys), RedRouter treats each as a **separate candidate**. This means:
 
 - Account A has quota remaining → use it
 - Account B is rate-limited → skip it
@@ -156,13 +156,13 @@ Each account is scored independently based on its own health, quota, and speed.
 
 ## Bandit Exploration
 
-OmniRoute occasionally **explores** new providers to discover better options:
+RedRouter occasionally **explores** new providers to discover better options:
 
 - **Default**: 5% of requests go to random providers
 - **Auto/smart**: 10% exploration rate
 - **Disabled** when more than 50% of providers are unhealthy
 
-This helps OmniRoute learn which providers work best for your usage patterns.
+This helps RedRouter learn which providers work best for your usage patterns.
 
 ---
 
@@ -174,11 +174,11 @@ This helps OmniRoute learn which providers work best for your usage patterns.
 
 ### "What if a provider goes down?"
 
-OmniRoute automatically skips it and tries the next one. If a provider keeps failing, it's excluded temporarily (5-30 minutes). You don't need to do anything.
+RedRouter automatically skips it and tries the next one. If a provider keeps failing, it's excluded temporarily (5-30 minutes). You don't need to do anything.
 
 ### "Can I see which provider was used?"
 
-Check the response headers — OmniRoute includes the provider and model used in each response.
+Check the response headers — RedRouter includes the provider and model used in each response.
 
 ### "Does it learn from my usage?"
 

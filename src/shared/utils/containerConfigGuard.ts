@@ -42,14 +42,14 @@ export function buildContainerWriteRefusal(
   const subject = toolLabel ? `${toolLabel} config` : "CLI tool config";
 
   return [
-    `${REFUSAL_PREFIX} ${subject} to ${targetPath} — OmniRoute is running in a container ` +
+    `${REFUSAL_PREFIX} ${subject} to ${targetPath} — RedRouter is running in a container ` +
       `and that path is not mounted from the host, so the file would be discarded when the ` +
       `container is recreated and your host CLI would never read it.`,
     "",
     "Configure from the host instead (recommended):",
-    "  npm install -g omniroute",
-    "  omniroute connect http://localhost:20128",
-    `  ${hostCommand || "omniroute setup-<tool>"}`,
+    "  npm install -g @reddb-io/red-router",
+    "  red-router connect http://localhost:20128",
+    `  ${hostCommand || "red-router setup-<tool>"}`,
     "",
     'Or bind-mount the host config dir into the container (compose profile "host"):',
     '  volumes:     [ "~/.codex:/host-home/.codex:rw" ]',

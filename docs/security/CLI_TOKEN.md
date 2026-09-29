@@ -6,11 +6,11 @@ title: "CLI Machine-ID Token"
 
 ## Overview
 
-OmniRoute CLI commands authenticate against the local management API using a
+RedRouter CLI commands authenticate against the local management API using a
 `HMAC-SHA256(machine-id, salt)` token sent via the `x-omniroute-cli-token`
 request header.
 
-This allows CLI subcommands (`omniroute status`, `omniroute providers`, etc.)
+This allows CLI subcommands (`red-router status`, `red-router providers`, etc.)
 to call management endpoints without requiring the user to supply a JWT or
 password on every invocation.
 
@@ -25,7 +25,7 @@ password on every invocation.
    loopback IPv6). Requests carrying the token use `redirect: error`, so a local
    redirect cannot forward it to another origin. Remote contexts use scoped
    access tokens instead. If derivation is unavailable, the CLI omits the header
-   and `omniroute doctor` reports the failure instead of treating an empty token
+   and `red-router doctor` reports the failure instead of treating an empty token
    as valid.
 4. The server (`src/server/authz/policies/management.ts`) recomputes the
    expected token with the same salt and compares via `timingSafeEqual` to
@@ -67,7 +67,7 @@ process-list leak that may have exposed the previous derived value.
 export OMNIROUTE_CLI_SALT="my-secret-salt-2026"
 
 # Verify new token is in use
-omniroute status
+red-router status
 ```
 
 ## Legacy format (SHA-256, 32-char) — still accepted

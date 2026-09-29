@@ -581,7 +581,7 @@ async function intercept(req, res, bodyBuffer, override, sourceModel) {
         const errText = await response.text().catch(() => "");
         respBody = errText.slice(0, INGEST_MAX_BODY);
         respSize = Buffer.byteLength(errText);
-        throw new Error(`OmniRoute ${response.status}: ${errText}`);
+        throw new Error(`RedRouter ${response.status}: ${errText}`);
       }
 
       res.writeHead(200, {
@@ -692,7 +692,7 @@ async function startMitmServer() {
     if (bodyBuffer.length > 0) saveRequestLog(req.url, bodyBuffer);
 
     if (req.headers["x-omniroute-source"] === "omniroute") {
-      vlog(1, `[MITM] → PASSTHROUGH (OmniRoute source loop)`);
+      vlog(1, `[MITM] → PASSTHROUGH (RedRouter source loop)`);
       return passthrough(req, res, bodyBuffer);
     }
 

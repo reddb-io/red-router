@@ -229,7 +229,7 @@ export async function fetchRemoteImage(
 }
 
 /**
- * Fetch an image from a URL that did NOT originate from an OmniRoute-controlled host: a
+ * Fetch an image from a URL that did NOT originate from an RedRouter-controlled host: a
  * caller-supplied `image_url` / `image` body field (any of the request-body aliases,
  * `provider_options.*`, message parts) or a result URL echoed back by an upstream provider.
  *

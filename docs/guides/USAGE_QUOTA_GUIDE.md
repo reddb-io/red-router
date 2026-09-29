@@ -6,7 +6,7 @@ lastUpdated: 2026-06-28
 
 # Usage, Quota & Spend Tracking
 
-> **TL;DR**: OmniRoute tracks every request's token usage, computes cost, enforces per-API-key quota, and surfaces analytics in the dashboard. This guide explains how it all works.
+> **TL;DR**: RedRouter tracks every request's token usage, computes cost, enforces per-API-key quota, and surfaces analytics in the dashboard. This guide explains how it all works.
 
 **Sources:**
 
@@ -19,7 +19,7 @@ lastUpdated: 2026-06-28
 
 ## Overview
 
-Every request that flows through OmniRoute generates a **usage record** that captures:
+Every request that flows through RedRouter generates a **usage record** that captures:
 
 - **Identity**: which API key, provider, model, combo
 - **Tokens**: prompt tokens, completion tokens, cached tokens, total
@@ -76,11 +76,11 @@ const usage = response.usage || {
 };
 ```
 
-For providers that don't return usage (some web-cookie providers), OmniRoute **estimates** tokens using a `~4 chars per token` heuristic (see `open-sse/services/autoCombo/pipelineRouter.ts`).
+For providers that don't return usage (some web-cookie providers), RedRouter **estimates** tokens using a `~4 chars per token` heuristic (see `open-sse/services/autoCombo/pipelineRouter.ts`).
 
 ### Cached Tokens
 
-OmniRoute tracks `cached_tokens` separately from `prompt_tokens` because:
+RedRouter tracks `cached_tokens` separately from `prompt_tokens` because:
 
 - Anthropic prompt caching charges a reduced rate for cached tokens (10% of normal)
 - Some providers return `cache_read_input_tokens` that should be priced differently
@@ -119,7 +119,7 @@ Pricing data is auto-synced from LiteLLM via the `/api/pricing/sync` endpoint (t
 curl -X POST http://localhost:20128/api/pricing/sync
 ```
 
-For models with no pricing data, OmniRoute falls back to **estimating cost** using internal average rates (sourced from LiteLLM's pricing data).
+For models with no pricing data, RedRouter falls back to **estimating cost** using internal average rates (sourced from LiteLLM's pricing data).
 
 ---
 

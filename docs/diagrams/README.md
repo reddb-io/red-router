@@ -6,7 +6,7 @@ lastUpdated: 2026-07-17
 
 # Diagrams
 
-Mermaid sources (`.mmd`) and exported SVGs for OmniRoute v3.8.0 architecture flows.
+Mermaid sources (`.mmd`) and exported SVGs for RedRouter v3.8.0 architecture flows.
 
 ## Canonical diagrams
 
@@ -36,7 +36,7 @@ inside GitHub's `<img>` sandbox:
 | [free-tier-budget.svg](./free-tier-budget.svg)         | README.md (root) | Animated free-tier budget card (~1.62B/mo quantified headline, 17-pool + Groq-caps budget bar, per-pool grid, signup credits, 10s loop). Edit the SVG directly — there is no `.mmd` source.                               |
 | [readme-hero.svg](./readme-hero.svg)                   | README.md (root) | Animated hero card (tagline, live provider/free-access headline, full-width compression bar demo, 6 stat chips). Edit the SVG directly — there is no `.mmd` source.                                                       |
 | [promise-pillars.svg](./promise-pillars.svg)           | README.md (root) | Animated "The Promise" 6-pillar card (12s border-highlight sweep). Edit the SVG directly — there is no `.mmd` source.                                                                                                     |
-| [why-pain-fix.svg](./why-pain-fix.svg)                 | README.md (root) | Animated "Why OmniRoute" 10-row pain-vs-fix ledger (15s green row sweep). Edit the SVG directly — there is no `.mmd` source.                                                                                              |
+| [why-pain-fix.svg](./why-pain-fix.svg)                 | README.md (root) | Animated "Why RedRouter" 10-row pain-vs-fix ledger (15s green row sweep). Edit the SVG directly — there is no `.mmd` source.                                                                                              |
 | [strategies-grid.svg](./strategies-grid.svg)           | README.md (root) | Animated grid illustrating 18 of the 19 routing strategies; `cache-optimized` remains documented in the adjacent table. Edit the SVG directly — there is no `.mmd` source.                                                |
 | [privacy-local.svg](./privacy-local.svg)               | README.md (root) | Animated "Private & Local-First" 11-row guarantee ledger with receipt chips (16s green row sweep). Edit the SVG directly — there is no `.mmd` source.                                                                     |
 | [resilience-layers.svg](./resilience-layers.svg)       | README.md (root) | Animated 3-layer resilience card (breaker states CLOSED→OPEN→HALF-OPEN, key cooldown with ×2 backoff, model lockout — 18s loops). Edit the SVG directly — there is no `.mmd` source.                                      |

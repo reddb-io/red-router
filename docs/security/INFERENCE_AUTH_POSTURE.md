@@ -49,14 +49,14 @@ probe either.
 ## Startup warning
 
 When `REQUIRE_API_KEY` is disabled and a server binds a non-loopback interface,
-OmniRoute logs a warning at boot (`src/lib/startup/nonLoopbackApiKeyGuard.ts`).
+RedRouter logs a warning at boot (`src/lib/startup/nonLoopbackApiKeyGuard.ts`).
 This covers three surfaces:
 
 - the Dashboard/API server that serves `/v1` inference — `HOST`, default `0.0.0.0`
 - the API bridge — `API_HOST`, default `127.0.0.1`
 - the live dashboard WebSocket — its own host
 
-The warning never blocks boot: a reverse proxy in front of OmniRoute may
+The warning never blocks boot: a reverse proxy in front of RedRouter may
 already be enforcing its own authentication.
 
 ## Related

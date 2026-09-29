@@ -33,7 +33,7 @@ For every candidate in the pool (`open-sse/services/autoCombo/virtualFactory.ts:
 right after `filterPaidOnlyCandidates`):
 
 1. **Not in `FREE_MODEL_BUDGETS` at all** → excluded. This covers genuinely paid models and any
-   provider/model OmniRoute hasn't classified yet — new candidates start excluded, not included.
+   provider/model RedRouter hasn't classified yet — new candidates start excluded, not included.
 2. **`freeType: "keyless"`** → passes immediately, **but only for a candidate that genuinely
    arrived via the no-auth path** (`connectionId === SYNTHETIC_NOAUTH_CONNECTION_ID`,
    `open-sse/services/autoCombo/resilienceCandidateFilter.ts`). No credential exists for that
@@ -88,7 +88,7 @@ never a different, unverified account on the same candidate. See
 (keyless-bypass cases A/B/C, multi-account cases 1-5).
 
 `discovered automatically`: a provider/model shipped tomorrow with the right metadata (in the
-catalog, with a usage adapter, `hardStopGuaranteed: true`) is usable the moment OmniRoute knows
+catalog, with a usage adapter, `hardStopGuaranteed: true`) is usable the moment RedRouter knows
 about it — no code change, no whitelist entry, nothing to edit in this module. One removed from
 the catalog disappears the same way. See
 `tests/unit/autoCombo/strict-zero-cost-autodiscovery.test.ts` for the regression proof (via

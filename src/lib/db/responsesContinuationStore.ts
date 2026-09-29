@@ -1,5 +1,5 @@
 /**
- * responsesContinuationStore.ts — OmniRoute-native `previous_response_id`
+ * responsesContinuationStore.ts — RedRouter-native `previous_response_id`
  * virtualization for the OpenAI Responses API.
  *
  * Exposes `previous_response_id` continuation to clients unconditionally,

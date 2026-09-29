@@ -65,7 +65,7 @@ async function readTextIfPresent(filePath: string): Promise<string> {
 }
 
 function upsertHermesApiKey(existing: string, value: string): string {
-  if (/[\r\n]/.test(value)) throw new Error("Invalid OmniRoute API key");
+  if (/[\r\n]/.test(value)) throw new Error("Invalid RedRouter API key");
   const replacement = `${HERMES_API_KEY_ENV}=${value}`;
   const next: string[] = [];
   let replaced = false;
@@ -210,7 +210,7 @@ export async function POST(request: Request) {
   const hasExistingApiKey = hasUsableHermesApiKey(existingEnv);
   if (!resolvedApiKey && !hasExistingApiKey) {
     return NextResponse.json(
-      { error: "The selected OmniRoute API key could not be resolved" },
+      { error: "The selected RedRouter API key could not be resolved" },
       { status: 400 }
     );
   }

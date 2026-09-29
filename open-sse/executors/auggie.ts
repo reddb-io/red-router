@@ -437,7 +437,7 @@ export class AuggieExecutor extends BaseExecutor {
     return null;
   }
 
-  /** No-op — auggie has no OmniRoute-managed credentials to refresh. */
+  /** No-op — auggie has no RedRouter-managed credentials to refresh. */
   async refreshCredentials(
     _credentials: ProviderCredentials
   ): Promise<Partial<ProviderCredentials> | null> {

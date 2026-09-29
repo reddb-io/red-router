@@ -12,9 +12,9 @@ import { registerDynamicImageModelSource } from "../config/dynamicImageModelSour
 
 export const AI_HORDE_API_BASE = "https://aihorde.net/api";
 export const AI_HORDE_ANONYMOUS_KEY = "0000000000";
-export const AI_HORDE_CLIENT_AGENT = "OmniRoute:3.8.49:https://github.com/diegosouzapw/OmniRoute";
+export const AI_HORDE_CLIENT_AGENT = "RedRouter:3.8.49:https://github.com/reddb-io/red-router";
 export const AI_HORDE_CATALOG_POLL_MS = 30_000;
-// The catalog endpoint is a fixed, trusted OmniRoute-controlled URL (not
+// The catalog endpoint is a fixed, trusted RedRouter-controlled URL (not
 // user-supplied), so it does not need SSRF host validation — but it still
 // needs a hard bound so a hung upstream cannot block a request indefinitely.
 export const AI_HORDE_CATALOG_FETCH_TIMEOUT_MS = 15_000;

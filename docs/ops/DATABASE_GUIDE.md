@@ -6,7 +6,7 @@ lastUpdated: 2026-08-23
 
 # Database Schema & Operations Guide
 
-> **TL;DR**: OmniRoute uses **SQLite with WAL journaling** as its primary store, with **AES-256-GCM** encryption at rest for sensitive fields. This guide covers the schema, migrations, backup/recovery, and operational runbooks.
+> **TL;DR**: RedRouter uses **SQLite with WAL journaling** as its primary store, with **AES-256-GCM** encryption at rest for sensitive fields. This guide covers the schema, migrations, backup/recovery, and operational runbooks.
 
 **Sources:**
 
@@ -21,7 +21,7 @@ lastUpdated: 2026-08-23
 
 ## Why SQLite?
 
-OmniRoute chose SQLite over PostgreSQL/MySQL for several reasons:
+RedRouter chose SQLite over PostgreSQL/MySQL for several reasons:
 
 | Factor          | SQLite                            | PostgreSQL                        |
 | --------------- | --------------------------------- | --------------------------------- |
@@ -32,7 +32,7 @@ OmniRoute chose SQLite over PostgreSQL/MySQL for several reasons:
 | **Backup**      | Single-file copy                  | `pg_dump` or filesystem snapshot  |
 | **Use case**    | Per-user install, embedded        | Multi-tenant SaaS                 |
 
-For **single-user, single-instance** deployments (the primary OmniRoute use case), SQLite is simpler and faster.
+For **single-user, single-instance** deployments (the primary RedRouter use case), SQLite is simpler and faster.
 
 ### WAL Journaling
 
@@ -52,7 +52,7 @@ The default cache size is **65,536 KiB (64 MiB)**. SQLite interprets a negative
 `cache_size` as an approximate upper bound in KiB and allocates pages on demand.
 **Settings > System & Storage > Cache Size** accepts integer values from **1 to
 1,000,000 KiB**; saving the setting applies it to the live database connection,
-and OmniRoute restores the persisted value at startup.
+and RedRouter restores the persisted value at startup.
 
 ---
 
@@ -83,7 +83,7 @@ DATA_DIR=/custom/path omniroute
 
 ## Domain Module Architecture
 
-OmniRoute's database has **110 top-level TypeScript modules** in `src/lib/db/`. Each domain module:
+RedRouter's database has **110 top-level TypeScript modules** in `src/lib/db/`. Each domain module:
 
 - Owns one or more specific tables
 - Exports typed CRUD functions
@@ -92,7 +92,7 @@ OmniRoute's database has **110 top-level TypeScript modules** in `src/lib/db/`. 
 
 ### The 110 Top-Level DB Modules
 
-OmniRoute has **110 top-level TypeScript files** in `src/lib/db/`. Below is a sampling of core modules; see the directory listing for the complete list:
+RedRouter has **110 top-level TypeScript files** in `src/lib/db/`. Below is a sampling of core modules; see the directory listing for the complete list:
 
 | Module                  | Tables                                                         | Responsibility                                                            |
 | ----------------------- | -------------------------------------------------------------- | ------------------------------------------------------------------------- |
@@ -188,7 +188,7 @@ The full list of ~30+ tables is in `src/lib/db/migrations/`.
 
 ## Migrations
 
-OmniRoute uses **versioned, idempotent migrations** in `src/lib/db/migrations/`. Each migration is a single SQL file named `NNN_description.sql`.
+RedRouter uses **versioned, idempotent migrations** in `src/lib/db/migrations/`. Each migration is a single SQL file named `NNN_description.sql`.
 
 ### Migration Naming
 
@@ -258,7 +258,7 @@ UPDATE combos SET priority = 100 WHERE priority IS NULL;
 CREATE INDEX IF NOT EXISTS idx_combos_priority ON combos(priority);
 ```
 
-> **Backwards-incompatible changes** (e.g., dropping columns) are tricky. OmniRoute does NOT support downgrade — once a migration is applied, the schema change is permanent. Plan accordingly.
+> **Backwards-incompatible changes** (e.g., dropping columns) are tricky. RedRouter does NOT support downgrade — once a migration is applied, the schema change is permanent. Plan accordingly.
 
 ---
 
@@ -312,7 +312,7 @@ For performance reasons, the following are stored in plaintext:
 
 ## Encryption Caveats (v3.8.16+)
 
-OmniRoute uses **`migrateLegacyEncryptedString()`** to handle two encryption schemes transparently:
+RedRouter uses **`migrateLegacyEncryptedString()`** to handle two encryption schemes transparently:
 
 - **Legacy** (pre-v3.5.0): XOR-based "encryption" (not real crypto)
 - **Current**: AES-256-GCM with proper IV and auth tag
@@ -348,7 +348,7 @@ Cache is invalidated on every write to the corresponding table.
 
 ```bash
 # Use the CLI to create a local backup
-omniroute backup create --name pre-migration
+red-router backup create --name pre-migration
 
 # Or via the API
 curl -X PUT http://localhost:20128/api/db-backups \
@@ -368,7 +368,7 @@ The backup file includes:
 
 ```bash
 # Via CLI
-omniroute restore pre-migration
+red-router restore pre-migration
 
 # Via API
 curl -X POST http://localhost:20128/api/db-backups/restore \
@@ -383,7 +383,7 @@ curl -X POST http://localhost:20128/api/db-backups/restore \
 
 ```bash
 # Enable automated daily backups via CLI
-omniroute backup auto enable --cron "0 2 * * *" --retention 7
+red-router backup auto enable --cron "0 2 * * *" --retention 7
 ```
 
 The schedule is executed server-side by a background job that ticks every 30 seconds
@@ -401,7 +401,7 @@ For zero-downtime backup of a live DB:
 sqlite3 ~/.omniroute/storage.sqlite ".backup /backups/omniroute-hot.db"
 ```
 
-This uses SQLite's online backup API — safe to run while OmniRoute is running.
+This uses SQLite's online backup API — safe to run while RedRouter is running.
 
 ---
 
@@ -444,7 +444,7 @@ PRAGMA mmap_size = 268435456;  -- 256MB
 
 ### Compaction
 
-Long-running OmniRoute instances benefit from occasional `VACUUM`:
+Long-running RedRouter instances benefit from occasional `VACUUM`:
 
 ```bash
 sqlite3 ~/.omniroute/storage.sqlite "VACUUM;"
@@ -535,7 +535,7 @@ mv recovered.db ~/.omniroute/storage.sqlite
 Restore from backup:
 
 ```bash
-omniroute sync pull --merge   # or: omniroute backup restore <backup-id>
+omniroute sync pull --merge   # or: red-router backup restore <backup-id>
 ```
 
 ### Scenario 3: Encryption Key Lost
@@ -574,8 +574,8 @@ EOF
 ### Reset (Wipe) All Data
 
 ```bash
-# Stop OmniRoute first
-omniroute stop
+# Stop RedRouter first
+red-router stop
 
 # Delete the DB file
 rm ~/.omniroute/storage.sqlite*
@@ -612,7 +612,7 @@ Another process is holding a write lock. Either:
 
 - Wait for the other process to finish (check `lsof | grep storage.sqlite`)
 - Kill the other process
-- If persistent, restart OmniRoute
+- If persistent, restart RedRouter
 
 ### "Foreign key constraint failed"
 
@@ -642,10 +642,10 @@ PRAGMA mmap_size = 0;
 
 The migration ran in a transaction, so it should have rolled back. If not:
 
-1. **Stop OmniRoute** (prevent further attempts)
+1. **Stop RedRouter** (prevent further attempts)
 2. **Check the DB state** with `sqlite3`
 3. **Manually fix** the partial migration
-4. **Re-run** OmniRoute (the migration will be retried)
+4. **Re-run** RedRouter (the migration will be retried)
 
 To prevent this, always test migrations on a copy first.
 

@@ -1017,7 +1017,7 @@ async function handleChatCoreInner({
     }
     log?.info?.(
       "TOOLS",
-      `Converted ${webSearchFallbackPlan.convertedToolCount} web_search tool(s) to OmniRoute fallback for ${provider}`
+      `Converted ${webSearchFallbackPlan.convertedToolCount} web_search tool(s) to RedRouter fallback for ${provider}`
     );
   }
   // #7339: interceptFetch (Phase 3-4 of #3384) — same per-model rule + native-bypass
@@ -1035,7 +1035,7 @@ async function handleChatCoreInner({
     body = bodyWithWebFetchFallback as typeof body;
     log?.info?.(
       "TOOLS",
-      `Converted ${webFetchFallbackPlan.convertedToolCount} web_fetch tool(s) to OmniRoute fallback for ${provider}`
+      `Converted ${webFetchFallbackPlan.convertedToolCount} web_fetch tool(s) to RedRouter fallback for ${provider}`
     );
   }
   const noLogEnabled = apiKeyInfo?.noLog === true;

@@ -28,7 +28,7 @@ const POLL_INTERVAL_MAX_MS = 8_000;
 // additionally capped to whatever remains of the overall generation deadline.
 const HORDE_API_CALL_TIMEOUT_MS = 30_000;
 // R2 image downloads point at a URL Horde's response supplies, not a fixed
-// OmniRoute-controlled host, so they get the SSRF host guard too.
+// RedRouter-controlled host, so they get the SSRF host guard too.
 const HORDE_IMAGE_DOWNLOAD_TIMEOUT_MS = 60_000;
 const MAX_HORDE_IMAGE_BYTES = 25 * 1024 * 1024;
 
@@ -106,7 +106,7 @@ async function fetchHordeImageBytes(
   const value = img.trim();
   if (value.startsWith("http://") || value.startsWith("https://")) {
     // Horde's response supplies this URL (a signed R2 storage link), not a
-    // fixed OmniRoute-controlled host — route it through the repository's
+    // fixed RedRouter-controlled host — route it through the repository's
     // established bounded remote-image fetch (strict public-host validation,
     // streaming byte cap, redirect limit, abort-aware timeout) instead of
     // a bare fetch(). Same helper `imageGeneration.ts` already uses for other

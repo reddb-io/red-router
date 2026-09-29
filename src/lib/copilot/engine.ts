@@ -39,7 +39,7 @@ function getKnowledgeResponse(query: string): string | null {
     /architecture|arquitectura|pipeline/.test(q) ||
     (q.includes("request") && (q.includes("flow") || q.includes("path")))
   ) {
-    return `## OmniRoute Architecture
+    return `## RedRouter Architecture
 
 The request pipeline flows through:
 1. **API Route** → CORS → Zod validation → Auth (optional)
@@ -85,7 +85,7 @@ Use \`createCombo\` tool or \`runOmniRouteCli\` to create them.`;
   if (/provider|proveedor/.test(q)) {
     return `## Providers (212+)
 
-OmniRoute supports 212+ providers across categories:
+RedRouter supports 212+ providers across categories:
 - **Free**: Qoder AI, Kiro AI
 - **OAuth** (14): Claude Code, Antigravity, Codex, GitHub Copilot, Cursor, Kimi Coding, Devin Desktop, etc.
 - **API Key** (120+): OpenAI, Anthropic, Gemini, DeepSeek, Groq, xAI, Mistral, etc.
@@ -114,7 +114,7 @@ Use \`listProviders\` to see your configured ones.`;
   if (/codigo|código|codebase|cómo funciona|how does|where is|dónde está/.test(q)) {
     return `## Codebase Investigation
 
-I can use CodeGraph to explore the OmniRoute codebase. Just ask me:
+I can use CodeGraph to explore the RedRouter codebase. Just ask me:
 - "Busca la función handleChatCore"
 - "Quién llama a sanitizeMessage?"
 - "Qué funciones hay en combo.ts?"
@@ -244,7 +244,7 @@ function classifyIntent(text: string): { tool: string; args: Record<string, unkn
 // ── Help Response ────────────────────────────────────────────────────────────
 
 function getHelpResponse(): string {
-  return `## OmniRoute Copilot — Comandos disponibles
+  return `## RedRouter Copilot — Comandos disponibles
 
 ### Configuración
 - "Lista los providers" → \`listProviders\`
@@ -262,16 +262,16 @@ function getHelpResponse(): string {
 - "Lista los archivos indexados" → \`listCodeGraphFiles\`
 
 ### CLI
-- "CLI health" → ejecuta \`omniroute health\`
-- "CLI list-combos" → ejecuta \`omniroute list-combos\`
-- "CLI set-budget 10" → ejecuta \`omniroute set-budget 10\`
+- "CLI health" → ejecuta \`red-router health\`
+- "CLI list-combos" → ejecuta \`red-router list-combos\`
+- "CLI set-budget 10" → ejecuta \`red-router set-budget 10\`
 
-### Conocimiento
-- "Cómo funciona OmniRoute?" → explica la arquitectura
-- "Qué son los combos?" → explica routing
-- "Cómo debuggeo un error?" → troubleshooting
+### Knowledge
+- "How does RedRouter work?" → explain the architecture
+- "What are combos?" → explain routing
+- "How do I debug an error?" → troubleshooting
 
-### Tools disponibles:\n\n${getCopilotToolDescriptions()}`;
+### Available tools:\n\n${getCopilotToolDescriptions()}`;
 }
 
 // ── Chat Engine ──────────────────────────────────────────────────────────────
@@ -298,7 +298,7 @@ export async function processCopilotChat(request: CopilotRequest): Promise<Copil
     }
     // Fallback: respond with help
     return {
-      message: `I understand you want help with OmniRoute.\n\n${getHelpResponse()}`,
+      message: `I understand you want help with RedRouter.\n\n${getHelpResponse()}`,
     };
   }
 
@@ -310,14 +310,14 @@ export async function processCopilotChat(request: CopilotRequest): Promise<Copil
   // Handle tools that need more info from the user
   if (intent.tool === "createCombo" && !userText.includes("{") && !userText.includes("target")) {
     return {
-      message: `Para crear un combo, necesito algunos detalles:
+      message: `To create a combo I need a few details:
 
-1. **Nombre** del combo (ej: "mi-combo-fallback")
-2. **Estrategia** (priority, weighted, round-robin, cost-optimized, auto)
-3. **Targets** — los proveedores/modelos en orden
+1. **Name** of the combo (e.g. "my-fallback-combo")
+2. **Strategy** (priority, weighted, round-robin, cost-optimized, auto)
+3. **Targets** — the providers/models, in order
 
-Puedes decirme algo como:
-> Crea un combo llamado "fallback-claude" con estrategia priority y targets: [{"provider":"claude-code","model":"claude-sonnet-4"},{"provider":"openai","model":"gpt-4o"}]`,
+You can say something like:
+> Create a combo called "fallback-claude" with strategy priority and targets: [{"provider":"claude-code","model":"claude-sonnet-4"},{"provider":"openai","model":"gpt-4o"}]`,
     };
   }
 

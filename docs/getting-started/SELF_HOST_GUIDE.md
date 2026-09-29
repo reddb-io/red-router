@@ -1,10 +1,10 @@
 ---
-title: "🚀 Self-Host Guide — OmniRoute (零月费自托管 / zero-fee self-host)"
+title: "🚀 Self-Host Guide — RedRouter (零月费自托管 / zero-fee self-host)"
 version: 3.8.51
 lastUpdated: 2026-09-27
 ---
 
-# 🚀 Self-Host Guide — OmniRoute
+# 🚀 Self-Host Guide — RedRouter
 
 > **TL;DR** — three commands, one local endpoint, zero monthly fees. No SaaS
 > billing, no multi-tenant isolation, no hosted prompt-processing hop. Your
@@ -26,14 +26,14 @@ docker compose -f docker-compose.selfhost.yml up -d
 open http://127.0.0.1:20128
 ```
 
-This is the **self-host carrier** for OmniRoute's "零月费 + 自托管" product
+This is the **self-host carrier** for RedRouter's "零月费 + 自托管" product
 form: a packaged container/binary you run on your own machine in 5 minutes.
 
 ---
 
 ## Why this guide exists
 
-OmniRoute ships a sophisticated `docker-compose.yml` with profiles
+RedRouter ships a sophisticated `docker-compose.yml` with profiles
 (`base`, `web`, `cli`, `host`, `cliproxyapi`, `memory`, `bifrost`). Each app
 service is profile-gated, so a bare `docker compose up -d` only starts Redis.
 That is correct for power users who pick a profile — but it is _not_ a
@@ -163,7 +163,7 @@ http://127.0.0.1:20128/v1
 ```
 
 For provider choice, see the
-[Free Tiers Guide](./FREE-TIERS-GUIDE.md) — OmniRoute aggregates 150+ free
+[Free Tiers Guide](./FREE-TIERS-GUIDE.md) — RedRouter aggregates 150+ free
 tiers into one endpoint, so you can run `model: "auto"` to pick the best free
 option per request.
 
@@ -175,7 +175,7 @@ The image pins `OMNIROUTE_MEMORY_MB=1024`. That is enough for the dashboard
 and light chat. **Coding agents** (`POST /v1/responses` from Claude Code,
 Codex, Grok, …) retain multiple large context graphs during compression and
 can abort V8 at ~12 GiB old-space under two overlapping long contexts
-([#7849](https://github.com/diegosouzapw/OmniRoute/issues/7849)).
+([#7849](https://github.com/reddb-io/red-router/issues/7849)).
 
 `.env.selfhost.example` defaults to `OMNIROUTE_MEMORY_MB=2048` — a safe floor
 for a single user running coding agents. Raise it if you fan out many models
@@ -195,7 +195,7 @@ sit outside it, so size the container a few hundred MB above the heap.
 Prefer a binary over Docker? The npm package is the same code:
 
 ```bash
-npm install -g omniroute
+npm install -g @reddb-io/red-router
 omniroute
 ```
 
@@ -211,8 +211,8 @@ because it bundles the exact runtime the image was tested with.
 From source (development only — not a deploy path):
 
 ```bash
-git clone https://github.com/diegosouzapw/OmniRoute.git
-cd OmniRoute
+git clone https://github.com/reddb-io/red-router.git
+cd RedRouter
 npm install
 npm run build && npm start
 ```

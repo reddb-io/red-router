@@ -16,6 +16,6 @@ export async function GET(request: Request): Promise<Response> {
       ...(await buildOmniRouteStatus()),
     });
   } catch {
-    return NextResponse.json({ error: "Failed to build OmniRoute status" }, { status: 500 });
+    return NextResponse.json({ error: "Failed to build RedRouter status" }, { status: 500 });
   }
 }

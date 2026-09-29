@@ -7,11 +7,11 @@ lastUpdated: 2027-07-27
 # OpenCode Integration
 
 > **Status:** Generally available.
-> **Audience:** Operators wiring OpenCode to an OmniRoute deployment.
+> **Audience:** Operators wiring OpenCode to a RedRouter deployment.
 > **Source of truth (config schema):** `src/shared/services/opencodeConfig.ts`
 > **Source of truth (npm package):** `@omniroute/opencode-provider/` (publishable workspace)
 
-[OpenCode](https://opencode.ai) is an agentic CLI/desktop AI client. It reads its provider catalog from `~/.config/opencode/opencode.json` (or `opencode.jsonc`) and follows the schema at `https://opencode.ai/config.json`. OmniRoute exposes itself to OpenCode as one of those providers — every request flows through OmniRoute's standard OpenAI-compatible `/v1` surface, so OpenCode automatically benefits from Auto-Combo routing, circuit breakers, key policies, observability, etc.
+[OpenCode](https://opencode.ai) is an agentic CLI/desktop AI client. It reads its provider catalog from `~/.config/opencode/opencode.json` (or `opencode.jsonc`) and follows the schema at `https://opencode.ai/config.json`. RedRouter exposes itself to OpenCode as one of those providers — every request flows through RedRouter's standard OpenAI-compatible `/v1` surface, so OpenCode automatically benefits from Auto-Combo routing, circuit breakers, key policies, observability, etc.
 
 There are **two supported integration paths**. Pick one — they generate the same config.
 
@@ -19,16 +19,16 @@ There are **two supported integration paths**. Pick one — they generate the sa
 
 ## Path 1 — CLI generator (no npm install)
 
-Recommended for end users. Ships with OmniRoute. Writes `opencode.json` in place.
+Recommended for end users. Ships with RedRouter. Writes `opencode.json` in place.
 
 ```bash
-# After installing OmniRoute (npm i -g @omniroute/cli or local clone)
-omniroute config opencode \
+# After installing RedRouter (npm i -g @omniroute/cli or local clone)
+red-router config opencode \
   --base-url http://localhost:20128 \
   --api-key "$OMNIROUTE_API_KEY"
 ```
 
-Behind the scenes the CLI calls `mergeOpenCodeConfigText()` (`src/shared/services/opencodeConfig.ts:104`), so an existing `opencode.json` keeps its other providers and comments. The OmniRoute entry is added/replaced atomically.
+Behind the scenes the CLI calls `mergeOpenCodeConfigText()` (`src/shared/services/opencodeConfig.ts:104`), so an existing `opencode.json` keeps its other providers and comments. The RedRouter entry is added/replaced atomically.
 
 Resulting file (default model catalog):
 
@@ -38,7 +38,7 @@ Resulting file (default model catalog):
   "provider": {
     "omniroute": {
       "npm": "@ai-sdk/openai-compatible",
-      "name": "OmniRoute",
+      "name": "RedRouter",
       "options": {
         "baseURL": "http://localhost:20128/v1",
         "apiKey": "<your-key>",
@@ -92,8 +92,8 @@ Both paths produce the same `provider.omniroute.npm: "@ai-sdk/openai-compatible"
 ```
 OpenCode UI/agent
    → @ai-sdk/openai-compatible
-      → HTTP POST {baseURL}/chat/completions          (OmniRoute OpenAI surface)
-         → OmniRoute /v1/chat/completions handler     (open-sse/handlers/chatCore.ts)
+      → HTTP POST {baseURL}/chat/completions          (RedRouter OpenAI surface)
+         → RedRouter /v1/chat/completions handler     (open-sse/handlers/chatCore.ts)
             → combo routing / Auto-Combo / executor
                → upstream provider
 ```
@@ -115,8 +115,8 @@ export const OMNIROUTE_DEFAULT_OPENCODE_MODELS = [
 
 You can override via `models: [...]`. Recommended additions:
 
-- `"auto"` — surfaces OmniRoute's [Auto-Combo](../routing/AUTO-COMBO.md) zero-config router. Lets OpenCode pick "the best available model" without you hard-coding the catalog.
-- `"<combo-name>"` — any combo you've defined in the dashboard; OmniRoute resolves it transparently.
+- `"auto"` — surfaces RedRouter's [Auto-Combo](../routing/AUTO-COMBO.md) zero-config router. Lets OpenCode pick "the best available model" without you hard-coding the catalog.
+- `"<combo-name>"` — any combo you've defined in the dashboard; RedRouter resolves it transparently.
 
 ---
 
@@ -137,12 +137,12 @@ This deduplication is **the most common breakage** seen in older configs. If you
 
 ## Authentication modes
 
-| OmniRoute setting                           | Recommended `apiKey` value                         |
+| RedRouter setting                           | Recommended `apiKey` value                         |
 | ------------------------------------------- | -------------------------------------------------- |
 | `REQUIRE_API_KEY=false` (default for local) | `sk_omniroute` (literal placeholder)               |
 | `REQUIRE_API_KEY=true`                      | A real per-user API key from Dashboard → API Keys. |
 
-For Anthropic-style clients that send `x-api-key` + `anthropic-version`, OmniRoute's `extractApiKey` also honours the key from `x-api-key`. OpenCode uses the OpenAI surface, so it'll always send `Authorization: Bearer ${apiKey}` — no Anthropic special-case applies here.
+For Anthropic-style clients that send `x-api-key` + `anthropic-version`, RedRouter's `extractApiKey` also honours the key from `x-api-key`. OpenCode uses the OpenAI surface, so it'll always send `Authorization: Bearer ${apiKey}` — no Anthropic special-case applies here.
 
 ---
 
@@ -151,15 +151,15 @@ For Anthropic-style clients that send `x-api-key` + `anthropic-version`, OmniRou
 | Symptom                                              | Cause                                                               | Fix                                                                                                  |
 | ---------------------------------------------------- | ------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
 | `404` on every request with URL containing `/v1/v1/` | Stale config from pre-v3.8 plugin that double-suffixed `/v1`.       | Regenerate via Path 1 or 2.                                                                          |
-| `401 Invalid API key`                                | OmniRoute has `REQUIRE_API_KEY=true` and the key is unknown.        | Create the key in the dashboard, or set `REQUIRE_API_KEY=false` (local only) and use `sk_omniroute`. |
-| Model list empty in OpenCode UI                      | All 4 default models are hidden in OmniRoute's provider visibility. | Pass `models: ["auto", ...]` to surface ones you've enabled.                                         |
+| `401 Invalid API key`                                | RedRouter has `REQUIRE_API_KEY=true` and the key is unknown.        | Create the key in the dashboard, or set `REQUIRE_API_KEY=false` (local only) and use `sk_omniroute`. |
+| Model list empty in OpenCode UI                      | All 4 default models are hidden in RedRouter's provider visibility. | Pass `models: ["auto", ...]` to surface ones you've enabled.                                         |
 | OpenCode 500 with `cannot read property 'models'`    | Older OpenCode (< 0.1.x) didn't accept inline `models`.             | Upgrade OpenCode to a version that follows the v1 schema (`opencode.ai/config.json`).                |
 
 ---
 
 ## See also
 
-- [API reference](../reference/API_REFERENCE.md) — full OmniRoute REST surface
+- [API reference](../reference/API_REFERENCE.md) — full RedRouter REST surface
 - [Auto-Combo](../routing/AUTO-COMBO.md) — what `model: "auto"` means
 - [`@omniroute/opencode-provider` README](../../@omniroute/opencode-provider/README.md)
 - Source: `src/shared/services/opencodeConfig.ts`, `src/lib/cli-helper/config-generator/opencode.ts`, `@omniroute/opencode-provider/src/index.ts`

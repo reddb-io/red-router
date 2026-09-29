@@ -380,7 +380,7 @@ export default function PoolSchedulesCard({ poolId }: PoolSchedulesCardProps) {
                     </div>
                   )}
 
-                  {/* Row 2b — how much OmniRoute itself may spend */}
+                  {/* Row 2b — how much RedRouter itself may spend */}
                   {row.mode === "allow" && (
                     <div className="flex flex-wrap items-center gap-1.5">
                       <label

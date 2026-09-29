@@ -10,7 +10,7 @@ export default function GetStarted() {
 
   const endpoint = useDisplayBaseUrl();
   const dashboardUrl = `${endpoint}/dashboard`;
-  const command = "npx omniroute";
+  const command = "npx @reddb-io/red-router";
 
   const handleCopy = async (text: string) => {
     await copyToClipboard(text);

@@ -1,6 +1,6 @@
 # Browser-login container
 
-OmniRoute can open an isolated browser for provider connections that require an interactive web login. The operator signs in through the browser UI, then OmniRoute reads only the credential fields declared for that provider through the Chrome DevTools Protocol (CDP) and writes them to the selected `provider_connections` row.
+RedRouter can open an isolated browser for provider connections that require an interactive web login. The operator signs in through the browser UI, then RedRouter reads only the credential fields declared for that provider through the Chrome DevTools Protocol (CDP) and writes them to the selected `provider_connections` row.
 
 The feature is exposed through the management-authenticated `/api/vnc-session` routes. Browser and CDP ports are published on `127.0.0.1` only; they are not intended to be exposed directly to a network.
 
@@ -67,4 +67,4 @@ npm test -- tests/unit/vnc-session.test.ts
 npm run typecheck
 ```
 
-For an end-to-end check, build the image, start OmniRoute, create or select a supported web-provider connection, start a browser-login session through the management API, complete login through the returned UI URL, harvest credentials, and verify that the selected connection—not another account for the same provider—was updated.
+For an end-to-end check, build the image, start RedRouter, create or select a supported web-provider connection, start a browser-login session through the management API, complete login through the returned UI URL, harvest credentials, and verify that the selected connection—not another account for the same provider—was updated.

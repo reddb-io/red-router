@@ -7,14 +7,14 @@ lastUpdated: 2026-06-28
 # Repository Map
 
 > **One-line description for every directory and root file.**
-> Last updated: 2026-06-28 — OmniRoute v3.8.40
+> Last updated: 2026-06-28 — RedRouter v3.8.40
 >
 > Use this map to navigate the codebase quickly. For deep dives, follow links to dedicated docs.
 
 ## Top-level tree
 
 ```
-OmniRoute/
+RedRouter/
 ├── src/                  # Next.js 16 application (UI + API routes + libs + domain + server)
 ├── open-sse/             # Streaming engine workspace (handlers, executors, translator, MCP server)
 ├── electron/             # Desktop wrapper (Electron 41 + electron-builder 26.10)
@@ -314,7 +314,7 @@ open-sse/
 
 | File                                                                                                        | Purpose                                                                                                                    |
 | ----------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `omniroute.mjs`                                                                                             | Main CLI entry — `omniroute serve`, `omniroute setup`, `omniroute doctor`, `omniroute providers`, `omniroute combos`, etc. |
+| `omniroute.mjs`                                                                                             | Main CLI entry — `red-router serve`, `red-router setup`, `red-router doctor`, `red-router providers`, `red-router combos`, etc. |
 | `reset-password.mjs`                                                                                        | Standalone password reset CLI                                                                                              |
 | `cli/commands/setup.mjs`                                                                                    | Interactive + non-interactive setup wizard                                                                                 |
 | `cli/commands/doctor.mjs`                                                                                   | System health diagnostics (8+ checks)                                                                                      |
@@ -395,7 +395,7 @@ open-sse/
 | `RELEASE_CHECKLIST.md`      | Full release flow (skills, husky, conventional commits, deploy)                       |
 | `COVERAGE_PLAN.md`          | Coverage goals and current state                                                      |
 | `FREE_TIERS.md`             | Curated free-tier providers (48+ free + 11 OAuth)                                     |
-| `CLI-TOOLS.md`              | External CLI integrations + Internal OmniRoute CLI                                    |
+| `CLI-TOOLS.md`              | External CLI integrations + Internal RedRouter CLI                                    |
 | `UNINSTALL.md`              | Clean uninstall steps                                                                 |
 | `PROVIDER_REFERENCE.md`     | **Auto-generated** catalog of 355 providers (regen: `npm run gen:provider-reference`) |
 

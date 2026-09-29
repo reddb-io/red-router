@@ -675,7 +675,7 @@ async function handleChatImplementation(
   const bypassProviderQuotaPolicy = hasProviderQuotaBypassScope(apiKeyInfo?.scopes);
   telemetry.endPhase();
 
-  // OmniRoute-native `previous_response_id` continuation: reconstruct the
+  // RedRouter-native `previous_response_id` continuation: reconstruct the
   // full input server-side before ANY downstream validation/translation
   // sees this request, so everything after this point (message-shape
   // guards, token-budget checks, provider translation) treats it exactly

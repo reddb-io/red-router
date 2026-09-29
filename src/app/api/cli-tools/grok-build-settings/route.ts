@@ -259,7 +259,7 @@ export async function DELETE(request: Request): Promise<Response> {
 
     return NextResponse.json({
       success: true,
-      message: "OmniRoute model slots removed from Grok Build",
+      message: "RedRouter model slots removed from Grok Build",
     });
   } catch (error) {
     logger.error({ err: error }, "Failed to reset Grok Build settings");

@@ -10,11 +10,11 @@ lastUpdated: 2026-08-12
 > **API:** `GET` / `PUT` `/api/settings/thinking-budget`  
 > **Source:** `open-sse/services/thinkingBudget.ts`
 
-Thinking Budget controls whether OmniRoute **rewrites client thinking/reasoning parameters** on the way to providers. It does **not** turn compression, routing, or prompt cache on or off.
+Thinking Budget controls whether RedRouter **rewrites client thinking/reasoning parameters** on the way to providers. It does **not** turn compression, routing, or prompt cache on or off.
 
 ## Modes
 
-| Mode                        | What OmniRoute does                                                                                              | When to use                                                                                                                                                           |
+| Mode                        | What RedRouter does                                                                                              | When to use                                                                                                                                                           |
 | --------------------------- | ---------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **`passthrough`** (default) | Leaves client fields alone (`reasoning`, `reasoning_effort`, Claude `thinking`, Gemini `thinking_config`, etc.). | **Codex / Desktop / any client that should control effort + reasoning summaries.** Required for visible thinking panels when the client requests `reasoning.summary`. |
 | **`auto`**                  | **Strips all** thinking/reasoning fields from the request body before upstream.                                  | Only when you deliberately want the **provider** to invent defaults and you do **not** need client-controlled thinking. **Not** “auto-show thinking”.                 |
@@ -40,7 +40,7 @@ If a client (e.g. Codex Desktop) sent `reasoning: { effort: "ultra", summary: "d
 | **Combo routing / fallbacks**              | Separate. Unaffected.                                                                                                   |
 | **API-key token limits / cost budgets**    | Separate. Unaffected.                                                                                                   |
 | **Reasoning replay cache**                 | Multi-turn re-inject for strict providers (DeepSeek, Kimi, Qwen-thinking, …). Not the same as Desktop “show thinking”.  |
-| **Decrypting `encrypted_content`**         | **Impossible.** OpenAI/Codex private reasoning blobs are opaque. OmniRoute never decrypts them (#7095 / #7176 / #7304). |
+| **Decrypting `encrypted_content`**         | **Impossible.** OpenAI/Codex private reasoning blobs are opaque. RedRouter never decrypts them (#7095 / #7176 / #7304). |
 
 ## Visible thinking (Codex / Responses clients)
 
@@ -53,7 +53,7 @@ For a client to show thinking text you need **all** of:
 If you only get “encrypted private reasoning”, either:
 
 - mode was **`auto`** (client request was stripped), or
-- upstream returned `encrypted_content` without summary text (provider limitation; OmniRoute can only surface a placeholder, not plaintext).
+- upstream returned `encrypted_content` without summary text (provider limitation; RedRouter can only surface a placeholder, not plaintext).
 
 ## API examples
 
@@ -73,7 +73,7 @@ Schema (`updateThinkingBudgetSchema`): `mode` ∈ `passthrough|auto|custom|adapt
 
 ### Persistence / restart
 
-Value is stored under settings key `thinkingBudget` and hydrated at process start (`hydrateThinkingBudgetConfig`). After changing via DB or some non-API paths, **restart the OmniRoute process** so the in-memory singleton matches disk.
+Value is stored under settings key `thinkingBudget` and hydrated at process start (`hydrateThinkingBudgetConfig`). After changing via DB or some non-API paths, **restart the RedRouter process** so the in-memory singleton matches disk.
 
 ## Operator checklist
 

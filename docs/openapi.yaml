@@ -1,9 +1,9 @@
 openapi: 3.1.0
 info:
-  title: OmniRoute API
+  title: RedRouter API
   version: 3.8.52
   description: |
-    OmniRoute is a local-first AI API proxy router. It provides an OpenAI-compatible
+    RedRouter is a local-first AI API proxy router. It provides an OpenAI-compatible
     endpoint that routes requests to multiple AI providers with load balancing,
     failover, and usage tracking.
 
@@ -14,7 +14,7 @@ info:
     All proxy endpoints require a Bearer token (API key managed via the dashboard).
     Management endpoints are protected when `requireLogin` is enabled.
   contact:
-    name: OmniRoute
+    name: RedRouter
   license:
     name: MIT
 
@@ -91,7 +91,7 @@ tags:
   - name: Agent Skills
     description: >-
       Agent Skills catalog — 42 SKILL.md files (22 REST API + 20 CLI) for external agents,
-      MCP clients, and A2A orchestrators to discover OmniRoute capabilities.
+      MCP clients, and A2A orchestrators to discover RedRouter capabilities.
   - name: AgentBridge
     description: >-
       MITM proxy manager for 9 IDE agents (Antigravity, Kiro, Copilot, Codex, Cursor, Zed,
@@ -1608,7 +1608,7 @@ paths:
             X-OmniRoute-Version:
               schema:
                 type: string
-              description: OmniRoute build version (always present).
+              description: RedRouter build version (always present).
             X-OmniRoute-Cost-Saved:
               schema:
                 type: string
@@ -4389,7 +4389,7 @@ paths:
       tags: [Embedded Services]
       summary: Toggle 9Router auto-start
       description: >-
-        When enabled, 9Router starts automatically on the next OmniRoute boot.
+        When enabled, 9Router starts automatically on the next RedRouter boot.
         **LOCAL_ONLY** — loopback only.
       requestBody:
         required: true
@@ -4419,8 +4419,8 @@ paths:
       tags: [Embedded Services]
       summary: Toggle 9Router auto-restart-when-adopted
       description: >-
-        When enabled, an externally-adopted (not OmniRoute-spawned) 9Router
-        process is restarted under OmniRoute's own supervisor on the next
+        When enabled, an externally-adopted (not RedRouter-spawned) 9Router
+        process is restarted under RedRouter's own supervisor on the next
         health-check cycle instead of being left as adopted-only.
         **LOCAL_ONLY** — loopback only.
       requestBody:
@@ -4577,7 +4577,7 @@ paths:
       tags: [Embedded Services]
       summary: Toggle CLIProxyAPI auto-start
       description: >-
-        When enabled, CLIProxyAPI starts automatically on the next OmniRoute boot.
+        When enabled, CLIProxyAPI starts automatically on the next RedRouter boot.
         **LOCAL_ONLY** — loopback only.
       requestBody:
         required: true
@@ -4607,8 +4607,8 @@ paths:
       tags: [Embedded Services]
       summary: Toggle CLIProxyAPI auto-restart-when-adopted
       description: >-
-        When enabled, an externally-adopted (not OmniRoute-spawned) CLIProxyAPI
-        process is restarted under OmniRoute's own supervisor on the next
+        When enabled, an externally-adopted (not RedRouter-spawned) CLIProxyAPI
+        process is restarted under RedRouter's own supervisor on the next
         health-check cycle instead of being left as adopted-only.
         **LOCAL_ONLY** — loopback only.
       requestBody:
@@ -4764,7 +4764,7 @@ paths:
       tags: [Embedded Services]
       summary: Toggle Mux auto-start
       description: >-
-        When enabled, Mux starts automatically on the next OmniRoute boot.
+        When enabled, Mux starts automatically on the next RedRouter boot.
         **LOCAL_ONLY** — loopback only.
       requestBody:
         required: true
@@ -4794,8 +4794,8 @@ paths:
       tags: [Embedded Services]
       summary: Toggle Mux auto-restart-when-adopted
       description: >-
-        When enabled, an externally-adopted (not OmniRoute-spawned) Mux
-        process is restarted under OmniRoute's own supervisor on the next
+        When enabled, an externally-adopted (not RedRouter-spawned) Mux
+        process is restarted under RedRouter's own supervisor on the next
         health-check cycle instead of being left as adopted-only.
         **LOCAL_ONLY** — loopback only.
       requestBody:
@@ -4961,7 +4961,7 @@ paths:
       tags: [Embedded Services]
       summary: Toggle open-wa auto-start
       description: >-
-        When enabled, open-wa starts automatically on the next OmniRoute boot.
+        When enabled, open-wa starts automatically on the next RedRouter boot.
         **LOCAL_ONLY** — loopback only.
       requestBody:
         required: true
@@ -4991,8 +4991,8 @@ paths:
       tags: [Embedded Services]
       summary: Toggle open-wa auto-restart-when-adopted
       description: >-
-        When enabled, an externally-adopted (not OmniRoute-spawned) open-wa
-        process is restarted under OmniRoute's own supervisor on the next
+        When enabled, an externally-adopted (not RedRouter-spawned) open-wa
+        process is restarted under RedRouter's own supervisor on the next
         health-check cycle instead of being left as adopted-only.
         **LOCAL_ONLY** — loopback only.
       requestBody:
@@ -5105,7 +5105,7 @@ paths:
       tags: [Embedded Services]
       summary: Toggle Bifrost auto-start
       description: >-
-        When enabled, Bifrost starts automatically on the next OmniRoute boot.
+        When enabled, Bifrost starts automatically on the next RedRouter boot.
         **LOCAL_ONLY** — loopback only.
       requestBody:
         required: true
@@ -5128,8 +5128,8 @@ paths:
       tags: [Embedded Services]
       summary: Toggle Bifrost auto-restart-when-adopted
       description: >-
-        When enabled, an externally-adopted (not OmniRoute-spawned) Bifrost
-        process is restarted under OmniRoute's own supervisor on the next
+        When enabled, an externally-adopted (not RedRouter-spawned) Bifrost
+        process is restarted under RedRouter's own supervisor on the next
         health-check cycle instead of being left as adopted-only.
         **LOCAL_ONLY** — loopback only.
       requestBody:
@@ -5297,7 +5297,7 @@ paths:
       tags: [Embedded Services]
       summary: Toggle Dario auto-start
       description: >-
-        When enabled, Dario starts automatically on the next OmniRoute boot.
+        When enabled, Dario starts automatically on the next RedRouter boot.
         **LOCAL_ONLY** — loopback only.
       requestBody:
         required: true
@@ -5322,8 +5322,8 @@ paths:
       tags: [Embedded Services]
       summary: Toggle Dario auto-restart-when-adopted
       description: >-
-        When enabled, an externally-adopted (not OmniRoute-spawned) Dario process
-        is restarted under OmniRoute's own supervisor on the next health-check
+        When enabled, an externally-adopted (not RedRouter-spawned) Dario process
+        is restarted under RedRouter's own supervisor on the next health-check
         cycle instead of being left as adopted-only.
         **LOCAL_ONLY** — loopback only.
       requestBody:
@@ -5496,9 +5496,9 @@ paths:
   /api/services/dario/admin/import-from-omniroute:
     get:
       tags: [Embedded Services]
-      summary: List OmniRoute claude connections eligible for Dario import
+      summary: List RedRouter claude connections eligible for Dario import
       description: >-
-        Returns eligible OmniRoute `claude` OAuth provider connections (metadata
+        Returns eligible RedRouter `claude` OAuth provider connections (metadata
         only — id/name/email/org tier, never tokens) so the UI can offer a picker
         when more than one exists. **LOCAL_ONLY** — loopback only.
       responses:
@@ -5531,7 +5531,7 @@ paths:
           description: Missing or invalid admin auth
     post:
       tags: [Embedded Services]
-      summary: Import an OmniRoute claude connection's OAuth tokens into Dario
+      summary: Import a RedRouter claude connection's OAuth tokens into Dario
       description: >-
         Writes the source connection's access/refresh token pair directly into
         Dario's own account-file store (`~/.dario/accounts/<alias>.json`), reusing
@@ -5734,7 +5734,7 @@ paths:
     post:
       tags: [Cloud]
       summary: Authenticate with cloud worker
-      description: Authenticates with the OmniRoute cloud worker for remote access.
+      description: Authenticates with the RedRouter cloud worker for remote access.
       requestBody:
         required: true
         content:
@@ -7449,7 +7449,7 @@ paths:
   /api/tools/traffic-inspector/requests/{id}/replay:
     post:
       tags: [Traffic Inspector]
-      summary: Replay a captured request through OmniRoute router
+      summary: Replay a captured request through RedRouter router
       description: Re-executes the original request body against /v1/chat/completions. Consumes quota.
       parameters:
         - name: id
@@ -7847,7 +7847,7 @@ paths:
   /api/openapi/try:
     post:
       tags: [System]
-      summary: Proxy an API Explorer request to an OmniRoute endpoint
+      summary: Proxy an API Explorer request to a RedRouter endpoint
       description: >-
         Executes an API Explorer request through a server-side, same-origin proxy. The target
         must start with `/api/`, `/v1/`, `/v1beta/`, `/a2a`, or
@@ -7878,7 +7878,7 @@ paths:
                   type: string
                   minLength: 1
                   pattern: "^/(?:api/|v1/|v1beta/|a2a|\\.well-known/agent\\.json)"
-                  description: Same-origin OmniRoute API path, optionally including a query string.
+                  description: Same-origin RedRouter API path, optionally including a query string.
                 headers:
                   type: object
                   default: {}
@@ -7950,7 +7950,7 @@ paths:
       summary: List agent skills catalog
       description: |
         Returns the full 42-entry Agent Skills catalog with optional filtering.
-        Skills describe how to use OmniRoute's REST API and CLI — they are structured
+        Skills describe how to use RedRouter's REST API and CLI — they are structured
         SKILL.md documentation files discoverable by external agents, MCP clients, and
         A2A orchestrators. No authentication required.
       parameters:
@@ -8474,9 +8474,9 @@ paths:
     get:
       tags:
         - CLI Tools
-      summary: Read Crush CLI OmniRoute config
+      summary: Read Crush CLI RedRouter config
       x-loopback-only: true
-      description: Local-only. Reads the OmniRoute provider block in Crush's config.
+      description: Local-only. Reads the RedRouter provider block in Crush's config.
       x-internal: true
       responses:
         "200":
@@ -8484,9 +8484,9 @@ paths:
     post:
       tags:
         - CLI Tools
-      summary: Write Crush CLI OmniRoute config
+      summary: Write Crush CLI RedRouter config
       x-loopback-only: true
-      description: Local-only. Registers OmniRoute as an `openai-compat` provider in Crush's config.
+      description: Local-only. Registers RedRouter as an `openai-compat` provider in Crush's config.
       x-internal: true
       responses:
         "200":
@@ -8494,9 +8494,9 @@ paths:
     delete:
       tags:
         - CLI Tools
-      summary: Remove OmniRoute from Crush CLI config
+      summary: Remove RedRouter from Crush CLI config
       x-loopback-only: true
-      description: Local-only. Removes the OmniRoute provider block from Crush's config.
+      description: Local-only. Removes the RedRouter provider block from Crush's config.
       x-internal: true
       responses:
         "200":
@@ -8505,10 +8505,10 @@ paths:
     get:
       tags:
         - CLI Tools
-      summary: Read CodeWhale CLI OmniRoute config
+      summary: Read CodeWhale CLI RedRouter config
       x-loopback-only: true
       description: >-
-        Local-only. Reads the OmniRoute config block from
+        Local-only. Reads the RedRouter config block from
         `~/.codewhale/config.toml` (with `~/.deepseek/config.toml` legacy
         fallback).
       x-internal: true
@@ -8518,9 +8518,9 @@ paths:
     post:
       tags:
         - CLI Tools
-      summary: Write CodeWhale CLI OmniRoute config
+      summary: Write CodeWhale CLI RedRouter config
       x-loopback-only: true
-      description: Local-only. Writes the OmniRoute config block in CodeWhale TOML format.
+      description: Local-only. Writes the RedRouter config block in CodeWhale TOML format.
       x-internal: true
       responses:
         "200":
@@ -8528,9 +8528,9 @@ paths:
     delete:
       tags:
         - CLI Tools
-      summary: Remove OmniRoute from CodeWhale CLI config
+      summary: Remove RedRouter from CodeWhale CLI config
       x-loopback-only: true
-      description: Local-only. Removes the OmniRoute config block from CodeWhale's config.
+      description: Local-only. Removes the RedRouter config block from CodeWhale's config.
       x-internal: true
       responses:
         "200":
@@ -11830,7 +11830,7 @@ paths:
                   connections:
                     type: integer
                     minimum: 0
-                    description: Distinct OmniRoute connections logged through the pool members.
+                    description: Distinct RedRouter connections logged through the pool members.
                   distinctExits:
                     type: integer
                     minimum: 0
@@ -13456,7 +13456,7 @@ components:
       description: >
         Two bearer families are accepted. Inference API keys (typically `sk-…`)
         authorize `/v1/*`. Management routes also accept `oma_live_…` Access Tokens
-        (Settings → Access Tokens / `omniroute connect`) and API keys whose metadata
+        (Settings → Access Tokens / `red-router connect`) and API keys whose metadata
         includes `manage` or `admin` scope. See docs/guides/MANAGEMENT-AUTH.md.
         Bearer credentials are accepted on management routes that use this scheme;
         they are not rejected solely for being Bearer.
@@ -13821,7 +13821,7 @@ components:
     AgentSkill:
       type: object
       description: >-
-        Single entry in the Agent Skills catalog. Describes one OmniRoute REST API surface
+        Single entry in the Agent Skills catalog. Describes one RedRouter REST API surface
         (category: api) or CLI subcommand group (category: cli) with a canonical ID and a
         link to its SKILL.md documentation file.
       required: [id, name, description, category, area, rawUrl, githubUrl]

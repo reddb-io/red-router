@@ -1,12 +1,12 @@
 ---
-title: "Codex CLI — Configuration with OmniRoute"
+title: "Codex CLI — Configuration with RedRouter"
 version: 3.8.50
 lastUpdated: 2026-08-18
 ---
 
-# Codex CLI — Configuration with OmniRoute
+# Codex CLI — Configuration with RedRouter
 
-Complete guide for using the Codex CLI pointed at OmniRoute as an OpenAI-compatible backend.
+Complete guide for using the Codex CLI pointed at RedRouter as an OpenAI-compatible backend.
 
 ---
 
@@ -33,7 +33,7 @@ model_auto_compact_token_limit = 350000
 tool_output_token_limit        = 32768    # history storage cap per tool call
 
 [model_providers.omniroute]
-name                 = "OmniRoute"
+name                 = "RedRouter"
 base_url             = "http://<YOUR_HOST>:20128/v1"
 env_key              = "OMNIROUTE_API_KEY"
 requires_openai_auth = false
@@ -62,17 +62,17 @@ command -v codex
 codex --version
 ```
 
-### Local unauthenticated OmniRoute: placeholder key is enough
+### Local unauthenticated RedRouter: placeholder key is enough
 
 Codex validates that the environment variable named by `env_key` exists
-**before** the first request leaves the CLI. If your **local** OmniRoute
+**before** the first request leaves the CLI. If your **local** RedRouter
 instance does not require auth, any non-empty placeholder works:
 
 ```bash
 export OMNIROUTE_API_KEY="${OMNIROUTE_API_KEY:-local}"
 ```
 
-Use a real key instead when your OmniRoute server is protected or remote.
+Use a real key instead when your RedRouter server is protected or remote.
 
 > **Common host options**
 >
@@ -88,19 +88,19 @@ Use a real key instead when your OmniRoute server is protected or remote.
 
 Codex CLI deprecated `wire_api = "chat"` (Chat Completions) in February 2026 and now **requires** `wire_api = "responses"` (OpenAI Responses API). Setting `wire_api = "chat"` causes an immediate startup crash since v0.138.
 
-Many providers, including GLM and Kimi, still expose only a Chat Completions endpoint. DeepSeek V4 now exposes a native Responses API as well as an Anthropic-compatible endpoint; OmniRoute uses Responses by default and lets each DeepSeek connection select Anthropic compatibility.
+Many providers, including GLM and Kimi, still expose only a Chat Completions endpoint. DeepSeek V4 now exposes a native Responses API as well as an Anthropic-compatible endpoint; RedRouter uses Responses by default and lets each DeepSeek connection select Anthropic compatibility.
 
-**OmniRoute solves this transparently:**
+**RedRouter solves this transparently:**
 
 ```
 Codex CLI
   → wire_api = "responses"
-  → POST /v1/responses (OmniRoute)
-    → OmniRoute selects the provider's native protocol and translates when needed
+  → POST /v1/responses (RedRouter)
+    → RedRouter selects the provider's native protocol and translates when needed
     → POST /responses (DeepSeek V4) or /chat/completions (Mistral / GLM / Kimi / others)
 ```
 
-You never need a separate translation proxy when using OmniRoute. **All models use `wire_api = "responses"`** — OmniRoute handles the rest.
+You never need a separate translation proxy when using RedRouter. **All models use `wire_api = "responses"`** — RedRouter handles the rest.
 
 > **`wire_api` is the default** — the field defaults to `"responses"` and can be omitted entirely from `config.toml`. Only ever set it explicitly if you're documenting intent.
 
@@ -121,7 +121,7 @@ You never need a separate translation proxy when using OmniRoute. **All models u
 
 ### Context windows by model
 
-| Model                                | OmniRoute ID                         | Context window         | `auto_compact` | `tool_output_limit` |
+| Model                                | RedRouter ID                         | Context window         | `auto_compact` | `tool_output_limit` |
 | ------------------------------------ | ------------------------------------ | ---------------------- | -------------- | ------------------- |
 | GPT-5.5                              | `cx/gpt-5.5`                         | 400k reliable (1M max) | 350,000        | 32,768              |
 | Kimi K2.7 (thinking)                 | `kmc/kimi-k2.7`                      | 131,072                | 112,000        | 32,768              |
@@ -149,16 +149,16 @@ You never need a separate translation proxy when using OmniRoute. **All models u
 
 ## Model prefix: `cx/`
 
-All Codex models in OmniRoute use the `cx/` prefix:
+All Codex models in RedRouter use the `cx/` prefix:
 
-| Codex CLI name          | OmniRoute model    |
+| Codex CLI name          | RedRouter model    |
 | ----------------------- | ------------------ |
 | `cx/gpt-5.5`            | GPT-5.5 standard   |
 | `cx/gpt-5.4`            | GPT-5.4 standard   |
 | `cx/gpt-5.4-mini`       | GPT-5.4 mini       |
 | `cx/gpt-5.1-codex-mini` | GPT-5.1 Codex mini |
 
-Other providers use their own prefix (`kmc/`, `glm/`, `ds/`, `ollamacloud/`, `opencode-go/`, `mistral/`) — the prefix matches the OmniRoute provider alias.
+Other providers use their own prefix (`kmc/`, `glm/`, `ds/`, `ollamacloud/`, `opencode-go/`, `mistral/`) — the prefix matches the RedRouter provider alias.
 
 ---
 
@@ -188,9 +188,9 @@ model_reasoning_effort = "xhigh"   # or ultra when supported
 model_reasoning_summary = "detailed"  # auto | concise | detailed | none
 ```
 
-### OmniRoute Thinking Budget (server setting)
+### RedRouter Thinking Budget (server setting)
 
-On the OmniRoute host, **Settings → AI → Thinking Budget** must be **`passthrough`** for Codex effort/summary to reach upstream. Mode **`auto` strips** all client `reasoning` / `reasoning_effort` fields and will empty thinking panels even when Codex is configured correctly.
+On the RedRouter host, **Settings → AI → Thinking Budget** must be **`passthrough`** for Codex effort/summary to reach upstream. Mode **`auto` strips** all client `reasoning` / `reasoning_effort` fields and will empty thinking panels even when Codex is configured correctly.
 
 Full guide: [THINKING_BUDGET.md](./THINKING_BUDGET.md).
 
@@ -274,49 +274,49 @@ codex -p chat     # cx/gpt-5.5, no effort set (server default)
 
 ---
 
-## Generating profiles automatically with `omniroute setup-codex`
+## Generating profiles automatically with `red-router setup-codex`
 
-If you run OmniRoute on a VPS, you can auto-generate profile files from the live model catalog:
+If you run RedRouter on a VPS, you can auto-generate profile files from the live model catalog:
 
 ```bash
-# From a VPS (uses local OmniRoute on port 20128)
-omniroute setup-codex
+# From a VPS (uses local RedRouter on port 20128)
+red-router setup-codex
 
 # From any machine — point at your VPS
-omniroute setup-codex --remote http://100.x.x.x:20128 --api-key sk-xxx
+red-router setup-codex --remote http://100.x.x.x:20128 --api-key sk-xxx
 
 # Preview without writing files
-omniroute setup-codex --remote http://100.x.x.x:20128 --dry-run
+red-router setup-codex --remote http://100.x.x.x:20128 --dry-run
 
 # Only generate GLM and Kimi profiles
-omniroute setup-codex --only glm,kimi
+red-router setup-codex --only glm,kimi
 
 # Write to a custom directory
-omniroute setup-codex --codex-home /path/to/.codex
+red-router setup-codex --codex-home /path/to/.codex
 ```
 
 The command fetches `/v1/models`, uses tuned profiles for known models, falls back to catalog metadata for other compatible text models, and writes `~/.codex/<name>.config.toml` for each. Idempotent — safe to re-run.
 
-OmniRoute can also **auto-sync** these same profile files after a successful provider model discovery/import changes the live catalog. This is **opt-in and off by default**: toggle it from the **CLI Code dashboard** ("CLI profile auto-sync" → Codex), or set `OMNIROUTE_AUTO_SYNC_CODEX_PROFILES=true` (it also honors `CLI_ALLOW_CONFIG_WRITES`, on by default). When enabled it only writes separate `~/.codex/*.config.toml` profile files; it never changes the active/default `~/.codex/config.toml`, Codex-lb settings, auth, or provider selection.
+RedRouter can also **auto-sync** these same profile files after a successful provider model discovery/import changes the live catalog. This is **opt-in and off by default**: toggle it from the **CLI Code dashboard** ("CLI profile auto-sync" → Codex), or set `OMNIROUTE_AUTO_SYNC_CODEX_PROFILES=true` (it also honors `CLI_ALLOW_CONFIG_WRITES`, on by default). When enabled it only writes separate `~/.codex/*.config.toml` profile files; it never changes the active/default `~/.codex/config.toml`, Codex-lb settings, auth, or provider selection.
 
 ---
 
-## Launching Codex with `omniroute launch-codex`
+## Launching Codex with `red-router launch-codex`
 
-Health-checks your OmniRoute instance before launching Codex:
+Health-checks your RedRouter instance before launching Codex:
 
 ```bash
-# Launch against local OmniRoute (default port 20128)
-omniroute launch-codex
+# Launch against local RedRouter (default port 20128)
+red-router launch-codex
 
 # Launch with a specific profile
-omniroute launch-codex --profile kimi-k27
+red-router launch-codex --profile kimi-k27
 
 # Launch against a remote VPS
-omniroute launch-codex --remote http://100.x.x.x:20128/v1 --api-key sk-xxx
+red-router launch-codex --remote http://100.x.x.x:20128/v1 --api-key sk-xxx
 
 # Pass extra args to codex
-omniroute launch-codex --profile glm52 -- --yolo "fix this bug"
+red-router launch-codex --profile glm52 -- --yolo "fix this bug"
 ```
 
 Codex is also a target of the two generic manifest-driven entry points
@@ -324,10 +324,10 @@ Codex is also a target of the two generic manifest-driven entry points
 
 ```bash
 # Interactive model picker → writes ~/.codex/<name>.config.toml (TOML, env_key)
-omniroute configure codex
+red-router configure codex
 
-# Launch codex with the omniroute provider injected via -c flags (no config written)
-omniroute run codex
+# Launch codex with the red-router provider injected via -c flags (no config written)
+red-router run codex
 ```
 
 ---
@@ -456,14 +456,14 @@ Inside an interactive session:
 
 ## Long-running tasks
 
-Two OmniRoute defaults can silently sabotage multi-hour Codex CLI sessions. Neither is a Codex CLI setting — both live on the OmniRoute side. Users migrating a config from upstream proxies that pin accounts and disable idle cutoffs often hit both and conclude OmniRoute “cannot sustain a long session.”
+Two RedRouter defaults can silently sabotage multi-hour Codex CLI sessions. Neither is a Codex CLI setting — both live on the RedRouter side. Users migrating a config from upstream proxies that pin accounts and disable idle cutoffs often hit both and conclude RedRouter “cannot sustain a long session.”
 
 | Symptom                                                                          | Likely cause                                                       | Knob                     |
 | -------------------------------------------------------------------------------- | ------------------------------------------------------------------ | ------------------------ |
 | Session keeps switching accounts / prompt-cache continuity is lost between turns | Session affinity TTL is `0` (disabled)                             | `sessionAffinityTtlMs`   |
 | Connection dies mid-reasoning with no client-facing prompt                       | Stream idle watchdog fired after 10 minutes with no upstream chunk | `STREAM_IDLE_TIMEOUT_MS` |
 
-Related discussions: [#7126](https://github.com/diegosouzapw/OmniRoute/discussions/7126) (long task drops), [#5718](https://github.com/diegosouzapw/OmniRoute/discussions/5718) (why affinity defaults off). Tracking: [#7287](https://github.com/diegosouzapw/OmniRoute/issues/7287).
+Related discussions: [#7126](https://github.com/reddb-io/red-router/discussions/7126) (long task drops), [#5718](https://github.com/reddb-io/red-router/discussions/5718) (why affinity defaults off). Tracking: [#7287](https://github.com/reddb-io/red-router/issues/7287).
 
 ### 1. Session affinity — pin one conversation to one account
 
@@ -478,7 +478,7 @@ Related discussions: [#7126](https://github.com/diegosouzapw/OmniRoute/discussio
 
 **What breaks when it stays at 0**
 
-Every turn of a multi-turn Codex conversation is routed independently by the active combo strategy and can land on a **different account per turn**. That breaks upstream session / prompt-cache continuity. OmniRoute only consults Codex session headers (`x-codex-session-id` / `x-session-id` / `x-omniroute-session`) and body fields such as `prompt_cache_key` / `session_id` when the TTL is greater than `0` (`extractSessionAffinityKey` in `src/sse/services/auth.ts`).
+Every turn of a multi-turn Codex conversation is routed independently by the active combo strategy and can land on a **different account per turn**. That breaks upstream session / prompt-cache continuity. RedRouter only consults Codex session headers (`x-codex-session-id` / `x-session-id` / `x-omniroute-session`) and body fields such as `prompt_cache_key` / `session_id` when the TTL is greater than `0` (`extractSessionAffinityKey` in `src/sse/services/auth.ts`).
 
 **Recommended for a multi-hour single task**
 
@@ -500,13 +500,13 @@ Opt-in is deliberate: disabling affinity favors load-balancing across accounts; 
 
 A Codex reasoning / tool turn that stays silent for more than 10 minutes with **no real upstream chunk** is force-closed by the SSE idle watchdog (`open-sse/utils/stream.ts`). The client often sees a bare connection drop — matching “stopped automatically without any notification.”
 
-Critical detail: OmniRoute’s synthetic SSE **heartbeat does not reset** the idle clock. Only a real upstream body chunk updates `lastChunkTime`. A quiet model that is still “thinking” looks identical to a stalled upstream from the watchdog’s point of view.
+Critical detail: RedRouter’s synthetic SSE **heartbeat does not reset** the idle clock. Only a real upstream body chunk updates `lastChunkTime`. A quiet model that is still “thinking” looks identical to a stalled upstream from the watchdog’s point of view.
 
 Related Undici body inactivity: `FETCH_BODY_TIMEOUT_MS` (also defaults to the same 10-minute baseline; `0` disables it). For streaming, `FETCH_TIMEOUT_MS` only covers connection setup / first headers — once the stream is active, stalls are governed by `STREAM_IDLE_TIMEOUT_MS` and `FETCH_BODY_TIMEOUT_MS`.
 
 **Recommended for a multi-hour single task**
 
-In the OmniRoute process environment (`.env` / compose / systemd):
+In the RedRouter process environment (`.env` / compose / systemd):
 
 ```bash
 # Disable stream idle + body inactivity cutoffs for long reasoning turns
@@ -522,12 +522,12 @@ STREAM_IDLE_TIMEOUT_MS=7200000
 FETCH_BODY_TIMEOUT_MS=7200000
 ```
 
-Restart OmniRoute after changing these env vars.
+Restart RedRouter after changing these env vars.
 
 ### Concrete recipe — multi-hour Codex task
 
 1. **Pin the account:** Dashboard → Settings → Routing → Session affinity → Affinity TTL = `43200` (12h) or `86400` (24h max).
-2. **Raise / disable idle cutoffs** in OmniRoute’s environment:
+2. **Raise / disable idle cutoffs** in RedRouter’s environment:
 
 ```bash
 STREAM_IDLE_TIMEOUT_MS=0
@@ -535,7 +535,7 @@ FETCH_BODY_TIMEOUT_MS=0
 ```
 
 3. Keep the usual Codex `config.toml` (`wire_api = "responses"`, correct `base_url`, `OMNIROUTE_API_KEY`) — no Codex-side affinity/idle knobs exist for these two behaviors.
-4. Restart OmniRoute, then start the long Codex task.
+4. Restart RedRouter, then start the long Codex task.
 
 ### Defaults decision (#7287)
 
@@ -548,13 +548,13 @@ Flipping either default globally would change behavior for every client of an in
 
 ### Diagnosing idle cuts
 
-When the idle watchdog fires, OmniRoute logs a line shaped like:
+When the idle watchdog fires, RedRouter logs a line shaped like:
 
 ```text
 [STREAM] Idle timeout: no data from codex for 600000ms (model: cx/gpt-5.5)
 ```
 
-Grep for `Idle timeout: no data from` (or the code `stream_idle_timeout` / error name `StreamIdleTimeoutError`). The provider segment is whatever OmniRoute used for that request (`codex`, another provider id, or `provider` if unknown) — it is not always the literal string `codex`.
+Grep for `Idle timeout: no data from` (or the code `stream_idle_timeout` / error name `StreamIdleTimeoutError`). The provider segment is whatever RedRouter used for that request (`codex`, another provider id, or `provider` if unknown) — it is not always the literal string `codex`.
 
 ---
 
@@ -564,7 +564,7 @@ Grep for `Idle timeout: no data from` (or the code `stream_idle_timeout` / error
 Remove `wire_api = "chat"` from your config. Set `wire_api = "responses"` or omit the field (defaults to `"responses"` since v0.138).
 
 **`Error: model not found`**
-Verify the model exists in OmniRoute with the correct prefix. Use `omniroute models list` or open `/dashboard/providers/<provider>`.
+Verify the model exists in RedRouter with the correct prefix. Use `red-router models list` or open `/dashboard/providers/<provider>`.
 
 **`Authentication error`**
 Confirm `OMNIROUTE_API_KEY` is exported: `echo $OMNIROUTE_API_KEY`.
@@ -572,11 +572,11 @@ Confirm `OMNIROUTE_API_KEY` is exported: `echo $OMNIROUTE_API_KEY`.
 **`ERROR: Missing environment variable: OMNIROUTE_API_KEY`**
 Codex validates that the env var exists before making the first request. Export
 a real key for protected servers, or a non-empty placeholder such as
-`OMNIROUTE_API_KEY=local` when your **local** OmniRoute instance does not
+`OMNIROUTE_API_KEY=local` when your **local** RedRouter instance does not
 require auth. Restart the shell if you added it to `~/.bashrc` or `~/.zshrc`.
 
 **`Connection refused`**
-Verify OmniRoute is running and the `base_url` host/port is correct for your network (local vs Tailscale vs VPS).
+Verify RedRouter is running and the `base_url` host/port is correct for your network (local vs Tailscale vs VPS).
 
 **Session crashes near context limit**
 Set `model_context_window` and `model_auto_compact_token_limit` explicitly. See the context window table above.
@@ -588,4 +588,4 @@ Lower `model_auto_compact_token_limit` to 80–85% of the window. Never set abov
 Confirm the file exists at `~/.codex/<name>.config.toml` (no `profile-` prefix). Run `ls ~/.codex/*.config.toml`.
 
 **Long Codex task drops mid-run / switches accounts between turns**
-See [Long-running tasks](#long-running-tasks). Enable session affinity (TTL above task length) and raise or disable `STREAM_IDLE_TIMEOUT_MS` / `FETCH_BODY_TIMEOUT_MS`. Grep OmniRoute logs for `Idle timeout: no data from`.
+See [Long-running tasks](#long-running-tasks). Enable session affinity (TTL above task length) and raise or disable `STREAM_IDLE_TIMEOUT_MS` / `FETCH_BODY_TIMEOUT_MS`. Grep RedRouter logs for `Idle timeout: no data from`.

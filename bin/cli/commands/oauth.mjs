@@ -87,7 +87,7 @@ function printLoopbackRedirectWarning(providerId, redirectUri) {
   );
   if (providerId === "antigravity") {
     process.stdout.write(
-      "Tip: `omniroute login antigravity` captures the code automatically and\n" +
+      "Tip: `red-router login antigravity` captures the code automatically and\n" +
         "avoids that error page entirely.\n"
     );
   }
@@ -536,7 +536,7 @@ export async function runOAuthStart(opts, cmd) {
   const def = PROVIDERS_WITH_OAUTH.find((p) => p.id === opts.provider);
   if (!def) {
     process.stderr.write(
-      `Unknown OAuth provider: ${opts.provider}\nRun: omniroute oauth providers\n`
+      `Unknown OAuth provider: ${opts.provider}\nRun: red-router oauth providers\n`
     );
     process.exit(2);
   }

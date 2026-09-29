@@ -11,7 +11,7 @@ lastUpdated: 2026-06-28
 > `src/app/(dashboard)/dashboard/plugins/`
 > **Last updated:** 2026-06-28 — v3.8.40
 
-OmniRoute ships a WordPress-style plugin system. Plugins are self-contained
+RedRouter ships a WordPress-style plugin system. Plugins are self-contained
 directories — each with a `plugin.json` manifest and an entry file — that hook
 into the request pipeline (`onRequest` / `onResponse` / `onError`) and into
 lifecycle events (`onInstall` / `onActivate` / `onDeactivate` / `onUninstall`).
@@ -153,7 +153,7 @@ are allowed through.
 
 ### Plugin directory
 
-Plugins live under the OmniRoute data directory:
+Plugins live under the RedRouter data directory:
 
 ```
 ~/.omniroute/plugins/<plugin-name>/

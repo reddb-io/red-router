@@ -6,7 +6,7 @@ lastUpdated: 2026-09-03
 
 # Feature Flags
 
-> Runtime toggles that change OmniRoute's behavior **without a redeploy**.
+> Runtime toggles that change RedRouter's behavior **without a redeploy**.
 > Every flag listed here is defined in
 > [`src/shared/constants/featureFlagDefinitions.ts`](../../src/shared/constants/featureFlagDefinitions.ts)
 > — the single source of truth. The dashboard and the REST API both read from
@@ -97,9 +97,9 @@ used when neither a DB override nor an environment variable is present.
 | ------------------------------- | ------- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `TOOL_POLICY_MODE`              | enum    | `disabled` | Tool-use policy enforcement mode. Values: `disabled`, `warn`, `block`.                                                                                                                                                           |
 | `RATE_LIMIT_AUTO_ENABLE`        | boolean | `false`    | Automatically enable rate limiting based on usage patterns.                                                                                                                                                                      |
-| `DISABLE_CONTEXT_WINDOW_CHECKS` | boolean | `false`    | Skip OmniRoute's local context-window / max-input-token check for direct single-model requests. Upstream limits still apply.                                                                                                     |
+| `DISABLE_CONTEXT_WINDOW_CHECKS` | boolean | `false`    | Skip RedRouter's local context-window / max-input-token check for direct single-model requests. Upstream limits still apply.                                                                                                     |
 | `CAPABILITY_FILTER_ENABLED`     | boolean | `false`    | Reject requests before dispatch when the target model lacks required capabilities (vision, tools, structured output, context window). Protects direct single-provider requests that bypass the combo-layer compatibility filter. |
-| `RADAR_ENABLED`                 | boolean | `false`    | Enable the OmniRoute Radar module (catalog feed screens and sync). Off by default; enabling only unlocks the UI — data sync remains a separate opt-in.                                                                           |
+| `RADAR_ENABLED`                 | boolean | `false`    | Enable the RedRouter Radar module (catalog feed screens and sync). Off by default; enabling only unlocks the UI — data sync remains a separate opt-in.                                                                           |
 
 ### Runtime (33)
 

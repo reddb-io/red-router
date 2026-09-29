@@ -12,7 +12,7 @@ lastUpdated: 2026-08-22
 
 ## Why this exists
 
-OmniRoute already answers two cost questions, and neither is the one most operators ask.
+RedRouter already answers two cost questions, and neither is the one most operators ask.
 
 | Existing mechanism                                       | Answers                             |
 | -------------------------------------------------------- | ----------------------------------- |

@@ -6,7 +6,7 @@ lastUpdated: 2026-06-28
 
 # RTK Compression
 
-RTK compression is OmniRoute's command-aware compression engine for terminal and tool output. It is
+RTK compression is RedRouter's command-aware compression engine for terminal and tool output. It is
 designed for coding-agent sessions where most context growth comes from test logs, build output,
 package manager noise, shell transcripts, Docker output, git output, and stack traces.
 
@@ -19,7 +19,7 @@ rtk -> caveman
 That order compresses noisy machine output first, then lets Caveman condense remaining prose.
 
 Upstream RTK reports `60-90%` command-output savings. Its README sample session goes from
-`~118,000` standard tokens to `~23,900` RTK tokens, which is `79.7%` saved (`~80%`). OmniRoute uses
+`~118,000` standard tokens to `~23,900` RTK tokens, which is `79.7%` saved (`~80%`). RedRouter uses
 that upstream average for the stacked savings calculation with Caveman input compression:
 
 ```txt
@@ -56,7 +56,7 @@ RTK loads filters in this order:
 2. Global filters from `DATA_DIR/rtk/filters.toml` and `DATA_DIR/rtk/filters.json`.
 3. Built-in filters from `open-sse/services/compression/engines/rtk/filters/`.
 
-Within the same scope, RTK TOML schema v1 filters take precedence over OmniRoute JSON filters. TOML
+Within the same scope, RTK TOML schema v1 filters take precedence over RedRouter JSON filters. TOML
 `match_command` expressions are checked before command-type matching so an imported command-specific
 filter can override a broader filter in that scope. Project scope still takes precedence over global
 scope, regardless of file format.
@@ -86,7 +86,7 @@ skipped and reported by `/api/context/rtk/filters` diagnostics. Invalid built-in
 
 ## RTK TOML schema v1 compatibility
 
-OmniRoute can parse, validate, test, and install declarative filter files using RTK TOML schema v1.
+RedRouter can parse, validate, test, and install declarative filter files using RTK TOML schema v1.
 The supported fields are `description`, `match_command`, `strip_ansi`, `filter_stderr`,
 `strip_lines_matching`, `keep_lines_matching`, `replace`, `match_output`, `truncate_lines_at`,
 `head_lines`, `tail_lines`, `max_lines`, `on_empty`, and `[[tests.<filter>]]` inline tests.
@@ -95,7 +95,7 @@ Unknown fields, invalid or unsafe regular expressions, simultaneous strip/keep r
 validated for inspection but cannot be installed or loaded. Custom-file load failures remain
 fail-open: the invalid file is skipped and the remaining filters continue to work.
 
-OmniRoute receives tool output after the client has already captured it, so `filter_stderr = true`
+RedRouter receives tool output after the client has already captured it, so `filter_stderr = true`
 cannot change process capture. The field is accepted as a no-op and validation returns a warning.
 This is intentionally described as **RTK TOML schema v1 compatibility**, not full compatibility
 with the RTK executable, shell hooks, Rust command implementations, or its trust-store layout.
