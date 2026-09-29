@@ -1,11 +1,9 @@
 import { z } from "zod";
 
-export const NEWS_JSON_URL =
-  "https://raw.githubusercontent.com/diegosouzapw/OmniRoute/main/news.json";
+export const NEWS_JSON_URL = "https://raw.githubusercontent.com/reddb-io/red-router/main/news.json";
 export const CHANGELOG_RAW_URL =
-  "https://raw.githubusercontent.com/diegosouzapw/OmniRoute/main/CHANGELOG.md";
-export const CHANGELOG_GITHUB_URL =
-  "https://github.com/diegosouzapw/OmniRoute/blob/main/CHANGELOG.md";
+  "https://raw.githubusercontent.com/reddb-io/red-router/main/CHANGELOG.md";
+export const CHANGELOG_GITHUB_URL = "https://github.com/reddb-io/red-router/blob/main/CHANGELOG.md";
 export const NEWS_DISMISS_STORAGE_NAME = "omniroute-news-dismissed-v2";
 export const NEWS_DISMISS_EVENT = "omniroute:news-dismissed";
 

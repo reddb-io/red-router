@@ -1,21 +1,4 @@
-/**
- * Latest-version discovery + comparison for the dashboard "Update Available" banner.
- *
- * #4100: the banner is gated on `isNewer(latest, current)`. Previously `latest` came
- * ONLY from `npm info omniroute version --json` (the `npm` CLI binary). When that binary
- * is absent (Docker / desktop / locked-down installs) or the registry is unreachable, the
- * call returned null and the banner silently never rendered — even when an update existed.
- *
- * This module keeps the fast `npm` CLI path as the primary source but adds two
- * npm-binary-free HTTP fallbacks, reachable with plain `fetch`:
- *   1. the npm registry JSON API (`registry.npmjs.org`), then
- *   2. the GitHub releases API (`api.github.com/.../releases/latest`) — the source the
- *      issue itself suggested, and the only one that still works on networks that reach
- *      GitHub (the same host `getNews()` already pulls from) but block the npm registry.
- * It logs a warning instead of degrading silently when ALL sources fail. Version parsing
- * is also hardened so a `v`-prefix or pre-release suffix no longer collapses the
- * comparison to `false` via `NaN`.
- */
+/** Latest RedRouter release discovery via npm CLI, registry HTTP and GitHub. */
 import { execFile } from "child_process";
 import { promisify } from "util";
 import { createLogger } from "@/shared/utils/logger";
@@ -25,7 +8,7 @@ const execFileAsync = promisify(execFile);
 const log = createLogger("system/versionCheck");
 
 /** npm-binary-free latest-version source: the registry JSON API. */
-const NPM_REGISTRY_LATEST_URL = "https://registry.npmjs.org/omniroute/latest";
+const NPM_REGISTRY_LATEST_URL = "https://registry.npmjs.org/%40reddb-io%2Fred-router/latest";
 
 /**
  * Second npm-binary-free source: the GitHub releases API. Works on networks that allow
@@ -33,7 +16,7 @@ const NPM_REGISTRY_LATEST_URL = "https://registry.npmjs.org/omniroute/latest";
  * surviving cause of "#4100 still not fixed" after the registry fallback shipped in v3.8.28.
  */
 const GITHUB_RELEASES_LATEST_URL =
-  "https://api.github.com/repos/diegosouzapw/OmniRoute/releases/latest";
+  "https://api.github.com/repos/reddb-io/red-router/releases/latest";
 
 const LOOKUP_TIMEOUT_MS = 10_000;
 const MAX_VERSION_RESPONSE_BYTES = 16 * 1024;
@@ -72,7 +55,7 @@ export async function getLatestVersionFromNpmCli(
     // the function backing the dashboard's "Update Available" banner.
     const { stdout } = await execFn(
       "npm",
-      ["info", "omniroute", "version", "--json", "--prefer-online"],
+      ["info", "@reddb-io/red-router", "version", "--json", "--prefer-online"],
       buildNpmExecOptions(process.platform, { timeoutMs: LOOKUP_TIMEOUT_MS })
     );
     const parsed = JSON.parse(String(stdout).trim());
@@ -189,7 +172,7 @@ export async function getLatestVersionFromGitHub(
       signal: controller.signal,
       headers: {
         // GitHub's API rejects requests without a User-Agent.
-        "User-Agent": "omniroute-version-check",
+        "User-Agent": "red-router-version-check",
         Accept: "application/vnd.github+json",
       },
     });
