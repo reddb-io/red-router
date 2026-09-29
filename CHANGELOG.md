@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.35.0
+
+### Minor Changes
+
+- Promote the integrated RedRouter 0.34.x feature set to the 0.35.0 minor line. This
+  release changes the version only; it does not claim full parity with 9router,
+  OmniRoute, or LiteLLM. Existing provider, Decisions, combo, discovery, and
+  costed-usage behavior remains subject to the published package and boot gates.
+
 ## 0.34.4
 
 ### Patch Changes
