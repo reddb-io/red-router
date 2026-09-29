@@ -1,5 +1,6 @@
 import {
   Activity,
+  Pencil,
   LogOut,
   Boxes,
   Cable,
@@ -120,6 +121,7 @@ import { lucideForMaterial } from "./materialToLucide";
  */
 export const NAV_ICONS: Record<string, IconGlyph> = {
   Activity,
+  Pencil,
   LogOut,
   Boxes,
   Cable,

@@ -15,13 +15,12 @@ import {
 } from "@/shared/constants/providers";
 import { getModelsByProviderId } from "@/shared/constants/models";
 import { providerHasServiceKind } from "@/lib/providers/serviceKindIndex";
-import { compareTr, matchesAnyToken, matchesSearch } from "@/shared/utils/turkishText";
+import { matchesAnyToken, matchesSearch } from "@/shared/utils/turkishText";
 import { fetchWithTimeout } from "@/shared/utils/fetchTimeout";
 import {
   parseProviderDisplayModePreference,
   type ProviderDisplayMode,
 } from "./providerPageStorage";
-import { getFeaturedProviderRank } from "./featuredProviders";
 
 export interface ProviderStatsSnapshot {
   total?: number;
@@ -264,43 +263,22 @@ function getProviderSortLabel<TProvider>(entry: ProviderEntry<TProvider>): strin
   return (name || entry.providerId).toLowerCase();
 }
 
+// Plain alphabetical order for the operator's language (English-only UI): case-insensitive,
+// numbers in natural order ("GPT 4" before "GPT 10").
+const PROVIDER_NAME_COLLATOR = new Intl.Collator("en", { sensitivity: "base", numeric: true });
+
+/** The dashboard's provider grids: alphabetical by display name, with no promoted providers. */
 export function sortProviderEntriesByName<TProvider>(
   entries: ProviderEntry<TProvider>[]
 ): ProviderEntry<TProvider>[] {
   return [...entries].sort((a, b) => {
-    const nameCompare = compareTr(getProviderSortLabel(a), getProviderSortLabel(b));
+    const nameCompare = PROVIDER_NAME_COLLATOR.compare(
+      getProviderSortLabel(a),
+      getProviderSortLabel(b)
+    );
     if (nameCompare !== 0) return nameCompare;
-    return a.providerId.localeCompare(b.providerId); // teknik sıralama: ASCII kasıtlı
+    return a.providerId < b.providerId ? -1 : a.providerId > b.providerId ? 1 : 0;
   });
-}
-
-/**
- * Sort provider entries alphabetically (via `sortProviderEntriesByName`), then
- * stable-pin sponsors first in explicit rank order (see `featuredProviders.ts`):
- * rank 1 block, then rank 2, then everything unranked — each block keeping the
- * alphabetical order established above. Presentation-only: this must never
- * influence routing/fallback order, only how the dashboard's provider category
- * grids are sorted.
- */
-export function sortProviderEntriesFeaturedFirst<TProvider>(
-  entries: ProviderEntry<TProvider>[]
-): ProviderEntry<TProvider>[] {
-  const sorted = sortProviderEntriesByName(entries);
-  // A plain "featured first" pin would order Cheaper Inference above Kimi (the
-  // alphabet), which is exactly what the explicit ranks prevent.
-  const ranked: ProviderEntry<TProvider>[] = [];
-  const rest: ProviderEntry<TProvider>[] = [];
-  for (const entry of sorted) {
-    (getFeaturedProviderRank(entry.providerId) === null ? rest : ranked).push(entry);
-  }
-  // Array.prototype.sort is stable in ES2019+, so equal-rank entries keep the
-  // alphabetical order established above.
-  ranked.sort(
-    (a, b) =>
-      (getFeaturedProviderRank(a.providerId) as number) -
-      (getFeaturedProviderRank(b.providerId) as number)
-  );
-  return [...ranked, ...rest];
 }
 
 export function buildProviderEntries<TProvider = Record<string, unknown>>(
@@ -515,7 +493,7 @@ export function filterConfiguredProviderEntries<TProvider>(
     });
   }
 
-  return sortProviderEntriesFeaturedFirst(filtered);
+  return sortProviderEntriesByName(filtered);
 }
 
 function pushUniqueProviderEntry<TProvider>(

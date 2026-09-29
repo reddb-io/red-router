@@ -8,6 +8,8 @@ import { readCookieExpiresAt } from "@/shared/utils/webCookieExpiry";
 import { useState, useEffect } from "react";
 import { useTranslations } from "next-intl";
 import { Badge, Button, Toggle } from "@/shared/components";
+import Icon from "@/shared/components/Icon";
+import { navIcon } from "@/shared/icons/navIcons";
 import { pickDisplayValue } from "@/shared/utils/maskEmail";
 import useEmailPrivacyStore from "@/store/emailPrivacyStore";
 import { isClaudeExtraUsageBlockEnabled } from "@/lib/providers/claudeExtraUsage";
@@ -86,6 +88,8 @@ export interface ConnectionRowProps {
   onRetest: () => void;
   isRetesting?: boolean;
   onEdit: () => void;
+  /** Renames the connection on its own; the pencil next to the name opens the field. */
+  onRename?: (name: string) => Promise<void>;
   onDelete: () => void;
   onReauth?: () => void;
   onProxy?: () => void;
@@ -373,6 +377,7 @@ export default function ConnectionRow({
   onRetest,
   isRetesting,
   onEdit,
+  onRename,
   onDelete,
   onReauth,
   onProxy,
@@ -404,6 +409,37 @@ export default function ConnectionRow({
         t("oauthAccount")
       )
     : connection.name;
+  const [renaming, setRenaming] = useState(false);
+  const [renameDraft, setRenameDraft] = useState("");
+  const [renameSaving, setRenameSaving] = useState(false);
+  const [renameError, setRenameError] = useState<string | null>(null);
+  const startRename = () => {
+    setRenameDraft(String(connection.name || ""));
+    setRenameError(null);
+    setRenaming(true);
+  };
+  const cancelRename = () => {
+    setRenaming(false);
+    setRenameError(null);
+  };
+  const commitRename = async () => {
+    if (!onRename || renameSaving) return;
+    const next = renameDraft.trim();
+    if (!next || next === String(connection.name || "").trim()) {
+      cancelRename();
+      return;
+    }
+    setRenameSaving(true);
+    try {
+      await onRename(next);
+      setRenaming(false);
+      setRenameError(null);
+    } catch (error) {
+      setRenameError(error instanceof Error ? error.message : "Could not rename the connection");
+    } finally {
+      setRenameSaving(false);
+    }
+  };
   const applyCodexAuthLabel = providerText(t, "applyCodexAuthLocal", "Apply auth");
   const exportCodexAuthLabel = providerText(t, "exportCodexAuthFile", "Export auth");
   const applyClaudeAuthLabel = providerText(t, "applyClaudeAuthLocal", "Apply auth");
@@ -416,8 +452,7 @@ export default function ConnectionRow({
   // #11497: cookie rows with a decodable JWT credential carry a persisted
   // cookieExpiresAt — feed it into the same countdown badge OAuth rows use.
   const cookieExpiresAt = readCookieExpiresAt(connection.providerSpecificData);
-  const effectiveExpiresAt =
-    connection.tokenExpiresAt || connection.expiresAt || cookieExpiresAt;
+  const effectiveExpiresAt = connection.tokenExpiresAt || connection.expiresAt || cookieExpiresAt;
   const hasExpirySource = isOAuth || Boolean(cookieExpiresAt);
   const getTokenMinsLeft = () => {
     if (!hasExpirySource || !effectiveExpiresAt) return null;
@@ -561,7 +596,44 @@ export default function ConnectionRow({
           {isOAuth ? "lock" : "key"}
         </span>
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium truncate">{displayName}</p>
+          {renaming ? (
+            <div className="flex flex-col gap-1">
+              <input
+                autoFocus
+                value={renameDraft}
+                maxLength={200}
+                disabled={renameSaving}
+                aria-label={providerText(t, "renameConnection", "Rename connection")}
+                onChange={(event) => setRenameDraft(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") void commitRename();
+                  if (event.key === "Escape") cancelRename();
+                }}
+                onBlur={() => void commitRename()}
+                className="w-full rounded border border-control-edge bg-surface px-2 py-1 text-sm font-medium text-text-main focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              />
+              {renameError && (
+                <p role="alert" className="text-xs text-feedback-danger-foreground">
+                  {renameError}
+                </p>
+              )}
+            </div>
+          ) : (
+            <div className="group/name flex min-w-0 items-center gap-1">
+              <p className="truncate text-sm font-medium">{displayName}</p>
+              {onRename && (
+                <button
+                  type="button"
+                  onClick={startRename}
+                  title={providerText(t, "renameConnection", "Rename connection")}
+                  aria-label={providerText(t, "renameConnection", "Rename connection")}
+                  className="shrink-0 rounded p-0.5 text-ink-muted opacity-60 hover:text-foreground hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                >
+                  <Icon icon={navIcon("Pencil")} size="sm" color="current" />
+                </button>
+              )}
+            </div>
+          )}
           <div className="flex items-center gap-2 mt-1 flex-wrap">
             <Badge variant={statusPresentation.statusVariant as any} size="sm" dot>
               {statusPresentation.statusLabel}

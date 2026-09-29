@@ -61,6 +61,7 @@ type ConnectionsListPanelProps = {
   upstreamProxyFallbackBackend: "cliproxyapi" | "dario";
   handleToggleCodexLimit: (id: string, type: "use5h" | "useWeekly", enabled: boolean) => void;
   handleToggleProxyEnabled: (id: string, enabled: boolean) => void;
+  handleRenameConnection: (id: string, name: string) => Promise<void>;
   handleTogglePerKeyProxyEnabled: (id: string, enabled: boolean) => void;
   handleRetestConnection: (id: string) => void;
   handleRefreshToken: (id: string) => void;
@@ -143,6 +144,7 @@ export default function ConnectionsListPanel({
   upstreamProxyFallbackBackend,
   handleToggleCodexLimit,
   handleToggleProxyEnabled,
+  handleRenameConnection,
   handleTogglePerKeyProxyEnabled,
   handleRetestConnection,
   handleRefreshToken,
@@ -467,6 +469,7 @@ export default function ConnectionsListPanel({
                 proxyName={resolveConnProxyField(connProxyMap, conn.id, "name")}
                 proxyEnabled={readBooleanToggle(conn.proxyEnabled, true)}
                 onToggleProxyEnabled={(enabled) => handleToggleProxyEnabled(conn.id, enabled)}
+                onRename={(name) => handleRenameConnection(conn.id, name)}
                 perKeyProxyEnabled={readBooleanToggle(conn.perKeyProxyEnabled, false)}
                 onTogglePerKeyProxyEnabled={(enabled) =>
                   handleTogglePerKeyProxyEnabled(conn.id, enabled)
@@ -670,6 +673,7 @@ export default function ConnectionsListPanel({
                     proxyName={resolveConnProxyField(connProxyMap, conn.id, "name")}
                     proxyEnabled={readBooleanToggle(conn.proxyEnabled, true)}
                     onToggleProxyEnabled={(enabled) => handleToggleProxyEnabled(conn.id, enabled)}
+                    onRename={(name) => handleRenameConnection(conn.id, name)}
                     perKeyProxyEnabled={readBooleanToggle(conn.perKeyProxyEnabled, false)}
                     onTogglePerKeyProxyEnabled={(enabled) =>
                       handleTogglePerKeyProxyEnabled(conn.id, enabled)

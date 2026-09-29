@@ -21,6 +21,7 @@
  * providers constants) — never from ProviderDetailPageClient.
  */
 
+import { readFetchErrorMessage } from "@/shared/utils/fetchError";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useTranslations } from "next-intl";
 import { useNotificationStore } from "@/store/notificationStore";
@@ -206,6 +207,7 @@ export interface UseProviderConnectionsReturn {
     fallbackBackend?: UpstreamProxyFallbackBackend
   ) => Promise<void>;
   handleToggleProxyEnabled: (connectionId: string, proxyEnabled: boolean) => Promise<void>;
+  handleRenameConnection: (connectionId: string, name: string) => Promise<void>;
   handleTogglePerKeyProxyEnabled: (
     connectionId: string,
     perKeyProxyEnabled: boolean
@@ -658,6 +660,23 @@ export function useProviderConnections(
   // expected handler functions" hook test) keep working unchanged.
   const handleToggleCliproxyapiMode = async (_connectionId: string, enabled: boolean) => {
     await handleSetUpstreamProxyMode(enabled ? "cliproxyapi" : "native");
+  };
+
+  /** Renames a connection on its own, without the rest of the edit form's validation. */
+  const handleRenameConnection = async (connectionId: string, name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const res = await fetch(`/api/providers/${connectionId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: trimmed }),
+    });
+    if (!res.ok) {
+      throw new Error(await readFetchErrorMessage(res, "Could not rename the connection"));
+    }
+    setConnections((prev: any[]) =>
+      prev.map((c) => (c.id === connectionId ? { ...c, name: trimmed } : c))
+    );
   };
 
   const handleToggleProxyEnabled = async (connectionId: string, proxyEnabled: boolean) => {
@@ -1150,6 +1169,7 @@ export function useProviderConnections(
     handleToggleCliproxyapiMode,
     handleSetUpstreamProxyMode,
     handleToggleProxyEnabled,
+    handleRenameConnection,
     handleTogglePerKeyProxyEnabled,
     handleRetestConnection,
     handleClearCooldown,

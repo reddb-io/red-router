@@ -154,6 +154,7 @@ export default function ProviderDetailPageClient() {
     handleToggleCliproxyapiMode,
     handleSetUpstreamProxyMode,
     handleToggleProxyEnabled,
+    handleRenameConnection,
     handleTogglePerKeyProxyEnabled,
     handleRetestConnection,
     handleRefreshToken,
@@ -709,6 +710,7 @@ export default function ProviderDetailPageClient() {
                 upstreamProxyFallbackBackend={upstreamProxyFallbackBackend}
                 handleToggleCodexLimit={handleToggleCodexLimit}
                 handleToggleProxyEnabled={handleToggleProxyEnabled}
+                handleRenameConnection={handleRenameConnection}
                 handleTogglePerKeyProxyEnabled={handleTogglePerKeyProxyEnabled}
                 handleRetestConnection={handleRetestConnection}
                 handleRefreshToken={handleRefreshToken}

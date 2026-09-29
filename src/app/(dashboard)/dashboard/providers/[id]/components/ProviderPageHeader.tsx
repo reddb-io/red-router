@@ -6,7 +6,6 @@ import ProviderIcon from "@/shared/components/ProviderIcon";
 import { getHeaderIconProviderId, providerText } from "../providerPageHelpers";
 import type { ProviderMessageTranslator } from "../providerPageHelpers";
 import type { ProviderNotice } from "@/lib/providers/catalog";
-import { isKimiPartnerProviderId } from "../../featuredProviders";
 
 interface ProviderInfo {
   id: string;
@@ -50,21 +49,10 @@ export default function ProviderPageHeader({
   t,
   isReferralLink = false,
 }: ProviderPageHeaderProps) {
-  // Kimi (Moonshot AI) official-partnership aff links (2026-07): the header
-  // website link doubles as the CTA for kimi-coding/kimi-web/moonshot's
-  // tracking links (see website field in oauth.ts / web-cookie.ts /
-  // apikey/regional.ts) — flag it with a discreet "Partner link" note so it
-  // reads as a monetized link, not just "visit provider website" like every
-  // other card. UI-only — never affects routing/fallback (featuredProviders.ts).
-  const isKimiPartnerLink = isKimiPartnerProviderId(providerInfo.id);
-  // D28: any Radar-driven default referral gets the exact same discreet
-  // disclosure treatment as the Kimi partner link.
-  const showPartnerNote = isKimiPartnerLink || isReferralLink;
-  const kimiPartnerLinkNote = providerText(
-    t,
-    "kimiPartnerLinkNote",
-    "Partner link — supports RedRouter at no extra cost to you"
-  );
+  // A Radar-driven default referral gets a discreet disclosure so it reads as a referral link,
+  // not just "visit provider website".
+  const showPartnerNote = isReferralLink;
+  const referralLinkNote = providerText(t, "referralLinkNote", "Referral link");
 
   // Resolve the API-key registration link: prefer apiKeyUrl, fall back to
   // signupUrl, hide when neither is set (#9270).
@@ -119,9 +107,9 @@ export default function ProviderPageHeader({
               rel="noopener noreferrer"
               className="text-3xl font-semibold tracking-tight hover:underline inline-flex items-center gap-2"
               style={{ color: providerInfo.color }}
-              title={showPartnerNote ? kimiPartnerLinkNote : undefined}
+              title={showPartnerNote ? referralLinkNote : undefined}
               aria-label={
-                showPartnerNote ? `${providerInfo.name} — ${kimiPartnerLinkNote}` : undefined
+                showPartnerNote ? `${providerInfo.name} — ${referralLinkNote}` : undefined
               }
             >
               {providerInfo.name}
@@ -136,7 +124,7 @@ export default function ProviderPageHeader({
             </p>
             {showPartnerNote && providerInfo.website && (
               <span className="text-[10px] font-medium uppercase tracking-wide text-text-muted/70">
-                {kimiPartnerLinkNote}
+                {referralLinkNote}
               </span>
             )}
             {apiKeyLink}
