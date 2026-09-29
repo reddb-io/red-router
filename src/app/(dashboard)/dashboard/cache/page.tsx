@@ -7,6 +7,7 @@ import { useTranslations } from "next-intl";
 import { useProviderNodeMap, resolveProviderName } from "@/lib/display/useProviderNodeMap";
 import CacheEntriesTab from "./components/CacheEntriesTab";
 import ReasoningCacheTab from "./components/ReasoningCacheTab";
+import CachePrefixTab from "./components/CachePrefixTab";
 
 interface SemanticCacheStats {
   memoryEntries: number;
@@ -65,7 +66,7 @@ interface CacheStats {
   config?: CacheConfig;
 }
 
-type CacheView = "prompt" | "semantic" | "reasoning";
+type CacheView = "prompt" | "semantic" | "reasoning" | "prefix";
 
 function StatCard({
   icon,
@@ -482,6 +483,18 @@ export default function CachePage() {
         >
           {t("reasoningCache")}
         </button>
+        <button
+          type="button"
+          onClick={() => setActiveView("prefix")}
+          aria-pressed={activeView === "prefix"}
+          className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
+            activeView === "prefix"
+              ? "bg-white dark:bg-white/10 text-text-main shadow-sm"
+              : "text-text-muted hover:text-text-main"
+          }`}
+        >
+          {t("prefixEfficiency")}
+        </button>
       </div>
 
       {loading && (
@@ -841,6 +854,8 @@ export default function CachePage() {
           </div>
         </Card>
       )}
+
+      {activeView === "prefix" && <CachePrefixTab />}
     </div>
   );
 }

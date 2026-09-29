@@ -277,6 +277,7 @@ import {
 import { stageTrace } from "./chatCore/stageTrace.ts";
 import { attachCompressionUsageReceiptAfterAnalytics as attachCompressionUsageReceiptAfterAnalyticsFor } from "./chatCore/compressionUsageReceipt.ts";
 import { prepareUpstreamBody } from "./chatCore/upstreamBody.ts";
+import { observeUpstreamPrefix } from "./chatCore/prefixObservation.ts";
 import { getQuotaScopeLabelForProvider } from "../services/antigravityQuotaFamily.ts";
 import { excludeConnectionForCooldown } from "./chatCore/connectionCooldown.ts";
 import { handleRequestRejectedFailure } from "./chatCore/requestRejectedFailure.ts";
@@ -3746,6 +3747,21 @@ async function handleChatCoreInner({
   let providerHeaders;
   let finalBody;
   let claudePromptCacheLogMeta = null;
+  // Prompt-cache diagnostics (X-CACHE1): once per request, at the first final upstream body.
+  let cachePrefixObserved = false;
+  const observeCachePrefixOnce = (sentBody: unknown) => {
+    if (cachePrefixObserved) return;
+    cachePrefixObserved = true;
+    observeUpstreamPrefix({
+      clientBody: clientRawRequest?.body ?? body,
+      finalBody: sentBody,
+      apiKeyId: apiKeyInfo?.id ?? null,
+      provider,
+      model,
+      connectionId: getCurrentConnectionId(),
+      log,
+    });
+  };
 
   let credentialRefreshPersistRan = false;
   const hadStreamOptions =
@@ -4297,6 +4313,7 @@ async function handleChatCoreInner({
         providerHeaders,
         clientRawRequest?.headers
       );
+      observeCachePrefixOnce(finalBody);
 
       // Log target request (final request to provider)
       reqLogger.logTargetRequest(providerUrl, providerHeaders, finalBody);
@@ -5432,6 +5449,7 @@ async function handleChatCoreInner({
         providerHeaders,
         clientRawRequest?.headers
       );
+      observeCachePrefixOnce(finalBody);
       const capturedOk = providerRequestCapture.latest?.();
       reqLogger.logTargetRequest(
         okLeg.requestUrl || capturedOk?.url || "",

@@ -113,7 +113,8 @@ test("a RedRouter database (ledger up to 194) upgrades and a fresh install migra
     const versions = after.ledger.map((row) => row.version);
     assert.deepEqual(versions, [...new Set(versions)], "every version is recorded exactly once");
     assert.deepEqual(
-      versions.filter((version) => Number(version) >= 190),
+      // Migrations after 201 are RedRouter's own and change with every release.
+      versions.filter((version) => Number(version) >= 190 && Number(version) <= 201),
       ["190", "191", "192", "193", "194", "195", "196", "197", "198", "199", "200", "201"]
     );
     for (const row of before.ledger.filter((entry) => Number(entry.version) >= 190)) {
