@@ -6,6 +6,10 @@ export const openrouterProvider: RegistryEntry = {
   format: "openai",
   executor: "default",
   baseUrl: "https://openrouter.ai/api/v1/chat/completions",
+  // Anthropic Messages endpoint: a Claude-format client asking for an `anthropic/*` model is sent
+  // here as-is instead of being round-tripped through chat/completions, which loses tool_use,
+  // thinking and cache_control blocks. See handlers/chatCore/targetFormat.ts.
+  messagesUrl: "https://openrouter.ai/api/v1/messages",
   authType: "apikey",
   authHeader: "bearer",
   defaultContextLength: 128000,

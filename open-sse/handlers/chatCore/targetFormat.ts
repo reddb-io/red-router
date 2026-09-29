@@ -17,6 +17,24 @@ import { resolveAlternateFormat } from "../../config/providers/alternateFormats.
 import { getTargetFormat } from "../../services/provider.ts";
 import { FORMATS } from "../../translator/formats.ts";
 
+/**
+ * OpenRouter serves Anthropic's Messages API for its Anthropic models. A Claude-format client
+ * asking for one keeps that format end to end (tool_use, thinking and cache_control survive)
+ * instead of being translated through chat/completions and back.
+ */
+export function usesOpenRouterMessages(
+  provider: string,
+  resolvedModel: string,
+  sourceFormat: string | undefined
+): boolean {
+  return (
+    provider === "openrouter" &&
+    sourceFormat === FORMATS.CLAUDE &&
+    typeof resolvedModel === "string" &&
+    resolvedModel.startsWith("anthropic/")
+  );
+}
+
 export function resolveChatCoreTargetFormat(opts: {
   provider: string;
   resolvedModel: string;
@@ -72,6 +90,9 @@ export function resolveChatCoreTargetFormat(opts: {
       : inferredAgentRouterTargetFormat || providerTargetFormat);
   if (nativeXaiResponsesPassthrough || nativeOpenAICompatibleResponsesPassthrough) {
     targetFormat = FORMATS.OPENAI_RESPONSES;
+  }
+  if (usesOpenRouterMessages(provider, resolvedModel, sourceFormat)) {
+    targetFormat = FORMATS.CLAUDE;
   }
   return { alias, targetFormat };
 }

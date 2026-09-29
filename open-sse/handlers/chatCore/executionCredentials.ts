@@ -128,6 +128,13 @@ export function resolveExecutionCredentials(opts: {
     providerSpecificData._omnirouteForceResponsesUpstream = true;
   }
 
+  // OpenRouter's Anthropic Messages endpoint: DefaultExecutor.buildUrl("openrouter") reads this
+  // marker, and the body is already Messages-shaped so no OpenAI stream_options are injected.
+  if (targetFormat === FORMATS.CLAUDE && provider === "openrouter") {
+    providerSpecificData._redRouterOpenRouterMessages = true;
+    providerSpecificData.disableStreamOptions = true;
+  }
+
   // #8969: Claude-tagged Poe models speak Anthropic Messages wire format. Keep
   // DefaultExecutor from injecting OpenAI stream_options onto that body.
   if (targetFormat === FORMATS.CLAUDE && provider === "poe") {

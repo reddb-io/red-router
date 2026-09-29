@@ -248,6 +248,13 @@ export class DefaultExecutor extends BaseExecutor {
           : "/chat/completions";
       return `${normalized}${path}`;
     }
+    if (
+      this.provider === "openrouter" &&
+      credentials?.providerSpecificData?._redRouterOpenRouterMessages === true &&
+      this.config.messagesUrl
+    ) {
+      return this.config.messagesUrl;
+    }
     if (this.provider?.startsWith?.("anthropic-compatible-")) {
       const psd = credentials?.providerSpecificData;
       const baseUrl = requireCompatibleBaseUrl(this.provider, psd); // #13452
@@ -717,6 +724,15 @@ export class DefaultExecutor extends BaseExecutor {
     maybeAppendSkillsBeta(headers, this.provider, body, this.usesClaudeCodeProtocol(credentials));
 
     normalizeAnthropicHeaderVariants(headers);
+
+    // OpenRouter's Messages endpoint is Anthropic-shaped: it wants the API version header.
+    if (
+      this.provider === "openrouter" &&
+      credentials?.providerSpecificData?._redRouterOpenRouterMessages === true &&
+      !Object.keys(headers).some((key) => key.toLowerCase() === "anthropic-version")
+    ) {
+      headers["anthropic-version"] = "2023-06-01";
+    }
 
     return headers;
   }

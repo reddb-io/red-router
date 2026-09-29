@@ -1138,7 +1138,7 @@
             "friday": "has"
           },
           "head": "partial",
-          "headEvidence": "open-sse/services/claudeCode*.ts; CLAUDE_CODE_CLIENT_VERSION still 2.1.258 (src/shared/constants/claudeCodeClient.ts:11); parity vs Friday not verified",
+          "headEvidence": "reasoning_effort -> thinking.display summarized; ANTHROPIC_AUTH_TOKEN kept unless a key is picked; client version 2.1.280. anthropic-ratelimit-* forwarding unverified.",
           "ownUnique": true,
           "value": "H",
           "effort": "S",
@@ -1159,8 +1159,8 @@
             "omniroute": "no",
             "friday": "has"
           },
-          "head": "missing",
-          "headEvidence": "claude-to-openai.ts:418-430 maps unknown reasons to stop; no guard in translator/helpers/geminiHelper.ts; claude-to-openai.ts:487-500 lifts images one way only; openrouter registry has no messages alternate",
+          "head": "partial",
+          "headEvidence": "Claude refusal->content_filter, Gemini terminal-turn guard for Antigravity, tool-result image hoist (tests/redrouter/native/translator-robustness.test.ts). OpenRouter /v1/messages transport, empty <think> and commandcode NDJSON pending repro.",
           "ownUnique": false,
           "value": "M",
           "effort": "S",
@@ -1313,8 +1313,8 @@
             "omniroute": "no",
             "friday": "has"
           },
-          "head": "missing",
-          "headEvidence": "grep of X-9Router-Reason at HEAD found none (audit A12)",
+          "head": "equivalent",
+          "headEvidence": "open-sse/utils/error.ts routingErrorHeaders: X-RedRouter-Reason/-Retry-At with X-9Router-* aliases; tests/redrouter/native/routing-reason-headers.test.ts. Combo skip of access-denied members not ported.",
           "ownUnique": true,
           "value": "M",
           "effort": "S",
@@ -1649,8 +1649,8 @@
             "omniroute": "no",
             "friday": "partial"
           },
-          "head": "missing",
-          "headEvidence": "study-9router C.3 gaps (literal-id search, some may be false positives)",
+          "head": "partial",
+          "headEvidence": "OpenCode Go/Zen, Codex base models, DeepSeek effort ladder, cline-free zero price (tests/redrouter/native/catalog-refresh.test.ts). Codex -review/-image ids need quotaFamily.",
           "ownUnique": false,
           "value": "M",
           "effort": "S",
@@ -1716,7 +1716,7 @@
             "friday": "no"
           },
           "head": "partial",
-          "headEvidence": "open-sse/executors/antigravity.ts:818-847 still sends agent; needs live repro",
+          "headEvidence": "Deliberately not ported: no reproduction of the upstream false 429 and the real client sends requestType agent.",
           "ownUnique": false,
           "value": "M",
           "effort": "S",
@@ -1738,7 +1738,7 @@
             "friday": "has"
           },
           "head": "partial",
-          "headEvidence": "codex/cursor/kiro import routes exist; gitlab/pat, grok-cli/bulk-import, iflow/cookie, xiaomi-mimo absent (audit A4)",
+          "headEvidence": "gitlab/pat, iflow/cookie, grok-cli/bulk-import routes (src/lib/oauth/utils/credentialImports.ts). Xiaomi MiMo login/import and Kiro CLI-proxy review pending.",
           "ownUnique": false,
           "value": "M",
           "effort": "S",
@@ -2117,8 +2117,8 @@
             "omniroute": "no",
             "friday": "has"
           },
-          "head": "missing",
-          "headEvidence": "no capacityAdapter at HEAD; modality-bridge guardrail and comboStructure.ts:469-900 differ",
+          "head": "partial",
+          "headEvidence": "open-sse/services/capacityAdapter.ts (vision/audio/video pools, opt-in, hooked in handleComboChat); pdf pool and single-model requests not ported",
           "ownUnique": false,
           "value": "H",
           "effort": "L",
@@ -2139,8 +2139,8 @@
             "omniroute": "no",
             "friday": "has"
           },
-          "head": "missing",
-          "headEvidence": "no presets route or bulk ops; only /api/combos/recommended",
+          "head": "equivalent",
+          "headEvidence": "src/lib/comboPresets.ts, /api/combos/presets and /api/combos/bulk, ComboBulkBar; tests/redrouter/native/combo-presets-bulk.test.ts",
           "ownUnique": false,
           "value": "M",
           "effort": "M",
@@ -2971,8 +2971,8 @@
             "omniroute": "partial",
             "friday": "has"
           },
-          "head": "partial",
-          "headEvidence": "src/app/api/auth/oidc/{login,callback}/route.ts admin gate only; no test route or authMode",
+          "head": "better",
+          "headEvidence": "PKCE+nonce, /api/auth/oidc/test, test sign-in, anti-lockout guard, SecurityTab OidcSection, reset-password --disable-sso; tests/redrouter/native/oidc-hardening.test.ts",
           "ownUnique": false,
           "value": "H",
           "effort": "S",
@@ -2993,8 +2993,8 @@
             "omniroute": "no",
             "friday": "has"
           },
-          "head": "missing",
-          "headEvidence": "no saml routes or dependency (audit A1)",
+          "head": "better",
+          "headEvidence": "src/lib/auth/saml.ts + /api/auth/saml/{start,acs,metadata,test}: request-id store, signed assertion, audience pin, allow list; tests/redrouter/native/saml-login.test.ts",
           "ownUnique": false,
           "value": "H",
           "effort": "M",
@@ -3302,7 +3302,7 @@
             "friday": "has"
           },
           "head": "partial",
-          "headEvidence": "src/server/auth/loginGuard.ts:59; bin/reset-password.mjs; no reset route or policy (audit A1)",
+          "headEvidence": "password policy + opt-in HIBP screening (src/lib/auth/passwordPolicy.ts). Local HTTP reset route intentionally not ported (CSRF); progressive lockout not ported.",
           "ownUnique": false,
           "value": "M",
           "effort": "S",

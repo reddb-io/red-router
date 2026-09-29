@@ -1,0 +1,68 @@
+# RedRouter container image built FROM THE PUBLISHED npm PACKAGE.
+#
+# This is not the source-build Dockerfile. It installs the exact tarball that
+# the RedRouter release pipeline already tested and published to npm, so the
+# image can never drift from the release: no rebuild, no source-identity rewrite.
+# Built by .github/workflows/red-docker.yml after the npm publication succeeds.
+#
+#   docker build -f Dockerfile.npm --build-arg VERSION=0.44.0 -t red-router:0.44.0 .
+#
+# Native modules: the published package declares better-sqlite3 as an optional
+# dependency. On glibc (Debian) linux/amd64 and linux/arm64 it ships a prebuilt
+# binary that prebuild-install downloads, so NO compiler is installed in this
+# image. If that download ever fails, the optional dependency is skipped and the
+# runtime falls back to node:sqlite (built into Node 24) and then to sql.js
+# (see src/lib/db/core.ts), so the server still boots. Do not add build-essential
+# or python here; run `red-router runtime repair` in a derived image if needed.
+
+FROM node:24-slim
+
+ARG VERSION
+ARG NPM_INSTALL_ATTEMPTS=5
+
+# A non-empty, SemVer-shaped VERSION is mandatory: the tag is the source of truth.
+RUN test -n "${VERSION}" && echo "${VERSION}" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([-.+][0-9A-Za-z.-]+)?$' \
+  || { echo "build-arg VERSION must be a SemVer version, got '${VERSION}'" >&2; exit 1; }
+
+# Persistent data lives in a volume owned by the unprivileged user.
+RUN mkdir -p /data && chown node:node /data
+
+USER node
+ENV HOME=/home/node \
+    NPM_CONFIG_PREFIX=/home/node/.npm-global \
+    NPM_CONFIG_UPDATE_NOTIFIER=false \
+    NPM_CONFIG_FUND=false \
+    NPM_CONFIG_AUDIT=false \
+    PATH=/home/node/.npm-global/bin:$PATH \
+    NODE_ENV=production \
+    DATA_DIR=/data \
+    PORT=25050
+
+# The user-owned prefix keeps the installed package writable by the runtime user
+# (pid files, caches) without running anything as root. The retry loop absorbs
+# CDN propagation lag right after publication.
+RUN set -eu; \
+    i=1; \
+    until npm install -g --prefer-online "@reddb-io/red-router@${VERSION}"; do \
+      if [ "$i" -ge "${NPM_INSTALL_ATTEMPTS}" ]; then echo "npm install failed after $i attempts" >&2; exit 1; fi; \
+      i=$((i + 1)); \
+      echo "npm install failed, retrying ($i/${NPM_INSTALL_ATTEMPTS})" >&2; \
+      sleep 15; \
+    done; \
+    test "$(red-router --version)" = "${VERSION}"; \
+    npm cache clean --force
+
+LABEL org.opencontainers.image.title="RedRouter" \
+      org.opencontainers.image.source="https://github.com/reddb-io/red-router" \
+      org.opencontainers.image.version="${VERSION}"
+
+WORKDIR /data
+VOLUME /data
+EXPOSE 25050
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+  CMD ["node", "-e", "fetch('http://127.0.0.1:25050/healthz',{signal:AbortSignal.timeout(4000)}).then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+
+# --expose binds 0.0.0.0 (required for published ports); --log keeps server
+# output on stdout for `docker logs`; --no-open never tries to launch a browser.
+CMD ["red-router", "serve", "--expose", "--no-open", "--log", "--port", "25050"]
