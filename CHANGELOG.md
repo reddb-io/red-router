@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.41.6
+
+### Patch Changes
+
+- Asking for a Gemini model through the old `gc/` prefix (Gemini CLI, retired) now returns a clear `410 PROVIDER_RETIRED` that points to `antigravity/<model>`, instead of reaching Grok Build (which owns `gc/` now) and failing with "model not found". `gc/` and `if/` keep working for Grok Build and Qoder models.
+- About two thirds of the icons across the dashboard pages (1,060 of them, in 298 files) now use the design system's lucide `Icon` instead of the Material Symbols font: same glyphs, neutral ink, the design system's three sizes. Status colours map to the design system's success, warning and danger roles and decorative palette colours are gone. Large decorative icons, dynamic icon names and icons with inline styles are still Material and move next; a ratchet keeps that number from growing.
+- No page shows two tab bars for the same thing any more. The Usage page dropped its own tab strip: Combo health, Utilization, Search, Evals, plus the new Cache health and Route trace pages are routes listed as tabs by the menu (rarely used ones under "More"), and old `?tab=` links redirect to them. MCP and A2A are tabs inside the Endpoint page, so the menu no longer lists them as separate tabs (their own addresses still open the Endpoint page's tab).
+- A custom (OpenAI- or Anthropic-compatible) provider can be renamed straight from its card: its name is shown above the details with a pencil, no need to open the full edit form for the prefix and URL.
+- Prompt caching for Codex and OpenAI-format requests keeps every turn of a conversation together: the router sets `prompt_cache_key` per conversation and key holder (`rr-…`) instead of a hash of the shared prefix, so unrelated conversations no longer pile onto one cache and one conversation's turns land on the same one. A key the client sends is never replaced. The reasoning autopilot also holds its thinking level for at least eight turns on Claude conversations, because every change of thinking settings throws that conversation's cache away (moves upward for trouble are still immediate).
+
 ## 0.41.5
 
 ### Patch Changes
