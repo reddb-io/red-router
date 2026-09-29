@@ -1,5 +1,7 @@
 "use client";
 
+import { LockKeyhole, SlidersHorizontal, TriangleAlert } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Badge, Button, Card, Input, Modal, Toggle } from "@/shared/components";
 import { useTranslations } from "next-intl";
@@ -243,9 +245,7 @@ export default function AuthzSection() {
       <Card>
         <div className="flex items-center gap-3 mb-4">
           <div className="p-2 rounded-lg bg-info/10 text-info">
-            <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
-              shield_lock
-            </span>
+            <Icon icon={LockKeyhole} size="lg" color="current" />
           </div>
           <h3 className="text-lg font-semibold">{t("authz.title")}</h3>
         </div>
@@ -259,9 +259,7 @@ export default function AuthzSection() {
       <Card>
         <div className="flex items-center gap-3 mb-4">
           <div className="p-2 rounded-lg bg-info/10 text-info">
-            <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
-              shield_lock
-            </span>
+            <Icon icon={LockKeyhole} size="lg" color="current" />
           </div>
           <h3 className="text-lg font-semibold">{t("authz.title")}</h3>
         </div>
@@ -280,9 +278,7 @@ export default function AuthzSection() {
           role="alert"
           className="flex items-start gap-3 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-amber-700 dark:text-amber-300"
         >
-          <span className="material-symbols-outlined text-[20px] mt-0.5" aria-hidden="true">
-            warning
-          </span>
+          <Icon icon={TriangleAlert} size="lg" color="current" className="mt-0.5" />
           <div className="flex flex-col gap-1">
             <p className="font-semibold">{t("authz.cors.wildcard.title")}</p>
             <p className="text-sm">{t("authz.cors.wildcard.desc")}</p>
@@ -294,9 +290,7 @@ export default function AuthzSection() {
       <Card>
         <div className="flex items-center gap-3 mb-4">
           <div className="p-2 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400">
-            <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
-              tune
-            </span>
+            <Icon icon={SlidersHorizontal} size="lg" color="current" />
           </div>
           <h3 className="text-lg font-semibold">{t("authz.bypass.section")}</h3>
         </div>
@@ -416,9 +410,7 @@ export default function AuthzSection() {
       <Card>
         <div className="flex items-center gap-3 mb-4">
           <div className="p-2 rounded-lg bg-info/10 text-info">
-            <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
-              shield_lock
-            </span>
+            <Icon icon={LockKeyhole} size="lg" color="current" />
           </div>
           <div className="flex-1">
             <h3 className="text-lg font-semibold">{t("authz.title")}</h3>

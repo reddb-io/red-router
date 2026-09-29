@@ -1,5 +1,7 @@
 "use client";
 
+import { CircleDollarSign } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { Input } from "@/shared/components";
 import { useTranslations } from "next-intl";
 
@@ -41,7 +43,7 @@ export function UsageLimitSettings({
               : "bg-black/5 dark:bg-white/5 text-text-muted border border-border"
           }`}
         >
-          <span className="material-symbols-outlined text-[14px]">paid</span>
+          <Icon icon={CircleDollarSign} size="sm" color="current" />
           {enabled ? enabledLabel : disabledLabel}
         </button>
       </div>

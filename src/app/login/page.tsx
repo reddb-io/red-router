@@ -1,5 +1,7 @@
 "use client";
 
+import { CircleAlert, Info, LogIn, Network, Terminal } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useTranslations } from "next-intl";
 
 import { useState, useEffect } from "react";
@@ -112,13 +114,13 @@ export default function LoginPage() {
               </p>
               <div className="bg-black/40 rounded-lg px-4 py-3 font-mono text-sm border border-red-500/20">
                 <div className="flex items-center gap-2 text-red-300/60 mb-1">
-                  <span className="material-symbols-outlined text-[14px]">terminal</span>
+                  <Icon icon={Terminal} size="sm" color="current" />
                   <span className="text-xs">{t("nodeIncompatibleFixLabel")}</span>
                 </div>
                 <code className="text-amber-300">nvm install 22 && nvm use 22</code>
               </div>
               <p className="text-xs text-red-300/50 mt-3 flex items-center gap-1.5">
-                <span className="material-symbols-outlined text-[14px]">info</span>
+                <Icon icon={Info} size="sm" color="current" />
                 {t("nodeIncompatibleHint")}
               </p>
             </div>
@@ -250,7 +252,7 @@ export default function LoginPage() {
                       className="w-full h-full object-contain"
                     />
                   ) : (
-                    <span className="material-symbols-outlined text-white text-[20px]">hub</span>
+                    <Icon icon={Network} size="lg" color="foreground" />
                   )}
                 </div>
                 <span className="text-xl font-semibold text-text-main tracking-tight">
@@ -274,7 +276,7 @@ export default function LoginPage() {
                   className="w-full h-11 text-sm font-medium flex items-center justify-center gap-2"
                   onClick={() => (window.location.href = "/api/auth/oidc/login")}
                 >
-                  <span className="material-symbols-outlined text-lg">login</span>
+                  <Icon icon={LogIn} size="md" color="current" />
                   {t("continueWithOidc")}
                 </Button>
               </div>
@@ -294,7 +296,7 @@ export default function LoginPage() {
                     />
                     {error && (
                       <p className="text-sm text-red-500 flex items-center gap-1.5 pt-1">
-                        <span className="material-symbols-outlined text-base">error</span>
+                        <Icon icon={CircleAlert} size="md" color="current" />
                         {error}
                       </p>
                     )}
@@ -319,7 +321,7 @@ export default function LoginPage() {
                       className="w-full h-11 text-sm font-medium flex items-center justify-center gap-2"
                       onClick={() => (window.location.href = "/api/auth/oidc/login")}
                     >
-                      <span className="material-symbols-outlined text-lg">login</span>
+                      <Icon icon={LogIn} size="md" color="current" />
                       {t("continueWithOidc")}
                     </Button>
                   </div>

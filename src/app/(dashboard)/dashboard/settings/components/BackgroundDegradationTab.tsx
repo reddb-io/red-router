@@ -1,5 +1,7 @@
 "use client";
 
+import { ArrowRight, ChartColumn, ChevronRight, CircleCheck, Gauge, X } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useEffect } from "react";
 import { Card, ModelSelectField, Toggle } from "@/shared/components";
 import { useTranslations } from "next-intl";
@@ -88,9 +90,7 @@ export default function BackgroundDegradationTab() {
     <Card>
       <div className="flex items-center gap-3 mb-5">
         <div className="p-2 rounded-lg bg-sky-500/10 text-sky-500">
-          <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
-            speed
-          </span>
+          <Icon icon={Gauge} size="lg" color="current" />
         </div>
         <div className="flex-1">
           <h3 className="text-lg font-semibold">{t("backgroundDegradationTitle")}</h3>
@@ -98,7 +98,7 @@ export default function BackgroundDegradationTab() {
         </div>
         {status === "saved" && (
           <span className="text-xs font-medium text-emerald-500 flex items-center gap-1">
-            <span className="material-symbols-outlined text-[14px]">check_circle</span> {t("saved")}
+            <Icon icon={CircleCheck} size="sm" color="current" /> {t("saved")}
           </span>
         )}
       </div>
@@ -124,7 +124,7 @@ export default function BackgroundDegradationTab() {
       {config.stats && config.stats.detected > 0 && (
         <div className="flex items-center gap-4 p-3 rounded-lg bg-sky-500/5 border border-sky-500/20 mb-4">
           <div className="flex items-center gap-2">
-            <span className="material-symbols-outlined text-[16px] text-sky-400">analytics</span>
+            <Icon icon={ChartColumn} size="md" color="current" />
             <span className="text-xs text-text-muted">{t("tasksDetected")}:</span>
             <span className="text-sm font-mono font-semibold text-sky-400">
               {config.stats.detected}
@@ -169,16 +169,14 @@ export default function BackgroundDegradationTab() {
                 {mapEntries.map(([from, to]) => (
                   <div key={from} className="flex items-center gap-3 px-4 py-2">
                     <code className="text-xs text-orange-400/80 flex-1 truncate">{from}</code>
-                    <span className="material-symbols-outlined text-[14px] text-text-muted">
-                      arrow_forward
-                    </span>
+                    <Icon icon={ArrowRight} size="sm" color="ink-muted" />
                     <code className="text-xs text-sky-400/80 flex-1 truncate">{to}</code>
                     <button
                       onClick={() => removeMapping(from)}
                       disabled={saving}
                       className="p-1 rounded hover:bg-red-500/10 text-text-muted hover:text-red-400 transition-all"
                     >
-                      <span className="material-symbols-outlined text-[16px]">close</span>
+                      <Icon icon={X} size="md" color="current" />
                     </button>
                   </div>
                 ))}
@@ -189,9 +187,7 @@ export default function BackgroundDegradationTab() {
           {/* Detection Patterns */}
           <details className="group">
             <summary className="text-xs font-medium text-text-muted uppercase tracking-wider cursor-pointer flex items-center gap-1 mb-2">
-              <span className="material-symbols-outlined text-[14px] group-open:rotate-90 transition-transform">
-                chevron_right
-              </span>
+              <Icon icon={ChevronRight} size="sm" color="current" className="group-open:rotate-90 transition-transform" />
               {t("detectionPatterns")} ({config.detectionPatterns?.length || 0})
             </summary>
 
@@ -226,7 +222,7 @@ export default function BackgroundDegradationTab() {
                     className="hover:text-red-400 transition-colors"
                     disabled={saving}
                   >
-                    <span className="material-symbols-outlined text-[12px]">close</span>
+                    <Icon icon={X} size="sm" color="current" />
                   </button>
                 </span>
               ))}

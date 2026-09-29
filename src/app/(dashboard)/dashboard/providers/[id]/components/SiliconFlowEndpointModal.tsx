@@ -3,6 +3,8 @@
 // Phase 1d extraction — Issue #3501
 // SiliconFlowEndpointModal moved out of ProviderDetailPageClient.tsx.
 
+import { Globe } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useTranslations } from "next-intl";
 import { Modal } from "@/shared/components";
 import { providerText, SILICONFLOW_ENDPOINTS } from "../providerPageHelpers";
@@ -39,7 +41,7 @@ export default function SiliconFlowEndpointModal({
             className="w-full p-4 text-left border border-border rounded-lg hover:bg-sidebar transition-colors"
           >
             <div className="flex items-start gap-3">
-              <span className="material-symbols-outlined text-primary mt-0.5">public</span>
+              <Icon icon={Globe} size="lg" color="primary" className="mt-0.5" />
               <div className="flex-1">
                 <h3 className="font-semibold mb-1">
                   {providerText(

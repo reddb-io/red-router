@@ -1,5 +1,7 @@
 "use client";
 
+import { CircleCheck, Database } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useTranslations } from "next-intl";
 import { Card } from "@/shared/components";
@@ -226,9 +228,7 @@ export default function QdrantConfigCard() {
     <Card>
       <div className="flex items-center gap-3 mb-5">
         <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-500 shrink-0">
-          <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
-            database
-          </span>
+          <Icon icon={Database} size="lg" color="current" />
         </div>
         <div className="flex-1 min-w-0">
           <h3 className="text-sm font-semibold text-text-main">{t("qdrant.title")}</h3>
@@ -352,7 +352,7 @@ export default function QdrantConfigCard() {
 
       {saveStatus === "saved" && (
         <div className="mb-4 text-xs font-medium text-emerald-500 flex items-center gap-1">
-          <span className="material-symbols-outlined text-[14px]">check_circle</span>
+          <Icon icon={CircleCheck} size="sm" color="current" />
           {t("qdrant.saved")}
         </div>
       )}

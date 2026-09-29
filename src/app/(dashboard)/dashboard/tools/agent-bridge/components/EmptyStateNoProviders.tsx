@@ -1,5 +1,7 @@
 "use client";
 
+import { ArrowRight } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useTranslations } from "next-intl";
 import Link from "next/link";
 
@@ -30,7 +32,7 @@ export function EmptyStateNoProviders() {
         href="/dashboard/providers"
         className="inline-flex items-center gap-2 rounded-lg bg-primary px-5 py-2.5 text-sm font-medium text-white hover:bg-primary/90 transition-colors"
       >
-        <span className="material-symbols-outlined text-[16px]">arrow_forward</span>
+        <Icon icon={ArrowRight} size="md" color="current" />
         {t("emptyGoToProviders") || "Go to Providers"}
       </Link>
     </div>

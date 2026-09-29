@@ -1,5 +1,7 @@
 "use client";
 
+import { Activity, ArrowDown, ArrowRight, ArrowUp, Bot, Check, CircleAlert, CircleCheck, CircleQuestionMark, Compass, Copy, FileCheck, Funnel, GlobeLock, GripVertical, Info, Layers, Lightbulb, Pencil, Sparkles, Trash2, TriangleAlert, X } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import {
   useState,
   useEffect,
@@ -1364,7 +1366,7 @@ function CombosPageContent() {
         <Card padding="sm">
           <div className="flex flex-col gap-2">
             <div className="flex items-center gap-2">
-              <span className="material-symbols-outlined text-primary text-[18px]">filter_alt</span>
+              <Icon icon={Funnel} size="md" color="primary" />
               <p className="text-sm font-semibold text-text-main">
                 {getI18nOrFallback(t, "filterEmptyTitle", "No combos match this strategy filter.")}
               </p>
@@ -1521,9 +1523,7 @@ function ComboUsageGuide({ onHide, onHideForever, onCreateCombo }) {
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
           <div className="size-7 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-            <span className="material-symbols-outlined text-primary text-[16px]">
-              tips_and_updates
-            </span>
+            <Icon icon={Lightbulb} size="md" color="primary" />
           </div>
           <div className="min-w-0">
             <h2 className="text-sm font-semibold">
@@ -1576,7 +1576,7 @@ function ComboUsageGuide({ onHide, onHideForever, onCreateCombo }) {
               </p>
               {index < COMBO_WIZARD_STEPS.length - 1 && (
                 <span className="absolute -right-2.5 top-1/2 z-10 hidden -translate-y-1/2 text-text-muted md:block">
-                  <span className="material-symbols-outlined text-[14px]">arrow_forward</span>
+                  <Icon icon={ArrowRight} size="sm" color="current" />
                 </span>
               )}
             </div>
@@ -1684,7 +1684,7 @@ function StrategyRecommendationsPanel({ strategy, onApply, showNudge }) {
             key={`${strategy}-tip-${index + 1}`}
             className="flex items-start gap-1 rounded-md bg-black/[0.02] dark:bg-white/[0.03] px-1.5 py-1"
           >
-            <span className="material-symbols-outlined text-[12px] text-primary mt-0.5">check</span>
+            <Icon icon={Check} size="sm" color="primary" className="mt-0.5" />
             <p className="text-[10px] text-text-main">{tip}</p>
           </div>
         ))}
@@ -1846,11 +1846,11 @@ function ComboCardInner({
             title={getI18nOrFallback(t, "reorderHandle", "Drag to reorder combo")}
             aria-label={getI18nOrFallback(t, "reorderHandle", "Drag to reorder combo")}
           >
-            <span className="material-symbols-outlined text-[18px]">drag_indicator</span>
+            <Icon icon={GripVertical} size="md" color="current" />
           </button>
 
           <div className="size-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-            <span className="material-symbols-outlined text-primary text-[18px]">layers</span>
+            <Icon icon={Layers} size="md" color="primary" />
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
@@ -1869,7 +1869,7 @@ function ComboCardInner({
                   className="text-[9px] uppercase font-semibold px-1.5 py-0.5 rounded-full bg-primary/15 text-primary flex items-center gap-0.5"
                   title={t("proxyConfigured")}
                 >
-                  <span className="material-symbols-outlined text-[11px]">vpn_lock</span>
+                  <Icon icon={GlobeLock} size="sm" color="current" />
                   proxy
                 </span>
               )}
@@ -1961,7 +1961,7 @@ function ComboCardInner({
               className="p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded text-text-muted hover:text-primary transition-colors"
               title={getI18nOrFallback(t, "controlCenter", "Control Center")}
             >
-              <span className="material-symbols-outlined text-[16px]">monitoring</span>
+              <Icon icon={Activity} size="md" color="current" />
             </Link>
             <button
               onClick={onTest}
@@ -1980,28 +1980,28 @@ function ComboCardInner({
               className="p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded text-text-muted hover:text-primary transition-colors"
               title={t("duplicate")}
             >
-              <span className="material-symbols-outlined text-[16px]">content_copy</span>
+              <Icon icon={Copy} size="md" color="current" />
             </button>
             <button
               onClick={onProxy}
               className="p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded text-text-muted hover:text-primary transition-colors"
               title={t("proxyConfig")}
             >
-              <span className="material-symbols-outlined text-[16px]">vpn_lock</span>
+              <Icon icon={GlobeLock} size="md" color="current" />
             </button>
             <button
               onClick={onEdit}
               className="p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded text-text-muted hover:text-primary transition-colors"
               title={tc("edit")}
             >
-              <span className="material-symbols-outlined text-[16px]">edit</span>
+              <Icon icon={Pencil} size="md" color="current" />
             </button>
             <button
               onClick={onDelete}
               className="p-1.5 hover:bg-red-500/10 rounded text-red-500 transition-colors"
               title={tc("delete")}
             >
-              <span className="material-symbols-outlined text-[16px]">delete</span>
+              <Icon icon={Trash2} size="md" color="current" />
             </button>
           </div>
         </div>
@@ -2017,7 +2017,7 @@ function TestResultsView({ results }) {
   if (results.error) {
     return (
       <div className="flex items-center gap-2 text-red-500 text-sm">
-        <span className="material-symbols-outlined text-[18px]">error</span>
+        <Icon icon={CircleAlert} size="md" color="current" />
         {typeof results.error === "string" ? results.error : JSON.stringify(results.error)}
       </div>
     );
@@ -2031,9 +2031,7 @@ function TestResultsView({ results }) {
       </p>
       {results.resolvedBy && (
         <div className="flex items-center gap-2 text-sm">
-          <span className="material-symbols-outlined text-emerald-500 text-[18px]">
-            check_circle
-          </span>
+          <Icon icon={CircleCheck} size="md" color="feedback-success-foreground" />
           <div className="min-w-0">
             <div>
               First healthy target in combo order:{" "}
@@ -3416,9 +3414,7 @@ function ComboFormModal({
                 <label className="text-sm font-medium">{t("routingStrategy")}</label>
                 {!isExpertMode && (
                   <Tooltip content={getStrategyDescription(t, strategy)}>
-                    <span className="material-symbols-outlined text-[13px] text-text-muted cursor-help">
-                      help
-                    </span>
+                    <Icon icon={CircleQuestionMark} size="sm" color="ink-muted" className="cursor-help" />
                   </Tooltip>
                 )}
               </div>
@@ -3833,9 +3829,7 @@ function ComboFormModal({
 
               {models.length === 0 ? (
                 <div className="text-center py-4 border border-dashed border-black/10 dark:border-white/10 rounded-lg bg-black/[0.01] dark:bg-white/[0.01]">
-                  <span className="material-symbols-outlined text-text-muted text-xl mb-1">
-                    layers
-                  </span>
+                  <Icon icon={Layers} size="lg" color="ink-muted" className="mb-1" />
                   <p className="text-xs text-text-muted">{t("noModelsYet")}</p>
                 </div>
               ) : (
@@ -3855,9 +3849,7 @@ function ComboFormModal({
                       } ${dragIndex === index ? "opacity-50" : ""}`}
                     >
                       {/* Drag handle */}
-                      <span className="material-symbols-outlined text-[14px] text-text-muted/40 cursor-grab shrink-0">
-                        drag_indicator
-                      </span>
+                      <Icon icon={GripVertical} size="sm" color="ink-muted" className="cursor-grab shrink-0" />
 
                       {/* Index badge */}
                       <span className="text-[10px] font-medium text-text-muted w-3 text-center shrink-0">
@@ -3928,9 +3920,7 @@ function ComboFormModal({
                           className={`p-0.5 rounded ${index === 0 ? "text-text-muted/20 cursor-not-allowed" : "text-text-muted hover:text-primary hover:bg-black/5 dark:hover:bg-white/5"}`}
                           title={t("moveUp")}
                         >
-                          <span className="material-symbols-outlined text-[12px]">
-                            arrow_upward
-                          </span>
+                          <Icon icon={ArrowUp} size="sm" color="current" />
                         </button>
                         <button
                           onClick={() => handleMoveDown(index)}
@@ -3938,9 +3928,7 @@ function ComboFormModal({
                           className={`p-0.5 rounded ${index === models.length - 1 ? "text-text-muted/20 cursor-not-allowed" : "text-text-muted hover:text-primary hover:bg-black/5 dark:hover:bg-white/5"}`}
                           title={t("moveDown")}
                         >
-                          <span className="material-symbols-outlined text-[12px]">
-                            arrow_downward
-                          </span>
+                          <Icon icon={ArrowDown} size="sm" color="current" />
                         </button>
                       </div>
 
@@ -3950,7 +3938,7 @@ function ComboFormModal({
                         className="p-0.5 hover:bg-red-500/10 rounded text-text-muted hover:text-red-500 transition-all"
                         title={t("removeModel")}
                       >
-                        <span className="material-symbols-outlined text-[12px]">close</span>
+                        <Icon icon={X} size="sm" color="current" />
                       </button>
                     </div>
                   ))}
@@ -3996,14 +3984,14 @@ function ComboFormModal({
 
               {hasNoModels && (
                 <div className="mt-2 rounded-md border border-amber-500/20 bg-amber-500/10 px-2 py-1.5 text-[10px] text-amber-700 dark:text-amber-300 flex items-center gap-1">
-                  <span className="material-symbols-outlined text-[12px]">warning</span>
+                  <Icon icon={TriangleAlert} size="sm" color="current" />
                   <span>{t("noModelsYet")}</span>
                 </div>
               )}
 
               {hasInvalidWeightedTotal && (
                 <div className="mt-2 rounded-md border border-amber-500/20 bg-amber-500/10 px-2 py-1.5 text-[10px] text-amber-700 dark:text-amber-300 flex items-center gap-1">
-                  <span className="material-symbols-outlined text-[12px]">warning</span>
+                  <Icon icon={TriangleAlert} size="sm" color="current" />
                   <span>
                     {t("weighted")} {weightTotal}% {"\u2260"} 100%. {t("autoBalance")}
                   </span>
@@ -4012,7 +4000,7 @@ function ComboFormModal({
 
               {!isExpertMode && hasRoundRobinSingleModel && (
                 <div className="mt-2 rounded-md border border-blue-500/20 bg-blue-500/10 px-2 py-1.5 text-[10px] text-blue-700 dark:text-blue-300 flex items-center gap-1">
-                  <span className="material-symbols-outlined text-[12px]">info</span>
+                  <Icon icon={Info} size="sm" color="current" />
                   <span>
                     {getI18nOrFallback(
                       t,
@@ -4025,7 +4013,7 @@ function ComboFormModal({
 
               {hasCostOptimizedPartialPricing && (
                 <div className="mt-2 rounded-md border border-amber-500/20 bg-amber-500/10 px-2 py-1.5 text-[10px] text-amber-700 dark:text-amber-300 flex items-center gap-1">
-                  <span className="material-symbols-outlined text-[12px]">warning</span>
+                  <Icon icon={TriangleAlert} size="sm" color="current" />
                   <span>
                     {typeof t.has === "function" && t.has("warningCostOptimizedPartialPricing")
                       ? t("warningCostOptimizedPartialPricing", {
@@ -4039,7 +4027,7 @@ function ComboFormModal({
 
               {hasCostOptimizedWithoutPricing && (
                 <div className="mt-2 rounded-md border border-amber-500/20 bg-amber-500/10 px-2 py-1.5 text-[10px] text-amber-700 dark:text-amber-300 flex items-center gap-1">
-                  <span className="material-symbols-outlined text-[12px]">warning</span>
+                  <Icon icon={TriangleAlert} size="sm" color="current" />
                   <span>
                     {getI18nOrFallback(
                       t,
@@ -4065,7 +4053,7 @@ function ComboFormModal({
                 className="w-full mt-2 py-2 border border-dashed border-black/10 dark:border-white/10 rounded-lg text-xs text-text-muted hover:text-primary hover:border-primary/30 transition-colors flex items-center justify-center gap-1"
                 data-testid="combo-browse-catalog"
               >
-                <span className="material-symbols-outlined text-[16px]">travel_explore</span>
+                <Icon icon={Compass} size="md" color="current" />
                 {getI18nOrFallback(t, "browseLegacyCatalog", "Browse legacy model catalog")}
               </button>
             </div>
@@ -4176,9 +4164,7 @@ function ComboFormModal({
                             ADVANCED_FIELD_HELP_FALLBACK.failoverBeforeRetry
                           )}
                         >
-                          <span className="material-symbols-outlined text-[12px] text-text-muted cursor-help">
-                            help
-                          </span>
+                          <Icon icon={CircleQuestionMark} size="sm" color="ink-muted" className="cursor-help" />
                         </Tooltip>
                       </div>
                     </div>
@@ -4676,7 +4662,7 @@ function ComboFormModal({
           {showStrategySection && (
             <div className="flex flex-col gap-2 p-3 bg-black/[0.02] dark:bg-white/[0.02] rounded-lg border border-black/5 dark:border-white/5">
               <div className="flex items-center gap-1.5 mb-1">
-                <span className="material-symbols-outlined text-[14px] text-primary">rule</span>
+                <Icon icon={FileCheck} size="sm" color="primary" />
                 <p className="text-xs font-medium">
                   {getI18nOrFallback(t, "responseValidationTitle", "Response validation")}
                 </p>
@@ -4693,9 +4679,7 @@ function ComboFormModal({
           {showStrategySection && (
             <div className="flex flex-col gap-2 p-3 bg-black/[0.02] dark:bg-white/[0.02] rounded-lg border border-black/5 dark:border-white/5">
               <div className="flex items-center gap-1.5 mb-1">
-                <span className="material-symbols-outlined text-[14px] text-primary">
-                  smart_toy
-                </span>
+                <Icon icon={Bot} size="sm" color="primary" />
                 <p className="text-xs font-medium">
                   {getI18nOrFallback(t, "agentFeaturesTitle", "Agent features")}
                 </p>
@@ -4917,9 +4901,7 @@ function ComboFormModal({
               {usesIntelligentBuilderStage && (
                 <div className="rounded-lg border border-primary/15 bg-primary/[0.04] p-3">
                   <div className="flex items-center gap-2">
-                    <span className="material-symbols-outlined text-primary text-[16px]">
-                      auto_awesome
-                    </span>
+                    <Icon icon={Sparkles} size="md" color="primary" />
                     <p className="text-sm font-semibold text-text-main">
                       {getI18nOrFallback(t, "reviewIntelligentTitle", "Intelligent Routing Config")}
                     </p>

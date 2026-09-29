@@ -1,5 +1,7 @@
 "use client";
 
+import { SlidersHorizontal } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
 import { Card, Button } from "@/shared/components";
@@ -210,7 +212,7 @@ function ModelOverridesHeader({ count }: { count: number }) {
     <div className="flex items-start justify-between gap-3 mb-3">
       <div>
         <h3 className="text-sm font-bold flex items-center gap-2">
-          <span className="material-symbols-outlined text-[18px] text-primary">tune</span>
+          <Icon icon={SlidersHorizontal} size="md" color="primary" />
           {t("modelOverridesTitle")}
         </h3>
         <p className="text-xs text-text-muted mt-1">{t("modelOverridesDesc")}</p>

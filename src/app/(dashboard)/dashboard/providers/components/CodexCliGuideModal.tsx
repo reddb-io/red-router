@@ -1,5 +1,7 @@
 "use client";
 
+import { Terminal } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import ReactMarkdown, { type Components } from "react-markdown";
@@ -12,7 +14,7 @@ const markdownComponents: Components = {
   h2({ children }) {
     return (
       <h2 className="mt-6 mb-3 flex items-center gap-2 text-base font-bold text-text-main first:mt-0">
-        <span className="material-symbols-outlined text-[16px] text-primary">terminal</span>
+        <Icon icon={Terminal} size="md" color="primary" />
         {children}
       </h2>
     );

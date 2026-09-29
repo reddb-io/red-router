@@ -1,5 +1,7 @@
 "use client";
 
+import { TriangleAlert } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
 import Link from "next/link";
@@ -215,7 +217,7 @@ export default function CliCodePageClient({
       {/* Empty state — no active providers */}
       {!providersLoading && !hasActiveProviders && (
         <div className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-4 flex items-start gap-3">
-          <span className="material-symbols-outlined text-amber-500 flex-shrink-0">warning</span>
+          <Icon icon={TriangleAlert} size="lg" color="feedback-warning-foreground" className="flex-shrink-0" />
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium text-amber-600 dark:text-amber-400">
               {tCommon("detail.noActiveProviders")}

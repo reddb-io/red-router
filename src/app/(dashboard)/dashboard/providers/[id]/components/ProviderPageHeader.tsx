@@ -1,6 +1,8 @@
 "use client";
 
 // Phase 1t.1 extraction — Issue #3501
+import { ArrowLeft, ExternalLink } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import Link from "next/link";
 import ProviderIcon from "@/shared/components/ProviderIcon";
 import { getHeaderIconProviderId, providerText } from "../providerPageHelpers";
@@ -65,7 +67,7 @@ export default function ProviderPageHeader({
       className="text-sm font-medium underline underline-offset-2 opacity-70 hover:opacity-100 transition-opacity inline-flex items-center gap-1"
       style={{ color: providerInfo.color }}
     >
-      <span className="material-symbols-outlined text-base">open_in_new</span>
+      <Icon icon={ExternalLink} size="md" color="current" />
       {t("getApiKey")}
     </a>
   ) : null;
@@ -76,7 +78,7 @@ export default function ProviderPageHeader({
         href="/dashboard/providers"
         className="inline-flex items-center gap-1 text-sm text-text-muted hover:text-primary transition-colors mb-4"
       >
-        <span className="material-symbols-outlined text-lg">arrow_back</span>
+        <Icon icon={ArrowLeft} size="md" color="current" />
         {t("backToProviders")}
       </Link>
       <div className="flex items-center gap-4">
@@ -113,7 +115,7 @@ export default function ProviderPageHeader({
               }
             >
               {providerInfo.name}
-              <span className="material-symbols-outlined text-lg opacity-60">open_in_new</span>
+              <Icon icon={ExternalLink} size="md" color="current" className="opacity-60" />
             </a>
           ) : (
             <h1 className="text-3xl font-semibold tracking-tight">{providerInfo.name}</h1>

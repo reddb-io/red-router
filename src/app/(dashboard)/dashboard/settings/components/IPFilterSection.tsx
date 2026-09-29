@@ -1,5 +1,7 @@
 "use client";
 
+import { ShieldHalf, Trash2, X } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useEffect } from "react";
 import { Card, Button, Input } from "@/shared/components";
 import { useTranslations } from "next-intl";
@@ -82,9 +84,7 @@ export default function IPFilterSection() {
     <Card>
       <div className="flex items-center gap-3 mb-5">
         <div className="p-2 rounded-lg bg-red-500/10 text-red-500">
-          <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
-            security
-          </span>
+          <Icon icon={ShieldHalf} size="lg" color="current" />
         </div>
         <div className="flex-1">
           <h3 className="text-lg font-semibold">{t("ipAccessControl")}</h3>
@@ -176,7 +176,7 @@ export default function IPFilterSection() {
                       onClick={() => removeIP(ip, "blacklist")}
                       className="hover:text-red-300"
                     >
-                      <span className="material-symbols-outlined text-[14px]">close</span>
+                      <Icon icon={X} size="sm" color="current" />
                     </button>
                   </span>
                 ))}
@@ -202,7 +202,7 @@ export default function IPFilterSection() {
                       onClick={() => removeIP(ip, "whitelist")}
                       className="hover:text-emerald-300"
                     >
-                      <span className="material-symbols-outlined text-[14px]">close</span>
+                      <Icon icon={X} size="sm" color="current" />
                     </button>
                   </span>
                 ))}
@@ -235,7 +235,7 @@ export default function IPFilterSection() {
                         onClick={() => removeBan(ban.ip)}
                         className="text-text-muted hover:text-orange-400"
                       >
-                        <span className="material-symbols-outlined text-[16px]">delete</span>
+                        <Icon icon={Trash2} size="md" color="current" />
                       </button>
                     </div>
                   </div>

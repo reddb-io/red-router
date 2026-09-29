@@ -1,5 +1,7 @@
 "use client";
 
+import { ChevronsUpDown } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import Card from "../Card";
@@ -30,9 +32,7 @@ function createDateFormatter(locale: string, options: Intl.DateTimeFormatOptions
 export function SortIndicator({ active, sortOrder }: { active: boolean; sortOrder: string }) {
   if (!active) {
     return (
-      <span className="material-symbols-outlined text-[12px] opacity-0 group-hover:opacity-30">
-        unfold_more
-      </span>
+      <Icon icon={ChevronsUpDown} size="sm" color="current" className="opacity-0 group-hover:opacity-30" />
     );
   }
   return (

@@ -10,6 +10,8 @@
  * Leaf component: imports from shared, leaf helpers, and sibling components.
  * Never imports from ProviderDetailPageClient.
  */
+import { ArrowDownUp, CircleAlert, CircleCheck, CirclePlay, Eye, EyeOff, LoaderCircle, Search, TriangleAlert } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import React, { useState, useRef, useEffect } from "react";
 import {
   getModelCatalogSourceLabel,
@@ -124,9 +126,7 @@ export function ModelVisibilityToolbar({
   return (
     <div className="mb-3 flex flex-wrap items-center gap-2">
       <div className="relative min-w-[220px] flex-1">
-        <span className="material-symbols-outlined pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-[15px] text-text-muted">
-          search
-        </span>
+        <Icon icon={Search} size="md" color="ink-muted" className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2" />
         <input
           type="text"
           value={filterValue}
@@ -188,7 +188,7 @@ export function ModelVisibilityToolbar({
           }`}
           title={providerText(t, "sortFreeFirst", "Free first")}
         >
-          <span className="material-symbols-outlined text-[16px]">sort</span>
+          <Icon icon={ArrowDownUp} size="md" color="current" />
           <span>{providerText(t, "sortFreeFirst", "Free first")}</span>
         </button>
       )}
@@ -233,7 +233,7 @@ export function ModelVisibilityToolbar({
         className="flex items-center gap-1.5 rounded-lg border border-border bg-transparent px-2.5 py-1 text-[12px] text-text-main disabled:cursor-not-allowed disabled:opacity-50"
         title={providerText(t, "showAllModels", "Show all")}
       >
-        <span className="material-symbols-outlined text-[16px]">visibility</span>
+        <Icon icon={Eye} size="md" color="current" />
         <span>{providerText(t, "showAllModels", "Show all")}</span>
       </button>
       <button
@@ -242,7 +242,7 @@ export function ModelVisibilityToolbar({
         className="flex items-center gap-1.5 rounded-lg border border-border bg-transparent px-2.5 py-1 text-[12px] text-text-main disabled:cursor-not-allowed disabled:opacity-50"
         title={providerText(t, "hideAllModels", "Hide all")}
       >
-        <span className="material-symbols-outlined text-[16px]">visibility_off</span>
+        <Icon icon={EyeOff} size="md" color="current" />
         <span>{providerText(t, "hideAllModels", "Hide all")}</span>
       </button>
       <span className="whitespace-nowrap text-xs text-text-muted">
@@ -418,17 +418,15 @@ export default function ModelRow({
             }
           >
             {testingModel ? (
-              <span className="material-symbols-outlined text-sm animate-spin">
-                progress_activity
-              </span>
+              <Icon icon={LoaderCircle} size="sm" color="current" className="animate-spin" />
             ) : testStatus === "ok" ? (
-              <span className="material-symbols-outlined text-sm">check_circle</span>
+              <Icon icon={CircleCheck} size="sm" color="current" />
             ) : testStatus === "quota" ? (
-              <span className="material-symbols-outlined text-sm">warning</span>
+              <Icon icon={TriangleAlert} size="sm" color="current" />
             ) : testStatus === "error" ? (
-              <span className="material-symbols-outlined text-sm">error</span>
+              <Icon icon={CircleAlert} size="sm" color="current" />
             ) : (
-              <span className="material-symbols-outlined text-sm">play_circle</span>
+              <Icon icon={CirclePlay} size="sm" color="current" />
             )}
           </button>
         )}

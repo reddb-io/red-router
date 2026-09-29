@@ -1,5 +1,7 @@
 "use client";
 
+import { Key } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
 import { useEffect, useMemo, useState } from "react";
@@ -111,7 +113,7 @@ export default function VscodeTokenAliasCard({
     return (
       <Card className={`overflow-hidden ${className}`.trim()}>
         <div className="flex items-center gap-2 px-4 py-3 border-b border-black/5 dark:border-white/5">
-          <span className="material-symbols-outlined text-[14px] text-primary">key</span>
+          <Icon icon={Key} size="sm" color="primary" />
           <h3 className="text-xs font-semibold uppercase tracking-wider text-text-muted">
             {t("vscodeAliasTitle")}
           </h3>

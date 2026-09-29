@@ -1,5 +1,7 @@
 "use client";
 
+import { LoaderCircle } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
@@ -179,12 +181,7 @@ export default function ProviderCatalog({
   if (loading) {
     return (
       <div className="flex items-center justify-center py-8" data-testid="catalog-loading">
-        <span
-          className="material-symbols-outlined text-[20px] text-primary animate-spin"
-          aria-hidden="true"
-        >
-          progress_activity
-        </span>
+        <Icon icon={LoaderCircle} size="lg" color="primary" className="animate-spin" />
       </div>
     );
   }

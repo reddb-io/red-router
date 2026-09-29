@@ -1,5 +1,7 @@
 "use client";
 
+import { Calendar, ChartColumn, X } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import Card from "./Card";
@@ -201,7 +203,7 @@ export default function UsageAnalytics() {
       {/* Header + Filters */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <h2 className="text-xl font-semibold flex items-center gap-2">
-          <span className="material-symbols-outlined text-primary text-[22px]">analytics</span>
+          <Icon icon={ChartColumn} size="lg" color="primary" />
           {t("usageAnalyticsTitle")}
         </h2>
         <div className="flex items-center gap-2.5">
@@ -238,7 +240,7 @@ export default function UsageAnalytics() {
                   : "text-text-muted hover:text-text-main hover:bg-black/5 dark:hover:bg-white/5"
               }`}
             >
-              <span className="material-symbols-outlined text-[13px]">date_range</span>
+              <Icon icon={Calendar} size="sm" color="current" />
               {customRangeLabel || t("customRange")}
               {range === "custom" && customRangeLabel && (
                 <span
@@ -251,7 +253,7 @@ export default function UsageAnalytics() {
                   }}
                   className="ml-0.5 opacity-70 hover:opacity-100"
                 >
-                  <span className="material-symbols-outlined text-[11px]">close</span>
+                  <Icon icon={X} size="sm" color="current" />
                 </span>
               )}
             </button>

@@ -1,5 +1,7 @@
 "use client";
 
+import { ExternalLink } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useTranslations } from "next-intl";
 import Link from "next/link";
@@ -544,7 +546,7 @@ export default function RadarPage() {
                           className="inline-flex items-center gap-1 text-sm font-medium text-violet-400 hover:underline w-fit"
                         >
                           {t("claimButton")}
-                          <span className="material-symbols-outlined text-sm">open_in_new</span>
+                          <Icon icon={ExternalLink} size="sm" color="current" />
                         </a>
                       </div>
                     </Card>
@@ -587,7 +589,7 @@ export default function RadarPage() {
                             className="inline-flex items-center gap-1 text-sm font-medium text-violet-400 hover:underline w-fit"
                           >
                             {t("claimButton")}
-                            <span className="material-symbols-outlined text-sm">open_in_new</span>
+                            <Icon icon={ExternalLink} size="sm" color="current" />
                           </a>
                         </div>
                       </Card>

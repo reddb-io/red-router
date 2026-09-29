@@ -1,5 +1,7 @@
 "use client";
 
+import { SlidersHorizontal } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { type ReactNode } from "react";
 import { useTranslations } from "next-intl";
 import { Card } from "@/shared/components";
@@ -44,12 +46,7 @@ export default function AdvancedSection({
       <div className="p-4 space-y-3">
         {/* Header */}
         <div className="flex items-start gap-3">
-          <span
-            className="material-symbols-outlined text-amber-500 text-[20px] mt-0.5 shrink-0"
-            aria-hidden="true"
-          >
-            tune
-          </span>
+          <Icon icon={SlidersHorizontal} size="lg" color="feedback-warning-foreground" className="mt-0.5 shrink-0" />
           <div className="min-w-0">
             <h3 className="text-sm font-semibold text-text-main">
               {tr("advancedSectionTitle", "Advanced")}

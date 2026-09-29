@@ -1,5 +1,7 @@
 "use client";
 
+import { Route } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
@@ -151,7 +153,7 @@ function RouterNode({ data }: { data: RouterNodeData }) {
       />
 
       <div className="flex items-center justify-center size-7 rounded-md bg-primary/15 shrink-0">
-        <span className="material-symbols-outlined text-primary text-[16px]">route</span>
+        <Icon icon={Route} size="md" color="primary" />
       </div>
       <span className="text-sm font-bold text-primary">RedRouter</span>
       {data.activeCount > 0 && (

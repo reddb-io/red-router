@@ -1,5 +1,7 @@
 "use client";
 
+import { SlidersHorizontal, X } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useEffect, useRef } from "react";
 import { Card, Button, Input, ModelSelectField, Toggle } from "@/shared/components";
 import { cn } from "@/shared/utils/cn";
@@ -325,9 +327,7 @@ export default function ComboDefaultsTab() {
     <Card>
       <div className="flex items-center gap-3 mb-4">
         <div className="p-2 rounded-lg bg-amber-500/10 text-amber-500">
-          <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
-            tune
-          </span>
+          <Icon icon={SlidersHorizontal} size="lg" color="current" />
         </div>
         <h3 className="text-lg font-semibold">
           {translateOrFallback(t, "comboDefaultsTitle", "Default Routing & Combo Settings")}
@@ -844,9 +844,7 @@ export default function ComboDefaultsTab() {
                   className="ml-auto text-red-400 hover:text-red-500 transition-colors"
                   aria-label={t("removeProviderOverrideAria", { provider })}
                 >
-                  <span className="material-symbols-outlined text-[16px]" aria-hidden="true">
-                    close
-                  </span>
+                  <Icon icon={X} size="md" color="current" />
                 </button>
               </div>
             )

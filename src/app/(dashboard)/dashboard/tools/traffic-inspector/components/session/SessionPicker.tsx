@@ -1,5 +1,7 @@
 "use client";
 
+import { FolderOpen, Trash2 } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState } from "react";
 import { useTranslations } from "next-intl";
 import type { SessionInfo } from "../../hooks/useSessionRecorder";
@@ -24,9 +26,7 @@ export function SessionPicker({ sessions, selectedId, onSelect, onDelete }: Sess
         onClick={() => setOpen((o) => !o)}
         className="flex items-center gap-1 rounded border border-border bg-bg-subtle px-2 py-1 text-xs text-text-main hover:bg-surface focus-ring"
       >
-        <span className="material-symbols-outlined text-[14px]" aria-hidden="true">
-          folder_open
-        </span>
+        <Icon icon={FolderOpen} size="sm" color="current" />
         {selected
           ? (selected.name ?? t("sessionName", { id: selected.id.slice(0, 6) }))
           : t("sessions")}
@@ -76,9 +76,7 @@ export function SessionPicker({ sessions, selectedId, onSelect, onDelete }: Sess
                 className="px-2 text-text-muted hover:text-red-400 opacity-0 group-hover:opacity-100 focus-ring rounded"
                 aria-label={t("deleteSession")}
               >
-                <span className="material-symbols-outlined text-[14px]" aria-hidden="true">
-                  delete
-                </span>
+                <Icon icon={Trash2} size="sm" color="current" />
               </button>
             </div>
           ))}

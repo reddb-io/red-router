@@ -8,6 +8,8 @@
 // a derived-pipeline preview, and the general settings (auto-trigger tokens +
 // preserve-system-prompt).
 //
+import { CircleAlert, CircleCheck, ExternalLink, Minimize2 } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useTranslations, useLocale } from "next-intl";
@@ -395,9 +397,7 @@ export default function CompressionPanel() {
       <div className="mb-5 flex items-start justify-between gap-4">
         <div className="flex items-center gap-3">
           <div className="rounded-lg bg-blue-500/10 p-2 text-blue-500">
-            <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
-              compress
-            </span>
+            <Icon icon={Minimize2} size="lg" color="current" />
           </div>
           <div>
             <h3 className="text-lg font-semibold">{t("compressionTitle")}</h3>
@@ -410,22 +410,20 @@ export default function CompressionPanel() {
               className="mt-0.5 inline-flex items-center gap-1 text-xs text-primary hover:underline"
             >
               {t("compressionGuidanceFullGuideLink")}
-              <span className="material-symbols-outlined text-[12px]" aria-hidden="true">
-                open_in_new
-              </span>
+              <Icon icon={ExternalLink} size="sm" color="current" />
             </a>
           </div>
         </div>
         <div className="flex items-center gap-3">
           {status === "saved" && (
             <span className="flex items-center gap-1 text-xs font-medium text-emerald-500">
-              <span className="material-symbols-outlined text-[14px]">check_circle</span>{" "}
+              <Icon icon={CircleCheck} size="sm" color="current" />{" "}
               {t("saved")}
             </span>
           )}
           {status === "error" && (
             <span className="flex items-center gap-1 text-xs font-medium text-red-500">
-              <span className="material-symbols-outlined text-[14px]">error</span> {t("saveFailed")}
+              <Icon icon={CircleAlert} size="sm" color="current" /> {t("saveFailed")}
             </span>
           )}
           <Toggle

@@ -9,6 +9,8 @@
  * Cycle-safe: no import from ProviderDetailPageClient.
  */
 
+import { CircleAlert, CircleCheck, LoaderCircle } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { Modal } from "@/shared/components";
 import type { ImportProgress } from "../hooks/useModelImportHandlers";
 import type { ProviderMessageTranslator } from "../providerPageHelpers";
@@ -39,20 +41,16 @@ export default function ImportProgressModal({
         {/* Status text */}
         <div className="flex items-center gap-3">
           {importProgress.phase === "fetching" && (
-            <span className="material-symbols-outlined text-primary animate-spin">
-              progress_activity
-            </span>
+            <Icon icon={LoaderCircle} size="lg" color="primary" className="animate-spin" />
           )}
           {importProgress.phase === "importing" && (
-            <span className="material-symbols-outlined text-primary animate-spin">
-              progress_activity
-            </span>
+            <Icon icon={LoaderCircle} size="lg" color="primary" className="animate-spin" />
           )}
           {importProgress.phase === "done" && (
-            <span className="material-symbols-outlined text-green-500">check_circle</span>
+            <Icon icon={CircleCheck} size="lg" color="feedback-success-foreground" />
           )}
           {importProgress.phase === "error" && (
-            <span className="material-symbols-outlined text-red-500">error</span>
+            <Icon icon={CircleAlert} size="lg" color="feedback-danger-foreground" />
           )}
           <span className="text-sm font-medium text-text-main">{importProgress.status}</span>
         </div>

@@ -1,5 +1,7 @@
 "use client";
 
+import { Plus, X } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import { Button, Input } from "@/shared/components";
@@ -69,7 +71,7 @@ export function ApiKeyPicker({ selected, onChange }: ApiKeyPickerProps) {
                 className="grid size-5 place-items-center rounded-full text-text-muted hover:text-text-main"
                 aria-label={t("removeKey", { name: key.name || t("deletedKey") })}
               >
-                <span className="material-symbols-outlined text-[14px] leading-none">close</span>
+                <Icon icon={X} size="sm" color="current" className="leading-none" />
               </button>
             </li>
           ))}
@@ -94,7 +96,7 @@ export function ApiKeyPicker({ selected, onChange }: ApiKeyPickerProps) {
             className="flex w-full items-center justify-between gap-3 border-b border-border px-3 py-2 text-left text-sm text-text-main last:border-b-0 hover:bg-bg-subtle"
           >
             <span className="min-w-0 truncate">{key.name || t("unnamedKey")}</span>
-            <span className="material-symbols-outlined text-[16px] text-text-muted">add</span>
+            <Icon icon={Plus} size="md" color="ink-muted" />
           </button>
         ))}
         {!loading && visible.length === 0 ? (

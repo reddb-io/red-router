@@ -1,5 +1,7 @@
 "use client";
 
+import { CircleDollarSign } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
 import { Card } from "@/shared/components";
@@ -131,7 +133,7 @@ export function ApiKeyUsageLimitCard({
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <span className="material-symbols-outlined text-emerald-400 text-lg">paid</span>
+            <Icon icon={CircleDollarSign} size="md" color="feedback-success-foreground" />
             <h3 className="text-sm font-semibold text-text-main">{t("apiKeyUsdQuota")}</h3>
             {payload?.key.name && (
               <span className="truncate rounded bg-surface px-2 py-0.5 text-xs text-text-muted">
@@ -153,7 +155,7 @@ export function ApiKeyUsageLimitCard({
               : "border-border bg-black/5 text-text-muted dark:bg-white/5"
           } ${loading || !payload ? "opacity-50" : ""}`}
         >
-          <span className="material-symbols-outlined text-[14px]">paid</span>
+          <Icon icon={CircleDollarSign} size="sm" color="current" />
           {enabled ? t("enabled") : t("disabled")}
         </button>
       </div>

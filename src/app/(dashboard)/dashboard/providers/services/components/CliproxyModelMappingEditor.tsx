@@ -5,6 +5,8 @@
  */
 "use client";
 
+import { CircleAlert, LoaderCircle, Workflow } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useEffect, useRef } from "react";
 import { useTranslations } from "next-intl";
 import { Card } from "@/shared/components";
@@ -147,7 +149,7 @@ export function CliproxyModelMappingEditor() {
     <Card padding="md">
       <div className="flex items-center gap-3 mb-4">
         <div className="size-8 rounded-lg flex items-center justify-center bg-violet-500/10">
-          <span className="material-symbols-outlined text-violet-500 text-xl">account_tree</span>
+          <Icon icon={Workflow} size="lg" color="current" />
         </div>
         <div>
           <h3 className="font-medium text-sm">{t("modelMapping")}</h3>
@@ -195,7 +197,7 @@ export function CliproxyModelMappingEditor() {
 
       {validationMessage && rawText !== EMPTY_MAPPING && (
         <p className="mt-1.5 text-xs text-red-600 dark:text-red-400 flex items-start gap-1">
-          <span className="material-symbols-outlined text-[12px] mt-0.5 shrink-0">error</span>
+          <Icon icon={CircleAlert} size="sm" color="current" className="mt-0.5 shrink-0" />
           {validationMessage}
         </p>
       )}
@@ -211,9 +213,7 @@ export function CliproxyModelMappingEditor() {
           }`}
         >
           {saving && (
-            <span className="material-symbols-outlined animate-spin text-[14px]">
-              progress_activity
-            </span>
+            <Icon icon={LoaderCircle} size="sm" color="current" className="animate-spin" />
           )}
           {t("save")}
         </button>

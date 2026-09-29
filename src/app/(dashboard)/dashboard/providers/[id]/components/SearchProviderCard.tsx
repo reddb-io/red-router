@@ -1,6 +1,8 @@
 "use client";
 
 // Phase 1t.7 extraction — Issue #3501
+import { Link, Server, SlidersHorizontal } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { Card } from "@/shared/components";
 import type { ProviderMessageTranslator } from "../providerPageHelpers";
 
@@ -16,19 +18,19 @@ export default function SearchProviderCard({ providerId, t }: SearchProviderCard
       <p className="text-sm text-text-muted">{t("searchProviderDesc")}</p>
       {providerId === "perplexity-search" && (
         <div className="mt-3 flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-500/10 border border-blue-500/20">
-          <span className="material-symbols-outlined text-sm text-blue-400">link</span>
+          <Icon icon={Link} size="sm" color="current" />
           <p className="text-xs text-blue-300">{t("perplexitySearchSharedKeyInfo")}</p>
         </div>
       )}
       {providerId === "google-pse-search" && (
         <div className="mt-3 flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/20">
-          <span className="material-symbols-outlined text-sm text-amber-300">tune</span>
+          <Icon icon={SlidersHorizontal} size="sm" color="feedback-warning-foreground" />
           <p className="text-xs text-amber-200">{t("googlePseInfo")}</p>
         </div>
       )}
       {providerId === "searxng-search" && (
         <div className="mt-3 flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
-          <span className="material-symbols-outlined text-sm text-emerald-300">dns</span>
+          <Icon icon={Server} size="sm" color="feedback-success-foreground" />
           <p className="text-xs text-emerald-200">{t("searxngInfo")}</p>
         </div>
       )}

@@ -1,5 +1,7 @@
 "use client";
 
+import { ArrowLeftRight, ArrowRight, ChevronRight, Lock, X } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useEffect, useState } from "react";
 import { Button, Card, Input } from "@/shared/components";
 import { useTranslations } from "next-intl";
@@ -182,9 +184,7 @@ export default function ModelAliasesUnified() {
     <Card>
       <div className="flex items-center gap-3 mb-5">
         <div className="p-2 rounded-lg bg-purple-500/10 text-purple-500">
-          <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
-            swap_horiz
-          </span>
+          <Icon icon={ArrowLeftRight} size="lg" color="current" />
         </div>
         <div className="flex-1">
           <h3 className="text-lg font-semibold">
@@ -265,9 +265,7 @@ export default function ModelAliasesUnified() {
             disabled={loading || saving}
           />
           <div className="hidden md:flex items-center justify-center pb-2 text-text-muted">
-            <span className="material-symbols-outlined text-[16px]" aria-hidden="true">
-              arrow_forward
-            </span>
+            <Icon icon={ArrowRight} size="md" color="current" />
           </div>
           <Input
             label={aliasMode === "exact" ? t("newModelId") : t("targetModel")}
@@ -306,9 +304,7 @@ export default function ModelAliasesUnified() {
             customEntries.map(([from, to]) => (
               <div key={from} className="flex items-center gap-3 px-4 py-2.5">
                 <code className="text-xs text-red-400/80 flex-1 truncate">{from}</code>
-                <span className="material-symbols-outlined text-[14px] text-text-muted">
-                  arrow_forward
-                </span>
+                <Icon icon={ArrowRight} size="sm" color="ink-muted" />
                 <code className="text-xs text-emerald-400/80 flex-1 truncate">{to}</code>
                 <button
                   type="button"
@@ -316,7 +312,7 @@ export default function ModelAliasesUnified() {
                   disabled={saving}
                   className="p-1 rounded hover:bg-red-500/10 text-text-muted hover:text-red-400 transition-all"
                 >
-                  <span className="material-symbols-outlined text-[16px]">close</span>
+                  <Icon icon={X} size="md" color="current" />
                 </button>
               </div>
             ))
@@ -344,9 +340,7 @@ export default function ModelAliasesUnified() {
                 className="flex items-center gap-3 px-4 py-2.5"
               >
                 <code className="text-xs text-purple-400 flex-1 truncate">{alias.pattern}</code>
-                <span className="material-symbols-outlined text-[14px] text-text-muted">
-                  arrow_forward
-                </span>
+                <Icon icon={ArrowRight} size="sm" color="ink-muted" />
                 <code className="text-xs text-emerald-400/80 flex-1 truncate">{alias.target}</code>
                 <button
                   type="button"
@@ -354,7 +348,7 @@ export default function ModelAliasesUnified() {
                   disabled={saving}
                   className="p-1 rounded hover:bg-red-500/10 text-text-muted hover:text-red-400 transition-all"
                 >
-                  <span className="material-symbols-outlined text-[16px]">close</span>
+                  <Icon icon={X} size="md" color="current" />
                 </button>
               </div>
             ))
@@ -364,20 +358,16 @@ export default function ModelAliasesUnified() {
 
       <details className="group">
         <summary className="text-xs font-medium text-text-muted uppercase tracking-wider cursor-pointer flex items-center gap-1 mb-2">
-          <span className="material-symbols-outlined text-[14px] group-open:rotate-90 transition-transform">
-            chevron_right
-          </span>
+          <Icon icon={ChevronRight} size="sm" color="current" className="group-open:rotate-90 transition-transform" />
           {translateOrFallback(t, "builtInAliases", "Built-in Aliases")} ({builtInEntries.length})
         </summary>
         <div className="rounded-lg border border-border/30 divide-y divide-border/20 max-h-60 overflow-y-auto">
           {builtInEntries.map(([from, to]) => (
             <div key={from} className="flex items-center gap-3 px-4 py-2 opacity-60">
               <code className="text-xs text-red-400/60 flex-1 truncate">{from}</code>
-              <span className="material-symbols-outlined text-[14px] text-text-muted">
-                arrow_forward
-              </span>
+              <Icon icon={ArrowRight} size="sm" color="ink-muted" />
               <code className="text-xs text-emerald-400/60 flex-1 truncate">{to}</code>
-              <span className="material-symbols-outlined text-[14px] text-text-muted">lock</span>
+              <Icon icon={Lock} size="sm" color="ink-muted" />
             </div>
           ))}
         </div>

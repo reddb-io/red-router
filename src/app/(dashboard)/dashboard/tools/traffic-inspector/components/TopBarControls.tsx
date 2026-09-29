@@ -1,5 +1,7 @@
 "use client";
 
+import { Download, Eraser, Radio } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useTranslations } from "next-intl";
 import type { ListFilters } from "@/mitm/inspector/types";
 import type { AgentId } from "@/mitm/types";
@@ -137,9 +139,7 @@ export function TopBarControls({
             : "border-border text-text-muted hover:text-text-main"
         )}
       >
-        <span className="material-symbols-outlined text-[14px]" aria-hidden="true">
-          sensors
-        </span>
+        <Icon icon={Radio} size="sm" color="current" />
         {t("liveOnly")}
       </button>
 
@@ -162,9 +162,7 @@ export function TopBarControls({
         className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-xs text-text-muted hover:text-red-400 focus-ring"
         title={t("clearBtn")}
       >
-        <span className="material-symbols-outlined text-[14px]" aria-hidden="true">
-          delete_sweep
-        </span>
+        <Icon icon={Eraser} size="sm" color="current" />
         {t("clearBtn")}
       </button>
 
@@ -174,9 +172,7 @@ export function TopBarControls({
         className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-xs text-text-muted hover:text-text-main focus-ring"
         title={t("exportHar")}
       >
-        <span className="material-symbols-outlined text-[14px]" aria-hidden="true">
-          download
-        </span>
+        <Icon icon={Download} size="sm" color="current" />
         {t("exportHar")}
       </button>
 

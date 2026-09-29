@@ -1,5 +1,7 @@
 "use client";
 
+import { CircleAlert, CircleCheck, Zap } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useEffect, useState } from "react";
 import { Card, Toggle, InfoTooltip } from "@/shared/components";
 import { useTranslations } from "next-intl";
@@ -83,9 +85,7 @@ function CodexAutoPingHeader({ status }: { status: "" | "saved" | "error" }) {
   return (
     <div className="flex items-center gap-3 mb-3">
       <div className="p-2 rounded-lg bg-amber-500/10 text-amber-500">
-        <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
-          bolt
-        </span>
+        <Icon icon={Zap} size="lg" color="current" />
       </div>
       <div className="flex-1">
         <h3 className="text-lg font-semibold flex items-center gap-1.5">
@@ -96,13 +96,13 @@ function CodexAutoPingHeader({ status }: { status: "" | "saved" | "error" }) {
       </div>
       {status === "saved" && (
         <span className="text-xs font-medium text-emerald-500 flex items-center gap-1">
-          <span className="material-symbols-outlined text-[14px]">check_circle</span>{" "}
+          <Icon icon={CircleCheck} size="sm" color="current" />{" "}
           {t("saved")}
         </span>
       )}
       {status === "error" && (
         <span className="text-xs font-medium text-rose-500 flex items-center gap-1">
-          <span className="material-symbols-outlined text-[14px]">error</span>{" "}
+          <Icon icon={CircleAlert} size="sm" color="current" />{" "}
           {t("codexAutoPingSaveError")}
         </span>
       )}

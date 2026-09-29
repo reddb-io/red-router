@@ -1,5 +1,7 @@
 "use client";
 
+import { LayoutGrid } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
 
@@ -316,7 +318,7 @@ export default function ProviderHealthMatrixCard() {
         <div>
           <div className="flex items-center gap-3">
             <div className="flex size-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
-              <span className="material-symbols-outlined text-[18px]">grid_view</span>
+              <Icon icon={LayoutGrid} size="md" color="current" />
             </div>
             <div>
               <h2 className="text-lg font-semibold text-text-main">

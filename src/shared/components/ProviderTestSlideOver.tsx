@@ -1,5 +1,7 @@
 "use client";
 
+import { Ban, Eraser, ExternalLink, Info, LoaderCircle, RefreshCw, X } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import Image from "next/image";
 import { useTranslations } from "next-intl";
@@ -170,7 +172,7 @@ function SlideOverHeader({
             <>
               <span>·</span>
               <span className="flex items-center gap-0.5 text-text-muted/70">
-                <span className="material-symbols-outlined text-[12px]">block</span>
+                <Icon icon={Ban} size="sm" color="current" />
                 {t("deprecated")}
               </span>
             </>
@@ -179,7 +181,7 @@ function SlideOverHeader({
             <>
               <span>·</span>
               <span className="flex items-center gap-0.5 text-amber-500">
-                <span className="material-symbols-outlined text-[12px]">info</span>
+                <Icon icon={Info} size="sm" color="current" />
                 {t("risk")}
               </span>
             </>
@@ -192,7 +194,7 @@ function SlideOverHeader({
         aria-label={t("close")}
         className="p-1.5 rounded-lg text-text-muted hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
       >
-        <span className="material-symbols-outlined text-[20px]">close</span>
+        <Icon icon={X} size="lg" color="current" />
       </button>
     </div>
   );
@@ -258,7 +260,7 @@ function TestToolbar({
           className="text-[11px] text-text-muted hover:text-text-main transition-colors flex items-center gap-1"
           title={t("clearConversation")}
         >
-          <span className="material-symbols-outlined text-[14px]">delete_sweep</span>
+          <Icon icon={Eraser} size="sm" color="current" />
           {t("clear")}
         </button>
       )}
@@ -390,9 +392,7 @@ function LogsTab({ providerId }: { providerId: string }) {
   if (state.status === "loading") {
     return (
       <div className="flex-1 min-h-0 flex items-center justify-center text-xs text-text-muted gap-2">
-        <span className="material-symbols-outlined text-[18px] animate-spin">
-          progress_activity
-        </span>
+        <Icon icon={LoaderCircle} size="md" color="current" className="animate-spin" />
         {t("loadingLogs")}
       </div>
     );
@@ -419,7 +419,7 @@ function LogsTab({ providerId }: { providerId: string }) {
               rel="noopener noreferrer"
             >
               {t("openFullLogs")}
-              <span className="material-symbols-outlined text-[14px]">open_in_new</span>
+              <Icon icon={ExternalLink} size="sm" color="current" />
             </a>
           </>
         }
@@ -447,7 +447,7 @@ function LogsTab({ providerId }: { providerId: string }) {
           className="text-[10px] text-text-muted hover:text-text-main inline-flex items-center gap-1"
           title={t("refreshNow")}
         >
-          <span className="material-symbols-outlined text-[14px]">refresh</span>
+          <Icon icon={RefreshCw} size="sm" color="current" />
           {t("refresh")}
         </button>
       </div>
@@ -511,7 +511,7 @@ function LogsTab({ providerId }: { providerId: string }) {
           rel="noopener noreferrer"
         >
           {t("openFullLogs")}
-          <span className="material-symbols-outlined text-[12px]">open_in_new</span>
+          <Icon icon={ExternalLink} size="sm" color="current" />
         </a>
       </div>
     </div>

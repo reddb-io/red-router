@@ -1,5 +1,7 @@
 "use client";
 
+import { CircleAlert, CircleCheck } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import { validateJsonl } from "@/lib/batches/validateJsonl";
@@ -72,7 +74,7 @@ export default function JsonlValidationStep({
       {/* OK / Error banner — spec §5 "campos OK" appended on success (A-7) */}
       {result.ok ? (
         <div className="flex items-center gap-3 rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-4 py-3">
-          <span className="material-symbols-outlined text-emerald-400">check_circle</span>
+          <Icon icon={CircleCheck} size="lg" color="feedback-success-foreground" />
           <div className="flex flex-col gap-0.5">
             <span className="text-sm font-medium text-emerald-400">{t("wizardValidationOk")}</span>
             <span className="text-xs text-[var(--color-text-muted)]">
@@ -86,7 +88,7 @@ export default function JsonlValidationStep({
         </div>
       ) : (
         <div className="flex items-center gap-3 rounded-xl border border-red-500/25 bg-red-500/10 px-4 py-3">
-          <span className="material-symbols-outlined text-red-400">error</span>
+          <Icon icon={CircleAlert} size="lg" color="feedback-danger-foreground" />
           <div className="flex flex-col gap-0.5">
             <span className="text-sm font-medium text-red-400">{t("wizardValidationErrors")}</span>
             <span className="text-xs text-[var(--color-text-muted)]">

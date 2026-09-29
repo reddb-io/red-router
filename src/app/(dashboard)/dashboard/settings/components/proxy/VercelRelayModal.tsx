@@ -1,4 +1,6 @@
 "use client";
+import { CloudUpload, X } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState } from "react";
 import { useTranslations } from "next-intl";
 import { Button } from "@/shared/components";
@@ -58,15 +60,11 @@ export default function VercelRelayModal({ isOpen, onClose, onDeployed }: Vercel
       <div className="bg-surface rounded-lg shadow-xl p-6 w-full max-w-md space-y-4">
         <div className="flex items-center justify-between">
           <h2 id="vercel-relay-title" className="text-lg font-bold flex items-center gap-2">
-            <span className="material-symbols-outlined text-primary" aria-hidden="true">
-              cloud_upload
-            </span>
+            <Icon icon={CloudUpload} size="lg" color="primary" />
             {t("vercelRelayModalTitle")}
           </h2>
           <button onClick={onClose} aria-label={t("close")} className="text-text-muted hover:text-text">
-            <span className="material-symbols-outlined" aria-hidden="true">
-              close
-            </span>
+            <Icon icon={X} size="lg" color="current" />
           </button>
         </div>
 

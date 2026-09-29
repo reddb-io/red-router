@@ -2,6 +2,8 @@
 
 // src/app/(dashboard)/dashboard/playground/components/ToolsBuilder.tsx
 
+import { Pencil, SquareFunction, Trash2 } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState } from "react";
 import { useTranslations } from "next-intl";
 import { useToolsBuilder } from "../hooks/useToolsBuilder";
@@ -125,9 +127,7 @@ export default function ToolsBuilder({ toolsBuilder }: ToolsBuilderProps) {
                 {/* Tool header */}
                 <div className="flex items-center justify-between px-3 py-2 bg-bg-alt">
                   <div className="flex items-center gap-2">
-                    <span className="material-symbols-outlined text-[14px] text-text-muted">
-                      function
-                    </span>
+                    <Icon icon={SquareFunction} size="sm" color="ink-muted" />
                     <code className="text-xs font-mono text-text-main">{tool.function.name}</code>
                     {tool.function.description && (
                       <span className="text-[11px] text-text-muted truncate max-w-[200px]">
@@ -142,7 +142,7 @@ export default function ToolsBuilder({ toolsBuilder }: ToolsBuilderProps) {
                         className="p-1 rounded text-text-muted hover:text-text-main hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
                         aria-label={t("editTool", { name: tool.function.name })}
                       >
-                        <span className="material-symbols-outlined text-[14px]">edit</span>
+                        <Icon icon={Pencil} size="sm" color="current" />
                       </button>
                     )}
                     <button
@@ -150,7 +150,7 @@ export default function ToolsBuilder({ toolsBuilder }: ToolsBuilderProps) {
                       className="p-1 rounded text-text-muted hover:text-destructive transition-colors"
                       aria-label={t("removeTool", { name: tool.function.name })}
                     >
-                      <span className="material-symbols-outlined text-[14px]">delete</span>
+                      <Icon icon={Trash2} size="sm" color="current" />
                     </button>
                   </div>
                 </div>

@@ -1,5 +1,7 @@
 "use client";
 
+import { ArrowRight } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useEffect, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
 
@@ -92,7 +94,7 @@ export default function NewsViewer() {
               <a href={announcement.link} target="_blank" rel="noopener noreferrer">
                 <Button variant="primary" className="gap-2">
                   {announcement.linkLabel ?? t("learnMore")}
-                  <span className="material-symbols-outlined text-[18px]">arrow_forward</span>
+                  <Icon icon={ArrowRight} size="md" color="current" />
                 </Button>
               </a>
             </div>

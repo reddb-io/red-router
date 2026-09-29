@@ -1,4 +1,6 @@
 "use client";
+import { ExternalLink, TriangleAlert } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useEffect, useRef } from "react";
 import { useTranslations } from "next-intl";
 import { Button, Badge, Input, Modal, Toggle, TALL_MODAL_PROPS } from "@/shared/components";
@@ -541,9 +543,7 @@ export default function AddApiKeyModal({
             rel="noopener noreferrer"
             className="flex items-center justify-center gap-1.5 rounded-lg border border-primary/30 bg-primary/10 px-3 py-2 text-sm font-medium text-primary transition-colors hover:bg-primary/20"
           >
-            <span className="material-symbols-outlined text-[18px]" aria-hidden="true">
-              open_in_new
-            </span>
+            <Icon icon={ExternalLink} size="md" color="current" />
             {providerText(t, "openWebProviderSite", "Open {host}", {
               host: webProviderHostLink.host,
             })}
@@ -675,9 +675,7 @@ export default function AddApiKeyModal({
             {isCcCompatible && (
               <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-sm text-text-muted">
                 <div className="flex items-start gap-2">
-                  <span className="material-symbols-outlined mt-0.5 text-[18px] text-amber-500">
-                    warning
-                  </span>
+                  <Icon icon={TriangleAlert} size="md" color="feedback-warning-foreground" className="mt-0.5" />
                   <p>{t("ccCompatibleValidationHint")}</p>
                 </div>
               </div>
@@ -685,9 +683,7 @@ export default function AddApiKeyModal({
             {isCommandCode && onStartCommandCodeAuth && (
               <div className="rounded-lg border border-sky-500/20 bg-sky-500/10 px-3 py-3 text-sm">
                 <div className="flex items-start gap-3">
-                  <span className="material-symbols-outlined mt-0.5 text-[18px] text-sky-500">
-                    open_in_new
-                  </span>
+                  <Icon icon={ExternalLink} size="md" color="current" className="mt-0.5" />
                   <div className="min-w-0 flex-1">
                     <p className="font-medium text-text-main">
                       {t("providerDetailBrowserManualConnect")}

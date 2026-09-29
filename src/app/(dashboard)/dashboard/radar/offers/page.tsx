@@ -1,5 +1,7 @@
 "use client";
 
+import { ExternalLink } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -255,7 +257,7 @@ export default function RadarOffersPage() {
                   className="mt-auto inline-flex w-fit items-center gap-1 text-sm font-medium text-violet-400 hover:underline"
                 >
                   {t("openOffer")}
-                  <span className="material-symbols-outlined text-sm">open_in_new</span>
+                  <Icon icon={ExternalLink} size="sm" color="current" />
                 </a>
               </div>
             </Card>

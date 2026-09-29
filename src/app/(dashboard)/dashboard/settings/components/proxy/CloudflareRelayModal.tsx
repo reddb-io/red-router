@@ -1,4 +1,6 @@
 "use client";
+import { Cloud, X } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState } from "react";
 import { useTranslations } from "next-intl";
 import { Button } from "@/shared/components";
@@ -72,9 +74,7 @@ export default function CloudflareRelayModal({
             id="cloudflare-relay-title"
             className="text-lg font-bold flex items-center gap-2"
           >
-            <span className="material-symbols-outlined text-primary" aria-hidden="true">
-              cloud
-            </span>
+            <Icon icon={Cloud} size="lg" color="primary" />
             {t("cloudflareRelayModalTitle")}
           </h2>
           <button
@@ -82,9 +82,7 @@ export default function CloudflareRelayModal({
             aria-label={t("close")}
             className="text-text-muted hover:text-text"
           >
-            <span className="material-symbols-outlined" aria-hidden="true">
-              close
-            </span>
+            <Icon icon={X} size="lg" color="current" />
           </button>
         </div>
 

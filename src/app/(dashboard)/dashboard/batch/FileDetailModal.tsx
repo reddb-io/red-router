@@ -1,5 +1,7 @@
 "use client";
 
+import { CalendarClock, Copy, Download, ScrollText, TriangleAlert, X } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import { Button } from "@/shared/components";
@@ -146,9 +148,7 @@ export default function FileDetailModal({
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--color-border)] flex-shrink-0">
           <div className="flex items-center gap-3">
-            <span className="material-symbols-outlined text-[20px] text-[var(--color-text-muted)]">
-              description
-            </span>
+            <Icon icon={ScrollText} size="lg" color="ink-muted" />
             <div>
               <h2 className="text-base font-semibold text-[var(--color-text-main)]">
                 {t("batchFileContents")}
@@ -162,7 +162,7 @@ export default function FileDetailModal({
                   className="text-[var(--color-text-muted)] hover:text-[var(--color-text-main)] transition-colors"
                   title={t("batchFileDetailCopyId")}
                 >
-                  <span className="material-symbols-outlined text-[12px]">content_copy</span>
+                  <Icon icon={Copy} size="sm" color="current" />
                 </button>
               </div>
             </div>
@@ -172,7 +172,7 @@ export default function FileDetailModal({
             aria-label={t("batchFileDetailClose")}
             className="p-1.5 rounded-lg text-[var(--color-text-muted)] hover:bg-[var(--color-bg-alt)] transition-colors"
           >
-            <span className="material-symbols-outlined text-[20px]">close</span>
+            <Icon icon={X} size="lg" color="current" />
           </button>
         </div>
 
@@ -224,9 +224,7 @@ export default function FileDetailModal({
                     key={b.id}
                     className="flex items-center gap-3 px-3 py-2 rounded-lg bg-[var(--color-bg-alt)] border border-[var(--color-border)] text-xs"
                   >
-                    <span className="material-symbols-outlined text-[14px] text-[var(--color-text-muted)]">
-                      pending_actions
-                    </span>
+                    <Icon icon={CalendarClock} size="sm" color="ink-muted" />
                     <span className="font-mono text-[var(--color-text-main)] truncate">{b.id}</span>
                     <span
                       className={`ml-auto px-1.5 py-0.5 rounded text-[10px] font-medium border ${
@@ -278,7 +276,7 @@ export default function FileDetailModal({
                   </pre>
                   {isTruncated && (
                     <div className="mt-3 p-3 bg-yellow-500/10 border border-yellow-500/25 rounded-lg text-xs text-yellow-400 flex items-center gap-2">
-                      <span className="material-symbols-outlined text-[16px]">warning</span>
+                      <Icon icon={TriangleAlert} size="md" color="current" />
                       {t("batchFilePreviewTruncated", { shown: 1000, total: lineCount })}
                     </div>
                   )}
@@ -300,7 +298,7 @@ export default function FileDetailModal({
               onClick={handleDownload}
               className="flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-[var(--color-accent)] text-white hover:opacity-90 transition-opacity"
             >
-              <span className="material-symbols-outlined text-[18px]">download</span>
+              <Icon icon={Download} size="md" color="current" />
               {t("batchFileDownloadFull")}
             </Button>
           </div>

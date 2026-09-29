@@ -1,5 +1,7 @@
 "use client";
 
+import { Search, Wallet } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { Card, Button, Input, EmptyState } from "@/shared/components";
@@ -422,7 +424,7 @@ export default function BudgetTab() {
   if (loading) {
     return (
       <div className="flex items-center gap-2 text-text-muted p-8 animate-pulse">
-        <span className="material-symbols-outlined text-[20px]">account_balance_wallet</span>
+        <Icon icon={Wallet} size="lg" color="current" />
         {t("loadingBudgetData")}
       </div>
     );
@@ -455,9 +457,7 @@ export default function BudgetTab() {
         <div className="flex items-start justify-between gap-3 mb-4">
           <div>
             <h2 className="text-xl font-bold flex items-center gap-2">
-              <span className="material-symbols-outlined text-[22px] text-primary">
-                account_balance_wallet
-              </span>
+              <Icon icon={Wallet} size="lg" color="primary" />
               {t("budgetPageTitle")}
             </h2>
             <p className="text-text-muted text-xs mt-0.5">{t("budgetPageDescription")}</p>
@@ -499,9 +499,7 @@ export default function BudgetTab() {
       <div className="flex flex-col gap-2">
         <div className="flex flex-wrap gap-2 items-center">
           <div className="relative flex-1 min-w-[260px]">
-            <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-text-muted text-lg">
-              search
-            </span>
+            <Icon icon={Search} size="md" color="ink-muted" className="absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
               placeholder={t("budgetSearchKeysPlaceholder")}

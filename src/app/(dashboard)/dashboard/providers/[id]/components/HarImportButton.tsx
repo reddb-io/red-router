@@ -1,5 +1,7 @@
 "use client";
 
+import { FileUp } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import {
@@ -115,9 +117,7 @@ export default function HarImportButton({ provider, onImport }: HarImportButtonP
           data-testid="har-import-button"
           className="inline-flex items-center gap-1.5 rounded border border-border px-2.5 py-1.5 text-xs font-medium text-text-main hover:bg-surface-hover disabled:opacity-50"
         >
-          <span className="material-symbols-outlined text-[16px]" aria-hidden="true">
-            upload_file
-          </span>
+          <Icon icon={FileUp} size="md" color="current" />
           {state.phase === "reading"
             ? providerText(t, "harImportButtonBusy", "Importing…")
             : providerText(t, "harImportButtonLabel", "Import .har file")}

@@ -1,5 +1,7 @@
 "use client";
 
+import { BrushCleaning, CircleAlert, CircleCheck, Download, ShieldX, Stethoscope, TriangleAlert, Upload, Wrench } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { Button, Input, Modal } from "@/shared/components";
@@ -198,7 +200,7 @@ export function AgentBridgeMaintenanceCard({
     <div className="rounded-xl border border-border/60 bg-card overflow-hidden">
       <div className="flex items-center gap-3 px-5 py-4">
         <div className="p-2 rounded-lg bg-primary/10">
-          <span className="material-symbols-outlined text-[20px] text-primary">build</span>
+          <Icon icon={Wrench} size="lg" color="primary" />
         </div>
         <div>
           <h2 className="text-sm font-semibold text-text-main">
@@ -214,7 +216,7 @@ export function AgentBridgeMaintenanceCard({
       {/* Orphaned-state repair banner (Gap 7) */}
       {orphanedStateDetected && (
         <div className="mx-5 mb-3 flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
-          <span className="material-symbols-outlined text-[16px]">warning</span>
+          <Icon icon={TriangleAlert} size="md" color="current" />
           <span>
             {t("orphanedStateWarning") ||
               "A previous session left system state behind (DNS spoof, CA, or system proxy). Run Repair to clean it up."}
@@ -230,7 +232,7 @@ export function AgentBridgeMaintenanceCard({
           disabled={busy !== null}
           className="inline-flex items-center gap-1.5 rounded-lg bg-blue-500/10 text-blue-600 px-3 py-1.5 text-xs font-medium hover:bg-blue-500/20 transition-colors disabled:opacity-50"
         >
-          <span className="material-symbols-outlined text-[14px]">troubleshoot</span>
+          <Icon icon={Stethoscope} size="sm" color="current" />
           {busy === "diagnose" ? t("diagnosing") || "Diagnosing…" : t("diagnose") || "Diagnose"}
         </button>
 
@@ -244,7 +246,7 @@ export function AgentBridgeMaintenanceCard({
               : "bg-amber-500/10 text-amber-600 hover:bg-amber-500/20"
           }`}
         >
-          <span className="material-symbols-outlined text-[14px]">cleaning_services</span>
+          <Icon icon={BrushCleaning} size="sm" color="current" />
           {busy === "repair" ? t("repairing") || "Repairing…" : t("repair") || "Repair"}
         </button>
 
@@ -276,7 +278,7 @@ export function AgentBridgeMaintenanceCard({
               disabled={busy !== null}
               className="inline-flex items-center gap-1.5 rounded-lg bg-red-500/10 text-red-600 px-3 py-1.5 text-xs font-medium hover:bg-red-500/20 transition-colors disabled:opacity-50"
             >
-              <span className="material-symbols-outlined text-[14px]">gpp_bad</span>
+              <Icon icon={ShieldX} size="sm" color="current" />
               {t("removeCa") || "Remove CA"}
             </button>
           ))}
@@ -287,7 +289,7 @@ export function AgentBridgeMaintenanceCard({
           disabled={busy !== null}
           className="inline-flex items-center gap-1.5 rounded-lg bg-zinc-500/10 text-text-muted px-3 py-1.5 text-xs font-medium hover:bg-zinc-500/20 transition-colors disabled:opacity-50"
         >
-          <span className="material-symbols-outlined text-[14px]">download</span>
+          <Icon icon={Download} size="sm" color="current" />
           {busy === "export" ? t("exporting") || "Exporting…" : t("exportConfig") || "Export config"}
         </button>
 
@@ -297,7 +299,7 @@ export function AgentBridgeMaintenanceCard({
           disabled={busy !== null}
           className="inline-flex items-center gap-1.5 rounded-lg bg-zinc-500/10 text-text-muted px-3 py-1.5 text-xs font-medium hover:bg-zinc-500/20 transition-colors disabled:opacity-50"
         >
-          <span className="material-symbols-outlined text-[14px]">upload</span>
+          <Icon icon={Upload} size="sm" color="current" />
           {busy === "import" ? t("importing") || "Importing…" : t("importConfig") || "Import config"}
         </button>
         <input
@@ -313,7 +315,7 @@ export function AgentBridgeMaintenanceCard({
       {/* Success notice */}
       {notice && (
         <div className="mx-5 mb-4 flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-400">
-          <span className="material-symbols-outlined text-[16px]">check_circle</span>
+          <Icon icon={CircleCheck} size="md" color="current" />
           {notice}
         </div>
       )}
@@ -365,7 +367,7 @@ export function AgentBridgeMaintenanceCard({
       >
         <div className="flex flex-col gap-4">
           <div className="flex items-start gap-3 rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-3">
-            <span className="material-symbols-outlined text-[20px] text-yellow-500">warning</span>
+            <Icon icon={TriangleAlert} size="lg" color="feedback-warning-foreground" />
             <p className="text-xs text-text-muted">{tCli("sudoPasswordHint")}</p>
           </div>
 
@@ -381,7 +383,7 @@ export function AgentBridgeMaintenanceCard({
 
           {passwordModalError && (
             <div className="flex items-center gap-2 rounded bg-red-500/10 px-2 py-1.5 text-xs text-red-600">
-              <span className="material-symbols-outlined text-[14px]">error</span>
+              <Icon icon={CircleAlert} size="sm" color="current" />
               <span>{passwordModalError}</span>
             </div>
           )}

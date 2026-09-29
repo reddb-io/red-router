@@ -2,6 +2,8 @@
 
 // src/app/(dashboard)/dashboard/playground/components/tabs/build/BuildWizard.tsx
 
+import { ArrowLeft, ArrowRight, Check, Play } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState } from "react";
 import { useTranslations } from "next-intl";
 import ToolsBuilder from "../../ToolsBuilder";
@@ -56,7 +58,7 @@ function Stepper({ currentStep }: StepperProps) {
               }`}
             >
               {currentStep > step.num ? (
-                <span className="material-symbols-outlined text-[12px]">check</span>
+                <Icon icon={Check} size="sm" color="current" />
               ) : (
                 step.num
               )}
@@ -175,7 +177,7 @@ export default function BuildWizard({
               className="flex items-center gap-1.5 text-sm px-4 py-2 rounded-lg bg-primary text-white hover:bg-primary/90 transition-colors"
             >
               {tb("nextButton")}
-              <span className="material-symbols-outlined text-[16px]">arrow_forward</span>
+              <Icon icon={ArrowRight} size="md" color="current" />
             </button>
           </div>
         </div>
@@ -212,7 +214,7 @@ export default function BuildWizard({
               onClick={goBack}
               className="flex items-center gap-1.5 text-sm px-4 py-2 rounded-lg border border-border text-text-muted hover:text-text-main hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
             >
-              <span className="material-symbols-outlined text-[16px]">arrow_back</span>
+              <Icon icon={ArrowLeft} size="md" color="current" />
               {tb("backButton")}
             </button>
             <button
@@ -220,7 +222,7 @@ export default function BuildWizard({
               className="flex items-center gap-1.5 text-sm px-4 py-2 rounded-lg bg-primary text-white hover:bg-primary/90 transition-colors"
             >
               {tb("nextButton")}
-              <span className="material-symbols-outlined text-[16px]">arrow_forward</span>
+              <Icon icon={ArrowRight} size="md" color="current" />
             </button>
           </div>
         </div>
@@ -235,7 +237,7 @@ export default function BuildWizard({
               onClick={goBack}
               className="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded border border-border text-text-muted hover:text-text-main hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
             >
-              <span className="material-symbols-outlined text-[14px]">arrow_back</span>
+              <Icon icon={ArrowLeft} size="sm" color="current" />
               {tb("backButton")}
             </button>
 
@@ -246,7 +248,7 @@ export default function BuildWizard({
               disabled={running || (!prompt.trim())}
               className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded bg-primary text-white hover:bg-primary/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              <span className="material-symbols-outlined text-[14px]">play_arrow</span>
+              <Icon icon={Play} size="sm" color="current" />
               {running ? t("running") : tb("runButton")}
             </button>
 

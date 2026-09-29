@@ -1,5 +1,7 @@
 "use client";
 
+import { Info, X } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { useTranslations } from "next-intl";
 
@@ -79,7 +81,7 @@ export default function CursorAgentNudge() {
       aria-label={t("cursorAgentNudgeTitle") || "Enable automatic Cursor session renewal"}
       className="flex items-start gap-3 rounded-xl border border-blue-500/30 bg-blue-500/5 px-4 py-3"
     >
-      <span className="material-symbols-outlined text-blue-500 shrink-0 mt-0.5">info</span>
+      <Icon icon={Info} size="lg" color="current" className="shrink-0 mt-0.5" />
       <div className="flex-1 min-w-0">
         <p className="text-sm font-semibold text-blue-700 dark:text-blue-400">
           {t("cursorAgentNudgeTitle") || "Enable automatic Cursor session renewal"}
@@ -95,7 +97,7 @@ export default function CursorAgentNudge() {
         aria-label={t("cursorAgentNudgeDismiss") || "Dismiss"}
         className="shrink-0 text-blue-500 hover:text-blue-400 transition-colors"
       >
-        <span className="material-symbols-outlined text-[18px]">close</span>
+        <Icon icon={X} size="md" color="current" />
       </button>
     </div>
   );

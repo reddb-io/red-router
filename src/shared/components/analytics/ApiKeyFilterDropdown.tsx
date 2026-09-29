@@ -1,5 +1,7 @@
 "use client";
 
+import { Check, KeyRound } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { useTranslations } from "next-intl";
 
@@ -99,7 +101,7 @@ export default function ApiKeyFilterDropdown({
             : "border-primary/40 bg-primary/10 text-primary"
         }`}
       >
-        <span className="material-symbols-outlined text-[14px]">vpn_key</span>
+        <Icon icon={KeyRound} size="sm" color="current" />
         {buttonLabel}
         <span
           className={`material-symbols-outlined text-[14px] transition-transform ${
@@ -148,7 +150,7 @@ export default function ApiKeyFilterDropdown({
                 }`}
               >
                 {isAllSelected && (
-                  <span className="material-symbols-outlined text-[12px]">check</span>
+                  <Icon icon={Check} size="sm" color="current" />
                 )}
               </span>
               {t("filterAllKeys")}
@@ -184,7 +186,7 @@ export default function ApiKeyFilterDropdown({
                     }`}
                   >
                     {isChecked && (
-                      <span className="material-symbols-outlined text-[12px]">check</span>
+                      <Icon icon={Check} size="sm" color="current" />
                     )}
                   </span>
                   <span className="truncate">{maskKeyName(key.name || key.id)}</span>

@@ -1,5 +1,7 @@
 "use client";
 
+import { CircleCheck, HardDriveUpload, LoaderCircle, Pencil, RotateCcw, Save } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Card, Button, ModelSelectModal, ManualConfigModal } from "@/shared/components";
 import ProviderIcon from "@/shared/components/ProviderIcon";
@@ -271,9 +273,7 @@ export default function ClineToolCard({
         <div className="mt-6 pt-6 border-t border-border">
           {checkingCline && (
             <div className="flex items-center gap-2 text-text-muted text-sm">
-              <span className="material-symbols-outlined animate-spin text-base">
-                progress_activity
-              </span>
+              <Icon icon={LoaderCircle} size="md" color="current" className="animate-spin" />
               <span>{t("checkingCli", { tool: "Cline" })}</span>
             </div>
           )}
@@ -319,9 +319,7 @@ export default function ClineToolCard({
                   {/* Current config info */}
                   {configStatus === "configured" && (
                     <div className="flex items-start gap-3 p-3 bg-green-500/10 border border-green-500/30 rounded-lg">
-                      <span className="material-symbols-outlined text-green-500 text-lg">
-                        check_circle
-                      </span>
+                      <Icon icon={CircleCheck} size="md" color="feedback-success-foreground" />
                       <div className="flex flex-col gap-1">
                         <p className="text-sm text-green-700 dark:text-green-300">
                           {t("omnirouteConfiguredOpenAiCompatible")}
@@ -358,7 +356,7 @@ export default function ClineToolCard({
                         size="sm"
                         onClick={() => setShowManualConfigModal(true)}
                       >
-                        <span className="material-symbols-outlined text-[16px]">edit</span>
+                        <Icon icon={Pencil} size="md" color="current" />
                       </Button>
                     </div>
                   </div>
@@ -394,14 +392,12 @@ export default function ClineToolCard({
                       disabled={!selectedModel}
                       loading={applying}
                     >
-                      <span className="material-symbols-outlined text-[14px] mr-1">save</span>
+                      <Icon icon={Save} size="sm" color="current" className="mr-1" />
                       {configStatus === "configured" ? t("updateConfig") : t("applyConfig")}
                     </Button>
                     {configStatus === "configured" && (
                       <Button variant="outline" size="sm" onClick={handleReset} loading={restoring}>
-                        <span className="material-symbols-outlined text-[14px] mr-1">
-                          restart_alt
-                        </span>
+                        <Icon icon={RotateCcw} size="sm" color="current" className="mr-1" />
                         {t("reset")}
                       </Button>
                     )}
@@ -430,7 +426,7 @@ export default function ClineToolCard({
                       >
                         chevron_right
                       </span>
-                      <span className="material-symbols-outlined text-[16px]">backup</span>
+                      <Icon icon={HardDriveUpload} size="md" color="current" />
                       {t("backups")} {backups.length > 0 && `(${backups.length})`}
                     </button>
                     {showBackups && backups.length > 0 && (

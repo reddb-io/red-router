@@ -1,5 +1,7 @@
 "use client";
 
+import { Route } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
 
@@ -19,9 +21,7 @@ export default function RoutingEntryLink({ apiKeyId }: { apiKeyId?: string }) {
         }
         className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-medium text-primary hover:bg-primary/10 focus-visible:outline-2 focus-visible:outline-primary"
       >
-        <span className="material-symbols-outlined text-lg" aria-hidden="true">
-          route
-        </span>
+        <Icon icon={Route} size="md" color="current" />
         {t("configure")}
       </Link>
     </div>

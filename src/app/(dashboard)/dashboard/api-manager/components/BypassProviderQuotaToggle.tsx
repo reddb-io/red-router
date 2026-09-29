@@ -1,5 +1,7 @@
 "use client";
 
+import { Split } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useTranslations } from "next-intl";
 
 /**
@@ -35,7 +37,7 @@ export function BypassProviderQuotaToggle({
             : "bg-black/5 dark:bg-white/5 text-text-muted border border-border"
         }`}
       >
-        <span className="material-symbols-outlined text-[14px]">alt_route</span>
+        <Icon icon={Split} size="sm" color="current" />
         {enabled ? tc("enabled") : tc("disabled")}
       </button>
     </div>

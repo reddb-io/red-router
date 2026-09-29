@@ -1,5 +1,7 @@
 "use client";
 
+import { History } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useTranslations } from "next-intl";
 
 interface HistoricSessionBannerProps {
@@ -12,9 +14,7 @@ export function HistoricSessionBanner({ sessionName, onBackToLive }: HistoricSes
   return (
     <div className="flex items-center justify-between gap-3 rounded border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-200">
       <div className="flex items-center gap-2">
-        <span className="material-symbols-outlined text-[16px]" aria-hidden="true">
-          history
-        </span>
+        <Icon icon={History} size="md" color="current" />
         <span>
           {t("viewingRecordedSession")} —{" "}
           <strong>{sessionName ?? t("untitledSession")}</strong>

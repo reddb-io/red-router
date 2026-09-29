@@ -1,5 +1,7 @@
 "use client";
 
+import { ExternalLink, Tag } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import ReactMarkdown, { type Components } from "react-markdown";
@@ -29,7 +31,7 @@ const markdownComponents: Components = {
   h2({ children }) {
     return (
       <h2 className="mt-8 mb-4 flex items-center gap-2 text-lg font-bold text-text-main first:mt-0">
-        <span className="material-symbols-outlined text-[20px] text-primary">sell</span>
+        <Icon icon={Tag} size="lg" color="primary" />
         {children}
       </h2>
     );
@@ -138,7 +140,7 @@ export default function ChangelogViewer() {
       <div className="mt-12 flex justify-center border-t border-border pt-6">
         <a href={CHANGELOG_GITHUB_URL} target="_blank" rel="noopener noreferrer">
           <Button variant="secondary" className="gap-2 text-xs">
-            <span className="material-symbols-outlined text-[16px]">open_in_new</span>
+            <Icon icon={ExternalLink} size="md" color="current" />
             {t("viewFullHistory")}
           </Button>
         </a>

@@ -1,5 +1,7 @@
 "use client";
 
+import { RefreshCw } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useTranslations } from "next-intl";
 import Card from "./Card";
@@ -363,7 +365,7 @@ export default function ProxyLogger() {
           className="p-2 rounded-lg hover:bg-bg-subtle text-text-muted hover:text-text-primary transition-colors"
           title={t("refresh")}
         >
-          <span className="material-symbols-outlined text-[18px]">refresh</span>
+          <Icon icon={RefreshCw} size="md" color="current" />
         </button>
       </div>
 

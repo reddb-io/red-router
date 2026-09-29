@@ -1,5 +1,7 @@
 "use client";
 
+import { Cpu, Info, LoaderCircle, RefreshCw } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useTranslations } from "next-intl";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Card, Badge, EmptyState } from "@/shared/components";
@@ -149,12 +151,7 @@ export default function MonitorTab({ onGoToTranslate }: MonitorTabProps) {
         className="flex items-start gap-3 px-4 py-3 rounded-lg bg-primary/5 border border-primary/10 text-sm text-text-muted"
         data-testid="monitor-origin-hint"
       >
-        <span
-          className="material-symbols-outlined text-primary text-[20px] mt-0.5 shrink-0"
-          aria-hidden="true"
-        >
-          info
-        </span>
+        <Icon icon={Info} size="lg" color="primary" className="mt-0.5 shrink-0" />
         <p>
           {translateOrFallback(
             "monitorOriginHint",
@@ -195,7 +192,7 @@ export default function MonitorTab({ onGoToTranslate }: MonitorTabProps) {
 
       {/* Memory note */}
       <div className="flex items-center gap-2 rounded-lg border border-amber-500/10 bg-amber-500/5 px-3 py-2 text-xs text-amber-600 dark:text-amber-400">
-        <span className="material-symbols-outlined text-[14px]">memory</span>
+        <Icon icon={Cpu} size="sm" color="current" />
         <p>
           {t("liveMonitorMemoryNote")}{" "}
           <span className="text-text-muted">{t("liveMonitorMemoryCapNote")}</span>
@@ -241,9 +238,7 @@ export default function MonitorTab({ onGoToTranslate }: MonitorTabProps) {
               className="flex items-center gap-1 text-xs text-text-muted hover:text-primary transition-colors"
               aria-label={tc("refresh")}
             >
-              <span className="material-symbols-outlined text-[16px]" aria-hidden="true">
-                refresh
-              </span>
+              <Icon icon={RefreshCw} size="md" color="current" />
               {tc("refresh")}
             </button>
           </div>
@@ -257,9 +252,7 @@ export default function MonitorTab({ onGoToTranslate }: MonitorTabProps) {
 
           {loading ? (
             <div className="flex items-center justify-center py-12 text-text-muted">
-              <span className="material-symbols-outlined animate-spin mr-2" aria-hidden="true">
-                progress_activity
-              </span>
+              <Icon icon={LoaderCircle} size="lg" color="current" className="animate-spin mr-2" />
               {tc("loading")}
             </div>
           ) : events.length === 0 ? (

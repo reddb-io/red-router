@@ -1,5 +1,7 @@
 "use client";
 
+import { Info } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState } from "react";
 import { useTranslations } from "next-intl";
 import Card from "@/shared/components/Card";
@@ -17,7 +19,7 @@ export default function QuotaConceptCard() {
         aria-expanded={expanded}
       >
         <div className="flex items-center gap-2">
-          <span className="material-symbols-outlined text-[20px] text-primary">info</span>
+          <Icon icon={Info} size="lg" color="primary" />
           <span className="text-sm font-semibold text-text-main">{t("conceptTitle")}</span>
         </div>
         <span className="material-symbols-outlined text-[18px] text-text-muted">

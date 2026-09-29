@@ -1,5 +1,7 @@
 "use client";
 
+import { BatteryWarning } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useEffect, useState } from "react";
 import { Card, Toggle } from "@/shared/components";
 import { useTranslations } from "next-intl";
@@ -103,9 +105,7 @@ export default function QuotaPreflightCard() {
     <Card>
       <div className="flex items-center gap-3 mb-4">
         <div className="p-2 rounded-lg bg-amber-500/10 text-amber-500 shrink-0">
-          <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
-            battery_alert
-          </span>
+          <Icon icon={BatteryWarning} size="lg" color="current" />
         </div>
         <div>
           <h3 className="text-base sm:text-lg font-semibold">

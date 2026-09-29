@@ -1,5 +1,7 @@
 "use client";
 
+import { ArrowRight, Copy, History, LoaderCircle, RotateCcw, Save, ScrollText, Trash2, TriangleAlert, User, UserRoundCog, X } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useEffect, useCallback } from "react";
 import { Card, Button, ModelSelectModal, ManualConfigModal } from "@/shared/components";
 import CliStatusBadge from "./CliStatusBadge";
@@ -430,7 +432,7 @@ openai_base_url = "${getEffectiveBaseUrl()}"
         <div className="mt-4 pt-4 border-t border-border flex flex-col gap-4">
           {checkingCodex && (
             <div className="flex items-center gap-2 text-text-muted">
-              <span className="material-symbols-outlined animate-spin">progress_activity</span>
+              <Icon icon={LoaderCircle} size="lg" color="current" className="animate-spin" />
               <span>{t("checkingCli", { tool: "Codex" })}</span>
             </div>
           )}
@@ -438,7 +440,7 @@ openai_base_url = "${getEffectiveBaseUrl()}"
           {!checkingCodex && codexStatus && !cliReady && (
             <div className="flex flex-col gap-4">
               <div className="flex items-center gap-3 p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
-                <span className="material-symbols-outlined text-yellow-500">warning</span>
+                <Icon icon={TriangleAlert} size="lg" color="feedback-warning-foreground" />
                 <div className="flex-1">
                   <p className="font-medium text-yellow-600 dark:text-yellow-400">
                     {codexStatus.installed
@@ -512,9 +514,7 @@ openai_base_url = "${getEffectiveBaseUrl()}"
                         <span className="w-32 shrink-0 text-sm font-semibold text-text-main text-right">
                           {t("current")}
                         </span>
-                        <span className="material-symbols-outlined text-text-muted text-[14px]">
-                          arrow_forward
-                        </span>
+                        <Icon icon={ArrowRight} size="sm" color="ink-muted" />
                         <span className="flex-1 px-2 py-1.5 text-xs text-text-muted truncate">
                           {currentBaseUrl}
                         </span>
@@ -527,9 +527,7 @@ openai_base_url = "${getEffectiveBaseUrl()}"
                   <span className="w-32 shrink-0 text-sm font-semibold text-text-main text-right">
                     {t("baseUrl")}
                   </span>
-                  <span className="material-symbols-outlined text-text-muted text-[14px]">
-                    arrow_forward
-                  </span>
+                  <Icon icon={ArrowRight} size="sm" color="ink-muted" />
                   <input
                     type="text"
                     value={getDisplayUrl()}
@@ -543,7 +541,7 @@ openai_base_url = "${getEffectiveBaseUrl()}"
                       className="p-1 text-text-muted hover:text-primary rounded transition-colors"
                       title={t("resetToDefault")}
                     >
-                      <span className="material-symbols-outlined text-[14px]">restart_alt</span>
+                      <Icon icon={RotateCcw} size="sm" color="current" />
                     </button>
                   )}
                 </div>
@@ -553,9 +551,7 @@ openai_base_url = "${getEffectiveBaseUrl()}"
                   <span className="w-32 shrink-0 text-sm font-semibold text-text-main text-right">
                     {t("apiKey")}
                   </span>
-                  <span className="material-symbols-outlined text-text-muted text-[14px]">
-                    arrow_forward
-                  </span>
+                  <Icon icon={ArrowRight} size="sm" color="ink-muted" />
                   {apiKeys.length > 0 ? (
                     <select
                       value={effectiveApiKey}
@@ -580,9 +576,7 @@ openai_base_url = "${getEffectiveBaseUrl()}"
                   <span className="w-32 shrink-0 text-sm font-semibold text-text-main text-right">
                     {t("model")}
                   </span>
-                  <span className="material-symbols-outlined text-text-muted text-[14px]">
-                    arrow_forward
-                  </span>
+                  <Icon icon={ArrowRight} size="sm" color="ink-muted" />
                   <button
                     onClick={() => {
                       setModalTarget(null);
@@ -606,7 +600,7 @@ openai_base_url = "${getEffectiveBaseUrl()}"
                       className="p-1 text-text-muted hover:text-red-500 rounded transition-colors"
                       title={t("clear")}
                     >
-                      <span className="material-symbols-outlined text-[14px]">close</span>
+                      <Icon icon={X} size="sm" color="current" />
                     </button>
                   )}
                 </div>
@@ -616,9 +610,7 @@ openai_base_url = "${getEffectiveBaseUrl()}"
                   <span className="w-32 shrink-0 text-sm font-semibold text-text-main text-right">
                     {t("reasoningEffort")}
                   </span>
-                  <span className="material-symbols-outlined text-text-muted text-[14px]">
-                    arrow_forward
-                  </span>
+                  <Icon icon={ArrowRight} size="sm" color="ink-muted" />
                   <select
                     value={reasoningEffort}
                     onChange={(e) => setReasoningEffort(e.target.value)}
@@ -639,9 +631,7 @@ openai_base_url = "${getEffectiveBaseUrl()}"
                   <span className="w-32 shrink-0 text-sm font-semibold text-text-main text-right">
                     {t("wireApi")}
                   </span>
-                  <span className="material-symbols-outlined text-text-muted text-[14px]">
-                    arrow_forward
-                  </span>
+                  <Icon icon={ArrowRight} size="sm" color="ink-muted" />
                   <select
                     value={wireApi}
                     onChange={(e) => setWireApi(e.target.value)}
@@ -662,9 +652,7 @@ openai_base_url = "${getEffectiveBaseUrl()}"
                     <span className="w-32 shrink-0 text-[11px] font-mono text-text-main text-right truncate opacity-70 group-hover:opacity-100 transition-opacity">
                       {defaultModel}
                     </span>
-                    <span className="material-symbols-outlined text-border group-hover:text-primary transition-colors text-[14px]">
-                      arrow_forward
-                    </span>
+                    <Icon icon={ArrowRight} size="sm" color="current" className="text-border group-hover:text-primary transition-colors" />
                     <button
                       onClick={() => {
                         setModalTarget(defaultModel);
@@ -694,7 +682,7 @@ openai_base_url = "${getEffectiveBaseUrl()}"
                         className="p-1 text-text-muted hover:text-red-500 rounded transition-colors"
                         title={t("clear")}
                       >
-                        <span className="material-symbols-outlined text-[14px]">close</span>
+                        <Icon icon={X} size="sm" color="current" />
                       </button>
                     )}
                   </div>
@@ -725,7 +713,7 @@ openai_base_url = "${getEffectiveBaseUrl()}"
                   })}
                   loading={applying}
                 >
-                  <span className="material-symbols-outlined text-[14px] mr-1">save</span>
+                  <Icon icon={Save} size="sm" color="current" className="mr-1" />
                   {t("apply")}
                 </Button>
                 <Button
@@ -735,11 +723,11 @@ openai_base_url = "${getEffectiveBaseUrl()}"
                   disabled={isResetDisabled({ restoring })}
                   loading={restoring}
                 >
-                  <span className="material-symbols-outlined text-[14px] mr-1">restore</span>
+                  <Icon icon={History} size="sm" color="current" className="mr-1" />
                   {t("reset")}
                 </Button>
                 <Button variant="ghost" size="sm" onClick={() => setShowManualConfigModal(true)}>
-                  <span className="material-symbols-outlined text-[14px] mr-1">content_copy</span>
+                  <Icon icon={Copy} size="sm" color="current" className="mr-1" />
                   {t("manualConfig")}
                 </Button>
                 <div className="flex-1" />
@@ -751,9 +739,7 @@ openai_base_url = "${getEffectiveBaseUrl()}"
                     if (!showProfiles) fetchProfiles();
                   }}
                 >
-                  <span className="material-symbols-outlined text-[14px] mr-1">
-                    manage_accounts
-                  </span>
+                  <Icon icon={UserRoundCog} size="sm" color="current" className="mr-1" />
                   {t("profiles")}
                 </Button>
                 <Button
@@ -764,7 +750,7 @@ openai_base_url = "${getEffectiveBaseUrl()}"
                     if (!showBackups) fetchBackups();
                   }}
                 >
-                  <span className="material-symbols-outlined text-[14px] mr-1">history</span>
+                  <Icon icon={History} size="sm" color="current" className="mr-1" />
                   {t("backups")}
                   {backups.length > 0 && ` (${backups.length})`}
                 </Button>
@@ -774,7 +760,7 @@ openai_base_url = "${getEffectiveBaseUrl()}"
               {showProfiles && (
                 <div className="mt-2 p-3 bg-surface border border-border rounded-lg">
                   <h4 className="text-xs font-semibold text-text-main mb-2 flex items-center gap-1">
-                    <span className="material-symbols-outlined text-[14px]">manage_accounts</span>
+                    <Icon icon={UserRoundCog} size="sm" color="current" />
                     {t("savedProfiles")}
                   </h4>
                   {profiles.length === 0 ? (
@@ -786,9 +772,7 @@ openai_base_url = "${getEffectiveBaseUrl()}"
                           key={p.id}
                           className="flex items-center gap-2 px-2 py-1.5 bg-black/5 dark:bg-white/5 rounded text-xs"
                         >
-                          <span className="material-symbols-outlined text-[14px] text-text-muted">
-                            person
-                          </span>
+                          <Icon icon={User} size="sm" color="ink-muted" />
                           <span className="font-medium flex-1 truncate">{p.name}</span>
                           <span
                             className="text-text-muted truncate max-w-[140px]"
@@ -808,7 +792,7 @@ openai_base_url = "${getEffectiveBaseUrl()}"
                             className="p-0.5 text-text-muted hover:text-red-500 transition-colors"
                             title={t("deleteProfile")}
                           >
-                            <span className="material-symbols-outlined text-[14px]">delete</span>
+                            <Icon icon={Trash2} size="sm" color="current" />
                           </button>
                         </div>
                       ))}
@@ -830,7 +814,7 @@ openai_base_url = "${getEffectiveBaseUrl()}"
                       disabled={!newProfileName.trim()}
                       loading={savingProfile}
                     >
-                      <span className="material-symbols-outlined text-[14px] mr-1">save</span>
+                      <Icon icon={Save} size="sm" color="current" className="mr-1" />
                       {t("saveCurrent")}
                     </Button>
                   </div>
@@ -841,7 +825,7 @@ openai_base_url = "${getEffectiveBaseUrl()}"
               {showBackups && (
                 <div className="mt-2 p-3 bg-surface border border-border rounded-lg">
                   <h4 className="text-xs font-semibold text-text-main mb-2 flex items-center gap-1">
-                    <span className="material-symbols-outlined text-[14px]">history</span>
+                    <Icon icon={History} size="sm" color="current" />
                     {t("configBackups")}
                   </h4>
                   {backups.length === 0 ? (
@@ -853,9 +837,7 @@ openai_base_url = "${getEffectiveBaseUrl()}"
                           key={b.id}
                           className="flex items-center gap-2 px-2 py-1.5 bg-black/5 dark:bg-white/5 rounded text-xs"
                         >
-                          <span className="material-symbols-outlined text-[14px] text-text-muted">
-                            description
-                          </span>
+                          <Icon icon={ScrollText} size="sm" color="ink-muted" />
                           <span className="flex-1 truncate font-mono" title={b.id}>
                             {b.id}
                           </span>

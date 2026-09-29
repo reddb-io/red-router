@@ -1,5 +1,7 @@
 "use client";
 
+import { ArchiveRestore, ArrowRight, Banknote, Braces, Cable, CalendarX, ChartNoAxesCombined, Check, CircleAlert, CircleCheck, CircleDollarSign, Clock, EyeOff, Gauge, Gavel, HandCoins, KeyRound, Landmark, Lock, LockOpen, MonitorSmartphone, Network, Plus, RefreshCw, ShieldUser, SlidersHorizontal, Sparkles, Split, Terminal, Trash2, Users, X } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useEffect, useMemo, useCallback, memo, useRef, useId } from "react";
 import { Card, Button, Input, Modal, CardSkeleton } from "@/shared/components";
 import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
@@ -969,13 +971,13 @@ export default function ApiManagerPageClient() {
       {/* Error Banner */}
       {pageError && (
         <div className="flex items-center gap-3 p-4 bg-red-500/10 border border-red-500/30 rounded-lg">
-          <span className="material-symbols-outlined text-red-500">error</span>
+          <Icon icon={CircleAlert} size="lg" color="feedback-danger-foreground" />
           <p className="text-sm text-red-700 dark:text-red-300 flex-1">{pageError}</p>
           <button
             onClick={clearPageError}
             className="text-red-500 hover:text-red-700 transition-colors"
           >
-            <span className="material-symbols-outlined">close</span>
+            <Icon icon={X} size="lg" color="current" />
           </button>
         </div>
       )}
@@ -993,21 +995,11 @@ export default function ApiManagerPageClient() {
             <span className="rounded-control border border-border bg-surface px-3 py-1.5 font-medium">
               {t("requestFlowYourApp")}
             </span>
-            <span
-              className="material-symbols-outlined text-base text-text-muted"
-              aria-hidden="true"
-            >
-              arrow_forward
-            </span>
+            <Icon icon={ArrowRight} size="md" color="ink-muted" />
             <span className="rounded-control border border-border bg-surface px-3 py-1.5 font-medium">
               {t("requestFlowApiKey")}
             </span>
-            <span
-              className="material-symbols-outlined text-base text-text-muted"
-              aria-hidden="true"
-            >
-              arrow_forward
-            </span>
+            <Icon icon={ArrowRight} size="md" color="ink-muted" />
             <span className="rounded-control border border-border bg-surface px-3 py-1.5 font-medium">
               {t("requestFlowOmniRoute")}
             </span>
@@ -1040,7 +1032,7 @@ export default function ApiManagerPageClient() {
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
             <div className="flex items-center justify-center size-10 rounded-lg bg-amber-500/10 shrink-0">
-              <span className="material-symbols-outlined text-xl text-amber-500">vpn_key</span>
+              <Icon icon={KeyRound} size="lg" color="feedback-warning-foreground" />
             </div>
             <div>
               <h3 className="font-semibold">
@@ -1192,7 +1184,7 @@ export default function ApiManagerPageClient() {
                         className="p-1 text-text-muted/40 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-all shrink-0 cursor-help"
                         title={t("keyOnlyAvailableAtCreation")}
                       >
-                        <span className="material-symbols-outlined text-[14px]">lock</span>
+                        <Icon icon={Lock} size="sm" color="current" />
                       </span>
                     )}
                   </div>
@@ -1224,7 +1216,7 @@ export default function ApiManagerPageClient() {
                           onClick={() => handleOpenPermissions(key)}
                           className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400 text-xs font-medium hover:bg-amber-500/20 transition-colors"
                         >
-                          <span className="material-symbols-outlined text-[14px]">lock</span>
+                          <Icon icon={Lock} size="sm" color="current" />
                           {formatProviderModelPermissionSummary(providerCount, modelCount, t, tc)}
                         </button>
                       ) : (
@@ -1232,7 +1224,7 @@ export default function ApiManagerPageClient() {
                           onClick={() => handleOpenPermissions(key)}
                           className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-green-500/10 text-green-600 dark:text-green-400 text-xs font-medium hover:bg-green-500/20 transition-colors"
                         >
-                          <span className="material-symbols-outlined text-[14px]">lock_open</span>
+                          <Icon icon={LockOpen} size="sm" color="current" />
                           {t("allModels")}
                         </button>
                       )}
@@ -1241,7 +1233,7 @@ export default function ApiManagerPageClient() {
                           onClick={() => handleOpenPermissions(key)}
                           className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-blue-500/10 text-blue-600 dark:text-blue-400 text-xs font-medium hover:bg-blue-500/20 transition-colors"
                         >
-                          <span className="material-symbols-outlined text-[14px]">cable</span>
+                          <Icon icon={Cable} size="sm" color="current" />
                           {key.allowedConnections!.length} conn
                         </button>
                       )}
@@ -1261,53 +1253,49 @@ export default function ApiManagerPageClient() {
                           onClick={() => handleOpenPermissions(key)}
                           className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-teal-500/10 text-teal-600 dark:text-teal-400 text-xs font-medium hover:bg-teal-500/20 transition-colors"
                         >
-                          <span className="material-symbols-outlined text-[14px]">hub</span>
+                          <Icon icon={Network} size="sm" color="current" />
                           {key.allowedCombos!.length} combos
                         </button>
                       )}
                       {noLogEnabled && (
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-violet-500/10 text-violet-600 dark:text-violet-400 text-[11px] font-medium">
-                          <span className="material-symbols-outlined text-[12px]">
-                            visibility_off
-                          </span>
+                          <Icon icon={EyeOff} size="sm" color="current" />
                           No-Log
                         </span>
                       )}
                       {key.autoResolve && (
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 text-[11px] font-medium">
-                          <span className="material-symbols-outlined text-[12px]">
-                            auto_fix_high
-                          </span>
+                          <Icon icon={Sparkles} size="sm" color="current" />
                           Auto-Resolve
                         </span>
                       )}
                       {hasJsonStreamDefault && (
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-sky-500/10 text-sky-600 dark:text-sky-400 text-[11px] font-medium">
-                          <span className="material-symbols-outlined text-[12px]">data_object</span>
+                          <Icon icon={Braces} size="sm" color="current" />
                           {t("streamDefaultBadge")}
                         </span>
                       )}
                       {hasLocalUsageCommand && (
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-500/10 text-slate-600 dark:text-slate-300 text-[11px] font-medium">
-                          <span className="material-symbols-outlined text-[12px]">terminal</span>
+                          <Icon icon={Terminal} size="sm" color="current" />
                           {t("localUsageCommandBadge")}
                         </span>
                       )}
                       {key.usageLimitEnabled === true && (
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 text-[11px] font-medium">
-                          <span className="material-symbols-outlined text-[12px]">paid</span>
+                          <Icon icon={CircleDollarSign} size="sm" color="current" />
                           USD quota
                         </span>
                       )}
                       {hasProviderQuotaBypass && (
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-700 dark:text-amber-300 text-[11px] font-medium">
-                          <span className="material-symbols-outlined text-[12px]">alt_route</span>
+                          <Icon icon={Split} size="sm" color="current" />
                           Bypass quota policy
                         </span>
                       )}
                       {hasSessionLimit && (
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 text-[11px] font-medium">
-                          <span className="material-symbols-outlined text-[12px]">group</span>
+                          <Icon icon={Users} size="sm" color="current" />
                           Sessions: {activeSessions}/{maxSessions}
                         </span>
                       )}
@@ -1316,21 +1304,19 @@ export default function ApiManagerPageClient() {
                           className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-cyan-500/10 text-cyan-700 dark:text-cyan-300 text-[11px] font-medium"
                           title={t("devicesTooltip", { count: deviceCount })}
                         >
-                          <span className="material-symbols-outlined text-[12px]">devices</span>
+                          <Icon icon={MonitorSmartphone} size="sm" color="current" />
                           {t("devicesCount", { count: deviceCount })}
                         </span>
                       )}
                       {hasThrottle && (
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-yellow-500/10 text-yellow-700 dark:text-yellow-300 text-[11px] font-medium">
-                          <span className="material-symbols-outlined text-[12px]">speed</span>+
+                          <Icon icon={Gauge} size="sm" color="current" />+
                           {throttleDelayMs}ms
                         </span>
                       )}
                       {hasManageScope && (
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-rose-500/10 text-rose-600 dark:text-rose-400 text-[11px] font-medium">
-                          <span className="material-symbols-outlined text-[12px]">
-                            admin_panel_settings
-                          </span>
+                          <Icon icon={ShieldUser} size="sm" color="current" />
                           manage
                         </span>
                       )}
@@ -1342,19 +1328,19 @@ export default function ApiManagerPageClient() {
                       )}
                       {hasSchedule && (
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-orange-500/10 text-orange-600 dark:text-orange-400 text-[11px] font-medium">
-                          <span className="material-symbols-outlined text-[12px]">schedule</span>
+                          <Icon icon={Clock} size="sm" color="current" />
                           {t("scheduleActive")}
                         </span>
                       )}
                       {key.isBanned && (
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-red-600/10 text-red-700 dark:text-red-400 text-[11px] font-bold animate-pulse">
-                          <span className="material-symbols-outlined text-[12px]">gavel</span>
+                          <Icon icon={Gavel} size="sm" color="current" />
                           BANNED
                         </span>
                       )}
                       {key.expiresAt && new Date(key.expiresAt).getTime() < Date.now() && (
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-gray-500/10 text-gray-600 dark:text-gray-400 text-[11px] font-medium">
-                          <span className="material-symbols-outlined text-[12px]">event_busy</span>
+                          <Icon icon={CalendarX} size="sm" color="current" />
                           EXPIRED
                         </span>
                       )}
@@ -1388,28 +1374,28 @@ export default function ApiManagerPageClient() {
                       title={`View costs for ${key.name}`}
                       aria-label={`View costs for ${key.name}`}
                     >
-                      <span className="material-symbols-outlined text-[18px]">payments</span>
+                      <Icon icon={Banknote} size="md" color="current" />
                     </a>
                     <button
                       onClick={() => handleRegenerateKey(key.id)}
                       className="p-2 hover:bg-amber-500/10 rounded text-text-muted hover:text-amber-500 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-all"
                       title={t("regenerateKey")}
                     >
-                      <span className="material-symbols-outlined text-[18px]">refresh</span>
+                      <Icon icon={RefreshCw} size="md" color="current" />
                     </button>
                     <button
                       onClick={() => handleOpenPermissions(key)}
                       className="p-2 hover:bg-primary/10 rounded text-text-muted hover:text-primary opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-all"
                       title={t("editPermissions")}
                     >
-                      <span className="material-symbols-outlined text-[18px]">tune</span>
+                      <Icon icon={SlidersHorizontal} size="md" color="current" />
                     </button>
                     <button
                       onClick={() => handleDeleteKey(key.id)}
                       className="p-2 hover:bg-red-500/10 rounded text-red-500 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-all"
                       title={t("deleteKey")}
                     >
-                      <span className="material-symbols-outlined text-[18px]">delete</span>
+                      <Icon icon={Trash2} size="md" color="current" />
                     </button>
                   </div>
                 </div>
@@ -1433,9 +1419,7 @@ export default function ApiManagerPageClient() {
                   <div>
                     {/* Normal keys section heading */}
                     <div className="flex items-center gap-2 mb-2">
-                      <span className="material-symbols-outlined text-base text-text-muted">
-                        vpn_key
-                      </span>
+                      <Icon icon={KeyRound} size="md" color="ink-muted" />
                       <span className="text-sm font-medium text-text-main">
                         {t("normalKeysSection")}
                       </span>
@@ -1455,9 +1439,7 @@ export default function ApiManagerPageClient() {
                   <div>
                     {/* Quota keys section heading */}
                     <div className="flex items-center gap-2 mb-2">
-                      <span className="material-symbols-outlined text-base text-violet-500">
-                        toll
-                      </span>
+                      <Icon icon={HandCoins} size="md" color="current" />
                       <span className="text-sm font-medium text-text-main">
                         {t("quotaKeysSection")}
                       </span>
@@ -1533,7 +1515,7 @@ export default function ApiManagerPageClient() {
                   : "bg-black/5 dark:bg-white/5 text-text-muted border border-border"
               }`}
             >
-              <span className="material-symbols-outlined text-[14px]">admin_panel_settings</span>
+              <Icon icon={ShieldUser} size="sm" color="current" />
               {newKeyManageEnabled ? tc("enabled") : tc("disabled")}
             </button>
           </div>
@@ -1563,7 +1545,7 @@ export default function ApiManagerPageClient() {
                     : "bg-black/5 dark:bg-white/5 text-text-muted border border-border"
                 }`}
               >
-                <span className="material-symbols-outlined text-[14px]">query_stats</span>
+                <Icon icon={ChartNoAxesCombined} size="sm" color="current" />
                 {newKeySelfUsageEnabled ? tc("enabled") : tc("disabled")}
               </button>
             </div>
@@ -1584,7 +1566,7 @@ export default function ApiManagerPageClient() {
                     : "bg-black/5 dark:bg-white/5 text-text-muted border border-border"
                 } ${!newKeySelfUsageEnabled ? "opacity-50 cursor-not-allowed" : ""}`}
               >
-                <span className="material-symbols-outlined text-[14px]">account_balance</span>
+                <Icon icon={Landmark} size="sm" color="current" />
                 {newKeyAccountQuotaEnabled ? tc("enabled") : tc("disabled")}
               </button>
             </div>
@@ -1604,14 +1586,14 @@ export default function ApiManagerPageClient() {
                     : "bg-black/5 dark:bg-white/5 text-text-muted border border-border"
                 }`}
               >
-                <span className="material-symbols-outlined text-[14px]">terminal</span>
+                <Icon icon={Terminal} size="sm" color="current" />
                 {newKeyAllowUsageCommand ? tc("enabled") : tc("disabled")}
               </button>
             </div>
           </div>
           {createError && (
             <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/30">
-              <span className="material-symbols-outlined text-red-500 text-sm">error</span>
+              <Icon icon={CircleAlert} size="sm" color="feedback-danger-foreground" />
               <p className="text-sm text-red-700 dark:text-red-300 flex-1">{createError}</p>
             </div>
           )}
@@ -1649,9 +1631,7 @@ export default function ApiManagerPageClient() {
         <div className="flex flex-col gap-4">
           <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4">
             <div className="flex items-start gap-3">
-              <span className="material-symbols-outlined text-green-600 dark:text-green-400">
-                check_circle
-              </span>
+              <Icon icon={CircleCheck} size="lg" color="feedback-success-foreground" className="dark:text-green-400" />
               <div>
                 <p className="text-sm text-green-800 dark:text-green-200 font-medium mb-1">
                   {t("keyCreatedSuccess")}
@@ -2166,7 +2146,7 @@ const PermissionsModal = memo(function PermissionsModal({
         {/* Inline save error */}
         {saveError && (
           <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/30">
-            <span className="material-symbols-outlined text-red-500 text-sm">error</span>
+            <Icon icon={CircleAlert} size="sm" color="feedback-danger-foreground" />
             <p className="text-sm text-red-700 dark:text-red-300 flex-1">{saveError}</p>
           </div>
         )}
@@ -2183,7 +2163,7 @@ const PermissionsModal = memo(function PermissionsModal({
                 : "text-text-muted hover:bg-black/5 dark:hover:bg-white/5"
             }`}
           >
-            <span className="material-symbols-outlined text-[18px]">lock_open</span>
+            <Icon icon={LockOpen} size="md" color="current" />
             {t("allowAll")}
           </button>
           <button
@@ -2194,7 +2174,7 @@ const PermissionsModal = memo(function PermissionsModal({
                 : "text-text-muted hover:bg-black/5 dark:hover:bg-white/5"
             }`}
           >
-            <span className="material-symbols-outlined text-[18px]">lock</span>
+            <Icon icon={Lock} size="md" color="current" />
             {t("restrict")}
           </button>
         </div>
@@ -2313,7 +2293,7 @@ const PermissionsModal = memo(function PermissionsModal({
               onClick={() => setRateLimits((prev) => [...prev, { limit: 100, window: 60 }])}
               className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-semibold bg-primary/10 text-primary hover:bg-primary/20 transition-colors shrink-0"
             >
-              <span className="material-symbols-outlined text-[14px]">add</span>
+              <Icon icon={Plus} size="sm" color="current" />
               Add Limit
             </button>
           </div>
@@ -2359,7 +2339,7 @@ const PermissionsModal = memo(function PermissionsModal({
                     className="p-2 text-red-500 hover:bg-red-500/10 rounded transition-colors shrink-0"
                     title={t("apiManagerRemoveLimitTitle")}
                   >
-                    <span className="material-symbols-outlined text-[18px]">delete</span>
+                    <Icon icon={Trash2} size="md" color="current" />
                   </button>
                 </div>
               ))}
@@ -2385,7 +2365,7 @@ const PermissionsModal = memo(function PermissionsModal({
                   : "bg-black/5 dark:bg-white/5 text-text-muted border border-border"
               }`}
             >
-              <span className="material-symbols-outlined text-[14px]">schedule</span>
+              <Icon icon={Clock} size="sm" color="current" />
               {scheduleEnabled ? tc("enabled") : tc("disabled")}
             </button>
           </div>
@@ -2532,7 +2512,7 @@ const PermissionsModal = memo(function PermissionsModal({
                   : "text-text-muted hover:bg-black/5 dark:hover:bg-white/5"
               }`}
             >
-              <span className="material-symbols-outlined text-[14px]">settings_backup_restore</span>
+              <Icon icon={ArchiveRestore} size="sm" color="current" />
               {t("streamDefaultLegacy")}
             </button>
             <button
@@ -2544,7 +2524,7 @@ const PermissionsModal = memo(function PermissionsModal({
                   : "text-text-muted hover:bg-black/5 dark:hover:bg-white/5"
               }`}
             >
-              <span className="material-symbols-outlined text-[14px]">data_object</span>
+              <Icon icon={Braces} size="sm" color="current" />
               {t("streamDefaultJson")}
             </button>
           </div>
@@ -2638,7 +2618,7 @@ const PermissionsModal = memo(function PermissionsModal({
                 : "bg-black/5 dark:bg-white/5 text-text-muted border border-border"
             }`}
           >
-            <span className="material-symbols-outlined text-[14px]">admin_panel_settings</span>
+            <Icon icon={ShieldUser} size="sm" color="current" />
             {manageEnabled ? tc("enabled") : tc("disabled")}
           </button>
         </div>
@@ -2664,7 +2644,7 @@ const PermissionsModal = memo(function PermissionsModal({
                 : "bg-black/5 dark:bg-white/5 text-text-muted border border-border"
             }`}
           >
-            <span className="material-symbols-outlined text-[14px]">query_stats</span>
+            <Icon icon={ChartNoAxesCombined} size="sm" color="current" />
             {t("ownUsageVisibility")} - {selfUsageEnabled ? tc("enabled") : tc("disabled")}
           </button>
           <p className="text-xs text-text-muted">{t("ownUsageVisibilityDesc")}</p>
@@ -2680,7 +2660,7 @@ const PermissionsModal = memo(function PermissionsModal({
                 : "bg-black/5 dark:bg-white/5 text-text-muted border border-border"
             } ${!selfUsageEnabled ? "opacity-50 cursor-not-allowed" : ""}`}
           >
-            <span className="material-symbols-outlined text-[14px]">account_balance</span>
+            <Icon icon={Landmark} size="sm" color="current" />
             {t("sharedAccountQuotaVisibility")} -{" "}
             {selfAccountQuotaEnabled ? tc("enabled") : tc("disabled")}
           </button>
@@ -2696,7 +2676,7 @@ const PermissionsModal = memo(function PermissionsModal({
                 : "bg-black/5 dark:bg-white/5 text-text-muted border border-border"
             }`}
           >
-            <span className="material-symbols-outlined text-[14px]">terminal</span>
+            <Icon icon={Terminal} size="sm" color="current" />
             {t("localUsageCommand")} - {usageCommandEnabled ? tc("enabled") : tc("disabled")}
           </button>
           <p className="text-xs text-text-muted">{t("localUsageCommandDesc")}</p>
@@ -2799,7 +2779,7 @@ const PermissionsModal = memo(function PermissionsModal({
                               className="text-text-muted hover:text-red-500 transition-colors"
                               title={t("removeClaudeCodeDefault")}
                             >
-                              <span className="material-symbols-outlined text-[12px]">close</span>
+                              <Icon icon={X} size="sm" color="current" />
                             </button>
                           </span>
 
@@ -2841,9 +2821,7 @@ const PermissionsModal = memo(function PermissionsModal({
                                         className="text-text-muted hover:text-red-500 transition-colors"
                                         title={`Block ${family.label} family`}
                                       >
-                                        <span className="material-symbols-outlined text-[12px]">
-                                          close
-                                        </span>
+                                        <Icon icon={X} size="sm" color="current" />
                                       </button>
                                     )}
                                   </span>
@@ -2868,7 +2846,7 @@ const PermissionsModal = memo(function PermissionsModal({
                           onClick={() => handleToggleModel(scope)}
                           className="text-text-muted hover:text-red-500 transition-colors"
                         >
-                          <span className="material-symbols-outlined text-[12px]">close</span>
+                          <Icon icon={X} size="sm" color="current" />
                         </button>
                       </span>
                     );
@@ -2895,7 +2873,7 @@ const PermissionsModal = memo(function PermissionsModal({
                         onClick={() => handleToggleModel(modelId)}
                         className="text-text-muted hover:text-red-500 transition-colors"
                       >
-                        <span className="material-symbols-outlined text-[12px]">close</span>
+                        <Icon icon={X} size="sm" color="current" />
                       </button>
                     </span>
                   ))}
@@ -3056,9 +3034,7 @@ const PermissionsModal = memo(function PermissionsModal({
                       }`}
                     >
                       {isSelected && (
-                        <span className="material-symbols-outlined text-white text-[10px]">
-                          check
-                        </span>
+                        <Icon icon={Check} size="sm" color="foreground" />
                       )}
                     </div>
                     <span className="truncate flex-1">{cat.label}</span>

@@ -1,5 +1,7 @@
 "use client";
 
+import { Braces } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
 import { Card, Button } from "@/shared/components";
@@ -173,9 +175,7 @@ export default function PayloadRulesTab() {
       <div className="flex flex-col gap-5">
         <div className="flex items-start gap-3">
           <div className="p-2 rounded-lg bg-indigo-500/10 text-indigo-500">
-            <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
-              data_object
-            </span>
+            <Icon icon={Braces} size="lg" color="current" />
           </div>
           <div className="flex-1">
             <h3 className="text-lg font-semibold">{t("payloadRulesTitle")}</h3>

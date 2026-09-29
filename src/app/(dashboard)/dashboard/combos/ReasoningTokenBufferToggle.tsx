@@ -1,3 +1,5 @@
+import { CircleQuestionMark } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import Tooltip from "@/shared/components/Tooltip";
 
 type TranslationFn = {
@@ -43,9 +45,7 @@ export default function ReasoningTokenBufferToggle({ config, setConfig, t }: Pro
           "When enabled (default), RedRouter may increase max_tokens for reasoning-capable models so they have headroom to think. Turn this off if you need this combo to preserve the client's exact max_tokens."
         )}
       >
-        <span className="material-symbols-outlined text-[12px] text-text-muted cursor-help">
-          help
-        </span>
+        <Icon icon={CircleQuestionMark} size="sm" color="ink-muted" className="cursor-help" />
       </Tooltip>
     </div>
   );

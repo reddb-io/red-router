@@ -1,5 +1,7 @@
 "use client";
 
+import { Info, TriangleAlert } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useTranslations } from "next-intl";
 import type { MemorySettingsExtended } from "@/shared/schemas/memory";
 import type { EmbeddingProviderListing } from "@/lib/memory/embedding/types";
@@ -85,7 +87,7 @@ export default function EmbeddingSourceSelector({ settings, providers, onSave, s
           </label>
           {remoteProviders.length === 0 ? (
             <p className="text-xs text-amber-400 flex items-center gap-1">
-              <span className="material-symbols-outlined text-[12px]">warning</span>
+              <Icon icon={TriangleAlert} size="sm" color="current" />
               {t("embedding.noRemoteProviders")}
             </p>
           ) : (
@@ -136,7 +138,7 @@ export default function EmbeddingSourceSelector({ settings, providers, onSave, s
 
       {currentSource === "transformers" && (
         <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs text-amber-400 flex items-start gap-2">
-          <span className="material-symbols-outlined text-[14px] mt-0.5 shrink-0">info</span>
+          <Icon icon={Info} size="sm" color="current" className="mt-0.5 shrink-0" />
           <span>{t("embedding.transformersWarning")}</span>
         </div>
       )}

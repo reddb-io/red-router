@@ -1,5 +1,7 @@
 "use client";
 
+import { CircleCheck, LoaderCircle, RefreshCw, Server, Workflow } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useProviderNodeMap, resolveProviderName } from "@/lib/display/useProviderNodeMap";
@@ -217,7 +219,7 @@ export default function ProviderUtilizationTab() {
                     : "text-text-muted hover:text-text-main"
                 }`}
               >
-                <span className="material-symbols-outlined text-[14px]">dns</span>
+                <Icon icon={Server} size="sm" color="current" />
                 {t("providerUtilizationGlobalView")}
               </button>
               <button
@@ -228,7 +230,7 @@ export default function ProviderUtilizationTab() {
                     : "text-text-muted hover:text-text-main"
                 }`}
               >
-                <span className="material-symbols-outlined text-[14px]">account_tree</span>
+                <Icon icon={Workflow} size="sm" color="current" />
                 {t("providerUtilizationAccountSplit")}
               </button>
             </div>
@@ -239,9 +241,7 @@ export default function ProviderUtilizationTab() {
       >
         {loading && !hasData ? (
           <div className="flex min-h-80 items-center justify-center text-sm text-text-muted">
-            <span className="material-symbols-outlined mr-2 animate-spin text-[18px]">
-              progress_activity
-            </span>
+            <Icon icon={LoaderCircle} size="md" color="current" className="mr-2 animate-spin" />
             {t("providerUtilizationLoading")}
           </div>
         ) : error ? (
@@ -261,14 +261,12 @@ export default function ProviderUtilizationTab() {
             >
               {retrying ? (
                 <>
-                  <span className="material-symbols-outlined animate-spin text-[18px]">
-                    progress_activity
-                  </span>
+                  <Icon icon={LoaderCircle} size="md" color="current" className="animate-spin" />
                   {t("retrying")}
                 </>
               ) : (
                 <>
-                  <span className="material-symbols-outlined text-[18px]">refresh</span>
+                  <Icon icon={RefreshCw} size="md" color="current" />
                   {t("retry")}
                 </>
               )}
@@ -291,9 +289,7 @@ export default function ProviderUtilizationTab() {
               </p>
               <ul className="mt-2 text-left text-xs text-text-muted">
                 <li className="flex items-start gap-2">
-                  <span className="material-symbols-outlined text-[14px] text-primary">
-                    check_circle
-                  </span>
+                  <Icon icon={CircleCheck} size="sm" color="primary" />
                   <span>
                     {t.rich("providerUtilizationStepConnect", {
                       strong: (chunks) => <strong>{chunks}</strong>,
@@ -301,15 +297,11 @@ export default function ProviderUtilizationTab() {
                   </span>
                 </li>
                 <li className="mt-1 flex items-start gap-2">
-                  <span className="material-symbols-outlined text-[14px] text-primary">
-                    check_circle
-                  </span>
+                  <Icon icon={CircleCheck} size="sm" color="primary" />
                   <span>{t("providerUtilizationStepEnable")}</span>
                 </li>
                 <li className="mt-1 flex items-start gap-2">
-                  <span className="material-symbols-outlined text-[14px] text-primary">
-                    check_circle
-                  </span>
+                  <Icon icon={CircleCheck} size="sm" color="primary" />
                   <span>{t("providerUtilizationStepAutomatic")}</span>
                 </li>
               </ul>

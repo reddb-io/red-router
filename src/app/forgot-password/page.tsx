@@ -1,5 +1,7 @@
 "use client";
 
+import { ArrowLeft, FolderOpen, Settings, Terminal } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useTranslations } from "next-intl";
 import { useState, useEffect } from "react";
 import { useIsElectron } from "@/shared/hooks/useElectron";
@@ -43,9 +45,7 @@ export default function ForgotPasswordPage() {
             <Card className="mb-4">
               <div className="flex items-start gap-4 p-2">
                 <div className="flex items-center justify-center size-10 rounded-lg bg-primary/10 text-primary shrink-0 mt-0.5">
-                  <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
-                    folder_open
-                  </span>
+                  <Icon icon={FolderOpen} size="lg" color="current" />
                 </div>
                 <div className="flex-1">
                   <h2 className="text-lg font-semibold mb-1">{t("resetViaAppData")}</h2>
@@ -79,9 +79,7 @@ export default function ForgotPasswordPage() {
             <Card className="mb-6">
               <div className="flex items-start gap-4 p-2">
                 <div className="flex items-center justify-center size-10 rounded-lg bg-amber-500/10 text-amber-500 shrink-0 mt-0.5">
-                  <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
-                    settings
-                  </span>
+                  <Icon icon={Settings} size="lg" color="current" />
                 </div>
                 <div className="flex-1">
                   <h2 className="text-lg font-semibold mb-1">{t("alternativeSetPassword")}</h2>
@@ -123,9 +121,7 @@ export default function ForgotPasswordPage() {
             <Card className="mb-4">
               <div className="flex items-start gap-4 p-2">
                 <div className="flex items-center justify-center size-10 rounded-lg bg-primary/10 text-primary shrink-0 mt-0.5">
-                  <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
-                    terminal
-                  </span>
+                  <Icon icon={Terminal} size="lg" color="current" />
                 </div>
                 <div className="flex-1">
                   <h2 className="text-lg font-semibold mb-1">{t("methodCliTitle")}</h2>
@@ -179,9 +175,7 @@ export default function ForgotPasswordPage() {
             href="/login"
             className="text-sm text-primary hover:underline inline-flex items-center gap-1"
           >
-            <span className="material-symbols-outlined text-[16px]" aria-hidden="true">
-              arrow_back
-            </span>
+            <Icon icon={ArrowLeft} size="md" color="current" />
             {t("backToLogin")}
           </Link>
         </div>

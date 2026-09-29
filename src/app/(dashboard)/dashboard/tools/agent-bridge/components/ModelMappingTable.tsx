@@ -1,5 +1,7 @@
 "use client";
 
+import { ChevronDown, Plus, Trash2 } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState } from "react";
 import { useTranslations } from "next-intl";
 import { ModelSelectorModal } from "./ModelSelectorModal";
@@ -63,7 +65,7 @@ export function ModelMappingTable({ agentId, mappings, onSave }: ModelMappingTab
             onClick={addMapping}
             className="inline-flex items-center gap-1.5 rounded-lg bg-primary/10 text-primary px-3 py-1.5 text-xs font-medium hover:bg-primary/20 transition-colors"
           >
-            <span className="material-symbols-outlined text-[14px]">add</span>
+            <Icon icon={Plus} size="sm" color="current" />
             {t("addMapping") || "Add mapping"}
           </button>
         </div>
@@ -105,9 +107,7 @@ export function ModelMappingTable({ agentId, mappings, onSave }: ModelMappingTab
                             {t("selectModel") || "Select…"}
                           </span>
                         )}
-                        <span className="material-symbols-outlined text-[12px] text-text-muted">
-                          expand_more
-                        </span>
+                        <Icon icon={ChevronDown} size="sm" color="ink-muted" />
                       </button>
                     </td>
                     <td className="px-3 py-2">
@@ -117,7 +117,7 @@ export function ModelMappingTable({ agentId, mappings, onSave }: ModelMappingTab
                         className="text-text-muted hover:text-red-500 transition-colors"
                         aria-label="Remove mapping"
                       >
-                        <span className="material-symbols-outlined text-[16px]">delete</span>
+                        <Icon icon={Trash2} size="md" color="current" />
                       </button>
                     </td>
                   </tr>
@@ -136,7 +136,7 @@ export function ModelMappingTable({ agentId, mappings, onSave }: ModelMappingTab
               onClick={addMapping}
               className="inline-flex items-center gap-1.5 rounded-lg border border-border/40 bg-card px-3 py-1.5 text-xs font-medium hover:bg-surface transition-colors"
             >
-              <span className="material-symbols-outlined text-[14px]">add</span>
+              <Icon icon={Plus} size="sm" color="current" />
               {t("addMapping") || "Add mapping"}
             </button>
             <button

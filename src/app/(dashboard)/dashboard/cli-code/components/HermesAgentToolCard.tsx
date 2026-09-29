@@ -1,5 +1,7 @@
 "use client";
 
+import { CircleCheck, Clock, Eye, RefreshCw, Save, Terminal } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useTranslations } from "next-intl";
 import { Card, Button, ModelSelectModal } from "@/shared/components";
@@ -352,7 +354,7 @@ export default function HermesAgentToolCard({
       >
         <div className="flex items-center gap-3">
           <div className="size-8 flex items-center justify-center shrink-0">
-            <span className="material-symbols-outlined text-[22px] text-text-muted">terminal</span>
+            <Icon icon={Terminal} size="lg" color="ink-muted" />
           </div>
           <div className="min-w-0">
             <div className="flex items-center gap-2">
@@ -365,7 +367,7 @@ export default function HermesAgentToolCard({
                       date: new Date(firstSetupAt).toLocaleDateString(),
                     })}
                   >
-                    <span className="material-symbols-outlined text-[11px]">schedule</span>
+                    <Icon icon={Clock} size="sm" color="current" />
                     {t("hermesSinceSetup", { time: formatTimeSince(firstSetupAt) })}
                   </span>
                 )}
@@ -400,7 +402,7 @@ export default function HermesAgentToolCard({
               disabled={isLoading}
               loading={isLoading}
             >
-              <span className="material-symbols-outlined text-[14px] mr-1">refresh</span>
+              <Icon icon={RefreshCw} size="sm" color="current" className="mr-1" />
               {t("refreshAll")}
             </Button>
           </div>
@@ -538,7 +540,7 @@ export default function HermesAgentToolCard({
           {/* Message (standard colored info bar like other cards) */}
           {message && (
             <div className="flex items-center gap-2 px-2 py-1.5 rounded text-xs bg-green-500/10 text-green-600">
-              <span className="material-symbols-outlined text-[14px]">check_circle</span>
+              <Icon icon={CircleCheck} size="sm" color="current" />
               <span>{message}</span>
             </div>
           )}
@@ -552,7 +554,7 @@ export default function HermesAgentToolCard({
               size="sm"
               loading={isSaving}
             >
-              <span className="material-symbols-outlined text-[14px] mr-1">save</span>
+              <Icon icon={Save} size="sm" color="current" className="mr-1" />
               {t("hermesApply")}
             </Button>
 
@@ -567,7 +569,7 @@ export default function HermesAgentToolCard({
               }
               loading={isPreviewLoading}
             >
-              <span className="material-symbols-outlined text-[14px] mr-1">visibility</span>
+              <Icon icon={Eye} size="sm" color="current" className="mr-1" />
               {t("preview")}
             </Button>
 

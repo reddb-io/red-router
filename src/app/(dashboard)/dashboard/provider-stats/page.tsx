@@ -7,6 +7,8 @@
  * plus in-memory combo metrics and telemetry data.
  */
 
+import { ChartColumn, CircleCheck, RefreshCw, Server, Timer } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useEffect, useCallback, Fragment } from "react";
 import { useTranslations } from "next-intl";
 
@@ -204,7 +206,7 @@ export default function ProviderStatsPage() {
           className="p-2 rounded-lg bg-surface hover:bg-surface/80 text-text-muted hover:text-text-main transition-colors"
           title={t("refresh")}
         >
-          <span className="material-symbols-outlined text-[18px]">refresh</span>
+          <Icon icon={RefreshCw} size="md" color="current" />
         </button>
       </div>
 
@@ -213,7 +215,7 @@ export default function ProviderStatsPage() {
         <Card className="p-4">
           <div className="flex items-center gap-3 mb-2">
             <div className="flex items-center justify-center size-8 rounded-lg bg-primary/10 text-primary">
-              <span className="material-symbols-outlined text-[18px]">analytics</span>
+              <Icon icon={ChartColumn} size="md" color="current" />
             </div>
             <span className="text-sm text-text-muted">{t("totalRequests")}</span>
           </div>
@@ -223,7 +225,7 @@ export default function ProviderStatsPage() {
         <Card className="p-4">
           <div className="flex items-center gap-3 mb-2">
             <div className="flex items-center justify-center size-8 rounded-lg bg-blue-500/10 text-blue-500">
-              <span className="material-symbols-outlined text-[18px]">timer</span>
+              <Icon icon={Timer} size="md" color="current" />
             </div>
             <span className="text-sm text-text-muted">{t("avgLatency")}</span>
           </div>
@@ -233,7 +235,7 @@ export default function ProviderStatsPage() {
         <Card className="p-4">
           <div className="flex items-center gap-3 mb-2">
             <div className="flex items-center justify-center size-8 rounded-lg bg-green-500/10 text-green-500">
-              <span className="material-symbols-outlined text-[18px]">check_circle</span>
+              <Icon icon={CircleCheck} size="md" color="current" />
             </div>
             <span className="text-sm text-text-muted">{t("successRate")}</span>
           </div>
@@ -245,7 +247,7 @@ export default function ProviderStatsPage() {
         <Card className="p-4">
           <div className="flex items-center gap-3 mb-2">
             <div className="flex items-center justify-center size-8 rounded-lg bg-purple-500/10 text-purple-500">
-              <span className="material-symbols-outlined text-[18px]">dns</span>
+              <Icon icon={Server} size="md" color="current" />
             </div>
             <span className="text-sm text-text-muted">{t("activeProviders")}</span>
           </div>

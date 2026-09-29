@@ -2,6 +2,8 @@
 
 // src/app/(dashboard)/dashboard/playground/components/StudioConfigPane.tsx
 
+import { ChevronRight, Settings } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
 import ParamSliders, { type PlaygroundParams } from "./ParamSliders";
@@ -146,7 +148,7 @@ export default function StudioConfigPane({ configState, setConfigState }: Studio
           title={tp("expandConfig")}
           aria-label={tp("expandConfig")}
         >
-          <span className="material-symbols-outlined text-[18px]">settings</span>
+          <Icon icon={Settings} size="md" color="current" />
         </button>
       </div>
     );
@@ -168,7 +170,7 @@ export default function StudioConfigPane({ configState, setConfigState }: Studio
           title={tp("collapseConfig")}
           aria-label={tp("collapseConfig")}
         >
-          <span className="material-symbols-outlined text-[16px]">chevron_right</span>
+          <Icon icon={ChevronRight} size="md" color="current" />
         </button>
       </div>
 

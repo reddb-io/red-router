@@ -1,5 +1,7 @@
 "use client";
 
+import { ArrowLeftRight, Info, LoaderCircle } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
@@ -153,7 +155,7 @@ export default function CliproxyapiSettingsTab() {
     <div className="space-y-4">
       {/* Migration banner — new lifecycle management lives in the Services page */}
       <div className="flex items-start gap-2 px-3 py-2.5 rounded-lg bg-blue-500/10 text-blue-700 dark:text-blue-300 text-xs">
-        <span className="material-symbols-outlined text-[14px] mt-0.5 shrink-0">info</span>
+        <Icon icon={Info} size="sm" color="current" className="mt-0.5 shrink-0" />
         <span>
           {t("cliproxyapiLifecycleNoticeBefore")}{" "}
           <Link
@@ -184,7 +186,7 @@ export default function CliproxyapiSettingsTab() {
       <Card padding="md">
         <div className="flex items-center gap-3 mb-4">
           <div className="size-8 rounded-lg flex items-center justify-center bg-indigo-500/10">
-            <span className="material-symbols-outlined text-indigo-500 text-xl">swap_horiz</span>
+            <Icon icon={ArrowLeftRight} size="lg" color="current" />
           </div>
           <div>
             <h3 className="font-medium text-sm">{t("cliproxyapiFallback")}</h3>
@@ -235,9 +237,7 @@ export default function CliproxyapiSettingsTab() {
         <h3 className="font-medium text-sm mb-4">{t("cliproxyapiStatus")}</h3>
         {loading ? (
           <div className="flex items-center gap-2 text-text-muted text-sm">
-            <span className="material-symbols-outlined animate-spin text-base">
-              progress_activity
-            </span>
+            <Icon icon={LoaderCircle} size="md" color="current" className="animate-spin" />
             {t("loading")}
           </div>
         ) : toolStateError ? (

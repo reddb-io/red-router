@@ -1,5 +1,7 @@
 "use client";
 
+import { ArrowLeftRight } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useEffect, useCallback } from "react";
 import { useTranslations } from "next-intl";
 import { Card, Toggle, Input } from "@/shared/components";
@@ -84,7 +86,7 @@ export function CliproxyConnectionPanel() {
     <Card padding="md">
       <div className="flex items-center gap-3 mb-4">
         <div className="size-8 rounded-lg flex items-center justify-center bg-indigo-500/10">
-          <span className="material-symbols-outlined text-indigo-500 text-xl">swap_horiz</span>
+          <Icon icon={ArrowLeftRight} size="lg" color="current" />
         </div>
         <div>
           <h3 className="font-medium text-sm">{t("fallbackRouting")}</h3>

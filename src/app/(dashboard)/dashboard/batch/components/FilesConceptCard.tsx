@@ -1,5 +1,7 @@
 "use client";
 
+import { CalendarCheck, CircleAlert, Download, FileUp, Info } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 
@@ -53,9 +55,7 @@ export default function FilesConceptCard({ className = "" }: Props) {
       {/* Header */}
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <span className="material-symbols-outlined text-[20px] text-[var(--color-accent)]">
-            info
-          </span>
+          <Icon icon={Info} size="lg" color="current" />
           <span className="font-semibold text-sm text-[var(--color-text-main)]">
             {t("filesConceptTitle")}
           </span>
@@ -91,39 +91,19 @@ export default function FilesConceptCard({ className = "" }: Props) {
       {!collapsed && (
         <ul className="flex flex-col gap-2 pl-1">
           <li className="flex items-start gap-2 text-sm text-[var(--color-text-muted)]">
-            <span
-              className="material-symbols-outlined text-[16px] text-blue-400 mt-0.5 shrink-0"
-              aria-hidden="true"
-            >
-              upload_file
-            </span>
+            <Icon icon={FileUp} size="md" color="current" className="mt-0.5 shrink-0" />
             <span>{t("filesConceptInput")}</span>
           </li>
           <li className="flex items-start gap-2 text-sm text-[var(--color-text-muted)]">
-            <span
-              className="material-symbols-outlined text-[16px] text-emerald-400 mt-0.5 shrink-0"
-              aria-hidden="true"
-            >
-              download
-            </span>
+            <Icon icon={Download} size="md" color="feedback-success-foreground" className="mt-0.5 shrink-0" />
             <span>{t("filesConceptOutput")}</span>
           </li>
           <li className="flex items-start gap-2 text-sm text-[var(--color-text-muted)]">
-            <span
-              className="material-symbols-outlined text-[16px] text-red-400 mt-0.5 shrink-0"
-              aria-hidden="true"
-            >
-              error_outline
-            </span>
+            <Icon icon={CircleAlert} size="md" color="feedback-danger-foreground" className="mt-0.5 shrink-0" />
             <span>{t("filesConceptError")}</span>
           </li>
           <li className="flex items-start gap-2 text-sm text-[var(--color-text-muted)]">
-            <span
-              className="material-symbols-outlined text-[16px] text-yellow-400 mt-0.5 shrink-0"
-              aria-hidden="true"
-            >
-              event_available
-            </span>
+            <Icon icon={CalendarCheck} size="md" color="feedback-warning-foreground" className="mt-0.5 shrink-0" />
             <span>{t("filesConceptRetention")}</span>
           </li>
         </ul>

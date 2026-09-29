@@ -1,5 +1,7 @@
 "use client";
 
+import { ArrowRight, CircleAlert, CirclePlay, CircleStop, Save, TriangleAlert, X } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useEffect, useCallback } from "react";
 import { Card, Button, Badge, Modal, Input, ModelSelectModal } from "@/shared/components";
 import { MITM_TOOL_HOSTS } from "@/shared/constants/mitmToolHosts";
@@ -310,7 +312,7 @@ export default function AntigravityToolCard({
                 disabled={loading}
                 className="px-4 py-2 rounded-lg bg-red-500/10 border border-red-500/30 text-red-500 font-medium text-sm flex items-center gap-2 hover:bg-red-500/20 transition-colors disabled:opacity-50"
               >
-                <span className="material-symbols-outlined text-[18px]">stop_circle</span>
+                <Icon icon={CircleStop} size="md" color="current" />
                 {t("stopMitm")}
               </button>
             ) : (
@@ -319,7 +321,7 @@ export default function AntigravityToolCard({
                 disabled={loading || !hasActiveProviders}
                 className="px-4 py-2 rounded-lg bg-primary/10 border border-primary/30 text-primary font-medium text-sm flex items-center gap-2 hover:bg-primary/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <span className="material-symbols-outlined text-[18px]">play_circle</span>
+                <Icon icon={CirclePlay} size="md" color="current" />
                 {t("startMitm")}
               </button>
             )}
@@ -327,7 +329,7 @@ export default function AntigravityToolCard({
 
           {message?.type === "error" && (
             <div className="flex items-center gap-2 px-2 py-1.5 rounded text-xs bg-red-500/10 text-red-600">
-              <span className="material-symbols-outlined text-[14px]">error</span>
+              <Icon icon={CircleAlert} size="sm" color="current" />
               <span>{message.text}</span>
             </div>
           )}
@@ -339,9 +341,7 @@ export default function AntigravityToolCard({
                 <span className="w-32 shrink-0 text-sm font-semibold text-text-main text-right">
                   {t("apiKey")}
                 </span>
-                <span className="material-symbols-outlined text-text-muted text-[14px]">
-                  arrow_forward
-                </span>
+                <Icon icon={ArrowRight} size="sm" color="ink-muted" />
                 {apiKeys.length > 0 ? (
                   <select
                     value={effectiveApiKeyId}
@@ -368,9 +368,7 @@ export default function AntigravityToolCard({
                     <span className="w-32 shrink-0 text-sm font-semibold text-text-main text-right">
                       {model.name}
                     </span>
-                    <span className="material-symbols-outlined text-text-muted text-[14px]">
-                      arrow_forward
-                    </span>
+                    <Icon icon={ArrowRight} size="sm" color="ink-muted" />
                     <input
                       type="text"
                       value={entry.model || ""}
@@ -404,7 +402,7 @@ export default function AntigravityToolCard({
                         className="p-1 text-text-muted hover:text-red-500 rounded transition-colors"
                         title={t("clear")}
                       >
-                        <span className="material-symbols-outlined text-[14px]">close</span>
+                        <Icon icon={X} size="sm" color="current" />
                       </button>
                     )}
                   </div>
@@ -418,7 +416,7 @@ export default function AntigravityToolCard({
                   onClick={handleSaveMappings}
                   disabled={loading || Object.keys(modelMappings).length === 0}
                 >
-                  <span className="material-symbols-outlined text-[14px] mr-1">save</span>
+                  <Icon icon={Save} size="sm" color="current" className="mr-1" />
                   {t("saveMappings")}
                 </Button>
               </div>
@@ -471,7 +469,7 @@ export default function AntigravityToolCard({
       >
         <div className="flex flex-col gap-4">
           <div className="flex items-start gap-3 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
-            <span className="material-symbols-outlined text-yellow-500 text-[20px]">warning</span>
+            <Icon icon={TriangleAlert} size="lg" color="feedback-warning-foreground" />
             <p className="text-xs text-text-muted">{t("sudoPasswordHint")}</p>
           </div>
 

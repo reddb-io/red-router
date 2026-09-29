@@ -1,5 +1,7 @@
 "use client";
 
+import { ArrowDownToLine, CircleAlert, CircleCheck, Coins, LoaderCircle, Settings, TriangleAlert } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useTranslations } from "next-intl";
 
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
@@ -740,21 +742,13 @@ export default function HomePageClient({ machineId }: HomePageClientProps) {
                     }`}
                   >
                     {s.status === "running" ? (
-                      <span className="material-symbols-outlined text-primary text-[18px] animate-spin">
-                        progress_activity
-                      </span>
+                      <Icon icon={LoaderCircle} size="md" color="primary" className="animate-spin" />
                     ) : s.status === "done" ? (
-                      <span className="material-symbols-outlined text-green-500 text-[18px]">
-                        check_circle
-                      </span>
+                      <Icon icon={CircleCheck} size="md" color="feedback-success-foreground" />
                     ) : s.status === "failed" ? (
-                      <span className="material-symbols-outlined text-red-500 text-[18px]">
-                        error
-                      </span>
+                      <Icon icon={CircleAlert} size="md" color="feedback-danger-foreground" />
                     ) : (
-                      <span className="material-symbols-outlined text-amber-500 text-[18px]">
-                        warning
-                      </span>
+                      <Icon icon={TriangleAlert} size="md" color="feedback-warning-foreground" />
                     )}
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium">{stepLabels[s.step] || s.step}</p>
@@ -776,7 +770,7 @@ export default function HomePageClient({ machineId }: HomePageClientProps) {
               {updatePhase === "done" && (
                 <div className="mt-1 px-3 py-2.5 rounded-lg border border-green-500/30 bg-green-500/5">
                   <p className="text-sm font-semibold text-green-500 flex items-center gap-2">
-                    <span className="material-symbols-outlined text-[18px]">check_circle</span>
+                    <Icon icon={CircleCheck} size="md" color="current" />
                     {updateSteps.find((s) => s.step === "complete")?.message || t("updateComplete")}
                   </p>
                   <p className="text-xs text-text-muted mt-1">{t("reloadingPageAutomatically")}</p>
@@ -816,9 +810,7 @@ export default function HomePageClient({ machineId }: HomePageClientProps) {
           <div className="flex flex-col gap-3 rounded-lg border border-primary/20 bg-primary/10 px-5 py-4 text-primary">
             <div className="flex min-h-[48px] items-center justify-between">
               <div className="flex min-w-0 items-center gap-4">
-                <span className="material-symbols-outlined shrink-0 text-[24px]">
-                  system_update_alt
-                </span>
+                <Icon icon={ArrowDownToLine} size="lg" color="current" className="shrink-0" />
                 <div>
                   <p className="font-semibold text-sm">
                     {t("updateAvailableTitle", {
@@ -986,7 +978,7 @@ function ProviderModelsModal({
       <div className="flex flex-col gap-3">
         {/* Summary */}
         <div className="flex items-center gap-2 text-sm text-text-muted">
-          <span className="material-symbols-outlined text-[16px]">token</span>
+          <Icon icon={Coins} size="md" color="current" />
           {models.length === 1
             ? t("modelAvailable", { count: models.length })
             : t("modelsAvailable", { count: models.length })}
@@ -1048,7 +1040,7 @@ function ProviderModelsModal({
             onClick={() => navigateTo(`/dashboard/providers/${provider.id}`)}
             className="flex-1"
           >
-            <span className="material-symbols-outlined text-[14px] mr-1">settings</span>
+            <Icon icon={Settings} size="sm" color="current" className="mr-1" />
             {t("configureProvider")}
           </Button>
           <Button variant="ghost" size="sm" onClick={onClose}>

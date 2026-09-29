@@ -1,5 +1,7 @@
 "use client";
 
+import { Terminal, TriangleAlert } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useTranslations } from "next-intl";
 import type { MemoryEngineStatus } from "@/shared/schemas/memory";
 
@@ -86,12 +88,12 @@ export default function MemoryEngineStatus({ status, onConfigure }: Props) {
       cta:
         status.vectorStore.backend === "none" ? (
           <span className="text-xs text-amber-400 flex items-center gap-1">
-            <span className="material-symbols-outlined text-[12px]">terminal</span>
+            <Icon icon={Terminal} size="sm" color="current" />
             {t("engine.vectorStoreInstallHint")}
           </span>
         ) : status.vectorStore.needsReindex > 0 ? (
           <span className="text-xs text-amber-400 flex items-center gap-1">
-            <span className="material-symbols-outlined text-[12px]">warning</span>
+            <Icon icon={TriangleAlert} size="sm" color="current" />
             {t("engine.needsReindex", { count: status.vectorStore.needsReindex })}
           </span>
         ) : undefined,

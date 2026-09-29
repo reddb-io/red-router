@@ -1,5 +1,7 @@
 "use client";
 
+import { CircleAlert, FileUp, ScrollText, Upload, X } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 
@@ -115,9 +117,7 @@ export default function UploadFileModal({ onClose, onUploaded }: Props) {
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--color-border)]">
           <div className="flex items-center gap-2">
-            <span className="material-symbols-outlined text-[20px] text-[var(--color-accent)]">
-              upload_file
-            </span>
+            <Icon icon={FileUp} size="lg" color="current" />
             <h2 className="text-base font-semibold text-[var(--color-text-main)]">
               {t("uploadModalTitle")}
             </h2>
@@ -127,7 +127,7 @@ export default function UploadFileModal({ onClose, onUploaded }: Props) {
             aria-label={t("close")}
             className="p-1.5 rounded-lg text-[var(--color-text-muted)] hover:bg-[var(--color-bg-alt)] transition-colors"
           >
-            <span className="material-symbols-outlined text-[20px]">close</span>
+            <Icon icon={X} size="lg" color="current" />
           </button>
         </div>
 
@@ -139,7 +139,7 @@ export default function UploadFileModal({ onClose, onUploaded }: Props) {
               role="alert"
               className="flex items-center gap-2 px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/25 text-red-400 text-sm"
             >
-              <span className="material-symbols-outlined text-[16px]">error</span>
+              <Icon icon={CircleAlert} size="md" color="current" />
               {error}
             </div>
           )}
@@ -186,9 +186,7 @@ export default function UploadFileModal({ onClose, onUploaded }: Props) {
             </div>
           ) : (
             <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-[var(--color-bg-alt)] border border-[var(--color-border)]">
-              <span className="material-symbols-outlined text-[24px] text-[var(--color-accent)] shrink-0">
-                description
-              </span>
+              <Icon icon={ScrollText} size="lg" color="current" className="shrink-0" />
               <div className="flex flex-col gap-0.5 flex-1 min-w-0">
                 <span
                   className="text-sm font-medium text-[var(--color-text-main)] truncate"
@@ -233,7 +231,7 @@ export default function UploadFileModal({ onClose, onUploaded }: Props) {
               </>
             ) : (
               <>
-                <span className="material-symbols-outlined text-[16px]">upload</span>
+                <Icon icon={Upload} size="md" color="current" />
                 {t("uploadModalUpload")}
               </>
             )}

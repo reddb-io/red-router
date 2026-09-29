@@ -1,5 +1,7 @@
 "use client";
 
+import { Link, Play, RefreshCcw, RefreshCw, ShieldHalf, Square } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState } from "react";
 import { useTranslations } from "next-intl";
 import { CertStatusIcon } from "./shared/CertStatusIcon";
@@ -48,7 +50,7 @@ export function AgentBridgeServerCard({
       <div className="flex items-center justify-between px-5 py-4">
         <div className="flex items-center gap-3">
           <div className="p-2 rounded-lg bg-primary/10">
-            <span className="material-symbols-outlined text-[20px] text-primary">link</span>
+            <Icon icon={Link} size="lg" color="primary" />
           </div>
           <div>
             <h2 className="text-sm font-semibold text-text-main flex items-center gap-2">
@@ -112,7 +114,7 @@ export function AgentBridgeServerCard({
           aria-label={t("startServer")}
           className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-500/10 text-emerald-600 px-3 py-1.5 text-xs font-medium hover:bg-emerald-500/20 transition-colors disabled:opacity-50"
         >
-          <span className="material-symbols-outlined text-[14px]">play_arrow</span>
+          <Icon icon={Play} size="sm" color="current" />
           {loading === "start" ? t("starting") || "Starting…" : t("startServer") || "Start"}
         </button>
 
@@ -123,7 +125,7 @@ export function AgentBridgeServerCard({
           aria-label={t("stopServer")}
           className="inline-flex items-center gap-1.5 rounded-lg bg-red-500/10 text-red-600 px-3 py-1.5 text-xs font-medium hover:bg-red-500/20 transition-colors disabled:opacity-50"
         >
-          <span className="material-symbols-outlined text-[14px]">stop</span>
+          <Icon icon={Square} size="sm" color="current" />
           {loading === "stop" ? t("stopping") || "Stopping…" : t("stopServer") || "Stop"}
         </button>
 
@@ -134,7 +136,7 @@ export function AgentBridgeServerCard({
           aria-label={t("restartServer")}
           className="inline-flex items-center gap-1.5 rounded-lg bg-amber-500/10 text-amber-600 px-3 py-1.5 text-xs font-medium hover:bg-amber-500/20 transition-colors disabled:opacity-50"
         >
-          <span className="material-symbols-outlined text-[14px]">refresh</span>
+          <Icon icon={RefreshCw} size="sm" color="current" />
           {loading === "restart" ? t("restarting") || "Restarting…" : t("restartServer") || "Restart"}
         </button>
 
@@ -145,7 +147,7 @@ export function AgentBridgeServerCard({
           aria-label={t("trustCert")}
           className="inline-flex items-center gap-1.5 rounded-lg bg-blue-500/10 text-blue-600 px-3 py-1.5 text-xs font-medium hover:bg-blue-500/20 transition-colors disabled:opacity-50"
         >
-          <span className="material-symbols-outlined text-[14px]">security</span>
+          <Icon icon={ShieldHalf} size="sm" color="current" />
           {loading === "trust-cert" ? t("trusting") || "Trusting…" : t("trustCert") || "Trust Cert"}
         </button>
 
@@ -166,7 +168,7 @@ export function AgentBridgeServerCard({
           aria-label={t("regenerateCert")}
           className="inline-flex items-center gap-1.5 rounded-lg bg-zinc-500/10 text-text-muted px-3 py-1.5 text-xs font-medium hover:bg-zinc-500/20 transition-colors disabled:opacity-50"
         >
-          <span className="material-symbols-outlined text-[14px]">autorenew</span>
+          <Icon icon={RefreshCcw} size="sm" color="current" />
           {loading === "regenerate-cert"
             ? t("regenerating") || "Regenerating…"
             : t("regenerateCert") || "Regenerate Cert"}

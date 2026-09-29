@@ -1,5 +1,7 @@
 "use client";
 
+import { ArrowRight, CircleCheck, LoaderCircle, RefreshCw, TriangleAlert } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
@@ -344,9 +346,7 @@ function ComboAutopilotPanel({ report }: { report: ComboAutopilotReport }) {
                           href={action.href}
                           className="inline-flex items-center gap-1.5 rounded-lg border border-black/5 px-3 py-1.5 text-xs font-medium text-text-main transition-colors hover:bg-black/5 dark:border-white/5 dark:hover:bg-white/5"
                         >
-                          <span className="material-symbols-outlined text-[14px]">
-                            arrow_forward
-                          </span>
+                          <Icon icon={ArrowRight} size="sm" color="current" />
                           {action.label}
                         </Link>
                       ) : null
@@ -910,7 +910,7 @@ export default function ComboHealthTab() {
       {!loading && forecastError ? (
         <Card className="border-yellow-500/20 bg-yellow-500/5 p-4">
           <div className="flex items-center gap-2 text-sm text-yellow-700 dark:text-yellow-300">
-            <span className="material-symbols-outlined text-[18px]">warning</span>
+            <Icon icon={TriangleAlert} size="md" color="current" />
             {forecastError}
           </div>
         </Card>
@@ -919,7 +919,7 @@ export default function ComboHealthTab() {
       {!loading && autopilotError ? (
         <Card className="border-yellow-500/20 bg-yellow-500/5 p-4">
           <div className="flex items-center gap-2 text-sm text-yellow-700 dark:text-yellow-300">
-            <span className="material-symbols-outlined text-[18px]">warning</span>
+            <Icon icon={TriangleAlert} size="md" color="current" />
             {autopilotError}
           </div>
         </Card>
@@ -928,7 +928,7 @@ export default function ComboHealthTab() {
       {!loading && scoringError ? (
         <Card className="border-yellow-500/20 bg-yellow-500/5 p-4">
           <div className="flex items-center gap-2 text-sm text-yellow-700 dark:text-yellow-300">
-            <span className="material-symbols-outlined text-[18px]">warning</span>
+            <Icon icon={TriangleAlert} size="md" color="current" />
             {scoringError}
           </div>
         </Card>
@@ -952,14 +952,12 @@ export default function ComboHealthTab() {
             >
               {retrying ? (
                 <>
-                  <span className="material-symbols-outlined animate-spin text-[18px]">
-                    progress_activity
-                  </span>
+                  <Icon icon={LoaderCircle} size="md" color="current" className="animate-spin" />
                   {t("retrying")}
                 </>
               ) : (
                 <>
-                  <span className="material-symbols-outlined text-[18px]">refresh</span>
+                  <Icon icon={RefreshCw} size="md" color="current" />
                   {t("retry")}
                 </>
               )}
@@ -982,9 +980,7 @@ export default function ComboHealthTab() {
               <p className="text-xs font-medium text-text-main">{t("comboHealthGettingStarted")}</p>
               <ul className="mt-2 text-left text-xs text-text-muted">
                 <li className="flex items-start gap-2">
-                  <span className="material-symbols-outlined text-[14px] text-primary">
-                    check_circle
-                  </span>
+                  <Icon icon={CircleCheck} size="sm" color="primary" />
                   <span>
                     {t.rich("comboHealthStepCreate", {
                       strong: (chunks) => <strong>{chunks}</strong>,
@@ -992,15 +988,11 @@ export default function ComboHealthTab() {
                   </span>
                 </li>
                 <li className="mt-1 flex items-start gap-2">
-                  <span className="material-symbols-outlined text-[14px] text-primary">
-                    check_circle
-                  </span>
+                  <Icon icon={CircleCheck} size="sm" color="primary" />
                   <span>{t("comboHealthStepSend")}</span>
                 </li>
                 <li className="mt-1 flex items-start gap-2">
-                  <span className="material-symbols-outlined text-[14px] text-primary">
-                    check_circle
-                  </span>
+                  <Icon icon={CircleCheck} size="sm" color="primary" />
                   <span>{t("comboHealthStepAutomatic")}</span>
                 </li>
               </ul>

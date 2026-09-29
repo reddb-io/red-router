@@ -1,5 +1,7 @@
 "use client";
 
+import { Bandage } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
@@ -34,7 +36,7 @@ export default function DegradationBadge() {
       className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-amber-500/10 text-amber-500 hover:bg-amber-500/20 transition-colors border border-amber-500/20"
       title={t("warning")} // Using common warning text, or we could just use English / fixed string if i18n is not strict
     >
-      <span className="material-symbols-outlined text-[16px]">healing</span>
+      <Icon icon={Bandage} size="md" color="current" />
       <span className="text-xs font-semibold whitespace-nowrap">{t("degraded")}</span>
     </Link>
   );

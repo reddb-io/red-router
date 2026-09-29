@@ -1,5 +1,7 @@
 "use client";
 
+import { X } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import { matchesSearch } from "@/shared/utils/turkishText";
@@ -76,9 +78,7 @@ export function ModelSelectorModal({
         <div className="flex items-center justify-between px-4 pt-4 pb-3 border-b border-border/30">
           <h3 className="text-sm font-semibold text-text-main">{t("modelSelectorTitle")}</h3>
           <button type="button" onClick={onClose} aria-label={tc("close")}>
-            <span className="material-symbols-outlined text-[18px] text-text-muted hover:text-text-main">
-              close
-            </span>
+            <Icon icon={X} size="md" color="ink-muted" className="hover:text-text-main" />
           </button>
         </div>
 

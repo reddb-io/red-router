@@ -1,5 +1,7 @@
 "use client";
 
+import { ChevronsDownUp, ChevronsUpDown, Minus, Plus } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useTranslations } from "next-intl";
 import useJsonTreeExpandStore, { useJsonTreeExpandLevel } from "@/store/jsonTreeExpandStore";
 
@@ -29,7 +31,7 @@ export function JsonTreeExpandControls({ sectionId }: JsonTreeExpandControlsProp
         aria-label={t("collapseAllLevels")}
         className={buttonClass}
       >
-        <span className="material-symbols-outlined text-[16px]">collapse_all</span>
+        <Icon icon={ChevronsDownUp} size="md" color="current" />
       </button>
       <button
         type="button"
@@ -38,7 +40,7 @@ export function JsonTreeExpandControls({ sectionId }: JsonTreeExpandControlsProp
         aria-label={t("collapseOneLevel")}
         className={buttonClass}
       >
-        <span className="material-symbols-outlined text-[16px]">remove</span>
+        <Icon icon={Minus} size="md" color="current" />
       </button>
       <span
         className="min-w-[1.5em] text-center text-[11px] font-mono text-text-muted tabular-nums"
@@ -53,7 +55,7 @@ export function JsonTreeExpandControls({ sectionId }: JsonTreeExpandControlsProp
         aria-label={t("expandOneLevel")}
         className={buttonClass}
       >
-        <span className="material-symbols-outlined text-[16px]">add</span>
+        <Icon icon={Plus} size="md" color="current" />
       </button>
       <button
         type="button"
@@ -62,7 +64,7 @@ export function JsonTreeExpandControls({ sectionId }: JsonTreeExpandControlsProp
         aria-label={t("expandAllLevels")}
         className={buttonClass}
       >
-        <span className="material-symbols-outlined text-[16px]">expand_all</span>
+        <Icon icon={ChevronsUpDown} size="md" color="current" />
       </button>
     </div>
   );

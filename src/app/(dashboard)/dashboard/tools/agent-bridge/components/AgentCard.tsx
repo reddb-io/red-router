@@ -1,5 +1,7 @@
 "use client";
 
+import { Activity, CircleCheck, Play, RotateCcw, Search, Settings, TriangleAlert } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState } from "react";
 import { useTranslations } from "next-intl";
 import { AgentIcon } from "./shared/AgentIcon";
@@ -65,7 +67,7 @@ export function AgentCard({
     if (isInvestigating) {
       return (
         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-zinc-500/10 text-zinc-500 dark:text-zinc-400 text-xs font-medium">
-          <span className="material-symbols-outlined text-[12px]">search</span>
+          <Icon icon={Search} size="sm" color="current" />
           {t("statusInvestigating") || "Investigating"}
         </span>
       );
@@ -81,14 +83,14 @@ export function AgentCard({
     if (!setupCompleted) {
       return (
         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-zinc-500/10 text-zinc-500 text-xs font-medium">
-          <span className="material-symbols-outlined text-[12px]">settings</span>
+          <Icon icon={Settings} size="sm" color="current" />
           {t("statusSetupRequired") || "Setup required"}
         </span>
       );
     }
     return (
       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 text-xs font-medium">
-        <span className="material-symbols-outlined text-[12px]">warning</span>
+        <Icon icon={TriangleAlert} size="sm" color="current" />
         {t("statusDnsOff") || "DNS off"}
       </span>
     );
@@ -224,7 +226,7 @@ export function AgentCard({
             {/* Restore-default success banner */}
             {resetDone && (
               <div className="flex items-start gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-400">
-                <span className="material-symbols-outlined text-[16px] shrink-0">check_circle</span>
+                <Icon icon={CircleCheck} size="md" color="current" className="shrink-0" />
                 <span>
                   {(
                     t("resetDone") ||
@@ -242,7 +244,7 @@ export function AgentCard({
                   onClick={() => setWizardOpen(true)}
                   className="inline-flex items-center gap-1.5 rounded-lg bg-primary/10 text-primary px-3 py-1.5 text-xs font-medium hover:bg-primary/20 transition-colors"
                 >
-                  <span className="material-symbols-outlined text-[14px]">play_arrow</span>
+                  <Icon icon={Play} size="sm" color="current" />
                   {t("setupWizard") || "Setup wizard"}
                 </button>
               )}
@@ -273,7 +275,7 @@ export function AgentCard({
                 href={`/dashboard/tools/traffic-inspector?agent=${target.id}`}
                 className="inline-flex items-center gap-1.5 rounded-lg bg-zinc-500/10 text-text-muted px-3 py-1.5 text-xs font-medium hover:bg-zinc-500/20 transition-colors"
               >
-                <span className="material-symbols-outlined text-[14px]">network_check</span>
+                <Icon icon={Activity} size="sm" color="current" />
                 {t("viewTraffic") || "View traffic"}
               </a>
 
@@ -310,7 +312,7 @@ export function AgentCard({
                     }}
                     className="inline-flex items-center gap-1.5 rounded-lg bg-red-500/10 text-red-600 px-3 py-1.5 text-xs font-medium hover:bg-red-500/20 transition-colors"
                   >
-                    <span className="material-symbols-outlined text-[14px]">restart_alt</span>
+                    <Icon icon={RotateCcw} size="sm" color="current" />
                     {t("resetAgent") || "Restore default"}
                   </button>
                 ))}

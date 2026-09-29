@@ -1,5 +1,7 @@
 "use client";
 
+import { Layers, SearchX } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useMemo, useEffect } from "react";
 import { useTranslations } from "next-intl";
 import Modal from "./Modal";
@@ -984,7 +986,7 @@ export default function ModelSelectModal({
         {showCombos && filteredCombos.length > 0 && (
           <div>
             <div className="flex items-center gap-1.5 mb-1.5 sticky top-0 z-10 bg-surface py-1">
-              <span className="material-symbols-outlined text-primary text-[14px]">layers</span>
+              <Icon icon={Layers} size="sm" color="primary" />
               <span className="text-xs font-medium text-primary">{t("combos")}</span>
               <span className="text-[10px] text-text-muted">({filteredCombos.length})</span>
             </div>
@@ -1107,7 +1109,7 @@ export default function ModelSelectModal({
 
         {Object.keys(connectionFilteredGroups).length === 0 && filteredCombos.length === 0 && (
           <div className="text-center py-4 text-text-muted">
-            <span className="material-symbols-outlined text-2xl mb-1 block">search_off</span>
+            <Icon icon={SearchX} size="lg" color="current" className="mb-1 block" />
             <p className="text-xs">{t("noModelsFound")}</p>
           </div>
         )}

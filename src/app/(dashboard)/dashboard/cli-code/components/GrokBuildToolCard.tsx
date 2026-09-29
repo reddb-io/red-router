@@ -1,5 +1,7 @@
 "use client";
 
+import { ArrowRight, Copy, History, LoaderCircle, Save, ScrollText, TriangleAlert, X } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useTranslations } from "next-intl";
@@ -392,14 +394,14 @@ export default function GrokBuildToolCard({
         <div className="mt-4 flex flex-col gap-4 border-t border-border pt-4">
           {checking && (
             <div className="flex items-center gap-2 text-text-muted">
-              <span className="material-symbols-outlined animate-spin">progress_activity</span>
+              <Icon icon={LoaderCircle} size="lg" color="current" className="animate-spin" />
               <span>{t("checkingCli", { tool: "Grok Build" })}</span>
             </div>
           )}
 
           {!checking && status && !cliReady && (
             <div className="flex items-center gap-3 rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-4">
-              <span className="material-symbols-outlined text-yellow-500">warning</span>
+              <Icon icon={TriangleAlert} size="lg" color="feedback-warning-foreground" />
               <div>
                 <p className="font-medium text-yellow-600 dark:text-yellow-400">
                   {status.installed
@@ -417,9 +419,7 @@ export default function GrokBuildToolCard({
           {status?.config?.model?.base_url && (
             <div className={rowClass}>
               <span className={labelClass}>{t("current")}</span>
-              <span className="material-symbols-outlined text-[14px] text-text-muted">
-                arrow_forward
-              </span>
+              <Icon icon={ArrowRight} size="sm" color="ink-muted" />
               <span className="min-w-0 flex-1 truncate px-2 py-1.5 text-xs text-text-muted">
                 {status.config.model.base_url}
               </span>
@@ -430,9 +430,7 @@ export default function GrokBuildToolCard({
             <label className={labelClass} htmlFor="grok-build-endpoint">
               {t("baseUrl")}
             </label>
-            <span className="material-symbols-outlined text-[14px] text-text-muted">
-              arrow_forward
-            </span>
+            <Icon icon={ArrowRight} size="sm" color="ink-muted" />
             <select
               id="grok-build-endpoint"
               className={inputClass}
@@ -449,9 +447,7 @@ export default function GrokBuildToolCard({
           {selectedEndpoint === CUSTOM_ENDPOINT && (
             <div className={rowClass}>
               <span className={labelClass}>Custom URL</span>
-              <span className="material-symbols-outlined text-[14px] text-text-muted">
-                arrow_forward
-              </span>
+              <Icon icon={ArrowRight} size="sm" color="ink-muted" />
               <input
                 aria-label="Custom endpoint"
                 className={inputClass}
@@ -467,9 +463,7 @@ export default function GrokBuildToolCard({
             <label className={labelClass} htmlFor="grok-build-api-key">
               {t("apiKey")}
             </label>
-            <span className="material-symbols-outlined text-[14px] text-text-muted">
-              arrow_forward
-            </span>
+            <Icon icon={ArrowRight} size="sm" color="ink-muted" />
             <select
               id="grok-build-api-key"
               className={inputClass}
@@ -487,9 +481,7 @@ export default function GrokBuildToolCard({
 
           <div className={rowClass}>
             <span className={labelClass}>{t("model")}</span>
-            <span className="material-symbols-outlined text-[14px] text-text-muted">
-              arrow_forward
-            </span>
+            <Icon icon={ArrowRight} size="sm" color="ink-muted" />
             <Button
               variant="outline"
               size="sm"
@@ -512,7 +504,7 @@ export default function GrokBuildToolCard({
                 title={t("clear")}
                 onClick={() => setModel("")}
               >
-                <span className="material-symbols-outlined text-[14px]">close</span>
+                <Icon icon={X} size="sm" color="current" />
               </button>
             )}
           </div>
@@ -526,9 +518,7 @@ export default function GrokBuildToolCard({
               <span className="w-32 shrink-0 truncate text-right text-[11px] font-mono text-text-main opacity-70 transition-opacity group-hover:opacity-100">
                 {modelLabel(type)}
               </span>
-              <span className="material-symbols-outlined text-[14px] text-border transition-colors group-hover:text-primary">
-                arrow_forward
-              </span>
+              <Icon icon={ArrowRight} size="sm" color="current" className="text-border transition-colors group-hover:text-primary" />
               <Button
                 variant="outline"
                 size="sm"
@@ -555,7 +545,7 @@ export default function GrokBuildToolCard({
                     setSubagentModels((current) => ({ ...current, [type]: undefined }))
                   }
                 >
-                  <span className="material-symbols-outlined text-[14px]">close</span>
+                  <Icon icon={X} size="sm" color="current" />
                 </button>
               )}
             </div>
@@ -578,7 +568,7 @@ export default function GrokBuildToolCard({
               disabled={!cliReady || !model || !baseUrl}
               onClick={apply}
             >
-              <span className="material-symbols-outlined mr-1 text-[14px]">save</span>
+              <Icon icon={Save} size="sm" color="current" className="mr-1" />
               {t("apply")}
             </Button>
             <Button
@@ -588,11 +578,11 @@ export default function GrokBuildToolCard({
               disabled={!configured}
               onClick={reset}
             >
-              <span className="material-symbols-outlined mr-1 text-[14px]">restore</span>
+              <Icon icon={History} size="sm" color="current" className="mr-1" />
               {t("reset")}
             </Button>
             <Button variant="ghost" size="sm" onClick={() => setShowManual(true)}>
-              <span className="material-symbols-outlined mr-1 text-[14px]">content_copy</span>
+              <Icon icon={Copy} size="sm" color="current" className="mr-1" />
               {t("manualConfig")}
             </Button>
             <div className="flex-1" />
@@ -604,7 +594,7 @@ export default function GrokBuildToolCard({
                 if (!showBackups) void refreshBackups();
               }}
             >
-              <span className="material-symbols-outlined mr-1 text-[14px]">history</span>
+              <Icon icon={History} size="sm" color="current" className="mr-1" />
               {t("backups")}
               {backups.length > 0 && ` (${backups.length})`}
             </Button>
@@ -613,7 +603,7 @@ export default function GrokBuildToolCard({
           {showBackups && (
             <div className="mt-2 rounded-lg border border-border bg-surface p-3">
               <h4 className="mb-2 flex items-center gap-1 text-xs font-semibold text-text-main">
-                <span className="material-symbols-outlined text-[14px]">history</span>
+                <Icon icon={History} size="sm" color="current" />
                 {t("configBackups")}
               </h4>
               {backups.length === 0 ? (
@@ -625,9 +615,7 @@ export default function GrokBuildToolCard({
                       key={backup.id}
                       className="flex items-center gap-2 rounded bg-black/5 px-2 py-1.5 text-xs dark:bg-white/5"
                     >
-                      <span className="material-symbols-outlined text-[14px] text-text-muted">
-                        description
-                      </span>
+                      <Icon icon={ScrollText} size="sm" color="ink-muted" />
                       <span className="flex-1 truncate font-mono" title={backup.id}>
                         {backup.id}
                       </span>

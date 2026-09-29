@@ -1,5 +1,7 @@
 "use client";
 
+import { Info, RotateCcw } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { useTranslations } from "next-intl";
 import { matchesSearch } from "@/shared/utils/turkishText";
@@ -321,9 +323,7 @@ export default function FeatureFlagsGrid() {
         <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 dark:border-amber-500/40 dark:bg-amber-500/10">
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-start gap-3">
-              <span className="material-symbols-outlined text-amber-600 dark:text-amber-300">
-                restart_alt
-              </span>
+              <Icon icon={RotateCcw} size="lg" color="feedback-warning-foreground" className="dark:text-amber-300" />
               <div>
                 <p className="text-sm font-medium text-amber-900 dark:text-amber-200">
                   {t("restartRequiredCount", { count: pendingRestartKeys.size })}
@@ -366,7 +366,7 @@ export default function FeatureFlagsGrid() {
       {category === "__restart" && (
         <div className="rounded-xl border border-sky-200 bg-sky-50 p-3 text-sm text-sky-800 dark:border-blue-500/30 dark:bg-blue-500/10 dark:text-blue-200">
           <div className="flex items-start gap-2">
-            <span className="material-symbols-outlined text-sky-600 dark:text-blue-300">info</span>
+            <Icon icon={Info} size="lg" color="current" className="dark:text-blue-300" />
             <p>
               {t.rich("restartViewDescription", { strong: (chunks) => <strong>{chunks}</strong> })}
             </p>

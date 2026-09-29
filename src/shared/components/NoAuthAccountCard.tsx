@@ -1,5 +1,7 @@
 "use client";
 
+import { LockOpen, Trash2, X } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from "react";
 import { useTranslations } from "next-intl";
 import Card from "./Card";
@@ -597,7 +599,7 @@ export default function NoAuthAccountCard({
       <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex min-w-0 items-center gap-3">
           <div className="inline-flex shrink-0 items-center justify-center w-10 h-10 rounded-full bg-green-500/10 text-green-500">
-            <span className="material-symbols-outlined text-[20px]">lock_open</span>
+            <Icon icon={LockOpen} size="lg" color="current" />
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium">{t("title")}</p>
@@ -657,7 +659,7 @@ export default function NoAuthAccountCard({
                   }}
                   className="rounded p-1 text-text-muted hover:bg-black/5 dark:hover:bg-white/5"
                 >
-                  <span className="material-symbols-outlined text-[16px]">close</span>
+                  <Icon icon={X} size="md" color="current" />
                 </button>
               </div>
             )}
@@ -740,7 +742,7 @@ export default function NoAuthAccountCard({
                     className="shrink-0 rounded p-1 text-text-muted opacity-0 transition-colors hover:bg-red-500/10 hover:text-red-500 group-hover:opacity-100"
                     aria-label={t("removeAccount")}
                   >
-                    <span className="material-symbols-outlined text-[16px]">delete</span>
+                    <Icon icon={Trash2} size="md" color="current" />
                   </button>
                 </div>
               );

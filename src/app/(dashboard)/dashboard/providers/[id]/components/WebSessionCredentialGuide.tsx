@@ -4,6 +4,8 @@
 // Shared by AddApiKeyModal and EditConnectionModal; imports only leaf modules
 // (no cycle risk).
 
+import { CircleCheck, ExternalLink } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import type { WebSessionCredentialRequirement } from "../webSessionCredentials";
 import { providerText, type ProviderMessageTranslator } from "../providerPageHelpers";
 
@@ -38,9 +40,7 @@ export default function WebSessionCredentialGuide({
     return (
       <div className="rounded-lg border border-emerald-500/25 bg-emerald-500/10 px-3 py-3 text-sm text-text-muted">
         <div className="flex items-start gap-2">
-          <span className="material-symbols-outlined mt-0.5 text-[18px] text-emerald-500">
-            check_circle
-          </span>
+          <Icon icon={CircleCheck} size="md" color="feedback-success-foreground" className="mt-0.5" />
           <div>
             <p className="font-medium text-text-main">
               {providerText(t, "webNoAuthGuideTitle", "No credential required")}
@@ -103,9 +103,7 @@ export default function WebSessionCredentialGuide({
                       {providerText(t, "webSessionGuideOpenProvider", "Open {host}", {
                         host: providerWebsiteHost,
                       })}
-                      <span className="material-symbols-outlined text-[14px]" aria-hidden="true">
-                        open_in_new
-                      </span>
+                      <Icon icon={ExternalLink} size="sm" color="current" />
                     </a>
                   )}
                 </li>
@@ -127,9 +125,7 @@ export default function WebSessionCredentialGuide({
                     {providerText(t, "webSessionGuideOpenProvider", "Open {host}", {
                       host: providerWebsiteHost,
                     })}
-                    <span className="material-symbols-outlined text-[14px]" aria-hidden="true">
-                      open_in_new
-                    </span>
+                    <Icon icon={ExternalLink} size="sm" color="current" />
                   </a>
                 )}
               </li>

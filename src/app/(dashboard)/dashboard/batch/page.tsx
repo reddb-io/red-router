@@ -1,5 +1,7 @@
 "use client";
 
+import { ChevronRight, CircleCheck, Plus, RefreshCw } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useTranslations } from "next-intl";
 import BatchListTab from "./BatchListTab";
@@ -259,12 +261,12 @@ export default function BatchPage() {
             <span className="font-medium text-sm text-[var(--color-text-main)]">{t("batchStep1")}</span>
             <span className="text-xs text-[var(--color-text-muted)] hidden sm:inline">{t("batchStep1Desc")}</span>
           </div>
-          <span className="material-symbols-outlined text-[var(--color-text-muted)]">chevron_right</span>
+          <Icon icon={ChevronRight} size="lg" color="ink-muted" />
           <div className="flex items-center gap-1.5 rounded-lg bg-[var(--color-surface)] border border-[var(--color-border)] px-3 py-2">
             <span className="font-medium text-sm text-[var(--color-text-main)]">{t("batchStep2")}</span>
             <span className="text-xs text-[var(--color-text-muted)] hidden sm:inline">{t("batchStep2Desc")}</span>
           </div>
-          <span className="material-symbols-outlined text-[var(--color-text-muted)]">chevron_right</span>
+          <Icon icon={ChevronRight} size="lg" color="ink-muted" />
           <div className="flex items-center gap-1.5 rounded-lg bg-[var(--color-surface)] border border-[var(--color-border)] px-3 py-2">
             <span className="font-medium text-sm text-[var(--color-text-main)]">{t("batchStep3")}</span>
             <span className="text-xs text-[var(--color-text-muted)] hidden sm:inline">{t("batchStep3Desc")}</span>
@@ -276,7 +278,7 @@ export default function BatchPage() {
           onClick={() => setShowWizard(true)}
           className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-[var(--color-accent)] text-white hover:opacity-90 transition-all duration-200 w-fit"
         >
-          <span className="material-symbols-outlined text-[16px]">add</span>
+          <Icon icon={Plus} size="md" color="current" />
           {t("batchListNewButton")}
         </button>
       </div>
@@ -291,7 +293,7 @@ export default function BatchPage() {
           className="flex items-center justify-between gap-3 rounded-lg border border-emerald-500/25 bg-emerald-500/10 px-3 py-2"
         >
           <div className="flex items-center gap-2 text-sm text-emerald-400">
-            <span className="material-symbols-outlined text-[16px]">check_circle</span>
+            <Icon icon={CircleCheck} size="md" color="current" />
             {t("batchListBatchCreated", { id: createdBanner })}
           </div>
           <button
@@ -320,7 +322,7 @@ export default function BatchPage() {
               hover:border-[var(--color-accent)] transition-all duration-200
               disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <span className="material-symbols-outlined text-[16px]">refresh</span>
+            <Icon icon={RefreshCw} size="md" color="current" />
             {loading ? t("batchListRefreshing") : t("batchListRefresh")}
           </button>
           <button
@@ -329,7 +331,7 @@ export default function BatchPage() {
               bg-[var(--color-accent)] text-white hover:opacity-90
               transition-all duration-200"
           >
-            <span className="material-symbols-outlined text-[16px]">add</span>
+            <Icon icon={Plus} size="md" color="current" />
             {t("batchListNewButton")}
           </button>
         </div>

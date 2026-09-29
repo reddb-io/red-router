@@ -1,5 +1,7 @@
 "use client";
 
+import { Info, Minimize2 } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useTranslations } from "next-intl";
 import { Button, Select } from "@/shared/components";
@@ -107,9 +109,7 @@ function CompressionPreviewContent({ inputContent = "" }: { inputContent?: strin
       {/* Empty state */}
       {!hasInput && (
         <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-black/5 dark:bg-white/5 text-sm text-text-muted">
-          <span className="material-symbols-outlined text-[16px]" aria-hidden="true">
-            info
-          </span>
+          <Icon icon={Info} size="md" color="current" />
           <span>{t("compressionEmptyHint")}</span>
         </div>
       )}
@@ -270,12 +270,7 @@ export default function CompressionPreviewAccordion({
           >
             {open ? "expand_more" : "chevron_right"}
           </span>
-          <span
-            className="material-symbols-outlined text-text-muted text-[18px] shrink-0"
-            aria-hidden="true"
-          >
-            compress
-          </span>
+          <Icon icon={Minimize2} size="md" color="ink-muted" className="shrink-0" />
           <div className="flex-1 min-w-0">
             <div className="text-sm font-medium text-text-main truncate">{title}</div>
             <div className="text-xs text-text-muted truncate">{subtitle}</div>

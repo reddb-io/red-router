@@ -1,5 +1,7 @@
 "use client";
 
+import { PanelTop } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState } from "react";
 import { useTranslations } from "next-intl";
 import { Card } from "@/shared/components";
@@ -28,7 +30,7 @@ export function NinerouterEmbedFrame() {
         className="flex w-full items-center justify-between px-4 py-3 text-sm font-medium hover:bg-bg-subtle transition-colors"
       >
         <div className="flex items-center gap-2">
-          <span className="material-symbols-outlined text-[16px] text-text-muted">web</span>
+          <Icon icon={PanelTop} size="md" color="ink-muted" />
           {t("webUi")}
           <a
             href="/dashboard/providers/services/9router/embed/"

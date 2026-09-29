@@ -1,5 +1,7 @@
 "use client";
 
+import { Pencil, Trash2 } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState } from "react";
 import { WebhookDeliveriesPanel } from "./WebhookDeliveriesPanel";
 
@@ -118,7 +120,7 @@ export function WebhookCard({
             title={t("edit")}
             className="rounded-lg p-2 text-text-muted transition-colors hover:bg-surface/60 hover:text-text-main"
           >
-            <span className="material-symbols-outlined text-[18px]">edit</span>
+            <Icon icon={Pencil} size="md" color="current" />
           </button>
           <button
             type="button"
@@ -126,7 +128,7 @@ export function WebhookCard({
             title={t("delete")}
             className="rounded-lg p-2 text-red-500 transition-colors hover:bg-red-500/10"
           >
-            <span className="material-symbols-outlined text-[18px]">delete</span>
+            <Icon icon={Trash2} size="md" color="current" />
           </button>
           <button
             type="button"

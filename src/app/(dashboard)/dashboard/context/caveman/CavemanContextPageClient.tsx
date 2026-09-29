@@ -1,5 +1,7 @@
 "use client";
 
+import { Info } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
 import { SegmentedControl } from "@/shared/components";
@@ -222,7 +224,7 @@ export default function CavemanContextPageClient() {
 
       {!masterEnabled && (
         <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-300 flex items-start gap-2">
-          <span className="material-symbols-outlined text-[18px]">info</span>
+          <Icon icon={Info} size="md" color="current" />
           <p>{t("masterDisabledWarning")}</p>
         </div>
       )}

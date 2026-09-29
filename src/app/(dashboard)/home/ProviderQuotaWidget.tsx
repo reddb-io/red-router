@@ -1,5 +1,7 @@
 "use client";
 
+import { Landmark, LoaderCircle } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import Card from "@/shared/components/Card";
@@ -263,9 +265,7 @@ export default function ProviderQuotaWidget({
     <Card className="w-full overflow-hidden">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-surface/60 px-4 py-3">
         <div className="flex items-center gap-2">
-          <span className="material-symbols-outlined text-[20px] text-primary" aria-hidden="true">
-            account_balance
-          </span>
+          <Icon icon={Landmark} size="lg" color="primary" />
           <div>
             <h2 className="text-base font-semibold text-text-main">
               {tr("providerQuota", "Provider Quota")}
@@ -301,9 +301,7 @@ export default function ProviderQuotaWidget({
 
       {loading ? (
         <div className="flex items-center gap-2 px-4 py-8 text-sm text-text-muted">
-          <span className="material-symbols-outlined animate-spin text-[16px]" aria-hidden="true">
-            progress_activity
-          </span>
+          <Icon icon={LoaderCircle} size="md" color="current" className="animate-spin" />
           {tr("loadingQuotas", "Loading...")}
         </div>
       ) : providerGroups.length === 0 ? (

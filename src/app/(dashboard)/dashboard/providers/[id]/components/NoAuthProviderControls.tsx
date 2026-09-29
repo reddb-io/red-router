@@ -1,5 +1,7 @@
 "use client";
 
+import { GlobeLock } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import { NoAuthAccountCard, NoAuthProviderCard } from "@/shared/components";
@@ -136,7 +138,7 @@ export default function NoAuthProviderControls({
       }`}
       title={host ? t("providerProxyTitleConfigured", { host }) : t("providerProxyConfigureHint")}
     >
-      <span className="material-symbols-outlined text-[14px]">vpn_lock</span>
+      <Icon icon={GlobeLock} size="sm" color="current" />
       <span className="max-w-30 truncate">{host || t("providerProxy")}</span>
     </button>
   ) : null;

@@ -1,5 +1,7 @@
 "use client";
 
+import { CircleAlert, CircleCheck, Info, Zap } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useEffect, useMemo, useState } from "react";
 import { Card, Toggle, Select } from "@/shared/components";
 import { useTranslations } from "next-intl";
@@ -118,9 +120,7 @@ export default function CodexFastTierTab() {
     <Card>
       <div className="flex items-center gap-3 mb-3">
         <div className="p-2 rounded-lg bg-sky-500/10 text-sky-500">
-          <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
-            bolt
-          </span>
+          <Icon icon={Zap} size="lg" color="current" />
         </div>
         <div className="flex-1">
           <h3 className="text-lg font-semibold">{t("codexFastTierTitle")}</h3>
@@ -129,13 +129,13 @@ export default function CodexFastTierTab() {
         <div className="flex items-center gap-3">
           {status === "saved" && (
             <span className="text-xs font-medium text-emerald-500 flex items-center gap-1">
-              <span className="material-symbols-outlined text-[14px]">check_circle</span>{" "}
+              <Icon icon={CircleCheck} size="sm" color="current" />{" "}
               {t("saved")}
             </span>
           )}
           {status === "error" && (
             <span className="text-xs font-medium text-rose-500 flex items-center gap-1">
-              <span className="material-symbols-outlined text-[14px]">error</span>{" "}
+              <Icon icon={CircleAlert} size="sm" color="current" />{" "}
               {t("codexFastTierSaveError")}
             </span>
           )}
@@ -201,7 +201,7 @@ export default function CodexFastTierTab() {
       )}
 
       <p className="mt-4 text-xs text-text-muted/80 flex items-start gap-1.5 leading-relaxed">
-        <span className="material-symbols-outlined text-[14px] mt-0.5">info</span>
+        <Icon icon={Info} size="sm" color="current" className="mt-0.5" />
         <span>{t("codexFastTierHint")}</span>
       </p>
     </Card>

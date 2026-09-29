@@ -1,5 +1,7 @@
 "use client";
 
+import { Pencil } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useTranslations } from "next-intl";
 import { Card, Badge, Button, Input, Select, Modal } from "@/shared/components";
@@ -494,7 +496,7 @@ export default function MemoriesTab() {
                               onClick={() => openEdit(memory)}
                               title={t("editMemory")}
                             >
-                              <span className="material-symbols-outlined text-[16px]">edit</span>
+                              <Icon icon={Pencil} size="md" color="current" />
                             </Button>
                             <Button
                               variant="ghost"

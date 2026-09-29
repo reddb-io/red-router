@@ -1,5 +1,7 @@
 "use client";
 
+import { Bug } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useEffect, useState } from "react";
 import { Card, Toggle } from "@/shared/components";
 import { useTranslations } from "next-intl";
@@ -54,9 +56,7 @@ export default function DebugModeCard() {
       <div className="flex items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <div className="p-2 rounded-lg bg-primary/10 text-primary">
-            <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
-              bug_report
-            </span>
+            <Icon icon={Bug} size="lg" color="current" />
           </div>
           <div>
             <h3 className="text-lg font-semibold">{t("debugToggle")}</h3>

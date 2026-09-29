@@ -1,5 +1,7 @@
 "use client";
 
+import { TriangleAlert, X } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useSyncExternalStore } from "react";
 import { useTranslations } from "next-intl";
 
@@ -52,7 +54,7 @@ export function RiskNoticeBanner() {
       role="alert"
       className="flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/5 px-4 py-3"
     >
-      <span className="material-symbols-outlined text-amber-500 shrink-0 mt-0.5">warning</span>
+      <Icon icon={TriangleAlert} size="lg" color="feedback-warning-foreground" className="shrink-0 mt-0.5" />
       <div className="flex-1 min-w-0">
         <p className="text-sm font-semibold text-amber-700 dark:text-amber-400">
           {t("riskBannerTitle") || "Use at your own risk"}
@@ -68,7 +70,7 @@ export function RiskNoticeBanner() {
         aria-label={t("riskBannerDismiss") || "Dismiss"}
         className="shrink-0 text-amber-500 hover:text-amber-400 transition-colors"
       >
-        <span className="material-symbols-outlined text-[18px]">close</span>
+        <Icon icon={X} size="md" color="current" />
       </button>
     </div>
   );

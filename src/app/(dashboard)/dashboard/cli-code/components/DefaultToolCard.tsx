@@ -1,5 +1,7 @@
 "use client";
 
+import { CircleAlert, CircleCheck, LoaderCircle, X } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useEffect, useRef, useState, useCallback } from "react";
 import { Card, Button, ModelSelectModal } from "@/shared/components";
 import { useTranslations } from "next-intl";
@@ -403,7 +405,7 @@ export default function DefaultToolCard({
               className="p-2 text-text-muted hover:text-red-500 rounded transition-colors"
               title={t("clear")}
             >
-              <span className="material-symbols-outlined text-lg">close</span>
+              <Icon icon={X} size="md" color="current" />
             </button>
           </>
         )}
@@ -464,9 +466,7 @@ export default function DefaultToolCard({
       <div className="flex flex-col gap-4">
         {checkingRuntime && (
           <div className="flex items-center gap-2 text-text-muted text-sm">
-            <span className="material-symbols-outlined animate-spin text-base">
-              progress_activity
-            </span>
+            <Icon icon={LoaderCircle} size="md" color="current" className="animate-spin" />
             <span>{t("checkingRuntime")}</span>
           </div>
         )}
@@ -512,7 +512,7 @@ export default function DefaultToolCard({
         )}
         {!checkingRuntime && runtimeStatus?.error && (
           <div className="flex items-start gap-3 p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
-            <span className="material-symbols-outlined text-red-500 text-lg">error</span>
+            <Icon icon={CircleAlert} size="md" color="feedback-danger-foreground" />
             <p className="text-sm text-red-600 dark:text-red-400">
               {t("failedCheckRuntimeStatus")}
             </p>
@@ -628,9 +628,7 @@ export default function DefaultToolCard({
               )}
               {(isMultiModelTool ? getSelectedModels().length > 0 : !!modelValue) && (
                 <span className="text-xs text-text-muted flex items-center gap-1">
-                  <span className="material-symbols-outlined text-[14px] text-green-500">
-                    check_circle
-                  </span>
+                  <Icon icon={CircleCheck} size="sm" color="feedback-success-foreground" />
                   {t("selectionSaved")}
                 </span>
               )}

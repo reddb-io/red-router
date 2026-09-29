@@ -2,6 +2,8 @@
 
 // src/app/(dashboard)/dashboard/playground/components/ExportCodeModal.tsx
 
+import { X } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useEffect, useCallback } from "react";
 import { useTranslations } from "next-intl";
 import type { PlaygroundState, ExportLanguage } from "@/lib/playground/codeExport";
@@ -82,7 +84,7 @@ export default function ExportCodeModal({ state, onClose }: ExportCodeModalProps
             className="p-1 rounded text-text-muted hover:text-text-main hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
             aria-label={t("closeExportModal")}
           >
-            <span className="material-symbols-outlined text-[18px]">close</span>
+            <Icon icon={X} size="md" color="current" />
           </button>
         </div>
 

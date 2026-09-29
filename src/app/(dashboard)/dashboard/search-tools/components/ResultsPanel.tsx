@@ -1,5 +1,7 @@
 "use client";
 
+import { LoaderCircle } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState } from "react";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
@@ -123,9 +125,7 @@ export default function ResultsPanel({
       {/* Content */}
       {loading && (
         <div className="flex items-center justify-center py-20">
-          <span className="material-symbols-outlined text-[24px] text-primary animate-spin">
-            progress_activity
-          </span>
+          <Icon icon={LoaderCircle} size="lg" color="primary" className="animate-spin" />
         </div>
       )}
 

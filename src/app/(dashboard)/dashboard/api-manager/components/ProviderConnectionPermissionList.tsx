@@ -1,5 +1,7 @@
 "use client";
 
+import { Check, SearchX, X } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { getProviderDisplayName } from "@/lib/display/names";
@@ -225,7 +227,7 @@ export const ProviderConnectionPermissionList = memo(function ProviderConnection
             onClick={() => handleSearchChange("")}
             className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-main"
           >
-            <span className="material-symbols-outlined text-[18px]">close</span>
+            <Icon icon={X} size="md" color="current" />
           </button>
         )}
       </div>
@@ -233,7 +235,7 @@ export const ProviderConnectionPermissionList = memo(function ProviderConnection
       <div className="max-h-[280px] overflow-y-auto border border-border rounded-lg divide-y divide-border">
         {filteredGroups.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-6 text-text-muted">
-            <span className="material-symbols-outlined text-2xl mb-1">search_off</span>
+            <Icon icon={SearchX} size="lg" color="current" className="mb-1" />
             <p className="text-xs">{tc("noResults")}</p>
           </div>
         ) : (
@@ -313,9 +315,7 @@ export const ProviderConnectionPermissionList = memo(function ProviderConnection
                             }`}
                           >
                             {isSelected && (
-                              <span className="material-symbols-outlined text-white text-[10px]">
-                                check
-                              </span>
+                              <Icon icon={Check} size="sm" color="foreground" />
                             )}
                           </div>
                           <span className="truncate flex-1 font-mono text-[11px]" title={conn.id}>

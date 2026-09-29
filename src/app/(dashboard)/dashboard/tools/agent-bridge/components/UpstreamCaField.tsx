@@ -1,5 +1,7 @@
 "use client";
 
+import { CircleAlert, CircleCheck } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState } from "react";
 import { useTranslations } from "next-intl";
 
@@ -72,13 +74,13 @@ export function UpstreamCaField({ value, onChange, onSave }: UpstreamCaFieldProp
       </div>
       {testResult === "ok" && (
         <p className="text-xs text-emerald-500">
-          <span className="material-symbols-outlined text-[12px] mr-1">check_circle</span>
+          <Icon icon={CircleCheck} size="sm" color="current" className="mr-1" />
           {t("upstreamCaTestOk") || "TLS test passed"}
         </p>
       )}
       {testResult === "error" && (
         <p className="text-xs text-red-500">
-          <span className="material-symbols-outlined text-[12px] mr-1">error</span>
+          <Icon icon={CircleAlert} size="sm" color="current" className="mr-1" />
           {t("upstreamCaTestError") || "TLS test failed — check the path and CA file"}
         </p>
       )}

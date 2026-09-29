@@ -2,6 +2,8 @@
 
 // src/app/(dashboard)/dashboard/playground/components/PresetPicker.tsx
 
+import { Trash2 } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import { usePresets } from "../hooks/usePresets";
@@ -149,7 +151,7 @@ export default function PresetPicker({ configState, setConfigState }: PresetPick
                   className="opacity-0 group-hover:opacity-100 p-0.5 text-text-muted hover:text-destructive transition-all"
                   aria-label={`Delete preset "${preset.name}"`}
                 >
-                  <span className="material-symbols-outlined text-[12px]">delete</span>
+                  <Icon icon={Trash2} size="sm" color="current" />
                 </button>
               </div>
             ))}

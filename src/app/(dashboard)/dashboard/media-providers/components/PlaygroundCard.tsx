@@ -1,5 +1,7 @@
 "use client";
 
+import { CircleAlert, Copy, FlaskRound, Zap } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState } from "react";
 import { useTranslations } from "next-intl";
 import { Card, Button } from "@/shared/components";
@@ -63,7 +65,7 @@ export function PlaygroundCard({
       {/* Header row */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
-          <span className="material-symbols-outlined text-[18px] text-text-muted">labs</span>
+          <Icon icon={FlaskRound} size="md" color="ink-muted" />
           <h3 className="text-sm font-semibold">
             {t("exampleLabel")} · {kindLabel}
           </h3>
@@ -88,7 +90,7 @@ export function PlaygroundCard({
           onClick={handleCopyCurl}
           className="inline-flex items-center gap-1.5 text-xs text-text-muted hover:text-text-primary transition-colors"
         >
-          <span className="material-symbols-outlined text-[14px]">content_copy</span>
+          <Icon icon={Copy} size="sm" color="current" />
           {curlCopied ? t("copied") : t("copyCurl")}
         </button>
         <Button size="sm" onClick={() => void onRun()} disabled={running} loading={running}>
@@ -118,7 +120,7 @@ export function PlaygroundCard({
       {/* Error display */}
       {error && (
         <div className="mt-3 flex items-start gap-2 rounded-lg bg-red-500/10 border border-red-500/20 px-3 py-2">
-          <span className="material-symbols-outlined text-[16px] text-red-400 shrink-0">error</span>
+          <Icon icon={CircleAlert} size="md" color="feedback-danger-foreground" className="shrink-0" />
           <p className="text-xs text-red-400">{error}</p>
         </div>
       )}
@@ -129,7 +131,7 @@ export function PlaygroundCard({
           <div className="flex items-center gap-2 mb-2">
             <span className="text-xs font-medium text-text-muted">{t("response")}</span>
             <span className="flex items-center gap-0.5 text-xs text-text-muted">
-              <span className="material-symbols-outlined text-[13px]">bolt</span>
+              <Icon icon={Zap} size="sm" color="current" />
               {t("latency", { ms: Math.round(result.latencyMs) })}
             </span>
           </div>

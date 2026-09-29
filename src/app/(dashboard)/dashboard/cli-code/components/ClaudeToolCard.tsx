@@ -1,5 +1,7 @@
 "use client";
 
+import { ArrowRight, History, LoaderCircle, RotateCcw, Save, ScrollText, TriangleAlert, X } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Card, Button, ModelSelectModal, ManualConfigModal } from "@/shared/components";
 import ProviderIcon from "@/shared/components/ProviderIcon";
@@ -335,7 +337,7 @@ export default function ClaudeToolCard({
         <div className="mt-4 pt-4 border-t border-border flex flex-col gap-4">
           {checkingClaude && (
             <div className="flex items-center gap-2 text-text-muted">
-              <span className="material-symbols-outlined animate-spin">progress_activity</span>
+              <Icon icon={LoaderCircle} size="lg" color="current" className="animate-spin" />
               <span>{t("checkingCli", { tool: "Claude" })}</span>
             </div>
           )}
@@ -343,7 +345,7 @@ export default function ClaudeToolCard({
           {!checkingClaude && claudeStatus && !cliReady && (
             <div className="flex flex-col gap-4">
               <div className="flex items-center gap-3 p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
-                <span className="material-symbols-outlined text-yellow-500">warning</span>
+                <Icon icon={TriangleAlert} size="lg" color="feedback-warning-foreground" />
                 <div className="flex-1">
                   <p className="font-medium text-yellow-600 dark:text-yellow-400">
                     {claudeStatus.installed
@@ -412,9 +414,7 @@ export default function ClaudeToolCard({
                     <span className="w-32 shrink-0 text-sm font-semibold text-text-main text-right">
                       {t("current")}
                     </span>
-                    <span className="material-symbols-outlined text-text-muted text-[14px]">
-                      arrow_forward
-                    </span>
+                    <Icon icon={ArrowRight} size="sm" color="ink-muted" />
                     <span className="flex-1 px-2 py-1.5 text-xs text-text-muted truncate">
                       {claudeStatus.settings.env.ANTHROPIC_BASE_URL}
                     </span>
@@ -426,9 +426,7 @@ export default function ClaudeToolCard({
                   <span className="w-32 shrink-0 text-sm font-semibold text-text-main text-right">
                     {t("baseUrl")}
                   </span>
-                  <span className="material-symbols-outlined text-text-muted text-[14px]">
-                    arrow_forward
-                  </span>
+                  <Icon icon={ArrowRight} size="sm" color="ink-muted" />
                   <input
                     type="text"
                     value={getDisplayUrl()}
@@ -442,7 +440,7 @@ export default function ClaudeToolCard({
                       className="p-1 text-text-muted hover:text-primary rounded transition-colors"
                       title={t("resetToDefault")}
                     >
-                      <span className="material-symbols-outlined text-[14px]">restart_alt</span>
+                      <Icon icon={RotateCcw} size="sm" color="current" />
                     </button>
                   )}
                 </div>
@@ -452,9 +450,7 @@ export default function ClaudeToolCard({
                   <span className="w-32 shrink-0 text-sm font-semibold text-text-main text-right">
                     {t("apiKey")}
                   </span>
-                  <span className="material-symbols-outlined text-text-muted text-[14px]">
-                    arrow_forward
-                  </span>
+                  <Icon icon={ArrowRight} size="sm" color="ink-muted" />
                   {apiKeys.length > 0 ? (
                     <select
                       value={effectiveApiKey}
@@ -480,9 +476,7 @@ export default function ClaudeToolCard({
                     <span className="w-32 shrink-0 text-sm font-semibold text-text-main text-right">
                       {model.name}
                     </span>
-                    <span className="material-symbols-outlined text-text-muted text-[14px]">
-                      arrow_forward
-                    </span>
+                    <Icon icon={ArrowRight} size="sm" color="ink-muted" />
                     <button
                       onClick={() => openModelSelector(model.alias)}
                       disabled={!hasActiveProviders}
@@ -503,7 +497,7 @@ export default function ClaudeToolCard({
                         className="p-1 text-text-muted hover:text-red-500 rounded transition-colors"
                         title={t("clear")}
                       >
-                        <span className="material-symbols-outlined text-[14px]">close</span>
+                        <Icon icon={X} size="sm" color="current" />
                       </button>
                     )}
                   </div>
@@ -538,7 +532,7 @@ export default function ClaudeToolCard({
                   disabled={!hasActiveProviders}
                   loading={applying}
                 >
-                  <span className="material-symbols-outlined text-[14px] mr-1">save</span>
+                  <Icon icon={Save} size="sm" color="current" className="mr-1" />
                   {t("apply")}
                 </Button>
                 <Button
@@ -548,7 +542,7 @@ export default function ClaudeToolCard({
                   disabled={!claudeStatus?.hasOmniRoute}
                   loading={restoring}
                 >
-                  <span className="material-symbols-outlined text-[14px] mr-1">restore</span>
+                  <Icon icon={History} size="sm" color="current" className="mr-1" />
                   {t("reset")}
                 </Button>
                 <Button variant="ghost" size="sm" onClick={() => setShowManualConfigModal(true)}>
@@ -564,7 +558,7 @@ export default function ClaudeToolCard({
                     if (!showBackups) fetchBackups();
                   }}
                 >
-                  <span className="material-symbols-outlined text-[14px] mr-1">history</span>
+                  <Icon icon={History} size="sm" color="current" className="mr-1" />
                   {t("backups")}
                   {backups.length > 0 && ` (${backups.length})`}
                 </Button>
@@ -574,7 +568,7 @@ export default function ClaudeToolCard({
               {showBackups && (
                 <div className="mt-2 p-3 bg-surface border border-border rounded-lg">
                   <h4 className="text-xs font-semibold text-text-main mb-2 flex items-center gap-1">
-                    <span className="material-symbols-outlined text-[14px]">history</span>
+                    <Icon icon={History} size="sm" color="current" />
                     {t("configBackups")}
                   </h4>
                   {backups.length === 0 ? (
@@ -586,9 +580,7 @@ export default function ClaudeToolCard({
                           key={b.id}
                           className="flex items-center gap-2 px-2 py-1.5 bg-black/5 dark:bg-white/5 rounded text-xs"
                         >
-                          <span className="material-symbols-outlined text-[14px] text-text-muted">
-                            description
-                          </span>
+                          <Icon icon={ScrollText} size="sm" color="ink-muted" />
                           <span className="flex-1 truncate font-mono" title={b.id}>
                             {b.id}
                           </span>

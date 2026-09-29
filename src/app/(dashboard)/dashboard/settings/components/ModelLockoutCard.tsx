@@ -1,5 +1,7 @@
 "use client";
 
+import { LoaderCircle, ShieldQuestionMark, X } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useEffect, useRef, useState } from "react";
 import { Button, Card, Toggle } from "@/shared/components";
 import { useNotificationStore } from "@/store/notificationStore";
@@ -334,7 +336,7 @@ export default function ModelLockoutCard() {
     return (
       <Card className="p-6">
         <div className="flex items-center gap-2 text-sm text-text-muted">
-          <span className="material-symbols-outlined animate-spin">progress_activity</span>
+          <Icon icon={LoaderCircle} size="lg" color="current" className="animate-spin" />
           {t("modelLockoutLoading")}
         </div>
       </Card>
@@ -346,7 +348,7 @@ export default function ModelLockoutCard() {
       <div className="mb-4 flex items-start justify-between gap-4">
         <div className="space-y-2">
           <div className="flex items-center gap-2">
-            <span className="material-symbols-outlined text-xl text-primary">gpp_maybe</span>
+            <Icon icon={ShieldQuestionMark} size="lg" color="primary" />
             <h2 className="text-lg font-bold">{t("modelLockout")}</h2>
           </div>
           <p className="text-sm text-text-muted">{t("modelLockoutPageDescription")}</p>
@@ -407,7 +409,7 @@ export default function ModelLockoutCard() {
                     className="inline-flex size-4 items-center justify-center rounded-sm hover:bg-primary/20 transition-colors"
                     aria-label={t("removeErrorCode", { code })}
                   >
-                    <span className="material-symbols-outlined text-sm leading-none">close</span>
+                    <Icon icon={X} size="sm" color="current" className="leading-none" />
                   </button>
                 </span>
               ))}

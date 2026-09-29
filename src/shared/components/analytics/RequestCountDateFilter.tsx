@@ -1,5 +1,8 @@
 "use client";
 
+
+import { X } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 /**
  * RequestCountDateFilter — title + single-date filter row for #4009's
  * request-count-by-provider-date table. Split out to keep the container
@@ -32,7 +35,7 @@ export default function RequestCountDateFilter({
         />
         {value && (
           <button onClick={() => onChange("")} className="text-xs text-text-muted hover:text-text-main">
-            <span className="material-symbols-outlined text-[14px]">close</span>
+            <Icon icon={X} size="sm" color="current" />
           </button>
         )}
       </div>

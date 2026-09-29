@@ -1,5 +1,7 @@
 "use client";
 
+import { LoaderCircle } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useEffect, useRef } from "react";
 import { useTranslations } from "next-intl";
 import Modal from "./Modal";
@@ -254,9 +256,7 @@ export default function CursorAuthModal({
             {loginPolling && (
               <div className="text-center py-4">
                 <div className="size-12 mx-auto mb-3 rounded-full bg-primary/10 flex items-center justify-center">
-                  <span className="material-symbols-outlined text-2xl text-primary animate-spin">
-                    progress_activity
-                  </span>
+                  <Icon icon={LoaderCircle} size="lg" color="primary" className="animate-spin" />
                 </div>
                 <p className="text-sm font-medium">{t("waitingApproval")}</p>
                 {loginUrl && (

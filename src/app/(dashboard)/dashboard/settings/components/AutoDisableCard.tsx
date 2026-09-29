@@ -1,5 +1,7 @@
 "use client";
 
+import { Ban } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useEffect } from "react";
 import { Card, Button, Input } from "@/shared/components";
 import { useTranslations } from "next-intl";
@@ -84,9 +86,7 @@ export default function AutoDisableCard() {
       <div className="p-6">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
-            <span className="material-symbols-outlined text-xl text-primary" aria-hidden="true">
-              block
-            </span>
+            <Icon icon={Ban} size="lg" color="primary" />
             <h2 className="text-lg font-bold">{t("autoDisableBannedAccounts")}</h2>
           </div>
           {editMode ? (

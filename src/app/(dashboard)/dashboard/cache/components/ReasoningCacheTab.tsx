@@ -1,5 +1,7 @@
 "use client";
 
+import { Brain } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useEffect, useCallback } from "react";
 import { Button, EmptyState } from "@/shared/components";
 import { useNotificationStore } from "@/store/notificationStore";
@@ -427,9 +429,7 @@ export default function ReasoningCacheTab() {
                   {expandedId === entry.toolCallId && (
                     <div className="border-b border-border/15 bg-surface/15 px-4 py-4">
                       <div className="flex items-center gap-2 text-xs text-text-muted mb-2">
-                        <span className="material-symbols-outlined text-sm text-blue-400">
-                          psychology
-                        </span>
+                        <Icon icon={Brain} size="sm" color="current" />
                         <span className="font-medium">
                           {t("reasoningDetail")} ({entry.toolCallId})
                         </span>

@@ -1,5 +1,7 @@
 "use client";
 
+import { Key } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useEffect, useRef } from "react";
 import { useTranslations } from "next-intl";
 import { Card, Button, ConfirmModal } from "@/shared/components";
@@ -81,7 +83,7 @@ export function ApiKeyField({ name, serviceLabel, showReveal = false }: ApiKeyFi
       <Card padding="md">
         <div className="flex items-center gap-3 mb-3">
           <div className="size-8 rounded-lg flex items-center justify-center bg-amber-500/10">
-            <span className="material-symbols-outlined text-amber-500 text-xl">key</span>
+            <Icon icon={Key} size="lg" color="feedback-warning-foreground" />
           </div>
           <div>
             <h3 className="font-medium text-sm">{t("apiKey")}</h3>

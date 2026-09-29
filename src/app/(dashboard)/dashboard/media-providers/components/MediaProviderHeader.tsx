@@ -1,5 +1,7 @@
 "use client";
 
+import { ArrowLeft, ExternalLink } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
 import ProviderIcon from "@/shared/components/ProviderIcon";
@@ -33,7 +35,7 @@ export default function MediaProviderHeader({
         href={backHref}
         className="inline-flex items-center gap-1.5 text-sm text-text-muted hover:text-text-primary transition-colors w-fit"
       >
-        <span className="material-symbols-outlined text-[16px]">arrow_back</span>
+        <Icon icon={ArrowLeft} size="md" color="current" />
         {t("backToProviders")}
       </Link>
 
@@ -64,7 +66,7 @@ export default function MediaProviderHeader({
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1 text-xs text-primary hover:underline mt-1"
             >
-              <span className="material-symbols-outlined text-[13px]">open_in_new</span>
+              <Icon icon={ExternalLink} size="sm" color="current" />
               {website}
             </a>
           )}

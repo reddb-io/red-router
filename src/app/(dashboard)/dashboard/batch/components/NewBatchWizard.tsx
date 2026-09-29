@@ -1,5 +1,7 @@
 "use client";
 
+import { Check, X } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useEffect, useReducer } from "react";
 import { useTranslations } from "next-intl";
 import DestinationStep from "./wizard/DestinationStep";
@@ -115,7 +117,7 @@ function StepIndicator({ current, t }: { current: 1 | 2 | 3 | 4; t: ReturnType<t
                 ${isDone ? "bg-emerald-500 text-white" : isCurrent ? "bg-[var(--color-accent)] text-white" : "bg-[var(--color-border)] text-[var(--color-text-muted)]"}`}
             >
               {isDone ? (
-                <span className="material-symbols-outlined text-sm">check</span>
+                <Icon icon={Check} size="sm" color="current" />
               ) : (
                 s
               )}
@@ -328,7 +330,7 @@ export default function NewBatchWizard({
             aria-label={t("wizardClose")}
             className="text-[var(--color-text-muted)] hover:text-[var(--color-text)] disabled:opacity-40 transition-colors"
           >
-            <span className="material-symbols-outlined">close</span>
+            <Icon icon={X} size="lg" color="current" />
           </button>
         </div>
 

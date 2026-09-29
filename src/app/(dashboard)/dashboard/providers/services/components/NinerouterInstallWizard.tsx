@@ -5,6 +5,8 @@
  */
 "use client";
 
+import { Download, LoaderCircle } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState } from "react";
 import { useTranslations } from "next-intl";
 import { Card, Button } from "@/shared/components";
@@ -50,7 +52,7 @@ export function NinerouterInstallWizard() {
     <Card padding="md">
       <div className="flex items-center gap-3 mb-4">
         <div className="size-8 rounded-lg flex items-center justify-center bg-blue-500/10">
-          <span className="material-symbols-outlined text-blue-500 text-xl">download</span>
+          <Icon icon={Download} size="lg" color="current" />
         </div>
         <div>
           <h3 className="font-medium text-sm">{t("install9Router")}</h3>
@@ -114,9 +116,7 @@ export function NinerouterInstallWizard() {
         <Button onClick={handleInstall} disabled={installing} className="w-full">
           {installing ? (
             <span className="flex items-center gap-1.5">
-              <span className="material-symbols-outlined animate-spin text-[14px]">
-                progress_activity
-              </span>
+              <Icon icon={LoaderCircle} size="sm" color="current" className="animate-spin" />
               {t("installing")}
             </span>
           ) : (

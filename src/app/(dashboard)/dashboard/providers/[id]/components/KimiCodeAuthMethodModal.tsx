@@ -1,5 +1,7 @@
 "use client";
 
+import { ScanFace } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { Modal } from "@/shared/components";
 import { providerText, type ProviderMessageTranslator } from "../providerPageHelpers";
 
@@ -34,7 +36,7 @@ export default function KimiCodeAuthMethodModal({
           className="w-full rounded-lg border border-border p-4 text-left transition-colors hover:bg-sidebar"
         >
           <div className="flex items-start gap-3">
-            <span className="material-symbols-outlined mt-0.5 text-primary">passkey</span>
+            <Icon icon={ScanFace} size="lg" color="primary" className="mt-0.5" />
             <div className="min-w-0 flex-1">
               <h3 className="mb-1 font-semibold">{t("oauthLabel")}</h3>
               <p className="text-sm text-text-muted">{t("oauth2Desc")}</p>

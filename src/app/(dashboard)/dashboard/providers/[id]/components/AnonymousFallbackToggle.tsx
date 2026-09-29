@@ -9,6 +9,8 @@
 // their synthetic credential is the only credential path and is governed by
 // blockedProviders instead.
 
+import { Key } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import { Card } from "@/shared/components";
@@ -162,7 +164,7 @@ export default function AnonymousFallbackToggle({
     <Card>
       <div className="flex items-center gap-3">
         <div className="inline-flex shrink-0 items-center justify-center w-10 h-10 rounded-full bg-sky-500/10 text-sky-500">
-          <span className="material-symbols-outlined text-[20px]">key_off</span>
+          <Icon icon={Key} size="lg" color="current" />
         </div>
         <div className="flex-1 min-w-0">
           <h2 className="text-sm font-semibold">{title}</h2>

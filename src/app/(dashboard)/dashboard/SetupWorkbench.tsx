@@ -1,5 +1,7 @@
 "use client";
 
+import { CircleCheck } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
@@ -386,9 +388,7 @@ export default function SetupWorkbench() {
           className="flex flex-wrap items-center gap-3 rounded-lg border border-feedback-success-border bg-feedback-success-surface px-4 py-3 text-feedback-success-foreground"
           role="status"
         >
-          <span className="material-symbols-outlined text-[length:var(--reddb-spatial-icon-size-lg)] leading-none">
-            check_circle
-          </span>
+          <Icon icon={CircleCheck} size="lg" color="current" className="leading-none" />
           <div className="min-w-0 flex-1">
             <strong>{t("successTitle")}</strong>
             <p className="text-sm">{t("successBody")}</p>

@@ -1,5 +1,7 @@
 "use client";
 
+import { Sparkles } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useCallback } from "react";
 import { useTranslations } from "next-intl";
 import { Card } from "@/shared/components";
@@ -73,7 +75,7 @@ export default function AutoComboCatalog({
       >
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <span className="material-symbols-outlined text-xl text-primary">auto_awesome</span>
+            <Icon icon={Sparkles} size="lg" color="primary" />
             <h2 className="text-base font-bold text-text-main">{t("autoCatalogTitle")}</h2>
             <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
               {t("autoCatalogTemplateCount", { count: AUTO_COMBO_TEMPLATES.length })}

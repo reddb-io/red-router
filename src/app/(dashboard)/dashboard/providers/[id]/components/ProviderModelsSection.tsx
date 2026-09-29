@@ -11,6 +11,8 @@
  * Cycle-safe: no import from ProviderDetailPageClient.
  */
 
+import { Eraser } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState } from "react";
 import { Button } from "@/shared/components";
 import { matchesModelCatalogQuery } from "@/shared/utils/modelCatalogSearch";
@@ -235,7 +237,7 @@ export default function ProviderModelsSection({
       className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-red-300 dark:border-red-800 bg-transparent cursor-pointer text-[12px] text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50 disabled:cursor-not-allowed"
       title={t("clearAllModels")}
     >
-      <span className="material-symbols-outlined text-[16px]">delete_sweep</span>
+      <Icon icon={Eraser} size="md" color="current" />
       <span>{t("clearAllModels")}</span>
     </button>
   );

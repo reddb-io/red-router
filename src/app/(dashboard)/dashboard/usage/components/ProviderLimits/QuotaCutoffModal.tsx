@@ -1,5 +1,7 @@
 "use client";
 
+import { CircleAlert } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import Modal from "@/shared/components/Modal";
@@ -217,7 +219,7 @@ export default function QuotaCutoffModal({
       </div>
       {error && (
         <div className="mt-3 text-sm text-red-500 flex items-center gap-1.5">
-          <span className="material-symbols-outlined text-[16px]">error</span>
+          <Icon icon={CircleAlert} size="md" color="current" />
           {error}
         </div>
       )}

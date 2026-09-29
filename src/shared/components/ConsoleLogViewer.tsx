@@ -1,5 +1,7 @@
 "use client";
 
+import { CircleAlert, Download, LoaderCircle, RefreshCw } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useLocale, useTranslations } from "next-intl";
 
 /**
@@ -484,9 +486,7 @@ export default function ConsoleLogViewer() {
           aria-label={tc("refresh")}
           className="px-3 py-2 rounded-lg text-sm font-medium bg-[var(--color-bg)] border border-[var(--color-border)] text-[var(--color-text-main)] hover:bg-[var(--color-bg-alt)] disabled:opacity-50 transition-colors"
         >
-          <span className="material-symbols-outlined text-[16px] align-middle" aria-hidden="true">
-            refresh
-          </span>
+          <Icon icon={RefreshCw} size="md" color="current" className="align-middle" />
         </button>
 
         <button
@@ -522,9 +522,7 @@ export default function ConsoleLogViewer() {
             title={tl("export")}
             className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-[var(--color-text-main)] hover:bg-[var(--color-bg-alt)] disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-[var(--color-accent)]"
           >
-            <span className="material-symbols-outlined text-[16px]" aria-hidden="true">
-              download
-            </span>
+            <Icon icon={Download} size="md" color="current" />
           </button>
         </div>
         {copiedAll && (
@@ -554,7 +552,7 @@ export default function ConsoleLogViewer() {
           className="p-4 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm"
           role="alert"
         >
-          <span className="material-symbols-outlined text-[16px] align-middle mr-2">error</span>
+          <Icon icon={CircleAlert} size="md" color="current" className="align-middle mr-2" />
           {error}
           <span className="text-xs ml-2 opacity-70">— {tv("fileLoggingRequired")}</span>
         </div>
@@ -676,9 +674,7 @@ export default function ConsoleLogViewer() {
 
           {loading && filteredLogs.length === 0 && (
             <div className="text-[#8b949e] text-center py-12">
-              <span className="material-symbols-outlined text-[24px] animate-spin block mb-2">
-                progress_activity
-              </span>
+              <Icon icon={LoaderCircle} size="lg" color="current" className="animate-spin block mb-2" />
               {t("loadingLogs")}
             </div>
           )}

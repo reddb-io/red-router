@@ -1,5 +1,7 @@
 "use client";
 
+import { ChartPie } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useTranslations } from "next-intl";
 import { useEffect, useState } from "react";
 import { Card } from "@/shared/components";
@@ -83,7 +85,7 @@ export default function DiversityScoreCard() {
       {/* Header */}
       <div className="flex items-center justify-between gap-3 mb-4">
         <div className="flex items-center gap-2">
-          <span className="material-symbols-outlined text-[20px] text-primary">pie_chart</span>
+          <Icon icon={ChartPie} size="lg" color="primary" />
           <h3 className="font-semibold text-text-main">{t("diversityScoreTitle")}</h3>
           <span className="text-xs text-text-muted hidden sm:inline">
             — {t("diversityScoreDesc")}

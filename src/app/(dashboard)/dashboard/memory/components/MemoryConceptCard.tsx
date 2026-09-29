@@ -1,5 +1,7 @@
 "use client";
 
+import { Brain } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState } from "react";
 import { useTranslations } from "next-intl";
 
@@ -11,9 +13,7 @@ export default function MemoryConceptCard() {
     <div className="rounded-xl border border-border bg-bg-subtle/50 p-4">
       <div className="flex items-start gap-3">
         <div className="p-2 rounded-lg bg-violet-500/10 text-violet-500 shrink-0">
-          <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
-            psychology
-          </span>
+          <Icon icon={Brain} size="lg" color="current" />
         </div>
         <div className="flex-1 min-w-0">
           <h2 className="text-sm font-semibold text-text-main">{t("concept.title")}</h2>

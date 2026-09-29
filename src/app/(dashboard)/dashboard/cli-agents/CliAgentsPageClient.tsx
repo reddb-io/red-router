@@ -1,5 +1,7 @@
 "use client";
 
+import { RefreshCw } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
 import { CLI_TOOLS } from "@/shared/constants/cliTools";
@@ -72,9 +74,7 @@ export default function CliAgentsPageClient({ machineId: _machineId }: CliAgents
           className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-black/10 dark:border-white/10 bg-black/[0.02] dark:bg-white/[0.02] hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
           aria-label={t("refreshDetection")}
         >
-          <span className="material-symbols-outlined text-[16px]" aria-hidden="true">
-            refresh
-          </span>
+          <Icon icon={RefreshCw} size="md" color="current" />
           {t("refreshDetection")}
         </button>
       </div>

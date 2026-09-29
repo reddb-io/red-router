@@ -1,5 +1,7 @@
 "use client";
 
+import { ArrowBigUp, CircleAlert } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useId, useState, useCallback } from "react";
 import { useTranslations } from "next-intl";
 import { cn } from "@/shared/utils/cn";
@@ -131,9 +133,7 @@ export default function Input({
           role="status"
           aria-live="polite"
         >
-          <span className="material-symbols-outlined text-[14px]" aria-hidden="true">
-            keyboard_capslock
-          </span>
+          <Icon icon={ArrowBigUp} size="sm" color="current" />
           {t("capsLockOn")}
         </p>
       )}
@@ -143,9 +143,7 @@ export default function Input({
           className="text-xs text-feedback-danger-foreground flex items-center gap-1"
           role="alert"
         >
-          <span className="material-symbols-outlined text-[14px]" aria-hidden="true">
-            error
-          </span>
+          <Icon icon={CircleAlert} size="sm" color="current" />
           {error}
         </p>
       )}

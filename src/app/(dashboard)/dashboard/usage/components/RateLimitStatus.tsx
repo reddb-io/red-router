@@ -1,5 +1,7 @@
 "use client";
 
+import { Clock, Lock } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useTranslations } from "next-intl";
 
 import { useState, useEffect, useCallback } from "react";
@@ -41,9 +43,7 @@ export default function RateLimitStatus() {
       <Card>
         <div className="flex items-center gap-3 mb-4">
           <div className="p-2 rounded-lg bg-orange-500/10 text-orange-500">
-            <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
-              lock_clock
-            </span>
+            <Icon icon={Clock} size="lg" color="current" />
           </div>
           <div className="flex-1">
             <h3 className="text-lg font-semibold">{t("modelLockouts")}</h3>
@@ -75,12 +75,7 @@ export default function RateLimitStatus() {
                            bg-orange-500/5 border border-orange-500/15"
               >
                 <div className="flex items-center gap-3">
-                  <span
-                    className="material-symbols-outlined text-[16px] text-orange-400"
-                    aria-hidden="true"
-                  >
-                    lock
-                  </span>
+                  <Icon icon={Lock} size="md" color="feedback-warning-foreground" />
                   <div>
                     <p className="text-sm font-medium">{lock.model}</p>
                     <p className="text-xs text-text-muted">

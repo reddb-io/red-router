@@ -1,5 +1,7 @@
 "use client";
 
+import { Fingerprint } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import React from "react";
 import { Card } from "@/shared/components";
 import { useTranslations } from "next-intl";
@@ -49,9 +51,7 @@ export default function IdempotencyLayer({
     <Card>
       <div data-testid="idempotency-layer" className="p-5 flex flex-col gap-3">
         <div className="flex items-center gap-2">
-          <span className="material-symbols-outlined text-base text-text-muted" aria-hidden="true">
-            fingerprint
-          </span>
+          <Icon icon={Fingerprint} size="md" color="ink-muted" />
           <h2 className="font-medium text-sm">{t("idempotency")}</h2>
         </div>
 

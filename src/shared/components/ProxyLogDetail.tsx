@@ -1,5 +1,7 @@
 "use client";
 
+import { X } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useEffect } from "react";
 import { useTranslations } from "next-intl";
 import {
@@ -252,7 +254,7 @@ export default function ProxyLogDetail({ log, onClose }) {
             className="p-1.5 rounded-lg hover:bg-bg-subtle text-text-muted hover:text-text-primary transition-colors"
             aria-label={t("close")}
           >
-            <span className="material-symbols-outlined">close</span>
+            <Icon icon={X} size="lg" color="current" />
           </button>
         </div>
 

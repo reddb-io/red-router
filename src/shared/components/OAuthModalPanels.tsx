@@ -1,5 +1,7 @@
 "use client";
 
+import { Clock, EthernetPort, Info, LoaderCircle, TriangleAlert } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useTranslations } from "next-intl";
 
 import type { GoogleLoopbackHint } from "@/lib/oauth/utils/googleLoopbackHint";
@@ -70,7 +72,7 @@ export function OAuthDeviceCodePanel({
               className="mt-3 flex items-center justify-center gap-1 text-xs text-text-muted"
               aria-label={t("deviceCodeWaiting")}
             >
-              <span className="material-symbols-outlined text-sm">schedule</span>
+              <Icon icon={Clock} size="sm" color="current" />
               <span>{formatDeviceCodeRemaining(secondsRemaining)}</span>
             </div>
           )}
@@ -78,7 +80,7 @@ export function OAuthDeviceCodePanel({
       </div>
       {polling && (
         <div className="flex items-center justify-center gap-2 text-sm text-text-muted">
-          <span className="material-symbols-outlined animate-spin">progress_activity</span>
+          <Icon icon={LoaderCircle} size="lg" color="current" className="animate-spin" />
           {t("deviceCodeWaiting")}
         </div>
       )}
@@ -141,7 +143,7 @@ export function OAuthLoopbackMismatchPanel({
       <div className="space-y-4">
         <div className="flex items-start gap-3">
           <div className="size-10 shrink-0 rounded-full bg-amber-500/15 flex items-center justify-center">
-            <span className="material-symbols-outlined text-xl text-amber-500">lan</span>
+            <Icon icon={EthernetPort} size="lg" color="feedback-warning-foreground" />
           </div>
           <div>
             <h3 className="text-base font-semibold">{t("loopbackMismatchTitle")}</h3>
@@ -235,7 +237,7 @@ function OAuthGoogleLoopbackNotice({ hint }: { hint: GoogleLoopbackHint }) {
     <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 space-y-3">
       <div>
         <p className="text-sm font-semibold text-amber-500">
-          <span className="material-symbols-outlined text-sm align-middle mr-1">warning</span>
+          <Icon icon={TriangleAlert} size="sm" color="current" className="align-middle mr-1" />
           {t("googleLoopbackTitle")}
         </p>
         <p className="text-xs text-text-muted mt-1">
@@ -305,7 +307,7 @@ function OAuthRemoteAccessNotices({
 
   return (
     <div className="rounded-lg border border-blue-500/30 bg-blue-500/10 p-3 text-xs text-blue-200">
-      <span className="material-symbols-outlined text-sm align-middle mr-1">info</span>
+      <Icon icon={Info} size="sm" color="current" className="align-middle mr-1" />
       {t("remoteAccessInfo")}
     </div>
   );

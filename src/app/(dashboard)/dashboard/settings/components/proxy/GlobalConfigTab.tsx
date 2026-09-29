@@ -1,4 +1,6 @@
 "use client";
+import { Activity, GlobeLock, Key, RefreshCw } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Card, Button, Toggle, ProxyConfigModal } from "@/shared/components";
 import { useTranslations } from "next-intl";
@@ -121,9 +123,7 @@ export default function GlobalConfigTab() {
       <Card className="p-0 overflow-hidden">
         <div className="p-6">
           <div className="flex items-center gap-2 mb-4">
-            <span className="material-symbols-outlined text-xl text-primary" aria-hidden="true">
-              vpn_lock
-            </span>
+            <Icon icon={GlobeLock} size="lg" color="primary" />
             <h2 className="text-lg font-bold">{t("globalProxy")}</h2>
           </div>
           <p className="text-sm text-text-muted mb-4">{t("globalProxyDesc")}</p>
@@ -154,12 +154,7 @@ export default function GlobalConfigTab() {
         <div className="p-6">
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-2">
-              <span
-                className="material-symbols-outlined text-xl text-violet-500"
-                aria-hidden="true"
-              >
-                key
-              </span>
+              <Icon icon={Key} size="lg" color="current" />
               <div>
                 <h2 className="text-lg font-bold">{t("perKeyProxyEnabled")}</h2>
                 <p className="text-sm text-text-muted">{t("perKeyProxyEnabledDesc")}</p>
@@ -177,9 +172,7 @@ export default function GlobalConfigTab() {
       <Card className="p-0 overflow-hidden">
         <div className="p-6">
           <div className="flex items-center gap-2 mb-4">
-            <span className="material-symbols-outlined text-xl text-primary" aria-hidden="true">
-              network_check
-            </span>
+            <Icon icon={Activity} size="lg" color="primary" />
             <h2 className="text-lg font-bold">{t("bulkHealthcheck")}</h2>
           </div>
           <p className="text-sm text-text-muted mb-4">{t("bulkHealthcheckDesc")}</p>
@@ -210,7 +203,7 @@ export default function GlobalConfigTab() {
 
           {testing && !results && (
             <div className="flex items-center gap-2 text-sm text-text-muted py-2">
-              <span className="material-symbols-outlined animate-spin text-lg">refresh</span>
+              <Icon icon={RefreshCw} size="md" color="current" className="animate-spin" />
               {t("healthcheckTestingAll")}
             </div>
           )}

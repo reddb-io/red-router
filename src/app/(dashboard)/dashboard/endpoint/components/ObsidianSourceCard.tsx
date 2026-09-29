@@ -1,5 +1,7 @@
 "use client";
 
+import { CloudCog, TriangleAlert } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import { Card, Button, Input, Badge } from "@/shared/components";
@@ -277,7 +279,7 @@ export default function ObsidianSourceCard() {
                 />
                 {baseUrl.includes(":27124") && (
                   <div className="flex items-center gap-1.5 rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-2.5 py-1.5 text-[10px] text-yellow-300">
-                    <span className="material-symbols-outlined text-[14px]">warning</span>
+                    <Icon icon={TriangleAlert} size="sm" color="current" />
                     <span>{t("obsidianPortWarning")}</span>
                   </div>
                 )}
@@ -337,9 +339,7 @@ export default function ObsidianSourceCard() {
                   ) : (
                     <div className="flex flex-col gap-3">
                       <div className="flex items-center gap-2 rounded-lg border border-blue-500/30 bg-blue-500/10 px-3 py-2">
-                        <span className="material-symbols-outlined text-[18px] text-blue-400">
-                          cloud_sync
-                        </span>
+                        <Icon icon={CloudCog} size="md" color="current" />
                         <div className="flex-1 min-w-0">
                           <p className="text-xs text-blue-300 font-medium">
                             {t("obsidianWebdavEnabled")}

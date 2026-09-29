@@ -1,5 +1,7 @@
 "use client";
 
+import { ChartNoAxesColumn, Database, RefreshCw } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useEffect, useCallback } from "react";
 import { Card } from "@/shared/components";
 import { useTranslations } from "next-intl";
@@ -216,9 +218,7 @@ export default function ModelsDevSyncTab() {
       <Card>
         <div className="flex items-center gap-3">
           <div className="p-2 rounded-lg bg-blue-500/10 text-blue-500">
-            <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
-              sync
-            </span>
+            <Icon icon={RefreshCw} size="lg" color="current" />
           </div>
           <div>
             <h3 className="text-lg font-semibold">{t("modelsDevTitle")}</h3>
@@ -249,9 +249,7 @@ export default function ModelsDevSyncTab() {
       <Card>
         <div className="flex items-center gap-3 mb-5">
           <div className="p-2 rounded-lg bg-blue-500/10 text-blue-500">
-            <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
-              database
-            </span>
+            <Icon icon={Database} size="lg" color="current" />
           </div>
           <div>
             <h3 className="text-lg font-semibold">{t("modelsDevTitle")}</h3>
@@ -352,9 +350,7 @@ export default function ModelsDevSyncTab() {
         <Card>
           <div className="flex items-center gap-3 mb-5">
             <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-500">
-              <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
-                bar_chart
-              </span>
+              <Icon icon={ChartNoAxesColumn} size="lg" color="current" />
             </div>
             <div>
               <h3 className="text-lg font-semibold">{t("modelsDevStats")}</h3>

@@ -1,5 +1,7 @@
 "use client";
 
+import { Clock, LoaderCircle, Rocket } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import { estimateBatchCost } from "@/lib/batches/costEstimator";
@@ -115,7 +117,7 @@ export default function CostEstimateStep({
           <div className="flex items-center justify-between px-4 py-3">
             <span className="text-xs text-[var(--color-text-muted)]">{t("wizardCostWindow")}</span>
             <span className="inline-flex items-center gap-1 text-xs text-[var(--color-text-muted)]">
-              <span className="material-symbols-outlined text-[12px]">schedule</span>
+              <Icon icon={Clock} size="sm" color="current" />
               {t("wizardCostWindow24h")}
             </span>
           </div>
@@ -160,14 +162,12 @@ export default function CostEstimateStep({
       >
         {creating ? (
           <>
-            <span className="material-symbols-outlined text-sm animate-spin">
-              progress_activity
-            </span>
+            <Icon icon={LoaderCircle} size="sm" color="current" className="animate-spin" />
             {t("wizardCreating")}
           </>
         ) : (
           <>
-            <span className="material-symbols-outlined text-sm">rocket_launch</span>
+            <Icon icon={Rocket} size="sm" color="current" />
             {t("wizardCreate")}
           </>
         )}

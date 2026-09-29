@@ -1,5 +1,7 @@
 "use client";
 
+import { Download, X } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
 import { Card } from "@/shared/components";
@@ -187,7 +189,7 @@ export default function ComplianceTab() {
               disabled={visibleEntries.length === 0}
               className="inline-flex items-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-primary/90 disabled:opacity-40"
             >
-              <span className="material-symbols-outlined text-[16px]">download</span>
+              <Icon icon={Download} size="md" color="current" />
               {t("export")}
             </button>
           </div>
@@ -402,7 +404,7 @@ export default function ComplianceTab() {
                 onClick={() => setSelectedEntry(null)}
                 className="rounded-lg p-2 text-text-muted hover:bg-sidebar hover:text-text-main"
               >
-                <span className="material-symbols-outlined text-[20px]">close</span>
+                <Icon icon={X} size="lg" color="current" />
               </button>
             </div>
             <pre className="max-h-[70vh] overflow-auto p-4 text-xs text-text-main">

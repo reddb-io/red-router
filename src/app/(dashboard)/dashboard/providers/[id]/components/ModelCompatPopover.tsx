@@ -4,6 +4,8 @@
 // ModelCompatPopover and its local helper (recordToHeaderRows) moved out of
 // ProviderDetailPageClient.tsx. Leaf deps: @/shared + providerPageHelpers.
 
+import { Plus, SlidersHorizontal, X } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useEffect, useLayoutEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { Input, Toggle } from "@/shared/components";
@@ -531,7 +533,7 @@ export default function ModelCompatPopover({
         className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-lg border border-border bg-background text-text-muted hover:bg-muted hover:text-text-main disabled:opacity-50 transition-colors"
         title={t("compatAdjustmentsTitle")}
       >
-        <span className="material-symbols-outlined text-base leading-none">tune</span>
+        <Icon icon={SlidersHorizontal} size="md" color="current" className="leading-none" />
         {!compact && t("compatButtonLabel")}
       </button>
       {open &&
@@ -715,9 +717,7 @@ export default function ModelCompatPopover({
                         title={t("compatUpstreamRemoveRow")}
                         className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border/80 text-text-muted hover:bg-red-500/10 hover:text-red-600 dark:hover:text-red-400 disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-text-muted transition-colors"
                       >
-                        <span className="material-symbols-outlined text-lg leading-none">
-                          close
-                        </span>
+                        <Icon icon={X} size="md" color="current" className="leading-none" />
                       </button>
                     </div>
                   ))}
@@ -728,7 +728,7 @@ export default function ModelCompatPopover({
                   onClick={addHeaderRow}
                   className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-border py-2 text-xs font-medium text-primary hover:bg-primary/5 disabled:opacity-40 disabled:hover:bg-transparent transition-colors"
                 >
-                  <span className="material-symbols-outlined text-base leading-none">add</span>
+                  <Icon icon={Plus} size="md" color="current" className="leading-none" />
                   {t("compatUpstreamAddRow")}
                 </button>
               </div>

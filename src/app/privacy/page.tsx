@@ -1,3 +1,5 @@
+import { ArrowLeft } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
@@ -21,7 +23,7 @@ export default function PrivacyPage() {
           href="/"
           className="inline-flex items-center gap-1 text-sm text-text-muted hover:text-primary transition-colors mb-8"
         >
-          <span className="material-symbols-outlined text-[18px]">arrow_back</span>
+          <Icon icon={ArrowLeft} size="md" color="current" />
           {t("backToHome")}
         </Link>
 

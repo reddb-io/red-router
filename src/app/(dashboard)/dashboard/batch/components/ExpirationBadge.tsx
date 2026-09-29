@@ -1,5 +1,7 @@
 "use client";
 
+import { Clock } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useTranslations } from "next-intl";
 import { useEffect, useState } from "react";
 
@@ -65,7 +67,7 @@ export default function ExpirationBadge({ expiresAt, variant = "default" }: Prop
     <span
       className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-medium border ${tone}`}
     >
-      <span className="material-symbols-outlined text-[12px]">schedule</span>
+      <Icon icon={Clock} size="sm" color="current" />
       <span className="sr-only">{label}: </span>
       {display}
     </span>

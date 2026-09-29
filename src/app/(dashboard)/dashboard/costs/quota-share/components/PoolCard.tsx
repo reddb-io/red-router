@@ -1,5 +1,7 @@
 "use client";
 
+import { Pencil, Trash2 } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useTranslations } from "next-intl";
 import Card from "@/shared/components/Card";
 import ProviderIcon from "@/shared/components/ProviderIcon";
@@ -121,7 +123,7 @@ export default function PoolCard({
             title={t("editAllocations")}
             className="p-1.5 rounded-md hover:bg-bg-subtle text-text-muted hover:text-text-main cursor-pointer"
           >
-            <span className="material-symbols-outlined text-[16px]">edit</span>
+            <Icon icon={Pencil} size="md" color="current" />
           </button>
           <button
             type="button"
@@ -129,7 +131,7 @@ export default function PoolCard({
             title={t("removePool")}
             className="p-1.5 rounded-md hover:bg-red-500/10 text-text-muted hover:text-red-400 cursor-pointer"
           >
-            <span className="material-symbols-outlined text-[16px]">delete</span>
+            <Icon icon={Trash2} size="md" color="current" />
           </button>
         </div>
       </div>

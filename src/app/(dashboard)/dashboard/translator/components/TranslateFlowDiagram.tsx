@@ -1,5 +1,7 @@
 "use client";
 
+import { ArrowRight } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useCallback, type ReactNode } from "react";
 import { useTranslations } from "next-intl";
 import Tooltip from "@/shared/components/Tooltip";
@@ -57,12 +59,7 @@ function FlowNode({ icon, color, title, example, tooltipContent }: FlowNodeProps
 function FlowArrow({ label }: { label?: string }) {
   return (
     <div className="flex flex-col items-center justify-center text-text-muted">
-      <span
-        className="material-symbols-outlined text-[20px] rotate-90 sm:rotate-0"
-        aria-hidden="true"
-      >
-        arrow_forward
-      </span>
+      <Icon icon={ArrowRight} size="lg" color="current" className="rotate-90 sm:rotate-0" />
       {label && <span className="text-[9px] uppercase tracking-wide mt-0.5">{label}</span>}
     </div>
   );

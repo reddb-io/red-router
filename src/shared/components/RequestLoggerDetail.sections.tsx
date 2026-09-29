@@ -1,5 +1,7 @@
 "use client";
 
+import { ArrowDownToLine, MessagesSquare, Reply, TriangleAlert } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useEffect, useRef, useMemo } from "react";
 import { useTranslations } from "next-intl";
 import { JsonView } from "@/shared/components/jsonView";
@@ -140,7 +142,7 @@ export function PayloadSection({
       </div>
       {open && notice && (
         <div className="p-4 rounded-xl border border-amber-500/40 bg-amber-500/10 text-xs text-amber-700 dark:text-amber-300 flex items-start gap-2">
-          <span className="material-symbols-outlined text-[16px] shrink-0">warning</span>
+          <Icon icon={TriangleAlert} size="md" color="current" className="shrink-0" />
           <span>{t("payloadSizeLimitOmitted")}</span>
         </div>
       )}
@@ -322,7 +324,7 @@ export function ConversationContextSection({ log, detail }) {
               className="flex items-center gap-1 text-[11px] text-text-muted hover:text-primary transition-colors"
               title={`Continues from ${liveDetail.parentLogId}`}
             >
-              <span className="material-symbols-outlined text-[14px]">reply</span>
+              <Icon icon={Reply} size="sm" color="current" />
               continues from parent
             </a>
           )}
@@ -337,7 +339,7 @@ export function ConversationContextSection({ log, detail }) {
               className="flex items-center gap-1 text-[11px] text-text-muted hover:text-primary transition-colors"
               title={`Open conversation ${liveDetail.sessionTag}`}
             >
-              <span className="material-symbols-outlined text-[14px]">forum</span>
+              <Icon icon={MessagesSquare} size="sm" color="current" />
               view conversation
             </a>
           )}
@@ -362,7 +364,7 @@ export function ConversationContextSection({ log, detail }) {
               className="p-1 rounded hover:bg-bg-subtle text-text-muted hover:text-text-primary transition-colors"
               aria-label="Go to bottom"
             >
-              <span className="material-symbols-outlined text-[18px]">vertical_align_bottom</span>
+              <Icon icon={ArrowDownToLine} size="md" color="current" />
             </button>
           </div>
         )}

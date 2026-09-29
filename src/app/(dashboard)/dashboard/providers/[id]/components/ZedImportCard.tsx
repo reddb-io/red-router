@@ -1,5 +1,7 @@
 "use client";
 
+import { Download, Pencil } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useCallback } from "react";
 import { useTranslations } from "next-intl";
 import { Button, Card } from "@/shared/components";
@@ -85,7 +87,7 @@ export default function ZedImportCard({ fetchConnections, notify }: ZedImportCar
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex-1 min-w-0">
             <h2 className="text-lg font-semibold flex items-center gap-2">
-              <span className="material-symbols-outlined text-[20px]">download</span>
+              <Icon icon={Download} size="lg" color="current" />
               {t("zedImportTitle")}
             </h2>
             <p className="text-sm text-text-muted mt-1">{t("zedImportDescription")}</p>
@@ -108,7 +110,7 @@ export default function ZedImportCard({ fetchConnections, notify }: ZedImportCar
             onClick={() => setShowZedManual((v) => !v)}
           >
             <h2 className="text-lg font-semibold flex items-center gap-2">
-              <span className="material-symbols-outlined text-[20px]">edit</span>
+              <Icon icon={Pencil} size="lg" color="current" />
               {t("zedManualTitle")}
             </h2>
             <span className="material-symbols-outlined text-[18px] text-text-muted">

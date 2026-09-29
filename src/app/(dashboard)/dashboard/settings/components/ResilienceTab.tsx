@@ -1,5 +1,7 @@
 "use client";
 
+import { Gauge, HeartPulse, Hourglass, ListFilter, LoaderCircle, PlugZap, Timer, TimerOff } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { Button, Card } from "@/shared/components";
 import { useNotificationStore } from "@/store/notificationStore";
@@ -200,7 +202,7 @@ function RequestQueueCard({
       <div className="mb-4 flex items-start justify-between gap-4">
         <div className="space-y-2">
           <div className="flex items-center gap-2">
-            <span className="material-symbols-outlined text-xl text-primary">speed</span>
+            <Icon icon={Gauge} size="lg" color="primary" />
             <h2 className="text-lg font-bold">{t("resilienceRequestQueueTitle")}</h2>
           </div>
           <SectionDescription
@@ -473,7 +475,7 @@ function ConnectionCooldownCard({
       <div className="mb-4 flex items-start justify-between gap-4">
         <div className="space-y-2">
           <div className="flex items-center gap-2">
-            <span className="material-symbols-outlined text-xl text-primary">timer_off</span>
+            <Icon icon={TimerOff} size="lg" color="primary" />
             <h2 className="text-lg font-bold">{t("resilienceConnectionCooldownTitle")}</h2>
           </div>
           <SectionDescription
@@ -602,9 +604,7 @@ function ProviderBreakerCard({
       <div className="mb-4 flex items-start justify-between gap-4">
         <div className="space-y-2">
           <div className="flex items-center gap-2">
-            <span className="material-symbols-outlined text-xl text-primary">
-              electrical_services
-            </span>
+            <Icon icon={PlugZap} size="lg" color="primary" />
             <h2 className="text-lg font-bold">{t("resilienceProviderBreakerTitle")}</h2>
           </div>
           <SectionDescription
@@ -662,7 +662,7 @@ function WaitForCooldownCard({
       <div className="mb-4 flex items-start justify-between gap-4">
         <div className="space-y-2">
           <div className="flex items-center gap-2">
-            <span className="material-symbols-outlined text-xl text-primary">hourglass_top</span>
+            <Icon icon={Hourglass} size="lg" color="primary" />
             <h2 className="text-lg font-bold">{t("resilienceWaitForCooldownTitle")}</h2>
           </div>
           <SectionDescription
@@ -764,7 +764,7 @@ function ComboCooldownWaitCard({
     <Card className="p-6">
       <div className="mb-4 flex items-start justify-between gap-4">
         <div className="flex items-center gap-2">
-          <span className="material-symbols-outlined text-xl text-primary">timer</span>
+          <Icon icon={Timer} size="lg" color="primary" />
           <h2 className="text-lg font-bold">{title}</h2>
         </div>
         <ActionRow
@@ -876,7 +876,7 @@ function QuotaShareConcurrencyLimitCard({
     <Card className="p-6">
       <div className="mb-4 flex items-start justify-between gap-4">
         <div className="flex items-center gap-2">
-          <span className="material-symbols-outlined text-xl text-primary">filter_list</span>
+          <Icon icon={ListFilter} size="lg" color="primary" />
           <h2 className="text-lg font-bold">{title}</h2>
         </div>
         <ActionRow
@@ -944,7 +944,7 @@ export function ProviderCooldownCard({
       <div className="mb-4 flex items-start justify-between gap-4">
         <div className="space-y-2">
           <div className="flex items-center gap-2">
-            <span className="material-symbols-outlined text-xl text-primary">timer</span>
+            <Icon icon={Timer} size="lg" color="primary" />
             <h2 className="text-lg font-bold">{t("resilienceProviderCooldownTitle")}</h2>
           </div>
           <SectionDescription
@@ -1055,9 +1055,7 @@ function CredentialHealthCheckCard({
       <div className="mb-4 flex items-start justify-between gap-4">
         <div className="space-y-2">
           <div className="flex items-center gap-2">
-            <span className="material-symbols-outlined text-xl text-primary">
-              health_and_safety
-            </span>
+            <Icon icon={HeartPulse} size="lg" color="primary" />
             <h2 className="text-lg font-bold">{t("resilienceCredentialHealthTitle")}</h2>
           </div>
           <SectionDescription
@@ -1197,7 +1195,7 @@ export default function ResilienceTab() {
     return (
       <Card className="p-6">
         <div className="flex items-center gap-2 text-sm text-text-muted">
-          <span className="material-symbols-outlined animate-spin">progress_activity</span>
+          <Icon icon={LoaderCircle} size="lg" color="current" className="animate-spin" />
           {tx("loadingResilience", "Loading resilience settings...")}
         </div>
       </Card>

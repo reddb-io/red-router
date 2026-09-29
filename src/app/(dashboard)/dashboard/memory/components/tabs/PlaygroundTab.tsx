@@ -1,5 +1,7 @@
 "use client";
 
+import { FlaskConical } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState } from "react";
 import { useTranslations } from "next-intl";
 import { Card, Button, Input, Select } from "@/shared/components";
@@ -50,9 +52,7 @@ export default function PlaygroundTab() {
     <div className="space-y-6">
       {/* Info */}
       <div className="flex items-start gap-3 px-4 py-3 rounded-lg bg-primary/5 border border-primary/10 text-sm text-text-muted">
-        <span className="material-symbols-outlined text-primary text-[20px] mt-0.5 shrink-0">
-          science
-        </span>
+        <Icon icon={FlaskConical} size="lg" color="primary" className="mt-0.5 shrink-0" />
         <div>
           <p className="font-medium text-text-main mb-0.5">{t("playground.infoTitle")}</p>
           <p>{t("playground.infoDesc")}</p>

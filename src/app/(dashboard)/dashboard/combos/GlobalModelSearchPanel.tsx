@@ -1,3 +1,5 @@
+import { ListPlus, ListTree, X } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import Button from "@/shared/components/Button";
 import { hasExactModelStepDuplicate, type ComboBuilderGlobalModelEntry } from "@/lib/combos/builderDraft";
 
@@ -61,7 +63,7 @@ export default function GlobalModelSearchPanel({
               : "text-text-muted hover:text-text-main"
           }`}
         >
-          <span className="material-symbols-outlined text-[14px]">schema</span>
+          <Icon icon={ListTree} size="sm" color="current" />
           {getI18nOrFallback(t, "builderModeStep", "Step by step (Provider → Model)")}
         </button>
         <button
@@ -99,7 +101,7 @@ export default function GlobalModelSearchPanel({
                   onClick={() => onGlobalSearchQueryChange("")}
                   className="absolute right-2.5 top-2 text-text-muted hover:text-text-main text-xs"
                 >
-                  <span className="material-symbols-outlined text-[14px]">close</span>
+                  <Icon icon={X} size="sm" color="current" />
                 </button>
               )}
             </div>
@@ -111,7 +113,7 @@ export default function GlobalModelSearchPanel({
                 size="sm"
                 className="shrink-0 text-xs"
               >
-                <span className="material-symbols-outlined text-[14px] mr-1">playlist_add</span>
+                <Icon icon={ListPlus} size="sm" color="current" className="mr-1" />
                 {getI18nOrFallback(t, "builderGlobalAddAll", "Add all")} ({filteredGlobalModels.length})
               </Button>
             )}

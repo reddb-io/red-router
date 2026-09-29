@@ -1,4 +1,6 @@
 "use client";
+import { TriangleAlert } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState } from "react";
 import { useNotificationStore } from "@/store/notificationStore";
 import { useTranslations } from "next-intl";
@@ -708,9 +710,7 @@ export function ApplyCodexAuthModal({
         </div>
         <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-sm text-amber-200">
           <div className="flex items-start gap-2">
-            <span className="material-symbols-outlined mt-0.5 text-[18px] text-amber-500">
-              warning
-            </span>
+            <Icon icon={TriangleAlert} size="md" color="feedback-warning-foreground" className="mt-0.5" />
             <span>{warning}</span>
           </div>
         </div>

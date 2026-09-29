@@ -8,6 +8,8 @@
  * comes back online.
  */
 
+import { TriangleAlert, X } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useEffect } from "react";
 import { useRef } from "react";
 import { useTranslations } from "next-intl";
@@ -67,9 +69,7 @@ export default function MaintenanceBanner() {
   return (
     <div className="bg-amber-500/10 border-b border-amber-500/20 px-4 py-2.5 flex items-center justify-between gap-3 animate-in slide-in-from-top">
       <div className="flex items-center gap-2.5">
-        <span className="material-symbols-outlined text-amber-500 text-[18px] animate-pulse">
-          warning
-        </span>
+        <Icon icon={TriangleAlert} size="md" color="feedback-warning-foreground" className="animate-pulse" />
         <span className="text-sm text-amber-200">{message}</span>
       </div>
       <button
@@ -80,7 +80,7 @@ export default function MaintenanceBanner() {
         className="p-1 rounded hover:bg-white/5 text-text-muted hover:text-text-main transition-colors"
         aria-label={t("close")}
       >
-        <span className="material-symbols-outlined text-[16px]">close</span>
+        <Icon icon={X} size="md" color="current" />
       </button>
     </div>
   );

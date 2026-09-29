@@ -1,5 +1,7 @@
 "use client";
 
+import { Blend } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useTranslations } from "next-intl";
 
 /**
@@ -37,7 +39,7 @@ export function ChaosModeAccessToggle({
             : "bg-black/5 dark:bg-white/5 text-text-muted border border-border"
         }`}
       >
-        <span className="material-symbols-outlined text-[14px]">blender</span>
+        <Icon icon={Blend} size="sm" color="current" />
         {tChaos("pageTitle")} - {enabled ? tc("enabled") : tc("disabled")}
       </button>
     </div>

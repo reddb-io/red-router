@@ -6,6 +6,8 @@
  * growing the frozen charts god-file.
  */
 
+import { ChevronsUpDown } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useCallback, useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
 import Card from "../Card";
@@ -43,9 +45,7 @@ const COLUMNS: Column[] = [
 function SortIndicator({ active, sortOrder }: { active: boolean; sortOrder: string }) {
   if (!active) {
     return (
-      <span className="material-symbols-outlined text-[12px] opacity-0 group-hover:opacity-30">
-        unfold_more
-      </span>
+      <Icon icon={ChevronsUpDown} size="sm" color="current" className="opacity-0 group-hover:opacity-30" />
     );
   }
   return (

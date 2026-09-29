@@ -1,5 +1,7 @@
 "use client";
 
+import { Play, RefreshCw, RotateCcw } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useTranslations } from "next-intl";
 import { chaosText, type ChaosTranslator } from "../chaosI18n";
 
@@ -36,7 +38,7 @@ export function ChaosConfigActionsBar({
           className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-white text-sm font-semibold hover:opacity-90 disabled:opacity-50"
         >
           {saving ? (
-            <span className="material-symbols-outlined text-[16px] animate-spin">sync</span>
+            <Icon icon={RefreshCw} size="md" color="current" className="animate-spin" />
           ) : (
             <span className="material-symbols-outlined text-[16px]">save</span>
           )}
@@ -48,7 +50,7 @@ export function ChaosConfigActionsBar({
           disabled={saving}
           className="flex items-center gap-2 px-4 py-2 rounded-lg border border-border text-text-muted text-sm hover:bg-black/5 dark:hover:bg-white/5 disabled:opacity-50"
         >
-          <span className="material-symbols-outlined text-[16px]">restart_alt</span>
+          <Icon icon={RotateCcw} size="md" color="current" />
           {t("configReset")}
         </button>
       </div>
@@ -63,9 +65,9 @@ export function ChaosConfigActionsBar({
           className="flex items-center gap-2 px-4 py-2 rounded-lg bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30 text-sm font-semibold hover:bg-amber-500/25 disabled:opacity-50"
         >
           {testing ? (
-            <span className="material-symbols-outlined text-[16px] animate-spin">sync</span>
+            <Icon icon={RefreshCw} size="md" color="current" className="animate-spin" />
           ) : (
-            <span className="material-symbols-outlined text-[16px]">play_arrow</span>
+            <Icon icon={Play} size="md" color="current" />
           )}
           {testing ? chaosText(t, "running", "Running...") : t("testButton")}
         </button>

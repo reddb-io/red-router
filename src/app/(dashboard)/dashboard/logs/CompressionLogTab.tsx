@@ -1,5 +1,7 @@
 "use client";
 
+import { Minimize2 } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useEffect } from "react";
 import { Card } from "@/shared/components";
 import { useTranslations } from "next-intl";
@@ -50,7 +52,7 @@ export default function CompressionLogTab() {
     return (
       <Card className="p-6">
         <div className="flex items-center gap-3 mb-4">
-          <span className="material-symbols-outlined text-blue-500 text-[20px]">compress</span>
+          <Icon icon={Minimize2} size="lg" color="current" />
           <h3 className="text-lg font-semibold">{t("compressionLogTitle")}</h3>
         </div>
         <p className="text-sm text-text-muted">{t("compressionLogEmpty")}</p>
@@ -61,7 +63,7 @@ export default function CompressionLogTab() {
   return (
     <Card className="p-6">
       <div className="flex items-center gap-3 mb-5">
-        <span className="material-symbols-outlined text-blue-500 text-[20px]">compress</span>
+        <Icon icon={Minimize2} size="lg" color="current" />
         <h3 className="text-lg font-semibold">{t("compressionLogTitle")}</h3>
       </div>
 

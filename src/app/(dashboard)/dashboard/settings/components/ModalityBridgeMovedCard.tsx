@@ -1,5 +1,7 @@
 "use client";
 
+import { ScanEye } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
 
@@ -11,9 +13,7 @@ export default function ModalityBridgeMovedCard() {
   return (
     <section className="rounded-lg border border-border/70 bg-surface/40 p-4">
       <div className="flex items-start gap-3">
-        <span className="material-symbols-outlined text-[21px] text-fuchsia-500" aria-hidden="true">
-          image_search
-        </span>
+        <Icon icon={ScanEye} size="lg" color="current" />
         <div className="min-w-0 flex-1">
           <h4 className="text-base font-semibold text-text-main">
             {t("modalityBridgeMovedTitle")}

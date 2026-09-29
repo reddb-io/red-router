@@ -1,4 +1,6 @@
 "use client";
+import { Code } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
 import OmniRouteLogo from "@/shared/components/OmniRouteLogo";
@@ -27,9 +29,7 @@ export default function Footer() {
                 target="_blank"
                 rel="noopener noreferrer"
               >
-                <span className="material-symbols-outlined" aria-hidden="true">
-                  code
-                </span>
+                <Icon icon={Code} size="lg" color="current" />
               </a>
             </div>
           </div>

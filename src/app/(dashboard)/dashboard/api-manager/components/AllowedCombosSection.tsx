@@ -1,5 +1,7 @@
 "use client";
 
+import { Check, Lock } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useMemo } from "react";
 import { useTranslations } from "next-intl";
 import { listUnrenderableComboAccessRules } from "../apiManagerPageUtils";
@@ -70,7 +72,7 @@ function ComboOptionRow({
         }`}
       >
         {isSelected && (
-          <span className="material-symbols-outlined text-white text-[10px]">check</span>
+          <Icon icon={Check} size="sm" color="foreground" />
         )}
       </div>
       <span className="truncate flex-1">{combo.name}</span>
@@ -100,7 +102,7 @@ function PreservedComboRules({ rules }: { rules: string[] }) {
             title={t("preservedComboRuleHint")}
             className="inline-flex items-center gap-1 px-2 py-0.5 rounded border border-border bg-surface text-[11px] text-text-muted"
           >
-            <span className="material-symbols-outlined text-[12px]">lock</span>
+            <Icon icon={Lock} size="sm" color="current" />
             <span data-testid="preserved-combo-rule" className="truncate max-w-[16rem]">
               {rule}
             </span>

@@ -1,5 +1,7 @@
 "use client";
 
+import { Building2, CircleUser, Code, FileUp, Shield } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useEffect } from "react";
 import { useTranslations } from "next-intl";
 import Modal from "./Modal";
@@ -194,7 +196,7 @@ export default function KiroAuthModal({
               className="w-full p-4 text-left border border-border rounded-lg hover:bg-sidebar transition-colors"
             >
               <div className="flex items-start gap-3">
-                <span className="material-symbols-outlined text-primary mt-0.5">shield</span>
+                <Icon icon={Shield} size="lg" color="primary" className="mt-0.5" />
                 <div className="flex-1">
                   <h3 className="font-semibold mb-1">{t("builderId")}</h3>
                   <p className="text-sm text-text-muted">
@@ -210,7 +212,7 @@ export default function KiroAuthModal({
               className="w-full p-4 text-left border border-border rounded-lg hover:bg-sidebar transition-colors"
             >
               <div className="flex items-start gap-3">
-                <span className="material-symbols-outlined text-primary mt-0.5">business</span>
+                <Icon icon={Building2} size="lg" color="primary" className="mt-0.5" />
                 <div className="flex-1">
                   <h3 className="font-semibold mb-1">{t("organization")}</h3>
                   <p className="text-sm text-text-muted">
@@ -228,9 +230,7 @@ export default function KiroAuthModal({
               className="w-full p-4 text-left border border-border rounded-lg hover:bg-sidebar transition-colors"
             >
               <div className="flex items-start gap-3">
-                <span className="material-symbols-outlined text-primary mt-0.5">
-                  account_circle
-                </span>
+                <Icon icon={CircleUser} size="lg" color="primary" className="mt-0.5" />
                 <div className="flex-1">
                   <h3 className="font-semibold mb-1">{t("googleAccount")}</h3>
                   <p className="text-sm text-text-muted">{t("googleDescription")}</p>
@@ -244,7 +244,7 @@ export default function KiroAuthModal({
               className="w-full p-4 text-left border border-border rounded-lg hover:bg-sidebar transition-colors"
             >
               <div className="flex items-start gap-3">
-                <span className="material-symbols-outlined text-primary mt-0.5">code</span>
+                <Icon icon={Code} size="lg" color="primary" className="mt-0.5" />
                 <div className="flex-1">
                   <h3 className="font-semibold mb-1">{t("githubAccount")}</h3>
                   <p className="text-sm text-text-muted">{t("githubDescription")}</p>
@@ -258,7 +258,7 @@ export default function KiroAuthModal({
               className="w-full p-4 text-left border border-border rounded-lg hover:bg-sidebar transition-colors"
             >
               <div className="flex items-start gap-3">
-                <span className="material-symbols-outlined text-primary mt-0.5">file_upload</span>
+                <Icon icon={FileUp} size="lg" color="primary" className="mt-0.5" />
                 <div className="flex-1">
                   <h3 className="font-semibold mb-1">{t("importToken")}</h3>
                   <p className="text-sm text-text-muted">

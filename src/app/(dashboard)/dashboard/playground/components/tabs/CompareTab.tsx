@@ -2,6 +2,8 @@
 
 // src/app/(dashboard)/dashboard/playground/components/tabs/CompareTab.tsx
 
+import { Play, Plus, Square } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import CompareColumn, { type CompareColumnData, type ColumnStatus } from "../CompareColumn";
@@ -373,7 +375,7 @@ export default function CompareTab({ configState }: CompareTabProps) {
             className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded bg-destructive/10 text-destructive border border-destructive/30 hover:bg-destructive/20 transition-colors"
             aria-label={t("cancelAllStreams")}
           >
-            <span className="material-symbols-outlined text-[14px]">stop</span>
+            <Icon icon={Square} size="sm" color="current" />
             {t("cancelAll")}
           </button>
         ) : (
@@ -383,7 +385,7 @@ export default function CompareTab({ configState }: CompareTabProps) {
             className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded bg-primary text-white hover:bg-primary/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             aria-label={t("runAllColumns")}
           >
-            <span className="material-symbols-outlined text-[14px]">play_arrow</span>
+            <Icon icon={Play} size="sm" color="current" />
             {t("runAll")}
           </button>
         )}
@@ -410,7 +412,7 @@ export default function CompareTab({ configState }: CompareTabProps) {
             title={atColumnLimit ? t("maxColumnsReached", { max: MAX_COLUMNS }) : t("addColumn")}
             aria-label={t("addModelColumn")}
           >
-            <span className="material-symbols-outlined text-[14px]">add</span>
+            <Icon icon={Plus} size="sm" color="current" />
             {t("addModel")}
           </button>
         </div>

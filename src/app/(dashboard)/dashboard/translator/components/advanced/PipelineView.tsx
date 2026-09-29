@@ -1,5 +1,7 @@
 "use client";
 
+import { Info } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useEffect, useCallback } from "react";
 import { useTranslations } from "next-intl";
 import { Card, Badge } from "@/shared/components";
@@ -190,9 +192,7 @@ export default function PipelineView({
             {/* Demo badge when showing placeholder data */}
             {!pipelineSteps && (
               <div className="flex items-center gap-2 text-xs text-text-muted px-1">
-                <span className="material-symbols-outlined text-[14px]" aria-hidden="true">
-                  info
-                </span>
+                <Icon icon={Info} size="sm" color="current" />
                 <span>
                   {tr(
                     "pipelineVisualizationHint",

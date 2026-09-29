@@ -7,6 +7,8 @@
  * controls (logout, clear sessions) within the Security settings tab.
  */
 
+import { User } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useEffect } from "react";
 import { Card, Button } from "@/shared/components";
 import { useTranslations } from "next-intl";
@@ -104,9 +106,7 @@ export default function SessionInfoCard() {
     <Card>
       <div className="flex items-center gap-3 mb-4">
         <div className="p-2 rounded-lg bg-blue-500/10 text-blue-500">
-          <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
-            person
-          </span>
+          <Icon icon={User} size="lg" color="current" />
         </div>
         <h3 className="text-lg font-semibold">{t("session")}</h3>
       </div>

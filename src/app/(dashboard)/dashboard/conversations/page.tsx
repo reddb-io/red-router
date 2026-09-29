@@ -1,5 +1,7 @@
 "use client";
 
+import { ArrowDownToLine, ChevronLeft, ChevronRight, CircleAlert, X, Zap } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { PROVIDER_COLORS, getHttpStatusStyle } from "@/shared/constants/colors";
@@ -112,7 +114,7 @@ function ContinuationBadge({ isGenuine }: { isGenuine: boolean }) {
       title="Latest turn used previous_response_id and it resolved server-side"
       className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500/15 text-emerald-500 border border-emerald-500/25"
     >
-      <span className="material-symbols-outlined text-[11px] leading-none">bolt</span>
+      <Icon icon={Zap} size="sm" color="current" className="leading-none" />
       continuation
     </span>
   );
@@ -132,7 +134,7 @@ function StalledBadge({ isStalled }: { isStalled: boolean }) {
       title="Latest turn didn't end in stop and nothing has continued for 5+ minutes"
       className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full text-[9px] font-bold bg-red-500/15 text-red-500 border border-red-500/25"
     >
-      <span className="material-symbols-outlined text-[11px] leading-none">error</span>
+      <Icon icon={CircleAlert} size="sm" color="current" className="leading-none" />
       stalled
     </span>
   );
@@ -934,7 +936,7 @@ function ConversationsPageContent() {
                   aria-label="Previous conversation"
                   className="p-1 rounded hover:bg-bg-subtle text-text-muted hover:text-text-primary transition-colors disabled:opacity-30 disabled:pointer-events-none"
                 >
-                  <span className="material-symbols-outlined text-[18px]">chevron_left</span>
+                  <Icon icon={ChevronLeft} size="md" color="current" />
                 </button>
                 <button
                   type="button"
@@ -944,7 +946,7 @@ function ConversationsPageContent() {
                   aria-label="Next conversation"
                   className="p-1 rounded hover:bg-bg-subtle text-text-muted hover:text-text-primary transition-colors disabled:opacity-30 disabled:pointer-events-none"
                 >
-                  <span className="material-symbols-outlined text-[18px]">chevron_right</span>
+                  <Icon icon={ChevronRight} size="md" color="current" />
                 </button>
                 {activeConversation.lastCallLogId && (
                   <button
@@ -962,9 +964,7 @@ function ConversationsPageContent() {
                   className="p-1 rounded hover:bg-bg-subtle text-text-muted hover:text-text-primary transition-colors"
                   aria-label="Go to bottom"
                 >
-                  <span className="material-symbols-outlined text-[18px]">
-                    vertical_align_bottom
-                  </span>
+                  <Icon icon={ArrowDownToLine} size="md" color="current" />
                 </button>
                 <button
                   type="button"
@@ -972,7 +972,7 @@ function ConversationsPageContent() {
                   className="p-1 rounded hover:bg-bg-subtle text-text-muted hover:text-text-primary transition-colors"
                   aria-label="Close conversation"
                 >
-                  <span className="material-symbols-outlined text-[20px]">close</span>
+                  <Icon icon={X} size="lg" color="current" />
                 </button>
               </div>
             </div>

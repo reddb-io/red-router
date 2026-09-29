@@ -8,6 +8,8 @@
  * Leaf component: imports from shared, leaf helpers, and sibling components.
  * Never imports from ProviderDetailPageClient.
  */
+import { Check, CircleAlert, CircleCheck, CirclePlay, LoaderCircle, Pencil, Trash2, TriangleAlert, X } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import React, { useState, useRef, useEffect } from "react";
 import { Badge } from "@/shared/components";
 import { parseContextWindowOverrideInput, providerText } from "../providerPageHelpers";
@@ -259,7 +261,7 @@ export default function PassthroughModelRow({
                 className="rounded p-0.5 text-text-muted hover:bg-sidebar hover:text-primary disabled:opacity-40"
                 title={providerText(t, "save", "Save")}
               >
-                <span className="material-symbols-outlined text-sm">check</span>
+                <Icon icon={Check} size="sm" color="current" />
               </button>
               <button
                 onClick={() => setEditingContext(false)}
@@ -267,7 +269,7 @@ export default function PassthroughModelRow({
                 className="rounded p-0.5 text-text-muted hover:bg-sidebar hover:text-primary disabled:opacity-40"
                 title={providerText(t, "cancel", "Cancel")}
               >
-                <span className="material-symbols-outlined text-sm">close</span>
+                <Icon icon={X} size="sm" color="current" />
               </button>
             </span>
           )}
@@ -283,7 +285,7 @@ export default function PassthroughModelRow({
               title={t("contextWindowOverrideLabel")}
               aria-label={t("contextWindowOverrideLabel")}
             >
-              <span className="material-symbols-outlined text-sm">edit</span>
+              <Icon icon={Pencil} size="sm" color="current" />
             </button>
           )}
           <button
@@ -313,17 +315,15 @@ export default function PassthroughModelRow({
               }
             >
               {testingModel ? (
-                <span className="material-symbols-outlined text-sm animate-spin">
-                  progress_activity
-                </span>
+                <Icon icon={LoaderCircle} size="sm" color="current" className="animate-spin" />
               ) : testStatus === "ok" ? (
-                <span className="material-symbols-outlined text-sm">check_circle</span>
+                <Icon icon={CircleCheck} size="sm" color="current" />
               ) : testStatus === "quota" ? (
-                <span className="material-symbols-outlined text-sm">warning</span>
+                <Icon icon={TriangleAlert} size="sm" color="current" />
               ) : testStatus === "error" ? (
-                <span className="material-symbols-outlined text-sm">error</span>
+                <Icon icon={CircleAlert} size="sm" color="current" />
               ) : (
-                <span className="material-symbols-outlined text-sm">play_circle</span>
+                <Icon icon={CirclePlay} size="sm" color="current" />
               )}
             </button>
           )}
@@ -363,7 +363,7 @@ export default function PassthroughModelRow({
               className="rounded p-1 text-red-500 hover:bg-red-50"
               title={t("removeModel")}
             >
-              <span className="material-symbols-outlined text-sm">delete</span>
+              <Icon icon={Trash2} size="sm" color="current" />
             </button>
           )}
         </div>

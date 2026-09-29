@@ -1,5 +1,7 @@
 "use client";
 
+import { Banknote, ChevronDown, TriangleAlert, X } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { FilterSelect, HeroStat, SyncMini } from "./PricingTabHelpers";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
@@ -502,7 +504,7 @@ export default function PricingTab() {
         <div className="flex items-start justify-between gap-3 mb-4">
           <div className="flex items-center gap-2">
             <h2 className="text-xl font-bold flex items-center gap-2">
-              <span className="material-symbols-outlined text-[22px] text-primary">payments</span>
+              <Icon icon={Banknote} size="lg" color="primary" />
               {t("modelPricing")}
             </h2>
             <InfoTooltip
@@ -687,7 +689,7 @@ export default function PricingTab() {
                 : "bg-bg-subtle border-border text-text-muted hover:text-text-main"
             }`}
           >
-            <span className="material-symbols-outlined text-[14px]">warning</span>
+            <Icon icon={TriangleAlert} size="sm" color="current" />
             {t("pricingCoverageGaps")} ({coverageGapCount})
           </button>
           {(searchQuery ||
@@ -706,7 +708,7 @@ export default function PricingTab() {
               }}
               className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-border bg-bg-subtle text-xs text-text-muted hover:text-text-main cursor-pointer"
             >
-              <span className="material-symbols-outlined text-[14px]">close</span>
+              <Icon icon={X} size="sm" color="current" />
               {t("pricingClearFilters")}
             </button>
           )}
@@ -752,7 +754,7 @@ export default function PricingTab() {
             onClick={() => setVisibleCount((c) => c + VISIBLE_INCREMENT)}
             className="mt-2 mx-auto px-4 py-2 rounded-md border border-border bg-bg-subtle hover:bg-black/[0.04] dark:hover:bg-white/[0.04] text-sm text-text-main cursor-pointer flex items-center gap-1.5"
           >
-            <span className="material-symbols-outlined text-[16px]">expand_more</span>
+            <Icon icon={ChevronDown} size="md" color="current" />
             {t("pricingShowMoreProviders", {
               count: Math.min(VISIBLE_INCREMENT, totalFiltered - visibleCount),
               remaining: totalFiltered - visibleCount,

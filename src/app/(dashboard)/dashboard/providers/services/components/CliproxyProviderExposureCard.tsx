@@ -5,6 +5,8 @@
  */
 "use client";
 
+import { Network } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import type { ReactNode } from "react";
 import { useState } from "react";
 import { useTranslations } from "next-intl";
@@ -55,7 +57,7 @@ export function CliproxyProviderExposureCard() {
     <Card padding="md">
       <div className="flex items-center gap-3 mb-3">
         <div className="size-8 rounded-lg flex items-center justify-center bg-sky-500/10">
-          <span className="material-symbols-outlined text-sky-500 text-xl">hub</span>
+          <Icon icon={Network} size="lg" color="current" />
         </div>
         <div>
           <h3 className="font-medium text-sm">{t("title")}</h3>

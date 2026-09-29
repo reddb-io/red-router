@@ -1,5 +1,7 @@
 "use client";
 
+import { Brain, CircleCheck } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useEffect } from "react";
 import { Card } from "@/shared/components";
 import { useTranslations } from "next-intl";
@@ -89,9 +91,7 @@ export default function ThinkingBudgetTab() {
     <Card>
       <div className="flex items-center gap-3 mb-5">
         <div className="p-2 rounded-lg bg-violet-500/10 text-violet-500">
-          <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
-            psychology
-          </span>
+          <Icon icon={Brain} size="lg" color="current" />
         </div>
         <div>
           <h3 className="text-lg font-semibold">{t("thinkingBudgetTitle")}</h3>
@@ -102,7 +102,7 @@ export default function ThinkingBudgetTab() {
         </div>
         {status === "saved" && (
           <span className="ml-auto text-xs font-medium text-emerald-500 flex items-center gap-1">
-            <span className="material-symbols-outlined text-[14px]">check_circle</span> {t("saved")}
+            <Icon icon={CircleCheck} size="sm" color="current" /> {t("saved")}
           </span>
         )}
       </div>

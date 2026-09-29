@@ -8,6 +8,8 @@
  *
  * Never imports from ProviderDetailPageClient.
  */
+import { Pencil, RotateCcw, SlidersHorizontal, Trash2 } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useTranslations } from "next-intl";
 import { Button } from "@/shared/components";
@@ -412,7 +414,7 @@ export default function CustomModelsSection({
   return (
     <div className="mt-6 pt-6 border-t border-border">
       <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
-        <span className="material-symbols-outlined text-base text-primary">tune</span>
+        <Icon icon={SlidersHorizontal} size="md" color="primary" />
         {t("customModels")}
       </h3>
       <p className="text-xs text-text-muted mb-3">{t("customModelsHint")}</p>
@@ -570,9 +572,7 @@ export default function CustomModelsSection({
                 className="flex items-center gap-3 rounded-lg border border-border p-3 hover:bg-sidebar/50"
               >
                 {editingModelId !== model.id && (
-                  <span className="material-symbols-outlined text-base text-primary shrink-0">
-                    tune
-                  </span>
+                  <Icon icon={SlidersHorizontal} size="md" color="primary" className="shrink-0" />
                 )}
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium truncate">{model.name || model.id}</p>
@@ -830,7 +830,7 @@ export default function CustomModelsSection({
                     className="rounded p-1 text-text-muted hover:bg-sidebar hover:text-primary"
                     title={t("edit")}
                   >
-                    <span className="material-symbols-outlined text-sm">edit</span>
+                    <Icon icon={Pencil} size="sm" color="current" />
                   </button>
                   <ModelCompatPopover
                     t={t}
@@ -873,7 +873,7 @@ export default function CustomModelsSection({
                         "Restore upstream defaults"
                       )}
                     >
-                      <span className="material-symbols-outlined text-sm">restart_alt</span>
+                      <Icon icon={RotateCcw} size="sm" color="current" />
                     </button>
                   )}
                   <button
@@ -881,7 +881,7 @@ export default function CustomModelsSection({
                     className="rounded p-1 text-red-500 hover:bg-red-50"
                     title={t("removeCustomModel")}
                   >
-                    <span className="material-symbols-outlined text-sm">delete</span>
+                    <Icon icon={Trash2} size="sm" color="current" />
                   </button>
                 </div>
               </div>

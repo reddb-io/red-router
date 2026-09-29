@@ -1,5 +1,7 @@
 "use client";
 
+import { BadgeCheck, Bug, ChartColumn, CircleQuestionMark, FileUp, FlaskConical, Gauge, GitCompare, History, ListChecks, Route } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { memo, useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import {
@@ -991,7 +993,7 @@ export default function EvalsTab() {
   if (loading) {
     return (
       <div className="flex items-center gap-2 text-text-muted p-8 animate-pulse">
-        <span className="material-symbols-outlined text-[20px]">science</span>
+        <Icon icon={FlaskConical} size="lg" color="current" />
         {t("evalsLoading")}
       </div>
     );
@@ -1046,7 +1048,7 @@ export default function EvalsTab() {
       <Card className="p-6">
         <div className="flex items-center gap-3 mb-4">
           <div className="p-2 rounded-lg bg-primary/10 text-primary">
-            <span className="material-symbols-outlined text-[20px]">route</span>
+            <Icon icon={Route} size="lg" color="current" />
           </div>
           <div>
             <h3 className="text-lg font-semibold">{t("evalControlsTitle")}</h3>
@@ -1112,7 +1114,7 @@ export default function EvalsTab() {
         <Card className="p-6">
           <div className="flex items-center gap-3 mb-4">
             <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-400">
-              <span className="material-symbols-outlined text-[20px]">analytics</span>
+              <Icon icon={ChartColumn} size="lg" color="current" />
             </div>
             <div>
               <h3 className="text-lg font-semibold">{t("scorecardTitle")}</h3>
@@ -1174,7 +1176,7 @@ export default function EvalsTab() {
         >
           <div className="flex items-center gap-3">
             <div className="p-2 rounded-lg bg-primary/10 text-primary">
-              <span className="material-symbols-outlined text-[20px]">help</span>
+              <Icon icon={CircleQuestionMark} size="lg" color="current" />
             </div>
             <div>
               <h3 className="text-sm font-semibold text-text-main">{t("howItWorks")}</h3>
@@ -1246,7 +1248,7 @@ export default function EvalsTab() {
       <Card className="p-6">
         <div className="flex items-center gap-3 mb-4">
           <div className="p-2 rounded-lg bg-sky-500/10 text-sky-400">
-            <span className="material-symbols-outlined text-[20px]">history</span>
+            <Icon icon={History} size="lg" color="current" />
           </div>
           <div>
             <h3 className="text-lg font-semibold">{t("recentRunsTitle")}</h3>
@@ -1307,7 +1309,7 @@ export default function EvalsTab() {
         <div className="flex flex-col gap-3 mb-4 md:flex-row md:items-center md:justify-between">
           <div className="flex items-center gap-3">
             <div className="p-2 rounded-lg bg-violet-500/10 text-violet-500">
-              <span className="material-symbols-outlined text-[20px]">science</span>
+              <Icon icon={FlaskConical} size="lg" color="current" />
             </div>
             <div>
               <h3 className="text-lg font-semibold">{t("evalSuites")}</h3>
@@ -1320,9 +1322,7 @@ export default function EvalsTab() {
                 running !== null || runningAll ? "pointer-events-none opacity-50" : ""
               }`}
             >
-              <span className="material-symbols-outlined text-[18px]" aria-hidden="true">
-                upload_file
-              </span>
+              <Icon icon={FileUp} size="md" color="current" />
               {t("importSuite")}
               <input
                 type="file"
@@ -1759,9 +1759,7 @@ export default function EvalsTab() {
                     ) : null}
 
                     <div className="flex items-center gap-2 mb-1">
-                      <span className="material-symbols-outlined text-[16px] text-text-muted">
-                        checklist
-                      </span>
+                      <Icon icon={ListChecks} size="md" color="ink-muted" />
                       <span className="text-xs text-text-muted font-medium">
                         {t("testCasesCount", { count: (suite.cases || []).length })}
                       </span>
@@ -1871,23 +1869,19 @@ const HeroSection = memo(function HeroSection({
             </p>
             <div className="flex flex-wrap items-center gap-4 mt-4">
               <div className="flex items-center gap-1.5 text-xs text-text-muted">
-                <span className="material-symbols-outlined text-[16px] text-emerald-400">
-                  verified
-                </span>
+                <Icon icon={BadgeCheck} size="md" color="feedback-success-foreground" />
                 {t("qualityValidation")}
               </div>
               <div className="flex items-center gap-1.5 text-xs text-text-muted">
-                <span className="material-symbols-outlined text-[16px] text-sky-400">compare</span>
+                <Icon icon={GitCompare} size="md" color="current" />
                 {t("modelComparison")}
               </div>
               <div className="flex items-center gap-1.5 text-xs text-text-muted">
-                <span className="material-symbols-outlined text-[16px] text-amber-400">
-                  bug_report
-                </span>
+                <Icon icon={Bug} size="md" color="feedback-warning-foreground" />
                 {t("regressionDetection")}
               </div>
               <div className="flex items-center gap-1.5 text-xs text-text-muted">
-                <span className="material-symbols-outlined text-[16px] text-violet-400">speed</span>
+                <Icon icon={Gauge} size="md" color="current" />
                 {t("latencyBenchmarks")}
               </div>
             </div>

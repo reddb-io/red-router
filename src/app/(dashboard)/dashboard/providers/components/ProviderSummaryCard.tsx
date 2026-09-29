@@ -1,5 +1,7 @@
 "use client";
 
+import { X } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { Button, Card, Input } from "@/shared/components";
 import type { ProviderDisplayMode } from "../providerPageStorage";
 import { CategoryDot } from "./CategoryDot";
@@ -195,7 +197,7 @@ export default function ProviderSummaryCard({
                 className="absolute inset-y-0 right-0 flex items-center pr-2.5 text-text-muted hover:text-text-primary transition-colors"
                 aria-label={tc("clear")}
               >
-                <span className="material-symbols-outlined text-[18px]">close</span>
+                <Icon icon={X} size="md" color="current" />
               </button>
             )}
           </div>
@@ -214,7 +216,7 @@ export default function ProviderSummaryCard({
                 className="absolute inset-y-0 right-0 flex items-center pr-2.5 text-text-muted hover:text-text-primary transition-colors"
                 aria-label={tc("clear")}
               >
-                <span className="material-symbols-outlined text-[18px]">close</span>
+                <Icon icon={X} size="md" color="current" />
               </button>
             )}
           </div>

@@ -1,5 +1,7 @@
 "use client";
 
+import { IdCard, Palette, Upload } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useEffect } from "react";
 import { Button, Card, Toggle } from "@/shared/components";
 import { useTheme } from "@/shared/hooks/useTheme";
@@ -142,9 +144,7 @@ export default function AppearanceTab() {
     <Card>
       <div className="flex items-center gap-3 mb-4">
         <div className="p-2 rounded-lg bg-purple-500/10 text-purple-500">
-          <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
-            palette
-          </span>
+          <Icon icon={Palette} size="lg" color="current" />
         </div>
         <h3 className="text-lg font-semibold">{t("appearance")}</h3>
       </div>
@@ -486,9 +486,7 @@ export default function AppearanceTab() {
         <div className="pt-4 border-t border-border">
           <div className="flex items-center gap-3 mb-4">
             <div className="p-2 rounded-lg bg-blue-500/10 text-blue-500">
-              <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
-                badge
-              </span>
+              <Icon icon={IdCard} size="lg" color="current" />
             </div>
             <div>
               <h4 className="font-semibold">{t("whitelabeling")}</h4>
@@ -578,7 +576,7 @@ export default function AppearanceTab() {
                     }}
                     className="hidden"
                   />
-                  <span className="material-symbols-outlined text-[18px]">upload</span>
+                  <Icon icon={Upload} size="md" color="current" />
                   <span>{t("uploadLogo")}</span>
                 </label>
                 <Button
@@ -678,7 +676,7 @@ export default function AppearanceTab() {
                     }}
                     className="hidden"
                   />
-                  <span className="material-symbols-outlined text-[18px]">upload</span>
+                  <Icon icon={Upload} size="md" color="current" />
                   <span>{t("uploadFavicon")}</span>
                 </label>
                 <Button

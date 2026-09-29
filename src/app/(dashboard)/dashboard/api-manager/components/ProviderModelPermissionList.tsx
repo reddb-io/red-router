@@ -1,5 +1,7 @@
 "use client";
 
+import { SearchX, X } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { memo, useCallback, useEffect, useMemo, useRef } from "react";
 import { useTranslations } from "next-intl";
 import { getProviderDisplayName } from "@/lib/display/names";
@@ -185,7 +187,7 @@ const ProviderModelPermissionList = memo(function ProviderModelPermissionList({
             onClick={() => onSearchChange("")}
             className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-main"
           >
-            <span className="material-symbols-outlined text-[18px]">close</span>
+            <Icon icon={X} size="md" color="current" />
           </button>
         )}
       </div>
@@ -193,7 +195,7 @@ const ProviderModelPermissionList = memo(function ProviderModelPermissionList({
       <div className="max-h-[280px] overflow-y-auto border border-border rounded-lg divide-y divide-border">
         {modelsByProvider.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-6 text-text-muted">
-            <span className="material-symbols-outlined text-2xl mb-1">search_off</span>
+            <Icon icon={SearchX} size="lg" color="current" className="mb-1" />
             <p className="text-xs">{t("noModelsFound")}</p>
           </div>
         ) : (

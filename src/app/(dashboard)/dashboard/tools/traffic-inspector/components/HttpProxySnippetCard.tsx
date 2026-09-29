@@ -1,5 +1,7 @@
 "use client";
 
+import { X } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState } from "react";
 import { useTranslations } from "next-intl";
 import { cn } from "@/shared/utils/cn";
@@ -41,9 +43,7 @@ export function HttpProxySnippetCard({ port, onClose }: HttpProxySnippetCardProp
             className="text-text-muted hover:text-text-main focus-ring rounded"
             aria-label={t("close")}
           >
-            <span className="material-symbols-outlined" aria-hidden="true">
-              close
-            </span>
+            <Icon icon={X} size="lg" color="current" />
           </button>
         </div>
 

@@ -1,5 +1,7 @@
 "use client";
 
+import { Sparkles } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useEffect } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import type { OmniSkill } from "./InstalledSkillCard";
@@ -114,9 +116,7 @@ export function SkillInspectorPane({
       {/* Inspector header */}
       <div className="px-4 pt-4 pb-2 border-b border-border">
         <div className="flex items-center gap-2 mb-1">
-          <span className="material-symbols-outlined text-[18px] text-violet-400">
-            auto_fix_high
-          </span>
+          <Icon icon={Sparkles} size="md" color="current" />
           <h3 className="font-semibold text-text-main text-sm">{skill.name}</h3>
         </div>
         <p className="text-xs text-text-muted line-clamp-2">{skill.description}</p>

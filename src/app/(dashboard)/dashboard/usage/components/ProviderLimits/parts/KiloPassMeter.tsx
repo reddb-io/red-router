@@ -1,5 +1,7 @@
 "use client";
 
+import { Banknote, Clock, Wallet } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useMemo } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { getBarColor } from "../utils";
@@ -198,12 +200,7 @@ export default function KiloPassMeter({
 
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-text-main">
         <div className="flex items-center gap-1.5">
-          <span
-            className="material-symbols-outlined text-[13px] text-text-muted"
-            aria-hidden="true"
-          >
-            account_balance_wallet
-          </span>
+          <Icon icon={Wallet} size="sm" color="ink-muted" />
           <span>{translateUsageOrFallback(t, "kiloPassRemaining", "Remaining")}</span>
           <span className="font-semibold tabular-nums">{formatCurrency(model.remaining)}</span>
         </div>
@@ -212,9 +209,7 @@ export default function KiloPassMeter({
       {/* Renewal info */}
       {daysUntilRenewal !== null && renewalDate && (
         <div className="flex items-center gap-1.5 text-[11px] text-text-muted">
-          <span className="material-symbols-outlined text-[13px]" aria-hidden="true">
-            schedule
-          </span>
+          <Icon icon={Clock} size="sm" color="current" />
           <span>
             {translateUsageOrFallback(t, "kiloPassRenews", "Renews in {count} days", {
               count: daysUntilRenewal,
@@ -228,12 +223,7 @@ export default function KiloPassMeter({
       {balance !== null && balance !== undefined && (
         <div className="flex items-center justify-between gap-2 border-t border-border/40 pt-2 text-[11px]">
           <div className="flex items-center gap-1.5">
-            <span
-              className="material-symbols-outlined text-[13px] text-text-muted"
-              aria-hidden="true"
-            >
-              payments
-            </span>
+            <Icon icon={Banknote} size="sm" color="ink-muted" />
             <span className="text-text-main">
               {translateUsageOrFallback(t, "kiloAccountBalance", "Account Balance")}
             </span>

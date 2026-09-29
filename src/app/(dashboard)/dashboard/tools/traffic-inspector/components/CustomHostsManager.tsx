@@ -1,5 +1,7 @@
 "use client";
 
+import { Trash2, X } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import { z } from "zod";
@@ -95,9 +97,7 @@ export function CustomHostsManager({ onClose }: CustomHostsManagerProps) {
             className="text-text-muted hover:text-text-main focus-ring rounded"
             aria-label={t("close")}
           >
-            <span className="material-symbols-outlined" aria-hidden="true">
-              close
-            </span>
+            <Icon icon={X} size="lg" color="current" />
           </button>
         </div>
 
@@ -137,9 +137,7 @@ export function CustomHostsManager({ onClose }: CustomHostsManagerProps) {
                 className="text-text-muted hover:text-red-400 focus-ring rounded"
                 aria-label={t("removeHost", { host: h.host })}
               >
-                <span className="material-symbols-outlined text-[16px]" aria-hidden="true">
-                  delete
-                </span>
+                <Icon icon={Trash2} size="md" color="current" />
               </button>
             </div>
           ))}

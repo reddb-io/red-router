@@ -1,5 +1,7 @@
 "use client";
 
+import { BookOpen, Info } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { HmacRecipeBlock } from "./shared/HmacRecipeBlock";
 
 interface HowItWorksSidebarProps {
@@ -18,7 +20,7 @@ export function HowItWorksSidebar({ t, showCustomNote }: HowItWorksSidebarProps)
   return (
     <aside className="space-y-4 rounded-xl border border-border bg-surface p-5">
       <h3 className="flex items-center gap-2 text-sm font-semibold text-text-main">
-        <span className="material-symbols-outlined text-[18px] text-primary">info</span>
+        <Icon icon={Info} size="md" color="primary" />
         {t("howItWorks.title")}
       </h3>
       <ol className="space-y-3">
@@ -49,7 +51,7 @@ export function HowItWorksSidebar({ t, showCustomNote }: HowItWorksSidebarProps)
           rel="noopener noreferrer"
           className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
         >
-          <span className="material-symbols-outlined text-[14px]">menu_book</span>
+          <Icon icon={BookOpen} size="sm" color="current" />
           {t("howItWorks.docsLink")}
         </a>
       </div>

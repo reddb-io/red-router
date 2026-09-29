@@ -1,5 +1,7 @@
 "use client";
 
+import { Bug, ChartPie, CircleAlert, FlaskConical, Folder, FolderX, Pencil, Plus, Trash2, X } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
 import { Button } from "@/shared/components";
@@ -417,7 +419,7 @@ export default function QuotaSharePageClient() {
           role="alert"
           className="flex items-start gap-2 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-[12px] text-red-700 dark:text-red-200"
         >
-          <span className="material-symbols-outlined text-[16px] text-red-500 shrink-0">error</span>
+          <Icon icon={CircleAlert} size="md" color="feedback-danger-foreground" className="shrink-0" />
           <span className="flex-1">{removeError}</span>
           <button
             type="button"
@@ -425,7 +427,7 @@ export default function QuotaSharePageClient() {
             aria-label={t("dismiss")}
             className="shrink-0 text-red-500 hover:text-red-400 cursor-pointer"
           >
-            <span className="material-symbols-outlined text-[16px]">close</span>
+            <Icon icon={X} size="md" color="current" />
           </button>
         </div>
       )}
@@ -434,14 +436,14 @@ export default function QuotaSharePageClient() {
       <div className="flex items-start justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-xl font-bold text-text-main flex items-center gap-2">
-            <span className="material-symbols-outlined text-[24px] text-primary">pie_chart</span>
+            <Icon icon={ChartPie} size="lg" color="primary" />
             {t("title")}
           </h1>
           <p className="text-sm text-text-muted mt-0.5">{t("description")}</p>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="primary" size="sm" onClick={() => setCreateOpen(true)}>
-            <span className="material-symbols-outlined text-[14px] mr-1">add</span>
+            <Icon icon={Plus} size="sm" color="current" className="mr-1" />
             {t("newPool")}
           </Button>
         </div>
@@ -449,9 +451,7 @@ export default function QuotaSharePageClient() {
 
       {/* Beta banner — scoped to this page only */}
       <div className="flex items-center gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[12px] text-amber-700 dark:text-amber-200">
-        <span className="material-symbols-outlined text-[16px] text-amber-500 shrink-0">
-          science
-        </span>
+        <Icon icon={FlaskConical} size="md" color="feedback-warning-foreground" className="shrink-0" />
         <span className="flex-1">
           <span className="font-semibold">{t("betaTitle")}</span> — {t("betaText")}
         </span>
@@ -461,7 +461,7 @@ export default function QuotaSharePageClient() {
           rel="noopener noreferrer"
           className="shrink-0 inline-flex items-center gap-1 font-medium text-amber-600 dark:text-amber-300 hover:underline"
         >
-          <span className="material-symbols-outlined text-[14px]">bug_report</span>
+          <Icon icon={Bug} size="sm" color="current" />
           {t("betaReportLink")}
         </a>
       </div>
@@ -526,7 +526,7 @@ export default function QuotaSharePageClient() {
             onClick={() => setShowNewGroupInput(true)}
             className="flex items-center gap-1 text-xs text-text-muted hover:text-text-main transition-colors"
           >
-            <span className="material-symbols-outlined text-[14px]">add</span>
+            <Icon icon={Plus} size="sm" color="current" />
             {t("newGroup")}
           </button>
         )}
@@ -537,7 +537,7 @@ export default function QuotaSharePageClient() {
             disabled={renaming}
             className="flex items-center gap-1 text-xs text-text-muted hover:text-text-main transition-colors ml-1 disabled:opacity-40"
           >
-            <span className="material-symbols-outlined text-[14px]">edit</span>
+            <Icon icon={Pencil} size="sm" color="current" />
             {t("renameGroup")}
           </button>
         )}
@@ -547,7 +547,7 @@ export default function QuotaSharePageClient() {
             onClick={() => void handleDeleteGroup()}
             className="flex items-center gap-1 text-xs text-text-muted hover:text-red-400 transition-colors"
           >
-            <span className="material-symbols-outlined text-[14px]">delete</span>
+            <Icon icon={Trash2} size="sm" color="current" />
             {t("deleteGroup")}
           </button>
         )}
@@ -591,7 +591,7 @@ export default function QuotaSharePageClient() {
           <h3 className="mt-3 text-base font-semibold text-text-main">{t("emptyTitle")}</h3>
           <p className="mt-1 text-sm text-text-muted max-w-md mx-auto">{t("emptyDescription")}</p>
           <Button variant="primary" size="sm" className="mt-4" onClick={() => setCreateOpen(true)}>
-            <span className="material-symbols-outlined text-[14px] mr-1">add</span>
+            <Icon icon={Plus} size="sm" color="current" className="mr-1" />
             {t("newPool")}
           </Button>
         </div>
@@ -606,7 +606,7 @@ export default function QuotaSharePageClient() {
                 className="mt-3"
                 onClick={() => setCreateOpen(true)}
               >
-                <span className="material-symbols-outlined text-[14px] mr-1">add</span>
+                <Icon icon={Plus} size="sm" color="current" className="mr-1" />
                 {t("newPool")}
               </Button>
             </div>
@@ -619,9 +619,7 @@ export default function QuotaSharePageClient() {
                 <div key={g.id} className="flex flex-col gap-3">
                   {/* Per-group heading */}
                   <div className="flex items-center gap-2">
-                    <span className="material-symbols-outlined text-[16px] text-text-muted">
-                      folder
-                    </span>
+                    <Icon icon={Folder} size="md" color="ink-muted" />
                     <span className="text-sm font-semibold text-text-main">{g.name}</span>
                     <span className="text-[11px] text-text-muted">({groupPools.length})</span>
                   </div>
@@ -634,7 +632,7 @@ export default function QuotaSharePageClient() {
                         className="mt-3"
                         onClick={() => setCreateOpen(true)}
                       >
-                        <span className="material-symbols-outlined text-[14px] mr-1">add</span>
+                        <Icon icon={Plus} size="sm" color="current" className="mr-1" />
                         {t("newPool")}
                       </Button>
                     </div>
@@ -669,9 +667,7 @@ export default function QuotaSharePageClient() {
           {selectedGroupId === "all" && orphanPools.length > 0 && (
             <div className="flex flex-col gap-3">
               <div className="flex items-center gap-2">
-                <span className="material-symbols-outlined text-[16px] text-amber-400">
-                  folder_off
-                </span>
+                <Icon icon={FolderX} size="md" color="feedback-warning-foreground" />
                 <span className="text-sm font-semibold text-text-main">{t("ungroupedTitle")}</span>
                 <span className="text-[11px] text-text-muted">({orphanPools.length})</span>
               </div>

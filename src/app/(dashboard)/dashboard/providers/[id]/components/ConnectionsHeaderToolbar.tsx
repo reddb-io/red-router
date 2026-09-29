@@ -1,5 +1,7 @@
 "use client";
 
+import { GlobeLock, Split } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { Button, DistributeProxiesButton, Toggle } from "@/shared/components";
 import { providerText, type ProviderMessageTranslator } from "../providerPageHelpers";
 import type { CodexGlobalServiceMode } from "@/lib/providers/codexFastTier";
@@ -114,7 +116,7 @@ export default function ConnectionsHeaderToolbar({
               "Route bare claude-* model IDs from Claude Code clients through the Claude Code account instead of asking for a provider prefix."
             )}
           >
-            <span className="material-symbols-outlined text-[14px] text-orange-500">alt_route</span>
+            <Icon icon={Split} size="sm" color="feedback-warning-foreground" />
             <span>
               {providerText(
                 t,
@@ -222,7 +224,7 @@ export default function ConnectionsHeaderToolbar({
               : t("providerProxyConfigureHint")
           }
         >
-          <span className="material-symbols-outlined text-[14px]">vpn_lock</span>
+          <Icon icon={GlobeLock} size="sm" color="current" />
           {proxyConfig?.providers?.[providerId]
             ? proxyConfig.providers[providerId].host || t("providerProxy")
             : t("providerProxy")}

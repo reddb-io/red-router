@@ -1,5 +1,7 @@
 "use client";
 
+import { CircleAlert, CircleCheck, Minimize2 } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useEffect, useRef } from "react";
 import { Card, Button } from "@/shared/components";
 import { useTranslations } from "next-intl";
@@ -337,9 +339,7 @@ export default function CompressionSettingsTab() {
     <Card className="p-6">
       <div className="flex items-center gap-3 mb-5">
         <div className="p-2 rounded-lg bg-blue-500/10 text-blue-500">
-          <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
-            compress
-          </span>
+          <Icon icon={Minimize2} size="lg" color="current" />
         </div>
         <div>
           <h3 className="text-lg font-semibold">{t("compressionTitle")}</h3>
@@ -347,12 +347,12 @@ export default function CompressionSettingsTab() {
         </div>
         {status === "saved" && (
           <span className="ml-auto text-xs font-medium text-emerald-500 flex items-center gap-1">
-            <span className="material-symbols-outlined text-[14px]">check_circle</span> {t("saved")}
+            <Icon icon={CircleCheck} size="sm" color="current" /> {t("saved")}
           </span>
         )}
         {status === "error" && (
           <span className="ml-auto text-xs font-medium text-red-500 flex items-center gap-1">
-            <span className="material-symbols-outlined text-[14px]">error</span> {t("saveFailed")}
+            <Icon icon={CircleAlert} size="sm" color="current" /> {t("saveFailed")}
           </span>
         )}
       </div>

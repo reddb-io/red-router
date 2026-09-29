@@ -1,5 +1,7 @@
 "use client";
 
+import { ArrowUp, Bot, CircleAlert, MessagesSquare, Square, User, Zap } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import {
   useState,
   useEffect,
@@ -476,7 +478,7 @@ export function LlmChatCard({
         {messages.length === 0 ? (
           <div className="flex h-full min-h-[180px] flex-col items-center justify-center gap-3 p-6 text-center">
             <div className="size-10 rounded-full bg-accent/10 flex items-center justify-center">
-              <span className="material-symbols-outlined text-accent text-[22px]">forum</span>
+              <Icon icon={MessagesSquare} size="lg" color="primary" />
             </div>
             <p className="text-sm text-text-muted">{t("emptyConversation")}</p>
             <p className="text-[11px] text-text-muted/70">{t("sendHint")}</p>
@@ -509,11 +511,11 @@ export function LlmChatCard({
                     aria-hidden="true"
                   >
                     {isUser ? (
-                      <span className="material-symbols-outlined text-[16px]">person</span>
+                      <Icon icon={User} size="md" color="current" />
                     ) : isError ? (
-                      <span className="material-symbols-outlined text-[16px]">error</span>
+                      <Icon icon={CircleAlert} size="md" color="current" />
                     ) : (
-                      <span className="material-symbols-outlined text-[16px]">smart_toy</span>
+                      <Icon icon={Bot} size="md" color="current" />
                     )}
                   </div>
                   <div className="flex flex-col gap-1 min-w-0 flex-1">
@@ -567,7 +569,7 @@ export function LlmChatCard({
             title={t("stop")}
             className="size-8 flex items-center justify-center rounded-md border border-red-500/30 bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors shrink-0"
           >
-            <span className="material-symbols-outlined text-[18px]">stop</span>
+            <Icon icon={Square} size="md" color="current" />
           </button>
         ) : (
           <button
@@ -577,7 +579,7 @@ export function LlmChatCard({
             title={t("send")}
             className="size-8 flex items-center justify-center rounded-md bg-primary text-white hover:opacity-90 disabled:opacity-40 transition-opacity shrink-0"
           >
-            <span className="material-symbols-outlined text-[18px]">arrow_upward</span>
+            <Icon icon={ArrowUp} size="md" color="current" />
           </button>
         )}
       </div>
@@ -585,7 +587,7 @@ export function LlmChatCard({
       {/* Stats row */}
       {stats && (
         <div className="flex items-center gap-1.5 text-[11px] text-text-muted">
-          <span className="material-symbols-outlined text-[13px]">bolt</span>
+          <Icon icon={Zap} size="sm" color="current" />
           <span>
             {t("statsLine", {
               ms: Math.round(stats.latencyMs),

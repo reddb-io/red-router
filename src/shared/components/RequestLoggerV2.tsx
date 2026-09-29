@@ -1,5 +1,7 @@
 "use client";
 
+import { Hash, RefreshCw } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import {
   useState,
   useEffect,
@@ -950,9 +952,7 @@ const RequestLoggerV2 = forwardRef<RequestLoggerV2Handle, RequestLoggerV2Initial
 
           {/* Correlation ID Filter */}
           <div className="min-w-[180px] relative">
-            <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-text-muted text-[16px]">
-              tag
-            </span>
+            <Icon icon={Hash} size="md" color="ink-muted" className="absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
               placeholder={t("correlationId")}
@@ -1131,7 +1131,7 @@ const RequestLoggerV2 = forwardRef<RequestLoggerV2Handle, RequestLoggerV2Initial
             className="p-2 rounded-lg hover:bg-bg-subtle text-text-muted hover:text-text-primary transition-colors"
             title={t("refresh")}
           >
-            <span className="material-symbols-outlined text-[18px]">refresh</span>
+            <Icon icon={RefreshCw} size="md" color="current" />
           </button>
         </div>
 

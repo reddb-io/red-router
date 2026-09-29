@@ -1,5 +1,7 @@
 "use client";
 
+import { CircleAlert, Languages, LoaderCircle } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useCallback } from "react";
 import { useTranslations } from "next-intl";
 import { Badge, Button, Card } from "@/shared/components";
@@ -69,9 +71,7 @@ export default function ResultNarrated({
     <Card className="flex flex-col gap-4 p-4">
       {/* Header */}
       <div className="flex items-center gap-2">
-        <span className="material-symbols-outlined text-[20px] text-primary" aria-hidden="true">
-          translate
-        </span>
+        <Icon icon={Languages} size="lg" color="primary" />
         <h3 className="text-sm font-semibold text-text-main">
           {tr("simpleResultPanelTitle", "Translation + Response")}
         </h3>
@@ -98,9 +98,7 @@ export default function ResultNarrated({
         {/* translating or sending */}
         {isSpinning && (
           <div className="flex items-center gap-3 py-6">
-            <span className="material-symbols-outlined animate-spin text-[24px] text-primary" aria-hidden="true">
-              progress_activity
-            </span>
+            <Icon icon={LoaderCircle} size="lg" color="primary" className="animate-spin" />
             <span className="text-sm text-text-muted">
               {result.status === "translating"
                 ? tr("narratedTranslating", "Translating to {target}...", {
@@ -172,9 +170,7 @@ export default function ResultNarrated({
         {result.status === "error" && (
           <div className="flex flex-col gap-2">
             <Badge variant="error">
-              <span className="material-symbols-outlined text-[14px]" aria-hidden="true">
-                error
-              </span>
+              <Icon icon={CircleAlert} size="sm" color="current" />
               Error
             </Badge>
             <p className="text-sm text-text-main">

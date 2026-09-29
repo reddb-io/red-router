@@ -1,5 +1,7 @@
 "use client";
 
+import { ArrowRight } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
 
@@ -41,7 +43,7 @@ export function SkillsConceptCard({ variant, className = "" }: SkillsConceptCard
           className="shrink-0 flex items-center gap-1 text-xs text-primary hover:text-primary/80 transition-colors whitespace-nowrap"
         >
           {crossLinkLabel}
-          <span className="material-symbols-outlined text-[14px]">arrow_forward</span>
+          <Icon icon={ArrowRight} size="sm" color="current" />
         </Link>
       </div>
 

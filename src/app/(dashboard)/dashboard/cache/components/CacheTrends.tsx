@@ -1,5 +1,7 @@
 "use client";
 
+import { ChartLine } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useTranslations } from "next-intl";
 
 export interface CacheTrendPoint {
@@ -37,9 +39,7 @@ export default function CacheTrends({
       className="rounded-xl border border-border bg-surface p-5 flex flex-col gap-4"
     >
       <div className="flex items-center gap-2">
-        <span className="material-symbols-outlined text-base text-text-muted" aria-hidden="true">
-          timeline
-        </span>
+        <Icon icon={ChartLine} size="md" color="ink-muted" />
         <h2 className="font-medium text-sm">{t("trend24h")}</h2>
       </div>
 

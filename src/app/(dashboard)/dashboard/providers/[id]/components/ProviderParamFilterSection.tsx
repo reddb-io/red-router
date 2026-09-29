@@ -9,6 +9,8 @@
  * sending to the upstream provider.
  */
 
+import { LoaderCircle, Save, Trash2 } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useEffect, useCallback } from "react";
 import { useTranslations } from "next-intl";
 import { useNotificationStore } from "@/store/notificationStore";
@@ -288,9 +290,9 @@ function ParamFilterActions({ t, saving, dirty, onSave, onReset }: ParamFilterAc
         className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
       >
         {saving ? (
-          <span className="material-symbols-outlined text-sm animate-spin">progress_activity</span>
+          <Icon icon={LoaderCircle} size="sm" color="current" className="animate-spin" />
         ) : (
-          <span className="material-symbols-outlined text-sm">save</span>
+          <Icon icon={Save} size="sm" color="current" />
         )}
         {saving ? t("paramFiltersSaving") : t("paramFiltersSaveChanges")}
       </button>
@@ -300,7 +302,7 @@ function ParamFilterActions({ t, saving, dirty, onSave, onReset }: ParamFilterAc
         disabled={saving}
         className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-text-muted hover:text-text-main hover:border-primary/40 disabled:opacity-50 transition-colors"
       >
-        <span className="material-symbols-outlined text-sm">delete</span>
+        <Icon icon={Trash2} size="sm" color="current" />
         {t("paramFiltersResetToDefault")}
       </button>
     </div>

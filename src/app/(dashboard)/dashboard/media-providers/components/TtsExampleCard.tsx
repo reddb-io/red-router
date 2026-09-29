@@ -1,5 +1,7 @@
 "use client";
 
+import { Download } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useRef } from "react";
 import { useTranslations } from "next-intl";
 import { useApiKey } from "../../providers/hooks/useApiKey";
@@ -130,7 +132,7 @@ export function TtsExampleCard({ providerId }: Props) {
           onClick={handleDownload}
           className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
         >
-          <span className="material-symbols-outlined text-[13px]">download</span>
+          <Icon icon={Download} size="sm" color="current" />
           {t("download")} .mp3
         </button>
       </div>

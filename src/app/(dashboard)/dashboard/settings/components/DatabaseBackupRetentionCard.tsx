@@ -1,5 +1,7 @@
 "use client";
 
+import { Save, TimerReset } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import type { Dispatch, SetStateAction } from "react";
 import { useTranslations } from "next-intl";
 import { Badge, Button } from "@/shared/components";
@@ -143,9 +145,7 @@ export default function DatabaseBackupRetentionCard({
           onClick={onSaveRetention}
           loading={saveBackupRetentionLoading}
         >
-          <span className="material-symbols-outlined text-[14px] mr-1" aria-hidden="true">
-            save
-          </span>
+          <Icon icon={Save} size="sm" color="current" className="mr-1" />
           {t("storageBackupSaveRetention")}
         </Button>
         <Button
@@ -154,9 +154,7 @@ export default function DatabaseBackupRetentionCard({
           onClick={onCleanupBackups}
           loading={cleanupBackupsLoading}
         >
-          <span className="material-symbols-outlined text-[14px] mr-1" aria-hidden="true">
-            auto_delete
-          </span>
+          <Icon icon={TimerReset} size="sm" color="current" className="mr-1" />
           {t("storageBackupCleanOld")}
         </Button>
       </div>

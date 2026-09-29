@@ -1,6 +1,8 @@
 "use client";
 
 // Phase 1t.7 extraction — Issue #3501
+import { Terminal } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import Link from "next/link";
 import { Card } from "@/shared/components";
 import { providerText } from "../providerPageHelpers";
@@ -31,7 +33,7 @@ export default function UpstreamProxyCard({ t }: UpstreamProxyCardProps) {
             href="/dashboard/cli-code"
             className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-text-main hover:border-primary/40 hover:text-text-primary transition-colors"
           >
-            <span className="material-symbols-outlined text-base">terminal</span>
+            <Icon icon={Terminal} size="md" color="current" />
             {t("openCliTools")}
           </Link>
           <Link

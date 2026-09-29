@@ -7,6 +7,8 @@
 
 "use client";
 
+import { CircleCheck, LoaderCircle, Network } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useTranslations } from "next-intl";
 import { useEffect, useState } from "react";
 
@@ -155,7 +157,7 @@ export default function SearchAnalyticsTab() {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-16 text-text-muted">
-        <span className="material-symbols-outlined animate-spin mr-2">progress_activity</span>
+        <Icon icon={LoaderCircle} size="lg" color="current" className="animate-spin mr-2" />
         {t("searchAnalyticsLoading")}
       </div>
     );
@@ -215,7 +217,7 @@ export default function SearchAnalyticsTab() {
       {providers.length > 0 && (
         <div className="card p-5">
           <h3 className="font-semibold text-text mb-4 flex items-center gap-2">
-            <span className="material-symbols-outlined text-primary text-[20px]">hub</span>
+            <Icon icon={Network} size="lg" color="primary" />
             {t("searchAnalyticsProviderBreakdown")}
           </h3>
           <div className="flex flex-col gap-4">
@@ -250,9 +252,7 @@ export default function SearchAnalyticsTab() {
 
       {/* Free tier note */}
       <div className="text-xs text-text-muted border border-border rounded-lg p-3 flex items-start gap-2">
-        <span className="material-symbols-outlined text-[16px] text-green-500 mt-0.5">
-          check_circle
-        </span>
+        <Icon icon={CircleCheck} size="md" color="feedback-success-foreground" className="mt-0.5" />
         <span>
           <strong>{t("freeTierAvailable")}:</strong> Serper (2,500/mo), Brave (2,000/mo), Exa
           (1,000/mo), Tavily (1,000/mo) — total 6,500+ free searches/month with automatic failover.

@@ -1,5 +1,7 @@
 "use client";
 
+import { X } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useTranslations } from "next-intl";
 import { Card, Input, Toggle } from "@/shared/components";
 import ApiKeyFilterChip from "./ApiKeyFilterChip";
@@ -111,7 +113,7 @@ export default function ApiKeyFilterBar({
                 className="absolute inset-y-0 right-0 flex items-center pr-2.5 text-text-muted hover:text-text-primary transition-colors"
                 aria-label={tc("clear")}
               >
-                <span className="material-symbols-outlined text-[18px]">close</span>
+                <Icon icon={X} size="md" color="current" />
               </button>
             )}
           </div>

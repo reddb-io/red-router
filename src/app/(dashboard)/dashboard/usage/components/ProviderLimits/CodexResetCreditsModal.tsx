@@ -1,5 +1,7 @@
 "use client";
 
+import { Clock, TriangleAlert } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
 
@@ -141,7 +143,7 @@ function ResetCreditConfirmation({
     <div className="space-y-4">
       <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-4">
         <div className="flex items-start gap-3">
-          <span className="material-symbols-outlined text-amber-500">warning</span>
+          <Icon icon={TriangleAlert} size="lg" color="feedback-warning-foreground" />
           <div>
             <p className="font-semibold text-text-main">
               {tr("confirmRedeemResetCreditTitle", "Redeem this reset credit?")}
@@ -326,7 +328,7 @@ function CreditSummary({
         <p className="mt-1 text-xs leading-relaxed text-text-muted">{credit.description}</p>
       )}
       <div className="mt-2 flex items-center gap-1.5 text-xs text-text-muted">
-        <span className="material-symbols-outlined text-[15px]">schedule</span>
+        <Icon icon={Clock} size="md" color="current" />
         {expiry ? (
           <span>
             {tr("resetCreditExpiresAt", `Expires ${expiry}`, { date: expiry })}

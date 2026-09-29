@@ -1,5 +1,7 @@
 "use client";
 
+import { Brain, CircleCheck, Cpu, Database, Hammer, Info, Network, Store } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useEffect, useCallback } from "react";
 import { Card } from "@/shared/components";
 import { useTranslations } from "next-intl";
@@ -302,9 +304,7 @@ export default function MemorySkillsTab() {
       <Card data-testid="memory-settings-card">
         <div className="flex items-center gap-3">
           <div className="p-2 rounded-lg bg-violet-500/10 text-violet-500">
-            <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
-              psychology
-            </span>
+            <Icon icon={Brain} size="lg" color="current" />
           </div>
           <div>
             <h3 className="text-lg font-semibold">{t("memorySkillsTitle")}</h3>
@@ -322,9 +322,7 @@ export default function MemorySkillsTab() {
       <Card>
         <div className="flex items-center gap-3 mb-5">
           <div className="p-2 rounded-lg bg-violet-500/10 text-violet-500">
-            <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
-              memory
-            </span>
+            <Icon icon={Cpu} size="lg" color="current" />
           </div>
           <div>
             <h3 className="text-lg font-semibold">{t("memoryTitle")}</h3>
@@ -332,7 +330,7 @@ export default function MemorySkillsTab() {
           </div>
           {status === "saved" && (
             <span className="ml-auto text-xs font-medium text-emerald-500 flex items-center gap-1">
-              <span className="material-symbols-outlined text-[14px]">check_circle</span>{" "}
+              <Icon icon={CircleCheck} size="sm" color="current" />{" "}
               {t("saved")}
             </span>
           )}
@@ -369,12 +367,7 @@ export default function MemorySkillsTab() {
             role="note"
             data-testid="memory-token-cost-warning"
           >
-            <span
-              className="material-symbols-outlined text-[18px] leading-none mt-0.5"
-              aria-hidden="true"
-            >
-              info
-            </span>
+            <Icon icon={Info} size="md" color="current" className="leading-none mt-0.5" />
             <p className="text-xs leading-relaxed">
               {t("memoryTokenCostWarning", { tokens: config.maxTokens.toLocaleString() })}
             </p>
@@ -467,9 +460,7 @@ export default function MemorySkillsTab() {
       <Card data-testid="qdrant-settings-card">
         <div className="flex items-center gap-3 mb-5">
           <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-500">
-            <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
-              database
-            </span>
+            <Icon icon={Database} size="lg" color="current" />
           </div>
           <div>
             <h3 className="text-lg font-semibold">{t("qdrantTitle")}</h3>
@@ -533,7 +524,7 @@ export default function MemorySkillsTab() {
 
         {qdrantStatus === "saved" && (
           <div className="mb-4 text-xs font-medium text-emerald-500 flex items-center gap-1">
-            <span className="material-symbols-outlined text-[14px]">check_circle</span>{" "}
+            <Icon icon={CircleCheck} size="sm" color="current" />{" "}
             {t("qdrantSaved")}
           </div>
         )}
@@ -740,9 +731,7 @@ export default function MemorySkillsTab() {
       <Card data-testid="skills-settings-card">
         <div className="flex items-center gap-3 mb-5">
           <div className="p-2 rounded-lg bg-amber-500/10 text-amber-500">
-            <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
-              handyman
-            </span>
+            <Icon icon={Hammer} size="lg" color="current" />
           </div>
           <div>
             <h3 className="text-lg font-semibold">{t("skillsTitle")}</h3>
@@ -778,9 +767,7 @@ export default function MemorySkillsTab() {
       <Card>
         <div className="flex items-center gap-3 mb-5">
           <div className="p-2 rounded-lg bg-blue-500/10 text-blue-500">
-            <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
-              storefront
-            </span>
+            <Icon icon={Store} size="lg" color="current" />
           </div>
           <div>
             <h3 className="text-lg font-semibold">{t("memorySkillsSkillsmpMarketplace")}</h3>
@@ -788,7 +775,7 @@ export default function MemorySkillsTab() {
           </div>
           {skillsmpStatus === "saved" && (
             <span className="ml-auto text-xs font-medium text-emerald-500 flex items-center gap-1">
-              <span className="material-symbols-outlined text-[14px]">check_circle</span>{" "}
+              <Icon icon={CircleCheck} size="sm" color="current" />{" "}
               {t("saved")}
             </span>
           )}
@@ -828,9 +815,7 @@ export default function MemorySkillsTab() {
       <Card>
         <div className="flex items-center gap-3 mb-5">
           <div className="p-2 rounded-lg bg-indigo-500/10 text-indigo-500">
-            <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
-              hub
-            </span>
+            <Icon icon={Network} size="lg" color="current" />
           </div>
           <div>
             <h3 className="text-lg font-semibold">{t("memorySkillsActiveSkillsProvider")}</h3>
@@ -838,7 +823,7 @@ export default function MemorySkillsTab() {
           </div>
           {skillsProviderStatus === "saved" && (
             <span className="ml-auto text-xs font-medium text-emerald-500 flex items-center gap-1">
-              <span className="material-symbols-outlined text-[14px]">check_circle</span>{" "}
+              <Icon icon={CircleCheck} size="sm" color="current" />{" "}
               {t("saved")}
             </span>
           )}

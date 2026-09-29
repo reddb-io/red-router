@@ -1,5 +1,7 @@
 "use client";
 
+import { SlidersHorizontal, Sparkles } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useMemo, useState } from "react";
 import Button from "@/shared/components/Button";
 import Card from "@/shared/components/Card";
@@ -119,9 +121,7 @@ export default function IntelligentComboPanel({
         <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
           <div>
             <div className="flex items-center gap-2">
-              <span className="material-symbols-outlined text-primary text-[18px]">
-                auto_awesome
-              </span>
+              <Icon icon={Sparkles} size="md" color="primary" />
               <h2 className="text-lg font-semibold text-text-main">
                 {getI18nOrFallback(t, "intelligentPanelTitle", "Intelligent Routing Dashboard")}
               </h2>
@@ -143,7 +143,7 @@ export default function IntelligentComboPanel({
           </div>
 
           <div className="inline-flex items-center gap-2 rounded-full bg-blue-500/15 px-3 py-1.5 text-xs font-medium text-blue-600 dark:text-blue-300">
-            <span className="material-symbols-outlined text-[14px]">tune</span>
+            <Icon icon={SlidersHorizontal} size="sm" color="current" />
             {getI18nOrFallback(t, "configOnlyStatus", "Configuration View")}
           </div>
         </div>

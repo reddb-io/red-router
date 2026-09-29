@@ -2,6 +2,8 @@
 
 // src/app/(dashboard)/dashboard/playground/components/StudioTopBar.tsx
 
+import { X } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState } from "react";
 import { useTranslations } from "next-intl";
 import TokenCostCounter from "./TokenCostCounter";
@@ -103,7 +105,7 @@ export default function StudioTopBar({ activeTab, onTabChange, metrics, exportSt
                 className="text-text-muted hover:text-text-main"
                 aria-label={t("closeExportModal")}
               >
-                <span className="material-symbols-outlined text-[18px]">close</span>
+                <Icon icon={X} size="md" color="current" />
               </button>
             </div>
             <p className="text-sm text-text-muted">

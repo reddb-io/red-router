@@ -12,6 +12,8 @@
  * - Latency telemetry & prompt cache
  */
 
+import { Bandage, CircleQuestionMark, Clock, Cpu, Database, Gauge, HeartPulse, LoaderCircle, Lock, LockOpen, Play, Radar, RefreshCw, RotateCcw, Server, Timer, Users } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useEffect, useCallback } from "react";
 
 import { Card } from "@/shared/components";
@@ -263,7 +265,7 @@ export default function HealthPage() {
           className="p-2 rounded-lg bg-surface hover:bg-surface/80 text-text-muted hover:text-text-main transition-colors"
           title={tc("refresh")}
         >
-          <span className="material-symbols-outlined text-[18px]">refresh</span>
+          <Icon icon={RefreshCw} size="md" color="current" />
         </button>
       </div>
 
@@ -335,7 +337,7 @@ export default function HealthPage() {
                     : "bg-amber-500/10 text-amber-500"
                 }`}
               >
-                <span className="material-symbols-outlined text-[18px]">database</span>
+                <Icon icon={Database} size="md" color="current" />
               </div>
               <div>
                 <h2 className="text-lg font-semibold text-text-main">{t("databaseHealth")}</h2>
@@ -406,7 +408,7 @@ export default function HealthPage() {
         <Card className="p-4">
           <div className="flex items-center gap-3 mb-2">
             <div className="flex items-center justify-center size-8 rounded-lg bg-primary/10 text-primary">
-              <span className="material-symbols-outlined text-[18px]">timer</span>
+              <Icon icon={Timer} size="md" color="current" />
             </div>
             <span className="text-sm text-text-muted">{t("uptime")}</span>
           </div>
@@ -429,7 +431,7 @@ export default function HealthPage() {
         <Card className="p-4">
           <div className="flex items-center gap-3 mb-2">
             <div className="flex items-center justify-center size-8 rounded-lg bg-purple-500/10 text-purple-500">
-              <span className="material-symbols-outlined text-[18px]">memory</span>
+              <Icon icon={Cpu} size="md" color="current" />
             </div>
             <span className="text-sm text-text-muted">{t("memoryRss")}</span>
           </div>
@@ -445,7 +447,7 @@ export default function HealthPage() {
         <Card className="p-4">
           <div className="flex items-center gap-3 mb-2">
             <div className="flex items-center justify-center size-8 rounded-lg bg-amber-500/10 text-amber-500">
-              <span className="material-symbols-outlined text-[18px]">dns</span>
+              <Icon icon={Server} size="md" color="current" />
             </div>
             <span className="text-sm text-text-muted">{t("providers")}</span>
           </div>
@@ -457,9 +459,7 @@ export default function HealthPage() {
             title={t("configuredProvidersHint")}
           >
             {t("configuredProvidersLabel")}
-            <span className="material-symbols-outlined text-[12px]" aria-hidden="true">
-              help
-            </span>
+            <Icon icon={CircleQuestionMark} size="sm" color="current" />
           </p>
           <p
             className="text-xs text-text-muted inline-flex items-center gap-1"
@@ -489,7 +489,7 @@ export default function HealthPage() {
         <Card className="p-5">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold text-text-main flex items-center gap-2">
-              <span className="material-symbols-outlined text-[20px] text-primary">groups</span>
+              <Icon icon={Users} size="lg" color="primary" />
               {t("sessionActivity")}
             </h2>
             <span className="text-xs text-text-muted">
@@ -543,7 +543,7 @@ export default function HealthPage() {
         <Card className="p-5">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold text-text-main flex items-center gap-2">
-              <span className="material-symbols-outlined text-[20px] text-primary">radar</span>
+              <Icon icon={Radar} size="lg" color="primary" />
               {t("quotaMonitors")}
             </h2>
             <span className="text-xs text-text-muted">
@@ -627,7 +627,7 @@ export default function HealthPage() {
         <Card className="p-5" role="region" aria-label={t("gracefulDegradationStatus")}>
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold text-text-main flex items-center gap-2">
-              <span className="material-symbols-outlined text-[20px] text-primary">healing</span>
+              <Icon icon={Bandage} size="lg" color="primary" />
               {t("gracefulDegradationStatus")}
             </h2>
             <div className="flex items-center gap-3 text-xs text-text-muted font-medium">
@@ -703,7 +703,7 @@ export default function HealthPage() {
         {/* Prompt Cache Card */}
         <Card className="p-4">
           <h3 className="text-sm font-semibold text-text-muted mb-3 flex items-center gap-2">
-            <span className="material-symbols-outlined text-[18px]">cached</span>
+            <Icon icon={Database} size="md" color="current" />
             {t("promptCache")}
           </h3>
           {cache ? (
@@ -733,7 +733,7 @@ export default function HealthPage() {
         {/* Signature Cache Card */}
         <Card className="p-4">
           <h3 className="text-sm font-semibold text-text-muted mb-3 flex items-center gap-2">
-            <span className="material-symbols-outlined text-[18px]">database</span>
+            <Icon icon={Database} size="md" color="current" />
             {t("signatureCache")}
           </h3>
           {signatureCache ? (
@@ -779,9 +779,7 @@ export default function HealthPage() {
       <Card className="p-5" role="region" aria-label={t("providerHealthStatusAria")}>
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold text-text-main flex items-center gap-2">
-            <span className="material-symbols-outlined text-[20px] text-primary">
-              health_and_safety
-            </span>
+            <Icon icon={HeartPulse} size="lg" color="primary" />
             {t("providerHealth")}
           </h2>
           <div className="flex items-center gap-3">
@@ -798,14 +796,12 @@ export default function HealthPage() {
               >
                 {resetting ? (
                   <>
-                    <span className="material-symbols-outlined text-[14px] animate-spin">
-                      progress_activity
-                    </span>
+                    <Icon icon={LoaderCircle} size="sm" color="current" className="animate-spin" />
                     {t("resetting")}
                   </>
                 ) : (
                   <>
-                    <span className="material-symbols-outlined text-[14px]">restart_alt</span>
+                    <Icon icon={RotateCcw} size="sm" color="current" />
                     {t("resetAll")}
                   </>
                 )}
@@ -971,9 +967,7 @@ export default function HealthPage() {
             <Card className="p-5">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-lg font-semibold text-text-main flex items-center gap-2">
-                  <span className="material-symbols-outlined text-[20px] text-amber-500">
-                    speed
-                  </span>
+                  <Icon icon={Gauge} size="lg" color="feedback-warning-foreground" />
                   {t("rateLimitStatus")}
                 </h2>
                 <span className="text-xs text-text-muted">
@@ -1095,13 +1089,11 @@ export default function HealthPage() {
                         )}
                         <div className="flex items-center gap-3 text-[11px] text-text-muted">
                           <span className="flex items-center gap-1">
-                            <span className="material-symbols-outlined text-[12px]">schedule</span>
+                            <Icon icon={Clock} size="sm" color="current" />
                             {t("queuedCount", { count: status.queued || 0 })}
                           </span>
                           <span className="flex items-center gap-1">
-                            <span className="material-symbols-outlined text-[12px]">
-                              play_arrow
-                            </span>
+                            <Icon icon={Play} size="sm" color="current" />
                             {t("runningCount", { count: status.running || 0 })}
                           </span>
                         </div>
@@ -1133,7 +1125,7 @@ export default function HealthPage() {
         <Card className="p-5">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold text-text-main flex items-center gap-2">
-              <span className="material-symbols-outlined text-[20px] text-red-500">lock</span>
+              <Icon icon={Lock} size="lg" color="feedback-danger-foreground" />
               {t("activeLockouts")}
             </h2>
             <button
@@ -1145,7 +1137,7 @@ export default function HealthPage() {
                 dark:text-amber-400 transition-all duration-200
                 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <span className="material-symbols-outlined text-[16px]">lock_open</span>
+              <Icon icon={LockOpen} size="md" color="current" />
               {unblocking ? "Unblocking..." : "Unblock all"}
             </button>
           </div>
@@ -1181,7 +1173,7 @@ export default function HealthPage() {
                       dark:text-amber-400 transition-all duration-200
                       disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
                   >
-                    <span className="material-symbols-outlined text-[14px]">lock_open</span>
+                    <Icon icon={LockOpen} size="sm" color="current" />
                     {unblockingKey === lockKey ? "..." : "Unblock"}
                   </button>
                 </div>

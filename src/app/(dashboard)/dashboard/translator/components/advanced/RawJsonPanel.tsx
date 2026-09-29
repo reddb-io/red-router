@@ -1,5 +1,7 @@
 "use client";
 
+import { ArrowLeftRight, ArrowRightFromLine, CircleAlert, Import, Info, Library, LoaderCircle, Network, Route, Trash2 } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useCallback, useEffect, useMemo } from "react";
 import { useTranslations } from "next-intl";
 import { Card, Button, Select, Badge } from "@/shared/components";
@@ -270,12 +272,7 @@ export default function RawJsonPanel({
             {/* Error banner */}
             {errorMessage && (
               <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/20 text-sm text-red-500">
-                <span
-                  className="material-symbols-outlined text-[16px] mt-0.5 shrink-0"
-                  aria-hidden="true"
-                >
-                  error
-                </span>
+                <Icon icon={CircleAlert} size="md" color="current" className="mt-0.5 shrink-0" />
                 <span>{errorMessage}</span>
               </div>
             )}
@@ -320,9 +317,7 @@ export default function RawJsonPanel({
                   title={tr("swapFormats", "Swap formats")}
                   aria-label={tr("swapFormats", "Swap formats")}
                 >
-                  <span className="material-symbols-outlined text-[24px]" aria-hidden="true">
-                    swap_horiz
-                  </span>
+                  <Icon icon={ArrowLeftRight} size="lg" color="current" />
                 </button>
 
                 {/* Target Format */}
@@ -366,9 +361,7 @@ export default function RawJsonPanel({
             {/* Translation path indicator */}
             {translationPath && (
               <div className="flex items-center gap-2 text-xs text-text-muted">
-                <span className="material-symbols-outlined text-[14px]" aria-hidden="true">
-                  route
-                </span>
+                <Icon icon={Route} size="sm" color="current" />
                 {translationPath === "hub-and-spoke" ? (
                   <span>
                     {(() => {
@@ -410,12 +403,7 @@ export default function RawJsonPanel({
                 <div className="p-4 space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <span
-                        className="material-symbols-outlined text-[18px] text-text-muted"
-                        aria-hidden="true"
-                      >
-                        input
-                      </span>
+                      <Icon icon={Import} size="md" color="ink-muted" />
                       <h3 className="text-sm font-semibold text-text-main">
                         {tr("input", "Input")}
                       </h3>
@@ -425,12 +413,7 @@ export default function RawJsonPanel({
                         </Badge>
                       )}
                       {detecting && (
-                        <span
-                          className="material-symbols-outlined text-[14px] text-text-muted animate-spin"
-                          aria-hidden="true"
-                        >
-                          progress_activity
-                        </span>
+                        <Icon icon={LoaderCircle} size="sm" color="ink-muted" className="animate-spin" />
                       )}
                     </div>
                     <div className="flex items-center gap-1">
@@ -458,9 +441,7 @@ export default function RawJsonPanel({
                         title={tr("clear", "Clear")}
                         aria-label={tr("clear", "Clear") + " input"}
                       >
-                        <span className="material-symbols-outlined text-[16px]" aria-hidden="true">
-                          delete
-                        </span>
+                        <Icon icon={Trash2} size="md" color="current" />
                       </button>
                     </div>
                   </div>
@@ -491,12 +472,7 @@ export default function RawJsonPanel({
                   <div className="p-4 space-y-3">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <span
-                          className="material-symbols-outlined text-[18px] text-amber-500"
-                          aria-hidden="true"
-                        >
-                          hub
-                        </span>
+                        <Icon icon={Network} size="md" color="feedback-warning-foreground" />
                         <h3 className="text-sm font-semibold text-text-main">
                           {tr("openaiIntermediatePanel", "OpenAI Intermediate")}
                         </h3>
@@ -542,12 +518,7 @@ export default function RawJsonPanel({
                 <div className="p-4 space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <span
-                        className="material-symbols-outlined text-[18px] text-text-muted"
-                        aria-hidden="true"
-                      >
-                        output
-                      </span>
+                      <Icon icon={ArrowRightFromLine} size="md" color="ink-muted" />
                       <h3 className="text-sm font-semibold text-text-main">
                         {tr("output", "Output")}
                       </h3>
@@ -594,12 +565,7 @@ export default function RawJsonPanel({
             <Card>
               <div className="p-4 space-y-3">
                 <div className="flex items-center gap-2">
-                  <span
-                    className="material-symbols-outlined text-[18px] text-primary"
-                    aria-hidden="true"
-                  >
-                    library_books
-                  </span>
+                  <Icon icon={Library} size="md" color="primary" />
                   <h3 className="text-sm font-semibold text-text-main">
                     {tr("exampleTemplates", "Example Templates")}
                   </h3>
@@ -638,9 +604,7 @@ export default function RawJsonPanel({
                 </div>
                 {activeTemplate && (
                   <div className="flex items-center gap-2 text-xs text-text-muted">
-                    <span className="material-symbols-outlined text-[14px]" aria-hidden="true">
-                      info
-                    </span>
+                    <Icon icon={Info} size="sm" color="current" />
                     {tr("templateLoadHint", "Template loaded for format: {format}").replace(
                       "{format}",
                       FORMAT_META[sourceFormat]?.label ?? sourceFormat

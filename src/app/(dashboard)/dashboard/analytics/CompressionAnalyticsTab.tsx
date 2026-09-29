@@ -7,6 +7,8 @@
 
 "use client";
 
+import { ChartSpline, LoaderCircle, Network, Receipt, SlidersHorizontal } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import { useProviderNodeMap, resolveProviderName } from "@/lib/display/useProviderNodeMap";
@@ -163,7 +165,7 @@ export default function CompressionAnalyticsTab() {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-16 text-text-muted">
-        <span className="material-symbols-outlined animate-spin mr-2">progress_activity</span>
+        <Icon icon={LoaderCircle} size="lg" color="current" className="animate-spin mr-2" />
         {t("compressionAnalyticsLoading")}
       </div>
     );
@@ -253,7 +255,7 @@ export default function CompressionAnalyticsTab() {
       {stats.realUsage.requestsWithReceipts > 0 && (
         <div className="card p-5">
           <h3 className="font-semibold text-text mb-4 flex items-center gap-2">
-            <span className="material-symbols-outlined text-primary text-[20px]">receipt_long</span>
+            <Icon icon={Receipt} size="lg" color="primary" />
             {t("compressionAnalyticsRealUsageReceipts")}
           </h3>
           <div className="grid grid-cols-1 md:grid-cols-5 gap-4 text-sm">
@@ -299,7 +301,7 @@ export default function CompressionAnalyticsTab() {
       {modes.length > 0 && (
         <div className="card p-5">
           <h3 className="font-semibold text-text mb-4 flex items-center gap-2">
-            <span className="material-symbols-outlined text-primary text-[20px]">tune</span>
+            <Icon icon={SlidersHorizontal} size="lg" color="primary" />
             {t("compressionAnalyticsModeBreakdown")}
           </h3>
           <div className="flex flex-col gap-4">
@@ -321,7 +323,7 @@ export default function CompressionAnalyticsTab() {
       {providers.length > 0 && (
         <div className="card p-5">
           <h3 className="font-semibold text-text mb-4 flex items-center gap-2">
-            <span className="material-symbols-outlined text-primary text-[20px]">hub</span>
+            <Icon icon={Network} size="lg" color="primary" />
             {t("compressionAnalyticsProviderBreakdown")}
           </h3>
           <div className="flex flex-col gap-4">
@@ -342,7 +344,7 @@ export default function CompressionAnalyticsTab() {
       {stats.last24h.length > 0 && (
         <div className="card p-5">
           <h3 className="font-semibold text-text mb-4 flex items-center gap-2">
-            <span className="material-symbols-outlined text-primary text-[20px]">show_chart</span>
+            <Icon icon={ChartSpline} size="lg" color="primary" />
             {t("compressionAnalyticsLast24HoursActivity")}
           </h3>
           <div className="flex items-end gap-2 h-48">

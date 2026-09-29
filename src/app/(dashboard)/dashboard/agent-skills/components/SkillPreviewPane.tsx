@@ -1,5 +1,7 @@
 "use client";
 
+import { CircleAlert, Copy, ExternalLink } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useCallback } from "react";
 import dynamic from "next/dynamic";
 import { useTranslations } from "next-intl";
@@ -100,7 +102,7 @@ export function SkillPreviewPane({
             title={t("copyUrl")}
             aria-label={t("copyUrl")}
           >
-            <span className="material-symbols-outlined text-[14px]">content_copy</span>
+            <Icon icon={Copy} size="sm" color="current" />
           </button>
           {githubUrl && (
             <a
@@ -111,7 +113,7 @@ export function SkillPreviewPane({
               title={t("viewOnGithub")}
               aria-label={t("viewOnGithub")}
             >
-              <span className="material-symbols-outlined text-[14px]">open_in_new</span>
+              <Icon icon={ExternalLink} size="sm" color="current" />
             </a>
           )}
         </div>
@@ -133,7 +135,7 @@ export function SkillPreviewPane({
             className="flex items-center gap-2 rounded-lg border border-red-300 bg-red-50 dark:bg-red-950/30 p-3 text-xs text-red-700 dark:text-red-400"
             data-testid="skill-preview-error"
           >
-            <span className="material-symbols-outlined text-[16px]">error</span>
+            <Icon icon={CircleAlert} size="md" color="current" />
             {t("previewError")}
           </div>
         )}

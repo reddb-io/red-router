@@ -1,5 +1,7 @@
 "use client";
 
+import { Pencil, Plus, Route, Trash2 } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useEffect } from "react";
 import { useTranslations } from "next-intl";
 import Card from "./Card";
@@ -169,9 +171,7 @@ export default function ModelRoutingSection({ combos: externalCombos }: { combos
       <div className="flex items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <div className="p-2 rounded-lg bg-primary/10 text-primary">
-            <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
-              route
-            </span>
+            <Icon icon={Route} size="lg" color="current" />
           </div>
           <div>
             <h3 className="text-lg font-semibold">{t("modelRoutingTitle")}</h3>
@@ -184,7 +184,7 @@ export default function ModelRoutingSection({ combos: externalCombos }: { combos
             className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-lg
                        bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
           >
-            <span className="material-symbols-outlined text-[14px]">add</span>
+            <Icon icon={Plus} size="sm" color="current" />
             {t("addRule")}
           </button>
         )}
@@ -331,16 +331,14 @@ export default function ModelRoutingSection({ combos: externalCombos }: { combos
                   className="p-1 rounded hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
                   title={tCommon("edit")}
                 >
-                  <span className="material-symbols-outlined text-[14px] text-text-muted">
-                    edit
-                  </span>
+                  <Icon icon={Pencil} size="sm" color="ink-muted" />
                 </button>
                 <button
                   onClick={() => handleDelete(m.id)}
                   className="p-1 rounded hover:bg-red-500/10 transition-colors"
                   title={tCommon("delete")}
                 >
-                  <span className="material-symbols-outlined text-[14px] text-red-500">delete</span>
+                  <Icon icon={Trash2} size="sm" color="feedback-danger-foreground" />
                 </button>
               </div>
             </div>

@@ -1,5 +1,7 @@
 "use client";
 
+import { Info } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useCallback, useState } from "react";
 import { useTranslations } from "next-intl";
 import { Card } from "@/shared/components";
@@ -25,12 +27,7 @@ export default function TranslatorConceptCard() {
     <Card className="border-primary/10 bg-primary/5">
       <div className="p-4 space-y-3">
         <div className="flex items-start gap-3">
-          <span
-            className="material-symbols-outlined text-primary text-[22px] mt-0.5 shrink-0"
-            aria-hidden="true"
-          >
-            info
-          </span>
+          <Icon icon={Info} size="lg" color="primary" className="mt-0.5 shrink-0" />
           <div className="flex-1 min-w-0">
             <h2 className="text-sm font-semibold text-text-main mb-1">
               {tr(

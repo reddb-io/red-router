@@ -1,5 +1,7 @@
 "use client";
 
+import { Info } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { Card } from "@/shared/components";
 import { useTranslations } from "next-intl";
 import { cn } from "@/shared/utils/cn";
@@ -87,7 +89,7 @@ export function ServiceStatusCard({ name }: ServiceStatusCardProps) {
           AutoRestartAdoptedToggle.tsx's header comment for why. */}
       {data.adopted && (
         <p className="mt-2 text-xs text-yellow-600 dark:text-yellow-400 flex items-start gap-1">
-          <span className="material-symbols-outlined text-[14px] shrink-0 mt-0.5">info</span>
+          <Icon icon={Info} size="sm" color="current" className="shrink-0 mt-0.5" />
           <span>
             This process was adopted from an already-running instance, not started by this
             supervisor — live log tailing isn&apos;t available until you restart it (Stop, then

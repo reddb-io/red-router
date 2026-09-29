@@ -1,5 +1,7 @@
 "use client";
 
+import { LockOpen, PiggyBank, TriangleAlert, Zap } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useEffect, useMemo } from "react";
 import React from "react";
 import { useTranslations } from "next-intl";
@@ -311,7 +313,7 @@ function FreeTypeBadge({ freeType, label }: { freeType: string; label: string })
           : "border-border bg-black/[0.02] dark:bg-white/[0.03] text-text-muted"
       }`}
     >
-      {isKeyless && <span className="material-symbols-outlined text-[10px]">lock_open</span>}
+      {isKeyless && <Icon icon={LockOpen} size="sm" color="current" />}
       {label}
     </span>
   );
@@ -380,7 +382,7 @@ export function FreeBudgetView({
     <div className="rounded-lg border border-border bg-surface">
       {/* Header */}
       <div className="flex items-center gap-2 px-3 py-2 border-b border-border">
-        <span className="material-symbols-outlined text-[14px] text-text-muted">savings</span>
+        <Icon icon={PiggyBank} size="sm" color="ink-muted" />
         <span className="text-[13px] font-semibold text-text-main">{labels.title}</span>
         {freshness && (
           <span
@@ -435,9 +437,7 @@ export function FreeBudgetView({
           className="mx-3 mt-2 rounded-md border border-emerald-500/30 bg-emerald-500/5 px-3 py-2"
         >
           <div className="flex items-center gap-1.5">
-            <span className="material-symbols-outlined text-[14px] text-emerald-500">
-              lock_open
-            </span>
+            <Icon icon={LockOpen} size="sm" color="feedback-success-foreground" />
             <span className="text-[11px] font-semibold text-emerald-500">{labels.noApiKey}</span>
             <span className="text-[10.5px] text-text-muted">
               ({keylessModels.length}个模型 · {keylessProviders.length}个提供者)
@@ -460,7 +460,7 @@ export function FreeBudgetView({
       {/* Boost + uncapped callouts */}
       {boostMonthlyTokens > 0 && (
         <div className="mx-3 mt-2 flex items-center gap-2 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5">
-          <span className="material-symbols-outlined text-[14px] text-emerald-500">bolt</span>
+          <Icon icon={Zap} size="sm" color="feedback-success-foreground" />
           <span className="text-[11px] text-emerald-500">
             {labels.boost(fmt(boostMonthlyTokens))}
           </span>
@@ -503,7 +503,7 @@ export function FreeBudgetView({
       {/* ToS-restricted callout */}
       {avoidModels.length > 0 && (
         <div className="mx-3 mt-2 flex items-center gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-1.5">
-          <span className="material-symbols-outlined text-[14px] text-text-muted">warning</span>
+          <Icon icon={TriangleAlert} size="sm" color="ink-muted" />
           <span className="text-[11px] text-amber-400">
             {labels.tosRestricted(avoidModels.length)}
           </span>

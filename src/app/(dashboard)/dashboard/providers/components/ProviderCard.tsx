@@ -1,5 +1,7 @@
 "use client";
 
+import { ChevronRight, CirclePause, Info, Play, TrendingUp } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import type { KeyboardEvent, MouseEvent, ReactNode } from "react";
 import { forwardRef, useCallback, useImperativeHandle, useRef, useState } from "react";
 import Image from "next/image";
@@ -373,7 +375,7 @@ const ProviderCard = forwardRef<ProviderCardHandle, ProviderCardProps>(function 
       className="inline-flex items-center gap-0.5 rounded-full border border-border bg-bg-subtle px-1.5 py-0 text-[9px] font-semibold leading-none text-text-muted"
       title={openRouterTooltip}
     >
-      <span className="material-symbols-outlined text-[10px] leading-none">trending_up</span>
+      <Icon icon={TrendingUp} size="sm" color="current" className="leading-none" />
       {providerText(t, "openRouterPopularityBadge", "OR #{rank}", {
         rank: openRouterStat.popularityRank,
       })}
@@ -540,7 +542,7 @@ const ProviderCard = forwardRef<ProviderCardHandle, ProviderCardProps>(function 
                 {allDisabled ? (
                   <Badge variant="default" size="sm">
                     <span className="flex items-center gap-1">
-                      <span className="material-symbols-outlined text-[12px]">pause_circle</span>
+                      <Icon icon={CirclePause} size="sm" color="current" />
                       {t("disabled")}
                     </span>
                   </Badge>
@@ -595,16 +597,12 @@ const ProviderCard = forwardRef<ProviderCardHandle, ProviderCardProps>(function 
                     title={tp("expandTest")}
                     className="inline-flex items-center gap-0.5 rounded-md border border-border bg-bg-subtle px-2 py-0.5 text-[11px] text-text-muted hover:text-text-primary hover:border-primary/30 transition-colors"
                   >
-                    <span className="material-symbols-outlined text-[11px] leading-none">
-                      play_arrow
-                    </span>
+                    <Icon icon={Play} size="sm" color="current" className="leading-none" />
                     {tp("testLabel")}
                   </button>
                 )}
                 {!isLlmProvider && (
-                  <span className="material-symbols-outlined text-text-muted opacity-0 group-hover:opacity-100 transition-opacity">
-                    chevron_right
-                  </span>
+                  <Icon icon={ChevronRight} size="lg" color="ink-muted" className="opacity-0 group-hover:opacity-100 transition-opacity" />
                 )}
               </div>
             </div>
@@ -628,12 +626,7 @@ const ProviderCard = forwardRef<ProviderCardHandle, ProviderCardProps>(function 
           size="sm"
         >
           <div className="flex items-start gap-3 rounded-lg border border-amber-500/25 bg-amber-500/10 p-4">
-            <span
-              className="material-symbols-outlined mt-0.5 text-[22px] leading-none text-amber-500"
-              aria-hidden="true"
-            >
-              info
-            </span>
+            <Icon icon={Info} size="lg" color="feedback-warning-foreground" className="mt-0.5 leading-none" />
             <p className="min-w-0 whitespace-pre-line text-sm leading-6 text-text-muted">
               {t(`riskNotice.${provider.riskNoticeVariant ?? "oauth"}`)}
             </p>

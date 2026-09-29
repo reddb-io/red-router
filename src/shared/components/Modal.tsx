@@ -1,5 +1,7 @@
 "use client";
 
+import { X } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useEffect, useRef, useId } from "react";
 import { useTranslations } from "next-intl";
 import { cn } from "@/shared/utils/cn";
@@ -223,9 +225,7 @@ export default function Modal({
                 aria-label={t("close")}
                 className="p-1.5 rounded-lg text-text-muted hover:bg-black/5 dark:hover:bg-white/5 transition-colors shrink-0"
               >
-                <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
-                  close
-                </span>
+                <Icon icon={X} size="lg" color="current" />
               </button>
             )}
           </div>

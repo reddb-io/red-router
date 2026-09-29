@@ -1,5 +1,7 @@
 "use client";
 
+import { Sparkles } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { Suspense, useCallback, useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
 import { Badge, Card, SegmentedControl } from "@/shared/components";
@@ -206,7 +208,7 @@ function AutoFeaturesCard() {
         className="flex w-full items-center justify-between p-4 text-left"
       >
         <div className="flex items-center gap-2">
-          <span className="material-symbols-outlined text-[20px] text-primary">auto_fix_high</span>
+          <Icon icon={Sparkles} size="lg" color="primary" />
           <h3 className="text-sm font-semibold text-text-main">{t("autoFeaturesTitle")}</h3>
           <Badge variant="primary" size="sm">
             {t("autoFeaturesCount")}

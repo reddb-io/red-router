@@ -1,5 +1,7 @@
 "use client";
 
+import { Download, EthernetPort, RefreshCcw } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import { Card } from "@/shared/components";
@@ -201,7 +203,7 @@ export default function MitmProxyTab() {
       <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <h2 className="flex items-center gap-2 text-lg font-semibold text-text-main">
-            <span className="material-symbols-outlined text-[20px] text-primary">lan</span>
+            <Icon icon={EthernetPort} size="lg" color="primary" />
             {t("title")}
           </h2>
           <p className="mt-1 text-sm text-text-muted">{t("description")}</p>
@@ -332,7 +334,7 @@ export default function MitmProxyTab() {
                     : "pointer-events-none text-text-muted opacity-50"
                 }`}
               >
-                <span className="material-symbols-outlined text-[18px]">download</span>
+                <Icon icon={Download} size="md" color="current" />
                 {t("downloadCert")}
               </a>
               <button
@@ -340,7 +342,7 @@ export default function MitmProxyTab() {
                 disabled={saving || status.running}
                 className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium text-text-main transition-colors hover:bg-sidebar disabled:opacity-40"
               >
-                <span className="material-symbols-outlined text-[18px]">autorenew</span>
+                <Icon icon={RefreshCcw} size="md" color="current" />
                 {t("regenerateCert")}
               </button>
             </div>

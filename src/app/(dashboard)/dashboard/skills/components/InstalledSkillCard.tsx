@@ -1,5 +1,7 @@
 "use client";
 
+import { Sparkles } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useTranslations } from "next-intl";
 
 export interface OmniSkill {
@@ -56,9 +58,7 @@ export function InstalledSkillCard({ skill, selected, onClick }: InstalledSkillC
             selected ? "bg-violet-500/20" : "bg-surface/60"
           }`}
         >
-          <span className="material-symbols-outlined text-[18px] text-text-muted">
-            auto_fix_high
-          </span>
+          <Icon icon={Sparkles} size="md" color="ink-muted" />
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5 flex-wrap">

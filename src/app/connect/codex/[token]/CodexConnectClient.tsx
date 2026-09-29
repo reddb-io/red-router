@@ -1,5 +1,7 @@
 "use client";
 
+import { CircleAlert, CircleCheck } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import Button from "@/shared/components/Button";
@@ -180,7 +182,7 @@ export default function CodexConnectClient({ token }: { token: string }) {
         {status === "success" && (
           <div className="text-center">
             <div className="mb-3 inline-flex h-12 w-12 items-center justify-center rounded-full bg-green-500/10 text-green-500">
-              <span className="material-symbols-outlined text-[26px]">check_circle</span>
+              <Icon icon={CircleCheck} size="lg" color="current" />
             </div>
             <p className="font-medium text-text-main">{t("codexConnected")}</p>
             <p className="mt-1 text-sm text-text-muted">{t("codexConnectionRegistered")}</p>
@@ -190,7 +192,7 @@ export default function CodexConnectClient({ token }: { token: string }) {
         {status === "error" && (
           <div className="text-center">
             <div className="mb-3 inline-flex h-12 w-12 items-center justify-center rounded-full bg-red-500/10 text-red-500">
-              <span className="material-symbols-outlined text-[26px]">error</span>
+              <Icon icon={CircleAlert} size="lg" color="current" />
             </div>
             <p className="mb-4 text-sm text-text-muted">{error}</p>
             <Button variant="secondary" icon="refresh" onClick={start} className="w-full">

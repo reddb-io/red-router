@@ -1,5 +1,7 @@
 "use client";
 
+import { Lock, Zap } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import Link from "next/link";
@@ -529,7 +531,7 @@ export default function RuntimePageClient() {
       <div className="flex items-start justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-xl font-bold text-text-main flex items-center gap-2">
-            <span className="material-symbols-outlined text-[24px] text-primary">bolt</span>
+            <Icon icon={Zap} size="lg" color="primary" />
             {t("title")}
           </h1>
           <p className="text-sm text-text-muted mt-0.5">{t("description")}</p>
@@ -784,9 +786,7 @@ export default function RuntimePageClient() {
                       style={{ gridTemplateColumns: "minmax(0,1.5fr) minmax(0,1fr) 70px" }}
                     >
                       <div className="flex items-center gap-2 min-w-0">
-                        <span className="material-symbols-outlined text-[14px] text-orange-400 shrink-0">
-                          lock
-                        </span>
+                        <Icon icon={Lock} size="sm" color="feedback-warning-foreground" className="shrink-0" />
                         <span className="text-[12px] text-text-main truncate font-medium">
                           {key}
                         </span>

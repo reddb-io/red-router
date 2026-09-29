@@ -8,6 +8,8 @@
  * API: /api/fallback/chains
  */
 
+import { ArrowRight, ChartLine, X } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useEffect, useCallback } from "react";
 import { Card, Button, Input, EmptyState } from "@/shared/components";
 import { useNotificationStore } from "@/store/notificationStore";
@@ -131,7 +133,7 @@ export default function FallbackChainsEditor() {
     return (
       <Card>
         <div className="flex items-center gap-2 text-text-muted animate-pulse">
-          <span className="material-symbols-outlined text-[20px]">timeline</span>
+          <Icon icon={ChartLine} size="lg" color="current" />
           {t("loadingFallbackChains")}
         </div>
       </Card>
@@ -144,7 +146,7 @@ export default function FallbackChainsEditor() {
     <Card>
       <div className="flex items-center gap-3 mb-4">
         <div className="p-2 rounded-lg bg-cyan-500/10 text-cyan-500">
-          <span className="material-symbols-outlined text-[20px]">timeline</span>
+          <Icon icon={ChartLine} size="lg" color="current" />
         </div>
         <div className="flex-1">
           <h3 className="text-lg font-semibold">{t("fallbackChainsTitle")}</h3>
@@ -197,9 +199,7 @@ export default function FallbackChainsEditor() {
                   <span className="font-mono text-sm text-text-main truncate max-w-[200px]">
                     {model}
                   </span>
-                  <span className="material-symbols-outlined text-[14px] text-text-muted">
-                    arrow_forward
-                  </span>
+                  <Icon icon={ArrowRight} size="sm" color="ink-muted" />
                   <div className="flex gap-1.5 flex-wrap">
                     {(Array.isArray(chain) ? chain : []).map((entry, i) => (
                       <span
@@ -221,7 +221,7 @@ export default function FallbackChainsEditor() {
                   className="text-text-muted hover:text-red-400 transition-colors ml-2"
                   title={t("deleteChain")}
                 >
-                  <span className="material-symbols-outlined text-[16px]">close</span>
+                  <Icon icon={X} size="md" color="current" />
                 </button>
               </div>
             ))}

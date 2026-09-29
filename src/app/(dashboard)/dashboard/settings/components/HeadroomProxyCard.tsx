@@ -1,5 +1,7 @@
 "use client";
 
+import { Minimize2 } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { Card, Button, Input } from "@/shared/components";
@@ -170,7 +172,7 @@ export default function HeadroomProxyCard() {
     <Card padding="md">
       <div className="flex items-center gap-3 mb-4">
         <div className="size-8 rounded-lg flex items-center justify-center bg-indigo-500/10">
-          <span className="material-symbols-outlined text-indigo-500 text-xl">compress</span>
+          <Icon icon={Minimize2} size="lg" color="current" />
         </div>
         <div>
           <h3 className="font-medium text-sm">{t("headroomProxyTitle")}</h3>

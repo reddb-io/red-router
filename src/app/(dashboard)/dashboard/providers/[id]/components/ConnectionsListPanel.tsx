@@ -1,4 +1,6 @@
 "use client";
+import { Tag } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import React from "react";
 import { type ConnectionRowConnection } from "./ConnectionRow";
 import ConnectionRow from "./ConnectionRow";
@@ -567,9 +569,7 @@ export default function ConnectionsListPanel({
             >
               {tag && (
                 <div className="flex items-center gap-2 px-3 pt-2 pb-1">
-                  <span className="material-symbols-outlined text-[13px] text-text-muted/50">
-                    label
-                  </span>
+                  <Icon icon={Tag} size="sm" color="ink-muted" />
                   <span className="text-[11px] font-semibold uppercase tracking-widest text-text-muted/60 select-none">
                     {tag}
                   </span>

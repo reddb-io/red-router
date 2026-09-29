@@ -1,5 +1,7 @@
 "use client";
 
+import { ArrowRightLeft, Compass, Download, Flame, Info, Search, TrendingUp } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
@@ -518,9 +520,7 @@ export default function CostOverviewTab() {
           <div className="flex flex-wrap items-center gap-3">
             {summary.streak > 0 && (
               <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/20">
-                <span className="material-symbols-outlined text-amber-400 text-sm">
-                  local_fire_department
-                </span>
+                <Icon icon={Flame} size="sm" color="feedback-warning-foreground" />
                 <span className="text-sm font-semibold text-amber-400">{summary.streak}</span>
                 <span className="text-xs text-amber-400/70">{t("dayStreak")}</span>
               </div>
@@ -536,7 +536,7 @@ export default function CostOverviewTab() {
                   className="flex items-center gap-1 px-2.5 py-1.5 text-xs text-text-muted hover:text-text-main hover:bg-surface/50 rounded-lg border border-border/30 transition-colors"
                   title={t("exportCSV")}
                 >
-                  <span className="material-symbols-outlined text-sm">download</span>
+                  <Icon icon={Download} size="sm" color="current" />
                   CSV
                 </button>
                 <button
@@ -552,7 +552,7 @@ export default function CostOverviewTab() {
                   className="flex items-center gap-1 px-2.5 py-1.5 text-xs text-text-muted hover:text-text-main hover:bg-surface/50 rounded-lg border border-border/30 transition-colors"
                   title={t("exportJSON")}
                 >
-                  <span className="material-symbols-outlined text-sm">download</span>
+                  <Icon icon={Download} size="sm" color="current" />
                   JSON
                 </button>
               </div>
@@ -598,7 +598,7 @@ export default function CostOverviewTab() {
 
       {includesFlatRateEstimates && (
         <div className="flex items-start gap-2 rounded-lg border border-amber-500/20 bg-amber-500/5 px-4 py-3">
-          <span className="material-symbols-outlined text-amber-400 text-base leading-5">info</span>
+          <Icon icon={Info} size="md" color="feedback-warning-foreground" className="leading-5" />
           <p className="text-xs text-amber-300/90">{t("flatRateEstimateNotice")}</p>
         </div>
       )}
@@ -752,7 +752,7 @@ export default function CostOverviewTab() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <Card className="p-5">
             <div className="flex items-center gap-2 mb-3">
-              <span className="material-symbols-outlined text-sky-400 text-lg">trending_up</span>
+              <Icon icon={TrendingUp} size="md" color="current" />
               <h3 className="text-sm font-semibold text-text-muted uppercase tracking-wide">
                 {t("monthlyForecast")}
               </h3>
@@ -778,9 +778,7 @@ export default function CostOverviewTab() {
 
           <Card className="p-5">
             <div className="flex items-center gap-2 mb-3">
-              <span className="material-symbols-outlined text-violet-400 text-lg">
-                compare_arrows
-              </span>
+              <Icon icon={ArrowRightLeft} size="md" color="current" />
               <h3 className="text-sm font-semibold text-text-muted uppercase tracking-wide">
                 {t("periodComparison")}
               </h3>
@@ -1030,9 +1028,7 @@ function CostExplorerCard({
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between mb-5">
         <div>
           <div className="flex items-center gap-2">
-            <span className="material-symbols-outlined text-emerald-400 text-xl">
-              travel_explore
-            </span>
+            <Icon icon={Compass} size="lg" color="feedback-success-foreground" />
             <h3 className="text-lg font-bold text-text-main">{t("costExplorerTitle")}</h3>
           </div>
           <p className="text-sm text-text-muted mt-1">{t("costExplorerDescription")}</p>
@@ -1044,9 +1040,7 @@ function CostExplorerCard({
             onChange={(value) => onGroupByChange(value as CostExplorerGroupBy)}
           />
           <label className="relative block min-w-55">
-            <span className="material-symbols-outlined pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-text-muted">
-              search
-            </span>
+            <Icon icon={Search} size="sm" color="ink-muted" className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               value={searchQuery}
               onChange={(event) => onSearchChange(event.target.value)}

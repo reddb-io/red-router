@@ -1,5 +1,7 @@
 "use client";
 
+import { Trash2, X } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslations, useLocale } from "next-intl";
 import type { QuotaSchedule, ReserveRule } from "@/lib/quota/schedules";
@@ -301,7 +303,7 @@ export default function PoolSchedulesCard({ poolId }: PoolSchedulesCardProps) {
                       title={t("schedulesRemove")}
                       className="ml-auto p-1 rounded hover:bg-red-500/10 text-text-muted hover:text-red-400 cursor-pointer"
                     >
-                      <span className="material-symbols-outlined text-[14px]">delete</span>
+                      <Icon icon={Trash2} size="sm" color="current" />
                     </button>
                   </div>
 
@@ -373,7 +375,7 @@ export default function PoolSchedulesCard({ poolId }: PoolSchedulesCardProps) {
                             title={t("schedulesReserveRemove")}
                             className="p-0.5 rounded hover:bg-red-500/10 text-text-muted hover:text-red-400 cursor-pointer"
                           >
-                            <span className="material-symbols-outlined text-[13px]">close</span>
+                            <Icon icon={X} size="sm" color="current" />
                           </button>
                         </div>
                       ))}

@@ -1,5 +1,7 @@
 "use client";
 
+import { CircleCheck, Info, RefreshCw } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
 import Badge from "@/shared/components/Badge";
@@ -439,9 +441,7 @@ function WhyThisTargetCard({ replay }: { replay: DecisionReplay | undefined }) {
           <ul className="flex flex-col gap-2 text-xs text-text-muted">
             {replay.warnings.map((warning) => (
               <li key={warning} className="flex items-start gap-2">
-                <span className="material-symbols-outlined mt-0.5 text-[15px] text-warning">
-                  info
-                </span>
+                <Icon icon={Info} size="md" color="current" className="mt-0.5 text-warning" />
                 <span>{warning}</span>
               </li>
             ))}
@@ -604,7 +604,7 @@ export default function RouteExplainabilityTab({
               onClick={() => fetchLogs()}
               className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-hover"
             >
-              <span className="material-symbols-outlined text-[18px]">refresh</span>
+              <Icon icon={RefreshCw} size="md" color="current" />
               {t("retry")}
             </button>
           </div>
@@ -751,9 +751,7 @@ export default function RouteExplainabilityTab({
                 <ul className="flex flex-col gap-2 text-sm text-text-muted">
                   {explanation.recommendations.map((item) => (
                     <li key={item} className="flex items-start gap-2">
-                      <span className="material-symbols-outlined mt-0.5 text-[16px] text-primary">
-                        check_circle
-                      </span>
+                      <Icon icon={CircleCheck} size="md" color="primary" className="mt-0.5" />
                       <span>{item}</span>
                     </li>
                   ))}
@@ -765,9 +763,7 @@ export default function RouteExplainabilityTab({
                   <ul className="flex flex-col gap-2 text-sm text-text-muted">
                     {explanation.limitations.map((item) => (
                       <li key={item} className="flex items-start gap-2">
-                        <span className="material-symbols-outlined mt-0.5 text-[16px] text-warning">
-                          info
-                        </span>
+                        <Icon icon={Info} size="md" color="current" className="mt-0.5 text-warning" />
                         <span>{item}</span>
                       </li>
                     ))}

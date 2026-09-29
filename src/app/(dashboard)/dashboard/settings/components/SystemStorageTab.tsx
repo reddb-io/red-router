@@ -1,5 +1,7 @@
 "use client";
 
+import { Braces, BrushCleaning, ChartColumn, Clock, Download, Eraser, FileArchive, FileOutput, HardDriveUpload, History, LoaderCircle, Minimize2, RefreshCw, RotateCcw, ScrollText, SlidersHorizontal, TimerReset, Trash, TriangleAlert, Upload, Wrench } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Card, Button, Badge, ConfirmModal } from "@/shared/components";
 import { useLocale, useTranslations } from "next-intl";
@@ -754,9 +756,7 @@ export default function SystemStorageTab() {
       <div className="mb-4 p-4 rounded-lg border border-border bg-bg">
         <div className="flex items-center justify-between gap-3 mb-3">
           <h4 className="text-sm font-semibold flex items-center gap-2">
-            <span className="material-symbols-outlined text-[18px]" aria-hidden="true">
-              analytics
-            </span>
+            <Icon icon={ChartColumn} size="md" color="current" />
             {t("storageDatabaseStatistics")}
           </h4>
           <Button
@@ -765,9 +765,7 @@ export default function SystemStorageTab() {
             onClick={refreshDatabaseStats}
             loading={dbStatsRefreshing}
           >
-            <span className="material-symbols-outlined text-[14px] mr-1" aria-hidden="true">
-              refresh
-            </span>
+            <Icon icon={RefreshCw} size="sm" color="current" className="mr-1" />
             {t("refresh")}
           </Button>
         </div>
@@ -828,12 +826,7 @@ export default function SystemStorageTab() {
       <div className="flex flex-col gap-2 mt-3">
         {backupsLoading ? (
           <div className="flex items-center justify-center py-6 text-text-muted">
-            <span
-              className="material-symbols-outlined animate-spin text-[20px] mr-2"
-              aria-hidden="true"
-            >
-              progress_activity
-            </span>
+            <Icon icon={LoaderCircle} size="lg" color="current" className="animate-spin mr-2" />
             {t("loadingBackups")}
           </div>
         ) : backups.length === 0 ? (
@@ -856,9 +849,7 @@ export default function SystemStorageTab() {
                 onClick={loadBackups}
                 className="text-xs text-primary hover:underline flex items-center gap-1"
               >
-                <span className="material-symbols-outlined text-[14px]" aria-hidden="true">
-                  refresh
-                </span>
+                <Icon icon={RefreshCw} size="sm" color="current" />
                 {t("refresh")}
               </button>
             </div>
@@ -869,12 +860,7 @@ export default function SystemStorageTab() {
               >
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1">
-                    <span
-                      className="material-symbols-outlined text-[16px] text-amber-500"
-                      aria-hidden="true"
-                    >
-                      description
-                    </span>
+                    <Icon icon={ScrollText} size="md" color="feedback-warning-foreground" />
                     <span className="text-sm font-medium truncate">
                       {new Date(backup.createdAt).toLocaleString(locale)}
                     </span>
@@ -920,12 +906,7 @@ export default function SystemStorageTab() {
                       size="sm"
                       onClick={() => setConfirmRestoreId(backup.id)}
                     >
-                      <span
-                        className="material-symbols-outlined text-[14px] mr-1"
-                        aria-hidden="true"
-                      >
-                        restore
-                      </span>
+                      <Icon icon={History} size="sm" color="current" className="mr-1" />
                       {t("restore")}
                     </Button>
                   )}
@@ -958,9 +939,7 @@ export default function SystemStorageTab() {
         <div className="flex items-start justify-between gap-3 flex-wrap mb-3">
           <div>
             <h4 className="text-sm font-semibold flex items-center gap-2">
-              <span className="material-symbols-outlined text-[18px]" aria-hidden="true">
-                schedule
-              </span>
+              <Icon icon={Clock} size="md" color="current" />
               {t("storageRetentionCleanup")}
             </h4>
             <p className="mt-1 text-xs text-text-muted">{t("storageRetentionCleanupDesc")}</p>
@@ -1038,9 +1017,7 @@ export default function SystemStorageTab() {
     return (
       <div className="mt-6 p-4 rounded-lg border border-border bg-bg">
         <h4 className="text-sm font-semibold mb-3 flex items-center gap-2">
-          <span className="material-symbols-outlined text-[18px]" aria-hidden="true">
-            tune
-          </span>
+          <Icon icon={SlidersHorizontal} size="md" color="current" />
           {t("storageOptimizationSettings")}
         </h4>
         <div className="space-y-4">
@@ -1192,9 +1169,7 @@ export default function SystemStorageTab() {
     return (
       <div className="mt-6 p-4 rounded-lg border border-border bg-bg">
         <h4 className="text-sm font-semibold mb-3 flex items-center gap-2">
-          <span className="material-symbols-outlined text-[18px]" aria-hidden="true">
-            compress
-          </span>
+          <Icon icon={Minimize2} size="md" color="current" />
           {t("storageCompressionAggregation")}
         </h4>
         <div className="space-y-4">
@@ -1308,19 +1283,12 @@ export default function SystemStorageTab() {
 
       <div className="pt-3 border-t border-border/50 mb-4">
         <div className="flex items-center gap-2 mb-3">
-          <span
-            className="material-symbols-outlined text-[18px] text-emerald-500"
-            aria-hidden="true"
-          >
-            file_export
-          </span>
+          <Icon icon={FileOutput} size="md" color="feedback-success-foreground" />
           <p className="font-medium">{t("export")}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Button variant="outline" size="sm" onClick={handleExport} loading={exportLoading}>
-            <span className="material-symbols-outlined text-[14px] mr-1" aria-hidden="true">
-              download
-            </span>
+            <Icon icon={Download} size="sm" color="current" className="mr-1" />
             {t("exportDatabase")}
           </Button>
           <Button
@@ -1345,15 +1313,11 @@ export default function SystemStorageTab() {
             }}
             loading={exportLoading}
           >
-            <span className="material-symbols-outlined text-[14px] mr-1" aria-hidden="true">
-              folder_zip
-            </span>
+            <Icon icon={FileArchive} size="sm" color="current" className="mr-1" />
             {t("exportAll")}
           </Button>
           <Button variant="outline" size="sm" onClick={handleImportClick} loading={importLoading}>
-            <span className="material-symbols-outlined text-[14px] mr-1" aria-hidden="true">
-              upload
-            </span>
+            <Icon icon={Upload} size="sm" color="current" className="mr-1" />
             {t("importDatabase")}
           </Button>
           <input
@@ -1364,9 +1328,7 @@ export default function SystemStorageTab() {
             onChange={handleFileSelected}
           />
           <Button variant="outline" size="sm" onClick={handleExportJson} loading={exportLoading}>
-            <span className="material-symbols-outlined text-[14px] mr-1" aria-hidden="true">
-              data_object
-            </span>
+            <Icon icon={Braces} size="sm" color="current" className="mr-1" />
             {t("exportJson")}
           </Button>
           <Button
@@ -1375,9 +1337,7 @@ export default function SystemStorageTab() {
             onClick={handleImportJsonClick}
             loading={importLoading}
           >
-            <span className="material-symbols-outlined text-[14px] mr-1" aria-hidden="true">
-              data_object
-            </span>
+            <Icon icon={Braces} size="sm" color="current" className="mr-1" />
             {t("importJson")}
           </Button>
           <input
@@ -1392,12 +1352,7 @@ export default function SystemStorageTab() {
         {confirmImport && pendingImportFile && (
           <div className="p-4 rounded-lg mt-3 bg-amber-500/10 border border-amber-500/30">
             <div className="flex items-start gap-3">
-              <span
-                className="material-symbols-outlined text-[20px] text-amber-500 mt-0.5"
-                aria-hidden="true"
-              >
-                warning
-              </span>
+              <Icon icon={TriangleAlert} size="lg" color="feedback-warning-foreground" className="mt-0.5" />
               <div className="flex-1">
                 <p className="text-sm font-medium text-amber-500 mb-1">{t("confirmDbImport")}</p>
                 <p className="text-xs text-text-muted mb-2">
@@ -1426,9 +1381,7 @@ export default function SystemStorageTab() {
 
       <div className="pt-3 border-t border-border/50 mb-4">
         <div className="flex items-center gap-2 mb-3">
-          <span className="material-symbols-outlined text-[18px] text-blue-500" aria-hidden="true">
-            build
-          </span>
+          <Icon icon={Wrench} size="md" color="current" />
           <p className="font-medium">{t("maintenance")}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -1438,9 +1391,7 @@ export default function SystemStorageTab() {
             loading={clearCacheLoading}
             onClick={handleClearCache}
           >
-            <span className="material-symbols-outlined text-[14px] mr-1" aria-hidden="true">
-              delete_sweep
-            </span>
+            <Icon icon={Eraser} size="sm" color="current" className="mr-1" />
             {t("clearCache")}
           </Button>
           <Button
@@ -1449,9 +1400,7 @@ export default function SystemStorageTab() {
             loading={purgeLogsLoading}
             onClick={handlePurgeExpiredLogs}
           >
-            <span className="material-symbols-outlined text-[14px] mr-1" aria-hidden="true">
-              auto_delete
-            </span>
+            <Icon icon={TimerReset} size="sm" color="current" className="mr-1" />
             {t("purgeExpiredLogs")}
           </Button>
           <Button
@@ -1460,9 +1409,7 @@ export default function SystemStorageTab() {
             loading={manualVacuumLoading}
             onClick={handleManualVacuum}
           >
-            <span className="material-symbols-outlined text-[14px] mr-1" aria-hidden="true">
-              cleaning_services
-            </span>
+            <Icon icon={BrushCleaning} size="sm" color="current" className="mr-1" />
             {t("manualVacuum")}
           </Button>
           <Button
@@ -1471,9 +1418,7 @@ export default function SystemStorageTab() {
             loading={purgeQuotaSnapshotsLoading}
             onClick={handlePurgeQuotaSnapshots}
           >
-            <span className="material-symbols-outlined text-[14px] mr-1" aria-hidden="true">
-              delete_forever
-            </span>
+            <Icon icon={Trash} size="sm" color="current" className="mr-1" />
             {t("purgeQuotaSnapshots")}
           </Button>
           <Button
@@ -1482,9 +1427,7 @@ export default function SystemStorageTab() {
             loading={purgeCallLogsLoading}
             onClick={handlePurgeCallLogs}
           >
-            <span className="material-symbols-outlined text-[14px] mr-1" aria-hidden="true">
-              delete_forever
-            </span>
+            <Icon icon={Trash} size="sm" color="current" className="mr-1" />
             {t("purgeCallLogs")}
           </Button>
           <Button
@@ -1493,9 +1436,7 @@ export default function SystemStorageTab() {
             loading={purgeDetailedLogsLoading}
             onClick={handlePurgeDetailedLogs}
           >
-            <span className="material-symbols-outlined text-[14px] mr-1" aria-hidden="true">
-              delete_forever
-            </span>
+            <Icon icon={Trash} size="sm" color="current" className="mr-1" />
             {t("purgeDetailedLogs")}
           </Button>
           <Button
@@ -1504,9 +1445,7 @@ export default function SystemStorageTab() {
             loading={resetUsageLoading}
             onClick={openResetUsageModal}
           >
-            <span className="material-symbols-outlined text-[14px] mr-1" aria-hidden="true">
-              restart_alt
-            </span>
+            <Icon icon={RotateCcw} size="sm" color="current" className="mr-1" />
             {t("resetUsageData")}
           </Button>
         </div>
@@ -1527,9 +1466,7 @@ export default function SystemStorageTab() {
 
       <div className="flex items-center justify-between p-3 rounded-lg bg-bg border border-border mb-4">
         <div className="flex items-center gap-2">
-          <span className="material-symbols-outlined text-[16px] text-amber-500" aria-hidden="true">
-            schedule
-          </span>
+          <Icon icon={Clock} size="md" color="feedback-warning-foreground" />
           <div>
             <p className="text-sm font-medium">{t("lastBackup")}</p>
             <p className="text-xs text-text-muted">
@@ -1549,9 +1486,7 @@ export default function SystemStorageTab() {
             onClick={handleManualBackup}
             loading={manualBackupLoading}
           >
-            <span className="material-symbols-outlined text-[14px] mr-1" aria-hidden="true">
-              backup
-            </span>
+            <Icon icon={HardDriveUpload} size="sm" color="current" className="mr-1" />
             {t("backupNow")}
           </Button>
           <Button

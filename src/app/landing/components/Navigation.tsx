@@ -1,4 +1,6 @@
 "use client";
+import { ExternalLink } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -55,9 +57,7 @@ export default function Navigation() {
             rel="noopener noreferrer"
           >
             {t("github")}
-            <span className="material-symbols-outlined text-[14px]" aria-hidden="true">
-              open_in_new
-            </span>
+            <Icon icon={ExternalLink} size="sm" color="current" />
           </a>
         </div>
 

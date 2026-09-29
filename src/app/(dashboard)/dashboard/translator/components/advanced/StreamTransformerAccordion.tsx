@@ -1,5 +1,7 @@
 "use client";
 
+import { ArrowLeftRight } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 
@@ -249,12 +251,7 @@ export default function StreamTransformerAccordion({
           >
             {open ? "expand_more" : "chevron_right"}
           </span>
-          <span
-            className="material-symbols-outlined text-text-muted text-[18px] shrink-0"
-            aria-hidden="true"
-          >
-            swap_horiz
-          </span>
+          <Icon icon={ArrowLeftRight} size="md" color="ink-muted" className="shrink-0" />
           <div className="flex-1 min-w-0">
             <div className="text-sm font-medium text-text-main truncate">{title}</div>
             <div className="text-xs text-text-muted truncate">{subtitle}</div>
@@ -268,12 +265,7 @@ export default function StreamTransformerAccordion({
           <div className="space-y-5 min-w-0">
             {/* Info banner */}
             <div className="flex items-start gap-3 px-4 py-3 rounded-lg bg-primary/5 border border-primary/10 text-sm text-text-muted">
-              <span
-                className="material-symbols-outlined text-primary text-[20px] mt-0.5 shrink-0"
-                aria-hidden="true"
-              >
-                swap_horiz
-              </span>
+              <Icon icon={ArrowLeftRight} size="lg" color="primary" className="mt-0.5 shrink-0" />
               <div>
                 <p className="font-medium text-text-main mb-0.5">
                   {translateOrFallback("streamTransformerTitle", "Responses Stream Transformer")}

@@ -1,5 +1,7 @@
 "use client";
 
+import { CornerDownRight } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useTranslations } from "next-intl";
 import Modal from "./Modal";
@@ -565,9 +567,7 @@ export default function ProxyConfigModal({
           {/* Inheritance indicator */}
           {level !== "global" && !hasOwnProxy && inheritedFrom && (
             <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-500/10 border border-blue-500/20 text-sm">
-              <span className="material-symbols-outlined text-blue-400 text-base">
-                subdirectory_arrow_right
-              </span>
+              <Icon icon={CornerDownRight} size="md" color="current" />
               <span className="text-blue-300">
                 {t("inheritingFrom")} <strong>{inheritedFrom.level}</strong>:{" "}
                 {inheritedFrom.proxy?.type}

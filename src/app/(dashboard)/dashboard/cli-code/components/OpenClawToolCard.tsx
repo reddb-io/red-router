@@ -1,5 +1,7 @@
 "use client";
 
+import { ArrowRight, Copy, History, LoaderCircle, RotateCcw, Save, ScrollText, TriangleAlert, X } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Card, Button, ModelSelectModal, ManualConfigModal } from "@/shared/components";
 import Image from "next/image";
@@ -327,14 +329,14 @@ export default function OpenClawToolCard({
         <div className="mt-4 pt-4 border-t border-border flex flex-col gap-4">
           {checkingOpenclaw && (
             <div className="flex items-center gap-2 text-text-muted">
-              <span className="material-symbols-outlined animate-spin">progress_activity</span>
+              <Icon icon={LoaderCircle} size="lg" color="current" className="animate-spin" />
               <span>{t("checkingCli", { tool: "Open Claw" })}</span>
             </div>
           )}
 
           {!checkingOpenclaw && openclawStatus && !cliReady && (
             <div className="flex items-center gap-3 p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
-              <span className="material-symbols-outlined text-yellow-500">warning</span>
+              <Icon icon={TriangleAlert} size="lg" color="feedback-warning-foreground" />
               <div className="flex-1">
                 <p className="font-medium text-yellow-600 dark:text-yellow-400">
                   {openclawStatus.installed
@@ -357,7 +359,7 @@ export default function OpenClawToolCard({
                 not on the server. Upstream report: #579.
               */}
               <Button variant="ghost" size="sm" onClick={() => setShowManualConfigModal(true)}>
-                <span className="material-symbols-outlined text-[14px] mr-1">content_copy</span>
+                <Icon icon={Copy} size="sm" color="current" className="mr-1" />
                 {t("manualConfig")}
               </Button>
             </div>
@@ -372,9 +374,7 @@ export default function OpenClawToolCard({
                     <span className="w-32 shrink-0 text-sm font-semibold text-text-main text-right">
                       {t("current")}
                     </span>
-                    <span className="material-symbols-outlined text-text-muted text-[14px]">
-                      arrow_forward
-                    </span>
+                    <Icon icon={ArrowRight} size="sm" color="ink-muted" />
                     <span className="flex-1 px-2 py-1.5 text-xs text-text-muted truncate">
                       {openclawStatus.settings.models.providers["omniroute"].baseUrl}
                     </span>
@@ -386,9 +386,7 @@ export default function OpenClawToolCard({
                   <span className="w-32 shrink-0 text-sm font-semibold text-text-main text-right">
                     {t("baseUrl")}
                   </span>
-                  <span className="material-symbols-outlined text-text-muted text-[14px]">
-                    arrow_forward
-                  </span>
+                  <Icon icon={ArrowRight} size="sm" color="ink-muted" />
                   <input
                     type="text"
                     value={getDisplayUrl()}
@@ -402,7 +400,7 @@ export default function OpenClawToolCard({
                       className="p-1 text-text-muted hover:text-primary rounded transition-colors"
                       title={t("resetToDefault")}
                     >
-                      <span className="material-symbols-outlined text-[14px]">restart_alt</span>
+                      <Icon icon={RotateCcw} size="sm" color="current" />
                     </button>
                   )}
                 </div>
@@ -412,9 +410,7 @@ export default function OpenClawToolCard({
                   <span className="w-32 shrink-0 text-sm font-semibold text-text-main text-right">
                     {t("apiKey")}
                   </span>
-                  <span className="material-symbols-outlined text-text-muted text-[14px]">
-                    arrow_forward
-                  </span>
+                  <Icon icon={ArrowRight} size="sm" color="ink-muted" />
                   {apiKeys.length > 0 ? (
                     <select
                       value={effectiveApiKeyId}
@@ -439,9 +435,7 @@ export default function OpenClawToolCard({
                   <span className="w-32 shrink-0 text-sm font-semibold text-text-main text-right">
                     {t("model")}
                   </span>
-                  <span className="material-symbols-outlined text-text-muted text-[14px]">
-                    arrow_forward
-                  </span>
+                  <Icon icon={ArrowRight} size="sm" color="ink-muted" />
                   <input
                     type="text"
                     value={selectedModel}
@@ -462,7 +456,7 @@ export default function OpenClawToolCard({
                       className="p-1 text-text-muted hover:text-red-500 rounded transition-colors"
                       title={t("clear")}
                     >
-                      <span className="material-symbols-outlined text-[14px]">close</span>
+                      <Icon icon={X} size="sm" color="current" />
                     </button>
                   )}
                 </div>
@@ -487,7 +481,7 @@ export default function OpenClawToolCard({
                   disabled={!selectedModel}
                   loading={applying}
                 >
-                  <span className="material-symbols-outlined text-[14px] mr-1">save</span>
+                  <Icon icon={Save} size="sm" color="current" className="mr-1" />
                   {t("apply")}
                 </Button>
                 <Button
@@ -497,11 +491,11 @@ export default function OpenClawToolCard({
                   disabled={!openclawStatus?.hasOmniRoute}
                   loading={restoring}
                 >
-                  <span className="material-symbols-outlined text-[14px] mr-1">restore</span>
+                  <Icon icon={History} size="sm" color="current" className="mr-1" />
                   {t("reset")}
                 </Button>
                 <Button variant="ghost" size="sm" onClick={() => setShowManualConfigModal(true)}>
-                  <span className="material-symbols-outlined text-[14px] mr-1">content_copy</span>
+                  <Icon icon={Copy} size="sm" color="current" className="mr-1" />
                   {t("manualConfig")}
                 </Button>
                 <div className="flex-1" />
@@ -513,7 +507,7 @@ export default function OpenClawToolCard({
                     if (!showBackups) fetchBackups();
                   }}
                 >
-                  <span className="material-symbols-outlined text-[14px] mr-1">history</span>
+                  <Icon icon={History} size="sm" color="current" className="mr-1" />
                   {t("backups")}
                   {backups.length > 0 && ` (${backups.length})`}
                 </Button>
@@ -522,7 +516,7 @@ export default function OpenClawToolCard({
               {showBackups && (
                 <div className="mt-2 p-3 bg-surface border border-border rounded-lg">
                   <h4 className="text-xs font-semibold text-text-main mb-2 flex items-center gap-1">
-                    <span className="material-symbols-outlined text-[14px]">history</span>
+                    <Icon icon={History} size="sm" color="current" />
                     {t("configBackups")}
                   </h4>
                   {backups.length === 0 ? (
@@ -534,9 +528,7 @@ export default function OpenClawToolCard({
                           key={b.id}
                           className="flex items-center gap-2 px-2 py-1.5 bg-black/5 dark:bg-white/5 rounded text-xs"
                         >
-                          <span className="material-symbols-outlined text-[14px] text-text-muted">
-                            description
-                          </span>
+                          <Icon icon={ScrollText} size="sm" color="ink-muted" />
                           <span className="flex-1 truncate font-mono" title={b.id}>
                             {b.id}
                           </span>

@@ -1,5 +1,7 @@
 "use client";
 
+import { Route } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useCallback, useEffect, useState } from "react";
 import { Card, Input, Toggle } from "@/shared/components";
 import { useTranslations } from "next-intl";
@@ -261,9 +263,7 @@ export default function RoutingStrategyCard() {
     <Card>
       <div className="flex items-center gap-3 mb-4">
         <div className="p-2 rounded-lg bg-blue-500/10 text-blue-500 shrink-0">
-          <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
-            route
-          </span>
+          <Icon icon={Route} size="lg" color="current" />
         </div>
         <div>
           <h3 className="text-base sm:text-lg font-semibold">{t("routingStrategyTitle")}</h3>

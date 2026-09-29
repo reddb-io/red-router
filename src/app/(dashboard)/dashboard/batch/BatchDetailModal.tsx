@@ -1,5 +1,7 @@
 "use client";
 
+import { CalendarClock, CircleAlert, Copy, File, X } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useEffect } from "react";
 import { useTranslations } from "next-intl";
 import { useBatchActions } from "./components/useBatchActions";
@@ -224,9 +226,7 @@ export default function BatchDetailModal({
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--color-border)] flex-shrink-0">
           <div className="flex items-center gap-3">
-            <span className="material-symbols-outlined text-[20px] text-[var(--color-text-muted)]">
-              pending_actions
-            </span>
+            <Icon icon={CalendarClock} size="lg" color="ink-muted" />
             <div>
               <h2
                 id="batch-detail-modal-title"
@@ -243,7 +243,7 @@ export default function BatchDetailModal({
                   className="text-[var(--color-text-muted)] hover:text-[var(--color-text-main)] transition-colors"
                   title={t("batchDetailCopyId")}
                 >
-                  <span className="material-symbols-outlined text-[12px]">content_copy</span>
+                  <Icon icon={Copy} size="sm" color="current" />
                 </button>
               </div>
             </div>
@@ -253,7 +253,7 @@ export default function BatchDetailModal({
             aria-label={t("batchDetailClose")}
             className="p-1.5 rounded-lg text-[var(--color-text-muted)] hover:bg-[var(--color-bg-alt)] transition-colors"
           >
-            <span className="material-symbols-outlined text-[20px]">close</span>
+            <Icon icon={X} size="lg" color="current" />
           </button>
         </div>
 
@@ -368,9 +368,7 @@ export default function BatchDetailModal({
                     className="flex items-center justify-between px-3 py-2 rounded-lg bg-[var(--color-bg-alt)] border border-[var(--color-border)]"
                   >
                     <div className="flex items-center gap-3 min-w-0">
-                      <span className="material-symbols-outlined text-[16px] text-[var(--color-text-muted)] flex-shrink-0">
-                        insert_drive_file
-                      </span>
+                      <Icon icon={File} size="md" color="ink-muted" className="flex-shrink-0" />
                       <div className="min-w-0">
                         <p className="text-xs font-medium text-[var(--color-text-muted)]">{role}</p>
                         <p className="text-xs font-mono text-[var(--color-text-main)] truncate">
@@ -468,7 +466,7 @@ export default function BatchDetailModal({
                 download={`batch-${batch.id}-errors.jsonl`}
                 className="flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg bg-red-500/10 border border-red-500/25 text-red-400 hover:text-red-300 transition-colors"
               >
-                <span className="material-symbols-outlined text-[16px]">error_outline</span>
+                <Icon icon={CircleAlert} size="md" color="current" />
                 {t("batchActionDownloadErrors")}
               </a>
             )}

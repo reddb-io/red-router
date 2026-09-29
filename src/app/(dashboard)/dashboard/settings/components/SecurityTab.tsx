@@ -1,5 +1,7 @@
 "use client";
 
+import { Ban, OctagonAlert, Plug, Shield, TriangleAlert, X } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useEffect } from "react";
 import { Card, Button, Input, Toggle, Modal } from "@/shared/components";
 import { AI_PROVIDERS } from "@/shared/constants/providers";
@@ -169,9 +171,7 @@ export default function SecurityTab() {
       <Card>
         <div className="flex items-center gap-3 mb-4">
           <div className="p-2 rounded-lg bg-primary/10 text-primary">
-            <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
-              shield
-            </span>
+            <Icon icon={Shield} size="lg" color="current" />
           </div>
           <h3 className="text-lg font-semibold">{t("security")}</h3>
         </div>
@@ -286,9 +286,7 @@ export default function SecurityTab() {
       <Card>
         <div className="flex items-center gap-3 mb-4">
           <div className="p-2 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400">
-            <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
-              api
-            </span>
+            <Icon icon={Plug} size="lg" color="current" />
           </div>
           <h3 className="text-lg font-semibold">{t("apiEndpointProtection")}</h3>
         </div>
@@ -356,7 +354,7 @@ export default function SecurityTab() {
                     }
                   >
                     {isBlocked ? (
-                      <span className="material-symbols-outlined text-[14px]">block</span>
+                      <Icon icon={Ban} size="sm" color="current" />
                     ) : (
                       <ProviderIcon
                         providerId={provider.id}
@@ -367,9 +365,7 @@ export default function SecurityTab() {
                     )}
                     {provider.name}
                     {isBlocked && (
-                      <span className="material-symbols-outlined text-[12px] text-red-500">
-                        close
-                      </span>
+                      <Icon icon={X} size="sm" color="feedback-danger-foreground" />
                     )}
                   </button>
                 );
@@ -377,7 +373,7 @@ export default function SecurityTab() {
             </div>
             {blockedProviders.length > 0 && (
               <p className="text-xs text-amber-600 dark:text-amber-400 mt-2 flex items-center gap-1">
-                <span className="material-symbols-outlined text-[14px]">warning</span>
+                <Icon icon={TriangleAlert} size="sm" color="current" />
                 {t("providersBlocked", { count: blockedProviders.length })}
               </p>
             )}
@@ -389,9 +385,7 @@ export default function SecurityTab() {
       <Card>
         <div className="flex items-center gap-3 mb-4">
           <div className="p-2 rounded-lg bg-red-500/10 text-red-500">
-            <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
-              report
-            </span>
+            <Icon icon={OctagonAlert} size="lg" color="current" />
           </div>
           <div>
             <h3 className="text-lg font-semibold">
@@ -461,7 +455,7 @@ export default function SecurityTab() {
       <Card>
         <div className="flex items-center gap-3 mb-4">
           <div className="p-2 rounded-lg bg-primary/10 text-primary">
-            <span className="material-symbols-outlined">shield</span>
+            <Icon icon={Shield} size="lg" color="current" />
           </div>
           <div>
             <p className="font-medium">

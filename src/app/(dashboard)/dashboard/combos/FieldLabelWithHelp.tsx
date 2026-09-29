@@ -1,5 +1,7 @@
 "use client";
 
+import { CircleQuestionMark } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import Tooltip from "@/shared/components/Tooltip";
 
 type FieldLabelWithHelpProps = {
@@ -22,9 +24,7 @@ export default function FieldLabelWithHelp({
       </label>
       {showHelp && (
         <Tooltip position="bottom" content={help}>
-          <span className="material-symbols-outlined text-[12px] text-text-muted cursor-help">
-            help
-          </span>
+          <Icon icon={CircleQuestionMark} size="sm" color="ink-muted" className="cursor-help" />
         </Tooltip>
       )}
     </div>

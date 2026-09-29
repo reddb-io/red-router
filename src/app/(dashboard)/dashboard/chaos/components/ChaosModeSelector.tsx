@@ -1,5 +1,8 @@
 "use client";
 
+
+import { GitFork, GitMerge } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 /**
  * Parallel / Collaborative mode selector for the Chaos Mode config page.
  * Extracted out of ChaosConfigPageClient.tsx to keep the page component under
@@ -35,9 +38,7 @@ export function ChaosModeSelector({
               : "bg-black/5 dark:bg-white/5 text-text-muted hover:bg-black/10 dark:hover:bg-white/10"
           }`}
         >
-          <span className="material-symbols-outlined text-[16px] align-middle mr-1">
-            call_split
-          </span>
+          <Icon icon={GitFork} size="md" color="current" className="align-middle mr-1" />
           {parallelLabel}
           <p className="text-[10px] opacity-70 mt-0.5">{parallelDesc}</p>
         </button>
@@ -50,7 +51,7 @@ export function ChaosModeSelector({
               : "bg-black/5 dark:bg-white/5 text-text-muted hover:bg-black/10 dark:hover:bg-white/10"
           }`}
         >
-          <span className="material-symbols-outlined text-[16px] align-middle mr-1">merge</span>
+          <Icon icon={GitMerge} size="md" color="current" className="align-middle mr-1" />
           {collaborativeLabel}
           <p className="text-[10px] opacity-70 mt-0.5">{collaborativeDesc}</p>
         </button>

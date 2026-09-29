@@ -1,5 +1,7 @@
 "use client";
 
+import { Pin } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import { Button, Card } from "@/shared/components";
@@ -66,9 +68,7 @@ export default function UsageTokenBufferTab() {
     <Card>
       <div className="flex items-center gap-3 mb-4">
         <div className="p-2 rounded-lg bg-sky-500/10 text-sky-500">
-          <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
-            pin
-          </span>
+          <Icon icon={Pin} size="lg" color="current" />
         </div>
         <div>
           <h3 className="text-lg font-semibold">{t("storageUsageTokenBuffer")}</h3>

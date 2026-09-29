@@ -1,5 +1,7 @@
 "use client";
 
+import { FileUp } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useRef } from "react";
 import { useTranslations } from "next-intl";
 import { useApiKey } from "../../providers/hooks/useApiKey";
@@ -169,7 +171,7 @@ export function SttExampleCard({ providerId }: Props) {
             onClick={() => inputRef.current?.click()}
             className="inline-flex items-center gap-1.5 text-xs rounded-md border border-border bg-bg-subtle px-3 py-1.5 text-text-main hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
           >
-            <span className="material-symbols-outlined text-[14px]">upload_file</span>
+            <Icon icon={FileUp} size="sm" color="current" />
             {file ? file.name : t("chooseFile")}
           </button>
           {file && (

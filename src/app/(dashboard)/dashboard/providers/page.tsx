@@ -1,5 +1,7 @@
 "use client";
 
+import { CircleQuestionMark, Puzzle, SearchX, X } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useEffect, useCallback, useMemo, Suspense } from "react";
 import { Card, CardSkeleton, Badge, Button, CollapsibleSection } from "@/shared/components";
 import {
@@ -915,7 +917,7 @@ function ProvidersPageContent() {
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-lg border border-border text-text-muted hover:text-text-main hover:bg-bg-subtle transition-colors"
                 >
-                  <span className="material-symbols-outlined text-[16px]">help</span>
+                  <Icon icon={CircleQuestionMark} size="md" color="current" />
                   {t("learnMore") || "Learn more"}
                 </a>
               </div>
@@ -1008,7 +1010,7 @@ function ProvidersPageContent() {
               className="flex items-center justify-center gap-2 py-8 border border-dashed border-border rounded-xl text-text-muted text-sm"
               data-testid="provider-compact-empty"
             >
-              <span className="material-symbols-outlined text-[18px]">search_off</span>
+              <Icon icon={SearchX} size="md" color="current" />
               <span>{providerText(t, "noProvidersMatch", "No providers match your search.")}</span>
             </div>
           )
@@ -1074,7 +1076,7 @@ function ProvidersPageContent() {
                 anthropicCompatibleProviders.length === 0 &&
                 ccCompatibleProviders.length === 0 ? (
                   <div className="flex items-center justify-center gap-2 py-2 border border-dashed border-border rounded-xl text-text-muted text-sm">
-                    <span className="material-symbols-outlined text-[18px]">extension</span>
+                    <Icon icon={Puzzle} size="md" color="current" />
                     <span>{t("noCompatibleYet")}</span>
                   </div>
                 ) : (
@@ -1899,7 +1901,7 @@ function ProvidersPageContent() {
                   className="p-1 rounded-lg hover:bg-bg-subtle text-text-muted hover:text-text-primary transition-colors"
                   aria-label={tc("close")}
                 >
-                  <span className="material-symbols-outlined text-lg">close</span>
+                  <Icon icon={X} size="md" color="current" />
                 </button>
               </div>
               <div className="p-5">

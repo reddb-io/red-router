@@ -1,5 +1,7 @@
 "use client";
 
+import { ArrowDownToLine, ChevronLeft, ChevronRight, Code, X } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { JsonView } from "@/shared/components/jsonView";
@@ -262,7 +264,7 @@ function StreamSection({ title, sectionId, json, onCopy }) {
             className={`p-1 rounded hover:bg-bg-subtle text-text-muted hover:text-text-primary transition-colors ${showRaw ? "text-primary" : ""}`}
             aria-pressed={showRaw}
           >
-            <span className="material-symbols-outlined text-[18px]">code</span>
+            <Icon icon={Code} size="md" color="current" />
           </button>
           <button
             onClick={toggleAutoscroll}
@@ -270,7 +272,7 @@ function StreamSection({ title, sectionId, json, onCopy }) {
             className={`p-1 rounded hover:bg-bg-subtle text-text-muted hover:text-text-primary transition-colors ${autoscroll ? "text-primary" : ""}`}
             aria-pressed={autoscroll}
           >
-            <span className="material-symbols-outlined text-[18px]">vertical_align_bottom</span>
+            <Icon icon={ArrowDownToLine} size="md" color="current" />
           </button>
           <button
             onClick={handleCopy}
@@ -648,7 +650,7 @@ export default function RequestLoggerDetail({
                   className="p-1.5 rounded-lg hover:bg-bg-subtle text-text-muted hover:text-text-primary transition-colors disabled:opacity-30 disabled:pointer-events-none"
                   aria-label={t("previousRequest")}
                 >
-                  <span className="material-symbols-outlined text-[18px]">chevron_left</span>
+                  <Icon icon={ChevronLeft} size="md" color="current" />
                 </button>
                 <button
                   onClick={onNext}
@@ -656,7 +658,7 @@ export default function RequestLoggerDetail({
                   className="p-1.5 rounded-lg hover:bg-bg-subtle text-text-muted hover:text-text-primary transition-colors disabled:opacity-30 disabled:pointer-events-none"
                   aria-label={t("nextRequest")}
                 >
-                  <span className="material-symbols-outlined text-[18px]">chevron_right</span>
+                  <Icon icon={ChevronRight} size="md" color="current" />
                 </button>
               </>
             )}
@@ -665,7 +667,7 @@ export default function RequestLoggerDetail({
               className="p-1.5 rounded-lg hover:bg-bg-subtle text-text-muted hover:text-text-primary transition-colors"
               aria-label={t("close")}
             >
-              <span className="material-symbols-outlined">close</span>
+              <Icon icon={X} size="lg" color="current" />
             </button>
           </div>
         </div>

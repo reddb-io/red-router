@@ -1,5 +1,7 @@
 "use client";
 
+import { CircleCheck, CirclePlus, CircleX, Fingerprint, LifeBuoy, Plus, Radar, RefreshCw, Terminal, Trash2, Wrench } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { Card, Button, Input } from "@/shared/components";
@@ -157,7 +159,7 @@ export default function AgentsPage() {
     <div className="flex flex-col gap-6">
       <div className="flex justify-end">
         <Button variant="secondary" onClick={handleRefresh} loading={refreshing}>
-          <span className="material-symbols-outlined text-[16px] mr-1">refresh</span>
+          <Icon icon={RefreshCw} size="md" color="current" className="mr-1" />
           {t("refresh")}
         </Button>
       </div>
@@ -192,9 +194,7 @@ export default function AgentsPage() {
         <div className="flex items-center justify-between gap-3 mb-4">
           <div className="flex items-center gap-3">
             <div className="p-2 rounded-lg bg-blue-500/10 text-blue-500">
-              <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
-                support
-              </span>
+              <Icon icon={LifeBuoy} size="lg" color="current" />
             </div>
             <h3 className="text-lg font-semibold">{t("setupGuideTitle")}</h3>
           </div>
@@ -208,30 +208,28 @@ export default function AgentsPage() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           <div className="rounded-lg border border-border/50 bg-black/[0.02] dark:bg-white/[0.02] p-3">
             <div className="flex items-center gap-2 mb-1.5">
-              <span className="material-symbols-outlined text-[16px] text-blue-500">radar</span>
+              <Icon icon={Radar} size="md" color="current" />
               <p className="text-sm font-medium">{t("setupGuideDetectCliTitle")}</p>
             </div>
             <p className="text-xs text-text-muted">{t("setupGuideDetectCliDesc")}</p>
           </div>
           <div className="rounded-lg border border-border/50 bg-black/[0.02] dark:bg-white/[0.02] p-3">
             <div className="flex items-center gap-2 mb-1.5">
-              <span className="material-symbols-outlined text-[16px] text-amber-500">build</span>
+              <Icon icon={Wrench} size="md" color="feedback-warning-foreground" />
               <p className="text-sm font-medium">{t("setupGuideCustomAgentTitle")}</p>
             </div>
             <p className="text-xs text-text-muted">{t("setupGuideCustomAgentDesc")}</p>
           </div>
           <div className="rounded-lg border border-border/50 bg-black/[0.02] dark:bg-white/[0.02] p-3">
             <div className="flex items-center gap-2 mb-1.5">
-              <span className="material-symbols-outlined text-[16px] text-emerald-500">
-                terminal
-              </span>
+              <Icon icon={Terminal} size="md" color="feedback-success-foreground" />
               <p className="text-sm font-medium">{t("setupGuideCommandMissingTitle")}</p>
             </div>
             <p className="text-xs text-text-muted">{t("setupGuideCommandMissingDesc")}</p>
           </div>
         </div>
         <div className="mt-3 flex items-center gap-2 rounded-lg border border-border/30 bg-surface/20 p-3">
-          <span className="material-symbols-outlined text-[14px] text-text-muted">fingerprint</span>
+          <Icon icon={Fingerprint} size="sm" color="ink-muted" />
           <p className="text-xs text-text-muted">
             {t("fingerprintSettingsHint")}{" "}
             <Link href="/dashboard/settings?tab=routing" className="text-primary hover:underline">
@@ -277,12 +275,12 @@ export default function AgentsPage() {
               <div className="flex items-center gap-1">
                 {agent.installed ? (
                   <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-medium">
-                    <span className="material-symbols-outlined text-[12px]">check_circle</span>
+                    <Icon icon={CircleCheck} size="sm" color="current" />
                     {agent.version || t("installed")}
                   </span>
                 ) : (
                   <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-zinc-500/10 text-zinc-500 font-medium">
-                    <span className="material-symbols-outlined text-[12px]">cancel</span>
+                    <Icon icon={CircleX} size="sm" color="current" />
                     {t("notFound")}
                   </span>
                 )}
@@ -303,7 +301,7 @@ export default function AgentsPage() {
                   className="text-xs text-red-500 hover:text-red-400 transition-colors flex items-center gap-0.5"
                   title={t("remove")}
                 >
-                  <span className="material-symbols-outlined text-[14px]">delete</span>
+                  <Icon icon={Trash2} size="sm" color="current" />
                   {t("remove")}
                 </button>
               )}
@@ -317,7 +315,7 @@ export default function AgentsPage() {
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
             <div className="p-2 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400">
-              <span className="material-symbols-outlined text-[20px]">add_circle</span>
+              <Icon icon={CirclePlus} size="lg" color="current" />
             </div>
             <div>
               <h3 className="text-lg font-semibold">{t("addCustomAgent")}</h3>
@@ -368,7 +366,7 @@ export default function AgentsPage() {
             </div>
             <div className="flex justify-end">
               <Button type="submit" variant="primary" loading={addLoading}>
-                <span className="material-symbols-outlined text-[16px] mr-1">add</span>
+                <Icon icon={Plus} size="md" color="current" className="mr-1" />
                 {t("addAgent")}
               </Button>
             </div>

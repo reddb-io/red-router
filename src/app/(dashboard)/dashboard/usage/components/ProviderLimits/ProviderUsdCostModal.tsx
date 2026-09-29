@@ -1,5 +1,7 @@
 "use client";
 
+import { CircleAlert, LoaderCircle, X } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
 
@@ -152,21 +154,19 @@ export default function ProviderUsdCostModal({
             className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-border bg-bg-subtle text-text-main hover:bg-black/[0.04] dark:hover:bg-white/[0.04]"
             aria-label={t("close")}
           >
-            <span className="material-symbols-outlined text-[18px]">close</span>
+            <Icon icon={X} size="md" color="current" />
           </button>
         </div>
 
         <div className="overflow-y-auto px-5 py-4">
           {loading ? (
             <div className="flex items-center gap-2 text-sm text-text-muted">
-              <span className="material-symbols-outlined animate-spin text-[16px]">
-                progress_activity
-              </span>
+              <Icon icon={LoaderCircle} size="md" color="current" className="animate-spin" />
               {t("loadingUsdCosts")}
             </div>
           ) : error ? (
             <div className="flex items-start gap-2 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-500">
-              <span className="material-symbols-outlined text-[16px]">error</span>
+              <Icon icon={CircleAlert} size="md" color="current" />
               {error}
             </div>
           ) : payload ? (

@@ -1,5 +1,7 @@
 "use client";
 
+import { TriangleAlert } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
 
@@ -323,9 +325,7 @@ export default function AddCompatibleProviderModal({
         {defaults.hasWarning && (
           <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-sm text-text-muted">
             <div className="flex items-start gap-2">
-              <span className="material-symbols-outlined mt-0.5 text-[18px] text-amber-500">
-                warning
-              </span>
+              <Icon icon={TriangleAlert} size="md" color="feedback-warning-foreground" className="mt-0.5" />
               <p>{t("ccCompatibleValidationHint")}</p>
             </div>
           </div>

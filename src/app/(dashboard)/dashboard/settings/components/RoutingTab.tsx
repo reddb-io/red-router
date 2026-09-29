@@ -1,5 +1,7 @@
 "use client";
 
+import { Activity, BadgeCheck, Compass, Database, Eraser, Fingerprint, IdCard, ShieldHalf, SlidersHorizontal, Sparkles } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useEffect, useMemo, useState } from "react";
 import { Button, Card, Collapsible, Input, Select, Toggle } from "@/shared/components";
 import ModelSelectField from "@/shared/components/ModelSelectField";
@@ -904,9 +906,7 @@ export default function RoutingTab() {
         <div className="flex items-start justify-between gap-4">
           <div className="flex gap-3">
             <div className="p-2 rounded-lg bg-indigo-500/10 text-indigo-500 h-fit">
-              <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
-                auto_awesome
-              </span>
+              <Icon icon={Sparkles} size="lg" color="current" />
             </div>
             <div>
               <h3 className="text-lg font-semibold">{t("routingZeroConfigTitle")}</h3>
@@ -994,9 +994,7 @@ export default function RoutingTab() {
       <Card>
         <div className="flex items-start gap-3 mb-4">
           <div className="p-2 rounded-lg bg-purple-500/10 text-purple-500 h-fit">
-            <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
-              tune
-            </span>
+            <Icon icon={SlidersHorizontal} size="lg" color="current" />
           </div>
           <div>
             <h3 className="text-lg font-semibold">{t("systemTransforms")}</h3>
@@ -1270,9 +1268,7 @@ export default function RoutingTab() {
       <Card>
         <div className="flex items-start gap-3 mb-4">
           <div className="p-2 rounded-lg bg-indigo-500/10 text-indigo-500 h-fit">
-            <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
-              security
-            </span>
+            <Icon icon={ShieldHalf} size="lg" color="current" />
           </div>
           <div>
             <h3 className="text-lg font-semibold">{t("cliFingerprint")}</h3>
@@ -1334,9 +1330,7 @@ export default function RoutingTab() {
       <Card>
         <div className="flex items-center gap-3 mb-4">
           <div className="p-2 rounded-lg bg-green-500/10 text-green-500">
-            <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
-              cached
-            </span>
+            <Icon icon={Database} size="lg" color="current" />
           </div>
           <div>
             <h3 className="text-lg font-semibold">{t("routingClientCacheControlTitle")}</h3>
@@ -1399,9 +1393,7 @@ export default function RoutingTab() {
       <Card>
         <div className="flex items-center gap-3 mb-4">
           <div className="p-2 rounded-lg bg-sky-500/10 text-sky-500">
-            <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
-              fingerprint
-            </span>
+            <Icon icon={Fingerprint} size="lg" color="current" />
           </div>
           <div>
             <h3 className="text-lg font-semibold">{t("routingAntigravitySignatureTitle")}</h3>
@@ -1465,9 +1457,7 @@ export default function RoutingTab() {
         <div className="flex items-start justify-between gap-4">
           <div className="flex gap-3">
             <div className="p-2 rounded-lg bg-sky-500/10 text-sky-500 h-fit">
-              <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
-                badge
-              </span>
+              <Icon icon={IdCard} size="lg" color="current" />
             </div>
             <div>
               <h3 className="text-lg font-semibold">{t("echoRequestedModelTitle")}</h3>
@@ -1489,9 +1479,7 @@ export default function RoutingTab() {
       <Card>
         <div className="flex gap-3">
           <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-500 h-fit">
-            <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
-              travel_explore
-            </span>
+            <Icon icon={Compass} size="lg" color="current" />
           </div>
           <div className="flex-1">
             <h3 className="text-lg font-semibold">{t("webSearchRouteTitle")}</h3>
@@ -1524,9 +1512,7 @@ export default function RoutingTab() {
         <div className="flex items-start justify-between gap-4">
           <div className="flex gap-3">
             <div className="p-2 rounded-lg bg-amber-500/10 text-amber-500 h-fit">
-              <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
-                verified
-              </span>
+              <Icon icon={BadgeCheck} size="lg" color="current" />
             </div>
             <div>
               <h3 className="text-lg font-semibold">{t("lkgpToggleTitle")}</h3>
@@ -1574,9 +1560,7 @@ export default function RoutingTab() {
               }
             }}
           >
-            <span className="material-symbols-outlined text-[14px] mr-1" aria-hidden="true">
-              delete_sweep
-            </span>
+            <Icon icon={Eraser} size="sm" color="current" className="mr-1" />
             {t("clearLkgpCache")}
           </Button>
           {lkgpCacheStatus.message && (
@@ -1593,9 +1577,7 @@ export default function RoutingTab() {
         <div className="flex items-start justify-between gap-4">
           <div className="flex gap-3">
             <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-500 h-fit">
-              <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
-                network_ping
-              </span>
+              <Icon icon={Activity} size="lg" color="current" />
             </div>
             <div>
               <h3 className="text-lg font-semibold">{t("adaptiveVolumeRouting")}</h3>

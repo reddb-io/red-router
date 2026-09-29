@@ -1,5 +1,7 @@
 "use client";
 
+import { RefreshCw } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useTranslations } from "next-intl";
 
 interface FeatureFlagCardProps {
@@ -237,9 +239,7 @@ export default function FeatureFlagCard({
             onClick={() => onReset(flag.key)}
             className="inline-flex items-center gap-1 rounded text-xs text-text-muted transition-colors hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
           >
-            <span className="material-symbols-outlined text-[14px]" aria-hidden="true">
-              refresh
-            </span>
+            <Icon icon={RefreshCw} size="sm" color="current" />
             {t("reset")}
           </button>
         )}

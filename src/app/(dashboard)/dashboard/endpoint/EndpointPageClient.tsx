@@ -1,5 +1,7 @@
 "use client";
 
+import { Check, CircleCheck, Compass, GitFork, Globe, GlobeLock, Images, LoaderCircle, Monitor, Network, TriangleAlert, Wrench, X } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { Card, Button, Input, Modal, CardSkeleton, SegmentedControl } from "@/shared/components";
 import Toggle from "@/shared/components/Toggle";
@@ -1308,7 +1310,7 @@ export default function APIPageClient({ machineId }: Readonly<APIPageClientProps
               onClick={() => setCloudStatus(null)}
               className="p-0.5 hover:bg-white/10 rounded transition-colors"
             >
-              <span className="material-symbols-outlined text-[16px]">close</span>
+              <Icon icon={X} size="md" color="current" />
             </button>
           </div>
         )}
@@ -1345,9 +1347,7 @@ export default function APIPageClient({ machineId }: Readonly<APIPageClientProps
         <div className="flex flex-col">
           {/* Local Server */}
           <div className="flex items-center gap-3 py-3">
-            <span className="material-symbols-outlined text-[18px] text-emerald-500 shrink-0">
-              computer
-            </span>
+            <Icon icon={Monitor} size="md" color="feedback-success-foreground" className="shrink-0" />
             <div className="flex-1 min-w-0">
               <div className="flex items-baseline gap-1 flex-wrap">
                 <span className="text-sm font-medium">{t("localServer")}</span>
@@ -1386,9 +1386,7 @@ export default function APIPageClient({ machineId }: Readonly<APIPageClientProps
 
           {/* Tunnels section header */}
           <div className="flex items-center gap-2 pt-4 pb-1 border-t border-border/50">
-            <span className="material-symbols-outlined text-[14px] text-text-muted">
-              network_node
-            </span>
+            <Icon icon={GitFork} size="sm" color="ink-muted" />
             <span className="text-[10px] font-semibold text-text-muted uppercase tracking-wider">
               {t("tunnels")}
             </span>
@@ -1506,7 +1504,7 @@ export default function APIPageClient({ machineId }: Readonly<APIPageClientProps
                     onClick={() => setCloudflaredNotice(null)}
                     className="rounded p-0.5 transition-colors hover:bg-white/10"
                   >
-                    <span className="material-symbols-outlined text-[16px]">close</span>
+                    <Icon icon={X} size="md" color="current" />
                   </button>
                 </div>
               )}
@@ -1535,9 +1533,7 @@ export default function APIPageClient({ machineId }: Readonly<APIPageClientProps
                   }
                 }}
               >
-                <span className="material-symbols-outlined text-[18px] text-indigo-400 shrink-0">
-                  vpn_lock
-                </span>
+                <Icon icon={GlobeLock} size="md" color="current" className="shrink-0" />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-baseline gap-1 flex-wrap">
                     <span className="text-sm font-medium">
@@ -1621,7 +1617,7 @@ export default function APIPageClient({ machineId }: Readonly<APIPageClientProps
                         onClick={() => setTailscaleNotice(null)}
                         className="rounded p-0.5 transition-colors hover:bg-white/10"
                       >
-                        <span className="material-symbols-outlined text-[16px]">close</span>
+                        <Icon icon={X} size="md" color="current" />
                       </button>
                     </div>
                   )}
@@ -1693,9 +1689,7 @@ export default function APIPageClient({ machineId }: Readonly<APIPageClientProps
                   }
                 }}
               >
-                <span className="material-symbols-outlined text-[18px] text-purple-400 shrink-0">
-                  public
-                </span>
+                <Icon icon={Globe} size="md" color="current" className="shrink-0" />
                 <div className="flex-1 min-w-0">
                   <span className="text-sm font-medium">
                     {translateOrFallback("ngrokTitle", "ngrok Tunnel")}
@@ -1754,7 +1748,7 @@ export default function APIPageClient({ machineId }: Readonly<APIPageClientProps
                         onClick={() => setNgrokNotice(null)}
                         className="rounded p-0.5 transition-colors hover:bg-white/10"
                       >
-                        <span className="material-symbols-outlined text-[16px]">close</span>
+                        <Icon icon={X} size="md" color="current" />
                       </button>
                     </div>
                   )}
@@ -1837,7 +1831,7 @@ export default function APIPageClient({ machineId }: Readonly<APIPageClientProps
         {/* Core APIs */}
         <div className="mb-5">
           <div className="flex items-center gap-2 mb-3">
-            <span className="material-symbols-outlined text-sm text-primary">hub</span>
+            <Icon icon={Network} size="sm" color="primary" />
             <h3 className="text-xs font-semibold text-text-muted uppercase tracking-wider">
               {t("categoryCore")}
             </h3>
@@ -1898,7 +1892,7 @@ export default function APIPageClient({ machineId }: Readonly<APIPageClientProps
         {/* Media & Multi-Modal */}
         <div className="mb-5">
           <div className="flex items-center gap-2 mb-3">
-            <span className="material-symbols-outlined text-sm text-purple-400">perm_media</span>
+            <Icon icon={Images} size="sm" color="current" />
             <h3 className="text-xs font-semibold text-text-muted uppercase tracking-wider">
               {t("categoryMedia")}
             </h3>
@@ -1996,9 +1990,7 @@ export default function APIPageClient({ machineId }: Readonly<APIPageClientProps
         {searchProviders.length > 0 && (
           <div className="mb-5">
             <div className="flex items-center gap-2 mb-3">
-              <span className="material-symbols-outlined text-sm text-cyan-400">
-                travel_explore
-              </span>
+              <Icon icon={Compass} size="sm" color="current" />
               <h3 className="text-xs font-semibold text-text-muted uppercase tracking-wider">
                 {t("categorySearch")}
               </h3>
@@ -2023,7 +2015,7 @@ export default function APIPageClient({ machineId }: Readonly<APIPageClientProps
         {/* Utility & Management */}
         <div>
           <div className="flex items-center gap-2 mb-3">
-            <span className="material-symbols-outlined text-sm text-amber-400">build</span>
+            <Icon icon={Wrench} size="sm" color="feedback-warning-foreground" />
             <h3 className="text-xs font-semibold text-text-muted uppercase tracking-wider">
               {t("categoryUtility")}
             </h3>
@@ -2159,13 +2151,9 @@ export default function APIPageClient({ machineId }: Readonly<APIPageClientProps
               }`}
             >
               {modalSuccess ? (
-                <span className="material-symbols-outlined text-green-500 text-xl">
-                  check_circle
-                </span>
+                <Icon icon={CircleCheck} size="lg" color="feedback-success-foreground" />
               ) : (
-                <span className="material-symbols-outlined animate-spin text-primary">
-                  progress_activity
-                </span>
+                <Icon icon={LoaderCircle} size="lg" color="primary" className="animate-spin" />
               )}
               <div className="flex-1">
                 <p
@@ -2185,14 +2173,12 @@ export default function APIPageClient({ machineId }: Readonly<APIPageClientProps
             <Button onClick={handleEnableCloud} fullWidth disabled={cloudSyncing || modalSuccess}>
               {cloudSyncing ? (
                 <span className="flex items-center gap-2">
-                  <span className="material-symbols-outlined animate-spin text-sm">
-                    progress_activity
-                  </span>
+                  <Icon icon={LoaderCircle} size="sm" color="current" className="animate-spin" />
                   {syncStep === "syncing" ? t("connecting") : t("verifying")}
                 </span>
               ) : modalSuccess ? (
                 <span className="flex items-center gap-2">
-                  <span className="material-symbols-outlined text-sm">check</span>
+                  <Icon icon={Check} size="sm" color="current" />
                   {t("connected")}
                 </span>
               ) : (
@@ -2220,9 +2206,7 @@ export default function APIPageClient({ machineId }: Readonly<APIPageClientProps
         <div className="flex flex-col gap-4">
           <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
             <div className="flex items-start gap-3">
-              <span className="material-symbols-outlined text-red-600 dark:text-red-400">
-                warning
-              </span>
+              <Icon icon={TriangleAlert} size="lg" color="feedback-danger-foreground" className="dark:text-red-400" />
               <div>
                 <p className="text-sm text-red-800 dark:text-red-200 font-medium mb-1">
                   {tc("warning")}
@@ -2235,9 +2219,7 @@ export default function APIPageClient({ machineId }: Readonly<APIPageClientProps
           {/* Sync Progress */}
           {cloudSyncing && (
             <div className="flex items-center gap-3 p-3 bg-primary/10 border border-primary/30 rounded-lg">
-              <span className="material-symbols-outlined animate-spin text-primary">
-                progress_activity
-              </span>
+              <Icon icon={LoaderCircle} size="lg" color="primary" className="animate-spin" />
               <div className="flex-1">
                 <p className="text-sm font-medium text-primary">
                   {syncStep === "syncing" && t("syncingData")}
@@ -2258,9 +2240,7 @@ export default function APIPageClient({ machineId }: Readonly<APIPageClientProps
             >
               {cloudSyncing ? (
                 <span className="flex items-center gap-2">
-                  <span className="material-symbols-outlined animate-spin text-sm">
-                    progress_activity
-                  </span>
+                  <Icon icon={LoaderCircle} size="sm" color="current" className="animate-spin" />
                   {syncStep === "syncing" ? t("syncing") : t("disabling")}
                 </span>
               ) : (
@@ -2324,9 +2304,7 @@ export default function APIPageClient({ machineId }: Readonly<APIPageClientProps
             >
               {tailscaleInstallBusy ? (
                 <span className="flex items-center gap-2">
-                  <span className="material-symbols-outlined animate-spin text-sm">
-                    progress_activity
-                  </span>
+                  <Icon icon={LoaderCircle} size="sm" color="current" className="animate-spin" />
                   {translateOrFallback("tailscaleInstalling", "Installing")}
                 </span>
               ) : (

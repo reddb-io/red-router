@@ -1,5 +1,7 @@
 "use client";
 
+import { CircleAlert, TriangleAlert } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useCallback, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { Button, Input, Modal } from "@/shared/components";
@@ -50,7 +52,7 @@ export function MitmSudoPasswordModal({
     <Modal isOpen={isOpen} onClose={handleClose} title={tCli("sudoPasswordRequiredTitle")} size="sm">
       <div className="flex flex-col gap-4">
         <div className="flex items-start gap-3 rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-3">
-          <span className="material-symbols-outlined text-[20px] text-yellow-500">warning</span>
+          <Icon icon={TriangleAlert} size="lg" color="feedback-warning-foreground" />
           <p className="text-xs text-text-muted">{tCli("sudoPasswordHint")}</p>
         </div>
 
@@ -66,7 +68,7 @@ export function MitmSudoPasswordModal({
 
         {displayError && (
           <div className="flex items-center gap-2 rounded bg-red-500/10 px-2 py-1.5 text-xs text-red-600">
-            <span className="material-symbols-outlined text-[14px]">error</span>
+            <Icon icon={CircleAlert} size="sm" color="current" />
             <span>{displayError}</span>
           </div>
         )}

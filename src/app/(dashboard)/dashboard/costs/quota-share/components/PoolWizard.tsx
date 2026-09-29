@@ -17,6 +17,8 @@
  * Phase C1 — Quota Share Redesign.
  */
 
+import { ArrowLeft, ArrowRight, Check, Plus, X } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useMemo, useState, type Dispatch, type SetStateAction } from "react";
 import { useTranslations } from "next-intl";
 import { Button, Modal } from "@/shared/components";
@@ -149,7 +151,7 @@ function Stepper({ currentStep }: { currentStep: 1 | 2 | 3 }) {
               }`}
             >
               {currentStep > step.num ? (
-                <span className="material-symbols-outlined text-[12px]">check</span>
+                <Icon icon={Check} size="sm" color="current" />
               ) : (
                 step.num
               )}
@@ -786,7 +788,7 @@ export default function PoolWizard({
                 className="flex items-center gap-1.5 text-sm px-4 py-2 rounded-lg bg-primary text-white hover:bg-primary/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 {t("wizardNext")}
-                <span className="material-symbols-outlined text-[16px]">arrow_forward</span>
+                <Icon icon={ArrowRight} size="md" color="current" />
               </button>
             </div>
           </div>
@@ -813,7 +815,7 @@ export default function PoolWizard({
                   onClick={addDimension}
                   className="text-[11px] text-primary hover:underline cursor-pointer flex items-center gap-1"
                 >
-                  <span className="material-symbols-outlined text-[14px]">add</span>
+                  <Icon icon={Plus} size="sm" color="current" />
                   {tPlans("addDimension")}
                 </button>
               </div>
@@ -868,7 +870,7 @@ export default function PoolWizard({
                       onClick={() => removeDimension(i)}
                       className="p-0.5 rounded hover:bg-red-500/10 text-text-muted hover:text-red-400 cursor-pointer"
                     >
-                      <span className="material-symbols-outlined text-[16px]">close</span>
+                      <Icon icon={X} size="md" color="current" />
                     </button>
                   </div>
                 ))}
@@ -891,7 +893,7 @@ export default function PoolWizard({
                 onClick={() => setStep(1)}
                 className="flex items-center gap-1.5 text-sm px-4 py-2 rounded-lg border border-border text-text-muted hover:text-text-main hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
               >
-                <span className="material-symbols-outlined text-[16px]">arrow_back</span>
+                <Icon icon={ArrowLeft} size="md" color="current" />
                 {t("wizardBack")}
               </button>
               <button
@@ -899,7 +901,7 @@ export default function PoolWizard({
                 className="flex items-center gap-1.5 text-sm px-4 py-2 rounded-lg bg-primary text-white hover:bg-primary/90 transition-colors"
               >
                 {t("wizardNext")}
-                <span className="material-symbols-outlined text-[16px]">arrow_forward</span>
+                <Icon icon={ArrowRight} size="md" color="current" />
               </button>
             </div>
           </div>
@@ -974,7 +976,7 @@ export default function PoolWizard({
                         onClick={() => removeAllocation(a.apiKeyId)}
                         className="p-0.5 rounded hover:bg-red-500/10 text-text-muted hover:text-red-400 cursor-pointer"
                       >
-                        <span className="material-symbols-outlined text-[16px]">close</span>
+                        <Icon icon={X} size="md" color="current" />
                       </button>
                     </div>
                   );
@@ -1083,7 +1085,7 @@ export default function PoolWizard({
                 disabled={saving}
                 className="flex items-center gap-1.5 text-sm px-4 py-2 rounded-lg border border-border text-text-muted hover:text-text-main hover:bg-black/5 dark:hover:bg-white/5 transition-colors disabled:opacity-40"
               >
-                <span className="material-symbols-outlined text-[16px]">arrow_back</span>
+                <Icon icon={ArrowLeft} size="md" color="current" />
                 {t("wizardBack")}
               </button>
               <Button

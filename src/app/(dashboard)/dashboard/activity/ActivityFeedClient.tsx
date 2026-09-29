@@ -1,5 +1,7 @@
 "use client";
 
+import { LoaderCircle, RefreshCw } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useEffect, useCallback } from "react";
 import { useTranslations } from "next-intl";
 import type { AuditLogEntry } from "@/lib/compliance/index";
@@ -73,19 +75,12 @@ export default function ActivityFeedClient() {
         >
           {loading ? (
             <span className="flex items-center gap-2">
-              <span
-                className="material-symbols-outlined text-[16px] animate-spin"
-                aria-hidden="true"
-              >
-                progress_activity
-              </span>
+              <Icon icon={LoaderCircle} size="md" color="current" className="animate-spin" />
               {t("loading")}
             </span>
           ) : (
             <span className="flex items-center gap-2">
-              <span className="material-symbols-outlined text-[16px]" aria-hidden="true">
-                refresh
-              </span>
+              <Icon icon={RefreshCw} size="md" color="current" />
               {t("refresh")}
             </span>
           )}

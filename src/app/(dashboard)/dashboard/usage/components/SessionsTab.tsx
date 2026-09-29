@@ -1,5 +1,7 @@
 "use client";
 
+import { Fingerprint } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useTranslations } from "next-intl";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -71,9 +73,7 @@ export default function SessionsTab() {
     <Card>
       <div className="flex items-center gap-3 mb-5">
         <div className="p-2 rounded-lg bg-cyan-500/10 text-cyan-500">
-          <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
-            fingerprint
-          </span>
+          <Icon icon={Fingerprint} size="lg" color="current" />
         </div>
         <div className="flex-1">
           <h3 className="text-lg font-semibold">{t("activeSessions")}</h3>

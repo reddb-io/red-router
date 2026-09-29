@@ -1,5 +1,7 @@
 "use client";
 
+import { Upload } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useEffect, useCallback } from "react";
 import { useTranslations } from "next-intl";
 import FilesListTab from "../FilesListTab";
@@ -54,7 +56,7 @@ export default function BatchFilesPage() {
           onClick={() => setShowUpload(true)}
           className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-[var(--color-accent)] text-white hover:opacity-90 transition-opacity"
         >
-          <span className="material-symbols-outlined text-[16px]">upload</span>
+          <Icon icon={Upload} size="md" color="current" />
           {t("filesListUploadButton")}
         </button>
       </div>

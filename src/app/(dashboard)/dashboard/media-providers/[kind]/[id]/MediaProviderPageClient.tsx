@@ -1,5 +1,7 @@
 "use client";
 
+import { Info, ScanEye } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
@@ -79,7 +81,7 @@ function renderPlayground(
       return (
         <div className="flex flex-col gap-2 border border-dashed border-border rounded-xl p-6">
           <div className="flex items-center gap-2 text-text-muted">
-            <span className="material-symbols-outlined text-[20px]">image_search</span>
+            <Icon icon={ScanEye} size="lg" color="current" />
             <h3 className="text-sm font-medium">{bridgeCopy.imageToText.title}</h3>
           </div>
           <p className="text-xs text-text-muted">{bridgeCopy.imageToText.description}</p>
@@ -137,7 +139,7 @@ export default function MediaProviderPageClient({
     <div className="flex flex-col gap-6">
       {activeKind === "stt" && providerId === "openrouter" && (
         <div className="text-xs text-text-muted border border-border rounded-lg p-3 flex items-start gap-2">
-          <span className="material-symbols-outlined text-[16px] text-blue-500 mt-0.5">info</span>
+          <Icon icon={Info} size="md" color="current" className="mt-0.5" />
           <span>
             <strong>{t("existingConnection")}:</strong> {t("openrouterSttDescription")}
           </span>

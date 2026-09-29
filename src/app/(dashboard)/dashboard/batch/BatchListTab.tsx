@@ -1,5 +1,7 @@
 "use client";
 
+import { FileDown, Hourglass } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState } from "react";
 import { useTranslations } from "next-intl";
 import { matchesSearch } from "@/shared/utils/turkishText";
@@ -239,7 +241,7 @@ function BatchRowActions({
           title={t("batchActionDownloadErrors")}
           className="flex items-center justify-center p-1 rounded text-[var(--color-text-muted)] hover:text-yellow-400 hover:bg-yellow-500/10 transition-colors"
         >
-          <span className="material-symbols-outlined text-[13px]">file_download</span>
+          <Icon icon={FileDown} size="sm" color="current" />
         </a>
       )}
 
@@ -510,9 +512,7 @@ export default function BatchListTab({
                     <td className="px-4 py-3 min-w-[140px]">
                       {batch.status === "validating" ? (
                         <div className="flex items-center gap-2 text-xs text-yellow-400">
-                          <span className="material-symbols-outlined text-[14px] animate-spin">
-                            hourglass_top
-                          </span>
+                          <Icon icon={Hourglass} size="sm" color="current" className="animate-spin" />
                           {t("batchListValidating")}
                         </div>
                       ) : total > 0 ? (

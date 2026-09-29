@@ -4,6 +4,7 @@
 // ConnectionRow (and its local helpers CooldownTimer, inferErrorType,
 // getStatusPresentation) moved out of ProviderDetailPageClient.tsx.
 
+import { Banknote, Calendar, ChevronDown, ChevronUp, CircleAlert, GlobeLock, Key, RefreshCw, Rss, ScanFace, Shield, Timer, Trash2, TriangleAlert } from "lucide-react";
 import { readCookieExpiresAt } from "@/shared/utils/webCookieExpiry";
 import { useState, useEffect } from "react";
 import { useTranslations } from "next-intl";
@@ -582,14 +583,14 @@ export default function ConnectionRow({
             disabled={isFirst}
             className={`p-0.5 rounded ${isFirst ? "text-text-muted/30 cursor-not-allowed" : "hover:bg-sidebar text-text-muted hover:text-primary"}`}
           >
-            <span className="material-symbols-outlined text-sm">keyboard_arrow_up</span>
+            <Icon icon={ChevronUp} size="sm" color="current" />
           </button>
           <button
             onClick={onMoveDown}
             disabled={isLast}
             className={`p-0.5 rounded ${isLast ? "text-text-muted/30 cursor-not-allowed" : "hover:bg-sidebar text-text-muted hover:text-primary"}`}
           >
-            <span className="material-symbols-outlined text-sm">keyboard_arrow_down</span>
+            <Icon icon={ChevronDown} size="sm" color="current" />
           </button>
         </div>
         <span className="material-symbols-outlined text-base text-text-muted">
@@ -655,7 +656,7 @@ export default function ConnectionRow({
                     className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs font-medium bg-red-500/15 text-red-500"
                     title={t("tokenExpiredTitle", { date: effectiveExpiresAt })}
                   >
-                    <span className="material-symbols-outlined text-[11px]">error</span>
+                    <Icon icon={CircleAlert} size="sm" color="current" />
                     {t("tokenExpiredBadge")}
                   </span>
                 ) : null
@@ -664,7 +665,7 @@ export default function ConnectionRow({
                   className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs font-medium bg-amber-500/15 text-amber-500"
                   title={t("tokenExpiresSoonTitle", { minutes: tokenMinsLeft })}
                 >
-                  <span className="material-symbols-outlined text-[11px]">warning</span>
+                  <Icon icon={TriangleAlert} size="sm" color="current" />
                   {`~${tokenMinsLeft}m`}
                 </span>
               ) : null)}
@@ -695,7 +696,7 @@ export default function ConnectionRow({
                 className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs font-medium bg-zinc-500/15 text-zinc-500 dark:bg-zinc-400/15 dark:text-zinc-400"
                 title={t("accountConcurrencyCapLabel")}
               >
-                <span className="material-symbols-outlined text-[11px]">dynamic_feed</span>
+                <Icon icon={Rss} size="sm" color="current" />
                 {connection.maxConcurrent}
               </span>
             )}
@@ -712,7 +713,7 @@ export default function ConnectionRow({
                 rateLimitEnabled ? t("disableRateLimitProtection") : t("enableRateLimitProtection")
               }
             >
-              <span className="material-symbols-outlined text-[13px]">shield</span>
+              <Icon icon={Shield} size="sm" color="current" />
               {rateLimitEnabled ? t("rateLimitProtected") : t("rateLimitUnprotected")}
             </button>
             {onToggleQuotaVisibility && (
@@ -734,7 +735,7 @@ export default function ConnectionRow({
                   }`}
                   title={t("autoSyncTooltip")}
                 >
-                  <span className="material-symbols-outlined text-[13px]">sync</span>
+                  <Icon icon={RefreshCw} size="sm" color="current" />
                   {t("autoSyncShort")}
                 </button>
               </>
@@ -751,7 +752,7 @@ export default function ConnectionRow({
                   }`}
                   title={t("claudeExtraUsageToggleTitle")}
                 >
-                  <span className="material-symbols-outlined text-[13px]">payments</span>
+                  <Icon icon={Banknote} size="sm" color="current" />
                   {t("claudeExtraUsageShort")}{" "}
                   {!claudeBlockExtraUsageEnabled ? t("toggleOnShort") : t("toggleOffShort")}
                 </button>
@@ -823,7 +824,7 @@ export default function ConnectionRow({
                   }`}
                   title={t("codex5hToggleTitle")}
                 >
-                  <span className="material-symbols-outlined text-[13px]">timer</span>
+                  <Icon icon={Timer} size="sm" color="current" />
                   5h {codex5hEnabled ? t("toggleOnShort") : t("toggleOffShort")}
                 </button>
                 <button
@@ -835,7 +836,7 @@ export default function ConnectionRow({
                   }`}
                   title={t("codexWeeklyToggleTitle")}
                 >
-                  <span className="material-symbols-outlined text-[13px]">date_range</span>
+                  <Icon icon={Calendar} size="sm" color="current" />
                   {t("weeklyShort")} {codexWeeklyEnabled ? t("toggleOnShort") : t("toggleOffShort")}
                 </button>
               </>
@@ -853,7 +854,7 @@ export default function ConnectionRow({
                   }`}
                   title={proxyEnabled ? t("proxyEnabledTitle") : t("proxyDisabledTitle")}
                 >
-                  <span className="material-symbols-outlined text-[13px]">vpn_lock</span>
+                  <Icon icon={GlobeLock} size="sm" color="current" />
                   {proxyEnabled ? <span className="sr-only">{t("proxyOn")}</span> : t("proxyOff")}
                 </button>
               </>
@@ -879,7 +880,7 @@ export default function ConnectionRow({
                       : t("perKeyProxyDisabledTitle")
                   }
                 >
-                  <span className="material-symbols-outlined text-[13px]">key</span>
+                  <Icon icon={Key} size="sm" color="current" />
                   {perKeyProxyEnabled ? (
                     t("perKeyProxyOn")
                   ) : (
@@ -912,7 +913,7 @@ export default function ConnectionRow({
                         host: proxyHost || t("configured"),
                       })}
                     >
-                      <span className="material-symbols-outlined text-[13px]">vpn_lock</span>
+                      <Icon icon={GlobeLock} size="sm" color="current" />
                       {proxyName || proxyHost || t("proxy")}
                     </span>
                   </>
@@ -1018,7 +1019,7 @@ export default function ConnectionRow({
               className="p-2 hover:bg-amber-500/10 rounded text-amber-600 hover:text-amber-500"
               title={t("reauthenticateConnection")}
             >
-              <span className="material-symbols-outlined text-[18px]">passkey</span>
+              <Icon icon={ScanFace} size="md" color="current" />
             </button>
           )}
           <button
@@ -1033,14 +1034,14 @@ export default function ConnectionRow({
             className="p-2 hover:bg-black/5 dark:hover:bg-white/5 rounded text-text-muted hover:text-primary"
             title={t("proxyConfig")}
           >
-            <span className="material-symbols-outlined text-[18px]">vpn_lock</span>
+            <Icon icon={GlobeLock} size="md" color="current" />
           </button>
           <button
             onClick={onDelete}
             className="p-2 hover:bg-red-500/10 rounded text-red-500"
             title={t("delete")}
           >
-            <span className="material-symbols-outlined text-[18px]">delete</span>
+            <Icon icon={Trash2} size="md" color="current" />
           </button>
         </div>
       </div>

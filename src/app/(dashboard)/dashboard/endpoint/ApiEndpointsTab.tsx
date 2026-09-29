@@ -1,5 +1,7 @@
 "use client";
 
+import { Braces, CircleAlert, Download, ExternalLink, Folder, Lock, Plug, ScrollText } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { useTranslations } from "next-intl";
 import { Card } from "@/shared/components";
@@ -325,7 +327,7 @@ export default function ApiEndpointsTab() {
           <div className="flex items-center justify-between flex-wrap gap-3">
             <div className="flex items-center gap-3">
               <div className="flex items-center justify-center size-10 rounded-xl bg-primary/10">
-                <span className="material-symbols-outlined text-primary text-[20px]">api</span>
+                <Icon icon={Plug} size="lg" color="primary" />
               </div>
               <div>
                 <div className="flex items-center gap-2">
@@ -349,7 +351,7 @@ export default function ApiEndpointsTab() {
                 className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-lg
                            bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 transition-colors"
               >
-                <span className="material-symbols-outlined text-[14px]">download</span>
+                <Icon icon={Download} size="sm" color="current" />
                 YAML
               </a>
               <a
@@ -359,7 +361,7 @@ export default function ApiEndpointsTab() {
                 className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-lg
                            bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 transition-colors"
               >
-                <span className="material-symbols-outlined text-[14px]">open_in_new</span>
+                <Icon icon={ExternalLink} size="sm" color="current" />
                 JSON
               </a>
             </div>
@@ -373,7 +375,7 @@ export default function ApiEndpointsTab() {
           <Card className="p-6">
             <div className="flex items-start gap-3">
               <div className="flex size-10 items-center justify-center rounded-lg bg-red-500/10">
-                <span className="material-symbols-outlined text-[20px] text-red-500">error</span>
+                <Icon icon={CircleAlert} size="lg" color="feedback-danger-foreground" />
               </div>
               <div>
                 <h3 className="text-sm font-semibold text-text-main">
@@ -389,7 +391,7 @@ export default function ApiEndpointsTab() {
                   className="inline-flex items-center gap-1 mt-3 px-2.5 py-1.5 text-xs font-medium rounded-lg
                            bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 transition-colors"
                 >
-                  <span className="material-symbols-outlined text-[14px]">open_in_new</span>
+                  <Icon icon={ExternalLink} size="sm" color="current" />
                   {t("openJsonResponse")}
                 </a>
               </div>
@@ -493,7 +495,7 @@ export default function ApiEndpointsTab() {
           {Object.entries(groupedEndpoints).map(([tag, endpoints]) => (
             <Card key={tag} className="overflow-hidden">
               <div className="flex items-center gap-2 px-4 py-3 border-b border-black/5 dark:border-white/5">
-                <span className="material-symbols-outlined text-[14px] text-primary">folder</span>
+                <Icon icon={Folder} size="sm" color="primary" />
                 <h3 className="text-xs font-semibold uppercase tracking-wider text-text-muted">
                   {tag}
                 </h3>
@@ -555,17 +557,13 @@ export default function ApiEndpointsTab() {
                               <div className="flex items-center gap-3 mt-2 text-[10px] text-text-muted">
                                 {ep.security && (
                                   <span className="flex items-center gap-1">
-                                    <span className="material-symbols-outlined text-[12px] text-amber-500">
-                                      lock
-                                    </span>
+                                    <Icon icon={Lock} size="sm" color="feedback-warning-foreground" />
                                     {t("bearerAuth")}
                                   </span>
                                 )}
                                 {ep.requestBody && (
                                   <span className="flex items-center gap-1">
-                                    <span className="material-symbols-outlined text-[12px]">
-                                      description
-                                    </span>
+                                    <Icon icon={ScrollText} size="sm" color="current" />
                                     {t("requestBody")}
                                   </span>
                                 )}
@@ -733,9 +731,7 @@ export default function ApiEndpointsTab() {
           {catalog.schemas.length > 0 && (
             <Card className="p-4">
               <div className="flex items-center gap-2 mb-3">
-                <span className="material-symbols-outlined text-[14px] text-primary">
-                  data_object
-                </span>
+                <Icon icon={Braces} size="sm" color="primary" />
                 <h3 className="text-xs font-semibold uppercase tracking-wider text-text-muted">
                   {t("dataSchemas")}
                 </h3>

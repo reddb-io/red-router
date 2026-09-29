@@ -1,5 +1,7 @@
 "use client";
 
+import { Folder, Plug } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useMemo, useEffect } from "react";
 import { useTranslations } from "next-intl";
 import useEmailPrivacyStore from "@/store/emailPrivacyStore";
@@ -282,9 +284,7 @@ export default function QuotaEndpointsCard({
       {/* Header row */}
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div className="flex items-start gap-2">
-          <span className="material-symbols-outlined text-[18px] text-primary shrink-0 mt-0.5">
-            api
-          </span>
+          <Icon icon={Plug} size="md" color="primary" className="shrink-0 mt-0.5" />
           <div>
             <span className="text-sm font-semibold text-text-main">{t("endpointsTitle")}</span>
             <p className="text-xs text-text-muted mt-0.5 max-w-lg">{t("endpointsHint")}</p>
@@ -410,9 +410,7 @@ export default function QuotaEndpointsCard({
               return (
                 <div key={group.id}>
                   <div className="flex items-center gap-1.5 mb-1">
-                    <span className="material-symbols-outlined text-[13px] text-text-muted">
-                      folder
-                    </span>
+                    <Icon icon={Folder} size="sm" color="ink-muted" />
                     <span className="text-[11px] font-semibold text-text-muted uppercase tracking-wide">
                       {quotaGroupSlug(group.name)}
                     </span>

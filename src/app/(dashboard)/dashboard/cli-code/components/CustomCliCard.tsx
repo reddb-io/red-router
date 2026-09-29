@@ -1,5 +1,7 @@
 "use client";
 
+import { Lightbulb, Plus, Trash2, TriangleAlert } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useMemo, useState, useCallback } from "react";
 import { Card, Button } from "@/shared/components";
 import { useTranslations } from "next-intl";
@@ -145,9 +147,7 @@ export default function CustomCliCard({
       {isExpanded && (
         <div className="mt-6 pt-6 border-t border-border space-y-5">
           <div className="flex items-start gap-3 p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-lg">
-            <span className="material-symbols-outlined text-emerald-500 text-lg">
-              tips_and_updates
-            </span>
+            <Icon icon={Lightbulb} size="md" color="feedback-success-foreground" />
             <div className="text-sm text-emerald-700 dark:text-emerald-300">
               <p className="font-medium">
                 {translateOrFallback("customCliBuilderTitle", "OpenAI-compatible CLI builder")}
@@ -163,7 +163,7 @@ export default function CustomCliCard({
 
           {!hasActiveProviders && (
             <div className="flex items-start gap-3 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
-              <span className="material-symbols-outlined text-yellow-500 text-lg">warning</span>
+              <Icon icon={TriangleAlert} size="md" color="feedback-warning-foreground" />
               <div>
                 <p className="text-sm font-medium text-yellow-700 dark:text-yellow-300">
                   {translateOrFallback("noActiveProviders", "No active providers")}
@@ -264,7 +264,7 @@ export default function CustomCliCard({
                   </p>
                 </div>
                 <Button variant="outline" size="sm" onClick={handleAddMapping}>
-                  <span className="material-symbols-outlined text-[14px] mr-1">add</span>
+                  <Icon icon={Plus} size="sm" color="current" className="mr-1" />
                   {translateOrFallback("customCliAddAlias", "Add alias")}
                 </Button>
               </div>
@@ -313,7 +313,7 @@ export default function CustomCliCard({
                         size="sm"
                         onClick={() => handleRemoveMapping(mapping.id)}
                       >
-                        <span className="material-symbols-outlined text-[16px]">delete</span>
+                        <Icon icon={Trash2} size="md" color="current" />
                       </Button>
                     </div>
                   ))}

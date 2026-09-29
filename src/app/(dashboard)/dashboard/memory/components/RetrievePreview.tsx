@@ -1,5 +1,7 @@
 "use client";
 
+import { Check, TriangleAlert } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useTranslations } from "next-intl";
 import { Badge } from "@/shared/components";
 import type { RetrievePreviewResult } from "@/shared/schemas/memory";
@@ -40,13 +42,13 @@ export default function RetrievePreview({ result }: Props) {
         </p>
         {resolution.rerankApplied && (
           <p className="text-emerald-400">
-            <span className="material-symbols-outlined text-[12px] align-middle mr-1">check</span>
+            <Icon icon={Check} size="sm" color="current" className="align-middle mr-1" />
             {t("playground.rerankApplied")}
           </p>
         )}
         {resolution.fallbackReason && (
           <p className="text-amber-400">
-            <span className="material-symbols-outlined text-[12px] align-middle mr-1">warning</span>
+            <Icon icon={TriangleAlert} size="sm" color="current" className="align-middle mr-1" />
             {t("playground.fallback")}: {resolution.fallbackReason}
           </p>
         )}

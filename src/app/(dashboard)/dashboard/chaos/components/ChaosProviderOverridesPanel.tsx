@@ -1,5 +1,7 @@
 "use client";
 
+import { Plus, X } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useTranslations } from "next-intl";
 
 export interface ChaosProviderInfo {
@@ -70,7 +72,7 @@ function ChaosProviderOverrideRow({
         onClick={() => onRemove(index)}
         className="px-2 py-1 rounded text-xs text-red-500 hover:bg-red-500/10"
       >
-        <span className="material-symbols-outlined text-[14px]">close</span>
+        <Icon icon={X} size="sm" color="current" />
       </button>
     </div>
   );
@@ -137,7 +139,7 @@ export function ChaosProviderOverridesPanel({
           onClick={onAdd}
           className="flex items-center gap-1 px-2 py-1 rounded-md text-xs font-semibold bg-primary/10 text-primary hover:bg-primary/20"
         >
-          <span className="material-symbols-outlined text-[14px]">add</span>
+          <Icon icon={Plus} size="sm" color="current" />
           {addLabel}
         </button>
       </div>

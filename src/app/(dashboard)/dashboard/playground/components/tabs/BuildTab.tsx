@@ -2,6 +2,8 @@
 
 // src/app/(dashboard)/dashboard/playground/components/tabs/BuildTab.tsx
 
+import { SquareFunction } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { useToolsBuilder } from "../../hooks/useToolsBuilder";
@@ -258,9 +260,7 @@ export default function BuildTab({ configState }: BuildTabProps) {
                 className="border border-amber-500/40 rounded-lg p-3 bg-amber-500/5"
               >
                 <div className="flex items-center gap-2 mb-2">
-                  <span className="material-symbols-outlined text-[14px] text-amber-500">
-                    function
-                  </span>
+                  <Icon icon={SquareFunction} size="sm" color="feedback-warning-foreground" />
                   <code className="text-xs font-mono text-text-main">
                     {tc.function.name}
                   </code>

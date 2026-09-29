@@ -1,3 +1,5 @@
+import { CircleCheck } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
 
@@ -59,12 +61,7 @@ export default function ErrorPageScaffold({
           >
             {suggestions.map((item) => (
               <li key={item} className="flex items-start gap-2">
-                <span
-                  className="material-symbols-outlined text-base text-primary mt-0.5"
-                  aria-hidden="true"
-                >
-                  check_circle
-                </span>
+                <Icon icon={CircleCheck} size="md" color="primary" className="mt-0.5" />
                 <span>{item}</span>
               </li>
             ))}

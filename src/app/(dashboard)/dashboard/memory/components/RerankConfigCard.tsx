@@ -1,5 +1,7 @@
 "use client";
 
+import { TriangleAlert } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useTranslations } from "next-intl";
 import type { MemorySettingsExtended } from "@/shared/schemas/memory";
 import type { EmbeddingProviderListing } from "@/lib/memory/embedding/types";
@@ -62,7 +64,7 @@ export default function RerankConfigCard({ settings, providers, onSave, saving }
         <>
           {/* Latency / cost warning */}
           <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs text-amber-400 flex items-start gap-2">
-            <span className="material-symbols-outlined text-[14px] mt-0.5 shrink-0">warning</span>
+            <Icon icon={TriangleAlert} size="sm" color="current" className="mt-0.5 shrink-0" />
             <span>{t("rerank.warning")}</span>
           </div>
 
@@ -75,7 +77,7 @@ export default function RerankConfigCard({ settings, providers, onSave, saving }
                 data-testid="rerank-no-provider-warning"
                 className="text-xs text-amber-400 flex items-center gap-1"
               >
-                <span className="material-symbols-outlined text-[12px]">warning</span>
+                <Icon icon={TriangleAlert} size="sm" color="current" />
                 {t("rerank.noProviderWithKey")}
               </p>
             ) : (

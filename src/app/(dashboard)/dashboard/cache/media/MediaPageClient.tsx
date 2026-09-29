@@ -1,5 +1,7 @@
 "use client";
 
+import { CircleAlert, Download, ExternalLink, LoaderCircle } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useEffect } from "react";
 import { useTranslations } from "next-intl";
 import Link from "next/link";
@@ -399,7 +401,7 @@ function ImageResults({ data }: { data: any }) {
               download={`image-${i + 1}.png`}
               className="absolute bottom-2 right-2 bg-black/60 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1"
             >
-              <span className="material-symbols-outlined text-[13px]">download</span>
+              <Icon icon={Download} size="sm" color="current" />
               {t("save")}
             </a>
             {img.revised_prompt && (
@@ -828,7 +830,7 @@ export default function MediaPageClient() {
             />
             {fileSizeError && (
               <p className="text-xs text-red-400 mt-1 flex items-center gap-1">
-                <span className="material-symbols-outlined text-[12px]">error</span>
+                <Icon icon={CircleAlert} size="sm" color="current" />
                 {fileSizeError}
               </p>
             )}
@@ -918,9 +920,7 @@ export default function MediaPageClient() {
         >
           {loading ? (
             <>
-              <span className="material-symbols-outlined animate-spin text-[18px]">
-                progress_activity
-              </span>
+              <Icon icon={LoaderCircle} size="md" color="current" className="animate-spin" />
               {activeTab === "speech"
                 ? t("synthesizing")
                 : activeTab === "transcription"
@@ -968,7 +968,7 @@ export default function MediaPageClient() {
                 href="/dashboard/providers"
                 className="inline-flex items-center gap-1 mt-2 text-xs text-primary hover:underline"
               >
-                <span className="material-symbols-outlined text-[13px]">open_in_new</span>
+                <Icon icon={ExternalLink} size="sm" color="current" />
                 {t("configureApiKeys")} →
               </Link>
             )}
@@ -999,7 +999,7 @@ export default function MediaPageClient() {
                 download={`speech.${result.data?.format || "mp3"}`}
                 className="inline-flex items-center gap-2 text-sm text-primary hover:underline"
               >
-                <span className="material-symbols-outlined text-[16px]">download</span>
+                <Icon icon={Download} size="md" color="current" />
                 {t("downloadFormat", { format: result.data?.format?.toUpperCase() || "MP3" })}
               </a>
             </div>

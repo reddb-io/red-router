@@ -1,5 +1,7 @@
 "use client";
 
+import { ArrowLeft } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
@@ -291,7 +293,7 @@ export default function ToolDetailClient({ toolId, category }: ToolDetailClientP
           href={backCategory}
           className="inline-flex items-center gap-1.5 text-sm text-text-muted hover:text-primary transition-colors"
         >
-          <span className="material-symbols-outlined text-[16px]">arrow_back</span>
+          <Icon icon={ArrowLeft} size="md" color="current" />
           {category === "code" ? t("concept.code.title") : t("concept.agent.title")}
         </Link>
         <span className="text-text-muted">/</span>

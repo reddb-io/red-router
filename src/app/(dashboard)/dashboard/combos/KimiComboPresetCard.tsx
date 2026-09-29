@@ -1,5 +1,7 @@
 "use client";
 
+import { Zap } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useTranslations } from "next-intl";
 import { Card, Button } from "@/shared/components";
 
@@ -36,9 +38,7 @@ export default function KimiComboPresetCard({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex min-w-0 items-start gap-3">
           <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-[#1783FF]/10">
-            <span className="material-symbols-outlined text-[20px] text-[#1067CC] dark:text-[#7CB8FF]">
-              bolt
-            </span>
+            <Icon icon={Zap} size="lg" color="current" className="dark:text-[#7CB8FF]" />
           </div>
           <div className="min-w-0">
             <p className="text-sm font-semibold text-text-main">{t("kimiPresetTitle")}</p>

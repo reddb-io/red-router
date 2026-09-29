@@ -1,5 +1,8 @@
 "use client";
 
+
+import { Check } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 export type WebhookKind = "slack" | "telegram" | "discord" | "custom";
 export type ComingSoonKind = "email" | "pagerduty" | "teams";
 type AnyKind = WebhookKind | ComingSoonKind;
@@ -70,7 +73,7 @@ export function IntegrationCard({
       </div>
       {selected && !disabled && (
         <span className="ml-auto mt-auto flex size-5 items-center justify-center rounded-full bg-primary">
-          <span className="material-symbols-outlined text-[14px] text-white">check</span>
+          <Icon icon={Check} size="sm" color="foreground" />
         </span>
       )}
     </button>

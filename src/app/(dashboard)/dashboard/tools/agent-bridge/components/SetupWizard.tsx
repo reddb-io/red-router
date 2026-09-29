@@ -1,5 +1,7 @@
 "use client";
 
+import { ArrowRight, Check, CircleCheck, LoaderCircle, X } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import type { AgentStateEntry, AgentBridgeServerState } from "../AgentBridgePageClient";
@@ -161,9 +163,7 @@ export function SetupWizard({
             </div>
           </div>
           <button type="button" onClick={onClose} aria-label={tc("close")}>
-            <span className="material-symbols-outlined text-[18px] text-text-muted hover:text-text-main">
-              close
-            </span>
+            <Icon icon={X} size="md" color="ink-muted" className="hover:text-text-main" />
           </button>
         </div>
 
@@ -181,7 +181,7 @@ export function SetupWizard({
                 }`}
               >
                 {i < stepIndex ? (
-                  <span className="material-symbols-outlined text-[12px]">check</span>
+                  <Icon icon={Check} size="sm" color="current" />
                 ) : (
                   i + 1
                 )}
@@ -257,7 +257,7 @@ export function SetupWizard({
               </div>
               {dnsEnabled && (
                 <div className="flex items-center gap-2 text-sm text-emerald-500">
-                  <span className="material-symbols-outlined text-[16px]">check_circle</span>
+                  <Icon icon={CircleCheck} size="md" color="current" />
                   {t("wizardDnsAlreadyEnabled")}
                 </div>
               )}
@@ -267,15 +267,13 @@ export function SetupWizard({
           {step === "mappings" && (
             <div className="flex flex-col gap-3">
               <div className="flex items-center gap-2 text-emerald-500">
-                <span className="material-symbols-outlined text-[20px]">check_circle</span>
+                <Icon icon={CircleCheck} size="lg" color="current" />
                 <p className="text-sm font-medium">{t("wizardStep3Success")}</p>
               </div>
 
               {loadingModels ? (
                 <div className="flex items-center gap-2 text-sm text-text-muted">
-                  <span className="material-symbols-outlined text-[16px] animate-spin">
-                    progress_activity
-                  </span>
+                  <Icon icon={LoaderCircle} size="md" color="current" className="animate-spin" />
                   Detecting models from intercepted traffic...
                 </div>
               ) : detectedModels.length > 0 ? (
@@ -344,7 +342,7 @@ export function SetupWizard({
                 className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90 transition-colors"
               >
                 {t("next")}{" "}
-                <span className="material-symbols-outlined text-[14px] ml-1">arrow_forward</span>
+                <Icon icon={ArrowRight} size="sm" color="current" className="ml-1" />
               </button>
             )}
 

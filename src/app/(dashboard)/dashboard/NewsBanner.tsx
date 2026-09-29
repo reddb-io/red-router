@@ -1,5 +1,7 @@
 "use client";
 
+import { ExternalLink, X } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { useLocale, useTranslations } from "next-intl";
 
@@ -98,9 +100,7 @@ export default function NewsBanner() {
             className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:brightness-110"
           >
             {announcement.linkLabel ?? announcement.title}
-            <span className="material-symbols-outlined text-[14px]" aria-hidden="true">
-              open_in_new
-            </span>
+            <Icon icon={ExternalLink} size="sm" color="current" />
           </a>
         )}
         <button
@@ -109,9 +109,7 @@ export default function NewsBanner() {
           aria-label={t("dismissNotification")}
           className="text-text-muted transition-colors hover:text-text-main"
         >
-          <span className="material-symbols-outlined text-[18px]" aria-hidden="true">
-            close
-          </span>
+          <Icon icon={X} size="md" color="current" />
         </button>
       </div>
     </div>

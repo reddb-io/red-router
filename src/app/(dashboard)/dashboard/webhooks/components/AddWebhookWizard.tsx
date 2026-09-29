@@ -1,5 +1,7 @@
 "use client";
 
+import { RefreshCw } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useEffect, useState } from "react";
 import { Modal } from "@/shared/components";
 import { Step1ChooseIntegration } from "./steps/Step1ChooseIntegration";
@@ -240,7 +242,7 @@ export function AddWebhookWizard({
                 className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-primary/90 disabled:opacity-40"
               >
                 {saving && step === 2 && (
-                  <span className="material-symbols-outlined animate-spin text-[16px]">sync</span>
+                  <Icon icon={RefreshCw} size="md" color="current" className="animate-spin" />
                 )}
                 {t("wizard.next")}
               </button>
@@ -252,7 +254,7 @@ export function AddWebhookWizard({
                 className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-primary/90 disabled:opacity-40"
               >
                 {saving && (
-                  <span className="material-symbols-outlined animate-spin text-[16px]">sync</span>
+                  <Icon icon={RefreshCw} size="md" color="current" className="animate-spin" />
                 )}
                 {t("wizard.finish")}
               </button>

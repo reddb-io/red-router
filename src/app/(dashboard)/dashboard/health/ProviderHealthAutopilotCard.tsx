@@ -1,5 +1,7 @@
 "use client";
 
+import { HeartPulse } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
 import { Card } from "@/shared/components";
@@ -306,7 +308,7 @@ export default function ProviderHealthAutopilotCard() {
         <div>
           <div className="flex items-center gap-3">
             <div className="flex size-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
-              <span className="material-symbols-outlined text-[18px]">health_and_safety</span>
+              <Icon icon={HeartPulse} size="md" color="current" />
             </div>
             <div>
               <h2 className="text-lg font-semibold text-text-main">{t("title")}</h2>

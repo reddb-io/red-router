@@ -1,4 +1,6 @@
 "use client";
+import { X } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { pickDisplayValue } from "@/shared/utils/maskEmail";
 
 type BatchTestResultsModalProps = {
@@ -51,7 +53,7 @@ export default function BatchTestResultsModal({
             className="p-1 rounded-lg hover:bg-bg-subtle text-text-muted hover:text-text-primary transition-colors"
             aria-label={t("close")}
           >
-            <span className="material-symbols-outlined text-lg">close</span>
+            <Icon icon={X} size="md" color="current" />
           </button>
         </div>
         <div className="p-5">

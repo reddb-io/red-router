@@ -1,5 +1,7 @@
 "use client";
 
+import { ArrowRight } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useEffect, useMemo } from "react";
 import { useTranslations } from "next-intl";
 import Collapsible from "@/shared/components/Collapsible";
@@ -243,9 +245,7 @@ function TestBenchContent() {
               />
             </div>
             <div className="flex items-center justify-center px-2">
-              <span className="material-symbols-outlined text-[22px] text-text-muted">
-                arrow_forward
-              </span>
+              <Icon icon={ArrowRight} size="lg" color="ink-muted" />
             </div>
             <div className="flex-1 w-full">
               <label className="block text-xs font-medium text-text-muted mb-1.5 uppercase tracking-wider">

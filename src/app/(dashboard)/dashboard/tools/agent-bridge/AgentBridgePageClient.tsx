@@ -1,5 +1,7 @@
 "use client";
 
+import { Activity, CircleAlert, Download, Info, X } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useCallback, useState } from "react";
 import { useTranslations } from "next-intl";
 import Link from "next/link";
@@ -264,7 +266,7 @@ export default function AgentBridgePageClient({
           role="alert"
           className="flex items-center gap-2 rounded-xl border border-red-500/30 bg-red-500/5 px-4 py-3 text-sm text-red-600 dark:text-red-400"
         >
-          <span className="material-symbols-outlined text-[16px]">error</span>
+          <Icon icon={CircleAlert} size="md" color="current" />
           {actionError}
           <button
             type="button"
@@ -272,7 +274,7 @@ export default function AgentBridgePageClient({
             className="ml-auto text-red-500 hover:text-red-400"
             aria-label={tc("dismissNotification")}
           >
-            <span className="material-symbols-outlined text-[16px]">close</span>
+            <Icon icon={X} size="md" color="current" />
           </button>
         </div>
       )}
@@ -284,7 +286,7 @@ export default function AgentBridgePageClient({
           className="rounded-xl border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-sm text-amber-700 dark:text-amber-300"
         >
           <div className="flex items-center gap-2 font-medium">
-            <span className="material-symbols-outlined text-[16px]">info</span>
+            <Icon icon={Info} size="md" color="current" />
             {t("certManualTitle")}
             <button
               type="button"
@@ -292,7 +294,7 @@ export default function AgentBridgePageClient({
               className="ml-auto text-amber-600 hover:text-amber-500"
               aria-label={tc("dismissNotification")}
             >
-              <span className="material-symbols-outlined text-[16px]">close</span>
+              <Icon icon={X} size="md" color="current" />
             </button>
           </div>
           <ol className="mt-2 list-decimal pl-6 space-y-1">
@@ -307,7 +309,7 @@ export default function AgentBridgePageClient({
             download
             className="mt-2 inline-flex items-center gap-1.5 text-xs font-medium underline hover:no-underline"
           >
-            <span className="material-symbols-outlined text-[14px]">download</span>
+            <Icon icon={Download} size="sm" color="current" />
             {t("downloadCert")}
           </a>
         </div>
@@ -367,7 +369,7 @@ export default function AgentBridgePageClient({
                 href="/dashboard/tools/traffic-inspector"
                 className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
               >
-                <span className="material-symbols-outlined text-[14px]">network_check</span>
+                <Icon icon={Activity} size="sm" color="current" />
                 {t("quickLinkInspector")}
               </Link>
             </div>

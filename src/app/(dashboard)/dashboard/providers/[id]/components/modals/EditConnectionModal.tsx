@@ -1,5 +1,7 @@
 "use client";
 
+import { Rss, X } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState } from "react";
 import { useTranslations } from "next-intl";
 import { Button, Badge, Input, Modal, Toggle, Select } from "@/shared/components";
@@ -944,9 +946,7 @@ export default function EditConnectionModal({
         />
         <div className="flex flex-col gap-2 rounded-lg border border-primary/30 bg-primary/5 p-4">
           <div className="flex items-center gap-1.5 text-sm font-semibold text-primary">
-            <span className="material-symbols-outlined text-[18px]" aria-hidden="true">
-              dynamic_feed
-            </span>
+            <Icon icon={Rss} size="md" color="current" />
             {t("accountConcurrencyCapLabel")}
           </div>
           <Input
@@ -1535,7 +1535,7 @@ export default function EditConnectionModal({
                           className="p-1.5 rounded hover:bg-red-500/10 text-red-400 hover:text-red-500"
                           title={t("removeThisKey")}
                         >
-                          <span className="material-symbols-outlined text-[16px]">close</span>
+                          <Icon icon={X} size="md" color="current" />
                         </button>
                       </div>
                     </div>

@@ -1,5 +1,7 @@
 "use client";
 
+import { ArrowDownToLine, ArrowUpToLine, CircleCheck, FilePenLine } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useEffect, useRef } from "react";
 import { Card, Toggle } from "@/shared/components";
 import { useTranslations } from "next-intl";
@@ -62,9 +64,7 @@ export default function SystemPromptTab() {
     <Card>
       <div className="flex items-center gap-3 mb-5">
         <div className="p-2 rounded-lg bg-amber-500/10 text-amber-500">
-          <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
-            edit_note
-          </span>
+          <Icon icon={FilePenLine} size="lg" color="current" />
         </div>
         <div className="flex-1">
           <h3 className="text-lg font-semibold">{t("globalSystemPrompt")}</h3>
@@ -72,7 +72,7 @@ export default function SystemPromptTab() {
         <div className="flex items-center gap-3">
           {status === "saved" && (
             <span className="text-xs font-medium text-emerald-500 flex items-center gap-1">
-              <span className="material-symbols-outlined text-[14px]">check_circle</span>{" "}
+              <Icon icon={CircleCheck} size="sm" color="current" />{" "}
               {t("saved")}
             </span>
           )}
@@ -89,7 +89,7 @@ export default function SystemPromptTab() {
           {/* Before Prompt — injected BEFORE agent/provider instructions */}
           <div className="flex flex-col gap-2">
             <label className="text-sm font-medium text-text-secondary flex items-center gap-1.5">
-              <span className="material-symbols-outlined text-[16px]">vertical_align_top</span>
+              <Icon icon={ArrowUpToLine} size="md" color="current" />
               {t("beforePromptLabel")}
             </label>
             <p className="text-xs text-text-muted/70">{t("beforePromptDesc")}</p>
@@ -114,7 +114,7 @@ export default function SystemPromptTab() {
           {/* After Prompt — injected AFTER agent/provider instructions */}
           <div className="flex flex-col gap-2">
             <label className="text-sm font-medium text-text-secondary flex items-center gap-1.5">
-              <span className="material-symbols-outlined text-[16px]">vertical_align_bottom</span>
+              <Icon icon={ArrowDownToLine} size="md" color="current" />
               {t("afterPromptLabel")}
             </label>
             <p className="text-xs text-text-muted/70">{t("afterPromptDesc")}</p>

@@ -1,5 +1,7 @@
 "use client";
 
+import { ChartLine, Fingerprint } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useEffect, useCallback, type ReactNode } from "react";
 import { Card, Button, EmptyState } from "@/shared/components";
 import { useNotificationStore } from "@/store/notificationStore";
@@ -243,9 +245,7 @@ function PromptTrendPanel({
     return (
       <div className="rounded-3xl border border-border/30 bg-surface/20 p-5">
         <div className="flex items-center gap-2">
-          <span className="material-symbols-outlined text-base text-text-muted" aria-hidden="true">
-            timeline
-          </span>
+          <Icon icon={ChartLine} size="md" color="ink-muted" />
           <h3 className="text-sm font-medium text-text-main">{title}</h3>
         </div>
         <p className="mt-2 text-sm text-text-muted">{noDataLabel}</p>
@@ -270,12 +270,7 @@ function PromptTrendPanel({
       <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
         <div>
           <div className="flex items-center gap-2">
-            <span
-              className="material-symbols-outlined text-base text-text-muted"
-              aria-hidden="true"
-            >
-              timeline
-            </span>
+            <Icon icon={ChartLine} size="md" color="ink-muted" />
             <h3 className="text-sm font-medium text-text-main">{title}</h3>
           </div>
           <p className="mt-2 text-sm text-text-muted">{description}</p>
@@ -813,12 +808,7 @@ export default function CachePage() {
 
                 <div className="rounded-2xl border border-border/30 bg-surface/20 p-5">
                   <div className="flex items-center gap-2">
-                    <span
-                      className="material-symbols-outlined text-base text-text-muted"
-                      aria-hidden="true"
-                    >
-                      fingerprint
-                    </span>
+                    <Icon icon={Fingerprint} size="md" color="ink-muted" />
                     <h3 className="text-sm font-medium text-text-main">{t("idempotency")}</h3>
                   </div>
                   <div className="mt-4 grid gap-3 md:grid-cols-2">

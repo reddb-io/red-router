@@ -1,5 +1,7 @@
 "use client";
 
+import { Check, TriangleAlert } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useEffect } from "react";
 import { useTranslations } from "next-intl";
 import Button from "@/shared/components/Button";
@@ -57,7 +59,7 @@ export function RiskNoticeModal({
       <div className="w-full max-w-md rounded-xl border border-amber-500/30 bg-card p-6 shadow-xl">
         <div className="flex items-start gap-3 mb-4">
           <div className="p-2 rounded-lg bg-amber-500/10 text-amber-500 shrink-0">
-            <span className="material-symbols-outlined text-[20px]">warning</span>
+            <Icon icon={TriangleAlert} size="lg" color="current" />
           </div>
           <h2 id="risk-modal-title" className="text-base font-semibold text-text-main pt-1">
             {title}
@@ -71,7 +73,7 @@ export function RiskNoticeModal({
             {t("cancel") || "Cancel"}
           </Button>
           <Button variant="primary" onClick={handleAccept}>
-            <span className="material-symbols-outlined text-[14px] mr-1">check</span>
+            <Icon icon={Check} size="sm" color="current" className="mr-1" />
             {t("understand") || "I understand"}
           </Button>
         </div>

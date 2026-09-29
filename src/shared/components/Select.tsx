@@ -1,5 +1,7 @@
 "use client";
 
+import { ChevronDown, CircleAlert } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useId } from "react";
 import { useTranslations } from "next-intl";
 import { cn } from "@/shared/utils/cn";
@@ -94,7 +96,7 @@ export default function Select({
           className="absolute inset-y-0 end-0 flex items-center pe-3 pointer-events-none text-text-muted"
           aria-hidden="true"
         >
-          <span className="material-symbols-outlined text-[20px]">expand_more</span>
+          <Icon icon={ChevronDown} size="lg" color="current" />
         </div>
       </div>
       {error && (
@@ -103,9 +105,7 @@ export default function Select({
           className="text-xs text-feedback-danger-foreground flex items-center gap-1"
           role="alert"
         >
-          <span className="material-symbols-outlined text-[14px]" aria-hidden="true">
-            error
-          </span>
+          <Icon icon={CircleAlert} size="sm" color="current" />
           {error}
         </p>
       )}

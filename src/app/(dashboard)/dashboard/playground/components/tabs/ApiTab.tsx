@@ -5,6 +5,8 @@
 // Content migrated from src/app/(dashboard)/dashboard/playground/page.tsx (889 LOC).
 // Zero logic changes — just moved into this tab component.
 
+import { CircleCheck, Copy, Download, FlaskConical, LoaderCircle, Paperclip, RotateCcw } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useTranslations } from "next-intl";
 import { Card, Button, Select, Badge } from "@/shared/components";
@@ -170,7 +172,7 @@ function ImageResultsInline({ data }: { data: unknown }) {
                 download={`image-${i + 1}.png`}
                 className="absolute bottom-2 right-2 bg-black/60 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1"
               >
-                <span className="material-symbols-outlined text-[13px]">download</span>
+                <Icon icon={Download} size="sm" color="current" />
                 {t("save")}
               </a>
             </div>
@@ -512,9 +514,7 @@ export default function ApiTab(_props: ApiTabProps) {
     <div className="space-y-5 p-4 overflow-y-auto">
       {/* Info Banner */}
       <div className="flex items-start gap-3 px-4 py-3 rounded-lg bg-primary/5 border border-primary/10 text-sm text-text-muted">
-        <span className="material-symbols-outlined text-primary text-[20px] mt-0.5 shrink-0">
-          science
-        </span>
+        <Icon icon={FlaskConical} size="lg" color="primary" className="mt-0.5 shrink-0" />
         <div>
           <p className="font-medium text-text-main mb-0.5">{t("title")}</p>
           <p>{t("description")}</p>
@@ -626,9 +626,7 @@ export default function ApiTab(_props: ApiTabProps) {
         <Card>
           <div className="p-4 space-y-3">
             <div className="flex items-center gap-2">
-              <span className="material-symbols-outlined text-[18px] text-text-muted">
-                attach_file
-              </span>
+              <Icon icon={Paperclip} size="md" color="ink-muted" />
               <h3 className="text-sm font-semibold text-text-main">
                 {isTranscriptionEndpoint ? t("audioFile") : t("attachImages")}
               </h3>
@@ -653,9 +651,7 @@ export default function ApiTab(_props: ApiTabProps) {
                 />
                 {uploadedFile && (
                   <p className="text-xs text-text-muted mt-1 flex items-center gap-1">
-                    <span className="material-symbols-outlined text-[12px] text-green-500">
-                      check_circle
-                    </span>
+                    <Icon icon={CircleCheck} size="sm" color="feedback-success-foreground" />
                     {uploadedFile.name} ({(uploadedFile.size / 1024).toFixed(0)} KB)
                   </p>
                 )}
@@ -733,7 +729,7 @@ export default function ApiTab(_props: ApiTabProps) {
                   className="p-1.5 rounded hover:bg-black/5 dark:hover:bg-white/5 text-text-muted hover:text-text-main transition-colors"
                   title={t("copy")}
                 >
-                  <span className="material-symbols-outlined text-[16px]">content_copy</span>
+                  <Icon icon={Copy} size="md" color="current" />
                 </button>
                 <button
                   onClick={() => {
@@ -745,7 +741,7 @@ export default function ApiTab(_props: ApiTabProps) {
                   className="p-1.5 rounded hover:bg-black/5 dark:hover:bg-white/5 text-text-muted hover:text-text-main transition-colors"
                   title={t("resetToDefault")}
                 >
-                  <span className="material-symbols-outlined text-[16px]">restart_alt</span>
+                  <Icon icon={RotateCcw} size="md" color="current" />
                 </button>
               </div>
             </div>
@@ -782,9 +778,7 @@ export default function ApiTab(_props: ApiTabProps) {
           <div className="p-4 space-y-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <span className="material-symbols-outlined text-[18px] text-text-muted">
-                  download
-                </span>
+                <Icon icon={Download} size="md" color="ink-muted" />
                 <h3 className="text-sm font-semibold text-text-main">{t("response")}</h3>
                 {responseStatus !== null && (
                   <Badge
@@ -798,9 +792,7 @@ export default function ApiTab(_props: ApiTabProps) {
                   <span className="text-xs text-text-muted">{responseDuration}ms</span>
                 )}
                 {loading && (
-                  <span className="material-symbols-outlined text-[14px] text-primary animate-spin">
-                    progress_activity
-                  </span>
+                  <Icon icon={LoaderCircle} size="sm" color="primary" className="animate-spin" />
                 )}
               </div>
               <div className="flex items-center gap-1">
@@ -809,7 +801,7 @@ export default function ApiTab(_props: ApiTabProps) {
                   className="p-1.5 rounded hover:bg-black/5 dark:hover:bg-white/5 text-text-muted hover:text-text-main transition-colors"
                   title={t("copy")}
                 >
-                  <span className="material-symbols-outlined text-[16px]">content_copy</span>
+                  <Icon icon={Copy} size="md" color="current" />
                 </button>
               </div>
             </div>
@@ -822,7 +814,7 @@ export default function ApiTab(_props: ApiTabProps) {
                     download="speech.mp3"
                     className="inline-flex items-center gap-2 text-sm text-primary hover:underline"
                   >
-                    <span className="material-symbols-outlined text-[16px]">download</span>
+                    <Icon icon={Download} size="md" color="current" />
                     {t("downloadAudio")}
                   </a>
                 </div>
@@ -840,7 +832,7 @@ export default function ApiTab(_props: ApiTabProps) {
                     onClick={() => void handleCopy(transcriptionText)}
                     className="text-xs text-primary hover:underline flex items-center gap-1"
                   >
-                    <span className="material-symbols-outlined text-[12px]">content_copy</span>
+                    <Icon icon={Copy} size="sm" color="current" />
                     {t("copyText")}
                   </button>
                 </div>

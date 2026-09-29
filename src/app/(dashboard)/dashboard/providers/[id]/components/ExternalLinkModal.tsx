@@ -1,5 +1,7 @@
 "use client";
 
+import { RefreshCw } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { Modal, Button } from "@/shared/components";
 import { useTranslations } from "next-intl";
 
@@ -68,7 +70,7 @@ export default function ExternalLinkModal({
               </Button>
             </div>
             <p className="flex items-center gap-2 text-xs text-text-muted">
-              <span className="material-symbols-outlined animate-spin text-[16px]">sync</span>
+              <Icon icon={RefreshCw} size="md" color="current" className="animate-spin" />
               {text(
                 "codexExternalLinkWaiting",
                 "Waiting for browser authentication. This window refreshes automatically."

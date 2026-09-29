@@ -1,5 +1,7 @@
 "use client";
 
+import { ArrowRight, Copy, History, LoaderCircle, Plus, RotateCcw, Save, ScrollText, TriangleAlert, X } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Card, Button, ModelSelectModal, ManualConfigModal } from "@/shared/components";
 import CliStatusBadge from "./CliStatusBadge";
@@ -334,14 +336,14 @@ export default function DroidToolCard({
         <div className="mt-4 pt-4 border-t border-border flex flex-col gap-4">
           {checkingDroid && (
             <div className="flex items-center gap-2 text-text-muted">
-              <span className="material-symbols-outlined animate-spin">progress_activity</span>
+              <Icon icon={LoaderCircle} size="lg" color="current" className="animate-spin" />
               <span>{t("checkingCli", { tool: "Factory Droid" })}</span>
             </div>
           )}
 
           {!checkingDroid && droidStatus && !cliReady && (
             <div className="flex items-center gap-3 p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
-              <span className="material-symbols-outlined text-yellow-500">warning</span>
+              <Icon icon={TriangleAlert} size="lg" color="feedback-warning-foreground" />
               <div className="flex-1">
                 <p className="font-medium text-yellow-600 dark:text-yellow-400">
                   {droidStatus.installed
@@ -369,9 +371,7 @@ export default function DroidToolCard({
                     <span className="w-32 shrink-0 text-sm font-semibold text-text-main text-right">
                       {t("current")}
                     </span>
-                    <span className="material-symbols-outlined text-text-muted text-[14px]">
-                      arrow_forward
-                    </span>
+                    <Icon icon={ArrowRight} size="sm" color="ink-muted" />
                     <span className="flex-1 px-2 py-1.5 text-xs text-text-muted truncate">
                       {droidStatus.settings.customModels.find(isOmniRouteEntry).baseUrl}
                     </span>
@@ -383,9 +383,7 @@ export default function DroidToolCard({
                   <span className="w-32 shrink-0 text-sm font-semibold text-text-main text-right">
                     {t("baseUrl")}
                   </span>
-                  <span className="material-symbols-outlined text-text-muted text-[14px]">
-                    arrow_forward
-                  </span>
+                  <Icon icon={ArrowRight} size="sm" color="ink-muted" />
                   <input
                     type="text"
                     value={getDisplayUrl()}
@@ -399,7 +397,7 @@ export default function DroidToolCard({
                       className="p-1 text-text-muted hover:text-primary rounded transition-colors"
                       title={t("resetToDefault")}
                     >
-                      <span className="material-symbols-outlined text-[14px]">restart_alt</span>
+                      <Icon icon={RotateCcw} size="sm" color="current" />
                     </button>
                   )}
                 </div>
@@ -409,9 +407,7 @@ export default function DroidToolCard({
                   <span className="w-32 shrink-0 text-sm font-semibold text-text-main text-right">
                     {t("apiKey")}
                   </span>
-                  <span className="material-symbols-outlined text-text-muted text-[14px]">
-                    arrow_forward
-                  </span>
+                  <Icon icon={ArrowRight} size="sm" color="ink-muted" />
                   {apiKeys.length > 0 ? (
                     <select
                       value={effectiveApiKeyId}
@@ -439,9 +435,7 @@ export default function DroidToolCard({
                       <span className="text-primary"> ({modelList.length})</span>
                     )}
                   </span>
-                  <span className="material-symbols-outlined text-text-muted text-[14px] pt-2">
-                    arrow_forward
-                  </span>
+                  <Icon icon={ArrowRight} size="sm" color="ink-muted" className="pt-2" />
                   <div className="flex-1 flex flex-col gap-1">
                     {modelList.length > 0 && (
                       <div className="flex flex-col gap-0.5 mb-1">
@@ -456,7 +450,7 @@ export default function DroidToolCard({
                               className="text-text-muted hover:text-red-500 transition-colors shrink-0"
                               title={t("clear")}
                             >
-                              <span className="material-symbols-outlined text-[12px]">close</span>
+                              <Icon icon={X} size="sm" color="current" />
                             </button>
                           </div>
                         ))}
@@ -489,7 +483,7 @@ export default function DroidToolCard({
                         className="px-2 py-1.5 rounded border bg-surface border-border hover:border-primary text-xs shrink-0 disabled:opacity-50"
                         title={t("addModel")}
                       >
-                        <span className="material-symbols-outlined text-[14px]">add</span>
+                        <Icon icon={Plus} size="sm" color="current" />
                       </button>
                     </div>
                   </div>
@@ -515,7 +509,7 @@ export default function DroidToolCard({
                   disabled={modelList.length === 0}
                   loading={applying}
                 >
-                  <span className="material-symbols-outlined text-[14px] mr-1">save</span>
+                  <Icon icon={Save} size="sm" color="current" className="mr-1" />
                   {t("apply")}
                 </Button>
                 <Button
@@ -525,11 +519,11 @@ export default function DroidToolCard({
                   disabled={!droidStatus?.hasOmniRoute}
                   loading={restoring}
                 >
-                  <span className="material-symbols-outlined text-[14px] mr-1">restore</span>
+                  <Icon icon={History} size="sm" color="current" className="mr-1" />
                   {t("reset")}
                 </Button>
                 <Button variant="ghost" size="sm" onClick={() => setShowManualConfigModal(true)}>
-                  <span className="material-symbols-outlined text-[14px] mr-1">content_copy</span>
+                  <Icon icon={Copy} size="sm" color="current" className="mr-1" />
                   {t("manualConfig")}
                 </Button>
                 <div className="flex-1" />
@@ -541,7 +535,7 @@ export default function DroidToolCard({
                     if (!showBackups) fetchBackups();
                   }}
                 >
-                  <span className="material-symbols-outlined text-[14px] mr-1">history</span>
+                  <Icon icon={History} size="sm" color="current" className="mr-1" />
                   {t("backups")}
                   {backups.length > 0 && ` (${backups.length})`}
                 </Button>
@@ -550,7 +544,7 @@ export default function DroidToolCard({
               {showBackups && (
                 <div className="mt-2 p-3 bg-surface border border-border rounded-lg">
                   <h4 className="text-xs font-semibold text-text-main mb-2 flex items-center gap-1">
-                    <span className="material-symbols-outlined text-[14px]">history</span>
+                    <Icon icon={History} size="sm" color="current" />
                     {t("configBackups")}
                   </h4>
                   {backups.length === 0 ? (
@@ -562,9 +556,7 @@ export default function DroidToolCard({
                           key={b.id}
                           className="flex items-center gap-2 px-2 py-1.5 bg-black/5 dark:bg-white/5 rounded text-xs"
                         >
-                          <span className="material-symbols-outlined text-[14px] text-text-muted">
-                            description
-                          </span>
+                          <Icon icon={ScrollText} size="sm" color="ink-muted" />
                           <span className="flex-1 truncate font-mono" title={b.id}>
                             {b.id}
                           </span>

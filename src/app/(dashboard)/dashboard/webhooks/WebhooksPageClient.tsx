@@ -1,5 +1,7 @@
 "use client";
 
+import { Plus } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
 import { Card, ConfirmModal } from "@/shared/components";
@@ -155,7 +157,7 @@ export function WebhooksPageClient() {
           onClick={handleAddWebhook}
           className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-primary/90"
         >
-          <span className="material-symbols-outlined text-[18px]">add</span>
+          <Icon icon={Plus} size="md" color="current" />
           {t("addWebhook")}
         </button>
       </div>

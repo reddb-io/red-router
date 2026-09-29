@@ -1,5 +1,7 @@
 "use client";
 
+import { Copy, LoaderCircle } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useEffect, useRef } from "react";
 import { useTranslations } from "next-intl";
 import Modal from "./Modal";
@@ -184,7 +186,7 @@ export default function KiroSocialOAuthModal({
                     className="shrink-0 p-1 rounded hover:bg-sidebar"
                     title={t("copyLink")}
                   >
-                    <span className="material-symbols-outlined text-base">content_copy</span>
+                    <Icon icon={Copy} size="md" color="current" />
                   </button>
                 </div>
               </div>
@@ -196,9 +198,7 @@ export default function KiroSocialOAuthModal({
               </div>
             )}
             <div className="flex items-center justify-center gap-2 text-sm text-text-muted">
-              <span className="material-symbols-outlined text-base animate-spin">
-                progress_activity
-              </span>
+              <Icon icon={LoaderCircle} size="md" color="current" className="animate-spin" />
               {t("waiting")}
             </div>
             <div className="mt-6">

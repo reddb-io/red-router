@@ -1,5 +1,7 @@
 "use client";
 
+import { ArrowBigUp, CircleCheck, LoaderCircle, TriangleAlert } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
@@ -416,9 +418,7 @@ export default function OnboardingWizard() {
                     />
                     {capsLockOn && (
                       <p className="text-xs text-amber-500 dark:text-amber-400 flex items-center gap-1 animate-in fade-in duration-200">
-                        <span className="material-symbols-outlined text-[14px]" aria-hidden="true">
-                          keyboard_capslock
-                        </span>
+                        <Icon icon={ArrowBigUp} size="sm" color="current" />
                         Caps Lock is on
                       </p>
                     )}
@@ -502,22 +502,20 @@ export default function OnboardingWizard() {
                 )}
                 {testStatus === "testing" && (
                   <div className="flex items-center justify-center gap-2 text-text-muted">
-                    <span className="material-symbols-outlined animate-spin text-[20px]">
-                      progress_activity
-                    </span>
+                    <Icon icon={LoaderCircle} size="lg" color="current" className="animate-spin" />
                     <span className="text-sm">{testMessage}</span>
                   </div>
                 )}
                 {testStatus === "success" && (
                   <div className="flex items-center justify-center gap-2 text-green-400">
-                    <span className="material-symbols-outlined text-[20px]">check_circle</span>
+                    <Icon icon={CircleCheck} size="lg" color="current" />
                     <span className="text-sm">{testMessage}</span>
                   </div>
                 )}
                 {testStatus === "error" && (
                   <div className="space-y-3">
                     <div className="flex items-center justify-center gap-2 text-amber-400">
-                      <span className="material-symbols-outlined text-[20px]">warning</span>
+                      <Icon icon={TriangleAlert} size="lg" color="current" />
                       <span className="text-sm">{testMessage}</span>
                     </div>
                     <button

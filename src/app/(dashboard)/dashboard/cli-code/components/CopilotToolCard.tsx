@@ -1,5 +1,7 @@
 "use client";
 
+import { ChevronRight, LoaderCircle, TriangleAlert } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useEffect } from "react";
 import { Card, Button } from "@/shared/components";
 import Image from "next/image";
@@ -226,7 +228,7 @@ export default function CopilotToolCard({
 
             {/* Version compatibility warning */}
             <div className="flex items-start gap-3 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
-              <span className="material-symbols-outlined text-yellow-500 text-lg">warning</span>
+              <Icon icon={TriangleAlert} size="md" color="feedback-warning-foreground" />
               <p className="text-xs text-yellow-600 dark:text-yellow-400">
                 {t.rich("copilotCompatibilityWarning", {
                   vscode: (chunks) => <strong>{chunks}</strong>,
@@ -307,14 +309,12 @@ export default function CopilotToolCard({
 
               {!modelsLoaded && allModels.length === 0 ? (
                 <div className="flex items-center gap-2 p-3 text-text-muted text-sm">
-                  <span className="material-symbols-outlined animate-spin text-base">
-                    progress_activity
-                  </span>
+                  <Icon icon={LoaderCircle} size="md" color="current" className="animate-spin" />
                   <span>{t("loadingModels")}</span>
                 </div>
               ) : availableModels.length === 0 && allModels.length === 0 ? (
                 <div className="flex items-center gap-2 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
-                  <span className="material-symbols-outlined text-yellow-500 text-lg">warning</span>
+                  <Icon icon={TriangleAlert} size="md" color="feedback-warning-foreground" />
                   <p className="text-sm text-yellow-600 dark:text-yellow-400">
                     {t("noActiveProviders")}
                   </p>
@@ -342,9 +342,7 @@ export default function CopilotToolCard({
             {/* Step 4: Advanced options (collapsible) */}
             <details className="group">
               <summary className="flex items-center gap-2 cursor-pointer text-sm text-text-muted hover:text-text-main transition-colors">
-                <span className="material-symbols-outlined text-base group-open:rotate-90 transition-transform">
-                  chevron_right
-                </span>
+                <Icon icon={ChevronRight} size="md" color="current" className="group-open:rotate-90 transition-transform" />
                 {t("advancedOptions")}
               </summary>
               <div className="mt-3 grid grid-cols-2 gap-3 pl-6">

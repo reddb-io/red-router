@@ -1,5 +1,7 @@
 "use client";
 
+import { ArrowRight, SlidersHorizontal } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useCallback } from "react";
 import { useTranslations } from "next-intl";
 import { Button, Select, SegmentedControl } from "@/shared/components";
@@ -135,9 +137,7 @@ export default function SimpleControls({
         </div>
 
         <div className="hidden items-center pt-8 sm:flex">
-          <span className="material-symbols-outlined text-[20px] text-text-muted" aria-hidden="true">
-            arrow_forward
-          </span>
+          <Icon icon={ArrowRight} size="lg" color="ink-muted" />
         </div>
 
         <div className="flex min-w-0 flex-1 flex-col gap-1">
@@ -219,7 +219,7 @@ export default function SimpleControls({
           aria-label={tr("simpleAdvancedToggle", "Advanced")}
           className="inline-flex items-center gap-1 rounded-md px-3 py-1.5 text-sm text-text-muted transition-colors hover:bg-black/5 hover:text-text-main dark:hover:bg-white/5"
         >
-          <span className="material-symbols-outlined text-[16px]" aria-hidden="true">tune</span>
+          <Icon icon={SlidersHorizontal} size="md" color="current" />
           {tr("simpleAdvancedToggle", "Advanced")}
         </button>
       </div>

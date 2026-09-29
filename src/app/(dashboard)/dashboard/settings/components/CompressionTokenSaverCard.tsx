@@ -1,5 +1,7 @@
 "use client";
 
+import { Info, Zap } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
 
@@ -88,7 +90,7 @@ export default function CompressionTokenSaverCard({
       <div className="mb-1 flex items-start justify-between gap-4">
         <div className="min-w-0 flex-1">
           <h4 className="flex items-center gap-2 text-base font-semibold text-text-main">
-            <span className="material-symbols-outlined text-[21px] text-amber-500">bolt</span>
+            <Icon icon={Zap} size="lg" color="feedback-warning-foreground" />
             {t("tokenSaverTitle")}
           </h4>
           <p className="mt-1 text-sm text-text-muted">{t("tokenSaverSubtitle")}</p>
@@ -121,7 +123,7 @@ export default function CompressionTokenSaverCard({
       </div>
 
       <div className="mt-4 flex items-start gap-2 border-t border-border pt-3 text-xs text-text-muted">
-        <span className="material-symbols-outlined mt-px text-[16px]">info</span>
+        <Icon icon={Info} size="md" color="current" className="mt-px" />
         <p>
           Turn these layers on/off and set their level in{" "}
           <Link href="/dashboard/context/settings" className="text-primary hover:underline">

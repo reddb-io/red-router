@@ -7,6 +7,8 @@
 // in the named-combo editor. Here we expose a single active-profile selector
 // (Default-from-panel | a named combo) + a read-only preview.
 
+import { Info, Network } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 
@@ -150,9 +152,7 @@ export default function CompressionHub() {
       {/* ── Header ── */}
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-3">
-          <span className="material-symbols-outlined text-[26px] text-primary" aria-hidden="true">
-            hub
-          </span>
+          <Icon icon={Network} size="lg" color="primary" />
           <div>
             <h1 className="text-xl font-bold text-text-main">{t("hubTitle")}</h1>
             <p className="text-sm text-text-muted">{t("hubDescription")}</p>
@@ -263,7 +263,7 @@ export default function CompressionHub() {
           />
         </div>
         <div className="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs text-amber-500">
-          <span className="material-symbols-outlined text-[16px]">info</span>
+          <Icon icon={Info} size="md" color="current" />
           <span>{t("contextEditingNote")}</span>
         </div>
       </div>

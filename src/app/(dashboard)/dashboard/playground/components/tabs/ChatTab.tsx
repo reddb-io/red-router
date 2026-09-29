@@ -2,6 +2,8 @@
 
 // src/app/(dashboard)/dashboard/playground/components/tabs/ChatTab.tsx
 
+import { LoaderCircle, MessageSquare, RefreshCw, Send, Square, Trash2 } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useState, useRef, useEffect } from "react";
 import { useTranslations } from "next-intl";
 import MarkdownMessage from "../MarkdownMessage";
@@ -307,7 +309,7 @@ export default function ChatTab({ configState, onMetricsUpdate }: ChatTabProps) 
       {/* Status bar */}
       <div className="flex items-center justify-between px-4 py-2 border-b border-border bg-bg-alt text-xs text-text-muted">
         <div className="flex items-center gap-2">
-          <span className="material-symbols-outlined text-[16px]">chat</span>
+          <Icon icon={MessageSquare} size="md" color="current" />
           <span className="font-medium">{t("tabChat")}</span>
           {responseStatus !== null && (
             <span
@@ -329,7 +331,7 @@ export default function ChatTab({ configState, onMetricsUpdate }: ChatTabProps) 
               className="flex items-center gap-1 text-xs text-text-muted hover:text-text-main transition-colors"
               title={t("regenerateLastResponse")}
             >
-              <span className="material-symbols-outlined text-[14px]">refresh</span>
+              <Icon icon={RefreshCw} size="sm" color="current" />
               {t("regenerate")}
             </button>
           )}
@@ -338,7 +340,7 @@ export default function ChatTab({ configState, onMetricsUpdate }: ChatTabProps) 
             className="p-1 rounded hover:bg-red-500/10 text-text-muted hover:text-red-500 transition-colors"
             title={t("clearChat")}
           >
-            <span className="material-symbols-outlined text-[16px]">delete</span>
+            <Icon icon={Trash2} size="md" color="current" />
           </button>
         </div>
       </div>
@@ -403,9 +405,7 @@ export default function ChatTab({ configState, onMetricsUpdate }: ChatTabProps) 
               {t("role.assistant")}
             </span>
             <div className="px-4 py-2 rounded-2xl text-sm bg-bg-alt border border-border rounded-tl-sm text-text-muted flex items-center gap-2">
-              <span className="material-symbols-outlined text-[16px] animate-spin">
-                progress_activity
-              </span>
+              <Icon icon={LoaderCircle} size="md" color="current" className="animate-spin" />
               {t("generating")}
             </div>
           </div>
@@ -436,7 +436,7 @@ export default function ChatTab({ configState, onMetricsUpdate }: ChatTabProps) 
             onClick={handleCancel}
             className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border text-sm text-text-muted hover:text-text-main hover:bg-black/5 transition-colors shrink-0"
           >
-            <span className="material-symbols-outlined text-[16px]">stop</span>
+            <Icon icon={Square} size="md" color="current" />
             {t("stop")}
           </button>
         ) : (
@@ -445,7 +445,7 @@ export default function ChatTab({ configState, onMetricsUpdate }: ChatTabProps) 
             disabled={!input.trim()}
             className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-primary/90 transition-colors shrink-0"
           >
-            <span className="material-symbols-outlined text-[16px]">send</span>
+            <Icon icon={Send} size="md" color="current" />
             {t("send")}
           </button>
         )}

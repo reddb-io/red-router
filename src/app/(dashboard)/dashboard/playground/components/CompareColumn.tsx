@@ -2,6 +2,8 @@
 
 // src/app/(dashboard)/dashboard/playground/components/CompareColumn.tsx
 
+import { X } from "lucide-react";
+import Icon from "@/shared/components/Icon";
 import { useTranslations } from "next-intl";
 import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
 import type { StreamMetrics } from "@/shared/schemas/playground";
@@ -84,7 +86,7 @@ export default function CompareColumn({ column, onCancel, onRemove }: CompareCol
             title={t("removeColumn")}
             aria-label={t("removeModelColumn", { model: model || t("noModel") })}
           >
-            <span className="material-symbols-outlined text-[14px]">close</span>
+            <Icon icon={X} size="sm" color="current" />
           </button>
         </div>
       </div>
