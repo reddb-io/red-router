@@ -4,8 +4,7 @@
 // trace) are routes of their own, listed as tabs by the menu; the old `?tab=` links land on them.
 import { Suspense, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { CardSkeleton } from "@/shared/components";
-import UsageAnalytics from "../usage/components/UsageAnalytics";
+import { CardSkeleton, UsageAnalytics } from "@/shared/components";
 import DiversityScoreCard from "./components/DiversityScoreCard";
 
 const TAB_ROUTES: Record<string, string> = {
