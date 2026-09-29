@@ -27,9 +27,12 @@ export async function POST(request: Request) {
       getApiKeys(),
       active ? testSingleConnection(validation.data.connectionId) : Promise.resolve(null),
     ]);
+    const connectionName = [connection?.displayName, connection?.name, connection?.provider].find(
+      (value): value is string => typeof value === "string" && value.length > 0
+    );
     return NextResponse.json(
       buildSetupReadiness({
-        connectionName: connection?.displayName || connection?.name || connection?.provider,
+        connectionName,
         connectionActive: active,
         providerValid: result?.valid === true && result?.skipped !== true,
         // Do not echo upstream error text or diagnostics into the dashboard.

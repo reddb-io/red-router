@@ -64,9 +64,10 @@ test("delivery lease prevents a second worker claiming the same event", () => {
     id: string;
   };
   const [delivery] = listUsageDeliveries(sink.id);
-  const now = "2026-09-29T00:00:00.000Z";
-  assert.equal(claimUsageDelivery(delivery.id, now, "2026-09-29T00:00:30.000Z"), true);
-  assert.equal(claimUsageDelivery(delivery.id, now, "2026-09-29T00:00:30.000Z"), false);
+  const now = "2100-01-01T00:00:00.000Z";
+  const leaseUntil = "2100-01-01T00:00:30.000Z";
+  assert.equal(claimUsageDelivery(delivery.id, now, leaseUntil), true);
+  assert.equal(claimUsageDelivery(delivery.id, now, leaseUntil), false);
   finishUsageDelivery(delivery.id, {
     status: "delivered",
     nextAttemptAt: null,
