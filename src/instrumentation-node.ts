@@ -366,6 +366,9 @@ export async function registerNodejs(): Promise<void> {
   // free no-op re-read of the same connection — no double-init cost.
   await ensureDbReadyForBoot();
 
+  // Bring RedRouter v0.33.0 data (data.sqlite) into an empty install before anything reads it.
+  await import("@/lib/db/fridayBoot").then((m) => m.importFridayDataOnFirstBoot());
+
   await ensureSecrets();
   await Promise.all([
     import("@/lib/env/runtimeEnv").then(({ enforceWebRuntimeEnv }) => enforceWebRuntimeEnv()),
