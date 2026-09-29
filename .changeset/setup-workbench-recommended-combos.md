@@ -1,0 +1,5 @@
+---
+"@reddb-io/red-router": patch
+---
+
+Restore the guided Setup page from v0.33.0 (Setup in the sidebar, `/dashboard/setup`): connect a provider, create an API key, copy the client configuration, validate the route and apply the recommended `default`, `fast` and `review` combos. `GET`/`POST /api/combos/recommended` preview and apply them idempotently (create, update, unchanged or blocked when no connected account can serve a role). Built on existing modules instead of parallel ones: the connected-account model catalog is the combo builder's `getComboBuilderOptions()`, subscription versus metered accounts come from the auto-combo connection-billing classifier, vision from `modelIdLikelyVision`, System One from its registry, combos are written through `src/lib/db/combos.ts`, route validation reuses `/api/setup/validate`, and the page reuses the design-system `Button`, `Card`, `Badge`, `Input`, `Select` and the onboarding's `useDisplayBaseUrl`. Added on top: Friday's ranking tables and roles (`src/lib/modelRecommendations.ts`), the preview/apply planner (`src/lib/recommendedCombos.ts`) and the Setup workbench UI.
