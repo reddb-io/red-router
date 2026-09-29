@@ -1,7 +1,8 @@
 "use client";
 
-import { ArrowBigUp, CircleAlert } from "lucide-react";
 import Icon from "@/shared/components/Icon";
+import { primitiveIcon } from "@/shared/icons/primitiveIcons";
+import { ArrowBigUp, CircleAlert } from "lucide-react";
 import { useId, useState, useCallback } from "react";
 import { useTranslations } from "next-intl";
 import { cn } from "@/shared/utils/cn";
@@ -87,9 +88,13 @@ export default function Input({
       <div className="relative">
         {icon && (
           <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-text-muted">
-            <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
-              {icon}
-            </span>
+            {primitiveIcon(icon) ? (
+              <Icon icon={primitiveIcon(icon)!} size="lg" color="current" />
+            ) : (
+              <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
+                {icon}
+              </span>
+            )}
           </div>
         )}
         <input

@@ -176,3 +176,26 @@ test("Icon ignores a stroke width supplied by a JS caller", () => {
   );
   assert.match(html, /stroke-width="2"/);
 });
+
+test("the primitives' string icon props resolve to lucide glyphs, and the registry is current", async () => {
+  const { primitiveIcon } = await import("../../../src/shared/icons/primitiveIcons.ts");
+  assert.ok(primitiveIcon("add"), "add");
+  assert.ok(primitiveIcon("delete"), "delete");
+  assert.equal(primitiveIcon("no_such_icon_name"), null);
+  assert.equal(primitiveIcon(undefined), null);
+  // The generated file matches what the generator would write today (run it with --write).
+  const { generate } = await import("../../../scripts/dev/gen-primitive-icons.mjs");
+  const fs = await import("node:fs");
+  assert.equal(
+    fs.readFileSync("src/shared/icons/primitiveIcons.ts", "utf8"),
+    await generate(),
+    "primitiveIcons.ts is stale: node --import tsx/esm scripts/dev/gen-primitive-icons.mjs --write"
+  );
+  for (const file of ["Button", "Input", "Card"]) {
+    assert.match(
+      fs.readFileSync(`src/shared/components/${file}.tsx`, "utf8"),
+      /primitiveIcon\(/,
+      file
+    );
+  }
+});

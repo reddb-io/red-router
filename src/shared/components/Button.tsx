@@ -1,6 +1,8 @@
 "use client";
 
 import { button, buttonSpinner } from "@/shared/design-system/contracts/button.variants";
+import Icon from "@/shared/components/Icon";
+import { primitiveIcon } from "@/shared/icons/primitiveIcons";
 import type { ButtonIntent, ButtonVariant as DsButtonVariant } from "@/shared/design-system/contracts/button.variants";
 
 // The dashboard's variant names mapped onto the DS Button contract: the DS has three
@@ -54,6 +56,16 @@ export default function Button({
   const appearance = VARIANTS[variant] ?? VARIANTS.primary;
   const iconClass = `material-symbols-outlined leading-none pointer-events-none ${ICON_SIZES[size] ?? ICON_SIZES.md}`;
   const spinner = buttonSpinner({ size });
+  const renderIcon = (name: string) => {
+    const glyph = primitiveIcon(name);
+    return glyph ? (
+      <Icon icon={glyph} size={size} color="current" className="pointer-events-none" />
+    ) : (
+      <span className={iconClass} aria-hidden="true">
+        {name}
+      </span>
+    );
+  };
 
   return (
     <button
@@ -81,16 +93,10 @@ export default function Button({
           />
         </svg>
       ) : icon ? (
-        <span className={iconClass} aria-hidden="true">
-          {icon}
-        </span>
+        renderIcon(icon)
       ) : null}
       {children}
-      {iconRight && !loading && (
-        <span className={iconClass} aria-hidden="true">
-          {iconRight}
-        </span>
-      )}
+      {iconRight && !loading && renderIcon(iconRight)}
     </button>
   );
 }

@@ -1,5 +1,7 @@
 "use client";
 
+import Icon from "@/shared/components/Icon";
+import { primitiveIcon } from "@/shared/icons/primitiveIcons";
 import { cn } from "@/shared/utils/cn";
 import { card } from "@/shared/design-system/contracts/card.variants";
 
@@ -58,12 +60,16 @@ export default function Card({
         <div className="mb-[var(--reddb-spatial-gap-lg)] flex items-center justify-between gap-[var(--reddb-spatial-gap-md)]">
           <div className={slots.titleRow()}>
             {icon && (
-              <span
-                className="material-symbols-outlined shrink-0 text-[length:var(--reddb-spatial-icon-size-md)] leading-none text-ink-muted"
-                aria-hidden="true"
-              >
-                {icon}
-              </span>
+              primitiveIcon(icon) ? (
+                <Icon icon={primitiveIcon(icon)!} size="md" color="ink-muted" />
+              ) : (
+                <span
+                  className="material-symbols-outlined shrink-0 text-[length:var(--reddb-spatial-icon-size-md)] leading-none text-ink-muted"
+                  aria-hidden="true"
+                >
+                  {icon}
+                </span>
+              )
             )}
             <div className="flex min-w-0 flex-col gap-[var(--reddb-spatial-gap-sm)]">
               {title && <h3 className={slots.title()}>{title}</h3>}
