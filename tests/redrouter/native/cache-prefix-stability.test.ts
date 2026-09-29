@@ -1016,12 +1016,10 @@ defineCase({
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 
 const HINT_WHY =
-  "injectHint() appends to the last message whose role is `user` (decision/injectHint.ts:49-53, " +
-  "69-87, 89-108; applied at chatCore/toolDecision.ts:151), not to the last message. In a Claude tool-loop that is the tool_result message " +
-  "(the live tail), but in OpenAI chat / Responses tool-loops tool results are `tool` / " +
-  "`function_call_output` items, so the hint lands in the user's request at the START of the loop: " +
-  "when the suggested tool changes it rewrites everything after that message, and when a new " +
-  "request arrives the old request loses its hint.";
+  "injectHint() writes into the last `user` message, except in the middle of a tool loop " +
+  "(a tool / function_call_output tail), where it adds its own trailing message so the request " +
+  "that started the loop is never rewritten (decision/injectHint.ts, applied at " +
+  "chatCore/toolDecision.ts:151).";
 
 for (const [format, fixture] of [
   ["claude", { clientCacheControl: true }],
@@ -1034,7 +1032,7 @@ for (const [format, fixture] of [
       name: `injectHint, ${variant} @ ${format}${fixture ? "+cache_control" : ""}`,
       format,
       fixture,
-      expected: format === "claude" ? "stable" : "known-unstable",
+      expected: "stable",
       why: HINT_WHY,
       transform: (body, turn) => {
         const tool =

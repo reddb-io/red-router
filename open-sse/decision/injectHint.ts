@@ -65,8 +65,26 @@ function alreadyHas(content: unknown, text: string): boolean {
   return false;
 }
 
+/**
+ * In the middle of a tool loop the last message is a tool result, so the last `user` message is
+ * the request that STARTED the loop. Writing the hint into it would rewrite that cached message
+ * on every turn; the hint gets its own trailing message instead, which is the only thing that
+ * changes between two requests of the loop.
+ */
+const isToolLoopTail = (item: JsonRecord | undefined): boolean =>
+  !!item &&
+  (item.role === "tool" ||
+    item.role === "function" ||
+    item.type === "function_call_output" ||
+    item.type === "function_call" ||
+    item.type === "custom_tool_call_output");
+
 /** OpenAI chat and Claude Messages share the {role, content} shape. */
 function pushMessages(messages: JsonRecord[], text: string): boolean {
+  if (isToolLoopTail(messages[messages.length - 1])) {
+    messages.push({ role: "user", content: [{ type: "text", text }] });
+    return true;
+  }
   const target = lastUser(messages);
   if (!target || alreadyHas(target.content, text)) return false;
   if (typeof target.content === "string") {
@@ -87,6 +105,10 @@ function pushMessages(messages: JsonRecord[], text: string): boolean {
 
 /** OpenAI Responses: input[] of items, the last user message typed. */
 function pushResponses(input: JsonRecord[], text: string): boolean {
+  if (isToolLoopTail(input[input.length - 1])) {
+    input.push({ role: "user", content: [{ type: "input_text", text }] });
+    return true;
+  }
   for (let i = input.length - 1; i >= 0; i--) {
     const item = input[i];
     if (!item || item.role !== "user") continue;
