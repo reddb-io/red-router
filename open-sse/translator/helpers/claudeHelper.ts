@@ -341,6 +341,38 @@ function bodyHasAnyCacheControl(body: ClaudeRequestBody): boolean {
   return false;
 }
 
+// Anthropic reads images inside a tool_result; other Claude-compatible gateways (OpenCode Go,
+// Kimi, DeepSeek, GLM, MiniMax, ...) accept image blocks only as user content and silently drop
+// them inside a tool result. Move a tool's screenshot out of the result into the same user turn,
+// after the tool_result blocks (they must lead the message).
+const CLAUDE_NATIVE_IMAGE_PROVIDERS = new Set<string>(["claude", "vertex", "vertex-partner", "bedrock"]);
+
+export function hoistToolResultImages(body: ClaudeRequestBody): ClaudeRequestBody {
+  const messages = body?.messages as Array<Record<string, unknown>> | undefined;
+  if (!Array.isArray(messages)) return body;
+  let touched = false;
+  const next = messages.map((msg) => {
+    if (msg?.role !== "user" || !Array.isArray(msg.content)) return msg;
+    const hoisted: Array<Record<string, unknown>> = [];
+    const content = (msg.content as Array<Record<string, unknown>>).map((block) => {
+      if (block?.type !== "tool_result" || !Array.isArray(block.content)) return block;
+      const parts = block.content as Array<Record<string, unknown>>;
+      const images = parts.filter((part) => part?.type === "image");
+      if (images.length === 0) return block;
+      const rest = parts.filter((part) => part?.type !== "image");
+      hoisted.push({ type: "text", text: `[Image from tool result ${String(block.tool_use_id)}]` }, ...images);
+      return {
+        ...block,
+        content: rest.length > 0 ? rest : [{ type: "text", text: "(image attached below)" }],
+      };
+    });
+    if (hoisted.length === 0) return msg;
+    touched = true;
+    return { ...msg, content: [...content, ...hoisted] };
+  });
+  return touched ? ({ ...body, messages: next } as ClaudeRequestBody) : body;
+}
+
 // Prepare request for Claude format endpoints
 // - Cleanup cache_control (unless preserveCacheControl=true for passthrough)
 // - Filter empty messages
@@ -756,6 +788,14 @@ export function prepareClaudeRequest(
         }
       }
     }
+  }
+
+  if (
+    provider &&
+    !CLAUDE_NATIVE_IMAGE_PROVIDERS.has(provider) &&
+    !provider.startsWith("anthropic-compatible-")
+  ) {
+    return hoistToolResultImages(body);
   }
 
   return body;

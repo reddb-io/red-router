@@ -43,6 +43,19 @@ export const deepseekProvider: RegistryEntry = {
       supportedThinkingEfforts: ["none", "low", "high", "max"],
       toolCalling: true,
     },
+    // deepseek-v4.* accepts the full low..max effort ladder (9router 367fc546d8);
+    // "none" stays in the vocabulary as the disable-thinking option. The dotted
+    // V4.1 release is natively multimodal (9router 912ed295db).
+    {
+      id: "deepseek-v4.1-flash",
+      name: "DeepSeek V4.1 Flash",
+      contextLength: 1_000_000,
+      maxOutputTokens: 384_000,
+      supportsReasoning: true,
+      supportsVision: true,
+      supportedThinkingEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
+      toolCalling: true,
+    },
     {
       id: "deepseek-flash",
       name: "DeepSeek V4.1 Flash",

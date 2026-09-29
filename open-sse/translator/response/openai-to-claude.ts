@@ -796,6 +796,8 @@ function convertFinishReason(reason) {
       return "max_tokens";
     case "tool_calls":
       return "tool_use";
+    case "content_filter":
+      return "refusal";
     default:
       // Gemini/Antigravity abort reasons (e.g. MALFORMED_FUNCTION_CALL,
       // UNEXPECTED_TOOL_CALL — see isAbortFinishReason) reach here unrecognized

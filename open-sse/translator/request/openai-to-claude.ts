@@ -38,8 +38,14 @@ export const CLAUDE_OAUTH_TOOL_PREFIX = "proxy_";
 const CLAUDE_TOOL_CHOICE_REQUIRED = "an" + "y";
 const COPILOT_REASONING_SUMMARY_MARKER = "_omnirouteCopilotReasoningSummary";
 
+// Claude returns thinking text only with thinking.display "summarized", which OpenAI has no
+// equivalent for. A Chat Completions client that sets reasoning_effort is asking for reasoning
+// and reads it as reasoning_content, so treat that as the request for a summary too (the
+// Responses API says so explicitly through the marker set in openai-responses.ts).
 function wantsCopilotSummarizedThinking(body: Record<string, unknown> | null | undefined): boolean {
-  return body?.[COPILOT_REASONING_SUMMARY_MARKER] === "summarized";
+  if (body?.[COPILOT_REASONING_SUMMARY_MARKER] === "summarized") return true;
+  const effort = body?.reasoning_effort;
+  return typeof effort === "string" && effort !== "" && effort !== "none";
 }
 
 function applyCopilotSummarizedThinkingDisplay(

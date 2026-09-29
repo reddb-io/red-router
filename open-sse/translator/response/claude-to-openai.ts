@@ -285,6 +285,14 @@ export function claudeToOpenAIResponse(chunk, state) {
           }
           state.pendingThinkClose = false;
         }
+        // A refusal carries its explanation in stop_details; surface it as content so the
+        // client sees why the answer stopped instead of an empty completion.
+        if (chunk.delta.stop_reason === "refusal") {
+          const explanation = chunk.delta.stop_details?.explanation;
+          if (typeof explanation === "string" && explanation.trim()) {
+            results.push(createChunk(state, { content: explanation }));
+          }
+        }
         state.finishReason = convertStopReason(chunk.delta.stop_reason);
         const finalChunk: {
           id: string;
@@ -426,6 +434,8 @@ function convertStopReason(reason) {
       return "tool_calls";
     case "stop_sequence":
       return "stop";
+    case "refusal":
+      return "content_filter";
     default:
       return "stop";
   }

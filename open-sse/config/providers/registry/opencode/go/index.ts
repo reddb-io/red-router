@@ -361,6 +361,64 @@ export const opencode_goProvider: RegistryEntry = {
       targetFormat: "openai-responses",
       maxOutputTokens: 128000,
     },
+    // ── 9router v0.5.91 catalog refresh ──────────────────────────────────
+    // Endpoint lanes follow the OpenCode Go docs table mirrored by 9router's
+    // opencode-go registry (https://opencode.ai/docs/go/): chat-only rows carry no
+    // targetFormat, `claude` rows are served through /messages, the DeepSeek V4
+    // rows (like deepseek-v4-flash above) through /responses, and the
+    // Grok/GPT rows are /responses-only.
+    { id: "deepseek-flash", name: "DeepSeek Flash", supportsReasoning: true },
+    {
+      id: "deepseek-v4-flash-vision-exp",
+      name: "DeepSeek V4 Flash Vision (Exp)",
+      supportsReasoning: true,
+      supportsVision: true,
+      supportedThinkingEfforts: ["none", "low", "high", "max"],
+      targetFormat: "openai-responses",
+    },
+    // deepseek-v4.* accepts the full low..max ladder (9router 367fc546d8, probed
+    // live); "none" stays in the vocabulary so the picker can disable thinking.
+    // OpencodeExecutor's EFFORT_TIERS declares the same set.
+    {
+      id: "deepseek-v4.1-flash",
+      name: "DeepSeek V4.1 Flash",
+      supportsReasoning: true,
+      supportsVision: true,
+      supportedThinkingEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
+      targetFormat: "openai-responses",
+    },
+    { id: "glm-5.3", name: "GLM 5.3", supportsReasoning: true },
+    {
+      id: "glm-5.3-flash",
+      name: "GLM 5.3 Flash (Vision)",
+      supportsReasoning: true,
+      supportsVision: true,
+    },
+    { id: "longcat-2.0", name: "LongCat 2.0" },
+    { id: "mimo-v2.6-flash", name: "MiMo V2.6 Flash", supportsReasoning: true },
+    { id: "mimo-v2.6-pro", name: "MiMo V2.6 Pro", supportsReasoning: true },
+    // Reachable on both /chat/completions and /messages.
+    { id: "space-bunny-free", name: "Space Bunny Free", targetFormat: "claude" },
+    {
+      id: "qwen3.8-flash",
+      name: "Qwen3.8 Flash",
+      targetFormat: "claude",
+      supportsVision: false,
+      supportsReasoning: true,
+    },
+    { id: "hy4-preview", name: "Hy4 Preview", supportsReasoning: true },
+    // In /zen/go/v1/models but absent from the docs endpoint table — chat lane is
+    // the fallback guess.
+    { id: "omen-alpha", name: "Omen Alpha" },
+    { id: "grok-4.7", name: "Grok 4.7", supportsReasoning: true, targetFormat: "openai-responses" },
+    { id: "grok-4.6", name: "Grok 4.6", supportsReasoning: true, targetFormat: "openai-responses" },
+    // Responses-only, same lane as gpt-5.6-luna above.
+    {
+      id: "gpt-6-luna",
+      name: "GPT 6 Luna",
+      supportsReasoning: true,
+      targetFormat: "openai-responses",
+    },
     // Console Go free GLM-tier model (live-verified 2026-08-23): the upstream
     // rejects every reasoning_effort outside {low, high, max} whenever tools
     // are present — "[1210] This model always engages in thinking and cannot

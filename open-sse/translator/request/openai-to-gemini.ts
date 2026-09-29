@@ -43,6 +43,7 @@ import {
   type GeminiContent,
   mergeConsecutiveSameRoleContents,
   ensureHistoryDoesNotOpenWithFunctionCall,
+  ensureHistoryEndsWithUser,
 } from "./openai-to-gemini/helpers.ts";
 
 export {
@@ -796,7 +797,7 @@ function wrapInCloudCodeEnvelope(model, cloudCodeRequest, credentials = null) {
     requestId: generateAntigravityRequestId(),
     request: {
       sessionId: getAntigravitySessionId(credentials),
-      contents: cloudCodeRequest.contents,
+      contents: ensureHistoryEndsWithUser(cloudCodeRequest.contents),
       systemInstruction: cloudCodeRequest.systemInstruction,
       generationConfig: applyAntigravityGenerationDefaults(cloudCodeRequest.generationConfig),
       tools: cloudCodeRequest.tools,

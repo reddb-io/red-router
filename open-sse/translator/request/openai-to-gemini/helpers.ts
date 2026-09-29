@@ -212,3 +212,28 @@ export function ensureHistoryDoesNotOpenWithFunctionCall(
   if (!opensWithFunctionCall) return contents;
   return [{ role: "user", parts: [{ text: "(continuing the conversation)" }] }, ...contents];
 }
+
+/**
+ * Cloud Code (Antigravity) rejects a history that ends on a model turn. A trailing functionCall
+ * gets a synthetic functionResponse per call ("Continue."), and any other trailing model turn gets a
+ * user "Continue." so the model resumes instead of the request failing.
+ */
+export function ensureHistoryEndsWithUser(contents: GeminiContent[]): GeminiContent[] {
+  const last = contents[contents.length - 1];
+  if (!last || last.role !== "model") return contents;
+  const calls = last.parts.filter(
+    (part) => part && typeof part === "object" && "functionCall" in part
+  ) as Array<{ functionCall?: { name?: string; id?: string } }>;
+  if (calls.length === 0) return [...contents, { role: "user", parts: [{ text: "Continue." }] }];
+  const responses = calls.map((part) => {
+    const call = part.functionCall ?? {};
+    return {
+      functionResponse: {
+        name: call.name || "tool",
+        response: { result: "Continue." },
+        ...(call.id ? { id: call.id } : {}),
+      },
+    };
+  });
+  return [...contents, { role: "user", parts: responses }];
+}

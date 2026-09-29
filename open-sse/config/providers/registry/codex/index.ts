@@ -251,5 +251,10 @@ export const codexProvider: RegistryEntry = {
       maxInputTokens: 272000,
       maxOutputTokens: 128000,
     },
+    // 9router v0.5.91 catalog refresh: base ids only. The -review / -image variants
+    // need a per-model quotaFamily concept and land in a later wave.
+    { id: "gpt-5.4", name: "GPT 5.4", ...GPT_5_5_CODEX_CAPABILITIES },
+    { id: "gpt-5.4-mini", name: "GPT 5.4 Mini", ...GPT_5_5_CODEX_CAPABILITIES },
+    { id: "gpt-5.3-codex-spark", name: "GPT 5.3 Codex Spark", ...GPT_5_5_CODEX_CAPABILITIES },
   ],
 };

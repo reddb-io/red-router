@@ -196,6 +196,20 @@ export const opencode_zenProvider: RegistryEntry = {
     // 2026-08-17 sync: north-mini-code-free delisted; nemotron-3.5-lightning-free
     // and laguna-s-2.1-free added.
     { id: "deepseek-v4-flash-free", name: "DeepSeek V4 Flash Free", supportsReasoning: true },
+    // 9router v0.5.91 catalog refresh (2b65c49ff5): Union Alpha is served only by
+    // the Anthropic Messages endpoint (/zen/v1/messages) — targetFormat:"claude"
+    // makes OpencodeExecutor pick /messages + x-api-key + anthropic-version.
+    // Multimodal, 262K window, 131K max output.
+    {
+      id: "union-alpha",
+      name: "Union Alpha",
+      targetFormat: "claude",
+      supportsVision: true,
+      contextLength: 262144,
+      maxOutputTokens: 131072,
+    },
+    { id: "mimo-v2.6-flash-free", name: "MiMo V2.6 Flash Free", contextLength: 200000 },
+    { id: "ling-3.0-flash-fin-free", name: "Ling 3.0 Flash Fin Free" },
     { id: "mimo-v2.5-free", name: "MiMo V2.5 Free", contextLength: 200000 },
     { id: "hy3-free", name: "HY3 Free", contextLength: 200000 },
     { id: "nemotron-3-ultra-free", name: "Nemotron 3 Ultra Free", contextLength: 1000000 },

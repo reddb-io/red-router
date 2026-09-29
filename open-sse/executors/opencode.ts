@@ -158,6 +158,8 @@ const EFFORT_LEVELS = ["none", "low", "high", "max"] as const;
 const EFFORT_TIERS: Record<string, readonly string[]> = {
   "deepseek-v4-pro": EFFORT_LEVELS,
   "deepseek-v4-flash": EFFORT_LEVELS,
+  // deepseek-v4.* accepts the full ladder (9router 367fc546d8).
+  "deepseek-v4.1-flash": ["none", "low", "medium", "high", "xhigh", "max"],
   "glm-5.2": ["high", "max"],
   "mimo-v2.5": ["high", "max"],
   "grok-4.5": ["low", "medium", "high"],

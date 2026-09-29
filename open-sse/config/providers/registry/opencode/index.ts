@@ -76,6 +76,15 @@ export const opencodeProvider: RegistryEntry = {
       maxOutputTokens: 131072,
     },
     { id: "deepseek-v4-flash-free", name: "DeepSeek V4 Flash Free", supportsReasoning: true },
+    // 9router v0.5.91 (2b65c49ff5): served only by /zen/v1/messages.
+    {
+      id: "union-alpha",
+      name: "Union Alpha Free",
+      targetFormat: "claude",
+      supportsVision: true,
+      contextLength: 262144,
+      maxOutputTokens: 131072,
+    },
     // #6998: 2026-07-14 refresh — the upstream free tier rotated its lineup;
     // minimax-m3-free, minimax-m2.5-free, ling-2.6-1t-free,
     // trinity-large-preview-free, nemotron-3-super-free and qwen3.6-plus-free

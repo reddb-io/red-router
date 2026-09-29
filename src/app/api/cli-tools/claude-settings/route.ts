@@ -148,6 +148,12 @@ export async function POST(request: Request) {
       env.ANTHROPIC_BASE_URL = normalizeClaudeBaseUrl(env.ANTHROPIC_BASE_URL);
     }
 
+    // Keep an existing token (a real key or an earlier config) unless the caller picked a key
+    // explicitly: Apply must not silently clobber it, while Reset clears it for a fresh pick.
+    if (!keyId && currentSettings.env?.ANTHROPIC_AUTH_TOKEN) {
+      delete env.ANTHROPIC_AUTH_TOKEN;
+    }
+
     // Merge new env with existing settings
     const newSettings = {
       ...currentSettings,

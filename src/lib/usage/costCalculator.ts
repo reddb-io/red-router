@@ -24,6 +24,23 @@ export function normalizeModelName(model: string): string {
   return parts[parts.length - 1];
 }
 
+/**
+ * Namespaces upstream meters at $0 (mirrors 9router v0.5.91 `FREE_MODEL_NAMESPACES`).
+ * A free model must never inherit a paid rate: `normalizeModelName()` would turn
+ * "cline-free/deepseek-v4.1-flash" into "deepseek-v4.1-flash" and match its paid
+ * pricing row, so the namespace is checked before any pricing lookup.
+ */
+export const FREE_MODEL_NAMESPACES: readonly string[] = ["cline-free/"];
+
+/** True when the model id sits in a namespace upstream bills at $0. */
+export function isFreeModel(model: string | null | undefined): boolean {
+  if (!model) return false;
+  const lower = String(model).toLowerCase();
+  // Also match a provider-prefixed form ("cline/cline-free/…") — the namespace is
+  // a path segment, not necessarily the start of the id.
+  return FREE_MODEL_NAMESPACES.some((ns) => lower.startsWith(ns) || lower.includes(`/${ns}`));
+}
+
 export type CostCalculationOptions = {
   provider?: string | null;
   model?: string | null;
@@ -200,6 +217,10 @@ export async function calculateCostDetailed(
   options: CostCalculationOptions = {}
 ): Promise<CostCalculationResult> {
   if (!tokens || !provider || !model) return { costUsd: 0, priced: true };
+
+  // Free namespaces are genuinely $0 (priced, not "unpriced"): short-circuit before
+  // the exact-cost and pricing-DB lookups so they can never inherit a paid rate.
+  if (isFreeModel(model)) return { costUsd: 0, priced: true };
 
   // Short-circuit before any pricing DB lookup when an exact, provider-reported
   // cost is present (currently xAI's `cost_in_usd_ticks` — see extractExactCostUsd).
