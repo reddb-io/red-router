@@ -69,6 +69,14 @@ function buildFridayDatabase() {
   );
   db.prepare("INSERT INTO kv VALUES (?,?,?)").run("modelAliases", "fast-alias", JSON.stringify("claude/x"));
   db.prepare("INSERT INTO kv VALUES (?,?,?)").run("disabledModels", "claude", JSON.stringify(["a"]));
+  db.prepare("INSERT INTO kv VALUES (?,?,?)").run(
+    "customModels", "ocg|deepseek-v4.1-flash|llm",
+    JSON.stringify({ providerAlias: "ocg", id: "deepseek-v4.1-flash", type: "llm", name: "DS Flash" })
+  );
+  db.prepare("INSERT INTO kv VALUES (?,?,?)").run(
+    "customModels", "openrouter|voice|tts",
+    JSON.stringify({ providerAlias: "openrouter", id: "voice", type: "tts", name: "voice" })
+  );
   db.prepare("INSERT INTO usageHistory VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)").run(
     1, "2026-09-26T10:00:00.000Z", "claude", "claude-opus-5-5", "conn-oauth",
     "sk-admin-fixture-0001", "/v1/chat/completions", 10, 5, 0.01, "ok",
@@ -157,6 +165,17 @@ test("the import maps connections, keys, combos, settings and usage, and reports
   assert.equal(usage[0].success, 1);
   assert.equal(usage[1].api_key_id, null);
   assert.equal(usage[1].success, 0);
+
+  // Custom chat models land under the provider the alias resolves to; other kinds are reported.
+  const custom = JSON.parse(
+    (db.prepare("SELECT value FROM key_value WHERE namespace = 'customModels' AND key = ?").get("opencode-go") as { value: string }).value
+  );
+  assert.deepEqual(custom.map((model: { id: string; name: string }) => [model.id, model.name]), [
+    ["deepseek-v4.1-flash", "DS Flash"],
+  ]);
+  assert.equal(report.imported.customModels, 1);
+  assert.equal(report.notMapped["customModels.tts"], 1);
+  assert.equal(report.notMapped["kv.customModels"], undefined);
 
   // Nothing is dropped silently, and transient per-model locks are not carried over.
   assert.equal(report.notMapped["providerConnections.data.unknownFridayField"], 1);

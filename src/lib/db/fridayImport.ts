@@ -17,6 +17,7 @@ import { getDbInstance } from "./core";
 import { tryOpenSync } from "./adapters/driverFactory";
 import type { SqliteAdapter } from "./adapters/types";
 import { runJsonMigration, type LegacyJsonData } from "./jsonMigration";
+import { resolveProviderAlias } from "@omniroute/open-sse/services/providerAlias";
 import { normalizeRoutingStrategy } from "@/shared/constants/routingStrategies";
 import { ALL_COMBOS_ACCESS_RULE } from "@/shared/constants/comboAccess";
 import { normalizeComboRecord } from "@/lib/combos/steps";
@@ -50,6 +51,7 @@ export interface FridayImportReport {
     usageHistory: number;
     settings: number;
     modelAliases: number;
+    customModels: number;
   };
   /** Friday data the importer read but has no mapping for yet, by name → count. */
   notMapped: Record<string, number>;
@@ -180,6 +182,48 @@ export function mapFridayUsage(row: Row, keyIdByRawKey: Map<string, string>): Ro
   };
 }
 
+interface CustomModel {
+  id: string;
+  name: string;
+  source: string;
+  apiFormat: "chat-completions";
+  supportedEndpoints: string[];
+}
+
+/**
+ * Friday's `kv` scope `customModels` (one row per model, keyed `alias|id|type`) → this build's
+ * per-provider lists. Only chat ("llm") models map; other kinds are reported.
+ */
+export function mapFridayCustomModels(
+  rows: Row[],
+  notMapped: Record<string, number>
+): Record<string, CustomModel[]> {
+  const byProvider: Record<string, CustomModel[]> = {};
+  for (const row of rows) {
+    const value = parseJson<{ providerAlias?: string; id?: string; type?: string; name?: string }>(
+      row.value,
+      {}
+    );
+    if (!value.providerAlias || !value.id) continue;
+    if ((value.type ?? "llm") !== "llm") {
+      bump(notMapped, `customModels.${value.type}`);
+      continue;
+    }
+    const provider = resolveProviderAlias(value.providerAlias) ?? value.providerAlias;
+    const list = (byProvider[provider] ??= []);
+    if (!list.some((model) => model.id === value.id)) {
+      list.push({
+        id: value.id,
+        name: value.name || value.id,
+        source: "imported",
+        apiFormat: "chat-completions",
+        supportedEndpoints: ["chat"],
+      });
+    }
+  }
+  return byProvider;
+}
+
 function all(db: SqliteAdapter, table: string): Row[] {
   try {
     return db.prepare(`SELECT * FROM ${table}`).all() as Row[];
@@ -257,12 +301,16 @@ export async function importFridayData(options: FridayImportOptions): Promise<Fr
       bump(notMapped, table, all(reader, table).length);
     for (const row of kv) {
       const scope = String(row.scope);
-      if (!["modelAliases", "pricing", "mitmAlias"].includes(scope))
+      if (!["modelAliases", "pricing", "mitmAlias", "customModels"].includes(scope))
         bump(notMapped, `kv.${scope}`);
     }
     for (const key of Object.keys(settings))
       if (!(SETTINGS_KEPT as readonly string[]).includes(key)) bump(notMapped, `settings.${key}`);
 
+    const customModels = mapFridayCustomModels(
+      kv.filter((row) => row.scope === "customModels"),
+      notMapped
+    );
     const keyIdByRawKey = new Map(keyRows.map((key) => [key.key, key.id]));
     const kvOf = (scope: string) =>
       Object.fromEntries(
@@ -290,6 +338,7 @@ export async function importFridayData(options: FridayImportOptions): Promise<Fr
         usageHistory: usage.length,
         settings: Object.keys(keptSettings).length,
         modelAliases: Object.keys(kvOf("modelAliases")).length,
+        customModels: Object.values(customModels).reduce((sum, list) => sum + list.length, 0),
       },
       notMapped,
       providers: [...new Set(connections.map((c) => String(c.provider)))].sort(),
@@ -317,6 +366,7 @@ export async function importFridayData(options: FridayImportOptions): Promise<Fr
     const target = getDbInstance() as unknown as SqliteAdapter;
     runJsonMigration(target, legacy);
     await insertKeys(target, keyRows);
+    mergeCustomModels(target, customModels);
 
     fs.writeFileSync(
       path.join(dataDir, FRIDAY_IMPORT_MARKER),
@@ -369,5 +419,22 @@ async function insertKeys(db: SqliteAdapter, keys: MappedKey[]): Promise<void> {
       if (key.tags) insertInitialApiKeyTagsInTransaction(key.id, key.tags);
       insertInitialApiKeyModelIdFormatInTransaction(key.id, key.modelIdFormat);
     });
+  })();
+}
+
+/** Adds imported custom models beside any the provider already has, never replacing one. */
+function mergeCustomModels(db: SqliteAdapter, byProvider: Record<string, CustomModel[]>): void {
+  const read = db.prepare("SELECT value FROM key_value WHERE namespace = 'customModels' AND key = ?");
+  const write = db.prepare(
+    "INSERT OR REPLACE INTO key_value (namespace, key, value) VALUES ('customModels', ?, ?)"
+  );
+  db.transaction(() => {
+    for (const [provider, models] of Object.entries(byProvider)) {
+      const row = read.get(provider) as { value?: string } | undefined;
+      const existing = parseJson<{ id?: string }[]>(row?.value, []);
+      const merged = [...existing];
+      for (const model of models) if (!existing.some((entry) => entry.id === model.id)) merged.push(model);
+      write.run(provider, JSON.stringify(merged));
+    }
   })();
 }

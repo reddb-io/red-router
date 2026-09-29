@@ -22,7 +22,6 @@ const FRIDAY_ALIASES: Record<string, string> = {
   "llm-7": "llm7",
   kgw: "kilo-gateway",
   hunyuan: "tencent",
-  qianfan: "baidu",
   ernie: "baidu",
   morphllm: "morph",
   typesafe: "typesafe-ai",

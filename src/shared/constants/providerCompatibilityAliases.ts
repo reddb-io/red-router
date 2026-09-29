@@ -2,7 +2,7 @@
  * Historical 9router / RedRouter v0.33.0 provider ids and short aliases that name an existing
  * OmniRoute connection product. Saved models (`vx/gemini-2.5`), combos and client configs keep
  * routing through them. Only aliases this build does not already own are listed: an alias the
- * registry defines (for example `if`, `kmc`) keeps this build's meaning.
+ * registry defines (for example `if`, `kmc`, `qianfan`) keeps this build's meaning.
  */
 export const PROVIDER_COMPATIBILITY_ALIASES = {
   commandcode: "command-code",
@@ -25,7 +25,6 @@ export const PROVIDER_COMPATIBILITY_ALIASES = {
   "llm-7": "llm7",
   kgw: "kilo-gateway",
   hunyuan: "tencent",
-  qianfan: "baidu",
   ernie: "baidu",
   morphllm: "morph",
   typesafe: "typesafe-ai",
