@@ -99,10 +99,17 @@ jobs:
           set -euo pipefail
           test "$(node -p 'require("./package.json").name')" = '@reddb-io/red-router'
           test "$(node -p 'require("./package.json").version')" = "$VERSION"
-          test -f Dockerfile.npm
           if [ -n "$TRIGGER_SHA" ]; then
             test "$(git rev-parse HEAD)" = "$TRIGGER_SHA"
           fi
+          # Tags cut before the Dockerfile existed (a recovery dispatch for an older release) take
+          # it from main. The image is built from the published npm package either way, so the
+          # Dockerfile is only the recipe, never the release's source.
+          if [ ! -f Dockerfile.npm ]; then
+            git fetch --depth=1 https://github.com/${{ github.repository }}.git main
+            git show FETCH_HEAD:Dockerfile.npm > Dockerfile.npm
+          fi
+          test -s Dockerfile.npm
       - name: Wait for the package on npm
         run: |
           set -euo pipefail
