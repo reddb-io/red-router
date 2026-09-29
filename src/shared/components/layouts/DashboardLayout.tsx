@@ -6,6 +6,7 @@ import SidebarResizeHandle from "../SidebarResizeHandle";
 import Header from "../Header";
 import NotificationToast from "../NotificationToast";
 import Breadcrumbs from "../Breadcrumbs";
+import RouteTabs from "../RouteTabs";
 import MaintenanceBanner from "../MaintenanceBanner";
 import CommandPalette from "../CommandPalette";
 import NavigationProgress from "../NavigationProgress";
@@ -148,6 +149,7 @@ export default function DashboardLayout({ children }) {
               1280px cap that left big empty margins on wide screens. */}
           <div className="max-w-[3840px] mx-auto w-full h-full min-h-0 flex flex-col">
             <Breadcrumbs />
+            <RouteTabs />
             <div className="flex-1 min-h-0">{children}</div>
           </div>
         </div>
