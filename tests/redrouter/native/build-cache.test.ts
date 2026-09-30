@@ -61,25 +61,23 @@ test("only the exact value 1 turns the cache on", async () => {
   }
 });
 
-test("the release build resets through the script and the workflow opts in for the build job only", () => {
+test("the release build resets through the script; the Next build cache stays OFF in CI", () => {
   const pkg = JSON.parse(readFileSync("package.json", "utf8"));
   assert.match(pkg.scripts["build:release"], /^node scripts\/build\/clean-build-output\.mjs && /);
 
-  const workflow = YAML.parse(readFileSync(".github/workflows/red-publish.yml", "utf8"));
+  // A restored 330 MB webpack cache saved about half a minute and added memory pressure to a build
+  // that already runs close to the runner's limit (0.53.0: the build worker was SIGKILLed). The
+  // script keeps the opt-in (RR_KEEP_NEXT_CACHE=1) but no workflow turns it on.
+  const text = readFileSync(".github/workflows/red-publish.yml", "utf8");
+  assert.doesNotMatch(text, /RR_KEEP_NEXT_CACHE/);
+  assert.doesNotMatch(text, /\.build\/next\/cache/);
+  const workflow = YAML.parse(text);
   const steps = workflow.jobs.build.steps as Array<Record<string, unknown>>;
-  const restore = steps.findIndex((step) => step.name === "Restore the Next build cache");
-  const build = steps.findIndex((step) => step.name === "Build once");
-  assert.ok(restore >= 0 && restore < build, "the cache is restored before the build");
-  assert.equal((steps[restore].with as Record<string, string>).path, ".build/next/cache");
-  assert.equal(steps[restore].if, "${{ inputs.artifact_run_id == '' }}");
-  assert.equal((steps[build].env as Record<string, string>).RR_KEEP_NEXT_CACHE, "1");
-  assert.equal(steps[build].run, "npm run build:release");
-
-  // No other job may keep a stale build around.
-  for (const [name, job] of Object.entries(workflow.jobs as Record<string, { steps: unknown[] }>)) {
-    if (name === "build") continue;
-    assert.doesNotMatch(JSON.stringify(job.steps), /RR_KEEP_NEXT_CACHE/, name);
-  }
+  assert.equal(steps.find((step) => step.name === "Build once")?.run, "npm run build:release");
+  assert.equal(
+    steps.find((step) => step.name === "Restore the Next build cache"),
+    undefined
+  );
 });
 
 test("the caches survive a release: keys ignore the lockfile's own version", async () => {
@@ -125,16 +123,6 @@ test("the caches survive a release: keys ignore the lockfile's own version", asy
   const workflow = YAML.parse(readFileSync(".github/workflows/red-publish.yml", "utf8"));
   const text = readFileSync(".github/workflows/red-publish.yml", "utf8");
   const build = workflow.jobs.build.steps as Array<Record<string, unknown>>;
-  const nextCache = build.find((step) => step.name === "Restore the Next build cache")!;
-  const withBlock = nextCache.with as Record<string, string>;
-  assert.doesNotMatch(
-    withBlock.key + withBlock["restore-keys"],
-    /hashFiles\('package-lock\.json'\)/
-  );
-  assert.match(
-    withBlock["restore-keys"],
-    /^next-build-\$\{\{ runner\.os \}\}-\$\{\{ runner\.arch \}\}-\s*$/
-  );
   const playwright = build.find((step) => step.name === "Restore the Playwright browsers")!;
   assert.match((playwright.with as Record<string, string>).key, /steps\.ci\.outputs\.lock-hash/);
   assert.equal(build.find((step) => step.id === "ci")?.uses, "./.github/actions/npm-ci-retry");
