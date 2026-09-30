@@ -45,6 +45,10 @@ const PUBLIC_API_ROUTES_EXACT = new Set([
   "/api/auth/logout",
   // Second step of a password sign-in: the caller holds a challenge token, not a session yet.
   "/api/auth/mfa/verify",
+  // Tenant admins and users sign in and accept invitations before they hold any session.
+  "/api/auth/tenant/login",
+  "/api/auth/tenant/logout",
+  "/api/auth/tenant/accept-invite",
   "/api/auth/status",
   // SAML: the browser reaches these before it has a session. ACS and metadata are called by the
   // identity provider; start (and its `?test=1`) checks its own auth. `/api/auth/saml/test` is not

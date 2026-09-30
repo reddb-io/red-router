@@ -13,11 +13,15 @@
  *   - MANAGEMENT  — dashboard pages, settings, providers, keys, admin and
  *                   diagnostics endpoints protected by dashboard session
  *                   or management-grade credentials.
+ *   - TENANT      — `/api/tenant/*`: what a signed-in tenant admin or user may
+ *                   call. Deny-by-default: only routes listed in the manifest
+ *                   (tenantRoutes.ts) are reachable, and never with a management
+ *                   credential.
  *
  * Any route that cannot be classified MUST fail closed.
  */
 
-export type RouteClass = "PUBLIC" | "CLIENT_API" | "MANAGEMENT";
+export type RouteClass = "PUBLIC" | "CLIENT_API" | "MANAGEMENT" | "TENANT";
 
 /**
  * Why a particular path was placed into a route class. Used for telemetry,
@@ -36,6 +40,7 @@ export type ClassificationReason =
   | "client_api_codex_alias"
   | "client_api_double_prefix"
   | "management_api"
+  | "tenant_api"
   | "root_redirect"
   | "fallback_management";
 
@@ -57,7 +62,7 @@ export interface RouteClassification {
  * handlers via assertAuth().
  */
 export interface AuthSubject {
-  kind: "client_api_key" | "dashboard_session" | "management_key" | "anonymous";
+  kind: "client_api_key" | "dashboard_session" | "management_key" | "tenant_session" | "anonymous";
   /**
    * Stable identifier of the principal:
    *  - hashed key id for API keys

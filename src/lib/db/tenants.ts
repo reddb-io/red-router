@@ -270,11 +270,20 @@ export function updateTenantUser(
     patch.displayName === undefined
       ? user.displayName
       : normalizeName(patch.displayName, "") || null;
+  // A role or status change ends the user's live sessions at once.
+  const endsSessions = role !== user.role || disabled !== user.disabled;
   getDbInstance()
     .prepare(
-      "UPDATE tenant_users SET display_name = ?, role = ?, disabled = ?, updated_at = ? WHERE id = ?"
+      "UPDATE tenant_users SET display_name = ?, role = ?, disabled = ?, session_version = session_version + ?, updated_at = ? WHERE id = ?"
     )
-    .run(displayName, role, disabled ? 1 : 0, new Date().toISOString(), user.id);
+    .run(
+      displayName,
+      role,
+      disabled ? 1 : 0,
+      endsSessions ? 1 : 0,
+      new Date().toISOString(),
+      user.id
+    );
   return getTenantUser(user.id)!;
 }
 
@@ -453,4 +462,33 @@ export function listAllTenantResources(): TenantResources {
     shared: false,
   }));
   return { connections, combos, apiKeys };
+}
+
+export interface TenantApiKeyRow {
+  id: string;
+  name: string;
+  prefix: string | null;
+  isActive: boolean;
+  createdAt: string;
+  expiresAt: string | null;
+  lastUsedAt: string | null;
+}
+
+/** The keys of one tenant, without the key value or its hash. */
+export function listTenantApiKeys(tenantId: string): TenantApiKeyRow[] {
+  const rows = getDbInstance()
+    .prepare(
+      "SELECT id, name, key_prefix, is_active, created_at, expires_at, last_used_at FROM api_keys WHERE tenant_id = ? ORDER BY created_at"
+    )
+    .all(tenantId) as Row[];
+  return rows.map((row) => ({
+    id: String(row.id),
+    name: typeof row.name === "string" ? row.name : String(row.id),
+    prefix: typeof row.key_prefix === "string" ? row.key_prefix : null,
+    isActive:
+      row.is_active === null || row.is_active === undefined ? true : Number(row.is_active) === 1,
+    createdAt: String(row.created_at),
+    expiresAt: typeof row.expires_at === "string" ? row.expires_at : null,
+    lastUsedAt: typeof row.last_used_at === "string" ? row.last_used_at : null,
+  }));
 }

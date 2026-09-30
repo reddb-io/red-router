@@ -27,6 +27,7 @@ import { checkRequestIP } from "@omniroute/open-sse/services/ipFilter.ts";
 import { clientApiPolicy } from "./policies/clientApi";
 import { managementPolicy } from "./policies/management";
 import { publicPolicy } from "./policies/public";
+import { tenantPolicy } from "./policies/tenant";
 import {
   AUTHZ_HEADER_AUTH_ID,
   AUTHZ_HEADER_AUTH_KIND,
@@ -51,6 +52,7 @@ export interface AuthzPipelineOptions {
 
 const POLICIES: Record<RouteClass, RoutePolicy> = {
   PUBLIC: publicPolicy,
+  TENANT: tenantPolicy,
   CLIENT_API: clientApiPolicy,
   MANAGEMENT: managementPolicy,
 };
@@ -455,9 +457,11 @@ export async function runAuthzPipeline(
     return rejection;
   }
 
+  // A cookie-authenticated session that changes state must come from our own pages (Origin check),
+  // for the dashboard session and for the tenant session alike.
   if (
-    classification.routeClass === "MANAGEMENT" &&
-    outcome.subject.kind === "dashboard_session" &&
+    ((classification.routeClass === "MANAGEMENT" && outcome.subject.kind === "dashboard_session") ||
+      (classification.routeClass === "TENANT" && outcome.subject.kind === "tenant_session")) &&
     isUnsafeMutationMethod(method)
   ) {
     const originVerdict = validateBrowserMutationOrigin(request);

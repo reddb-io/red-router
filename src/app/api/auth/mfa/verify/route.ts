@@ -12,6 +12,9 @@ import { spendMfaChallenge, verifyMfaChallenge } from "@/lib/auth/mfaChallenge";
 import { getDashboardJwtSecret } from "@/shared/utils/dashboardSessionToken";
 import { checkLoginGuard, clearLoginAttempts, recordLoginFailure } from "@/server/auth/loginGuard";
 import { getLoginLockoutKey, getLoginSourceScope } from "@/server/auth/loginPeer";
+import { getTenant } from "@/lib/db/tenants";
+import { getTenantUserAuthById, touchTenantUserLogin } from "@/lib/db/tenantAuth";
+import { setTenantSessionCookie } from "@/lib/auth/tenantSessionCookie";
 import { isValidationFailure, validateBody } from "@/shared/validation/helpers";
 
 const verifySchema = z.object({
@@ -42,7 +45,22 @@ export async function POST(request: NextRequest) {
 
     const settings = await getCachedSettings();
     const bruteForceEnabled = settings.bruteForceProtection !== false;
-    const lockoutKey = getLoginLockoutKey(request, auditContext.ipAddress);
+
+    // The challenge says whose second factor this is. Check it first so the lockout bucket matches
+    // the sign-in it belongs to: tenant users have their own, apart from the owner's.
+    const challenge = await verifyMfaChallenge(mfaToken, getDashboardJwtSecret());
+    if (!challenge) {
+      return NextResponse.json(
+        { error: "This sign-in expired. Enter your password again.", restart: true },
+        { status: 401 }
+      );
+    }
+    const tenantUserId = challenge.principal.startsWith("user:")
+      ? challenge.principal.slice("user:".length)
+      : null;
+
+    const ip = getLoginLockoutKey(request, auditContext.ipAddress);
+    const lockoutKey = tenantUserId ? `tenant-ip:${ip ?? "unknown"}` : ip;
     const guard = checkLoginGuard(lockoutKey, { enabled: bruteForceEnabled });
     if (!guard.allowed) {
       logAuditEvent({
@@ -58,14 +76,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: "Too many failed attempts. Try again later." },
         { status: 429, headers: { "Retry-After": String(guard.retryAfterSeconds || 60) } }
-      );
-    }
-
-    const challenge = await verifyMfaChallenge(mfaToken, getDashboardJwtSecret());
-    if (!challenge) {
-      return NextResponse.json(
-        { error: "This sign-in expired. Enter your password again.", restart: true },
-        { status: 401 }
       );
     }
 
@@ -93,6 +103,30 @@ export async function POST(request: NextRequest) {
         );
       }
       return NextResponse.json({ error: "Invalid code" }, { status: 401 });
+    }
+
+    // A tenant user: sign in to the tenant, never to the dashboard.
+    if (tenantUserId) {
+      const user = getTenantUserAuthById(tenantUserId);
+      const tenant = user ? getTenant(user.tenantId) : null;
+      if (!user || user.disabled || !tenant || tenant.disabled) {
+        return NextResponse.json({ error: "Invalid code" }, { status: 401 });
+      }
+      spendMfaChallenge(challenge);
+      const secureCookie = await setTenantSessionCookie(request, user);
+      touchTenantUserLogin(user.id);
+      clearLoginAttempts(lockoutKey);
+      logAuditEvent({
+        action: "tenant.login.success",
+        actor: `tenant:${tenant.slug}/${user.email}`,
+        target: "tenant-auth",
+        resourceType: "auth_session",
+        status: "success",
+        ipAddress: auditContext.ipAddress || undefined,
+        requestId: auditContext.requestId,
+        metadata: { tenantId: tenant.id, role: user.role, secureCookie, mfa: method },
+      });
+      return NextResponse.json({ success: true, method });
     }
 
     spendMfaChallenge(challenge);

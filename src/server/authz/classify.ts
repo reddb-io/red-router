@@ -116,6 +116,16 @@ export function classifyRoute(rawPath: string, method: string = "GET"): RouteCla
     };
   }
 
+  // The tenant surface. Exact-segment match: `/api/tenants` (the owner's management routes) is NOT
+  // this class. Nothing under it is reachable without a tenant session and a manifest row.
+  if (normalizedPath === "/api/tenant" || normalizedPath.startsWith("/api/tenant/")) {
+    return {
+      routeClass: "TENANT",
+      reason: "tenant_api",
+      normalizedPath,
+    };
+  }
+
   if (normalizedPath.startsWith("/api/")) {
     if (isClassifiedAsPublic(normalizedPath, method)) {
       return {

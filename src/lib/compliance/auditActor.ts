@@ -10,6 +10,7 @@
 
 import { getDashboardSessionPayload } from "@/shared/utils/apiAuth";
 import { isCliTokenAuthValid } from "@/lib/middleware/cliTokenAuth";
+import { TENANT_SESSION_COOKIE, authenticateTenantToken } from "@/lib/auth/tenantSession";
 
 export const LEGACY_SESSION_ACTOR = "owner";
 export const UNKNOWN_ACTOR = "admin";
@@ -20,6 +21,17 @@ export async function auditActorFor(request?: Request | null): Promise<string> {
     const session = await getDashboardSessionPayload(request);
     if (session) {
       return typeof session.sub === "string" && session.sub ? session.sub : LEGACY_SESSION_ACTOR;
+    }
+    // A tenant session: `tenant:<slug>/<e-mail>`. Read from the tenant cookie only.
+    const tenantToken = (request.headers.get("cookie") || "")
+      .split(";")
+      .map((part) => part.trim())
+      .find((part) => part.startsWith(`${TENANT_SESSION_COOKIE}=`));
+    if (tenantToken) {
+      const tenant = await authenticateTenantToken(
+        tenantToken.slice(TENANT_SESSION_COOKIE.length + 1)
+      );
+      if (tenant) return `tenant:${tenant.tenantSlug}/${tenant.email}`;
     }
     const { extractApiKey } = await import("@/sse/services/auth");
     const apiKey = extractApiKey(request, { allowUrl: false });
