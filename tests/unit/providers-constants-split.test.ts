@@ -47,7 +47,8 @@ import assert from "node:assert/strict";
 const P = await import("../../src/shared/constants/providers.ts");
 
 // Measured from the merged catalog in CI after the upstream-parity additions.
-const APIKEY_PROVIDER_COUNT = 250;
+// Gateway upstreams (cloudflare-ai-gateway, helicone, portkey) add three entries — 253.
+const APIKEY_PROVIDER_COUNT = 253;
 
 test("barrel still exports every catalog + key helpers", () => {
   for (const name of [

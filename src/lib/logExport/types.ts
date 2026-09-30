@@ -103,6 +103,8 @@ export interface LogExportConfigField {
   secret?: boolean;
   placeholder?: string;
   helpFallback?: string;
+  /** Initial state of a new `boolean` field in the form. Omitted means checked. */
+  defaultValue?: boolean;
   options?: ReadonlyArray<{ value: string; labelFallback: string }>;
 }
 

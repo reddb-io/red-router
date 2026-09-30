@@ -6,6 +6,7 @@ export interface LogExportFieldDescriptor {
   secret?: boolean;
   placeholder?: string;
   helpFallback?: string;
+  defaultValue?: boolean;
   options?: Array<{ value: string; labelFallback: string }>;
 }
 

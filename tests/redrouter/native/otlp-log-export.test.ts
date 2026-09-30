@@ -193,6 +193,7 @@ test("the destination is registered and its form comes from the descriptor", () 
       ["endpoint", "text", false],
       ["headers", "textarea", true],
       ["serviceName", "text", false],
+      ["endpointIsFull", "boolean", false],
     ]
   );
 });

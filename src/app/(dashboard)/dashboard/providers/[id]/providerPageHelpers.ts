@@ -243,6 +243,9 @@ export const CONFIGURABLE_BASE_URL_PROVIDERS = new Set([
   "firecrawl",
   "petals",
   "comfyui",
+  // Cloudflare AI Gateway endpoints are per account (/v1/<account_id>/<gateway_id>/...), so
+  // the operator must supply the Base URL; there is no default host to preset.
+  "cloudflare-ai-gateway",
   // #12704 — Modal is bring-your-own-deploy: every user runs their model on a
   // unique endpoint (https://<workspace>--<app>.modal.run/v1), so there is no
   // fixed host to preset. The server-side validator (src/lib/providers/
@@ -383,6 +386,7 @@ const BUILTIN_BASE_URL_PLACEHOLDER_EXAMPLES: Readonly<Record<string, string>> = 
   agnes: "https://api.agnes-ai.cn/v1",
   // #12704 — shows the Modal app URL shape the validator demands.
   modal: "https://<workspace>--<app>.modal.run/v1",
+  "cloudflare-ai-gateway": "https://gateway.ai.cloudflare.com/v1/<account_id>/<gateway_id>/compat",
 };
 
 // These ids have no literal example: the placeholder is their configured default URL.

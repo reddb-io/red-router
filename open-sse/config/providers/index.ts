@@ -238,6 +238,9 @@ import { naraProvider } from "./registry/nara/index.ts";
 import { xkiroProvider } from "./registry/xkiro/index.ts";
 import { opperProvider } from "./registry/opper/index.ts";
 import { requestyProvider } from "./registry/requesty/index.ts";
+import { cloudflare_ai_gatewayProvider } from "./registry/cloudflare-ai-gateway/index.ts";
+import { heliconeProvider } from "./registry/helicone/index.ts";
+import { portkeyProvider } from "./registry/portkey/index.ts";
 import { sealionProvider } from "./registry/sealion/index.ts";
 import { routewayProvider } from "./registry/routeway/index.ts";
 import { digitaloceanProvider } from "./registry/digitalocean/index.ts";
@@ -529,6 +532,9 @@ export const REGISTRY: Record<string, RegistryEntry> = {
   xkiro: xkiroProvider,
   opper: opperProvider,
   requesty: requestyProvider,
+  "cloudflare-ai-gateway": cloudflare_ai_gatewayProvider,
+  helicone: heliconeProvider,
+  portkey: portkeyProvider,
   sealion: sealionProvider,
   routeway: routewayProvider,
   digitalocean: digitaloceanProvider,

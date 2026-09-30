@@ -27,6 +27,8 @@ import {
   resolveBaseUrl,
 } from "./validation/urlHelpers";
 import { toValidationErrorResult } from "./validation/transport";
+import { validateCloudflareAiGatewayProvider } from "./validation/gatewayProviders";
+import { buildGatewayExtraHeaders } from "@omniroute/open-sse/config/gatewayProviders.ts";
 import {
   validateDeepSeekWebProvider,
   validateGrokWebProvider,
@@ -279,6 +281,7 @@ export async function validateProviderApiKey({ provider, apiKey, providerSpecifi
     "aws-polly": validateAwsPollyProvider,
     "bailian-coding-plan": validateBailianCodingPlanProvider,
     "qwen-cloud-token-plan": validateQwenCloudTokenPlanProvider,
+    "cloudflare-ai-gateway": validateCloudflareAiGatewayProvider,
     heroku: validateHerokuProvider,
     databricks: validateDatabricksProvider,
     datarobot: validateDataRobotProvider,
@@ -442,7 +445,11 @@ export async function validateProviderApiKey({ provider, apiKey, providerSpecifi
       return await validateOpenAILikeProvider({
         apiKey,
         baseUrl,
-        headers: entry.headers || {},
+        // Helicone/Portkey: Portkey also needs x-portkey-api-key (+ optional virtual key).
+        headers: {
+          ...(entry.headers || {}),
+          ...buildGatewayExtraHeaders(provider, apiKey, providerSpecificData),
+        },
         providerSpecificData,
         modelId,
         modelsUrl: usesAlibabaRegionalEndpoint ? "" : entry.testKeyModelsUrl || entry.modelsUrl,

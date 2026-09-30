@@ -112,6 +112,11 @@ export const otlpConfigSchema = z.object({
     })
     .default(""),
   serviceName: z.string().trim().min(1).max(128).default("red-router"),
+  /**
+   * The endpoint is the complete logs URL: post to it exactly as written, without appending
+   * `/v1/logs`. For vendors whose OTLP path differs from the standard one.
+   */
+  endpointIsFull: z.boolean().optional(),
 });
 
 export type OtlpConfig = z.infer<typeof otlpConfigSchema>;
@@ -141,6 +146,14 @@ const FIELDS: readonly LogExportConfigField[] = [
     type: "text",
     placeholder: "red-router",
     helpFallback: "Reported as the service.name resource attribute.",
+  },
+  {
+    key: "endpointIsFull",
+    labelFallback: "Endpoint is the full logs URL",
+    type: "boolean",
+    defaultValue: false,
+    helpFallback:
+      "Post to the endpoint exactly as written instead of appending /v1/logs. Leave off for a standard OTLP/HTTP receiver.",
   },
 ];
 
@@ -246,9 +259,12 @@ export function buildOtlpLogsRequest(
 
 // --- client --------------------------------------------------------------------------------
 
-function logsUrl(endpoint: string): string {
-  const trimmed = endpoint.trim().replace(/\/+$/, "");
-  return trimmed.endsWith(LOG_PATH) ? trimmed : `${trimmed}${LOG_PATH}`;
+/** `endpointIsFull` keeps the endpoint as written; otherwise `/v1/logs` is appended once. */
+export function otlpLogsUrl(endpoint: string, endpointIsFull = false): string {
+  const trimmed = endpoint.trim();
+  if (endpointIsFull) return trimmed;
+  const base = trimmed.replace(/\/+$/, "");
+  return base.endsWith(LOG_PATH) ? base : `${base}${LOG_PATH}`;
 }
 
 function retryDelayMs(response: Response | null, attempt: number): number {
@@ -268,7 +284,7 @@ class OtlpClient implements LogExportClient {
     private readonly sleep: (ms: number) => Promise<void> = (ms) =>
       new Promise((resolve) => setTimeout(resolve, ms))
   ) {
-    this.url = logsUrl(config.endpoint);
+    this.url = otlpLogsUrl(config.endpoint, config.endpointIsFull);
     this.headers = {
       ...parseOtlpHeaders(config.headers).headers,
       "Content-Type": "application/json",

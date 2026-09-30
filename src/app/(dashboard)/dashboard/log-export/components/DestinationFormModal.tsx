@@ -40,7 +40,7 @@ function initialValues(
   for (const field of descriptor?.fields ?? []) {
     const stored = destination?.config?.[field.key];
     if (field.type === "boolean") {
-      values[field.key] = stored === undefined ? true : Boolean(stored);
+      values[field.key] = stored === undefined ? (field.defaultValue ?? true) : Boolean(stored);
     } else {
       values[field.key] = stored === undefined || stored === null ? "" : String(stored);
     }

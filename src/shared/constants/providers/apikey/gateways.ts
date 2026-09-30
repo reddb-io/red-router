@@ -167,6 +167,54 @@ export const APIKEY_PROVIDERS_GATEWAYS = {
       "Create an API key at https://app.requesty.ai, then paste it here as a Bearer token. " +
       "OpenAI-compatible endpoint at https://router.requesty.ai/v1, with a live /v1/models catalog.",
   },
+  // LLM observability/ops gateways used as UPSTREAMS (RedRouter forwards through them).
+  // Endpoints are the vendors' documented OpenAI-compatible surfaces; see registry entries.
+  "cloudflare-ai-gateway": {
+    id: "cloudflare-ai-gateway",
+    serviceKinds: ["llm"],
+    alias: "cfaig",
+    name: "Cloudflare AI Gateway",
+    icon: "cloud",
+    color: "#F48120",
+    textIcon: "CG",
+    passthroughModels: true,
+    website: "https://developers.cloudflare.com/ai-gateway/",
+    authHint:
+      "Paste the upstream provider key (or your Cloudflare AI Gateway token for Unified Billing) as the API key. " +
+      "Set Base URL to your gateway endpoint, for example https://gateway.ai.cloudflare.com/v1/<account_id>/<gateway_id>/compat or .../openai.",
+    apiHint:
+      "Per-account endpoint: use /compat with provider-prefixed models (openai/gpt-4o-mini) or a provider path such as /openai with plain model ids. " +
+      "For an authenticated gateway add cfAigToken to the connection's provider-specific data; it is sent as cf-aig-authorization.",
+  },
+  helicone: {
+    id: "helicone",
+    serviceKinds: ["llm"],
+    alias: "helicone",
+    name: "Helicone AI Gateway",
+    icon: "monitoring",
+    color: "#0CA5E9",
+    textIcon: "HC",
+    passthroughModels: true,
+    website: "https://www.helicone.ai",
+    apiHint:
+      "Create a Helicone API key at https://helicone.ai, then paste it here as a Bearer token. " +
+      "OpenAI-compatible unified endpoint at https://ai-gateway.helicone.ai/v1; the model catalog is read from /v1/models.",
+  },
+  portkey: {
+    id: "portkey",
+    serviceKinds: ["llm"],
+    alias: "portkey",
+    name: "Portkey",
+    icon: "router",
+    color: "#6366F1",
+    textIcon: "PK",
+    passthroughModels: true,
+    website: "https://portkey.ai",
+    authHint:
+      "Paste your Portkey API key. It is sent as the Bearer token and as x-portkey-api-key.",
+    apiHint:
+      "OpenAI-compatible endpoint at https://api.portkey.ai/v1. Name models @provider/model, or add virtualKey to the connection's provider-specific data to send x-portkey-virtual-key.",
+  },
   "zylo-api": {
     id: "zylo-api",
     serviceKinds: ["llm"],

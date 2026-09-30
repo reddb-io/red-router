@@ -201,7 +201,9 @@ test("shared set size includes live REGISTRY and retired Designer + Felo + Qwen 
   // measured 413 there; with gemini-business also retired on top of it the live set is 412
   // (413 -> 412). That was the historical pre-parity baseline.
   // Measured in CI after adding upstream-parity provider ids and aliases.
-  assert.equal(RESERVED_PREFIX_COUNT, 431);
+  // Gateway upstreams (cloudflare-ai-gateway + cfaig, helicone, portkey) add four members
+  // (431 -> 435).
+  assert.equal(RESERVED_PREFIX_COUNT, 435);
 });
 
 test("isReservedProviderPrefix rejects non-string input", () => {

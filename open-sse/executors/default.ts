@@ -50,6 +50,11 @@ import {
   resolvePoeUpstreamUrl,
 } from "../config/providers/registry/poe/index.ts";
 import { buildMaritalkChatUrl } from "../config/maritalk.ts";
+import {
+  CLOUDFLARE_AI_GATEWAY_ID,
+  buildCloudflareAiGatewayChatUrl,
+  buildGatewayExtraHeaders,
+} from "../config/gatewayProviders.ts";
 import { LOCAL_PROVIDERS } from "@/shared/constants/providers";
 import { isForbiddenCustomHeaderName } from "@/shared/constants/upstreamHeaders";
 import { getClaudeCodeCompatibleRequestDefaults } from "@/lib/providers/requestDefaults";
@@ -396,6 +401,16 @@ export class DefaultExecutor extends BaseExecutor {
         const baseUrl = this.resolveBaseUrl(credentials);
         return buildMaritalkChatUrl(baseUrl);
       }
+      case CLOUDFLARE_AI_GATEWAY_ID: {
+        // Per-account endpoint: the operator's gateway URL is the connection base URL.
+        const psdBaseUrl = credentials?.providerSpecificData?.baseUrl;
+        if (typeof psdBaseUrl !== "string" || !psdBaseUrl.trim()) {
+          throw new Error(
+            "Cloudflare AI Gateway needs a Base URL (https://gateway.ai.cloudflare.com/v1/<account_id>/<gateway_id>/compat)"
+          );
+        }
+        return buildCloudflareAiGatewayChatUrl(psdBaseUrl);
+      }
       case "siliconflow": {
         const baseUrl = this.resolveBaseUrl(credentials);
         return normalizeOpenAIChatUrl(baseUrl);
@@ -690,6 +705,16 @@ export class DefaultExecutor extends BaseExecutor {
     }
 
     headers["Accept"] = stream ? "text/event-stream" : "application/json";
+
+    // LLM-gateway upstreams (Cloudflare AI Gateway / Portkey): optional per-connection headers.
+    Object.assign(
+      headers,
+      buildGatewayExtraHeaders(
+        this.provider,
+        effectiveKey || credentials.accessToken,
+        credentials.providerSpecificData
+      )
+    );
 
     const isCompatibleProvider =
       this.provider?.startsWith?.("openai-compatible-") ||
