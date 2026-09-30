@@ -170,7 +170,7 @@ test("installing or upgrading the service puts the new tray on screen, replacing
   const { installService } = await import("../../../bin/cli/service.mjs");
   assert.equal(typeof installService, "function");
   const source = readFileSync(join(process.cwd(), "bin/cli/service.mjs"), "utf8");
-  assert.match(source, /refreshTray\(port, spawnTray\)/);
+  assert.match(source, /installLinuxTrayService\(/);
   assert.match(source, /replace: true/);
   const serve = readFileSync(join(process.cwd(), "bin/cli/commands/serve.mjs"), "utf8");
   assert.match(serve, /shouldAutoAttachTray\(\{ opts: trayOpts \}\)/);

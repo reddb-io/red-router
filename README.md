@@ -85,6 +85,20 @@ red-router service install
 red-router service status
 ```
 
+On Linux, service installation also enables a separate `red-router-tray.service`
+for the graphical session. The tray attaches to the existing server and survives
+unattended package upgrades. It reports readiness after registering with the
+desktop, restarts after a helper failure, and keeps its diagnostics in the journal.
+`red-router service status` reports server and tray state separately, including
+whether the tray is registered. Desktop autostart supplies the session environment;
+headless installations wait for a desktop login. Set `RED_ROUTER_TRAY=0` when
+installing the service to disable the tray.
+
+```bash
+red-router tray start
+journalctl --user -u red-router-tray.service
+```
+
 Use `--host 0.0.0.0` or `--expose` only when network access is intentional and
 the inference API is protected. The inherited `OMNIROUTE_*` environment variables
 remain compatibility aliases; new RedRouter configuration should prefer

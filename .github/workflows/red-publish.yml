@@ -87,6 +87,12 @@ jobs:
           cache: npm
       - uses: ./.github/actions/npm-ci-retry
       - run: npm run test:unit:ci
+      - name: Install Linux desktop regression dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y xvfb dbus-x11 libayatana-appindicator3-1 python3-dbus python3-gi
+      - name: Verify tray survives installation and recovers native helper failures
+        run: node scripts/ci/check-linux-tray.mjs
 
   test-vitest:
     name: RedRouter UI

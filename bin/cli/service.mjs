@@ -7,6 +7,11 @@ import { fileURLToPath } from "node:url";
 import { resolveDataDir } from "./data-dir.mjs";
 import { DEFAULT_HOST, DEFAULT_PORT } from "./product.mjs";
 import { hasGraphicalSession, spawnAttachedTray } from "./tray/attachedTray.mjs";
+import {
+  installLinuxTrayService,
+  linuxTrayServiceStatus,
+  uninstallLinuxTrayService,
+} from "./tray/linuxService.mjs";
 
 const CLI_PATH = join(dirname(fileURLToPath(import.meta.url)), "..", "omniroute.mjs");
 
@@ -44,6 +49,7 @@ export function servicePaths(home = process.env.HOME || homedir()) {
   return {
     linux: join(home, ".config", "systemd", "user", LINUX_SERVICE_NAME),
     linuxTray: join(home, ".config", "autostart", "red-router.desktop"),
+    linuxTrayUnit: join(home, ".config", "systemd", "user", "red-router-tray.service"),
     darwin: join(home, "Library", "LaunchAgents", `${DARWIN_SERVICE_LABEL}.plist`),
   };
 }
@@ -55,8 +61,8 @@ function desktopQuote(value) {
 export function buildTrayDesktopEntry({ misePath, port = DEFAULT_PORT } = {}) {
   const executable = misePath ? desktopQuote(misePath) : "/usr/bin/env";
   const command = misePath
-    ? `${executable} exec red-router -- red-router tray attach --port ${port}`
-    : `${executable} red-router tray attach --port ${port}`;
+    ? `${executable} exec red-router -- red-router tray start --port ${port}`
+    : `${executable} red-router tray start --port ${port}`;
   return [
     "[Desktop Entry]",
     "Type=Application",
@@ -90,6 +96,17 @@ function installLinuxTrayDesktop(paths, port) {
   }
   mkdirSync(dirname(paths.linuxTray), { recursive: true });
   writeFileSync(paths.linuxTray, buildTrayDesktopEntry({ misePath, port }), { mode: 0o644 });
+}
+
+export function startManagedTray({ port = DEFAULT_PORT } = {}) {
+  const paths = servicePaths();
+  return installLinuxTrayService({
+    unitPath: paths.linuxTrayUnit,
+    nodePath: resolveServiceNodePath(),
+    cliPath: resolveCliPath(),
+    dataDir: resolveDataDir(),
+    port,
+  });
 }
 
 export function resolveCliPath() {
@@ -192,9 +209,30 @@ export function installService({
     writeFileSync(paths.linux, buildSystemdUnit({ port, host }), { mode: 0o644 });
     run("systemctl", ["--user", "daemon-reload"]);
     run("systemctl", ["--user", "enable", "--now", LINUX_SERVICE_NAME]);
-    installLinuxTrayDesktop(paths, port);
-    refreshTray(port, spawnTray);
-    return { ok: true, kind: "systemd --user", path: paths.linux, port, host };
+    let tray;
+    try {
+      tray = installLinuxTrayService({
+        unitPath: paths.linuxTrayUnit,
+        nodePath: resolveServiceNodePath(),
+        cliPath: resolveCliPath(),
+        dataDir: resolveDataDir(),
+        port,
+      });
+      if (process.env.RED_ROUTER_TRAY !== "0") installLinuxTrayDesktop(paths, port);
+      else if (
+        existsSync(paths.linuxTray) &&
+        isRouterDesktopEntry(readFileSync(paths.linuxTray, "utf8"))
+      ) {
+        rmSync(paths.linuxTray);
+      }
+    } catch {
+      tray = {
+        state: "failed",
+        message: "Inspect journalctl --user -u red-router-tray.service for tray diagnostics.",
+      };
+      process.stderr.write(`RedRouter tray setup failed. ${tray.message}\n`);
+    }
+    return { ok: true, kind: "systemd --user", path: paths.linux, port, host, tray };
   }
   if (process.platform === "darwin") {
     mkdirSync(dirname(paths.darwin), { recursive: true });
@@ -216,6 +254,7 @@ export function installService({
 export function uninstallService() {
   const paths = servicePaths();
   if (process.platform === "linux") {
+    uninstallLinuxTrayService({ unitPath: paths.linuxTrayUnit });
     run("systemctl", ["--user", "disable", "--now", LINUX_SERVICE_NAME], {
       ignoreFailure: true,
     });
@@ -256,6 +295,7 @@ export function serviceStatus() {
       installed: existsSync(paths.linux),
       state,
       path: paths.linux,
+      tray: linuxTrayServiceStatus({ unitPath: paths.linuxTrayUnit }),
     };
   }
   if (process.platform === "darwin") {

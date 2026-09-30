@@ -88,7 +88,7 @@ test("desktop tray attaches to the mise-selected RedRouter without pinning Node 
   const desktop = buildTrayDesktopEntry({ misePath: "/home/test/.local/bin/mise", port: 25050 });
   assert.match(
     desktop,
-    /Exec="\/home\/test\/\.local\/bin\/mise" exec red-router -- red-router tray attach --port 25050/
+    /Exec="\/home\/test\/\.local\/bin\/mise" exec red-router -- red-router tray start --port 25050/
   );
   assert.doesNotMatch(desktop, /\/installs\/node\/|serve --tray|0\.11\.7/);
   assert.match(desktop, /X-RedRouter-Managed=service-tray/);

@@ -37,7 +37,7 @@ function getIconBase64() {
 }
 
 export async function initSystrayUnix(
-  { port, trayOnly = false, onQuit, onOpenDashboard, onShowLogs },
+  { port, trayOnly = false, onQuit, onOpenDashboard, onShowLogs, onCreated },
   loadCtor = loadSystray2
 ) {
   const SysTray = await loadCtor();
@@ -59,28 +59,24 @@ export async function initSystrayUnix(
     { title: trayOnly ? "Quit RedRouter tray" : "Quit RedRouter", enabled: true },
   ];
 
-  let tray;
-  try {
-    tray = new SysTray({
-      menu: {
-        icon: getIconBase64(),
-        // isTemplateIcon must be false: icon.png is a full-color RGBA logo, and
-        // macOS template mode uses only the alpha channel → a solid white square
-        // (the icon looked "missing" even when the tray loaded). (PR #1080)
-        isTemplateIcon: false,
-        // On Linux (AppIndicator / GNOME) the title is the text drawn next to the icon; the other
-        // RedDB tray apps show their name there, so an empty title left this one as a bare icon.
-        // macOS keeps the icon alone and Windows has no title slot.
-        title: process.platform === "linux" ? "RedRouter" : "",
-        tooltip: `RedRouter — port ${port}`,
-        items,
-      },
-      debug: false,
-      copyDir: false,
-    });
-  } catch {
-    return null;
-  }
+  const tray = new SysTray({
+    menu: {
+      icon: getIconBase64(),
+      // isTemplateIcon must be false: icon.png is a full-color RGBA logo, and
+      // macOS template mode uses only the alpha channel → a solid white square
+      // (the icon looked "missing" even when the tray loaded). (PR #1080)
+      isTemplateIcon: false,
+      // On Linux (AppIndicator / GNOME) the title is the text drawn next to the icon; the other
+      // RedDB tray apps show their name there, so an empty title left this one as a bare icon.
+      // macOS keeps the icon alone and Windows has no title slot.
+      title: process.platform === "linux" ? "RedRouter" : "",
+      tooltip: `RedRouter — port ${port}`,
+      items,
+    },
+    debug: false,
+    copyDir: false,
+  });
+  onCreated?.(tray);
 
   tray.onClick(async (action) => {
     if (action.seq_id === MENU_INDEX.DASHBOARD) {
@@ -107,6 +103,7 @@ export async function initSystrayUnix(
   });
 
   await tray.ready();
+  tray._process?.stderr?.on("data", (chunk) => process.stderr.write(chunk));
 
   return tray;
 }

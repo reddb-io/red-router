@@ -12,8 +12,18 @@ export async function initTray({ port, trayOnly = false, onQuit, onOpenDashboard
   // Use systray2 on all platforms including Windows — the tarball ships
   // tray_windows_release.exe, avoiding the Norton/AVG IDP.HELU.PSE85 heuristic
   // that fires on temp-dir PowerShell scripts. (#8609)
-  active = await initSystrayUnix(ctx);
-  return active;
+  try {
+    active = await initSystrayUnix({
+      ...ctx,
+      onCreated: (tray) => {
+        active = tray;
+      },
+    });
+    return active;
+  } catch (error) {
+    killTray();
+    throw error;
+  }
 }
 
 export function killTray() {
