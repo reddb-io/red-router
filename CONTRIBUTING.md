@@ -77,7 +77,7 @@ npm run start
 npm run build:contributor
 
 # Release build (clean rebuild + HEAD sentinel — required for deploy)
-npm run build:release   # rm -rf .build dist && build + writes dist/BUILD_SHA
+npm run build:release   # clears .build and dist, then builds and writes dist/BUILD_SHA
 
 # Common port configuration
 PORT=20128 NEXT_PUBLIC_BASE_URL=http://localhost:20128 npm run dev
