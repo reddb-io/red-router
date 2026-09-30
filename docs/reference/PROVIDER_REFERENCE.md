@@ -313,7 +313,7 @@ Use the dashboard at `/dashboard/providers` to enable, configure, and test each 
 | `qwen-cloud` | `qwc` | Qwen Cloud | API key | [link](https://www.qwencloud.com/) | — |
 | `qwen-cloud-token-plan` | `qct` | Qwen Cloud Token Plan | API key | [link](https://www.qwencloud.com/pricing/token-plan) | — |
 | `recraft` | `recraft` | Recraft | API key, image | [link](https://recraft.ai) | — |
-| `red-router` | `red-router` | RedRouter | API key | [link](https://github.com/reddb.io/red-router) | Point providerSpecificData.baseUrl at the remote RedRouter (e.g. http://host:25050/v1) and paste one of its API keys. Default: http://127.0.0.1:25050/v1 (same host). |
+| `red-router` | `red-router` | RedRouter | API key | [link](https://github.com/reddb-io/red-router) | Point providerSpecificData.baseUrl at the remote RedRouter (e.g. http://host:25050/v1) and paste one of its API keys. Default: http://127.0.0.1:25050/v1 (same host). |
 | `regolo` | `regolo` | Regolo AI | API key | [link](https://regolo.ai) | Get your Regolo API key from regolo.ai, then paste it here as a Bearer token. |
 | `reka` | `reka` | Reka | API key | [link](https://docs.reka.ai/chat/overview) | Use your Reka API key. RedRouter supports the OpenAI-compatible base URL https://api.reka.ai/v1 and sends both Authorization and X-Api-Key headers for compatibility. |
 | `requesty` | `requesty` | Requesty | API key | [link](https://requesty.ai) | Free tier ~200 requests/day - multi-model routing gateway (300+ models) |

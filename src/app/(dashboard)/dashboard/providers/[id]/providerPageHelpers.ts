@@ -268,9 +268,14 @@ export const CONFIGURABLE_BASE_URL_PROVIDERS = new Set([
   // the international apihub.agnes-ai.com default. Same always-on field as
   // #7447 Kimi/Moonshot so Add-connection can point at api.agnes-ai.cn.
   "agnes",
+  // A remote RedRouter is wherever the operator runs it: the host or IP changes (DHCP, a moved
+  // machine, a new tunnel), so the destination must be editable on the connection, not only at
+  // creation time behind an opt-in link.
+  "red-router",
 ]);
 
 export const DEFAULT_PROVIDER_BASE_URLS: Record<string, string> = {
+  "red-router": "http://127.0.0.1:25050/v1",
   "azure-openai": "https://example-resource.openai.azure.com",
   "azure-ai": "https://example-resource.services.ai.azure.com/openai/v1",
   "bailian-coding-plan": "https://token-plan.ap-southeast-1.maas.aliyuncs.com/apps/anthropic/v1",
@@ -349,6 +354,8 @@ export function getProviderBaseUrlHint(
     });
   }
   switch (providerId) {
+    case "red-router":
+      return t ? t("redRouterBaseUrlHint") : undefined;
     case "azure-openai":
       return t ? t("azureOpenAiBaseUrlHint") : undefined;
     case "bailian-coding-plan":
@@ -391,6 +398,7 @@ const BUILTIN_BASE_URL_PLACEHOLDER_EXAMPLES: Readonly<Record<string, string>> = 
 
 // These ids have no literal example: the placeholder is their configured default URL.
 const DEFAULT_BASED_PLACEHOLDER_PROVIDERS = new Set([
+  "red-router",
   "bailian-coding-plan",
   "xiaomi-mimo",
   "comfyui",

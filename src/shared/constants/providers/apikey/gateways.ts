@@ -1658,7 +1658,7 @@ export const APIKEY_PROVIDERS_GATEWAYS = {
     icon: "router",
     color: "#E5484D",
     textIcon: "RR",
-    website: "https://github.com/reddb.io/red-router",
+    website: "https://github.com/reddb-io/red-router",
     authHint:
       "Point providerSpecificData.baseUrl at the remote RedRouter (e.g. http://host:25050/v1) and paste one of its API keys. Default: http://127.0.0.1:25050/v1 (same host).",
     passthroughModels: true,

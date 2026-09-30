@@ -4,7 +4,15 @@ import { Rss, X } from "lucide-react";
 import Icon from "@/shared/components/Icon";
 import { useState } from "react";
 import { useTranslations } from "next-intl";
-import { Button, Badge, Input, Modal, Toggle, Select } from "@/shared/components";
+import {
+  Button,
+  Badge,
+  Input,
+  Modal,
+  TALL_MODAL_PROPS,
+  Toggle,
+  Select,
+} from "@/shared/components";
 import { CHATGPT_WEB_CODEX_CONNECTOR_NAME } from "@/shared/constants/chatgptWebCodex";
 import {
   isOpenAICompatibleProvider,
@@ -798,7 +806,13 @@ export default function EditConnectionModal({
     />
   ) : null;
   return (
-    <Modal isOpen={isOpen} title={t("editConnection")} onClose={onClose}>
+    <Modal
+      isOpen={isOpen}
+      title={t("editConnection")}
+      onClose={onClose}
+      size="full"
+      {...TALL_MODAL_PROPS}
+    >
       <div className="flex flex-col gap-4">
         <Input
           label={t("nameLabel")}
