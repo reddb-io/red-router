@@ -32,6 +32,7 @@ import {
   enrichCatalogModelEntry,
   type CatalogEnrichmentSnapshot,
 } from "@/lib/modelMetadataRegistry";
+import { normalizeCatalogModelNames } from "./displayNames";
 import { createModelCapabilityResolutionSnapshot } from "@/lib/modelCapabilityResolutionSnapshot";
 import {
   isModelCatalogNamesEnabled,
@@ -338,7 +339,7 @@ export async function finalizeCatalogResponse(
     }
   }
   await yieldTurn();
-  const enrichedModels = disambiguateCatalogModelNames(enriched);
+  const enrichedModels = disambiguateCatalogModelNames(normalizeCatalogModelNames(enriched));
   await yieldTurn();
   const orderedModels = sortCatalogModelsProviderGrouped(enrichedModels);
   await yieldTurn();
