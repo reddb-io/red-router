@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.55.5
+
+### Patch Changes
+
+- Keep unknown combo capabilities absent while deriving the generation/decision catalog filter from the routing protocol. Decision models retain explicit role metadata.
+
 ## 0.55.4
 
 ### Patch Changes
