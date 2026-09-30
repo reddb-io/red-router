@@ -354,6 +354,7 @@ const PRIMITIVE_ICONS: Record<string, LucideIcon> = {
   graphic_eq: AudioLines,
   group: Users,
   group_work: Group,
+  groups: Users,
   handshake: Handshake,
   health_and_safety: HeartPulse,
   hearing: Ear,
