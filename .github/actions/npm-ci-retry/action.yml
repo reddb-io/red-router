@@ -9,6 +9,13 @@ inputs:
     description: Set to "false" to skip the node_modules cache and always run npm ci.
     required: false
     default: "true"
+outputs:
+  lock-hash:
+    description: >-
+      SHA-256 of package-lock.json without the release version fields. Every release commit
+      rewrites the lockfile's own version, which would change a plain hashFiles() key and make
+      every release run miss caches keyed on it.
+    value: ${{ steps.lock.outputs.hash }}
 runs:
   using: composite
   steps:
@@ -16,6 +23,19 @@ runs:
       id: node
       shell: bash
       run: echo "version=$(node --version)" >> "$GITHUB_OUTPUT"
+
+    - name: Hash the lockfile without the release version
+      id: lock
+      shell: bash
+      run: |
+        node -e '
+          const fs = require("node:fs");
+          const crypto = require("node:crypto");
+          const lock = JSON.parse(fs.readFileSync("package-lock.json", "utf8"));
+          delete lock.version;
+          if (lock.packages && lock.packages[""]) delete lock.packages[""].version;
+          console.log("hash=" + crypto.createHash("sha256").update(JSON.stringify(lock)).digest("hex"));
+        ' >> "$GITHUB_OUTPUT"
 
     # #8084 D3 (plan 3.8.51 task 5): every job used to pay ~80-90 s of `npm ci` even
     # with setup-node's npm tarball cache warm — 36 jobs per ci.yml run, ~55 min of
@@ -35,7 +55,7 @@ runs:
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: node_modules
-        key: node-modules-${{ runner.os }}-${{ runner.arch }}-${{ steps.node.outputs.version }}-${{ hashFiles('package-lock.json', '.npmrc', 'scripts/build/postinstall.mjs', 'scripts/build/postinstallSupport.mjs', 'scripts/build/colocateOptionals.mjs', 'scripts/build/wreqJsNative.mjs', 'scripts/build/fixPlaywrightAndroid.mjs', 'scripts/build/native-binary-compat.mjs') }}
+        key: node-modules-${{ runner.os }}-${{ runner.arch }}-${{ steps.node.outputs.version }}-${{ steps.lock.outputs.hash }}-${{ hashFiles('.npmrc', 'scripts/build/postinstall.mjs', 'scripts/build/postinstallSupport.mjs', 'scripts/build/colocateOptionals.mjs', 'scripts/build/wreqJsNative.mjs', 'scripts/build/fixPlaywrightAndroid.mjs', 'scripts/build/native-binary-compat.mjs') }}
 
     - name: npm ci (with retry)
       if: steps.node-modules.outputs.cache-hit != 'true'

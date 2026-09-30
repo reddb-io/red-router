@@ -144,7 +144,8 @@ jobs:
         with:
           node-version: ${{ env.CI_NODE_VERSION }}
           cache: npm
-      - uses: ./.github/actions/npm-ci-retry
+      - id: ci
+        uses: ./.github/actions/npm-ci-retry
         if: ${{ inputs.artifact_run_id == '' }}
       # Next's own build cache (content-addressed, so a partial restore is safe). Only this
       # directory survives the reset in `build:release`; the standalone output that ships is still
@@ -154,9 +155,11 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .build/next/cache
-          key: next-build-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('package-lock.json') }}-${{ github.sha }}
+          key: next-build-${{ runner.os }}-${{ runner.arch }}-${{ github.sha }}
+          # Not keyed on the lockfile: every release rewrites it, and Next validates each cached
+          # entry against its own content and config hashes, so any earlier cache is safe to start from.
           restore-keys: |
-            next-build-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('package-lock.json') }}-
+            next-build-${{ runner.os }}-${{ runner.arch }}-
       - name: Build once
         if: ${{ inputs.artifact_run_id == '' }}
         env:
@@ -174,7 +177,7 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('package-lock.json') }}
+          key: playwright-${{ runner.os }}-${{ runner.arch }}-${{ steps.ci.outputs.lock-hash }}
       - if: ${{ inputs.artifact_run_id == '' }}
         run: node scripts/dev/run-playwright-tests.mjs install --with-deps chromium
       - if: ${{ inputs.artifact_run_id == '' }}
