@@ -25,6 +25,8 @@ export interface ProxyItem {
   notes?: string | null;
   status?: string;
   family?: string;
+  /** Origin of the row; "wireguard-egress" rows are managed and cannot be edited or deleted by hand. */
+  source?: string | null;
   relayInfo?: RelayInfo;
 }
 

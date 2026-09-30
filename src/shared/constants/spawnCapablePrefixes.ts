@@ -53,6 +53,8 @@ export const SPAWN_CAPABLE_PREFIXES: ReadonlyArray<string> = [
   "/api/tunnels/tailscale/start-daemon", // starts tailscaled/Tailscale service
   "/api/tunnels/cloudflared-named", // Cloudflare Named Tunnel: installs and spawns cloudflared with the stored token
   "/api/tunnels/tailscale-serve", // Tailscale Serve: starts tailscaled/login and runs `tailscale serve`
+  "/api/tunnels/wireguard", // WireGuard ingress: hands out the server PRIVATE key and peer configs — never whitelistable via manage-scope bypass (does not spawn; listed here because this is the deny-list for that bypass)
+  "/api/settings/wireguard-egress", // WireGuard egress: downloads/unpacks and spawns wireproxy with the stored private key — must never be whitelistable via manage-scope bypass (Hard Rules #15 + #17)
   "/api/tools/agent-bridge/", // start/stop MITM server + DNS edits (Hard Rules #15 + #17)
   "/api/settings/mitm", // installs a system trusted root CA + /etc/hosts DNS overrides via src/mitm/* — must never be whitelistable via manage-scope bypass (GHSA-x7vm-hp44-9p79, Hard Rules #15 + #17)
   "/api/cli-tools/antigravity-mitm", // same privileged CA-trust + DNS surface as /api/settings/mitm (GHSA-x7vm-hp44-9p79, Hard Rules #15 + #17)

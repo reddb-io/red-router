@@ -56,8 +56,8 @@ export type TailscaleServeTunnelStatus = {
   lastError: string | null;
 };
 
-type NoticeTone = "success" | "info" | "warning" | "danger";
-type Notice = { tone: NoticeTone; message: ReactNode };
+export type NoticeTone = "success" | "info" | "warning" | "danger";
+export type Notice = { tone: NoticeTone; message: ReactNode };
 
 const NOTICE_CLASS: Record<NoticeTone, string> = {
   success:
@@ -78,7 +78,7 @@ const NOTICE_ICON = {
 
 const POLL_MS = 30_000;
 
-function InlineNotice({ notice, onDismiss }: { notice: Notice; onDismiss?: () => void }) {
+export function InlineNotice({ notice, onDismiss }: { notice: Notice; onDismiss?: () => void }) {
   return (
     <div
       role={notice.tone === "danger" || notice.tone === "warning" ? "alert" : "status"}
@@ -126,14 +126,14 @@ export function TunnelGroupHeader({
   );
 }
 
-function errorText(data: unknown): string | null {
+export function errorText(data: unknown): string | null {
   const error = (data as { error?: unknown } | null)?.error;
   if (typeof error === "string") return error;
   const message = (error as { message?: unknown } | undefined)?.message;
   return typeof message === "string" ? message : null;
 }
 
-async function callTunnelApi(
+export async function callTunnelApi(
   url: string,
   method: string,
   body?: unknown
@@ -152,7 +152,7 @@ async function callTunnelApi(
   }
 }
 
-function useTunnelStatus<T>(url: string, onStatusChange?: (status: T | null) => void) {
+export function useTunnelStatus<T>(url: string, onStatusChange?: (status: T | null) => void) {
   const [status, setStatus] = useState<T | null>(null);
   const [unavailable, setUnavailable] = useState(false);
   const onChangeRef = useRef(onStatusChange);
@@ -191,7 +191,7 @@ function useTunnelStatus<T>(url: string, onStatusChange?: (status: T | null) => 
 }
 
 /** `endpoint.*` message with an inline English fallback, like the rest of the Endpoint page. */
-function useEndpointText() {
+export function useEndpointText() {
   const t = useTranslations("endpoint");
   return useCallback(
     (key: string, fallback: string) => {
@@ -206,7 +206,7 @@ function useEndpointText() {
   );
 }
 
-const UNAVAILABLE_TEXT = "Manage this tunnel from the machine running RedRouter.";
+export const UNAVAILABLE_TEXT = "Manage this tunnel from the machine running RedRouter.";
 
 /** Cloudflare Named Tunnel row: a stable public URL on the operator's own domain. */
 export function CloudflaredNamedTunnelRow({

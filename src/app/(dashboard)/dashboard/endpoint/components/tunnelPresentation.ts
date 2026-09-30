@@ -89,3 +89,16 @@ export function namedTunnelExposureNotice(requireApiKey: boolean): {
           "This endpoint is reachable from the internet and Require API Key is off, so anyone with the URL can send requests. Turn on Require API Key in Settings first.",
       };
 }
+
+export type WireGuardPhase = "not_configured" | "configured_interface_down" | "interface_up";
+
+export const WIREGUARD_PILLS: Record<WireGuardPhase, { label: string; tone: PillTone }> = {
+  interface_up: { label: "Up", tone: "success" },
+  configured_interface_down: { label: "Interface down", tone: "warning" },
+  not_configured: { label: "Not configured", tone: "default" },
+};
+
+/** WireGuard counts as an active tunnel only while its interface is actually up on this machine. */
+export function isWireGuardActive(status: { state: WireGuardPhase } | null): boolean {
+  return status?.state === "interface_up";
+}

@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { useTranslations } from "next-intl";
 import ProxyRegistryManager from "../ProxyRegistryManager";
+import WireGuardEgressCard from "../WireGuardEgressCard";
 import VercelRelayModal from "./VercelRelayModal";
 import DenoRelayModal from "./DenoRelayModal";
 import CloudflareRelayModal from "./CloudflareRelayModal";
@@ -41,6 +42,7 @@ export default function ProxyPoolTab() {
         onOpenDenoRelay={() => setDenoModalOpen(true)}
         onOpenCloudflareRelay={() => setCloudflareModalOpen(true)}
       />
+      <WireGuardEgressCard />
       <VercelRelayModal
         isOpen={vercelModalOpen}
         onClose={() => setVercelModalOpen(false)}

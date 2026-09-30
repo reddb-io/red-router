@@ -4268,7 +4268,7 @@
     "statusRunning": "Running",
     "tunnels": "Tunnels",
     "activeTunnelCount": "{active} / {total} active",
-    "tunnelGroupPrivateDescription": "Only devices signed in to your tailnet can reach these endpoints.",
+    "tunnelGroupPrivateDescription": "Only devices on your tailnet or WireGuard VPN can reach these endpoints.",
     "tunnelGroupPublicDescription": "Reachable from the internet. Keep Require API Key on for these.",
     "tunnelBadgePublic": "Public",
     "tunnelBadgePrivate": "Private",

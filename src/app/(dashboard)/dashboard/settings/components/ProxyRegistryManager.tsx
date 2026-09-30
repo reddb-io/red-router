@@ -916,6 +916,12 @@ export default function ProxyRegistryManager({
                             size="sm"
                             variant="ghost"
                             icon="edit"
+                            disabled={item.source === "wireguard-egress"}
+                            title={
+                              item.source === "wireguard-egress"
+                                ? "Managed by WireGuard egress"
+                                : undefined
+                            }
                             onClick={() => openEdit(item)}
                           >
                             {t("edit")}
@@ -924,6 +930,7 @@ export default function ProxyRegistryManager({
                             size="sm"
                             variant="ghost"
                             icon="delete"
+                            disabled={item.source === "wireguard-egress"}
                             onClick={() => void handleDelete(item.id)}
                             className="!text-red-400"
                           >

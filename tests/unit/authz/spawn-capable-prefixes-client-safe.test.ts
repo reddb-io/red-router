@@ -115,6 +115,9 @@ test("SPAWN_CAPABLE_PREFIXES is defined in the server-free constants leaf with t
     // Cloudflare Named Tunnel (token-in-env cloudflared) and Tailscale Serve (private tailnet).
     "/api/tunnels/cloudflared-named",
     "/api/tunnels/tailscale-serve",
+    "/api/tunnels/wireguard",
+    // WireGuard egress: downloads/unpacks and spawns wireproxy with the stored private key.
+    "/api/settings/wireguard-egress",
   ]) {
     assert.ok(
       SPAWN_CAPABLE_PREFIXES.includes(prefix),
@@ -122,7 +125,7 @@ test("SPAWN_CAPABLE_PREFIXES is defined in the server-free constants leaf with t
     );
   }
   // 20 at extraction time + 14 (GHSA-35fw-cv32-2373) + 2 (GHSA-jx89-f37j-pq89) + 1 (version-manager)
-  // + 2 (cloudflared-named, tailscale-serve).
+  // + 2 (cloudflared-named, tailscale-serve) + 1 (settings/wireguard-egress) + 1 (tunnels/wireguard).
   // qwen-settings is the one pre-existing entry not enumerated above.
-  assert.equal(SPAWN_CAPABLE_PREFIXES.length, 39);
+  assert.equal(SPAWN_CAPABLE_PREFIXES.length, 41);
 });

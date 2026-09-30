@@ -31,6 +31,7 @@ import {
 import { isGlobalProxyEnabled, PROXY_ALIVE_PREDICATE } from "./proxies/guards";
 import { bumpProxyRegistryGeneration } from "./proxies/registryGeneration";
 import { isProxyRegistryStatus } from "@/shared/constants/proxyRegistryStatus";
+import { isManagedProxySource } from "@/shared/constants/managedProxySources";
 export {
   hasBlockingProxyAssignment,
   hasBlockingProxyAssignmentForProvider,
@@ -122,6 +123,22 @@ function clearLegacyProxyForAssignment(
 
   writeProxyConfig.run(mapKey, JSON.stringify(map));
   return "cleared";
+}
+
+/**
+ * Rows owned by another subsystem (see managedProxySources.ts) cannot be edited or deleted through
+ * the generic registry paths. The owner passes `allowManaged` when it maintains its own row.
+ */
+function managedProxyError(): Error & { status?: number; code?: string } {
+  const err = new Error(
+    "This proxy is managed by RedRouter and cannot be changed manually"
+  ) as Error & {
+    status?: number;
+    code?: string;
+  };
+  err.status = 409;
+  err.code = "proxy_managed";
+  return err;
 }
 
 function insertProxyRow(
@@ -388,12 +405,17 @@ export async function upsertProxy(
   return { proxy: created, action: "created" };
 }
 
-export async function updateProxy(id: string, payload: Partial<ProxyPayload>) {
+export async function updateProxy(
+  id: string,
+  payload: Partial<ProxyPayload>,
+  options?: { allowManaged?: boolean }
+) {
   // No status filtering here: callers own the status they send. Writes that must
   // preserve the stored status filter it in upsertProxy before calling this.
   const db = getDbInstance();
   const existing = await getProxyById(id, { includeSecrets: true });
   if (!existing) return null;
+  if (isManagedProxySource(existing.source) && !options?.allowManaged) throw managedProxyError();
 
   updateProxyRow(db, id, existing, payload, new Date().toISOString());
 
@@ -447,6 +469,10 @@ export async function updateProxyAndAssign(
   const tx = db.transaction((): ProxyTransactionResult | null => {
     const existing = getProxyRowById(db, id, { includeSecrets: true });
     if (!existing) return null;
+    // Assigning a managed proxy is allowed; changing its fields is not.
+    if (isManagedProxySource(existing.source) && Object.keys(payload).length > 0) {
+      throw managedProxyError();
+    }
 
     updateProxyRow(db, id, existing, payload, now);
     upsertAssignmentRow(db, assignment, id, now);
@@ -697,9 +723,16 @@ export async function setScopeRotationStrategy(
   return normalizedStrategy;
 }
 
-export async function deleteProxyById(id: string, options?: { force?: boolean }) {
+export async function deleteProxyById(
+  id: string,
+  options?: { force?: boolean; allowManaged?: boolean }
+) {
   const force = options?.force === true;
   const db = getDbInstance();
+  const managedRow = getProxyRowById(db, id);
+  if (managedRow && isManagedProxySource(managedRow.source) && !options?.allowManaged) {
+    throw managedProxyError();
+  }
   const usage = await getProxyWhereUsed(id);
 
   if (!force && usage.count > 0) {

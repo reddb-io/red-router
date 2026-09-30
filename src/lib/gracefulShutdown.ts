@@ -120,6 +120,14 @@ async function cleanup(): Promise<void> {
       import("@/shared/utils/loggerResource"),
       import("@/lib/usage/callLogs"),
     ]);
+    // Stop WireGuard egress tunnels (wireproxy children) and delete their key files while the
+    // database is still open, so the registry proxies are left inactive. No-op if never used.
+    try {
+      const { shutdownWireGuardEgress } = await import("@/lib/wireguard/egressService");
+      await shutdownWireGuardEgress();
+    } catch {
+      /* feature unused */
+    }
     const flushResult = await flushSpendBatchWriter();
     if (flushResult.flushedEntries > 0) {
       console.log(

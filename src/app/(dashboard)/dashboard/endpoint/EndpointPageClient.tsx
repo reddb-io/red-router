@@ -20,7 +20,8 @@ import {
   type NamedTunnelStatus,
   type TailscaleServeTunnelStatus,
 } from "./components/TunnelExtras";
-import { countTunnels } from "./components/tunnelPresentation";
+import { WireGuardRow, type WireGuardStatusInfo } from "./components/WireGuardRow";
+import { countTunnels, isWireGuardActive } from "./components/tunnelPresentation";
 
 const BUILD_TIME_CLOUD_URL = process.env.NEXT_PUBLIC_CLOUD_URL || null;
 const CLOUD_ACTION_TIMEOUT_MS = 15000;
@@ -181,6 +182,7 @@ export default function APIPageClient({ machineId }: Readonly<APIPageClientProps
   const [namedTunnelStatus, setNamedTunnelStatus] = useState<NamedTunnelStatus | null>(null);
   const [tailscaleServeStatus, setTailscaleServeStatus] =
     useState<TailscaleServeTunnelStatus | null>(null);
+  const [wireGuardStatus, setWireGuardStatus] = useState<WireGuardStatusInfo | null>(null);
   const [localApiUrl, setLocalApiUrl] = useState(
     typeof window !== "undefined" ? `${window.location.origin}/v1` : "http://localhost:20128/v1"
   );
@@ -1154,13 +1156,15 @@ export default function APIPageClient({ machineId }: Readonly<APIPageClientProps
     (candidate, index, candidates) =>
       candidates.findIndex((other) => other.url === candidate.url) === index
   );
-  // The Named Tunnel and Tailscale Serve rows are always shown, so they always count.
+  // The Named Tunnel, Tailscale Serve and WireGuard rows are always shown, so they always count.
+  // WireGuard is active only while its interface is up on this machine.
   const { active: activeTunnelCount, total: visibleTunnelCount } = countTunnels([
     { visible: showCloudflaredTunnel, active: !!cloudflaredStatus?.running },
     { visible: showTailscaleFunnel, active: !!tailscaleStatus?.running },
     { visible: showNgrokTunnel, active: !!ngrokStatus?.running },
     { visible: true, active: !!namedTunnelStatus?.running },
     { visible: true, active: !!tailscaleServeStatus?.running },
+    { visible: true, active: isWireGuardActive(wireGuardStatus) },
   ]);
 
   const cloudflaredPhase = cloudflaredStatus?.phase || "not_installed";
@@ -1477,7 +1481,7 @@ export default function APIPageClient({ machineId }: Readonly<APIPageClientProps
               kind="private"
               description={translateOrFallback(
                 "tunnelGroupPrivateDescription",
-                "Only devices signed in to your tailnet can reach these endpoints."
+                "Only devices on your tailnet or WireGuard VPN can reach these endpoints."
               )}
             />
           </div>
@@ -1486,6 +1490,7 @@ export default function APIPageClient({ machineId }: Readonly<APIPageClientProps
             onStatusChange={setTailscaleServeStatus}
             onRequestInstall={() => setShowTailscaleInstallModal(true)}
           />
+          <WireGuardRow onStatusChange={setWireGuardStatus} />
 
           {/* Public: reachable from the internet, so client API keys matter */}
           <div className="border-t border-border/30">

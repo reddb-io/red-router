@@ -461,6 +461,11 @@ export async function registerNodejs(): Promise<void> {
     const { initBatchProcessor } = await import("@omniroute/open-sse/services/batchProcessor");
     initBatchProcessor();
     console.log("[STARTUP] Batch processor started");
+    // WireGuard egress: registry proxies start inactive (fail closed), then enabled profiles
+    // are brought up in the background. No-op when no profile exists.
+    void import("@/lib/wireguard/egressService")
+      .then(({ restoreWireGuardEgress }) => restoreWireGuardEgress())
+      .catch(() => {});
   }
 
   try {
