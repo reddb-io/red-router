@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.56.2
+
+### Patch Changes
+
+- Show readable Access page headers and distinguish missing cost records from zero-priced usage.
+
 ## 0.56.1
 
 ### Patch Changes

@@ -473,3 +473,11 @@ test("Test combo (Proxy > Combos) is not confused with the free-form Tools > Pla
     ["Playground"]
   );
 });
+
+test("Access labels exist in the English catalog used by dashboard headers", () => {
+  const en = JSON.parse(readFileSync("src/i18n/messages/en.json", "utf8")) as {
+    sidebar: Record<string, string>;
+  };
+  assert.equal(en.sidebar.accessUsers, "Users");
+  assert.equal(en.sidebar.accessRoles, "Roles");
+});

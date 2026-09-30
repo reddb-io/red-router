@@ -298,7 +298,7 @@ export default function TenantAccess({
                         number(row.errors),
                         number(row.inputTokens),
                         number(row.outputTokens),
-                        money(row.recordedCostUsd),
+                        row.pricedRequests > 0 ? money(row.recordedCostUsd) : "Not recorded",
                         number(row.pricedRequests),
                       ].map((value, index) => (
                         <td key={index} className="px-3 py-2 tabular-nums">
@@ -316,7 +316,9 @@ export default function TenantAccess({
                       number(usage.total.errors),
                       number(usage.total.inputTokens),
                       number(usage.total.outputTokens),
-                      money(usage.total.recordedCostUsd),
+                      usage.total.pricedRequests > 0
+                        ? money(usage.total.recordedCostUsd)
+                        : "Not recorded",
                       number(usage.total.pricedRequests),
                     ].map((value, index) => (
                       <td key={index} className="px-3 py-2 tabular-nums">

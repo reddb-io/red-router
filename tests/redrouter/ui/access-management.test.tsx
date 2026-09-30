@@ -135,6 +135,7 @@ it("lists tenant owners, protects membership actions and creates a usable invita
 it("saves tenant contact metadata without fetching credentials and shows empty monthly usage", async () => {
   await mount(<TenantAccess tenantId="a" users={[owner, user]} />);
   expect(container.textContent).toContain("No retained requests for this month.");
+  expect(container.textContent).toContain("Not recorded");
   await fill(field("Billing contact email"), "billing@acme.test");
   await click(button("Save profile"));
   expect(calls.find((call) => call.method === "PUT")?.body).toMatchObject({
