@@ -63,7 +63,7 @@ test("getSettings exposes defaults and updateSettings persists typed values", as
     label: "task-303",
   });
 
-  assert.equal(defaults.cloudEnabled, true);
+  assert.equal(defaults.cloudEnabled, false, "Cloud RedRouter is opt-in");
   assert.equal(defaults.requireLogin, true);
   assert.deepEqual(defaults.hiddenSidebarItems, []);
   assert.deepEqual(defaults.hiddenSidebarGroupLabels, []);
