@@ -26,6 +26,7 @@ import { withDerivedCookieExpiry } from "@/shared/utils/webCookieExpiry";
 import { WEB_COOKIE_PROVIDERS } from "@/shared/constants/providers";
 import { ensureCodexFingerprintSeed } from "@omniroute/open-sse/config/codexIdentity.ts";
 import { bumpProxyConfigGeneration, getSettings } from "./settings";
+import { notifyConnectionStatusChange } from "@/lib/alerts/alertEvents";
 import {
   getStoredManagementPassword,
   isBcryptHash,
@@ -1039,6 +1040,7 @@ export async function updateProviderConnection(id: string, data: JsonRecord) {
   backupDbFile("pre-write");
   invalidateConnectionUpdate(id, data);
   bumpProxyConfigGeneration();
+  notifyConnectionStatusChange(existingCamel, merged);
 
   if (data.priority !== undefined) {
     const existingRecord = toRecord(existing);

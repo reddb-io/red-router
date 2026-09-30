@@ -5,6 +5,7 @@ import {
   liftCodexScopeCooldownOnHeadroom,
 } from "./providers/codexAccountState";
 import { isCodexSparkQuotaKey } from "@omniroute/open-sse/config/codexQuotaScopes";
+import { notifyQuotaSnapshot } from "@/lib/alerts/alertEvents";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -50,6 +51,8 @@ export function saveQuotaSnapshot(snapshot: Omit<QuotaSnapshotRow, "id" | "creat
     }
     throw err;
   }
+
+  notifyQuotaSnapshot(snapshot);
 
   // #12860: When a new snapshot demonstrates headroom on a Codex connection,
   // lift any fallback-sourced scope cooldown parked by quota preflight.

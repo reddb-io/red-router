@@ -1,5 +1,6 @@
 import { getServerLifecyclePhase } from "@/lib/serverLifecycle";
 import { observeHealthzEventLoopLag } from "@/lib/healthzLag";
+import { isManualDrainActive } from "@/lib/system/drainMode";
 
 export const dynamic = "force-dynamic";
 
@@ -11,10 +12,12 @@ const HEALTH_BODIES = {
 
 function createHealthResponse(method: "GET" | "HEAD"): Response {
   const phase = getServerLifecyclePhase();
-  const body = HEALTH_BODIES[phase];
+  // An operator drain (POST /api/system/drain) takes the node out of rotation: not ready.
+  const draining = phase === "ready" && isManualDrainActive();
+  const body = draining ? "draining\n" : HEALTH_BODIES[phase];
 
   return new Response(method === "HEAD" ? null : body, {
-    status: phase === "ready" ? 200 : 503,
+    status: phase === "ready" && !draining ? 200 : 503,
     headers: {
       "Cache-Control": "no-store",
       "Content-Length": String(body.length),

@@ -12,7 +12,18 @@ describe("webhook catalogue", () => {
     assert.equal(keys.includes("provider.error"), false);
     assert.equal(keys.includes("provider.recovered"), false);
     assert.equal(keys.includes("combo.switched"), false);
-    assert.equal(keys.length, 7); // completed, failed, quota.exceeded, budget.warning, test.ping, proxy.set_aside, proxy.pool.exhausted
+    // completed, failed, quota.exceeded, budget.warning, test.ping, proxy.set_aside,
+    // proxy.pool.exhausted + the alert events: provider.circuit_open, provider.circuit_closed,
+    // connection.unavailable, quota.low
+    assert.equal(keys.length, 11);
+    for (const alert of [
+      "provider.circuit_open",
+      "provider.circuit_closed",
+      "connection.unavailable",
+      "quota.low",
+    ]) {
+      assert.equal(keys.includes(alert), true, alert);
+    }
     assert.equal(keys.includes("proxy.set_aside"), true);
     assert.equal(keys.includes("proxy.pool.exhausted"), true);
   });
@@ -28,6 +39,10 @@ describe("webhook catalogue", () => {
     assert.equal(schema.safeParse("test.ping").success, true);
     assert.equal(schema.safeParse("proxy.set_aside").success, true);
     assert.equal(schema.safeParse("proxy.pool.exhausted").success, true);
+    assert.equal(schema.safeParse("provider.circuit_open").success, true);
+    assert.equal(schema.safeParse("provider.circuit_closed").success, true);
+    assert.equal(schema.safeParse("connection.unavailable").success, true);
+    assert.equal(schema.safeParse("quota.low").success, true);
   });
 
   it("notifyWebhookEvent still available for remaining events", async () => {

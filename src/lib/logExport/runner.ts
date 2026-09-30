@@ -18,6 +18,7 @@ import {
 } from "@/lib/db/logExportDestinations";
 import {
   attachExportBodies,
+  attachExportCosts,
   countCallLogsAfterRowId,
   getCallLogsForExport,
   getMaxCallLogRowId,
@@ -117,6 +118,7 @@ export async function runDestinationExport(
 
   try {
     const client = createClientForDestination(destination);
+    const wantsCost = getLogExportDestinationType(destination.type)?.needsCost === true;
     let cursor = reconcileCursor(destination);
     result.cursorRowId = cursor;
 
@@ -131,9 +133,10 @@ export async function runDestinationExport(
 
       // Payload hydration is per-row filesystem work, so it only runs when the
       // destination asked for bodies.
-      const batch = destination.includeBodies
+      const withBodies = destination.includeBodies
         ? await attachExportBodies(summaries, destination.maxBodyBytes)
         : summaries;
+      const batch = wantsCost ? attachExportCosts(withBodies) : withBodies;
 
       if (!prepared) {
         await client.prepare();

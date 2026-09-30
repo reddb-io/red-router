@@ -219,6 +219,45 @@ export async function attachExportBodies(
   );
 }
 
+const COST_LOOKUP_CHUNK = 400;
+
+/**
+ * Attach `costUsd` from `request_cost_ledger`, matched on `request_id` against the call
+ * log id or its correlation id. The ledger only holds calls made under an API key that
+ * were priced, so a row with no match keeps `costUsd: null`. Best effort: a missing table
+ * or a failed lookup returns the rows unchanged instead of failing the batch.
+ */
+export function attachExportCosts(rows: LogExportSourceRow[]): LogExportSourceRow[] {
+  const keys = new Set<string>();
+  for (const { record } of rows) {
+    if (record.id) keys.add(record.id);
+    if (record.correlationId) keys.add(record.correlationId);
+  }
+  const byRequestId = new Map<string, number>();
+  try {
+    const db = getDbInstance();
+    const ids = [...keys];
+    for (let i = 0; i < ids.length; i += COST_LOOKUP_CHUNK) {
+      const chunk = ids.slice(i, i + COST_LOOKUP_CHUNK);
+      const found = db
+        .prepare(
+          `SELECT request_id, SUM(amount_usd) AS usd FROM request_cost_ledger
+            WHERE request_id IN (${chunk.map(() => "?").join(",")}) GROUP BY request_id`
+        )
+        .all(...chunk) as Array<{ request_id: string; usd: number }>;
+      for (const row of found) byRequestId.set(row.request_id, Number(row.usd));
+    }
+  } catch {
+    return rows;
+  }
+  return rows.map((row) => {
+    const usd =
+      byRequestId.get(row.record.id) ??
+      (row.record.correlationId ? byRequestId.get(row.record.correlationId) : undefined);
+    return { rowId: row.rowId, record: { ...row.record, costUsd: usd ?? null } };
+  });
+}
+
 /** Highest rowid currently in `call_logs`, or 0 when the table is empty. */
 export function getMaxCallLogRowId(): number {
   const db = getDbInstance();

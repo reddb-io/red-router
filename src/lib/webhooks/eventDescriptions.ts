@@ -3,6 +3,10 @@ export type WebhookEvent =
   | "request.failed"
   | "quota.exceeded"
   | "budget.warning"
+  | "provider.circuit_open"
+  | "provider.circuit_closed"
+  | "connection.unavailable"
+  | "quota.low"
   | "proxy.set_aside"
   | "proxy.pool.exhausted"
   | "test.ping";
@@ -12,6 +16,10 @@ export const WEBHOOK_EVENT_VALUES = [
   "request.failed",
   "quota.exceeded",
   "budget.warning",
+  "provider.circuit_open",
+  "provider.circuit_closed",
+  "connection.unavailable",
+  "quota.low",
   "proxy.set_aside",
   "proxy.pool.exhausted",
   "test.ping",
@@ -70,6 +78,62 @@ export const EVENT_DESCRIPTIONS: Record<WebhookEvent, EventDescription> = {
       duration: "monthly",
       windowStart: "2026-09-01T00:00:00.000Z",
       resetAt: "2026-10-01T00:00:00.000Z",
+    },
+  },
+  "provider.circuit_open": {
+    label: "Provider Circuit Open",
+    emoji: "⛔",
+    description:
+      "Triggered when a provider circuit breaker opens and traffic to it is short-circuited. At most once per provider per 5 minutes. Carries the provider id and a reason code only.",
+    exampleData: {
+      provider: "claude",
+      state: "OPEN",
+      previousState: "DEGRADED",
+      reason: "kind:transient",
+      at: "2026-09-29T12:00:00.000Z",
+    },
+  },
+  "provider.circuit_closed": {
+    label: "Provider Circuit Closed",
+    emoji: "🟢",
+    description:
+      "Triggered when a provider circuit breaker recovers to closed after having been open. At most once per provider per 5 minutes.",
+    exampleData: {
+      provider: "claude",
+      state: "CLOSED",
+      previousState: "HALF_OPEN",
+      reason: "probe-success",
+      at: "2026-09-29T12:05:00.000Z",
+    },
+  },
+  "connection.unavailable": {
+    label: "Connection Unavailable",
+    emoji: "🔒",
+    description:
+      "Triggered once when a provider connection enters a terminal state (banned, expired or credits exhausted) that needs operator action. Carries ids and a reason code only, never credentials or account names.",
+    exampleData: {
+      provider: "openai",
+      connectionId: "5d1c0a2e-3a55-4e0c-8a35-2b7c0f6e1c44",
+      state: "credits_exhausted",
+      previousState: "active",
+      reason: "quota_exhausted",
+      errorCode: 402,
+      at: "2026-09-29T12:00:00.000Z",
+    },
+  },
+  "quota.low": {
+    label: "Quota Low",
+    emoji: "📉",
+    description:
+      "Triggered once when a provider quota window drops to 10% remaining or less, and re-armed after it recovers above 15%.",
+    exampleData: {
+      provider: "codex",
+      connectionId: "5d1c0a2e-3a55-4e0c-8a35-2b7c0f6e1c44",
+      window: "weekly",
+      remainingPercentage: 8,
+      exhausted: false,
+      nextResetAt: "2026-10-01T00:00:00.000Z",
+      at: "2026-09-29T12:00:00.000Z",
     },
   },
   "proxy.set_aside": {

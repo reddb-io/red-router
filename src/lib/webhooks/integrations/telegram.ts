@@ -56,6 +56,8 @@ export function buildTelegramPayload(
   if (combo) lines.push(`Combo: \`${combo}\``);
   if (latencyMs !== null) lines.push(`Latency: \`${latencyMs}ms\``);
   if (fallbackCount !== null) lines.push(`Fallbacks: \`${fallbackCount}\``);
+  if (typeof data.state === "string") lines.push(`State: \`${escapeMd(data.state)}\``);
+  if (typeof data.reason === "string") lines.push(`Reason: \`${escapeMd(data.reason)}\``);
   if (error) lines.push(`Error: \`${error}\``);
   lines.push(`_OmniRoute · ${new Date().toISOString()}_`);
 

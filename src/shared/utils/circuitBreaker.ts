@@ -23,6 +23,7 @@ import {
   deleteCircuitBreakerState,
   deleteAllCircuitBreakerStates,
 } from "../../lib/db/domainState";
+import { notifyCircuitTransition } from "../../lib/alerts/alertEvents";
 import type { FailureKind } from "./classify429";
 
 /**
@@ -628,6 +629,7 @@ export class CircuitBreaker {
       this.transitionHistory.shift();
     }
 
+    notifyCircuitTransition(this.name, oldState, newState, reason);
     if (this.onStateChange && oldState !== newState) {
       this.onStateChange(this.name, oldState, newState);
     }

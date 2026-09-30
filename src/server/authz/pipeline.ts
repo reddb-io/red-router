@@ -1,6 +1,10 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getCachedSettings } from "../../lib/db/readCache";
 import { isDraining } from "../../lib/gracefulShutdown";
+import {
+  MANUAL_DRAIN_RETRY_AFTER_SECONDS,
+  shouldRejectForManualDrain,
+} from "../../lib/system/drainMode";
 import { checkBodySize, getBodySizeLimit } from "../../shared/middleware/bodySizeGuard";
 import {
   verifyDashboardSessionToken,
@@ -175,19 +179,23 @@ function dashboardLoginRedirect(request: NextRequest, requestId: string): NextRe
   return response;
 }
 
-function drainingResponse(requestId: string): NextResponse {
+function drainingResponse(
+  requestId: string,
+  message = "Server is shutting down",
+  retryAfterSeconds = 5
+): NextResponse {
   const response = NextResponse.json(
     {
       error: {
         code: "SERVICE_UNAVAILABLE",
-        message: "Server is shutting down",
+        message,
         correlation_id: requestId,
       },
     },
     { status: 503 }
   );
   response.headers.set(AUTHZ_HEADER_REQUEST_ID, requestId);
-  response.headers.set("Retry-After", "5");
+  response.headers.set("Retry-After", String(retryAfterSeconds));
   return response;
 }
 
@@ -284,8 +292,13 @@ export async function runAuthzPipeline(
     classification.routeClass === "CLIENT_API" ||
     (classification.routeClass === "PUBLIC" && classification.reason === "public_readonly_prefix");
 
-  if (guardedPathname.startsWith("/api/") && isDraining()) {
-    const response = drainingResponse(requestId);
+  const shuttingDown = guardedPathname.startsWith("/api/") && isDraining();
+  const manualDrain =
+    !shuttingDown && shouldRejectForManualDrain(classification.routeClass, method);
+  if (shuttingDown || manualDrain) {
+    const response = manualDrain
+      ? drainingResponse(requestId, "Server is draining", MANUAL_DRAIN_RETRY_AFTER_SECONDS)
+      : drainingResponse(requestId);
     stampRouteResponse(response, requestId, classification.routeClass);
     applyCorsHeaders(response, request, corsRelaxOrigin);
     return response;

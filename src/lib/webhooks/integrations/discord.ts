@@ -18,6 +18,10 @@ const EVENT_COLORS: Partial<Record<WebhookEvent, number>> = {
   "request.failed": 0xef4444,
   "quota.exceeded": 0xeab308,
   "budget.warning": 0xeab308,
+  "provider.circuit_open": 0xef4444,
+  "provider.circuit_closed": 0x22c55e,
+  "connection.unavailable": 0xef4444,
+  "quota.low": 0xeab308,
   "test.ping": 0x8b5cf6,
 };
 
@@ -28,8 +32,14 @@ export function buildDiscordPayload(
   const desc = EVENT_DESCRIPTIONS[event];
   const model = typeof data.model === "string" ? data.model : null;
   const error = typeof data.error === "string" ? data.error : null;
+  const provider = typeof data.provider === "string" ? data.provider : null;
+  const state = typeof data.state === "string" ? data.state : null;
+  const reason = typeof data.reason === "string" ? data.reason : null;
 
   const lines: string[] = [];
+  if (provider && !model) lines.push(`**Provider:** \`${provider}\``);
+  if (state) lines.push(`**State:** \`${state}\``);
+  if (reason) lines.push(`**Reason:** \`${reason}\``);
   if (model) lines.push(`**Model:** \`${model}\``);
   if (error) lines.push(`**Error:** \`${error}\``);
   if (lines.length === 0) lines.push(desc.description);

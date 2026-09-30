@@ -1,15 +1,10 @@
 "use client";
 
-const WEBHOOK_EVENTS = [
-  "request.completed",
-  "request.failed",
-  "provider.error",
-  "provider.recovered",
-  "quota.exceeded",
-  "budget.warning",
-  "combo.switched",
-  "test.ping",
-] as const;
+import { WEBHOOK_EVENT_VALUES } from "@/lib/webhooks/eventDescriptions";
+
+// Single source of truth: the same list the API validates against, so the checklist can never
+// offer an event the server would reject.
+const WEBHOOK_EVENTS = WEBHOOK_EVENT_VALUES;
 
 interface EventChecklistProps {
   selected: string[];

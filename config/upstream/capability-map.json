@@ -3439,8 +3439,8 @@
             "omniroute": "has",
             "friday": "no"
           },
-          "head": "partial",
-          "headEvidence": "src/lib/guardrails/registry.ts:95; GET /api/guardrails",
+          "head": "equivalent",
+          "headEvidence": "src/lib/guardrails/catalog.ts lists 7 built-ins with stage, priority, mutatesData",
           "ownUnique": false,
           "value": "H",
           "effort": "S",
@@ -3527,8 +3527,8 @@
             "omniroute": "no",
             "friday": "no"
           },
-          "head": "missing",
-          "headEvidence": "global registry only",
+          "head": "equivalent",
+          "headEvidence": "resolveGuardrails: global, key group, key precedence + priority; mutating guardrails never implicit; GuardrailsCard in Security tab",
           "ownUnique": false,
           "value": "H",
           "effort": "M",
@@ -3571,8 +3571,8 @@
             "omniroute": "no",
             "friday": "no"
           },
-          "head": "missing",
-          "headEvidence": "none",
+          "head": "equivalent",
+          "headEvidence": "src/lib/guardrails/contentFilter*.ts: keywords/whole-word/restricted regex, scope, block|flag, fixed message; streaming responses not scanned",
           "ownUnique": false,
           "value": "M",
           "effort": "S",
@@ -3615,8 +3615,8 @@
             "omniroute": "no",
             "friday": "no"
           },
-          "head": "missing",
-          "headEvidence": "none",
+          "head": "partial",
+          "headEvidence": "guardrail_events (migration 204) + GET /api/guardrails/events and 24h summary; no alerting on guardrail spikes",
           "ownUnique": false,
           "value": "M",
           "effort": "M",
@@ -3958,7 +3958,7 @@
             "friday": "no"
           },
           "head": "partial",
-          "headEvidence": "src/lib/logExport/registry.ts:10 BigQuery only; open-sse/services/routing/otel.ts:30 routing decisions only",
+          "headEvidence": "OTLP/HTTP logs destination (src/lib/logExport/destinations/otlp.ts); OTLP traces/spans not implemented",
           "ownUnique": false,
           "value": "H",
           "effort": "S",
@@ -3980,7 +3980,7 @@
             "friday": "no"
           },
           "head": "partial",
-          "headEvidence": "six events (src/lib/webhooks/eventDescriptions.ts:1-13); src/lib/webhooks/integrations",
+          "headEvidence": "provider.circuit_open/closed, connection.unavailable, quota.low, budget.warning webhook events (src/lib/alerts/alertEvents.ts); chat integrations Slack/Telegram/Discord existing; no alert rules UI",
           "ownUnique": false,
           "value": "H",
           "effort": "M",
@@ -4001,8 +4001,8 @@
             "omniroute": "partial",
             "friday": "no"
           },
-          "head": "partial",
-          "headEvidence": "src/app/api/health, health/ping; readiness/drain not found",
+          "head": "equivalent",
+          "headEvidence": "/healthz /readyz /livez + POST/DELETE/GET /api/system/drain + GET /api/system/backlog",
           "ownUnique": false,
           "value": "M",
           "effort": "S",

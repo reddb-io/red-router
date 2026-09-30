@@ -21,6 +21,8 @@ export function buildSlackPayload(
   const lines: string[] = [titleParts.join(" ")];
   if (error) lines.push(`*Error:* \`${error}\``);
   if (provider && !model) lines.push(`*Provider:* ${provider}`);
+  if (typeof data.state === "string") lines.push(`*State:* \`${data.state}\``);
+  if (typeof data.reason === "string") lines.push(`*Reason:* \`${data.reason}\``);
 
   const text = lines.join("\n");
 

@@ -79,6 +79,11 @@ export interface LogExportRecord {
   pipelineError: string | null;
   /** True when any of the above hit the destination's `maxBodyBytes` cap. */
   bodiesTruncated: boolean;
+  /**
+   * Priced cost of the call, resolved from the request cost ledger. Only populated for
+   * destinations that set `needsCost`; null when the ledger has no row for the call.
+   */
+  costUsd?: number | null;
 }
 
 /** A call log row paired with its SQLite rowid, which is the export cursor. */
@@ -127,5 +132,7 @@ export interface LogExportDestinationType<TConfig = Record<string, unknown>> {
   secretFields: readonly string[];
   fields: readonly LogExportConfigField[];
   configSchema: ZodType<TConfig>;
+  /** Resolve `costUsd` on every record before it reaches `send()` (one extra query per batch). */
+  needsCost?: boolean;
   createClient(config: TConfig): LogExportClient;
 }
