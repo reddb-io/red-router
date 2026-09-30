@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.53.0
+
+### Minor Changes
+
+- Tenant sign-in (backend). Tenant admins and users can now sign in with e-mail and password, through invitations the owner creates, and reach a small `/api/tenant/*` surface that shows only their own tenant.
+  
+  - **Invitations.** `POST /api/tenants/:id/users/:userId/invite` returns a single-use, seven-day token; the person sets a password of at least 12 characters with `POST /api/auth/tenant/accept-invite`. A weak password does not spend the token.
+  - **A separate session.** The `rr_tenant` cookie is signed with its own derived key, carries no dashboard claim, and is re-checked against the database on every request: a disabled user or tenant, a role change, a password change or "sign out everywhere" (`DELETE /api/tenants/:id/users/:userId/sessions`) ends it at once.
+  - **Deny by default.** A new `TENANT` route class admits only a tenant session and only the routes listed in a manifest (`GET /api/tenant/me`, `/users` and `/keys` for now, the last two admin-only). No management page or API accepts a tenant session, and no management credential opens the tenant surface; a test walks every management route file to prove it.
+  - **Hardening.** Every failed sign-in returns the same answer, tenant sign-in has its own lockout bucket, it refuses to work when the dashboard has no login, and users with a second factor get the same TOTP step as the owner. Audit entries name the person as `tenant:<slug>/<e-mail>`.
+  
+  There is no tenant dashboard yet; this release ships the sign-in and the API it will use.
+
+### Patch Changes
+
+- Editing a connection is easier.
+  
+  - **The destination is editable.** A RedRouter connection now always shows its Base URL in the edit window (it used to hide behind an "Advanced" link), so a host or IP that changed can be corrected. The Add form shows it too, prefilled with `http://127.0.0.1:25050/v1`.
+  - **A bigger edit window.** The edit window is about twice as wide and scrolls as one piece.
+  - **Real field text.** The group tag, routing tags and excluded models fields had placeholder labels ("Tag Group Label", "Tag Group Hint"); they now say what they do.
+  - **RedRouter provider.** Its link points to `github.com/reddb-io/red-router` (it was `reddb.io`), and it has its own icon instead of a broken image.
+- The tray icon is now the default, and it stays current.
+  
+  - **On by default.** `red-router serve` at an interactive desktop terminal also shows the tray icon; the server stays in that terminal. `--no-tray`, `RED_ROUTER_TRAY=0`, CI, pipes, services and headless sessions leave it off. `--tray` still runs the whole app in the background.
+  - **One icon, always the installed version.** A small lock records the running tray and its version. Starting a tray of a newer version replaces the old one instead of leaving a stale icon, and `red-router tray attach --replace` takes over on demand.
+  - **Upgrades refresh it.** Installing or upgrading the managed service now puts the new tray on screen right away, instead of at the next login.
+- The Linux tray icon now shows the name "RedRouter" beside it, like the other RedDB tray apps, instead of a bare icon.
+
 ## 0.52.0
 
 ### Minor Changes
