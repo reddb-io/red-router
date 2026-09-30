@@ -13,6 +13,7 @@ import { isValidationFailure, validateBody } from "@/shared/validation/helpers";
 import { isApiKeyRevealEnabled, maskStoredApiKey } from "@/lib/apiKeyExposure";
 import { requireManagementAuth } from "@/lib/api/requireManagementAuth";
 import { normalizeSelfServiceScopesForCreate } from "@/shared/constants/selfServiceScopes";
+import { assignApiKeysToTenant, getTenant, hasInstanceWideScope } from "@/lib/db/tenants";
 import * as log from "@/sse/utils/logger";
 
 function parsePagination(request: Request) {
@@ -83,7 +84,25 @@ export async function POST(request) {
       weeklyUsageLimitUsd,
       chaosModeEnabled,
       expiresAt,
+      tenantId,
     } = validation.data;
+
+    // A key for another tenant is checked before anything is created.
+    const tenant = tenantId ? getTenant(tenantId) : null;
+    if (tenantId && !tenant) {
+      return NextResponse.json({ error: { message: "Tenant not found." } }, { status: 404 });
+    }
+    if (tenant && !tenant.isDefault && hasInstanceWideScope(scopes)) {
+      return NextResponse.json(
+        {
+          error: {
+            message:
+              "A key with the 'manage' or 'admin' scope reaches the whole instance and cannot belong to a tenant.",
+          },
+        },
+        { status: 400 }
+      );
+    }
 
     // Always get machineId from server
     const machineId = await getConsistentMachineId();
@@ -95,6 +114,7 @@ export async function POST(request) {
       allowedConnections,
       expiresAt,
     });
+    if (tenant && !tenant.isDefault) assignApiKeysToTenant(tenant.id, [apiKey.id]);
     if (
       noLog === true ||
       allowUsageCommand === true ||
@@ -140,6 +160,7 @@ export async function POST(request) {
         weeklyUsageLimitUsd: weeklyUsageLimitUsd ?? null,
         chaosModeEnabled: chaosModeEnabled === true,
         expiresAt: expiresAt ?? null,
+        tenantId: tenant?.id ?? "red",
         streamDefaultMode: "legacy",
         compressionEnabled: true,
         cacheDefaultMode: "legacy",

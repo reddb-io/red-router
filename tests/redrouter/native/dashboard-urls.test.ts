@@ -299,6 +299,7 @@ test("the full table (what the operator sees for each existing page)", () => {
     "/dashboard/setup": "/home/setup",
     "/dashboard/skills": "/optimize/skills",
     "/dashboard/system/proxy": "/system/outbound-proxies",
+    "/dashboard/tenants": "/system/tenants",
     "/dashboard/tools/agent-bridge": "/agents/bridge",
     "/dashboard/tools/traffic-inspector": "/tools/inspector",
     "/dashboard/translator": "/tools/translator",

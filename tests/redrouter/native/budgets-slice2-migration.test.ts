@@ -30,7 +30,7 @@ const PROBE = `
   }
   const columns = (table) => db.prepare("PRAGMA table_info(" + table + ")").all().map((c) => c.name);
   const report = {
-    ledger: db.prepare("SELECT version, name, applied_at FROM _omniroute_migrations WHERE version >= '203' ORDER BY version").all(),
+    ledger: db.prepare("SELECT version, name, applied_at FROM _omniroute_migrations WHERE version >= '203' AND version <= '207' ORDER BY version").all(),
     budgets: db.prepare("SELECT * FROM budgets").all().map((r) => ({ id: r.id, name: r.name, max_usd: r.max_usd, tpm_limit: r.tpm_limit ?? null, rpm_limit: r.rpm_limit ?? null, model_max_json: r.model_max_json ?? null })),
     assignments: db.prepare("SELECT budget_id, scope_type, scope_value, created_at FROM budget_assignments ORDER BY scope_type").all(),
     windows: db.prepare("SELECT budget_id, scope_value, window_start, spent_usd, alerted_at FROM budget_windows").all(),

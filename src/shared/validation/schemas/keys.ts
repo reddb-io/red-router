@@ -64,6 +64,8 @@ export const createKeySchema = z
     expiresAt: z.string().datetime().nullable().optional(),
     scopes: z.array(z.string().trim().min(1).max(64)).max(32).optional(),
     allowedConnections: z.array(z.string().uuid()).min(1).max(100).optional(),
+    // Tenant slug or id. Omitted = the default tenant ('red').
+    tenantId: z.string().trim().min(1).max(64).optional(),
   })
   .superRefine((value, ctx) => {
     requireConsistentModelAccess(value, ctx);

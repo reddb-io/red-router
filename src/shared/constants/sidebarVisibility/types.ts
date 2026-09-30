@@ -107,6 +107,7 @@ export const HIDEABLE_SIDEBAR_ITEM_IDS = [
   "settings-feature-flags",
   "settings-cache",
   "settings-sidebar",
+  "tenants",
   // Help
   "docs",
   "issues",

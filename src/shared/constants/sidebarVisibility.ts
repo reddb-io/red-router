@@ -197,6 +197,7 @@ const ADMIN_SHOWN: ReadonlySet<HideableSidebarItemId> = new Set([
   "settings-access-tokens",
   "settings-feature-flags",
   "settings-sidebar",
+  "tenants",
   "docs",
 ]);
 

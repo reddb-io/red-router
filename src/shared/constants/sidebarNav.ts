@@ -388,6 +388,12 @@ export const SIDEBAR_NAV_SECTIONS: readonly SidebarNavSection[] = [
         ],
       },
       {
+        id: "tenants",
+        label: "Tenants",
+        icon: "Users",
+        tabs: [tab("tenants", "/dashboard/tenants", "Tenants")],
+      },
+      {
         id: "docs",
         label: "Docs",
         icon: "BookOpen",

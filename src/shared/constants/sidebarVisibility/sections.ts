@@ -768,6 +768,13 @@ const CONFIGURATION_ITEMS: readonly SidebarItemDefinition[] = [
     subtitleKey: "settingsSidebarSubtitle",
     icon: "view_sidebar",
   },
+  {
+    id: "tenants",
+    href: "/system/tenants",
+    i18nKey: "tenants",
+    subtitleKey: "tenantsSubtitle",
+    icon: "groups",
+  },
 ];
 
 const HELP_ITEMS: readonly SidebarItemDefinition[] = [
