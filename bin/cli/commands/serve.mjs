@@ -33,6 +33,7 @@ import {
 } from "../../../scripts/build/runtime-env.mjs";
 import { resolveTlsOptions } from "../../../scripts/dev/tls-options.mjs";
 import { startDetachedTray, validateTrayOptions } from "../tray/detachedTray.mjs";
+import { shouldAutoAttachTray, spawnAttachedTray } from "../tray/attachedTray.mjs";
 import { DEFAULT_PORT, resolvePort } from "../product.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -68,8 +69,12 @@ export function registerServe(program) {
     .option("--log", t("serve.log"))
     .option("--no-recovery", t("serve.no_recovery"))
     .option("--max-restarts <n>", t("serve.max_restarts"), parseInt, 2)
-    .option("--tray", t("serve.tray") || "Start in the system tray (desktop only)")
-    .option("--no-tray", t("serve.no_tray") || "Disable system tray icon")
+    .option("--tray", t("serve.tray") || "Run in the background with a system tray icon")
+    .option(
+      "--no-tray",
+      t("serve.no_tray") ||
+        "Do not show the tray icon (it is shown by default at an interactive desktop terminal)"
+    )
     .option(
       "--ready-timeout <ms>",
       t("serve.ready_timeout") ||
@@ -337,6 +342,7 @@ export async function runServe(opts = {}) {
     {
       trayReadyPort: opts.trayReadyPort,
       trayReadyToken: opts.trayReadyToken,
+      trayOpts: opts,
       readyTimeoutMs: resolveReadyTimeoutMs({ timeoutMs: opts.readyTimeout }),
     }
   );
@@ -491,7 +497,7 @@ async function runWithSupervisor(
   maxRestarts,
   startedAt,
   useTray = false,
-  { trayReadyPort, trayReadyToken, readyTimeoutMs = resolveReadyTimeoutMs() } = {}
+  { trayReadyPort, trayReadyToken, trayOpts = {}, readyTimeoutMs = resolveReadyTimeoutMs() } = {}
 ) {
   if (showLog) process.env.OMNIROUTE_SHOW_LOG = "1";
   writePidFile("supervisor", process.pid);
@@ -555,6 +561,15 @@ async function runWithSupervisor(
               process.exitCode = 1;
               return;
             }
+          }
+        }
+        // At a terminal on a desktop the app is in the tray by default. The server stays in this
+        // terminal; the icon is its own process, shared by every run (see tray/singleInstance.mjs).
+        if (!useTray && shouldAutoAttachTray({ opts: trayOpts })) {
+          try {
+            spawnAttachedTray({ cliPath: join(ROOT, "bin", "omniroute.mjs"), port: dashboardPort });
+          } catch {
+            // the icon is a convenience; the server does not depend on it
           }
         }
         onReady(dashboardPort, apiPort, noOpen, startedAt);

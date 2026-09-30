@@ -1,7 +1,13 @@
 import { t } from "../i18n.mjs";
 import { DEFAULT_PORT } from "../product.mjs";
 
-export async function attachTray({ port = DEFAULT_PORT } = {}) {
+export async function attachTray({ port = DEFAULT_PORT, replace = false } = {}) {
+  const { claimTrayLock, releaseTrayLock } = await import("../tray/singleInstance.mjs");
+  const lock = claimTrayLock({ port, replace });
+  if (!lock.claimed) {
+    process.stderr.write(`RedRouter tray is already running (pid ${lock.pid}).\n`);
+    return;
+  }
   const { initTray, killTray } = await import("../tray/index.mjs");
   const { default: open } = await import("open");
   let finish;
@@ -10,6 +16,7 @@ export async function attachTray({ port = DEFAULT_PORT } = {}) {
   });
   const stop = () => {
     killTray();
+    releaseTrayLock();
     finish();
   };
   const tray = await initTray({
@@ -19,7 +26,10 @@ export async function attachTray({ port = DEFAULT_PORT } = {}) {
     onOpenDashboard: () => open(`http://127.0.0.1:${port}/dashboard`),
     onShowLogs: () => open(`http://127.0.0.1:${port}/observe/logs`),
   });
-  if (!tray) throw new Error("RedRouter tray is unavailable in this graphical session");
+  if (!tray) {
+    releaseTrayLock();
+    throw new Error("RedRouter tray is unavailable in this graphical session");
+  }
   process.once("SIGINT", stop);
   process.once("SIGTERM", stop);
   try {
@@ -28,6 +38,7 @@ export async function attachTray({ port = DEFAULT_PORT } = {}) {
     process.removeListener("SIGINT", stop);
     process.removeListener("SIGTERM", stop);
     killTray();
+    releaseTrayLock();
   }
 }
 
@@ -42,12 +53,13 @@ export function registerTray(program) {
       "Show a tray icon for the existing RedRouter service without starting another server"
     )
     .option("-p, --port <port>", "Existing RedRouter service port", String(DEFAULT_PORT))
-    .action(async ({ port }) => {
+    .option("--replace", "Take over a tray that is already running (used after an upgrade)")
+    .action(async ({ port, replace }) => {
       const value = Number(port);
       if (!Number.isInteger(value) || value < 1 || value > 65535) {
         throw new Error("Port must be an integer from 1 to 65535");
       }
-      await attachTray({ port: value });
+      await attachTray({ port: value, replace: replace === true });
     });
 
   cmd

@@ -6,6 +6,22 @@ import { fileURLToPath } from "node:url";
 
 import { resolveDataDir } from "./data-dir.mjs";
 import { DEFAULT_HOST, DEFAULT_PORT } from "./product.mjs";
+import { hasGraphicalSession, spawnAttachedTray } from "./tray/attachedTray.mjs";
+
+const CLI_PATH = join(dirname(fileURLToPath(import.meta.url)), "..", "omniroute.mjs");
+
+/**
+ * Puts the tray of THIS version on screen right away, replacing one left over from an older version.
+ * The service install runs on every upgrade; without this the icon only refreshed at the next login.
+ */
+function refreshTray(port, spawnTray, env = process.env) {
+  if (env.RED_ROUTER_TRAY === "0" || !hasGraphicalSession(env)) return null;
+  try {
+    return spawnTray({ cliPath: CLI_PATH, port, replace: true, env });
+  } catch {
+    return null;
+  }
+}
 
 export const SERVICE_ID = "red-router";
 export const LINUX_SERVICE_NAME = `${SERVICE_ID}.service`;
@@ -165,7 +181,11 @@ function run(command, args, { ignoreFailure = false } = {}) {
   }
 }
 
-export function installService({ port = DEFAULT_PORT, host = DEFAULT_HOST } = {}) {
+export function installService({
+  port = DEFAULT_PORT,
+  host = DEFAULT_HOST,
+  spawnTray = spawnAttachedTray,
+} = {}) {
   const paths = servicePaths();
   if (process.platform === "linux") {
     mkdirSync(dirname(paths.linux), { recursive: true });
@@ -173,6 +193,7 @@ export function installService({ port = DEFAULT_PORT, host = DEFAULT_HOST } = {}
     run("systemctl", ["--user", "daemon-reload"]);
     run("systemctl", ["--user", "enable", "--now", LINUX_SERVICE_NAME]);
     installLinuxTrayDesktop(paths, port);
+    refreshTray(port, spawnTray);
     return { ok: true, kind: "systemd --user", path: paths.linux, port, host };
   }
   if (process.platform === "darwin") {
@@ -180,6 +201,7 @@ export function installService({ port = DEFAULT_PORT, host = DEFAULT_HOST } = {}
     writeFileSync(paths.darwin, buildLaunchdPlist({ port, host }), { mode: 0o644 });
     run("launchctl", ["unload", paths.darwin], { ignoreFailure: true });
     run("launchctl", ["load", "-w", paths.darwin]);
+    refreshTray(port, spawnTray);
     return { ok: true, kind: "launchd", path: paths.darwin, port, host };
   }
   return {
