@@ -344,6 +344,7 @@ export default function UsersPage() {
         </form>
       </section>
       <ConfirmModal
+        loading={busy}
         isOpen={Boolean(removing)}
         onClose={() => setRemoving(null)}
         onConfirm={async () => {

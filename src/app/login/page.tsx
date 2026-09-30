@@ -474,6 +474,16 @@ export default function LoginPage() {
               </div>
             )}
 
+            <div className="mt-4 text-center">
+              <a
+                href="/login#tenant"
+                onClick={() => setTenantMode({ token: null })}
+                className="text-sm text-text-muted underline underline-offset-4"
+              >
+                Tenant sign-in
+              </a>
+            </div>
+
             {brand.login.footer && (
               <p className="mt-6 text-center text-xs text-text-muted">{brand.login.footer}</p>
             )}
