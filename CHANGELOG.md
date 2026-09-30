@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.50.1
+
+### Patch Changes
+
+- Model names in `/v1/models` now read the same whichever provider serves them: vendor prefixes copied from OpenRouter ("Z.ai: GLM 5.3") are dropped and names that are just ids ("z-ai/glm-5.3-flash") are humanized. Ids and routing are unchanged.
+- The forgot-password page and the Google sign-in helper hint now show `npx @reddb-io/red-router …`. The unscoped `npx red-router` in those hints failed with an npm 404 because that package name is not published.
+
 ## 0.50.0
 
 ### Minor Changes
