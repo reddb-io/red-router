@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.56.1
+
+### Patch Changes
+
+- Keep all Access pages visible in the Admin sidebar preset.
+
 ## 0.56.0
 
 ### Minor Changes

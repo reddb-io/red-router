@@ -198,6 +198,8 @@ const ADMIN_SHOWN: ReadonlySet<HideableSidebarItemId> = new Set([
   "settings-feature-flags",
   "settings-sidebar",
   "tenants",
+  "access-users",
+  "access-roles",
   "docs",
 ]);
 

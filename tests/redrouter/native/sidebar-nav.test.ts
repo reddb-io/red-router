@@ -268,6 +268,15 @@ test("the presets keep a usable menu", () => {
   for (const preset of SIDEBAR_PRESETS) {
     const entries = resolveNavSections(new Set(preset.hiddenItems), {}).flatMap((s) => s.entries);
     assert.ok(entries.length > 0, preset.id);
+    if (preset.id === "admin") {
+      const access = resolveNavSections(new Set(preset.hiddenItems), {}).find(
+        (section) => section.id === "access"
+      );
+      assert.deepEqual(
+        access?.entries.map((entry) => entry.label),
+        ["Tenants", "Users", "Roles"]
+      );
+    }
     if (preset.id === "essentials") {
       assert.ok(entries.length <= 8, `essentials shows ${entries.length} entries`);
       for (const id of ["analytics", "endpoint-keys", "providers"]) {
