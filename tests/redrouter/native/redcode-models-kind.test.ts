@@ -16,9 +16,23 @@ const getModels = async () => Response.json(catalog);
 
 test("only kinds with a verified catalog type are routed as kinds", () => {
   assert.equal(isModelKind("systemone"), true);
+  assert.equal(isModelKind("decisions"), true);
   assert.equal(isModelKind("web"), false);
   assert.equal(isModelKind("openai"), false);
   assert.equal(isModelKind("toString"), false);
+});
+
+test("decisions discovery is an alias of the same scoped System One catalog", async () => {
+  const response = await handleGetModelsByKind(
+    new Request("http://localhost/v1/models/decisions"),
+    "decisions",
+    getModels
+  );
+  const body = await response.json();
+  assert.deepEqual(
+    body.data.map((model: { id: string }) => model.id),
+    ["typesafe-ai/jev-latest"]
+  );
 });
 
 test("GET /v1/models/systemone lists System One models in the id format RedCode expects", async () => {

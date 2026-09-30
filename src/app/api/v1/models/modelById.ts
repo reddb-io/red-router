@@ -69,7 +69,7 @@ export async function handleGetWebModels(
  * catalog. RedCode reads /v1/models/systemone to find the evaluator models it may use.
  * Only kinds whose catalog `type` is verified are listed here.
  */
-const MODEL_KIND_TYPES: Record<string, string> = { systemone: "systemone" };
+const MODEL_KIND_TYPES: Record<string, string> = { systemone: "systemone", decisions: "systemone" };
 
 export function isModelKind(value: string): boolean {
   return Object.prototype.hasOwnProperty.call(MODEL_KIND_TYPES, value);

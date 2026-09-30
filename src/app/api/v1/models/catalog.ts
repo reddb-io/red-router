@@ -1,5 +1,6 @@
 import { PROVIDER_MODELS, PROVIDER_ID_TO_ALIAS } from "@/shared/constants/models";
 import { isTransparentCatalogRequest } from "./catalogTransparency";
+import { parseCatalogCapabilities } from "./catalogCapabilities";
 import { resolveRoutingPolicy } from "@/lib/routing/routingPolicy";
 import { collapseCatalogToBare } from "@/lib/routing/bareModels";
 import { catalogVersionFromBody } from "@/lib/catalogVersion";
@@ -245,6 +246,16 @@ export async function getUnifiedModelsResponse(
     if (authRejection) return authRejection;
   } catch {
     // Fall through to full builder on auth-check failure; core handles errors.
+  }
+
+  if (!parseCatalogCapabilities(request).success) {
+    return Response.json(
+      buildErrorBody(
+        400,
+        "Invalid capabilities filter. Use chat, decision, reasoning, tools, vision or structured-output."
+      ),
+      { status: 400, headers: { ...corsHeaders, ...diagnosticHeaders } }
+    );
   }
 
   // Best-effort cc-discovery usage metric — count every authorized GET /v1/models
@@ -1018,7 +1029,8 @@ async function buildUnifiedModelsResponseCore(
           const resolved = getComboTargetModelId(target);
           return resolved ? [resolved] : [];
         }),
-        (providerId) => providerIdToPrefix[providerId] || providerIdToAlias[providerId] || providerId
+        (providerId) =>
+          providerIdToPrefix[providerId] || providerIdToAlias[providerId] || providerId
       );
 
       listedIds.add(combo.name);
@@ -1047,7 +1059,9 @@ async function buildUnifiedModelsResponseCore(
         ...(comboDescription ? { description: comboDescription } : {}),
         ...comboMetadata,
         // RedCode: what the combo does and which models it can route to.
-        ...comboStrategyForClients(combo.strategy ?? (combo.config as { strategy?: unknown } | undefined)?.strategy),
+        ...comboStrategyForClients(
+          combo.strategy ?? (combo.config as { strategy?: unknown } | undefined)?.strategy
+        ),
         ...(comboMembers.length > 0 ? { members: comboMembers } : {}),
       });
 

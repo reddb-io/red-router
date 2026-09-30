@@ -141,7 +141,24 @@ the same catalog access policy, but always rejects an explicitly invalid key.
 strategies and combo-scoped decision hints. Listing a System One model is not a
 live availability check; its availability is explicitly `not_probed`.
 
-Both documents accept only the optional `for` client label and `variants=expand`.
+`GET /v1/models?capabilities=decision` lists decision models for the caller's
+connection. The equivalent `GET /v1/models/systemone` and `/v1/models/decisions`
+return the same model kind. JEV through OpenRouter is advertised as
+`openrouter/typesafe/jev-1.13`, with `type: "systemone"`,
+`supported_endpoints: ["systemone", "decisions"]` and `capabilities.decision: true`.
+Decision-only models do not advertise chat tools, chat reasoning or vision.
+
+For generation models, use `GET /v1/models?capabilities=chat`. Optional filters
+`reasoning`, `tools`, `vision` and `structured-output` match flags that are true
+in the catalog; comma-separated or repeated values require all requested
+capabilities, for example `?capabilities=chat,tools,vision`. Filtering preserves
+API-key permissions and runs before `limit`/`after` pagination. Unsupported or
+empty capability values return 400. Clients should select a connection first,
+read its authorized catalog, then select an S2 generation model or an S1 decision
+model from that list. S1 requests use `/v1/systemone` or `/v1/decisions`.
+
+The `/v1/catalog` and `/v1/capabilities` documents accept only the optional `for`
+client label and `variants=expand`.
 Pagination, other filters and collapsed variants return 400 instead of silently
 producing an incomplete discovery document. Responses are private and not cached.
 Their opaque catalog version hashes the authorized entries, excluding generated

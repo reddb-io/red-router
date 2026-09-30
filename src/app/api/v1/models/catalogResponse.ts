@@ -43,6 +43,11 @@ import { extractApiKey } from "@/sse/services/auth";
 import { maybeOmitCatalogModelName } from "./catalogHelpers";
 import { applyCatalogPage, catalogJsonResponse, parseCatalogPage } from "./catalogPagination";
 import { isCodexModelCatalogClient } from "./catalogRequest";
+import {
+  filterCatalogCapabilities,
+  parseCatalogCapabilities,
+  withCatalogRoleCapabilities,
+} from "./catalogCapabilities";
 
 type CatalogVariantAuthorizer = (model: Record<string, any>) => boolean | Promise<boolean>;
 
@@ -332,7 +337,7 @@ export async function finalizeCatalogResponse(
         : entry;
       listedModel = maybeOmitCatalogModelName(listedModel, includeModelNames);
     }
-    enriched.push(listedModel);
+    enriched.push(withCatalogRoleCapabilities(listedModel));
     catEnrichCount++;
     if (catEnrichCount % catYIELD_EVERY === 0) {
       await yieldTurn();
@@ -358,7 +363,12 @@ export async function finalizeCatalogResponse(
   // break its agent behavior (verified empirically against codex 0.137). An empty array
   // keeps codex on its built-in model info — same inference as today, minus the error.
   const page = parseCatalogPage(request);
-  const paged = applyCatalogPage(orderedModels, page);
+  const requested = parseCatalogCapabilities(request);
+  const filtered = filterCatalogCapabilities(
+    orderedModels,
+    requested.success ? requested.data : []
+  );
+  const paged = applyCatalogPage(filtered, page);
   const responseBody: Record<string, unknown> = {
     object: "list",
     data: paged.models,
