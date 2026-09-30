@@ -1,8 +1,9 @@
 "use client";
 
 // Phase 1t.1 extraction — Issue #3501
-import { ArrowLeft, ExternalLink } from "lucide-react";
+import { ArrowLeft, ExternalLink, Settings } from "lucide-react";
 import Icon from "@/shared/components/Icon";
+import { Button } from "@/shared/components";
 import Link from "next/link";
 import ProviderIcon from "@/shared/components/ProviderIcon";
 import { getHeaderIconProviderId, providerText } from "../providerPageHelpers";
@@ -30,6 +31,9 @@ interface ProviderPageHeaderProps {
   isOpenAICompatible: boolean;
   isAnthropicProtocolCompatible: boolean;
   onOpenTutorial: () => void;
+  /** Opens or closes the settings panel right under the header (the cog on the right). */
+  onToggleSettings?: () => void;
+  settingsOpen?: boolean;
   t: ProviderMessageTranslator;
   /**
    * True when `providerInfo.website` was overridden with a Radar default
@@ -48,6 +52,8 @@ export default function ProviderPageHeader({
   isOpenAICompatible,
   isAnthropicProtocolCompatible,
   onOpenTutorial,
+  onToggleSettings,
+  settingsOpen = false,
   t,
   isReferralLink = false,
 }: ProviderPageHeaderProps) {
@@ -141,6 +147,20 @@ export default function ProviderPageHeader({
             )}
           </div>
         </div>
+        {onToggleSettings ? (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onToggleSettings}
+            aria-expanded={settingsOpen}
+            aria-controls="provider-settings-panel"
+            title="Edit this provider's connections and settings"
+            className="ms-auto shrink-0"
+          >
+            <Icon icon={Settings} size="md" color="current" />
+            Settings
+          </Button>
+        ) : null}
       </div>
     </div>
   );

@@ -70,6 +70,9 @@ function normalizeCodexLimitPolicy(
 }
 
 // GET /api/providers/[id] - Get single connection
+/** Overrides a caller may clear by sending null (see the merge below). */
+const CLEARABLE_PSD_KEYS = ["baseUrl", "tag", "tags", "excludedModels"] as const;
+
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const authError = await requireManagementAuth(request);
   if (authError) return authError;
@@ -286,6 +289,11 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
           ? existing.providerSpecificData
           : {};
       const mergedPsd = { ...existingPsd, ...incomingPsd };
+      // An explicit null clears an operator override, so the provider's default applies again
+      // (the provider page's "Reset to defaults"). Only these keys: null elsewhere keeps its meaning.
+      for (const key of CLEARABLE_PSD_KEYS) {
+        if ((incomingPsd as Record<string, unknown>)[key] === null) delete mergedPsd[key];
+      }
       delete mergedPsd.validationId;
       delete mergedPsd.runtimeKey;
 

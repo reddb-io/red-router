@@ -174,8 +174,13 @@ export function validateProviderSpecificData(
     }
   }
 
+  // null clears the override (the provider page's "Reset to defaults"); anything else must be a URL.
   const baseUrl = data.baseUrl;
-  if (baseUrl !== undefined && (typeof baseUrl !== "string" || !isHttpUrl(baseUrl))) {
+  if (
+    baseUrl !== undefined &&
+    baseUrl !== null &&
+    (typeof baseUrl !== "string" || !isHttpUrl(baseUrl))
+  ) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       message: "providerSpecificData.baseUrl must be a valid http(s) URL",

@@ -36,6 +36,7 @@ import {
   resolveProviderHeaderLink,
   resolveProviderOAuthBackendId,
 } from "../providerPageUtils";
+import { getProviderBaseUrlDefault, isBaseUrlConfigurableProvider } from "./providerPageHelpers";
 import { findDefaultReferral } from "@/lib/radar/referrals";
 import { type ConnectionRowConnection } from "./components/ConnectionRow";
 import { useProviderConnections } from "./hooks/useProviderConnections";
@@ -63,6 +64,8 @@ import ZedImportCard from "./components/ZedImportCard";
 import CursorAgentNudge from "./components/CursorAgentNudge";
 import ProviderPageHeader from "./components/ProviderPageHeader";
 import CompatibleNodeCard from "./components/CompatibleNodeCard";
+import ProviderSettingsPanel from "./components/ProviderSettingsPanel";
+import { buildResetBody, hasOverrides, type ResettableKey } from "./providerSettingsHelpers";
 import ProviderModalsPanel from "./components/ProviderModalsPanel";
 import EmptyConnectionsPlaceholder from "./components/EmptyConnectionsPlaceholder";
 import UpstreamProxyCard from "./components/UpstreamProxyCard";
@@ -86,6 +89,8 @@ export default function ProviderDetailPageClient() {
   const [siliconFlowInitialBaseUrl, setSiliconFlowInitialBaseUrl] = useState<string | undefined>();
   const [showEditModal, setShowEditModal] = useState(false);
   const [showEditNodeModal, setShowEditNodeModal] = useState(false);
+  // null = not chosen yet: the panel starts open for a custom provider or one with overrides.
+  const [settingsChoice, setSettingsChoice] = useState<boolean | null>(null);
   const [showTutorialModal, setShowTutorialModal] = useState(false);
   const [selectedConnection, setSelectedConnection] = useState(null);
   const [proxyTarget, setProxyTarget] = useState(null);
@@ -529,6 +534,31 @@ export default function ProviderDetailPageClient() {
     providerNode,
   });
 
+  // The settings panel: what each connection overrides, and the way back to the initial settings.
+  const settingsContext = {
+    defaultBaseUrl: getProviderBaseUrlDefault(providerId),
+    baseUrlConfigurable: isBaseUrlConfigurableProvider(providerId),
+  };
+  const settingsOpen =
+    settingsChoice ??
+    (isCompatible || connections.some((conn: any) => hasOverrides(conn, settingsContext)));
+
+  const handleResetConnection = async (conn: { id?: string }, keys: ResettableKey[]) => {
+    if (!conn.id) throw new Error("This connection has no id yet.");
+    const res = await fetch(`/api/providers/${conn.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(buildResetBody(keys)),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      const message = typeof data?.error === "string" ? data.error : data?.error?.message;
+      throw new Error(message || `The reset failed (${res.status}).`);
+    }
+    await fetchConnections();
+    notify.success("Connection reset to the provider's defaults");
+  };
+
   if (loading) {
     return (
       <div className="flex flex-col gap-8">
@@ -558,8 +588,25 @@ export default function ProviderDetailPageClient() {
         isOpenAICompatible={isOpenAICompatible}
         isAnthropicProtocolCompatible={isAnthropicProtocolCompatible}
         onOpenTutorial={() => setShowTutorialModal(true)}
+        onToggleSettings={() => setSettingsChoice(!settingsOpen)}
+        settingsOpen={settingsOpen}
         t={t}
         isReferralLink={isReferralLink}
+      />
+
+      <ProviderSettingsPanel
+        providerName={providerInfo.name}
+        connections={connections}
+        context={settingsContext}
+        providerNode={isCompatible ? providerNode : null}
+        open={settingsOpen}
+        onToggle={() => setSettingsChoice(!settingsOpen)}
+        onEditConnection={(conn) => {
+          setSelectedConnection(conn);
+          setShowEditModal(true);
+        }}
+        onEditProvider={isCompatible && providerNode ? () => setShowEditNodeModal(true) : undefined}
+        onResetConnection={handleResetConnection}
       />
 
       {providerId === "zed" && (
