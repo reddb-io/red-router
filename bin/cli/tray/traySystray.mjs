@@ -68,7 +68,10 @@ export async function initSystrayUnix(
         // macOS template mode uses only the alpha channel → a solid white square
         // (the icon looked "missing" even when the tray loaded). (PR #1080)
         isTemplateIcon: false,
-        title: "",
+        // On Linux (AppIndicator / GNOME) the title is the text drawn next to the icon; the other
+        // RedDB tray apps show their name there, so an empty title left this one as a bare icon.
+        // macOS keeps the icon alone and Windows has no title slot.
+        title: process.platform === "linux" ? "RedRouter" : "",
         tooltip: `RedRouter — port ${port}`,
         items,
       },
