@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.48.0
+
+### Minor Changes
+
+- Three LLM gateways as upstream providers: Cloudflare AI Gateway (your account's gateway URL as the connection Base URL, with an optional `cf-aig-authorization` token), Helicone AI Gateway and Portkey (with an optional virtual key). Their endpoints could not be checked offline, so test the connection before relying on them. The OTLP log destination gains an "endpoint is complete" option and there is a read-only list of ready-made presets at `GET /api/log-export/otlp-templates` for Langfuse, Helicone, Braintrust, Grafana Cloud, Honeycomb and a local collector; the Langfuse, Helicone and Braintrust ones are marked unverified because those vendors document OTLP for traces only or the URL is unconfirmed.
+- Two new tunnels on the API Endpoint page, grouped as Private and Public. Tailscale Serve is private: it publishes the endpoint only to devices on your tailnet (`https://<machine>.<tailnet>.ts.net`), and turning it off removes only that mapping, never the rest of your Tailscale config. Cloudflare Named Tunnel gives a stable URL on your own domain: paste the tunnel token and the public hostname you mapped in Cloudflare Zero Trust. The token is passed to cloudflared through its environment (never the command line), stored encrypted, and never returned by any API. Both are managed only from the machine running RedRouter, need a management session, and are audited. The card says whether API keys are required (they are only when REQUIRE_API_KEY is on), the Funnel row is now labelled Public, and Serve refuses to start while Funnel is publishing the same port. Nothing was tested against a live Cloudflare or Tailscale account.
+
+### Patch Changes
+
+- The logo at the top of the side rail is 20% smaller and centred in the rail.
+
 ## 0.47.0
 
 ### Minor Changes
