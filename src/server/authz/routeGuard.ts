@@ -68,6 +68,8 @@ export const LOCAL_ONLY_API_PREFIXES: ReadonlyArray<string> = [
   "/api/tunnels/tailscale/install", // downloads/installs Tailscale and starts its daemon
   "/api/tunnels/tailscale/login", // spawns `tailscale up`
   "/api/tunnels/tailscale/start-daemon", // starts tailscaled/Tailscale service
+  "/api/tunnels/cloudflared-named", // Cloudflare Named Tunnel: POST/PUT/DELETE install and spawn `cloudflared tunnel run` with the stored token in its env; GET is loopback-only too (no read exemption)
+  "/api/tunnels/tailscale-serve", // Tailscale Serve: POST starts tailscaled/login and runs `tailscale serve`; GET spawns `tailscale status`/`serve status`
   "/dashboard/providers/services/", // T-07: reverse proxy to embedded service UIs
   "/api/copilot/", // unauthenticated LLM driver — CLI-only by default; admins can opt-in to remote access via manage-scope bypass
   "/api/tools/agent-bridge/", // AgentBridge: spawns MITM server + DNS edits (Hard Rules #15 + #17)

@@ -112,13 +112,17 @@ test("SPAWN_CAPABLE_PREFIXES is defined in the server-free constants leaf with t
     "/api/skills/executions",
     // The CLIProxyAPI binary lifecycle under /api/version-manager/, same work as /api/services/.
     "/api/version-manager/",
+    // Cloudflare Named Tunnel (token-in-env cloudflared) and Tailscale Serve (private tailnet).
+    "/api/tunnels/cloudflared-named",
+    "/api/tunnels/tailscale-serve",
   ]) {
     assert.ok(
       SPAWN_CAPABLE_PREFIXES.includes(prefix),
       `SPAWN_CAPABLE_PREFIXES lost the spawn-capable prefix "${prefix}" during extraction`
     );
   }
-  // 20 at extraction time + 14 (GHSA-35fw-cv32-2373) + 2 (GHSA-jx89-f37j-pq89) + 1 (version-manager).
+  // 20 at extraction time + 14 (GHSA-35fw-cv32-2373) + 2 (GHSA-jx89-f37j-pq89) + 1 (version-manager)
+  // + 2 (cloudflared-named, tailscale-serve).
   // qwen-settings is the one pre-existing entry not enumerated above.
-  assert.equal(SPAWN_CAPABLE_PREFIXES.length, 37);
+  assert.equal(SPAWN_CAPABLE_PREFIXES.length, 39);
 });

@@ -24,8 +24,8 @@ import {
   SPAWN_CAPABLE_PATTERN_ANCESTORS,
 } from "@/shared/constants/spawnCapablePrefixes";
 import { isHttpUrl } from "@/shared/validation/schemas/misc";
-import { GUARDRAIL_IDS } from "@/lib/guardrails/catalog";
-import { GUARDRAIL_ASSIGNMENT_MAX_SCOPES, GUARDRAIL_PRIORITY_MAX } from "@/lib/guardrails/assignment";
+import { GUARDRAIL_IDS } from "@/shared/constants/guardrails/catalog";
+import { GUARDRAIL_ASSIGNMENT_MAX_SCOPES, GUARDRAIL_PRIORITY_MAX } from "@/shared/constants/guardrails/assignment";
 import {
   CONTENT_FILTER_ACTIONS,
   CONTENT_FILTER_MAX_PATTERN_LENGTH,
@@ -33,7 +33,7 @@ import {
   CONTENT_FILTER_RULE_TYPES,
   CONTENT_FILTER_SCOPES,
   validateRegexPattern,
-} from "@/lib/guardrails/contentFilterRules";
+} from "@/shared/constants/guardrails/contentFilterRules";
 
 const signatureCacheModeValues = ["enabled", "bypass", "bypass-strict"] as const;
 

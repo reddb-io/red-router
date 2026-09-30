@@ -15,6 +15,8 @@ const PROCESS_ROUTES = [
   "/api/tunnels/tailscale/install",
   "/api/tunnels/tailscale/login",
   "/api/tunnels/tailscale/start-daemon",
+  "/api/tunnels/cloudflared-named",
+  "/api/tunnels/tailscale-serve",
 ] as const;
 
 test("tunnel process routes are local-only and non-bypassable", () => {
@@ -50,4 +52,18 @@ test("unrelated tunnel paths remain outside the spawn-capable classification", (
     assert.equal(SPAWN_CAPABLE_PREFIXES.includes(path), false);
     assert.equal(isLocalOnlyPath(path, "GET"), false);
   }
+});
+
+test("named tunnel and Tailscale Serve are local-only for every method, reads included", () => {
+  for (const path of [
+    "/api/tunnels/cloudflared-named",
+    "/api/tunnels/cloudflared-named/config",
+    "/api/tunnels/tailscale-serve",
+  ]) {
+    for (const method of ["GET", "HEAD", "OPTIONS", "POST", "PUT", "DELETE"]) {
+      assert.equal(isLocalOnlyPath(path, method), true, `${method} ${path}`);
+    }
+  }
+  assert.equal(LOCAL_ONLY_API_GET_EXEMPTIONS.has("/api/tunnels/cloudflared-named"), false);
+  assert.equal(LOCAL_ONLY_API_GET_EXEMPTIONS.has("/api/tunnels/tailscale-serve"), false);
 });

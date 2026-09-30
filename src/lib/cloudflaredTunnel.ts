@@ -53,7 +53,7 @@ type CloudflaredRuntimeDirs = {
   localAppDataDir: string;
 };
 
-type BinaryResolution = {
+export type BinaryResolution = {
   binaryPath: string | null;
   source: CloudflaredInstallSource | null;
   managed: boolean;
@@ -1071,4 +1071,16 @@ export async function stopCloudflaredTunnel() {
   tunnelPid = null;
   await clearPidFile();
   return getCloudflaredTunnelStatus();
+}
+
+/**
+ * Binary detection/installation shared with the Cloudflare Named Tunnel runner
+ * (`src/lib/cloudflaredNamedTunnel.ts`), so both tunnels use one cloudflared install.
+ */
+export async function resolveCloudflaredBinary(): Promise<BinaryResolution> {
+  return resolveBinary();
+}
+
+export async function ensureCloudflaredBinary(): Promise<BinaryResolution> {
+  return ensureBinary();
 }

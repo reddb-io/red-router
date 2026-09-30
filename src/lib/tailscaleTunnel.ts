@@ -1205,3 +1205,15 @@ export async function installTailscale({
 
   return status;
 }
+
+/**
+ * Binary/socket/status helpers shared with Tailscale Serve (`src/lib/tailscaleServe.ts`), so the
+ * private tailnet endpoint reuses the same installed/logged-in detection as Funnel.
+ */
+export const tailscaleSharedHelpers = {
+  resolveBinary,
+  buildArgs: buildTailscaleArgs,
+  buildExecEnv,
+  getLiveStatusPayload,
+  isBackendRunning,
+};

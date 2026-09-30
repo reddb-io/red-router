@@ -3,7 +3,7 @@
 import { Check, CircleCheck, Compass, GitFork, Globe, GlobeLock, Images, LoaderCircle, Monitor, Network, TriangleAlert, Wrench, X } from "lucide-react";
 import Icon from "@/shared/components/Icon";
 import { useState, useEffect, useMemo, useCallback } from "react";
-import { Card, Button, Input, Modal, CardSkeleton, SegmentedControl } from "@/shared/components";
+import { Card, Button, Input, Modal, CardSkeleton, SegmentedControl, Badge } from "@/shared/components";
 import Toggle from "@/shared/components/Toggle";
 import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
 import { isPublicDisplayBaseUrl, useDisplayBaseUrl } from "@/shared/hooks";
@@ -13,6 +13,14 @@ import McpDashboardPage from "./components/MCPDashboard";
 import NotionSourceCard from "./components/NotionSourceCard";
 import ObsidianSourceCard from "./components/ObsidianSourceCard";
 import VscodeTokenAliasCard from "./VscodeTokenAliasCard";
+import {
+  CloudflaredNamedTunnelRow,
+  TailscaleServeRow,
+  TunnelGroupHeader,
+  type NamedTunnelStatus,
+  type TailscaleServeTunnelStatus,
+} from "./components/TunnelExtras";
+import { countTunnels } from "./components/tunnelPresentation";
 
 const BUILD_TIME_CLOUD_URL = process.env.NEXT_PUBLIC_CLOUD_URL || null;
 const CLOUD_ACTION_TIMEOUT_MS = 15000;
@@ -170,6 +178,9 @@ export default function APIPageClient({ machineId }: Readonly<APIPageClientProps
   const [ngrokToken, setNgrokToken] = useState("");
   const [showNgrokTunnel, setShowNgrokTunnel] = useState(true);
   const [expandedTunnel, setExpandedTunnel] = useState<string | null>(null);
+  const [namedTunnelStatus, setNamedTunnelStatus] = useState<NamedTunnelStatus | null>(null);
+  const [tailscaleServeStatus, setTailscaleServeStatus] =
+    useState<TailscaleServeTunnelStatus | null>(null);
   const [localApiUrl, setLocalApiUrl] = useState(
     typeof window !== "undefined" ? `${window.location.origin}/v1` : "http://localhost:20128/v1"
   );
@@ -1100,6 +1111,9 @@ export default function APIPageClient({ machineId }: Readonly<APIPageClientProps
     ...(publicDisplayApiUrl
       ? [{ label: t("tierPublic"), url: publicDisplayApiUrl, key: "active_public" }]
       : []),
+    ...(namedTunnelStatus?.running && namedTunnelStatus.apiUrl
+      ? [{ label: "Cloudflare (named)", url: namedTunnelStatus.apiUrl, key: "active_cf_named" }]
+      : []),
     ...(cloudflaredStatus?.running && cloudflaredStatus.apiUrl
       ? [{ label: "Cloudflare", url: cloudflaredStatus.apiUrl, key: "active_cf" }]
       : []),
@@ -1126,19 +1140,28 @@ export default function APIPageClient({ machineId }: Readonly<APIPageClientProps
     ...(cloudEnabled && cloudEndpointNew
       ? [{ label: t("activeCloud"), url: cloudEndpointNew, key: "active_cloud" }]
       : []),
+    ...(tailscaleServeStatus?.running && tailscaleServeStatus.apiUrl
+      ? [
+          {
+            label: "Tailscale (private)",
+            url: tailscaleServeStatus.apiUrl,
+            key: "active_ts_serve",
+          },
+        ]
+      : []),
     { label: t("activeLocal"), url: localApiUrl, key: "active_local" },
   ].filter(
     (candidate, index, candidates) =>
       candidates.findIndex((other) => other.url === candidate.url) === index
   );
-  const visibleTunnelCount = [showCloudflaredTunnel, showTailscaleFunnel, showNgrokTunnel].filter(
-    Boolean
-  ).length;
-  const activeTunnelCount = [
-    showCloudflaredTunnel && cloudflaredStatus?.running,
-    showTailscaleFunnel && tailscaleStatus?.running,
-    showNgrokTunnel && ngrokStatus?.running,
-  ].filter(Boolean).length;
+  // The Named Tunnel and Tailscale Serve rows are always shown, so they always count.
+  const { active: activeTunnelCount, total: visibleTunnelCount } = countTunnels([
+    { visible: showCloudflaredTunnel, active: !!cloudflaredStatus?.running },
+    { visible: showTailscaleFunnel, active: !!tailscaleStatus?.running },
+    { visible: showNgrokTunnel, active: !!ngrokStatus?.running },
+    { visible: true, active: !!namedTunnelStatus?.running },
+    { visible: true, active: !!tailscaleServeStatus?.running },
+  ]);
 
   const cloudflaredPhase = cloudflaredStatus?.phase || "not_installed";
   const cloudflaredPhaseMeta: Record<CloudflaredTunnelPhase, { label: string; className: string }> =
@@ -1448,6 +1471,34 @@ export default function APIPageClient({ machineId }: Readonly<APIPageClientProps
             )}
           </div>
 
+          {/* Private: reachable only from the operator's own devices */}
+          <div className="border-t border-border/30">
+            <TunnelGroupHeader
+              kind="private"
+              description={translateOrFallback(
+                "tunnelGroupPrivateDescription",
+                "Only devices signed in to your tailnet can reach these endpoints."
+              )}
+            />
+          </div>
+          <TailscaleServeRow
+            bordered={false}
+            onStatusChange={setTailscaleServeStatus}
+            onRequestInstall={() => setShowTailscaleInstallModal(true)}
+          />
+
+          {/* Public: reachable from the internet, so client API keys matter */}
+          <div className="border-t border-border/30">
+            <TunnelGroupHeader
+              kind="public"
+              description={translateOrFallback(
+                "tunnelGroupPublicDescription",
+                "Reachable from the internet. Keep Require API Key on for these."
+              )}
+            />
+          </div>
+          <CloudflaredNamedTunnelRow bordered={false} onStatusChange={setNamedTunnelStatus} />
+
           {/* Cloudflare Quick Tunnel */}
           {showCloudflaredTunnel && (
             <div className="border-t border-border/30">
@@ -1539,6 +1590,9 @@ export default function APIPageClient({ machineId }: Readonly<APIPageClientProps
                     <span className="text-sm font-medium">
                       {translateOrFallback("tailscaleTitle", "Tailscale Funnel")}
                     </span>
+                    <Badge variant="warning" size="sm">
+                      {translateOrFallback("tunnelBadgePublic", "Public")}
+                    </Badge>
                     {tailscaleIpUrl && (
                       <button
                         onClick={(e) => {
