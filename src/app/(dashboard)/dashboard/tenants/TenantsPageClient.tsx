@@ -37,9 +37,9 @@ export default function TenantsPageClient() {
   }, [t]);
 
   useEffect(() => {
-    setSelectedId(new URLSearchParams(window.location.search).get("tenant"));
     void (async () => {
       await load();
+      setSelectedId(new URLSearchParams(window.location.search).get("tenant"));
     })();
   }, [load]);
 

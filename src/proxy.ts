@@ -55,6 +55,8 @@ export const config = {
     "/:observeseg([oO][bB][sS][eE][rR][vV][eE])/:path*",
     "/:toolsseg([tT][oO][oO][lL][sS])",
     "/:toolsseg([tT][oO][oO][lL][sS])/:path*",
+    "/:accessseg([aA][cC][cC][eE][sS][sS])",
+    "/:accessseg([aA][cC][cC][eE][sS][sS])/:path*",
     "/:systemseg([sS][yY][sS][tT][eE][mM])",
     "/:systemseg([sS][yY][sS][tT][eE][mM])/:path*",
     "/api/:path*",

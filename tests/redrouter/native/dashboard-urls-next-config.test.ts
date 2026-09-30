@@ -171,7 +171,7 @@ function follow(pathname: string): { final: string; hops: string[] } {
 const TAILS = ["", "/detail", "/a/b"];
 
 test("every URL of the last release redirects, in one hop, to the page's current URL", () => {
-  assert.equal(SHIPPED_AREA_URLS.length, 52);
+  assert.equal(SHIPPED_AREA_URLS.length, 53);
   for (const [shipped, page] of SHIPPED_AREA_URLS) {
     for (const tail of TAILS) {
       const from = `${shipped}${tail}`;

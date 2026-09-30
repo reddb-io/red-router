@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+import { matchesSearch } from "@/shared/utils/turkishText";
 import { Badge, Button, ConfirmModal, Input, Loading, Select } from "@/shared/components";
 import {
   errorText,
@@ -52,7 +53,9 @@ export default function UsersPage() {
     }
   }, []);
   useEffect(() => {
-    void load();
+    void (async () => {
+      await load();
+    })();
   }, [load]);
   const call = async (url: string, method: string, body?: unknown) => {
     setBusy(true);
@@ -102,9 +105,7 @@ export default function UsersPage() {
     (user) =>
       (!tenant || tenant === user.tenantId) &&
       (!roleFilter || (roleFilter === "owner" ? user.isOwner : user.role === roleFilter)) &&
-      `${user.email} ${user.displayName ?? ""} ${user.tenantName}`
-        .toLowerCase()
-        .includes(search.toLowerCase())
+      matchesSearch(`${user.email} ${user.displayName ?? ""} ${user.tenantName}`, search)
   );
   if (loading) return <Loading />;
   return (

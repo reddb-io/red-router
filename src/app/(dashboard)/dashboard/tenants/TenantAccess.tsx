@@ -54,8 +54,6 @@ export default function TenantAccess({
 
   useEffect(() => {
     const abort = new AbortController();
-    setUsageLoading(true);
-    setUsageError("");
     void (async () => {
       try {
         const res = await fetch(
@@ -247,7 +245,11 @@ export default function TenantAccess({
             value={month}
             min="2000-01"
             max="9998-12"
-            onChange={(event) => setMonth(event.target.value)}
+            onChange={(event) => {
+              setMonth(event.target.value);
+              setUsageLoading(true);
+              setUsageError("");
+            }}
           />
         </div>
         {usageError && (

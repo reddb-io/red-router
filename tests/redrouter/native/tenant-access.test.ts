@@ -24,6 +24,7 @@ const { createApiKey, deleteApiKey } = await import("../../../src/lib/db/apiKeys
 const { recordLedgerEntry, recordLedgerEntries } =
   await import("../../../src/lib/db/costLedger.ts");
 const { saveRequestUsage } = await import("../../../src/lib/usage/usageHistory.ts");
+const { hashManagementPassword } = await import("../../../src/lib/auth/managementPassword.ts");
 const { updateSettings } = await import("../../../src/lib/db/settings.ts");
 const { mintDashboardSessionToken, getDashboardJwtSecret, DASHBOARD_SESSION_COOKIE } =
   await import("../../../src/shared/utils/dashboardSessionToken.ts");
@@ -145,7 +146,10 @@ test("monthly reports keep original tenant history after key moves and deletion,
 });
 
 test("Access APIs require management auth and never expose credentials or raw errors", async () => {
-  await updateSettings({ requireLogin: true });
+  await updateSettings({
+    requireLogin: true,
+    password: await hashManagementPassword("correct horse battery staple 42"),
+  });
   const context = { params: Promise.resolve({ id: "red" }) };
   const unauthenticated = new Request("http://localhost/api/access/users");
   assert.equal((await usersRoute.GET(unauthenticated)).status, 401);

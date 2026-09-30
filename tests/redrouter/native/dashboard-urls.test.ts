@@ -293,6 +293,7 @@ test("the full table (what the operator sees for each existing page)", () => {
     "/dashboard/relay": "/proxy/relay",
     "/dashboard/resilience": "/observe/resilience",
     "/dashboard/resilience/connections": "/observe/health/connections",
+    "/dashboard/roles": "/access/roles",
     "/dashboard/runtime": "/observe/health/runtime",
     "/dashboard/search-tools": "/tools/search-tools",
     "/dashboard/settings": "/system/settings",
@@ -305,6 +306,7 @@ test("the full table (what the operator sees for each existing page)", () => {
     "/dashboard/tools/traffic-inspector": "/tools/inspector",
     "/dashboard/translator": "/tools/translator",
     "/dashboard/usage-sinks": "/observe/usage-sinks",
+    "/dashboard/users": "/access/users",
     "/dashboard/webhooks": "/observe/webhooks",
   });
 });

@@ -358,7 +358,7 @@ function matchedByProxy(pathname: string): boolean {
 
 test("proxy.ts matcher covers every area, in any case, so no area URL skips the authz pipeline", () => {
   const areas = urls.dashboardAreaIds();
-  assert.equal(areas.length, 7);
+  assert.equal(areas.length, 8);
   for (const area of areas) {
     const cases = [area, area.toUpperCase(), area[0].toUpperCase() + area.slice(1)];
     for (const name of cases) {

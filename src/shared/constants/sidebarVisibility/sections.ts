@@ -784,7 +784,7 @@ const ACCESS_ITEMS: readonly SidebarItemDefinition[] = [
     i18nKey: "accessUsers",
     labelFallback: "Users",
     subtitleFallback: "Tenant users and administrators",
-    icon: "people",
+    icon: "groups",
   },
   {
     id: "access-roles",
