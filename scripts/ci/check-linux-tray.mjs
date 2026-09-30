@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir, userInfo } from "node:os";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -26,6 +26,8 @@ const env = {
 const run = (command, args) =>
   execFileSync(command, args, { env, encoding: "utf8", timeout: 60_000 }).trim();
 const service = "red-router-tray.service";
+const desktopTarget = "redrouter-ci-desktop.target";
+const unitDir = join(homedir(), ".config/systemd/user");
 const children = [];
 async function until(check, label) {
   const deadline = Date.now() + 60_000;
@@ -58,9 +60,17 @@ try {
     spawn("/usr/bin/python3", [join(root, "scripts/ci/tray-watcher.py")], { env, stdio: "inherit" })
   );
   await until(() => registeredTrayPids(run), "fixture watcher");
-  run("systemctl", ["--user", "start", "graphical-session.target"]);
+  // Desktop session targets activate this protected target by dependency. systemd refuses
+  // manual starts of graphical-session.target on current Ubuntu runners.
+  mkdirSync(unitDir, { recursive: true });
+  writeFileSync(
+    join(unitDir, desktopTarget),
+    "[Unit]\nDescription=RedRouter CI desktop session\nWants=graphical-session.target\nAfter=graphical-session.target\n"
+  );
+  run("systemctl", ["--user", "daemon-reload"]);
+  run("systemctl", ["--user", "start", desktopTarget]);
   const config = {
-    unitPath: join(homedir(), ".config/systemd/user", service),
+    unitPath: join(unitDir, service),
     nodePath: process.execPath,
     cliPath: join(root, "bin/omniroute.mjs"),
     dataDir: dir,
@@ -108,7 +118,13 @@ try {
   } catch {
     /* failed startup */
   }
-  rmSync(join(homedir(), ".config/systemd/user", service), { force: true });
+  rmSync(join(unitDir, service), { force: true });
+  try {
+    run("systemctl", ["--user", "stop", desktopTarget]);
+  } catch {
+    /* fixture startup failed */
+  }
+  rmSync(join(unitDir, desktopTarget), { force: true });
   for (const child of children) child.kill();
   rmSync(dir, { recursive: true, force: true });
 }
