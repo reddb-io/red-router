@@ -15,6 +15,7 @@ import { isProxySkipRecentlyFailedEnabled } from "@/shared/utils/featureFlags";
 import { invalidateDbCache } from "./readCache";
 import { encrypt, decrypt } from "./encryption";
 import { getProxyRegistryGeneration, resolveProxyForScopeFromRegistry } from "./proxies";
+import { decryptProxyCredentials } from "./proxies/credentials";
 import { isEgressBucketedLockScope } from "@omniroute/open-sse/config/providerErrorRules.ts";
 import { getComboModelProvider as getComboEntryProvider } from "@/lib/combos/steps";
 import { requestBodyLimitMbFromEnv } from "@/shared/constants/bodySize";
@@ -689,7 +690,7 @@ export async function resolveProxyForConnection(
         const apiKeyRow = db.prepare("SELECT proxy_id FROM api_keys WHERE id = ?").get(apiKeyId) as
           { proxy_id?: string | null } | undefined;
         if (apiKeyRow?.proxy_id) {
-          const proxyRow = db
+          const storedProxyRow = db
             .prepare(
               "SELECT p.type, p.host, p.port, p.username, p.password, p.family FROM proxy_registry p WHERE p.id = ?"
             )
@@ -703,7 +704,9 @@ export async function resolveProxyForConnection(
                 family?: string;
               }
             | undefined;
-          if (proxyRow) {
+          if (storedProxyRow) {
+            // Registry credentials are encrypted at rest.
+            const proxyRow = decryptProxyCredentials(storedProxyRow);
             const result = {
               proxy: {
                 type: proxyRow.type,

@@ -33,6 +33,7 @@
 
 import { getDbInstance } from "../db/core";
 import { decrypt } from "../db/encryption";
+import { decryptProxyCredential } from "../db/proxies/credentials";
 import { isProxySkipRecentlyFailedEnabled } from "@/shared/utils/featureFlags";
 import {
   isSelectorMemberAvoided,
@@ -192,7 +193,8 @@ function resolvePairs(setAsideKey: string): ResolveHit[] {
       type: r.type,
       host: r.host,
       port: r.port,
-      username: r.username,
+      // Registry usernames are encrypted at rest.
+      username: decryptProxyCredential(r.username, "username", r.rid),
     });
     if (key !== setAsideKey) continue;
     const endpoint = typeof r.local_core_endpoint === "string" ? r.local_core_endpoint : null;

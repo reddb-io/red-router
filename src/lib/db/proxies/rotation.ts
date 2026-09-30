@@ -31,6 +31,7 @@ import {
   normalizeScope,
   normalizeAssignmentScopeId,
 } from "./mappers";
+import { decryptProxyCredentials } from "./credentials";
 
 // Rotation state keys off the SAME normalized scope_id as assignments so a global
 // pool ('__global__') and a per-scope pool share one deterministic cursor row.
@@ -585,14 +586,17 @@ function fetchAlivePoolRows(
     "SELECT p.id, p.name, p.type, p.host, p.port, p.username, p.password, p.notes, p.family, a.position AS __pos, a.id AS __aid " +
     "FROM proxy_assignments a JOIN proxy_registry p ON p.id = a.proxy_id WHERE a.scope = ? ";
   const order = " ORDER BY a.position ASC, a.id ASC";
+  // Registry credentials are encrypted at rest; candidates carry plaintext for the resolvers.
   if (matchAnyScopeId) {
-    return db
-      .prepare(`${baseSelect}AND ${PROXY_ALIVE_PREDICATE}${order}`)
-      .all(scope) as JsonRecord[];
+    return (
+      db.prepare(`${baseSelect}AND ${PROXY_ALIVE_PREDICATE}${order}`).all(scope) as JsonRecord[]
+    ).map((row) => decryptProxyCredentials(row));
   }
-  return db
-    .prepare(`${baseSelect}AND a.scope_id IS ? AND ${PROXY_ALIVE_PREDICATE}${order}`)
-    .all(scope, scopeIdFilter) as JsonRecord[];
+  return (
+    db
+      .prepare(`${baseSelect}AND a.scope_id IS ? AND ${PROXY_ALIVE_PREDICATE}${order}`)
+      .all(scope, scopeIdFilter) as JsonRecord[]
+  ).map((row) => decryptProxyCredentials(row));
 }
 
 // Read-only view of a scope pool's alive candidate rows (same joined source as the

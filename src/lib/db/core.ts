@@ -38,6 +38,7 @@ import {
   type CallLogArtifact,
 } from "../usage/callLogArtifacts";
 import { migrateLegacyEncryptedString } from "./encryption";
+import { encryptExistingProxyCredentials } from "./proxies/credentials";
 import { serializeJsonField } from "./providers/columns";
 import { invalidateDbCache } from "./readCache";
 import { rowToCamel } from "./caseMapping";
@@ -1415,6 +1416,19 @@ export function getDbInstance(): SqliteDatabase {
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[DB] Legacy encryption migration failed: ${message}`);
+  }
+
+  // Encrypt legacy plaintext outbound-proxy credentials (idempotent; no-op without a storage key).
+  try {
+    const { encrypted } = encryptExistingProxyCredentials(db, {
+      beforeWrite: () => createManagedDbBackup(db, "proxy-credential-encryption"),
+    });
+    if (encrypted > 0) {
+      console.log(`[DB] Encrypted stored credentials of ${encrypted} proxy registry row(s).`);
+    }
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[DB] Proxy credential encryption failed: ${message}`);
   }
 
   startDbHealthCheckScheduler(db);

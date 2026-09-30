@@ -28,6 +28,7 @@ import {
   coerceProxyPayload,
   redactProxySecrets,
 } from "./proxies/mappers";
+import { encryptProxyCredentials, tryDecryptProxyCredential } from "./proxies/credentials";
 import { isGlobalProxyEnabled, PROXY_ALIVE_PREDICATE } from "./proxies/guards";
 import { bumpProxyRegistryGeneration } from "./proxies/registryGeneration";
 import { isProxyRegistryStatus } from "@/shared/constants/proxyRegistryStatus";
@@ -147,6 +148,11 @@ function insertProxyRow(
   payload: ProxyPayload,
   now: string
 ) {
+  // Credentials are encrypted at rest; the row is plaintext everywhere else.
+  const credentials = encryptProxyCredentials({
+    username: payload.username || "",
+    password: payload.password || "",
+  });
   db.prepare(
     `INSERT INTO proxy_registry
       (id, name, type, host, port, username, password, region, notes, status, source, family, subscription_id, created_at, updated_at)
@@ -157,8 +163,8 @@ function insertProxyRow(
     payload.type,
     payload.host,
     Number(payload.port),
-    payload.username || "",
-    payload.password || "",
+    credentials.username,
+    credentials.password,
     payload.region || null,
     payload.notes || null,
     payload.status || "active",
@@ -182,12 +188,20 @@ function updateProxyRow(
   const incomingPassword =
     typeof payload.password === "string" ? payload.password.trim() : undefined;
 
+  // Omitted credentials mean preserve: keep the stored value untouched (a legacy plaintext value is
+  // encrypted, an undecryptable ciphertext survives so the right key can still recover it).
+  // Explicitly provided blanks clear stored auth.
+  const stored = db
+    .prepare("SELECT username, password FROM proxy_registry WHERE id = ?")
+    .get(id) as { username?: string | null; password?: string | null } | undefined;
+  const credentials = encryptProxyCredentials({
+    username: incomingUsername === undefined ? (stored?.username ?? "") : incomingUsername,
+    password: incomingPassword === undefined ? (stored?.password ?? "") : incomingPassword,
+  });
+
   const merged = {
     ...existing,
     ...payload,
-    // Omitted credentials mean preserve; explicitly provided blanks clear stored auth.
-    username: incomingUsername === undefined ? existing.username : incomingUsername,
-    password: incomingPassword === undefined ? existing.password : incomingPassword,
     // subscription_id: only override when the caller explicitly passes it (string|null);
     // otherwise preserve whatever the existing row already carries.
     subscriptionId:
@@ -204,8 +218,8 @@ function updateProxyRow(
     merged.type,
     merged.host,
     Number(merged.port),
-    merged.username || "",
-    merged.password || "",
+    credentials.username,
+    credentials.password,
     merged.region || null,
     merged.notes || null,
     merged.status || "active",
@@ -381,11 +395,15 @@ export async function upsertProxy(
   const port = Number(payload.port);
   const username = (payload.username || "").trim();
 
-  const existing = db
-    .prepare(
-      "SELECT id, subscription_id FROM proxy_registry WHERE host = ? AND port = ? AND username = ? LIMIT 1"
-    )
-    .get(host, port, username) as { id?: string; subscription_id?: string | null } | undefined;
+  // Stored usernames are encrypted with a random IV, so the identity match compares the decrypted
+  // username in application code over the (indexed) host+port candidates instead of in SQL. An
+  // undecryptable username never matches.
+  const candidates = db
+    .prepare("SELECT id, subscription_id, username FROM proxy_registry WHERE host = ? AND port = ?")
+    .all(host, port) as Array<{ id?: string; subscription_id?: string | null; username?: string }>;
+  const existing = candidates.find(
+    (row) => tryDecryptProxyCredential(row.username, "username", row.id) === username
+  );
 
   if (existing?.id) {
     const claimOwnership = options.claimOwnership ?? true;

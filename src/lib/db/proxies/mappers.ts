@@ -1,4 +1,5 @@
 import { decrypt, looksEncrypted } from "../encryption";
+import { decryptProxyCredential } from "./credentials";
 import { decodeUserinfo } from "@/shared/utils/decodeUserinfo";
 import type {
   JsonRecord,
@@ -20,8 +21,9 @@ export function mapProxyRow(row: unknown): ProxyRegistryRecord {
     type: typeof r.type === "string" ? r.type : "http",
     host: typeof r.host === "string" ? r.host : "",
     port: Number(r.port) || 0,
-    username: typeof r.username === "string" ? r.username : "",
-    password: typeof r.password === "string" ? r.password : "",
+    // Credentials are encrypted at rest (./credentials.ts); callers keep seeing plaintext.
+    username: decryptProxyCredential(r.username, "username", r.id),
+    password: decryptProxyCredential(r.password, "password", r.id),
     region: typeof r.region === "string" ? r.region : null,
     notes: typeof r.notes === "string" ? r.notes : null,
     status: typeof r.status === "string" ? r.status : "active",
