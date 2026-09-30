@@ -165,6 +165,7 @@ import { generateRequestId } from "../../shared/utils/requestId";
 import { logAuditEvent } from "../../lib/compliance/index";
 import { enforceApiKeyPolicy } from "../../shared/utils/apiKeyPolicy";
 import { rejectIfMeteredBudgetExceeded } from "@/lib/usage/meteredBudgetPolicy";
+import { withRequestAttribution } from "@/lib/usage/attribution";
 import { hasProviderQuotaBypassScope } from "../../shared/constants/apiKeyPolicyScopes";
 import { isMicrosoftDesignerWebProviderRetiredError } from "../../shared/constants/designerWebRetirement";
 import { cloneBoundedForLog } from "@omniroute/open-sse/utils/requestLogger.ts";
@@ -659,7 +660,7 @@ async function handleChatImplementation(
     );
     return policy.rejection;
   }
-  const apiKeyInfo = policy.apiKeyInfo;
+  const apiKeyInfo = withRequestAttribution(policy.apiKeyInfo, request, body, signal);
   let managedLease: ManagedLeaseDispatchContext | null = null;
   if (isExclusiveLeaseManagedKey(apiKeyInfo)) {
     try {
@@ -1611,7 +1612,7 @@ async function handleSingleModelChat(
     return runtimeOptions.providerId;
   })();
   const forceLiveComboTest = runtimeOptions.forceLiveComboTest === true;
-  const budgetRejection = await rejectIfMeteredBudgetExceeded(apiKeyInfo?.id, provider, modelStr);
+  const budgetRejection = await rejectIfMeteredBudgetExceeded(apiKeyInfo, provider, modelStr);
   if (budgetRejection) return budgetRejection;
   const bypassProviderQuotaPolicy = hasProviderQuotaBypassScope(apiKeyInfo?.scopes);
   const forcedConnectionId =

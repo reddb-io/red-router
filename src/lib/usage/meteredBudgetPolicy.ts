@@ -34,7 +34,7 @@
  */
 
 import { checkBudget } from "@/domain/costRules";
-import { checkBudgets, MAX_THROTTLE_DELAY_MS } from "@/domain/budgetEngine";
+import { checkBudgets, MAX_THROTTLE_DELAY_MS, recordBudgetAdmission } from "@/domain/budgetEngine";
 import { isFlatRateProvider } from "./flatRateProviders";
 import { errorResponse } from "@omniroute/open-sse/utils/error.ts";
 import { HTTP_STATUS } from "@omniroute/open-sse/config/constants.ts";
@@ -67,6 +67,28 @@ export function meteredBudgetCost(
   return estimatedCost;
 }
 
+/**
+ * Who is asking: a bare key id, or the request's key record when it carries the attribution the
+ * chat handler resolved (`lib/usage/attribution`).
+ */
+export type BudgetActor =
+  | string
+  | {
+      id?: string | null;
+      attribution?: { tags?: readonly string[] | null; endUser?: string | null } | null;
+    }
+  | null
+  | undefined;
+
+function splitActor(actor: BudgetActor) {
+  if (typeof actor === "string") return { keyId: actor, tags: undefined, endUser: undefined };
+  return {
+    keyId: actor?.id,
+    tags: actor?.attribution?.tags,
+    endUser: actor?.attribution?.endUser,
+  };
+}
+
 export interface MeteredBudgetDecision {
   /** May this candidate be served under the key's current budget state? */
   allowed: boolean;
@@ -93,15 +115,16 @@ const ALLOWED: MeteredBudgetDecision = { allowed: true };
  * that do not consume it.
  *
  * Two independent budgets are consulted and either can refuse: the per-key
- * budget (`domain/costRules`) and the reusable budgets assigned to the key or
- * its groups (`domain/budgetEngine`). The latter can also answer "throttle"
- * (allowed, after a delay).
+ * budget (`domain/costRules`) and the reusable budgets assigned to the key,
+ * its groups, the request's tags or its end user (`domain/budgetEngine`). The
+ * latter can also answer "throttle" (allowed, after a delay).
  */
 export function checkMeteredBudgetForProvider(
-  apiKeyId: string | null | undefined,
+  actor: BudgetActor,
   providerId: string | null | undefined,
   model?: string | null
 ): MeteredBudgetDecision {
+  const { keyId: apiKeyId, tags, endUser } = splitActor(actor);
   if (!apiKeyId) return ALLOWED;
   if (!consumesMeteredBudget(providerId)) return ALLOWED;
   const budget = checkBudget(apiKeyId);
@@ -112,7 +135,7 @@ export function checkMeteredBudgetForProvider(
       ...(budget.budgetResetAt ? { retryAfter: budget.budgetResetAt } : {}),
     };
   }
-  const engine = checkBudgets({ keyId: apiKeyId, provider: providerId, model });
+  const engine = checkBudgets({ keyId: apiKeyId, provider: providerId, model, tags, endUser });
   if (engine.state === "blocked") {
     return {
       allowed: false,
@@ -134,17 +157,20 @@ const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
  * proceed. Kept out of the handler to stay under its frozen file-size ratchet.
  */
 export async function rejectIfMeteredBudgetExceeded(
-  apiKeyId: string | null | undefined,
+  actor: BudgetActor,
   providerId: string | null | undefined,
   modelStr: string
 ): Promise<Response | null> {
-  const decision = checkMeteredBudgetForProvider(apiKeyId, providerId, modelStr);
+  const decision = checkMeteredBudgetForProvider(actor, providerId, modelStr);
   if (decision.allowed) {
     if (decision.delayMs && decision.delayMs > 0) {
       const waitMs = Math.min(decision.delayMs, MAX_THROTTLE_DELAY_MS);
       log.info("BUDGET", `Throttling ${modelStr} by ${waitMs}ms — a budget on this key is spent`);
       await sleep(waitMs);
     }
+    // Admitted: this dispatch counts against the requests-per-minute limits.
+    const { keyId, tags, endUser } = splitActor(actor);
+    recordBudgetAdmission({ keyId, provider: providerId, tags, endUser });
     return null;
   }
   log.info(

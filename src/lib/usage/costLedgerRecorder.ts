@@ -18,6 +18,7 @@ import { recordLedgerEntrySafe } from "@/lib/db/costLedger";
 import { getPricingForModel } from "@/lib/db/settings/pricing";
 import { getLoggedInputTokens, getLoggedOutputTokens, getReasoningTokens } from "./tokenAccounting";
 import { toNumber } from "@/shared/utils/numeric";
+import { serializeAttributionTags } from "@/shared/constants/attribution";
 
 export interface CostLedgerRecorderInput {
   apiKeyId: string | null | undefined;
@@ -29,6 +30,12 @@ export interface CostLedgerRecorderInput {
   success?: boolean;
   timestamp?: string;
   requestId?: string | null;
+  /** Who the call was for; stored on the row (never prompt text). */
+  attribution?: {
+    endUser?: string | null;
+    tags?: readonly string[] | null;
+    sessionId?: string | null;
+  } | null;
 }
 
 /**
@@ -63,6 +70,9 @@ export async function recordLedgerFromCost(input: CostLedgerRecorderInput): Prom
       success: input.success !== false,
       timestamp: input.timestamp || new Date().toISOString(),
       requestId: input.requestId ?? null,
+      endUser: input.attribution?.endUser ?? null,
+      tags: serializeAttributionTags(input.attribution?.tags),
+      sessionId: input.attribution?.sessionId ?? null,
     });
   } catch {
     // Best-effort only.

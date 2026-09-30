@@ -14,11 +14,16 @@ export function serializeBudget(budget: Budget, assignments: readonly BudgetAssi
     resetTime: budget.resetTime,
     onExceed: budget.onExceed,
     throttleDelayMs: budget.throttleDelayMs,
+    tpmLimit: budget.tpmLimit,
+    rpmLimit: budget.rpmLimit,
+    modelMax: budget.modelMax,
     enabled: budget.enabled,
     createdAt: budget.createdAt,
     updatedAt: budget.updatedAt,
     keyIds: assignments.filter((a) => a.scopeType === "key").map((a) => a.scopeValue),
     groupIds: assignments.filter((a) => a.scopeType === "group").map((a) => a.scopeValue),
+    tags: assignments.filter((a) => a.scopeType === "tag").map((a) => a.scopeValue),
+    users: assignments.filter((a) => a.scopeType === "user").map((a) => a.scopeValue),
     usage: {
       spentUsd: usage.spentUsd,
       windowStart: usage.windowStart > 0 ? new Date(usage.windowStart).toISOString() : null,
@@ -27,10 +32,17 @@ export function serializeBudget(budget: Budget, assignments: readonly BudgetAssi
   };
 }
 
-export function toAssignments(keyIds: readonly string[], groupIds: readonly string[]) {
+export function toAssignments(
+  keyIds: readonly string[],
+  groupIds: readonly string[],
+  tags: readonly string[] = [],
+  users: readonly string[] = []
+) {
   return [
     ...keyIds.map((scopeValue) => ({ scopeType: "key" as const, scopeValue })),
     ...groupIds.map((scopeValue) => ({ scopeType: "group" as const, scopeValue })),
+    ...tags.map((scopeValue) => ({ scopeType: "tag" as const, scopeValue })),
+    ...users.map((scopeValue) => ({ scopeType: "user" as const, scopeValue })),
   ];
 }
 

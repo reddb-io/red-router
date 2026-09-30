@@ -12,6 +12,7 @@
 
 import { saveRequestUsage } from "@/lib/usageDb";
 import { recordKeyQuotaUsage } from "@/domain/keyQuota";
+import { recordBudgetTokensFor } from "@/domain/budgetEngine";
 import { formatUsageLog } from "@/lib/usage/tokenAccounting";
 import { COLORS } from "../../utils/stream.ts";
 import { recordTokenUsage } from "../../services/tokenLimitCounter.ts";
@@ -25,7 +26,14 @@ export type RecordNonStreamingUsageStatsContext = {
   connectionId: string | null | undefined;
   model: string | null | undefined;
   startTime: number;
-  apiKeyInfo: { id?: string | null; name?: string | null } | null | undefined;
+  apiKeyInfo:
+    | {
+        id?: string | null;
+        name?: string | null;
+        attribution?: { tags?: readonly string[] | null; endUser?: string | null } | null;
+      }
+    | null
+    | undefined;
   effectiveServiceTier: EffectiveServiceTier;
   isCombo: boolean;
   comboStrategy: string | null | undefined;
@@ -79,6 +87,8 @@ function recordBillableTokens(
     // of token count (rpm always +1), so the gate in apiKeyPolicy sees current
     // usage. Mirrors recordTokenUsage's swallow-and-continue.
     recordKeyQuotaUsage(apiKeyInfo.id, billable);
+    // Reusable budgets' tokens-per-minute counters advance on the same successful call.
+    recordBudgetTokensFor(apiKeyInfo, provider, billable);
     if (billable > 0)
       recordTokenUsage(apiKeyInfo.id, provider || "unknown", model || "unknown", billable);
   } catch {

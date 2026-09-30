@@ -332,6 +332,44 @@ function effectiveWindowCount(apiKeyId: string, dimensionKey: string, nowMs: num
 }
 
 /**
+ * Atomically add `delta` to the current window bucket of any counter (UPSERT). `ownerId` and
+ * `dimensionKey` are the table's first two key columns; the budgets engine uses owner
+ * `budget:<id>` so its rate counters share this table and never collide with a real key id.
+ */
+export function incrementQuotaBucket(
+  ownerId: string,
+  dimensionKey: string,
+  delta: number,
+  nowMs = Date.now()
+): void {
+  if (!ownerId || !(delta > 0)) return;
+  getDbInstance()
+    .prepare(
+      `INSERT INTO api_key_quota_counters (api_key_id, dimension_key, bucket_index, consumed, updated_at)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(api_key_id, dimension_key, bucket_index) DO UPDATE SET
+       consumed = consumed + excluded.consumed,
+       updated_at = excluded.updated_at`
+    )
+    .run(ownerId, dimensionKey, bucketIndex(nowMs), delta, nowMs);
+}
+
+/** Sliding-window effective count of any counter written by {@link incrementQuotaBucket}. */
+export function getQuotaWindowCount(
+  ownerId: string,
+  dimensionKey: string,
+  nowMs = Date.now()
+): number {
+  return effectiveWindowCount(ownerId, dimensionKey, nowMs);
+}
+
+/** Drop every counter of one owner (a deleted budget). */
+export function clearQuotaCounters(ownerId: string): void {
+  if (!ownerId) return;
+  getDbInstance().prepare("DELETE FROM api_key_quota_counters WHERE api_key_id = ?").run(ownerId);
+}
+
+/**
  * Atomically add `delta` to the current window bucket (UPSERT).
  */
 export function incrementKeyQuotaCounter(
@@ -341,16 +379,7 @@ export function incrementKeyQuotaCounter(
   nowMs = Date.now()
 ): void {
   if (!apiKeyId || delta <= 0) return;
-  const dimensionKey = dimension === "tpm" ? DIMENSION_TPM : DIMENSION_RPM;
-  const bucket = bucketIndex(nowMs);
-  const db = getDbInstance();
-  db.prepare(
-    `INSERT INTO api_key_quota_counters (api_key_id, dimension_key, bucket_index, consumed, updated_at)
-     VALUES (?, ?, ?, ?, ?)
-     ON CONFLICT(api_key_id, dimension_key, bucket_index) DO UPDATE SET
-       consumed = consumed + excluded.consumed,
-       updated_at = excluded.updated_at`
-  ).run(apiKeyId, dimensionKey, bucket, delta, nowMs);
+  incrementQuotaBucket(apiKeyId, dimension === "tpm" ? DIMENSION_TPM : DIMENSION_RPM, delta, nowMs);
 }
 
 /**

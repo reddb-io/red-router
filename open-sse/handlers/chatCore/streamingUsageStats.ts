@@ -12,6 +12,7 @@
 
 import { saveRequestUsage } from "@/lib/usageDb";
 import { recordKeyQuotaUsage } from "@/domain/keyQuota";
+import { recordBudgetTokensFor } from "@/domain/budgetEngine";
 import { recordTokenUsage } from "../../services/tokenLimitCounter.ts";
 import { recordSuccess } from "../../services/providerHealth.ts";
 import { computeBillableTokens } from "./upstreamTimeouts.ts";
@@ -25,7 +26,14 @@ export type RecordStreamingUsageStatsContext = {
   ttft: number;
   streamErrorCode: string | null | undefined;
   connectionId: string | null | undefined;
-  apiKeyInfo: { id?: string | null; name?: string | null } | null | undefined;
+  apiKeyInfo:
+    | {
+        id?: string | null;
+        name?: string | null;
+        attribution?: { tags?: readonly string[] | null; endUser?: string | null } | null;
+      }
+    | null
+    | undefined;
   effectiveServiceTier: EffectiveServiceTier;
   isCombo: boolean;
   comboStrategy: string | null | undefined;
@@ -63,6 +71,8 @@ function recordStreamingBillableTokens(usage: object, ctx: RecordStreamingUsageS
     const billable = computeBillableTokens(usage);
     // Key-quota tpm/rpm counters advance on every completed stream.
     recordKeyQuotaUsage(ctx.apiKeyInfo.id, billable);
+    // Reusable budgets' tokens-per-minute counters advance on the same completed stream.
+    recordBudgetTokensFor(ctx.apiKeyInfo, ctx.provider, billable);
     if (billable > 0)
       recordTokenUsage(
         ctx.apiKeyInfo.id,

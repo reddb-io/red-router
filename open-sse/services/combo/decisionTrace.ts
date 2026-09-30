@@ -29,6 +29,7 @@ export const COMBO_SKIP_REASONS = [
   "availability",
   "model_not_in_catalog",
   "credential_gate",
+  "budget_exhausted",
   "concurrency_cap",
   "admission_lane",
   "predictive_ttft",

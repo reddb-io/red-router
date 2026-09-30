@@ -14,10 +14,12 @@ function view(budgetId: string) {
   return {
     keyIds: assignments.filter((a) => a.scopeType === "key").map((a) => a.scopeValue),
     groupIds: assignments.filter((a) => a.scopeType === "group").map((a) => a.scopeValue),
+    tags: assignments.filter((a) => a.scopeType === "tag").map((a) => a.scopeValue),
+    users: assignments.filter((a) => a.scopeType === "user").map((a) => a.scopeValue),
   };
 }
 
-/** GET /api/budgets/[id]/assignments — the API keys and key groups the budget applies to. */
+/** GET /api/budgets/[id]/assignments — the keys, key groups, tags and end users the budget applies to. */
 export async function GET(request: Request, { params }: RouteParams) {
   const authError = await requireManagementAuth(request);
   if (authError) return authError;
@@ -51,7 +53,14 @@ export async function PUT(request: Request, { params }: RouteParams) {
   try {
     const { id } = await params;
     if (!getBudgetById(id)) return NextResponse.json(NOT_FOUND, { status: 404 });
-    replaceBudgetAssignments(id, toAssignments(validation.data.keyIds, validation.data.groupIds));
+    const current = getBudgetAssignments(id);
+    const kept = (scopeType: "tag" | "user") =>
+      current.filter((a) => a.scopeType === scopeType).map((a) => a.scopeValue);
+    const { keyIds, groupIds, tags, users } = validation.data;
+    replaceBudgetAssignments(
+      id,
+      toAssignments(keyIds, groupIds, tags ?? kept("tag"), users ?? kept("user"))
+    );
     return NextResponse.json(view(id));
   } catch {
     return NextResponse.json({ error: "Failed to replace assignments" }, { status: 500 });

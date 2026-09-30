@@ -174,10 +174,17 @@ test("create, read, update, assign and delete round-trip", async () => {
     groupIds: [],
   });
   assert.equal(assigned.status, 200);
-  assert.deepEqual(await assigned.json(), { keyIds: ["key-b", "key-c"], groupIds: [] });
+  assert.deepEqual(await assigned.json(), {
+    keyIds: ["key-b", "key-c"],
+    groupIds: [],
+    tags: [],
+    users: [],
+  });
   assert.deepEqual(await (await call(assignRoute.GET, "GET", budget.id)).json(), {
     keyIds: ["key-b", "key-c"],
     groupIds: [],
+    tags: [],
+    users: [],
   });
   assert.equal((await call(assignRoute.PUT, "PUT", budget.id, { keyIds: "nope" })).status, 400);
 

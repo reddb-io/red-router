@@ -289,7 +289,14 @@ export type PersistAttemptLogsContext = {
   comboStepId: unknown;
   comboExecutionKey: unknown;
   tokensCompressed: unknown;
-  apiKeyInfo: { id?: string | null; name?: string | null } | null | undefined;
+  apiKeyInfo:
+    | {
+        id?: string | null;
+        name?: string | null;
+        attribution?: { tags?: readonly string[] | null; endUser?: string | null } | null;
+      }
+    | null
+    | undefined;
   noLogEnabled: unknown;
   correlationId?: string | null;
   modelPinned?: boolean;
@@ -615,6 +622,8 @@ export function persistAttemptLogs(args: PersistAttemptLogsArgs, ctx: PersistAtt
     cacheSource: cacheSource === "semantic" ? "semantic" : "upstream",
     apiKeyId: apiKeyInfo?.id || null,
     apiKeyName: apiKeyInfo?.name || null,
+    endUser: apiKeyInfo?.attribution?.endUser ?? null,
+    tags: apiKeyInfo?.attribution?.tags ?? null,
     noLog: noLogEnabled,
     pipelinePayloads,
     correlationId: correlationId || traceId,

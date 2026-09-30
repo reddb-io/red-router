@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useTranslations } from "next-intl";
 import { tabs } from "@/shared/design-system/contracts/tabs.variants";
 import BudgetTab from "../../usage/components/BudgetTab";
+import AttributionRollup from "./AttributionRollup";
 import BudgetsTable from "./BudgetsTable";
 
 type TabValue = "budgets" | "per-key";
@@ -42,7 +43,14 @@ export default function CostsBudgetPage() {
         aria-labelledby={`budget-tab-${active}`}
         className={styles.content()}
       >
-        {active === "budgets" ? <BudgetsTable /> : <BudgetTab />}
+        {active === "budgets" ? (
+          <div className="flex min-w-0 flex-col gap-8">
+            <BudgetsTable />
+            <AttributionRollup />
+          </div>
+        ) : (
+          <BudgetTab />
+        )}
       </div>
     </div>
   );

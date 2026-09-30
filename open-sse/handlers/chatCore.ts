@@ -6279,7 +6279,8 @@ async function handleChatCoreInner({
       // Only the budget-consumable share may draw down the allowance.
       recordCost: (apiKeyId, cost, details) => {
         const budgetCost = meteredBudgetCost(provider, cost);
-        if (budgetCost > 0) recordCost(apiKeyId, budgetCost, details);
+        if (budgetCost > 0)
+          recordCost(apiKeyId, budgetCost, { ...details, attribution: apiKeyInfo?.attribution });
       },
       ledger: buildStreamLedgerDetails(effectiveServiceTier, normalizedStreamStatus < 400, traceId),
     });

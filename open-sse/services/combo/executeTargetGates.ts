@@ -21,6 +21,7 @@ import {
 import { connectionCircuitBreakerName } from "../connectionCircuitBreaker.ts";
 import { parseModel } from "../model.ts";
 import { canAffordRequest } from "../../../src/lib/quota/quotaScheduler.ts";
+import { isBudgetExhaustedForTarget } from "../../../src/domain/budgetEngine";
 import { getCachedProviderConnectionById } from "../../../src/lib/db/readCache.ts";
 import { lookupPositiveCap } from "./concurrencyCaps.ts";
 import { recordComboDecision } from "./decisionTrace.ts";
@@ -165,6 +166,23 @@ export async function evaluateExecuteTargetGates(opts: {
         `Provider ${provider} circuit breaker is open`,
         "circuit_open"
       ),
+    };
+  }
+
+  // A reusable budget already spent for this request's key, tags or end user: pass over the target
+  // without dispatching. In-memory read only; the per-dispatch budget check stays authoritative.
+  if (isBudgetExhaustedForTarget(deps.signal, provider, modelStr)) {
+    deps.log.info("COMBO", `Skipping ${modelStr} — a budget for this request is exhausted`);
+    recordComboDecision(deps.traceInvocationId, {
+      step: target.executionKey,
+      target: modelStr,
+      decision: "skipped_before_dispatch",
+      reason: "budget_exhausted",
+    });
+    bumpFallback();
+    return {
+      kind: "skip",
+      result: stopProtectedPriorityTarget(`Budget exhausted for ${modelStr}`),
     };
   }
 

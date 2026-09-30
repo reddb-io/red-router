@@ -11,10 +11,25 @@ export interface BudgetRow {
   resetTime: string | null;
   onExceed: BudgetOnExceed;
   throttleDelayMs: number;
+  /** Tokens / requests per minute per assigned scope; null = no limit. */
+  tpmLimit: number | null;
+  rpmLimit: number | null;
+  /** USD caps keyed by "provider/model", "model" or "provider/*". */
+  modelMax: Record<string, number>;
   enabled: boolean;
   keyIds: string[];
   groupIds: string[];
+  /** Request tags and end users the budget applies to (client-supplied text: escape on render). */
+  tags: string[];
+  users: string[];
   usage: { spentUsd: number; windowStart: string | null; resetAt: string | null };
+}
+
+/** One row of `/api/usage/attribution`: the spend of a tag or an end user. */
+export interface AttributionRow {
+  key: string;
+  amountUsd: number;
+  requestCount: number;
 }
 
 /** An API key or key group the assignments can point at. */

@@ -2293,8 +2293,8 @@
             "omniroute": "no",
             "friday": "no"
           },
-          "head": "missing",
-          "headEvidence": "quota-aware strategies (quotaStrategies.ts) only; max_sessions counts concurrency, not loops",
+          "head": "partial",
+          "headEvidence": "combo executeTargetGates skips a target already over a blocking budget (key, group, tag, end user, per-model cap, tpm/rpm) from the in-memory budget cache, recorded as skipped_before_dispatch/budget_exhausted; agent-loop caps (max iterations, max USD per session id) not built",
           "ownUnique": false,
           "value": "M",
           "effort": "S",
@@ -2702,7 +2702,7 @@
             "friday": "no"
           },
           "head": "partial",
-          "headEvidence": "budgets/budget_assignments/budget_windows (migration 203), key + key-group scopes, /api/budgets, Costs>Budget>Budgets table; user/tag/tenant scopes, tpm/rpm and per-model caps pending",
+          "headEvidence": "budgets/budget_assignments/budget_windows (203) + tpm/rpm limits, per-model USD caps and tag/end-user scopes (205); scopes key, key group, tag, end user; /api/budgets, Costs>Budget>Budgets table with rate limit column and tag/user chips; tenant scope not built (RedRouter has no tenant object)",
           "ownUnique": false,
           "value": "H",
           "effort": "M",
@@ -2723,8 +2723,8 @@
             "omniroute": "no",
             "friday": "no"
           },
-          "head": "partial",
-          "headEvidence": "soft threshold with one durable budget.warning webhook per window, throttle vs block, re-check on every combo hop via meteredBudgetPolicy; budget-aware candidate skip in executeTargetGates pending",
+          "head": "equivalent",
+          "headEvidence": "soft threshold with one durable budget.warning webhook per window, throttle vs block (tpm/rpm throttle waits for the minute rollover), re-check on every combo hop via meteredBudgetPolicy, budget-aware candidate skip in executeTargetGates",
           "ownUnique": false,
           "value": "H",
           "effort": "S",
@@ -2767,8 +2767,8 @@
             "omniroute": "no",
             "friday": "no"
           },
-          "head": "missing",
-          "headEvidence": "ledger has key/provider/model only; key tags exist",
+          "head": "partial",
+          "headEvidence": "request_cost_ledger end_user, tags, session_id (206) and call_logs end_user, tags (207) stamped by lib/usage/attribution (body user / x-red-router-end-user, metadata.tags / x-red-router-tags merged with key tags); tag and end-user budgets; GET /api/usage/attribution rollup and Budgets tab table; connection_id and savings columns on the ledger not built",
           "ownUnique": false,
           "value": "H",
           "effort": "M",

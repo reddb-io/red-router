@@ -336,7 +336,15 @@ export function recordCost(apiKeyId: string, cost: number, details?: RecordCostD
     // Reusable budgets count the same spend. Every metered charge (non-streaming, streaming,
     // search) funnels through here, and flat-rate providers are already passed as 0 or exempted
     // by the engine, so this is the one place they all share.
-    recordBudgetSpend({ keyId: apiKeyId, provider: details?.provider, usd: cost });
+    const attribution = details?.attribution;
+    recordBudgetSpend({
+      keyId: apiKeyId,
+      provider: details?.provider,
+      model: details?.model,
+      usd: cost,
+      tags: attribution?.tags,
+      endUser: attribution?.endUser,
+    });
     if (details) {
       // Fire-and-forget — never block the response on ledger I/O.
       void recordLedgerFromCost({
@@ -349,6 +357,7 @@ export function recordCost(apiKeyId: string, cost: number, details?: RecordCostD
         success: details.success,
         timestamp: details.timestamp,
         requestId: details.requestId,
+        attribution,
       });
     } else if (apiKeyId && Number.isFinite(cost) && cost > 0) {
       // Search and other amount-only charges previously disappeared from the
@@ -379,6 +388,12 @@ export interface RecordCostDetails {
   success?: boolean;
   timestamp?: string;
   requestId?: string | null;
+  /** Who the call was for (`lib/usage/attribution`); stamped on the ledger row and budget scopes. */
+  attribution?: {
+    endUser?: string | null;
+    tags?: readonly string[] | null;
+    sessionId?: string | null;
+  } | null;
 }
 
 /**
@@ -403,13 +418,18 @@ export function buildCostCtx(
  * built once by the caller; only `success` varies per call site.
  */
 export function recordChatCallCost(
-  apiKeyInfo: { id?: string | null } | null | undefined,
+  apiKeyInfo:
+    { id?: string | null; attribution?: RecordCostDetails["attribution"] } | null | undefined,
   estimatedCost: number,
   context: RecordCostDetails,
   success: boolean
 ): void {
   if (!apiKeyInfo?.id || estimatedCost <= 0) return;
-  recordCost(apiKeyInfo.id, estimatedCost, { ...context, success });
+  recordCost(apiKeyInfo.id, estimatedCost, {
+    ...context,
+    success,
+    attribution: apiKeyInfo.attribution,
+  });
 }
 
 /**

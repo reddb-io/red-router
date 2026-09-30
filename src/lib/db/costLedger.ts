@@ -36,6 +36,11 @@ export interface CostLedgerEntry {
   success?: boolean;
   timestamp?: string;
   requestId?: string | null;
+  /** Client-supplied end-user id (untrusted, at most 128 characters). */
+  endUser?: string | null;
+  /** JSON array of lowercase tags, as serialized by `lib/usage/attribution`. */
+  tags?: string | null;
+  sessionId?: string | null;
 }
 
 export interface LedgerAggregate {
@@ -90,8 +95,8 @@ export function recordLedgerEntry(entry: CostLedgerEntry): void {
       api_key_id, provider, model,
       tokens_input, tokens_output, tokens_cache_read, tokens_cache_creation, tokens_reasoning,
       unit_price_input, unit_price_output, amount_usd,
-      service_tier, success, timestamp, request_id
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      service_tier, success, timestamp, request_id, end_user, tags, session_id
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `
   ).run(
     entry.apiKeyId,
@@ -108,7 +113,10 @@ export function recordLedgerEntry(entry: CostLedgerEntry): void {
     entry.serviceTier || "standard",
     entry.success === false ? 0 : 1,
     entry.timestamp || new Date().toISOString(),
-    entry.requestId ?? null
+    entry.requestId ?? null,
+    entry.endUser ?? null,
+    entry.tags ?? null,
+    entry.sessionId ?? null
   );
 }
 
@@ -136,8 +144,8 @@ export function recordLedgerEntries(entries: CostLedgerEntry[]): void {
       api_key_id, provider, model,
       tokens_input, tokens_output, tokens_cache_read, tokens_cache_creation, tokens_reasoning,
       unit_price_input, unit_price_output, amount_usd,
-      service_tier, success, timestamp, request_id
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      service_tier, success, timestamp, request_id, end_user, tags, session_id
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `
   );
   const tx = db.transaction((rows: CostLedgerEntry[]) => {
@@ -158,7 +166,10 @@ export function recordLedgerEntries(entries: CostLedgerEntry[]): void {
         entry.serviceTier || "standard",
         entry.success === false ? 0 : 1,
         entry.timestamp || new Date().toISOString(),
-        entry.requestId ?? null
+        entry.requestId ?? null,
+        entry.endUser ?? null,
+        entry.tags ?? null,
+        entry.sessionId ?? null
       );
     }
   });

@@ -10,6 +10,8 @@ import { errorText, formatUsd, type AssignableRef, type BudgetRow } from "./budg
 const JSON_HEADERS = { "Content-Type": "application/json" };
 /** Names shown in the "assigned to" cell before the rest collapse into "+N". */
 const NAMES_SHOWN = 2;
+/** Tag / end-user chips shown in the "assigned to" cell before the rest collapse into "+N". */
+const CHIPS_SHOWN = 3;
 
 /**
  * Reusable budgets: one row per budget with its limit, window, behaviour on exceed, who it
@@ -94,12 +96,21 @@ export default function BudgetsTable() {
     return map;
   }, [keys, groups]);
 
+  // Tags and end users are client-supplied text; React renders them escaped.
+  const chipsOf = (budget: BudgetRow): { id: string; label: string }[] => [
+    ...(budget.tags ?? []).map((value) => ({ id: `tag:${value}`, label: t("chipTag", { value }) })),
+    ...(budget.users ?? []).map((value) => ({
+      id: `user:${value}`,
+      label: t("chipUser", { value }),
+    })),
+  ];
+
   const assignedTo = (budget: BudgetRow): string => {
     const labels = [
       ...budget.groupIds.map((id) => names.get(`group:${id}`) ?? t("deletedGroup")),
       ...budget.keyIds.map((id) => names.get(`key:${id}`) ?? t("deletedKey")),
     ];
-    if (labels.length === 0) return t("assignedNobody");
+    if (labels.length === 0) return chipsOf(budget).length > 0 ? "" : t("assignedNobody");
     const shown = labels.slice(0, NAMES_SHOWN).join(", ");
     return labels.length > NAMES_SHOWN ? `${shown} +${labels.length - NAMES_SHOWN}` : shown;
   };
@@ -180,6 +191,7 @@ export default function BudgetsTable() {
               <tr className="border-b border-border">
                 <th className="px-3 py-2 font-medium">{t("colName")}</th>
                 <th className="px-3 py-2 font-medium">{t("colLimit")}</th>
+                <th className="px-3 py-2 font-medium">{t("colRate")}</th>
                 <th className="px-3 py-2 font-medium">{t("colWindow")}</th>
                 <th className="px-3 py-2 font-medium">{t("colOnExceed")}</th>
                 <th className="px-3 py-2 font-medium">{t("colAssigned")}</th>
@@ -201,6 +213,27 @@ export default function BudgetsTable() {
                     <div className="text-text-muted">
                       {t("softAt", { amount: formatUsd(budget.effectiveSoftUsd) })}
                     </div>
+                    {Object.keys(budget.modelMax ?? {}).length > 0 ? (
+                      <div className="text-text-muted">
+                        {t("modelCapsCount", { count: Object.keys(budget.modelMax).length })}
+                      </div>
+                    ) : null}
+                  </td>
+                  <td className="whitespace-nowrap px-3 py-2 tabular-nums text-text-main">
+                    {budget.tpmLimit == null && budget.rpmLimit == null ? (
+                      <span className="text-text-muted">{t("rateNone")}</span>
+                    ) : (
+                      <>
+                        {budget.tpmLimit != null ? (
+                          <div>{t("rateTokens", { count: budget.tpmLimit.toLocaleString() })}</div>
+                        ) : null}
+                        {budget.rpmLimit != null ? (
+                          <div>
+                            {t("rateRequests", { count: budget.rpmLimit.toLocaleString() })}
+                          </div>
+                        ) : null}
+                      </>
+                    )}
                   </td>
                   <td className="whitespace-nowrap px-3 py-2 text-text-main">
                     {t(`duration_${budget.duration}`)}
@@ -217,11 +250,30 @@ export default function BudgetsTable() {
                         : t("throttleBy", { seconds: budget.throttleDelayMs / 1000 })}
                     </Badge>
                   </td>
-                  <td
-                    className="max-w-56 truncate px-3 py-2 text-text-main"
-                    title={assignedTo(budget)}
-                  >
-                    {assignedTo(budget)}
+                  <td className="max-w-64 px-3 py-2 text-text-main">
+                    {assignedTo(budget) ? (
+                      <div className="truncate" title={assignedTo(budget)}>
+                        {assignedTo(budget)}
+                      </div>
+                    ) : null}
+                    {chipsOf(budget).length > 0 ? (
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {chipsOf(budget)
+                          .slice(0, CHIPS_SHOWN)
+                          .map((chip) => (
+                            <Badge key={chip.id} size="sm" variant="outline">
+                              <span className="max-w-32 truncate" title={chip.label}>
+                                {chip.label}
+                              </span>
+                            </Badge>
+                          ))}
+                        {chipsOf(budget).length > CHIPS_SHOWN ? (
+                          <span className="text-text-muted">
+                            {`+${chipsOf(budget).length - CHIPS_SHOWN}`}
+                          </span>
+                        ) : null}
+                      </div>
+                    ) : null}
                   </td>
                   <td className="min-w-40 px-3 py-2">
                     <div className="mb-1 whitespace-nowrap tabular-nums text-text-main">

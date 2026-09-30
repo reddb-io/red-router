@@ -42,6 +42,11 @@ import {
 } from "../logPayloads";
 import { pickDisplayValue } from "@/shared/utils/maskEmail";
 import {
+  normalizeEndUser,
+  normalizeTags,
+  serializeAttributionTags,
+} from "@/shared/constants/attribution";
+import {
   CALL_LOGS_DIR,
   readCallArtifact,
   type CallLogArtifact,
@@ -608,6 +613,8 @@ async function saveCallLogOperation(entry: any): Promise<void> {
     // (resolveAccountName, artifact write) may cross async boundaries.
     const resilienceActions = serializeResilienceActions();
     const hasResilienceColumn = hasCallLogsColumn("resilience_actions");
+    // Attribution (migration 207): stored only when the columns exist, like resilience_actions.
+    const hasAttribution = hasCallLogsColumn("end_user") && hasCallLogsColumn("tags");
 
     const account = await resolveAccountName(entry.connectionId || null);
     const rawProvider: string = entry.provider || "-";
@@ -790,6 +797,8 @@ async function saveCallLogOperation(entry: any): Promise<void> {
     // Optional column (migration 191) — only fixed identifiers are spliced in.
     const resilienceCol = hasResilienceColumn ? ", resilience_actions" : "";
     const resilienceParam = hasResilienceColumn ? ", @resilienceActions" : "";
+    const attributionCols = hasAttribution ? ", end_user, tags" : "";
+    const attributionParams = hasAttribution ? ", @endUser, @tagsJson" : "";
     const insertStmt = db.prepare(
       `
       INSERT INTO call_logs (
@@ -805,7 +814,7 @@ async function saveCallLogOperation(entry: any): Promise<void> {
         has_request_body, has_response_body, has_pipeline_details, request_summary,
         correlation_id, model_pinned, session_tag, response_id, error_type,
         video_content_removed, has_content, usage_provenance,
-        added_wait_ms, added_wait_cause${resilienceCol}
+        added_wait_ms, added_wait_cause${resilienceCol}${attributionCols}
       )
       VALUES (
         @id, @timestamp, @method, @path, @status, @model, @requestedModel, @provider,
@@ -820,7 +829,7 @@ async function saveCallLogOperation(entry: any): Promise<void> {
         @hasRequestBody, @hasResponseBody, @hasPipelineDetails, @requestSummary,
         @correlationId, @modelPinned, @sessionTag, @responseId, @errorType,
         @videoContentRemoved, @hasContent, @usageProvenance,
-        @addedWaitMs, @addedWaitCause${resilienceParam}
+        @addedWaitMs, @addedWaitCause${resilienceParam}${attributionParams}
       )
     `
     );
@@ -834,6 +843,8 @@ async function saveCallLogOperation(entry: any): Promise<void> {
       hasRequestBody: protectedRequestBody !== null ? 1 : 0,
       hasResponseBody: protectedResponseBody !== null ? 1 : 0,
       resilienceActions,
+      endUser: normalizeEndUser(entry.endUser),
+      tagsJson: serializeAttributionTags(normalizeTags(entry.tags ?? [])),
       hasPipelineDetails: protectedPipelinePayloads ? 1 : 0,
       requestSummary,
     };

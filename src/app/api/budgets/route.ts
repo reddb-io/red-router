@@ -45,10 +45,13 @@ export async function POST(request: Request) {
   }
 
   try {
-    const { keyIds, groupIds, ...fields } = validation.data;
+    const { keyIds, groupIds, tags, users, ...fields } = validation.data;
     const budget = createBudget(fields);
-    if (keyIds?.length || groupIds?.length) {
-      replaceBudgetAssignments(budget.id, toAssignments(keyIds ?? [], groupIds ?? []));
+    if (keyIds?.length || groupIds?.length || tags?.length || users?.length) {
+      replaceBudgetAssignments(
+        budget.id,
+        toAssignments(keyIds ?? [], groupIds ?? [], tags ?? [], users ?? [])
+      );
     }
     return NextResponse.json(
       { budget: serializeBudget(budget, getBudgetAssignments(budget.id)) },

@@ -5,10 +5,19 @@ import { useTranslations } from "next-intl";
 import { Button, Input, Modal, Select, TALL_MODAL_PROPS, Toggle } from "@/shared/components";
 import {
   BUDGET_DURATIONS,
+  BUDGET_MODEL_KEY_MAX,
+  BUDGET_MODEL_KEY_REGEX,
+  BUDGET_RATE_LIMIT_MAX,
   type BudgetDuration,
   type BudgetOnExceed,
 } from "@/shared/constants/budgets";
+import {
+  END_USER_MAX_LENGTH,
+  normalizeEndUser,
+  normalizeTag,
+} from "@/shared/constants/attribution";
 import { AssignmentPicker } from "./AssignmentPicker";
+import { ScopeChipsInput } from "./ScopeChipsInput";
 import { errorText, type AssignableRef, type BudgetRow } from "./budgetsTypes";
 
 interface BudgetFormProps {
@@ -21,6 +30,39 @@ interface BudgetFormProps {
 }
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
+
+interface ModelCapDraft {
+  key: string;
+  usd: string;
+}
+
+/** A rate limit field: empty = no limit, otherwise a whole number of at least 1. */
+function parseRate(text: string): number | null | "invalid" {
+  if (text.trim() === "") return null;
+  const value = Number(text);
+  return Number.isInteger(value) && value > 0 && value <= BUDGET_RATE_LIMIT_MAX ? value : "invalid";
+}
+
+/** The model caps as the API wants them, or the reason the drafts cannot be sent. */
+function parseModelCaps(
+  drafts: readonly ModelCapDraft[]
+): { caps: Record<string, number> } | { problem: "key" | "usd" | "duplicate" } {
+  const caps: Record<string, number> = {};
+  for (const draft of drafts) {
+    const key = draft.key.trim();
+    if (key === "" && draft.usd.trim() === "") continue;
+    if (key.length > BUDGET_MODEL_KEY_MAX || !BUDGET_MODEL_KEY_REGEX.test(key)) {
+      return { problem: "key" };
+    }
+    const usd = Number(draft.usd);
+    if (!Number.isFinite(usd) || usd <= 0) return { problem: "usd" };
+    if (Object.keys(caps).some((existing) => existing.toLowerCase() === key.toLowerCase())) {
+      return { problem: "duplicate" };
+    }
+    caps[key] = usd;
+  }
+  return { caps };
+}
 
 function BudgetForm({ budget, keys, groups, optionsLoading, onClose, onSaved }: BudgetFormProps) {
   const t = useTranslations("budgets");
@@ -35,6 +77,13 @@ function BudgetForm({ budget, keys, groups, optionsLoading, onClose, onSaved }: 
   );
   const [keyIds, setKeyIds] = useState<string[]>(budget?.keyIds ?? []);
   const [groupIds, setGroupIds] = useState<string[]>(budget?.groupIds ?? []);
+  const [tags, setTags] = useState<string[]>(budget?.tags ?? []);
+  const [users, setUsers] = useState<string[]>(budget?.users ?? []);
+  const [tpm, setTpm] = useState(budget?.tpmLimit != null ? String(budget.tpmLimit) : "");
+  const [rpm, setRpm] = useState(budget?.rpmLimit != null ? String(budget.rpmLimit) : "");
+  const [modelCaps, setModelCaps] = useState<ModelCapDraft[]>(
+    Object.entries(budget?.modelMax ?? {}).map(([key, usd]) => ({ key, usd: String(usd) }))
+  );
   const [enabled, setEnabled] = useState(budget?.enabled ?? true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -42,6 +91,9 @@ function BudgetForm({ budget, keys, groups, optionsLoading, onClose, onSaved }: 
   const max = Number(maxUsd);
   const soft = softUsd.trim() === "" ? null : Number(softUsd);
   const delay = Number(delaySeconds);
+  const tpmLimit = parseRate(tpm);
+  const rpmLimit = parseRate(rpm);
+  const parsedCaps = parseModelCaps(modelCaps);
   const problem = !name.trim()
     ? t("errName")
     : !Number.isFinite(max) || max <= 0
@@ -50,7 +102,11 @@ function BudgetForm({ budget, keys, groups, optionsLoading, onClose, onSaved }: 
         ? t("errSoft")
         : onExceed === "throttle" && (!Number.isFinite(delay) || delay < 0 || delay > 300)
           ? t("errDelay")
-          : "";
+          : tpmLimit === "invalid" || rpmLimit === "invalid"
+            ? t("errRate")
+            : "problem" in parsedCaps
+              ? t(`errModel_${parsedCaps.problem}`)
+              : "";
 
   const save = async () => {
     if (problem) {
@@ -68,12 +124,15 @@ function BudgetForm({ budget, keys, groups, optionsLoading, onClose, onSaved }: 
         resetTime: duration === "total" || !resetTime ? null : resetTime,
         onExceed,
         throttleDelayMs: Math.round(delay * 1000),
+        tpmLimit: tpmLimit === "invalid" ? null : tpmLimit,
+        rpmLimit: rpmLimit === "invalid" ? null : rpmLimit,
+        modelMax: "caps" in parsedCaps ? parsedCaps.caps : {},
         enabled,
       };
       const res = await fetch(budget ? `/api/budgets/${budget.id}` : "/api/budgets", {
         method: budget ? "PATCH" : "POST",
         headers: JSON_HEADERS,
-        body: JSON.stringify(budget ? fields : { ...fields, keyIds, groupIds }),
+        body: JSON.stringify(budget ? fields : { ...fields, keyIds, groupIds, tags, users }),
       });
       if (!res.ok) {
         setError(
@@ -85,7 +144,7 @@ function BudgetForm({ budget, keys, groups, optionsLoading, onClose, onSaved }: 
         const assigned = await fetch(`/api/budgets/${budget.id}/assignments`, {
           method: "PUT",
           headers: JSON_HEADERS,
-          body: JSON.stringify({ keyIds, groupIds }),
+          body: JSON.stringify({ keyIds, groupIds, tags, users }),
         });
         if (!assigned.ok) {
           setError(
@@ -174,6 +233,85 @@ function BudgetForm({ budget, keys, groups, optionsLoading, onClose, onSaved }: 
       </div>
 
       <div className="flex flex-col gap-3 border-t border-border pt-4">
+        <span className="text-sm font-medium text-text-main">{t("rateLimitsTitle")}</span>
+        <p className="text-xs text-text-muted">{t("rateLimitsHint")}</p>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <Input
+            label={t("fieldTpm")}
+            type="number"
+            min="1"
+            step="1"
+            value={tpm}
+            onChange={(event) => setTpm(event.target.value)}
+            hint={t("fieldRateHint")}
+          />
+          <Input
+            label={t("fieldRpm")}
+            type="number"
+            min="1"
+            step="1"
+            value={rpm}
+            onChange={(event) => setRpm(event.target.value)}
+            hint={t("fieldRateHint")}
+          />
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-3 border-t border-border pt-4">
+        <span className="text-sm font-medium text-text-main">{t("modelCapsTitle")}</span>
+        <p className="text-xs text-text-muted">{t("modelCapsHint")}</p>
+        {modelCaps.map((cap, index) => (
+          <div key={index} className="grid grid-cols-[1fr_8rem_auto] items-end gap-2">
+            <Input
+              label={index === 0 ? t("modelCapKey") : undefined}
+              aria-label={t("modelCapKey")}
+              value={cap.key}
+              placeholder={t("modelCapKeyPlaceholder")}
+              maxLength={BUDGET_MODEL_KEY_MAX}
+              onChange={(event) =>
+                setModelCaps(
+                  modelCaps.map((entry, at) =>
+                    at === index ? { ...entry, key: event.target.value } : entry
+                  )
+                )
+              }
+            />
+            <Input
+              label={index === 0 ? t("modelCapUsd") : undefined}
+              aria-label={t("modelCapUsd")}
+              type="number"
+              min="0"
+              step="0.01"
+              value={cap.usd}
+              onChange={(event) =>
+                setModelCaps(
+                  modelCaps.map((entry, at) =>
+                    at === index ? { ...entry, usd: event.target.value } : entry
+                  )
+                )
+              }
+            />
+            <Button
+              variant="ghost"
+              icon="close"
+              aria-label={t("removeModelCap", { key: cap.key || String(index + 1) })}
+              onClick={() => setModelCaps(modelCaps.filter((_, at) => at !== index))}
+            />
+          </div>
+        ))}
+        <div>
+          <Button
+            variant="secondary"
+            size="sm"
+            icon="add"
+            onClick={() => setModelCaps([...modelCaps, { key: "", usd: "" }])}
+          >
+            {t("addModelCap")}
+          </Button>
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-3 border-t border-border pt-4">
         <span className="text-sm font-medium text-text-main">{t("assignTitle")}</span>
         <p className="text-xs text-text-muted">{t("assignHint")}</p>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -196,6 +334,23 @@ function BudgetForm({ budget, keys, groups, optionsLoading, onClose, onSaved }: 
             loading={optionsLoading}
           />
         </div>
+        <ScopeChipsInput
+          label={t("assignTags")}
+          hint={t("assignTagsHint")}
+          placeholder={t("tagPlaceholder")}
+          values={tags}
+          onChange={setTags}
+          normalize={normalizeTag}
+          splitOn=","
+        />
+        <ScopeChipsInput
+          label={t("assignUsers")}
+          hint={t("assignUsersHint", { max: END_USER_MAX_LENGTH })}
+          placeholder={t("userPlaceholder")}
+          values={users}
+          onChange={setUsers}
+          normalize={normalizeEndUser}
+        />
       </div>
 
       <Toggle
