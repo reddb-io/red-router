@@ -109,14 +109,14 @@ export default function ConnectionsHeaderToolbar({
         <h2 className="text-lg font-semibold">{t("connections")}</h2>
         {providerId === "claude" && (
           <div
-            className="inline-flex items-center gap-2 rounded-lg border border-orange-500/20 bg-orange-500/5 px-2 py-1 text-xs font-medium text-text-muted"
+            className="inline-flex items-center gap-2 rounded-lg border border-feedback-warning-border bg-feedback-warning-surface px-2 py-1 text-xs font-medium text-text-muted"
             title={providerText(
               t,
               "preferClaudeCodeForUnprefixedClaudeModelsTooltip",
               "Route bare claude-* model IDs from Claude Code clients through the Claude Code account instead of asking for a provider prefix."
             )}
           >
-            <Icon icon={Split} size="sm" color="feedback-warning-foreground" />
+            <Icon icon={Split} size="sm" color="current" />
             <span>
               {providerText(
                 t,
@@ -157,7 +157,7 @@ export default function ConnectionsHeaderToolbar({
               <button
                 type="button"
                 onClick={() => void loadClaudeRoutingSettings()}
-                className="rounded border border-orange-500/30 px-2 py-0.5 text-[11px] font-medium text-orange-600 hover:bg-orange-500/10 dark:text-orange-300"
+                className="rounded border border-feedback-warning-border px-2 py-0.5 text-[11px] font-medium text-feedback-warning-foreground hover:bg-feedback-warning-surface"
                 title={claudeRoutingSettingsLoadError}
               >
                 {providerText(t, "retry", "Retry")}
@@ -167,7 +167,7 @@ export default function ConnectionsHeaderToolbar({
         )}
         {providerId === "codex" && (
           <div
-            className="inline-flex items-center gap-2 rounded-lg border border-sky-500/20 bg-sky-500/5 px-2 py-1 text-xs font-medium text-text-muted"
+            className="inline-flex items-center gap-2 rounded-lg border border-feedback-info-border bg-feedback-info-surface px-2 py-1 text-xs font-medium text-text-muted"
             title={providerText(
               t,
               "providerDetailServiceModeTooltip",
@@ -194,7 +194,7 @@ export default function ConnectionsHeaderToolbar({
               <button
                 type="button"
                 onClick={() => void loadCodexSettings()}
-                className="rounded border border-sky-500/30 px-2 py-0.5 text-[11px] font-medium text-sky-600 hover:bg-sky-500/10 dark:text-sky-300"
+                className="rounded border border-feedback-info-border px-2 py-0.5 text-[11px] font-medium text-feedback-info-foreground hover:bg-feedback-info-surface"
                 title={codexSettingsLoadError}
               >
                 {providerText(t, "retry", "Retry")}
@@ -213,7 +213,7 @@ export default function ConnectionsHeaderToolbar({
           }
           className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-all ${
             proxyConfig?.providers?.[providerId]
-              ? "bg-amber-500/15 text-amber-500 hover:bg-amber-500/25"
+              ? "bg-foreground/10 text-foreground hover:bg-foreground/15"
               : "bg-black/[0.03] dark:bg-white/[0.03] text-text-muted/50 hover:text-text-muted hover:bg-black/[0.06] dark:hover:bg-white/[0.06]"
           }`}
           title={

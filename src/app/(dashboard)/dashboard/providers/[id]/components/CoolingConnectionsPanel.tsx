@@ -97,7 +97,7 @@ function ClearCooldownButton(props: ClearCooldownButtonProps) {
         "clearConnectionCooldownTitle",
         "Clear the cooldown now — use when the quota has already refreshed upstream"
       )}
-      className="rounded border border-amber-500/50 px-2 py-0.5 text-xs text-amber-700 transition-colors hover:bg-amber-500/10 disabled:cursor-not-allowed disabled:opacity-50 dark:text-amber-300"
+      className="rounded border border-feedback-warning-border px-2 py-0.5 text-xs text-feedback-warning-foreground transition-colors hover:bg-feedback-warning-surface disabled:cursor-not-allowed disabled:opacity-50"
     >
       {clearing
         ? providerText(t, "clearConnectionCooldownInProgress", "Clearing…")
@@ -122,14 +122,14 @@ export default function CoolingConnectionsPanel(props: CoolingConnectionsPanelPr
   return (
     <div
       data-testid="cooling-connections-panel"
-      className="mb-4 rounded-card border border-amber-500/40 bg-amber-500/5 p-4 shadow-sm"
+      className="mb-4 rounded-card border border-feedback-warning-border bg-feedback-warning-surface p-4 shadow-sm"
     >
       <div className="mb-2 flex items-center gap-2">
         <span
           aria-hidden
-          className="inline-block h-2 w-2 animate-pulse rounded-full bg-amber-500"
+          className="inline-block h-2 w-2 animate-pulse rounded-full bg-feedback-warning-foreground"
         />
-        <h3 className="text-sm font-medium text-amber-700 dark:text-amber-300">
+        <h3 className="text-sm font-medium text-feedback-warning-foreground">
           {providerText(t, "coolingConnectionsTitle", "Currently cooling ({count})", {
             count: cooling.length,
           })}
@@ -157,7 +157,7 @@ export default function CoolingConnectionsPanel(props: CoolingConnectionsPanelPr
           return (
             <li
               key={c.id ?? label}
-              className="flex items-center justify-between gap-2 rounded border border-amber-500/30 bg-background/40 px-3 py-2 text-sm"
+              className="flex items-center justify-between gap-2 rounded border border-feedback-warning-border bg-background/40 px-3 py-2 text-sm"
             >
               <span className="min-w-0">
                 <span className="font-medium">{label}</span>
@@ -173,7 +173,7 @@ export default function CoolingConnectionsPanel(props: CoolingConnectionsPanelPr
               </span>
               <span className="flex items-center gap-2">
                 <span
-                  className="font-mono text-xs text-amber-700 dark:text-amber-300"
+                  className="font-mono text-xs text-feedback-warning-foreground"
                   data-testid="cooling-countdown"
                 >
                   {formatResetCountdown(until)}

@@ -98,8 +98,8 @@ export default function ImportProgressModal({
 
         {/* Error message */}
         {importProgress.phase === "error" && importProgress.error && (
-          <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20">
-            <p className="text-sm text-red-400">{importProgress.error}</p>
+          <div className="p-3 rounded-lg bg-feedback-danger-surface border border-feedback-danger-border">
+            <p className="text-sm text-feedback-danger-foreground">{importProgress.error}</p>
           </div>
         )}
 
@@ -112,7 +112,7 @@ export default function ImportProgressModal({
                   key={i}
                   className={`text-xs font-mono ${
                     typeof log === "string" && log.startsWith("✓")
-                      ? "text-green-500 font-semibold"
+                      ? "text-feedback-success-foreground font-semibold"
                       : "text-text-muted"
                   }`}
                 >

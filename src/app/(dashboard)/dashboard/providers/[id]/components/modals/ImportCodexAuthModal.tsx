@@ -406,7 +406,7 @@ export function ImportCodexAuthModal({ onClose, onSuccess }: ImportCodexAuthModa
               </div>
             )}
 
-            {singleParseError && <p className="text-sm text-red-500">{singleParseError}</p>}
+            {singleParseError && <p className="text-sm text-feedback-danger-foreground">{singleParseError}</p>}
             {singleDetectedEmail && !singleParseError && (
               <p className="text-xs text-text-muted">
                 {t("codexImportDetectedEmail", { email: singleDetectedEmail }) ||
@@ -457,7 +457,7 @@ export function ImportCodexAuthModal({ onClose, onSuccess }: ImportCodexAuthModa
             </div>
 
             {singleError && (
-              <div className="rounded-lg bg-red-500/10 border border-red-500/20 px-4 py-3 text-sm text-red-400">
+              <div className="rounded-lg bg-feedback-danger-surface border border-feedback-danger-border px-4 py-3 text-sm text-feedback-danger-foreground">
                 {singleError}
               </div>
             )}
@@ -551,7 +551,7 @@ export function ImportCodexAuthModal({ onClose, onSuccess }: ImportCodexAuthModa
                     {t("codexImportBulkZipExtracting") || "Extracting ZIP…"}
                   </p>
                 )}
-                {bulkZipError && <p className="text-sm text-red-500">{bulkZipError}</p>}
+                {bulkZipError && <p className="text-sm text-feedback-danger-foreground">{bulkZipError}</p>}
                 <p className="text-xs text-text-muted">
                   {t("codexImportBulkZipHint") ||
                     "Upload a .zip containing auth.json files (max 50 files, 10 MB)"}
@@ -568,13 +568,13 @@ export function ImportCodexAuthModal({ onClose, onSuccess }: ImportCodexAuthModa
                 {bulkEntries.map((entry, i) => (
                   <div key={i} className="flex items-center gap-2 px-2 py-1 rounded">
                     <span
-                      className={`material-symbols-outlined text-[14px] ${entry.parseError ? "text-red-500" : "text-emerald-500"}`}
+                      className={`material-symbols-outlined text-[14px] ${entry.parseError ? "text-feedback-danger-foreground" : "text-feedback-success-foreground"}`}
                     >
                       {entry.parseError ? "error" : "check_circle"}
                     </span>
                     <span className="text-xs text-text-main flex-1 truncate">{entry.name}</span>
                     {entry.parseError && (
-                      <span className="text-xs text-red-400">{entry.parseError}</span>
+                      <span className="text-xs text-feedback-danger-foreground">{entry.parseError}</span>
                     )}
                   </div>
                 ))}
@@ -600,8 +600,8 @@ export function ImportCodexAuthModal({ onClose, onSuccess }: ImportCodexAuthModa
               <div
                 className={`rounded-lg border px-4 py-3 text-sm ${
                   bulkResult.failed === 0
-                    ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400"
-                    : "bg-amber-500/10 border-amber-500/20 text-amber-400"
+                    ? "bg-feedback-success-surface border-feedback-success-border text-feedback-success-foreground"
+                    : "bg-feedback-warning-surface border-feedback-warning-border text-feedback-warning-foreground"
                 }`}
               >
                 <p className="font-medium">
@@ -708,7 +708,7 @@ export function ApplyCodexAuthModal({
             <li>Centralized backup history (audit trail)</li>
           </ul>
         </div>
-        <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-sm text-amber-200">
+        <div className="rounded-lg border border-feedback-warning-border bg-feedback-warning-surface px-3 py-2 text-sm text-feedback-warning-foreground">
           <div className="flex items-start gap-2">
             <Icon icon={TriangleAlert} size="md" color="feedback-warning-foreground" className="mt-0.5" />
             <span>{warning}</span>

@@ -142,7 +142,7 @@ export default function HarImportButton({ provider, onImport }: HarImportButtonP
         />
       </div>
       {state.phase === "error" && (
-        <p className="text-xs text-red-600 dark:text-red-400" data-testid="har-import-error">
+        <p className="text-xs text-feedback-danger-foreground" data-testid="har-import-error">
           {state.message}
         </p>
       )}
@@ -150,10 +150,10 @@ export default function HarImportButton({ provider, onImport }: HarImportButtonP
         <p
           className={
             expiry?.tone === "bad"
-              ? "text-xs text-red-600 dark:text-red-400"
+              ? "text-xs text-feedback-danger-foreground"
               : expiry?.tone === "warn"
-                ? "text-xs text-amber-700 dark:text-amber-300"
-                : "text-xs text-emerald-700 dark:text-emerald-300"
+                ? "text-xs text-feedback-warning-foreground"
+                : "text-xs text-feedback-success-foreground"
           }
           data-testid="har-import-status"
         >

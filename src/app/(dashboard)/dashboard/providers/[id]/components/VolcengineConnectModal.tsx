@@ -511,7 +511,7 @@ export default function VolcengineConnectModal({
                   maxLength={6}
                 />
 
-                {session?.error && <p className="text-sm text-red-500">{session.error}</p>}
+                {session?.error && <p className="text-sm text-feedback-danger-foreground">{session.error}</p>}
 
                 <div className="flex items-center justify-between">
                   <Button
@@ -561,11 +561,11 @@ export default function VolcengineConnectModal({
 
         {done && phase === "success" && (
           <div className="space-y-3">
-            <p className="text-sm font-medium text-green-600">
+            <p className="text-sm font-medium text-feedback-success-foreground">
               {providerText(t, "volcLoginSuccess", "Logged in to the Volcano Engine console")}
             </p>
             {bindingError ? (
-              <p className="text-sm text-red-500">
+              <p className="text-sm text-feedback-danger-foreground">
                 {providerText(t, "volcBindError", "Plan binding failed: {error}", {
                   error: bindingError,
                 })}
@@ -574,7 +574,7 @@ export default function VolcengineConnectModal({
               <div className="space-y-1 text-sm">
                 {connectedPlans.length > 0 ? (
                   connectedPlans.map((item) => (
-                    <p key={item.plan} className="text-green-600">
+                    <p key={item.plan} className="text-feedback-success-foreground">
                       ✓ {item.plan} plan connected
                     </p>
                   ))
@@ -599,7 +599,7 @@ export default function VolcengineConnectModal({
 
         {done && phase !== "success" && (
           <div className="space-y-3">
-            <p className="text-sm text-red-500">
+            <p className="text-sm text-feedback-danger-foreground">
               {session?.error ||
                 (phase === "timeout"
                   ? providerText(t, "volcTimeout", "Login timed out")

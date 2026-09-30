@@ -199,9 +199,9 @@ function useProviderParamFilterConfig(providerId: string, t: Translate) {
 
 function ParamFilterSectionSkeleton() {
   return (
-    <div className="rounded-xl border border-border bg-white p-5 dark:bg-zinc-950">
-      <div className="h-5 w-48 animate-pulse rounded bg-zinc-200 dark:bg-zinc-800" />
-      <div className="mt-4 h-20 animate-pulse rounded bg-zinc-100 dark:bg-zinc-900" />
+    <div className="rounded-xl border border-border bg-surface p-5">
+      <div className="h-5 w-48 animate-pulse rounded bg-muted" />
+      <div className="mt-4 h-20 animate-pulse rounded bg-muted" />
     </div>
   );
 }
@@ -215,7 +215,7 @@ function ParamFilterSectionHeader({ t }: { t: (key: string) => string }) {
       <p className="text-xs text-text-muted mb-4 leading-relaxed">
         {t.rich("paramFiltersSectionHint", {
           code: (chunks) => (
-            <code className="text-xs bg-zinc-100 dark:bg-zinc-800 px-1 rounded">{chunks}</code>
+            <code className="text-xs bg-muted px-1 rounded">{chunks}</code>
           ),
         })}
       </p>
@@ -240,7 +240,7 @@ function ParamListField({ label, hint, value, placeholder, onChange }: ParamList
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="w-full rounded-lg border border-border bg-white px-3 py-2 text-xs text-text-main placeholder:text-text-muted focus:outline-none focus:ring-1 focus:ring-primary dark:bg-zinc-900"
+        className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-xs text-text-main placeholder:text-text-muted focus:outline-none focus:ring-1 focus:ring-primary"
       />
       <p className="text-[11px] text-text-muted mt-1">{hint}</p>
     </div>
@@ -336,7 +336,7 @@ export default function ProviderParamFilterSection({
   }
 
   return (
-    <div className="rounded-xl border border-border bg-white p-5 dark:bg-zinc-950">
+    <div className="rounded-xl border border-border bg-surface p-5">
       <ParamFilterSectionHeader t={t} />
       <ParamListField
         label={t("paramFiltersBlockedLabel")}

@@ -133,21 +133,6 @@ function StepPill({ active, done, label }: { active: boolean; done: boolean; lab
   );
 }
 
-function getProviderIconClass(providerId: string): string {
-  const classes = [
-    "bg-indigo-500",
-    "bg-sky-500",
-    "bg-emerald-500",
-    "bg-violet-500",
-    "bg-amber-500",
-    "bg-rose-500",
-    "bg-cyan-500",
-    "bg-fuchsia-500",
-  ];
-  const index = [...providerId].reduce((sum, char) => sum + char.charCodeAt(0), 0) % classes.length;
-  return classes[index];
-}
-
 function ProviderOptionCard({
   option,
   selected,
@@ -173,9 +158,7 @@ function ProviderOptionCard({
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-3">
           <div
-            className={`flex size-10 items-center justify-center rounded-lg text-white ${getProviderIconClass(
-              option.id
-            )}`}
+            className="flex size-10 items-center justify-center rounded-lg bg-muted text-foreground"
           >
             <ProviderIcon
               providerId={option.id}

@@ -38,7 +38,7 @@ export default function WebSessionCredentialGuide({
 
   if (requirement.kind === "none") {
     return (
-      <div className="rounded-lg border border-emerald-500/25 bg-emerald-500/10 px-3 py-3 text-sm text-text-muted">
+      <div className="rounded-lg border border-feedback-success-border bg-feedback-success-surface px-3 py-3 text-sm text-text-muted">
         <div className="flex items-start gap-2">
           <Icon icon={CircleCheck} size="md" color="feedback-success-foreground" className="mt-0.5" />
           <div>
@@ -66,9 +66,9 @@ export default function WebSessionCredentialGuide({
   const guideSteps = requirement.guideSteps;
 
   return (
-    <div className="rounded-lg border border-purple-500/25 bg-purple-500/10 px-3 py-3 text-sm text-text-muted">
+    <div className="rounded-lg border border-feedback-info-border bg-feedback-info-surface px-3 py-3 text-sm text-text-muted">
       <div className="flex items-start gap-2">
-        <span className="material-symbols-outlined mt-0.5 text-[18px] text-purple-500">cookie</span>
+        <span className="material-symbols-outlined mt-0.5 text-[18px] text-feedback-info-foreground">cookie</span>
         <div className="space-y-2">
           <div>
             <p className="font-medium text-text-main">
@@ -153,7 +153,7 @@ export default function WebSessionCredentialGuide({
               </li>
             </ol>
           )}
-          <p className="text-xs text-amber-700 dark:text-amber-300">
+          <p className="text-xs text-feedback-warning-foreground">
             {requirement.guideNote ??
               providerText(
                 t,

@@ -590,7 +590,7 @@ export default function CustomModelsSection({
                       </span>
                     </button>
                     {model.apiFormat === "responses" && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-500/15 text-blue-400 font-medium">
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full border border-border bg-muted text-text-muted font-medium">
                         {t("responses")}
                       </span>
                     )}
@@ -608,7 +608,7 @@ export default function CustomModelsSection({
                     )}
                     {model.targetFormat && (
                       <span
-                        className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 font-medium"
+                        className="text-[10px] px-1.5 py-0.5 rounded-full bg-feedback-success-surface text-feedback-success-foreground font-medium"
                         title={t("targetFormatHint")}
                       >
                         {`→ ${targetFormatLabel(model.targetFormat, t)}`}
@@ -616,7 +616,7 @@ export default function CustomModelsSection({
                     )}
                     {typeof model.contextWindowOverride === "number" && (
                       <span
-                        className="text-[10px] px-1.5 py-0.5 rounded-full bg-orange-500/15 text-orange-400 font-medium"
+                        className="text-[10px] px-1.5 py-0.5 rounded-full bg-feedback-warning-surface text-feedback-warning-foreground font-medium"
                         title={t("contextWindowOverrideHint")}
                       >
                         {`🪟 ${model.contextWindowOverride.toLocaleString()}`}
@@ -624,51 +624,51 @@ export default function CustomModelsSection({
                     )}
                     {model.supportsVision === true && (
                       <span
-                        className="text-[10px] px-1.5 py-0.5 rounded-full bg-pink-500/15 text-pink-400 font-medium"
+                        className="text-[10px] px-1.5 py-0.5 rounded-full border border-border bg-muted text-text-muted font-medium"
                         title={t("visionCapableHint")}
                       >
                         {`👁️ ${t("visionCapableLabel")}`}
                       </span>
                     )}
                     {model.isFree === true && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-green-500/15 text-green-400 font-medium">
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-feedback-success-surface text-feedback-success-foreground font-medium">
                         FREE
                       </span>
                     )}
                     {model.supportedEndpoints?.includes("embeddings") && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-purple-500/15 text-purple-400 font-medium">
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full border border-border bg-muted text-text-muted font-medium">
                         {`📐 ${t("supportedEndpointEmbeddings")}`}
                       </span>
                     )}
                     {model.supportedEndpoints?.includes("images") && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-400 font-medium">
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-feedback-warning-surface text-feedback-warning-foreground font-medium">
                         {`🖼️ ${t("imagesShortLabel")}`}
                       </span>
                     )}
                     {model.supportedEndpoints?.includes("audio") && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-green-500/15 text-green-400 font-medium">
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-feedback-success-surface text-feedback-success-foreground font-medium">
                         {`🔊 ${t("audioShortLabel")}`}
                       </span>
                     )}
                     {(model.supportedEndpoints?.includes("videos") ||
                       model.supportedEndpoints?.includes("video")) && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-red-500/15 text-red-400 font-medium">
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-feedback-danger-surface text-feedback-danger-foreground font-medium">
                         🎬 Video
                       </span>
                     )}
                     {model.supportedEndpoints?.includes("audio-speech") && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-green-500/15 text-green-400 font-medium">
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-feedback-success-surface text-feedback-success-foreground font-medium">
                         {`🔊 ${t("audioSpeech")}`}
                       </span>
                     )}
                     {model.supportedEndpoints?.includes("audio-transcriptions") && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-cyan-500/15 text-cyan-400 font-medium">
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full border border-border bg-muted text-text-muted font-medium">
                         {`🎙️ ${t("audioTranscriptions")}`}
                       </span>
                     )}
                     {anyNormalizeCompatBadge(model.id!, customMap, overrideMap) && (
                       <span
-                        className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-500/15 text-slate-400 font-medium"
+                        className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-text-muted font-medium"
                         title={t("normalizeToolCallIdLabel")}
                       >
                         ID×9
@@ -676,7 +676,7 @@ export default function CustomModelsSection({
                     )}
                     {anyNoPreserveCompatBadge(model.id!, customMap, overrideMap) && (
                       <span
-                        className="text-[10px] px-1.5 py-0.5 rounded-full bg-cyan-500/15 text-cyan-400 font-medium"
+                        className="text-[10px] px-1.5 py-0.5 rounded-full border border-border bg-muted text-text-muted font-medium"
                         title={t("compatDoNotPreserveDeveloper")}
                       >
                         {t("compatBadgeNoPreserve")}
@@ -684,7 +684,7 @@ export default function CustomModelsSection({
                     )}
                     {anyUpstreamHeadersBadge(model.id!, customMap, overrideMap) && (
                       <span
-                        className="text-[10px] px-1.5 py-0.5 rounded-full bg-violet-500/15 text-violet-400 font-medium"
+                        className="text-[10px] px-1.5 py-0.5 rounded-full border border-border bg-muted text-text-muted font-medium"
                         title={t("compatUpstreamHeadersLabel")}
                       >
                         {t("compatBadgeUpstreamHeaders")}
@@ -693,7 +693,7 @@ export default function CustomModelsSection({
                   </div>
 
                   {editingModelId === model.id && (
-                    <div className="mt-3 min-w-0 max-w-full rounded-lg border border-border bg-muted p-3 dark:bg-zinc-900">
+                    <div className="mt-3 min-w-0 max-w-full rounded-lg border border-border bg-muted p-3">
                       <div className="flex min-w-0 flex-wrap items-end gap-x-3 gap-y-2">
                         <div className="w-[11rem] shrink-0 min-w-0">
                           <label className="text-xs text-text-muted mb-1 block">
@@ -866,7 +866,7 @@ export default function CustomModelsSection({
                   {hasSyncedBase && (
                     <button
                       onClick={() => handleResetToUpstreamDefaults(model.id!)}
-                      className="rounded p-1 text-amber-600 hover:bg-amber-50 dark:text-amber-400 dark:hover:bg-amber-900/20"
+                      className="rounded p-1 text-feedback-warning-foreground hover:bg-feedback-warning-surface"
                       title={providerText(
                         t,
                         "resetToUpstreamDefaults",
@@ -878,7 +878,7 @@ export default function CustomModelsSection({
                   )}
                   <button
                     onClick={() => handleRemove(model.id!)}
-                    className="rounded p-1 text-red-500 hover:bg-red-50"
+                    className="rounded p-1 text-feedback-danger-foreground hover:bg-feedback-danger-surface"
                     title={t("removeCustomModel")}
                   >
                     <Icon icon={Trash2} size="sm" color="current" />

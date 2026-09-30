@@ -4,6 +4,8 @@ import {
   resolveDashboardProviderInfo,
   type ProviderEntry,
 } from "./providerPageUtils";
+import type { ProviderView } from "./providerPageStorage";
+import { filterProviderEntriesByView, type ProviderAvailabilityMap } from "./providerView";
 
 type ProviderCategoryEntries<TProvider> = ProviderEntry<TProvider>[];
 
@@ -28,6 +30,14 @@ export interface CompactProviderEntryOptions<TProvider> {
   audioProviderEntries: ProviderCategoryEntries<TProvider>;
   localProviderEntries: ProviderCategoryEntries<TProvider>;
   cloudAgentProviderEntries: ProviderCategoryEntries<TProvider>;
+  /**
+   * Which slice to list. Compact never lists a provider that is not enabled unless the
+   * "all" view is selected, so the default ("enabled") applies to every category, the keyless
+   * (no-auth) ones included.
+   */
+  view?: ProviderView;
+  /** `providerAvailability` from `GET /api/providers`; null/undefined when it could not be loaded. */
+  providerAvailability?: ProviderAvailabilityMap | null;
 }
 
 function getCompactProviderEntryGroups<TProvider>({
@@ -102,7 +112,11 @@ function getCompactProviderEntryGroups<TProvider>({
 export function buildCompactProviderEntriesForPage<TProvider>(
   options: CompactProviderEntryOptions<TProvider>
 ): ProviderEntry<TProvider>[] {
-  return buildCompactProviderEntries(getCompactProviderEntryGroups(options), {
+  const view = options.view ?? "enabled";
+  const groups = getCompactProviderEntryGroups(options).map((group) =>
+    filterProviderEntriesByView(group, view, options.providerAvailability)
+  );
+  return buildCompactProviderEntries(groups, {
     deferNoAuth: options.activeCategory !== "no-auth",
   });
 }

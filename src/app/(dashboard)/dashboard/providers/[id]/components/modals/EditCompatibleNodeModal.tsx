@@ -234,7 +234,7 @@ export default function EditCompatibleNodeModal({
     >
       <div className="flex flex-col gap-4">
         {isCcCompatible && (
-          <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-sm text-text-muted">
+          <div className="rounded-lg border border-feedback-warning-border bg-feedback-warning-surface px-3 py-2 text-sm text-text-muted">
             <div className="flex items-start gap-2">
               <Icon icon={TriangleAlert} size="md" color="feedback-warning-foreground" className="mt-0.5" />
               <p>{t("ccCompatibleValidationHint")}</p>
@@ -408,7 +408,7 @@ export default function EditCompatibleNodeModal({
             </Badge>
             {validationResult.error && (
               <span
-                className={`text-sm ${validationResult.valid ? "text-text-muted" : "text-red-500"}`}
+                className={`text-sm ${validationResult.valid ? "text-text-muted" : "text-feedback-danger-foreground"}`}
               >
                 {validationResult.error}
               </span>
@@ -419,7 +419,7 @@ export default function EditCompatibleNodeModal({
           <div
             role="alert"
             aria-live="assertive"
-            className="text-sm text-red-500 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2"
+            className="text-sm text-feedback-danger-foreground bg-feedback-danger-surface border border-feedback-danger-border rounded-lg px-3 py-2"
           >
             {saveError}
           </div>

@@ -4,7 +4,6 @@ import { X } from "lucide-react";
 import Icon from "@/shared/components/Icon";
 import { Button, Card, Input } from "@/shared/components";
 import type { ProviderDisplayMode } from "../providerPageStorage";
-import { CategoryDot } from "./CategoryDot";
 import ProviderDisplayModeControl from "./ProviderDisplayModeControl";
 
 type ProviderMessageTranslator = ((key: string, values?: Record<string, unknown>) => string) & {
@@ -49,6 +48,8 @@ interface ProviderSummaryCardProps {
   setModelSearchQuery(value: string): void;
   setSearchQuery(value: string): void;
   showFreeOnly: boolean;
+  /** Grouped/compact/configured switch; hidden where the layout is fixed (the "All providers" list). */
+  showDisplayMode?: boolean;
   summaryStats: ProviderSummaryStats;
   t: ProviderMessageTranslator;
   tc: ProviderMessageTranslator;
@@ -104,75 +105,66 @@ export default function ProviderSummaryCard({
   setModelSearchQuery,
   setSearchQuery,
   showFreeOnly,
+  showDisplayMode = true,
   summaryStats,
   t,
   tc,
   testingMode,
 }: ProviderSummaryCardProps) {
   const categories = [
-    { key: null, color: null, label: t("providerSummaryAll"), stat: summaryStats.all },
-    { key: "oauth", color: "bg-blue-500", label: t("oauthLabel"), stat: summaryStats.oauth },
+    { key: null, label: t("providerSummaryAll"), stat: summaryStats.all },
+    { key: "oauth", label: t("oauthLabel"), stat: summaryStats.oauth },
     {
       key: "ide",
-      color: "bg-cyan-500",
       label: providerText(t, "categoryIde", "IDE"),
       stat: summaryStats.ide,
     },
     {
       key: "free",
-      color: "bg-green-500",
       label: t("freeTier"),
       stat: summaryStats.free,
       title: t("freeAggregated"),
     },
-    { key: "no-auth", color: "bg-stone-500", label: t("noAuthLabel"), stat: summaryStats.noauth },
+    { key: "no-auth", label: t("noAuthLabel"), stat: summaryStats.noauth },
     {
       key: "upstream-proxy",
-      color: "bg-indigo-500",
       label: t("upstreamProxyLabel"),
       stat: summaryStats.upstreamproxy,
     },
-    { key: "apikey", color: "bg-amber-500", label: t("apiKeyLabel"), stat: summaryStats.apikey },
+    { key: "apikey", label: t("apiKeyLabel"), stat: summaryStats.apikey },
     {
       key: "compatible",
-      color: "bg-orange-500",
       label: t("compatibleLabel"),
       stat: summaryStats.compatible,
     },
     {
       key: "webcookie",
-      color: "bg-purple-500",
       label: providerText(t, "categoryWebCookie", "Web Cookie"),
       stat: summaryStats.webcookie,
     },
     {
       key: "search",
-      color: "bg-teal-500",
       label: providerText(t, "categorySearch", "Search"),
       stat: summaryStats.search,
     },
     {
       key: "webfetch",
-      color: "bg-orange-500",
       label: t("webFetch"),
       stat: summaryStats.webfetch,
       title: t("webFetchTooltip"),
     },
     {
       key: "audio",
-      color: "bg-rose-500",
       label: providerText(t, "categoryAudio", "Audio"),
       stat: summaryStats.audio,
     },
     {
       key: "local",
-      color: "bg-emerald-500",
       label: providerText(t, "categoryLocal", "Local"),
       stat: summaryStats.local,
     },
     {
       key: "cloudagent",
-      color: "bg-violet-500",
       label: providerText(t, "categoryCloudAgent", "Cloud Agent"),
       stat: summaryStats.cloudagent,
     },
@@ -220,12 +212,14 @@ export default function ProviderSummaryCard({
               </button>
             )}
           </div>
-          <ProviderDisplayModeControl
-            disabledConfigured={disabledConfigured}
-            mode={displayMode}
-            onChange={onDisplayModeChange}
-            t={t}
-          />
+          {showDisplayMode && (
+            <ProviderDisplayModeControl
+              disabledConfigured={disabledConfigured}
+              mode={displayMode}
+              onChange={onDisplayModeChange}
+              t={t}
+            />
+          )}
           <Button size="sm" icon="add" onClick={onNewProvider}>
             {providerText(t, "onboardingWizardShort", "Onboarding Wizard")}
           </Button>
@@ -269,7 +263,6 @@ export default function ProviderSummaryCard({
                 }`}
                 title={cat.title || cat.label}
               >
-                {cat.color && <CategoryDot color={cat.color} label={cat.label} />}
                 <span>{cat.label}</span>
                 <span className={`text-[11px] ${isActive ? "text-white/80" : "text-text-muted"}`}>
                   {cat.stat.configured}

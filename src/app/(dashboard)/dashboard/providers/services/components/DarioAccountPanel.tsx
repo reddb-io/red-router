@@ -430,8 +430,8 @@ export function DarioAccountPanel() {
           </div>
         )}
 
-        {notice && <p className="text-xs text-green-600 dark:text-green-400">{notice}</p>}
-        {error && <p className="text-xs text-red-600 dark:text-red-400 break-words">{error}</p>}
+        {notice && <p className="text-xs text-feedback-success-foreground">{notice}</p>}
+        {error && <p className="text-xs text-feedback-danger-foreground break-words">{error}</p>}
       </div>
     </Card>
   );

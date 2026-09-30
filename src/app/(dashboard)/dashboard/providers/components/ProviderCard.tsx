@@ -18,7 +18,7 @@ import {
   isOpenAICompatibleProvider,
 } from "@/shared/constants/providers";
 
-import { CategoryDot } from "./CategoryDot";
+import { NeutralTag } from "./NeutralTag";
 import { useOpenRouterProviderStat } from "../context/openRouterProviderStatsContext";
 
 interface ProviderStats {
@@ -87,21 +87,10 @@ interface ProviderCardProps {
   authType?: string;
   onToggle: (active: boolean) => void;
   onCardClick?: (id: string) => void;
+  /** Show the auth-type label (OAuth, API key, ...) as a neutral tag. Used where cards are not
+   * already grouped under a section heading (compact list). */
+  showAuthTypeTag?: boolean;
 }
-
-const DOT_COLORS: Record<string, string> = {
-  free: "bg-green-500",
-  "no-auth": "bg-stone-500",
-  oauth: "bg-blue-500",
-  apikey: "bg-amber-500",
-  compatible: "bg-orange-500",
-  "web-cookie": "bg-purple-500",
-  search: "bg-teal-500",
-  audio: "bg-rose-500",
-  local: "bg-emerald-500",
-  "upstream-proxy": "bg-indigo-500",
-  "cloud-agent": "bg-violet-500",
-};
 
 type ProviderMessageTranslator = ((key: string, values?: Record<string, unknown>) => string) & {
   has?: (key: string) => boolean;
@@ -247,7 +236,15 @@ export type ProviderCardHandle = {
 };
 
 const ProviderCard = forwardRef<ProviderCardHandle, ProviderCardProps>(function ProviderCard(
-  { providerId, provider, stats, authType = "apikey", onToggle, onCardClick },
+  {
+    providerId,
+    provider,
+    stats,
+    authType = "apikey",
+    onToggle,
+    onCardClick,
+    showAuthTypeTag = false,
+  },
   ref
 ) {
   const t = useTranslations("providers");
@@ -333,11 +330,7 @@ const ProviderCard = forwardRef<ProviderCardHandle, ProviderCardProps>(function 
     providerId === "codex" && stats.codexServiceTier && stats.codexServiceTier !== "default" ? (
       <span
         key="codex-service-tier"
-        className={`inline-flex items-center gap-0.5 rounded-full px-1.5 py-0 text-[9px] font-semibold uppercase tracking-wide ${
-          stats.codexServiceTier === "flex"
-            ? "bg-cyan-500/10 text-cyan-600 dark:text-cyan-400"
-            : "bg-sky-500/10 text-sky-600 dark:text-sky-400"
-        }`}
+        className="inline-flex items-center gap-0.5 rounded-full border border-border bg-muted px-1.5 py-0 text-[9px] font-semibold uppercase tracking-wide text-text-muted"
         title={providerText(t, "codexServiceTierActive", "Codex {tier} service tier is active", {
           tier: codexServiceTierLabel,
         })}
@@ -423,17 +416,12 @@ const ProviderCard = forwardRef<ProviderCardHandle, ProviderCardProps>(function 
       >
         <Card
           padding="xs"
-          className={`h-full flex flex-col hover:bg-black/5 dark:hover:bg-white/5 transition-colors cursor-pointer ${
-            "hover:border-primary/40"
-          } ${allDisabled ? "opacity-50" : ""} ${provider.deprecated ? "opacity-60" : ""}`}
+          className={`h-full flex flex-col hover:bg-black/5 dark:hover:bg-white/5 transition-colors cursor-pointer ${"hover:border-primary/40"} ${allDisabled ? "opacity-50" : ""} ${provider.deprecated ? "opacity-60" : ""}`}
         >
           <div className="flex flex-col gap-2 h-full">
             {/* Row 1 — Identity: icon + full name + risk/category indicators */}
             <div className="flex items-start gap-3 min-w-0">
-              <div
-                className="size-9 rounded-lg flex items-center justify-center shrink-0"
-                style={{ backgroundColor: `${provider.color || "#64748b"}15` }}
-              >
+              <div className="size-9 rounded-lg flex items-center justify-center shrink-0 bg-muted">
                 {provider.iconUrl ? (
                   <ProviderIcon
                     providerId={provider.id || providerId}
@@ -478,7 +466,7 @@ const ProviderCard = forwardRef<ProviderCardHandle, ProviderCardProps>(function 
                 {provider.subscriptionRisk === true && (
                   <button
                     type="button"
-                    className="material-symbols-outlined text-[16px] leading-none text-amber-500 underline decoration-dotted decoration-1 underline-offset-2 hover:text-amber-400 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary/60 transition-colors"
+                    className="material-symbols-outlined text-[16px] leading-none text-feedback-warning-foreground underline decoration-dotted decoration-1 underline-offset-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary/60 transition-colors"
                     title={t("riskNotice.tooltip")}
                     aria-label={t("riskNotice.tooltip")}
                     aria-haspopup="dialog"
@@ -490,30 +478,28 @@ const ProviderCard = forwardRef<ProviderCardHandle, ProviderCardProps>(function 
                     info
                   </button>
                 )}
-                <CategoryDot
-                  color={DOT_COLORS[authType] || DOT_COLORS.apikey}
-                  hasFree={provider.hasFree === true}
-                  label={dotLabels[authType] || t("apiKeyLabel")}
-                  freeLabel={t("hasFreeTooltip")}
-                />
+                {provider.hasFree === true && (
+                  <NeutralTag title={t("hasFreeTooltip")}>{tc("free")}</NeutralTag>
+                )}
               </div>
             </div>
 
             {/* Row 2 — Capabilities: service-kind chips + compatibility badges (deprecated shown as block icon in Row 1 header). Rendered only when content exists. */}
-            {((provider.serviceKinds && provider.serviceKinds.length > 0) ||
+            {(showAuthTypeTag ||
+              (provider.serviceKinds && provider.serviceKinds.length > 0) ||
               isCompatible ||
               isCcCompatible ||
               isAnthropicCompatible ||
               Boolean(openRouterStat)) && (
               <div className="flex flex-wrap items-center gap-1">
+                {showAuthTypeTag && (
+                  <NeutralTag data-testid="provider-auth-type-tag">
+                    {dotLabels[authType] || t("apiKeyLabel")}
+                  </NeutralTag>
+                )}
                 {openRouterPopularityChip}
                 {provider.serviceKinds?.map((k) => (
-                  <span
-                    key={k}
-                    className="text-[10px] px-1.5 py-0.5 rounded bg-bg-subtle border border-border text-text-muted leading-none"
-                  >
-                    {kindLabel(k)}
-                  </span>
+                  <NeutralTag key={k}>{kindLabel(k)}</NeutralTag>
                 ))}
                 {isCompatible && (
                   <Badge variant="default" size="sm">
@@ -602,7 +588,12 @@ const ProviderCard = forwardRef<ProviderCardHandle, ProviderCardProps>(function 
                   </button>
                 )}
                 {!isLlmProvider && (
-                  <Icon icon={ChevronRight} size="lg" color="ink-muted" className="opacity-0 group-hover:opacity-100 transition-opacity" />
+                  <Icon
+                    icon={ChevronRight}
+                    size="lg"
+                    color="ink-muted"
+                    className="opacity-0 group-hover:opacity-100 transition-opacity"
+                  />
                 )}
               </div>
             </div>
@@ -625,8 +616,13 @@ const ProviderCard = forwardRef<ProviderCardHandle, ProviderCardProps>(function 
           title={providerText(t, "riskNotice.detailsTitle", "Usage caveats")}
           size="sm"
         >
-          <div className="flex items-start gap-3 rounded-lg border border-amber-500/25 bg-amber-500/10 p-4">
-            <Icon icon={Info} size="lg" color="feedback-warning-foreground" className="mt-0.5 leading-none" />
+          <div className="flex items-start gap-3 rounded-lg border border-feedback-warning-border bg-feedback-warning-surface p-4">
+            <Icon
+              icon={Info}
+              size="lg"
+              color="feedback-warning-foreground"
+              className="mt-0.5 leading-none"
+            />
             <p className="min-w-0 whitespace-pre-line text-sm leading-6 text-text-muted">
               {t(`riskNotice.${provider.riskNoticeVariant ?? "oauth"}`)}
             </p>

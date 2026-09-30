@@ -234,7 +234,7 @@ export default function ProviderModelsSection({
     <button
       onClick={handleClearAllModels}
       disabled={clearingModels}
-      className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-red-300 dark:border-red-800 bg-transparent cursor-pointer text-[12px] text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50 disabled:cursor-not-allowed"
+      className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-feedback-danger-border bg-transparent cursor-pointer text-[12px] text-feedback-danger-foreground hover:bg-feedback-danger-surface disabled:opacity-50 disabled:cursor-not-allowed"
       title={t("clearAllModels")}
     >
       <Icon icon={Eraser} size="md" color="current" />

@@ -3,6 +3,13 @@ export const PROVIDER_DISPLAY_MODE_STORAGE_KEY = "omniroute-providers-display-mo
 
 export type ProviderDisplayMode = "all" | "configured" | "compact";
 
+/** Which slice of the catalogue the providers page shows: what is on, the free sources, or everything. */
+export const PROVIDER_VIEW_STORAGE_KEY = "redrouter-providers-view";
+export type ProviderView = "enabled" | "free" | "all";
+export const PROVIDER_VIEWS: readonly ProviderView[] = ["enabled", "free", "all"];
+/** Opt-in: the page opens on what the operator turned on, never on the whole catalogue. */
+export const DEFAULT_PROVIDER_VIEW: ProviderView = "enabled";
+
 interface StorageReader {
   getItem(key: string): string | null;
 }
@@ -96,4 +103,40 @@ export function writeProviderDisplayModePreference(
  */
 export function shouldSyncProviderDisplayMode(ready: boolean, loading: boolean): boolean {
   return ready && !loading;
+}
+
+/** Anything that is not one of the three known views (corrupt or stale storage) is rejected. */
+export function parseProviderViewPreference(value: unknown): ProviderView | null {
+  return value === "enabled" || value === "free" || value === "all" ? value : null;
+}
+
+/**
+ * The stored view, or the default. Storage may be missing, blocked or throwing (private windows,
+ * cleared site data), so every access is guarded; the page must work without it.
+ */
+export function readProviderViewPreference(
+  storage: StorageReader | null = getBrowserStorage()
+): ProviderView {
+  if (!storage) return DEFAULT_PROVIDER_VIEW;
+  try {
+    return (
+      parseProviderViewPreference(storage.getItem(PROVIDER_VIEW_STORAGE_KEY)) ??
+      DEFAULT_PROVIDER_VIEW
+    );
+  } catch {
+    return DEFAULT_PROVIDER_VIEW;
+  }
+}
+
+export function writeProviderViewPreference(
+  view: ProviderView,
+  storage: StorageWriter | null = getBrowserStorage()
+): void {
+  if (!storage) return;
+  try {
+    if (view === DEFAULT_PROVIDER_VIEW) storage.removeItem(PROVIDER_VIEW_STORAGE_KEY);
+    else storage.setItem(PROVIDER_VIEW_STORAGE_KEY, view);
+  } catch {
+    // Persistence is a convenience; the selected view still applies for this visit.
+  }
 }

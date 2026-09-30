@@ -628,7 +628,7 @@ export default function AddApiKeyModal({
               </label>
             </div>
             {bulkWarnings.length > 0 && (
-              <div className="rounded border border-amber-500/25 bg-amber-500/10 p-2 text-xs text-amber-200 space-y-1">
+              <div className="rounded border border-feedback-warning-border bg-feedback-warning-surface p-2 text-xs text-feedback-warning-foreground space-y-1">
                 {bulkWarnings.map((w, i) => (
                   <div key={i}>{w}</div>
                 ))}
@@ -637,7 +637,7 @@ export default function AddApiKeyModal({
             {bulkResult && (
               <div
                 className={`text-sm font-medium ${
-                  bulkResult.failed > 0 ? "text-amber-300" : "text-emerald-400"
+                  bulkResult.failed > 0 ? "text-feedback-warning-foreground" : "text-feedback-success-foreground"
                 }`}
               >
                 {t("bulkAddedCount", { count: bulkResult.success })}
@@ -658,7 +658,7 @@ export default function AddApiKeyModal({
                 )}
               </div>
             )}
-            {saveError && <div className="text-sm text-rose-400">{saveError}</div>}
+            {saveError && <div className="text-sm text-feedback-danger-foreground">{saveError}</div>}
             <div className="flex gap-2">
               <Button onClick={handleBulkSubmit} fullWidth disabled={saving || !bulkText.trim()}>
                 {saving ? t("adding") : t("bulkAddAllKeys")}
@@ -673,7 +673,7 @@ export default function AddApiKeyModal({
         {(!bulkSupported || mode === "single") && (
           <>
             {isCcCompatible && (
-              <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-sm text-text-muted">
+              <div className="rounded-lg border border-feedback-warning-border bg-feedback-warning-surface px-3 py-2 text-sm text-text-muted">
                 <div className="flex items-start gap-2">
                   <Icon icon={TriangleAlert} size="md" color="feedback-warning-foreground" className="mt-0.5" />
                   <p>{t("ccCompatibleValidationHint")}</p>
@@ -681,7 +681,7 @@ export default function AddApiKeyModal({
               </div>
             )}
             {isCommandCode && onStartCommandCodeAuth && (
-              <div className="rounded-lg border border-sky-500/20 bg-sky-500/10 px-3 py-3 text-sm">
+              <div className="rounded-lg border border-feedback-info-border bg-feedback-info-surface px-3 py-3 text-sm">
                 <div className="flex items-start gap-3">
                   <Icon icon={ExternalLink} size="md" color="current" className="mt-0.5" />
                   <div className="min-w-0 flex-1">
@@ -984,7 +984,7 @@ export default function AddApiKeyModal({
               </Badge>
             )}
             {saveError && (
-              <div className="text-sm text-red-500 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">
+              <div className="text-sm text-feedback-danger-foreground bg-feedback-danger-surface border border-feedback-danger-border rounded-lg px-3 py-2">
                 {saveError}
               </div>
             )}

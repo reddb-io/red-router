@@ -148,7 +148,7 @@ export function CliproxyModelMappingEditor() {
   return (
     <Card padding="md">
       <div className="flex items-center gap-3 mb-4">
-        <div className="size-8 rounded-lg flex items-center justify-center bg-violet-500/10">
+        <div className="size-8 rounded-lg flex items-center justify-center bg-muted">
           <Icon icon={Workflow} size="lg" color="current" />
         </div>
         <div>
@@ -169,8 +169,8 @@ export function CliproxyModelMappingEditor() {
         <div
           className={`flex items-center gap-1.5 mb-3 px-2 py-1.5 rounded text-xs ${
             msg.ok
-              ? "bg-green-500/10 text-green-600 dark:text-green-400"
-              : "bg-red-500/10 text-red-600 dark:text-red-400"
+              ? "bg-feedback-success-surface text-feedback-success-foreground"
+              : "bg-feedback-danger-surface text-feedback-danger-foreground"
           }`}
         >
           <span className="material-symbols-outlined text-[12px]">
@@ -183,7 +183,7 @@ export function CliproxyModelMappingEditor() {
       <textarea
         className={`w-full font-mono text-xs rounded border px-3 py-2 resize-y min-h-[120px] bg-bg-subtle focus:outline-none focus:ring-1 transition-colors ${
           !isValid && rawText !== EMPTY_MAPPING
-            ? "border-red-400 focus:ring-red-400"
+            ? "border-feedback-danger-border focus:ring-feedback-danger-border"
             : "border-border focus:ring-primary"
         }`}
         value={rawText}
@@ -196,7 +196,7 @@ export function CliproxyModelMappingEditor() {
       />
 
       {validationMessage && rawText !== EMPTY_MAPPING && (
-        <p className="mt-1.5 text-xs text-red-600 dark:text-red-400 flex items-start gap-1">
+        <p className="mt-1.5 text-xs text-feedback-danger-foreground flex items-start gap-1">
           <Icon icon={CircleAlert} size="sm" color="current" className="mt-0.5 shrink-0" />
           {validationMessage}
         </p>

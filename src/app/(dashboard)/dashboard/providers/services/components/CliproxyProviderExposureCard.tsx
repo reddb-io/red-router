@@ -56,7 +56,7 @@ export function CliproxyProviderExposureCard() {
   return (
     <Card padding="md">
       <div className="flex items-center gap-3 mb-3">
-        <div className="size-8 rounded-lg flex items-center justify-center bg-sky-500/10">
+        <div className="size-8 rounded-lg flex items-center justify-center bg-muted">
           <Icon icon={Network} size="lg" color="current" />
         </div>
         <div>
@@ -71,8 +71,8 @@ export function CliproxyProviderExposureCard() {
         <div
           className={`flex items-center gap-1.5 mb-3 px-2 py-1.5 rounded text-xs ${
             msg.ok
-              ? "bg-green-500/10 text-green-600 dark:text-green-400"
-              : "bg-red-500/10 text-red-600 dark:text-red-400"
+              ? "bg-feedback-success-surface text-feedback-success-foreground"
+              : "bg-feedback-danger-surface text-feedback-danger-foreground"
           }`}
         >
           <span className="material-symbols-outlined text-[12px]">

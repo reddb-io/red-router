@@ -87,7 +87,6 @@ export default function NoAuthProvidersSection({
       <div className="flex flex-wrap items-center gap-2">
         <h2 className="text-xl font-semibold flex items-center gap-2 flex-1 min-w-0">
           {t("noAuthProviders")}{" "}
-          <span className="size-2.5 rounded-full bg-stone-500" title={t("noAuthLabel")} />
           <ProviderCountBadge {...count} />
         </h2>
         <button
@@ -136,8 +135,8 @@ export default function NoAuthProvidersSection({
                   <span className="truncate text-sm font-medium text-text-main">
                     {provider.name}
                   </span>
-                  <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-red-600 dark:text-red-400">
-                    <span className="size-1.5 rounded-full bg-red-500" />
+                  <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-feedback-danger-foreground">
+                    <span className="size-1.5 rounded-full bg-feedback-danger-foreground" />
                     {t("disabled")}
                   </span>
                 </div>

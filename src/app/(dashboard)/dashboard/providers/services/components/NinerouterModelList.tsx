@@ -110,7 +110,7 @@ export function NinerouterModelList() {
     <Card padding="md">
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-3">
-          <div className="size-8 rounded-lg flex items-center justify-center bg-cyan-500/10">
+          <div className="size-8 rounded-lg flex items-center justify-center bg-muted">
             <Icon icon={List} size="lg" color="current" />
           </div>
           <div>
@@ -139,7 +139,7 @@ export function NinerouterModelList() {
       </div>
 
       {error && (
-        <div className="flex items-center gap-1.5 mb-3 px-2 py-1.5 rounded text-xs bg-red-500/10 text-red-600 dark:text-red-400">
+        <div className="flex items-center gap-1.5 mb-3 px-2 py-1.5 rounded text-xs bg-feedback-danger-surface text-feedback-danger-foreground">
           <Icon icon={CircleAlert} size="sm" color="current" />
           {error}
         </div>

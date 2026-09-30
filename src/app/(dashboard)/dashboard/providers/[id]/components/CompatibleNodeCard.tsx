@@ -200,7 +200,7 @@ export default function CompatibleNodeCard({
         </div>
       </div>
       {isCcCompatible && (
-        <div className="mb-4 rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-sm text-text-muted">
+        <div className="mb-4 rounded-lg border border-feedback-warning-border bg-feedback-warning-surface px-3 py-2 text-sm text-text-muted">
           <div className="flex items-start gap-2">
             <Icon icon={TriangleAlert} size="md" color="feedback-warning-foreground" className="mt-0.5" />
             <p>{t("ccCompatibleValidationHint")}</p>

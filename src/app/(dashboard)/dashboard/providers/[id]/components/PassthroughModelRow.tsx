@@ -234,7 +234,7 @@ export default function PassthroughModelRow({
               is visible after reload instead of being write-only. */}
           {typeof contextWindowOverride === "number" && !editingContext && (
             <span
-              className="shrink-0 rounded-full bg-orange-500/15 px-1.5 py-0.5 text-[10px] font-medium text-orange-400"
+              className="shrink-0 rounded-full bg-feedback-warning-surface px-1.5 py-0.5 text-[10px] font-medium text-feedback-warning-foreground"
               title={t("contextWindowOverrideHint")}
             >
               {`🪟 ${contextWindowOverride.toLocaleString()}`}
@@ -301,7 +301,7 @@ export default function PassthroughModelRow({
             <button
               onClick={() => onTestModel(modelId, fullModel)}
               disabled={testingModel}
-              className={`rounded p-0.5 hover:bg-sidebar transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${testStatus === "ok" ? "text-green-500" : testStatus === "quota" ? "text-amber-500" : testStatus === "error" ? "text-red-500" : "text-text-muted hover:text-primary"}`}
+              className={`rounded p-0.5 hover:bg-sidebar transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${testStatus === "ok" ? "text-feedback-success-foreground" : testStatus === "quota" ? "text-feedback-warning-foreground" : testStatus === "error" ? "text-feedback-danger-foreground" : "text-text-muted hover:text-primary"}`}
               title={
                 testingModel
                   ? t("testingModel")
@@ -360,7 +360,7 @@ export default function PassthroughModelRow({
           {onDeleteAlias && (
             <button
               onClick={onDeleteAlias}
-              className="rounded p-1 text-red-500 hover:bg-red-50"
+              className="rounded p-1 text-feedback-danger-foreground hover:bg-feedback-danger-surface"
               title={t("removeModel")}
             >
               <Icon icon={Trash2} size="sm" color="current" />

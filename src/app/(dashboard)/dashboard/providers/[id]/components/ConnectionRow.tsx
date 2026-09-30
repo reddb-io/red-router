@@ -155,7 +155,7 @@ function CooldownTimer({ until }: CooldownTimerProps) {
 
   if (!remaining) return null;
 
-  return <span className="text-xs text-orange-500 font-mono">⏱ {remaining}</span>;
+  return <span className="text-xs text-feedback-warning-foreground font-mono">⏱ {remaining}</span>;
 }
 
 // ---------------------------------------------------------------------------
@@ -252,7 +252,7 @@ function getStatusPresentation(
       statusLabel: t("statusRuntimeIssue"),
       errorType,
       errorBadge,
-      errorTextClass: "text-yellow-600 dark:text-yellow-400",
+      errorTextClass: "text-feedback-warning-foreground",
     };
   }
 
@@ -262,7 +262,7 @@ function getStatusPresentation(
       statusLabel: providerText(t, "statusDeactivated", "Deactivated"),
       errorType,
       errorBadge,
-      errorTextClass: "text-red-600 font-bold",
+      errorTextClass: "text-feedback-danger-foreground font-bold",
     };
   }
 
@@ -277,7 +277,7 @@ function getStatusPresentation(
       statusLabel: t("statusAuthFailed"),
       errorType,
       errorBadge,
-      errorTextClass: "text-red-500",
+      errorTextClass: "text-feedback-danger-foreground",
     };
   }
 
@@ -287,7 +287,7 @@ function getStatusPresentation(
       statusLabel: t("statusRateLimited"),
       errorType,
       errorBadge,
-      errorTextClass: "text-yellow-600 dark:text-yellow-400",
+      errorTextClass: "text-feedback-warning-foreground",
     };
   }
 
@@ -297,7 +297,7 @@ function getStatusPresentation(
       statusLabel: t("statusNetworkIssue"),
       errorType,
       errorBadge,
-      errorTextClass: "text-yellow-600 dark:text-yellow-400",
+      errorTextClass: "text-feedback-warning-foreground",
     };
   }
 
@@ -317,7 +317,7 @@ function getStatusPresentation(
       statusLabel: providerText(t, "statusBanned", "Banned (403)"),
       errorType,
       errorBadge,
-      errorTextClass: "text-red-600 font-bold",
+      errorTextClass: "text-feedback-danger-foreground font-bold",
     };
   }
 
@@ -327,7 +327,7 @@ function getStatusPresentation(
       statusLabel: providerText(t, "statusCreditsExhausted", "Out of Credits"),
       errorType,
       errorBadge,
-      errorTextClass: "text-amber-500",
+      errorTextClass: "text-feedback-warning-foreground",
     };
   }
 
@@ -342,7 +342,7 @@ function getStatusPresentation(
     statusLabel: fallbackStatusMap[effectiveStatus ?? ""] || effectiveStatus || t("statusError"),
     errorType,
     errorBadge,
-    errorTextClass: "text-red-500",
+    errorTextClass: "text-feedback-danger-foreground",
   };
 }
 
@@ -520,7 +520,7 @@ export default function ConnectionRow({
       ? {
           label: providerText(t, "codexTierFastLabel", "Fast"),
           icon: "bolt",
-          className: "bg-sky-500/15 text-sky-500",
+          className: "bg-muted text-text-muted",
           title: codexServiceTierIsGlobal
             ? providerText(
                 t,
@@ -537,7 +537,7 @@ export default function ConnectionRow({
         ? {
             label: providerText(t, "codexTierFlexLabel", "Flex"),
             icon: "speed",
-            className: "bg-cyan-500/15 text-cyan-500",
+            className: "bg-muted text-text-muted",
             title: codexServiceTierIsGlobal
               ? providerText(
                   t,
@@ -653,7 +653,7 @@ export default function ConnectionRow({
               (tokenMinsLeft < 0 ? (
                 connection.testStatus === "expired" ? (
                   <span
-                    className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs font-medium bg-red-500/15 text-red-500"
+                    className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs font-medium bg-feedback-danger-surface text-feedback-danger-foreground"
                     title={t("tokenExpiredTitle", { date: effectiveExpiresAt })}
                   >
                     <Icon icon={CircleAlert} size="sm" color="current" />
@@ -662,7 +662,7 @@ export default function ConnectionRow({
                 ) : null
               ) : tokenMinsLeft < 30 ? (
                 <span
-                  className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs font-medium bg-amber-500/15 text-amber-500"
+                  className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs font-medium bg-feedback-warning-surface text-feedback-warning-foreground"
                   title={t("tokenExpiresSoonTitle", { minutes: tokenMinsLeft })}
                 >
                   <Icon icon={TriangleAlert} size="sm" color="current" />
@@ -693,7 +693,7 @@ export default function ConnectionRow({
             )}
             {connection.maxConcurrent != null && connection.maxConcurrent > 0 && (
               <span
-                className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs font-medium bg-zinc-500/15 text-zinc-500 dark:bg-zinc-400/15 dark:text-zinc-400"
+                className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs font-medium bg-muted text-text-muted"
                 title={t("accountConcurrencyCapLabel")}
               >
                 <Icon icon={Rss} size="sm" color="current" />
@@ -706,7 +706,7 @@ export default function ConnectionRow({
               onClick={() => onToggleRateLimit(!rateLimitEnabled)}
               className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium transition-all cursor-pointer ${
                 rateLimitEnabled
-                  ? "bg-emerald-500/15 text-emerald-500 hover:bg-emerald-500/25"
+                  ? "bg-foreground/10 text-foreground hover:bg-foreground/15"
                   : "bg-black/[0.03] dark:bg-white/[0.03] text-text-muted/50 hover:text-text-muted hover:bg-black/[0.06] dark:hover:bg-white/[0.06]"
               }`}
               title={
@@ -730,7 +730,7 @@ export default function ConnectionRow({
                   disabled={connection.isActive === false}
                   className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
                     autoSyncEnabled
-                      ? "bg-emerald-500/15 text-emerald-500 hover:bg-emerald-500/25"
+                      ? "bg-foreground/10 text-foreground hover:bg-foreground/15"
                       : "bg-black/[0.03] dark:bg-white/[0.03] text-text-muted/50 hover:text-text-muted hover:bg-black/[0.06] dark:hover:bg-white/[0.06]"
                   }`}
                   title={t("autoSyncTooltip")}
@@ -747,7 +747,7 @@ export default function ConnectionRow({
                   onClick={() => onToggleClaudeExtraUsage?.(!claudeBlockExtraUsageEnabled)}
                   className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium transition-all cursor-pointer ${
                     !claudeBlockExtraUsageEnabled
-                      ? "bg-amber-500/15 text-amber-500 hover:bg-amber-500/25"
+                      ? "bg-foreground/10 text-foreground hover:bg-foreground/15"
                       : "bg-black/[0.03] dark:bg-white/[0.03] text-text-muted/50 hover:text-text-muted hover:bg-black/[0.06] dark:hover:bg-white/[0.06]"
                   }`}
                   title={t("claudeExtraUsageToggleTitle")}
@@ -819,7 +819,7 @@ export default function ConnectionRow({
                   onClick={() => onToggleCodex5h?.(!codex5hEnabled)}
                   className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium transition-all cursor-pointer ${
                     codex5hEnabled
-                      ? "bg-blue-500/15 text-blue-500 hover:bg-blue-500/25"
+                      ? "bg-foreground/10 text-foreground hover:bg-foreground/15"
                       : "bg-black/[0.03] dark:bg-white/[0.03] text-text-muted/50 hover:text-text-muted hover:bg-black/[0.06] dark:hover:bg-white/[0.06]"
                   }`}
                   title={t("codex5hToggleTitle")}
@@ -831,7 +831,7 @@ export default function ConnectionRow({
                   onClick={() => onToggleCodexWeekly?.(!codexWeeklyEnabled)}
                   className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium transition-all cursor-pointer ${
                     codexWeeklyEnabled
-                      ? "bg-violet-500/15 text-violet-500 hover:bg-violet-500/25"
+                      ? "bg-foreground/10 text-foreground hover:bg-foreground/15"
                       : "bg-black/[0.03] dark:bg-white/[0.03] text-text-muted/50 hover:text-text-muted hover:bg-black/[0.06] dark:hover:bg-white/[0.06]"
                   }`}
                   title={t("codexWeeklyToggleTitle")}
@@ -849,7 +849,7 @@ export default function ConnectionRow({
                   aria-label={proxyEnabled ? t("proxyEnabledTitle") : t("proxyDisabledTitle")}
                   className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium transition-all cursor-pointer ${
                     proxyEnabled
-                      ? "bg-emerald-500/15 text-emerald-500 hover:bg-emerald-500/25"
+                      ? "bg-foreground/10 text-foreground hover:bg-foreground/15"
                       : "bg-black/[0.03] dark:bg-white/[0.03] text-text-muted/50 hover:text-text-muted hover:bg-black/[0.06] dark:hover:bg-white/[0.06]"
                   }`}
                   title={proxyEnabled ? t("proxyEnabledTitle") : t("proxyDisabledTitle")}
@@ -871,7 +871,7 @@ export default function ConnectionRow({
                   }
                   className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium transition-all cursor-pointer ${
                     perKeyProxyEnabled
-                      ? "bg-violet-500/15 text-violet-500 hover:bg-violet-500/25"
+                      ? "bg-foreground/10 text-foreground hover:bg-foreground/15"
                       : "bg-black/[0.03] dark:bg-white/[0.03] text-text-muted/50 hover:text-text-muted hover:bg-black/[0.06] dark:hover:bg-white/[0.06]"
                   }`}
                   title={
@@ -891,12 +891,8 @@ export default function ConnectionRow({
             )}
             {hasProxy &&
               (() => {
-                const colorClass =
-                  proxySource === "global"
-                    ? "bg-emerald-500/15 text-emerald-500"
-                    : proxySource === "provider"
-                      ? "bg-amber-500/15 text-amber-500"
-                      : "bg-blue-500/15 text-blue-500";
+                // The proxy scope is a label, not a state: one neutral style for all scopes.
+                const colorClass = "bg-muted text-text-muted";
                 const label =
                   proxySource === "global"
                     ? t("proxySourceGlobal")
@@ -944,7 +940,7 @@ export default function ConnectionRow({
             loading={isRefreshing}
             disabled={connection.isActive === false || isRefreshing}
             onClick={onRefreshToken}
-            className="!h-7 !px-2 text-xs text-amber-500 hover:text-amber-400"
+            className="!h-7 !px-2 text-xs text-text-muted hover:text-text-main"
             title={t("refreshOauthTokenTitle")}
           >
             {t("tokenShort")}
@@ -958,7 +954,7 @@ export default function ConnectionRow({
             loading={isApplyingCodexAuthLocal}
             disabled={isApplyingCodexAuthLocal}
             onClick={onApplyCodexAuthLocal}
-            className="!h-7 !px-2 text-xs text-emerald-500 hover:text-emerald-400"
+            className="!h-7 !px-2 text-xs text-text-muted hover:text-text-main"
             title={applyCodexAuthLabel}
           >
             {applyCodexAuthLabel}
@@ -972,7 +968,7 @@ export default function ConnectionRow({
             loading={isExportingCodexAuthFile}
             disabled={isExportingCodexAuthFile}
             onClick={onExportCodexAuthFile}
-            className="!h-7 !px-2 text-xs text-sky-500 hover:text-sky-400"
+            className="!h-7 !px-2 text-xs text-text-muted hover:text-text-main"
             title={exportCodexAuthLabel}
           >
             {exportCodexAuthLabel}
@@ -986,7 +982,7 @@ export default function ConnectionRow({
             loading={isApplyingClaudeAuthLocal}
             disabled={isApplyingClaudeAuthLocal}
             onClick={onApplyClaudeAuthLocal}
-            className="!h-7 !px-2 text-xs text-emerald-500 hover:text-emerald-400"
+            className="!h-7 !px-2 text-xs text-text-muted hover:text-text-main"
             title={applyClaudeAuthLabel}
           >
             {applyClaudeAuthLabel}
@@ -1000,7 +996,7 @@ export default function ConnectionRow({
             loading={isExportingClaudeAuthFile}
             disabled={isExportingClaudeAuthFile}
             onClick={onExportClaudeAuthFile}
-            className="!h-7 !px-2 text-xs text-sky-500 hover:text-sky-400"
+            className="!h-7 !px-2 text-xs text-text-muted hover:text-text-main"
             title={exportClaudeAuthLabel}
           >
             {exportClaudeAuthLabel}
@@ -1016,7 +1012,7 @@ export default function ConnectionRow({
           {onReauth && (
             <button
               onClick={onReauth}
-              className="p-2 hover:bg-amber-500/10 rounded text-amber-600 hover:text-amber-500"
+              className="p-2 hover:bg-feedback-warning-surface rounded text-feedback-warning-foreground"
               title={t("reauthenticateConnection")}
             >
               <Icon icon={ScanFace} size="md" color="current" />
@@ -1038,7 +1034,7 @@ export default function ConnectionRow({
           </button>
           <button
             onClick={onDelete}
-            className="p-2 hover:bg-red-500/10 rounded text-red-500"
+            className="p-2 hover:bg-feedback-danger-surface rounded text-feedback-danger-foreground"
             title={t("delete")}
           >
             <Icon icon={Trash2} size="md" color="current" />

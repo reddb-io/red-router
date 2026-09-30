@@ -28,7 +28,7 @@ export default function ProviderQuotaVisibilityToggle({
         aria-label={actionLabel}
         className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium transition-all cursor-pointer ${
           visible
-            ? "bg-sky-500/15 text-sky-500 hover:bg-sky-500/25"
+            ? "bg-foreground/10 text-foreground hover:bg-foreground/15"
             : "bg-black/[0.03] dark:bg-white/[0.03] text-text-muted/50 hover:text-text-muted hover:bg-black/[0.06] dark:hover:bg-white/[0.06]"
         }`}
         title={actionLabel}

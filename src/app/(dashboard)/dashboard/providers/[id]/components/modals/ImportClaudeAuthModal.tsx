@@ -421,12 +421,12 @@ export function ImportClaudeAuthModal({ onClose, onSuccess }: ImportClaudeAuthMo
                   className="block w-full text-sm"
                 />
                 {singleJson && previewClaudeJson(singleJson).valid && (
-                  <p className="mt-1 text-xs text-emerald-500">
+                  <p className="mt-1 text-xs text-feedback-success-foreground">
                     {t("providerDetailValidClaudeCredentialsFile")}
                   </p>
                 )}
                 {singleJson && !previewClaudeJson(singleJson).valid && (
-                  <p className="mt-1 text-xs text-red-500">
+                  <p className="mt-1 text-xs text-feedback-danger-foreground">
                     {typeof t.has === "function" && t.has("claudeImportInvalidShape")
                       ? t("claudeImportInvalidShape")
                       : "The file is not a valid .credentials.json"}
@@ -594,7 +594,7 @@ export function ImportClaudeAuthModal({ onClose, onSuccess }: ImportClaudeAuthMo
                 {bulkEntries.map((e, i) => (
                   <div
                     key={i}
-                    className={`text-xs py-0.5 flex items-center gap-1 ${e.parseError ? "text-red-500" : "text-text-main"}`}
+                    className={`text-xs py-0.5 flex items-center gap-1 ${e.parseError ? "text-feedback-danger-foreground" : "text-text-main"}`}
                   >
                     <span className="material-symbols-outlined text-[12px]">
                       {e.parseError ? "error" : "check_circle"}
@@ -625,9 +625,9 @@ export function ImportClaudeAuthModal({ onClose, onSuccess }: ImportClaudeAuthMo
               </div>
             )}
             {bulkErrors.length > 0 && (
-              <div className="rounded border border-red-500/30 bg-red-500/5 px-2 py-1.5 max-h-28 overflow-y-auto">
+              <div className="rounded border border-feedback-danger-border bg-feedback-danger-surface px-2 py-1.5 max-h-28 overflow-y-auto">
                 {bulkErrors.map((e) => (
-                  <div key={e.index} className="text-xs text-red-500 py-0.5">
+                  <div key={e.index} className="text-xs text-feedback-danger-foreground py-0.5">
                     {e.name}: {e.message}
                   </div>
                 ))}
@@ -712,7 +712,7 @@ export function ApplyClaudeAuthModal({
             {"~/.claude/credentials-{timestamp}.bak"}
           </code>
         </div>
-        <div className="rounded bg-sky-500/10 border border-sky-500/20 px-3 py-2 text-xs text-sky-400">
+        <div className="rounded bg-feedback-info-surface border border-feedback-info-border px-3 py-2 text-xs text-feedback-info-foreground">
           {mcpHint}
         </div>
         <p className="text-sm text-text-muted">{warning}</p>

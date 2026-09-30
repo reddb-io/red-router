@@ -259,7 +259,7 @@ export default function ModelCatalogTable({
           {" models"}
           {loading && <span className="ml-2">Refreshing…</span>}
           {error && (
-            <span className="ml-2 text-red-500">
+            <span className="ml-2 text-feedback-danger-foreground">
               Refresh failed. Showing the last loaded catalog.
             </span>
           )}

@@ -193,9 +193,9 @@ function useProviderCcAliasState(providerId: string, t: ProviderMessageTranslato
 
 function CcAliasSectionSkeleton() {
   return (
-    <div className="rounded-xl border border-border bg-white p-5 dark:bg-zinc-950">
-      <div className="h-5 w-64 animate-pulse rounded bg-zinc-200 dark:bg-zinc-800" />
-      <div className="mt-4 h-16 animate-pulse rounded bg-zinc-100 dark:bg-zinc-900" />
+    <div className="rounded-xl border border-border bg-surface p-5">
+      <div className="h-5 w-64 animate-pulse rounded bg-muted" />
+      <div className="mt-4 h-16 animate-pulse rounded bg-muted" />
     </div>
   );
 }
@@ -258,7 +258,7 @@ export default function ProviderCcAliasSection({ providerId }: ProviderCcAliasSe
   const modelEntries = Object.entries(state.models);
 
   return (
-    <div className="rounded-xl border border-border bg-white p-5 dark:bg-zinc-950">
+    <div className="rounded-xl border border-border bg-surface p-5">
       <h2 className="text-base font-semibold text-text-main mb-1">
         {providerText(t, "ccAliasSectionTitle", "Expose in Claude Code (claude/…)")}
       </h2>

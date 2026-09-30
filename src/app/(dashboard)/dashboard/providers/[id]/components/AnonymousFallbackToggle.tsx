@@ -163,7 +163,7 @@ export default function AnonymousFallbackToggle({
   return (
     <Card>
       <div className="flex items-center gap-3">
-        <div className="inline-flex shrink-0 items-center justify-center w-10 h-10 rounded-full bg-sky-500/10 text-sky-500">
+        <div className="inline-flex shrink-0 items-center justify-center w-10 h-10 rounded-full bg-muted text-text-muted">
           <Icon icon={Key} size="lg" color="current" />
         </div>
         <div className="flex-1 min-w-0">
@@ -183,7 +183,7 @@ export default function AnonymousFallbackToggle({
           disabled={saving}
           onClick={() => handleToggle(!fallbackEnabled)}
           className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
-            fallbackEnabled ? "bg-sky-500" : "bg-black/[0.12] dark:bg-white/[0.15]"
+            fallbackEnabled ? "bg-feedback-info-foreground" : "bg-black/[0.12] dark:bg-white/[0.15]"
           }`}
         >
           <span

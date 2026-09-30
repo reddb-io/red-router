@@ -61,18 +61,18 @@ export default function BatchTestResultsModal({
           (!batchTestResults.results || batchTestResults.results.length === 0) ? (
             <div className="text-center py-6">
               <Icon icon={CircleAlert} size="lg" color="feedback-danger-foreground" className="mb-2 block" style={{ width: 32, height: 32 }} />
-              <p className="text-sm text-red-400">{String(batchTestResults.error)}</p>
+              <p className="text-sm text-feedback-danger-foreground">{String(batchTestResults.error)}</p>
             </div>
           ) : (
             <div className="flex flex-col gap-3">
               {batchTestResults.summary && (
                 <div className="flex items-center gap-3 text-xs mb-1">
                   <span className="text-text-muted">{providerInfo?.name || providerId}</span>
-                  <span className="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 font-medium">
+                  <span className="px-2 py-0.5 rounded bg-feedback-success-surface text-feedback-success-foreground font-medium">
                     {t("passedCount", { count: batchTestResults.summary.passed })}
                   </span>
                   {batchTestResults.summary.failed > 0 && (
-                    <span className="px-2 py-0.5 rounded bg-red-500/15 text-red-400 font-medium">
+                    <span className="px-2 py-0.5 rounded bg-feedback-danger-surface text-feedback-danger-foreground font-medium">
                       {t("failedCount", { count: batchTestResults.summary.failed })}
                     </span>
                   )}
@@ -88,7 +88,7 @@ export default function BatchTestResultsModal({
                 >
                   <span
                     className={`material-symbols-outlined text-[16px] ${
-                      r.valid ? "text-emerald-500" : "text-red-500"
+                      r.valid ? "text-feedback-success-foreground" : "text-feedback-danger-foreground"
                     }`}
                   >
                     {r.valid ? "check_circle" : "error"}
@@ -106,8 +106,8 @@ export default function BatchTestResultsModal({
                   <span
                     className={`text-[10px] uppercase font-bold px-1.5 py-0.5 rounded ${
                       r.valid
-                        ? "bg-emerald-500/15 text-emerald-400"
-                        : "bg-red-500/15 text-red-400"
+                        ? "bg-feedback-success-surface text-feedback-success-foreground"
+                        : "bg-feedback-danger-surface text-feedback-danger-foreground"
                     }`}
                   >
                     {r.valid ? t("okShort") : r.diagnosis?.type || t("errorShort")}

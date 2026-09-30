@@ -46,17 +46,16 @@ export type ModelCompatSavePatch = {
 
 function getModelSourceBadgeClass(source?: string): string {
   switch (normalizeModelCatalogSource(source)) {
-    case "imported":
-      return "border-sky-500/30 bg-sky-500/10 text-sky-300";
-    case "custom":
-      return "border-emerald-500/30 bg-emerald-500/10 text-emerald-300";
+    // Source labels name where a model came from; they are not state, so they stay neutral.
+    // Only "fallback" (a stand-in catalogue entry) is a caution worth a feedback role.
     case "fallback":
-      return "border-amber-500/30 bg-amber-500/10 text-amber-300";
+      return "border-feedback-warning-border bg-feedback-warning-surface text-feedback-warning-foreground";
+    case "imported":
+    case "custom":
     case "alias":
-      return "border-violet-500/30 bg-violet-500/10 text-violet-300";
     case "system":
     default:
-      return "border-border bg-sidebar/70 text-text-muted";
+      return "border-border bg-muted text-text-muted";
   }
 }
 
@@ -404,7 +403,7 @@ export default function ModelRow({
           <button
             onClick={() => onTestModel(model.id, fullModel)}
             disabled={testingModel}
-            className={`rounded p-0.5 hover:bg-sidebar transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${testStatus === "ok" ? "text-green-500" : testStatus === "quota" ? "text-amber-500" : testStatus === "error" ? "text-red-500" : "text-text-muted hover:text-primary"}`}
+            className={`rounded p-0.5 hover:bg-sidebar transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${testStatus === "ok" ? "text-feedback-success-foreground" : testStatus === "quota" ? "text-feedback-warning-foreground" : testStatus === "error" ? "text-feedback-danger-foreground" : "text-text-muted hover:text-primary"}`}
             title={
               testingModel
                 ? t("testingModel")

@@ -174,21 +174,21 @@ export default function ImportGrokCliAuthModal({
         )}
 
         {/* Parse error */}
-        {parseError && <p className="text-sm text-red-500">{parseError}</p>}
+        {parseError && <p className="text-sm text-feedback-danger-foreground">{parseError}</p>}
 
         {/* Detected info */}
         {parsedJson && (
           <div className="flex flex-col gap-3">
-            <div className="bg-green-500/10 border border-green-500/20 rounded-md p-3">
-              <p className="text-sm text-green-400">
+            <div className="bg-feedback-success-surface border border-feedback-success-border rounded-md p-3">
+              <p className="text-sm text-feedback-success-foreground">
                 {t("grokValidToken")}
                 {detectedEmail ? ` (${detectedEmail})` : ""}
               </p>
               {hasRefreshToken && (
-                <p className="text-xs text-green-500 mt-1">{t("grokRefreshIncluded")}</p>
+                <p className="text-xs text-feedback-success-foreground mt-1">{t("grokRefreshIncluded")}</p>
               )}
               {!hasRefreshToken && (
-                <p className="text-xs text-amber-400 mt-1">{t("grokRefreshMissing")}</p>
+                <p className="text-xs text-feedback-warning-foreground mt-1">{t("grokRefreshMissing")}</p>
               )}
             </div>
             <input
@@ -202,7 +202,7 @@ export default function ImportGrokCliAuthModal({
         )}
 
         {/* Submit error */}
-        {error && <p className="text-sm text-red-500">{error}</p>}
+        {error && <p className="text-sm text-feedback-danger-foreground">{error}</p>}
 
         {/* Buttons */}
         <div className="flex gap-2">

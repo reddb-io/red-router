@@ -68,7 +68,7 @@ export default function CodexAccountDetails({ pool }: CodexAccountDetailsProps) 
             >
               <div className="flex items-center justify-between gap-2">
                 <span className="font-medium">Codex</span>
-                <span className={limited ? "text-amber-500" : "text-text-muted"}>
+                <span className={limited ? "text-feedback-warning-foreground" : "text-text-muted"}>
                   {limited && child.quota.exhaustedWindow
                     ? t("codexPoolQuotaExhausted")
                     : limited && child.cooldown.active
@@ -81,7 +81,7 @@ export default function CodexAccountDetails({ pool }: CodexAccountDetailsProps) 
                 <span>7d: {formatQuota(child.quota.windows["7d"], t("codexPoolUsed"))}</span>
               </div>
               {limited && child.cooldown.rateLimitedUntil ? (
-                <div className="mt-1 text-[11px] text-amber-500">
+                <div className="mt-1 text-[11px] text-feedback-warning-foreground">
                   {t("codexPoolUntil", {
                     value: new Intl.DateTimeFormat(locale, {
                       dateStyle: "short",
@@ -110,7 +110,7 @@ export default function CodexAccountDetails({ pool }: CodexAccountDetailsProps) 
         </p>
       )}
       {failed && (
-        <p role="alert" className="mt-2 text-xs text-red-500">
+        <p role="alert" className="mt-2 text-xs text-feedback-danger-foreground">
           {t("codexCooldownReleaseFailed")}
         </p>
       )}

@@ -21,6 +21,7 @@ import {
   parseProviderDisplayModePreference,
   type ProviderDisplayMode,
 } from "./providerPageStorage";
+import { normalizeProviderAvailability, type ProviderAvailabilityMap } from "./providerView";
 
 export interface ProviderStatsSnapshot {
   total?: number;
@@ -478,9 +479,7 @@ export function filterConfiguredProviderEntries<TProvider>(
       return connections.some(
         (conn) =>
           connectionBelongsToProviderPage(conn.provider, entry.providerId) &&
-          connectionSearchHaystacks(conn).some((haystack) =>
-            matchesAnyToken(haystack, searchQuery)
-          )
+          connectionSearchHaystacks(conn).some((haystack) => matchesAnyToken(haystack, searchQuery))
       );
     });
   }
@@ -605,6 +604,8 @@ export function upsertProviderNodeById<T extends { id?: string | null }>(prev: T
 /** Parsed payload the providers dashboard renders its first paint from. */
 export interface ProviderPageData {
   connections: any[];
+  /** Opt-in availability per provider from `GET /api/providers`; null when it could not be loaded. */
+  providerAvailability: ProviderAvailabilityMap | null;
   providerNodes: any[];
   ccCompatibleProviderEnabled: boolean;
   expirations: any | null;
@@ -680,6 +681,7 @@ export async function loadProviderPageData(
 
   return {
     connections: Array.isArray(connectionsData?.connections) ? connectionsData.connections : [],
+    providerAvailability: normalizeProviderAvailability(connectionsData?.providerAvailability),
     providerNodes: Array.isArray(nodesData?.nodes) ? nodesData.nodes : [],
     ccCompatibleProviderEnabled: nodesData?.ccCompatibleProviderEnabled === true,
     expirations: expirationsData ?? null,

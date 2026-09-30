@@ -32,9 +32,9 @@ const PARSE_ERROR_REASON_KEYS = [
 function ParseErrorsList({ errors, t }: { errors: ProviderImportParseError[]; t: Translator }) {
   if (errors.length === 0) return null;
   return (
-    <div className="max-h-28 overflow-y-auto rounded border border-red-500/30 bg-red-500/10 p-2">
+    <div className="max-h-28 overflow-y-auto rounded border border-feedback-danger-border bg-feedback-danger-surface p-2">
       {errors.map((err, idx) => (
-        <div key={idx} className="text-xs text-red-400">
+        <div key={idx} className="text-xs text-feedback-danger-foreground">
           {t("importFromFileErrorLine", {
             line: err.line,
             reason: t(
@@ -135,8 +135,8 @@ function ImportResultPanel({ result, t }: { result: ImportResult; t: Translator 
     <div
       className={`px-3 py-2 rounded border text-sm ${
         failed
-          ? "border-amber-500/30 bg-amber-500/10 text-amber-300"
-          : "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
+          ? "border-feedback-warning-border bg-feedback-warning-surface text-feedback-warning-foreground"
+          : "border-feedback-success-border bg-feedback-success-surface text-feedback-success-foreground"
       }`}
     >
       {t("importFromFileResult", { success: result.success, failed: result.failed })}

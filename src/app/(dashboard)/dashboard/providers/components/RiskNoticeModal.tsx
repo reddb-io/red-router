@@ -33,7 +33,7 @@ export default function RiskNoticeModal({
   return (
     <Modal isOpen onClose={onCancel} title={t("title")} size="md">
       <div className="flex flex-col gap-5">
-        <div className="flex items-start gap-3 rounded-lg border border-amber-500/25 bg-amber-500/10 p-4">
+        <div className="flex items-start gap-3 rounded-lg border border-feedback-warning-border bg-feedback-warning-surface p-4">
           <Icon icon={Info} size="lg" color="feedback-warning-foreground" className="mt-0.5 leading-none" style={{ width: 28, height: 28 }} />
           <div className="min-w-0 text-text-main">
             <p className="mb-2 text-sm font-semibold">{providerName}</p>

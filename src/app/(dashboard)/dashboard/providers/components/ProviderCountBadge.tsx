@@ -12,12 +12,8 @@ export default function ProviderCountBadge({ configured, total }: ProviderCountB
 
   if (total === 0) return null;
 
-  const colorClass =
-    configured === 0
-      ? "text-text-muted"
-      : configured === total
-        ? "text-green-500"
-        : "text-amber-500";
+  // A count is a fact, not a state: neutral ink, stronger once something is configured.
+  const colorClass = configured === 0 ? "text-text-muted" : "text-text-main";
 
   return (
     <span
