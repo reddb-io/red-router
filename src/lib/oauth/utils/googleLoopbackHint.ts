@@ -66,6 +66,8 @@ export function buildGoogleLoopbackHint(
     // One forward only: the callback rides the dashboard port itself.
     tunnelCommand: buildSshLocalForward([dashboardPort], location.hostname),
     localDashboardUrl: `http://localhost:${dashboardPort}`,
-    helperCommand: LOGIN_HELPER_PROVIDERS.has(provider) ? `npx red-router login ${provider}` : null,
+    helperCommand: LOGIN_HELPER_PROVIDERS.has(provider)
+      ? `npx @reddb-io/red-router login ${provider}`
+      : null,
   };
 }

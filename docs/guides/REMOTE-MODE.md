@@ -131,7 +131,7 @@ copy — the helper delivers the credential to that install for you:
 ```bash
 # On your LOCAL machine (needs Node.js + a browser):
 red-router connect 192.168.0.15        # once — mints an admin-scoped context token
-npx red-router login antigravity
+npx @reddb-io/red-router login antigravity
 #   ↳ opens the Google consent, captures the callback on a local loopback port,
 #     exchanges it, and POSTs the credential to the active context:
 #
@@ -149,7 +149,7 @@ push fail: it falls back to printing the blob rather than discarding an
 authorization you already completed.
 
 ```bash
-npx red-router login antigravity --no-push
+npx @reddb-io/red-router login antigravity --no-push
 #   omniroute-cred-v1.eyJ2IjoxLCJ...
 ```
 

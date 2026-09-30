@@ -45,7 +45,7 @@ test("a SINGLE forward is enough — unlike codex, there is no second port", () 
 test("antigravity gets the local login helper as the recommended path", () => {
   assert.equal(
     buildGoogleLoopbackHint("antigravity", LAN).helperCommand,
-    "npx omniroute login antigravity"
+    "npx @reddb-io/red-router login antigravity"
   );
 });
 
