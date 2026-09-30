@@ -39,7 +39,7 @@ export default function DestinationStep({
           {t("wizardEmptyProviders")}
         </p>
         <Link
-          href="/dashboard/providers"
+          href="/proxy/providers"
           className="text-sm text-[var(--color-accent)] underline underline-offset-2 hover:opacity-80"
         >
           {t("wizardDestinationConnectProvider")}

@@ -159,7 +159,7 @@ export default function CliproxyapiSettingsTab() {
         <span>
           {t("cliproxyapiLifecycleNoticeBefore")}{" "}
           <Link
-            href="/dashboard/providers/services"
+            href="/proxy/providers/services"
             className="underline underline-offset-2 hover:opacity-80"
           >
             {t("cliproxyapiLifecycleNoticeLink")}

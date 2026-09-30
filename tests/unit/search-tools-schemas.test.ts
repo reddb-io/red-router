@@ -17,7 +17,7 @@ test("SearchProviderCatalogItemSchema: valid search provider parses", () => {
     freeMonthlyQuota: 1000,
     searchTypes: ["web", "news"],
     status: "configured",
-    configureHref: "/dashboard/providers",
+    configureHref: "/proxy/providers",
   };
   const result = SearchProviderCatalogItemSchema.safeParse(item);
   assert.ok(result.success, "valid search item should parse");
@@ -37,7 +37,7 @@ test("SearchProviderCatalogItemSchema: valid fetch provider parses", () => {
     freeMonthlyQuota: 500,
     fetchFormats: ["markdown", "html", "links"],
     status: "configured",
-    configureHref: "/dashboard/providers",
+    configureHref: "/proxy/providers",
   };
   const result = SearchProviderCatalogItemSchema.safeParse(item);
   assert.ok(result.success, "valid fetch item should parse");
@@ -60,7 +60,7 @@ test("SearchProviderCatalogItemSchema: status 'missing' is valid", () => {
   assert.ok(result.success, "status=missing should parse");
   if (result.success) {
     // configureHref has a default value
-    assert.equal(result.data.configureHref, "/dashboard/providers");
+    assert.equal(result.data.configureHref, "/proxy/providers");
   }
 });
 

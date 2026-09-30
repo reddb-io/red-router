@@ -16,8 +16,8 @@ export default function RoutingEntryLink({ apiKeyId }: { apiKeyId?: string }) {
       <Link
         href={
           apiKeyId
-            ? "/dashboard/api-manager/routing?apiKeyId=" + encodeURIComponent(apiKeyId)
-            : "/dashboard/api-manager/routing"
+            ? "/proxy/keys/routing?apiKeyId=" + encodeURIComponent(apiKeyId)
+            : "/proxy/keys/routing"
         }
         className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-medium text-primary hover:bg-primary/10 focus-visible:outline-2 focus-visible:outline-primary"
       >

@@ -14,7 +14,7 @@ export const SearchProviderCatalogItemSchema = z.object({
   /** "configured" = creds presentes; "missing" = sem creds; "rate_limited" = todas as keys em cooldown. */
   status: z.enum(["configured", "missing", "rate_limited"]),
   /** Link para configurar provider. */
-  configureHref: z.string().default("/dashboard/providers"),
+  configureHref: z.string().default("/proxy/providers"),
 });
 export type SearchProviderCatalogItem = z.infer<typeof SearchProviderCatalogItemSchema>;
 

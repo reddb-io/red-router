@@ -187,7 +187,7 @@ export default function CompatibleNodeCard({
                   method: "DELETE",
                 });
                 if (res.ok) {
-                  router.push("/dashboard/providers");
+                  router.push("/proxy/providers");
                   router.refresh();
                 }
               } catch (error) {

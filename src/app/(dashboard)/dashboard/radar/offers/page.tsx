@@ -145,7 +145,7 @@ export default function RadarOffersPage() {
     <div className="flex flex-col gap-6">
       <div className="flex flex-col gap-3">
         <Link
-          href="/dashboard/radar"
+          href="/proxy/providers/radar"
           className="text-sm text-text-muted hover:text-text-main transition-colors w-fit"
         >
           ← {t("backToRadar")}

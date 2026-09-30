@@ -17,7 +17,7 @@ export async function attachTray({ port = DEFAULT_PORT } = {}) {
     trayOnly: true,
     onQuit: stop,
     onOpenDashboard: () => open(`http://127.0.0.1:${port}/dashboard`),
-    onShowLogs: () => open(`http://127.0.0.1:${port}/dashboard/logs`),
+    onShowLogs: () => open(`http://127.0.0.1:${port}/observe/logs`),
   });
   if (!tray) throw new Error("RedRouter tray is unavailable in this graphical session");
   process.once("SIGINT", stop);

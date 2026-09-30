@@ -264,7 +264,7 @@ export function RadarCatalogTable({ entries, refreshCatalog, onError }: RadarCat
                         )}
                         {entry.setup?.keyUrl && (
                           <Link
-                            href={`/dashboard/radar/setup?provider=${encodeURIComponent(entry.provider)}`}
+                            href={`/proxy/providers/radar/setup?provider=${encodeURIComponent(entry.provider)}`}
                             className="text-xs text-violet-400 hover:underline"
                             title={t("setupGuide")}
                           >

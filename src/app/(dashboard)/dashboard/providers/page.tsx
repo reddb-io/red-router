@@ -857,7 +857,7 @@ function ProvidersPageContent() {
                   )}
                 </p>
                 <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
-                  <Button icon="add" onClick={() => router.push("/dashboard/providers/new")}>
+                  <Button icon="add" onClick={() => router.push("/proxy/providers/new")}>
                     {providerText(t, "onboardingWizard", "Provider Onboarding Wizard")}
                   </Button>
                   <Button
@@ -906,7 +906,7 @@ function ProvidersPageContent() {
                   setActiveCategory(freeOnly ? null : category);
                 }}
                 onDisplayModeChange={setProviderDisplayMode}
-                onNewProvider={() => router.push("/dashboard/providers/new")}
+                onNewProvider={() => router.push("/proxy/providers/new")}
                 onImportFromFile={() => setShowImportFromFileModal(true)}
                 searchQuery={searchQuery}
                 setModelSearchQuery={setModelSearchQuery}
@@ -992,7 +992,7 @@ function ProvidersPageContent() {
                   <ProviderCatalogueList
                     entries={catalogueEntries as any}
                     availability={providerAvailability}
-                    onOpenProvider={(id) => router.push(`/dashboard/providers/${id}`)}
+                    onOpenProvider={(id) => router.push(`/proxy/providers/${id}`)}
                   />
                 </div>
               ) : isCompactProviderDisplay ? (
@@ -1850,7 +1850,7 @@ function ProvidersPageContent() {
           onCreated={(node) => {
             setProviderNodes((prev) => upsertProviderNodeById(prev, node));
             setShowAddCompatibleModal(false);
-            router.push(`/dashboard/providers/${node.id}`);
+            router.push(`/proxy/providers/${node.id}`);
           }}
         />
         <AddCompatibleProviderModal
@@ -1860,7 +1860,7 @@ function ProvidersPageContent() {
           onCreated={(node) => {
             setProviderNodes((prev) => upsertProviderNodeById(prev, node));
             setShowAddAnthropicCompatibleModal(false);
-            router.push(`/dashboard/providers/${node.id}`);
+            router.push(`/proxy/providers/${node.id}`);
           }}
         />
         {ccCompatibleProviderEnabled && (
@@ -1872,7 +1872,7 @@ function ProvidersPageContent() {
             onCreated={(node) => {
               setProviderNodes((prev) => upsertProviderNodeById(prev, node));
               setShowAddCcCompatibleModal(false);
-              router.push(`/dashboard/providers/${node.id}`);
+              router.push(`/proxy/providers/${node.id}`);
             }}
           />
         )}

@@ -237,7 +237,7 @@ export default function CompressionHub() {
           ) : (
             <span>
               {t("defaultConfiguredPrefix")}{" "}
-              <a href="/dashboard/context/settings" className="underline hover:text-text-main">
+              <a href="/optimize/token-saver" className="underline hover:text-text-main">
                 {t("compressionSettings")}
               </a>
               .

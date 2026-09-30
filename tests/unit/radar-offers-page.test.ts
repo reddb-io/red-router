@@ -12,7 +12,7 @@ function pageSource(): string {
 
 test("Radar links to a dedicated supporter offers page", () => {
   assert.ok(fs.existsSync(pagePath), "missing /dashboard/radar/offers page");
-  assert.match(fs.readFileSync(radarPagePath, "utf8"), /href="\/dashboard\/radar\/offers"/);
+  assert.match(fs.readFileSync(radarPagePath, "utf8"), /href="\/proxy\/providers\/radar\/offers"/);
 });
 
 test("offers page uses only local settings, sync, and cache routes", () => {

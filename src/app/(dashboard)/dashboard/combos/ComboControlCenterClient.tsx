@@ -309,7 +309,7 @@ export default function ComboControlCenterClient({ comboId }: { comboId: string 
   if (error && !combo) {
     return (
       <div className="space-y-4">
-        <Link href="/dashboard/combos" className="text-sm text-primary hover:underline">
+        <Link href="/proxy/combos" className="text-sm text-primary hover:underline">
           ← {t("backToCombos")}
         </Link>
         <Card className="border border-red-500/20 bg-red-500/10 p-6">
@@ -326,7 +326,7 @@ export default function ComboControlCenterClient({ comboId }: { comboId: string 
     <div className="space-y-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <Link href="/dashboard/combos" className="text-sm text-primary hover:underline">
+          <Link href="/proxy/combos" className="text-sm text-primary hover:underline">
             ← {t("backToCombos")}
           </Link>
           <div className="mt-3 flex flex-wrap items-center gap-3">
@@ -355,7 +355,7 @@ export default function ComboControlCenterClient({ comboId }: { comboId: string 
             {t("refresh")}
           </button>
           <Link
-            href="/dashboard/combos"
+            href="/proxy/combos"
             className="rounded-lg border border-primary/30 bg-primary/10 px-3 py-2 text-sm text-primary transition-colors hover:bg-primary/20"
           >
             {t("editInCombos")}
@@ -541,12 +541,12 @@ export default function ComboControlCenterClient({ comboId }: { comboId: string 
         <h2 className="text-lg font-semibold text-text-main">{t("quickLinks")}</h2>
         <div className="mt-4 flex flex-wrap gap-2">
           {[
-            [t("comboHealth"), "/dashboard/analytics/combo-health"],
-            [t("callLogs"), "/dashboard/logs"],
-            [t("costs"), "/dashboard/costs"],
-            [t("quota"), "/dashboard/quota"],
-            [t("playground"), "/dashboard/playground"],
-            [t("providers"), "/dashboard/providers"],
+            [t("comboHealth"), "/home/analytics/combo-health"],
+            [t("callLogs"), "/observe/logs"],
+            [t("costs"), "/observe/costs"],
+            [t("quota"), "/observe/costs/quota"],
+            [t("playground"), "/tools/playground"],
+            [t("providers"), "/proxy/providers"],
           ].map(([label, href]) => (
             <Link
               key={href}

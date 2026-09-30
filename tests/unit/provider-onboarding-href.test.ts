@@ -8,20 +8,20 @@ test("buildProviderDetailsHref uses the server-assigned connection UUID", () => 
   });
   assert.equal(
     href,
-    "/dashboard/providers/9f3c1a4d-1c2b-4a3c-8def-0123456789ab"
+    "/proxy/providers/9f3c1a4d-1c2b-4a3c-8def-0123456789ab"
   );
 });
 
 test("buildProviderDetailsHref does not leak the provider category into the URL", () => {
   // Regression for issue #6144: previously the wizard used
   // `connection.provider` ("openai-compatible") as the URL slug, which 404'd
-  // on /dashboard/providers/[id] because that route is keyed by UUID.
+  // on /proxy/providers/[id] because that route is keyed by UUID.
   const href = buildProviderDetailsHref({
     id: "9f3c1a4d-1c2b-4a3c-8def-0123456789ab",
     provider: "openai-compatible",
   });
-  assert.notEqual(href, "/dashboard/providers/openai-compatible");
-  assert.match(href ?? "", /\/dashboard\/providers\/[0-9a-f-]+$/);
+  assert.notEqual(href, "/proxy/providers/openai-compatible");
+  assert.match(href ?? "", /\/proxy\/providers\/[0-9a-f-]+$/);
 });
 
 test("buildProviderDetailsHref returns null when no id is available", () => {
@@ -33,5 +33,5 @@ test("buildProviderDetailsHref returns null when no id is available", () => {
 
 test("buildProviderDetailsHref percent-encodes unusual ids", () => {
   const href = buildProviderDetailsHref({ id: "abc/123 def" });
-  assert.equal(href, "/dashboard/providers/abc%2F123%20def");
+  assert.equal(href, "/proxy/providers/abc%2F123%20def");
 });

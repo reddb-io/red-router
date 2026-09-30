@@ -142,7 +142,7 @@ export default function CliAgentsPageClient({ machineId: _machineId }: CliAgents
               key={tool.id}
               tool={tool}
               batchStatus={statuses?.[tool.id] ?? null}
-              detailHref={`/dashboard/cli-agents/${tool.id}`}
+              detailHref={`/agents/cli-agents/${tool.id}`}
               hasActiveProviders={hasActiveProviders}
             />
           ))}

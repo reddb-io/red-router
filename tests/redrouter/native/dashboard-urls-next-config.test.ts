@@ -5,6 +5,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import test from "node:test";
 import * as urls from "../../../src/shared/constants/dashboardUrls.ts";
+import { SHIPPED_AREA_URLS } from "../../../src/shared/constants/dashboardUrlHistory.ts";
 
 const require = createRequire(import.meta.url);
 const { getPathMatch } = require("next/dist/shared/lib/router/utils/path-match.js");
@@ -112,7 +113,7 @@ test("no loop: a rewritten page is never redirected again, and a redirected URL 
   }
 });
 
-test("the older specific redirects still win and now chain into the new URLs", () => {
+test("the older specific redirects still win, and go straight to the current URL in one hop", () => {
   const index = (source: string) => redirects.findIndex((route) => route.source === source);
   const firstGenerated = redirects.length - generatedRedirects.length;
   for (const source of [
@@ -125,20 +126,155 @@ test("the older specific redirects still win and now chain into the new URLs", (
     assert.ok(index(source) >= 0 && index(source) < firstGenerated, source);
   }
   assert.deepEqual(redirects.slice(-generatedRedirects.length), generatedRedirects);
-  // freepik keeps its own answer; the destination it names is then moved by the generic rule.
+  // freepik keeps its own answer, and that answer already names the area URL (no second hop).
   assert.equal(
     hits(redirects, "/dashboard/providers/freepik")[0].destination,
-    "/dashboard/providers/magnific"
-  );
-  assert.equal(
-    redirectTarget(
-      hits(generatedRedirects, "/dashboard/providers/magnific")[0],
-      "/dashboard/providers/magnific"
-    ).pathname,
     "/proxy/providers/magnific"
   );
+  for (const [from, to] of [
+    ["/dashboard/omni-skills", "/optimize/skills"],
+    ["/dashboard/cli-tools/claude", "/agents/cli-code/claude"],
+    ["/dashboard/cli-tools", "/agents/cli-code"],
+    ["/dashboard/agents/x/y", "/agents/acp-agents/x/y"],
+  ]) {
+    const [first] = hits(redirects, from);
+    assert.equal(redirectTarget(first, from).pathname, to, from);
+    assert.equal(hits(redirects, to).length, 0, `${to} is redirected again`);
+  }
+  // Every redirect that names a /dashboard page as its target is gone: none chains.
+  for (const route of redirects.slice(0, firstGenerated)) {
+    assert.equal(
+      route.destination.startsWith("/dashboard/"),
+      false,
+      `${route.source} -> ${route.destination}`
+    );
+  }
   // Removed pages still go home.
   assert.equal(hits(redirects, "/dashboard/changelog")[0].destination, "/home");
+});
+
+// ─── every URL a release has served ───────────────────────────────────────────
+
+/** Follows redirects the way the browser does, and reports the hops. */
+function follow(pathname: string): { final: string; hops: string[] } {
+  const hops: string[] = [];
+  let current = pathname;
+  for (let step = 0; step < 6; step += 1) {
+    const [redirect] = hits(redirects, current);
+    if (!redirect) return { final: current, hops };
+    current = redirectTarget(redirect, current).pathname;
+    hops.push(current);
+  }
+  throw new Error(`redirect loop from ${pathname}: ${hops.join(" -> ")}`);
+}
+
+const TAILS = ["", "/detail", "/a/b"];
+
+test("every URL of the last release redirects, in one hop, to the page's current URL", () => {
+  assert.equal(SHIPPED_AREA_URLS.length, 52);
+  for (const [shipped, page] of SHIPPED_AREA_URLS) {
+    for (const tail of TAILS) {
+      const from = `${shipped}${tail}`;
+      const { final, hops } = follow(from);
+      const expected = urls.areaUrl(`${page}${tail}`);
+      // Some shipped URLs are still current (`/proxy/providers`): they must not move at all.
+      if (urls.canonicalDashboardPath(from) === `${page}${tail}` && expected === from) {
+        assert.deepEqual(hops, [], from);
+        continue;
+      }
+      assert.equal(final, expected, `${from} ends at ${final}`);
+      assert.ok(hops.length <= 1, `${from} takes ${hops.length} hops: ${hops.join(" -> ")}`);
+      // ...and what it lands on is served: the rewrite maps it back to the page (or a page below).
+      assert.ok(
+        urls.canonicalDashboardPath(final).startsWith("/dashboard/"),
+        `${final} is not served`
+      );
+    }
+  }
+});
+
+test("every /dashboard URL redirects in one hop to the current URL, and to nowhere else", () => {
+  for (const rule of urls.dashboardUrlRules()) {
+    for (const tail of TAILS) {
+      const from = `${rule.oldPrefix}${tail}`;
+      if (from.includes("/embed")) continue;
+      const { final, hops } = follow(from);
+      assert.equal(final, `${rule.newPrefix}${tail}`, from);
+      assert.equal(hops.length, 1, from);
+    }
+  }
+  // Pages an earlier scheme served under the old folder names keep landing on the right page.
+  for (const [from, to] of [
+    ["/dashboard/context/settings", "/optimize/token-saver"],
+    ["/dashboard/context", "/optimize/token-saver/context"],
+    ["/dashboard/context/caveman", "/optimize/token-saver/engines/caveman"],
+    ["/dashboard/compression/studio", "/optimize/token-saver/studio"],
+    ["/dashboard/api-manager/routing", "/proxy/keys/routing"],
+    ["/dashboard/settings/general", "/system/settings/storage"],
+    ["/dashboard/free-tiers", "/proxy/providers/free-tiers"],
+    ["/dashboard/quota", "/observe/costs/quota"],
+    ["/dashboard/logs/activity", "/observe/logs/activity"],
+  ]) {
+    assert.deepEqual(follow(from), { final: to, hops: [to] }, from);
+  }
+});
+
+test("the renamed URLs of the last release, spelled out (a bookmark from that release still works)", () => {
+  for (const [from, to] of [
+    ["/optimize/context", "/optimize/token-saver/context"],
+    ["/optimize/context/settings", "/optimize/token-saver"],
+    ["/optimize/context/engines", "/optimize/token-saver/engines"],
+    ["/optimize/context/caveman", "/optimize/token-saver/engines/caveman"],
+    ["/optimize/context/combos", "/optimize/token-saver/combos"],
+    ["/optimize/compression", "/optimize/token-saver/compression"],
+    ["/optimize/compression/studio", "/optimize/token-saver/studio"],
+    ["/optimize/compression/exclusions", "/optimize/token-saver/exclusions"],
+    ["/optimize/compression/live", "/optimize/token-saver/live"],
+    ["/optimize/analytics/compression", "/optimize/token-saver/analytics"],
+    ["/home/analytics/compression", "/optimize/token-saver/analytics"],
+    ["/proxy/api-manager", "/proxy/keys"],
+    ["/proxy/api-manager/routing", "/proxy/keys/routing"],
+    ["/proxy/quota", "/observe/costs/quota"],
+    ["/observe/free-tiers", "/proxy/providers/free-tiers"],
+    ["/observe/free-provider-rankings", "/proxy/providers/rankings"],
+    ["/observe/radar", "/proxy/providers/radar"],
+    ["/observe/radar/intel", "/proxy/providers/radar/intel"],
+    ["/observe/conversations", "/observe/logs/conversations"],
+    ["/observe/activity", "/observe/logs/activity"],
+    ["/observe/runtime", "/observe/health/runtime"],
+    ["/observe/resilience/connections", "/observe/health/connections"],
+    ["/agents/agent-bridge", "/agents/bridge"],
+    ["/tools/traffic-inspector", "/tools/inspector"],
+    ["/system/settings/general", "/system/settings/storage"],
+    ["/system/proxy", "/system/outbound-proxies"],
+    ["/proxy/combos/playground", "/proxy/combos/test"],
+  ]) {
+    assert.deepEqual(follow(from), { final: to, hops: [to] }, from);
+    // The query string rides along.
+    const [route] = hits(redirects, from);
+    assert.deepEqual(redirectTarget(route, from, { tab: "x" }).query, { tab: "x" }, from);
+  }
+});
+
+test("a redirect never takes away a URL the table serves now, and no URL is redirected twice", () => {
+  const current = new Set(urls.dashboardUrlRules().map((rule) => rule.newPrefix));
+  for (const route of urls.shippedAreaRedirects()) {
+    const source = route.source.replace(/\/:path\*$/, "");
+    assert.equal(current.has(source), false, `${source} is a current URL`);
+    // If the rewrite still serves it (an alias of the page), the page is shown at another URL.
+    const served = urls.canonicalDashboardPath(source);
+    if (served.startsWith("/dashboard/")) {
+      assert.notEqual(urls.areaUrl(served), source, `${source} is the page's own URL`);
+    }
+  }
+  const sources = redirects.map((route) => route.source);
+  assert.equal(new Set(sources).size, sources.length, "duplicate redirect sources");
+  // Order: a more specific shipped redirect comes before the shorter one it would otherwise hide.
+  const shipped = urls.shippedAreaRedirects().map((route) => route.source);
+  const depth = (value: string) => value.split("/").length;
+  for (let index = 1; index < shipped.length; index += 1) {
+    assert.ok(depth(shipped[index - 1]) >= depth(shipped[index]), shipped[index]);
+  }
 });
 
 test("the query string survives the redirect, and an empty tail leaves no trailing slash", () => {

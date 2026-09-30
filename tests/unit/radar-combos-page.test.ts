@@ -12,7 +12,7 @@ function pageSource(): string {
 
 test("Radar exposes the guided combos page from its catalog", () => {
   assert.ok(fs.existsSync(pagePath), "missing /dashboard/radar/combos page");
-  assert.match(fs.readFileSync(radarPagePath, "utf8"), /href="\/dashboard\/radar\/combos"/);
+  assert.match(fs.readFileSync(radarPagePath, "utf8"), /href="\/proxy\/providers\/radar\/combos"/);
 });
 
 test("guided combos reuse only the local catalog, builder options, and combo writer", () => {

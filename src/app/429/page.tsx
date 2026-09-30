@@ -16,10 +16,10 @@ export default function TooManyRequestsPage() {
         t("statusPages.429.suggestion3"),
       ]}
       primaryAction={{
-        href: "/dashboard/settings?tab=resilience",
+        href: "/system/settings?tab=resilience",
         label: t("statusPages.429.primaryAction"),
       }}
-      secondaryAction={{ href: "/dashboard/combos", label: t("statusPages.429.secondaryAction") }}
+      secondaryAction={{ href: "/proxy/combos", label: t("statusPages.429.secondaryAction") }}
     />
   );
 }

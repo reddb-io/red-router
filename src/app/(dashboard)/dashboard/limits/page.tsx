@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
 
 export default function LimitsRedirect() {
-  redirect("/dashboard/quota");
+  redirect("/observe/costs/quota");
 }

@@ -8,7 +8,7 @@ const radarPagePath = path.resolve(process.cwd(), "src/app/(dashboard)/dashboard
 
 test("Radar links to a dedicated local-only Intel page", () => {
   assert.ok(fs.existsSync(pagePath));
-  assert.match(fs.readFileSync(radarPagePath, "utf8"), /href="\/dashboard\/radar\/intel"/);
+  assert.match(fs.readFileSync(radarPagePath, "utf8"), /href="\/proxy\/providers\/radar\/intel"/);
   const source = fs.readFileSync(pagePath, "utf8");
   assert.match(source, /fetch\("\/api\/radar\/intel"\)/);
   assert.match(source, /fetch\("\/api\/radar\/intel\/sync",\s*\{\s*method:\s*"POST"/);

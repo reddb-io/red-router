@@ -320,7 +320,7 @@ export function ConversationContextSection({ log, detail }) {
             // dashboard/logs/page.tsx), so an in-page route change wouldn't load
             // the parent entry if the user is already on this page.
             <a
-              href={`/dashboard/logs?id=${encodeURIComponent(liveDetail.parentLogId)}`}
+              href={`/observe/logs?id=${encodeURIComponent(liveDetail.parentLogId)}`}
               className="flex items-center gap-1 text-[11px] text-text-muted hover:text-primary transition-colors"
               title={`Continues from ${liveDetail.parentLogId}`}
             >
@@ -335,7 +335,7 @@ export function ConversationContextSection({ log, detail }) {
             // above. sessionTag is the same conv_<id> the conversations list and
             // /api/conversations/[id]/tree both key on.
             <a
-              href={`/dashboard/conversations?tree=${encodeURIComponent(liveDetail.sessionTag)}`}
+              href={`/observe/logs/conversations?tree=${encodeURIComponent(liveDetail.sessionTag)}`}
               className="flex items-center gap-1 text-[11px] text-text-muted hover:text-primary transition-colors"
               title={`Open conversation ${liveDetail.sessionTag}`}
             >

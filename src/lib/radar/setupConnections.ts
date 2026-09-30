@@ -11,7 +11,7 @@ export function providerConnectionsRequestUrl(provider: string): string {
 
 /** Link the Radar tour to the provider's existing, validated API-key form. */
 export function providerSetupConnectionUrl(provider: string): string {
-  return `/dashboard/providers/${encodeURIComponent(provider)}?action=add-api-key`;
+  return `/proxy/providers/${encodeURIComponent(provider)}?action=add-api-key`;
 }
 
 /**

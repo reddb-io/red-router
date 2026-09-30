@@ -1130,7 +1130,7 @@ function CombosPageContent() {
     }
 
     const queryString = params.toString();
-    router.replace(`/dashboard/combos${queryString ? `?${queryString}` : ""}`, { scroll: false });
+    router.replace(`/proxy/combos${queryString ? `?${queryString}` : ""}`, { scroll: false });
   };
 
   const handleIntelligentComboUpdated = (updatedCombo) => {
@@ -1982,7 +1982,7 @@ function ComboCardInner({
               />
             )}
             <Link
-              href={`/dashboard/combos/${combo.id}`}
+              href={`/proxy/combos/${combo.id}`}
               onClick={(e) => e.stopPropagation()}
               className="p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded text-text-muted hover:text-primary transition-colors"
               title={getI18nOrFallback(t, "controlCenter", "Control Center")}

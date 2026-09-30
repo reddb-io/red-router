@@ -212,6 +212,6 @@ describe("providers page views", () => {
     ).toBeTruthy();
     const add = container.querySelector('[aria-label="Add UncloseAI"]') as HTMLElement;
     await act(async () => add.click());
-    expect(push).toHaveBeenCalledWith("/dashboard/providers/uncloseai");
+    expect(push).toHaveBeenCalledWith("/proxy/providers/uncloseai");
   });
 });

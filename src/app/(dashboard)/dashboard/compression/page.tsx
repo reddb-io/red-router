@@ -10,5 +10,5 @@ export async function generateMetadata() {
 }
 
 export default function CompressionPage() {
-  redirect("/dashboard/context/caveman");
+  redirect("/optimize/token-saver/engines/caveman");
 }

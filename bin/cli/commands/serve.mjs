@@ -634,7 +634,7 @@ async function maybeStartTray(port, apiPort, supervisor) {
         supervisor.stop();
       },
       onOpenDashboard: () => open?.(dashboardUrl),
-      onShowLogs: () => open?.(`${dashboardUrl}/dashboard/logs`),
+      onShowLogs: () => open?.(`${dashboardUrl}/observe/logs`),
     });
     if (tray) {
       const { killTray } = await import("../tray/index.mjs");

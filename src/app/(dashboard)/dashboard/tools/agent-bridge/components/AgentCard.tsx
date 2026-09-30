@@ -272,7 +272,7 @@ export function AgentCard({
               )}
 
               <a
-                href={`/dashboard/tools/traffic-inspector?agent=${target.id}`}
+                href={`/tools/inspector?agent=${target.id}`}
                 className="inline-flex items-center gap-1.5 rounded-lg bg-zinc-500/10 text-text-muted px-3 py-1.5 text-xs font-medium hover:bg-zinc-500/20 transition-colors"
               >
                 <Icon icon={Activity} size="sm" color="current" />

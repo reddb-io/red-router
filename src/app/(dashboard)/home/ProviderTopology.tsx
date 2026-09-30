@@ -340,7 +340,7 @@ export default function ProviderTopology({
         (node.data as ProviderNodeData | undefined)?.providerId ||
         node.id.replace(/^provider-/, "");
       if (providerId) {
-        router.push(`/dashboard/providers/${providerId}`);
+        router.push(`/proxy/providers/${providerId}`);
       }
     },
     [router]

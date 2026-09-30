@@ -75,7 +75,7 @@ export default function ProviderPageHeader({
   return (
     <div>
       <Link
-        href="/dashboard/providers"
+        href="/proxy/providers"
         className="inline-flex items-center gap-1 text-sm text-text-muted hover:text-primary transition-colors mb-4"
       >
         <Icon icon={ArrowLeft} size="md" color="current" />

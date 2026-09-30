@@ -28,7 +28,7 @@ export default function ServicesPage() {
   const active = (sp.get("tab") ?? "cliproxy") as Tab;
 
   function setTab(tab: Tab) {
-    router.push(`/dashboard/providers/services?tab=${tab}`);
+    router.push(`/proxy/providers/services?tab=${tab}`);
   }
 
   return (

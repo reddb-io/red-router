@@ -2,22 +2,22 @@ import { detectRestrictedEnvironment } from "../utils/environment.mjs";
 import { t } from "../i18n.mjs";
 
 const RESOURCES = {
-  combos: "/dashboard/combos",
-  providers: "/dashboard/providers",
-  "api-manager": "/dashboard/api-manager",
-  "cli-tools": "/dashboard/cli-tools",
-  agents: "/dashboard/agents",
-  settings: "/dashboard/settings",
-  logs: "/dashboard/logs",
-  memory: "/dashboard/memory",
-  skills: "/dashboard/skills",
-  evals: "/dashboard/evals",
-  audit: "/dashboard/audit",
-  cost: "/dashboard/cost",
-  resilience: "/dashboard/resilience",
-  pricing: "/dashboard/pricing",
-  tunnels: "/dashboard/tunnels",
-  quota: "/dashboard/quota",
+  combos: "/proxy/combos",
+  providers: "/proxy/providers",
+  "api-manager": "/proxy/keys",
+  "cli-tools": "/agents/cli-code",
+  agents: "/agents/acp-agents",
+  settings: "/system/settings",
+  logs: "/observe/logs",
+  memory: "/optimize/memory",
+  skills: "/optimize/skills",
+  evals: "/home/analytics/evals",
+  audit: "/observe/audit",
+  cost: "/observe/costs",
+  resilience: "/observe/resilience",
+  pricing: "/observe/costs/pricing",
+  tunnels: "/proxy/endpoint",
+  quota: "/observe/costs/quota",
 };
 
 export function registerOpen(program) {

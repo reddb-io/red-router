@@ -1,19 +1,19 @@
 import { redirect } from "next/navigation";
 
 const LEGACY_TAB_ROUTES: Record<string, string> = {
-  advanced: "/dashboard/settings/advanced",
-  ai: "/dashboard/settings/ai",
-  appearance: "/dashboard/settings/appearance",
-  featureFlags: "/dashboard/settings/feature-flags",
-  "feature-flags": "/dashboard/settings/feature-flags",
-  cache: "/dashboard/settings/cache",
-  general: "/dashboard/settings/general",
-  modalityBridge: "/dashboard/settings/modality-bridge",
-  "modality-bridge": "/dashboard/settings/modality-bridge",
-  resilience: "/dashboard/settings/resilience",
-  routing: "/dashboard/settings/routing",
-  security: "/dashboard/settings/security",
-  sidebar: "/dashboard/settings/sidebar",
+  advanced: "/system/settings/advanced",
+  ai: "/system/settings/ai",
+  appearance: "/system/settings/appearance",
+  featureFlags: "/system/settings/feature-flags",
+  "feature-flags": "/system/settings/feature-flags",
+  cache: "/system/settings/cache",
+  general: "/system/settings/storage",
+  modalityBridge: "/system/settings/modality-bridge",
+  "modality-bridge": "/system/settings/modality-bridge",
+  resilience: "/system/settings/resilience",
+  routing: "/system/settings/routing",
+  security: "/system/settings/security",
+  sidebar: "/system/settings/sidebar",
 };
 
 type SettingsPageProps = {
@@ -22,8 +22,8 @@ type SettingsPageProps = {
 
 function resolveSettingsRoute(value: string | undefined): string {
   return value
-    ? LEGACY_TAB_ROUTES[value] || "/dashboard/settings/general"
-    : "/dashboard/settings/general";
+    ? LEGACY_TAB_ROUTES[value] || "/system/settings/storage"
+    : "/system/settings/storage";
 }
 
 export default async function SettingsPage({ searchParams }: SettingsPageProps) {

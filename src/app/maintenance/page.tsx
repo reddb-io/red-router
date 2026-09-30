@@ -32,7 +32,7 @@ export default function MaintenancePage() {
             {t("maintenance.systemStatus")}
           </Link>
           <Link
-            href="/dashboard/health"
+            href="/observe/health"
             className="inline-flex items-center justify-center px-6 py-3 rounded-lg text-sm font-semibold border border-border hover:bg-bg-alt transition-colors duration-200 motion-reduce:transition-none"
           >
             {t("maintenance.healthDashboard")}

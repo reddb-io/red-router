@@ -30,8 +30,8 @@ test("HomePageClient filters out providers where all connections are deactivated
 test("ProviderTopology configures click-to-navigate on provider nodes", () => {
   assert.match(
     providerTopologySrc,
-    /router\.push\(`\/dashboard\/providers\/\${providerId}`\)/,
-    "ProviderTopology must navigate to the clicked provider page /dashboard/providers/${providerId}"
+    /router\.push\(`\/proxy\/providers\/\${providerId}`\)/,
+    "ProviderTopology must navigate to the clicked provider page /proxy/providers/${providerId}"
   );
 
   assert.match(

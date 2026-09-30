@@ -5,21 +5,21 @@ import { redirect } from "next/navigation";
 // route 404'd (#5298). Redirect the parent to its canonical sub-route, honoring
 // a legacy `?tab=` query for deep links.
 const CONTEXT_TAB_ROUTES: Record<string, string> = {
-  settings: "/dashboard/context/settings",
-  combos: "/dashboard/context/combos",
-  caveman: "/dashboard/context/caveman",
-  rtk: "/dashboard/context/rtk",
-  headroom: "/dashboard/context/headroom",
-  "session-dedup": "/dashboard/context/session-dedup",
-  sessionDedup: "/dashboard/context/session-dedup",
-  ccr: "/dashboard/context/ccr",
-  llmlingua: "/dashboard/context/llmlingua",
-  lite: "/dashboard/context/lite",
-  aggressive: "/dashboard/context/aggressive",
-  ultra: "/dashboard/context/ultra",
+  settings: "/optimize/token-saver",
+  combos: "/optimize/token-saver/combos",
+  caveman: "/optimize/token-saver/engines/caveman",
+  rtk: "/optimize/token-saver/engines/rtk",
+  headroom: "/optimize/token-saver/engines/headroom",
+  "session-dedup": "/optimize/token-saver/engines/session-dedup",
+  sessionDedup: "/optimize/token-saver/engines/session-dedup",
+  ccr: "/optimize/token-saver/engines/ccr",
+  llmlingua: "/optimize/token-saver/engines/llmlingua",
+  lite: "/optimize/token-saver/engines/lite",
+  aggressive: "/optimize/token-saver/engines/aggressive",
+  ultra: "/optimize/token-saver/engines/ultra",
 };
 
-const DEFAULT_CONTEXT_ROUTE = "/dashboard/context/settings";
+const DEFAULT_CONTEXT_ROUTE = "/optimize/token-saver";
 
 export function resolveContextRoute(value: string | undefined): string {
   return value ? CONTEXT_TAB_ROUTES[value] || DEFAULT_CONTEXT_ROUTE : DEFAULT_CONTEXT_ROUTE;

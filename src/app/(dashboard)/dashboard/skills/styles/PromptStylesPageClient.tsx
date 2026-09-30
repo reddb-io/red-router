@@ -121,7 +121,7 @@ export default function PromptStylesPageClient() {
           Instructions added to the system prompt so replies come back terse or in a set voice. They
           change what the model writes, not what is sent, so they work with any provider. The
           engines that shrink the request itself are in{" "}
-          <Link href="/dashboard/context/settings" className="text-primary hover:underline">
+          <Link href="/optimize/token-saver" className="text-primary hover:underline">
             Token saver
           </Link>
           .

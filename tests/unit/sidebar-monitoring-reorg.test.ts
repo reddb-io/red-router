@@ -78,7 +78,7 @@ test("monitoring section activity item has correct href and icon", () => {
   const activityItem = sidebarVisibility.getSectionItems(section).find((i) => i.id === "activity");
 
   assert.ok(activityItem, "activity item must be in monitoring section");
-  assert.equal(activityItem.href, "/dashboard/activity");
+  assert.equal(activityItem.href, "/observe/logs/activity");
   assert.equal(activityItem.icon, "timeline");
   assert.equal(activityItem.i18nKey, "activity");
 });

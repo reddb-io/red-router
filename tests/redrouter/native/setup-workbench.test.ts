@@ -26,7 +26,7 @@ test("Setup sits at the top of the sidebar, visible by default, under the Home s
     ["home", "setup"]
   );
   const setup = items[1];
-  assert.equal(setup.href, "/dashboard/setup");
+  assert.equal(setup.href, "/home/setup"); // the registry links to the area URL
   assert.equal(messages.sidebar[setup.i18nKey], "Setup");
   assert.ok(messages.sidebar[setup.subtitleKey ?? ""]);
 });

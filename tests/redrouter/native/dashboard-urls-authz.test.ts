@@ -138,6 +138,71 @@ test("only /dashboard/onboarding is public, and no area URL is an alias of it", 
   }
 });
 
+test("the moved pages are ordinary management pages under their new URLs, never public", async () => {
+  // Free tiers, Rankings and Radar now sit below /proxy/providers; Quota below /observe/costs.
+  const moved = [
+    ["/proxy/providers/free-tiers", "/dashboard/free-tiers"],
+    ["/proxy/providers/rankings", "/dashboard/free-provider-rankings"],
+    ["/proxy/providers/radar", "/dashboard/radar"],
+    ["/proxy/providers/radar/setup", "/dashboard/radar/setup"],
+    ["/PROXY/Providers/RADAR", "/dashboard/radar"],
+    ["/observe/costs/quota", "/dashboard/quota"],
+    ["/proxy/keys", "/dashboard/api-manager"],
+    ["/proxy/keys/routing", "/dashboard/api-manager/routing"],
+    ["/optimize/token-saver", "/dashboard/context/settings"],
+    ["/optimize/token-saver/engines/caveman", "/dashboard/context/caveman"],
+    ["/optimize/token-saver/studio", "/dashboard/compression/studio"],
+    ["/system/settings/storage", "/dashboard/settings/general"],
+    ["/system/outbound-proxies", "/dashboard/system/proxy"],
+    ["/agents/bridge", "/dashboard/tools/agent-bridge"],
+    ["/tools/inspector", "/dashboard/tools/traffic-inspector"],
+    ["/proxy/combos/test", "/dashboard/combos/playground"],
+  ];
+  await settingsDb.updateSettings({ requireLogin: true });
+  for (const [shown, page] of moved) {
+    const result = classifyRoute(shown, "GET");
+    assert.equal(result.normalizedPath, page, shown);
+    assert.equal(result.routeClass, "MANAGEMENT", shown);
+    assert.deepEqual(await run(`${ORIGIN}${shown}`), await run(`${ORIGIN}${page}`), shown);
+    assert.equal((await run(`${ORIGIN}${shown}`)).location, `${ORIGIN}/login`, shown);
+  }
+  // Nothing in the table, and no tail, turns a rule into the public onboarding page.
+  for (const rule of urls.dashboardUrlRules()) {
+    assert.equal(classifyRoute(`${rule.newPrefix}/onboarding`).routeClass, "MANAGEMENT");
+    assert.equal(classifyRoute(rule.newPrefix).routeClass, "MANAGEMENT");
+  }
+  // The moved pages do not open the loopback-only proxy either, and a look-alike below one of them is
+  // an ordinary (management) 404, not the embedded-service proxy.
+  const lookalike = classifyRoute("/proxy/providers/radar/services/x/embed/y", "GET");
+  assert.equal(lookalike.normalizedPath, "/dashboard/radar/services/x/embed/y");
+  assert.equal(isLocalOnlyPath(lookalike.normalizedPath, "GET"), false);
+  assert.equal(lookalike.routeClass, "MANAGEMENT");
+  // ...and the real proxy prefix still classifies as the page it always was (Hard Rule #17).
+  const embed = classifyRoute("/proxy/providers/services/x/embed/y", "GET");
+  assert.equal(embed.normalizedPath, "/dashboard/providers/services/x/embed/y");
+  assert.equal(isLocalOnlyPath(embed.normalizedPath, "GET"), true);
+  // A walk from a moved page onto the proxy or an API is refused, not interpreted. (The URL parser
+  // resolves a real dot segment before Next sees it; the encoded slash is what reaches the proxy.)
+  for (const url of [
+    "/proxy/providers/radar/../services/x/embed/y",
+    "/proxy/providers/free-tiers/%2e%2e/services/x/embed/y",
+    "/observe/costs/quota/../../api/settings",
+    "/optimize/token-saver/%2E%2E/%2E%2E/api/settings",
+  ]) {
+    assert.equal(urls.isMalformedAreaUrl(url), true, url);
+    assert.equal(urls.canonicalDashboardPath(url), url, url);
+  }
+  for (const url of [
+    "/proxy/providers/radar%2Fservices%2Fx%2Fembed%2Fy",
+    "/observe/costs/quota%2F..%2F..%2Fapi%2Fsettings",
+    "/optimize/token-saver%2Fengines",
+    "/proxy/providers/free-tiers%5C..%5Capi",
+  ]) {
+    assert.equal(urls.isMalformedAreaUrl(url), true, url);
+    assert.equal((await run(`${ORIGIN}${url}`)).status, 400, url);
+  }
+});
+
 test("the embedded-service proxy is loopback-only under the new URL exactly like the old one (Hard Rules #15/#17)", () => {
   const cases = [
     ["/dashboard/providers/services/9router/embed", "/proxy/providers/services/9router/embed"],

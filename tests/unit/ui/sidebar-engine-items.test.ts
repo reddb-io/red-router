@@ -35,31 +35,31 @@ describe("COMPRESSION_CONTEXT_GROUP contains all 4 engine items", () => {
     });
   }
 
-  it('headroom has href "/dashboard/context/headroom" and labelFallback "Headroom"', () => {
+  it('headroom has href "/optimize/token-saver/engines/headroom" and labelFallback "Headroom"', () => {
     const item = itemMap.get("context-headroom");
     assert.ok(item, "context-headroom item not found");
-    assert.equal(item.href, "/dashboard/context/headroom");
+    assert.equal(item.href, "/optimize/token-saver/engines/headroom");
     assert.equal(item.labelFallback, "Headroom");
   });
 
-  it('session-dedup has href "/dashboard/context/session-dedup" and labelFallback "Session Dedup"', () => {
+  it('session-dedup has href "/optimize/token-saver/engines/session-dedup" and labelFallback "Session Dedup"', () => {
     const item = itemMap.get("context-session-dedup");
     assert.ok(item, "context-session-dedup item not found");
-    assert.equal(item.href, "/dashboard/context/session-dedup");
+    assert.equal(item.href, "/optimize/token-saver/engines/session-dedup");
     assert.equal(item.labelFallback, "Session Dedup");
   });
 
-  it('ccr has href "/dashboard/context/ccr" and labelFallback "CCR"', () => {
+  it('ccr has href "/optimize/token-saver/engines/ccr" and labelFallback "CCR"', () => {
     const item = itemMap.get("context-ccr");
     assert.ok(item, "context-ccr item not found");
-    assert.equal(item.href, "/dashboard/context/ccr");
+    assert.equal(item.href, "/optimize/token-saver/engines/ccr");
     assert.equal(item.labelFallback, "CCR");
   });
 
-  it('llmlingua has href "/dashboard/context/llmlingua" and labelFallback "LLMLingua"', () => {
+  it('llmlingua has href "/optimize/token-saver/engines/llmlingua" and labelFallback "LLMLingua"', () => {
     const item = itemMap.get("context-llmlingua");
     assert.ok(item, "context-llmlingua item not found");
-    assert.equal(item.href, "/dashboard/context/llmlingua");
+    assert.equal(item.href, "/optimize/token-saver/engines/llmlingua");
     assert.equal(item.labelFallback, "LLMLingua");
   });
 

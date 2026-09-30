@@ -197,7 +197,7 @@ function NamedCombosManager() {
           className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-600 dark:text-amber-400"
         >
           {t("activeProfileMasterSwitchOffWarning")}{" "}
-          <Link href="/dashboard/context/settings" className="font-medium underline">
+          <Link href="/optimize/token-saver" className="font-medium underline">
             {t("activeProfileMasterSwitchOffCta")}
           </Link>
         </div>

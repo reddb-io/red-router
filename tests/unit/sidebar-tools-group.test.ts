@@ -52,7 +52,7 @@ test("TOOLS_GROUP cli-code item has correct href and i18nKey", () => {
   const toolsGroup = getToolsGroup();
   const cliCode = toolsGroup.items.find((item) => item.id === "cli-code");
   assert.ok(cliCode, "expected cli-code in TOOLS_GROUP");
-  assert.equal(cliCode.href, "/dashboard/cli-code");
+  assert.equal(cliCode.href, "/agents/cli-code");
   assert.equal(cliCode.i18nKey, "cliCode");
 });
 
@@ -60,7 +60,7 @@ test("TOOLS_GROUP cli-agents item has correct href and i18nKey", () => {
   const toolsGroup = getToolsGroup();
   const cliAgents = toolsGroup.items.find((item) => item.id === "cli-agents");
   assert.ok(cliAgents, "expected cli-agents in TOOLS_GROUP");
-  assert.equal(cliAgents.href, "/dashboard/cli-agents");
+  assert.equal(cliAgents.href, "/agents/cli-agents");
   assert.equal(cliAgents.i18nKey, "cliAgents");
 });
 
@@ -68,7 +68,7 @@ test("TOOLS_GROUP acp-agents item has correct href and i18nKey", () => {
   const toolsGroup = getToolsGroup();
   const acpAgents = toolsGroup.items.find((item) => item.id === "acp-agents");
   assert.ok(acpAgents, "expected acp-agents in TOOLS_GROUP");
-  assert.equal(acpAgents.href, "/dashboard/acp-agents");
+  assert.equal(acpAgents.href, "/agents/acp-agents");
   assert.equal(acpAgents.i18nKey, "acpAgents");
 });
 

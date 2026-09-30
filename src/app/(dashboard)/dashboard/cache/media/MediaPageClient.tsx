@@ -760,7 +760,7 @@ export default function MediaPageClient() {
               provider: () => <strong className="capitalize">{selectedProvider}</strong>,
               providers: (chunks) => (
                 <Link
-                  href="/dashboard/providers"
+                  href="/proxy/providers"
                   className="text-primary underline underline-offset-2 hover:text-primary/80"
                 >
                   {chunks}
@@ -965,7 +965,7 @@ export default function MediaPageClient() {
             <p className="text-sm text-text-muted mt-1 break-words">{error}</p>
             {isCredentialsError && (
               <Link
-                href="/dashboard/providers"
+                href="/proxy/providers"
                 className="inline-flex items-center gap-1 mt-2 text-xs text-primary hover:underline"
               >
                 <Icon icon={ExternalLink} size="sm" color="current" />

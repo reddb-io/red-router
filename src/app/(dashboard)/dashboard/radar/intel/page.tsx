@@ -85,7 +85,7 @@ export default function RadarIntelPage() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <Link
-            href="/dashboard/radar"
+            href="/proxy/providers/radar"
             className="text-sm text-text-muted hover:text-text-main transition-colors"
           >
             ← {t("backToRadar")}

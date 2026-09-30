@@ -19,6 +19,16 @@
  *   - a page no menu entry owns (`/dashboard/onboarding`, `/dashboard/usage`) has no rule and keeps
  *     its `/dashboard` URL. `/home` stays `/home`.
  *
+ * The URL of a page is its LABEL, not its folder, wherever the two differ: `DASHBOARD_URL_OVERRIDES`
+ * pairs an explicit area URL with the page it serves (`/proxy/keys` <-> `/dashboard/api-manager`). An
+ * override replaces the derived rule of the same page and wins over its parent by longest prefix.
+ * The whole mapping stays a bijection on pages: `canonicalDashboardPath(areaUrl(x)) === x` for every
+ * page x, and every old URL redirects to exactly one area URL.
+ *
+ * Every URL a release has ever served keeps working: the `/dashboard/...` ones through the old-prefix
+ * redirects, the earlier area URLs (`SHIPPED_AREA_URLS`, `dashboardUrlHistory.ts`) through
+ * `dashboardUrlRedirects()`, each in ONE hop to the current URL.
+ *
  * SECURITY. Everything in the authz layer is keyed on the `/dashboard` prefix, and Next runs the
  * proxy (middleware) BEFORE rewrites, so it sees the NEW url. `canonicalDashboardPath` is the one
  * translation the authz classifier applies first (`classifyRoute`), so every existing rule
@@ -33,6 +43,7 @@
  * it directly (Node's type stripping), so it uses `.ts` specifiers and erasable syntax only.
  * `sidebarNav.ts` imports it back; the table is built lazily on first use so that cycle is inert.
  */
+import { SHIPPED_AREA_URLS } from "./dashboardUrlHistory.ts";
 import { SIDEBAR_NAV_SECTIONS } from "./sidebarNav.ts";
 
 export interface DashboardUrlRule {
@@ -65,10 +76,60 @@ export const DASHBOARD_REDIRECT_EXCLUSIONS: readonly (readonly string[])[] = [
 
 const DASHBOARD_ROOT = "/dashboard";
 
+/**
+ * `[area URL prefix, /dashboard page]` pairs whose URL is not what the folder and the area would
+ * give. Longest prefix first is applied by the table, not by this order. Every prefix starts with a
+ * menu area and every page with `/dashboard/`; both sides are unique (the table test enforces it).
+ */
+export const DASHBOARD_URL_OVERRIDES: readonly (readonly [string, string])[] = [
+  // Proxy > Endpoint & Keys, Providers, Combos
+  ["/proxy/keys", "/dashboard/api-manager"],
+  ["/proxy/providers/free-tiers", "/dashboard/free-tiers"],
+  ["/proxy/providers/rankings", "/dashboard/free-provider-rankings"],
+  ["/proxy/providers/radar", "/dashboard/radar"],
+  ["/proxy/combos/test", "/dashboard/combos/playground"],
+  // Optimize > Token saver: one namespace for the engines, the studio and the analytics that live in
+  // three folders (context, compression, analytics). The folders keep their names.
+  ["/optimize/token-saver", "/dashboard/context/settings"],
+  ["/optimize/token-saver/engines", "/dashboard/context/engines"],
+  ["/optimize/token-saver/engines/caveman", "/dashboard/context/caveman"],
+  ["/optimize/token-saver/engines/rtk", "/dashboard/context/rtk"],
+  ["/optimize/token-saver/engines/headroom", "/dashboard/context/headroom"],
+  ["/optimize/token-saver/engines/session-dedup", "/dashboard/context/session-dedup"],
+  ["/optimize/token-saver/engines/ccr", "/dashboard/context/ccr"],
+  ["/optimize/token-saver/engines/llmlingua", "/dashboard/context/llmlingua"],
+  ["/optimize/token-saver/engines/lite", "/dashboard/context/lite"],
+  ["/optimize/token-saver/engines/aggressive", "/dashboard/context/aggressive"],
+  ["/optimize/token-saver/engines/ultra", "/dashboard/context/ultra"],
+  ["/optimize/token-saver/engines/omniglyph", "/dashboard/context/omniglyph"],
+  ["/optimize/token-saver/combos", "/dashboard/context/combos"],
+  ["/optimize/token-saver/studio", "/dashboard/compression/studio"],
+  ["/optimize/token-saver/exclusions", "/dashboard/compression/exclusions"],
+  ["/optimize/token-saver/live", "/dashboard/compression/live"],
+  ["/optimize/token-saver/analytics", "/dashboard/analytics/compression"],
+  // Whatever else lives in those folders stays reachable under its old segment.
+  ["/optimize/token-saver/context", "/dashboard/context"],
+  ["/optimize/token-saver/compression", "/dashboard/compression"],
+  // Observe
+  ["/observe/costs/quota", "/dashboard/quota"],
+  ["/observe/health/runtime", "/dashboard/runtime"],
+  ["/observe/health/connections", "/dashboard/resilience/connections"],
+  ["/observe/logs/conversations", "/dashboard/conversations"],
+  ["/observe/logs/activity", "/dashboard/activity"],
+  // Agents, Tools, System: the legacy `tools`/`system` folders name pages after their files.
+  ["/agents/bridge", "/dashboard/tools/agent-bridge"],
+  ["/tools/inspector", "/dashboard/tools/traffic-inspector"],
+  ["/system/settings/storage", "/dashboard/settings/general"],
+  ["/system/outbound-proxies", "/dashboard/system/proxy"],
+];
+
 const splitSegments = (path: string): string[] => path.split("/").filter(Boolean);
 
 /** Derives the rules from any menu-shaped data (exported for the tests; the default is the real menu). */
-export function deriveDashboardUrlRules(sections: readonly NavLike[]): DashboardUrlRule[] {
+export function deriveDashboardUrlRules(
+  sections: readonly NavLike[],
+  overrides: readonly (readonly [string, string])[] = DASHBOARD_URL_OVERRIDES
+): DashboardUrlRule[] {
   const pages: { area: string; segs: string[] }[] = [];
   for (const section of sections) {
     for (const entry of section.entries) {
@@ -119,17 +180,27 @@ export function deriveDashboardUrlRules(sections: readonly NavLike[]): Dashboard
       )
   );
 
-  return kept
-    .map((rule) => ({
-      area: rule.area,
-      oldPrefix: `${DASHBOARD_ROOT}/${rule.old.join("/")}`,
-      newPrefix: `/${rule.area}/${rule.next.join("/")}`,
-    }))
-    .sort(
-      (a, b) =>
-        splitSegments(b.oldPrefix).length - splitSegments(a.oldPrefix).length ||
-        a.oldPrefix.localeCompare(b.oldPrefix)
-    );
+  const overridden = new Set(overrides.map(([, page]) => page));
+  const explicit: DashboardUrlRule[] = overrides.map(([shown, page]) => ({
+    area: splitSegments(shown)[0],
+    oldPrefix: page,
+    newPrefix: shown,
+  }));
+
+  return [
+    ...kept
+      .map((rule) => ({
+        area: rule.area,
+        oldPrefix: `${DASHBOARD_ROOT}/${rule.old.join("/")}`,
+        newPrefix: `/${rule.area}/${rule.next.join("/")}`,
+      }))
+      .filter((rule) => !overridden.has(rule.oldPrefix)),
+    ...explicit,
+  ].sort(
+    (a, b) =>
+      splitSegments(b.oldPrefix).length - splitSegments(a.oldPrefix).length ||
+      a.oldPrefix.localeCompare(b.oldPrefix)
+  );
 }
 
 interface CompiledRule extends DashboardUrlRule {
@@ -149,6 +220,13 @@ let compiled: Compiled | null = null;
 function table(): Compiled {
   if (compiled) return compiled;
   const rules = deriveDashboardUrlRules(SIDEBAR_NAV_SECTIONS);
+  const areaIds = new Set(SIDEBAR_NAV_SECTIONS.map((section) => section.id as string));
+  for (const rule of rules) {
+    // A misspelt override must fail loudly here, not become a URL nobody can reach.
+    if (!areaIds.has(rule.area) || !rule.oldPrefix.startsWith(`${DASHBOARD_ROOT}/`)) {
+      throw new Error(`dashboardUrls: bad rule ${rule.newPrefix} <-> ${rule.oldPrefix}`);
+    }
+  }
   const withSegs: CompiledRule[] = rules.map((rule) => ({
     ...rule,
     oldSegs: splitSegments(rule.oldPrefix),
@@ -287,6 +365,12 @@ const escapeSegment = (segment: string): string =>
  * Redirects from each old URL to its area URL. Temporary (307) while the scheme settles; the query
  * string is preserved by Next. The embedded-service proxy subtree is left out (see
  * `DASHBOARD_REDIRECT_EXCLUSIONS`).
+ *
+ * Two families, both one hop to the CURRENT url: the `/dashboard/...` pages, and the area URLs an
+ * earlier release served (`SHIPPED_AREA_URLS`) whenever the current table shows that page somewhere
+ * else. The second family only names the exact prefixes that moved, so a still-current URL is never
+ * redirected (no loop) and a sub-page that moved on its own (`/optimize/context/caveman`) is sent to
+ * its own new URL, not to its parent's.
  */
 export function dashboardUrlRedirects(): UrlRedirect[] {
   const redirects: UrlRedirect[] = [];
@@ -320,7 +404,32 @@ export function dashboardUrlRedirects(): UrlRedirect[] {
       permanent: false,
     });
   }
-  return redirects;
+  return [...redirects, ...shippedAreaRedirects()];
+}
+
+/** Every earlier area URL that the current table shows elsewhere -> where it is shown now. */
+export function shippedAreaRedirects(): UrlRedirect[] {
+  const moved = new Map<string, string>();
+  for (const [shipped, page] of SHIPPED_AREA_URLS) {
+    const pageSegs = splitSegments(page);
+    // The page itself, and everything below it that no rule of its own names.
+    const current = areaUrl(page);
+    if (current !== shipped) moved.set(shipped, current);
+    // A page below it that the current table moves on its own.
+    for (const rule of table().byOld) {
+      if (rule.oldSegs.length <= pageSegs.length) continue;
+      if (!pageSegs.every((seg, index) => seg === rule.oldSegs[index])) continue;
+      const alias = `${shipped}/${rule.oldSegs.slice(pageSegs.length).join("/")}`;
+      if (alias !== rule.newPrefix) moved.set(alias, rule.newPrefix);
+    }
+  }
+  return [...moved]
+    .map(([source, destination]) => ({
+      source: `${source}/:path*`,
+      destination: `${destination}/:path*`,
+      permanent: false,
+    }))
+    .sort((a, b) => splitSegments(b.source).length - splitSegments(a.source).length);
 }
 
 /** Header source patterns for the embedded-service proxy under its area URL. */

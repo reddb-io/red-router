@@ -365,7 +365,7 @@ export function EngineConfigPage({ engineId }: { engineId: string }) {
       <div className="flex flex-col gap-1 rounded-lg border border-border bg-surface p-4">
         <p className="text-xs text-text-muted" data-testid="panel-pointer-notice">
           {t("panelPointerPrefix")}{" "}
-          <a href="/dashboard/context/settings" className="underline hover:text-text">
+          <a href="/optimize/token-saver" className="underline hover:text-text">
             {t("compressionSettings")}
           </a>
           {t("panelPointerSuffix")}

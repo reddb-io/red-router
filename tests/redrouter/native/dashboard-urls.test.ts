@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
+import { existsSync, readdirSync, statSync } from "node:fs";
+import path from "node:path";
 import test from "node:test";
 import {
+  DASHBOARD_URL_OVERRIDES,
   areaUrl,
   canonicalDashboardPath,
   dashboardAreaIds,
@@ -48,6 +51,146 @@ test("the friendly names the operator asked for fall out of the rule", () => {
   assert.equal(areaUrl("/dashboard/providers/services"), "/proxy/providers/services");
 });
 
+test("the URL of a page is its label, wherever the folder is called something else", () => {
+  for (const [page, shown] of [
+    ["/dashboard/api-manager", "/proxy/keys"],
+    ["/dashboard/api-manager/routing", "/proxy/keys/routing"],
+    ["/dashboard/combos/playground", "/proxy/combos/test"],
+    ["/dashboard/free-tiers", "/proxy/providers/free-tiers"],
+    ["/dashboard/free-provider-rankings", "/proxy/providers/rankings"],
+    ["/dashboard/radar", "/proxy/providers/radar"],
+    ["/dashboard/radar/intel", "/proxy/providers/radar/intel"],
+    ["/dashboard/quota", "/observe/costs/quota"],
+    ["/dashboard/costs/quota-share", "/observe/costs/quota-share"],
+    ["/dashboard/runtime", "/observe/health/runtime"],
+    ["/dashboard/resilience/connections", "/observe/health/connections"],
+    ["/dashboard/conversations", "/observe/logs/conversations"],
+    ["/dashboard/activity", "/observe/logs/activity"],
+    ["/dashboard/tools/agent-bridge", "/agents/bridge"],
+    ["/dashboard/tools/traffic-inspector", "/tools/inspector"],
+    ["/dashboard/settings/general", "/system/settings/storage"],
+    ["/dashboard/settings/appearance", "/system/settings/appearance"],
+    ["/dashboard/system/proxy", "/system/outbound-proxies"],
+    // Token saver: three folders (context, compression, analytics) under one namespace.
+    ["/dashboard/context/settings", "/optimize/token-saver"],
+    ["/dashboard/context/engines", "/optimize/token-saver/engines"],
+    ["/dashboard/context/caveman", "/optimize/token-saver/engines/caveman"],
+    ["/dashboard/context/combos", "/optimize/token-saver/combos"],
+    ["/dashboard/compression/studio", "/optimize/token-saver/studio"],
+    ["/dashboard/compression/exclusions", "/optimize/token-saver/exclusions"],
+    ["/dashboard/compression/live", "/optimize/token-saver/live"],
+    ["/dashboard/analytics/compression", "/optimize/token-saver/analytics"],
+    // Whatever else is in those folders stays reachable under its old segment.
+    ["/dashboard/context", "/optimize/token-saver/context"],
+    ["/dashboard/context/unlisted", "/optimize/token-saver/context/unlisted"],
+    ["/dashboard/compression", "/optimize/token-saver/compression"],
+    ["/dashboard/compression/unlisted", "/optimize/token-saver/compression/unlisted"],
+  ] as const) {
+    assert.equal(areaUrl(page), shown, page);
+    assert.equal(canonicalDashboardPath(shown), page, shown);
+  }
+});
+
+test("the overrides are a bijection: unique on both sides, well formed, none redundant", () => {
+  const shown = DASHBOARD_URL_OVERRIDES.map(([next]) => next);
+  const pages = DASHBOARD_URL_OVERRIDES.map(([, page]) => page);
+  assert.equal(new Set(shown).size, shown.length, "area URLs");
+  assert.equal(new Set(pages).size, pages.length, "pages");
+  const areas = new Set(dashboardAreaIds());
+  for (const [next, page] of DASHBOARD_URL_OVERRIDES) {
+    assert.ok(areas.has(next.split("/")[1]), next);
+    assert.ok(page.startsWith("/dashboard/"), page);
+    assert.doesNotMatch(next + page, /[A-Z:*?()\s]|\/\/|\/$/);
+    // An override is in the table as written, and is what the page maps to.
+    assert.ok(
+      dashboardUrlRules().some((r) => r.newPrefix === next && r.oldPrefix === page),
+      next
+    );
+    assert.equal(areaUrl(page), next);
+    assert.equal(canonicalDashboardPath(next), page);
+  }
+  // No override is implied by a rule that is already there (a redundant row would only hide a typo).
+  const withoutOverrides = deriveDashboardUrlRules(SIDEBAR_NAV_SECTIONS, []);
+  for (const [next, page] of DASHBOARD_URL_OVERRIDES) {
+    const derived = withoutOverrides.find(
+      (r) => page === r.oldPrefix || page.startsWith(`${r.oldPrefix}/`)
+    );
+    assert.notEqual(
+      derived && `${derived.newPrefix}${page.slice(derived.oldPrefix.length)}`,
+      next,
+      `${next} is what the folder already gives`
+    );
+  }
+});
+
+test("every engine page is under Engines, and every Token saver page is under the namespace", () => {
+  const saver = SIDEBAR_NAV_SECTIONS.flatMap((s) => s.entries).find((e) => e.id === "token-saver");
+  assert.ok(saver);
+  for (const tab of saver.tabs) {
+    const shown = areaUrl(tab.href);
+    assert.match(shown, /^\/optimize\/token-saver(\/|$)/, `${tab.label}: ${shown}`);
+    for (const child of tab.children ?? []) {
+      const engine = child.href.split("/").pop();
+      assert.equal(areaUrl(child.href), `/optimize/token-saver/engines/${engine}`, child.href);
+    }
+  }
+  // Every folder that has a page under context/ and compression/ has an area URL below the namespace.
+  for (const folder of ["context", "compression"]) {
+    const root = path.resolve(`src/app/(dashboard)/dashboard/${folder}`);
+    for (const name of readdirSync(root)) {
+      if (!statSync(path.join(root, name)).isDirectory()) continue;
+      if (!existsSync(path.join(root, name, "page.tsx"))) continue;
+      assert.match(
+        areaUrl(`/dashboard/${folder}/${name}`),
+        /^\/optimize\/token-saver(\/|$)/,
+        `${folder}/${name}`
+      );
+    }
+  }
+});
+
+test("Providers owns Free tiers, Rankings and Radar; the provider ids never collide with them", async () => {
+  // Every id the catalogue and the registry know (built-in providers; custom ones are `<kind>-<uuid>`).
+  const constants: Record<string, unknown> =
+    await import("../../../src/shared/constants/providers.ts");
+  const registry: { REGISTRY?: Record<string, unknown> } =
+    await import("../../../open-sse/config/providerRegistry.ts");
+  const ids = new Set<string>(Object.keys(registry.REGISTRY ?? {}));
+  for (const [name, value] of Object.entries(constants)) {
+    if (!/PROVIDERS$/.test(name) || !value || typeof value !== "object") continue;
+    for (const [id, definition] of Object.entries(value as Record<string, { id?: string }>)) {
+      ids.add(id);
+      if (definition?.id) ids.add(definition.id);
+    }
+  }
+  assert.ok(ids.size > 100, "the registry was read");
+  // `/proxy/providers/<id>` is the provider detail page; these segments are pages, and win by length.
+  const reserved = ["free-tiers", "rankings", "radar", "services", "new"];
+  for (const segment of reserved) {
+    assert.equal(ids.has(segment), false, `a provider is called ${segment}`);
+  }
+  // The three moved pages are rewritten to their own folders, not to a provider detail page;
+  // `services` and `new` are static folders under providers/ that already beat `[id]`.
+  for (const segment of ["free-tiers", "rankings", "radar"]) {
+    const served = canonicalDashboardPath(`/proxy/providers/${segment}`);
+    assert.notEqual(served, `/dashboard/providers/${segment}`, segment);
+  }
+  for (const segment of ["services", "new"]) {
+    assert.ok(
+      existsSync(path.resolve(`src/app/(dashboard)/dashboard/providers/${segment}`)),
+      segment
+    );
+  }
+  assert.equal(canonicalDashboardPath("/proxy/providers/free-tiers"), "/dashboard/free-tiers");
+  assert.equal(
+    canonicalDashboardPath("/proxy/providers/services"),
+    "/dashboard/providers/services"
+  );
+  assert.equal(canonicalDashboardPath("/proxy/providers/openai"), "/dashboard/providers/openai");
+  // Custom providers are created as `<kind>-<uuid>`, so they cannot be those words either.
+  for (const id of ids) assert.equal(reserved.includes(id), false, id);
+});
+
 test("rules: unique, well formed, and every page of the menu is covered", () => {
   const rules = dashboardUrlRules();
   assert.equal(new Set(rules.map((rule) => rule.newPrefix)).size, rules.length, "new URLs");
@@ -92,12 +235,12 @@ test("the full table (what the operator sees for each existing page)", () => {
   assert.deepEqual(table, {
     "/dashboard/a2a": "/proxy/a2a",
     "/dashboard/acp-agents": "/agents/acp-agents",
-    "/dashboard/activity": "/observe/activity",
+    "/dashboard/activity": "/observe/logs/activity",
     "/dashboard/agent-skills": "/optimize/agent-skills",
     "/dashboard/analytics": "/home/analytics",
-    "/dashboard/analytics/compression": "/optimize/analytics/compression",
+    "/dashboard/analytics/compression": "/optimize/token-saver/analytics",
     "/dashboard/api-endpoints": "/observe/api-endpoints",
-    "/dashboard/api-manager": "/proxy/api-manager",
+    "/dashboard/api-manager": "/proxy/keys",
     "/dashboard/audit": "/observe/audit",
     "/dashboard/batch": "/system/batch",
     "/dashboard/cache": "/optimize/cache",
@@ -106,15 +249,32 @@ test("the full table (what the operator sees for each existing page)", () => {
     "/dashboard/cli-code": "/agents/cli-code",
     "/dashboard/cloud-agents": "/agents/cloud-agents",
     "/dashboard/combos": "/proxy/combos",
-    "/dashboard/compression": "/optimize/compression",
+    "/dashboard/combos/playground": "/proxy/combos/test",
+    "/dashboard/compression": "/optimize/token-saver/compression",
+    "/dashboard/compression/exclusions": "/optimize/token-saver/exclusions",
+    "/dashboard/compression/live": "/optimize/token-saver/live",
+    "/dashboard/compression/studio": "/optimize/token-saver/studio",
     "/dashboard/conductor": "/agents/conductor",
-    "/dashboard/context": "/optimize/context",
-    "/dashboard/conversations": "/observe/conversations",
+    "/dashboard/context": "/optimize/token-saver/context",
+    "/dashboard/context/aggressive": "/optimize/token-saver/engines/aggressive",
+    "/dashboard/context/caveman": "/optimize/token-saver/engines/caveman",
+    "/dashboard/context/ccr": "/optimize/token-saver/engines/ccr",
+    "/dashboard/context/combos": "/optimize/token-saver/combos",
+    "/dashboard/context/engines": "/optimize/token-saver/engines",
+    "/dashboard/context/headroom": "/optimize/token-saver/engines/headroom",
+    "/dashboard/context/lite": "/optimize/token-saver/engines/lite",
+    "/dashboard/context/llmlingua": "/optimize/token-saver/engines/llmlingua",
+    "/dashboard/context/omniglyph": "/optimize/token-saver/engines/omniglyph",
+    "/dashboard/context/rtk": "/optimize/token-saver/engines/rtk",
+    "/dashboard/context/session-dedup": "/optimize/token-saver/engines/session-dedup",
+    "/dashboard/context/settings": "/optimize/token-saver",
+    "/dashboard/context/ultra": "/optimize/token-saver/engines/ultra",
+    "/dashboard/conversations": "/observe/logs/conversations",
     "/dashboard/costs": "/observe/costs",
     "/dashboard/discovery": "/tools/discovery",
     "/dashboard/endpoint": "/proxy/endpoint",
-    "/dashboard/free-provider-rankings": "/observe/free-provider-rankings",
-    "/dashboard/free-tiers": "/observe/free-tiers",
+    "/dashboard/free-provider-rankings": "/proxy/providers/rankings",
+    "/dashboard/free-tiers": "/proxy/providers/free-tiers",
     "/dashboard/health": "/observe/health",
     "/dashboard/log-export": "/observe/log-export",
     "/dashboard/logs": "/observe/logs",
@@ -127,18 +287,20 @@ test("the full table (what the operator sees for each existing page)", () => {
     "/dashboard/plugins": "/agents/plugins",
     "/dashboard/provider-stats": "/home/provider-stats",
     "/dashboard/providers": "/proxy/providers",
-    "/dashboard/quota": "/proxy/quota",
-    "/dashboard/radar": "/observe/radar",
+    "/dashboard/quota": "/observe/costs/quota",
+    "/dashboard/radar": "/proxy/providers/radar",
     "/dashboard/relay": "/proxy/relay",
     "/dashboard/resilience": "/observe/resilience",
-    "/dashboard/runtime": "/observe/runtime",
+    "/dashboard/resilience/connections": "/observe/health/connections",
+    "/dashboard/runtime": "/observe/health/runtime",
     "/dashboard/search-tools": "/tools/search-tools",
     "/dashboard/settings": "/system/settings",
+    "/dashboard/settings/general": "/system/settings/storage",
     "/dashboard/setup": "/home/setup",
     "/dashboard/skills": "/optimize/skills",
-    "/dashboard/system/proxy": "/system/proxy",
-    "/dashboard/tools/agent-bridge": "/agents/agent-bridge",
-    "/dashboard/tools/traffic-inspector": "/tools/traffic-inspector",
+    "/dashboard/system/proxy": "/system/outbound-proxies",
+    "/dashboard/tools/agent-bridge": "/agents/bridge",
+    "/dashboard/tools/traffic-inspector": "/tools/inspector",
     "/dashboard/translator": "/tools/translator",
     "/dashboard/usage-sinks": "/observe/usage-sinks",
     "/dashboard/webhooks": "/observe/webhooks",
@@ -148,9 +310,9 @@ test("the full table (what the operator sees for each existing page)", () => {
 test("a longer rule beats its folder: analytics is Home except the compression page", () => {
   assert.equal(areaUrl("/dashboard/analytics"), "/home/analytics");
   assert.equal(areaUrl("/dashboard/analytics/utilization"), "/home/analytics/utilization");
-  assert.equal(areaUrl("/dashboard/analytics/compression"), "/optimize/analytics/compression");
+  assert.equal(areaUrl("/dashboard/analytics/compression"), "/optimize/token-saver/analytics");
   assert.equal(
-    canonicalDashboardPath("/optimize/analytics/compression"),
+    canonicalDashboardPath("/optimize/token-saver/analytics"),
     "/dashboard/analytics/compression"
   );
   assert.equal(
@@ -222,10 +384,35 @@ test("the attack table: every trick either serves the page that its rewrite serv
     "/proxy/providers/services/9router/embed/ui/index.html":
       "/dashboard/providers/services/9router/embed/ui/index.html",
     "/PROXY/providers/services/x/embed": "/dashboard/providers/services/x/embed",
-    "/system/settings/general": "/dashboard/settings/general",
-    "/tools/traffic-inspector": "/dashboard/tools/traffic-inspector",
-    "/agents/agent-bridge": "/dashboard/tools/agent-bridge",
+    "/system/settings/storage": "/dashboard/settings/general",
+    "/SYSTEM/Settings/Storage": "/dashboard/settings/general",
+    "/tools/inspector": "/dashboard/tools/traffic-inspector",
+    "/agents/bridge": "/dashboard/tools/agent-bridge",
     "/home/analytics": "/dashboard/analytics",
+    // The new overrides: the longest prefix wins, case, `//` and encoded letters do not change it.
+    "/proxy/providers/radar": "/dashboard/radar",
+    "/PROXY/Providers/Radar/intel": "/dashboard/radar/intel",
+    "/proxy//providers//free-tiers": "/dashboard/free-tiers",
+    "/proxy/providers/free-%74iers": "/dashboard/free-tiers",
+    "/proxy/providers/rankings": "/dashboard/free-provider-rankings",
+    "/proxy/providers/rankings/": "/dashboard/free-provider-rankings",
+    "/proxy/providers/openai": "/dashboard/providers/openai",
+    "/proxy/providers/services/x/embed/y": "/dashboard/providers/services/x/embed/y",
+    "/proxy/keys": "/dashboard/api-manager",
+    "/proxy/keys/routing": "/dashboard/api-manager/routing",
+    "/proxy/combos/test": "/dashboard/combos/playground",
+    "/optimize/token-saver": "/dashboard/context/settings",
+    "/OPTIMIZE/Token-Saver/ENGINES/caveman": "/dashboard/context/caveman",
+    "/optimize/token-saver/engines": "/dashboard/context/engines",
+    "/optimize/token-saver/studio/a/b": "/dashboard/compression/studio/a/b",
+    "/optimize/token-saver/analytics": "/dashboard/analytics/compression",
+    "/observe/costs/quota": "/dashboard/quota",
+    "/observe/costs/quota-share": "/dashboard/costs/quota-share",
+    "/observe/health/runtime": "/dashboard/runtime",
+    "/observe/health/connections": "/dashboard/resilience/connections",
+    "/observe/logs/conversations": "/dashboard/conversations",
+    "/observe/logs/activity": "/dashboard/activity",
+    "/system/outbound-proxies": "/dashboard/system/proxy",
   };
   for (const [input, expected] of Object.entries(same)) {
     assert.equal(canonicalDashboardPath(input), expected, input);
@@ -278,6 +465,15 @@ test("the attack table: every trick either serves the page that its rewrite serv
     "/home/unknown",
     "/system/mitm-proxy",
     "/PROXY/onboarding",
+    // The URLs of an earlier release that are now only redirected (no rewrite of their own).
+    "/proxy/api-manager",
+    "/proxy/quota",
+    "/observe/free-tiers",
+    "/optimize/context",
+    "/optimize/compression/studio",
+    "/agents/agent-bridge",
+    "/tools/traffic-inspector",
+    "/system/proxy",
   ]) {
     assert.equal(isAreaUrl(input), true, input);
     assert.equal(canonicalDashboardPath(input), input, input);
@@ -310,17 +506,26 @@ test("findNavMatch accepts both URL forms, and the resolved menu links to the ar
     ["/dashboard/providers/openai", "/proxy/providers/openai", "Providers", "proxy"],
     ["/dashboard/providers/services", "/proxy/providers/services", "Local services", "proxy"],
     ["/dashboard/models", "/proxy/models", "Models", "proxy"],
-    ["/dashboard/context/caveman", "/optimize/context/caveman", "Engines", "optimize"],
+    ["/dashboard/context/caveman", "/optimize/token-saver/engines/caveman", "Engines", "optimize"],
+    ["/dashboard/compression/studio", "/optimize/token-saver/studio", "Studio", "optimize"],
     ["/dashboard/analytics", "/home/analytics", "Usage", "home"],
     [
       "/dashboard/analytics/compression",
-      "/optimize/analytics/compression",
+      "/optimize/token-saver/analytics",
       "Analytics",
       "optimize",
     ],
     ["/dashboard/settings/sidebar", "/system/settings/sidebar", "Sidebar", "system"],
-    ["/dashboard/tools/agent-bridge", "/agents/agent-bridge", "Agent bridge", "agents"],
-    ["/dashboard/tools/traffic-inspector", "/tools/traffic-inspector", "Inspector", "tools"],
+    ["/dashboard/settings/general", "/system/settings/storage", "Storage", "system"],
+    ["/dashboard/tools/agent-bridge", "/agents/bridge", "Agent bridge", "agents"],
+    ["/dashboard/tools/traffic-inspector", "/tools/inspector", "Inspector", "tools"],
+    ["/dashboard/free-tiers", "/proxy/providers/free-tiers", "Free tiers", "proxy"],
+    ["/dashboard/free-provider-rankings", "/proxy/providers/rankings", "Rankings", "proxy"],
+    ["/dashboard/radar/intel", "/proxy/providers/radar/intel", "Radar", "proxy"],
+    ["/dashboard/quota", "/observe/costs/quota", "Quota", "observe"],
+    ["/dashboard/combos/playground", "/proxy/combos/test", "Test combo", "proxy"],
+    ["/dashboard/runtime", "/observe/health/runtime", "Runtime", "observe"],
+    ["/dashboard/activity", "/observe/logs/activity", "Activity", "observe"],
     ["/dashboard/mcp", "/proxy/mcp", "Endpoint", "proxy"],
     ["/home", "/home", "Topology", "home"],
   ] as const) {
@@ -343,6 +548,8 @@ test("findNavMatch accepts both URL forms, and the resolved menu links to the ar
   );
   assert.ok(hrefs.includes("/proxy/providers"));
   assert.ok(hrefs.includes("/observe/logs/console"));
+  assert.ok(hrefs.includes("/proxy/keys"));
+  assert.ok(hrefs.includes("/optimize/token-saver/engines"));
   assert.ok(hrefs.includes("/home"));
   assert.ok(hrefs.includes("/docs"));
   assert.ok(hrefs.includes("https://github.com/reddb-io/red-router/issues"));
@@ -354,14 +561,20 @@ test("findNavMatch accepts both URL forms, and the resolved menu links to the ar
 });
 
 test("hiding pages is by id, so nothing stored depends on a URL", () => {
-  const hidden = new Set(["providers", "quota"]);
+  const hidden = new Set(["providers", "costs-free-tiers"]);
   const entry = resolveNavSections(hidden, {})
     .flatMap((section) => section.entries)
     .find((candidate) => candidate.id === "providers");
   assert.ok(entry);
   assert.deepEqual(
     entry.tabs.map((tab) => tab.id ?? tab.href),
-    ["embedded-services", "/proxy/media-providers", "/proxy/relay"]
+    [
+      "free-provider-rankings",
+      "radar",
+      "embedded-services",
+      "/proxy/media-providers",
+      "/proxy/relay",
+    ]
   );
-  assert.equal(entry.href, "/proxy/providers/services");
+  assert.equal(entry.href, "/proxy/providers/rankings");
 });

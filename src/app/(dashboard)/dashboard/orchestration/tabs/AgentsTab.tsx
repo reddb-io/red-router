@@ -84,13 +84,13 @@ export function AgentsTab({
       <div className="flex flex-col items-center justify-center h-full gap-3 text-muted">
         <p className="text-sm">{t("emptyTitle")}</p>
         <div className="flex gap-2 text-xs">
-          <Link className="underline" href="/dashboard/cloud-agents">
+          <Link className="underline" href="/agents/cloud-agents">
             {t("emptyCloudAgentCta")}
           </Link>
-          <Link className="underline" href="/dashboard/endpoint">
+          <Link className="underline" href="/proxy/endpoint">
             {t("emptyA2ACta")}
           </Link>
-          <Link className="underline" href="/dashboard/conductor">
+          <Link className="underline" href="/agents/conductor">
             {t("emptyConductorCta")}
           </Link>
         </div>

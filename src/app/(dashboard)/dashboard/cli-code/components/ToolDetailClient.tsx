@@ -229,7 +229,7 @@ export default function ToolDetailClient({ toolId, category }: ToolDetailClientP
   const availableModels = getAllAvailableModels();
   const hasActiveProviders = availableModels.length > 0;
 
-  const backCategory = category === "code" ? "/dashboard/cli-code" : "/dashboard/cli-agents";
+  const backCategory = category === "code" ? "/agents/cli-code" : "/agents/cli-agents";
 
   // Common props passed to every specialized card.
   // isExpanded is always true in the detail page (D23).

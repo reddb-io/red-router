@@ -14,6 +14,7 @@ import { shouldBuildStandalone } from "./scripts/build/backendOnlyPages.mjs";
 // Menu-area URLs (/proxy/providers) -> the existing /dashboard pages. Loaded by Node directly
 // (type stripping), hence the .ts specifier; see the header of the module.
 import {
+  areaUrl,
   dashboardEmbedSources,
   dashboardUrlRedirects,
   dashboardUrlRewrites,
@@ -546,7 +547,7 @@ const nextConfig = {
   },
 
   async redirects() {
-    return [
+    const specific = [
       // Dashboard routes
       {
         source: "/dashboard/omni-skills",
@@ -734,9 +735,15 @@ const nextConfig = {
         destination: "/dashboard/acp-agents/:path*",
         permanent: true,
       },
-      // Every dashboard page moved to its menu-area URL (/dashboard/providers -> /proxy/providers).
-      // Last on purpose: the specific redirects above win, then chain into these. Generated from the
-      // menu model with the rewrites below; temporary until the URL scheme settles.
+    ];
+    return [
+      // The redirects above name /dashboard pages; send them straight to the URL that page is shown
+      // at (/dashboard/cli-tools -> /agents/cli-code) instead of chaining through a second redirect.
+      ...specific.map((route) => ({ ...route, destination: areaUrl(route.destination) })),
+      // Every dashboard page moved to its menu-area URL (/dashboard/providers -> /proxy/providers),
+      // and so did every earlier area URL that the menu has since reorganised. Last on purpose: the
+      // specific redirects above win. Generated from the menu model with the rewrites below;
+      // temporary until the URL scheme settles.
       ...dashboardUrlRedirects(),
     ];
   },

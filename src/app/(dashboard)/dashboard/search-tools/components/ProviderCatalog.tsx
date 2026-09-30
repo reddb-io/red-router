@@ -222,7 +222,7 @@ export default function ProviderCatalog({
       {filtered.length === 0 && (
         <div className="text-xs text-text-muted py-4 text-center">
           No provider found.{" "}
-          <Link href="/dashboard/providers" className="text-accent hover:underline">
+          <Link href="/proxy/providers" className="text-accent hover:underline">
             Configure providers →
           </Link>
         </div>

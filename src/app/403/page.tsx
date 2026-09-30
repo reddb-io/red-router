@@ -17,7 +17,7 @@ export default function ForbiddenStatusPage() {
       ]}
       primaryAction={{ href: "/forbidden", label: t("statusPages.403.primaryAction") }}
       secondaryAction={{
-        href: "/dashboard/settings?tab=security",
+        href: "/system/settings?tab=security",
         label: t("statusPages.403.secondaryAction"),
       }}
     />

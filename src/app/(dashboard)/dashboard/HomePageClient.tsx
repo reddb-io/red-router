@@ -308,8 +308,8 @@ export default function HomePageClient({ machineId }: HomePageClientProps) {
       if (hasNewUnhealthy) {
         const navigateTo =
           newUnhealthyKeys.size === 1 && firstUnhealthyProviderId
-            ? `/dashboard/providers/${firstUnhealthyProviderId}`
-            : `/dashboard/providers?search=${encodeURIComponent(Array.from(unhealthyProviderIds).join(" "))}`;
+            ? `/proxy/providers/${firstUnhealthyProviderId}`
+            : `/proxy/providers?search=${encodeURIComponent(Array.from(unhealthyProviderIds).join(" "))}`;
 
         const notificationType = hasWarning ? "warning" : "error";
 
@@ -1035,7 +1035,7 @@ function ProviderModelsModal({
             variant="secondary"
             fullWidth
             size="sm"
-            onClick={() => navigateTo(`/dashboard/providers/${provider.id}`)}
+            onClick={() => navigateTo(`/proxy/providers/${provider.id}`)}
             className="flex-1"
           >
             <Icon icon={Settings} size="sm" color="current" className="mr-1" />

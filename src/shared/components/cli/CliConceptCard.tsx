@@ -13,9 +13,9 @@ export interface CliConceptCardProps {
 }
 
 const TYPE_HREFS: Record<CliConceptType, string> = {
-  code: "/dashboard/cli-code",
-  agent: "/dashboard/cli-agents",
-  acp: "/dashboard/acp-agents",
+  code: "/agents/cli-code",
+  agent: "/agents/cli-agents",
+  acp: "/agents/acp-agents",
 };
 
 export default function CliConceptCard({ currentType }: CliConceptCardProps) {

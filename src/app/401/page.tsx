@@ -17,7 +17,7 @@ export default function UnauthorizedPage() {
       ]}
       primaryAction={{ href: "/login", label: t("statusPages.401.primaryAction") }}
       secondaryAction={{
-        href: "/dashboard/api-manager",
+        href: "/proxy/keys",
         label: t("statusPages.401.secondaryAction"),
       }}
     />

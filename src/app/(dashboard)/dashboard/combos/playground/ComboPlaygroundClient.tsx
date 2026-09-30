@@ -121,6 +121,15 @@ export default function ComboPlaygroundClient() {
         <div>
           <h1 className="text-xl font-bold">{t("playgroundTitle")}</h1>
           <p className="text-sm text-text-muted mt-1">{t("playgroundDescription")}</p>
+          <p className="text-sm text-text-muted mt-1">
+            {t.rich("playgroundFreeChatHint", {
+              link: (chunks) => (
+                <Link href="/tools/playground" className="text-primary hover:underline">
+                  {chunks}
+                </Link>
+              ),
+            })}
+          </p>
         </div>
       </div>
 
@@ -329,7 +338,7 @@ export default function ComboPlaygroundClient() {
           <div className="p-8 text-center">
             <p className="text-text-muted">
               {t("playgroundNoCombosYet")}{" "}
-              <Link href="/dashboard/combos" className="text-primary hover:underline">
+              <Link href="/proxy/combos" className="text-primary hover:underline">
                 {t("playgroundCreateFirst")}
               </Link>
               .

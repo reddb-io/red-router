@@ -474,7 +474,7 @@ export default function CompressionPanel() {
                 <div className="flex items-center gap-2 text-sm font-medium text-text-main">
                   {engineLabel}
                   <Link
-                    href={`/dashboard/context/${id}`}
+                    href={`/optimize/token-saver/engines/${id}`}
                     className="rounded border border-border bg-bg-subtle px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-text-muted hover:border-primary/40 hover:text-primary"
                   >
                     {id}

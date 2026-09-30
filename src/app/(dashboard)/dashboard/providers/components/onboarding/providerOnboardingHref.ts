@@ -29,5 +29,5 @@ export function buildProviderDetailsHref(
 ): string | null {
   const id = connection?.id?.trim();
   if (!id) return null;
-  return `/dashboard/providers/${encodeURIComponent(id)}`;
+  return `/proxy/providers/${encodeURIComponent(id)}`;
 }

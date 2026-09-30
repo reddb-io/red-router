@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
+import { areaUrl } from "../../../src/shared/constants/dashboardUrls.ts";
 import {
   SIDEBAR_NAV_SECTIONS,
   allNavTabs,
@@ -43,7 +44,12 @@ test("every page the old menu listed is still reachable from the new one", () =>
   for (const item of registry) {
     if (item.id === "proxy" || item.id === "radar-admin") continue;
     assert.ok(reachable.has(item.id), `${item.id} has no place in the menu`);
-    assert.equal(reachable.get(item.id), item.href, `${item.id} points somewhere else`);
+    // The registry links to the area URL of the page the menu names by its real path.
+    assert.equal(
+      areaUrl(reachable.get(item.id) ?? ""),
+      item.href,
+      `${item.id} points somewhere else`
+    );
   }
   for (const tab of allNavTabs()) {
     if (tab.id)
@@ -51,11 +57,30 @@ test("every page the old menu listed is still reachable from the new one", () =>
   }
 });
 
-test("a page appears in one place only", () => {
+test("a page appears in one place only, and no two tabs share a URL", () => {
   const seen = new Set<string>();
+  const shown = new Map<string, string>();
   for (const tab of allNavTabs()) {
     assert.equal(seen.has(tab.href), false, `${tab.href} is listed twice`);
     seen.add(tab.href);
+    // Two pages must not be shown at one URL either (an override that collides would hide one).
+    const url = areaUrl(tab.href);
+    assert.equal(
+      shown.has(url),
+      false,
+      `${tab.href} and ${shown.get(url)} are both shown at ${url}`
+    );
+    shown.set(url, tab.href);
+  }
+  // Nor within an entry: a tab bar never has two tabs that open the same page.
+  for (const entry of SIDEBAR_NAV_SECTIONS.flatMap((section) => section.entries)) {
+    const urls = entry.tabs.map((tab) => areaUrl(tab.href));
+    assert.equal(new Set(urls).size, urls.length, `${entry.id} repeats a tab`);
+    assert.equal(
+      new Set(entry.tabs.map((tab) => tab.label)).size,
+      entry.tabs.length,
+      `${entry.id} repeats a label`
+    );
   }
 });
 
@@ -88,6 +113,30 @@ const OFF_MENU: Record<string, string> = {
   "/dashboard/system/mitm-proxy": "redirects to Agent bridge",
   "/dashboard/onboarding": "first-run wizard, opened by Setup",
 };
+
+test("every tab (and every detail page) opens a real page", () => {
+  const routes = new Set(
+    pageRoutes(dashboardRoot).map((route) => route.replace(/\/\([^/]+\)/g, ""))
+  );
+  for (const tab of allNavTabs()) {
+    if (tab.external) continue;
+    assert.ok(routes.has(tab.href), `${tab.label}: ${tab.href} has no page.tsx`);
+  }
+  // The external tabs are the docs (a route of the app) and the issue tracker.
+  for (const tab of allNavTabs().filter((candidate) => candidate.external)) {
+    assert.ok(tab.href.startsWith("https://") || tab.href.startsWith("/"), tab.href);
+  }
+  assert.ok(existsSync(path.resolve("src/app/docs")), "/docs is an app route");
+});
+
+test("the off-menu list has no stale entry: each one is still a page", () => {
+  const routes = new Set(
+    pageRoutes(dashboardRoot).map((route) => route.replace(/\/\([^/]+\)/g, ""))
+  );
+  for (const route of Object.keys(OFF_MENU)) {
+    assert.ok(routes.has(route), `${route} is listed as off-menu but is not a page any more`);
+  }
+});
 
 test("every dashboard page is a menu page, a detail of one, or listed as off-menu", () => {
   const tabs = allNavTabs().filter((tab) => !tab.external);
@@ -126,7 +175,9 @@ test("pages that were never separate menu items follow their entry", () => {
     "a page without an id keeps nothing alive"
   );
   assert.ok(
-    resolveNavEntry(combos, none)?.tabs.some((tab) => tab.href === "/proxy/combos/playground")
+    resolveNavEntry(combos, none)?.tabs.some(
+      (tab) => tab.href === "/proxy/combos/test" && tab.label === "Test combo"
+    )
   );
 });
 
@@ -138,6 +189,10 @@ test("a URL belongs to the entry with the longest matching page", () => {
   );
   assert.equal(findNavMatch("/dashboard/providers/abc", sections)?.tab.label, "Providers");
   assert.equal(findNavMatch("/dashboard/context/caveman", sections)?.entry.id, "token-saver");
+  assert.equal(
+    findNavMatch("/optimize/token-saver/engines/caveman", sections)?.tab.label,
+    "Engines"
+  );
   assert.equal(findNavMatch("/dashboard/skills", sections)?.entry.label, "Skills");
   assert.equal(findNavMatch("/dashboard/skills/styles", sections)?.tab.label, "Prompt styles");
   assert.equal(findNavMatch("/home", sections)?.entry.id, "analytics");
@@ -146,11 +201,67 @@ test("a URL belongs to the entry with the longest matching page", () => {
   assert.equal(findNavMatch("/dashboard/nowhere", sections), null);
 });
 
-test("Radar follows its feature flag", () => {
+test("Radar follows its feature flag and its hide preference, from its place under Providers", () => {
+  const entryOf = (sections: ReturnType<typeof resolveNavSections>, id: string) =>
+    sections.flatMap((s) => s.entries).find((e) => e.id === id);
   const off = resolveNavSections(none, { RADAR_ENABLED: false });
   assert.ok(!off.flatMap((s) => s.entries).some((e) => e.tabs.some((tab) => tab.id === "radar")));
   const on = resolveNavSections(none, { RADAR_ENABLED: true });
-  assert.ok(on.flatMap((s) => s.entries).some((e) => e.tabs.some((tab) => tab.id === "radar")));
+  const providers = entryOf(on, "providers");
+  assert.ok(
+    providers?.tabs.some((tab) => tab.id === "radar" && tab.href === "/proxy/providers/radar")
+  );
+  assert.equal(
+    entryOf(on, "costs")?.tabs.some((tab) => tab.id === "radar"),
+    false
+  );
+  // The stored hidden ids are unchanged, so a saved preference keeps working after the move.
+  const hidden = resolveNavSections(new Set(["radar"]), { RADAR_ENABLED: true });
+  assert.ok(!entryOf(hidden, "providers")?.tabs.some((tab) => tab.id === "radar"));
+  // Without the flag set at all (before the settings arrive) the tab is shown, like before the move.
+  assert.ok(
+    entryOf(resolveNavSections(none, {}), "providers")?.tabs.some((tab) => tab.id === "radar")
+  );
+  // The owner-only Radar admin link is added to the entry that now holds Radar, within 8 tabs.
+  const withAdmin = resolveNavSections(
+    none,
+    { RADAR_ENABLED: true },
+    {
+      providers: [{ href: "https://radar.example/admin", label: "Radar admin ↗", external: true }],
+    }
+  );
+  const tabs = entryOf(withAdmin, "providers")?.tabs ?? [];
+  assert.equal(tabs.at(-1)?.label, "Radar admin ↗");
+  assert.ok(splitNavTabs(tabs).primary.length <= 8);
+  assert.deepEqual(
+    tabs.map((tab) => tab.label),
+    [
+      "Providers",
+      "Free tiers",
+      "Rankings",
+      "Radar",
+      "Local services",
+      "Media providers",
+      "Relay",
+      "Radar admin ↗",
+    ]
+  );
+});
+
+test("Providers and Costs list their tabs in the agreed order", () => {
+  const entries = SIDEBAR_NAV_SECTIONS.flatMap((s) => s.entries);
+  assert.deepEqual(
+    entries.find((e) => e.id === "providers")?.tabs.map((tab) => tab.label),
+    ["Providers", "Free tiers", "Rankings", "Radar", "Local services", "Media providers", "Relay"]
+  );
+  assert.deepEqual(
+    entries.find((e) => e.id === "costs")?.tabs.map((tab) => tab.label),
+    ["Overview", "Pricing", "Budget", "Quota", "Quota sharing"]
+  );
+  assert.deepEqual(
+    entries.find((e) => e.id === "combos")?.tabs.map((tab) => tab.label),
+    ["Combos", "Live", "Test combo"]
+  );
 });
 
 test("the presets keep a usable menu", () => {
@@ -204,10 +315,15 @@ test("the rail has one area per job and the panel lists the entries of an area",
   );
 });
 
-test("Quota lives with Providers and Integrations with Observe", () => {
+test("Quota lives with Costs, the free-model pages with Providers, and Integrations with Observe", () => {
   const sections = resolveNavSections(none, {});
-  assert.equal(findNavMatch("/dashboard/quota", sections)?.entry.id, "providers");
-  assert.equal(findNavMatch("/dashboard/quota", sections)?.section.id, "proxy");
+  assert.equal(findNavMatch("/dashboard/quota", sections)?.entry.id, "costs");
+  assert.equal(findNavMatch("/dashboard/quota", sections)?.section.id, "observe");
+  for (const page of ["free-tiers", "free-provider-rankings", "radar", "radar/intel"]) {
+    const match = findNavMatch(`/dashboard/${page}`, sections);
+    assert.equal(match?.entry.id, "providers", page);
+    assert.equal(match?.section.id, "proxy", page);
+  }
   assert.equal(findNavMatch("/dashboard/webhooks", sections)?.section.id, "observe");
   assert.equal(findNavMatch("/dashboard/provider-stats", sections)?.section.id, "home");
   assert.equal(findNavMatch("/dashboard/playground", sections)?.section.id, "tools");
@@ -235,6 +351,8 @@ test("every engine page keeps the Engines tab selected instead of being a tab", 
     assert.equal(match?.tab.label, "Engines", engine);
   }
   assert.equal(findNavMatch("/dashboard/context/engines", sections)?.tab.label, "Engines");
+  assert.equal(findNavMatch("/optimize/token-saver/engines", sections)?.tab.label, "Engines");
+  assert.equal(findNavMatch("/optimize/token-saver", sections)?.tab.label, "Overview");
 });
 
 test("long entries keep a short tab bar and put the rarely used pages under More", () => {
@@ -286,7 +404,7 @@ test("Home opens on Usage: the landing page, the logo and /dashboard all go ther
   assert.equal(home?.entries[0].href, "/home/analytics");
   assert.match(
     readFileSync("src/app/(dashboard)/dashboard/page.tsx", "utf8"),
-    /redirect\("\/dashboard\/analytics"\)/
+    /redirect\("\/home\/analytics"\)/
   );
   assert.ok(
     readFileSync("src/shared/components/Sidebar.tsx", "utf8").includes(
@@ -322,4 +440,27 @@ test("pages that were in-page tabs are routes, so no page shows two tab bars for
     );
     assert.equal(findNavMatch(`/dashboard/analytics/${route}`, sections)?.section.id, "home");
   }
+});
+
+test("Test combo (Proxy > Combos) is not confused with the free-form Tools > Playground", () => {
+  const messages = JSON.parse(readFileSync("src/i18n/messages/en.json", "utf8"));
+  assert.equal(messages.combos.playgroundTitle, "Test combo");
+  assert.match(messages.combos.playgroundFreeChatHint, /<link>Tools › Playground<\/link>/);
+  const client = readFileSync(
+    "src/app/(dashboard)/dashboard/combos/playground/ComboPlaygroundClient.tsx",
+    "utf8"
+  );
+  // The one-line pointer under the heading links to the Tools Playground's area URL.
+  assert.match(client, /playgroundFreeChatHint[\s\S]{0,200}href="\/tools\/playground"/);
+  assert.equal(areaUrl("/dashboard/playground"), "/tools/playground");
+  assert.match(
+    readFileSync("src/app/(dashboard)/dashboard/combos/playground/page.tsx", "utf8"),
+    /Test combo/
+  );
+  // Tools keeps the name.
+  const tools = SIDEBAR_NAV_SECTIONS.flatMap((s) => s.entries).find((e) => e.id === "playground");
+  assert.deepEqual(
+    tools?.tabs.map((tab) => tab.label),
+    ["Playground"]
+  );
 });

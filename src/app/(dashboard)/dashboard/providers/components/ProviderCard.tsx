@@ -313,7 +313,7 @@ const ProviderCard = forwardRef<ProviderCardHandle, ProviderCardProps>(function 
     setRiskDetailsOpen(true);
   };
   const handleWarningBadgeActivate = useCallback(() => {
-    router.push(`/dashboard/providers/${providerId}`);
+    router.push(`/proxy/providers/${providerId}`);
   }, [router, providerId]);
   const connected = Number(stats.connected || 0);
   const error = Number(stats.error || 0);
@@ -410,7 +410,7 @@ const ProviderCard = forwardRef<ProviderCardHandle, ProviderCardProps>(function 
     <div ref={innerRef} id={`provider-${providerId}`} className="flex flex-col h-full">
       <Link
         ref={linkElementRef}
-        href={`/dashboard/providers/${providerId}`}
+        href={`/proxy/providers/${providerId}`}
         className="group flex-1 flex flex-col focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary/60"
         onClick={handleCardClick}
       >

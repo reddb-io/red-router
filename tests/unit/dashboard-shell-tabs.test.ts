@@ -74,8 +74,8 @@ test("settings root redirects to section pages instead of rendering a tab shell"
   const pageSource = readSource("src/app/(dashboard)/dashboard/settings/page.tsx");
 
   assert.ok(pageSource.includes('import { redirect } from "next/navigation"'));
-  assert.ok(pageSource.includes('general: "/dashboard/settings/general"'));
-  assert.ok(pageSource.includes('resilience: "/dashboard/settings/resilience"'));
+  assert.ok(pageSource.includes('general: "/system/settings/storage"'));
+  assert.ok(pageSource.includes('resilience: "/system/settings/resilience"'));
   assert.ok(pageSource.includes("redirect(resolveSettingsRoute(tab))"));
 });
 

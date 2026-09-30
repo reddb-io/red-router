@@ -16,7 +16,7 @@ export default function MitmProxyMovedPage() {
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      router.replace("/dashboard/tools/agent-bridge");
+      router.replace("/agents/bridge");
     }, 2500);
     return () => clearTimeout(timer);
   }, [router]);
@@ -31,7 +31,7 @@ export default function MitmProxyMovedPage() {
         <p className="text-sm text-amber-300/80">{t("message")}</p>
         <button
           type="button"
-          onClick={() => router.replace("/dashboard/tools/agent-bridge")}
+          onClick={() => router.replace("/agents/bridge")}
           className="inline-flex items-center gap-1.5 rounded-lg bg-amber-500/20 text-amber-200 px-4 py-2 text-sm font-medium hover:bg-amber-500/30 transition-colors"
         >
           {t("goNow")}

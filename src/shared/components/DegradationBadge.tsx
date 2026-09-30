@@ -32,7 +32,7 @@ export default function DegradationBadge() {
 
   return (
     <Link
-      href="/dashboard/health"
+      href="/observe/health"
       className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-amber-500/10 text-amber-500 hover:bg-amber-500/20 transition-colors border border-amber-500/20"
       title={t("warning")} // Using common warning text, or we could just use English / fixed string if i18n is not strict
     >

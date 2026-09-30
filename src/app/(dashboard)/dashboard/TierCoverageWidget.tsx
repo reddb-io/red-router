@@ -97,7 +97,7 @@ export function TierCoverageWidget() {
           <p className="text-xs text-text-muted mt-0.5">{t("tierCoverageSubtitle")}</p>
         </div>
         <Link
-          href="/dashboard/providers"
+          href="/proxy/providers"
           className="text-xs text-text-muted hover:text-text-main transition-colors"
         >
           Manage →
@@ -114,7 +114,7 @@ export function TierCoverageWidget() {
             )}
             {configured === 0 && (
               <Link
-                href="/dashboard/providers/new"
+                href="/proxy/providers/new"
                 className="text-xs text-blue-400 underline mt-0.5 block"
               >
                 {t("add")}

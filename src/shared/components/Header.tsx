@@ -104,21 +104,30 @@ const HEADER_DESCRIPTIONS: Partial<Record<HideableSidebarItemId, string>> = {
   "1proxy": "oneProxyDescription",
 };
 
-// Build href → sidebar item lookup (non-external items only)
-const sidebarByHref = new Map<string, SidebarItemDefinition>();
-for (const section of SIDEBAR_SECTIONS) {
-  for (const item of getSectionItems(section)) {
-    if (!item.external) sidebarByHref.set(item.href, item);
+// href → sidebar item lookup (non-external items only). The registry links to the area URLs
+// (`/proxy/providers`) while `usePageInfo` receives the page's `/dashboard/...` path, so the keys are
+// the canonical paths. Built on first use: the URL table reads the menu model, which must be loaded.
+let sidebarByHref: Map<string, SidebarItemDefinition> | null = null;
+
+function sidebarLookup(): Map<string, SidebarItemDefinition> {
+  if (sidebarByHref) return sidebarByHref;
+  sidebarByHref = new Map();
+  for (const section of SIDEBAR_SECTIONS) {
+    for (const item of getSectionItems(section)) {
+      if (!item.external) sidebarByHref.set(canonicalDashboardPath(item.href), item);
+    }
   }
+  return sidebarByHref;
 }
 
 function getSidebarItem(pathname: string): SidebarItemDefinition | undefined {
-  const exact = sidebarByHref.get(pathname);
+  const lookup = sidebarLookup();
+  const exact = lookup.get(pathname);
   if (exact) return exact;
   // Longest prefix match
   let best: SidebarItemDefinition | undefined;
   let bestLen = 0;
-  for (const [href, item] of sidebarByHref) {
+  for (const [href, item] of lookup) {
     if (pathname.startsWith(href) && href.length > bestLen) {
       best = item;
       bestLen = href.length;

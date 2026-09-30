@@ -31,6 +31,6 @@ test("firstProviderConnectionId selects a real connection id, never the provider
 test("providerSetupConnectionUrl targets the real provider form with an explicit action", () => {
   assert.equal(
     providerSetupConnectionUrl("openrouter/custom"),
-    "/dashboard/providers/openrouter%2Fcustom?action=add-api-key"
+    "/proxy/providers/openrouter%2Fcustom?action=add-api-key"
   );
 });

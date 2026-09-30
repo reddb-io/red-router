@@ -153,7 +153,7 @@ export default function ScrapeTab({ configState, onMetrics }: ScrapeTabProps) {
           <p className="text-sm text-text-muted mb-1">{t("scrapeEmptyState")}</p>
           <p className="text-xs text-text-muted">
             {t("scrapeProvidersAvailable")}{" "}
-            <Link href="/dashboard/providers" className="text-accent hover:underline">
+            <Link href="/proxy/providers" className="text-accent hover:underline">
               {t("configureProvider")}
             </Link>
           </p>

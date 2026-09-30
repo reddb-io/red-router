@@ -29,7 +29,7 @@ describe("sidebarVisibility — embedded-services", () => {
       | { id: string; href: string }
       | undefined;
     assert.ok(item, "embedded-services item should exist in omni-proxy section");
-    assert.equal(item.href, "/dashboard/providers/services");
+    assert.equal(item.href, "/proxy/providers/services");
   });
 });
 

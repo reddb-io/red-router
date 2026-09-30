@@ -119,7 +119,7 @@ export default function VscodeTokenAliasCard({
           </h3>
           <div className="flex-1 h-px bg-border/30" />
           <Link
-            href="/dashboard/cli-tools"
+            href="/agents/cli-code"
             className="shrink-0 text-[11px] font-medium text-primary hover:underline"
           >
             {t("vscodeAliasManage")}
@@ -156,7 +156,7 @@ export default function VscodeTokenAliasCard({
           </p>
           <p className="mt-1 text-xs text-text-muted">{description}</p>
         </div>
-        <Link href="/dashboard/cli-tools" className="shrink-0 text-xs text-primary hover:underline">
+        <Link href="/agents/cli-code" className="shrink-0 text-xs text-primary hover:underline">
           {t("vscodeAliasManage")}
         </Link>
       </div>

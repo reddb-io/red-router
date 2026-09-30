@@ -15,9 +15,9 @@ export default function BadGatewayPage() {
         t("statusPages.502.suggestion2"),
         t("statusPages.502.suggestion3"),
       ]}
-      primaryAction={{ href: "/dashboard/providers", label: t("statusPages.502.primaryAction") }}
+      primaryAction={{ href: "/proxy/providers", label: t("statusPages.502.primaryAction") }}
       secondaryAction={{
-        href: "/dashboard/translator",
+        href: "/tools/translator",
         label: t("statusPages.502.secondaryAction"),
       }}
     />

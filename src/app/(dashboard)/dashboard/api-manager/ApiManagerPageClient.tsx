@@ -1369,7 +1369,7 @@ export default function ApiManagerPageClient() {
                   </div>
                   <div className="col-span-2 flex items-center justify-end gap-1">
                     <a
-                      href={`/dashboard/costs?range=all&apiKeyIds=${encodeURIComponent(key.id)}&groupBy=model`}
+                      href={`/observe/costs?range=all&apiKeyIds=${encodeURIComponent(key.id)}&groupBy=model`}
                       className="p-2 hover:bg-emerald-500/10 rounded text-text-muted hover:text-emerald-500 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-all"
                       title={`View costs for ${key.name}`}
                       aria-label={`View costs for ${key.name}`}

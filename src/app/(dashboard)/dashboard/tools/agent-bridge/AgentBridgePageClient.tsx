@@ -359,14 +359,14 @@ export default function AgentBridgePageClient({
             </h3>
             <div className="flex flex-wrap gap-3">
               <Link
-                href="/dashboard/providers"
+                href="/proxy/providers"
                 className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
               >
                 <span className="material-symbols-outlined text-[14px]">dns</span>
                 {t("quickLinkProviders")}
               </Link>
               <Link
-                href="/dashboard/tools/traffic-inspector"
+                href="/tools/inspector"
                 className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
               >
                 <Icon icon={Activity} size="sm" color="current" />

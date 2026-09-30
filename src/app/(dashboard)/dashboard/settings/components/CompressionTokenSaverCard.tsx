@@ -102,21 +102,21 @@ export default function CompressionTokenSaverCard({
         <SummaryRow
           title={t("tokenSaverToolOutput")}
           badge="RTK"
-          href="/dashboard/context/settings"
+          href="/optimize/token-saver"
           on={masterEnabled && rtk.enabled}
           level={rtk.intensity}
         />
         <SummaryRow
           title={t("tokenSaverLlmOutput")}
           badge="Caveman"
-          href="/dashboard/context/settings"
+          href="/optimize/token-saver"
           on={masterEnabled && cavemanOut.enabled}
           level={cavemanOut.intensity}
         />
         <SummaryRow
           title={t("tokenSaverInputCompression")}
           badge="Caveman"
-          href="/dashboard/context/settings"
+          href="/optimize/token-saver"
           on={masterEnabled && cavemanIn.enabled}
           level={cavemanIn.intensity}
         />
@@ -126,7 +126,7 @@ export default function CompressionTokenSaverCard({
         <Icon icon={Info} size="md" color="current" className="mt-px" />
         <p>
           Turn these layers on/off and set their level in{" "}
-          <Link href="/dashboard/context/settings" className="text-primary hover:underline">
+          <Link href="/optimize/token-saver" className="text-primary hover:underline">
             Compression Settings
           </Link>
           .

@@ -226,7 +226,7 @@ export default function CliCodePageClient({
               {tCommon("detail.noActiveProvidersDesc")}
             </p>
             <Link
-              href="/dashboard/providers"
+              href="/proxy/providers"
               className="inline-flex items-center gap-1 mt-2 text-xs text-primary font-medium hover:underline"
             >
               {tCommon("detail.openProviders")}
@@ -249,7 +249,7 @@ export default function CliCodePageClient({
               key={id}
               tool={tool}
               batchStatus={statuses?.[id] ?? null}
-              detailHref={`/dashboard/cli-code/${id}`}
+              detailHref={`/agents/cli-code/${id}`}
               hasActiveProviders={hasActiveProviders}
             />
           ))}

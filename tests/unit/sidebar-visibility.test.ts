@@ -91,18 +91,18 @@ test("context sidebar section sits between primary and cli", () => {
       .filter((item) => item.id.startsWith("context-"))
       .map((item) => ({ id: item.id, href: item.href })),
     [
-      { id: "context-settings", href: "/dashboard/context/settings" },
-      { id: "context-combos", href: "/dashboard/context/combos" },
-      { id: "context-caveman", href: "/dashboard/context/caveman" },
-      { id: "context-rtk", href: "/dashboard/context/rtk" },
-      { id: "context-headroom", href: "/dashboard/context/headroom" },
-      { id: "context-session-dedup", href: "/dashboard/context/session-dedup" },
-      { id: "context-ccr", href: "/dashboard/context/ccr" },
-      { id: "context-llmlingua", href: "/dashboard/context/llmlingua" },
-      { id: "context-lite", href: "/dashboard/context/lite" },
-      { id: "context-aggressive", href: "/dashboard/context/aggressive" },
-      { id: "context-ultra", href: "/dashboard/context/ultra" },
-      { id: "context-omniglyph", href: "/dashboard/context/omniglyph" },
+      { id: "context-settings", href: "/optimize/token-saver" },
+      { id: "context-combos", href: "/optimize/token-saver/combos" },
+      { id: "context-caveman", href: "/optimize/token-saver/engines/caveman" },
+      { id: "context-rtk", href: "/optimize/token-saver/engines/rtk" },
+      { id: "context-headroom", href: "/optimize/token-saver/engines/headroom" },
+      { id: "context-session-dedup", href: "/optimize/token-saver/engines/session-dedup" },
+      { id: "context-ccr", href: "/optimize/token-saver/engines/ccr" },
+      { id: "context-llmlingua", href: "/optimize/token-saver/engines/llmlingua" },
+      { id: "context-lite", href: "/optimize/token-saver/engines/lite" },
+      { id: "context-aggressive", href: "/optimize/token-saver/engines/aggressive" },
+      { id: "context-ultra", href: "/optimize/token-saver/engines/ultra" },
+      { id: "context-omniglyph", href: "/optimize/token-saver/engines/omniglyph" },
     ]
   );
 });
@@ -151,7 +151,7 @@ test("plugins has a discoverable sidebar entry (#3656 follow-up)", async () => {
   const items = sectionItems("agentic-features");
   const plugins = items.find((item) => item.id === "plugins");
   assert.ok(plugins, "expected a plugins item in the agentic-features section");
-  assert.equal(plugins.href, "/dashboard/plugins");
+  assert.equal(plugins.href, "/agents/plugins");
   assert.equal(sidebarVisibility.HIDEABLE_SIDEBAR_ITEM_IDS.includes("plugins"), true);
 
   // It must be a real page (plugin manager), not a legacy redirect stub.
@@ -167,7 +167,7 @@ test("plugins has a discoverable sidebar entry (#3656 follow-up)", async () => {
 test("model catalog is available from the OmniProxy sidebar and can be hidden", () => {
   const item = sectionItems("omni-proxy").find((candidate) => candidate.id === "model-catalog");
   assert.ok(item, "expected the model catalog sidebar item to exist");
-  assert.equal(item.href, "/dashboard/models");
+  assert.equal(item.href, "/proxy/models");
   assert.equal(sidebarVisibility.HIDEABLE_SIDEBAR_ITEM_IDS.includes("model-catalog"), true);
 });
 
@@ -185,14 +185,14 @@ test("legacy dashboard routes redirect to their consolidated surfaces", async ()
     "utf8"
   );
 
-  assert.match(autoComboPage, /redirect\("\/dashboard\/combos\?filter=intelligent"\)/);
-  assert.match(usagePage, /redirect\("\/dashboard\/logs"\)/);
+  assert.match(autoComboPage, /redirect\("\/proxy\/combos\?filter=intelligent"\)/);
+  assert.match(usagePage, /redirect\("\/observe\/logs"\)/);
   assert.match(settingsPage, /redirect\(resolveSettingsRoute\(tab\)\)/);
-  assert.match(settingsPage, /\/dashboard\/settings\/general/);
+  assert.match(settingsPage, /\/system\/settings\/storage/);
 
   const compressionPage = await readFile(
     join(repoRoot, "src/app/(dashboard)/dashboard/compression/page.tsx"),
     "utf8"
   );
-  assert.match(compressionPage, /redirect\("\/dashboard\/context\/caveman"\)/);
+  assert.match(compressionPage, /redirect\("\/optimize\/token-saver\/engines\/caveman"\)/);
 });

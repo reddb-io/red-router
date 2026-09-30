@@ -816,7 +816,7 @@ export default function CloudAgentsPage() {
                     variant="secondary"
                     size="sm"
                     onClick={() => {
-                      window.location.href = "/dashboard/providers?section=cloudagent";
+                      window.location.href = "/proxy/providers?section=cloudagent";
                     }}
                   >
                     <span className="material-symbols-outlined text-[14px] mr-1">settings</span>

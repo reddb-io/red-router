@@ -38,12 +38,12 @@ test("costs section items have correct hrefs", () => {
   const hrefs = items.map((i) => ({ id: i.id, href: i.href }));
 
   assert.deepEqual(hrefs, [
-    { id: "costs", href: "/dashboard/costs" },
-    { id: "costs-pricing", href: "/dashboard/costs/pricing" },
-    { id: "costs-budget", href: "/dashboard/costs/budget" },
-    { id: "costs-free-tiers", href: "/dashboard/free-tiers" },
-    { id: "free-provider-rankings", href: "/dashboard/free-provider-rankings" },
-    { id: "radar", href: "/dashboard/radar" },
+    { id: "costs", href: "/observe/costs" },
+    { id: "costs-pricing", href: "/observe/costs/pricing" },
+    { id: "costs-budget", href: "/observe/costs/budget" },
+    { id: "costs-free-tiers", href: "/proxy/providers/free-tiers" },
+    { id: "free-provider-rankings", href: "/proxy/providers/rankings" },
+    { id: "radar", href: "/proxy/providers/radar" },
   ]);
 });
 

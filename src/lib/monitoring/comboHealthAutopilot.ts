@@ -103,20 +103,20 @@ function actionSet(
   return types.map((type) => {
     switch (type) {
       case "open_combo_editor":
-        return action(type, "Open combo editor", target, "/dashboard/combos");
+        return action(type, "Open combo editor", target, "/proxy/combos");
       case "run_combo_test":
         return action(
           type,
           "Run combo test",
           target,
-          `/dashboard/combos?test=${encodeURIComponent(target.comboId)}`
+          `/proxy/combos?test=${encodeURIComponent(target.comboId)}`
         );
       case "open_provider_health_autopilot":
-        return action(type, "Open provider autopilot", target, "/dashboard/health");
+        return action(type, "Open provider autopilot", target, "/observe/health");
       case "review_quota_limits":
-        return action(type, "Review quota limits", target, "/dashboard/providers");
+        return action(type, "Review quota limits", target, "/proxy/providers");
       case "review_pricing":
-        return action(type, "Review pricing data", target, "/dashboard/settings");
+        return action(type, "Review pricing data", target, "/system/settings");
     }
   });
 }

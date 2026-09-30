@@ -1,5 +1,5 @@
 /**
- * Verifies that the logs/activity page calls permanentRedirect("/dashboard/activity").
+ * Verifies that the logs/activity page calls permanentRedirect("/observe/logs/activity").
  * We mock next/navigation so no Next.js runtime is needed.
  */
 
@@ -34,15 +34,15 @@ const PAGE_PATH = resolve(
   "../../../src/app/(dashboard)/dashboard/logs/activity/page.tsx"
 );
 
-test("logs/activity/page.tsx contains permanentRedirect('/dashboard/activity')", () => {
+test("logs/activity/page.tsx contains permanentRedirect('/observe/logs/activity')", () => {
   const src = readFileSync(PAGE_PATH, "utf-8");
   assert.ok(
     src.includes("permanentRedirect"),
     "page.tsx must call permanentRedirect"
   );
   assert.ok(
-    src.includes("/dashboard/activity"),
-    "page.tsx must redirect to /dashboard/activity"
+    src.includes("/observe/logs/activity"),
+    "page.tsx must redirect to /observe/logs/activity"
   );
   assert.ok(
     src.includes(`from "next/navigation"`),
@@ -85,7 +85,7 @@ test("AuditLogTab.tsx no longer exists (deleted by F4)", () => {
 test("activity/ActivityFeedClient.tsx exists", () => {
   const CLIENT_PATH = resolve(
     import.meta.dirname ?? new URL(".", import.meta.url).pathname,
-    "../../../src/app/(dashboard)/dashboard/activity/ActivityFeedClient.tsx"
+    "../../../src/app/(dashboard)/observe/logs/activity/ActivityFeedClient.tsx"
   );
   let src: string;
   try {

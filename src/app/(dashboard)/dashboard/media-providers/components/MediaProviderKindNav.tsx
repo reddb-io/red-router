@@ -22,7 +22,7 @@ export default function MediaProviderKindNav({ activeKind }: MediaProviderKindNa
         return (
           <Link
             key={kind}
-            href={`/dashboard/media-providers/${kind}`}
+            href={`/proxy/media-providers/${kind}`}
             className={`flex items-center px-3 py-1.5 rounded-full border text-xs font-medium transition-colors ${
               isActive
                 ? "bg-primary text-white border-primary"

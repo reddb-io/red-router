@@ -257,7 +257,7 @@ export default function SetupWorkbench() {
           }))}
         />
       ) : null}
-      <StepLink href="/dashboard/providers">
+      <StepLink href="/proxy/providers">
         {hasProvider ? t("manageProviders") : t("connectProvider")}
       </StepLink>
     </div>,
@@ -273,7 +273,7 @@ export default function SetupWorkbench() {
         </Button>
       </form>
     ) : (
-      <StepLink key="key" href="/dashboard/endpoint#api-keys">
+      <StepLink key="key" href="/proxy/endpoint#api-keys">
         {t("manageKeys")}
       </StepLink>
     ),
@@ -393,7 +393,7 @@ export default function SetupWorkbench() {
             <strong>{t("successTitle")}</strong>
             <p className="text-sm">{t("successBody")}</p>
           </div>
-          <StepLink href="/dashboard/usage">{t("openUsage")}</StepLink>
+          <StepLink href="/observe/logs">{t("openUsage")}</StepLink>
         </div>
       ) : null}
     </div>

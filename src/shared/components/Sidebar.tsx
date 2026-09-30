@@ -202,7 +202,7 @@ export default function Sidebar({
     new Set(hiddenSidebarItems),
     featureFlags,
     radarAdmin
-      ? { costs: [{ href: radarAdmin, label: "Radar admin ↗", external: true }] }
+      ? { providers: [{ href: radarAdmin, label: "Radar admin ↗", external: true }] }
       : undefined
   );
 

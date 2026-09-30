@@ -61,7 +61,7 @@ test("Usage Sinks is in the sidebar, under Integrations", () => {
   );
   const integrations = sections.slice(sections.indexOf("const INTEGRATIONS_GROUP"));
   assert.match(integrations.slice(0, integrations.indexOf("const PROXY_ITEM")), /"usage-sinks"/);
-  assert.match(sections, /href: "\/dashboard\/usage-sinks"/);
+  assert.match(sections, /href: "\/observe\/usage-sinks"/);
   assert.equal(en.sidebar.usageSinks, "Usage Sinks");
 });
 

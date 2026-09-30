@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import ComboPlaygroundClient from "./ComboPlaygroundClient";
 
 export const metadata: Metadata = {
-  title: "RedRouter — Combo Playground",
+  title: "RedRouter — Test combo",
   description: "Simulate combo routing paths visually",
 };
 

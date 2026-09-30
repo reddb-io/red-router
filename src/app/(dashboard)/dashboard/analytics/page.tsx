@@ -26,7 +26,7 @@ function AnalyticsPageContent() {
   useEffect(() => {
     if (!target) return;
     const id = searchParams.get("id");
-    router.replace(`/dashboard/analytics/${target}${id ? `?id=${encodeURIComponent(id)}` : ""}`);
+    router.replace(`/home/analytics/${target}${id ? `?id=${encodeURIComponent(id)}` : ""}`);
   }, [target, router, searchParams]);
 
   if (target) return <CardSkeleton />;

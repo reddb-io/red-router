@@ -59,7 +59,7 @@ function renderPlayground(
         <div className="flex flex-col gap-3">
           <SttExampleCard providerId={providerId} />
           <Link
-            href="/dashboard/settings/modality-bridge?tab=audio"
+            href="/system/settings/modality-bridge?tab=audio"
             className="text-xs text-primary hover:underline"
           >
             {bridgeCopy.sttCta}
@@ -86,7 +86,7 @@ function renderPlayground(
           </div>
           <p className="text-xs text-text-muted">{bridgeCopy.imageToText.description}</p>
           <Link
-            href="/dashboard/settings/modality-bridge?tab=vision"
+            href="/system/settings/modality-bridge?tab=vision"
             className="text-xs text-primary hover:underline"
           >
             {bridgeCopy.imageToText.cta}
@@ -133,7 +133,7 @@ export default function MediaProviderPageClient({
     void fetchConnections();
   }, [providerId]);
 
-  const backHref = `/dashboard/media-providers/${activeKind}`;
+  const backHref = `/proxy/media-providers/${activeKind}`;
 
   return (
     <div className="flex flex-col gap-6">
@@ -168,7 +168,7 @@ export default function MediaProviderPageClient({
             size="sm"
             icon="add"
             onClick={() => {
-              window.location.href = `/dashboard/providers/${providerId}`;
+              window.location.href = `/proxy/providers/${providerId}`;
             }}
           >
             {t("addConnection")}
@@ -185,7 +185,7 @@ export default function MediaProviderPageClient({
               size="sm"
               icon="add"
               onClick={() => {
-                window.location.href = `/dashboard/providers/${providerId}`;
+                window.location.href = `/proxy/providers/${providerId}`;
               }}
             >
               {t("addConnection")}

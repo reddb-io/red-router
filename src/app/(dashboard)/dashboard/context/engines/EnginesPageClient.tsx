@@ -54,7 +54,7 @@ export default function EnginesPageClient() {
         <p className="mt-1 text-sm text-text-muted">
           The compression engines RedRouter can apply to a request before it goes upstream. Turn
           them on and choose their level in{" "}
-          <Link href="/dashboard/context/settings" className="text-primary hover:underline">
+          <Link href="/optimize/token-saver" className="text-primary hover:underline">
             Overview
           </Link>
           ; open an engine here for its own settings and numbers.
@@ -88,7 +88,7 @@ export default function EnginesPageClient() {
             <li key={id} data-testid={`engine-card-${id}`}>
               {hasPage ? (
                 <Link
-                  href={`/dashboard/context/${id}`}
+                  href={`/optimize/token-saver/engines/${id}`}
                   prefetch={false}
                   className="block h-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                 >

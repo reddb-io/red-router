@@ -10,7 +10,8 @@
  * as a tab's `children` are reachable detail pages (they light up their tab) that are not tabs.
  *
  * URLs: the hrefs below are the pages' real `/dashboard/...` paths. Resolving the menu shows them
- * as area URLs (`/proxy/providers`, see `dashboardUrls.ts`), and `findNavMatch` accepts both forms.
+ * as area URLs (`/proxy/providers`, see `dashboardUrls.ts`, where the URL of a page is its label:
+ * `/proxy/keys`, `/optimize/token-saver/studio`), and `findNavMatch` accepts both forms.
  * `dashboardUrls.ts` derives its table from this data, lazily, so never call its functions while
  * this module is being evaluated.
  *
@@ -126,7 +127,9 @@ export const SIDEBAR_NAV_SECTIONS: readonly SidebarNavSection[] = [
         icon: "Server",
         tabs: [
           tab("providers", "/dashboard/providers", "Providers"),
-          tab("quota", "/dashboard/quota", "Quota"),
+          tab("costs-free-tiers", "/dashboard/free-tiers", "Free tiers"),
+          tab("free-provider-rankings", "/dashboard/free-provider-rankings", "Rankings"),
+          tab("radar", "/dashboard/radar", "Radar", { featureFlagKey: "RADAR_ENABLED" }),
           tab("embedded-services", "/dashboard/providers/services", "Local services"),
           tab(undefined, "/dashboard/media-providers", "Media providers"),
           tab(undefined, "/dashboard/relay", "Relay"),
@@ -145,7 +148,7 @@ export const SIDEBAR_NAV_SECTIONS: readonly SidebarNavSection[] = [
         tabs: [
           tab("combos", "/dashboard/combos", "Combos"),
           tab("combos-live", "/dashboard/combos/live", "Live"),
-          tab(undefined, "/dashboard/combos/playground", "Playground"),
+          tab(undefined, "/dashboard/combos/playground", "Test combo"),
         ],
       },
     ],
@@ -261,10 +264,8 @@ export const SIDEBAR_NAV_SECTIONS: readonly SidebarNavSection[] = [
           tab("costs", "/dashboard/costs", "Overview"),
           tab("costs-pricing", "/dashboard/costs/pricing", "Pricing"),
           tab("costs-budget", "/dashboard/costs/budget", "Budget"),
+          tab("quota", "/dashboard/quota", "Quota"),
           tab("costs-quota-share", "/dashboard/costs/quota-share", "Quota sharing"),
-          tab("costs-free-tiers", "/dashboard/free-tiers", "Free tiers"),
-          tab("free-provider-rankings", "/dashboard/free-provider-rankings", "Free rankings"),
-          tab("radar", "/dashboard/radar", "Radar", { featureFlagKey: "RADAR_ENABLED" }),
         ],
       },
       {

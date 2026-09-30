@@ -11,7 +11,7 @@ export default function RoutingPageClient() {
   return (
     <div className="min-w-0 w-full space-y-6 pb-10">
       <header className="space-y-3">
-        <Link href="/dashboard/api-manager" className="text-sm text-primary hover:underline">
+        <Link href="/proxy/keys" className="text-sm text-primary hover:underline">
           ← {t("backToKeys")}
         </Link>
         <h1 className="text-2xl font-semibold tracking-tight text-text-main">{t("pageTitle")}</h1>
