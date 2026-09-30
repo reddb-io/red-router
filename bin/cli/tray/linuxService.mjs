@@ -47,6 +47,7 @@ export function buildLinuxTrayUnit({ nodePath, cliPath, dataDir, port }) {
     "RestartSec=5",
     "KillMode=control-group",
     `Environment=${quote(`DATA_DIR=${dataDir}`)}`,
+    `Environment=${quote(`PATH=${dirname(nodePath)}:/usr/local/bin:/usr/bin:/bin`)}`,
     "Environment=OMNIROUTE_CLI_SKIP_REPO_ENV=1",
     "StandardOutput=journal",
     "StandardError=journal",
