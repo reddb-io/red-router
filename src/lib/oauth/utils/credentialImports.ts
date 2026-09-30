@@ -226,7 +226,6 @@ export async function importGitLabPersonalAccessToken(input: { token: string; ba
 const IFLOW_API_KEY_URL = "https://platform.iflow.cn/api/openapi/apikey";
 const IFLOW_USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36";
-// eslint-disable-next-line no-control-regex -- rejecting control characters is the point
 const CONTROL_CHARS = /[\u0000-\u001f\u007f]/;
 const BXAUTH_PATTERN = /(?:^|;\s*)BXAuth=([^;\s]{1,4096})/;
 

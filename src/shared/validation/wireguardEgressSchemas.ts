@@ -13,7 +13,6 @@ const profileName = z
   .string()
   .transform((value) => value.replace(/\s+/g, " ").trim())
   .refine((value) => value.length >= 1 && value.length <= 64, "Name must be 1-64 characters")
-  // eslint-disable-next-line no-control-regex
   .refine((value) => !/[\u0000-\u001f\u007f]/.test(value), "Name contains control characters");
 
 export const wireGuardEgressCreateSchema = z

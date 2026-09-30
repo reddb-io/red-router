@@ -55,6 +55,9 @@ test.after(() => {
   fs.rmSync(TEST_DATA_DIR, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 });
 
+type BuilderProvider = { providerId: string; models: Array<{ id: string }> };
+type BuilderBody = { providers: BuilderProvider[] } & Record<string, unknown>;
+
 test("combo builder options route aggregates providers, connections, models and combo refs", async () => {
   const nowPlusMinute = Date.now() + 60_000;
   // gpt-4o was removed from the openai registry; use gpt-4.1 (confirmed at providerRegistry.ts:1156)
@@ -130,7 +133,7 @@ test("combo builder options route aggregates providers, connections, models and 
   });
 
   const response = await route.GET();
-  const body = (await response.json()) as any;
+  const body = (await response.json()) as BuilderBody;
 
   assert.equal(response.status, 200);
   assert.equal(body.schemaVersion, 2);
@@ -205,27 +208,27 @@ test("combo builder options route aggregates providers, connections, models and 
 test("combo builder options route includes an enabled no-auth provider (opencode) without provider_connections rows", async () => {
   // No connections seeded — opencode has noAuth: true and never gets a provider_connections row.
   // Opt-in: it is offered once the operator enabled the free source (and not before).
-  const before = (await (await route.GET()).json()) as any;
+  const before = (await (await route.GET()).json()) as BuilderBody;
   assert.equal(
-    before.providers.some((p: any) => p.providerId === "opencode"),
+    before.providers.some((p: BuilderProvider) => p.providerId === "opencode"),
     false,
     "an unconfigured no-auth provider must not be offered"
   );
   await updateSettings({ enabledNoAuthProviders: ["opencode"] });
   const response = await route.GET();
-  const body = (await response.json()) as any;
+  const body = (await response.json()) as BuilderBody;
 
   assert.equal(response.status, 200);
   assert.ok(Array.isArray(body.providers), "providers should be an array");
 
-  const opencode = body.providers.find((p: any) => p.providerId === "opencode");
+  const opencode = body.providers.find((p: BuilderProvider) => p.providerId === "opencode");
   assert.ok(opencode, "opencode should appear in combo builder options even without connections");
   assert.equal(opencode.connectionCount, 0, "opencode should have 0 connections");
   assert.equal(opencode.activeConnectionCount, 0, "opencode should have 0 active connections");
   assert.ok(opencode.models.length > 0, "opencode should expose its built-in models");
   // Spot-check a known built-in model from providerRegistry.ts
   assert.ok(
-    opencode.models.some((m: any) => m.id === "big-pickle"),
+    opencode.models.some((m: { id: string }) => m.id === "big-pickle"),
     "big-pickle should be among opencode models"
   );
   // #2901: no-auth opencode routes under its alias "oc/" (the bare "opencode/"
@@ -253,7 +256,7 @@ test("combo builder options route exposes compatible provider nodes with node me
   await modelsDb.addCustomModel("openai-compatible-demo", "gpt-custom", "GPT Custom");
 
   const response = await route.GET();
-  const body = (await response.json()) as any;
+  const body = (await response.json()) as BuilderBody;
   const provider = body.providers.find((entry) => entry.providerId === "openai-compatible-demo");
 
   assert.equal(response.status, 200);

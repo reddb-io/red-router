@@ -119,7 +119,6 @@ export default function GuardrailsCard() {
   useEffect(() => {
     void load();
     // Load once on mount.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
