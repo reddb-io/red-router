@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.56.0
+
+### Minor Changes
+
+- Add a dedicated Access area for tenants, users and roles, tenant ownership and contact metadata, invitations and monthly tenant/API-key usage with durable history attribution.
+- Expose remote chat and decision models under a public red prefix per router hop, preserve remote capabilities, and forward native System One requests through the selected credential. Extend non-transparent provider-priority routing to decision models while preserving tenant policy and legacy request prefixes.
+
 ## 0.55.5
 
 ### Patch Changes
