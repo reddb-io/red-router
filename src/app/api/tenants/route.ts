@@ -4,6 +4,7 @@ import { logAuditEvent } from "@/lib/compliance/index";
 import { createTenant, listTenants } from "@/lib/db/tenants";
 import { isValidationFailure, validateBody } from "@/shared/validation/helpers";
 import { INVALID_JSON_BODY, createTenantSchema, tenantFailure } from "./_lib";
+import { auditActorFor } from "@/lib/compliance/auditActor";
 
 /** GET /api/tenants — every tenant with its member and resource counts. */
 export async function GET(request: Request) {
@@ -36,7 +37,7 @@ export async function POST(request: Request) {
     const tenant = createTenant(validation.data);
     logAuditEvent({
       action: "tenant.created",
-      actor: "admin",
+      actor: await auditActorFor(request),
       target: tenant.id,
       resourceType: "tenant",
       status: "success",

@@ -43,6 +43,7 @@ import {
 import { rejectRetiredCommonChatGptWebProvider } from "@/lib/providers/chatgptWebRetirementResponse";
 import { chatGptWebStorageStateFromCookieHeader } from "@omniroute/open-sse/utils/chatgptWebExecutorAdapter.ts";
 import { applyOperatorActivationIntent } from "@/lib/providers/operatorDisable";
+import { auditActorFor } from "@/lib/compliance/auditActor";
 
 function normalizeCodexLimitPolicy(
   incoming: unknown,
@@ -420,7 +421,7 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
 
     logAuditEvent({
       action: "provider.credentials.updated",
-      actor: "admin",
+      actor: await auditActorFor(request),
       target: getProviderAuditTarget(updated || existing),
       resourceType: "provider_credentials",
       status: "success",
@@ -484,7 +485,7 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
 
     logAuditEvent({
       action: "provider.credentials.revoked",
-      actor: "admin",
+      actor: await auditActorFor(request),
       target: getProviderAuditTarget(connection),
       resourceType: "provider_credentials",
       status: "success",

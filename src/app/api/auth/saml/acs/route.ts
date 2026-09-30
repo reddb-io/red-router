@@ -90,12 +90,16 @@ export async function POST(request: Request) {
     forwardedProto.toLowerCase() === "https" ||
     base.startsWith("https:");
   const response = NextResponse.redirect(new URL("/dashboard", base), 303);
-  response.cookies.set("auth_token", await mintDashboardSessionToken(secret), {
-    httpOnly: true,
-    secure,
-    sameSite: "lax",
-    path: "/",
-    maxAge: 60 * 60 * 24 * 30,
-  });
+  response.cookies.set(
+    "auth_token",
+    await mintDashboardSessionToken(secret, `saml:${login.email}`),
+    {
+      httpOnly: true,
+      secure,
+      sameSite: "lax",
+      path: "/",
+      maxAge: 60 * 60 * 24 * 30,
+    }
+  );
   return response;
 }

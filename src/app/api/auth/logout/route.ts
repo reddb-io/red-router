@@ -8,6 +8,7 @@ import {
   verifyDashboardSessionToken,
 } from "@/shared/utils/dashboardSessionToken";
 import { cookies } from "next/headers";
+import { auditActorFor } from "@/lib/compliance/auditActor";
 
 export const logoutRouteInternals = {
   getCookieStore: cookies,
@@ -40,7 +41,7 @@ export async function POST(request) {
   cookieStore.delete("auth_token");
   logAuditEvent({
     action: "auth.logout.success",
-    actor: "admin",
+    actor: await auditActorFor(request),
     target: "dashboard-auth",
     resourceType: "auth_session",
     status: "success",

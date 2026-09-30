@@ -74,6 +74,7 @@ import {
 } from "@omniroute/open-sse/utils/chatgptWebExecutorAdapter.ts";
 import { applyOperatorActivationIntent } from "@/lib/providers/operatorDisable";
 import { getRequestPeerLocality } from "@/shared/utils/apiAuth";
+import { auditActorFor } from "@/lib/compliance/auditActor";
 
 function projectCodexAccountPoolWithRoutingQuota(
   connection: Parameters<typeof projectCodexAccountPool>[0],
@@ -490,7 +491,7 @@ export async function POST(request: Request) {
     try {
       logAuditEvent({
         action: "provider.credentials.created",
-        actor: "admin",
+        actor: await auditActorFor(request),
         target: getProviderAuditTarget(newConnection),
         resourceType: "provider_credentials",
         status: "success",
@@ -573,7 +574,7 @@ export async function PATCH(request: Request) {
     // Activity feed reflects that not every requested id was applied.
     logAuditEvent({
       action: "provider.credentials.batch_updated",
-      actor: "admin",
+      actor: await auditActorFor(request),
       resourceType: "provider_credentials",
       status: notFoundIds.length > 0 ? "warn" : "success",
       ipAddress: auditContext.ipAddress || undefined,
@@ -647,7 +648,7 @@ export async function DELETE(request: Request) {
 
     logAuditEvent({
       action: "provider.credentials.batch_revoked",
-      actor: "admin",
+      actor: await auditActorFor(request),
       resourceType: "provider_credentials",
       status: "success",
       ipAddress: auditContext.ipAddress || undefined,

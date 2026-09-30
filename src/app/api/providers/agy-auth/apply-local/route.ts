@@ -15,6 +15,7 @@ import { sanitizeErrorMessage } from "@omniroute/open-sse/utils/error";
 import { applyLocalAgyAuthSchema } from "@/shared/validation/schemas";
 import { validateBody, isValidationFailure } from "@/shared/validation/helpers";
 import { sanitizeProviderSpecificDataForResponse } from "@/lib/providers/requestDefaults";
+import { auditActorFor } from "@/lib/compliance/auditActor";
 
 /**
  * Resolve the Antigravity CLI token-file path. The path is fixed (no request input
@@ -96,7 +97,7 @@ export async function POST(request: Request) {
 
     logAuditEvent({
       action: "provider.credentials.imported",
-      actor: "admin",
+      actor: await auditActorFor(request),
       target: getProviderAuditTarget(connection),
       resourceType: "provider_credentials",
       status: "success",
@@ -117,7 +118,10 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     if (error instanceof AgyAuthFileError) {
-      return NextResponse.json({ error: error.message, code: error.code }, { status: error.status });
+      return NextResponse.json(
+        { error: error.message, code: error.code },
+        { status: error.status }
+      );
     }
     return NextResponse.json(
       { error: sanitizeErrorMessage(error) || "Failed to import local Antigravity CLI login" },

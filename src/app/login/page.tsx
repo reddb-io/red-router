@@ -20,6 +20,9 @@ export default function LoginPage() {
   const [oidcEnabled, setOidcEnabled] = useState<boolean | null>(null);
   const [oidcDisablePasswordLogin, setOidcDisablePasswordLogin] = useState<boolean | null>(null);
   const [samlEnabled, setSamlEnabled] = useState(false);
+  const [mfaToken, setMfaToken] = useState<string | null>(null);
+  const [mfaCode, setMfaCode] = useState("");
+  const [useRecoveryCode, setUseRecoveryCode] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [nodeVersion, setNodeVersion] = useState(null);
   const [nodeCompatible, setNodeCompatible] = useState(true);
@@ -68,6 +71,11 @@ export default function LoginPage() {
     checkAuth();
   }, [router]);
 
+  const enterDashboard = () => {
+    sessionStorage.setItem("omniroute_login_time", String(Date.now()));
+    window.location.href = "/dashboard";
+  };
+
   const handleLogin = async (e) => {
     e.preventDefault();
     setLoading(true);
@@ -81,8 +89,15 @@ export default function LoginPage() {
       });
 
       if (res.ok) {
-        sessionStorage.setItem("omniroute_login_time", String(Date.now()));
-        window.location.href = "/dashboard";
+        const data = await res.json().catch(() => ({}));
+        // A correct password with a second factor on earns a challenge, not a session yet.
+        if (data.mfaRequired && typeof data.mfaToken === "string") {
+          setMfaToken(data.mfaToken);
+          setMfaCode("");
+          setUseRecoveryCode(false);
+          return;
+        }
+        enterDashboard();
       } else {
         const data = await res.json();
         // (#521) If no password is set, redirect to onboarding instead of showing an error
@@ -93,6 +108,36 @@ export default function LoginPage() {
         setError(data.error || t("invalidPassword"));
       }
     } catch (err) {
+      setError(t("errorOccurredRetry"));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleVerifyMfa = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError("");
+    try {
+      const res = await fetch("/api/auth/mfa/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(
+          useRecoveryCode ? { mfaToken, recoveryCode: mfaCode } : { mfaToken, code: mfaCode }
+        ),
+      });
+      if (res.ok) {
+        enterDashboard();
+        return;
+      }
+      const data = await res.json().catch(() => ({}));
+      if (data.restart) {
+        // The challenge expired: back to the password step.
+        setMfaToken(null);
+        setPassword("");
+      }
+      setError(data.error || t("errorOccurredRetry"));
+    } catch {
       setError(t("errorOccurredRetry"));
     } finally {
       setLoading(false);
@@ -195,7 +240,12 @@ export default function LoginPage() {
         >
           <div className="text-center mb-10">
             <div className="inline-flex items-center justify-center w-20 h-20 rounded-3xl bg-gradient-to-br from-amber-500/10 to-amber-500/5 border border-amber-500/10 mb-6">
-              <Icon icon={ShieldUser} size="lg" color="feedback-warning-foreground" style={{ width: 40, height: 40 }} />
+              <Icon
+                icon={ShieldUser}
+                size="lg"
+                color="feedback-warning-foreground"
+                style={{ width: 40, height: 40 }}
+              />
             </div>
             <h1 className="text-3xl font-bold text-text-main tracking-tight">
               {t("secureYourInstance")}
@@ -278,6 +328,68 @@ export default function LoginPage() {
                   {t("continueWithOidc")}
                 </Button>
               </div>
+            ) : mfaToken ? (
+              <form onSubmit={handleVerifyMfa} className="space-y-5 w-full">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-text-main">
+                    {useRecoveryCode ? "Recovery code" : "Authentication code"}
+                  </label>
+                  <Input
+                    type="text"
+                    inputMode={useRecoveryCode ? "text" : "numeric"}
+                    autoComplete="one-time-code"
+                    placeholder={useRecoveryCode ? "xxxxx-xxxxx" : "6-digit code"}
+                    value={mfaCode}
+                    onChange={(e) => setMfaCode(e.target.value)}
+                    required
+                    autoFocus
+                    className="h-11"
+                  />
+                  {error && (
+                    <p className="text-sm text-red-500 flex items-center gap-1.5 pt-1">
+                      <Icon icon={CircleAlert} size="md" color="current" />
+                      {error}
+                    </p>
+                  )}
+                  <p className="text-xs text-text-muted/60 pt-0.5">
+                    {useRecoveryCode
+                      ? "Each recovery code works once."
+                      : "Open your authenticator app and enter the current code."}
+                  </p>
+                </div>
+                <Button
+                  type="submit"
+                  variant="primary"
+                  className="w-full h-11 text-sm font-medium"
+                  loading={loading}
+                >
+                  {t("continue")}
+                </Button>
+                <div className="flex justify-between text-sm">
+                  <button
+                    type="button"
+                    className="text-text-muted hover:text-primary transition-colors"
+                    onClick={() => {
+                      setUseRecoveryCode(!useRecoveryCode);
+                      setMfaCode("");
+                      setError("");
+                    }}
+                  >
+                    {useRecoveryCode ? "Use the authenticator app" : "Use a recovery code"}
+                  </button>
+                  <button
+                    type="button"
+                    className="text-text-muted hover:text-primary transition-colors"
+                    onClick={() => {
+                      setMfaToken(null);
+                      setPassword("");
+                      setError("");
+                    }}
+                  >
+                    Back
+                  </button>
+                </div>
+              </form>
             ) : (
               <>
                 <form onSubmit={handleLogin} className="space-y-5 w-full">

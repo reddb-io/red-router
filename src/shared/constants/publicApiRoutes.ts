@@ -43,6 +43,8 @@ const PUBLIC_API_ROUTE_PREFIXES = [
 const PUBLIC_API_ROUTES_EXACT = new Set([
   "/api/auth/login",
   "/api/auth/logout",
+  // Second step of a password sign-in: the caller holds a challenge token, not a session yet.
+  "/api/auth/mfa/verify",
   "/api/auth/status",
   // SAML: the browser reaches these before it has a session. ACS and metadata are called by the
   // identity provider; start (and its `?test=1`) checks its own auth. `/api/auth/saml/test` is not

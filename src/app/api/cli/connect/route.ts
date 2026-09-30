@@ -18,6 +18,7 @@ import {
 import { getRequestPeerLocality } from "@/shared/utils/apiAuth";
 import { createAccessToken } from "@/lib/db/accessTokens";
 import { ACCESS_SCOPES } from "@/lib/accessTokens/scopes";
+import { auditActorFor } from "@/lib/compliance/auditActor";
 
 /**
  * POST /api/cli/connect — remote-mode bootstrap.
@@ -175,7 +176,7 @@ export async function POST(request: Request) {
 
     logAuditEvent({
       action: "cli.connect.success",
-      actor: "admin",
+      actor: await auditActorFor(request),
       target: "cli-access-token",
       resourceType: "auth_session",
       status: "success",

@@ -5,10 +5,7 @@ import {
   MANUAL_DRAIN_RETRY_AFTER_SECONDS,
   shouldRejectForManualDrain,
 } from "../../lib/system/drainMode";
-import {
-  isAreaUrl,
-  isMalformedAreaUrl,
-} from "../../shared/constants/dashboardUrls";
+import { isAreaUrl, isMalformedAreaUrl } from "../../shared/constants/dashboardUrls";
 import { checkBodySize, getBodySizeLimit } from "../../shared/middleware/bodySizeGuard";
 import {
   verifyDashboardSessionToken,
@@ -166,7 +163,10 @@ async function refreshDashboardSessionIfNeeded(
     const refreshWindowSeconds = 7 * 24 * 60 * 60;
     if (exp - now >= refreshWindowSeconds) return;
 
-    const freshToken = await mintDashboardSessionToken(secret);
+    const freshToken = await mintDashboardSessionToken(
+      secret,
+      typeof payload.sub === "string" ? payload.sub : undefined
+    );
 
     response.cookies.set(DASHBOARD_SESSION_COOKIE, freshToken, {
       httpOnly: true,

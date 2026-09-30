@@ -32,6 +32,7 @@ import { getProxyForLevel } from "@/lib/db/settings";
 import { resolveProxyForProvider } from "@/lib/db/proxies";
 import { runWithProxyContext } from "@omniroute/open-sse/utils/proxyFetch.ts";
 import { rejectRetiredCommonChatGptWebProvider } from "@/lib/providers/chatgptWebRetirementResponse";
+import { auditActorFor } from "@/lib/compliance/auditActor";
 
 // POST /api/providers/bulk — create multiple API-key connections for a single provider.
 // Partial-failure semantics: each entry succeeds or fails independently; the
@@ -178,7 +179,7 @@ export async function POST(request: Request) {
 
       logAuditEvent({
         action: "provider.credentials.created",
-        actor: "admin",
+        actor: await auditActorFor(request),
         target: getProviderAuditTarget(newConnection),
         resourceType: "provider_credentials",
         status: "success",
@@ -205,7 +206,7 @@ export async function POST(request: Request) {
 
   logAuditEvent({
     action: "provider.credentials.bulk_created",
-    actor: "admin",
+    actor: await auditActorFor(request),
     resourceType: "provider_credentials",
     status: errors.length === entries.length ? "failure" : "success",
     ipAddress: auditContext.ipAddress || undefined,

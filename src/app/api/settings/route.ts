@@ -401,8 +401,7 @@ export async function PATCH(request: Request) {
             {
               error: {
                 code: "PASSWORD_BREACHED",
-                message:
-                  "That password appears in known data breaches. Choose a different one.",
+                message: "That password appears in known data breaches. Choose a different one.",
               },
             },
             { status: 400 }
@@ -676,16 +675,23 @@ export async function PATCH(request: Request) {
         .split(",")[0]
         .trim()
         .toLowerCase();
-      response.cookies.set(DASHBOARD_SESSION_COOKIE, await mintDashboardSessionToken(secret), {
-        httpOnly: true,
-        secure:
-          process.env.AUTH_COOKIE_SECURE === "true" ||
-          forwardedProto === "https" ||
-          new URL(request.url).protocol === "https:",
-        sameSite: "lax",
-        path: "/",
-        maxAge: 60 * 60 * 24 * 30,
-      });
+      response.cookies.set(
+        DASHBOARD_SESSION_COOKIE,
+        await mintDashboardSessionToken(
+          secret,
+          typeof callerSession.sub === "string" ? callerSession.sub : undefined
+        ),
+        {
+          httpOnly: true,
+          secure:
+            process.env.AUTH_COOKIE_SECURE === "true" ||
+            forwardedProto === "https" ||
+            new URL(request.url).protocol === "https:",
+          sameSite: "lax",
+          path: "/",
+          maxAge: 60 * 60 * 24 * 30,
+        }
+      );
     }
     return response;
   } catch (error) {

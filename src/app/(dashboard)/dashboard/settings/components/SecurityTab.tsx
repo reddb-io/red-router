@@ -9,6 +9,7 @@ import ProviderIcon from "@/shared/components/ProviderIcon";
 import IPFilterSection from "./IPFilterSection";
 import SessionInfoCard from "./SessionInfoCard";
 import AuthzSection from "./AuthzSection";
+import MfaSection from "./MfaSection";
 import OidcSection from "./OidcSection";
 import SamlSection from "./SamlSection";
 import GuardrailsCard from "./GuardrailsCard";
@@ -389,9 +390,7 @@ export default function SecurityTab() {
                       />
                     )}
                     {provider.name}
-                    {isBlocked && (
-                      <Icon icon={X} size="sm" color="feedback-danger-foreground" />
-                    )}
+                    {isBlocked && <Icon icon={X} size="sm" color="feedback-danger-foreground" />}
                   </button>
                 );
               })}
@@ -517,6 +516,7 @@ export default function SecurityTab() {
       </Card>
 
       <Suspense fallback={null}>
+        <MfaSection />
         <OidcSection />
         <SamlSection />
       </Suspense>

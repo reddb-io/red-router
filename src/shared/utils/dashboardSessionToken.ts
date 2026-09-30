@@ -30,8 +30,15 @@ export type RevokedSession = { jti: string; exp: number };
  * issue time and an id, which is what `verifyDashboardSessionToken` needs to honour a password
  * change or a sign-out before the 30 days are up.
  */
-export async function mintDashboardSessionToken(secret: Uint8Array): Promise<string> {
-  return new SignJWT({ [DASHBOARD_SESSION_CLAIM]: true })
+export async function mintDashboardSessionToken(
+  secret: Uint8Array,
+  subject?: string
+): Promise<string> {
+  const jwt = new SignJWT({ [DASHBOARD_SESSION_CLAIM]: true });
+  // Who the session belongs to: "owner" (password), "oidc:<e-mail>", "saml:<e-mail>". Sessions minted
+  // before this claim existed carry none and are the owner's (the only identity that existed).
+  if (subject) jwt.setSubject(subject);
+  return jwt
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
     .setJti(crypto.randomUUID())

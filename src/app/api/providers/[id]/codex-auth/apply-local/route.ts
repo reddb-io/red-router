@@ -8,14 +8,12 @@ import {
 } from "@/lib/oauth/utils/codexAuthFile";
 import { getAuditRequestContext, logAuditEvent } from "@/lib/compliance/index";
 import { sanitizeErrorMessage } from "@omniroute/open-sse/utils/error";
+import { auditActorFor } from "@/lib/compliance/auditActor";
 
 // Optional body { force?: boolean }. Unknown keys are stripped rather than
 // rejected so the endpoint stays tolerant of the empty/no-body calls it
 // historically accepted. Non-boolean `force` is coerced away to the default.
-const ApplyLocalBodySchema = z
-  .object({ force: z.boolean().optional() })
-  .partial()
-  .passthrough();
+const ApplyLocalBodySchema = z.object({ force: z.boolean().optional() }).partial().passthrough();
 
 function toErrorResponse(error: unknown) {
   if (error instanceof CodexAuthFileError) {
@@ -63,7 +61,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
     logAuditEvent({
       action: "provider.credentials.applied",
-      actor: "admin",
+      actor: await auditActorFor(request),
       target: id,
       resourceType: "provider_credentials",
       status: "success",

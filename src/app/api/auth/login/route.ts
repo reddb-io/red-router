@@ -14,10 +14,10 @@ import { loginSchema } from "@/shared/validation/schemas";
 import { isValidationFailure, validateBody } from "@/shared/validation/helpers";
 import { checkLoginGuard, clearLoginAttempts, recordLoginFailure } from "@/server/auth/loginGuard";
 import { AUTHZ_HEADER_TRUSTED_PEER_IP } from "@/server/authz/headers";
-import {
-  getDashboardJwtSecret,
-  mintDashboardSessionToken,
-} from "@/shared/utils/dashboardSessionToken";
+import { getDashboardJwtSecret } from "@/shared/utils/dashboardSessionToken";
+import { setDashboardSessionCookie } from "@/lib/auth/dashboardSessionCookie";
+import { mintMfaChallenge } from "@/lib/auth/mfaChallenge";
+import { OWNER_PRINCIPAL, isMfaEnabled } from "@/lib/db/mfa";
 import {
   getLoginLockoutKey,
   getLoginSourceScope,
@@ -199,29 +199,31 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (isValid) {
-      const forceSecureCookie = process.env.AUTH_COOKIE_SECURE === "true";
-      const forwardedProtoHeader = request.headers.get("x-forwarded-proto") || "";
-      const forwardedProto = forwardedProtoHeader.split(",")[0].trim().toLowerCase();
-      const isHttpsRequest = forwardedProto === "https" || request.nextUrl?.protocol === "https:";
-      const useSecureCookie = forceSecureCookie || isHttpsRequest;
-
-      const token = await mintDashboardSessionToken(getDashboardJwtSecret()!);
-
-      const cookieStore = await authRouteInternals.getCookieStore();
-      cookieStore.set("auth_token", token, {
-        httpOnly: true,
-        secure: useSecureCookie,
-        sameSite: "lax",
-        path: "/",
-        // 30 days — bound the cookie lifetime to the JWT's 30d expiry so the browser
-        // drops it on the same schedule the token stops being valid (Seg3 hardening).
-        maxAge: 60 * 60 * 24 * 30,
+    // Second factor: a correct password only earns a short-lived challenge, never a session. The
+    // failure counter is NOT cleared here (only a completed second factor clears it), otherwise a
+    // caller who knows the password could reset the lockout between guesses at the code.
+    if (isValid && isMfaEnabled(OWNER_PRINCIPAL)) {
+      const mfaToken = await mintMfaChallenge(getDashboardJwtSecret()!, OWNER_PRINCIPAL);
+      logAuditEvent({
+        action: "auth.login.mfa_required",
+        actor: "owner",
+        target: "dashboard-auth",
+        resourceType: "auth_session",
+        status: "pending",
+        ipAddress: auditContext.ipAddress || undefined,
+        requestId: auditContext.requestId,
+        metadata: { sourceScope },
       });
+      return NextResponse.json({ mfaRequired: true, mfaToken });
+    }
+
+    if (isValid) {
+      const cookieStore = await authRouteInternals.getCookieStore();
+      const useSecureCookie = await setDashboardSessionCookie(request, cookieStore);
 
       logAuditEvent({
         action: "auth.login.success",
-        actor: "admin",
+        actor: "owner",
         target: "dashboard-auth",
         resourceType: "auth_session",
         status: "success",
@@ -251,6 +253,7 @@ export async function POST(request: NextRequest) {
       metadata: {
         reason: "invalid_password",
         lockedOut: failureDecision.allowed === false,
+        lockoutLevel: failureDecision.level ?? null,
         sourceScope,
         internalOrigin: sourceScope === "loopback" || sourceScope === "private",
       },

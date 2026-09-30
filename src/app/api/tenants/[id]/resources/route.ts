@@ -4,6 +4,7 @@ import { logAuditEvent } from "@/lib/compliance/index";
 import { assignApiKeysToTenant, assignResourcesToTenant, getTenant } from "@/lib/db/tenants";
 import { isValidationFailure, validateBody } from "@/shared/validation/helpers";
 import { INVALID_JSON_BODY, assignResourcesSchema, tenantFailure } from "../../_lib";
+import { auditActorFor } from "@/lib/compliance/auditActor";
 
 type Context = { params: Promise<{ id: string }> };
 
@@ -34,7 +35,7 @@ export async function POST(request: Request, context: Context) {
     const moved = assignResourcesToTenant(tenantId, validation.data);
     logAuditEvent({
       action: "tenant.resources.assigned",
-      actor: "admin",
+      actor: await auditActorFor(request),
       target: tenantId,
       resourceType: "tenant",
       status: "success",

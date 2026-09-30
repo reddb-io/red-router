@@ -31,6 +31,7 @@ import { getProxyForLevel } from "@/lib/db/settings";
 import { resolveProxyForProvider } from "@/lib/db/proxies";
 import { runWithProxyContext } from "@omniroute/open-sse/utils/proxyFetch.ts";
 import { rejectRetiredCommonChatGptWebProvider } from "@/lib/providers/chatgptWebRetirementResponse";
+import { auditActorFor } from "@/lib/compliance/auditActor";
 
 type ImportEntry = {
   provider: string;
@@ -238,7 +239,7 @@ export async function POST(request: Request) {
       created.push(result.created);
       logAuditEvent({
         action: "provider.credentials.created",
-        actor: "admin",
+        actor: await auditActorFor(request),
         target: getProviderAuditTarget(result.created),
         resourceType: "provider_credentials",
         status: "success",
@@ -266,7 +267,7 @@ export async function POST(request: Request) {
 
   logAuditEvent({
     action: "provider.credentials.bulk_created",
-    actor: "admin",
+    actor: await auditActorFor(request),
     resourceType: "provider_credentials",
     status: errors.length === entries.length ? "failure" : "success",
     ipAddress: auditContext.ipAddress || undefined,

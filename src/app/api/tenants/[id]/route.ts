@@ -4,6 +4,7 @@ import { logAuditEvent } from "@/lib/compliance/index";
 import { deleteTenant, updateTenant } from "@/lib/db/tenants";
 import { isValidationFailure, validateBody } from "@/shared/validation/helpers";
 import { INVALID_JSON_BODY, tenantFailure, updateTenantSchema } from "../_lib";
+import { auditActorFor } from "@/lib/compliance/auditActor";
 
 type Context = { params: Promise<{ id: string }> };
 
@@ -28,7 +29,7 @@ export async function PATCH(request: Request, context: Context) {
     const tenant = updateTenant(id, validation.data);
     logAuditEvent({
       action: "tenant.updated",
-      actor: "admin",
+      actor: await auditActorFor(request),
       target: tenant.id,
       resourceType: "tenant",
       status: "success",
@@ -49,7 +50,7 @@ export async function DELETE(request: Request, context: Context) {
     deleteTenant(id);
     logAuditEvent({
       action: "tenant.deleted",
-      actor: "admin",
+      actor: await auditActorFor(request),
       target: id,
       resourceType: "tenant",
       status: "success",

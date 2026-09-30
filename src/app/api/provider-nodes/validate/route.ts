@@ -12,6 +12,7 @@ import { getProviderValidationGuard } from "@/shared/network/outboundUrlGuardPol
 import { isCcCompatibleProviderEnabled } from "@/shared/utils/featureFlags";
 import { providerNodeValidateSchema } from "@/shared/validation/schemas";
 import { isValidationFailure, validateBody } from "@/shared/validation/helpers";
+import { auditActorFor } from "@/lib/compliance/auditActor";
 
 // Matches a base URL whose host is localhost / 127.0.0.1 (with an optional port).
 const LOCALHOST_BASE_URL_RE = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?(?:[/?#]|$)/i;
@@ -337,7 +338,7 @@ export async function POST(request) {
       if (error instanceof SafeOutboundFetchError && error.code === "URL_GUARD_BLOCKED") {
         logAuditEvent({
           action: "provider.validation.ssrf_blocked",
-          actor: "admin",
+          actor: await auditActorFor(request),
           target: "provider-node",
           resourceType: "provider_validation",
           status: "blocked",

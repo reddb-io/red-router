@@ -7,6 +7,7 @@ import {
 } from "@/lib/oauth/utils/claudeAuthFile";
 import { getAuditRequestContext, logAuditEvent } from "@/lib/compliance/index";
 import { sanitizeErrorMessage } from "@omniroute/open-sse/utils/error";
+import { auditActorFor } from "@/lib/compliance/auditActor";
 
 function toErrorResponse(error: unknown) {
   if (error instanceof ClaudeAuthFileError) {
@@ -40,7 +41,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
     logAuditEvent({
       action: "provider.credentials.applied",
-      actor: "admin",
+      actor: await auditActorFor(request),
       target: id,
       resourceType: "provider_credentials",
       status: "success",

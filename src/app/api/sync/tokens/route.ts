@@ -9,6 +9,7 @@ import {
   listSyncTokenSummaries,
   resolveSyncApiKeyIdFromManagementRequest,
 } from "@/lib/sync/tokens";
+import { auditActorFor } from "@/lib/compliance/auditActor";
 
 export async function GET(request: Request) {
   const authError = await requireManagementAuth(request);
@@ -65,7 +66,7 @@ export async function POST(request: Request) {
 
     logAuditEvent({
       action: "sync.token.created",
-      actor: "admin",
+      actor: await auditActorFor(request),
       target: issued.record.name,
       resourceType: "sync_token",
       status: "success",

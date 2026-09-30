@@ -4,6 +4,7 @@ import { createErrorResponse, createErrorResponseFromUnknown } from "@/lib/api/e
 import { requireManagementAuth } from "@/lib/api/requireManagementAuth";
 import { getSyncTokenById } from "@/lib/db/syncTokens";
 import { revokeSyncTokenById } from "@/lib/sync/tokens";
+import { auditActorFor } from "@/lib/compliance/auditActor";
 
 export async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const authError = await requireManagementAuth(request);
@@ -31,7 +32,7 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
 
     logAuditEvent({
       action: "sync.token.revoked",
-      actor: "admin",
+      actor: await auditActorFor(request),
       target: revoked.name,
       resourceType: "sync_token",
       status: "success",

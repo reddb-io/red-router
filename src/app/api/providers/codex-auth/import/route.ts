@@ -11,6 +11,7 @@ import { sanitizeErrorMessage } from "@omniroute/open-sse/utils/error";
 import { importCodexAuthSchema } from "@/shared/validation/schemas";
 import { validateBody, isValidationFailure } from "@/shared/validation/helpers";
 import { sanitizeProviderSpecificDataForResponse } from "@/lib/providers/requestDefaults";
+import { auditActorFor } from "@/lib/compliance/auditActor";
 
 function sanitizeConnectionForResponse(connection: Record<string, unknown>) {
   const safe = { ...connection };
@@ -64,7 +65,7 @@ export async function POST(request: Request) {
 
     logAuditEvent({
       action: "provider.credentials.imported",
-      actor: "admin",
+      actor: await auditActorFor(request),
       target: getProviderAuditTarget(connection),
       resourceType: "provider_credentials",
       status: "success",

@@ -4,6 +4,7 @@ import { logAuditEvent } from "@/lib/compliance/index";
 import { createTenantUser, getTenant, listTenantUsers } from "@/lib/db/tenants";
 import { isValidationFailure, validateBody } from "@/shared/validation/helpers";
 import { INVALID_JSON_BODY, createTenantUserSchema, tenantFailure } from "../../_lib";
+import { auditActorFor } from "@/lib/compliance/auditActor";
 
 type Context = { params: Promise<{ id: string }> };
 
@@ -41,7 +42,7 @@ export async function POST(request: Request, context: Context) {
     const user = createTenantUser(tenant?.id ?? id, validation.data);
     logAuditEvent({
       action: "tenant.user.created",
-      actor: "admin",
+      actor: await auditActorFor(request),
       target: user.id,
       resourceType: "tenant_user",
       status: "success",

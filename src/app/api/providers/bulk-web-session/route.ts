@@ -19,6 +19,7 @@ import {
   resolveWebSessionImportApiKey,
 } from "@/shared/providers/webSessionCredentials";
 import { rejectRetiredCommonChatGptWebProvider } from "@/lib/providers/chatgptWebRetirementResponse";
+import { auditActorFor } from "@/lib/compliance/auditActor";
 
 export async function POST(request: Request) {
   const authError = await requireManagementAuth(request);
@@ -100,7 +101,7 @@ export async function POST(request: Request) {
 
       logAuditEvent({
         action: "provider.credentials.created",
-        actor: "admin",
+        actor: await auditActorFor(request),
         target: getProviderAuditTarget(newConnection),
         resourceType: "provider_credentials",
         status: "success",
@@ -127,7 +128,7 @@ export async function POST(request: Request) {
 
   logAuditEvent({
     action: "provider.credentials.bulk_imported",
-    actor: "admin",
+    actor: await auditActorFor(request),
     resourceType: "provider_credentials",
     status: errors.length === entries.length ? "failure" : "success",
     ipAddress: auditContext.ipAddress || undefined,

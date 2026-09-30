@@ -16,6 +16,7 @@ import { validateProviderApiKeySchema } from "@/shared/validation/schemas";
 import { isValidationFailure, validateBody } from "@/shared/validation/helpers";
 import { runWithProxyContextOrDirect } from "@omniroute/open-sse/utils/proxyFetch.ts";
 import { rejectRetiredCommonChatGptWebProvider } from "@/lib/providers/chatgptWebRetirementResponse";
+import { auditActorFor } from "@/lib/compliance/auditActor";
 
 function sanitizeAuditUrl(url: string | null | undefined) {
   if (!url) return null;
@@ -149,7 +150,7 @@ export async function POST(request) {
       if (result.securityBlocked) {
         logAuditEvent({
           action: "provider.validation.ssrf_blocked",
-          actor: "admin",
+          actor: await auditActorFor(request),
           target: provider,
           resourceType: "provider_validation",
           status: "blocked",

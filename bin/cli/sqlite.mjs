@@ -293,3 +293,21 @@ export async function disableSingleSignOn(dbPath = resolveStoragePath(resolveDat
     db.close();
   }
 }
+
+/**
+ * Recovery for an operator who lost the authenticator and the recovery codes: remove the owner's
+ * second factor so the password alone signs in again. Returns whether one was enabled.
+ */
+export async function disableOwnerMfa(dbPath = resolveStoragePath(resolveDataDir())) {
+  const db = await openSqliteDatabase(dbPath);
+  try {
+    db.pragma("journal_mode = WAL");
+    const table = db
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'auth_mfa'")
+      .get();
+    if (!table) return false;
+    return db.prepare("DELETE FROM auth_mfa WHERE principal = 'owner'").run().changes > 0;
+  } finally {
+    db.close();
+  }
+}

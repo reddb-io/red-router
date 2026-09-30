@@ -67,7 +67,9 @@ export async function GET(request: Request) {
   const failTo = (reason: string) =>
     NextResponse.redirect(
       new URL(
-        testMode ? `/dashboard/settings/security?oidc_test=${reason}` : `/login?oidc_error=${reason}`,
+        testMode
+          ? `/dashboard/settings/security?oidc_test=${reason}`
+          : `/login?oidc_error=${reason}`,
         originEarly
       )
     );
@@ -195,6 +197,9 @@ export async function GET(request: Request) {
     return failTo("no_id_token");
   }
 
+  // Who signed in, for the session and the audit trail: the verified e-mail, else the IdP subject.
+  let sessionSubject = "oidc";
+
   // Validate ID token
   try {
     const expectedIssuers = Array.from(
@@ -228,13 +233,14 @@ export async function GET(request: Request) {
 
     // Optional subject / email whitelist
     const allowed = Array.isArray(settings.oidcAllowedSubjects) ? settings.oidcAllowedSubjects : [];
+    const sub = typeof payload.sub === "string" ? payload.sub : "";
+    const emailVerified = (payload as Record<string, unknown>).email_verified === true;
+    const email =
+      emailVerified && typeof (payload as Record<string, unknown>).email === "string"
+        ? ((payload as Record<string, unknown>).email as string).toLowerCase()
+        : "";
+    sessionSubject = `oidc:${email || sub || "unknown"}`;
     if (allowed.length > 0) {
-      const sub = typeof payload.sub === "string" ? payload.sub : "";
-      const emailVerified = (payload as Record<string, unknown>).email_verified === true;
-      const email =
-        emailVerified && typeof (payload as Record<string, unknown>).email === "string"
-          ? ((payload as Record<string, unknown>).email as string).toLowerCase()
-          : "";
       const ok = allowed.some((v: unknown) => {
         if (typeof v !== "string") return false;
         if (v === sub) return true;
@@ -248,7 +254,9 @@ export async function GET(request: Request) {
       // Reached only by a signed-in admin (login?test=1). Record the success so password
       // login can then be switched off, and report back without minting a session.
       await updateSettings({ [OIDC_LAST_TEST_SETTING]: new Date().toISOString() });
-      return NextResponse.redirect(new URL("/dashboard/settings/security?oidc_test=ok", originEarly));
+      return NextResponse.redirect(
+        new URL("/dashboard/settings/security?oidc_test=ok", originEarly)
+      );
     }
   } catch {
     return failTo("id_token_invalid");
@@ -271,7 +279,7 @@ export async function GET(request: Request) {
   const isHttpsRequest = fp === "https" || reqUrl.protocol === "https:";
   const useSecureCookie = forceSecureCookie || isHttpsRequest;
 
-  const jwt = await mintDashboardSessionToken(secret);
+  const jwt = await mintDashboardSessionToken(secret, sessionSubject);
 
   const store = await oidcCallbackInternals.getCookieStore();
   store.set("auth_token", jwt, {

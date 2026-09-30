@@ -84,7 +84,7 @@ test("auth login/logout routes emit structured audit events with ip and request 
   assert.deepEqual(deleteCalls, [["auth_token"]]);
 
   const loginEvent = compliance.getAuditLog({ action: "auth.login.success" })[0];
-  assert.equal(loginEvent.actor, "admin");
+  assert.equal(loginEvent.actor, "owner");
   assert.equal(loginEvent.resourceType, "auth_session");
   assert.equal(loginEvent.status, "success");
   assert.equal(loginEvent.ip, "198.51.100.10");

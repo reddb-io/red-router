@@ -7,6 +7,7 @@ import { deleteProviderConnectionsByProvider } from "@/lib/db/providers/deletion
 import { listDeprecatedProviderLeftovers } from "@/lib/providers/deprecatedProviderCleanup";
 import { isDeprecatedProvider } from "@omniroute/open-sse/services/tokenRefresh.ts";
 import { isValidationFailure, validateBody } from "@/shared/validation/helpers";
+import { auditActorFor } from "@/lib/compliance/auditActor";
 
 const purgeSchema = z.object({
   provider: z.string().min(1),
@@ -57,11 +58,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Provider is not deprecated" }, { status: 400 });
   }
 
-  const deleted = Number(await deleteProviderConnectionsByProvider(provider) || 0);
+  const deleted = Number((await deleteProviderConnectionsByProvider(provider)) || 0);
 
   logAuditEvent({
     action: "provider.credentials.revoked",
-    actor: "admin",
+    actor: await auditActorFor(request),
     target: provider,
     resourceType: "provider_credentials",
     status: "success",

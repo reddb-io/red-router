@@ -16,6 +16,7 @@ import {
 } from "@/lib/providers/enabledProviders";
 import { isValidationFailure, validateBody } from "@/shared/validation/helpers";
 import { errorResponse } from "@omniroute/open-sse/utils/error";
+import { auditActorFor } from "@/lib/compliance/auditActor";
 
 export const dynamic = "force-dynamic";
 
@@ -124,7 +125,7 @@ export async function POST(request: Request) {
     const auditContext = getAuditRequestContext(request);
     logAuditEvent({
       action: `provider.free_sources.${action.replace("-", "_")}`,
-      actor: "admin",
+      actor: await auditActorFor(request),
       resourceType: "provider_free_sources",
       status: "success",
       ipAddress: auditContext.ipAddress || undefined,

@@ -4,6 +4,7 @@ import { logAuditEvent } from "@/lib/compliance/index";
 import { getResourceTenantId, getTenant, setResourceShared, TenantError } from "@/lib/db/tenants";
 import { isValidationFailure, validateBody } from "@/shared/validation/helpers";
 import { INVALID_JSON_BODY, sharedResourceSchema, tenantFailure } from "../../_lib";
+import { auditActorFor } from "@/lib/compliance/auditActor";
 
 type Context = { params: Promise<{ id: string }> };
 
@@ -37,7 +38,7 @@ export async function PUT(request: Request, context: Context) {
     setResourceShared(kind, resourceId, shared);
     logAuditEvent({
       action: shared ? "tenant.resource.shared" : "tenant.resource.unshared",
-      actor: "admin",
+      actor: await auditActorFor(request),
       target: resourceId,
       resourceType: kind,
       status: "success",

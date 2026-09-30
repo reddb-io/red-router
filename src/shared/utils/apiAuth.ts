@@ -368,10 +368,9 @@ export function isManagementApiRequest(request: RequestLike | Request): boolean 
   return !isPublicApiRoute(pathname, getRequestMethod(request));
 }
 
-export async function isDashboardSessionAuthenticated(
-  request?: RequestLike | Request | null
-): Promise<boolean> {
-  if (!process.env.JWT_SECRET) return false;
+/** The verified dashboard session payload of a request, or null when there is none. */
+export async function getDashboardSessionPayload(request?: RequestLike | Request | null) {
+  if (!process.env.JWT_SECRET) return null;
 
   let token =
     request &&
@@ -397,9 +396,15 @@ export async function isDashboardSessionAuthenticated(
     }
   }
 
-  if (!token) return false;
+  if (!token) return null;
 
-  return (await verifyDashboardSessionToken(token)) !== null;
+  return verifyDashboardSessionToken(token);
+}
+
+export async function isDashboardSessionAuthenticated(
+  request?: RequestLike | Request | null
+): Promise<boolean> {
+  return (await getDashboardSessionPayload(request)) !== null;
 }
 
 // ──────────────── Auth Verification ────────────────

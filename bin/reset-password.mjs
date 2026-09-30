@@ -13,6 +13,10 @@
  *
  * Locked out after turning password login off for single sign-on:
  *   red-router reset-password --disable-sso
+ *
+ * Lost the authenticator app and the recovery codes:
+ *   red-router reset-password --disable-mfa
+ * removes the second factor so the password alone signs in again.
  * switches OIDC/SAML off and password login back on, keeping the stored password.
  *
  * Resets the admin password for OmniRoute.
@@ -25,6 +29,7 @@
 import { createInterface } from "node:readline";
 import { resolveDataDir, resolveStoragePath } from "./cli/data-dir.mjs";
 import {
+  disableOwnerMfa,
   disableSingleSignOn,
   readManagementPasswordState,
   resetManagementPassword,
@@ -101,6 +106,17 @@ async function main() {
     console.error(`   Make sure RedRouter has been started at least once.`);
     console.error(`   Or set DATA_DIR env var to your data directory.\n`);
     process.exit(1);
+  }
+
+  if (process.argv.includes("--disable-mfa")) {
+    const removed = await disableOwnerMfa(DB_PATH);
+    console.log(
+      removed
+        ? "\n✅ The second factor is off. The password alone signs in again."
+        : "\nℹ️  No second factor was enabled."
+    );
+    console.log("   Turn it back on in Settings > Security.\n");
+    process.exit(0);
   }
 
   if (process.argv.includes("--disable-sso")) {
