@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.47.0
+
+### Minor Changes
+
+- Guardrails, second slice (Settings → Security → Guardrails). A content filter with your own keywords (optionally whole-word) and restricted regexes, applied to requests and to non-streaming responses, that either blocks with a fixed `content_policy_violation` message (never revealing the rule) or just flags; a registry that lists every built-in guardrail with its stage and priority; assignments that turn guardrails on or off and reorder them globally, per key group and per key, with data-mutating guardrails (PII, credentials, media bridges) never enabled implicitly; and a 24-hour event log (guardrail and rule ids only, never matched text, kept 30 days). With nothing configured the pipeline behaves exactly as before, and the PII opt-in defaults are untouched. Streamed responses are not scanned on the response side.
+- Observability. Webhooks can now subscribe to `provider.circuit_open` and `provider.circuit_closed` (at most one per provider per state every 5 minutes, so a flapping breaker does not flood you), `connection.unavailable` (a connection turning banned, expired or out of credits) and `quota.low` (a window at 10% or less, re-armed above 15%); payloads carry ids, states and reason codes only, and Slack, Telegram and Discord messages show them. Note that a webhook subscribed to `*` starts receiving these. `POST /api/system/drain` (management auth) makes `/healthz` and `/readyz` answer 503 and new API calls answer 503 with `Retry-After` while in-flight requests finish, `DELETE` lifts it, and `GET /api/system/backlog` reports in-flight requests, admission queue, usage-sink outbox and log-export backlog. A new OTLP/HTTP log destination exports call logs (no prompts or responses) to any collector, with SSRF-safe egress, batching and retries. The webhook event picker no longer offers events that were removed earlier.
+
 ## 0.46.0
 
 ### Minor Changes
