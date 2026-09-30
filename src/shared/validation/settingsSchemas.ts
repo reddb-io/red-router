@@ -24,6 +24,16 @@ import {
   SPAWN_CAPABLE_PATTERN_ANCESTORS,
 } from "@/shared/constants/spawnCapablePrefixes";
 import { isHttpUrl } from "@/shared/validation/schemas/misc";
+import { GUARDRAIL_IDS } from "@/lib/guardrails/catalog";
+import { GUARDRAIL_ASSIGNMENT_MAX_SCOPES, GUARDRAIL_PRIORITY_MAX } from "@/lib/guardrails/assignment";
+import {
+  CONTENT_FILTER_ACTIONS,
+  CONTENT_FILTER_MAX_PATTERN_LENGTH,
+  CONTENT_FILTER_MAX_RULES,
+  CONTENT_FILTER_RULE_TYPES,
+  CONTENT_FILTER_SCOPES,
+  validateRegexPattern,
+} from "@/lib/guardrails/contentFilterRules";
 
 const signatureCacheModeValues = ["enabled", "bypass", "bypass-strict"] as const;
 
@@ -99,6 +109,82 @@ const transformObfuscateWordsSchema = z.object({
     .optional(),
 });
 
+// Guardrail content filter (off by default). Regex rules are refused with a fixed reason and
+// never echo the pattern back.
+const guardrailContentFilterRuleSchema = z
+  .object({
+    id: z
+      .string()
+      .min(1)
+      .max(64)
+      .regex(/^[A-Za-z0-9_.-]+$/, "Rule id may only contain letters, digits, dot, dash and underscore"),
+    label: z.string().max(100),
+    type: z.enum(CONTENT_FILTER_RULE_TYPES),
+    pattern: z.string().min(1).max(CONTENT_FILTER_MAX_PATTERN_LENGTH),
+    scope: z.enum(CONTENT_FILTER_SCOPES),
+    action: z.enum(CONTENT_FILTER_ACTIONS),
+    enabled: z.boolean(),
+    wholeWord: z.boolean().optional(),
+  })
+  .superRefine((rule, ctx) => {
+    if (rule.type !== "regex") return;
+    const reason = validateRegexPattern(rule.pattern);
+    if (reason) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["pattern"], message: reason });
+  });
+
+const guardrailContentFilterSchema = z
+  .object({
+    enabled: z.boolean(),
+    rules: z.array(guardrailContentFilterRuleSchema).max(CONTENT_FILTER_MAX_RULES),
+  })
+  .superRefine((config, ctx) => {
+    const seen = new Set<string>();
+    config.rules.forEach((rule, index) => {
+      if (seen.has(rule.id)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["rules", index, "id"],
+          message: "Rule ids must be unique",
+        });
+      }
+      seen.add(rule.id);
+    });
+  });
+
+const guardrailIdSchema = z
+  .string()
+  .refine((id) => GUARDRAIL_IDS.includes(id), "Unknown guardrail id");
+
+const guardrailScopeOverrideSchema = z.object({
+  disabled: z.array(guardrailIdSchema).max(50),
+  enabled: z.array(guardrailIdSchema).max(50),
+});
+
+const guardrailScopeMapSchema = z
+  .record(z.string().min(1).max(200), guardrailScopeOverrideSchema)
+  .refine(
+    (map) =>
+      Object.keys(map).length <= GUARDRAIL_ASSIGNMENT_MAX_SCOPES && !Object.keys(map).includes("__proto__"),
+    "Too many scopes"
+  );
+
+const guardrailAssignmentsSchema = z.object({
+  global: z
+    .array(
+      z.object({
+        id: guardrailIdSchema,
+        enabled: z.boolean(),
+        priority: z.number().int().min(0).max(GUARDRAIL_PRIORITY_MAX),
+      })
+    )
+    .max(50)
+    .refine((items) => new Set(items.map((item) => item.id)).size === items.length, {
+      message: "Each guardrail may appear once in global",
+    }),
+  byKey: guardrailScopeMapSchema,
+  byGroup: guardrailScopeMapSchema,
+});
+
 const capacityPoolSchema = z.object({
   enabled: z.boolean(),
   roundRobin: z.boolean().optional(),
@@ -111,6 +197,8 @@ export const updateSettingsSchema = z.object({
   newPassword: z.string().min(1).max(200).optional(),
   currentPassword: z.string().max(200).optional(),
   credentialRedactionEnabled: z.boolean().optional(),
+  guardrailContentFilter: guardrailContentFilterSchema.optional(),
+  guardrailAssignments: guardrailAssignmentsSchema.optional(),
   theme: z.string().max(50).optional(),
   language: z.string().max(10).optional(),
   requireLogin: z.boolean().optional(),

@@ -14,6 +14,7 @@ import { CORS_HEADERS, handleCorsOptions } from "@/shared/utils/cors";
 import { createErrorResponse } from "@/lib/api/errorResponse";
 import { requireManagementAuth } from "@/lib/api/requireManagementAuth";
 import { registerDefaultGuardrails } from "@/lib/guardrails/registry";
+import { loadGuardrailPlan } from "@/lib/guardrails/runtime";
 import { validateBody, isValidationFailure } from "@/shared/validation/helpers";
 
 const TestRequestSchema = z.object({
@@ -45,6 +46,7 @@ export async function POST(request: NextRequest) {
   const registry = registerDefaultGuardrails();
   const outcome = await registry.runPreCallHooks(parsed.input, {
     disabledGuardrails: parsed.disabledGuardrails,
+    guardrailPlan: await loadGuardrailPlan({ apiKeyInfo: null }),
   });
 
   return NextResponse.json(

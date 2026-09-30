@@ -11,6 +11,7 @@ import SessionInfoCard from "./SessionInfoCard";
 import AuthzSection from "./AuthzSection";
 import OidcSection from "./OidcSection";
 import SamlSection from "./SamlSection";
+import GuardrailsCard from "./GuardrailsCard";
 import { useTranslations } from "next-intl";
 
 export default function SecurityTab() {
@@ -519,6 +520,7 @@ export default function SecurityTab() {
         <OidcSection />
         <SamlSection />
       </Suspense>
+      <GuardrailsCard />
       <AuthzSection />
       <SessionInfoCard />
     </div>

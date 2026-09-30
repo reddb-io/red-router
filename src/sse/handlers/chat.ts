@@ -102,6 +102,7 @@ import {
   isOpenAIResponsesStoreEnabled,
 } from "@/lib/providers/requestDefaults";
 import { guardrailRegistry, resolveDisabledGuardrails } from "@/lib/guardrails";
+import { createGuardrailEventRecorder, loadGuardrailPlan } from "@/lib/guardrails/runtime";
 import {
   resolveModelOrError,
   comboTargetCredentialProviderId,
@@ -806,10 +807,15 @@ async function handleChatImplementation(
       headers: request.headers,
     }),
     endpoint: new URL(request.url).pathname,
+    guardrailPlan: await loadGuardrailPlan({ apiKeyInfo: (apiKeyInfo ?? null) as any }),
     headers: request.headers,
     log,
     method: request.method,
     model: modelStr,
+    recordEvent: createGuardrailEventRecorder({
+      apiKeyInfo: (apiKeyInfo ?? null) as any,
+      requestId: reqId,
+    }),
     signal,
     stream: body?.stream === true,
   });
@@ -820,7 +826,10 @@ async function handleChatImplementation(
     });
     return errorResponse(
       HTTP_STATUS.BAD_REQUEST,
-      preCallGuardrails.message || "Request rejected: suspicious content detected"
+      preCallGuardrails.message || "Request rejected: suspicious content detected",
+      preCallGuardrails.guardrail === "content-filter"
+        ? { code: "content_policy_violation", type: "invalid_request_error" }
+        : undefined
     );
   }
   // Snapshot model BEFORE the guardrail payload (see reconcileGuardrailReroute).

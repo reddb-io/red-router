@@ -10,6 +10,7 @@ import { VisionBridgeGuardrail } from "./visionBridge";
 import { AudioBridgeGuardrail } from "./audioBridge";
 import { VideoBridgeGuardrail } from "./videoBridge";
 import { CredentialMaskerGuardrail } from "./credentialMasker";
+import { ContentFilterGuardrail } from "./contentFilter";
 
 /**
  * `preCall`/`postCall` may legitimately return nothing — that is the documented
@@ -73,6 +74,33 @@ function getGuardrailLogger(context: GuardrailContext) {
   return context.log || console;
 }
 
+/** Guardrails whose only effect is rewriting text; their edits are reported as "mask" events. */
+const MASK_EVENT_GUARDRAILS = new Set(["pii-masker", "credential-masker"]);
+
+function emitGuardrailEvent(
+  context: GuardrailContext,
+  guardrail: BaseGuardrail,
+  stage: "request" | "response",
+  execution: GuardrailExecutionResult
+) {
+  if (!context.recordEvent) return;
+  try {
+    if (execution.blocked) {
+      const ruleId = execution.meta?.ruleId;
+      context.recordEvent({
+        guardrailId: guardrail.name,
+        stage,
+        action: "block",
+        ruleId: typeof ruleId === "string" ? ruleId : null,
+      });
+    } else if (execution.modified && MASK_EVENT_GUARDRAILS.has(normalizeGuardrailName(guardrail.name))) {
+      context.recordEvent({ guardrailId: guardrail.name, stage, action: "mask" });
+    }
+  } catch {
+    // Monitoring must never affect the request.
+  }
+}
+
 export function resolveDisabledGuardrails({
   apiKeyInfo,
   body,
@@ -127,10 +155,35 @@ export class GuardrailRegistry {
   }
 
   private isDisabled(guardrail: BaseGuardrail, context: GuardrailContext) {
+    if (guardrail.honorsCallerOptOut === false) return false;
     const disabled = new Set(
       (context.disabledGuardrails || []).map((entry) => normalizeGuardrailName(entry))
     );
     return disabled.has(normalizeGuardrailName(guardrail.name));
+  }
+
+  /** Switched off by the operator's assignments for this request's key. */
+  private isPlanDisabled(guardrail: BaseGuardrail, context: GuardrailContext) {
+    const entry = context.guardrailPlan?.entries[normalizeGuardrailName(guardrail.name)];
+    return entry?.enabled === false;
+  }
+
+  /**
+   * The guardrails to walk for this request, in run order. Without a plan this is the registered
+   * list unchanged (minus guardrails that only run when the plan activates them). With
+   * assignments, priorities from the plan replace the registered ones.
+   */
+  private selectFor(context: GuardrailContext): BaseGuardrail[] {
+    const plan = context.guardrailPlan ?? null;
+    const active = this.guardrails.filter((guardrail) => guardrail.isActive(context));
+    if (!plan || Object.keys(plan.entries).length === 0) return active;
+
+    const priorityOf = (guardrail: BaseGuardrail) =>
+      plan.entries[normalizeGuardrailName(guardrail.name)]?.priority ?? guardrail.priority;
+    return [...active].sort(
+      (left, right) =>
+        priorityOf(left) - priorityOf(right) || left.name.localeCompare(right.name)
+    );
   }
 
   async runPreCallHooks<TPayload = unknown>(payload: TPayload, context: GuardrailContext = {}) {
@@ -138,8 +191,12 @@ export class GuardrailRegistry {
     const results: GuardrailExecutionResult[] = [];
     let currentPayload = payload;
 
-    for (const guardrail of this.guardrails) {
-      if (!guardrail.enabled || this.isDisabled(guardrail, context)) {
+    for (const guardrail of this.selectFor(context)) {
+      if (
+        !guardrail.enabled ||
+        this.isDisabled(guardrail, context) ||
+        this.isPlanDisabled(guardrail, context)
+      ) {
         results.push({
           blocked: false,
           guardrail: guardrail.name,
@@ -169,6 +226,7 @@ export class GuardrailRegistry {
           stage: "pre",
         };
         results.push(execution);
+        emitGuardrailEvent(context, guardrail, "request", execution);
 
         logger.debug?.(
           "GUARDRAIL",
@@ -214,8 +272,12 @@ export class GuardrailRegistry {
     const results: GuardrailExecutionResult[] = [];
     let currentResponse = response;
 
-    for (const guardrail of this.guardrails) {
-      if (!guardrail.enabled || this.isDisabled(guardrail, context)) {
+    for (const guardrail of this.selectFor(context)) {
+      if (
+        !guardrail.enabled ||
+        this.isDisabled(guardrail, context) ||
+        this.isPlanDisabled(guardrail, context)
+      ) {
         results.push({
           blocked: false,
           guardrail: guardrail.name,
@@ -245,6 +307,7 @@ export class GuardrailRegistry {
           stage: "post",
         };
         results.push(execution);
+        emitGuardrailEvent(context, guardrail, "response", execution);
 
         logger.debug?.(
           "GUARDRAIL",
@@ -296,6 +359,7 @@ export function registerDefaultGuardrails() {
   guardrailRegistry.register(new VisionBridgeGuardrail());
   guardrailRegistry.register(new AudioBridgeGuardrail());
   guardrailRegistry.register(new VideoBridgeGuardrail());
+  guardrailRegistry.register(new ContentFilterGuardrail());
   guardrailRegistry.register(new PIIMaskerGuardrail());
   guardrailRegistry.register(new CredentialMaskerGuardrail());
   guardrailRegistry.register(new PromptInjectionGuardrail());

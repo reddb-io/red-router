@@ -351,6 +351,7 @@ import { assertExclusiveConnectionLeaseFence } from "@/lib/db/exclusiveConnectio
 
 import { getCacheControlSettings } from "@/lib/cacheControlSettings";
 import { guardrailRegistry } from "@/lib/guardrails";
+import { createGuardrailEventRecorder, loadGuardrailPlan } from "@/lib/guardrails/runtime";
 import type { VideoBridgeLogRedactionEntry } from "@/lib/guardrails/videoBridge";
 import {
   logClientRawRequestRedacted,
@@ -5584,6 +5585,11 @@ async function handleChatCoreInner({
         responsePayloadFormat,
         clientResponseFormat,
       });
+      guardrailContext.guardrailPlan = await loadGuardrailPlan({ apiKeyInfo: guardrailContext.apiKeyInfo });
+      guardrailContext.recordEvent = createGuardrailEventRecorder({
+        apiKeyInfo: guardrailContext.apiKeyInfo,
+        requestId: traceId,
+      });
       const postCallGuardrails = await guardrailRegistry.runPostCallHooks(
         translatedResponse,
         guardrailContext
@@ -5629,7 +5635,13 @@ async function handleChatCoreInner({
           providerResponse: responseBody,
           clientResponse: translatedResponse,
         });
-        return createErrorResult(HTTP_STATUS.BAD_REQUEST, guardrailMessage);
+        return createErrorResult(
+          HTTP_STATUS.BAD_REQUEST,
+          guardrailMessage,
+          null,
+          postCallGuardrails.guardrail === "content-filter" ? "content_policy_violation" : undefined,
+          postCallGuardrails.guardrail === "content-filter" ? "invalid_request_error" : undefined
+        );
       }
 
       // Validate the *translated* response actually carries client-usable output.
