@@ -78,7 +78,10 @@ test("explicit decision endpoints are recognized even without a catalog type", (
     owned_by: "openai",
     supported_endpoints: ["chat"],
   });
-  assert.equal((embedding.capabilities as Record<string, unknown>).chat, false);
+  assert.deepEqual(filterCatalogCapabilities([embedding], ["chat"]), []);
+  const combo = withCatalogRoleCapabilities({ id: "unknown-router", owned_by: "combo" });
+  assert.equal("capabilities" in combo, false);
+  assert.deepEqual(filterCatalogCapabilities([combo], ["chat"]), [combo]);
 });
 
 test("capability filters accept conjunctions and reject unknown or empty capabilities", () => {

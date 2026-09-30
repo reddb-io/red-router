@@ -25,8 +25,7 @@ export function catalogCapabilityCacheKey(request: Request): string {
   return parsed.success ? [...new Set(parsed.data)].sort().join(",") : "invalid";
 }
 
-/** Decisions are a separate protocol; chat metadata heuristics must never turn JEV into S2. */
-export function withCatalogRoleCapabilities(model: CatalogModel): CatalogModel {
+function catalogModelRole(model: CatalogModel): { chat: boolean; decision: boolean } {
   const declared = Array.isArray(model.supported_endpoints)
     ? model.supported_endpoints.filter(
         (endpoint): endpoint is string => typeof endpoint === "string"
@@ -41,23 +40,30 @@ export function withCatalogRoleCapabilities(model: CatalogModel): CatalogModel {
     !decision &&
     (!model.type || ["chat", "llm", "imageToText"].includes(String(model.type))) &&
     endpoint.chatSelectable;
+  return { chat, decision };
+}
+
+/** Decisions are a separate protocol; chat metadata heuristics must never turn JEV into S2. */
+export function withCatalogRoleCapabilities(model: CatalogModel): CatalogModel {
+  const { chat, decision } = catalogModelRole(model);
+  // Keep unknown combo metadata absent, as required by the product's existing contract.
+  if (!decision) return model;
   const capabilities =
     model.capabilities && typeof model.capabilities === "object"
       ? { ...(model.capabilities as CatalogModel) }
       : {};
   capabilities.chat = chat;
   capabilities.decision = decision;
-  if (decision) {
-    capabilities.tool_calling = false;
-    capabilities.reasoning = false;
-    capabilities.vision = false;
-    capabilities.thinking = false;
-    capabilities.supportsThinking = false;
-    delete capabilities.effort_tiers;
-  }
+  capabilities.tool_calling = false;
+  capabilities.reasoning = false;
+  capabilities.vision = false;
+  capabilities.thinking = false;
+  capabilities.supportsThinking = false;
+  delete capabilities.effort_tiers;
   return {
     ...model,
-    ...(decision ? { type: "systemone", supported_endpoints: ["systemone", "decisions"] } : {}),
+    type: "systemone",
+    supported_endpoints: ["systemone", "decisions"],
     capabilities,
   };
 }
@@ -79,6 +85,11 @@ export function filterCatalogCapabilities<T extends CatalogModel>(
   if (!requested.length) return models;
   return models.filter((model) => {
     const capabilities = model.capabilities as CatalogModel | undefined;
-    return requested.every((capability) => capabilities?.[CAPABILITY_FIELDS[capability]] === true);
+    const role = catalogModelRole(model);
+    return requested.every((capability) =>
+      capability === "chat" || capability === "decision"
+        ? role[capability]
+        : capabilities?.[CAPABILITY_FIELDS[capability]] === true
+    );
   });
 }
