@@ -29,7 +29,7 @@ export async function attachTray({ port = DEFAULT_PORT, replace = false, managed
         port,
         trayOnly: true,
         onQuit: () => process.emit("SIGTERM"),
-        onOpenDashboard: () => open(`http://127.0.0.1:${port}/usage`),
+        onOpenDashboard: () => open(`http://127.0.0.1:${port}/home`),
         onShowLogs: () => open(`http://127.0.0.1:${port}/observe/logs`),
       }),
     destroy: killTray,
