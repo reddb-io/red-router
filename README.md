@@ -202,6 +202,27 @@ only when delegation is enabled. Models from other protocols keep their IDs.
 Federation regressions run in CI with local HTTP fixtures; production credentials
 are needed to validate an external chain end to end.
 
+### Access management
+
+The **Access** rail area contains **Tenants**, **Users** and **Roles**. Open
+`/access/tenants` to create a tenant, assign an existing active admin as its owner,
+record owner/technical/billing contacts and metadata, and review UTC monthly API
+usage per tenant and per key. `/access/users` lists users across tenants, with
+filters, invitations, role/status changes and session revocation. Invitation links
+let users set a password and sign in to their tenant account. Tenant sessions retain
+their existing API permissions; they do not enter the instance dashboard.
+
+A tenant owner has tenant-admin permissions, without instance-wide access. Transfer
+ownership before demoting, disabling or removing that user. Instance ownership
+continues to use the instance sign-in. Role and status changes invalidate tenant
+sessions.
+
+Monthly reports aggregate retained request history and recorded costs separately.
+New usage rows retain tenant attribution when a key moves or is deleted. Older rows
+are backfilled from surviving keys at migration; rows with unknown ownership and
+historical aggregates without key identity are excluded. Recorded cost is available
+priced usage, not an invoice. `/system/tenants` redirects to `/access/tenants`.
+
 ## Persistence and scale
 
 SQLite is the initial local backend. Some runtime coordination has optional Redis

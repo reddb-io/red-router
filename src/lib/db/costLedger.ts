@@ -13,6 +13,7 @@
  * @module db/costLedger
  */
 
+import { tenantIdForUsageKey } from "./tenantUsageAttribution";
 import { getDbInstance } from "./core";
 import { toNumber } from "@/shared/utils/numeric";
 
@@ -95,8 +96,8 @@ export function recordLedgerEntry(entry: CostLedgerEntry): void {
       api_key_id, provider, model,
       tokens_input, tokens_output, tokens_cache_read, tokens_cache_creation, tokens_reasoning,
       unit_price_input, unit_price_output, amount_usd,
-      service_tier, success, timestamp, request_id, end_user, tags, session_id
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      service_tier, success, timestamp, request_id, end_user, tags, session_id, tenant_id
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `
   ).run(
     entry.apiKeyId,
@@ -116,7 +117,8 @@ export function recordLedgerEntry(entry: CostLedgerEntry): void {
     entry.requestId ?? null,
     entry.endUser ?? null,
     entry.tags ?? null,
-    entry.sessionId ?? null
+    entry.sessionId ?? null,
+    tenantIdForUsageKey(entry.apiKeyId)
   );
 }
 
@@ -144,8 +146,8 @@ export function recordLedgerEntries(entries: CostLedgerEntry[]): void {
       api_key_id, provider, model,
       tokens_input, tokens_output, tokens_cache_read, tokens_cache_creation, tokens_reasoning,
       unit_price_input, unit_price_output, amount_usd,
-      service_tier, success, timestamp, request_id, end_user, tags, session_id
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      service_tier, success, timestamp, request_id, end_user, tags, session_id, tenant_id
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `
   );
   const tx = db.transaction((rows: CostLedgerEntry[]) => {
@@ -169,7 +171,8 @@ export function recordLedgerEntries(entries: CostLedgerEntry[]): void {
         entry.requestId ?? null,
         entry.endUser ?? null,
         entry.tags ?? null,
-        entry.sessionId ?? null
+        entry.sessionId ?? null,
+        tenantIdForUsageKey(entry.apiKeyId)
       );
     }
   });

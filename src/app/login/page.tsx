@@ -9,9 +9,12 @@ import { Button, Input } from "@/shared/components";
 import { useBranding } from "@/shared/components/BrandingProvider";
 import { useRouter } from "next/navigation";
 
+import TenantSignIn from "./TenantSignIn";
+
 export default function LoginPage() {
   const t = useTranslations("auth");
   const brand = useBranding();
+  const [tenantMode, setTenantMode] = useState<{ token: string | null } | null>(null);
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -31,6 +34,11 @@ export default function LoginPage() {
   useEffect(() => {
     const raf = requestAnimationFrame(() => setMounted(true));
     async function checkAuth() {
+      const fragment = new URLSearchParams(window.location.hash.slice(1));
+      if (fragment.has("tenant-invite") || window.location.hash === "#tenant") {
+        setTenantMode({ token: fragment.get("tenant-invite") });
+        return;
+      }
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 5000);
       const baseUrl = typeof window !== "undefined" ? window.location.origin : "";
@@ -143,6 +151,8 @@ export default function LoginPage() {
       setLoading(false);
     }
   };
+
+  if (tenantMode) return <TenantSignIn token={tenantMode.token} />;
 
   const nodeWarningBanner =
     !nodeCompatible && nodeVersion ? (

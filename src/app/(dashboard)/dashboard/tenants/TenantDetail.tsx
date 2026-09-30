@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import { Badge, Button, Card, ConfirmModal, Input, Loading, Select } from "@/shared/components";
+import TenantAccess from "./TenantAccess";
 import {
   JSON_HEADERS,
   errorText,
@@ -44,18 +45,25 @@ export default function TenantDetail({ tenant, tenants, onChanged, onDeleted }: 
   const tenantName = (id: string) => tenants.find((row) => row.id === id)?.name ?? id;
 
   const loadAll = useCallback(async () => {
-    const [usersRes, resourcesRes] = await Promise.all([
-      fetch(`/api/tenants/${tenant.id}/users`),
-      fetch("/api/tenants/resources"),
-    ]);
-    const usersData = await usersRes.json().catch(() => ({}));
-    const resourcesData = await resourcesRes.json().catch(() => ({}));
-    setUsers(Array.isArray(usersData.users) ? usersData.users : []);
-    setResources(
-      resourcesData && Array.isArray(resourcesData.connections)
-        ? (resourcesData as ResourceLists)
-        : { connections: [], combos: [], apiKeys: [] }
-    );
+    try {
+      const [usersRes, resourcesRes] = await Promise.all([
+        fetch(`/api/tenants/${tenant.id}/users`),
+        fetch("/api/tenants/resources"),
+      ]);
+      const usersData = await usersRes.json().catch(() => ({}));
+      const resourcesData = await resourcesRes.json().catch(() => ({}));
+      if (!usersRes.ok) throw new Error(errorText(usersData, "Unable to load tenant users."));
+      if (!resourcesRes.ok)
+        throw new Error(errorText(resourcesData, "Unable to load tenant resources."));
+      setUsers(Array.isArray(usersData.users) ? usersData.users : []);
+      setResources(
+        resourcesData && Array.isArray(resourcesData.connections)
+          ? (resourcesData as ResourceLists)
+          : { connections: [], combos: [], apiKeys: [] }
+      );
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Unable to load tenant details.");
+    }
   }, [tenant.id]);
 
   useEffect(() => {
@@ -85,6 +93,9 @@ export default function TenantDetail({ tenant, tenants, onChanged, onDeleted }: 
       }
       if (okNotice) setNotice(okNotice);
       return data as Record<string, unknown>;
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Unable to save changes.");
+      return null;
     } finally {
       setBusy(false);
     }
@@ -168,7 +179,14 @@ export default function TenantDetail({ tenant, tenants, onChanged, onDeleted }: 
     if (done) await refresh();
   };
 
-  if (!users || !resources) return <Loading />;
+  if (!users || !resources)
+    return notice ? (
+      <p role="alert" className="text-xs text-feedback-danger-foreground">
+        {notice}
+      </p>
+    ) : (
+      <Loading />
+    );
 
   return (
     <Card>
@@ -204,6 +222,8 @@ export default function TenantDetail({ tenant, tenants, onChanged, onDeleted }: 
             {notice}
           </p>
         ) : null}
+
+        <TenantAccess tenantId={tenant.id} users={users} />
 
         <section className="flex flex-col gap-3">
           <div>

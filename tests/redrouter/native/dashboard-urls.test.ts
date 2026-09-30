@@ -34,6 +34,7 @@ test("the menu areas are the areas of the table", () => {
     "agents",
     "observe",
     "tools",
+    "access",
     "system",
   ]);
   assert.deepEqual(
@@ -299,7 +300,7 @@ test("the full table (what the operator sees for each existing page)", () => {
     "/dashboard/setup": "/home/setup",
     "/dashboard/skills": "/optimize/skills",
     "/dashboard/system/proxy": "/system/outbound-proxies",
-    "/dashboard/tenants": "/system/tenants",
+    "/dashboard/tenants": "/access/tenants",
     "/dashboard/tools/agent-bridge": "/agents/bridge",
     "/dashboard/tools/traffic-inspector": "/tools/inspector",
     "/dashboard/translator": "/tools/translator",

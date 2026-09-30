@@ -21,7 +21,7 @@ import { areaUrl, canonicalDashboardPath } from "./dashboardUrls.ts";
 import type { HideableSidebarItemId } from "./sidebarVisibility/types";
 
 export type SidebarNavSectionId =
-  "home" | "proxy" | "optimize" | "agents" | "observe" | "tools" | "system";
+  "home" | "proxy" | "optimize" | "agents" | "observe" | "tools" | "access" | "system";
 
 export interface SidebarNavChild {
   id?: HideableSidebarItemId;
@@ -352,6 +352,31 @@ export const SIDEBAR_NAV_SECTIONS: readonly SidebarNavSection[] = [
     ],
   },
   {
+    id: "access",
+    title: "Access",
+    icon: "Users",
+    entries: [
+      {
+        id: "tenants",
+        label: "Tenants",
+        icon: "Users",
+        tabs: [tab("tenants", "/dashboard/tenants", "Tenants")],
+      },
+      {
+        id: "access-users",
+        label: "Users",
+        icon: "Users",
+        tabs: [tab("access-users", "/dashboard/users", "Users")],
+      },
+      {
+        id: "access-roles",
+        label: "Roles",
+        icon: "ShieldCheck",
+        tabs: [tab("access-roles", "/dashboard/roles", "Roles")],
+      },
+    ],
+  },
+  {
     id: "system",
     title: "System",
     icon: "Settings",
@@ -386,12 +411,6 @@ export const SIDEBAR_NAV_SECTIONS: readonly SidebarNavSection[] = [
           tab("settings-sidebar", "/dashboard/settings/sidebar", "Sidebar", { secondary: true }),
           tab(undefined, "/dashboard/system/proxy", "Outbound proxies", { secondary: true }),
         ],
-      },
-      {
-        id: "tenants",
-        label: "Tenants",
-        icon: "Users",
-        tabs: [tab("tenants", "/dashboard/tenants", "Tenants")],
       },
       {
         id: "docs",

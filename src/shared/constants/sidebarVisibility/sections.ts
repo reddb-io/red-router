@@ -768,12 +768,31 @@ const CONFIGURATION_ITEMS: readonly SidebarItemDefinition[] = [
     subtitleKey: "settingsSidebarSubtitle",
     icon: "view_sidebar",
   },
+];
+
+const ACCESS_ITEMS: readonly SidebarItemDefinition[] = [
   {
     id: "tenants",
-    href: "/system/tenants",
+    href: "/access/tenants",
     i18nKey: "tenants",
     subtitleKey: "tenantsSubtitle",
     icon: "groups",
+  },
+  {
+    id: "access-users",
+    href: "/access/users",
+    i18nKey: "accessUsers",
+    labelFallback: "Users",
+    subtitleFallback: "Tenant users and administrators",
+    icon: "people",
+  },
+  {
+    id: "access-roles",
+    href: "/access/roles",
+    i18nKey: "accessRoles",
+    labelFallback: "Roles",
+    subtitleFallback: "Instance and tenant permissions",
+    icon: "shield",
   },
 ];
 
@@ -854,6 +873,7 @@ export const SIDEBAR_SECTIONS: readonly SidebarSectionDefinition[] = [
     titleFallback: "Other Features",
     children: [...OTHER_FEATURES_ITEMS, BATCH_GROUP],
   },
+  { id: "access", titleKey: "access", titleFallback: "Access", children: ACCESS_ITEMS },
   {
     id: "configuration",
     titleKey: "configurationSection",

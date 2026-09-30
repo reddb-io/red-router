@@ -302,7 +302,7 @@ test("Caveman and Ponytail are prompt styles under Skills, not menu entries", ()
 test("the rail has one area per job and the panel lists the entries of an area", () => {
   assert.deepEqual(
     SIDEBAR_NAV_SECTIONS.map((section) => section.title),
-    ["Home", "Proxy", "Optimize", "Agents", "Observe", "Tools", "System"]
+    ["Home", "Proxy", "Optimize", "Agents", "Observe", "Tools", "Access", "System"]
   );
   for (const section of SIDEBAR_NAV_SECTIONS) {
     assert.ok(section.icon, `${section.id} has a rail icon`);

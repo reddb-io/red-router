@@ -62,4 +62,5 @@ export const SHIPPED_AREA_URLS: readonly (readonly [string, string])[] = [
   ["/tools/translator", "/dashboard/translator"],
   ["/observe/usage-sinks", "/dashboard/usage-sinks"],
   ["/observe/webhooks", "/dashboard/webhooks"],
+  ["/system/tenants", "/dashboard/tenants"],
 ];

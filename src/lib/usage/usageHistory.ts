@@ -1,3 +1,4 @@
+import { tenantIdForUsageKey } from "@/lib/db/tenantUsageAttribution";
 /**
  * Usage History — extracted from usageDb.js (T-15)
  *
@@ -825,8 +826,8 @@ export async function saveRequestUsage(entry: UsageEntry) {
         INSERT INTO usage_history (provider, model, connection_id, account_key, account_label,
           account_label_priority, api_key_id, api_key_name, tokens_input, tokens_output,
           tokens_cache_read, tokens_cache_creation, tokens_reasoning, service_tier, status, success,
-          latency_ms, ttft_ms, error_code, combo_strategy, endpoint, cpa_auth_index, timestamp)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          latency_ms, ttft_ms, error_code, combo_strategy, endpoint, cpa_auth_index, timestamp, tenant_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `
       ).run(
         entry.provider ? resolveProviderId(entry.provider) : null,
@@ -855,7 +856,8 @@ export async function saveRequestUsage(entry: UsageEntry) {
         entry.comboStrategy || entry.combo_strategy || null,
         entry.endpoint || null,
         entry.cpaAuthIndex || null,
-        timestamp
+        timestamp,
+        tenantIdForUsageKey(entry.apiKeyId)
       );
 
       inserted = true;

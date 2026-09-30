@@ -378,7 +378,7 @@ test("tenant owner pins hide decision routes for restricted keys without widenin
   const scoped = await createProviderConnection({
     provider: "red-router",
     authType: "apikey",
-    apiKey: "local-next-key",
+    apiKey: "tenant-next-key",
     name: "Tenant remote",
     isActive: true,
     testStatus: "active",

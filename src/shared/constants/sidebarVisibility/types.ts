@@ -108,6 +108,8 @@ export const HIDEABLE_SIDEBAR_ITEM_IDS = [
   "settings-cache",
   "settings-sidebar",
   "tenants",
+  "access-users",
+  "access-roles",
   // Help
   "docs",
   "issues",
@@ -130,6 +132,7 @@ export type SidebarSectionId =
   | "devtools"
   | "agentic-features"
   | "other-features"
+  | "access"
   | "configuration"
   | "help";
 

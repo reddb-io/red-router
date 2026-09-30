@@ -37,6 +37,7 @@ export default function TenantsPageClient() {
   }, [t]);
 
   useEffect(() => {
+    setSelectedId(new URLSearchParams(window.location.search).get("tenant"));
     void (async () => {
       await load();
     })();
@@ -61,6 +62,8 @@ export default function TenantsPageClient() {
       setName("");
       await load();
       setSelectedId(data.tenant?.id ?? null);
+    } catch (error) {
+      setCreateError(error instanceof Error ? error.message : "Unable to create tenant.");
     } finally {
       setSaving(false);
     }

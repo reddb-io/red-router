@@ -264,6 +264,15 @@ export function updateTenantUser(
   if (patch.role !== undefined && !TENANT_ROLES.includes(patch.role as TenantRole)) {
     throw new TenantError("invalid", "Role must be 'admin' or 'user'.");
   }
+  const owner = getDbInstance()
+    .prepare("SELECT owner_user_id FROM tenant_profiles WHERE tenant_id = ?")
+    .get(tenantId) as { owner_user_id: string } | undefined;
+  if (owner?.owner_user_id === userId && (patch.role === "user" || patch.disabled === true)) {
+    throw new TenantError(
+      "forbidden",
+      "Transfer tenant ownership before disabling or demoting the owner."
+    );
+  }
   const role = (patch.role as TenantRole | undefined) ?? user.role;
   const disabled = patch.disabled === undefined ? user.disabled : patch.disabled === true;
   const displayName =
@@ -290,6 +299,11 @@ export function updateTenantUser(
 export function deleteTenantUser(tenantId: string, userId: string): void {
   const user = getTenantUser(userId);
   if (!user || user.tenantId !== tenantId) throw new TenantError("not_found", "User not found.");
+  const owner = getDbInstance()
+    .prepare("SELECT owner_user_id FROM tenant_profiles WHERE tenant_id = ?")
+    .get(tenantId) as { owner_user_id: string } | undefined;
+  if (owner?.owner_user_id === userId)
+    throw new TenantError("forbidden", "Transfer tenant ownership before removing the owner.");
   getDbInstance().prepare("DELETE FROM tenant_users WHERE id = ?").run(user.id);
 }
 

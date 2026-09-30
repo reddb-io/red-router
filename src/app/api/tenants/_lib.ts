@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { buildErrorBody } from "@omniroute/open-sse/utils/error";
 import { TenantError } from "@/lib/db/tenants";
 
-export const INVALID_JSON_BODY = { error: { message: "Invalid JSON body" } };
+export const INVALID_JSON_BODY = buildErrorBody(400, "Invalid JSON body");
 
 const STATUS_BY_CODE: Record<TenantError["code"], number> = {
   invalid: 400,
@@ -15,11 +16,11 @@ const STATUS_BY_CODE: Record<TenantError["code"], number> = {
 export function tenantFailure(error: unknown, fallback: string): Response {
   if (error instanceof TenantError) {
     return NextResponse.json(
-      { error: { message: error.message, code: error.code } },
+      buildErrorBody(STATUS_BY_CODE[error.code], error.message, undefined, { code: error.code }),
       { status: STATUS_BY_CODE[error.code] }
     );
   }
-  return NextResponse.json({ error: { message: fallback } }, { status: 500 });
+  return NextResponse.json(buildErrorBody(500, fallback), { status: 500 });
 }
 
 export const createTenantSchema = z.object({
