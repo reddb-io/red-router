@@ -24,6 +24,9 @@ const { initTranslators } = await import("../../../open-sse/translator/index.ts"
 const { handleSystemOne } = await import("../../../src/sse/handlers/systemOne.ts");
 const { forwardSystemOne, resolveSystemOneTarget } =
   await import("../../../open-sse/handlers/systemOneCore.ts");
+const { createTenant, assignResourcesToTenant, assignApiKeysToTenant } =
+  await import("../../../src/lib/db/tenants.ts");
+const { setTenantRoutingSide } = await import("../../../src/lib/db/routingPolicy.ts");
 const { createApiKey } = await import("../../../src/lib/db/apiKeys.ts");
 const { parseModel } = await import("../../../open-sse/services/model.ts");
 const { resetPriorityRoutingForTests } =
@@ -365,6 +368,55 @@ test("API-key connection scope is enforced before forwarding", async () => {
   );
   assert.equal(response.status, 403);
   assert.equal(requests.length, 0);
+});
+
+test("tenant owner pins hide decision routes for restricted keys without widening access", async () => {
+  const tenant = createTenant({ slug: "federation-tenant" });
+  const scoped = await createProviderConnection({
+    provider: "red-router",
+    authType: "apikey",
+    apiKey: "local-next-key",
+    name: "Tenant remote",
+    isActive: true,
+    testStatus: "active",
+    providerSpecificData: { baseUrl: remoteUrl },
+  });
+  assignResourcesToTenant(tenant.id, { connectionIds: [String(scoped.id)] });
+  const snapshot = remoteRouterSnapshot(scoped);
+  const saved = readRemoteRouterCatalog(remoteRouterSnapshot(connection));
+  assert.ok(saved);
+  commitRemoteRouterCatalog(snapshot, { ...saved, fingerprint: snapshot.fingerprint });
+  const key = await createApiKey("Tenant S1 only", "tenant-machine", [], {
+    modelAccessMode: "restricted",
+    allowedModels: [publicId],
+  });
+  assignApiKeysToTenant(tenant.id, [key.id]);
+  setTenantRoutingSide(tenant.id, "owner", { transparent: false, priority: ["red-router"] });
+  const models = await getUnifiedModelsResponse(
+    new Request("http://localhost/v1/models?capabilities=decision", {
+      headers: { authorization: `Bearer ${key.key}` },
+    })
+  );
+  assert.deepEqual(
+    (await models.json()).data.map((m: { id: string }) => m.id),
+    ["jev-1.13"]
+  );
+  const response = await handleSystemOne(
+    new Request("http://localhost/v1/systemone", {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${key.key}` },
+      body: JSON.stringify({ model: "jev-1.13", state: "Ready", questions: {} }),
+    })
+  );
+  assert.equal(response.status, 200, await response.clone().text());
+  const denied = await handleSystemOne(
+    new Request("http://localhost/v1/systemone", {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${key.key}` },
+      body: JSON.stringify({ model: "different", state: "Ready", questions: {} }),
+    })
+  );
+  assert.equal(denied.status, 400);
 });
 
 test("remote failures are sanitized and catalog recursion is bounded", async () => {

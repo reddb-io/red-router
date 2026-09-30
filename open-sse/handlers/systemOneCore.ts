@@ -168,6 +168,7 @@ export async function forwardSystemOne(
 
   const headers = systemOneResponseHeaders(upstream);
   if (!upstream.ok) {
+    await upstream.body?.cancel().catch(() => undefined);
     return {
       response: new Response(
         JSON.stringify(buildErrorBody(upstream.status, "System One upstream rejected the request")),

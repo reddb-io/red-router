@@ -19,6 +19,7 @@ import {
   clearRecoveredProviderState,
 } from "@/sse/services/auth";
 import { redRouterEndpoint } from "@omniroute/open-sse/config/redRouter";
+import { getApiKeyMetadata } from "@/lib/db/apiKeys";
 import { readRemoteRouterCatalog } from "@/lib/db/remoteRouterCatalog";
 import {
   remoteRouterSnapshot,
@@ -96,9 +97,25 @@ export async function handleSystemOne(request: Request): Promise<Response> {
   if (isRequireApiKeyEnabled() && (!clientKey || !(await isValidApiKey(clientKey)))) {
     return errorResponse(401, "Invalid API key");
   }
+  const priorityTargets = parsed.data.model
+    ? await resolvePriorityDecisionTargets({
+        apiKey: clientKey,
+        tenantId: clientKey ? ((await getApiKeyMetadata(clientKey))?.tenantId ?? null) : null,
+        requestedModel: parsed.data.model,
+      })
+    : null;
+  if (priorityTargets && !priorityTargets.length) {
+    return errorResponse(400, "Unsupported System One model");
+  }
+  const targets = (priorityTargets ?? [parsed.data.model])
+    .map(resolveSystemOneTarget)
+    .filter(
+      (target): target is NonNullable<ReturnType<typeof resolveSystemOneTarget>> => target !== null
+    );
+  if (!targets.length) return errorResponse(400, "Unsupported System One model");
   const policy = await enforceApiKeyPolicy(
     request,
-    parsed.data.model || resolveSystemOneTarget()?.model
+    priorityTargets?.[0] || parsed.data.model || resolveSystemOneTarget()?.model
   );
   if (policy.rejection) return policy.rejection;
 
@@ -112,22 +129,6 @@ export async function handleSystemOne(request: Request): Promise<Response> {
     return errorResponse(403, "Connection is not allowed for this API key");
   }
 
-  const priorityTargets = parsed.data.model
-    ? await resolvePriorityDecisionTargets({
-        apiKey: clientKey,
-        tenantId: policy.apiKeyInfo?.tenantId ?? null,
-        requestedModel: parsed.data.model,
-      })
-    : null;
-  if (priorityTargets && !priorityTargets.length) {
-    return errorResponse(400, "Unsupported System One model");
-  }
-  const targets = (priorityTargets ?? [parsed.data.model])
-    .map(resolveSystemOneTarget)
-    .filter(
-      (target): target is NonNullable<ReturnType<typeof resolveSystemOneTarget>> => target !== null
-    );
-  if (!targets.length) return errorResponse(400, "Unsupported System One model");
   let lastResponse: Response | null = null;
   for (const target of targets) {
     // OpenCode Go workspace credentials can reach Zen. A borrowed credential is
