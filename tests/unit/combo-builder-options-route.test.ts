@@ -11,6 +11,7 @@ const core = await import("../../src/lib/db/core.ts");
 const providersDb = await import("../../src/lib/db/providers.ts");
 const modelsDb = await import("../../src/lib/db/models.ts");
 const combosDb = await import("../../src/lib/db/combos.ts");
+const { updateSettings } = await import("../../src/lib/db/settings.ts");
 const modelsDevSync = await import("../../src/lib/modelsDevSync.ts");
 const route = await import("../../src/app/api/combos/builder/options/route.ts");
 
@@ -201,8 +202,16 @@ test("combo builder options route aggregates providers, connections, models and 
   );
 });
 
-test("combo builder options route includes no-auth provider (opencode) even without provider_connections rows", async () => {
+test("combo builder options route includes an enabled no-auth provider (opencode) without provider_connections rows", async () => {
   // No connections seeded — opencode has noAuth: true and never gets a provider_connections row.
+  // Opt-in: it is offered once the operator enabled the free source (and not before).
+  const before = (await (await route.GET()).json()) as any;
+  assert.equal(
+    before.providers.some((p: any) => p.providerId === "opencode"),
+    false,
+    "an unconfigured no-auth provider must not be offered"
+  );
+  await updateSettings({ enabledNoAuthProviders: ["opencode"] });
   const response = await route.GET();
   const body = (await response.json()) as any;
 

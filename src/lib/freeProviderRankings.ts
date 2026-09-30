@@ -12,6 +12,11 @@ import { NOAUTH_PROVIDERS, OAUTH_PROVIDERS, APIKEY_PROVIDERS } from "@/shared/co
 import { REGISTRY } from "@omniroute/open-sse/config/providerRegistry";
 import { listModelIntelligence } from "./db/modelIntelligence";
 import { getProviderConnections } from "./db/providers";
+import { getCachedSettings } from "./db/readCache";
+import {
+  getProviderAvailabilityKind,
+  type ProviderAvailabilityKind,
+} from "./providers/enabledProviders";
 import { getProviderUsageSince, type ProviderUsageRow } from "./db/callLogStats";
 import { familyCanonicalOf } from "./providerFamilyAgg";
 import { getCustomModels } from "./db/models";
@@ -53,6 +58,13 @@ export interface FreeProviderRanking {
   topModel: ProviderModelScore | null;
   averageScore: number;
   modelCount: number;
+  /**
+   * Opt-in state: true when the operator connected the provider or explicitly enabled the free
+   * source. Rankings still LIST every free source (informational); `enabled: false` marks the
+   * ones that are not in use.
+   */
+  enabled?: boolean;
+  kind?: ProviderAvailabilityKind;
   /** Present only when connection state was loaded (filters active). See `ProviderReliability`. */
   reliability?: ProviderReliability;
 }
@@ -430,7 +442,8 @@ export function filterFreeProviderRankings(
 
   return rankings.filter((ranking) => {
     const conns = byProvider.get(ranking.id);
-    if (!conns || conns.length === 0) return false; // not configured
+    // An explicitly enabled no-auth source counts as configured/available (it has no connection).
+    if (!conns || conns.length === 0) return ranking.kind === "free-optin";
     if (availableOnly) return isProviderUsable(conns, now);
     return true; // configuredOnly
   });
@@ -562,6 +575,21 @@ export async function computeFreeProviderRankings(
       averageScore,
       modelCount: modelScores.length,
     });
+  }
+
+  // Annotate opt-in state (enabled / kind) — additive, listing is unchanged.
+  const optInSettings = await getCachedSettings().catch(() => ({}) as Record<string, unknown>);
+  const activeRows = (await getProviderConnections({ isActive: true }).catch(() => [])) as Array<{
+    provider?: string;
+  }>;
+  const connectedIds = new Set(activeRows.map((row) => String(row.provider)));
+  for (const ranking of rankings) {
+    ranking.kind = getProviderAvailabilityKind({
+      providerId: ranking.id,
+      hasActiveConnection: connectedIds.has(ranking.id),
+      settings: optInSettings,
+    });
+    ranking.enabled = ranking.kind !== "available";
   }
 
   // Sort providers by top model score descending, then by average score

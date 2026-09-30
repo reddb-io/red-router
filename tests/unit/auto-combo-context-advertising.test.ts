@@ -35,6 +35,10 @@ process.env.API_KEY_SECRET = process.env.API_KEY_SECRET ?? "auto-combo-ctx-test-
 
 const core = await import("../../src/lib/db/core.ts");
 const settingsDb = await import("../../src/lib/db/settings.ts");
+const { listFreeSourceProviderIds } = await import("../../src/lib/providers/enabledProviders.ts");
+
+// Free sources are opt-in; these tests need the built-in no-auth registry to supply candidates.
+await settingsDb.updateSettings({ enabledNoAuthProviders: listFreeSourceProviderIds() });
 
 const virtualFactory = await import("../../open-sse/services/autoCombo/virtualFactory.ts");
 const suffixComposition = await import("../../open-sse/services/autoCombo/suffixComposition.ts");

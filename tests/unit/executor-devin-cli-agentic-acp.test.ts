@@ -17,6 +17,7 @@ const { assertLocalAcpUrl, buildDevinChildEnv, DevinCliAgenticExecutor, isIsolat
 const { devin_cli_agenticProvider } =
   await import("../../open-sse/config/providers/registry/devin-cli-agentic/index.ts");
 const { getProviderCredentials } = await import("../../src/sse/services/auth.ts");
+const { updateSettings } = await import("../../src/lib/db/settings.ts");
 
 async function readResponseText(response: Response) {
   return await response.text();
@@ -146,6 +147,8 @@ test("Devin agentic provider delegates auth only to the isolated CLI", () => {
 });
 
 test("Devin agentic provider resolves synthetic no-auth credentials without a DB row", async () => {
+  // Opt-in: the bridge is only available once the operator enabled it.
+  await updateSettings({ enabledNoAuthProviders: ["devin-cli-agentic"] });
   const credentials = await getProviderCredentials("devin-cli-agentic");
   assert.equal(credentials?.connectionId, "noauth");
   assert.equal(credentials?.apiKey, null);

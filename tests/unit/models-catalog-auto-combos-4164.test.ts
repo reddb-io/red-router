@@ -21,6 +21,7 @@ process.env.API_KEY_SECRET = process.env.API_KEY_SECRET || "catalog-auto-test-se
 
 const core = await import("../../src/lib/db/core.ts");
 const v1ModelsCatalog = await import("../../src/app/api/v1/models/catalog.ts");
+const settingsDb = await import("../../src/lib/db/settings.ts");
 const builtinCatalog = await import("../../open-sse/services/autoCombo/builtinCatalog.ts");
 
 function resetStorage() {
@@ -29,8 +30,10 @@ function resetStorage() {
   fs.mkdirSync(TEST_DATA_DIR, { recursive: true });
 }
 
-test.beforeEach(() => {
+test.beforeEach(async () => {
   resetStorage();
+  // auto/* are advertised only once a provider is enabled (opt-in install).
+  await settingsDb.updateSettings({ enabledNoAuthProviders: ["opencode"] });
 });
 
 test.after(() => {

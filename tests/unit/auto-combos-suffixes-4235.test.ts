@@ -19,6 +19,8 @@ const suffix = await import("../../open-sse/services/autoCombo/suffixComposition
 const modePacks = await import("../../open-sse/services/autoCombo/modePacks.ts");
 const builtinCatalog = await import("../../open-sse/services/autoCombo/builtinCatalog.ts");
 const v1ModelsCatalog = await import("../../src/app/api/v1/models/catalog.ts");
+const settingsDb = await import("../../src/lib/db/settings.ts");
+const { listFreeSourceProviderIds } = await import("../../src/lib/providers/enabledProviders.ts");
 
 function resetStorage() {
   core.resetDbInstance();
@@ -26,7 +28,11 @@ function resetStorage() {
   fs.mkdirSync(TEST_DATA_DIR, { recursive: true });
 }
 
-test.beforeEach(() => resetStorage());
+test.beforeEach(async () => {
+  resetStorage();
+  // Free sources are opt-in; the auto/* combos need enabled providers to be built and advertised.
+  await settingsDb.updateSettings({ enabledNoAuthProviders: listFreeSourceProviderIds() });
+});
 test.after(() => {
   core.resetDbInstance();
   fs.rmSync(TEST_DATA_DIR, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });

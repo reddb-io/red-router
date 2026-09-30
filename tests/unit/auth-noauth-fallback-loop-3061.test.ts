@@ -28,6 +28,10 @@ process.env.DATA_DIR = TEST_DATA_DIR;
 
 const core = await import("../../src/lib/db/core.ts");
 const { getProviderCredentials } = await import("../../src/sse/services/auth.ts");
+const { updateSettings } = await import("../../src/lib/db/settings.ts");
+
+// Free sources are opt-in: the operator enabled the subjects of this loop-breaker test.
+await updateSettings({ enabledNoAuthProviders: ["opencode", "opencode-zen"] });
 
 test.after(() => {
   core.resetDbInstance();

@@ -151,13 +151,16 @@ const EXPECTED: Record<InventoryKind, Record<string, number>> = {
     "src/app/api/providers/bulk/route.ts": 1,
     "src/app/api/providers/client/route.ts": 1,
     "src/app/api/providers/free-onboarding/route.ts": 2,
+    // Opt-in free sources: read-only listing of active connections next to the enabled list.
+    "src/app/api/providers/free-sources/route.ts": 1,
     "src/app/api/providers/import/route.ts": 1,
     // Base drift (already present before #11754 boarded, from earlier-merged
     // #11698/#11720 retirement PRs): a third getProviderConnections-family
     // call site landed here without a golden-inventory update at the time.
     // +1: bulk PATCH reads the row to carry the operator-disable marker in
     // providerSpecificData next to isActive — a state read, not dispatch.
-    "src/app/api/providers/route.ts": 4,
+    // +1: GET reads active connections once to report per-provider enabled/kind (read-only).
+    "src/app/api/providers/route.ts": 6,
     "src/app/api/providers/test-batch/route.ts": 2,
     "src/app/api/rate-limits/route.ts": 1,
     "src/app/api/services/dario/admin/import-from-omniroute/route.ts": 2,

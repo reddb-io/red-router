@@ -14,6 +14,7 @@ const ORIGINAL_DATA_DIR = process.env.DATA_DIR;
 process.env.DATA_DIR = TEST_DATA_DIR;
 
 const core = await import("../../src/lib/db/core.ts");
+const { updateSettings } = await import("../../src/lib/db/settings.ts");
 const providersDb = await import("../../src/lib/db/providers.ts");
 const virtualFactory = await import("../../open-sse/services/autoCombo/virtualFactory.ts");
 const accountFallback = await import("../../open-sse/services/accountFallback.ts");
@@ -23,6 +24,8 @@ async function resetStorage() {
   accountFallback.clearAllModelLockouts();
   fs.rmSync(TEST_DATA_DIR, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   fs.mkdirSync(TEST_DATA_DIR, { recursive: true });
+  // Free sources are opt-in (enabledNoAuthProviders): enable the ones this test exercises.
+  await updateSettings({ enabledNoAuthProviders: ["opencode"] });
 }
 
 test.beforeEach(async () => {

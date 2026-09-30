@@ -23,6 +23,7 @@ process.env.DATA_DIR = TEST_DATA_DIR;
 
 const core = await import("../../src/lib/db/core.ts");
 const providersDb = await import("../../src/lib/db/providers.ts");
+const { updateSettings } = await import("../../src/lib/db/settings.ts");
 const { getComboBuilderOptions } = await import("../../src/lib/combos/builderOptions.ts");
 const { parseModel } = await import("../../open-sse/services/model.ts");
 
@@ -32,6 +33,8 @@ test.after(() => {
 });
 
 test("#2901 no-auth OpenCode combo models use the oc/ prefix (not opencode/)", async () => {
+  // Opt-in: the no-auth provider only appears once the operator enabled it.
+  await updateSettings({ enabledNoAuthProviders: ["opencode"] });
   const payload = await getComboBuilderOptions();
   const opencode = payload.providers.find((p) => p.providerId === "opencode");
   assert.ok(opencode, "no-auth 'opencode' provider must appear in the combo builder");

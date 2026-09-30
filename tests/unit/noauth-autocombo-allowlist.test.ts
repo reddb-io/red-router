@@ -23,12 +23,16 @@ const ORIGINAL_DATA_DIR = process.env.DATA_DIR;
 process.env.DATA_DIR = TEST_DATA_DIR;
 
 const core = await import("../../src/lib/db/core.ts");
+const { listFreeSourceProviderIds } = await import("../../src/lib/providers/enabledProviders.ts");
+const { updateSettings } = await import("../../src/lib/db/settings.ts");
 const virtualFactory = await import("../../open-sse/services/autoCombo/virtualFactory.ts");
 
 async function resetStorage() {
   core.resetDbInstance();
   fs.rmSync(TEST_DATA_DIR, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   fs.mkdirSync(TEST_DATA_DIR, { recursive: true });
+  // Free sources are opt-in (enabledNoAuthProviders): enable the ones this test exercises.
+  await updateSettings({ enabledNoAuthProviders: listFreeSourceProviderIds() });
 }
 
 test.beforeEach(async () => {

@@ -35,6 +35,7 @@ process.env.DATA_DIR = TEST_DATA_DIR;
 
 const core = await import("../../../src/lib/db/core.ts");
 const providersDb = await import("../../../src/lib/db/providers.ts");
+const { updateSettings } = await import("../../../src/lib/db/settings.ts");
 const { hasUsableCredentialsForModel, hasTerminalConnectionStatus } =
   await import("../../../src/lib/guardrails/visionBridgeCredentials.ts");
 
@@ -70,6 +71,8 @@ test("alias-keyed model finds a row stored under the canonical provider id (#107
 
 test("alias-keyed noauth model is usable with NO stored row (#10702)", async () => {
   await resetStorage();
+  // Opt-in: the free source must have been enabled by the operator.
+  await updateSettings({ enabledNoAuthProviders: ["opencode"] });
   // No `provider_connections` row at all — the noauth provider is served by
   // the synthetic "noauth" connection, so it must still be usable.
   const usable = await hasUsableCredentialsForModel("oc/mimo-v2.5-free");
@@ -78,6 +81,8 @@ test("alias-keyed noauth model is usable with NO stored row (#10702)", async () 
 
 test("canonical-id noauth model is usable with NO stored row", async () => {
   await resetStorage();
+  // Opt-in: the free source must have been enabled by the operator.
+  await updateSettings({ enabledNoAuthProviders: ["opencode"] });
   const usable = await hasUsableCredentialsForModel("opencode/mimo-v2.5-free");
   assert.equal(usable, true);
 });

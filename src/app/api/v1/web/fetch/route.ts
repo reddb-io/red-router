@@ -14,6 +14,7 @@
  * performed — a rate-limited/failing explicit provider surfaces its own error.
  */
 
+import { isNoAuthGateOpenNow } from "@/lib/providers/enabledProvidersAccessor";
 import { errorResponse, unavailableResponse } from "@omniroute/open-sse/utils/error.ts";
 import { HTTP_STATUS } from "@omniroute/open-sse/config/constants.ts";
 import {
@@ -177,7 +178,7 @@ async function resolveExplicitTarget(
   // Anonymous-capable providers never hard-fail on credential problems: the
   // anonymous tier does not consume key quota, so a rate-limited (or absent)
   // key degrades to an anonymous attempt instead of a 429/400.
-  if (ANONYMOUS_CAPABLE_PROVIDERS.has(providerId)) {
+  if (ANONYMOUS_CAPABLE_PROVIDERS.has(providerId) && (await isNoAuthGateOpenNow(providerId))) {
     return {
       ok: true,
       provider: providerId,

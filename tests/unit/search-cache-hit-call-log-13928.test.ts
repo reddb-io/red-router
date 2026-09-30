@@ -27,6 +27,7 @@ const TEST_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "omniroute-search-ca
 process.env.DATA_DIR = TEST_DATA_DIR;
 
 const core = await import("../../src/lib/db/core.ts");
+const { updateSettings } = await import("../../src/lib/db/settings.ts");
 const { waitForCallLogSaves } = await import("../../src/lib/usage/callLogs.ts");
 const searchRoute = await import("../../src/app/api/v1/search/route.ts");
 
@@ -36,6 +37,8 @@ test.after(() => {
 });
 
 test("issue #13928: a cache-hit /v1/search response logs its own call_logs row", async () => {
+  // Opt-in: the anonymous DuckDuckGo fallback runs only once the operator enabled it.
+  await updateSettings({ enabledNoAuthProviders: ["duckduckgo-free"] });
   const originalFetch = globalThis.fetch;
   let fetchCalls = 0;
 

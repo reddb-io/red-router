@@ -20,6 +20,7 @@ process.env.DATA_DIR = TEST_DATA_DIR;
 const core = await import("../../src/lib/db/core.ts");
 const { getProviderCredentials } = await import("../../src/sse/services/auth.ts");
 const { createProviderConnection } = await import("../../src/lib/db/providers.ts");
+const { updateSettings } = await import("../../src/lib/db/settings.ts");
 
 test.after(() => {
   core.resetDbInstance();
@@ -27,6 +28,8 @@ test.after(() => {
 });
 
 test("#2962 opencode-zen with no connection falls back to anonymous no-auth credentials", async () => {
+  // Anonymous access is opt-in: the operator enabled the free OpenCode source.
+  await updateSettings({ enabledNoAuthProviders: ["opencode-zen"] });
   const creds = await getProviderCredentials("opencode-zen");
   assert.ok(creds, "opencode-zen must resolve to credentials, not null (no-auth free tier)");
   assert.equal(

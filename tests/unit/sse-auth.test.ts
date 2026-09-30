@@ -118,6 +118,8 @@ test("extractApiKey parses bearer headers and isValidApiKey validates persisted 
 });
 
 test("getProviderCredentials identifies synthetic no-auth credentials", async () => {
+  // Opt-in: the synthetic credential exists only for an enabled free source.
+  await settingsDb.updateSettings({ enabledNoAuthProviders: ["opencode"] });
   const credentials = await auth.getProviderCredentials("opencode");
 
   assert.equal(credentials?.connectionId, "noauth");

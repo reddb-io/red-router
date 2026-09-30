@@ -1,5 +1,7 @@
 import { getCodexRequestDefaults } from "../../src/lib/providers/requestDefaults.ts";
 import { getProviderConnections } from "../../src/lib/db/providers.ts";
+import { getSettings } from "../../src/lib/db/settings.ts";
+import { isNoAuthProviderEnabled } from "../../src/lib/providers/enabledProviders.ts";
 import { AI_PROVIDERS, NOAUTH_PROVIDERS } from "../../src/shared/constants/providers.ts";
 import { isFreeModel } from "../../src/shared/utils/freeModels.ts";
 import { getQuotaCache, isQuotaExhaustedForRequest } from "../../src/domain/quotaCache.ts";
@@ -354,6 +356,8 @@ export async function getMcpModelsCatalog(
   deps: {
     fetchJson?: (path: string) => Promise<unknown>;
     listProviderConnections?: () => Promise<ProviderConnectionLike[]>;
+    /** Opt-in check for connection-less (no-auth) providers; defaults to enabledNoAuthProviders. */
+    isNoAuthProviderEnabled?: (providerId: string) => Promise<boolean>;
   } = {}
 ): Promise<McpCatalogResponse> {
   const fetchJson =
@@ -377,7 +381,13 @@ export async function getMcpModelsCatalog(
     const isNoAuthProvider = Object.values(NOAUTH_PROVIDERS).some(
       (provider) => provider.id === requestedProvider
     );
-    if (isNoAuthProvider) {
+    const noAuthEnabled = isNoAuthProvider
+      ? await (
+          deps.isNoAuthProviderEnabled ??
+          (async (id: string) => isNoAuthProviderEnabled(id, await getSettings()))
+        )(requestedProvider)
+      : false;
+    if (isNoAuthProvider && noAuthEnabled) {
       requestSpecs.push(noAuthProviderSpec(requestedProvider));
     } else {
       return emptyCatalogForProvider(requestedProvider);

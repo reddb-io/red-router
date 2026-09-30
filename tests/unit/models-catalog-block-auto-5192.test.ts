@@ -30,6 +30,8 @@ async function resetStorage() {
   apiKeysDb.resetApiKeyState();
   fs.rmSync(TEST_DATA_DIR, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   fs.mkdirSync(TEST_DATA_DIR, { recursive: true });
+  // Free sources are opt-in (enabledNoAuthProviders): enable the ones this test exercises.
+  await settingsDb.updateSettings({ enabledNoAuthProviders: ["opencode"] });
 }
 
 async function getIds(): Promise<Set<string>> {

@@ -20,6 +20,10 @@ const coreDb = await import("../../src/lib/db/core.ts");
 const apiKeysDb = await import("../../src/lib/db/apiKeys.ts");
 const { getProviderCredentials } = await import("../../src/sse/services/auth.ts");
 const { isModelAllowedForKey } = await import("../../src/lib/db/apiKeys.ts");
+const { updateSettings } = await import("../../src/lib/db/settings.ts");
+
+// Free sources are opt-in: the operator enabled OpenCode Free (the subject of these tests).
+await updateSettings({ enabledNoAuthProviders: ["opencode"] });
 
 const RESTRICTED_CONNECTION_UUID = "00000000-0000-4000-8000-000000000001";
 

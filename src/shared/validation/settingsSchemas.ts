@@ -231,6 +231,17 @@ export const updateSettingsSchema = z.object({
   setupComplete: z.boolean().optional(),
   blockedProviders: z.array(z.string().max(100)).optional(),
   noAuthFallbackDisabledProviders: z.array(z.string().max(100)).optional(),
+  // Opt-in list of no-auth / free-anonymous provider ids (aliases accepted; the PATCH route
+  // normalises to canonical ids and drops unknown ones). Default is an empty list.
+  enabledNoAuthProviders: z
+    .array(
+      z
+        .string()
+        .max(64)
+        .regex(/^[a-z0-9._-]+$/i)
+    )
+    .max(200)
+    .optional(),
   hidePaidModels: z.boolean().optional(),
   // #9418/#13562: catalog/auto-combo already consume both flags (open-sse
   // autoCombo + /v1/models catalog), but neither was ever added here — Zod

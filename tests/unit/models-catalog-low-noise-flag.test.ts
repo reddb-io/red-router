@@ -9,6 +9,8 @@ process.env.DATA_DIR = TEST_DATA_DIR;
 process.env.API_KEY_SECRET = process.env.API_KEY_SECRET || "catalog-low-noise-test-secret";
 
 const core = await import("../../src/lib/db/core.ts");
+const { listFreeSourceProviderIds } = await import("../../src/lib/providers/enabledProviders.ts");
+const { updateSettings } = await import("../../src/lib/db/settings.ts");
 const providersDb = await import("../../src/lib/db/providers.ts");
 const modelsDb = await import("../../src/lib/db/models.ts");
 const featureFlagsDb = await import("../../src/lib/db/featureFlags.ts");
@@ -24,6 +26,8 @@ async function resetStorage() {
   apiKeysDb.resetApiKeyState();
   fs.rmSync(TEST_DATA_DIR, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   fs.mkdirSync(TEST_DATA_DIR, { recursive: true });
+  // Free sources are opt-in (enabledNoAuthProviders): enable the ones this test exercises.
+  await updateSettings({ enabledNoAuthProviders: [...listFreeSourceProviderIds(), "codex-app-server"] });
 }
 
 async function seedConnection(provider: string, accessToken: string) {

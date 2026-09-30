@@ -7,6 +7,7 @@
 
 import { resolveProviderId } from "@/shared/constants/providers";
 import { isNoAuthProviderKey } from "@/shared/utils/noAuthProviders";
+import { isNoAuthProviderEnabledNow } from "@/lib/providers/enabledProvidersAccessor";
 import { SYNTHETIC_NOAUTH_CONNECTION_ID } from "@omniroute/open-sse/services/autoCombo/resilienceCandidateFilter.ts";
 
 /**
@@ -180,7 +181,7 @@ export async function hasUsableCredentialsForModel(model: string): Promise<boole
     // unusable; no-auth providers still work through the synthetic "noauth"
     // connection (and a noauth provider with stored rows can only have been
     // rejected via a terminal status in the loop above).
-    return isNoAuth && !sawStoredRow;
+    return isNoAuth && !sawStoredRow && (await isNoAuthProviderEnabledNow(provider));
   } catch {
     return null;
   }
@@ -223,7 +224,10 @@ export async function getUsableConnectionsForModel(
     const connections = await getProviderConnections({ provider, isActive: true });
     if (!Array.isArray(connections)) return null;
     if (connections.length === 0) {
-      return isNoAuth ? [{ id: SYNTHETIC_NOAUTH_CONNECTION_ID }] : [];
+      // Opt-in: the synthetic no-auth connection exists only for explicitly enabled sources.
+      return isNoAuth && (await isNoAuthProviderEnabledNow(provider))
+        ? [{ id: SYNTHETIC_NOAUTH_CONNECTION_ID }]
+        : [];
     }
     const usable = isNoAuth
       ? connections.filter((c: any) => !hasTerminalConnectionStatus(c))

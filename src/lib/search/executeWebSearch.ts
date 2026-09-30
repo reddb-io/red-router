@@ -1,3 +1,4 @@
+import { isNoAuthGateOpenNow } from "@/lib/providers/enabledProvidersAccessor";
 import { getProviderCredentials } from "@/sse/services/auth";
 import { isCredentialDiagnosticSentinel } from "@/sse/services/credentialSentinel";
 import { recordCost } from "@/domain/costRules";
@@ -214,6 +215,8 @@ export async function executeWebSearch(
       for (const fallbackProvider of fallbackProviders) {
         providerConfig = fallbackProvider;
         if (fallbackProvider.id === "duckduckgo-free") {
+          // Opt-in: the anonymous DuckDuckGo tier only runs once the operator enabled it.
+          if (!(await isNoAuthGateOpenNow(fallbackProvider.id))) continue;
           credentials = {};
           break;
         }

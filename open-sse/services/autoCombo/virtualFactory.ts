@@ -6,6 +6,7 @@ import { getSettings } from "@/lib/db/settings";
 import { getProviderRegistry } from "./providerRegistryAccessor";
 import type { ConnectionFields } from "@/lib/db/encryption";
 import { NOAUTH_PROVIDERS } from "@/shared/constants/providers";
+import { listNotEnabledNoAuthKeys } from "@/lib/providers/enabledProviders";
 import { isMicrosoftDesignerWebRetiredProviderId } from "@/shared/constants/designerWebRetirement";
 import { isRuntimeRetiredProviderId } from "@/shared/constants/providerRetirement";
 import { isCommonChatGptWebRetiredProviderId } from "@/shared/constants/chatgptWebRetirement";
@@ -588,6 +589,12 @@ export async function prepareVirtualAutoComboInputs(
   const blockedProviders = new Set(
     Array.isArray(settings.blockedProviders) ? (settings.blockedProviders as string[]) : []
   );
+  // Opt-in: no-auth sources the operator neither connected nor enabled never enter the pool.
+  for (const key of listNotEnabledNoAuthKeys(
+    settings,
+    connections.map((conn) => conn.provider)
+  ))
+    blockedProviders.add(key);
   const disabledNoAuthProviders = new Set(
     disabledNoAuthConnections
       .filter((conn) => conn.provider in NOAUTH_PROVIDERS)

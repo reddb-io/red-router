@@ -18,6 +18,7 @@ process.env.DATA_DIR = TEST_DATA_DIR;
 
 const core = await import("../../src/lib/db/core.ts");
 const modelsDb = await import("../../src/lib/db/models.ts");
+const { updateSettings } = await import("../../src/lib/db/settings.ts");
 const { getComboBuilderOptions } = await import("../../src/lib/combos/builderOptions.ts");
 
 test.after(() => {
@@ -26,8 +27,9 @@ test.after(() => {
 });
 
 test("#5477 buildModelOptions classifies custom-model source (manual -> custom, api-sync -> imported)", async () => {
-  // Attach to a no-auth provider ("opencode") — it surfaces in the builder
-  // without a configured connection, so the custom-model branch is exercised.
+  // Attach to a no-auth provider ("opencode") — once the operator enabled it, it surfaces in the
+  // builder without a configured connection, so the custom-model branch is exercised.
+  await updateSettings({ enabledNoAuthProviders: ["opencode"] });
   await modelsDb.addCustomModel("opencode", "zzz-manual-5477", "Manual 5477", "manual");
   await modelsDb.addCustomModel("opencode", "zzz-apisync-5477", "ApiSync 5477", "api-sync");
 

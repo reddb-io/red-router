@@ -271,7 +271,8 @@ test("#9199 a capability mutation during preparation detaches the obsolete gener
 });
 
 test("#9199 a mutation during a cooperative catalog build detaches the obsolete generation", async () => {
-  await settingsDb.updateSettings({ blockedProviders: [] });
+  // auto/* are advertised only once a provider is enabled (opt-in install).
+  await settingsDb.updateSettings({ blockedProviders: [], enabledNoAuthProviders: ["opencode"] });
 
   let firstSettled = false;
   const firstPromise = v1ModelsCatalog

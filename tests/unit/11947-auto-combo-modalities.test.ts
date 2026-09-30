@@ -22,6 +22,7 @@ process.env.API_KEY_SECRET = process.env.API_KEY_SECRET || "catalog-11947-secret
 
 const core = await import("../../src/lib/db/core.ts");
 const catalog = await import("../../src/app/api/v1/models/catalog.ts");
+const settingsDb = await import("../../src/lib/db/settings.ts");
 
 type CatalogEntry = {
   id: string;
@@ -52,6 +53,8 @@ test("#11947 auto/* entries include capabilities object (baseline)", async () =>
   // Baseline: every auto/* entry must at minimum carry a capabilities object
   // with the hardcoded baseline fields. This is the pre-existing behavior from
   // #4189 — the fix must not regress it.
+  // auto/* are only advertised once at least one provider is enabled (opt-in install).
+  await settingsDb.updateSettings({ enabledNoAuthProviders: ["opencode"] });
   const response = await catalog.getUnifiedModelsResponse(
     new Request("http://localhost/api/v1/models")
   );

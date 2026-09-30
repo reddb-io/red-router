@@ -24,6 +24,7 @@ process.env.DATA_DIR = TEST_DATA_DIR;
 process.env.API_KEY_SECRET = process.env.API_KEY_SECRET || "catalog-test-secret";
 
 const core = await import("../../src/lib/db/core.ts");
+const { updateSettings } = await import("../../src/lib/db/settings.ts");
 const apiKeysDb = await import("../../src/lib/db/apiKeys.ts");
 const readCache = await import("../../src/lib/db/readCache.ts");
 const v1ModelsCatalog = await import("../../src/app/api/v1/models/catalog.ts");
@@ -34,6 +35,8 @@ async function resetStorage() {
   fs.rmSync(TEST_DATA_DIR, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   fs.mkdirSync(TEST_DATA_DIR, { recursive: true });
   v1ModelsCatalog.__resetCatalogBuilderRunsForTest();
+  // Free sources are opt-in (enabledNoAuthProviders): enable the ones this test exercises.
+  await updateSettings({ enabledNoAuthProviders: ["opencode"] });
 }
 
 test.beforeEach(async () => {

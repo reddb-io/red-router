@@ -297,6 +297,10 @@ export async function getSettings() {
     codexAutoPing: { connections: {} },
     // #8848: opt-in per-connection Claude proactive warmup (empty = off for everyone).
     claudeWarmup: { connections: {} },
+    // Opt-in free/anonymous sources: a no-auth provider (AI Horde, UncloseAI, OpenCode Free…) is
+    // only usable when its id is listed here (or it has an active connection). Empty = none.
+    // See src/lib/providers/enabledProviders.ts.
+    enabledNoAuthProviders: [],
   };
   for (const row of rows) {
     const record = toRecord(row);

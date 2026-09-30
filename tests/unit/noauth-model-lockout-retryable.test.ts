@@ -19,10 +19,14 @@ process.env.DATA_DIR = TEST_DATA_DIR;
 process.env.API_KEY_SECRET = "test-noauth-retryable-secret";
 
 const core = await import("../../src/lib/db/core.ts");
+const { updateSettings } = await import("../../src/lib/db/settings.ts");
 const auth = await import("../../src/sse/services/auth.ts");
 const { handleNoCredentials } = await import("../../src/sse/handlers/chatHelpers.ts");
 const { recordModelLockoutFailure, clearAllModelLockouts } =
   await import("../../open-sse/services/accountFallback.ts");
+
+// Free sources are opt-in (enabledNoAuthProviders): enable the ones this test exercises.
+await updateSettings({ enabledNoAuthProviders: ["opencode"] });
 
 type SelectionOutcome = {
   allRateLimited?: boolean;

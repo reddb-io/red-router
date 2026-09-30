@@ -16,7 +16,14 @@ import {
   resolveProviderNodeForConnection,
   isCloudEnabled,
 } from "@/models";
+import { getEnabledNoAuthProviderSet } from "@/lib/providers/enabledProvidersAccessor";
 import {
+  isNoAuthProviderInSet,
+  type ProviderAvailabilityKind,
+} from "@/lib/providers/enabledProviders";
+import {
+  AI_PROVIDERS,
+  getProviderConnectionFamilyIds,
   isClaudeCodeCompatibleProvider,
   isOpenAICompatibleProvider,
   isAnthropicCompatibleProvider,
@@ -111,6 +118,31 @@ function projectCodexAccountPoolWithRoutingQuota(
   return { ...projection, children };
 }
 
+async function buildProviderAvailability(): Promise<
+  Record<string, { enabled: boolean; kind: ProviderAvailabilityKind }>
+> {
+  const [activeRows, enabledNoAuth] = await Promise.all([
+    getProviderConnections({ isActive: true }),
+    getEnabledNoAuthProviderSet(),
+  ]);
+  const connected = new Set<string>();
+  for (const row of activeRows as Array<{ provider?: unknown }>) {
+    if (typeof row.provider !== "string") continue;
+    for (const id of getProviderConnectionFamilyIds(row.provider)) connected.add(id);
+  }
+  const ids = new Set<string>([...Object.keys(AI_PROVIDERS), ...connected]);
+  const out: Record<string, { enabled: boolean; kind: ProviderAvailabilityKind }> = {};
+  for (const id of ids) {
+    const kind: ProviderAvailabilityKind = connected.has(id)
+      ? "connected"
+      : isNoAuthProviderInSet(id, enabledNoAuth)
+        ? "free-optin"
+        : "available";
+    out[id] = { enabled: kind !== "available", kind };
+  }
+  return out;
+}
+
 // GET /api/providers - List all connections
 export async function GET(request: Request) {
   const authError = await requireManagementAuth(request);
@@ -165,7 +197,11 @@ export async function GET(request: Request) {
       };
     });
 
-    return NextResponse.json({ connections: safeConnections, total });
+    // Opt-in availability per provider (additive): `enabled` = has an active connection OR is an
+    // explicitly enabled free/no-auth source; `kind` tells the UI which of the three it is.
+    const providerAvailability = await buildProviderAvailability();
+
+    return NextResponse.json({ connections: safeConnections, total, providerAvailability });
   } catch (error) {
     console.log("Error fetching providers:", error);
     return NextResponse.json({ error: "Failed to fetch providers" }, { status: 500 });

@@ -231,6 +231,8 @@ test("v1 models catalog accepts API keys embedded in vscode path aliases when au
 });
 
 test("v1 models catalog includes display names by default", async () => {
+  // No-auth sources are opt-in: OpenCode Free must be enabled before its models are listed.
+  await settingsDb.updateSettings({ enabledNoAuthProviders: ["opencode"] });
   const response = await v1ModelsCatalog.getUnifiedModelsResponse(
     new Request("http://localhost/api/v1/models")
   );
@@ -243,6 +245,7 @@ test("v1 models catalog includes display names by default", async () => {
 });
 
 test("v1 models catalog omits display names when the feature flag is disabled", async () => {
+  await settingsDb.updateSettings({ enabledNoAuthProviders: ["opencode"] });
   featureFlagsDb.setFeatureFlagOverride("MODEL_CATALOG_INCLUDE_NAMES", "false");
 
   try {
@@ -1664,19 +1667,29 @@ test("v1 models catalog computes combo context_length from known targets when so
   );
 });
 
-// Regression test for Issue #2798: noAuth providers (opencode/oc) have no DB connection rows
-// but their models must still appear in /v1/models.
-test("v1 models catalog includes noAuth provider models when no DB connections exist (#2798)", async () => {
-  // No connections seeded — empty DB, simulating a fresh install with no credentials added.
-  const response = await v1ModelsCatalog.getUnifiedModelsResponse(
-    new Request("http://localhost/api/v1/models")
-  );
-  const body = (await response.json()) as any;
-  const ids: string[] = body.data.map((item: any) => item.id);
+// Issue #2798 originally made no-auth providers (opencode/oc) list with no DB connection rows.
+// RedRouter is opt-in: an unconfigured no-auth source is NOT listed until the operator enables it
+// (`enabledNoAuthProviders`); once enabled it lists without any connection row, as #2798 required.
+test("v1 models catalog lists a no-auth provider only once enabled (#2798, opt-in)", async () => {
+  await settingsDb.updateSettings({ enabledNoAuthProviders: [] });
+  const listIds = async (): Promise<string[]> => {
+    const response = await v1ModelsCatalog.getUnifiedModelsResponse(
+      new Request("http://localhost/api/v1/models")
+    );
+    assert.equal(response.status, 200);
+    return ((await response.json()) as any).data.map((item: any) => item.id);
+  };
 
-  assert.equal(response.status, 200);
-  // opencode (noAuth) models must surface even with zero connection rows.
-  // The registry defines models under alias "oc" (e.g. "oc/big-pickle").
+  // No connections seeded — empty DB, simulating a fresh install with no credentials added.
+  assert.equal(
+    (await listIds()).some((id) => id.startsWith("oc/")),
+    false,
+    "an unconfigured no-auth provider must not be listed"
+  );
+
+  await settingsDb.updateSettings({ enabledNoAuthProviders: ["opencode"] });
+  const ids = await listIds();
+  // The registry defines opencode models under alias "oc" (e.g. "oc/big-pickle").
   assert.ok(
     ids.some((id) => id.startsWith("oc/")),
     `Expected at least one oc/* model in /v1/models but got none. IDs sample: ${ids.slice(0, 10).join(", ")}`
@@ -1694,7 +1707,11 @@ test("v1 models catalog includes noAuth provider models when no DB connections e
 });
 
 test("v1 models catalog hides disabled noAuth provider models", async () => {
-  await settingsDb.updateSettings({ blockedProviders: ["opencode", "duckduckgo-web"] });
+  // Enabled first, so the block (not the opt-in default) is what hides them.
+  await settingsDb.updateSettings({
+    enabledNoAuthProviders: ["opencode", "duckduckgo-web"],
+    blockedProviders: ["opencode", "duckduckgo-web"],
+  });
 
   const response = await v1ModelsCatalog.getUnifiedModelsResponse(
     new Request("http://localhost/api/v1/models")

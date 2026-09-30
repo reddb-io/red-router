@@ -6,6 +6,7 @@
  * (#7339, Phase 4 of #3384).
  */
 
+import { isNoAuthGateOpenNow } from "@/lib/providers/enabledProvidersAccessor";
 import { getProviderCredentialsWithQuotaPreflight } from "@/sse/services/auth";
 import { getInterceptionRules, type FetchInterceptionBackend } from "@/lib/db/interceptionRules";
 import {
@@ -118,7 +119,11 @@ async function resolveProviderAndCredentials(
   if (pinnedProvider && pinnedCredentials) {
     return { provider: pinnedProvider, credentials: pinnedCredentials };
   }
-  if (pinnedProvider && ANONYMOUS_CAPABLE_PROVIDERS.has(pinnedProvider)) {
+  if (
+    pinnedProvider &&
+    ANONYMOUS_CAPABLE_PROVIDERS.has(pinnedProvider) &&
+    (await isNoAuthGateOpenNow(pinnedProvider))
+  ) {
     // Anonymous tier: no connection configured (or the credential resolution
     // came back rate-limited — the anonymous tier does not consume key quota,
     // so a rate-limited key must not block the anonymous attempt either).

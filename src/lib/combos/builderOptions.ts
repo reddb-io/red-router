@@ -15,6 +15,7 @@ import {
   isOpenAICompatibleProvider,
 } from "@/shared/constants/providers";
 import type { RegistryModel } from "@omniroute/open-sse/config/providerRegistry.ts";
+import { isNoAuthProviderEnabled } from "@/lib/providers/enabledProviders";
 import { appendSyncedEffortVariants } from "@omniroute/open-sse/utils/syncedEffortVariants";
 
 type JsonRecord = Record<string, unknown>;
@@ -757,6 +758,8 @@ export async function getComboBuilderOptions(): Promise<ComboBuilderOptionsPaylo
       continue;
     // Skip if already covered (defensive: shouldn't happen for true no-auth providers)
     if (connectionsByProvider.has(providerId)) continue;
+    // Opt-in: an unconnected no-auth source is offered only once the operator enabled it.
+    if (!isNoAuthProviderEnabled(providerId, settings as Record<string, unknown>)) continue;
 
     const providerVisual = getProviderVisual(providerId, null);
     const builtInModels = getModelsByProviderId(providerId);

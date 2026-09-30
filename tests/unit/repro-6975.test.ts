@@ -9,6 +9,10 @@ process.env.DATA_DIR = TEST_DATA_DIR;
 
 const core = await import("../../src/lib/db/core.ts");
 const modelsDb = await import("../../src/lib/db/models.ts");
+const { updateSettings } = await import("../../src/lib/db/settings.ts");
+
+// Opt-in: the no-auth provider hosting the custom models is enabled by the operator.
+await updateSettings({ enabledNoAuthProviders: ["opencode"] });
 const { getComboBuilderOptions } = await import("../../src/lib/combos/builderOptions.ts");
 
 test.after(() => {

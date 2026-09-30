@@ -8,6 +8,7 @@ import {
 } from "@/lib/db/settings";
 import { getRuntimePorts } from "@/lib/runtime/ports";
 import { updateSettingsSchema } from "@/shared/validation/settingsSchemas";
+import { normalizeEnabledNoAuthProviders } from "@/lib/providers/enabledProviders";
 import { isValidationFailure, validateBody } from "@/shared/validation/helpers";
 import { getConsistentMachineId } from "@/shared/utils/machineId";
 import { isFeatureFlagEnabled } from "@/shared/utils/featureFlags";
@@ -352,6 +353,11 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: validation.error }, { status: 400 });
     }
     const body: typeof validation.data & { password?: string } = { ...validation.data };
+
+    // Opt-in free sources: store canonical provider ids only (aliases resolved, unknown dropped).
+    if (Array.isArray(body.enabledNoAuthProviders)) {
+      body.enabledNoAuthProviders = normalizeEnabledNoAuthProviders(body.enabledNoAuthProviders);
+    }
 
     // Sanitize model lockout settings: clamp values to valid bounds.
     if (body.modelLockout) {

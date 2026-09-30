@@ -19,12 +19,16 @@ process.env.DATA_DIR = TEST_DATA_DIR;
 process.env.API_KEY_SECRET = "test-refresh-guard-secret";
 
 const core = await import("../../src/lib/db/core.ts");
+const { updateSettings } = await import("../../src/lib/db/settings.ts");
 const auth = await import("../../src/sse/services/auth.ts");
 const { handleChatCore } = await import("../../open-sse/handlers/chatCore.ts");
 const { getExecutor } = await import("../../open-sse/executors/index.ts");
 const { clearAllModelLockouts } = await import("../../open-sse/services/accountFallback.ts");
 const { clearOpencodeFreeTierSkips } =
   await import("../../open-sse/services/opencodeFreeTierSkip.ts");
+
+// Free sources are opt-in (enabledNoAuthProviders): enable the ones this test exercises.
+await updateSettings({ enabledNoAuthProviders: ["opencode"] });
 
 const originalFetch = globalThis.fetch;
 const REFUSAL_BODY = JSON.stringify({

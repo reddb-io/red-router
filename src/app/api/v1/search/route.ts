@@ -1,3 +1,4 @@
+import { isNoAuthGateOpenNow } from "@/lib/providers/enabledProvidersAccessor";
 import { handleSearch } from "@omniroute/open-sse/handlers/search.ts";
 import {
   getProviderCredentialsWithQuotaPreflight,
@@ -102,7 +103,9 @@ async function resolveSearchExecutionCredentials(providerConfig: {
 }): Promise<SearchCredentialLookup> {
   const credentials = await resolveSearchCredentials(providerConfig.id);
   if (credentials) return credentials;
-  return providerConfig.authType === "none" ? {} : null;
+  // Opt-in: an anonymous (authType none) tier is only used once the operator enabled it.
+  if (providerConfig.authType !== "none") return null;
+  return (await isNoAuthGateOpenNow(providerConfig.id)) ? {} : null;
 }
 
 // Helper: build domain filter array from filters object
@@ -271,6 +274,7 @@ async function postHandler(request: Request, context: unknown) {
       for (const fallbackProvider of fallbackProviders) {
         providerConfig = fallbackProvider;
         if (fallbackProvider.id === "duckduckgo-free") {
+          if (!(await isNoAuthGateOpenNow(fallbackProvider.id))) continue;
           credentials = {};
           break;
         }

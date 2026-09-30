@@ -10,6 +10,7 @@ process.env.API_KEY_SECRET = process.env.API_KEY_SECRET || "aihorde-optional-key
 
 const core = await import("../../src/lib/db/core.ts");
 const providersDb = await import("../../src/lib/db/providers.ts");
+const { updateSettings } = await import("../../src/lib/db/settings.ts");
 const { getProviderCredentials } = await import("../../src/sse/services/auth.ts");
 const { supportsApiKeyOnFreeProvider, providerAllowsOptionalApiKey } =
   await import("../../src/shared/constants/providers.ts");
@@ -31,6 +32,8 @@ test("aihorde treats a registered key as optional, not required", () => {
 });
 
 test("aihorde without a stored key still uses the synthetic no-auth path", async () => {
+  // Anonymous access is opt-in: the operator must have enabled the free source.
+  await updateSettings({ enabledNoAuthProviders: ["aihorde"] });
   const creds = await getProviderCredentials("aihorde");
   assert.ok(creds);
   assert.equal((creds as { connectionId?: string }).connectionId, "noauth");

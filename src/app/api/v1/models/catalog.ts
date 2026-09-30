@@ -3,6 +3,10 @@ import { catalogVersionFromBody } from "@/lib/catalogVersion";
 import { comboMemberIds, comboStrategyForClients } from "./catalogComboRouting";
 import { RED_ROUTER_CATALOG_VERSION_HEADER } from "@/shared/constants/redRouterHeaders";
 import { NOAUTH_PROVIDERS } from "@/shared/constants/providers";
+import {
+  listNotEnabledNoAuthKeys,
+  normalizeEnabledNoAuthProviders,
+} from "@/lib/providers/enabledProviders";
 import { getCombos } from "@/lib/db/combos";
 import { isComboNameAllowedForKey } from "@/shared/utils/apiKeyPolicy";
 import { getSettings } from "@/lib/db/settings";
@@ -408,6 +412,18 @@ async function buildUnifiedModelsResponseCore(
       // If database not available, show no provider models (safe default)
       console.log("[catalog] Could not fetch providers:", e);
     }
+
+    // Opt-in: no-auth sources the operator neither connected nor enabled are treated as blocked.
+    for (const key of listNotEnabledNoAuthKeys(
+      settings,
+      connections.map((c) => c.provider)
+    ))
+      blockedProviders.add(key);
+    // auto/* are virtual routers over the enabled providers: with none enabled they cannot
+    // route anywhere, so they are not advertised (fresh install lists nothing).
+    const nothingEnabled =
+      connections.length === 0 &&
+      normalizeEnabledNoAuthProviders(settings.enabledNoAuthProviders).length === 0;
 
     // Get provider nodes (for compatible providers with custom prefixes)
     let providerNodes = [];
@@ -900,7 +916,7 @@ async function buildUnifiedModelsResponseCore(
     ]) {
       // #9418: skip the entire loop when hideAutoCombos is on — the ids are still
       // routable when sent explicitly, just not advertised in the catalog.
-      if (hideAuto || autoCombosDisallowedForKey) break;
+      if (hideAuto || autoCombosDisallowedForKey || nothingEnabled) break;
       if (blockedProviders.has("auto") || listedIds.has(autoId)) continue; // #5192
       // #6328 (follow-up to #6495 / #6512): REMOVE — not just hide — paid-tier
       // auto/* ids (auto/pro-* + auto/*:pro) from the advertised catalog when the

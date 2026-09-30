@@ -31,6 +31,10 @@ const { createProviderConnection, updateProviderConnection, deleteProviderConnec
   await import("../../src/lib/db/providers.ts");
 const { updateSettings } = await import("../../src/lib/db/settings.ts");
 
+// Anonymous access is opt-in (enabledNoAuthProviders); these tests cover the per-provider
+// opt-OUT toggle on top of an operator who enabled the free sources.
+await updateSettings({ enabledNoAuthProviders: ["opencode", "opencode-go", "opencode-zen"] });
+
 test.after(() => {
   core.resetDbInstance();
   fs.rmSync(TEST_DATA_DIR, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });

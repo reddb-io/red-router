@@ -1,5 +1,6 @@
 import { getSettings } from "@/lib/db/settings";
 import { isProviderBlockedByIdOrAlias } from "@/shared/utils/noAuthProviders";
+import { isProviderEnabledNow } from "@/lib/providers/enabledProvidersAccessor";
 import * as log from "../utils/logger";
 
 export async function isNoAuthProviderBlockedBySettings(providerId: string): Promise<boolean> {
@@ -37,6 +38,26 @@ export async function isAnonymousFallbackDisabledBySettings(providerId: string):
     log.warn(
       "AUTH",
       `Could not read no-auth fallback disabled settings for ${providerId}: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
+    return false;
+  }
+}
+
+/**
+ * RedRouter is opt-in: the synthetic anonymous credential is only handed out
+ * when the operator enabled the provider (`enabledNoAuthProviders`) or the
+ * provider has an active connection. Fail-closed: if enablement cannot be read,
+ * nothing anonymous is served.
+ */
+export async function isSyntheticNoAuthAllowed(providerId: string): Promise<boolean> {
+  try {
+    return await isProviderEnabledNow(providerId);
+  } catch (error) {
+    log.warn(
+      "AUTH",
+      `Could not read provider enablement for ${providerId}: ${
         error instanceof Error ? error.message : String(error)
       }`
     );

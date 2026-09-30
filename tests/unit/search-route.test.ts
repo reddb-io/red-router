@@ -9,6 +9,7 @@ process.env.DATA_DIR = TEST_DATA_DIR;
 
 const core = await import("../../src/lib/db/core.ts");
 const providersDb = await import("../../src/lib/db/providers.ts");
+const { updateSettings } = await import("../../src/lib/db/settings.ts");
 const searchRoute = await import("../../src/app/api/v1/search/route.ts");
 
 async function resetStorage() {
@@ -429,6 +430,18 @@ test("v1 search POST falls back to duckduckgo-free when no provider is configure
   // no search provider is configured"): zero-credential /v1/search no longer returns
   // 400 — it promotes the fallback-only duckduckgo-free provider so out-of-the-box
   // search works. This test pins the NEW contract.
+  // Opt-in: the anonymous DuckDuckGo tier only runs once the operator enabled it. Until then a
+  // zero-credential search is refused like any other unconfigured provider.
+  const refused = await searchRoute.POST(
+    new Request("http://localhost/api/v1/search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: "not enabled yet", search_type: "web" }),
+    })
+  );
+  assert.equal(refused.status, 400);
+  await updateSettings({ enabledNoAuthProviders: ["duckduckgo-free"] });
+
   const originalFetch = globalThis.fetch;
   let capturedUrl = "";
 
