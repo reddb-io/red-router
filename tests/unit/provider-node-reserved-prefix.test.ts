@@ -203,7 +203,8 @@ test("shared set size includes live REGISTRY and retired Designer + Felo + Qwen 
   // Measured in CI after adding upstream-parity provider ids and aliases.
   // Gateway upstreams (cloudflare-ai-gateway + cfaig, helicone, portkey) add four members
   // (431 -> 435).
-  assert.equal(RESERVED_PREFIX_COUNT, 435);
+  // RedRouter adds public `red` plus compatibility `redrouter`; internal id is unchanged.
+  assert.equal(RESERVED_PREFIX_COUNT, 437);
 });
 
 test("isReservedProviderPrefix rejects non-string input", () => {

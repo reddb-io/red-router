@@ -40,6 +40,8 @@ function buildReservedProviderPrefixes(): Set<string> {
     if (entry?.id) reserved.add(entry.id);
     if (entry?.alias) reserved.add(entry.alias);
   }
+  // The accepted historical router spelling must not be shadowed by a custom node.
+  reserved.add("redrouter");
   for (const providerId of RETIRED_MICROSOFT_DESIGNER_WEB_PROVIDER_IDS) {
     reserved.add(providerId);
   }

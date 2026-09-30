@@ -120,6 +120,11 @@ export function parseRemoteRouterModels(body: unknown): RemoteRouterModel[] {
     const model = modelSchema.parse(row);
     const decision = isRemoteDecisionModel(model);
     if (!decision && model.type && !["llm", "chat", "imageToText"].includes(model.type)) continue;
+    if (
+      !decision &&
+      !getModelEndpointDecision(null, model.id, model.supported_endpoints).chatSelectable
+    )
+      continue;
     const hops = model.id
       .split("/")
       .filter((part) => ["red", "red-router", "redrouter"].includes(part)).length;

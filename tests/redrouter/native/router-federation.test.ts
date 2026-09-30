@@ -28,6 +28,8 @@ const { createTenant, assignResourcesToTenant, assignApiKeysToTenant } =
   await import("../../../src/lib/db/tenants.ts");
 const { setTenantRoutingSide } = await import("../../../src/lib/db/routingPolicy.ts");
 const { createApiKey } = await import("../../../src/lib/db/apiKeys.ts");
+const { isReservedProviderPrefix } =
+  await import("../../../src/shared/constants/reservedProviderPrefixes.ts");
 const { parseModel } = await import("../../../open-sse/services/model.ts");
 const { resetPriorityRoutingForTests } =
   await import("../../../src/sse/handlers/priorityRouting.ts");
@@ -301,6 +303,7 @@ test("chat forwarding preserves the chain and rejects decision IDs on chat endpo
 
 test("legacy prefixes resolve to the same internal provider without renaming downstream IDs", async () => {
   for (const prefix of ["red", "red-router", "redrouter"]) {
+    assert.equal(isReservedProviderPrefix(prefix), true);
     assert.equal(parseModel(`${prefix}/${downstreamId}`).provider, "red-router");
     const response = await decision(`${prefix}/${downstreamId}`);
     assert.equal(response.status, 200, await response.clone().text());
