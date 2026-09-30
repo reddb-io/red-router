@@ -1,5 +1,0 @@
----
-"@reddb-io/red-router": minor
----
-
-Budgets, second slice. A budget can now also limit tokens and requests per minute (blocking, or throttling by waiting for the next minute), cap spend per model (`provider/model`, a bare model id or `provider/*`), and be assigned to a tag or to an end user as well as to keys and key groups. A combo skips a target whose budget is already exhausted instead of dispatching to it. Requests are attributed: the end user comes from the OpenAI `user` field or `x-red-router-end-user`, tags from `metadata.tags` or `x-red-router-tags` merged with the key's own tags (key tags first, so a client cannot push them out); both are recorded on the cost ledger and the call log, never any prompt text, and never exposed as a metric label. Costs → Budget shows a "Spend by tag / end user" table backed by `GET /api/usage/attribution?by=tag|user&days=30`. Tags and end users are supplied by the client, so a client can avoid a tag budget by omitting the tag; use key tags or a key/group budget for hard limits.
