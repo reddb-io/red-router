@@ -175,3 +175,13 @@ test("installing or upgrading the service puts the new tray on screen, replacing
   const serve = readFileSync(join(process.cwd(), "bin/cli/commands/serve.mjs"), "utf8");
   assert.match(serve, /shouldAutoAttachTray\(\{ opts: trayOpts \}\)/);
 });
+
+test("a tray that cannot appear never takes over a working one", async () => {
+  const source = readFileSync(join(process.cwd(), "bin/cli/commands/tray.mjs"), "utf8");
+  const supported = source.indexOf("isTraySupported()");
+  const claim = source.indexOf("claimTrayLock({ port, replace })");
+  assert.ok(
+    supported > 0 && claim > supported,
+    "the display check comes before the lock is claimed"
+  );
+});

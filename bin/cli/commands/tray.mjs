@@ -3,6 +3,12 @@ import { DEFAULT_PORT } from "../product.mjs";
 
 export async function attachTray({ port = DEFAULT_PORT, replace = false } = {}) {
   const { claimTrayLock, releaseTrayLock } = await import("../tray/singleInstance.mjs");
+  // Nothing to show an icon in (started by a service or a session without a display): fail BEFORE
+  // taking the lock, or the running tray would be stopped for a replacement that cannot appear.
+  const { isTraySupported } = await import("../tray/index.mjs");
+  if (!isTraySupported()) {
+    throw new Error("RedRouter tray is unavailable in this session (no graphical display)");
+  }
   const lock = claimTrayLock({ port, replace });
   if (!lock.claimed) {
     process.stderr.write(`RedRouter tray is already running (pid ${lock.pid}).\n`);
