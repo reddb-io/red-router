@@ -147,6 +147,7 @@ import {
   filterReasoningCombo,
 } from "./reasoningRouting";
 import { createVirtualAutoCombo, resolveAutoRoutingState } from "./autoRouting";
+import { resolvePriorityRoutedCombo } from "./priorityRouting";
 import { getComboFailureLogError } from "./comboFailureLogging";
 
 // Pipeline integration — wired modules
@@ -1012,6 +1013,33 @@ async function handleChatImplementation(
   const virtualCombo = await createVirtualAutoCombo(autoRouting, combo, apiKeyInfo?.id);
   if (virtualCombo instanceof Response) return virtualCombo;
   combo = virtualCombo;
+
+  // Non-transparent model visibility: a bare (or still-prefixed) model name is routed through the
+  // provider priority order the owner set, as a priority combo. Only when nothing else claimed the
+  // request (a stored or auto combo above wins) and the policy hides providers.
+  if (!combo) {
+    try {
+      const priorityRouted = await resolvePriorityRoutedCombo({
+        apiKey: apiKey ?? null,
+        tenantId: (apiKeyInfo as { tenantId?: string } | null)?.tenantId ?? null,
+        requestedModel: resolvedModelStr,
+      });
+      if (priorityRouted) {
+        combo = priorityRouted;
+        log.info(
+          "ROUTING",
+          `"${resolvedModelStr}" → ${priorityRouted.models.length} provider(s) by priority`
+        );
+      }
+    } catch (error) {
+      // Routing by priority is an optimisation of visibility, never a reason to fail a request:
+      // fall back to the normal resolution.
+      log.warn(
+        "ROUTING",
+        `Provider-priority routing skipped: ${error instanceof Error ? error.message : "unknown error"}`
+      );
+    }
+  }
   if (combo) {
     if (reasoningDecision) {
       const filtered = filterReasoningCombo(combo, reasoningDecision);

@@ -502,6 +502,8 @@ test("a tenant only ever sees its own tenant's users and keys", async () => {
   assert.deepEqual(me.capabilities.map((c) => c.path).sort(), [
     "/api/tenant/keys",
     "/api/tenant/me",
+    "/api/tenant/routing",
+    "/api/tenant/routing",
     "/api/tenant/users",
   ]);
 });
@@ -541,7 +543,13 @@ test("every route file under /api/tenant has a manifest row, and every row has a
 test("the manifest is pinned: adding a row needs a reviewed change here", () => {
   assert.deepEqual(
     TENANT_ROUTES.map((rule) => `${rule.method} ${rule.pattern} ${rule.minRole}`),
-    ["GET /api/tenant/me user", "GET /api/tenant/users admin", "GET /api/tenant/keys admin"]
+    [
+      "GET /api/tenant/me user",
+      "GET /api/tenant/users admin",
+      "GET /api/tenant/keys admin",
+      "GET /api/tenant/routing admin",
+      "PUT /api/tenant/routing admin",
+    ]
   );
   assert.ok(Object.isFrozen(TENANT_ROUTES));
 });

@@ -248,6 +248,9 @@ export const updateSettingsSchema = z.object({
   // silently strips unknown keys on a plain z.object, so PATCH /api/settings
   // answered 200 while dropping both before they reached the DB.
   hideAutoCombos: z.boolean().optional(),
+  transparentModels: z.boolean().optional(),
+  providerPriority: z.array(z.string().trim().min(1).max(100)).max(300).optional(),
+  delegateRoutingToTenants: z.boolean().optional(),
   hideNoThinkVariants: z.boolean().optional(),
   // STRICT_ZERO_COST (opt-in, default "off"): stricter than hidePaidModels — a
   // candidate must be keyless (no credential exists, so no request against it

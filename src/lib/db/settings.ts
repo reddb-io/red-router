@@ -274,6 +274,13 @@ export async function getSettings() {
     // #9418: Opt-in filter that hides auto/* virtual combos from the /v1/models catalog.
     // User-defined combos are unaffected; routing still works for hidden ids sent explicitly.
     hideAutoCombos: false,
+    // Model visibility. Transparent (default) lists `provider/model` and the client picks the
+    // provider. Off lists the bare model name only and the router picks the provider by
+    // `providerPriority` (see src/lib/routing/routingPolicy.ts). The owner can pin either per tenant,
+    // and tenants' admins may change them only while `delegateRoutingToTenants` is on.
+    transparentModels: true,
+    providerPriority: [],
+    delegateRoutingToTenants: false,
     // #9418: Opt-in filter that hides no-think/* gateway variants from the /v1/models catalog.
     // Routing still works for hidden ids sent explicitly.
     hideNoThinkVariants: false,

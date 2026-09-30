@@ -11,12 +11,14 @@ import ModelAliasesUnified from "../components/ModelAliasesUnified";
 import BackgroundDegradationTab from "../components/BackgroundDegradationTab";
 import RoutingEntryLink from "@/shared/components/routing/RoutingEntryLink";
 import CapacityAdapterCard from "../components/CapacityAdapterCard";
+import ModelVisibilityCard from "../components/ModelVisibilityCard";
 
 export default function SettingsRoutingPage() {
   const t = useTranslations("settings");
   return (
     <div className="space-y-6">
       <p className="text-sm text-text-muted">{t("routingSettingsIntro")}</p>
+      <ModelVisibilityCard />
       <RoutingStrategyCard />
       <QuotaPreflightCard />
       <ComboDefaultsTab />

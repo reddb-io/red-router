@@ -36,6 +36,18 @@ export const TENANT_ROUTES: readonly TenantRouteRule[] = Object.freeze([
     minRole: "admin",
     description: "API keys of my tenant (masked)",
   },
+  {
+    method: "GET",
+    pattern: "/api/tenant/routing",
+    minRole: "admin",
+    description: "Model visibility and provider order for my tenant, and what the owner locked",
+  },
+  {
+    method: "PUT",
+    pattern: "/api/tenant/routing",
+    minRole: "admin",
+    description: "Set my tenant's model visibility and provider order, where the owner allows it",
+  },
 ]);
 
 const ROLE_RANK: Record<TenantRouteRole, number> = { user: 1, admin: 2 };

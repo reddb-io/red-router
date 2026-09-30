@@ -1,4 +1,7 @@
 import { PROVIDER_MODELS, PROVIDER_ID_TO_ALIAS } from "@/shared/constants/models";
+import { isTransparentCatalogRequest } from "./catalogTransparency";
+import { resolveRoutingPolicy } from "@/lib/routing/routingPolicy";
+import { collapseCatalogToBare } from "@/lib/routing/bareModels";
 import { catalogVersionFromBody } from "@/lib/catalogVersion";
 import { comboMemberIds, comboStrategyForClients } from "./catalogComboRouting";
 import { RED_ROUTER_CATALOG_VERSION_HEADER } from "@/shared/constants/redRouterHeaders";
@@ -2099,6 +2102,8 @@ async function buildUnifiedModelsResponseCore(
     // Filter by API key permissions if requested
     const apiKey = extractApiKey(request);
     let finalModels = models;
+    // The tenant the key belongs to decides which routing policy applies (see below).
+    let routingTenantId: string | null = null;
     if (apiKey) {
       const { isModelAllowedForKey, getApiKeyMetadata } = await import("@/lib/db/apiKeys");
 
@@ -2106,6 +2111,7 @@ async function buildUnifiedModelsResponseCore(
       // virtual models. #4806: build from the hidden qtSd/* combos directly — the base
       // `models` list drops hidden combos, so filtering it returned nothing (0 models).
       const keyMeta = await getApiKeyMetadata(apiKey);
+      routingTenantId = keyMeta?.tenantId ?? null;
       if (keyMeta && keyMeta.allowedQuotas && keyMeta.allowedQuotas.length > 0) {
         const { buildQuotaExclusiveModels } = await import("@/lib/quota/quotaCombos");
         finalModels = await buildQuotaExclusiveModels(
@@ -2201,6 +2207,21 @@ async function buildUnifiedModelsResponseCore(
       // dominant synchronous stage. Let already-queued health checks run before the
       // remaining in-memory enrichment and JSON serialization.
       await yieldCatalogBuildTurn();
+    }
+
+    // Model visibility. Transparent (the default) lists `provider/model`. When the owner (or, if the
+    // owner delegated, the tenant's admin) turned that off, each chat model is listed once under its
+    // bare name from the provider that ranks first, and the router picks the provider itself.
+    // The router's own lookups ask for the transparent view (they need to know who offers what).
+    if (!isTransparentCatalogRequest(request)) {
+      const routingPolicy = await resolveRoutingPolicy(routingTenantId);
+      if (!routingPolicy.transparent) {
+        finalModels = collapseCatalogToBare(
+          finalModels,
+          routingPolicy.providerPriority,
+          (providerId) => aliasToProviderId[providerId] || providerId
+        );
+      }
     }
 
     return finalizeCatalogResponse(
