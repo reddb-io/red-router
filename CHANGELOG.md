@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.55.3
+
+### Patch Changes
+
+- Open the existing /home dashboard from the attached tray instead of the unavailable /usage URL.
+
 ## 0.55.2
 
 ### Patch Changes
