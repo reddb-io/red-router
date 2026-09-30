@@ -1,3 +1,4 @@
+import { redRouterEndpoint, RED_ROUTER_DEFAULT_BASE_URL } from "../config/redRouter.ts";
 import { REGISTRY } from "../config/providers/index.ts";
 import { JEV_DEFAULT_MODEL } from "../config/jev.ts";
 import { buildErrorBody } from "../utils/error.ts";
@@ -14,7 +15,7 @@ export type SystemOneRequest = {
 };
 
 export type SystemOneTarget = {
-  provider: "typesafe-ai" | "opencode" | "opencode-zen" | "openrouter";
+  provider: "typesafe-ai" | "opencode" | "opencode-zen" | "openrouter" | "red-router";
   model: string;
   url: string;
   headers: Record<string, string>;
@@ -51,6 +52,16 @@ async function readBoundedResponseJson(response: Response): Promise<unknown> {
 /** Evaluation models are selected separately from the chat model catalog. */
 export function resolveSystemOneTarget(requestedModel?: string): SystemOneTarget | null {
   const requested = requestedModel?.trim() || JEV_DEFAULT_MODEL;
+  const hop = /^(red|red-router|redrouter)\/(.+)$/.exec(requested);
+  if (hop) {
+    if (requested.length > 2048 || requested.split("/").length > 32) return null;
+    return {
+      provider: "red-router",
+      model: hop[2],
+      url: redRouterEndpoint(RED_ROUTER_DEFAULT_BASE_URL, "systemone"),
+      headers: {},
+    };
+  }
   let provider: SystemOneTarget["provider"] = "typesafe-ai";
   let model = requested;
   if (requested.startsWith("opencode-zen/")) {

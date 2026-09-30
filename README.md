@@ -172,32 +172,35 @@ that `/v1/models` or `/v1/catalog` already applies that preference.
 
 ### Remote router catalogs
 
-The `red-router` provider now discovers directly served chat models from a remote
-`/v1/models` endpoint and persists them per connection. The cache is bound to both
-the remote URL and its API key. Discovery preserves qualified IDs such as
-`cc/claude-example`, retains a saved catalog during an outage, and refuses to write
-a response if the connection was deleted or its credentials changed during the fetch.
+The internal `red-router` provider connects to another RedRouter using its URL
+and API key. Public model routes use `red/` for each hop: a remote
+`openrouter/typesafe/jev-1.13` becomes `red/openrouter/typesafe/jev-1.13`, then
+`red/red/openrouter/typesafe/jev-1.13` through another router. The downstream ID
+is preserved, and dispatch removes exactly one local prefix. Existing
+`red-router/` and `redrouter/` request prefixes remain accepted.
 
-Automatic discovery is the default for this provider; explicit `autoFetchModels:
-false` and `autoSync: false` settings remain respected. Reads refresh after five
-minutes; background refresh uses the existing model-sync scheduler's interval.
-These changes are local and still await CI. Multi-hop federation, remote System
-One and migration of the older embedded cache/proxy settings remain pending.
-Discovery uses the current connection-level proxy resolver; unsupported legacy
-proxy settings fail closed. Typed non-chat and re-exposed router entries are not
-imported as chat.
+Discovery persists chat and System One entries per connection, bound to the
+remote URL and credential. Remote capabilities remain authoritative. Decisions
+appear in `GET /v1/models?capabilities=decision` and `/v1/models/systemone`; native
+`POST /v1/systemone` or `/v1/decisions` requests retain state, questions and
+extension fields, using the selected connection's remote `/v1/systemone` endpoint.
+A connection can dispatch only decisions present in its saved catalog. API-key
+connection restrictions, outbound URL guards, proxies and lease isolation apply.
 
-### Release ownership
+Automatic discovery is the default; `autoFetchModels: false` and `autoSync: false`
+remain respected. Reads refresh after five minutes, and background refresh uses
+the existing scheduler. Outages retain the same credential's saved catalog;
+connection edits invalidate it. Catalogs exclude routes with eight or more router
+prefixes to bound growth in cyclic connection graphs. Legacy embedded cache/proxy
+migration remains pending; unsupported legacy proxy settings fail closed.
 
-RedRouter publishes `@reddb-io/red-router` from `reddb-io/red-router` using
-`.github/workflows/red-publish.yml`. Changesets are the intended versioning policy,
-and the workflow never chooses or rewrites a version. It validates pull requests and
-main, then publishes only an existing SemVer tag whose package version was prepared
-from `.changeset` files. The exact tarball tested by the tag run is promoted to npm
-and attached to its GitHub Release. See
-[the workflow review](docs/ops/REDROUTER_WORKFLOW_REVIEW.md). No feature-parity or
-successful-release claim follows from the presence of a route, workflow, or
-inherited test.
+**System → Settings → Routing → Model visibility** controls transparency and
+provider priority globally and per tenant. With transparency off, chat and
+System One catalogs expose bare model names, and each protocol tries the visible
+providers in that order. Owner pins override tenant choices; tenant choices apply
+only when delegation is enabled. Models from other protocols keep their IDs.
+Federation regressions run in CI with local HTTP fixtures; production credentials
+are needed to validate an external chain end to end.
 
 ## Persistence and scale
 

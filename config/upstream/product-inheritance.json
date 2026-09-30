@@ -80,12 +80,15 @@
         "src/lib/providerModels/remoteRouterCatalog.ts",
         "src/lib/providerModels/remoteRouterDiscovery.ts",
         "src/lib/db/remoteRouterCatalog.ts",
-        "tests/unit/db/remote-router-catalog.test.ts"
+        "tests/unit/db/remote-router-catalog.test.ts",
+        "tests/redrouter/native/router-federation.test.ts",
+        "src/sse/handlers/systemOne.ts",
+        "src/lib/routing/bareModels.ts"
       ],
       "upstreamPaths": {
         "litellm": ["litellm/llms", "model_prices_and_context_window.json"]
       },
-      "remaining": "Direct remote-router chat discovery is restored locally with credential-bound SQLite persistence, five-minute read freshness, scheduled refresh through the existing scheduler, scoped outage fallback and connection-edit invalidation. Current connection-level proxies are honored; unsupported legacy proxy settings fail closed. CI and credentialed smoke are pending. Multi-hop federation, remote System One and legacy providerSpecificData cache/proxy migration remain unresolved. Audit every other provider's identity, auth/refresh, entitlements, modalities and wire format; filename and alias matches are only candidates.",
+      "remaining": "Remote-router discovery persists chat and native decision catalogs per credential, preserves nested IDs under the public red prefix, and forwards native decision requests one hop at a time. Remote capabilities stay authoritative; opaque chat and decision routing follows instance/tenant provider priority. Product regression and HTTP-fixture validation are in CI, not an external credentialed federation parity claim. Legacy embedded cache/proxy migration remains unresolved. Audit every other provider identity, auth/refresh, entitlements, modalities and wire format.",
       "acceptance": [
         "No provider identity is substituted with a different account product.",
         "Model discoveries persist and are scoped to the connection/key.",

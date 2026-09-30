@@ -324,7 +324,16 @@ export async function finalizeCatalogResponse(
   let catEnrichCount = 0;
   for (const model of finalModels) {
     let listedModel: Record<string, unknown>;
-    if (model.owned_by === "combo") {
+    if (model.remoteCapabilities && typeof model.remoteCapabilities === "object") {
+      const { remoteCapabilities, ...entry } = model;
+      listedModel = maybeOmitCatalogModelName(
+        {
+          ...entry,
+          capabilities: remoteCapabilities,
+        },
+        includeModelNames
+      );
+    } else if (model.owned_by === "combo") {
       listedModel = maybeOmitCatalogModelName(model, includeModelNames);
     } else {
       const entry = enrichCatalogModelEntry(model, undefined, {

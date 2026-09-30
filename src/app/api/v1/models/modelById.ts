@@ -97,11 +97,16 @@ export async function handleGetModelsByKind(
     });
   }
   const type = MODEL_KIND_TYPES[kind];
+  const selected = data.filter((model) => model.type === type);
   return Response.json(
     {
       object: "list",
-      id_format: "prefixed",
-      data: data.filter((model) => (model as { type?: unknown }).type === type),
+      id_format:
+        selected.length &&
+        selected.every((model) => typeof model.id === "string" && !model.id.includes("/"))
+          ? "bare"
+          : "prefixed",
+      data: selected,
     },
     { headers: CORS_HEADERS }
   );

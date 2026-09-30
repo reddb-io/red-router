@@ -185,7 +185,7 @@ describe("RedRouter remote discovery", () => {
     assert.deepEqual(f.cache.get(connection.id)?.models, []);
   });
 
-  it("filters typed modalities and recursive routes without modifying opaque IDs", () => {
+  it("keeps chat, decision and recursive routes without modifying opaque IDs", () => {
     const models = parseRemoteRouterModels({
       data: [
         { id: "vendor/space/model", capabilities: { tools: true }, secret: "must-drop" },
@@ -196,7 +196,7 @@ describe("RedRouter remote discovery", () => {
         { id: "other", route: [{ instance: "upstream" }] },
       ],
     });
-    assert.equal(models.length, 1);
+    assert.equal(models.length, 5);
     assert.equal(models[0].id, "vendor/space/model");
     assert.equal(models[0].capabilities?.tools, true);
     assert.ok(!("secret" in models[0]));

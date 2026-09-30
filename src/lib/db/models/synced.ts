@@ -8,6 +8,8 @@ export interface SyncedAvailableModel {
   name: string;
   source: "imported";
   apiFormat?: string;
+  /** Validated remote-router discovery metadata, authoritative across hops. */
+  remoteCapabilities?: Record<string, boolean | string[]>;
   targetFormat?: string;
   upstreamProtocol?: string;
   supportedEndpoints?: string[];
@@ -61,6 +63,17 @@ function normalizeSyncedAvailableModel(model: unknown): SyncedAvailableModel | n
     id,
     name,
     source: "imported",
+    ...(record.remoteCapabilities && typeof record.remoteCapabilities === "object"
+      ? {
+          remoteCapabilities: Object.fromEntries(
+            Object.entries(record.remoteCapabilities).filter(
+              ([, value]) =>
+                typeof value === "boolean" ||
+                (Array.isArray(value) && value.every((item) => typeof item === "string"))
+            )
+          ) as Record<string, boolean | string[]>,
+        }
+      : {}),
     ...(toNonEmptyString(record.apiFormat)
       ? { apiFormat: toNonEmptyString(record.apiFormat)! }
       : {}),

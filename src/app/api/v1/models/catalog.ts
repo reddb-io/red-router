@@ -1305,7 +1305,12 @@ async function buildUnifiedModelsResponseCore(
               }))
             )
           : syncedModels) {
-          if (!isUnifiedChatSourceModelSelectable(canonicalProviderId, sm)) continue;
+          const remoteDecision =
+            canonicalProviderId === "red-router" &&
+            getModelEndpointDecision(canonicalProviderId, sm.id, sm.supportedEndpoints).kind ===
+              "systemone";
+          if (!remoteDecision && !isUnifiedChatSourceModelSelectable(canonicalProviderId, sm))
+            continue;
           if (!providerSupportsModel(canonicalProviderId, sm.id)) continue;
           if (canonicalProviderId === "codex" && isCodexDiscoveryModelExcluded(sm)) {
             continue;
@@ -1344,15 +1349,20 @@ async function buildUnifiedModelsResponseCore(
               ? sm.id.slice(registryEntry.modelIdPrefix.length)
               : sm.id;
 
-          const aliasId = `${alias}/${displayModelId}`;
+          const aliasId = `${canonicalProviderId === "red-router" ? "red" : alias}/${displayModelId}`;
           const endpoints = nodeModelEndpoints(sm.supportedEndpoints, nodeApiTypes[providerId]);
           const apiFormat = typeof sm.apiFormat === "string" ? sm.apiFormat : "chat-completions";
           const classification = classifyModelSupportedEndpoints(endpoints);
-          const modelType = classification.type;
+          const modelType = remoteDecision ? "systemone" : classification.type;
           // Same owned_by the alias/canonical entries below will carry — computed once
           // so the effort_tiers exclusion (codex/glm/kimi) and the entries agree.
           const syncedOwnedBy = resolvePublicOwnerId(providerId, canonicalProviderId);
           const syncedFields = {
+            ...(canonicalProviderId === "red-router"
+              ? {
+                  remoteCapabilities: sm.remoteCapabilities ?? {},
+                }
+              : {}),
             ...(modelType ? { type: modelType } : {}),
             ...(apiFormat !== "chat-completions" ? { api_format: apiFormat } : {}),
             ...(classification.subtype ? { subtype: classification.subtype } : {}),
@@ -1383,7 +1393,12 @@ async function buildUnifiedModelsResponseCore(
             continue;
           }
 
-          if (includeAlias || Boolean(prefix) || selfAliased) {
+          if (
+            canonicalProviderId === "red-router" ||
+            includeAlias ||
+            Boolean(prefix) ||
+            selfAliased
+          ) {
             models.push({
               id: aliasId,
               object: "model",
@@ -1415,7 +1430,10 @@ async function buildUnifiedModelsResponseCore(
                 : {}),
             });
           }
-          if (canEmitSyncedCanonical(includeCanonical, canonicalProviderId, alias, !!prefix)) {
+          if (
+            canonicalProviderId !== "red-router" &&
+            canEmitSyncedCanonical(includeCanonical, canonicalProviderId, alias, !!prefix)
+          ) {
             const providerPrefixedId = `${canonicalProviderId}/${displayModelId}`;
             if (!models.some((model) => model.id === providerPrefixedId)) {
               models.push({

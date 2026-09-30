@@ -1,3 +1,4 @@
+import { isRemoteDecisionRoute } from "./remoteRouterModelPolicy";
 import {
   getModelInfo,
   getComboForModel,
@@ -286,7 +287,10 @@ export async function resolveModelOrError(
   }
 
   const { provider, model, extendedContext } = modelInfo;
-  if (getModelEndpointDecision(provider, model).kind === "systemone") {
+  if (
+    getModelEndpointDecision(provider, model).kind === "systemone" ||
+    (await isRemoteDecisionRoute(provider, model))
+  ) {
     return {
       error: errorResponse(
         HTTP_STATUS.BAD_REQUEST,

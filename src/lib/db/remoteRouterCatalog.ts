@@ -6,6 +6,7 @@ import { persistCanonicalSyncedAvailableModels } from "./models/syncedAvailableM
 import { finishModelCatalogWriteWithoutBackup } from "./models/modelCatalogWriteSignals";
 import {
   remoteRouterSnapshot,
+  isRemoteDecisionModel,
   parseRemoteRouterModels,
   type RemoteRouterCache,
   type RemoteRouterSnapshot,
@@ -51,8 +52,9 @@ export function commitRemoteRouterCatalog(
         id: model.id,
         name: model.name ?? model.id,
         source: "imported",
-        apiFormat: "chat-completions",
-        supportedEndpoints: ["chat"],
+        apiFormat: isRemoteDecisionModel(model) ? "systemone" : "chat-completions",
+        supportedEndpoints: isRemoteDecisionModel(model) ? ["systemone", "decisions"] : ["chat"],
+        remoteCapabilities: model.capabilities ?? {},
         inputTokenLimit: model.context_length,
         outputTokenLimit: model.max_output_tokens,
         supportsTools: model.capabilities?.tools ?? model.capabilities?.tool_calling,

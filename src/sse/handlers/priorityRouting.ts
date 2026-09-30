@@ -30,7 +30,7 @@ const indexByKey = new Map<string, CachedIndex>();
 const MAX_INDEXES = 200;
 
 /** The transparent catalog for a key (or for no key), as the router sees it. */
-async function loadTransparentCatalog(apiKey: string | null): Promise<CatalogEntry[]> {
+export async function loadTransparentCatalog(apiKey: string | null): Promise<CatalogEntry[]> {
   const request = markTransparentCatalogRequest(
     new Request("http://localhost/v1/models", {
       headers: apiKey ? { authorization: `Bearer ${apiKey}` } : {},
@@ -106,4 +106,22 @@ export async function resolvePriorityRoutedCombo(input: {
 /** Test hook: forget every parsed catalog. */
 export function resetPriorityRoutingForTests(): void {
   indexByKey.clear();
+}
+
+/** Native decisions use the same authorized catalog and tenant ordering as chat. */
+export async function resolvePriorityDecisionTargets(input: {
+  apiKey: string | null;
+  tenantId?: string | null;
+  requestedModel: string;
+}): Promise<string[] | null> {
+  const policy = await resolveRoutingPolicy(input.tenantId ?? null);
+  if (policy.transparent) return null;
+  const { aliasToProviderId } = buildAliasMaps();
+  return orderedTargetsFor(
+    await loadTransparentCatalog(input.apiKey),
+    input.requestedModel,
+    policy.providerPriority,
+    (provider) => aliasToProviderId[provider] || provider,
+    "decision"
+  ).map((target) => target.id);
 }

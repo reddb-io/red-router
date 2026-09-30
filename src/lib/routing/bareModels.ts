@@ -46,7 +46,7 @@ function text(value: unknown): string {
 export function isChatProviderModel(entry: CatalogEntry): boolean {
   const id = text(entry.id);
   if (!id || !id.includes("/")) return false;
-  if (entry.owned_by === "combo" || entry.owned_by === ROUTER_OWNER) return false;
+  if (entry.owned_by === "combo") return false;
   return entry.type === undefined || entry.type === "chat";
 }
 
@@ -88,11 +88,28 @@ function displayId(entry: CatalogEntry): string {
   return stripNamespace(source);
 }
 
-const PROVIDER_ONLY_FIELDS = ["provider", "provider_id", "providerId", "parent"] as const;
+const PROVIDER_ONLY_FIELDS = ["provider", "provider_id", "providerId", "parent", "route"] as const;
+
+export function isDecisionProviderModel(entry: CatalogEntry): boolean {
+  return (
+    typeof entry.id === "string" &&
+    entry.id.includes("/") &&
+    entry.owned_by !== "combo" &&
+    entry.type === "systemone"
+  );
+}
+
+function isPriorityModel(entry: CatalogEntry): boolean {
+  return isChatProviderModel(entry) || isDecisionProviderModel(entry);
+}
+
+function priorityKey(entry: CatalogEntry): string {
+  return `${entry.type === "systemone" ? "decision" : "chat"}:${bareKey(text(entry.root) || text(entry.id))}`;
+}
 
 /**
- * The catalog with each chat model listed once under its bare name, taken from the provider that
- * ranks first. Combos and every other modality are left exactly as they were.
+ * The catalog with each chat or decision model listed once under its bare name, taken from the provider that
+ * ranks first. Chat and decisions remain separate; combos and other modalities keep their IDs.
  */
 export function collapseCatalogToBare<T extends CatalogEntry>(
   models: readonly T[],
@@ -102,8 +119,8 @@ export function collapseCatalogToBare<T extends CatalogEntry>(
   const rank = makeRanker(priority, canonical);
   const best = new Map<string, { entry: T; rank: number }>();
   for (const entry of models) {
-    if (!isChatProviderModel(entry)) continue;
-    const key = bareKey(text(entry.root) || text(entry.id));
+    if (!isPriorityModel(entry)) continue;
+    const key = priorityKey(entry);
     const entryRank = rank(entry);
     const current = best.get(key);
     if (!current || entryRank < current.rank) best.set(key, { entry, rank: entryRank });
@@ -112,11 +129,11 @@ export function collapseCatalogToBare<T extends CatalogEntry>(
   const emitted = new Set<string>();
   const out: T[] = [];
   for (const entry of models) {
-    if (!isChatProviderModel(entry)) {
+    if (!isPriorityModel(entry)) {
       out.push(entry);
       continue;
     }
-    const key = bareKey(text(entry.root) || text(entry.id));
+    const key = priorityKey(entry);
     if (emitted.has(key)) continue;
     emitted.add(key);
     const chosen = best.get(key)!.entry;
@@ -141,7 +158,8 @@ export function orderedTargetsFor(
   models: readonly CatalogEntry[],
   requested: string,
   priority: readonly string[],
-  canonical?: (providerId: string) => string
+  canonical?: (providerId: string) => string,
+  kind: "chat" | "decision" = "chat"
 ): Target[] {
   const key = bareKey(requested);
   if (!key) return [];
@@ -150,7 +168,8 @@ export function orderedTargetsFor(
     .map((entry, index) => ({ entry, index }))
     .filter(
       ({ entry }) =>
-        isChatProviderModel(entry) && bareKey(text(entry.root) || text(entry.id)) === key
+        (kind === "decision" ? isDecisionProviderModel(entry) : isChatProviderModel(entry)) &&
+        bareKey(text(entry.root) || text(entry.id)) === key
     )
     .sort((a, b) => rank(a.entry) - rank(b.entry) || a.index - b.index);
 

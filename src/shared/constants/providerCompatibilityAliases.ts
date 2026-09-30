@@ -5,6 +5,8 @@
  * registry defines (for example `if`, `kmc`, `qianfan`) keeps this build's meaning.
  */
 export const PROVIDER_COMPATIBILITY_ALIASES = {
+  "red-router": "red-router",
+  redrouter: "red-router",
   commandcode: "command-code",
   cmc: "command-code",
   "volcengine-ark": "volcengine-coding-plan",

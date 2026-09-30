@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
+import { getModelEndpointDecision } from "@omniroute/open-sse/services/modelEndpointPolicy";
 
 import {
   INTERNAL_MODELS_FETCH_HEADER,
@@ -19,7 +20,7 @@ const modelSchema = z.object({
   name: z.string().max(4096).optional(),
   owned_by: z.string().optional(),
   type: z.string().optional(),
-  route: z.array(z.unknown()).optional(),
+  supported_endpoints: z.array(z.string().max(100)).max(20).optional(),
   provider: z.object({ id: z.string().optional(), via: z.string().optional() }).optional(),
   context_length: z.number().positive().finite().optional(),
   max_output_tokens: z.number().positive().finite().optional(),
@@ -29,6 +30,12 @@ const modelSchema = z.object({
       tool_calling: z.boolean().optional(),
       vision: z.boolean().optional(),
       reasoning: z.boolean().optional(),
+      decision: z.boolean().optional(),
+      chat: z.boolean().optional(),
+      thinking: z.boolean().optional(),
+      supportsThinking: z.boolean().optional(),
+      structured_output: z.boolean().optional(),
+      effort_tiers: z.array(z.string().max(100)).max(20).optional(),
     })
     .optional(),
   input_modalities: z.array(z.string()).optional(),
@@ -81,7 +88,18 @@ export function remoteRouterSnapshot(connection: unknown): RemoteRouterSnapshot 
   };
 }
 
-/** Only directly served chat entries for now; typed JEV requires its own transport. */
+/** Preserve remote IDs verbatim. Each receiving router adds one public `red/` hop. */
+export function isRemoteDecisionModel(model: RemoteRouterModel): boolean {
+  return (
+    model.type === "systemone" ||
+    model.capabilities?.decision === true ||
+    model.supported_endpoints?.some((endpoint) =>
+      ["systemone", "decisions"].includes(endpoint.replace(/^\/?(?:v1\/)?/, ""))
+    ) === true
+  );
+}
+
+/** Bound federation chains so cyclic connection graphs cannot grow catalogs forever. */
 export function parseRemoteRouterModels(body: unknown): RemoteRouterModel[] {
   const envelope = z
     .union([
@@ -100,17 +118,12 @@ export function parseRemoteRouterModels(body: unknown): RemoteRouterModel[] {
   for (const row of rows) {
     // Malformed data is not an authoritative empty list: keep the last good cache.
     const model = modelSchema.parse(row);
-    if (model.type && !["llm", "chat"].includes(model.type)) continue;
-    // Multi-hop federation is not yet restored. Never recursively import a
-    // router's re-exposed router entries as if they were direct chat models.
-    if (
-      model.owned_by === "red-router" ||
-      model.provider?.id === "red-router" ||
-      model.provider?.via === "red-router" ||
-      model.id.startsWith("red-router/") ||
-      model.route?.length
-    )
-      continue;
+    const decision = isRemoteDecisionModel(model);
+    if (!decision && model.type && !["llm", "chat", "imageToText"].includes(model.type)) continue;
+    const hops = model.id
+      .split("/")
+      .filter((part) => ["red", "red-router", "redrouter"].includes(part)).length;
+    if (hops >= 8) continue;
     models.set(model.id, model);
   }
   return [...models.values()];

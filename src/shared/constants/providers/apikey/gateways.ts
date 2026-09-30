@@ -1646,14 +1646,14 @@ export const APIKEY_PROVIDERS_GATEWAYS = {
       "Create an API key at https://platform.typesafe.ai, then paste it here. JEV uses its native System One contract at POST /v1/systemone (state + questions).",
     passthroughModels: true,
   },
-  // RedRouter (https://github.com/reddb-io/red-router) — self-upstream chat:
+  // RedRouter (https://github.com/reddb-io/red-router) — self-upstream chat/decisions:
   // connect to another RedRouter instance with its URL + a RedRouter API key.
   // Accounts and provider access stay on the remote machine; this instance
   // only needs the URL (providerSpecificData.baseUrl) and the key.
   "red-router": {
     id: "red-router",
     serviceKinds: ["llm"],
-    alias: "red-router",
+    alias: "red",
     name: "RedRouter",
     icon: "router",
     color: "#E5484D",
