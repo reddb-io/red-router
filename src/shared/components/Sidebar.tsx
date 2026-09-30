@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { filterSidebarSectionsByQuery } from "@/shared/utils/sidebarSearch";
 import { APP_CONFIG } from "@/shared/constants/appConfig";
+import { areaUrl } from "@/shared/constants/dashboardUrls";
 import { displayInstanceName } from "@/shared/constants/productBranding";
 import { useBranding } from "@/shared/components/BrandingProvider";
 import Button from "./Button";
@@ -387,7 +388,7 @@ export default function Sidebar({
           paddingTop={safeTop}
           top={
             <Link
-              href="/dashboard/analytics"
+              href={areaUrl("/dashboard/analytics")}
               prefetch={false}
               title={brandName}
               aria-label={brandName}

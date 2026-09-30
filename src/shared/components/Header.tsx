@@ -2,6 +2,7 @@
 
 import { useSyncExternalStore } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import { canonicalDashboardPath } from "@/shared/constants/dashboardUrls";
 import Icon from "@/shared/components/Icon";
 import { navIcon } from "@/shared/icons/navIcons";
 
@@ -183,7 +184,9 @@ export default function Header({
   const router = useRouter();
   const isElectron = useIsElectron();
   const t = useTranslations("header");
-  const { title, description, icon, providerId } = usePageInfo(pathname);
+  const { title, description, icon, providerId } = usePageInfo(
+    pathname ? canonicalDashboardPath(pathname) : pathname
+  );
   const isMacElectron =
     isElectron &&
     typeof window !== "undefined" &&

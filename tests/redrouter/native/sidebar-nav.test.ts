@@ -105,9 +105,10 @@ test("every dashboard page is a menu page, a detail of one, or listed as off-men
 test("an entry opens on its first visible page and disappears when all of them are hidden", () => {
   const logs = SIDEBAR_NAV_SECTIONS.flatMap((s) => s.entries).find((entry) => entry.id === "logs");
   assert.ok(logs);
-  assert.equal(resolveNavEntry(logs, none)?.href, "/dashboard/logs");
+  // The menu shows area URLs (see dashboard-urls.test.ts); the page files stay under /dashboard.
+  assert.equal(resolveNavEntry(logs, none)?.href, "/observe/logs");
   const withoutFirst = resolveNavEntry(logs, new Set(["logs"]));
-  assert.equal(withoutFirst?.href, "/dashboard/logs/proxy");
+  assert.equal(withoutFirst?.href, "/observe/logs/proxy");
   assert.ok(!withoutFirst?.tabs.some((tab) => tab.id === "logs"));
   const everything = new Set(logs.tabs.flatMap((tab) => (tab.id ? [tab.id] : [])));
   assert.equal(resolveNavEntry(logs, everything), null);
@@ -125,7 +126,7 @@ test("pages that were never separate menu items follow their entry", () => {
     "a page without an id keeps nothing alive"
   );
   assert.ok(
-    resolveNavEntry(combos, none)?.tabs.some((tab) => tab.href === "/dashboard/combos/playground")
+    resolveNavEntry(combos, none)?.tabs.some((tab) => tab.href === "/proxy/combos/playground")
   );
 });
 
@@ -282,14 +283,14 @@ test("Home opens on Usage: the landing page, the logo and /dashboard all go ther
   const sections = resolveNavSections(none, {});
   const home = sections.find((section) => section.id === "home");
   assert.equal(home?.entries[0].id, "analytics");
-  assert.equal(home?.entries[0].href, "/dashboard/analytics");
+  assert.equal(home?.entries[0].href, "/home/analytics");
   assert.match(
     readFileSync("src/app/(dashboard)/dashboard/page.tsx", "utf8"),
     /redirect\("\/dashboard\/analytics"\)/
   );
   assert.ok(
     readFileSync("src/shared/components/Sidebar.tsx", "utf8").includes(
-      'href="/dashboard/analytics"'
+      'href={areaUrl("/dashboard/analytics")}'
     )
   );
   // Usage exists once: it is not repeated under Observe.

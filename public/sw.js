@@ -5,7 +5,18 @@ const APP_SHELL = [
   "/icon-512.png",
   "/apple-touch-icon.png",
 ];
-const EXCLUDED_PATH_PREFIXES = ["/api/", "/a2a", "/dashboard"];
+// The dashboard also lives under its menu-area URLs (/proxy/providers, see dashboardUrls.ts).
+const EXCLUDED_PATH_PREFIXES = [
+  "/api/",
+  "/a2a",
+  "/dashboard",
+  "/proxy",
+  "/optimize",
+  "/agents",
+  "/observe",
+  "/tools",
+  "/system",
+];
 
 function pathIsExcluded(pathname) {
   return EXCLUDED_PATH_PREFIXES.some((prefix) => {

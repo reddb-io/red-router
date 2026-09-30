@@ -4,6 +4,7 @@ import Icon from "@/shared/components/Icon";
 import { navIcon } from "@/shared/icons/navIcons";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { areaUrl } from "@/shared/constants/dashboardUrls";
 import { useTranslations } from "next-intl";
 import {
   SIDEBAR_SECTIONS,
@@ -213,7 +214,7 @@ function CommandPaletteDialog({ onClose }: { onClose: () => void }) {
       if (external) {
         window.open(href, "_blank", "noopener,noreferrer");
       } else {
-        router.push(href);
+        router.push(areaUrl(href));
       }
     },
     [onClose, router]

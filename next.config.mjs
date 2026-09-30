@@ -11,6 +11,13 @@ import {
   resolveDashboardEmbedMode,
 } from "./scripts/build/dashboardEmbed.mjs";
 import { shouldBuildStandalone } from "./scripts/build/backendOnlyPages.mjs";
+// Menu-area URLs (/proxy/providers) -> the existing /dashboard pages. Loaded by Node directly
+// (type stripping), hence the .ts specifier; see the header of the module.
+import {
+  dashboardEmbedSources,
+  dashboardUrlRedirects,
+  dashboardUrlRewrites,
+} from "./src/shared/constants/dashboardUrls.ts";
 
 const withNextIntl = createNextIntlPlugin("./src/i18n/request.ts");
 const distDir = process.env.NEXT_DIST_DIR || ".build/next";
@@ -516,7 +523,10 @@ const nextConfig = {
     const embedRules = buildSecurityHeaderRules({
       mode: dashboardEmbedMode,
       securityHeaders,
-      prefixes: dashboardEmbedMode ? nonPageRoutePrefixes(await nextConfig.rewrites()) : [],
+      // Only the root-level API aliases (afterFiles): the menu-area rewrites serve HTML pages.
+      prefixes: dashboardEmbedMode
+        ? nonPageRoutePrefixes((await nextConfig.rewrites()).afterFiles)
+        : [],
     });
     return [
       ...embedRules,
@@ -527,6 +537,11 @@ const nextConfig = {
         source: "/dashboard/providers/services/:name/embed/:path*",
         headers: [{ key: "Content-Security-Policy", value: "frame-ancestors 'self'" }],
       },
+      // The same page under its menu-area URL (rewritten to the route above).
+      ...dashboardEmbedSources().map((source) => ({
+        source,
+        headers: [{ key: "Content-Security-Policy", value: "frame-ancestors 'self'" }],
+      })),
     ];
   },
 
@@ -719,11 +734,15 @@ const nextConfig = {
         destination: "/dashboard/acp-agents/:path*",
         permanent: true,
       },
+      // Every dashboard page moved to its menu-area URL (/dashboard/providers -> /proxy/providers).
+      // Last on purpose: the specific redirects above win, then chain into these. Generated from the
+      // menu model with the rewrites below; temporary until the URL scheme settles.
+      ...dashboardUrlRedirects(),
     ];
   },
 
   async rewrites() {
-    return [
+    const afterFiles = [
       {
         source: "/chat/completions",
         destination: "/api/v1/chat/completions",
@@ -796,6 +815,13 @@ const nextConfig = {
         destination: "/api/.env",
       },
     ];
+    return {
+      // The proxy (authz) sees the menu-area URL before this runs and classifies the page it
+      // serves (src/server/authz/classify.ts); the pages themselves never moved.
+      beforeFiles: dashboardUrlRewrites(),
+      afterFiles,
+      fallback: [],
+    };
   },
 };
 

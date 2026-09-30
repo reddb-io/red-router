@@ -12,6 +12,7 @@
  */
 
 import { usePathname } from "next/navigation";
+import { areaUrl, canonicalDashboardPath } from "@/shared/constants/dashboardUrls";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
 
@@ -116,14 +117,17 @@ function getLabel(segment, t) {
 }
 
 export default function Breadcrumbs() {
-  const pathname = usePathname();
+  const browserPathname = usePathname();
   const t = useTranslations("breadcrumbs");
+  // The browser URL may be a menu-area URL (/proxy/providers); the crumbs walk the page's own
+  // /dashboard path (Dashboard > Providers) and link to each level's area URL.
+  const pathname = browserPathname ? canonicalDashboardPath(browserPathname) : browserPathname;
   if (!pathname || pathname === "/dashboard") return null;
 
   const segments = pathname.split("/").filter(Boolean);
   const crumbs = segments.map((seg, idx) => ({
     label: getLabel(seg, t),
-    href: "/" + segments.slice(0, idx + 1).join("/"),
+    href: areaUrl("/" + segments.slice(0, idx + 1).join("/")),
     isLast: idx === segments.length - 1,
   }));
 

@@ -1,0 +1,5 @@
+---
+"@reddb-io/red-router": minor
+---
+
+Dashboard addresses now follow the menu. Each page lives under the area that owns it: `/proxy/providers`, `/proxy/models`, `/proxy/combos`, `/proxy/endpoint`, `/optimize/skills`, `/agents/conductor`, `/observe/logs`, `/observe/costs`, `/tools/playground`, `/system/settings`, and `/home/analytics` for Usage (`/home` is still Topology). The old `/dashboard/...` addresses redirect to the new ones, query string included, so bookmarks and existing links keep working; pages that belong to no menu entry keep their `/dashboard` address. The table is generated from the menu, so a new page gets its address automatically. Security is unchanged by construction: the authorization pipeline turns every new address into its `/dashboard` equivalent before classifying it, so login, the public onboarding page and the loopback-only embedded-service proxy apply to the new addresses exactly as before; case tricks, doubled slashes and percent-encoded letters resolve to the same page, and encoded slashes or dot segments in a menu-area address are refused with a 400. Menu, breadcrumbs, header and command palette use the new addresses.

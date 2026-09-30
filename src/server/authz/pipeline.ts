@@ -5,6 +5,10 @@ import {
   MANUAL_DRAIN_RETRY_AFTER_SECONDS,
   shouldRejectForManualDrain,
 } from "../../lib/system/drainMode";
+import {
+  isAreaUrl,
+  isMalformedAreaUrl,
+} from "../../shared/constants/dashboardUrls";
 import { checkBodySize, getBodySizeLimit } from "../../shared/middleware/bodySizeGuard";
 import {
   verifyDashboardSessionToken,
@@ -83,12 +87,16 @@ function rejectionResponse(
   return response;
 }
 
+// `pathname` is the classifier's normalized path: a menu-area URL (`/proxy/providers`) has already
+// been mapped to the `/dashboard/...` page it serves. An area URL with no page (`/proxy/unknown`)
+// is still a dashboard URL, so an anonymous visitor is sent to the login page like on `/dashboard`.
 function isDashboardPath(pathname: string): boolean {
   return (
     pathname === "/dashboard" ||
     pathname.startsWith("/dashboard/") ||
     pathname === "/home" ||
-    pathname.startsWith("/home/")
+    pathname.startsWith("/home/") ||
+    isAreaUrl(pathname)
   );
 }
 
@@ -275,9 +283,28 @@ export async function runAuthzPipeline(
     return stampRouteResponse(response, requestId, "MANAGEMENT");
   }
 
+  // A menu-area URL (`/proxy/...`) is rewritten to a dashboard page after this runs. One that is
+  // not a plain path (dot segments, encoded slash, NUL, broken escape) is refused rather than
+  // interpreted: we cannot be sure which page the rewrite would serve for it.
+  if (isMalformedAreaUrl(pathname)) {
+    const rejection = NextResponse.json(
+      {
+        error: {
+          code: "INVALID_PATH",
+          message: "Malformed dashboard path",
+          correlation_id: requestId,
+        },
+      },
+      { status: 400 }
+    );
+    stampRouteResponse(rejection, requestId, "MANAGEMENT");
+    applyCorsHeaders(rejection, request);
+    return rejection;
+  }
+
   const classification = classifyRoute(pathname, method);
   const guardedPathname = classification.normalizedPath;
-  const managementDashboardRoute = isManagementDashboardRoute(classification, pathname);
+  const managementDashboardRoute = isManagementDashboardRoute(classification, guardedPathname);
 
   // Relax the CORS origin fallback ONLY for the token-authenticated API
   // surface (CLIENT_API: /v1/*, /v1beta/*, codex/responses aliases) and

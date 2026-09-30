@@ -67,6 +67,9 @@ const PAGE_PATHS = [
   "/dashboard",
   "/dashboard/providers",
   "/dashboard/combos/editor",
+  // The menu-area URLs of the same pages (rewritten to /dashboard/...).
+  "/proxy/providers",
+  "/home/analytics",
   "/login",
   "/forgot-password",
   "/docs/guides/i18n",
@@ -155,7 +158,12 @@ test("#10273 default build emits no extra header rules (byte-identical to pre-fe
   const rules = await loadHeaders("embed-off-shape");
   assert.deepEqual(
     rules.map((rule) => rule.source),
-    ["/:path*", "/dashboard/providers/services/:name/embed/:path*"]
+    [
+      "/:path*",
+      "/dashboard/providers/services/:name/embed/:path*",
+      // The same embed route under its menu-area URL (src/shared/constants/dashboardUrls.ts).
+      "/proxy/providers/services/:name/embed/:path*",
+    ]
   );
 });
 
@@ -250,7 +258,9 @@ test("#10273 embed mode preserves the G-10 9Router embed override (last rule sti
 test("#10273 every root-level rewrite alias is excluded from the embeddable page surface", async () => {
   const modUrl = `${pathToFileURL(modulePath).href}?case=prefixes-${Date.now()}`;
   const nextConfig = (await import(modUrl)).default;
-  const rewrites = await nextConfig.rewrites();
+  // `beforeFiles` holds the menu-area rewrites to dashboard PAGES (framable); the root-level API
+  // aliases are `afterFiles`.
+  const rewrites = (await nextConfig.rewrites()).afterFiles;
   const prefixes = new Set(nonPageRoutePrefixes(rewrites));
 
   for (const { source } of rewrites) {
@@ -292,8 +302,8 @@ test("#10273 Next.js accepts the generated header sources in BOTH modes (startup
 
     assert.equal(
       routes.headers.length,
-      mode ? 3 : 2,
-      `mode=${mode ?? "off"} should produce ${mode ? 3 : 2} header routes`
+      mode ? 4 : 3,
+      `mode=${mode ?? "off"} should produce ${mode ? 4 : 3} header routes`
     );
   }
 });

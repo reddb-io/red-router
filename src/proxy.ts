@@ -32,12 +32,31 @@ export async function proxy(request: NextRequest) {
 // path-to-regexp group (`([vV]1)`) survives the flag-drop because it needs no
 // flag. Keep these in sync with the client-API aliases in
 // next.config.mjs rewrites and src/server/authz/classify.ts.
+//
+// The menu areas (`/home`, `/proxy`, `/optimize`, `/agents`, `/observe`, `/tools`, `/system`) are
+// dashboard URLs that next.config.mjs rewrites to the existing `/dashboard/...` pages AFTER this
+// runs, and that rewrite is case-insensitive — so each area is matched case-insensitively here too
+// (a lowercase literal would let `/PROXY/providers` skip the pipeline). The list must be literal
+// (Next analyses `matcher` statically); tests/redrouter/native/dashboard-urls-authz.test.ts checks
+// it against the area ids of the menu model.
 export const config = {
   matcher: [
     "/",
     "/dashboard/:path*",
-    "/home",
-    "/home/:path*",
+    "/:homeseg([hH][oO][mM][eE])",
+    "/:homeseg([hH][oO][mM][eE])/:path*",
+    "/:proxyseg([pP][rR][oO][xX][yY])",
+    "/:proxyseg([pP][rR][oO][xX][yY])/:path*",
+    "/:optimizeseg([oO][pP][tT][iI][mM][iI][zZ][eE])",
+    "/:optimizeseg([oO][pP][tT][iI][mM][iI][zZ][eE])/:path*",
+    "/:agentsseg([aA][gG][eE][nN][tT][sS])",
+    "/:agentsseg([aA][gG][eE][nN][tT][sS])/:path*",
+    "/:observeseg([oO][bB][sS][eE][rR][vV][eE])",
+    "/:observeseg([oO][bB][sS][eE][rR][vV][eE])/:path*",
+    "/:toolsseg([tT][oO][oO][lL][sS])",
+    "/:toolsseg([tT][oO][oO][lL][sS])/:path*",
+    "/:systemseg([sS][yY][sS][tT][eE][mM])",
+    "/:systemseg([sS][yY][sS][tT][eE][mM])/:path*",
     "/api/:path*",
     "/:v1seg([vV]1)/:path*",
     "/:v1seg([vV]1)",

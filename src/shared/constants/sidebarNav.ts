@@ -9,8 +9,14 @@
  * one of its tabs that has an id is visible, and it opens on the first visible tab. Pages listed
  * as a tab's `children` are reachable detail pages (they light up their tab) that are not tabs.
  *
+ * URLs: the hrefs below are the pages' real `/dashboard/...` paths. Resolving the menu shows them
+ * as area URLs (`/proxy/providers`, see `dashboardUrls.ts`), and `findNavMatch` accepts both forms.
+ * `dashboardUrls.ts` derives its table from this data, lazily, so never call its functions while
+ * this module is being evaluated.
+ *
  * Icons are lucide glyph names (resolved by `navIcon`), drawn in the design system's neutral ink.
  */
+import { areaUrl, canonicalDashboardPath } from "./dashboardUrls.ts";
 import type { HideableSidebarItemId } from "./sidebarVisibility/types";
 
 export type SidebarNavSectionId =
@@ -441,6 +447,15 @@ export function isNavTabVisible(
   return true;
 }
 
+/** A tab as the menu shows it: its page and detail pages at their area URLs. */
+const withAreaUrls = (candidate: SidebarNavTab): SidebarNavTab => ({
+  ...candidate,
+  href: areaUrl(candidate.href),
+  ...(candidate.children
+    ? { children: candidate.children.map((child) => ({ ...child, href: areaUrl(child.href) })) }
+    : {}),
+});
+
 /** The entry with only its visible tabs, or null when none of its identified pages is visible. */
 export function resolveNavEntry(
   entry: SidebarNavEntry,
@@ -448,9 +463,9 @@ export function resolveNavEntry(
   flags: Record<string, boolean> = {},
   extraTabs: readonly SidebarNavTab[] = []
 ): ResolvedNavEntry | null {
-  const visible = [...entry.tabs, ...extraTabs].filter((candidate) =>
-    isNavTabVisible(candidate, hidden, flags)
-  );
+  const visible = [...entry.tabs, ...extraTabs]
+    .filter((candidate) => isNavTabVisible(candidate, hidden, flags))
+    .map(withAreaUrls);
   if (!visible.some((candidate) => candidate.id)) return null;
   const first = visible.find((candidate) => candidate.id) ?? visible[0];
   return { ...entry, tabs: visible, href: first.href, external: first.external === true };
@@ -473,12 +488,16 @@ export function resolveNavSections(
 const matchesHref = (pathname: string, href: string, exact?: boolean): boolean =>
   exact ? pathname === href : pathname === href || pathname.startsWith(`${href}/`);
 
-/** The area, entry and tab a URL belongs to: the longest matching page href wins. */
+/**
+ * The area, entry and tab a URL belongs to: the longest matching page href wins. The URL and the
+ * hrefs may each be an area URL or a `/dashboard/...` path; both are compared as the page served.
+ */
 export function findNavMatch(
   pathname: string | null | undefined,
   sections: readonly ResolvedNavSection[]
 ): { section: ResolvedNavSection; entry: ResolvedNavEntry; tab: SidebarNavTab } | null {
   if (!pathname) return null;
+  const current = canonicalDashboardPath(pathname);
   let best: {
     section: ResolvedNavSection;
     entry: ResolvedNavEntry;
@@ -494,8 +513,9 @@ export function findNavMatch(
           ...(candidate.children ?? []).map((child) => ({ href: child.href, exact: false })),
         ];
         for (const { href, exact } of hrefs) {
-          if (matchesHref(pathname, href, exact) && (!best || href.length > best.length)) {
-            best = { section, entry, tab: candidate, length: href.length };
+          const page = canonicalDashboardPath(href);
+          if (matchesHref(current, page, exact) && (!best || page.length > best.length)) {
+            best = { section, entry, tab: candidate, length: page.length };
           }
         }
       }

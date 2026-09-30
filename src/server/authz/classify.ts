@@ -1,3 +1,4 @@
+import { canonicalDashboardPath } from "../../shared/constants/dashboardUrls";
 import {
   isPublicApiRoute,
   isPublicReadonlyCorsRoute,
@@ -14,6 +15,13 @@ function normalizePathname(rawPath: string): { path: string; reason?: Classifica
   let path = rawPath || "/";
   if (!path.startsWith("/")) path = "/" + path;
   if (path.length > 1 && path.endsWith("/")) path = path.slice(0, -1);
+
+  // Menu-area URLs (`/proxy/providers`) are served from the existing `/dashboard/...` pages by a
+  // rewrite that Next applies AFTER the proxy runs. Classify the page that is really served, so
+  // every rule below (management auth, public onboarding, loopback-only embedded-service proxy)
+  // applies to the new URL exactly as it does to the old one. See dashboardUrls.ts.
+  const served = canonicalDashboardPath(path);
+  if (served !== path) return { path: served };
 
   // Client-API aliases are matched case-insensitively on the control segment.
   // Next's rewrite layer accepts `/V1/...`, `/CODEX`, etc. and routes them to
