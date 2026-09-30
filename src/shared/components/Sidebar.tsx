@@ -391,11 +391,13 @@ export default function Sidebar({
               prefetch={false}
               title={brandName}
               aria-label={brandName}
+              className="flex w-full items-center justify-center"
             >
+              {/* 20% smaller than a control, centred in the rail. */}
               <img
                 src={brandLogo || "/favicon.svg"}
                 alt=""
-                className="size-[var(--reddb-spatial-control-height-md)] shrink-0 object-contain"
+                className="size-[calc(var(--reddb-spatial-control-height-md)*0.8)] shrink-0 object-contain"
               />
             </Link>
           }
