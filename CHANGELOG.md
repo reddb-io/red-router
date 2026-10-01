@@ -10,7 +10,7 @@
 - Reconcile recorded monthly usage across Keys, Cost Overview and tenant reports using one UTC window and preserved event ownership. Separate unknown amounts from recorded zero, label current-price explorer estimates honestly, and explain retention and ledger coverage limits.
 - Verify the npm-installed CLI serves requests and reports the exact published version through authenticated HTTP before creating the GitHub Release, in addition to the existing artifact integrity and installation checks.
 - Make encrypted CLI backups portable and restorable, verify complete bundles before pausing the managed service, and retain recovery snapshots for rollback. Require awaited snapshots for database imports and restores, serialize replacement operations, and bound upload streams.
-  
+
   Share connection selection, remote decision catalog validation, per-key proxy resolution, budget admission, usage and cost accounting, and connection cooldowns between public System One requests and internal JEV evaluations. Never repeat a completed evaluation because local accounting failed.
 
 ## 0.56.2
