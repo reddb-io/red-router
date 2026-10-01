@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.57.1
+
+### Patch Changes
+
+- Remove the unused Mermaid production dependency and its build configuration to reduce installation size. Preserve Playwright for browser tests and browser-backed provider connections.
+- Add optional decision-model verification for similar cached responses, with connection-bound model selection inside Settings → Cache → Response reuse. Identical requests bypass evaluation; incompatible context, denied permissions, invalid decisions and timeouts fall back to normal generation. Existing similarity settings remain unchanged and verification defaults to off. Show process-scoped verification activity and known evaluation costs, and allow saving disabled cache settings.
+
 ## 0.57.0
 
 ### Minor Changes
