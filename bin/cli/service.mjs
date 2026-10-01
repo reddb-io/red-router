@@ -3,6 +3,9 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { setTimeout as delay } from "node:timers/promises";
+import { isLoopbackUrl } from "./api.mjs";
+import { getCliToken, CLI_TOKEN_HEADER } from "./utils/cliToken.mjs";
 
 import { resolveDataDir } from "./data-dir.mjs";
 import { DEFAULT_HOST, DEFAULT_PORT } from "./product.mjs";
@@ -42,7 +45,7 @@ function xmlEscape(value) {
 }
 
 function systemdQuote(value) {
-  return `"${String(value).replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
+  return `"${String(value).replaceAll("\\", "\\\\").replaceAll('"', '\\"').replaceAll("%", "%%")}"`;
 }
 
 export function servicePaths(home = process.env.HOME || homedir()) {
@@ -191,6 +194,7 @@ function run(command, args, { ignoreFailure = false } = {}) {
     return execFileSync(command, args, {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
+      timeout: command === "systemctl" ? 310_000 : 15_000,
     });
   } catch (error) {
     if (ignoreFailure) return "";
@@ -198,27 +202,59 @@ function run(command, args, { ignoreFailure = false } = {}) {
   }
 }
 
-export function installService({
-  port = DEFAULT_PORT,
-  host = DEFAULT_HOST,
+export async function installService({
+  port,
+  host,
   spawnTray = spawnAttachedTray,
+  paths = servicePaths(),
+  platform = process.platform,
+  runCommand = run,
+  installTray = installLinuxTrayService,
+  trayStatus = linuxTrayServiceStatus,
+  probe = probeRunningVersion,
+  desktopInstaller = installLinuxTrayDesktop,
+  env = process.env,
 } = {}) {
-  const paths = servicePaths();
-  if (process.platform === "linux") {
+  const saved = readServiceConfiguration(paths.linux);
+  port ??= saved?.port ?? DEFAULT_PORT;
+  host ??= saved?.host ?? DEFAULT_HOST;
+  if (platform === "linux") {
+    let wasActive = false;
+    try {
+      wasActive =
+        runCommand("systemctl", ["--user", "is-active", LINUX_SERVICE_NAME]).trim() === "active";
+    } catch {
+      // A fresh install has no active unit.
+    }
     mkdirSync(dirname(paths.linux), { recursive: true });
     writeFileSync(paths.linux, buildSystemdUnit({ port, host }), { mode: 0o644 });
-    run("systemctl", ["--user", "daemon-reload"]);
-    run("systemctl", ["--user", "enable", "--now", LINUX_SERVICE_NAME]);
+    runCommand("systemctl", ["--user", "daemon-reload"]);
+    runCommand("systemctl", ["--user", "enable", LINUX_SERVICE_NAME]);
+    runCommand("systemctl", ["--user", wasActive ? "restart" : "start", LINUX_SERVICE_NAME]);
+    const version = await probe({ port });
     let tray;
     try {
-      tray = installLinuxTrayService({
+      tray = installTray({
         unitPath: paths.linuxTrayUnit,
         nodePath: resolveServiceNodePath(),
         cliPath: resolveCliPath(),
         dataDir: resolveDataDir(),
         port,
+        env,
+        version: installedServiceVersion(),
       });
-      if (process.env.RED_ROUTER_TRAY !== "0") installLinuxTrayDesktop(paths, port);
+      if (tray.state === "starting") {
+        const deadline = Date.now() + 5000;
+        do {
+          tray = { ...tray, ...trayStatus({ unitPath: paths.linuxTrayUnit }) };
+          if (tray.registered || tray.state === "failed") break;
+          await delay(250);
+        } while (Date.now() < deadline);
+        tray.ready = tray.registered === true;
+        if (!tray.ready)
+          tray.message = "Desktop registration is not confirmed; run red-router doctor.";
+      }
+      if (env.RED_ROUTER_TRAY !== "0") desktopInstaller(paths, port);
       else if (
         existsSync(paths.linuxTray) &&
         isRouterDesktopEntry(readFileSync(paths.linuxTray, "utf8"))
@@ -232,9 +268,19 @@ export function installService({
       };
       process.stderr.write(`RedRouter tray setup failed. ${tray.message}\n`);
     }
-    return { ok: true, kind: "systemd --user", path: paths.linux, port, host, tray };
+    return {
+      ok: version.matches && tray.state !== "failed",
+      serverReady: version.matches,
+      kind: "systemd --user",
+      path: paths.linux,
+      port,
+      host,
+      action: wasActive ? "restarted" : "started",
+      version,
+      tray,
+    };
   }
-  if (process.platform === "darwin") {
+  if (platform === "darwin") {
     mkdirSync(dirname(paths.darwin), { recursive: true });
     writeFileSync(paths.darwin, buildLaunchdPlist({ port, host }), { mode: 0o644 });
     run("launchctl", ["unload", paths.darwin], { ignoreFailure: true });
@@ -280,12 +326,16 @@ export function uninstallService() {
   };
 }
 
-export function serviceStatus() {
-  const paths = servicePaths();
-  if (process.platform === "linux") {
+export function serviceStatus({
+  paths = servicePaths(),
+  platform = process.platform,
+  runCommand = run,
+  trayStatus = linuxTrayServiceStatus,
+} = {}) {
+  if (platform === "linux") {
     let state = "inactive";
     try {
-      state = run("systemctl", ["--user", "is-active", LINUX_SERVICE_NAME]).trim();
+      state = runCommand("systemctl", ["--user", "is-active", LINUX_SERVICE_NAME]).trim();
     } catch (error) {
       if (error?.status !== 3) state = "unknown";
     }
@@ -295,11 +345,12 @@ export function serviceStatus() {
       installed: existsSync(paths.linux),
       state,
       path: paths.linux,
-      tray: linuxTrayServiceStatus({ unitPath: paths.linuxTrayUnit }),
+      port: readServiceConfiguration(paths.linux)?.port ?? DEFAULT_PORT,
+      tray: trayStatus({ unitPath: paths.linuxTrayUnit }),
     };
   }
-  if (process.platform === "darwin") {
-    const output = run("launchctl", ["list"], { ignoreFailure: true });
+  if (platform === "darwin") {
+    const output = runCommand("launchctl", ["list"], { ignoreFailure: true });
     return {
       ok: true,
       kind: "launchd",
@@ -313,4 +364,82 @@ export function serviceStatus() {
     kind: "unsupported",
     message: "Background service management is supported on Linux and macOS.",
   };
+}
+
+/** Reads installed metadata without starting the CLI/tray. */
+export function installedServiceVersion() {
+  try {
+    return JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")).version;
+  } catch {
+    return null;
+  }
+}
+
+/** The local machine credential must never follow redirects or reach a remote context. */
+export async function probeRunningVersion({
+  port = DEFAULT_PORT,
+  url = `http://127.0.0.1:${port}/api/monitoring/health`,
+  expectedVersion = installedServiceVersion(),
+  fetchImpl = fetch,
+  tokenProvider = getCliToken,
+  timeoutMs = 10_000,
+} = {}) {
+  const result = {
+    installedVersion: expectedVersion,
+    runningVersion: null,
+    matches: false,
+    pid: null,
+  };
+  let target;
+  try {
+    target = new URL(url);
+  } catch {
+    return { ...result, reason: "invalid-url" };
+  }
+  if (
+    !isLoopbackUrl(target) ||
+    !["http:", "https:"].includes(target.protocol) ||
+    target.username ||
+    target.password
+  ) {
+    return { ...result, reason: "not-local" };
+  }
+  const token = await tokenProvider();
+  if (!token) return { ...result, reason: "authentication-unavailable" };
+  const deadline = Date.now() + timeoutMs;
+  do {
+    try {
+      const response = await fetchImpl(target.toString(), {
+        headers: { [CLI_TOKEN_HEADER]: token },
+        redirect: "error",
+        signal: AbortSignal.timeout(Math.max(1, Math.min(2000, deadline - Date.now()))),
+      });
+      if (response.ok) {
+        const body = await response.json();
+        result.runningVersion = typeof body.version === "string" ? body.version : null;
+        result.pid = Number.isInteger(body.system?.pid) ? body.system.pid : null;
+        result.matches = !!expectedVersion && result.runningVersion === expectedVersion;
+        if (result.matches) return result;
+      } else if (response.status === 401 || response.status === 403) {
+        return { ...result, reason: "authentication-rejected" };
+      }
+    } catch {
+      // Readiness may lag behind the manager reporting active.
+    }
+    if (Date.now() < deadline) await delay(250);
+  } while (Date.now() < deadline);
+  return { ...result, reason: result.runningVersion ? "version-mismatch" : "version-unavailable" };
+}
+
+/** Only use our explicit environment lines; never evaluate a unit's shell/ExecStart. */
+export function readServiceConfiguration(unitPath = servicePaths().linux) {
+  try {
+    const text = readFileSync(unitPath, "utf8");
+    if (!text.includes("Description=RedRouter AI routing gateway")) return null;
+    const port = Number(/^Environment="RED_ROUTER_PORT=(\d+)"$/m.exec(text)?.[1]);
+    const host = /^Environment="RED_ROUTER_SERVER_HOST=([a-zA-Z0-9.:[\]-]+)"$/m.exec(text)?.[1];
+    return port > 0 && port <= 65535 && host ? { port, host } : null;
+  } catch {
+    return null;
+  }
 }

@@ -19,7 +19,7 @@ export function runSystemCommand(command, args) {
   }).trim();
 }
 
-export function buildLinuxTrayUnit({ nodePath, cliPath, dataDir, port }) {
+export function buildLinuxTrayUnit({ nodePath, cliPath, dataDir, port, version }) {
   const args = [
     nodePath,
     cliPath,
@@ -32,6 +32,7 @@ export function buildLinuxTrayUnit({ nodePath, cliPath, dataDir, port }) {
   ];
   return [
     MANAGED_MARKER,
+    ...(version ? [`# RedRouter version ${version}`] : []),
     "[Unit]",
     "Description=RedRouter system tray",
     "PartOf=graphical-session.target",

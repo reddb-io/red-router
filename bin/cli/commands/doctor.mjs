@@ -12,6 +12,7 @@ import { t } from "../i18n.mjs";
 import { readDatabaseHealth, readEncryptedCredentialSamples } from "../sqlite.mjs";
 import { getCrashLogPath } from "../runtime/processSupervisor.mjs";
 import { prebuiltBinaryName } from "../runtime/nativeDeps.mjs";
+import { serviceStatus, probeRunningVersion } from "../service.mjs";
 const STATIC_SALT = "omniroute-field-encryption-v1";
 const KEY_LENGTH = 32;
 const CHECK_TIMEOUT_MS = 2000;
@@ -597,6 +598,7 @@ export async function collectDoctorChecks(context = {}, options = {}) {
   if (!options.skipLiveness) {
     checks.push(await checkServerLiveness(options));
     checks.push(await checkMachineTokenAuth(options));
+    checks.push(...(await checkServiceReadiness(options)));
   }
 
   // CLI tool health checks
@@ -666,4 +668,66 @@ export async function runDoctorCommand(opts = {}, context = {}) {
   }
 
   return result.summary.fail > 0 ? 1 : 0;
+}
+
+export async function checkServiceReadiness(options = {}, dependencies = {}) {
+  const status = (dependencies.status ?? serviceStatus)();
+  if (!status.ok) return [];
+  if (!status.installed)
+    return [warn("Background service", "Per-user service is not installed", status)];
+  const checks = [
+    status.state === "active" || status.state === "running"
+      ? ok("Background service", "Per-user service is active", status)
+      : fail(
+          "Background service",
+          "Per-user service is not active; inspect red-router service status",
+          status
+        ),
+  ];
+  let versionUrl;
+  try {
+    versionUrl = new URL(resolveLivenessUrl(options));
+  } catch {
+    return [...checks, fail("Running version", "Invalid liveness URL")];
+  }
+  if (!options.livenessUrl && !process.env.OMNIROUTE_DOCTOR_LIVENESS_URL && status.port)
+    versionUrl.port = String(status.port);
+  versionUrl.pathname = "/api/monitoring/health";
+  versionUrl.search = "";
+  versionUrl.hash = "";
+  const version = await (dependencies.probe ?? probeRunningVersion)({
+    url: versionUrl.toString(),
+    timeoutMs: 2000,
+  });
+  checks.push(
+    version.matches
+      ? ok(
+          "Running version",
+          `Server is running installed version ${version.runningVersion}`,
+          version
+        )
+      : fail(
+          "Running version",
+          "Running version is not confirmed; reinstall the service after updating",
+          version
+        )
+  );
+  if (status.tray) {
+    checks.push(
+      status.tray.registered
+        ? ok(
+            "Desktop tray",
+            "RedRouter helper is registered with StatusNotifierWatcher",
+            status.tray
+          )
+        : warn(
+            "Desktop tray",
+            status.tray.installed
+              ? "Tray is not registered; check the graphical session and red-router-tray.service journal"
+              : "Tray service is not installed or is disabled",
+            status.tray
+          )
+    );
+  }
+  return checks;
 }

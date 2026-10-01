@@ -1,11 +1,16 @@
 import { emit } from "../output.mjs";
-import { DEFAULT_HOST, DEFAULT_PORT } from "../product.mjs";
-import { installService, serviceStatus, uninstallService } from "../service.mjs";
+import { DEFAULT_PORT } from "../product.mjs";
+import {
+  installService,
+  probeRunningVersion,
+  serviceStatus,
+  uninstallService,
+} from "../service.mjs";
 
 function normalizeHost(options) {
   if (options.local) return "127.0.0.1";
   if (options.expose) return "0.0.0.0";
-  return options.host || DEFAULT_HOST;
+  return options.host;
 }
 
 function normalizePort(value) {
@@ -19,13 +24,13 @@ export function registerService(program) {
   service
     .command("install")
     .description("Install and start the per-user RedRouter service")
-    .option("-p, --port <port>", "Port to listen on", String(DEFAULT_PORT))
-    .option("-H, --host <host>", "Host to bind", DEFAULT_HOST)
+    .option("-p, --port <port>", "Port to listen on (preserves installed configuration)")
+    .option("-H, --host <host>", "Host to bind (preserves installed configuration)")
     .option("--local", "Bind to 127.0.0.1")
     .option("--expose", "Bind to 0.0.0.0")
-    .action((options, command) => {
-      const result = installService({
-        port: normalizePort(options.port),
+    .action(async (options, command) => {
+      const result = await installService({
+        port: options.port === undefined ? undefined : normalizePort(options.port),
         host: normalizeHost(options),
       });
       emit(result, command.optsWithGlobals());
@@ -35,8 +40,9 @@ export function registerService(program) {
   service
     .command("status")
     .description("Show the RedRouter service state")
-    .action((options, command) => {
+    .action(async (options, command) => {
       const result = serviceStatus();
+      result.version = await probeRunningVersion({ port: result.port });
       emit(result, command.optsWithGlobals());
       if (!result.ok) process.exitCode = 1;
     });
