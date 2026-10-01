@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync, readlinkSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { execFileSync } from "node:child_process";
@@ -15,6 +15,42 @@ function runningPids(dataDir, running) {
   });
 }
 
+/** A dev/Next process may hold SQLite without the CLI's PID files. */
+function openDatabasePids(dataDir) {
+  let database;
+  try {
+    database = realpathSync(join(dataDir, "storage.sqlite"));
+  } catch (error) {
+    if (error.code === "ENOENT") return [];
+    throw error;
+  }
+  const files = new Set([
+    database,
+    ...["-wal", "-shm", "-journal"].map((suffix) => database + suffix),
+  ]);
+  const owners = [];
+  for (const entry of readdirSync("/proc")) {
+    if (!/^\d+$/.test(entry)) continue;
+    const directory = join("/proc", entry, "fd");
+    try {
+      if (
+        readdirSync(directory).some((fd) => {
+          try {
+            return files.has(readlinkSync(join(directory, fd)).replace(/ \(deleted\)$/, ""));
+          } catch {
+            return false;
+          }
+        })
+      )
+        owners.push(Number(entry));
+    } catch (error) {
+      // Other users cannot read the private data directory. Processes can exit while scanning.
+      if (!["EACCES", "EPERM", "ENOENT"].includes(error.code)) throw error;
+    }
+  }
+  return owners;
+}
+
 const runSystemd = (args) =>
   execFileSync("systemctl", ["--user", ...args], {
     encoding: "utf8",
@@ -26,10 +62,16 @@ const runSystemd = (args) =>
 export async function withRestoreMaintenance(dataDir, operation, dependencies = {}) {
   const running = dependencies.isPidRunning ?? isPidRunning;
   const run = dependencies.runSystemd ?? runSystemd;
-  const pids = runningPids(dataDir, running);
+  const platform = dependencies.platform ?? process.platform;
+  const findOpenPids =
+    platform === "linux" ? (dependencies.findOpenDatabasePids ?? openDatabasePids) : () => [];
+  const activePids = () => [
+    ...new Set([...runningPids(dataDir, running), ...findOpenPids(dataDir)]),
+  ];
+  const pids = activePids();
   if (!pids.length) return operation();
   let managedPid = 0;
-  if ((dependencies.platform ?? process.platform) === "linux") {
+  if (platform === "linux") {
     try {
       managedPid = Number(run(["show", "red-router.service", "--property=MainPID", "--value"]));
     } catch {
@@ -44,7 +86,7 @@ export async function withRestoreMaintenance(dataDir, operation, dependencies = 
   run(["stop", "red-router.service"]);
   try {
     const deadline = Date.now() + 30_000;
-    while (runningPids(dataDir, running).length) {
+    while (activePids().length) {
       if (Date.now() >= deadline) throw new Error("RedRouter did not stop; restore was cancelled");
       await delay(100);
     }

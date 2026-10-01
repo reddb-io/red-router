@@ -167,6 +167,27 @@ test("managed restore stops its owning service and restarts even after operation
   assert.equal(modified, false);
 });
 
+test("restore refuses a server holding SQLite without CLI PID files", async () => {
+  const directory = await fs.mkdtemp(join(dataDir, "unmanaged-"));
+  let modified = false;
+  await assert.rejects(
+    withRestoreMaintenance(
+      directory,
+      async () => {
+        modified = true;
+      },
+      {
+        platform: "linux",
+        isPidRunning: () => false,
+        findOpenDatabasePids: () => [555],
+        runSystemd: () => "999",
+      }
+    ),
+    /Stop the RedRouter server/
+  );
+  assert.equal(modified, false);
+});
+
 test("mandatory snapshot works with auto backup disabled and rejected replacement restores original rows", async () => {
   const db = core.getDbInstance();
   db.exec(

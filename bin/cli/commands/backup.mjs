@@ -261,7 +261,7 @@ export async function runBackupCommand(opts = {}) {
 
       if (!info.configurationIncluded) {
         console.warn(
-          "Configuration secrets are excluded. Use --encrypt for a portable recovery bundle."
+          "Plaintext backups exclude the storage encryption key and may contain credentials. Use --encrypt for a portable recovery bundle."
         );
       }
       console.log(t("backup.done", { path: backupPath }));
