@@ -27,14 +27,11 @@ for (const width of [1280, 390]) {
       );
       expect(invitation.ok()).toBe(true);
       const { token } = await invitation.json();
-      const tenantPassword = "Workspace-tenant-password-42!";
-      expect(
-        (
-          await page.request.post("/api/auth/tenant/accept-invite", {
-            data: { token, password: tenantPassword },
-          })
-        ).ok()
-      ).toBe(true);
+      const tenantPassword = "Cobalt-river-Spring-42!";
+      const accepted = await page.request.post("/api/auth/tenant/accept-invite", {
+        data: { token, password: tenantPassword },
+      });
+      expect(accepted.ok(), await accepted.text()).toBe(true);
       expect(
         (
           await page.request.put(`/api/tenants/${tenant.id}/routing`, {
