@@ -58,8 +58,16 @@ for (const width of [1280, 390]) {
       await expect(page.getByRole("button", { name: "Save routing", exact: true })).toBeDisabled();
       await page.reload();
       await expect(page.getByRole("heading", { name: "Workspace fixture" })).toBeVisible();
-      await page.getByRole("button", { name: "Sign out", exact: true }).click();
-      await expect(page.getByLabel("Password", { exact: true })).toBeVisible();
+      const [signedOut] = await Promise.all([
+        page.waitForResponse((response) => response.url().endsWith("/api/auth/tenant/logout")),
+        page.getByRole("button", { name: "Sign out", exact: true }).click(),
+      ]);
+      expect(signedOut.ok(), await signedOut.text()).toBe(true);
+      await expect(
+        page.getByRole("heading", { name: "Tenant sign-in", exact: true })
+      ).toBeVisible();
+      await expect(page.getByLabel(/^Password(?:\s*\*)?$/)).toBeVisible();
+      expect((await page.request.get("/api/tenant/me")).status()).toBe(401);
       expect(errors).toEqual([]);
     } finally {
       expect((await page.request.delete(`/api/tenants/${tenant.id}`)).ok()).toBe(true);
