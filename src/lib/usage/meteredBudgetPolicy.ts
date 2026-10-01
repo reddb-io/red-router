@@ -141,7 +141,8 @@ export function checkMeteredBudgetForProvider(
   if (!apiKeyId) return ALLOWED;
   try {
     flushCostLedgerOutbox();
-    if (getCostLedgerHealth(apiKeyId).pendingEvents > 0) {
+    const accounting = getCostLedgerHealth(apiKeyId);
+    if (accounting.pendingEvents > 0 || accounting.unpersistedEvents > 0) {
       return {
         allowed: false,
         code: "BUDGET_UNAVAILABLE",

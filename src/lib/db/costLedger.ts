@@ -141,6 +141,7 @@ export function recordLedgerEntry(entry: CostLedgerEntry, eventId: string | null
  * can never block an LLM response. Mirrors recordCost's swallow-and-log.
  */
 let failedWrites = 0;
+const unpersistedEvents = new Map<string, CostLedgerEntry>();
 let retryTimer: ReturnType<typeof setTimeout> | null = null;
 const ledgerLog = logger.child({ module: "cost-ledger" });
 export function costLedgerEventId(
@@ -153,12 +154,15 @@ export function costLedgerEventId(
     : randomUUID();
 }
 export function hasCostLedgerEvent(eventId: string): boolean {
-  return Boolean(
-    getDbInstance()
-      .prepare(
-        "SELECT 1 FROM request_cost_ledger WHERE event_id = ? UNION ALL SELECT 1 FROM cost_ledger_outbox WHERE event_id = ? LIMIT 1"
-      )
-      .get(eventId, eventId)
+  return (
+    unpersistedEvents.has(eventId) ||
+    Boolean(
+      getDbInstance()
+        .prepare(
+          "SELECT 1 FROM request_cost_ledger WHERE event_id = ? UNION ALL SELECT 1 FROM cost_ledger_outbox WHERE event_id = ? LIMIT 1"
+        )
+        .get(eventId, eventId)
+    )
   );
 }
 let recoverBudget: ((input: NonNullable<CostLedgerEntry["budgetRecovery"]>) => boolean) | null =
@@ -173,7 +177,8 @@ function scheduleLedgerRecovery(): void {
     retryTimer = null;
     try {
       flushCostLedgerOutbox();
-      if (getCostLedgerHealth().pendingEvents > 0) scheduleLedgerRecovery();
+      if (getCostLedgerHealth().pendingEvents > 0 || unpersistedEvents.size > 0)
+        scheduleLedgerRecovery();
     } catch (error) {
       ledgerLog.error({ err: error }, "Cost ledger recovery unavailable");
       scheduleLedgerRecovery();
@@ -185,6 +190,12 @@ function scheduleLedgerRecovery(): void {
 /** Durable replay with one event ID; a failed insert never acknowledges or removes the event. */
 export function flushCostLedgerOutbox(limit = 25): void {
   const db = getDbInstance();
+  for (const [eventId, entry] of unpersistedEvents) {
+    db.prepare(
+      "INSERT OR IGNORE INTO cost_ledger_outbox(event_id, api_key_id, payload, created_at) VALUES (?, ?, ?, ?)"
+    ).run(eventId, entry.apiKeyId, JSON.stringify(entry), entry.timestamp);
+    unpersistedEvents.delete(eventId);
+  }
   const rows = db
     .prepare("SELECT event_id, payload FROM cost_ledger_outbox ORDER BY created_at LIMIT ?")
     .all(Math.max(1, Math.min(100, limit))) as Array<{ event_id: string; payload: string }>;
@@ -226,24 +237,33 @@ export function getCostLedgerHealth(apiKeyId?: string) {
   return {
     pendingEvents: row.count,
     failedWrites,
-    status: row.count || failedWrites ? "degraded" : "healthy",
+    unpersistedEvents: [...unpersistedEvents.values()].filter(
+      (entry) => !apiKeyId || entry.apiKeyId === apiKeyId
+    ).length,
+    status: row.count || unpersistedEvents.size ? "degraded" : "healthy",
   };
 }
 
 export function recordLedgerEntrySafe(entry: CostLedgerEntry): "recorded" | "queued" | "failed" {
   if (!entry?.apiKeyId) return "recorded";
+  const eventId = costLedgerEventId(entry);
+  let tenantId = entry.tenantId;
+  if (tenantId === undefined) {
+    try {
+      tenantId = tenantIdForUsageKey(entry.apiKeyId);
+    } catch {
+      tenantId = null;
+    }
+  }
+  const payload = { ...entry, timestamp: entry.timestamp || new Date().toISOString(), tenantId };
+  unpersistedEvents.set(eventId, payload);
   try {
-    const eventId = costLedgerEventId(entry);
-    const payload = {
-      ...entry,
-      timestamp: entry.timestamp || new Date().toISOString(),
-      tenantId: entry.tenantId === undefined ? tenantIdForUsageKey(entry.apiKeyId) : entry.tenantId,
-    };
     getDbInstance()
       .prepare(
         "INSERT OR IGNORE INTO cost_ledger_outbox(event_id, api_key_id, payload, created_at) VALUES (?, ?, ?, ?)"
       )
       .run(eventId, entry.apiKeyId, JSON.stringify(payload), payload.timestamp);
+    unpersistedEvents.delete(eventId);
     flushCostLedgerOutbox();
     const pending = getCostLedgerHealth(entry.apiKeyId).pendingEvents;
     if (pending) scheduleLedgerRecovery();

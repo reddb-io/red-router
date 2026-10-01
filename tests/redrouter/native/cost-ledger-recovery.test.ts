@@ -55,3 +55,24 @@ test("the same upstream request ID on another key remains a distinct cost event"
     2
   );
 });
+
+test("an outbox enqueue failure quarantines its key and retries the complete event", () => {
+  db.exec(
+    "CREATE TRIGGER reject_outbox BEFORE INSERT ON cost_ledger_outbox BEGIN SELECT RAISE(ABORT, 'fixture'); END"
+  );
+  const event = {
+    apiKeyId: "enqueue-key",
+    provider: "openai",
+    model: "fixture",
+    amountUsd: 0.5,
+    requestId: "enqueue-failure",
+  };
+  assert.equal(ledger.recordLedgerEntrySafe(event), "failed");
+  assert.equal(ledger.getCostLedgerHealth("enqueue-key").unpersistedEvents, 1);
+  assert.equal(ledger.hasCostLedgerEvent(ledger.costLedgerEventId(event)), true);
+  db.exec("DROP TRIGGER reject_outbox");
+  ledger.flushCostLedgerOutbox();
+  assert.equal(ledger.getCostLedgerHealth("enqueue-key").unpersistedEvents, 0);
+  assert.equal(ledger.getCostLedgerHealth().status, "healthy");
+  assert.equal(ledger.listLedgerEntries("enqueue-key")[0].amountUsd, 0.5);
+});
