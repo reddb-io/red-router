@@ -135,11 +135,11 @@ export async function runUpdateCommand(opts = {}, dependencies = {}) {
 /** Compare physical locations before selecting a package manager; source/npx installs stay manual. */
 export async function detectInstallationChannel(
   execFn = execFileAsync,
-  { afterUpdate = false } = {}
+  { afterUpdate = false, packageRoot = PACKAGE_ROOT } = {}
 ) {
   let current;
   try {
-    current = realpathSync(PACKAGE_ROOT);
+    current = realpathSync(packageRoot);
   } catch {
     return null;
   }

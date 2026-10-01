@@ -547,6 +547,7 @@ test("the manifest is pinned: adding a row needs a reviewed change here", () => 
     [
       "GET /api/tenant/me user",
       "GET /api/tenant/users admin",
+      "GET /api/tenant/usage admin",
       "GET /api/tenant/keys admin",
       "GET /api/tenant/routing admin",
       "PUT /api/tenant/routing admin",

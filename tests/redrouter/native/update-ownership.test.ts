@@ -56,5 +56,5 @@ test("dashboard update cannot install an upstream package or switch the main wor
   assert.doesNotMatch(home, /diegosouzapw\/OmniRoute|downloadUpdate\(|checkForUpdates\(/);
   assert.match(home, /reddb-io\/red-router\/releases/);
   assert.doesNotMatch(cli, /npm install -g omniroute|execSync\(/);
-  assert.match(cli, /Automatic install is disabled/);
+  assert.match(cli, /Automatic update requires a verified npm-global or mise installation/);
 });

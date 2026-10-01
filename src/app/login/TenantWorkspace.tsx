@@ -28,18 +28,21 @@ export default function TenantWorkspace({ role }: { role: string }) {
   const [pane, setPane] = useState<Pane>("usage");
   const [month, setMonth] = useState(() => new Date().toISOString().slice(0, 7));
   const [generation, setGeneration] = useState(0);
-  const [data, setData] = useState<{
+  type PaneData = {
     usage?: Usage;
     keys?: TenantApiKeyRow[];
     users?: TenantUser[];
     routing?: Routing;
-  } | null>(null);
-  const [error, setError] = useState("");
+  };
+  const [result, setResult] = useState<{ key: string; data?: PaneData; error?: string } | null>(
+    null
+  );
+  const requestKey = `${pane}:${month}:${generation}:${role}`;
+  const data = result?.key === requestKey ? result.data : null;
+  const error = result?.key === requestKey ? result.error : null;
   useEffect(() => {
     if (role !== "admin") return;
     const controller = new AbortController();
-    setData(null);
-    setError("");
     const suffix = pane === "usage" ? `?month=${encodeURIComponent(month)}` : "";
     void fetch(`/api/tenant/${pane}${suffix}`, { signal: controller.signal, cache: "no-store" })
       .then(async (response) => {
@@ -48,14 +51,18 @@ export default function TenantWorkspace({ role }: { role: string }) {
           throw new Error(
             errorText(body, "Unable to load tenant data. Sign in again if your session expired.")
           );
-        if (!controller.signal.aborted) setData(pane === "routing" ? { routing: body } : body);
+        if (!controller.signal.aborted)
+          setResult({ key: requestKey, data: pane === "routing" ? { routing: body } : body });
       })
       .catch((reason: unknown) => {
         if (!controller.signal.aborted)
-          setError(reason instanceof Error ? reason.message : "Unable to load tenant data.");
+          setResult({
+            key: requestKey,
+            error: reason instanceof Error ? reason.message : "Unable to load tenant data.",
+          });
       });
     return () => controller.abort();
-  }, [pane, month, generation, role]);
+  }, [pane, month, generation, role, requestKey]);
   if (role !== "admin")
     return (
       <p className="text-sm text-text-muted">
