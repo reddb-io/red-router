@@ -84,8 +84,8 @@ export const SIDEBAR_ITEM_ORDER_KEY = "sidebarItemOrder";
 export const SIDEBAR_PRESET_KEY = "sidebarActivePreset";
 export const SIDEBAR_SETTINGS_UPDATED_EVENT = "omniroute:settings-updated";
 
-/** Beginner Essentials: core path only. Advanced tools stay reachable via search. */
-const ESSENTIALS_SHOWN: ReadonlySet<HideableSidebarItemId> = new Set([
+/** Essentials includes setup, model discovery and tenant administration. */
+const LEGACY_ESSENTIALS_SHOWN: ReadonlySet<HideableSidebarItemId> = new Set([
   "home",
   "endpoints",
   "api-manager",
@@ -93,6 +93,15 @@ const ESSENTIALS_SHOWN: ReadonlySet<HideableSidebarItemId> = new Set([
   "health",
   "settings-general",
   "settings-sidebar",
+]);
+
+const ESSENTIALS_SHOWN: ReadonlySet<HideableSidebarItemId> = new Set([
+  ...LEGACY_ESSENTIALS_SHOWN,
+  "setup",
+  "model-catalog",
+  "tenants",
+  "access-users",
+  "access-roles",
 ]);
 
 /** Hidden in Essentials sidebar but kept searchable in Command Palette. */
@@ -268,4 +277,16 @@ export function normalizeHiddenSidebarItems(value: unknown): HideableSidebarItem
   }
 
   return HIDEABLE_SIDEBAR_ITEM_IDS.filter((item) => hiddenItems.has(item));
+}
+
+/** Upgrade only the exact legacy preset. Custom visibility is never overwritten. */
+export function resolveHiddenSidebarItems(
+  settings: Record<string, unknown> | null | undefined
+): HideableSidebarItemId[] {
+  const hidden = normalizeHiddenSidebarItems(settings?.[HIDDEN_SIDEBAR_ITEMS_SETTING_KEY]);
+  if (settings?.[SIDEBAR_PRESET_KEY] !== "essentials") return hidden;
+  const legacy = buildHiddenList(LEGACY_ESSENTIALS_SHOWN);
+  if (hidden.length !== legacy.length || hidden.some((id, index) => id !== legacy[index]))
+    return hidden;
+  return buildHiddenList(ESSENTIALS_SHOWN);
 }

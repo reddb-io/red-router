@@ -40,3 +40,16 @@ export function sumUsageTokensThisMonth(db: SqliteAdapter = getDbInstance()): nu
     return 0; // table may not exist yet on a fresh install — treat as 0 used
   }
 }
+
+/** Retained activity, including requests already rolled up by retention cleanup. */
+export function hasRecordedRequestActivity(db: SqliteAdapter = getDbInstance()): boolean {
+  const row = db
+    .prepare(
+      `SELECT
+    EXISTS(SELECT 1 FROM usage_history LIMIT 1) OR
+    EXISTS(SELECT 1 FROM daily_usage_summary WHERE total_requests > 0 LIMIT 1) OR
+    EXISTS(SELECT 1 FROM request_cost_ledger LIMIT 1) AS active`
+    )
+    .get() as { active: number };
+  return Boolean(row.active);
+}

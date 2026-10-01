@@ -18,7 +18,7 @@ import { useTranslations } from "next-intl";
 import {
   HIDDEN_SIDEBAR_ITEMS_SETTING_KEY,
   SIDEBAR_SETTINGS_UPDATED_EVENT,
-  normalizeHiddenSidebarItems,
+  resolveHiddenSidebarItems,
 } from "@/shared/constants/sidebarVisibility";
 import {
   findNavMatch,
@@ -160,7 +160,7 @@ export default function Sidebar({
 
   useEffect(() => {
     const applySettings = (data) => {
-      setHiddenSidebarItems(normalizeHiddenSidebarItems(data?.[HIDDEN_SIDEBAR_ITEMS_SETTING_KEY]));
+      setHiddenSidebarItems(resolveHiddenSidebarItems(data));
       setCustomAppName(data?.instanceName || null);
       setCustomLogo(data?.customLogoBase64 || data?.customLogoUrl || null);
       if (typeof data?.radarEnabled === "boolean") {
@@ -177,9 +177,7 @@ export default function Sidebar({
     const handleSettingsUpdated = (event: Event) => {
       const detail = (event as CustomEvent<Record<string, unknown>>).detail || {};
       if (HIDDEN_SIDEBAR_ITEMS_SETTING_KEY in detail) {
-        setHiddenSidebarItems(
-          normalizeHiddenSidebarItems(detail[HIDDEN_SIDEBAR_ITEMS_SETTING_KEY])
-        );
+        setHiddenSidebarItems(resolveHiddenSidebarItems(detail));
       }
       if ("instanceName" in detail) setCustomAppName((detail.instanceName as string) || null);
       if ("customLogoBase64" in detail) {

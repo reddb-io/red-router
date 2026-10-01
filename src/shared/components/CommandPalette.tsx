@@ -11,7 +11,7 @@ import {
   HIDDEN_SIDEBAR_ITEMS_SETTING_KEY,
   SIDEBAR_PRESET_KEY,
   ESSENTIALS_ADVANCED_TOOL_IDS,
-  normalizeHiddenSidebarItems,
+  resolveHiddenSidebarItems,
   resolveRuntimeSidebarSections,
   type HideableSidebarItemId,
   type SidebarItemDefinition,
@@ -75,9 +75,7 @@ function CommandPaletteDialog({ onClose }: { onClose: () => void }) {
     fetch("/api/settings", { signal: ctrl.signal })
       .then((res) => res.json())
       .then((data) => {
-        setHiddenItems(
-          new Set(normalizeHiddenSidebarItems(data?.[HIDDEN_SIDEBAR_ITEMS_SETTING_KEY]))
-        );
+        setHiddenItems(new Set(resolveHiddenSidebarItems(data)));
         setActivePreset(
           typeof data?.[SIDEBAR_PRESET_KEY] === "string" ? data[SIDEBAR_PRESET_KEY] : null
         );

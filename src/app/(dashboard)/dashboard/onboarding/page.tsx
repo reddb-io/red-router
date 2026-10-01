@@ -1,25 +1,16 @@
 "use client";
 
-import { ArrowBigUp, CircleCheck, LoaderCircle, TriangleAlert } from "lucide-react";
+import { ArrowBigUp } from "lucide-react";
 import Icon from "@/shared/components/Icon";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { useDisplayBaseUrl } from "@/shared/hooks";
-import { FreeProviderOnboardingCard } from "./steps/FreeProviderOnboardingCard";
+import { extractApiErrorMessage } from "@/shared/http/apiErrorMessage";
 import { TierTour } from "./steps/TierTour";
 
-const STEP_IDS = ["welcome", "tiers", "security", "provider", "test", "done"];
-const STEP_ICONS = ["waving_hand", "layers", "lock", "dns", "play_circle", "check_circle"];
-
-const COMMON_PROVIDERS = [
-  { id: "openai", name: "OpenAI", color: "#10A37F" },
-  { id: "anthropic", name: "Anthropic", color: "#D97757" },
-  { id: "google", name: "Google AI", color: "#4285F4" },
-  { id: "openrouter", name: "OpenRouter", color: "#6B21A8" },
-  { id: "groq", name: "Groq", color: "#F55036" },
-  { id: "mistral", name: "Mistral", color: "#FF7000" },
-];
+const STEP_IDS = ["welcome", "tiers", "security", "done"];
+const STEP_ICONS = ["waving_hand", "layers", "lock", "check_circle"];
 
 export default function OnboardingWizard() {
   const router = useRouter();
@@ -28,7 +19,7 @@ export default function OnboardingWizard() {
   const baseUrl = useDisplayBaseUrl();
   const [step, setStep] = useState(0);
   const [loading, setLoading] = useState(true);
-  const apiEndpoint = `${baseUrl}/api/v1`;
+  const apiEndpoint = `${baseUrl}/v1`;
 
   // Security step state
   const [password, setPassword] = useState("");
@@ -42,16 +33,6 @@ export default function OnboardingWizard() {
   const [bootstrapToken, setBootstrapToken] = useState("");
   const [needsBootstrapToken, setNeedsBootstrapToken] = useState(false);
 
-  // Provider step state
-  const [selectedProvider, setSelectedProvider] = useState(null);
-  const [providerUrl, setProviderUrl] = useState("");
-  const [providerKey, setProviderKey] = useState("");
-  const [providerName, setProviderName] = useState("");
-
-  // Test step state
-  const [testStatus, setTestStatus] = useState("idle"); // idle, testing, success, error
-  const [testMessage, setTestMessage] = useState("");
-
   // Check if setup is already complete
   useEffect(() => {
     const checkSetup = async () => {
@@ -60,7 +41,7 @@ export default function OnboardingWizard() {
         if (res.ok) {
           const settings = await res.json();
           if (settings.setupComplete) {
-            router.replace("/dashboard");
+            router.replace("/home/setup");
             return;
           }
         }
@@ -74,7 +55,7 @@ export default function OnboardingWizard() {
 
   const STEPS = STEP_IDS.map((id, i) => ({
     id,
-    title: t(id === "done" ? "ready" : id),
+    title: id === "done" ? "Continue in Setup" : t(id),
     icon: STEP_ICONS[i],
   }));
 
@@ -139,7 +120,7 @@ export default function OnboardingWizard() {
       if (!res.ok) {
         if (handleBootstrapAuthFailure(res)) return;
         const data = await res.json().catch(() => ({}));
-        setErrorMessage(data.error || t("failedSetPassword"));
+        setErrorMessage(extractApiErrorMessage(data, t("failedSetPassword")));
         return;
       }
       const loginRes = await fetch("/api/auth/login", {
@@ -149,87 +130,36 @@ export default function OnboardingWizard() {
       });
       if (!loginRes.ok) {
         const data = await loginRes.json().catch(() => ({}));
-        setErrorMessage(data.error || t("connectionError"));
+        setErrorMessage(extractApiErrorMessage(data, t("connectionError")));
         return;
       }
       handleNext();
     } catch {
       setErrorMessage(t("connectionError"));
-    }
-  };
-
-  const handleAddProvider = async () => {
-    if (!selectedProvider || !providerKey) return;
-    setErrorMessage("");
-    try {
-      const provider = COMMON_PROVIDERS.find((p) => p.id === selectedProvider);
-      const defaultUrls = {
-        openai: "https://api.openai.com",
-        anthropic: "https://api.anthropic.com",
-        google: "https://generativelanguage.googleapis.com",
-        openrouter: "https://openrouter.ai/api",
-        groq: "https://api.groq.com/openai",
-        mistral: "https://api.mistral.ai",
-      };
-      const res = await fetch("/api/providers", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          provider: selectedProvider,
-          name: providerName || provider?.name || selectedProvider,
-          url: providerUrl || defaultUrls[selectedProvider] || "",
-          apiKey: providerKey,
-          isActive: true,
-        }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        setErrorMessage(data.error || t("failedAddProvider"));
-        return;
-      }
-      handleNext();
-    } catch {
-      setErrorMessage(t("connectionError"));
-    }
-  };
-
-  const handleTestProvider = async () => {
-    setTestStatus("testing");
-    setTestMessage(t("testingConnection"));
-    try {
-      const res = await fetch("/api/providers");
-      if (!res.ok) throw new Error("Failed to fetch");
-      const data = await res.json();
-      const conn = data.connections?.[0];
-      if (!conn) {
-        setTestStatus("error");
-        setTestMessage(t("noProviderFound"));
-        return;
-      }
-      const testRes = await fetch(`/api/providers/${conn.id}/test`, { method: "POST" });
-      if (testRes.ok) {
-        setTestStatus("success");
-        setTestMessage(t("connectionSuccessful"));
-      } else {
-        const err = await testRes.json().catch(() => ({}));
-        setTestStatus("error");
-        setTestMessage(err.error || t("testFailed"));
-      }
-    } catch {
-      setTestStatus("error");
-      setTestMessage(t("couldNotTest"));
     }
   };
 
   const handleFinish = async () => {
     setErrorMessage("");
     try {
-      // (#574) If no password was set during wizard, disable requireLogin
-      // to prevent the user from being locked out on the login page
-      const settings = await fetch("/api/settings/require-login")
-        .then((r) => r.json())
-        .catch(() => ({}));
-      if (!settings.hasPassword) {
+      // Read the security choice again before marking dashboard bootstrap complete.
+      const securityRes = await fetch("/api/settings/require-login");
+      if (!securityRes.ok) {
+        setErrorMessage(t("connectionError"));
+        return;
+      }
+      const settings = await securityRes.json();
+      if (typeof settings.hasPassword !== "boolean" || typeof settings.requireLogin !== "boolean") {
+        setErrorMessage(t("connectionError"));
+        return;
+      }
+      if (!settings.hasPassword && settings.requireLogin !== false) {
+        // Finishing cannot implicitly skip the operator's security choice.
+        if (!skipSecurity) {
+          setErrorMessage("Configure dashboard access before continuing.");
+          setStep(STEP_IDS.indexOf("security"));
+          return;
+        }
         const requireLoginRes = await fetch("/api/settings/require-login", {
           method: "POST",
           headers: bootstrapHeaders({ "Content-Type": "application/json" }),
@@ -239,7 +169,10 @@ export default function OnboardingWizard() {
         // Docker/NAT-forwarded install silently left requireLogin untouched
         // and the wizard sailed on to setupComplete/dashboard anyway,
         // reproducing the reported redirect loop. Surface it instead.
-        if (!requireLoginRes.ok && handleBootstrapAuthFailure(requireLoginRes)) return;
+        if (!requireLoginRes.ok) {
+          if (!handleBootstrapAuthFailure(requireLoginRes)) setErrorMessage(t("failedSetPassword"));
+          return;
+        }
       }
 
       const patchRes = await fetch("/api/settings", {
@@ -256,7 +189,7 @@ export default function OnboardingWizard() {
       setErrorMessage(t("connectionError"));
       return;
     }
-    router.push("/dashboard");
+    router.push("/home/setup");
   };
 
   if (loading) {
@@ -430,109 +363,14 @@ export default function OnboardingWizard() {
               </div>
             )}
 
-            {/* Provider */}
-            {currentStep.id === "provider" && (
-              <div className="space-y-4">
-                <p className="text-sm text-text-muted text-center">{t("providerDesc")}</p>
-                {skipSecurity && (
-                  <div className="text-center p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg animate-in fade-in duration-200">
-                    <p className="text-sm text-amber-400">{t("providerRequiresPassword")}</p>
-                  </div>
-                )}
-                {!skipSecurity && <FreeProviderOnboardingCard />}
-                {!skipSecurity && (
-                  <div className="flex items-center gap-3 text-[11px] text-text-muted">
-                    <span className="h-px flex-1 bg-white/10" />
-                    <span>{t("freeProviders.orUseApiKey")}</span>
-                    <span className="h-px flex-1 bg-white/10" />
-                  </div>
-                )}
-                {!skipSecurity && (
-                  <div className="grid grid-cols-3 gap-2">
-                    {COMMON_PROVIDERS.map((p) => (
-                      <button
-                        key={p.id}
-                        onClick={() => {
-                          setSelectedProvider(p.id);
-                          setProviderName(p.name);
-                        }}
-                        className={`p-3 rounded-xl border text-center text-xs font-medium transition-all cursor-pointer ${
-                          selectedProvider === p.id
-                            ? "border-primary/60 bg-primary/10 text-primary"
-                            : "border-white/10 bg-white/[0.03] text-text-muted hover:border-white/20"
-                        }`}
-                      >
-                        {p.name}
-                      </button>
-                    ))}
-                  </div>
-                )}
-                {!skipSecurity && selectedProvider && (
-                  <div className="space-y-3 mt-4">
-                    <input
-                      type="password"
-                      placeholder={t("apiKeyRequired")}
-                      value={providerKey}
-                      onChange={(e) => setProviderKey(e.target.value)}
-                      className="w-full px-4 py-2.5 bg-white/[0.04] border border-white/10 rounded-lg text-text-main text-sm placeholder:text-text-muted/50 focus:outline-none focus:ring-2 focus:ring-primary/40"
-                    />
-                    <input
-                      type="text"
-                      placeholder={t("customUrlOptional")}
-                      value={providerUrl}
-                      onChange={(e) => setProviderUrl(e.target.value)}
-                      className="w-full px-4 py-2.5 bg-white/[0.04] border border-white/10 rounded-lg text-text-main text-sm placeholder:text-text-muted/50 focus:outline-none focus:ring-2 focus:ring-primary/40"
-                    />
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Test */}
-            {currentStep.id === "test" && (
-              <div className="text-center space-y-4">
-                <p className="text-sm text-text-muted">{t("testDesc")}</p>
-                {testStatus === "idle" && (
-                  <button
-                    onClick={handleTestProvider}
-                    className="px-6 py-2.5 bg-primary rounded-lg text-white font-medium text-sm hover:bg-primary/90 transition-colors cursor-pointer"
-                  >
-                    {t("runTest")}
-                  </button>
-                )}
-                {testStatus === "testing" && (
-                  <div className="flex items-center justify-center gap-2 text-text-muted">
-                    <Icon icon={LoaderCircle} size="lg" color="current" className="animate-spin" />
-                    <span className="text-sm">{testMessage}</span>
-                  </div>
-                )}
-                {testStatus === "success" && (
-                  <div className="flex items-center justify-center gap-2 text-green-400">
-                    <Icon icon={CircleCheck} size="lg" color="current" />
-                    <span className="text-sm">{testMessage}</span>
-                  </div>
-                )}
-                {testStatus === "error" && (
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-center gap-2 text-amber-400">
-                      <Icon icon={TriangleAlert} size="lg" color="current" />
-                      <span className="text-sm">{testMessage}</span>
-                    </div>
-                    <button
-                      onClick={handleTestProvider}
-                      className="text-xs text-text-muted underline cursor-pointer"
-                    >
-                      {t("retry")}
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
-
             {/* Done */}
             {currentStep.id === "done" && (
               <div className="text-center space-y-4">
-                <p className="text-text-muted">{t("doneDesc")}</p>
+                <p className="text-text-muted">
+                  Dashboard access is configured. In Setup, choose a connection and model, prepare a
+                  client key, and validate the exact configuration. No inference request has been
+                  sent.
+                </p>
                 <div className="bg-white/[0.03] rounded-xl p-4 border border-white/[0.06] text-left">
                   <p className="text-xs text-text-muted mb-2 font-medium">{t("yourEndpoint")}</p>
                   <code className="text-sm text-primary">{apiEndpoint}</code>
@@ -554,7 +392,7 @@ export default function OnboardingWizard() {
               )}
             </div>
             <div className="flex items-center gap-3">
-              {!isLastStep && step > 0 && (
+              {!isLastStep && step > 0 && currentStep.id !== "security" && (
                 <button
                   onClick={handleNext}
                   className="px-4 py-2 text-sm text-text-muted hover:text-text-main transition-colors cursor-pointer"
@@ -587,46 +425,17 @@ export default function OnboardingWizard() {
                   {skipSecurity ? t("skipAndContinue") : t("setPassword")}
                 </button>
               )}
-              {currentStep.id === "provider" && !skipSecurity ? (
-                <button
-                  onClick={handleAddProvider}
-                  disabled={!selectedProvider || !providerKey}
-                  className="px-6 py-2.5 bg-primary rounded-lg text-white font-medium text-sm hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-                >
-                  {t("addProvider")}
-                </button>
-              ) : null}
-              {currentStep.id === "test" && (
-                <button
-                  onClick={handleNext}
-                  className="px-6 py-2.5 bg-primary rounded-lg text-white font-medium text-sm hover:bg-primary/90 transition-colors cursor-pointer"
-                >
-                  {testStatus === "success" ? t("continue") : t("skip")}
-                </button>
-              )}
               {isLastStep && (
                 <button
                   onClick={handleFinish}
                   className="px-6 py-2.5 bg-green-500 rounded-lg text-white font-medium text-sm hover:bg-green-500/90 transition-colors cursor-pointer"
                 >
-                  {t("goToDashboard")}
+                  Open Setup
                 </button>
               )}
             </div>
           </div>
         </div>
-
-        {/* Skip Wizard */}
-        {!isLastStep && (
-          <div className="text-center mt-4">
-            <button
-              onClick={handleFinish}
-              className="text-xs text-text-muted/60 hover:text-text-muted transition-colors cursor-pointer"
-            >
-              {t("skipWizard")}
-            </button>
-          </div>
-        )}
       </div>
     </div>
   );

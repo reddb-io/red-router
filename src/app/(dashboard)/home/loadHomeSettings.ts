@@ -1,3 +1,4 @@
+import { hasRecordedRequestActivity } from "@/lib/db/usageSummary";
 import { getSettings } from "@/lib/db/settings";
 
 export type HomeSettings = { setupComplete?: unknown };
@@ -21,5 +22,17 @@ export async function loadHomeSettings(
     const message = error instanceof Error ? error.message : String(error);
     console.warn(`[Home] Failed to load settings; rendering with defaults: ${message}`);
     return { setupComplete: false };
+  }
+}
+
+/** Unknown history suppresses first-request prompts; this never affects authentication. */
+export async function loadHomeActivity(
+  load: () => boolean | Promise<boolean> = hasRecordedRequestActivity
+): Promise<boolean | null> {
+  try {
+    return await load();
+  } catch {
+    console.warn("[Home] Unable to read retained request activity");
+    return null;
   }
 }

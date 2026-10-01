@@ -111,7 +111,7 @@ const OFF_MENU: Record<string, string> = {
   "/dashboard/settings/pricing": "redirects to Costs > Pricing",
   "/dashboard/system/1proxy": "redirects to Outbound proxies",
   "/dashboard/system/mitm-proxy": "redirects to Agent bridge",
-  "/dashboard/onboarding": "first-run wizard, opened by Setup",
+  "/dashboard/onboarding": "dashboard security bootstrap, followed by Setup",
 };
 
 test("every tab (and every detail page) opens a real page", () => {
@@ -278,8 +278,31 @@ test("the presets keep a usable menu", () => {
       );
     }
     if (preset.id === "essentials") {
-      assert.ok(entries.length <= 8, `essentials shows ${entries.length} entries`);
-      for (const id of ["analytics", "endpoint-keys", "providers"]) {
+      assert.deepEqual(
+        entries.map((entry) => entry.id),
+        [
+          "analytics",
+          "setup",
+          "endpoint-keys",
+          "providers",
+          "model-catalog",
+          "health",
+          "tenants",
+          "access-users",
+          "access-roles",
+          "settings",
+        ]
+      );
+      for (const id of [
+        "analytics",
+        "setup",
+        "endpoint-keys",
+        "providers",
+        "model-catalog",
+        "tenants",
+        "access-users",
+        "access-roles",
+      ]) {
         assert.ok(
           entries.some((entry) => entry.id === id),
           `essentials lacks ${id}`

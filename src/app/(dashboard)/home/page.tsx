@@ -1,5 +1,5 @@
 import { getMachineId } from "@/shared/utils/machine";
-import { loadHomeSettings } from "./loadHomeSettings";
+import { loadHomeSettings, loadHomeActivity } from "./loadHomeSettings";
 import HomePageClient from "../dashboard/HomePageClient";
 import BootstrapBanner from "../dashboard/BootstrapBanner";
 import FirstRunReadinessCard from "../dashboard/FirstRunReadinessCard";
@@ -8,12 +8,19 @@ export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
   // Settings failures degrade to defaults here (display-only) — see loadHomeSettings (#14060).
-  const [settings, machineId] = await Promise.all([loadHomeSettings(), getMachineId()]);
+  const [settings, machineId, hasActivity] = await Promise.all([
+    loadHomeSettings(),
+    getMachineId(),
+    loadHomeActivity(),
+  ]);
   const isBootstrapped = process.env.OMNIROUTE_BOOTSTRAPPED === "true";
   return (
     <>
       {isBootstrapped && <BootstrapBanner />}
-      <FirstRunReadinessCard setupComplete={Boolean(settings.setupComplete)} />
+      <FirstRunReadinessCard
+        setupComplete={Boolean(settings.setupComplete)}
+        hasActivity={hasActivity}
+      />
       <HomePageClient machineId={machineId} />
     </>
   );

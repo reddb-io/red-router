@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import {
   HIDDEN_SIDEBAR_ITEMS_SETTING_KEY,
   SIDEBAR_SETTINGS_UPDATED_EVENT,
-  normalizeHiddenSidebarItems,
+  resolveHiddenSidebarItems,
 } from "@/shared/constants/sidebarVisibility";
 import { parseRadarAdminUrl } from "@/shared/validation/radarAdminUrl";
 
@@ -27,7 +27,7 @@ export function useNavVisibility(): NavVisibility {
       .then((data) => {
         if (cancelled) return;
         setVisibility({
-          hidden: new Set(normalizeHiddenSidebarItems(data?.[HIDDEN_SIDEBAR_ITEMS_SETTING_KEY])),
+          hidden: new Set(resolveHiddenSidebarItems(data)),
           flags:
             typeof data?.radarEnabled === "boolean" ? { RADAR_ENABLED: data.radarEnabled } : {},
           radarAdmin: parseRadarAdminUrl(data?.radarAdminUrl ?? null),
@@ -40,7 +40,7 @@ export function useNavVisibility(): NavVisibility {
       if (HIDDEN_SIDEBAR_ITEMS_SETTING_KEY in detail) {
         setVisibility((prev) => ({
           ...prev,
-          hidden: new Set(normalizeHiddenSidebarItems(detail[HIDDEN_SIDEBAR_ITEMS_SETTING_KEY])),
+          hidden: new Set(resolveHiddenSidebarItems(detail)),
         }));
       }
     };

@@ -16,7 +16,7 @@ import {
   SIDEBAR_ITEM_ORDER_KEY,
   SIDEBAR_SETTINGS_UPDATED_EVENT,
   SIDEBAR_PRESETS,
-  normalizeHiddenSidebarItems,
+  resolveHiddenSidebarItems,
   type HideableSidebarItemId,
   type SidebarPresetId,
 } from "@/shared/constants/sidebarVisibility";
@@ -119,15 +119,15 @@ export default function SidebarTab() {
   const [loading, setLoading] = useState(true);
   const [hiddenSidebarItems, setHiddenSidebarItems] = useState<HideableSidebarItemId[]>([]);
   const [activePreset, setActivePreset] = useState<SidebarPresetId | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
   const [confirmPreset, setConfirmPreset] = useState<SidebarPresetId | null>(null);
 
   useEffect(() => {
     fetch("/api/settings")
       .then((r) => r.json())
       .then((data) => {
-        setHiddenSidebarItems(
-          normalizeHiddenSidebarItems(data?.[HIDDEN_SIDEBAR_ITEMS_SETTING_KEY])
-        );
+        setHiddenSidebarItems(resolveHiddenSidebarItems(data));
         setActivePreset(data?.[SIDEBAR_PRESET_KEY] ?? null);
         setLoading(false);
       })
@@ -135,6 +135,8 @@ export default function SidebarTab() {
   }, []);
 
   const patch = async (updates: Record<string, unknown>) => {
+    setSaving(true);
+    setSaveError("");
     try {
       const res = await fetch("/api/settings", {
         method: "PATCH",
@@ -142,12 +144,21 @@ export default function SidebarTab() {
         body: JSON.stringify(updates),
       });
       if (res.ok) {
+        setHiddenSidebarItems(resolveHiddenSidebarItems(updates));
+        setActivePreset((updates[SIDEBAR_PRESET_KEY] as SidebarPresetId | null) ?? null);
+        setConfirmPreset(null);
         window.dispatchEvent(new CustomEvent(SIDEBAR_SETTINGS_UPDATED_EVENT, { detail: updates }));
       } else {
-        console.error("Failed to update sidebar settings:", res.statusText);
+        setSaveError(
+          "Could not save menu visibility. Your previous settings are still active. Try again."
+        );
       }
-    } catch (err) {
-      console.error("Error updating sidebar settings:", err);
+    } catch {
+      setSaveError(
+        "Could not save menu visibility. Your previous settings are still active. Try again."
+      );
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -158,9 +169,7 @@ export default function SidebarTab() {
     const next = visible
       ? hiddenSidebarItems.filter((id) => !changing.includes(id))
       : [...new Set([...hiddenSidebarItems, ...changing])];
-    setHiddenSidebarItems(next);
-    // Any manual change → custom mode
-    setActivePreset(null);
+    // Any successful manual change switches to Custom.
     patch({ [HIDDEN_SIDEBAR_ITEMS_SETTING_KEY]: next, [SIDEBAR_PRESET_KEY]: null });
   };
 
@@ -169,9 +178,6 @@ export default function SidebarTab() {
     if (!preset) return;
     // Ensure protected items are never hidden, even if a preset includes them
     const safeHidden = preset.hiddenItems.filter((id) => !PROTECTED_ITEM_IDS.has(id));
-    setHiddenSidebarItems(safeHidden);
-    setActivePreset(presetId);
-    setConfirmPreset(null);
     patch({
       [HIDDEN_SIDEBAR_ITEMS_SETTING_KEY]: safeHidden,
       // The menu no longer has orderable sections or group labels; clear what older versions saved.
@@ -220,6 +226,11 @@ export default function SidebarTab() {
         </div>
       </div>
 
+      {saveError && (
+        <p role="alert" className="mb-4 text-sm text-feedback-danger-foreground">
+          {saveError}
+        </p>
+      )}
       <div className="flex flex-col gap-6">
         {/* Presets */}
         <div>
@@ -258,7 +269,7 @@ export default function SidebarTab() {
                 <button
                   key={preset.id}
                   type="button"
-                  disabled={loading}
+                  disabled={loading || saving}
                   aria-pressed={isActive}
                   onClick={() => {
                     if (isActive) return;
@@ -304,6 +315,7 @@ export default function SidebarTab() {
                 </button>
                 <button
                   type="button"
+                  disabled={saving}
                   onClick={() => applyPreset(confirmPreset)}
                   className="rounded-md border border-primary bg-foreground/10 px-3 py-1.5 text-sm font-medium transition-colors hover:bg-foreground/15"
                 >
@@ -329,7 +341,7 @@ export default function SidebarTab() {
             <button
               type="button"
               onClick={() => applyPreset("all")}
-              disabled={loading}
+              disabled={loading || saving}
               className="shrink-0 rounded-md border border-border px-3 py-1.5 text-sm text-text-muted transition-colors hover:bg-foreground/8 hover:text-text-main disabled:opacity-50"
             >
               {getSettingsLabel("resetDefault", "Reset to default")}
@@ -352,7 +364,7 @@ export default function SidebarTab() {
                     key={entry.id}
                     entry={entry}
                     hidden={hidden}
-                    disabled={loading}
+                    disabled={loading || saving}
                     onSetIds={setIds}
                     shownLabel={getSettingsLabel("sidebarShown", "Show")}
                     alwaysLabel={getSettingsLabel(

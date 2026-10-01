@@ -73,6 +73,8 @@ beforeEach(() => {
       if (String(input) === "/api/settings") {
         return jsonResponse({ setupComplete: false, apiPort: 20131 });
       }
+      if (String(input) === "/api/settings/require-login")
+        return jsonResponse({ hasPassword: false, requireLogin: false });
       throw new Error(`Unexpected request: ${String(input)}`);
     })
   );
@@ -95,13 +97,14 @@ it("renders the public API URL instead of rebuilding an internal apiPort URL", a
 
   await waitForText("getStarted");
   await clickButton("getStarted");
-  await clickButton("skip");
-  await clickButton("skip");
-  await clickButton("skip");
-  await clickButton("skip");
+  await clickButton("continue");
+  await act(async () =>
+    container.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click()
+  );
+  await clickButton("skipAndContinue");
 
-  await waitForText("https://api.example.com/api/v1");
-  expect(container.textContent).toContain("https://api.example.com/api/v1");
-  expect(container.textContent).not.toContain(":20131/api/v1");
+  await waitForText("https://api.example.com/v1");
+  expect(container.textContent).toContain("https://api.example.com/v1");
+  expect(container.textContent).not.toContain(":20131/v1");
   expect(replaceMock).not.toHaveBeenCalled();
 });

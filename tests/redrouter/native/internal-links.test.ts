@@ -33,7 +33,6 @@ const BASELINE: Record<string, number> = {
   // The root `/dashboard` is the app's entry point (login, landing, PWA start URL): it redirects to
   // Home > Usage itself, and is not a menu page.
   [`bin/cli/commands/open.mjs|/dashboard|${ROOT_REASON}`]: 1,
-  [`src/app/(dashboard)/dashboard/onboarding/page.tsx|/dashboard|${ROOT_REASON}`]: 2,
   [`src/app/docs/layout.tsx|/dashboard|${ROOT_REASON}`]: 1,
   [`src/app/error.tsx|/dashboard|${ROOT_REASON}`]: 1,
   [`src/app/forbidden/page.tsx|/dashboard|${ROOT_REASON}`]: 1,
