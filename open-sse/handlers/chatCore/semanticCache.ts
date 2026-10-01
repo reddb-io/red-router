@@ -5,6 +5,7 @@ import {
   recordSemanticCacheHit,
   outputContractOf,
 } from "@/lib/semanticCache";
+import type { RequestAttribution } from "@/lib/usage/attribution";
 import { calculateCost } from "@/lib/usage/costCalculator";
 import { finalizePendingScope, type PendingRequestScope } from "@/lib/usage/pendingRequestScope";
 import { synthesizeOpenAiSseFromJson } from "../../utils/jsonToSse.ts";
@@ -23,6 +24,7 @@ export function isSemanticCacheVerificationEnabled(): boolean {
 export async function checkSemanticCache({
   verificationBody,
   allowSemantic,
+  attribution,
   semanticCacheEnabled,
   body,
   clientRawRequest,
@@ -39,6 +41,7 @@ export async function checkSemanticCache({
   cacheDefaultMode,
   videoTranscriptSensitive,
 }: {
+  attribution?: RequestAttribution | null;
   verificationBody?: Record<string, unknown>;
   allowSemantic?: boolean;
   semanticCacheEnabled: boolean;
@@ -95,6 +98,7 @@ export async function checkSemanticCache({
               manager.getConfig(),
               {
                 apiKeyId,
+                attribution,
                 signal: clientRawRequest?.signal,
                 headers: clientRawRequest?.headers,
               },

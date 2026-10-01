@@ -184,3 +184,16 @@ test("budget/accounting failure, malformed response and low confidence cannot se
     );
   }
 });
+
+test("caller attribution survives a per-target cancellation signal", async () => {
+  const { deps, dispatches } = setup();
+  const attribution = { endUser: "reader", tags: ["billing-project"], sessionId: "session" };
+  await verifySemanticCacheCandidate(
+    input,
+    config,
+    { attribution, signal: new AbortController().signal },
+    new AbortController().signal,
+    deps
+  );
+  assert.deepEqual(dispatches[0][2]?.attribution, attribution);
+});

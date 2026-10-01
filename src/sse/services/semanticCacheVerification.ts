@@ -6,7 +6,7 @@ import {
   validateApiKey,
 } from "@/lib/db/apiKeys";
 import { resolveQuotaKeyScope } from "@/lib/quota/quotaKey";
-import { getRequestBudgetScope } from "@/lib/usage/attribution";
+import { getRequestBudgetScope, type RequestAttribution } from "@/lib/usage/attribution";
 import { calculateCostDetailed } from "@/lib/usage/costCalculator";
 import { resolveSystemOneTarget } from "@omniroute/open-sse/handlers/systemOneCore.ts";
 import type { SemanticCacheConfig } from "@omniroute/open-sse/config/semanticCacheConfig.ts";
@@ -36,7 +36,12 @@ const defaults = {
 export async function verifySemanticCacheCandidate(
   input: SemanticVerificationInput,
   config: SemanticCacheConfig,
-  request: { apiKeyId?: string | null; signal?: AbortSignal; headers?: unknown },
+  request: {
+    apiKeyId?: string | null;
+    signal?: AbortSignal;
+    headers?: unknown;
+    attribution?: RequestAttribution | null;
+  },
   signal: AbortSignal,
   overrides: Partial<typeof defaults> = {}
 ): Promise<SemanticVerificationResult> {
@@ -88,7 +93,7 @@ export async function verifySemanticCacheCandidate(
         forcedConnectionId: connection.id,
         apiKeyId: request.apiKeyId,
         apiKeyName,
-        attribution: getRequestBudgetScope(request.signal)?.attribution,
+        attribution: request.attribution ?? getRequestBudgetScope(request.signal)?.attribution,
         signal,
         timeoutMs: config.verificationTimeoutMs,
       }

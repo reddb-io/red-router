@@ -1321,6 +1321,7 @@ async function handleChatCoreInner({
   // ── Phase 9.1: Semantic cache check (temp=0, any streaming mode) ──
   const verifiedResponseReuse = semanticCacheEnabled && isSemanticCacheVerificationEnabled();
   const cacheCheckParams = {
+    attribution: apiKeyInfo?.attribution,
     semanticCacheEnabled,
     body,
     clientRawRequest,
