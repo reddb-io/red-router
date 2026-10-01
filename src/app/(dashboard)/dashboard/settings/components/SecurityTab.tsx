@@ -13,6 +13,7 @@ import MfaSection from "./MfaSection";
 import OidcSection from "./OidcSection";
 import SamlSection from "./SamlSection";
 import GuardrailsCard from "./GuardrailsCard";
+import NetworkAccessCard from "./NetworkAccessCard";
 import { useTranslations } from "next-intl";
 
 export default function SecurityTab() {
@@ -178,6 +179,7 @@ export default function SecurityTab() {
 
   return (
     <div className="flex flex-col gap-6">
+      <NetworkAccessCard />
       <Card>
         <div className="flex items-center gap-3 mb-4">
           <div className="p-2 rounded-lg bg-primary/10 text-primary">

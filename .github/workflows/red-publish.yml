@@ -93,6 +93,8 @@ jobs:
           sudo apt-get install -y xvfb dbus-x11 libayatana-appindicator3-1 python3-dbus python3-gi
       - name: Verify tray survives installation and recovers native helper failures
         run: node scripts/ci/check-linux-tray.mjs
+      - name: Verify managed network access survives restart and binds the requested interface
+        run: node scripts/ci/check-network-access.mjs
 
   test-vitest:
     name: RedRouter UI

@@ -70,6 +70,7 @@ export const LOCAL_ONLY_API_PREFIXES: ReadonlyArray<string> = [
   "/api/tunnels/tailscale/start-daemon", // starts tailscaled/Tailscale service
   "/api/tunnels/cloudflared-named", // Cloudflare Named Tunnel: POST/PUT/DELETE install and spawn `cloudflared tunnel run` with the stored token in its env; GET is loopback-only too (no read exemption)
   "/api/tunnels/tailscale-serve", // Tailscale Serve: POST starts tailscaled/login and runs `tailscale serve`; GET spawns `tailscale status`/`serve status`
+  "/api/settings/network", // managed listener change queues a systemd service restart
   "/api/settings/wireguard-egress", // WireGuard egress: install downloads + unpacks wireproxy and enable spawns it with the stored private key; GET binary detection runs `which`/`where` — loopback only for every method, no read exemption
   "/api/tunnels/wireguard", // WireGuard ingress: hands out private keys (server config download and the one-time peer file), so loopback-only for every method with no read exemption. It spawns nothing (the operator runs wg-quick on the host), which is why it is deliberately NOT in SPAWN_CAPABLE_PREFIXES.
   "/dashboard/providers/services/", // T-07: reverse proxy to embedded service UIs
@@ -300,6 +301,7 @@ export function isPrivateLanHost(hostHeader: string | null): boolean {
  */
 export const LOCAL_ONLY_API_GET_EXEMPTIONS: ReadonlySet<string> = new Set([
   "/api/system/version",
+  "/api/settings/network", // GET only reads listener and interface metadata
   // The two read-only version-manager routes only report state; every other route under
   // /api/version-manager/ installs or spawns the CLIProxyAPI binary.
   "/api/version-manager/status",
