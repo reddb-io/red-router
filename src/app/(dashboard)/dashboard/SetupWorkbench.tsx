@@ -2,10 +2,12 @@
 
 import { CircleCheck } from "lucide-react";
 import Icon from "@/shared/components/Icon";
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
 import { Badge, Button, Card, Input, RecommendedSetup, Select } from "@/shared/components";
+import ConnectionModelSelect from "@/shared/components/ConnectionModelSelect";
+import { readSetupProgress, writeSetupProgress, selectionFingerprint } from "@/lib/setup/progress";
 import { useDisplayBaseUrl } from "@/shared/hooks";
 
 interface SetupConnection {
@@ -14,10 +16,13 @@ interface SetupConnection {
   name?: string;
   displayName?: string;
   isActive?: boolean;
+  tenantId?: string;
 }
 
 interface SetupKey {
   id?: string;
+  name?: string;
+  tenantId?: string;
   isActive?: boolean;
   isBanned?: boolean;
 }
@@ -87,6 +92,14 @@ export default function SetupWorkbench() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [selectedConnectionId, setSelectedConnectionId] = useState("");
+  const [selectedModel, setSelectedModel] = useState("");
+  const [selectedKeyId, setSelectedKeyId] = useState("");
+  const [existingSecret, setExistingSecret] = useState("");
+  const [copiedSelection, setCopiedSelection] = useState("");
+  const [progressLoaded, setProgressLoaded] = useState(false);
+  const [smokeStatus, setSmokeStatus] = useState<"idle" | "running" | "pass" | "fail">("idle");
+  const pending = useRef<AbortController | null>(null);
+  const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [keyName, setKeyName] = useState(() => t("keyDefaultName"));
   const [creatingKey, setCreatingKey] = useState(false);
   const [createdKey, setCreatedKey] = useState<CreatedKey | null>(null);
@@ -110,6 +123,14 @@ export default function SetupWorkbench() {
       ]);
       const connections = (providers.connections as SetupConnection[] | undefined) || [];
       setData({ connections, keys: (keys.keys as SetupKey[] | undefined) || [] });
+      setSelectedKeyId(
+        (current) =>
+          current ||
+          (keys.keys as SetupKey[] | undefined)?.find(
+            (item) => item.isActive !== false && item.isBanned !== true
+          )?.id ||
+          ""
+      );
       setSelectedConnectionId(
         (current) =>
           current ||
@@ -125,18 +146,48 @@ export default function SetupWorkbench() {
   }, [t]);
 
   useEffect(() => {
+    let saved: ReturnType<typeof readSetupProgress> = null;
+    try {
+      saved = readSetupProgress(localStorage);
+    } catch {
+      /* Storage may be blocked. */
+    }
+    if (saved) {
+      setSelectedConnectionId(saved.connectionId);
+      setSelectedModel(saved.model);
+      setSelectedKeyId(saved.apiKeyId);
+      setCopiedSelection(saved.copiedSelection);
+      setOrganized(saved.organized);
+    }
+    setProgressLoaded(true);
     queueMicrotask(load);
+    return () => {
+      pending.current?.abort();
+      if (copyTimer.current) clearTimeout(copyTimer.current);
+    };
   }, [load]);
 
   const activeConnections = useMemo(
     () => data.connections.filter((item) => item.isActive !== false),
     [data.connections]
   );
-  const hasProvider = activeConnections.length > 0;
-  const hasKey =
-    data.keys.some((item) => item.isActive !== false && item.isBanned !== true) || !!createdKey;
+  const activeKeys = data.keys.filter((item) => item.isActive !== false && item.isBanned !== true);
+  const hasProvider = activeConnections.some(
+    (connection) => connection.id === selectedConnectionId
+  );
+  const hasKey = activeKeys.some((key) => key.id === selectedKeyId);
+  const secret = createdKey?.id === selectedKeyId ? createdKey?.key || "" : existingSecret;
+  const selection = {
+    connectionId: selectedConnectionId,
+    model: selectedModel,
+    apiKeyId: selectedKeyId,
+  };
+  const fingerprint = selectionFingerprint(selection, baseUrl);
+  const fingerprintRef = useRef(fingerprint);
+  fingerprintRef.current = fingerprint;
   const isReady = validation?.status === "ready";
-  const configCopied = copied === "snippet";
+  const configCopied = !!copiedSelection && copiedSelection === fingerprint;
+  const canCheck = hasProvider && hasKey && !!selectedModel && !!secret;
   const currentStep = !hasProvider
     ? 1
     : !hasKey
@@ -146,14 +197,51 @@ export default function SetupWorkbench() {
         : !isReady
           ? 4
           : 5;
-  const secret = createdKey?.key || "YOUR_API_KEY";
-  const snippet = `export OPENAI_BASE_URL=${baseUrl}/v1\nexport OPENAI_API_KEY=${secret}`;
+  const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
+  const snippet =
+    secret && selectedModel && hasKey
+      ? `export OPENAI_BASE_URL=${quote(`${baseUrl}/v1`)}\nexport OPENAI_API_KEY=${quote(secret)}`
+      : "";
+
+  useEffect(() => {
+    pending.current?.abort();
+    setValidation(null);
+    setSmokeStatus("idle");
+    setValidating(false);
+  }, [fingerprint, secret]);
+
+  useEffect(() => {
+    if (!progressLoaded) return;
+    try {
+      writeSetupProgress(localStorage, {
+        connectionId: selectedConnectionId,
+        model: selectedModel,
+        apiKeyId: selectedKeyId,
+        copiedSelection,
+        organized,
+      });
+    } catch {
+      /* Storage may be blocked. */
+    }
+  }, [
+    progressLoaded,
+    selectedConnectionId,
+    selectedModel,
+    selectedKeyId,
+    copiedSelection,
+    organized,
+  ]);
 
   async function copy(value: string, id: string) {
+    if (!value) return;
+    const copiedFingerprint = fingerprint;
     try {
       await navigator.clipboard.writeText(value);
+      if (fingerprintRef.current !== copiedFingerprint) return;
       setCopied(id);
-      globalThis.setTimeout(() => setCopied(""), 1800);
+      setCopiedSelection(copiedFingerprint);
+      if (copyTimer.current) clearTimeout(copyTimer.current);
+      copyTimer.current = globalThis.setTimeout(() => setCopied(""), 1800);
     } catch {
       setLoadError(t("configCopyFailed"));
     }
@@ -167,13 +255,19 @@ export default function SetupWorkbench() {
       const response = await fetch("/api/keys", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ name: keyName.trim() }),
+        body: JSON.stringify({
+          name: keyName.trim(),
+          tenantId: data.connections.find((connection) => connection.id === selectedConnectionId)
+            ?.tenantId,
+        }),
       });
       const result = await readJson(response);
       if (!response.ok) {
         throw new Error(typeof result.error === "string" ? result.error : t("keyCreateFailed"));
       }
       setCreatedKey(result as CreatedKey);
+      setSelectedKeyId(String(result.id || ""));
+      setExistingSecret("");
       setData((current) => ({
         ...current,
         keys: [...current.keys, { ...(result as CreatedKey), isActive: true }],
@@ -186,15 +280,21 @@ export default function SetupWorkbench() {
   }
 
   async function validateSetup() {
+    if (!canCheck) return;
+    pending.current?.abort();
+    const controller = new AbortController();
+    pending.current = controller;
     setValidating(true);
     setValidation(null);
     try {
       const response = await fetch("/api/setup/validate", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ connectionId: selectedConnectionId }),
+        body: JSON.stringify({ ...selection, apiKey: secret }),
+        signal: controller.signal,
       });
       const result = await readJson(response);
+      if (controller.signal.aborted) return;
       // A rejected request carries `{ error }` instead of `{ status, checks }`.
       setValidation(
         response.ok
@@ -212,12 +312,46 @@ export default function SetupWorkbench() {
             }
       );
     } catch {
+      if (controller.signal.aborted) return;
       setValidation({
         status: "error",
         checks: [{ id: "server", status: "fail", message: t("validateUnreachable") }],
       });
     } finally {
-      setValidating(false);
+      if (!controller.signal.aborted) setValidating(false);
+    }
+  }
+
+  async function testInference() {
+    if (!canCheck || smokeStatus === "running") return;
+    pending.current?.abort();
+    const controller = new AbortController();
+    pending.current = controller;
+    setSmokeStatus("running");
+    try {
+      // This goes through the public route with the actual client credential,
+      // so auth, tenant policy, quotas and usage accounting all apply.
+      const response = await fetch("/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          Authorization: `Bearer ${secret}`,
+          "x-omniroute-connection": selectedConnectionId,
+        },
+        body: JSON.stringify({
+          model: selectedModel,
+          stream: false,
+          max_tokens: 64,
+          messages: [{ role: "user", content: "Reply with OK." }],
+        }),
+        signal: AbortSignal.any([controller.signal, AbortSignal.timeout(30000)]),
+      });
+      const result = await readJson(response);
+      const choices = result.choices;
+      const completed = response.ok && Array.isArray(choices) && choices.length > 0;
+      if (!controller.signal.aborted) setSmokeStatus(completed ? "pass" : "fail");
+    } catch {
+      if (!controller.signal.aborted) setSmokeStatus("fail");
     }
   }
 
@@ -245,24 +379,53 @@ export default function SetupWorkbench() {
 
   const stepAction = [
     <div key="provider" className="flex flex-wrap items-center gap-3">
-      {hasProvider ? (
-        <Select
-          value={selectedConnectionId}
-          onChange={(event) => setSelectedConnectionId(event.target.value)}
-          aria-label={t("connectionSelect")}
-          options={activeConnections.map((connection) => ({
-            value: connection.id,
-            label:
-              connection.displayName || connection.name || connection.provider || connection.id,
-          }))}
-        />
-      ) : null}
+      <ConnectionModelSelect
+        role="chat"
+        connections={data.connections}
+        value={{ connectionId: selectedConnectionId, model: selectedModel }}
+        onChange={({ connectionId, model }) => {
+          setSelectedConnectionId(connectionId);
+          setSelectedModel(model);
+          setValidation(null);
+        }}
+      />
       <StepLink href="/proxy/providers">
         {hasProvider ? t("manageProviders") : t("connectProvider")}
       </StepLink>
     </div>,
-    !hasKey ? (
-      <form key="key" className="flex flex-wrap items-end gap-2" onSubmit={createKey}>
+    <div key="key" className="flex flex-col gap-3">
+      {activeKeys.length ? (
+        <Select
+          label={t("keySelect")}
+          aria-label={t("keySelect")}
+          value={selectedKeyId}
+          options={[
+            ...(!hasKey && selectedKeyId
+              ? [{ value: selectedKeyId, label: `${selectedKeyId} (unavailable)` }]
+              : []),
+            ...activeKeys.map((key) => ({
+              value: key.id || "",
+              label: `${key.name || key.id} · ${key.tenantId || "red"} · ${key.id?.slice(0, 8)}`,
+            })),
+          ]}
+          onChange={(event) => {
+            setSelectedKeyId(event.target.value);
+            setExistingSecret("");
+            setValidation(null);
+          }}
+        />
+      ) : null}
+      {hasKey && createdKey?.id !== selectedKeyId ? (
+        <Input
+          label={t("keySecretLabel")}
+          type="password"
+          autoComplete="off"
+          value={existingSecret}
+          onChange={(event) => setExistingSecret(event.target.value)}
+          hint={t("keySecretHint")}
+        />
+      ) : null}
+      <form className="flex flex-wrap items-end gap-2" onSubmit={createKey}>
         <Input
           value={keyName}
           onChange={(event) => setKeyName(event.target.value)}
@@ -272,15 +435,14 @@ export default function SetupWorkbench() {
           {t("keyCreate")}
         </Button>
       </form>
-    ) : (
-      <StepLink key="key" href="/proxy/endpoint#api-keys">
-        {t("manageKeys")}
-      </StepLink>
-    ),
+      <StepLink href="/proxy/keys">{t("manageKeys")}</StepLink>
+    </div>,
     <div key="config" className="flex min-w-0 flex-col gap-2">
-      {createdKey ? <p className="text-sm text-text-muted">{t("configSecretOnce")}</p> : null}
+      {createdKey?.id === selectedKeyId ? (
+        <p className="text-sm text-text-muted">{t("configSecretOnce")}</p>
+      ) : null}
       <pre className="min-w-0 overflow-x-auto rounded-lg border border-border bg-bg-subtle p-3 font-mono text-xs text-text-main">
-        <code>{snippet}</code>
+        <code>{snippet || t("configNeedsSecret")}</code>
       </pre>
       <div>
         <Button
@@ -288,6 +450,7 @@ export default function SetupWorkbench() {
           size="sm"
           icon={copied === "snippet" ? "check" : "content_copy"}
           onClick={() => copy(snippet, "snippet")}
+          disabled={!canCheck}
         >
           {copied === "snippet" ? t("configCopied") : t("configCopy")}
         </Button>
@@ -297,12 +460,36 @@ export default function SetupWorkbench() {
       <div>
         <Button
           onClick={validateSetup}
-          disabled={!hasProvider || !hasKey || !selectedConnectionId}
+          disabled={!canCheck || smokeStatus === "running"}
           loading={validating}
         >
           {isReady ? t("validateAgain") : t("validateRun")}
         </Button>
       </div>
+      <p className="text-sm text-text-muted">{t("testInferenceWarning")}</p>
+      <div>
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={testInference}
+          disabled={!canCheck || validating}
+          loading={smokeStatus === "running"}
+        >
+          {t("testInference")}
+        </Button>
+      </div>
+      {smokeStatus === "pass" || smokeStatus === "fail" ? (
+        <p
+          role="status"
+          className={
+            smokeStatus === "pass"
+              ? "text-feedback-success-foreground"
+              : "text-feedback-danger-foreground"
+          }
+        >
+          {smokeStatus === "pass" ? t("testInferencePassed") : t("testInferenceFailed")}
+        </p>
+      ) : null}
       {validation?.checks ? (
         <ul className="flex flex-col gap-1.5" aria-live="polite">
           {validation.checks.map((check) => (

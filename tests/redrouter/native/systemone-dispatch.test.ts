@@ -282,3 +282,33 @@ test("real S1 accounting writes one usage row and one attributed ledger row, the
   assert.equal(second.response.status, 429);
   assert.equal(events.filter((event) => event === "forward").length, 1);
 });
+
+test("a pinned evaluator uses only the chosen connection and never widens a denied scope", async () => {
+  let credentialsCalled = false;
+  const { dependencies, events } = setup({
+    credentials: async (_provider, _excluded, allowed, _model, settings) => {
+      credentialsCalled = true;
+      assert.deepEqual(allowed, ["connection"]);
+      assert.equal(settings?.forcedConnectionId, "connection");
+      return { connectionId: "connection", apiKey: "upstream-secret" } as Awaited<
+        ReturnType<NonNullable<Dependencies["credentials"]>>
+      >;
+    },
+  });
+  const denied = await dispatchSystemOne(
+    target,
+    body,
+    { ...options, allowedConnections: ["other"], forcedConnectionId: "connection" },
+    dependencies
+  );
+  assert.equal(denied.response.status, 403);
+  assert.equal(credentialsCalled, false);
+  const allowed = await dispatchSystemOne(
+    target,
+    body,
+    { ...options, allowedConnections: ["connection"], forcedConnectionId: "connection" },
+    dependencies
+  );
+  assert.equal(allowed.response.status, 200);
+  assert.ok(events.includes("forward"));
+});

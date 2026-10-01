@@ -185,6 +185,7 @@ async function askJevFromStoredConnection(
       { state, questions },
       {
         allowedConnections: options.allowedConnections,
+        forcedConnectionId: config.connectionId,
         apiKeyId: options.apiKeyId,
         attribution:
           scope?.attribution ?? resolveAttribution(undefined, undefined, { id: options.apiKeyId }),

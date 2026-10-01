@@ -137,6 +137,13 @@ import {
 } from "./discovery/codex";
 import { getCodexDiscoveryMode } from "@/shared/services/codexDiscoveryPolicy";
 import { fetchClaudeDiscoveryModels } from "./discovery/claude";
+import { isModelExcludedByConnection } from "@/domain/connectionModelRules";
+import { requireManagementAuth } from "@/lib/api/requireManagementAuth";
+import { getProviderPrefixIndex } from "@/lib/providerNodePrefixes";
+import { getCanonicalModelMetadata } from "@/lib/modelMetadataRegistry";
+import { createModelCapabilityResolutionSnapshot } from "@/lib/modelCapabilityResolutionSnapshot";
+import { projectConnectionModels } from "@/lib/providerModels/selection";
+import { parseCatalogCapabilities } from "@/app/api/v1/models/catalogCapabilities";
 import { maybeHandleConolModelDiscovery } from "./conolDiscovery";
 import { maybeHandleVertexModelDiscovery } from "./vertexDiscovery";
 import { buildNoAuthModelsResponse, filterModelsForRoute } from "./modelRouteProjection";
@@ -146,7 +153,7 @@ import { RemoteRouterDiscoveryError } from "@/lib/providerModels/remoteRouterCat
 /**
  * GET /api/providers/[id]/models - Get models list from provider
  */
-export async function GET(
+async function getConnectionModels(
   request: Request,
   context: { params: Promise<{ id: string }> | { id: string } }
 ) {
@@ -2370,7 +2377,10 @@ export async function GET(
       );
     }
 
-    if (getProviderConnectionFamilyIds("alibaba").includes(provider)) {
+    if (
+      !searchParams.has("capabilities") &&
+      getProviderConnectionFamilyIds("alibaba").includes(provider)
+    ) {
       const { shouldUseLiveAlibabaFreeModelDiscovery } =
         await import("@omniroute/open-sse/services/alibabaFreeTier.ts");
       const { scheduleAlibabaFreeTierProbeRefresh } =
@@ -2422,5 +2432,82 @@ export async function GET(
     }
     console.log("Error fetching provider models:", error);
     return NextResponse.json({ error: "Failed to fetch models" }, { status: 500 });
+  }
+}
+
+/** Capability-filtered selection uses the same role contract as public model discovery. */
+export async function GET(
+  request: Request,
+  context: { params: Promise<{ id: string }> | { id: string } }
+) {
+  const requested = parseCatalogCapabilities(request);
+  if (!requested.success) return errorResponse(400, "Invalid capabilities filter");
+  // Preserve the historical response verbatim for discovery/import consumers.
+  if (!requested.data.length) return getConnectionModels(request, context);
+  const authError = await requireManagementAuth(request);
+  if (authError) return authError;
+  try {
+    const { id } = await context.params;
+    const connection = await getCachedProviderConnectionById(id);
+    let payload: { provider?: string; models?: Record<string, unknown>[]; [key: string]: unknown };
+    if (requested.data.includes("decision") && connection?.provider !== "red-router") {
+      if (!connection) return errorResponse(404, "Connection not found");
+      const provider = typeof connection.provider === "string" ? connection.provider : "";
+      // JEV is listed in systemOneConfig, not in the upstream chat /models response.
+      // Selection must not require a chat probe (or schedule inference probes).
+      payload = {
+        provider,
+        connectionId: id,
+        source: "decision_registry",
+        models: (getRegistryEntry(provider)?.systemOneConfig?.models ?? []).map((model) => ({
+          ...model,
+          type: "systemone",
+          supported_endpoints: ["systemone", "decisions"],
+        })),
+      };
+    } else {
+      const response = await getConnectionModels(request, context);
+      if (!response.ok)
+        return errorResponse(response.status, "Connection model catalog is unavailable");
+      payload = await response.json();
+    }
+    const provider = payload.provider;
+    if (typeof provider !== "string" || !Array.isArray(payload.models)) {
+      return errorResponse(502, "Connection model catalog is unavailable");
+    }
+    const prefixes = await getProviderPrefixIndex();
+    if (prefixes.compatibleNodeIds.has(provider) && !prefixes.eligibleNodeIds.has(provider)) {
+      return errorResponse(
+        409,
+        "Configure a unique public provider prefix before selecting models"
+      );
+    }
+    const prefix = prefixes.nodeToPrefix.get(provider) ?? provider;
+    const snapshot = createModelCapabilityResolutionSnapshot();
+    const rows = payload.models.map((row) => {
+      // Remote capabilities belong to the remote account, never to local heuristics.
+      if (provider === "red-router") return row;
+      const metadata = getCanonicalModelMetadata({ provider, model: String(row.id), snapshot });
+      return metadata
+        ? {
+            ...row,
+            capabilities: {
+              tool_calling: metadata.capabilities.toolCalling,
+              reasoning: metadata.capabilities.reasoning,
+              vision: metadata.capabilities.vision,
+              structured_output: metadata.capabilities.structuredOutput,
+              ...(row.capabilities && typeof row.capabilities === "object" ? row.capabilities : {}),
+            },
+          }
+        : row;
+    });
+    const models = projectConnectionModels(provider, prefix, rows, requested.data).filter(
+      (model) =>
+        !getModelIsHidden(provider, model.id) &&
+        !isModelExcludedByConnection(model.id, connection?.providerSpecificData)
+    );
+    return NextResponse.json({ ...payload, models });
+  } catch {
+    return errorResponse(500, "Connection model selection is unavailable");
   }
 }

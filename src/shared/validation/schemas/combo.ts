@@ -79,7 +79,8 @@ export const comboStrategySchema = z.enum(ROUTING_STRATEGY_VALUES);
 const jevDecisionConfigSchema = z
   .object({
     mode: z.enum(["off", "jev"]).optional(),
-    model: z.string().trim().min(1).max(200).optional(),
+    connectionId: z.string().trim().min(1).max(200).nullable().optional(),
+    model: z.string().trim().min(1).max(2048).optional(),
     toolMode: z.enum(["off", "hint", "none", "forced"]).optional(),
     modelMode: z.enum(["off", "jev"]).optional(),
     briefs: z

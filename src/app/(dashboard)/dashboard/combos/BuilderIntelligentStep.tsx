@@ -3,6 +3,7 @@
 import { BadgeCheck, Sparkles } from "lucide-react";
 import Icon from "@/shared/components/Icon";
 import { useMemo, useState } from "react";
+import ConnectionModelSelect from "@/shared/components/ConnectionModelSelect";
 import Card from "@/shared/components/Card";
 import {
   DEFAULT_INTELLIGENT_WEIGHTS,
@@ -251,20 +252,25 @@ export default function BuilderIntelligentStep({
               className="mt-1 w-full text-xs py-2 px-2 rounded border border-black/10 dark:border-white/10 bg-transparent"
             >
               <option value="off">Off</option>
-              <option value="jev">JEV</option>
+              <option value="jev" disabled={!decision.connectionId || !decision.model}>
+                JEV
+              </option>
             </select>
           </label>
-          <label className="text-xs text-text-main">
-            Evaluation model
-            <input
-              aria-label="System One model"
-              type="text"
-              maxLength={200}
-              value={typeof decision.model === "string" ? decision.model : "typesafe-ai/jev-latest"}
-              onChange={(event) => updateDecision({ model: event.target.value })}
-              className="mt-1 w-full text-xs py-2 px-2 rounded border border-black/10 dark:border-white/10 bg-transparent"
-            />
-          </label>
+          <ConnectionModelSelect
+            role="decision"
+            value={{
+              connectionId: typeof decision.connectionId === "string" ? decision.connectionId : "",
+              model: typeof decision.model === "string" ? decision.model : "",
+            }}
+            onChange={({ connectionId, model }) =>
+              updateDecision({
+                connectionId,
+                model: model || undefined,
+                ...(model ? {} : { mode: "off" }),
+              })
+            }
+          />
           <label className="text-xs text-text-main">
             Model choice
             <select

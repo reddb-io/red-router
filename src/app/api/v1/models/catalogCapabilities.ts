@@ -35,7 +35,10 @@ function catalogModelRole(model: CatalogModel): { chat: boolean; decision: boole
   const provider = typeof model.owned_by === "string" ? model.owned_by : undefined;
   const rawModel = typeof model.root === "string" ? model.root : id.slice(id.indexOf("/") + 1);
   const endpoint = getModelEndpointDecision(provider, rawModel, declared);
-  const decision = model.type === "systemone" || endpoint.kind === "systemone";
+  const decision =
+    model.type === "systemone" ||
+    endpoint.kind === "systemone" ||
+    (model.capabilities as CatalogModel | undefined)?.decision === true;
   const chat =
     !decision &&
     (!model.type || ["chat", "llm", "imageToText"].includes(String(model.type))) &&

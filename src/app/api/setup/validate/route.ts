@@ -1,49 +1,57 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireManagementAuth } from "@/lib/api/requireManagementAuth";
-import { getApiKeys } from "@/lib/db/apiKeys";
+import { getApiKeyMetadata, isModelAllowedForKey } from "@/lib/db/apiKeys";
 import { getProviderConnectionById } from "@/lib/db/providers";
-import { buildSetupReadiness } from "@/lib/setup/readiness";
+import { validateSetupSelection } from "@/lib/setup/validateSelection";
+import { isValidApiKey } from "@/sse/services/auth";
 import { isValidationFailure, validateBody } from "@/shared/validation/helpers";
-import { testSingleConnection } from "../../providers/[id]/test/route";
+import { errorResponse } from "@omniroute/open-sse/utils/error";
+import { GET as getConnectionModels } from "../../providers/[id]/models/route";
 
-const schema = z.object({ connectionId: z.string().min(1).max(200) });
+const schema = z.object({
+  connectionId: z.string().min(1).max(200),
+  model: z.string().min(1).max(2048),
+  apiKeyId: z.string().min(1).max(200),
+  apiKey: z.string().min(1).max(4096),
+});
 
-/** Validate the same server/provider/key readiness contract used by Friday's setup workbench. */
+/** No completion, credential probe or quota reservation is performed by readiness. */
 export async function POST(request: Request) {
   const authError = await requireManagementAuth(request);
   if (authError) return authError;
-
   const body = await request.json().catch(() => null);
   const validation = validateBody(schema, body);
-  if (isValidationFailure(validation)) {
-    return NextResponse.json({ error: validation.error }, { status: 400 });
-  }
-
+  if (isValidationFailure(validation))
+    return errorResponse(400, "Select a connection, model and client key");
   try {
-    const connection = await getProviderConnectionById(validation.data.connectionId);
-    const active = Boolean(connection && connection.isActive !== false);
-    const [keys, result] = await Promise.all([
-      getApiKeys(),
-      active ? testSingleConnection(validation.data.connectionId) : Promise.resolve(null),
-    ]);
-    const connectionName = [connection?.displayName, connection?.name, connection?.provider].find(
-      (value): value is string => typeof value === "string" && value.length > 0
-    );
-    return NextResponse.json(
-      buildSetupReadiness({
-        connectionName,
-        connectionActive: active,
-        providerValid: result?.valid === true && result?.skipped !== true,
-        // Do not echo upstream error text or diagnostics into the dashboard.
-        providerError: result?.skipped
-          ? "Connection test was deferred; try again after the active session ends."
-          : null,
-        hasActiveKey: keys.some((key) => key.isActive !== false && key.isBanned !== true),
-      })
-    );
-  } catch (error) {
-    console.error("[RedRouter Setup] Validation failed:", error);
-    return NextResponse.json({ error: "Setup validation failed." }, { status: 500 });
+    const readiness = await validateSetupSelection(validation.data, {
+      connection: getProviderConnectionById,
+      metadata: getApiKeyMetadata,
+      validKey: isValidApiKey,
+      modelAllowed: isModelAllowedForKey,
+      models: async (connectionId) => {
+        const url = new URL(
+          `/api/providers/${encodeURIComponent(connectionId)}/models`,
+          request.url
+        );
+        url.searchParams.set("capabilities", "chat");
+        url.searchParams.set("excludeHidden", "true");
+        const response = await getConnectionModels(
+          new Request(url, {
+            headers: request.headers,
+            signal: request.signal,
+          }),
+          { params: { id: connectionId } }
+        );
+        if (!response.ok) return [];
+        const catalog = await response.json();
+        return Array.isArray(catalog.models) ? catalog.models : [];
+      },
+    });
+    return NextResponse.json(readiness);
+  } catch {
+    // Neither the supplied client secret nor upstream diagnostics belong in logs/responses.
+    return errorResponse(500, "Setup validation is unavailable");
   }
 }

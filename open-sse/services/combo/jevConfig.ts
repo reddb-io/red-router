@@ -1,6 +1,7 @@
 export type JevRoutingConfig = {
   mode: "off" | "jev";
   model: string;
+  connectionId?: string;
   toolMode: "off" | "hint" | "none" | "forced";
   modelMode: "off" | "jev";
   briefs?: Record<string, string>;
@@ -23,6 +24,12 @@ export async function canEvaluateJevModel(
   isModelAllowed: (model: string) => Promise<boolean>
 ): Promise<boolean> {
   if (config.mode !== "jev" || allowedConnections?.length === 0) return false;
+  if (
+    config.connectionId &&
+    allowedConnections &&
+    !allowedConnections.includes(config.connectionId)
+  )
+    return false;
   try {
     return (await isModelAllowed(config.model)) === true;
   } catch {
@@ -74,6 +81,11 @@ export function parseJevRoutingConfig(combo: {
         ? config.toolMode
         : "off",
     modelMode: config.modelMode === "jev" ? "jev" : "off",
+    ...(typeof config.connectionId === "string" &&
+    config.connectionId.trim() &&
+    config.connectionId.length <= 200
+      ? { connectionId: config.connectionId.trim() }
+      : {}),
     ...(Object.keys(briefs).length > 0 ? { briefs } : {}),
   };
 }
