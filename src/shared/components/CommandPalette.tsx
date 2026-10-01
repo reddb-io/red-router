@@ -8,7 +8,6 @@ import { areaUrl } from "@/shared/constants/dashboardUrls";
 import { useTranslations } from "next-intl";
 import {
   SIDEBAR_SECTIONS,
-  HIDDEN_SIDEBAR_ITEMS_SETTING_KEY,
   SIDEBAR_PRESET_KEY,
   ESSENTIALS_ADVANCED_TOOL_IDS,
   resolveHiddenSidebarItems,

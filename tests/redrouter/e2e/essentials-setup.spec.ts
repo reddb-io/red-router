@@ -44,6 +44,17 @@ for (const width of [1280, 390]) {
     expect(
       await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)
     ).toBe(true);
+    if (width === 1280) {
+      // Verify the actual rail/panel consumers as well as the settings tree.
+      await page.getByRole("button", { name: "Access", exact: true }).click();
+      for (const href of ["/access/tenants", "/access/users", "/access/roles"]) {
+        await expect(page.locator(`a[href="${href}"]`).first()).toBeVisible();
+      }
+      await page.getByRole("button", { name: "Proxy", exact: true }).click();
+      await expect(page.locator('a[href="/proxy/models"]').first()).toBeVisible();
+      await page.getByRole("button", { name: "Home", exact: true }).click();
+      await expect(page.locator('a[href="/home/setup"]').first()).toBeVisible();
+    }
     expect(errors).toEqual([]);
   });
 }
