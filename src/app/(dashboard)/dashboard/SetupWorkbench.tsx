@@ -355,6 +355,7 @@ export default function SetupWorkbench() {
           "content-type": "application/json",
           Authorization: `Bearer ${secret}`,
           "x-omniroute-connection": selectedConnectionId,
+          "x-omniroute-no-cache": "true",
         },
         body: JSON.stringify({
           model: selectedModel,
@@ -366,7 +367,12 @@ export default function SetupWorkbench() {
       });
       const result = await readJson(response);
       const choices = result.choices;
-      const completed = response.ok && Array.isArray(choices) && choices.length > 0;
+      const completed =
+        response.ok &&
+        Array.isArray(choices) &&
+        choices.length > 0 &&
+        response.headers.get("X-OmniRoute-Selected-Connection-Id") === selectedConnectionId &&
+        !response.headers.has("X-OmniRoute-Emergency-Fallback");
       if (!controller.signal.aborted)
         setSmoke({
           status: completed ? "pass" : "fail",

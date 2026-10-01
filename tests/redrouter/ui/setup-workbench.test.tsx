@@ -21,12 +21,20 @@ let root: Root | null;
 let container: HTMLDivElement;
 let calls: { url: string; init?: RequestInit }[];
 let validationResponse: () => Promise<Response>;
+let inferenceResponse: () => Promise<Response>;
 beforeEach(() => {
   localStorage.clear();
   calls = [];
   root = null;
   container = document.createElement("div");
   document.body.append(container);
+  inferenceResponse = async () =>
+    Response.json(
+      { choices: [{ message: { content: "OK" } }] },
+      {
+        headers: { "X-OmniRoute-Selected-Connection-Id": "account" },
+      }
+    );
   validationResponse = async () =>
     Response.json({ status: "ready", inferenceTested: false, checks: [] });
   Object.defineProperty(navigator, "clipboard", {
@@ -49,8 +57,7 @@ beforeEach(() => {
     if (url.includes("/models?"))
       return Response.json({ models: [{ fullModel: "openrouter/chat" }] });
     if (url === "/api/setup/validate") return validationResponse();
-    if (url === "/v1/chat/completions")
-      return Response.json({ choices: [{ message: { content: "OK" } }] });
+    if (url === "/v1/chat/completions") return inferenceResponse();
     throw new Error(`Unexpected endpoint ${url}`);
   });
 });
@@ -166,4 +173,22 @@ it("server markup hydrates without mismatches before browser-only progress is re
     root = hydrateRoot(container, <SetupWorkbench />, { onRecoverableError: recoverable });
   });
   expect(recoverable).not.toHaveBeenCalled();
+});
+
+it("a fallback completion cannot validate the chosen provider account", async () => {
+  inferenceResponse = async () =>
+    Response.json(
+      { choices: [{ message: { content: "OK" } }] },
+      {
+        headers: { "X-OmniRoute-Selected-Connection-Id": "different-account" },
+      }
+    );
+  await mount();
+  await changeModel();
+  await createKey();
+  await act(async () => button("Send a test request").click());
+  expect(container.textContent).not.toContain("returned a completion");
+  expect(container.textContent).toContain("did not return a confirmed completion");
+  const inference = calls.find((call) => call.url === "/v1/chat/completions")!;
+  expect(inference.init?.headers).toMatchObject({ "x-omniroute-no-cache": "true" });
 });
