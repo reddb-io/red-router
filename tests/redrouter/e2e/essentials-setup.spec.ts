@@ -55,6 +55,15 @@ for (const width of [1280, 390]) {
       await page.getByRole("button", { name: "Home", exact: true }).click();
       await expect(page.locator('a[href="/home/setup"]').first()).toBeVisible();
     }
+    if (width === 390)
+      await page.getByRole("button", { name: "Open navigation", exact: true }).click();
+    await page.getByRole("button", { name: "Search", exact: true }).first().click();
+    const palette = page.getByRole("dialog", { name: "Command palette" });
+    await expect(palette).toBeVisible();
+    await palette.getByRole("textbox").fill("Caveman");
+    await expect(palette.getByRole("option")).toContainText("Token saver › Caveman");
+    await palette.getByRole("option").getByRole("button").click();
+    await expect(page).toHaveURL(/\/optimize\/token-saver\/engines\/caveman/);
     expect(errors).toEqual([]);
   });
 }

@@ -15,20 +15,16 @@ import CloudSyncStatus from "./CloudSyncStatus";
 import SidebarRail, { type RailAction } from "./shell/SidebarRail";
 import SidebarPanel, { type PanelBlock, type PanelItem } from "./shell/SidebarPanel";
 import { useTranslations } from "next-intl";
-import {
-  HIDDEN_SIDEBAR_ITEMS_SETTING_KEY,
-  SIDEBAR_SETTINGS_UPDATED_EVENT,
-  resolveHiddenSidebarItems,
-} from "@/shared/constants/sidebarVisibility";
+import { SIDEBAR_SETTINGS_UPDATED_EVENT } from "@/shared/constants/sidebarVisibility";
 import {
   findNavMatch,
+  getNavSearchItems,
   resolveNavSections,
   type ResolvedNavEntry,
   type ResolvedNavSection,
-  type SidebarNavTab,
 } from "@/shared/constants/sidebarNav";
 import { navIcon } from "@/shared/icons/navIcons";
-import { parseRadarAdminUrl } from "@/shared/validation/radarAdminUrl";
+import { useNavVisibility } from "@/shared/hooks/useNavVisibility";
 
 const isE2EMode = process.env.NEXT_PUBLIC_OMNIROUTE_E2E_MODE === "1";
 const PINNED_ITEMS_KEY = "sidebar-pinned-items";
@@ -89,16 +85,6 @@ const entryItem = (entry: ResolvedNavEntry): PanelItem => ({
   group: entry.group,
 });
 
-const tabItem = (entry: ResolvedNavEntry, page: SidebarNavTab): PanelItem => ({
-  id: page.id ?? page.href,
-  href: page.href,
-  label: page.label,
-  icon: entry.icon,
-  external: page.external === true,
-  description: `${entry.label} › ${page.label}`,
-  entryId: entry.id,
-});
-
 export default function Sidebar({
   onClose,
   panelOpen = true,
@@ -114,12 +100,7 @@ export default function Sidebar({
   const [isShuttingDown, setIsShuttingDown] = useState(false);
   const [isRestarting, setIsRestarting] = useState(false);
   const [isDisconnected, setIsDisconnected] = useState(false);
-  const [hiddenSidebarItems, setHiddenSidebarItems] = useState<string[]>([]);
-  // Feature-flag map for flag-gated pages (e.g. "radar" -> RADAR_ENABLED).
-  // Fails open so a missing key never hides an unrelated page — only set once
-  // /api/settings resolves.
-  const [featureFlags, setFeatureFlags] = useState<Record<string, boolean>>({});
-  const [radarAdminUrl, setRadarAdminUrl] = useState<unknown>(null);
+  const { hidden, flags: featureFlags, radarAdmin } = useNavVisibility();
   const [customAppName, setCustomAppName] = useState<string | null>(null);
   const [customLogo, setCustomLogo] = useState<string | null>(null);
   const [pinnedItems, setPinnedItems] = useState<Set<string>>(new Set());
@@ -160,13 +141,8 @@ export default function Sidebar({
 
   useEffect(() => {
     const applySettings = (data) => {
-      setHiddenSidebarItems(resolveHiddenSidebarItems(data));
       setCustomAppName(data?.instanceName || null);
       setCustomLogo(data?.customLogoBase64 || data?.customLogoUrl || null);
-      if (typeof data?.radarEnabled === "boolean") {
-        setFeatureFlags((prev) => ({ ...prev, RADAR_ENABLED: data.radarEnabled }));
-      }
-      setRadarAdminUrl(data?.radarAdminUrl ?? null);
     };
 
     fetch("/api/settings")
@@ -176,9 +152,6 @@ export default function Sidebar({
 
     const handleSettingsUpdated = (event: Event) => {
       const detail = (event as CustomEvent<Record<string, unknown>>).detail || {};
-      if (HIDDEN_SIDEBAR_ITEMS_SETTING_KEY in detail) {
-        setHiddenSidebarItems(resolveHiddenSidebarItems(detail));
-      }
       if ("instanceName" in detail) setCustomAppName((detail.instanceName as string) || null);
       if ("customLogoBase64" in detail) {
         setCustomLogo((detail.customLogoBase64 as string) || null);
@@ -195,9 +168,8 @@ export default function Sidebar({
       );
   }, []);
 
-  const radarAdmin = parseRadarAdminUrl(radarAdminUrl);
   const sections: ResolvedNavSection[] = resolveNavSections(
-    new Set(hiddenSidebarItems),
+    hidden,
     featureFlags,
     radarAdmin
       ? { providers: [{ href: radarAdmin, label: "Radar admin ↗", external: true }] }
@@ -233,29 +205,33 @@ export default function Sidebar({
   );
 
   // Pinned pages: an entry, or any single page (kept from before pages became tabs).
+  const searchable = getNavSearchItems(
+    hidden,
+    featureFlags,
+    radarAdmin
+      ? {
+          providers: [
+            { id: "radar-admin", href: radarAdmin, label: "Radar admin ↗", external: true },
+          ],
+        }
+      : {}
+  );
+  // Keep old page ids and area-URL pins readable, including detail pages from search.
   const pinnedItemList = Array.from(pinnedItems)
     .map((id): PanelItem | null => {
       const entry = entriesById.get(id);
       if (entry) return { ...entryItem(entry), group: undefined };
-      for (const candidate of entriesById.values()) {
-        const page = candidate.tabs.find((tabDefinition) => tabDefinition.id === id);
-        if (page) return tabItem(candidate, page);
-      }
-      return null;
+      const page = searchable.find((item) => item.id === id || item.href === id);
+      if (!page || page.hidden) return null;
+      return page;
     })
     .filter((item): item is PanelItem => item !== null);
 
-  // Search reaches every page of every area: "caveman" finds Token saver › Engines.
   const isSearching = searchQuery.trim().length > 0;
-  const searchSections = sections.map((section) => ({
-    id: section.id,
-    title: section.title,
-    children: section.entries.flatMap((entry) => [
-      { ...entryItem(entry), group: undefined },
-      ...entry.tabs
-        .filter((page) => page.href !== entry.href)
-        .map((page) => ({ ...tabItem(entry, page), label: `${entry.label} › ${page.label}` })),
-    ]),
+  const searchSections = [...new Set(searchable.map((item) => item.sectionId))].map((id) => ({
+    id,
+    title: searchable.find((item) => item.sectionId === id)!.sectionLabel,
+    children: searchable.filter((item) => item.sectionId === id),
   }));
 
   let blocks: PanelBlock[];

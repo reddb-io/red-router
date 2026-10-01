@@ -1,8 +1,8 @@
 /**
  * The dashboard menu as the operator sees it, in three levels: an AREA on the side rail, the
  * ENTRIES of that area in the side panel, and the PAGES of an entry as tabs above the page.
- * Every page keeps its URL and its hideable id from `SIDEBAR_SECTIONS` (the page registry the
- * command palette, breadcrumbs and Settings → Sidebar still read); the menu only groups them.
+ * This is the canonical page manifest for the rail, search, titles, breadcrumbs and URL mapping.
+ * Stored hideable ids and previously shipped URLs remain compatibility contracts.
  *
  * Visibility: a tab with an `id` is hidden when that id is in `hiddenSidebarItems`; a tab without
  * one is part of its entry and is shown whenever the entry is. An entry is shown while at least
@@ -26,6 +26,7 @@ export type SidebarNavSectionId =
 export interface SidebarNavChild {
   id?: HideableSidebarItemId;
   href: string;
+  label?: string;
 }
 
 export interface SidebarNavTab {
@@ -113,8 +114,8 @@ export const SIDEBAR_NAV_SECTIONS: readonly SidebarNavSection[] = [
           tab("endpoints", "/dashboard/endpoint", "Endpoint", {
             // MCP and A2A are tabs inside the Endpoint page itself; their own routes keep it selected.
             children: [
-              { id: "mcp", href: "/dashboard/mcp" },
-              { id: "a2a", href: "/dashboard/a2a" },
+              { id: "mcp", href: "/dashboard/mcp", label: "MCP" },
+              { id: "a2a", href: "/dashboard/a2a", label: "A2A" },
             ],
           }),
           tab("api-manager", "/dashboard/api-manager", "API keys"),
@@ -166,16 +167,24 @@ export const SIDEBAR_NAV_SECTIONS: readonly SidebarNavSection[] = [
           tab("context-settings", "/dashboard/context/settings", "Overview"),
           tab(undefined, "/dashboard/context/engines", "Engines", {
             children: [
-              { id: "context-caveman", href: "/dashboard/context/caveman" },
-              { id: "context-rtk", href: "/dashboard/context/rtk" },
-              { id: "context-headroom", href: "/dashboard/context/headroom" },
-              { id: "context-session-dedup", href: "/dashboard/context/session-dedup" },
-              { id: "context-ccr", href: "/dashboard/context/ccr" },
-              { id: "context-llmlingua", href: "/dashboard/context/llmlingua" },
-              { id: "context-lite", href: "/dashboard/context/lite" },
-              { id: "context-aggressive", href: "/dashboard/context/aggressive" },
-              { id: "context-ultra", href: "/dashboard/context/ultra" },
-              { id: "context-omniglyph", href: "/dashboard/context/omniglyph" },
+              { id: "context-caveman", href: "/dashboard/context/caveman", label: "Caveman" },
+              { id: "context-rtk", href: "/dashboard/context/rtk", label: "RTK" },
+              { id: "context-headroom", href: "/dashboard/context/headroom", label: "Headroom" },
+              {
+                id: "context-session-dedup",
+                href: "/dashboard/context/session-dedup",
+                label: "Session dedup",
+              },
+              { id: "context-ccr", href: "/dashboard/context/ccr", label: "CCR" },
+              { id: "context-llmlingua", href: "/dashboard/context/llmlingua", label: "LLMLingua" },
+              { id: "context-lite", href: "/dashboard/context/lite", label: "Lite" },
+              {
+                id: "context-aggressive",
+                href: "/dashboard/context/aggressive",
+                label: "Aggressive",
+              },
+              { id: "context-ultra", href: "/dashboard/context/ultra", label: "Ultra" },
+              { id: "context-omniglyph", href: "/dashboard/context/omniglyph", label: "Omniglyph" },
             ],
           }),
           tab("context-combos", "/dashboard/context/combos", "Combos"),
@@ -559,7 +568,7 @@ export function allNavTabs(): SidebarNavTab[] {
         ...(candidate.children ?? []).map((child) => ({
           ...(child.id ? { id: child.id } : {}),
           href: child.href,
-          label: candidate.label,
+          label: child.label ?? candidate.label,
         })),
       ])
     )
@@ -575,4 +584,67 @@ export function splitNavTabs(
   const primary = tabs.filter((candidate) => !candidate.secondary);
   const more = tabs.filter((candidate) => candidate.secondary);
   return { primary, more };
+}
+
+export interface NavSearchItem {
+  id: string;
+  href: string;
+  label: string;
+  pageLabel: string;
+  icon: string;
+  external: boolean;
+  sectionId: SidebarNavSectionId;
+  sectionLabel: string;
+  entryId: string;
+  entryLabel: string;
+  hidden: boolean;
+}
+
+/** Search is a page index of this manifest, including pages hidden from the menu. */
+export function getNavSearchItems(
+  hidden: ReadonlySet<string> = new Set(),
+  flags: Record<string, boolean> = {},
+  extraTabs: Readonly<Record<string, readonly SidebarNavTab[]>> = {}
+): NavSearchItem[] {
+  return SIDEBAR_NAV_SECTIONS.flatMap((section) =>
+    section.entries.flatMap((entry) =>
+      [...entry.tabs, ...(extraTabs[entry.id] ?? [])].flatMap((page) => {
+        if (page.featureFlagKey && flags[page.featureFlagKey] === false) return [];
+        return [
+          page,
+          ...(page.children ?? []).map((child) => ({ ...child, label: child.label ?? page.label })),
+        ].map((candidate) => ({
+          id: candidate.id ?? areaUrl(candidate.href),
+          href: areaUrl(candidate.href),
+          label:
+            candidate.label === entry.label ? entry.label : `${entry.label} › ${candidate.label}`,
+          pageLabel: candidate.label,
+          icon: entry.icon,
+          external: page.external === true,
+          sectionId: section.id,
+          sectionLabel: section.title,
+          entryId: entry.id,
+          entryLabel: entry.label,
+          hidden: Boolean(candidate.id && hidden.has(candidate.id)),
+        }));
+      })
+    )
+  );
+}
+
+/** Titles match on segment boundaries and use the same page labels as search and tabs. */
+export function findNavPage(pathname: string): NavSearchItem | null {
+  const current = canonicalDashboardPath(pathname).split(/[?#]/)[0];
+  let best: NavSearchItem | null = null;
+  let bestLength = 0;
+  for (const item of getNavSearchItems()) {
+    if (item.external) continue;
+    const page = canonicalDashboardPath(item.href);
+    if (current !== page && !current.startsWith(`${page}/`)) continue;
+    if (page.length > bestLength) {
+      best = item;
+      bestLength = page.length;
+    }
+  }
+  return best;
 }

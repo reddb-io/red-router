@@ -26,12 +26,8 @@ import {
   OPENAI_COMPATIBLE_PREFIX,
   ANTHROPIC_COMPATIBLE_PREFIX,
 } from "@/shared/constants/providers";
-import {
-  SIDEBAR_SECTIONS,
-  getSectionItems,
-  type SidebarItemDefinition,
-  type HideableSidebarItemId,
-} from "@/shared/constants/sidebarVisibility";
+import type { HideableSidebarItemId } from "@/shared/constants/sidebarVisibility/types";
+import { findNavPage } from "@/shared/constants/sidebarNav";
 import { useIsElectron } from "@/shared/hooks/useElectron";
 
 const isE2EMode = process.env.NEXT_PUBLIC_OMNIROUTE_E2E_MODE === "1";
@@ -104,38 +100,6 @@ const HEADER_DESCRIPTIONS: Partial<Record<HideableSidebarItemId, string>> = {
   "1proxy": "oneProxyDescription",
 };
 
-// href → sidebar item lookup (non-external items only). The registry links to the area URLs
-// (`/proxy/providers`) while `usePageInfo` receives the page's `/dashboard/...` path, so the keys are
-// the canonical paths. Built on first use: the URL table reads the menu model, which must be loaded.
-let sidebarByHref: Map<string, SidebarItemDefinition> | null = null;
-
-function sidebarLookup(): Map<string, SidebarItemDefinition> {
-  if (sidebarByHref) return sidebarByHref;
-  sidebarByHref = new Map();
-  for (const section of SIDEBAR_SECTIONS) {
-    for (const item of getSectionItems(section)) {
-      if (!item.external) sidebarByHref.set(canonicalDashboardPath(item.href), item);
-    }
-  }
-  return sidebarByHref;
-}
-
-function getSidebarItem(pathname: string): SidebarItemDefinition | undefined {
-  const lookup = sidebarLookup();
-  const exact = lookup.get(pathname);
-  if (exact) return exact;
-  // Longest prefix match
-  let best: SidebarItemDefinition | undefined;
-  let bestLen = 0;
-  for (const [href, item] of lookup) {
-    if (pathname.startsWith(href) && href.length > bestLen) {
-      best = item;
-      bestLen = href.length;
-    }
-  }
-  return best;
-}
-
 type HeaderProps = {
   onMenuClick?: () => void;
   onOpenCommandPalette?: () => void;
@@ -150,7 +114,6 @@ type PageInfo = {
 };
 
 function usePageInfo(pathname: string | null): PageInfo {
-  const ts = useTranslations("sidebar");
   const th = useTranslations("header");
 
   if (!pathname) return { title: "", description: "" };
@@ -170,11 +133,11 @@ function usePageInfo(pathname: string | null): PageInfo {
   }
 
   // Derive from sidebar
-  const item = getSidebarItem(pathname);
+  const item = findNavPage(pathname);
   if (item) {
-    const descKey = HEADER_DESCRIPTIONS[item.id];
+    const descKey = HEADER_DESCRIPTIONS[item.id as HideableSidebarItemId];
     return {
-      title: ts(item.i18nKey),
+      title: item.label,
       description: descKey ? th(descKey) : "",
       icon: item.icon,
     };
@@ -227,6 +190,7 @@ export default function Header({
         {showMenuButton && (
           <button
             onClick={onMenuClick}
+            aria-label="Open navigation"
             className="text-text-main hover:text-primary transition-colors"
           >
             <Icon icon={navIcon("Menu")} size="lg" color="current" />

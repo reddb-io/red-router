@@ -14,6 +14,7 @@
 import { usePathname } from "next/navigation";
 import { areaUrl, canonicalDashboardPath } from "@/shared/constants/dashboardUrls";
 import Link from "next/link";
+import { findNavPage } from "@/shared/constants/sidebarNav";
 import { useTranslations } from "next-intl";
 
 const PATH_LABELS = {
@@ -125,11 +126,16 @@ export default function Breadcrumbs() {
   if (!pathname || pathname === "/dashboard") return null;
 
   const segments = pathname.split("/").filter(Boolean);
-  const crumbs = segments.map((seg, idx) => ({
-    label: getLabel(seg, t),
-    href: areaUrl("/" + segments.slice(0, idx + 1).join("/")),
-    isLast: idx === segments.length - 1,
-  }));
+  const crumbs = segments.map((seg, idx) => {
+    const prefix = "/" + segments.slice(0, idx + 1).join("/");
+    const page = findNavPage(prefix);
+    return {
+      label:
+        page && canonicalDashboardPath(page.href) === prefix ? page.pageLabel : getLabel(seg, t),
+      href: areaUrl(prefix),
+      isLast: idx === segments.length - 1,
+    };
+  });
 
   return (
     <nav

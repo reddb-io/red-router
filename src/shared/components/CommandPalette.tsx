@@ -6,22 +6,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { areaUrl } from "@/shared/constants/dashboardUrls";
 import { useTranslations } from "next-intl";
-import {
-  SIDEBAR_SECTIONS,
-  SIDEBAR_PRESET_KEY,
-  ESSENTIALS_ADVANCED_TOOL_IDS,
-  resolveHiddenSidebarItems,
-  resolveRuntimeSidebarSections,
-  type HideableSidebarItemId,
-  type SidebarItemDefinition,
-  type SidebarSectionChild,
-} from "@/shared/constants/sidebarVisibility";
-
-function isSidebarGroup(
-  child: SidebarSectionChild
-): child is Extract<SidebarSectionChild, { type: "group" }> {
-  return "type" in child && child.type === "group";
-}
+import { getNavSearchItems } from "@/shared/constants/sidebarNav";
+import { useNavVisibility } from "@/shared/hooks/useNavVisibility";
 
 interface CommandPaletteProps {
   isOpen: boolean;
@@ -65,98 +51,32 @@ function CommandPaletteDialog({ onClose }: { onClose: () => void }) {
   const listRef = useRef<HTMLUListElement>(null);
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
-  const [hiddenItems, setHiddenItems] = useState<Set<string>>(new Set());
-  const [activePreset, setActivePreset] = useState<string | null>(null);
-  const [radarAdminUrl, setRadarAdminUrl] = useState<unknown>(null);
-
-  useEffect(() => {
-    const ctrl = new AbortController();
-    fetch("/api/settings", { signal: ctrl.signal })
-      .then((res) => res.json())
-      .then((data) => {
-        setHiddenItems(new Set(resolveHiddenSidebarItems(data)));
-        setActivePreset(
-          typeof data?.[SIDEBAR_PRESET_KEY] === "string" ? data[SIDEBAR_PRESET_KEY] : null
-        );
-        setRadarAdminUrl(data?.radarAdminUrl ?? null);
-      })
-      .catch(() => {
-        // ignore aborts and fetch failures; palette still works with empty hidden set
-      });
-    return () => ctrl.abort();
-  }, []);
+  const { hidden, flags, radarAdmin } = useNavVisibility();
 
   useEffect(() => {
     const id = setTimeout(() => inputRef.current?.focus(), 30);
     return () => clearTimeout(id);
   }, []);
 
-  const safeTranslate = useCallback(
-    (key: string, fallback: string) => {
-      try {
-        if (typeof t.has === "function" && !t.has(key)) return fallback;
-        return t(key);
-      } catch {
-        return fallback;
-      }
-    },
-    [t]
-  );
-
   const allItems = useMemo<PaletteItem[]>(
     () =>
-      resolveRuntimeSidebarSections(SIDEBAR_SECTIONS, { radarAdminUrl }).flatMap((section) => {
-        const sectionLabel = safeTranslate(section.titleKey, section.titleFallback);
-        return section.children.flatMap<PaletteItem>((child) => {
-          if (isSidebarGroup(child)) {
-            const subgroupLabel = safeTranslate(child.titleKey, child.titleFallback);
-            return child.items
-              .filter((item) => {
-                if (!hiddenItems.has(item.id)) return true;
-                return (
-                  activePreset === "essentials" &&
-                  ESSENTIALS_ADVANCED_TOOL_IDS.has(item.id as HideableSidebarItemId)
-                );
-              })
-              .map<PaletteItem>((item) => ({
-                id: item.id,
-                href: item.href,
-                icon: item.icon,
-                label: safeTranslate(item.i18nKey, item.labelFallback ?? item.id),
-                subtitle: item.subtitleKey
-                  ? safeTranslate(item.subtitleKey, item.subtitleFallback ?? "")
-                  : item.subtitleFallback,
-                external: item.external ?? false,
-                sectionId: section.id,
-                sectionLabel,
-                subgroupId: child.id,
-                subgroupLabel,
-              }));
-          }
-          const item = child as SidebarItemDefinition;
-          if (hiddenItems.has(item.id)) {
-            const keepForEssentials =
-              activePreset === "essentials" &&
-              ESSENTIALS_ADVANCED_TOOL_IDS.has(item.id as HideableSidebarItemId);
-            if (!keepForEssentials) return [];
-          }
-          return [
-            {
-              id: item.id,
-              href: item.href,
-              icon: item.icon,
-              label: safeTranslate(item.i18nKey, item.labelFallback ?? item.id),
-              subtitle: item.subtitleKey
-                ? safeTranslate(item.subtitleKey, item.subtitleFallback ?? "")
-                : item.subtitleFallback,
-              external: item.external ?? false,
-              sectionId: section.id,
-              sectionLabel,
-            },
-          ];
-        });
-      }),
-    [hiddenItems, radarAdminUrl, safeTranslate, activePreset]
+      getNavSearchItems(
+        hidden,
+        flags,
+        radarAdmin
+          ? {
+              providers: [
+                { id: "radar-admin", href: radarAdmin, label: "Radar admin ↗", external: true },
+              ],
+            }
+          : {}
+      ).map((item) => ({
+        ...item,
+        subtitle: item.hidden ? "Hidden from menu" : undefined,
+        subgroupId: item.entryId,
+        subgroupLabel: item.entryLabel,
+      })),
+    [hidden, flags, radarAdmin]
   );
 
   const filtered = useMemo(() => {

@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import {
-  HIDDEN_SIDEBAR_ITEMS_SETTING_KEY,
   SIDEBAR_SETTINGS_UPDATED_EVENT,
   resolveHiddenSidebarItems,
 } from "@/shared/constants/sidebarVisibility";
@@ -21,32 +20,36 @@ export function useNavVisibility(): NavVisibility {
   const [visibility, setVisibility] = useState<NavVisibility>(EMPTY);
 
   useEffect(() => {
-    let cancelled = false;
-    fetch("/api/settings")
-      .then((res) => res.json())
+    const ctrl = new AbortController();
+    let settings: Record<string, unknown> = {};
+    const apply = (data: Record<string, unknown>) => {
+      settings = { ...settings, ...data };
+      setVisibility({
+        hidden: new Set(resolveHiddenSidebarItems(settings)),
+        flags:
+          typeof settings.radarEnabled === "boolean"
+            ? { RADAR_ENABLED: settings.radarEnabled }
+            : {},
+        radarAdmin: parseRadarAdminUrl(settings.radarAdminUrl ?? null),
+      });
+    };
+    fetch("/api/settings", { signal: ctrl.signal })
+      .then((res) => {
+        if (!res.ok) throw new Error("Settings unavailable");
+        return res.json();
+      })
       .then((data) => {
-        if (cancelled) return;
-        setVisibility({
-          hidden: new Set(resolveHiddenSidebarItems(data)),
-          flags:
-            typeof data?.radarEnabled === "boolean" ? { RADAR_ENABLED: data.radarEnabled } : {},
-          radarAdmin: parseRadarAdminUrl(data?.radarAdminUrl ?? null),
-        });
+        if (!ctrl.signal.aborted) apply({ ...data, ...settings });
       })
       .catch(() => {});
-
     const onUpdated = (event: Event) => {
-      const detail = (event as CustomEvent<Record<string, unknown>>).detail || {};
-      if (HIDDEN_SIDEBAR_ITEMS_SETTING_KEY in detail) {
-        setVisibility((prev) => ({
-          ...prev,
-          hidden: new Set(resolveHiddenSidebarItems(detail)),
-        }));
-      }
+      const detail = (event as CustomEvent<Record<string, unknown>>).detail;
+      if (!detail) return;
+      apply(detail);
     };
     window.addEventListener(SIDEBAR_SETTINGS_UPDATED_EVENT, onUpdated as EventListener);
     return () => {
-      cancelled = true;
+      ctrl.abort();
       window.removeEventListener(SIDEBAR_SETTINGS_UPDATED_EVENT, onUpdated as EventListener);
     };
   }, []);

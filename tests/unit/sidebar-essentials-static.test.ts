@@ -26,13 +26,13 @@ test("essentials preset is registered in sidebar visibility types and presets", 
   assert.match(schema, /"essentials"/);
 });
 
-test("command palette keeps essentials advanced tools searchable", () => {
+test("command palette derives searchable pages from the canonical manifest", () => {
   const source = fs.readFileSync(
     path.join(repoRoot, "src/shared/components/CommandPalette.tsx"),
     "utf8"
   );
-  assert.match(source, /ESSENTIALS_ADVANCED_TOOL_IDS/);
-  assert.match(source, /activePreset === "essentials"/);
+  assert.match(source, /getNavSearchItems/);
+  assert.match(source, /useNavVisibility/);
 });
 
 test("essentials i18n keys exist in en.json", () => {
