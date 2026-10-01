@@ -18,27 +18,30 @@ export interface CacheVerificationConnectionOption {
 export async function getCacheVerificationOptions(): Promise<CacheVerificationConnectionOption[]> {
   const connections = await getProviderConnections();
   const registry = getAllSystemOneModels();
-  return connections
-    .filter((connection) => connection.isActive !== false)
-    .map((connection) => {
-      let models = registry
-        .filter((model) => model.provider === connection.provider)
-        .map(({ id, name }) => ({ id, name }));
-      if (connection.provider === "red-router") {
-        try {
-          models = (readRemoteRouterCatalog(remoteRouterSnapshot(connection))?.models ?? [])
-            .filter(isRemoteDecisionModel)
-            .map((model) => ({ id: `red/${model.id}`, name: model.name || model.id }));
-        } catch {
-          models = [];
-        }
+  return connections.flatMap((connection) => {
+    const { id, provider, name } = connection;
+    if (
+      typeof id !== "string" ||
+      typeof provider !== "string" ||
+      connection.isActive === false ||
+      connection.isActive === 0
+    )
+      return [];
+    let models = registry
+      .filter((model) => model.provider === provider)
+      .map(({ id, name }) => ({ id, name }));
+    if (provider === "red-router") {
+      try {
+        models = (readRemoteRouterCatalog(remoteRouterSnapshot(connection))?.models ?? [])
+          .filter(isRemoteDecisionModel)
+          .map((model) => ({ id: `red/${model.id}`, name: model.name || model.id }));
+      } catch {
+        models = [];
       }
-      return {
-        id: connection.id,
-        name: connection.name || connection.provider,
-        provider: connection.provider,
-        models: models.filter((model) => resolveSystemOneTarget(model.id) !== null),
-      };
-    })
-    .filter((connection) => connection.models.length > 0);
+    }
+    models = models.filter((model) => resolveSystemOneTarget(model.id) !== null);
+    return models.length
+      ? [{ id, provider, name: typeof name === "string" && name ? name : provider, models }]
+      : [];
+  });
 }

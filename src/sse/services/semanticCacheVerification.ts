@@ -63,7 +63,8 @@ export async function verifySemanticCacheCandidate(
       const rawKey = extractApiKey({ headers });
       const stored = rawKey ? null : await deps.key(request.apiKeyId);
       const clientKey = rawKey || stored?.key;
-      if (!clientKey || !(await deps.valid(clientKey))) return unavailable;
+      if (typeof clientKey !== "string" || !clientKey || !(await deps.valid(clientKey)))
+        return unavailable;
       const metadata = await deps.metadata(clientKey);
       if (
         !metadata ||
