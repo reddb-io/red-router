@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.56.3
+
+### Patch Changes
+
+- Derive command navigation, sidebar search, page titles and breadcrumb labels from the same page manifest as the rail and URL mapping. Keep hidden pages searchable, honor feature flags consistently, label engine detail pages, preserve stored pins, and synchronize live settings without stale responses undoing changes.
+- Select System One evaluators from a connection-specific decision catalog and pin evaluation to that connection. Separate Setup configuration checks from optional billed inference, validate the selected key's tenant/model access, preserve nonsecret setup progress, and correct the API key management link.
+- Expose Setup, Models and Access in Essentials, safely upgrade the original saved preset and retain customized visibility after failed saves. Hand off dashboard security onboarding to the shared Setup workflow, preserve bootstrap failure handling, and suppress first-request guidance when retained usage proves the instance has already served requests.
+- Reconcile recorded monthly usage across Keys, Cost Overview and tenant reports using one UTC window and preserved event ownership. Separate unknown amounts from recorded zero, label current-price explorer estimates honestly, and explain retention and ledger coverage limits.
+- Verify the npm-installed CLI serves requests and reports the exact published version through authenticated HTTP before creating the GitHub Release, in addition to the existing artifact integrity and installation checks.
+- Make encrypted CLI backups portable and restorable, verify complete bundles before pausing the managed service, and retain recovery snapshots for rollback. Require awaited snapshots for database imports and restores, serialize replacement operations, and bound upload streams.
+  
+  Share connection selection, remote decision catalog validation, per-key proxy resolution, budget admission, usage and cost accounting, and connection cooldowns between public System One requests and internal JEV evaluations. Never repeat a completed evaluation because local accounting failed.
+
 ## 0.56.2
 
 ### Patch Changes
