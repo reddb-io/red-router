@@ -1,11 +1,47 @@
 "use client";
 
-import { ArchiveRestore, ArrowRight, Banknote, Braces, Cable, CalendarX, ChartNoAxesCombined, Check, CircleAlert, CircleCheck, CircleDollarSign, Clock, EyeOff, Gauge, Gavel, HandCoins, KeyRound, Landmark, Lock, LockOpen, MonitorSmartphone, Network, Plus, RefreshCw, SearchX, ShieldUser, SlidersHorizontal, Sparkles, Split, Terminal, Trash2, Users, X } from "lucide-react";
+import {
+  ArchiveRestore,
+  ArrowRight,
+  Banknote,
+  Braces,
+  Cable,
+  CalendarX,
+  ChartNoAxesCombined,
+  Check,
+  CircleAlert,
+  CircleCheck,
+  CircleDollarSign,
+  Clock,
+  EyeOff,
+  Gauge,
+  Gavel,
+  HandCoins,
+  KeyRound,
+  Landmark,
+  Lock,
+  LockOpen,
+  MonitorSmartphone,
+  Network,
+  Plus,
+  RefreshCw,
+  SearchX,
+  ShieldUser,
+  SlidersHorizontal,
+  Sparkles,
+  Split,
+  Terminal,
+  Trash2,
+  Users,
+  X,
+} from "lucide-react";
+import { useMonthlyCostReport } from "@/shared/hooks/useMonthlyCostReport";
+import { MonthlyUsageReportView, recordedMoney } from "@/shared/components/MonthlyUsageReport";
 import Icon from "@/shared/components/Icon";
 import { useState, useEffect, useMemo, useCallback, memo, useRef, useId } from "react";
 import { Card, Button, Input, Modal, CardSkeleton } from "@/shared/components";
 import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
-import { useLocale, useTranslations } from "next-intl";
+import { useTranslations } from "next-intl";
 import { getProviderDisplayName } from "@/lib/display/names";
 import { compareTr, matchesSearch } from "@/shared/utils/turkishText";
 import { ENDPOINT_CATEGORIES } from "@/shared/constants/endpointCategories";
@@ -18,7 +54,6 @@ import {
   classifyKeyStatus,
   computeApiKeyCounts,
   formatProviderModelPermissionSummary,
-  formatUsdCost,
   restoreProviderScopeSelection,
   toLocalDateTimeInputValue,
   toggleKeyVisibility,
@@ -156,12 +191,6 @@ interface ApiKey {
   createdAt: string;
 }
 
-interface KeyUsageStats {
-  totalRequests: number;
-  totalCost: number;
-  lastUsed: string | null;
-}
-
 interface Model {
   id: string;
   owned_by: string;
@@ -215,7 +244,6 @@ function isClaudeCodeFamilyModel(modelId: string, familyId: ClaudeCodeBlockableF
 export default function ApiManagerPageClient() {
   const t = useTranslations("apiManager");
   const tc = useTranslations("common");
-  const locale = useLocale();
   const newKeyNameInputId = useId();
   const createKeyFormRef = useRef<HTMLDivElement | null>(null);
   const [keys, setKeys] = useState<ApiKey[]>([]);
@@ -238,7 +266,30 @@ export default function ApiManagerPageClient() {
   const [nameError, setNameError] = useState<string | null>(null);
   const [createError, setCreateError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [usageStats, setUsageStats] = useState<Record<string, KeyUsageStats>>({});
+  const [usageMonth, setUsageMonth] = useState(new Date().toISOString().slice(0, 7));
+  const monthlyUsage = useMonthlyCostReport(usageMonth);
+  const usageStats = useMemo(() => {
+    const stats: Record<
+      string,
+      { totalRequests: number; totalCost: number | null; lastUsed: string | null }
+    > = {};
+    for (const row of monthlyUsage.report?.keys ?? []) {
+      if (!row.apiKeyId) continue;
+      const previous = stats[row.apiKeyId] ?? { totalRequests: 0, totalCost: null, lastUsed: null };
+      stats[row.apiKeyId] = {
+        totalRequests: previous.totalRequests + row.requests,
+        totalCost:
+          row.recordedCostUsd === null
+            ? previous.totalCost
+            : (previous.totalCost ?? 0) + row.recordedCostUsd,
+        lastUsed:
+          row.lastUsed && (!previous.lastUsed || row.lastUsed > previous.lastUsed)
+            ? row.lastUsed
+            : previous.lastUsed,
+      };
+    }
+    return stats;
+  }, [monthlyUsage.report]);
   const [sessionCounts, setSessionCounts] = useState<Record<string, number>>({});
   const [deviceCounts, setDeviceCounts] = useState<Record<string, number>>({});
   const [allowKeyReveal, setAllowKeyReveal] = useState(false);
@@ -426,53 +477,6 @@ export default function ApiManagerPageClient() {
     }
   };
 
-  const fetchUsageStats = async (apiKeys: ApiKey[]) => {
-    if (apiKeys.length === 0) return;
-    try {
-      // Fetch analytics (accurate aggregated counts) and recent call-logs
-      // (for lastUsed timestamps) in parallel.
-      // The previous approach matched call-logs by key.id === log.apiKeyId,
-      // but these use different ID schemes and never matched, yielding 0.
-      const [analyticsRes, logsRes] = await Promise.all([
-        fetch("/api/usage/analytics?range=all"),
-        fetch("/api/usage/call-logs?limit=1000"),
-      ]);
-      const analytics = analyticsRes.ok ? await analyticsRes.json() : null;
-      const byApiKey: any[] = analytics?.byApiKey || [];
-      const logs = logsRes.ok ? await logsRes.json() : [];
-      const stats: Record<string, KeyUsageStats> = {};
-      for (const key of apiKeys) {
-        // Match analytics entry by unique API Key ID (isolates usage to this specific key instance)
-        const matches = byApiKey.filter((entry: any) => entry.apiKeyId === key.id);
-        const totalRequests = matches.reduce(
-          (sum: number, entry: any) => sum + (Number(entry.requests) || 0),
-          0
-        );
-        const totalCost = matches.reduce((sum: number, entry: any) => {
-          const cost = Number(entry.cost);
-          return sum + (Number.isFinite(cost) ? cost : 0);
-        }, 0);
-
-        // Match call logs by unique ID as well for the lastUsed timestamp
-        // Prefer an exact apiKeyId match; fall back to name match for legacy
-        // logs that predate per-key IDs (apiKeyId absent).
-        const lastUsed =
-          (logs || []).find(
-            (log: any) => log.apiKeyId === key.id || (!log.apiKeyId && log.apiKeyName === key.name)
-          )?.timestamp || null;
-
-        stats[key.id] = {
-          totalRequests,
-          totalCost,
-          lastUsed,
-        };
-      }
-      setUsageStats(stats);
-    } catch (e) {
-      console.log("Error fetching usage stats:", e);
-    }
-  };
-
   const fetchSessionCounts = async (apiKeys: ApiKey[]) => {
     if (apiKeys.length === 0) {
       setSessionCounts({});
@@ -537,8 +541,7 @@ export default function ApiManagerPageClient() {
         const data = await res.json();
         setKeys(data.keys || []);
         setAllowKeyReveal(data.allowKeyReveal === true);
-        // Fetch usage stats after keys are loaded
-        fetchUsageStats(data.keys || []);
+        monthlyUsage.reload();
         fetchSessionCounts(data.keys || []);
         fetchDeviceCounts(data.keys || []);
       }
@@ -688,6 +691,7 @@ export default function ApiManagerPageClient() {
       const res = await fetch(`/api/keys/${encodeURIComponent(id)}`, { method: "DELETE" });
       if (res.ok) {
         setKeys((prev) => prev.filter((k) => k.id !== id));
+        monthlyUsage.reload();
         // Clean up any cached reveal/visibility state for this key.
         setRevealedKeys((prev) => {
           if (!prev.has(id)) return prev;
@@ -1011,6 +1015,12 @@ export default function ApiManagerPageClient() {
       </div>
 
       <RoutingEntryLink />
+      <MonthlyUsageReportView
+        month={usageMonth}
+        onMonthChange={setUsageMonth}
+        {...monthlyUsage}
+        onRetry={monthlyUsage.reload}
+      />
 
       {/* Filter Bar — shown when there are keys */}
       {keys.length > 0 && (
@@ -1310,8 +1320,7 @@ export default function ApiManagerPageClient() {
                       )}
                       {hasThrottle && (
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-yellow-500/10 text-yellow-700 dark:text-yellow-300 text-[11px] font-medium">
-                          <Icon icon={Gauge} size="sm" color="current" />+
-                          {throttleDelayMs}ms
+                          <Icon icon={Gauge} size="sm" color="current" />+{throttleDelayMs}ms
                         </span>
                       )}
                       {hasManageScope && (
@@ -1348,12 +1357,16 @@ export default function ApiManagerPageClient() {
                   </div>
                   <div className="col-span-2 flex flex-col justify-center">
                     <span className="text-sm font-medium tabular-nums">
-                      {stats?.totalRequests ?? 0}{" "}
+                      {monthlyUsage.loading
+                        ? "Loading…"
+                        : monthlyUsage.error
+                          ? "Unavailable"
+                          : (stats?.totalRequests ?? 0)}{" "}
                       <span className="text-text-muted font-normal text-xs">{t("reqs")}</span>
                     </span>
                     {(stats?.totalRequests ?? 0) > 0 && (
                       <span className="text-[10px] text-emerald-600 dark:text-emerald-400 tabular-nums">
-                        {formatUsdCost(stats?.totalCost ?? 0, locale)}
+                        {recordedMoney(stats?.totalCost ?? null)}
                       </span>
                     )}
                     {stats?.lastUsed ? (
@@ -1361,7 +1374,13 @@ export default function ApiManagerPageClient() {
                         {t("lastUsedOn", { date: new Date(stats.lastUsed).toLocaleDateString() })}
                       </span>
                     ) : (
-                      <span className="text-[10px] text-text-muted italic">{t("neverUsed")}</span>
+                      <span className="text-[10px] text-text-muted italic">
+                        {monthlyUsage.loading
+                          ? "Loading monthly usage…"
+                          : monthlyUsage.error
+                            ? "Monthly usage unavailable"
+                            : "No retained requests this month"}
+                      </span>
                     )}
                   </div>
                   <div className="col-span-1 flex items-center text-sm text-text-muted">
@@ -1369,7 +1388,7 @@ export default function ApiManagerPageClient() {
                   </div>
                   <div className="col-span-2 flex items-center justify-end gap-1">
                     <a
-                      href={`/observe/costs?range=all&apiKeyIds=${encodeURIComponent(key.id)}&groupBy=model`}
+                      href={`/observe/costs?month=${encodeURIComponent(usageMonth)}&apiKeyIds=${encodeURIComponent(key.id)}&groupBy=model`}
                       className="p-2 hover:bg-emerald-500/10 rounded text-text-muted hover:text-emerald-500 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-all"
                       title={`View costs for ${key.name}`}
                       aria-label={`View costs for ${key.name}`}
@@ -1631,7 +1650,12 @@ export default function ApiManagerPageClient() {
         <div className="flex flex-col gap-4">
           <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4">
             <div className="flex items-start gap-3">
-              <Icon icon={CircleCheck} size="lg" color="feedback-success-foreground" className="dark:text-green-400" />
+              <Icon
+                icon={CircleCheck}
+                size="lg"
+                color="feedback-success-foreground"
+                className="dark:text-green-400"
+              />
               <div>
                 <p className="text-sm text-green-800 dark:text-green-200 font-medium mb-1">
                   {t("keyCreatedSuccess")}
@@ -3033,9 +3057,7 @@ const PermissionsModal = memo(function PermissionsModal({
                         isSelected ? "bg-primary border-primary" : "border-border"
                       }`}
                     >
-                      {isSelected && (
-                        <Icon icon={Check} size="sm" color="foreground" />
-                      )}
+                      {isSelected && <Icon icon={Check} size="sm" color="foreground" />}
                     </div>
                     <span className="truncate flex-1">{cat.label}</span>
                     <span className="text-[10px] text-text-muted shrink-0 truncate max-w-[140px]">

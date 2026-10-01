@@ -56,17 +56,19 @@ beforeEach(() => {
     if (url === "/api/tenants")
       return Response.json({ tenants: [{ id: "a", name: "Acme", slug: "acme", disabled: false }] });
     if (url.endsWith("/profile")) return Response.json({ profile: body ?? profile });
-    if (url.includes("/usage?"))
+    if (url.includes("/api/usage/monthly-report?"))
       return Response.json({
-        usage: {
+        report: {
           month: "2026-09",
+          since: "2026-09-01T00:00:00.000Z",
+          until: "2026-10-01T00:00:00.000Z",
           total: {
             requests: 0,
             errors: 0,
             inputTokens: 0,
             outputTokens: 0,
             recordedCostUsd: 0,
-            pricedRequests: 0,
+            ledgerEntries: 0,
           },
           keys: [],
           coverage: "Retained history only.",

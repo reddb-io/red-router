@@ -3,13 +3,8 @@
 import { useEffect, useState } from "react";
 import { Button, Input, Loading, Select } from "@/shared/components";
 import type { TenantProfile } from "@/lib/db/tenantProfiles";
-import type { getTenantMonthlyUsage } from "@/lib/db/tenantUsage";
+import MonthlyUsageReport from "@/shared/components/MonthlyUsageReport";
 import { errorText, JSON_HEADERS, type TenantUserRow } from "./tenantsTypes";
-
-type Usage = ReturnType<typeof getTenantMonthlyUsage>;
-const number = (value: number) => value.toLocaleString("en-US");
-const money = (value: number) =>
-  value.toLocaleString("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 4 });
 
 export default function TenantAccess({
   tenantId,
@@ -20,11 +15,7 @@ export default function TenantAccess({
 }) {
   const [profile, setProfile] = useState<TenantProfile | null>(null);
   const [fields, setFields] = useState<{ name: string; value: string }[]>([]);
-  const [month, setMonth] = useState(new Date().toISOString().slice(0, 7));
-  const [usage, setUsage] = useState<Usage | null>(null);
-  const [usageLoading, setUsageLoading] = useState(true);
   const [profileError, setProfileError] = useState("");
-  const [usageError, setUsageError] = useState("");
   const [notice, setNotice] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -51,27 +42,6 @@ export default function TenantAccess({
     })();
     return () => abort.abort();
   }, [tenantId]);
-
-  useEffect(() => {
-    const abort = new AbortController();
-    void (async () => {
-      try {
-        const res = await fetch(
-          `/api/tenants/${tenantId}/usage?month=${encodeURIComponent(month)}`,
-          { signal: abort.signal }
-        );
-        const data = await res.json();
-        if (!res.ok) throw new Error(errorText(data, "Unable to load monthly usage."));
-        setUsage(data.usage);
-      } catch (error) {
-        if (!abort.signal.aborted)
-          setUsageError(error instanceof Error ? error.message : "Unable to load monthly usage.");
-      } finally {
-        if (!abort.signal.aborted) setUsageLoading(false);
-      }
-    })();
-    return () => abort.abort();
-  }, [tenantId, month]);
 
   const save = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -231,113 +201,9 @@ export default function TenantAccess({
           </form>
         )}
       </section>
-      <section
-        className="flex flex-col gap-3 border-t border-border pt-6"
-        aria-labelledby="tenant-usage-title"
-      >
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <h4 id="tenant-usage-title" className="text-sm font-medium text-text-main">
-            Monthly API usage
-          </h4>
-          <Input
-            label="Month (UTC)"
-            type="month"
-            value={month}
-            min="2000-01"
-            max="9998-12"
-            onChange={(event) => {
-              setMonth(event.target.value);
-              setUsageLoading(true);
-              setUsageError("");
-            }}
-          />
-        </div>
-        {usageError && (
-          <p role="alert" className="text-xs text-feedback-danger-foreground">
-            {usageError}
-          </p>
-        )}
-        {usageLoading ? (
-          <Loading />
-        ) : !usageError && usage ? (
-          <>
-            <div className="overflow-x-auto rounded-md border border-border">
-              <table className="w-full text-left text-xs">
-                <caption className="sr-only">API usage by key for {month}, UTC</caption>
-                <thead>
-                  <tr className="border-b border-border text-text-muted">
-                    {[
-                      "API key",
-                      "Requests",
-                      "Errors",
-                      "Input tokens",
-                      "Output tokens",
-                      "Recorded cost",
-                      "Priced entries",
-                    ].map((label) => (
-                      <th key={label} className="px-3 py-2 font-medium">
-                        {label}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {usage.keys.map((row) => (
-                    <tr
-                      key={row.apiKeyId ?? "unkeyed"}
-                      className="border-b border-border last:border-0 text-text-main"
-                    >
-                      <td className="px-3 py-2">
-                        <span>{row.name}</span>
-                        {!row.current && row.apiKeyId && (
-                          <span className="block text-text-muted">Historical key</span>
-                        )}
-                      </td>
-                      {[
-                        number(row.requests),
-                        number(row.errors),
-                        number(row.inputTokens),
-                        number(row.outputTokens),
-                        row.pricedRequests > 0 ? money(row.recordedCostUsd) : "Not recorded",
-                        number(row.pricedRequests),
-                      ].map((value, index) => (
-                        <td key={index} className="px-3 py-2 tabular-nums">
-                          {value}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-                <tfoot>
-                  <tr className="border-t border-border font-medium text-text-main">
-                    <th className="px-3 py-2">Tenant total</th>
-                    {[
-                      number(usage.total.requests),
-                      number(usage.total.errors),
-                      number(usage.total.inputTokens),
-                      number(usage.total.outputTokens),
-                      usage.total.pricedRequests > 0
-                        ? money(usage.total.recordedCostUsd)
-                        : "Not recorded",
-                      number(usage.total.pricedRequests),
-                    ].map((value, index) => (
-                      <td key={index} className="px-3 py-2 tabular-nums">
-                        {value}
-                      </td>
-                    ))}
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-            {usage.total.requests === 0 && (
-              <p className="text-xs text-text-muted">No retained requests for this month.</p>
-            )}
-            <p className="max-w-2xl text-xs text-text-muted">
-              {usage.coverage} Recorded cost is the available priced usage, not an invoice.
-            </p>
-          </>
-        ) : null}
-      </section>
+      <div className="border-t border-border pt-6">
+        <MonthlyUsageReport tenantId={tenantId} />
+      </div>
     </>
   );
 }

@@ -1,5 +1,7 @@
 "use client";
 
+import MonthlyUsageReport from "@/shared/components/MonthlyUsageReport";
+
 import { ArrowRightLeft, Compass, Download, Flame, Info, Search, TrendingUp } from "lucide-react";
 import Icon from "@/shared/components/Icon";
 import { useEffect, useMemo, useState } from "react";
@@ -126,7 +128,7 @@ interface UsageAnalyticsPayload {
   presetSummaries?: Record<string, { totalCost: number }>;
   // The API reports whether the returned cost figures include token-price
   // equivalents for flat-rate subscriptions (route.ts). Billed-cost mode omits
-  // it, so treat anything but an explicit `true` as billed money.
+  // it; both modes remain estimates, not invoices.
   includesFlatRateEstimates?: boolean;
 }
 
@@ -531,7 +533,7 @@ export default function CostOverviewTab() {
                   onClick={() => {
                     const csv = generateCSV(analytics, locale);
                     const dateStr = new Date().toISOString().slice(0, 10);
-                    downloadFile(csv, `omniroute-costs-${range}-${dateStr}.csv`, "text/csv");
+                    downloadFile(csv, `redrouter-costs-${range}-${dateStr}.csv`, "text/csv");
                   }}
                   className="flex items-center gap-1 px-2.5 py-1.5 text-xs text-text-muted hover:text-text-main hover:bg-surface/50 rounded-lg border border-border/30 transition-colors"
                   title={t("exportCSV")}
@@ -545,7 +547,7 @@ export default function CostOverviewTab() {
                     const dateStr = new Date().toISOString().slice(0, 10);
                     downloadFile(
                       json,
-                      `omniroute-costs-${range}-${dateStr}.json`,
+                      `redrouter-costs-${range}-${dateStr}.json`,
                       "application/json"
                     );
                   }}
@@ -569,6 +571,19 @@ export default function CostOverviewTab() {
         </div>
       </Card>
 
+      <div className="border-b border-border pb-6">
+        <MonthlyUsageReport
+          key={`${apiKeyFilter}:${searchParams.get("month") ?? ""}`}
+          apiKeyIds={selectedApiKeyIds}
+          initialMonth={searchParams.get("month")}
+        />
+      </div>
+      <p className="text-sm text-text-muted">
+        The explorer below uses current token prices and older stored summaries for its selected
+        rolling window. Its estimates can differ from the calendar-month amounts recorded above.
+        Models without a price contribute no estimate, so totals can be incomplete. Neither source
+        is a provider invoice.
+      </p>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <MetricCard
           label={t("spendToday")}
@@ -1040,7 +1055,12 @@ function CostExplorerCard({
             onChange={(value) => onGroupByChange(value as CostExplorerGroupBy)}
           />
           <label className="relative block min-w-55">
-            <Icon icon={Search} size="sm" color="ink-muted" className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2" />
+            <Icon
+              icon={Search}
+              size="sm"
+              color="ink-muted"
+              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2"
+            />
             <input
               value={searchQuery}
               onChange={(event) => onSearchChange(event.target.value)}
