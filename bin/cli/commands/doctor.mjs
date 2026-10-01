@@ -697,6 +697,7 @@ export async function checkServiceReadiness(options = {}, dependencies = {}) {
   versionUrl.hash = "";
   const version = await (dependencies.probe ?? probeRunningVersion)({
     url: versionUrl.toString(),
+    dataDir: status.dataDir,
     timeoutMs: 2000,
   });
   checks.push(

@@ -15,7 +15,10 @@ import { checkServiceReadiness } from "../../../bin/cli/commands/doctor.mjs";
 test("an upgrade restarts the active server and preserves its bind configuration", async () => {
   const dir = mkdtempSync(join(tmpdir(), "rr-service-upgrade-"));
   const paths = { ...servicePaths(dir), linux: join(dir, "router.service") };
-  writeFileSync(paths.linux, buildSystemdUnit({ port: 25123, host: "0.0.0.0" }));
+  writeFileSync(
+    paths.linux,
+    buildSystemdUnit({ port: 25123, host: "0.0.0.0", dataDir: join(dir, "custom data") })
+  );
   const calls = [];
   try {
     const result = await installService({

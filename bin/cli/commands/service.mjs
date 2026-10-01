@@ -42,7 +42,7 @@ export function registerService(program) {
     .description("Show the RedRouter service state")
     .action(async (options, command) => {
       const result = serviceStatus();
-      result.version = await probeRunningVersion({ port: result.port });
+      result.version = await probeRunningVersion({ port: result.port, dataDir: result.dataDir });
       emit(result, command.optsWithGlobals());
       if (!result.ok) process.exitCode = 1;
     });

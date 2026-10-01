@@ -121,3 +121,14 @@ export async function getCliToken() {
   _cachedSalt = salt;
   return _cached;
 }
+
+/** Read-only service diagnostic for an explicitly configured data directory. */
+export async function getCliTokenForDataDir(dataDir) {
+  const salt = process.env.OMNIROUTE_CLI_SALT || readPersistedSalt(saltFilePath(dataDir));
+  if (!salt) return "";
+  try {
+    return deriveCliToken(await import("node-machine-id"), salt);
+  } catch {
+    return "";
+  }
+}

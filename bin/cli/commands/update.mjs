@@ -141,7 +141,8 @@ export async function detectInstallationChannel(
   try {
     current = realpathSync(packageRoot);
   } catch {
-    return null;
+    if (!afterUpdate) return null;
+    current = path.resolve(packageRoot);
   }
   try {
     const { stdout } = await execFn("mise", ["where", `npm:${PACKAGE_NAME}`], {

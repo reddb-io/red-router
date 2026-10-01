@@ -5,7 +5,7 @@ import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { setTimeout as delay } from "node:timers/promises";
 import { isLoopbackUrl } from "./api.mjs";
-import { getCliToken, CLI_TOKEN_HEADER } from "./utils/cliToken.mjs";
+import { getCliToken, getCliTokenForDataDir, CLI_TOKEN_HEADER } from "./utils/cliToken.mjs";
 
 import { resolveDataDir } from "./data-dir.mjs";
 import { DEFAULT_HOST, DEFAULT_PORT } from "./product.mjs";
@@ -107,7 +107,7 @@ export function startManagedTray({ port = DEFAULT_PORT } = {}) {
     unitPath: paths.linuxTrayUnit,
     nodePath: resolveServiceNodePath(),
     cliPath: resolveCliPath(),
-    dataDir: resolveDataDir(),
+    dataDir: readServiceConfiguration(paths.linux)?.dataDir ?? resolveDataDir(),
     port,
   });
 }
@@ -218,6 +218,7 @@ export async function installService({
   const saved = readServiceConfiguration(paths.linux);
   port ??= saved?.port ?? DEFAULT_PORT;
   host ??= saved?.host ?? DEFAULT_HOST;
+  const dataDir = env.DATA_DIR || saved?.dataDir || resolveDataDir();
   if (platform === "linux") {
     let wasActive = false;
     try {
@@ -227,18 +228,18 @@ export async function installService({
       // A fresh install has no active unit.
     }
     mkdirSync(dirname(paths.linux), { recursive: true });
-    writeFileSync(paths.linux, buildSystemdUnit({ port, host }), { mode: 0o644 });
+    writeFileSync(paths.linux, buildSystemdUnit({ port, host, dataDir }), { mode: 0o644 });
     runCommand("systemctl", ["--user", "daemon-reload"]);
     runCommand("systemctl", ["--user", "enable", LINUX_SERVICE_NAME]);
     runCommand("systemctl", ["--user", wasActive ? "restart" : "start", LINUX_SERVICE_NAME]);
-    const version = await probe({ port });
+    const version = await probe({ port, dataDir });
     let tray;
     try {
       tray = installTray({
         unitPath: paths.linuxTrayUnit,
         nodePath: resolveServiceNodePath(),
         cliPath: resolveCliPath(),
-        dataDir: resolveDataDir(),
+        dataDir,
         port,
         env,
         version: installedServiceVersion(),
@@ -346,6 +347,7 @@ export function serviceStatus({
       state,
       path: paths.linux,
       port: readServiceConfiguration(paths.linux)?.port ?? DEFAULT_PORT,
+      dataDir: readServiceConfiguration(paths.linux)?.dataDir ?? resolveDataDir(),
       tray: trayStatus({ unitPath: paths.linuxTrayUnit }),
     };
   }
@@ -381,7 +383,8 @@ export async function probeRunningVersion({
   url = `http://127.0.0.1:${port}/api/monitoring/health`,
   expectedVersion = installedServiceVersion(),
   fetchImpl = fetch,
-  tokenProvider = getCliToken,
+  dataDir,
+  tokenProvider = dataDir ? () => getCliTokenForDataDir(dataDir) : getCliToken,
   timeoutMs = 10_000,
 } = {}) {
   const result = {
@@ -438,7 +441,11 @@ export function readServiceConfiguration(unitPath = servicePaths().linux) {
     if (!text.includes("Description=RedRouter AI routing gateway")) return null;
     const port = Number(/^Environment="RED_ROUTER_PORT=(\d+)"$/m.exec(text)?.[1]);
     const host = /^Environment="RED_ROUTER_SERVER_HOST=([a-zA-Z0-9.:[\]-]+)"$/m.exec(text)?.[1];
-    return port > 0 && port <= 65535 && host ? { port, host } : null;
+    const encodedDataDir = /^Environment=("DATA_DIR=.+")$/m.exec(text)?.[1];
+    const dataDir = encodedDataDir
+      ? JSON.parse(encodedDataDir).replaceAll("%%", "%").slice("DATA_DIR=".length)
+      : undefined;
+    return port > 0 && port <= 65535 && host ? { port, host, dataDir } : null;
   } catch {
     return null;
   }
