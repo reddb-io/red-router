@@ -37,7 +37,9 @@ import {
 } from "@/lib/db/costLedger";
 import { logger } from "@/shared/utils/logger";
 
-setCostLedgerBudgetRecovery(recordBudgetSpend);
+setCostLedgerBudgetRecovery((input) =>
+  recordBudgetSpend({ ...input, provider: input.provider ?? null })
+);
 const pendingCostEvents = new Set<string>();
 
 export { getBudgetWindow };

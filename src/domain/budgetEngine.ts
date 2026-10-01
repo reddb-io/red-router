@@ -352,7 +352,7 @@ function violationsOf(
 
 /** Whether a request from this key to this provider may proceed under the assigned budgets. */
 export function checkBudgets(input: BudgetCheckInput, now = Date.now()): BudgetCheckResult {
-  const { keyId } = input;
+  const { keyId, provider } = input;
   if (!keyId) return OK;
   try {
     syncExhausted();
