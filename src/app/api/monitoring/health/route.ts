@@ -339,6 +339,7 @@ async function rebuildHealthPayload(): Promise<unknown> {
     costAccounting: readHealthValue("cost accounting", () => getCostLedgerHealth(), {
       status: "unavailable",
       pendingEvents: null,
+      unpersistedEvents: null,
       failedWrites: null,
     }),
   };
