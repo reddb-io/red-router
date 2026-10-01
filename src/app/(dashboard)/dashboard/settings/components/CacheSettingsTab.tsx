@@ -191,11 +191,15 @@ export default function CacheSettingsTab() {
   const [clearingCache, setClearingCache] = useState(false);
   const [clearMessage, setClearMessage] = useState<string | null>(null);
 
+  const retryConfigLoad = () => {
+    setCatalogLoading(true);
+    setConfigLoaded(false);
+    setLoadAttempt((attempt) => attempt + 1);
+  };
+
   // Load Cache Config and Dynamic Options in a single request
   useEffect(() => {
     let active = true;
-    setCatalogLoading(true);
-    setConfigLoaded(false);
 
     fetch("/api/settings/cache-config")
       .then((response) => {
@@ -505,11 +509,7 @@ export default function CacheSettingsTab() {
           {!catalogLoading && !configLoaded && (
             <div role="alert" className="text-sm text-red-600">
               Cache settings could not be loaded. Your saved configuration has not changed.
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => setLoadAttempt((attempt) => attempt + 1)}
-              >
+              <Button size="sm" variant="outline" onClick={retryConfigLoad}>
                 Retry loading settings
               </Button>
             </div>

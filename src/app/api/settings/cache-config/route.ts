@@ -152,7 +152,7 @@ export async function PUT(request: NextRequest) {
 
     const validation = validateBody(cacheConfigUpdateSchema, rawBody);
     if (isValidationFailure(validation)) {
-      return validation.response;
+      return NextResponse.json({ error: validation.error }, { status: 400 });
     }
 
     const updates: Partial<UserDatabaseSettings["cache"]> = {};
