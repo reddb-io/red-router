@@ -76,6 +76,18 @@ const options = {
   attribution: { tags: ["team"], endUser: "user", sessionId: "session" },
 };
 
+test("an empty evaluated connection intersection denies S1 without widening access", async () => {
+  const { dependencies, events } = setup();
+  const result = await dispatchSystemOne(
+    target,
+    body,
+    { ...options, allowedConnections: [] },
+    dependencies
+  );
+  assert.equal(result.response.status, 403);
+  assert.deepEqual(events, []);
+});
+
 test("S1 budget refusal prevents credential acquisition and upstream inference", async () => {
   const { dependencies, events } = setup({
     budget: async () => new Response("blocked", { status: 429 }),

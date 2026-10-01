@@ -92,7 +92,9 @@ export async function handleSystemOne(request: Request): Promise<Response> {
   if (policy.rejection) return policy.rejection;
 
   const requestedConnectionId = request.headers.get("x-connection-id");
-  const allowedConnections = policy.apiKeyInfo?.allowedConnections ?? null;
+  // Stored key policy uses [] for unrestricted access; the dispatcher uses [] for a denied intersection.
+  const keyConnections = policy.apiKeyInfo?.allowedConnections;
+  const allowedConnections = keyConnections?.length ? keyConnections : null;
   if (
     requestedConnectionId &&
     allowedConnections?.length &&
