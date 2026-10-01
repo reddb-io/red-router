@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createCipheriv, scryptSync } from "node:crypto";
 import fs from "node:fs/promises";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -72,6 +73,21 @@ test("encrypted recovery includes the effective storage key and restores with pr
     if (originalKey === undefined) delete process.env.STORAGE_ENCRYPTION_KEY;
     else process.env.STORAGE_ENCRYPTION_KEY = originalKey;
   }
+});
+
+test("legacy v1 encrypted files decrypt and an existing output is never deleted", async () => {
+  const directory = await fs.mkdtemp(join(dataDir, "legacy-"));
+  const salt = Buffer.alloc(16, 3),
+    iv = Buffer.alloc(12, 7);
+  const cipher = createCipheriv("aes-256-gcm", scryptSync("legacy-password", salt, 32), iv);
+  const ciphertext = Buffer.concat([cipher.update("legacy settings"), cipher.final()]);
+  const encrypted = join(directory, "legacy.enc");
+  await fs.writeFile(encrypted, Buffer.concat([salt, iv, cipher.getAuthTag(), ciphertext]));
+  const output = join(directory, "settings.json");
+  await decryptFile(encrypted, output, "legacy-password");
+  assert.equal(await fs.readFile(output, "utf8"), "legacy settings");
+  await assert.rejects(decryptFile(encrypted, output, "legacy-password"));
+  assert.equal(await fs.readFile(output, "utf8"), "legacy settings");
 });
 
 test("wrong password, tampered ciphertext, checksum mismatch and duplicate files never change destination", async () => {
@@ -236,4 +252,23 @@ test("database maintenance rejects competing DB access and concurrent restore, t
   release();
   await pending;
   assert.doesNotThrow(() => core.getDbInstance());
+});
+
+test("Linux restore detects the real open SQLite handle without PID files", async () => {
+  if (process.platform !== "linux") return;
+  core.getDbInstance();
+  let modified = false;
+  await assert.rejects(
+    withRestoreMaintenance(
+      dataDir,
+      async () => {
+        modified = true;
+      },
+      {
+        runSystemd: () => "0",
+      }
+    ),
+    /Stop the RedRouter server/
+  );
+  assert.equal(modified, false);
 });

@@ -730,7 +730,7 @@ async function handleChatImplementation(
           {
             allowedConnections: normalizeAllowedConnectionIds(apiKeyInfo?.allowedConnections),
             apiKeyId: apiKeyInfo?.id ?? null,
-            signal: clientRawRequest?.signal ?? null,
+            signal,
           }
         ),
     });

@@ -36,14 +36,15 @@ export async function decryptFile(source, destination, passphrase) {
     header.subarray(16, 28)
   );
   decipher.setAuthTag(header.subarray(28, 44));
+  let created = false;
+  const output = createWriteStream(destination, { mode: 0o600, flags: "wx" });
+  output.once("open", () => {
+    created = true;
+  });
   try {
-    await pipeline(
-      createReadStream(source, { start: 44 }),
-      decipher,
-      createWriteStream(destination, { mode: 0o600, flags: "wx" })
-    );
+    await pipeline(createReadStream(source, { start: 44 }), decipher, output);
   } catch {
-    await fs.rm(destination, { force: true });
+    if (created) await fs.rm(destination, { force: true });
     throw new Error("Backup authentication failed: wrong passphrase or damaged file");
   }
 }
