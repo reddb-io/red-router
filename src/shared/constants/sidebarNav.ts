@@ -391,12 +391,19 @@ export const SIDEBAR_NAV_SECTIONS: readonly SidebarNavSection[] = [
     icon: "Settings",
     entries: [
       {
+        id: "network",
+        label: "Network",
+        icon: "Network",
+        tabs: [tab("settings-network", "/dashboard/settings/network", "Network")],
+      },
+      {
         id: "settings",
         label: "Settings",
         icon: "SlidersHorizontal",
         tabs: [
           tab("settings-general", "/dashboard/settings/general", "Storage"),
           tab("settings-appearance", "/dashboard/settings/appearance", "Appearance"),
+          tab("settings-prompts", "/dashboard/settings/prompts", "Prompts"),
           tab("settings-ai", "/dashboard/settings/ai", "AI"),
           tab("settings-routing", "/dashboard/settings/routing", "Routing"),
           tab("settings-resilience", "/dashboard/settings/resilience", "Resilience"),

@@ -1,5 +1,12 @@
 import { NextResponse } from "next/server";
-import { z } from "zod";
+import { requireManagementAuth } from "@/lib/api/requireManagementAuth";
+import {
+  providerConnectionTestBodySchema,
+  applyConnectionTestDraft,
+  isReadOnlyConnectionProbe,
+  canRecoverManualProbe,
+  type ConnectionTestDraft,
+} from "./manualProbe";
 import { isValidationFailure, validateBody } from "@/shared/validation/helpers";
 import { getCachedProviderConnectionById } from "@/lib/db/readCache";
 import { updateProviderConnection } from "@/lib/db/providers";
@@ -53,10 +60,7 @@ import { CLI_RUNTIME_PROVIDER_MAP } from "./cliRuntimeProviderMap";
 import { isOperatorDisabled } from "@/lib/providers/operatorDisable";
 import { getRequestPeerLocality } from "@/shared/utils/apiAuth";
 
-/** POST body is optional; when present, only known fields are validated. */
-const providerConnectionTestBodySchema = z.object({
-  validationModelId: z.string().max(500).optional(),
-});
+// The draft schema permits only the current URL, key and probe model.
 
 function hasQoderToken(connection: any): boolean {
   if (typeof connection?.apiKey === "string" && connection.apiKey.trim().length > 0) return true;
@@ -73,7 +77,11 @@ function hasQoderToken(connection: any): boolean {
 
 // GHSA-jmq6-8j86-8xqj: getCliRuntimeStatus() spawns on the host (LOCAL_ONLY capability),
 // but these routes stay remote-reachable — only loopback/LAN callers and the scheduler probe.
-export type ConnectionTestOptions = { allowLocalRuntimeProbe?: boolean };
+export type ConnectionTestOptions = {
+  allowLocalRuntimeProbe?: boolean;
+  manual?: boolean;
+  draft?: ConnectionTestDraft;
+};
 
 export async function getProviderRuntimeStatus(
   connection: any,
@@ -1006,6 +1014,29 @@ export async function testSingleConnection(
     );
   }
 
+  if (options.draft && connection.authType !== "apikey") {
+    return {
+      valid: false,
+      error: "Draft testing requires an API-key connection. Test the saved connection instead.",
+      latencyMs: 0,
+    };
+  }
+  // Preview only the edited URL/key/model using the saved proxy and credential.
+  // This path bypasses routing cooldowns and has no health-state writes.
+  if (options.draft) {
+    const start = Date.now();
+    const result = await runWithProxyContext(proxyInfo?.proxy || null, () =>
+      testApiKeyConnection(applyConnectionTestDraft(connection, options.draft))
+    );
+    return {
+      ...projectConnectionTestResultForPublicResponse(result),
+      latencyMs: Date.now() - start,
+      testedAt: new Date().toISOString(),
+      preview: true,
+      rateLimitedUntil: connection.rateLimitedUntil || null,
+    };
+  }
+
   let result;
   const startTime = Date.now();
   const runtime = await getProviderRuntimeStatus(connection, options);
@@ -1054,6 +1085,16 @@ export async function testSingleConnection(
   const publicRuntime = projectProviderRuntimeForPublicResponse(runtime);
 
   const latencyMs = Date.now() - startTime;
+
+  if (isReadOnlyConnectionProbe(options.manual === true, options.draft, result.valid)) {
+    return {
+      ...result,
+      latencyMs,
+      runtime: publicRuntime,
+      testedAt: new Date().toISOString(),
+      rateLimitedUntil: connection.rateLimitedUntil || null,
+    };
+  }
 
   // A representative-model 402 on an openai-compatible / per-model-quota
   // gateway must lock only that model. The connection stays selectable for
@@ -1121,10 +1162,12 @@ export async function testSingleConnection(
   // maybeClearRecoveredQuotaState: a future rateLimitedUntil is the 429 handler's
   // hard statement and no poller may overrule it. Once it elapses, the next probe
   // clears it normally.
-  const clearErrorState = shouldClearErrorStateOnValidProbe(
-    connection as { rateLimitedUntil?: string | null },
-    result.valid
-  );
+  const clearErrorState = options.manual
+    ? canRecoverManualProbe(connection, result.valid)
+    : shouldClearErrorStateOnValidProbe(
+        connection as { rateLimitedUntil?: string | null },
+        result.valid
+      );
   const lastErrorType = result.valid ? connection.lastErrorType : diagnosis.type;
 
   const updateData: Record<string, any> = {
@@ -1234,10 +1277,13 @@ export async function testSingleConnection(
     statusCode: result.statusCode || null,
     runtime: publicRuntime,
     testedAt: now,
+    rateLimitedUntil: updateData.rateLimitedUntil,
   };
 }
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const authError = await requireManagementAuth(request);
+  if (authError) return authError;
   try {
     const { id } = await params;
 
@@ -1251,10 +1297,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     if (isValidationFailure(validation)) {
       return NextResponse.json({ error: validation.error }, { status: 400 });
     }
-    const { validationModelId } = validation.data;
+    const { validationModelId, draft } = validation.data;
 
     const data = await testSingleConnection(id, validationModelId, {
       allowLocalRuntimeProbe: getRequestPeerLocality(request) !== "remote",
+      manual: true,
+      draft,
     });
 
     if (data.error === "Connection not found") {

@@ -164,6 +164,7 @@ const KNOWN_SVGS = new Set([
   "publicai",
   "qwen",
   "recraft",
+  "red-router",
   "replicate",
   "requesty",
   "roocode",
@@ -203,6 +204,8 @@ const KNOWN_SVGS = new Set([
 ]);
 
 const LOCAL_SVG_ALIASES: Record<string, string> = {
+  red: "red-router",
+  redrouter: "red-router",
   "cursor-api": "cursor",
   "qwen-cloud": "qwencloud",
   "qwen-cloud-token-plan": "qwencloud",

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.57.3
+
+### Patch Changes
+
+- Give local network access its own System → Network page and a direct link from Endpoints. Group router-wide prompt controls in Settings → Prompts, preserve existing prompt text, and require explicit saving with visible failure states. Keep previous settings links working and prevent browser client sockets from blocking managed service restarts.
+
+  Test the current connection URL, replacement key and probe model without saving or altering saved health. Manual failures no longer create a routing cooldown; successful saved probes recover known transient errors while preserving quota windows. Show cooldown deadlines, upstream errors, HTTP status and latency in the editor, and render the bundled RedDB logo for RedRouter providers.
+
 ## 0.57.2
 
 ### Patch Changes
@@ -92,7 +100,7 @@
 ### Minor Changes
 
 - Transparent or not: who chooses the provider.
-  
+
   - **Transparent (the default)** is unchanged: `/v1/models` lists `provider/model` and the client picks the provider.
   - **Off** lists each chat model once, under its bare name, and hides the provider. RedRouter picks the provider from an ordered provider priority and tries the next one if it fails (it is routed as a priority combo, so fallback, breakers, budgets and quotas apply). A provider prefix in a request is ignored: `openai/gpt-4o` and `gpt-4o` are the same request. Two providers offer "the same model" when their ids match once lower-cased and stripped of every namespace. Combos, embeddings, images and audio keep their usual ids for now.
   - **The owner has the last word.** In Settings › Routing the owner sets the mode and the provider order for the instance, can pin either for a single tenant (`PUT /api/tenants/:id/routing`), and decides whether tenant admins may change them at all (a "Let tenant admins change this" switch, off by default). A tenant admin's own choice (`GET`/`PUT /api/tenant/routing`, admin only) applies only while delegated and never over what the owner pinned; they can order only the providers their tenant can use.
@@ -106,7 +114,7 @@
 ### Minor Changes
 
 - The provider page has a Settings button at the top right, and a settings panel right under the header.
-  
+
   - **One place to configure.** The panel lists each connection with its destination, group tag, routing tags and excluded models, marked Custom or Default, with an Edit button per connection. For a custom provider it also shows the provider's own name, prefix and base URL with an Edit provider button (that card used to sit at the very bottom of the page). It opens by itself for a custom provider or when something was changed.
   - **Back to the initial settings.** "Reset to defaults" removes a connection's overrides (destination, group tag, routing tags, excluded models) after showing exactly what will change. API keys, credentials and settings a provider needs to work are never touched, and a provider with no built-in host cannot be reset to nothing.
   - **API.** `PUT /api/providers/:id` accepts `null` for `baseUrl`, `tag`, `tags` and `excludedModels` in `providerSpecificData` to clear that override (before, an invalid `baseUrl: null` was refused and a cleared field could not be saved).
@@ -116,24 +124,24 @@
 ### Minor Changes
 
 - Tenant sign-in (backend). Tenant admins and users can now sign in with e-mail and password, through invitations the owner creates, and reach a small `/api/tenant/*` surface that shows only their own tenant.
-  
+
   - **Invitations.** `POST /api/tenants/:id/users/:userId/invite` returns a single-use, seven-day token; the person sets a password of at least 12 characters with `POST /api/auth/tenant/accept-invite`. A weak password does not spend the token.
   - **A separate session.** The `rr_tenant` cookie is signed with its own derived key, carries no dashboard claim, and is re-checked against the database on every request: a disabled user or tenant, a role change, a password change or "sign out everywhere" (`DELETE /api/tenants/:id/users/:userId/sessions`) ends it at once.
   - **Deny by default.** A new `TENANT` route class admits only a tenant session and only the routes listed in a manifest (`GET /api/tenant/me`, `/users` and `/keys` for now, the last two admin-only). No management page or API accepts a tenant session, and no management credential opens the tenant surface; a test walks every management route file to prove it.
   - **Hardening.** Every failed sign-in returns the same answer, tenant sign-in has its own lockout bucket, it refuses to work when the dashboard has no login, and users with a second factor get the same TOTP step as the owner. Audit entries name the person as `tenant:<slug>/<e-mail>`.
-  
+
   There is no tenant dashboard yet; this release ships the sign-in and the API it will use.
 
 ### Patch Changes
 
 - Editing a connection is easier.
-  
+
   - **The destination is editable.** A RedRouter connection now always shows its Base URL in the edit window (it used to hide behind an "Advanced" link), so a host or IP that changed can be corrected. The Add form shows it too, prefilled with `http://127.0.0.1:25050/v1`.
   - **A bigger edit window.** The edit window is about twice as wide and scrolls as one piece.
   - **Real field text.** The group tag, routing tags and excluded models fields had placeholder labels ("Tag Group Label", "Tag Group Hint"); they now say what they do.
   - **RedRouter provider.** Its link points to `github.com/reddb-io/red-router` (it was `reddb.io`), and it has its own icon instead of a broken image.
 - The tray icon is now the default, and it stays current.
-  
+
   - **On by default.** `red-router serve` at an interactive desktop terminal also shows the tray icon; the server stays in that terminal. `--no-tray`, `RED_ROUTER_TRAY=0`, CI, pipes, services and headless sessions leave it off. `--tray` still runs the whole app in the background.
   - **One icon, always the installed version.** A small lock records the running tray and its version. Starting a tray of a newer version replaces the old one instead of leaving a stale icon, and `red-router tray attach --replace` takes over on demand.
   - **Upgrades refresh it.** Installing or upgrading the managed service now puts the new tray on screen right away, instead of at the next login.
@@ -144,7 +152,7 @@
 ### Minor Changes
 
 - Sign-in hardening.
-  
+
   - **Two-factor authentication** for the password login (Settings › Security): an authenticator app (TOTP, RFC 6238) plus ten one-time recovery codes. After the password, sign-in asks for the code; a correct password alone never opens a session. Codes cannot be replayed, and failed codes count against the same lockout as password failures. Lost the app and the codes? Run `red-router reset-password --disable-mfa` on the machine.
   - **Lockouts persist and escalate.** A lockout decision now survives a restart, and repeated lockouts of the same client last 15 min, 30 min, 1 h, 6 h, then 24 h; a clean day resets the level.
   - **Audit entries name a person.** Dashboard sessions carry who signed in (`owner`, `oidc:<e-mail>`, `saml:<e-mail>`), and audited actions on providers, keys sync, tenants and MFA are recorded under that identity, or `api-key:<id>` / `cli`, instead of a generic `admin`.
@@ -160,7 +168,7 @@
 ### Minor Changes
 
 - Tenants. The instance owner can now create tenants (System › Tenants), assign each one an admin and users, create API keys scoped to a tenant, and move provider accounts, combos and keys between tenants. The default tenant is `red`: it holds everything that existed before, its admin is the instance owner, and an install with no other tenant routes exactly as before.
-  
+
   A tenant key only reaches its own accounts and combos (plus anything the owning tenant explicitly shares), never carries `manage`, `admin` or `mcp:connect`, and stops working when its tenant is disabled. A tenant with no accounts is refused rather than falling through to another tenant's. Traffic from the default tenant no longer draws on another tenant's private accounts. Signing in as a tenant admin or user comes in the next release; this one covers the data model, the owner-side management API and the isolation of tenant keys.
 
 ## 0.50.1
@@ -313,9 +321,9 @@
 ### Minor Changes
 
 - The dashboard shell now follows the RedDB design system: a narrow **side rail** with one icon per area (Home, Proxy, Optimize, Agents, Observe, Tools, System) next to a **side panel** listing that area's entries, built on the design system's `sidebar-rail`, `sidebar-navigation`, `nav-item` and `tabs` contracts (vendored and hash-locked). Pick an area on the rail to browse it without leaving the page; pick the current area, or use the panel button, to open and close the panel. The panel is wider (288 px by default, 240–480 px by dragging its edge, double-click resets) and remembers its width and whether it was open.
-  
+
   Icons in the shell are lucide glyphs through a new `Icon` wrapper that mirrors the design system's: one neutral ink (muted at rest, foreground when current), the design system's sizes, no per-icon colours. The rainbow accent map is gone, and so are the amber and red Restart/Shutdown buttons (they are plain rail buttons; the confirmation keeps the danger style). A ratchet test now stops new Material Symbols from being added while the rest of the app moves to lucide.
-  
+
   Hierarchy: Quota now sits with Providers, Integrations with Observe, "Build" became "Tools", and Labs (Chaos mode, Gamification, Batch) is a group under System. Token saver's 16 tabs are seven — Overview, Engines, Combos, Studio, Exclusions, Live, Analytics — with a new Engines page (a card per compression engine linking to its page), and Settings keeps seven tabs with the rest under "More".
 
 ## 0.40.1
@@ -329,9 +337,9 @@
 ### Minor Changes
 
 - A new, much shorter dashboard menu. The 97 rows in ten sections are now about 30 entries in Proxy, Optimize, Agents, Observe, Build, System and a collapsed Labs section, and the pages that belong together are tabs above the page (Endpoint & Keys with API keys, MCP and A2A; Providers with local services and media providers; Token saver with its settings and every compression engine; Usage; Costs; Logs; Audit; Health; Settings; and more). Every page keeps its URL and nothing was removed: the search box also finds tabs ("caveman" opens Token saver › Caveman) and the command palette is unchanged. Saved "hidden pages" and pinned pages keep working, sections open and close independently, and the menu remembers its expanded sections again from scratch.
-  
+
   Caveman and Ponytail are no longer menu items. Skills is one entry with three pages: Skills (the former OmniSkills), Catalog (the former AgentSkills) and the new Prompt styles page, where Caveman output, Ponytail and the other output styles are switched on and their level is chosen. The compression engines stay in Token saver.
-  
+
   Known gap: Settings → Sidebar still lists individual pages and its section/item ordering no longer changes the new menu; that editor follows in a later release.
 
 ## 0.39.3
@@ -369,17 +377,17 @@
 ### Minor Changes
 
 - Sync the OmniRoute engine with release v3.8.52 (258 upstream commits, most of them fixes).
-  
+
   Security:
-  
+
   - GHSA-7j4q-6gx6-pg77: virtual `auto/*` and `qtSd/*` routes are now matched against an API key's combo allow-list, so a restricted key can no longer reach them.
   - GHSA-jmq6-8j86-8xqj: the provider connection test runs its local CLI probe only for local callers.
   - GHSA-mh4f-3xj9-4gc4: `server.env` is written 0600 in a 0700 data directory, and older installs are repaired on start (the CLI and the desktop app).
   - GHSA-9p9m-h9rj-rhhg: pre-request hooks run in an isolated realm and only JSON crosses the boundary (RedRouter already carried an equivalent, stricter implementation, which is kept).
   - Also brought in: tightened OAuth, authorization and login handling (#15038-#15073), a constant-time compare for the environment passthrough key, `ip-address` 10.7.2 and `undici` 8.11.2.
-  
+
   Notable fixes: request-scoped streaming refusals fall back without locking the model, model-scoped 429s stay scoped to the model, streamed TTFT and tokens-per-second over generation time, per-request added-wait and resilience-action columns in the call log, the slow-stream deadline is created only for streaming requests (the previous wrapper answered HTTP 500 under the Next.js request proxy), proxy pool set-aside and selector control, per-key token limits for daily, weekly and monthly windows, and a better-sqlite3 native prebuild target.
-  
+
   Database: upstream's new migrations are numbered 195-201 so the RedRouter migrations 190-194 keep their versions. Databases already migrated by a RedRouter build apply the new ones once; fresh installs apply all of them.
 
 ### Patch Changes
@@ -391,9 +399,9 @@
 - Restore the guided Setup page from v0.33.0 (Setup in the sidebar, `/dashboard/setup`): connect a provider, create an API key, copy the client configuration, validate the route and apply the recommended `default`, `fast` and `review` combos. `GET`/`POST /api/combos/recommended` preview and apply them idempotently (create, update, unchanged or blocked when no connected account can serve a role). Built on existing modules instead of parallel ones: the connected-account model catalog is the combo builder's `getComboBuilderOptions()`, subscription versus metered accounts come from the auto-combo connection-billing classifier, vision from `modelIdLikelyVision`, System One from its registry, combos are written through `src/lib/db/combos.ts`, route validation reuses `/api/setup/validate`, and the page reuses the design-system `Button`, `Card`, `Badge`, `Input`, `Select` and the onboarding's `useDisplayBaseUrl`. Added on top: Friday's ranking tables and roles (`src/lib/modelRecommendations.ts`), the preview/apply planner (`src/lib/recommendedCombos.ts`) and the Setup workbench UI.
 - Honour `x-red-router-token-saver` (RedCode): `off` keeps the prompt intact for a request whose compaction or validation must see all of it, `on` asks for the panel default. It maps onto OmniRoute's per-request compression override, which still wins when `x-omniroute-compression` is sent, and `/v1/capabilities` advertises `token_saver_header`.
 - Restore the v0.33.0 usage sinks beyond the signed webhook: Amazon SQS, Kafka and RedDB queue transports, `POST /api/usage-sinks/{id}/test`, `GET /api/usage-sinks/{id}/deliveries` (paged, filterable by status), `POST /api/usage-sinks/{id}/deliveries/{deliveryId}/retry`, and the Usage Sinks dashboard page (`/dashboard/usage-sinks`, under Integrations in the sidebar): list, create and edit for every transport, per-request or per-window delivery, a searchable API key picker that scales to many keys (`GET /api/keys/search`), Send test and a deliveries table with retry.
-  
+
   The sink engine stays the billing contract: outbox, deterministic `ue_`/`ub_` delivery ids, cursor compare-and-set, frozen window high-water mark, delivery lease and the 8-step retry schedule are unchanged and shared by every transport, which only put one payload on the wire behind a single interface (`src/lib/usageSinks/transports/`). The delivery id is the message identity everywhere: `webhook-id` header, SQS `redrouter-delivery-id` attribute (FIFO queues also get it as `MessageDeduplicationId` with the sink id as `MessageGroupId`), Kafka `redrouter-delivery-id` header with the sink id as the record key, and the RedDB `QUEUE PUSH ... DEDUP '<id>'` key. Manual retry goes through the same lease, keeps the delivery id and gives a dead delivery a fresh retry budget. Migration 194 adds `type` and `config` to `redrouter_usage_sinks`; existing webhook sinks are backfilled and the original webhook-only request bodies keep working.
-  
+
   Reused instead of built again: the log-export secret handling (`src/lib/logExport/secrets.ts`, whose encrypt/decrypt/redact/keep-on-edit primitives now also take a field list) encrypts each credential per field at rest and returns only the `__stored__` placeholder, refusing to store credentials without `STORAGE_ENCRYPTION_KEY`; log-export's field-descriptor type drives the transport form and the transport registry mirrors its destination registry; the existing SigV4 signer (`open-sse/utils/awsSigV4.ts`) signs SQS; `fetchWebhookUrl` (DNS-pinned, no redirects, cloud metadata always refused, private addresses only with the private-provider-URL opt-in) carries SQS and RedDB requests, while the signed webhook keeps refusing private addresses outright. Kafka is raw TCP, so kafkajs gets a socket factory that resolves through a guarded lookup and refuses metadata and (without the opt-in) private answers, including for broker addresses returned in cluster metadata. Dependency note: `kafkajs` (already in the lockfile as a dev-only transitive package) is now a direct runtime dependency, added with a lock-only install.
 
 ## 0.37.0

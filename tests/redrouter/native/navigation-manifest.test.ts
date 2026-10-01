@@ -70,3 +70,15 @@ test("live UI consumers no longer use the legacy page registry", () => {
     assert.equal(source.includes("sidebarNav"), true, file);
   }
 });
+
+test("network access has a direct System destination and prompts have one searchable home", () => {
+  const network = findNavPage("/system/network");
+  assert.equal(network?.entryId, "network");
+  assert.equal(network?.pageLabel, "Network");
+  assert.equal(canonicalDashboardPath("/system/network"), "/dashboard/settings/network");
+  assert.equal(areaUrl("/dashboard/settings/network"), "/system/network");
+  assert.equal(findNavPage("/system/settings/prompts")?.pageLabel, "Prompts");
+  const items = getNavSearchItems();
+  assert.equal(items.filter((item) => item.id === "settings-network").length, 1);
+  assert.equal(items.filter((item) => item.id === "settings-prompts").length, 1);
+});

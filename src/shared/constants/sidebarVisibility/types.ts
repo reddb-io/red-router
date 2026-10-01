@@ -96,6 +96,8 @@ export const HIDEABLE_SIDEBAR_ITEM_IDS = [
   "batch-files",
   // Configuration
   "settings-general",
+  "settings-network",
+  "settings-prompts",
   "settings-appearance",
   "settings-ai",
   "settings-modality-bridge",

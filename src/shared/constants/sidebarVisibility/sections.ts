@@ -684,6 +684,24 @@ const BATCH_GROUP: SidebarItemGroup = {
 
 const CONFIGURATION_ITEMS: readonly SidebarItemDefinition[] = [
   {
+    id: "settings-network",
+    href: "/system/network",
+    i18nKey: "settingsNetwork",
+    labelFallback: "Network",
+    subtitleKey: "settingsNetworkSubtitle",
+    subtitleFallback: "Connect computers on your local network",
+    icon: "lan",
+  },
+  {
+    id: "settings-prompts",
+    href: "/system/settings/prompts",
+    i18nKey: "settingsPrompts",
+    labelFallback: "Prompts",
+    subtitleKey: "settingsPromptsSubtitle",
+    subtitleFallback: "Instructions added to chat requests by this router",
+    icon: "edit_note",
+  },
+  {
     id: "settings-general",
     href: "/system/settings/storage",
     i18nKey: "settingsGeneral",

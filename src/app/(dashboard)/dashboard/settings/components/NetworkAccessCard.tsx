@@ -192,14 +192,14 @@ export default function NetworkAccessCard() {
           )}
           {mode === "lan" && (
             <p className="mt-2 text-sm text-text-muted">
-              Listens on all IPv4 interfaces (0.0.0.0). Use an API key from Access → Keys when
-              connecting another RedRouter.
+              Listens on all IPv4 interfaces (0.0.0.0). Use an API key from Proxy → Endpoint &amp;
+              Keys → API keys when connecting another RedRouter.
             </p>
           )}
           {status && !status.canApply && (
             <p className="mt-3 text-sm text-text-muted">
               {status.managed
-                ? `Open http://localhost:${status.port}/dashboard/settings/security on this computer to change network access.`
+                ? `Open http://localhost:${status.port}/system/network on this computer to change network access.`
                 : "Automatic changes require the managed Linux service. For a CLI install, use red-router service install --expose. For Docker or another launcher, configure its bind address and published port."}
             </p>
           )}

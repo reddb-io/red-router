@@ -1,9 +1,32 @@
 "use client";
 
-import { Check, CircleCheck, Compass, GitFork, Globe, GlobeLock, Images, LoaderCircle, Monitor, Network, TriangleAlert, Wrench, X } from "lucide-react";
+import {
+  Check,
+  CircleCheck,
+  Compass,
+  GitFork,
+  Globe,
+  GlobeLock,
+  Images,
+  LoaderCircle,
+  Monitor,
+  Network,
+  TriangleAlert,
+  Wrench,
+  X,
+} from "lucide-react";
+import Link from "next/link";
 import Icon from "@/shared/components/Icon";
 import { useState, useEffect, useMemo, useCallback } from "react";
-import { Card, Button, Input, Modal, CardSkeleton, SegmentedControl, Badge } from "@/shared/components";
+import {
+  Card,
+  Button,
+  Input,
+  Modal,
+  CardSkeleton,
+  SegmentedControl,
+  Badge,
+} from "@/shared/components";
 import Toggle from "@/shared/components/Toggle";
 import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
 import { isPublicDisplayBaseUrl, useDisplayBaseUrl } from "@/shared/hooks";
@@ -189,8 +212,6 @@ export default function APIPageClient({ machineId }: Readonly<APIPageClientProps
   const [lanUrls, setLanUrls] = useState<string[]>([]);
   const [tailscaleIpUrl, setTailscaleIpUrl] = useState<string | null>(null);
   const [activeEndpointTab, setActiveEndpointTab] = useState<EndpointTab>("apis");
-  const [customSystemPromptEnabled, setCustomSystemPromptEnabled] = useState(false);
-  const [customSystemPrompt, setCustomSystemPrompt] = useState("");
 
   const { copied, copy } = useCopyToClipboard();
 
@@ -401,7 +422,13 @@ export default function APIPageClient({ machineId }: Readonly<APIPageClientProps
     const searchCount = searchProviders.length > 0 ? 1 : 0;
     const systemOneCount = endpointData.systemone.length > 0 ? 2 : 0; // /v1/systemone + /v1/decisions
     return (
-      chatCount + imageCount + otherMedia + utilityFixed + modelUtility + searchCount + systemOneCount
+      chatCount +
+      imageCount +
+      otherMedia +
+      utilityFixed +
+      modelUtility +
+      searchCount +
+      systemOneCount
     );
   }, [endpointData, searchProviders]);
 
@@ -458,8 +485,6 @@ export default function APIPageClient({ machineId }: Readonly<APIPageClientProps
         setShowTailscaleFunnel(tunnelVisibility.showTailscaleFunnel);
         setShowNgrokTunnel(tunnelVisibility.showNgrokTunnel);
         if (data.ngrokAuthToken) setNgrokToken(data.ngrokAuthToken);
-        setCustomSystemPromptEnabled(!!data.customSystemPromptEnabled);
-        setCustomSystemPrompt(data.customSystemPrompt || "");
 
         if (!tunnelVisibility.showCloudflaredTunnel) {
           setCloudflaredStatus(null);
@@ -531,24 +556,6 @@ export default function APIPageClient({ machineId }: Readonly<APIPageClientProps
       mounted = false;
     };
   }, [fetchCloudflaredStatus, fetchTailscaleStatus, fetchNgrokStatus]);
-
-  const handleCustomSystemPromptEnabledChange = (value: boolean) => {
-    setCustomSystemPromptEnabled(value);
-    void fetch("/api/settings", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ customSystemPromptEnabled: value }),
-    });
-  };
-
-  const handleCustomSystemPromptChange = (value: string) => {
-    setCustomSystemPrompt(value);
-    void fetch("/api/settings", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ customSystemPrompt: value }),
-    });
-  };
 
   const handleCloudToggle = (checked) => {
     if (checked) {
@@ -1281,6 +1288,13 @@ export default function APIPageClient({ machineId }: Readonly<APIPageClientProps
       <div className="flex flex-col gap-2">
         <h1 className="text-2xl font-bold">{t("title")}</h1>
         <p className="text-text-muted">{t("subtitle")}</p>
+        <p className="text-sm text-text-muted">
+          Connecting another computer?{" "}
+          <Link href="/system/network" className="text-primary hover:underline">
+            Configure local network access
+          </Link>
+          .
+        </p>
         <div className="flex items-center gap-3 mt-2">
           <code className="text-sm bg-card-subtle px-3 py-1 rounded-md text-text-main font-mono">
             {displayBaseUrl}/v1
@@ -1374,7 +1388,12 @@ export default function APIPageClient({ machineId }: Readonly<APIPageClientProps
         <div className="flex flex-col">
           {/* Local Server */}
           <div className="flex items-center gap-3 py-3">
-            <Icon icon={Monitor} size="md" color="feedback-success-foreground" className="shrink-0" />
+            <Icon
+              icon={Monitor}
+              size="md"
+              color="feedback-success-foreground"
+              className="shrink-0"
+            />
             <div className="flex-1 min-w-0">
               <div className="flex items-baseline gap-1 flex-wrap">
                 <span className="text-sm font-medium">{t("localServer")}</span>
@@ -1845,31 +1864,6 @@ export default function APIPageClient({ machineId }: Readonly<APIPageClientProps
             </div>
           )}
         </div>
-
-        {/* Custom System Prompt */}
-        <div className="flex items-center justify-between pt-4 mt-4 border-t border-border gap-4 flex-wrap">
-          <div className="min-w-0 flex-1">
-            <p className="font-medium text-sm">{t("customSystemPromptTitle")}</p>
-            <p className="text-sm text-text-muted">{t("customSystemPromptDescription")}</p>
-          </div>
-          <div className="flex items-center gap-3 shrink-0">
-            {customSystemPromptEnabled && (
-              <Input
-                type="text"
-                value={customSystemPrompt}
-                onChange={(e) => handleCustomSystemPromptChange(e.target.value)}
-                placeholder={t("customSystemPromptPlaceholder")}
-                className="w-64 text-xs"
-              />
-            )}
-            <Toggle
-              checked={customSystemPromptEnabled}
-              onChange={handleCustomSystemPromptEnabledChange}
-              ariaLabel={t("customSystemPromptTitle")}
-              size="sm"
-            />
-          </div>
-        </div>
       </Card>
 
       <Card>
@@ -2265,7 +2259,12 @@ export default function APIPageClient({ machineId }: Readonly<APIPageClientProps
         <div className="flex flex-col gap-4">
           <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
             <div className="flex items-start gap-3">
-              <Icon icon={TriangleAlert} size="lg" color="feedback-danger-foreground" className="dark:text-red-400" />
+              <Icon
+                icon={TriangleAlert}
+                size="lg"
+                color="feedback-danger-foreground"
+                className="dark:text-red-400"
+              />
               <div>
                 <p className="text-sm text-red-800 dark:text-red-200 font-medium mb-1">
                   {tc("warning")}

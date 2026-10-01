@@ -4,15 +4,7 @@ import { Rss, X } from "lucide-react";
 import Icon from "@/shared/components/Icon";
 import { useState } from "react";
 import { useTranslations } from "next-intl";
-import {
-  Button,
-  Badge,
-  Input,
-  Modal,
-  TALL_MODAL_PROPS,
-  Toggle,
-  Select,
-} from "@/shared/components";
+import { Button, Badge, Input, Modal, TALL_MODAL_PROPS, Toggle, Select } from "@/shared/components";
 import { CHATGPT_WEB_CODEX_CONNECTOR_NAME } from "@/shared/constants/chatgptWebCodex";
 import {
   isOpenAICompatibleProvider,
@@ -53,7 +45,6 @@ import {
   type CodexFingerprintModeValue,
   getClaudeCodeCompatibleRequestDefaults,
   providerText,
-  ERROR_TYPE_LABELS,
   formatTimeAgo,
 } from "../../providerPageHelpers";
 import { getWebSessionCredentialRequirement } from "../../webSessionCredentials";
@@ -72,6 +63,7 @@ import { isM365TierCapableProvider, normalizeM365TierValue, type M365TierValue }
 import ProviderTierField from "./ProviderTierField";
 import AgentrouterConsoleFields from "./AgentrouterConsoleFields";
 import { getVertexCredentialCopy } from "./vertexCredentialCopy";
+import ConnectionTestControl, { type ConnectionHealth } from "./ConnectionTestControl";
 import QuotaScrapingFields, { EMPTY_QUOTA_SCRAPING_FIELDS } from "./QuotaScrapingFields";
 import GlmTeamQuotaFields, { EMPTY_GLM_TEAM_QUOTA_FIELDS } from "./GlmTeamQuotaFields";
 import ProviderRegionField, { getProviderRegionConfig } from "./AlibabaProviderRegionField";
@@ -81,7 +73,7 @@ import PeakHourProtectionEditor, {
   normalizePeakHourProtectionForSave,
 } from "../PeakHourProtectionEditor";
 import type { PeakHourProtectionConfig } from "@/lib/providers/peakHourProtection";
-export interface EditConnectionModalConnection {
+export interface EditConnectionModalConnection extends ConnectionHealth {
   id?: string;
   name?: string;
   email?: string;
@@ -178,8 +170,6 @@ export default function EditConnectionModal({
     m365Tier: normalizeM365TierValue(connectionProviderSpecificData?.tier) as M365TierValue,
     peakHourProtection: { ...EMPTY_PEAK_HOUR_PROTECTION, windows: [] } as PeakHourProtectionConfig,
   });
-  const [testing, setTesting] = useState(false);
-  const [testResult, setTestResult] = useState(null);
   const [validating, setValidating] = useState(false);
   const [validationResult, setValidationResult] = useState(null);
   const [validatedProviderSpecificData, setValidatedProviderSpecificData] = useState<
@@ -452,7 +442,6 @@ export default function EditConnectionModal({
         !!existingCustomUserAgent ||
           normalizeM365TierValue(connection.providerSpecificData?.tier) !== ""
       );
-      setTestResult(null);
       setValidationResult(null);
       setValidatedProviderSpecificData(undefined);
       setSaveError(null);
@@ -460,34 +449,6 @@ export default function EditConnectionModal({
   } else if (initializedFor !== null) {
     setInitializedFor(null);
   }
-  const handleTest = async () => {
-    if (!provider) return;
-    setTesting(true);
-    setTestResult(null);
-    try {
-      const res = await fetch(`/api/providers/${connection.id}/test`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          validationModelId: formData.validationModelId || undefined,
-        }),
-      });
-      const data = await res.json();
-      setTestResult({
-        valid: !!data.valid,
-        diagnosis: data.diagnosis || null,
-        message: data.error || null,
-      });
-    } catch {
-      setTestResult({
-        valid: false,
-        diagnosis: { type: "network_error" },
-        message: t("failedTestConnection"),
-      });
-    } finally {
-      setTesting(false);
-    }
-  };
   const handleValidate = async () => {
     if (
       !provider ||
@@ -781,10 +742,15 @@ export default function EditConnectionModal({
   };
   if (!connection) return null;
   const isOAuth = connection.authType === "oauth";
-  const testErrorMeta =
-    !testResult?.valid && testResult?.diagnosis?.type
-      ? ERROR_TYPE_LABELS[testResult.diagnosis.type] || null
-      : null;
+  const urlConfigurable =
+    isBaseUrlConfigurableProvider(provider) || isBaseUrlOverrideEligibleProvider(provider);
+  const probeEdited =
+    !!formData.apiKey.trim() ||
+    (urlConfigurable &&
+      formData.baseUrl.trim() !==
+        (stringField(connection.providerSpecificData?.baseUrl) || defaultBaseUrl).trim()) ||
+    formData.validationModelId.trim() !==
+      stringField(connection.providerSpecificData?.validationModelId).trim();
   const preserveEncryptedReasoningToggle = isCustomResponsesConnection ? (
     <Toggle
       checked={formData.preserveEncryptedReasoning}
@@ -1599,23 +1565,23 @@ export default function EditConnectionModal({
           </div>
         )}
 
-        {!isCompatible && (
-          <div className="flex items-center gap-3">
-            <Button onClick={handleTest} variant="secondary" disabled={testing}>
-              {testing ? t("testing") : t("testConnection")}
-            </Button>
-            {testResult && (
-              <>
-                <Badge variant={testResult.valid ? "success" : "error"}>
-                  {testResult.valid ? t("valid") : t("failed")}
-                </Badge>
-                {testErrorMeta && (
-                  <Badge variant={testErrorMeta.variant}>{t(testErrorMeta.labelKey)}</Badge>
-                )}
-              </>
-            )}
-          </div>
-        )}
+        <ConnectionTestControl
+          key={isOpen ? connection.id : "closed"}
+          connectionId={connection.id}
+          health={connection}
+          draft={
+            connection.authType === "apikey" && probeEdited
+              ? {
+                  apiKey: formData.apiKey,
+                  ...(isBaseUrlConfigurableProvider(provider) ||
+                  isBaseUrlOverrideEligibleProvider(provider)
+                    ? { baseUrl: formData.baseUrl.trim() }
+                    : {}),
+                  validationModelId: formData.validationModelId.trim(),
+                }
+              : undefined
+          }
+        />
 
         <div className="flex gap-2">
           <Button

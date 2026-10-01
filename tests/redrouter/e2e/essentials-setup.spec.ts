@@ -35,7 +35,7 @@ for (const width of [1280, 390]) {
       })
     );
     await page.goto("/system/settings/sidebar");
-    for (const label of ["Setup", "Models", "Tenants", "Users", "Roles"]) {
+    for (const label of ["Setup", "Models", "Tenants", "Users", "Roles", "Network", "Prompts"]) {
       await expect(page.getByRole("switch", { name: `Show: ${label}`, exact: true })).toBeChecked();
     }
     await page.goto("/home/setup");
@@ -52,6 +52,14 @@ for (const width of [1280, 390]) {
       }
       await page.getByRole("button", { name: "Proxy", exact: true }).click();
       await expect(page.locator('a[href="/proxy/models"]').first()).toBeVisible();
+      await page.getByRole("button", { name: "System", exact: true }).click();
+      await expect(page.locator('a[href="/system/network"]').first()).toBeVisible();
+      await page.locator('a[href="/system/network"]').first().click();
+      await expect(
+        page.getByRole("heading", { name: "Network access", exact: true })
+      ).toBeVisible();
+      await page.goto("/system/settings/prompts");
+      await expect(page.getByLabel("Before client instructions")).toBeVisible();
       await page.getByRole("button", { name: "Home", exact: true }).click();
       await expect(page.locator('a[href="/home/setup"]').first()).toBeVisible();
     }

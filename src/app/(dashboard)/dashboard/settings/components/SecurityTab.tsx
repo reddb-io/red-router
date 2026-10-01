@@ -1,6 +1,7 @@
 "use client";
 
 import { Ban, OctagonAlert, Plug, Shield, TriangleAlert, X } from "lucide-react";
+import Link from "next/link";
 import Icon from "@/shared/components/Icon";
 import { Suspense, useState, useEffect } from "react";
 import { Card, Button, Input, Toggle, Modal } from "@/shared/components";
@@ -13,7 +14,6 @@ import MfaSection from "./MfaSection";
 import OidcSection from "./OidcSection";
 import SamlSection from "./SamlSection";
 import GuardrailsCard from "./GuardrailsCard";
-import NetworkAccessCard from "./NetworkAccessCard";
 import { useTranslations } from "next-intl";
 
 export default function SecurityTab() {
@@ -179,7 +179,13 @@ export default function SecurityTab() {
 
   return (
     <div className="flex flex-col gap-6">
-      <NetworkAccessCard />
+      <p className="text-sm text-text-muted">
+        To allow connections from another computer, open{" "}
+        <Link href="/system/network" className="text-primary hover:underline">
+          System → Network
+        </Link>
+        .
+      </p>
       <Card>
         <div className="flex items-center gap-3 mb-4">
           <div className="p-2 rounded-lg bg-primary/10 text-primary">

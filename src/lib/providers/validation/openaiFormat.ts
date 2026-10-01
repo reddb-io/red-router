@@ -101,7 +101,7 @@ export async function validateOpenAILikeProvider({
     }
 
     if (response.status === 401) {
-      return { valid: false, error: "Invalid API key" };
+      return { valid: false, error: "Invalid API key", statusCode: response.status };
     }
 
     // #2929: A 403 on the models endpoint is not always a bad key. Some providers
@@ -111,13 +111,17 @@ export async function validateOpenAILikeProvider({
     if (response.status === 403) {
       const forbiddenBody = await response.text().catch(() => "");
       if (!/not authorized for this route/i.test(forbiddenBody)) {
-        return { valid: false, error: "Invalid API key" };
+        return { valid: false, error: "Invalid API key", statusCode: response.status };
       }
     }
 
     const chatUrl = resolveChatUrl(provider, baseUrl, providerSpecificData);
     if (!chatUrl) {
-      return { valid: false, error: `Validation failed: ${response.status}` };
+      return {
+        valid: false,
+        statusCode: response.status,
+        error: `Validation failed: ${response.status}`,
+      };
     }
 
     const testModelId = (providerSpecificData as any)?.validationModelId || modelId;
@@ -155,12 +159,12 @@ export async function validateOpenAILikeProvider({
       const chatErrorBody = await chatRes.text().catch(() => "");
       const cozeError = extractCozeValidationError(chatErrorBody);
       if (cozeError) {
-        return { valid: false, error: cozeError };
+        return { valid: false, error: cozeError, statusCode: chatRes.status };
       }
     }
 
     if (chatRes.status === 401 || chatRes.status === 403) {
-      return { valid: false, error: "Invalid API key" };
+      return { valid: false, error: "Invalid API key", statusCode: chatRes.status };
     }
 
     if (chatRes.status === 404 || chatRes.status === 405) {
@@ -168,11 +172,16 @@ export async function validateOpenAILikeProvider({
         valid: false,
         error: "Provider validation endpoint not supported",
         unsupported: true,
+        statusCode: chatRes.status,
       };
     }
 
     if (chatRes.status >= 500) {
-      return { valid: false, error: `Provider unavailable (${chatRes.status})` };
+      return {
+        valid: false,
+        statusCode: chatRes.status,
+        error: `Provider unavailable (${chatRes.status})`,
+      };
     }
 
     // #7284: A 429 on the chat probe means the key is accepted but this connection

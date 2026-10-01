@@ -121,7 +121,7 @@ it("remote dashboards explain how to change the local service and keep the apply
   await mount();
   expect(container.querySelector<HTMLSelectElement>("#network-access-mode")?.disabled).toBe(true);
   expect(button("Apply and restart").disabled).toBe(true);
-  expect(container.textContent).toContain("http://localhost:25050/dashboard/settings/security");
+  expect(container.textContent).toContain("http://localhost:25050/system/network");
 });
 it("a failed load leaves settings disabled and can be retried", async () => {
   loadError = true;

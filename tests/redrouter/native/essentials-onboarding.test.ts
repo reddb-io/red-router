@@ -45,6 +45,26 @@ test("saved unmodified Essentials gains Setup, Models and the Access rail", () =
   );
 });
 
+test("Essentials saved before Network and Prompts gains both without changing custom visibility", () => {
+  const before = legacyHidden.filter(
+    (id) => id !== "settings-network" && id !== "settings-prompts"
+  );
+  const hidden = resolveHiddenSidebarItems({
+    hiddenSidebarItems: before,
+    sidebarActivePreset: "essentials",
+  });
+  assert.equal(hidden.includes("settings-network"), false);
+  assert.equal(hidden.includes("settings-prompts"), false);
+  assert.deepEqual(
+    hidden,
+    SIDEBAR_PRESETS.find((preset) => preset.id === "essentials")!.hiddenItems
+  );
+  assert.deepEqual(
+    resolveHiddenSidebarItems({ hiddenSidebarItems: before, sidebarActivePreset: null }),
+    before
+  );
+});
+
 test("custom hides and a customized list carrying a stale preset are preserved", () => {
   assert.deepEqual(
     resolveHiddenSidebarItems({ hiddenSidebarItems: legacyHidden, sidebarActivePreset: null }),

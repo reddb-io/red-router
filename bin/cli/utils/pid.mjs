@@ -83,7 +83,9 @@ export async function findListeningPids(port, deps = {}) {
       const { stdout } = await exec("netstat", ["-ano"]);
       return parseNetstatListeningPids(stdout, port);
     }
-    const { stdout } = await exec("lsof", ["-ti", `:${port}`]);
+    // Clients connected to the old server (including CLOSE_WAIT browser sockets)
+    // do not own its listening port and must not block a service restart.
+    const { stdout } = await exec("lsof", ["-nP", "-t", `-iTCP:${port}`, "-sTCP:LISTEN"]);
     return stdout
       .trim()
       .split("\n")
@@ -92,11 +94,7 @@ export async function findListeningPids(port, deps = {}) {
   } catch (err) {
     // POSIX lsof exits 1 with empty output when there are simply no matches.
     // That is the normal "port is free" result, not a discovery failure.
-    if (
-      platform !== "win32" &&
-      err?.code === 1 &&
-      !String(err?.stdout ?? "").trim()
-    ) {
+    if (platform !== "win32" && err?.code === 1 && !String(err?.stdout ?? "").trim()) {
       return [];
     }
     // Tool missing (ENOENT) or genuinely unusable: "no listener" cannot be

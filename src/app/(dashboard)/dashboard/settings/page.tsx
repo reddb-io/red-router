@@ -13,6 +13,8 @@ const LEGACY_TAB_ROUTES: Record<string, string> = {
   resilience: "/system/settings/resilience",
   routing: "/system/settings/routing",
   security: "/system/settings/security",
+  network: "/system/network",
+  prompts: "/system/settings/prompts",
   sidebar: "/system/settings/sidebar",
 };
 

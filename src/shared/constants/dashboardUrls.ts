@@ -120,6 +120,7 @@ export const DASHBOARD_URL_OVERRIDES: readonly (readonly [string, string])[] = [
   ["/agents/bridge", "/dashboard/tools/agent-bridge"],
   ["/tools/inspector", "/dashboard/tools/traffic-inspector"],
   ["/system/settings/storage", "/dashboard/settings/general"],
+  ["/system/network", "/dashboard/settings/network"],
   ["/system/outbound-proxies", "/dashboard/system/proxy"],
 ];
 

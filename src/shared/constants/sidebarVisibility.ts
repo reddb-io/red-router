@@ -96,6 +96,8 @@ const LEGACY_ESSENTIALS_SHOWN: ReadonlySet<HideableSidebarItemId> = new Set([
 ]);
 
 const ESSENTIALS_SHOWN: ReadonlySet<HideableSidebarItemId> = new Set([
+  "settings-network",
+  "settings-prompts",
   ...LEGACY_ESSENTIALS_SHOWN,
   "setup",
   "model-catalog",
@@ -124,6 +126,8 @@ export const ESSENTIALS_ADVANCED_TOOL_IDS: ReadonlySet<HideableSidebarItemId> = 
 ]);
 
 const MINIMAL_SHOWN: ReadonlySet<HideableSidebarItemId> = new Set([
+  "settings-network",
+  "settings-prompts",
   "home",
   "endpoints",
   "api-manager",
@@ -139,6 +143,8 @@ const MINIMAL_SHOWN: ReadonlySet<HideableSidebarItemId> = new Set([
 ]);
 
 const DEVELOPER_SHOWN: ReadonlySet<HideableSidebarItemId> = new Set([
+  "settings-network",
+  "settings-prompts",
   "home",
   "endpoints",
   "api-manager",
@@ -176,6 +182,8 @@ const DEVELOPER_SHOWN: ReadonlySet<HideableSidebarItemId> = new Set([
 ]);
 
 const ADMIN_SHOWN: ReadonlySet<HideableSidebarItemId> = new Set([
+  "settings-network",
+  "settings-prompts",
   "home",
   "endpoints",
   "api-manager",
@@ -286,7 +294,13 @@ export function resolveHiddenSidebarItems(
   const hidden = normalizeHiddenSidebarItems(settings?.[HIDDEN_SIDEBAR_ITEMS_SETTING_KEY]);
   if (settings?.[SIDEBAR_PRESET_KEY] !== "essentials") return hidden;
   const legacy = buildHiddenList(LEGACY_ESSENTIALS_SHOWN);
-  if (hidden.length !== legacy.length || hidden.some((id, index) => id !== legacy[index]))
-    return hidden;
+  const beforeNetworkAndPrompts = legacy.filter(
+    (id) => id !== "settings-network" && id !== "settings-prompts"
+  );
+  const exactLegacy = [legacy, beforeNetworkAndPrompts].some(
+    (candidate) =>
+      hidden.length === candidate.length && hidden.every((id, index) => id === candidate[index])
+  );
+  if (!exactLegacy) return hidden;
   return buildHiddenList(ESSENTIALS_SHOWN);
 }
