@@ -504,6 +504,7 @@ test("a tenant only ever sees its own tenant's users and keys", async () => {
     "/api/tenant/me",
     "/api/tenant/routing",
     "/api/tenant/routing",
+    "/api/tenant/usage",
     "/api/tenant/users",
   ]);
 });
@@ -653,4 +654,34 @@ test("audited actions of a tenant session are attributed to tenant/e-mail", asyn
   const { user } = await makeUser("admin", "acme", "boss@acme.io");
   const cookie = await tenantCookie(user.id);
   assert.equal(await auditActorFor(req("/api/tenant/me", { cookie })), "tenant:acme/boss@acme.io");
+});
+
+test("tenant usage refuses role escalation and scopes reports to the authenticated tenant", async () => {
+  const usageRoute = await import("../../../src/app/api/tenant/usage/route.ts");
+  const { createApiKey } = await import("../../../src/lib/db/apiKeys.ts");
+  const a = await makeUser("admin", "usage-acme");
+  const b = await makeUser("admin", "usage-globex");
+  const member = await makeUser("user", "usage-acme");
+  const own = await createApiKey("own", "tenant-usage-fixture");
+  const other = await createApiKey("hidden", "tenant-usage-fixture");
+  tenants.assignApiKeysToTenant(a.tenant.id, [own.id]);
+  tenants.assignApiKeysToTenant(b.tenant.id, [other.id]);
+  const path = `/api/tenant/usage?month=2026-10&tenantId=${b.tenant.id}`;
+  const response = await usageRoute.GET(req(path, { cookie: await tenantCookie(a.user.id) }));
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.deepEqual(
+    body.usage.keys.map((k: { apiKeyId: string }) => k.apiKeyId),
+    [own.id]
+  );
+  assert.ok(!JSON.stringify(body).includes(other.id));
+  for (const cookie of [await ownerCookie(), await tenantCookie(member.user.id), ""]) {
+    assert.ok([401, 403].includes((await usageRoute.GET(req(path, { cookie }))).status));
+    assert.equal(await pipelineAllows(path, { cookie }), false);
+  }
+  const invalid = await usageRoute.GET(
+    req("/api/tenant/usage?month=2026-13", { cookie: await tenantCookie(a.user.id) })
+  );
+  assert.equal(invalid.status, 400);
+  assert.ok(!(await invalid.text()).includes("at /"));
 });

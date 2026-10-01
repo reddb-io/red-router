@@ -32,6 +32,12 @@ export const TENANT_ROUTES: readonly TenantRouteRule[] = Object.freeze([
   },
   {
     method: "GET",
+    pattern: "/api/tenant/usage",
+    minRole: "admin",
+    description: "Monthly recorded usage and cost for my tenant and its keys",
+  },
+  {
+    method: "GET",
     pattern: "/api/tenant/keys",
     minRole: "admin",
     description: "API keys of my tenant (masked)",

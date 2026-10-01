@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import TenantWorkspace from "./TenantWorkspace";
 import { Button, Input } from "@/shared/components";
 import { errorText } from "../(dashboard)/dashboard/tenants/tenantsTypes";
 
 type Identity = {
-  user: { email: string; role: string };
+  user: { id: string; email: string; role: string };
   tenant: { name: string };
   capabilities: { description: string }[];
 };
@@ -21,6 +22,20 @@ export default function TenantSignIn({ token }: { token: string | null }) {
   const [mfaToken, setMfaToken] = useState<string | null>(null);
   const [code, setCode] = useState("");
   const [recovery, setRecovery] = useState(false);
+  const [restoring, setRestoring] = useState(!token);
+  useEffect(() => {
+    if (token) return;
+    const controller = new AbortController();
+    void fetch("/api/tenant/me", { signal: controller.signal, cache: "no-store" })
+      .then(async (response) => {
+        if (response.ok && !controller.signal.aborted) setIdentity(await response.json());
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!controller.signal.aborted) setRestoring(false);
+      });
+    return () => controller.abort();
+  }, [token]);
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     setError("");
@@ -85,7 +100,9 @@ export default function TenantSignIn({ token }: { token: string | null }) {
     }
   };
   return (
-    <main className="mx-auto flex min-h-screen max-w-md flex-col justify-center gap-5 px-6 py-12">
+    <main
+      className={`mx-auto flex min-h-screen flex-col gap-5 px-6 py-12 ${identity ? "max-w-5xl" : "max-w-md justify-center"}`}
+    >
       <div>
         <h1 className="text-2xl font-semibold text-text-main">
           {identity ? identity.tenant.name : invite ? "Accept your invitation" : "Tenant sign-in"}
@@ -110,19 +127,15 @@ export default function TenantSignIn({ token }: { token: string | null }) {
       )}
       {identity ? (
         <>
-          <p className="text-sm text-text-muted">
-            Your account is active. Tenant capabilities are currently available through the tenant
-            API.
-          </p>
-          <ul className="list-inside list-disc text-sm text-text-main">
-            {identity.capabilities.map((capability) => (
-              <li key={capability.description}>{capability.description}</li>
-            ))}
-          </ul>
+          <TenantWorkspace key={identity.user.id} role={identity.user.role} />
           <Button onClick={logout} loading={busy}>
             Sign out
           </Button>
         </>
+      ) : restoring ? (
+        <p role="status" className="text-sm text-text-muted">
+          Checking your tenant session…
+        </p>
       ) : (
         <form onSubmit={submit} className="flex flex-col gap-4">
           {!invite && !mfaToken && (
