@@ -58,6 +58,7 @@ test("page titles match segment boundaries and the longest canonical page, inclu
     findNavPage("/optimize/token-saver/engines/caveman?tab=rules")?.pageLabel,
     "Caveman"
   );
+  assert.equal(findNavPage("/optimize/token-saver/engines/caveman#rules")?.pageLabel, "Caveman");
   assert.equal(findNavPage("/dashboard/settings/security")?.pageLabel, "Security");
   assert.equal(findNavPage("/proxy/providers/fixture")?.entryId, "providers");
   assert.equal(findNavPage("/dashboard/providers-fake"), null);

@@ -634,7 +634,7 @@ export function getNavSearchItems(
 
 /** Titles match on segment boundaries and use the same page labels as search and tabs. */
 export function findNavPage(pathname: string): NavSearchItem | null {
-  const current = canonicalDashboardPath(pathname).split(/[?#]/)[0];
+  const current = canonicalDashboardPath(pathname.split(/[?#]/)[0]);
   let best: NavSearchItem | null = null;
   let bestLength = 0;
   for (const item of getNavSearchItems()) {
