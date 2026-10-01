@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 export const dynamic = "force-dynamic";
 import { clearMemoryCache, getMemoryCacheStats } from "@/lib/semanticCache";
+import { getCacheVerificationStats } from "@omniroute/open-sse/services/cache/verificationStats.ts";
 import { isAuthenticated } from "@/shared/utils/apiAuth";
 import { sanitizeErrorMessage } from "@omniroute/open-sse/utils/error.ts";
 
@@ -10,7 +11,10 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    return NextResponse.json(getMemoryCacheStats());
+    return NextResponse.json({
+      ...getMemoryCacheStats(),
+      verification: getCacheVerificationStats(),
+    });
   } catch (error) {
     return NextResponse.json({ error: sanitizeErrorMessage(error) }, { status: 500 });
   }

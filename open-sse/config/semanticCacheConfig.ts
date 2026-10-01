@@ -19,6 +19,12 @@ export interface SemanticCacheConfig {
    * endpoint on every cacheable request (#14159 re-land of #12630).
    */
   enabled: boolean;
+  /** Review fuzzy hits with a connection-backed typed decision model. Exact hits bypass review. */
+  verificationEnabled: boolean;
+  verificationConnectionId: string;
+  verificationModel: string;
+  verificationMinProbability: number;
+  verificationTimeoutMs: number;
   /** Storage and vector backend. Defaults to "memory". */
   backend: SemanticCacheBackend;
   /** Cosine similarity threshold (0.0 - 1.0) for semantic hits. Defaults to 0.8. */
@@ -59,6 +65,11 @@ export interface SemanticCacheConfig {
 
 export const DEFAULT_SEMANTIC_CACHE_CONFIG: SemanticCacheConfig = {
   enabled: false,
+  verificationEnabled: false,
+  verificationConnectionId: "",
+  verificationModel: "",
+  verificationMinProbability: 0.95,
+  verificationTimeoutMs: 1500,
   backend: "memory",
   similarityThreshold: 0.8,
   ttlMs: 1800000, // 30 minutes
@@ -199,6 +210,11 @@ export function resolveSemanticCacheConfig(
             DEFAULT_SEMANTIC_CACHE_CONFIG.requireZeroTemperature
           )
         : (dynamic?.requireZeroTemperature ?? DEFAULT_SEMANTIC_CACHE_CONFIG.requireZeroTemperature),
+    verificationEnabled: dynamic?.verificationEnabled ?? false,
+    verificationConnectionId: dynamic?.verificationConnectionId ?? "",
+    verificationModel: dynamic?.verificationModel ?? "",
+    verificationMinProbability: dynamic?.verificationMinProbability ?? 0.95,
+    verificationTimeoutMs: dynamic?.verificationTimeoutMs ?? 1500,
     ...overrides,
   };
 
@@ -206,5 +222,11 @@ export function resolveSemanticCacheConfig(
   if (resolved.similarityThreshold < 0) resolved.similarityThreshold = 0;
   if (resolved.similarityThreshold > 1) resolved.similarityThreshold = 1;
 
+  resolved.verificationMinProbability = Number.isFinite(resolved.verificationMinProbability)
+    ? Math.max(0.8, Math.min(1, resolved.verificationMinProbability))
+    : 0.95;
+  resolved.verificationTimeoutMs = Number.isFinite(resolved.verificationTimeoutMs)
+    ? Math.max(100, Math.min(5000, Math.round(resolved.verificationTimeoutMs)))
+    : 1500;
   return resolved;
 }

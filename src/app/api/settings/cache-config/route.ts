@@ -5,7 +5,10 @@ import {
   type UserDatabaseSettings,
 } from "@/lib/db/databaseSettings";
 import { getSettings, updateSettings } from "@/lib/db/settings";
-import { isAuthenticated } from "@/shared/utils/apiAuth";
+import { requireManagementAuth } from "@/lib/api/requireManagementAuth";
+import { sanitizeErrorMessage } from "@omniroute/open-sse/utils/error.ts";
+import { getCacheVerificationOptions } from "@/lib/cache/verificationOptions";
+import { getCacheVerificationStats } from "@omniroute/open-sse/services/cache/verificationStats.ts";
 import { ensureSemanticCacheDbBridge } from "@/lib/cache/semanticCacheDbBridge";
 import { resetSemanticCacheManager } from "@omniroute/open-sse/services/cache/semanticCacheManager";
 import { getEmbeddingOptions } from "./embeddingOptions";
@@ -19,6 +22,11 @@ const cacheConfigUpdateSchema = z.object({
   semanticCacheMaxSize: z.number().positive().optional(),
   semanticCacheTTL: z.number().positive().optional(),
   semanticCacheVectorEnabled: z.boolean().optional(),
+  semanticCacheVerificationEnabled: z.boolean().optional(),
+  semanticCacheVerificationConnectionId: z.string().trim().max(200).optional(),
+  semanticCacheVerificationModel: z.string().trim().max(2048).optional(),
+  semanticCacheVerificationMinProbability: z.number().min(0.8).max(1).optional(),
+  semanticCacheVerificationTimeoutMs: z.number().int().min(100).max(5000).optional(),
   semanticCacheBackend: z.enum(["memory", "redis"]).optional(),
   semanticCacheThreshold: z.number().min(0).max(1).optional(),
   semanticCacheEmbeddingProvider: z.string().trim().optional(),
@@ -41,6 +49,12 @@ const CACHE_CONFIG_KEYS = [
   "semanticCacheMaxSize",
   "semanticCacheTTL",
   "semanticCacheVectorEnabled",
+  "semanticCacheVerificationEnabled",
+  "semanticCacheVerificationConnectionId",
+  "semanticCacheVerificationModel",
+  "semanticCacheVerificationMinProbability",
+  "semanticCacheVerificationTimeoutMs",
+
   "semanticCacheBackend",
   "semanticCacheThreshold",
   "semanticCacheEmbeddingProvider",
@@ -63,6 +77,12 @@ const DEFAULTS = {
   semanticCacheMaxSize: 1000,
   semanticCacheTTL: 1800000,
   semanticCacheVectorEnabled: false,
+  semanticCacheVerificationEnabled: false,
+  semanticCacheVerificationConnectionId: "",
+  semanticCacheVerificationModel: "",
+  semanticCacheVerificationMinProbability: 0.95,
+  semanticCacheVerificationTimeoutMs: 1500,
+
   semanticCacheBackend: "memory",
   semanticCacheThreshold: 0.8,
   semanticCacheEmbeddingProvider: "lemonade",
@@ -83,9 +103,8 @@ const DEFAULTS = {
 };
 
 export async function GET(request: NextRequest) {
-  if (!(await isAuthenticated(request))) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const authError = await requireManagementAuth(request);
+  if (authError) return authError;
 
   try {
     const dbSettings = getDatabaseSettings();
@@ -93,9 +112,10 @@ export async function GET(request: NextRequest) {
     // idempotencyWindowMs is not part of the databaseSettings "cache" section —
     // it lives in the flat general settings (src/lib/db/settings.ts), which is
     // where src/lib/idempotencyLayer.ts actually reads it from.
-    const [flatSettings, embeddingOptions] = await Promise.all([
+    const [flatSettings, embeddingOptions, verificationOptions] = await Promise.all([
       getSettings(),
       getEmbeddingOptions(),
+      getCacheVerificationOptions(),
     ]);
     const config: Record<string, unknown> = {};
     for (const key of CACHE_CONFIG_KEYS) {
@@ -110,16 +130,17 @@ export async function GET(request: NextRequest) {
       }
     }
     config.embeddingOptions = embeddingOptions;
+    config.verificationOptions = verificationOptions;
+    config.verificationStats = getCacheVerificationStats();
     return NextResponse.json(config);
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: sanitizeErrorMessage(error) }, { status: 500 });
   }
 }
 
 export async function PUT(request: NextRequest) {
-  if (!(await isAuthenticated(request))) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const authError = await requireManagementAuth(request);
+  if (authError) return authError;
 
   try {
     let rawBody: unknown;
@@ -136,6 +157,41 @@ export async function PUT(request: NextRequest) {
 
     const updates: Partial<UserDatabaseSettings["cache"]> = {};
     const body = validation.data;
+    const merged = { ...getDatabaseSettings().cache, ...body };
+    const verificationChanged = [
+      "semanticCacheEnabled",
+      "semanticCacheVectorEnabled",
+      "semanticCacheVerificationEnabled",
+      "semanticCacheVerificationConnectionId",
+      "semanticCacheVerificationModel",
+    ].some((key) => Object.hasOwn(body, key));
+    if (
+      verificationChanged &&
+      merged.semanticCacheEnabled &&
+      merged.semanticCacheVectorEnabled &&
+      merged.semanticCacheVerificationEnabled
+    ) {
+      const connection = (await getCacheVerificationOptions()).find(
+        (item) => item.id === merged.semanticCacheVerificationConnectionId
+      );
+      if (!connection?.models.some((model) => model.id === merged.semanticCacheVerificationModel)) {
+        return NextResponse.json(
+          { error: "Choose an active connection and its decision model" },
+          { status: 400 }
+        );
+      }
+    }
+    if (body.semanticCacheVerificationEnabled !== undefined)
+      updates.semanticCacheVerificationEnabled = body.semanticCacheVerificationEnabled;
+    if (body.semanticCacheVerificationConnectionId !== undefined)
+      updates.semanticCacheVerificationConnectionId = body.semanticCacheVerificationConnectionId;
+    if (body.semanticCacheVerificationModel !== undefined)
+      updates.semanticCacheVerificationModel = body.semanticCacheVerificationModel;
+    if (body.semanticCacheVerificationMinProbability !== undefined)
+      updates.semanticCacheVerificationMinProbability =
+        body.semanticCacheVerificationMinProbability;
+    if (body.semanticCacheVerificationTimeoutMs !== undefined)
+      updates.semanticCacheVerificationTimeoutMs = body.semanticCacheVerificationTimeoutMs;
 
     if (body.semanticCacheEnabled !== undefined) {
       updates.semanticCacheEnabled = body.semanticCacheEnabled;
@@ -216,6 +272,6 @@ export async function PUT(request: NextRequest) {
 
     return NextResponse.json({ ok: true });
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: sanitizeErrorMessage(error) }, { status: 500 });
   }
 }

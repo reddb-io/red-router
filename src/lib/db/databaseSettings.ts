@@ -38,6 +38,12 @@ const LEGACY_FLAT_KEYS: {
     semanticCacheMaxSize: ["semanticCacheMaxSize"],
     semanticCacheTTL: ["semanticCacheTTL"],
     semanticCacheVectorEnabled: ["semanticCacheVectorEnabled"],
+    semanticCacheVerificationEnabled: ["semanticCacheVerificationEnabled"],
+    semanticCacheVerificationConnectionId: ["semanticCacheVerificationConnectionId"],
+    semanticCacheVerificationModel: ["semanticCacheVerificationModel"],
+    semanticCacheVerificationMinProbability: ["semanticCacheVerificationMinProbability"],
+    semanticCacheVerificationTimeoutMs: ["semanticCacheVerificationTimeoutMs"],
+
     semanticCacheBackend: ["semanticCacheBackend"],
     semanticCacheThreshold: ["semanticCacheThreshold"],
     semanticCacheEmbeddingProvider: ["semanticCacheEmbeddingProvider"],

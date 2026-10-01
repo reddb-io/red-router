@@ -11,7 +11,10 @@ import { synthesizeOpenAiSseFromJson } from "../../utils/jsonToSse.ts";
 import { attachOmniRouteMetaHeaders } from "@/domain/omnirouteResponseMeta";
 import { extractUsageFromResponse } from "../usageExtractor.ts";
 import { OMNIROUTE_RESPONSE_HEADERS } from "@/shared/constants/headers";
-import { getSemanticCacheManager } from "../../services/cache/semanticCacheManager.ts";
+import {
+  getSemanticCacheManager,
+  type CacheLookupResult,
+} from "../../services/cache/semanticCacheManager.ts";
 
 export async function checkSemanticCache({
   semanticCacheEnabled,
@@ -34,7 +37,7 @@ export async function checkSemanticCache({
   // Only the fields this read path actually touches are named; everything else
   // on the request body stays `unknown` via the index signature.
   body: Record<string, unknown> & { temperature?: number; top_p?: number };
-  clientRawRequest: { headers?: unknown } | null;
+  clientRawRequest: { headers?: unknown; signal?: AbortSignal } | null;
   model: string;
   provider: string;
   stream: boolean;
@@ -53,43 +56,47 @@ export async function checkSemanticCache({
   if (cacheDefaultMode === "bypass") return null;
   if (semanticCacheEnabled && isCacheableForRead(body, clientRawRequest?.headers)) {
     const manager = getSemanticCacheManager();
-    const managerResult = await manager.lookup({
-      body,
-      headers: clientRawRequest?.headers,
+    // Identical responses require neither embeddings nor a paid verifier.
+    const signature = generateSignature(
       model,
-      provider,
-      stream,
-      apiKeyId: apiKeyId ?? undefined,
-      cacheDefaultMode,
-    });
-
-    let cached: Record<string, unknown> | null = null;
-    let hitType: "exact" | "semantic" = "exact";
-    let similarity: number | undefined;
-
-    if (managerResult.hit && managerResult.entry) {
-      cached = managerResult.entry.response;
-      hitType = managerResult.type || "exact";
-      similarity = managerResult.similarity;
-    } else {
-      // Legacy SQLite / in-memory cache check fallback. Include tool_choice/tools/
-      // response_format (#12309/#12734), plus the Responses-API text.format spelling
-      // (#12307), in the signature: they change model behavior and must not collide
-      // with a signature computed without them.
-      const signature = generateSignature(
-        model,
-        body.messages ?? body.input,
-        body.temperature,
-        body.top_p,
-        apiKeyId ?? undefined,
-        outputContractOf(body)
-      );
-      const legacyCached = getCachedResponse(signature);
-      if (legacyCached) {
-        cached = legacyCached as Record<string, unknown>;
-        hitType = "exact";
-      }
-    }
+      body.messages ?? body.input,
+      body.temperature,
+      body.top_p,
+      apiKeyId ?? undefined,
+      outputContractOf(body)
+    );
+    const legacyCached = getCachedResponse(signature);
+    const managerResult: CacheLookupResult = legacyCached
+      ? { hit: false }
+      : await manager.lookup({
+          body,
+          headers: clientRawRequest?.headers,
+          model,
+          provider,
+          stream,
+          apiKeyId: apiKeyId ?? undefined,
+          cacheDefaultMode,
+          signal: clientRawRequest?.signal,
+          verifySemantic: async (candidate, signal) => {
+            const { verifySemanticCacheCandidate } =
+              await import("@/sse/services/semanticCacheVerification");
+            return verifySemanticCacheCandidate(
+              candidate,
+              manager.getConfig(),
+              {
+                apiKeyId,
+                signal: clientRawRequest?.signal,
+                headers: clientRawRequest?.headers,
+              },
+              signal
+            );
+          },
+        });
+    const cached =
+      (legacyCached as Record<string, unknown> | null) ||
+      (managerResult.hit ? managerResult.entry?.response : null);
+    const hitType = managerResult.type || "exact";
+    const similarity = managerResult.similarity;
 
     if (cached) {
       log?.debug?.("CACHE", `Semantic cache HIT (${hitType}) for ${model} (stream=${stream})`);
@@ -168,18 +175,29 @@ export async function checkSemanticCache({
         headers[OMNIROUTE_RESPONSE_HEADERS.cacheSimilarity] = similarity.toFixed(4);
       }
 
-      // A cache HIT serves WITHOUT an upstream call, so the incremental cost billed to
-      // the client is 0 (consumers that sum X-OmniRoute-Response-Cost must not charge for
-      // hits). The original/would-have-been cost is surfaced via X-OmniRoute-Cost-Saved.
+      // Generation is avoided; a verified hit may still incur evaluation cost.
+      if (managerResult.verification) {
+        headers["X-RedRouter-Cache-Verification"] = "accepted";
+        headers["X-RedRouter-Cache-Verification-Cost"] =
+          managerResult.verification.evaluationCostUsd === undefined
+            ? "unknown"
+            : String(managerResult.verification.evaluationCostUsd);
+      }
       attachOmniRouteMetaHeaders(headers, {
         provider,
         model,
         cacheHit: true,
         latencyMs: Date.now() - startTime,
         usage: cachedUsage,
-        costUsd: 0,
+        costUsd: managerResult.verification?.evaluationCostUsd ?? 0,
         costSavedUsd: cachedCost,
       });
+      if (
+        managerResult.verification &&
+        managerResult.verification.evaluationCostUsd === undefined
+      ) {
+        delete headers[OMNIROUTE_RESPONSE_HEADERS.responseCost];
+      }
       return {
         success: true,
         response: new Response(cachedSse || JSON.stringify(cached), {

@@ -6,7 +6,10 @@
  * @module services/cache/vectorStore
  */
 
+import type { SemanticVerificationProof } from "./semanticVerification.ts";
+
 export interface CacheEntry {
+  verificationProof?: SemanticVerificationProof;
   id: string;
   hash: string;
   signature?: string;

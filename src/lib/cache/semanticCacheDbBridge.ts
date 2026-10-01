@@ -62,6 +62,11 @@ export function ensureSemanticCacheDbBridge(): void {
         // on BOTH the master semantic-cache toggle and the vector-layer toggle. With
         // it off, chatCore behaves exactly like the legacy SQLite exact-match cache.
         enabled: s.semanticCacheEnabled !== false && s.semanticCacheVectorEnabled === true,
+        verificationEnabled: s.semanticCacheVerificationEnabled === true,
+        verificationConnectionId: s.semanticCacheVerificationConnectionId,
+        verificationModel: s.semanticCacheVerificationModel,
+        verificationMinProbability: s.semanticCacheVerificationMinProbability,
+        verificationTimeoutMs: s.semanticCacheVerificationTimeoutMs,
         backend: s.semanticCacheBackend,
         similarityThreshold: s.semanticCacheThreshold,
         ttlMs: s.semanticCacheTTL,

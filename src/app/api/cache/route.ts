@@ -1,3 +1,4 @@
+import { getSemanticCacheManager } from "@omniroute/open-sse/services/cache/semanticCacheManager.ts";
 import { NextRequest, NextResponse } from "next/server";
 export const dynamic = "force-dynamic";
 import {
@@ -99,7 +100,8 @@ export async function DELETE(req: NextRequest) {
 
     // Full clear
     const cleared = clearCache();
-    return NextResponse.json({ ok: true, cleared, scope: "all" });
+    const vectorCleared = await getSemanticCacheManager().clear();
+    return NextResponse.json({ ok: true, cleared, vectorCleared, scope: "all" });
   } catch (error) {
     return NextResponse.json({ error: errorMessage(error) }, { status: 500 });
   }

@@ -12,6 +12,13 @@
  */
 
 import crypto from "crypto";
+import {
+  buildVerificationProof,
+  prepareSemanticVerification,
+  type SemanticVerifier,
+  type SemanticVerificationResult,
+} from "./semanticVerification.ts";
+import { recordCacheVerification, recordSkippedCacheVerification } from "./verificationStats.ts";
 import { outputContractOf } from "@/lib/semanticCache";
 import {
   type SemanticCacheConfig,
@@ -42,6 +49,8 @@ export interface CacheLookupParams {
   stream?: boolean;
   apiKeyId?: string | null;
   cacheDefaultMode?: "legacy" | "bypass" | null;
+  verifySemantic?: SemanticVerifier;
+  signal?: AbortSignal;
 }
 
 export interface CacheLookupResult {
@@ -51,6 +60,7 @@ export interface CacheLookupResult {
   similarity?: number;
   tokensSaved?: number;
   bypassed?: boolean;
+  verification?: SemanticVerificationResult;
 }
 
 export interface CacheStoreParams {
@@ -293,6 +303,14 @@ export class SemanticCacheManager {
       return { hit: false };
     }
 
+    if (
+      this.config.verificationEnabled &&
+      (!params.verifySemantic || params.signal?.aborted || !buildVerificationProof(params.body))
+    ) {
+      recordSkippedCacheVerification();
+      return { hit: false };
+    }
+
     // Guard: check conversation history depth/threshold
     if (Array.isArray(conv) && conv.length > this.config.conversationHistoryThreshold) {
       return { hit: false };
@@ -332,7 +350,43 @@ export class SemanticCacheManager {
         1
       );
       if (nearest.length > 0 && nearest[0].similarity >= threshold) {
+        let verification: SemanticVerificationResult | undefined;
+        if (this.config.verificationEnabled) {
+          const input = prepareSemanticVerification(params.body, nearest[0].entry, {
+            model: params.model,
+            provider: params.provider,
+            apiKeyId: params.apiKeyId,
+            cacheKey,
+          });
+          if (!input || !params.verifySemantic || params.signal?.aborted) {
+            recordSkippedCacheVerification();
+            return { hit: false };
+          }
+          const started = Date.now();
+          const deadline = AbortSignal.timeout(this.config.verificationTimeoutMs);
+          const signal = params.signal ? AbortSignal.any([params.signal, deadline]) : deadline;
+          let removeAbortListener = () => {};
+          try {
+            const cancelled = new Promise<SemanticVerificationResult>((resolve) => {
+              const abort = () => resolve({ outcome: "unavailable" });
+              signal.addEventListener("abort", abort, { once: true });
+              removeAbortListener = () => signal.removeEventListener("abort", abort);
+              if (signal.aborted) abort();
+            });
+            verification = await Promise.race([params.verifySemantic(input, signal), cancelled]);
+          } catch {
+            verification = { outcome: "unavailable" };
+          } finally {
+            removeAbortListener();
+          }
+          if (nearest[0].entry.expiresAt <= Date.now() || signal.aborted) {
+            verification = { ...verification, outcome: "unavailable" };
+          }
+          recordCacheVerification(verification, Date.now() - started);
+          if (verification.outcome !== "accepted") return { hit: false };
+        }
         return {
+          verification,
           hit: true,
           type: "semantic",
           entry: nearest[0].entry,
@@ -410,6 +464,9 @@ export class SemanticCacheManager {
 
     const now = Date.now();
     const entry: CacheEntry = {
+      verificationProof: this.config.verificationEnabled
+        ? buildVerificationProof(params.body)
+        : undefined,
       id: crypto.randomUUID(),
       hash: directHash,
       signature: params.signature || undefined,

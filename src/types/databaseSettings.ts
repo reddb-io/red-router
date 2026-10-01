@@ -38,6 +38,12 @@ export interface DatabaseSettings {
      * for an operator who only enabled the legacy exact-match cache.
      */
     semanticCacheVectorEnabled?: boolean;
+    semanticCacheVerificationEnabled?: boolean;
+    semanticCacheVerificationConnectionId?: string;
+    semanticCacheVerificationModel?: string;
+    semanticCacheVerificationMinProbability?: number;
+    semanticCacheVerificationTimeoutMs?: number;
+
     semanticCacheBackend?: "memory" | "redis";
     semanticCacheThreshold?: number;
     semanticCacheEmbeddingProvider?: string;
@@ -127,6 +133,12 @@ export const DEFAULT_DATABASE_SETTINGS: Omit<DatabaseSettings, "location" | "sta
     semanticCacheMaxSize: 1000,
     semanticCacheTTL: 1800000,
     semanticCacheVectorEnabled: false,
+    semanticCacheVerificationEnabled: false,
+    semanticCacheVerificationConnectionId: "",
+    semanticCacheVerificationModel: "",
+    semanticCacheVerificationMinProbability: 0.95,
+    semanticCacheVerificationTimeoutMs: 1500,
+
     semanticCacheBackend: "memory",
     semanticCacheThreshold: 0.8,
     semanticCacheEmbeddingProvider: "lemonade",
