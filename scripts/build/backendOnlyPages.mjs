@@ -9,7 +9,7 @@
  * WHY: OmniRoute embedders that only consume the HTTP API (`/api/*`, `/v1/*`, `/v1beta/*`)
  * — e.g. the VibeProxy desktop app, headless self-hosters, CI that only needs the router —
  * do NOT need the Next.js dashboard UI. Building it dominates `next build`: the ~126 leaf
- * pages pull in heavy client vendor chunks (recharts, monaco-editor, @xyflow, mermaid,
+ * pages pull in heavy client vendor chunks (recharts, monaco-editor, @xyflow,
  * @lobehub/icons), the static-generation pass renders every route, and React Server Actions
  * generate a client-entry manifest. Replacing every App-Router UI file (page/layout/template/
  * loading/error/not-found/default) with a trivial server stub removes the client graph, the
