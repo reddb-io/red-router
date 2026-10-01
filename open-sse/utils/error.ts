@@ -84,6 +84,8 @@ const SAFE_PUBLIC_ERROR_IDENTIFIERS = new Set([
   "body_exceeds_budget",
   "browser_stream_inconsistent",
   "budget_exceeded",
+  "budget_unavailable",
+  "budget_price_unavailable",
   "capability_mismatch",
   "cf_mitigated_challenge",
   "chat_admission_busy",

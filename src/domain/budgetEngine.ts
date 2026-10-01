@@ -352,7 +352,7 @@ function violationsOf(
 
 /** Whether a request from this key to this provider may proceed under the assigned budgets. */
 export function checkBudgets(input: BudgetCheckInput, now = Date.now()): BudgetCheckResult {
-  const { keyId, provider } = input;
+  const { keyId } = input;
   if (!keyId) return OK;
   try {
     syncExhausted();
@@ -413,7 +413,7 @@ export function checkBudgets(input: BudgetCheckInput, now = Date.now()): BudgetC
  * Called once a candidate passed {@link checkBudgets}, right before it is dispatched.
  */
 export function recordBudgetAdmission(input: BudgetAdmissionInput, now = Date.now()): void {
-  const { keyId, provider } = input;
+  const { keyId } = input;
   if (!keyId) return;
   try {
     for (const entry of resolveApplicable(keyId, now, input)) {
@@ -433,7 +433,7 @@ export function recordBudgetAdmission(input: BudgetAdmissionInput, now = Date.no
  * after the one that crossed it.
  */
 export function recordBudgetTokens(input: BudgetTokensInput, now = Date.now()): void {
-  const { keyId, provider, tokens } = input;
+  const { keyId, tokens } = input;
   if (!keyId || !(tokens > 0)) return;
   try {
     for (const entry of resolveApplicable(keyId, now, input)) {
