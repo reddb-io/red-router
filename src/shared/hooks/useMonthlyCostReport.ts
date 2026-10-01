@@ -26,6 +26,9 @@ export function useMonthlyCostReport(
         const response = await fetch(url, { signal: controller.signal });
         if (!response.ok) throw new Error("Unable to load monthly usage. Try again.");
         const data = (await response.json()) as { report: MonthlyCostReport };
+        if (!data.report || data.report.month !== month || !Array.isArray(data.report.keys)) {
+          throw new Error("Invalid monthly usage response.");
+        }
         if (!controller.signal.aborted) setResult({ stamp, report: data.report });
       } catch {
         if (!controller.signal.aborted)
@@ -33,7 +36,7 @@ export function useMonthlyCostReport(
       }
     })();
     return () => controller.abort();
-  }, [url, stamp]);
+  }, [url, stamp, month]);
   const current = result?.stamp === stamp ? result : null;
   return {
     report: current?.report ?? null,

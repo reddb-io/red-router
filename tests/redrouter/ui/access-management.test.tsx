@@ -59,7 +59,7 @@ beforeEach(() => {
     if (url.includes("/api/usage/monthly-report?"))
       return Response.json({
         report: {
-          month: "2026-09",
+          month: new URL(url, "http://localhost").searchParams.get("month"),
           since: "2026-09-01T00:00:00.000Z",
           until: "2026-10-01T00:00:00.000Z",
           total: {
@@ -67,7 +67,7 @@ beforeEach(() => {
             errors: 0,
             inputTokens: 0,
             outputTokens: 0,
-            recordedCostUsd: 0,
+            recordedCostUsd: null,
             ledgerEntries: 0,
           },
           keys: [],

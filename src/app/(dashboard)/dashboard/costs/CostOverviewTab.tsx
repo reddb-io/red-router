@@ -130,6 +130,13 @@ interface UsageAnalyticsPayload {
   // equivalents for flat-rate subscriptions (route.ts). Billed-cost mode omits
   // it; both modes remain estimates, not invoices.
   includesFlatRateEstimates?: boolean;
+  costBasis?: string;
+  costWindow?: {
+    since: string | null;
+    until: string | null;
+    timezone: string;
+    apiKeyIds: string[];
+  };
 }
 
 const RANGE_OPTIONS: Array<{ value: CostRange; labelKey: string }> = [
@@ -238,7 +245,7 @@ function generateCSV(analytics: UsageAnalyticsPayload, locale: string): string {
   lines.push("## Summary");
   lines.push("Metric,Value");
   lines.push(
-    `${csvCell(includesEstimates ? "Total Cost (includes flat-rate estimates)" : "Total Cost")},${csvCell(currencyFormatter.format(analytics.summary.totalCost))}`
+    `${csvCell(includesEstimates ? "Estimated Cost (includes flat-rate estimates)" : "Estimated Cost")},${csvCell(currencyFormatter.format(analytics.summary.totalCost))}`
   );
   lines.push(`Total Requests,${analytics.summary.totalRequests}`);
   lines.push(`Unique Models,${analytics.summary.uniqueModels}`);
@@ -298,6 +305,8 @@ function generateJSON(analytics: UsageAnalyticsPayload): string {
     {
       generatedAt: new Date().toISOString(),
       includesFlatRateEstimates: analytics.includesFlatRateEstimates === true,
+      costBasis: analytics.costBasis,
+      costWindow: analytics.costWindow,
       summary: analytics.summary,
       dailyTrend: analytics.dailyTrend,
       weeklyPattern: analytics.weeklyPattern,

@@ -912,6 +912,8 @@ export async function GET(request: Request) {
       errorBreakdown,
       range,
       includesFlatRateEstimates: includeFlatRateEstimates,
+      costBasis: "current_price_estimates_and_stored_summaries",
+      costWindow: { since: sinceIso, until: untilIso, timezone: "UTC", apiKeyIds },
     } as any;
 
     if (presetsParam) {

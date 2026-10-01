@@ -21,6 +21,7 @@ const { hashManagementPassword } = await import("../../../src/lib/auth/managemen
 const { mintDashboardSessionToken, getDashboardJwtSecret, DASHBOARD_SESSION_COOKIE } =
   await import("../../../src/shared/utils/dashboardSessionToken.ts");
 const route = await import("../../../src/app/api/usage/monthly-report/route.ts");
+const analyticsRoute = await import("../../../src/app/api/usage/analytics/route.ts");
 
 after(() => {
   resetDbInstance();
@@ -33,13 +34,13 @@ test("unknown amounts stay null; explicit zero entries stay zero; sources never 
   const zero = await createApiKey("Recorded zero", "monthly-fixture", []);
   const paid = await createApiKey("Metered", "monthly-fixture", []);
   assignApiKeysToTenant(tenant.id, [unknown.id, zero.id, paid.id]);
-  for (const apiKeyId of [unknown.id, zero.id, paid.id, paid.id]) {
+  for (const [index, apiKeyId] of [unknown.id, zero.id, paid.id, paid.id].entries()) {
     await saveRequestUsage({
       apiKeyId,
       apiKeyName: "Original key",
       provider: "openai",
       model: "fixture",
-      timestamp: "2026-09-01T00:00:00.000Z",
+      timestamp: `2026-09-01T00:00:0${index}.000Z`,
       tokens: { input_tokens: 20, output_tokens: 5 },
       success: true,
     });
@@ -92,13 +93,13 @@ test("event ownership survives moves/deletion and the global sum reconciles with
   const a = createTenant({ slug: "move-a" });
   const b = createTenant({ slug: "move-b" });
   const key = await createApiKey("Moved key", "monthly-fixture", []);
-  const write = async () => {
+  const write = async (timestamp: string) => {
     await saveRequestUsage({
       apiKeyId: key.id,
       apiKeyName: "Moved key",
       provider: "openai",
       model: "fixture",
-      timestamp: "2026-08-15T12:00:00.000Z",
+      timestamp,
       tokens: { input_tokens: 1 },
       success: true,
     });
@@ -107,13 +108,13 @@ test("event ownership survives moves/deletion and the global sum reconciles with
       provider: "openai",
       model: "fixture",
       amountUsd: 0.25,
-      timestamp: "2026-08-15T12:00:00.000Z",
+      timestamp,
     });
   };
   assignApiKeysToTenant(a.id, [key.id]);
-  await write();
+  await write("2026-08-15T12:00:00.000Z");
   assignApiKeysToTenant(b.id, [key.id]);
-  await write();
+  await write("2026-08-15T12:00:01.000Z");
   recordLedgerEntry({
     apiKeyId: "deleted-before-migration",
     provider: "unknown",
@@ -164,6 +165,15 @@ test("monthly UTC windows, report authorization and invalid queries have bounded
       headers: { cookie: `${DASHBOARD_SESSION_COOKIE}=${token}` },
     });
   assert.equal((await route.GET(request("month=2026-09"))).status, 200);
+  const estimates = await analyticsRoute.GET(
+    new Request("http://localhost/api/usage/analytics?range=all", {
+      headers: { cookie: `${DASHBOARD_SESSION_COOKIE}=${token}` },
+    })
+  );
+  assert.equal(estimates.status, 200);
+  const estimateBody = await estimates.json();
+  assert.equal(estimateBody.costBasis, "current_price_estimates_and_stored_summaries");
+  assert.equal(estimateBody.costWindow.timezone, "UTC");
   for (const query of [
     "month=../x",
     "month=2026-09&apiKeyId=",

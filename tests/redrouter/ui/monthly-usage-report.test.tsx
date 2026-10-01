@@ -116,6 +116,13 @@ it("an unsuccessful read shows an error with retry, never a fabricated zero repo
   expect(container.querySelector("thead")?.textContent).not.toContain("Tenant");
 });
 
+it("refuses a successful HTTP response for a different month", async () => {
+  respond = async () => Response.json({ report: report("2026-08") });
+  await mount();
+  expect(container.querySelector('[role="alert"]')?.textContent).toContain("Unable to load");
+  expect(container.querySelector("table")).toBeNull();
+});
+
 it("month and scope changes hide old results; late responses cannot relabel another month or tenant", async () => {
   let finishOld!: (response: Response) => void;
   respond = async (url) =>
