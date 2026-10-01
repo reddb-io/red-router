@@ -168,14 +168,16 @@ export async function POST(request) {
     // GHSA-jmq6-8j86-8xqj: the local CLI probe spawns on the host — only for local callers.
     const allowLocalRuntimeProbe = getRequestPeerLocality(request) !== "remote";
     const testOne = async (conn: Record<string, unknown>) => {
+      let timeout: ReturnType<typeof setTimeout> | undefined;
       try {
         const result = await Promise.race([
-          testSingleConnection(conn.id, undefined, { allowLocalRuntimeProbe }),
-          new Promise((_, reject) =>
-            setTimeout(
-              () => reject(new Error("Connection test timed out after 30s")),
-              PER_CONNECTION_TIMEOUT
-            )
+          testSingleConnection(conn.id, undefined, { allowLocalRuntimeProbe, manual: true }),
+          new Promise(
+            (_, reject) =>
+              (timeout = setTimeout(
+                () => reject(new Error("Connection test timed out after 30s")),
+                PER_CONNECTION_TIMEOUT
+              ))
           ),
         ]);
         const data = result as {
@@ -212,6 +214,8 @@ export async function POST(request) {
           statusCode: null,
           testedAt: new Date().toISOString(),
         };
+      } finally {
+        if (timeout) clearTimeout(timeout);
       }
     };
 

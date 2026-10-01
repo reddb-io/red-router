@@ -11,6 +11,7 @@ process.env.DATA_DIR = dataDir;
 const core = await import("../../../src/lib/db/core.ts");
 const providers = await import("../../../src/lib/db/providers.ts");
 const route = await import("../../../src/app/api/providers/[id]/test/route.ts");
+const batchRoute = await import("../../../src/app/api/providers/test-batch/route.ts");
 const originalFetch = globalThis.fetch;
 after(async () => {
   globalThis.fetch = originalFetch;
@@ -69,6 +70,23 @@ test("manual HTTP probes bypass a saved cooldown; drafts and failed tests leave 
     await providers.getProviderConnectionById(id),
     before,
     "manual failure must not introduce or extend cooldown"
+  );
+  const batchRequest = await makeManagementSessionRequest(
+    "http://localhost/api/providers/test-batch",
+    {
+      method: "POST",
+      body: { mode: "selected", connectionIds: [id] },
+    }
+  );
+  const batchResponse = await batchRoute.POST(batchRequest);
+  assert.equal(batchResponse.status, 200);
+  const batch = await batchResponse.json();
+  assert.equal(batch.results[0].valid, false);
+  assert.equal(batch.results[0].statusCode, 401);
+  assert.deepEqual(
+    await providers.getProviderConnectionById(id),
+    before,
+    "batch diagnostics also preserve cooldown"
   );
   status = 200;
   assert.equal((await call({})).valid, true);

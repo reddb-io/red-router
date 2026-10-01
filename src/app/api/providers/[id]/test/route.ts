@@ -1103,7 +1103,7 @@ export async function testSingleConnection(
   const configuredModelId =
     typeof connectionPsd.validationModelId === "string" ? connectionPsd.validationModelId : "";
   const probedModelId = validationModelId || configuredModelId;
-  if (result.valid && result.statusCode === 402 && probedModelId) {
+  if (!options.manual && result.valid && result.statusCode === 402 && probedModelId) {
     lockModelIfPerModelQuota(provider, connectionId, probedModelId, "credits", 60 * 60 * 1000);
   }
 
