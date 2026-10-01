@@ -16,7 +16,13 @@ import {
   type CacheLookupResult,
 } from "../../services/cache/semanticCacheManager.ts";
 
+export function isSemanticCacheVerificationEnabled(): boolean {
+  return getSemanticCacheManager().getConfig().verificationEnabled;
+}
+
 export async function checkSemanticCache({
+  verificationBody,
+  allowSemantic,
   semanticCacheEnabled,
   body,
   clientRawRequest,
@@ -33,6 +39,8 @@ export async function checkSemanticCache({
   cacheDefaultMode,
   videoTranscriptSensitive,
 }: {
+  verificationBody?: Record<string, unknown>;
+  allowSemantic?: boolean;
   semanticCacheEnabled: boolean;
   // Only the fields this read path actually touches are named; everything else
   // on the request body stays `unknown` via the index signature.
@@ -70,6 +78,8 @@ export async function checkSemanticCache({
       ? { hit: false }
       : await manager.lookup({
           body,
+          verificationBody,
+          allowSemantic,
           headers: clientRawRequest?.headers,
           model,
           provider,

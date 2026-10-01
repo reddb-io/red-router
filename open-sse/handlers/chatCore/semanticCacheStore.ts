@@ -50,6 +50,7 @@ export function storeSemanticCacheResponse(
   args: {
     enabled: boolean;
     body: CacheBody;
+    verificationBody?: Record<string, unknown>;
     headers: unknown;
     translatedResponse: unknown;
     model: string;
@@ -86,6 +87,7 @@ export function storeSemanticCacheResponse(
     getSemanticCacheManager()
       .store({
         body: args.body as Record<string, unknown>,
+        verificationBody: args.verificationBody,
         headers: args.headers,
         response: args.translatedResponse as Record<string, unknown>,
         model: args.model,

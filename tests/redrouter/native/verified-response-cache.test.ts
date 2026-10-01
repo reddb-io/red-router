@@ -189,6 +189,78 @@ test("bounded evidence and verdicts reject truncation, coercion and invalid scor
   assert.equal(readReuseProbability({ answers: { reusable: { type: "noul", noul: 0.99 } } }), 0.99);
 });
 
+test("router-injected context must match and the initial exact pass spends no embedding calls", async () => {
+  let embeddingCalls = 0;
+  const manager = new SemanticCacheManager(
+    { enabled: true, verificationEnabled: true },
+    new MemoryVectorStore(),
+    async () => {
+      embeddingCalls++;
+      return { embedding: [1, 0], inputTokens: 5 };
+    }
+  );
+  const withMemory = (body: typeof original, memory: string) => ({
+    ...body,
+    messages: [{ role: "system", content: memory }, ...body.messages],
+  });
+  await manager.store({
+    ...scope,
+    body: original,
+    verificationBody: withMemory(original, "Account policy: no refunds."),
+    response,
+  });
+  const before = embeddingCalls;
+  assert.equal(
+    (await manager.lookup({ ...scope, body: similar, allowSemantic: false })).hit,
+    false
+  );
+  assert.equal(embeddingCalls, before);
+  let decisions = 0;
+  const approve = async () => {
+    decisions++;
+    return { outcome: "accepted" as const };
+  };
+  assert.equal(
+    (
+      await manager.lookup({
+        ...scope,
+        body: similar,
+        verificationBody: withMemory(similar, "Account policy: refunds within 7 days."),
+        verifySemantic: approve,
+      })
+    ).hit,
+    false
+  );
+  assert.equal(decisions, 0);
+  assert.equal(
+    (
+      await manager.lookup({
+        ...scope,
+        body: similar,
+        verificationBody: withMemory(similar, "Account policy: no refunds."),
+        verifySemantic: approve,
+      })
+    ).hit,
+    true
+  );
+  assert.equal(decisions, 1);
+  assert.equal(
+    (
+      await manager.lookup({
+        ...scope,
+        body: similar,
+        verificationBody: {
+          ...similar,
+          tools: [{ type: "function", function: { name: "lookup_account" } }],
+        },
+        verifySemantic: approve,
+      })
+    ).hit,
+    false
+  );
+  assert.equal(decisions, 1);
+});
+
 test("deadline, caller cancellation and expiry during evaluation all fall back to generation", async () => {
   const { manager } = await setup();
   // Keep the event loop alive because AbortSignal.timeout uses an unref'd timer.

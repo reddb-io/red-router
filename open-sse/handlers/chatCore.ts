@@ -35,7 +35,10 @@ export {
 } from "./chatCore/claudeSystemRole.ts";
 import { checkIdempotencyCache } from "./chatCore/idempotency.ts";
 import { acquireTurnExecution, createTurnInProgressResult } from "./chatCore/turnExecutionGuard.ts";
-import { checkSemanticCache } from "./chatCore/semanticCache.ts";
+import {
+  checkSemanticCache,
+  isSemanticCacheVerificationEnabled,
+} from "./chatCore/semanticCache.ts";
 import { checkLifecycle, resolveLifecycle } from "./chatCore/modelLifecyclePolicy.ts";
 import {
   shouldDefaultAllowClassifier,
@@ -1316,7 +1319,8 @@ async function handleChatCoreInner({
   const bodyForCacheWrite = body;
 
   // ── Phase 9.1: Semantic cache check (temp=0, any streaming mode) ──
-  const cacheHit = await checkSemanticCache({
+  const verifiedResponseReuse = semanticCacheEnabled && isSemanticCacheVerificationEnabled();
+  const cacheCheckParams = {
     semanticCacheEnabled,
     body,
     clientRawRequest,
@@ -1333,6 +1337,10 @@ async function handleChatCoreInner({
     cacheDefaultMode: (apiKeyInfo as { cacheDefaultMode?: "legacy" | "bypass" } | null)
       ?.cacheDefaultMode,
     videoTranscriptSensitive: videoBridgeObserved,
+  };
+  const cacheHit = await checkSemanticCache({
+    ...cacheCheckParams,
+    allowSemantic: !verifiedResponseReuse,
   });
   if (cacheHit) {
     return cacheHit;
@@ -1392,6 +1400,16 @@ async function handleChatCoreInner({
   });
   body = injectionResult.body;
   const memorySettings = injectionResult.memorySettings;
+  // A decision may never approve a snapshot that omits router-owned memory or tools.
+  // Keep identical replay at Phase 9.1; fuzzy review waits for the actual injected context.
+  const bodyForCacheVerification = body;
+  if (verifiedResponseReuse) {
+    const verifiedHit = await checkSemanticCache({
+      ...cacheCheckParams,
+      verificationBody: bodyForCacheVerification,
+    });
+    if (verifiedHit) return verifiedHit;
+  }
 
   // Merge web-search/web-fetch fallback tool names into the builtin owner set.
   // injectMemoryAndSkills only tracks memory tools; the fallback names were
@@ -5737,6 +5755,7 @@ async function handleChatCoreInner({
       storeSemanticCacheResponse({
         enabled: semanticCacheEnabled,
         body: bodyForCacheWrite,
+        verificationBody: bodyForCacheVerification,
         headers: clientRawRequest?.headers,
         translatedResponse,
         model,
@@ -6324,6 +6343,7 @@ async function handleChatCoreInner({
       streamStatus,
       streamResponseBody,
       body: bodyForCacheWrite,
+      verificationBody: bodyForCacheVerification,
       headers: clientRawRequest?.headers,
       model,
       provider,

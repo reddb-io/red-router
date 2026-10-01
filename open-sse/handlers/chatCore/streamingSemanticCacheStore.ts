@@ -50,6 +50,7 @@ interface StreamingCacheArgs {
   streamStatus: number;
   streamResponseBody: Record<string, unknown> | null | undefined;
   body: CacheBody;
+  verificationBody?: Record<string, unknown>;
   headers: unknown;
   model: string;
   provider?: string;
@@ -90,6 +91,7 @@ function writeStreamingCacheEntry(
     getSemanticCacheManager()
       .store({
         body: args.body as Record<string, unknown>,
+        verificationBody: args.verificationBody,
         headers: args.headers,
         response: cleanBody,
         model: args.model,

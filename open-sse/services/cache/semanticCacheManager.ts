@@ -37,6 +37,9 @@ import {
 import { synthesizeOpenAiSseFromJson } from "../../utils/jsonToSse.ts";
 
 export interface CacheLookupParams {
+  /** Full context after router-owned memory/skill injection, before provider translation. */
+  verificationBody?: Record<string, unknown>;
+  allowSemantic?: boolean;
   body: Record<string, unknown> & {
     messages?: unknown;
     input?: unknown;
@@ -64,6 +67,7 @@ export interface CacheLookupResult {
 }
 
 export interface CacheStoreParams {
+  verificationBody?: Record<string, unknown>;
   body: Record<string, unknown> & {
     messages?: unknown;
     input?: unknown;
@@ -299,13 +303,19 @@ export class SemanticCacheManager {
     }
 
     // ── Layer 2: Semantic Vector Similarity Lookup ──
-    if (cacheTypeHeader === "direct" || !this.embeddingGenerator) {
+    if (
+      params.allowSemantic === false ||
+      cacheTypeHeader === "direct" ||
+      !this.embeddingGenerator
+    ) {
       return { hit: false };
     }
 
     if (
       this.config.verificationEnabled &&
-      (!params.verifySemantic || params.signal?.aborted || !buildVerificationProof(params.body))
+      (!params.verifySemantic ||
+        params.signal?.aborted ||
+        !buildVerificationProof(params.verificationBody ?? params.body))
     ) {
       recordSkippedCacheVerification();
       return { hit: false };
@@ -352,12 +362,16 @@ export class SemanticCacheManager {
       if (nearest.length > 0 && nearest[0].similarity >= threshold) {
         let verification: SemanticVerificationResult | undefined;
         if (this.config.verificationEnabled) {
-          const input = prepareSemanticVerification(params.body, nearest[0].entry, {
-            model: params.model,
-            provider: params.provider,
-            apiKeyId: params.apiKeyId,
-            cacheKey,
-          });
+          const input = prepareSemanticVerification(
+            params.verificationBody ?? params.body,
+            nearest[0].entry,
+            {
+              model: params.model,
+              provider: params.provider,
+              apiKeyId: params.apiKeyId,
+              cacheKey,
+            }
+          );
           if (!input || !params.verifySemantic || params.signal?.aborted) {
             recordSkippedCacheVerification();
             return { hit: false };
@@ -465,7 +479,7 @@ export class SemanticCacheManager {
     const now = Date.now();
     const entry: CacheEntry = {
       verificationProof: this.config.verificationEnabled
-        ? buildVerificationProof(params.body)
+        ? buildVerificationProof(params.verificationBody ?? params.body)
         : undefined,
       id: crypto.randomUUID(),
       hash: directHash,
