@@ -699,7 +699,7 @@ const CONFIGURATION_ITEMS: readonly SidebarItemDefinition[] = [
     labelFallback: "Prompts",
     subtitleKey: "settingsPromptsSubtitle",
     subtitleFallback: "Instructions added to chat requests by this router",
-    icon: "edit_note",
+    icon: "description",
   },
   {
     id: "settings-general",

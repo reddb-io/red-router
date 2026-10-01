@@ -298,6 +298,7 @@ test("the full table (what the operator sees for each existing page)", () => {
     "/dashboard/search-tools": "/tools/search-tools",
     "/dashboard/settings": "/system/settings",
     "/dashboard/settings/general": "/system/settings/storage",
+    "/dashboard/settings/network": "/system/network",
     "/dashboard/setup": "/home/setup",
     "/dashboard/skills": "/optimize/skills",
     "/dashboard/system/proxy": "/system/outbound-proxies",

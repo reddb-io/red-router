@@ -290,6 +290,7 @@ test("the presets keep a usable menu", () => {
           "tenants",
           "access-users",
           "access-roles",
+          "network",
           "settings",
         ]
       );

@@ -37,7 +37,7 @@ function ConnectionProbe({ connectionId, health, draft }: Props) {
   const [testing, setTesting] = useState(false);
   const [result, setResult] = useState<Result | null>(null);
   const [attempt, setAttempt] = useState(0);
-  const [now, setNow] = useState(Date.now());
+  const [now, setNow] = useState(() => Date.now());
   const fingerprint = JSON.stringify({ connectionId, draft });
 
   useEffect(() => {

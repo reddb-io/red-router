@@ -36,6 +36,7 @@ test("manual HTTP probes bypass a saved cooldown; drafts and failed tests leave 
   });
   const id = String(created.id);
   const before = await providers.getProviderConnectionById(id);
+  assert.equal(before.rateLimitedUntil, cooldown);
   let status = 200;
   const calls: Array<{ url: string; auth: string | null }> = [];
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -72,7 +73,7 @@ test("manual HTTP probes bypass a saved cooldown; drafts and failed tests leave 
   status = 200;
   assert.equal((await call({})).valid, true);
   const recovered = await providers.getProviderConnectionById(id);
-  assert.equal(recovered.rateLimitedUntil, null);
+  assert.ok(recovered.rateLimitedUntil == null, "the stored cooldown was cleared");
   assert.equal(recovered.testStatus, "active");
   assert.equal(recovered.apiKey, "saved-key");
   assert.equal(

@@ -27,7 +27,6 @@ import {
   SegmentedControl,
   Badge,
 } from "@/shared/components";
-import Toggle from "@/shared/components/Toggle";
 import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
 import { isPublicDisplayBaseUrl, useDisplayBaseUrl } from "@/shared/hooks";
 import { useTranslations } from "next-intl";
