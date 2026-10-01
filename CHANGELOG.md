@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.57.0
+
+### Minor Changes
+
+- Preserve manufacturer identity across hidden-provider catalogs and router federation, refuse ambiguous legacy short names, and add key-scoped effective routing previews. Force manual/periodic models.dev refreshes, retain fetch deadlines alongside cancellation, and commit pricing/capability provenance atomically while preserving user prices and live discovery.
+- Replace the tenant sign-in placeholder with a session-restoring workspace for masked keys, members, monthly per-key usage and delegated routing. Tenant reports derive ownership exclusively from the authenticated tenant and preserve owner locks and role boundaries.
+
+### Patch Changes
+
+- Refuse requests when budget policy or pending cost accounting cannot be verified, retain subscription traffic in RPM/TPM limits, reserve estimated in-flight costs atomically, and release reservations when responses finish or are cancelled. Recover cost events through an idempotent durable outbox, preserve tenant ownership, and expose pending accounting and estimated reservations separately from recorded spend.
+- Restart active Linux services during installation, preserve configured host/port, and verify the authenticated running version. Report desktop registration separately in service status and doctor; refresh tray helpers when the installed package version changes.
+
 ## 0.56.3
 
 ### Patch Changes
