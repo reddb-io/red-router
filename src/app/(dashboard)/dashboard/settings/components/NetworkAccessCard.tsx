@@ -219,6 +219,8 @@ export default function NetworkAccessCard() {
               variant="secondary"
               onClick={() => {
                 setMessage("");
+                setLoading(true);
+                setError("");
                 setAttempt((value) => value + 1);
               }}
               disabled={busy}
