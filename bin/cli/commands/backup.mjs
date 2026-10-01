@@ -1,19 +1,24 @@
 import {
   copyFileSync,
   createReadStream,
-  createWriteStream,
   existsSync,
   mkdirSync,
   readdirSync,
   readFileSync,
   statSync,
-  unlinkSync,
   writeFileSync,
 } from "node:fs";
-import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from "node:crypto";
-import { dirname, join, extname, basename } from "node:path";
+import { randomBytes } from "node:crypto";
+import { dirname, join } from "node:path";
 import { Readable } from "node:stream";
-import { pipeline } from "node:stream/promises";
+import { promises as fs } from "node:fs";
+import { encryptFile } from "../recovery/crypto.mjs";
+import {
+  BACKUP_FILES,
+  fileDigest,
+  recoveryEnvironment,
+  restoreBundle,
+} from "../recovery/bundle.mjs";
 import { resolveDataDir } from "../data-dir.mjs";
 import { getBaseUrl, isServerUp } from "../api.mjs";
 import { t } from "../i18n.mjs";
@@ -24,12 +29,7 @@ function getBackupDir() {
   return join(resolveDataDir(), "backups");
 }
 
-const FILES_TO_BACKUP = [
-  { name: "storage.sqlite" },
-  { name: "settings.json" },
-  { name: "combos.json" },
-  { name: "providers.json" },
-];
+const FILES_TO_BACKUP = BACKUP_FILES.map((name) => ({ name }));
 
 export function registerBackup(program) {
   const backup = program.command("backup").description(t("backup.description"));
@@ -95,6 +95,7 @@ export function registerRestore(program) {
     .description(t("backup.restoreDescription"))
     .option("--list", "List available backups")
     .option("--yes", "Skip confirmation")
+    .option("--key-file <path>", "Read the encrypted backup passphrase from a file")
     .action(async (backupId, opts) => {
       const exitCode = await runRestoreCommand(backupId, opts);
       if (exitCode !== 0) process.exit(exitCode);
@@ -126,31 +127,6 @@ function matchesGlob(fileName, pattern) {
 function shouldExclude(fileName, patterns) {
   if (!patterns || patterns.length === 0) return false;
   return patterns.some((p) => matchesGlob(fileName, p));
-}
-
-async function encryptFile(srcPath, destPath, passphrase) {
-  const salt = randomBytes(16);
-  const iv = randomBytes(12);
-  const key = scryptSync(passphrase, salt, 32);
-  const cipher = createCipheriv("aes-256-gcm", key, iv);
-  const tmpCipherPath = `${destPath}.ciphertext`;
-  await pipeline(createReadStream(srcPath), cipher, createWriteStream(tmpCipherPath));
-  const authTag = cipher.getAuthTag();
-  // Format: salt(16) + iv(12) + authTag(16) + ciphertext
-  const out = createWriteStream(destPath);
-  try {
-    await new Promise((resolve, reject) => {
-      out.write(Buffer.concat([salt, iv, authTag]), (err) => {
-        if (err) reject(err);
-        else resolve();
-      });
-    });
-    await pipeline(createReadStream(tmpCipherPath), out);
-  } finally {
-    try {
-      unlinkSync(tmpCipherPath);
-    } catch {}
-  }
 }
 
 async function promptPassphrase() {
@@ -204,9 +180,12 @@ export async function runBackupCommand(opts = {}) {
 
   try {
     if (!existsSync(backupDir)) mkdirSync(backupDir, { recursive: true });
+    mkdirSync(backupPath, { mode: 0o700 });
 
     let backedUp = 0;
     let skipped = 0;
+    const storedFiles = [];
+    const checksums = {};
 
     for (const file of FILES_TO_BACKUP) {
       if (shouldExclude(file.name, excludePatterns)) {
@@ -222,17 +201,39 @@ export async function runBackupCommand(opts = {}) {
           const tmpPath = destPath.replace(/\.enc$/, "");
           await backupSqliteFile(sourcePath, tmpPath);
           if (opts.encrypt) {
-            await encryptFile(tmpPath, destPath, passphrase);
-            unlinkSync(tmpPath);
+            try {
+              await encryptFile(tmpPath, destPath, passphrase);
+            } finally {
+              await fs.rm(tmpPath, { force: true });
+            }
           }
         } else if (opts.encrypt) {
           await encryptFile(sourcePath, destPath, passphrase);
         } else {
           copyFileSync(sourcePath, destPath);
         }
+        await fs.chmod(destPath, 0o600);
+        storedFiles.push(destName);
+        checksums[destName] = await fileDigest(destPath);
         backedUp++;
       } else {
         skipped++;
+      }
+    }
+
+    if (opts.encrypt && !shouldExclude(".env", excludePatterns)) {
+      const content = await recoveryEnvironment(dataDir);
+      if (content) {
+        const temporary = join(backupPath, ".env");
+        try {
+          await fs.writeFile(temporary, content, { mode: 0o600 });
+          await encryptFile(temporary, `${temporary}.enc`, passphrase);
+        } finally {
+          await fs.rm(temporary, { force: true });
+        }
+        storedFiles.push(".env.enc");
+        checksums[".env.enc"] = await fileDigest(`${temporary}.enc`);
+        backedUp++;
       }
     }
 
@@ -241,9 +242,9 @@ export async function runBackupCommand(opts = {}) {
         timestamp: new Date().toISOString(),
         version: "omniroute-cli-v1",
         encrypted: !!opts.encrypt,
-        files: FILES_TO_BACKUP.filter(
-          (f) => existsSync(join(dataDir, f.name)) && !shouldExclude(f.name, excludePatterns)
-        ).map((f) => (opts.encrypt ? `${f.name}.enc` : f.name)),
+        files: storedFiles,
+        checksums,
+        configurationIncluded: storedFiles.includes(".env.enc"),
       };
       writeFileSync(join(backupPath, "backup-info.json"), JSON.stringify(info, null, 2), "utf8");
 
@@ -258,6 +259,11 @@ export async function runBackupCommand(opts = {}) {
         await pruneBackups(backupDir, opts.retention);
       }
 
+      if (!info.configurationIncluded) {
+        console.warn(
+          "Configuration secrets are excluded. Use --encrypt for a portable recovery bundle."
+        );
+      }
       console.log(t("backup.done", { path: backupPath }));
       console.log(
         `\x1b[2m  ${backedUp} backed up, ${skipped} skipped${opts.encrypt ? " (encrypted)" : ""}\x1b[0m`
@@ -430,8 +436,16 @@ export async function runRestoreCommand(backupId, opts = {}) {
     return 1;
   }
 
-  const infoPath = join(backupPath, "backup-info.json");
-  const ts = existsSync(infoPath) ? JSON.parse(readFileSync(infoPath, "utf8")).timestamp : backupId;
+  let info;
+  try {
+    info = JSON.parse(readFileSync(join(backupPath, "backup-info.json"), "utf8"));
+    if (!Array.isArray(info.files) || !info.files.length)
+      throw new Error("Backup has no restorable files");
+  } catch {
+    console.error("Backup manifest is missing or invalid; nothing was restored.");
+    return 1;
+  }
+  const ts = info.timestamp || backupId;
 
   if (!opts.yes) {
     const readline = await import("node:readline");
@@ -450,13 +464,15 @@ export async function runRestoreCommand(backupId, opts = {}) {
 
   const dataDir = resolveDataDir();
   try {
-    for (const file of FILES_TO_BACKUP) {
-      const sourcePath = join(backupPath, file.name);
-      if (existsSync(sourcePath)) {
-        copyFileSync(sourcePath, join(dataDir, file.name));
-        console.log(`\x1b[2m  Restored: ${file.name}\x1b[0m`);
-      }
-    }
+    const passphrase = info.encrypted
+      ? opts.keyFile
+        ? readFileSync(opts.keyFile, "utf8").trim()
+        : await promptPassphrase()
+      : null;
+    const restored = await restoreBundle(backupPath, dataDir, passphrase);
+    console.log(
+      `Restored ${restored.files.length} file(s). Recovery snapshot: ${restored.recoverySnapshot}`
+    );
     console.log(t("backup.restored"));
     return 0;
   } catch (err) {

@@ -753,8 +753,8 @@ export interface UsageEntry {
 /**
  * Save request usage entry to SQLite.
  */
-export async function saveRequestUsage(entry: UsageEntry) {
-  if (!shouldPersistToDisk) return;
+export async function saveRequestUsage(entry: UsageEntry): Promise<boolean> {
+  if (!shouldPersistToDisk) return true;
 
   try {
     const db = getDbInstance();
@@ -869,8 +869,10 @@ export async function saveRequestUsage(entry: UsageEntry) {
     if (inserted) {
       emitUsageRecorded(entry.provider, entry.connectionId);
     }
+    return true;
   } catch (error) {
     console.error("Failed to save usage stats:", error);
+    return false;
   }
 }
 

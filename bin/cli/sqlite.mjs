@@ -167,13 +167,11 @@ export async function backupSqliteFile(sourcePath, destPath) {
   try {
     if (typeof db.backup === "function") {
       await db.backup(destPath);
-    } else if (sourcePath === ":memory:" && typeof db.serialize === "function") {
+    } else if (typeof db.serialize === "function") {
       fs.writeFileSync(destPath, Buffer.from(db.serialize()));
     } else {
-      try {
-        db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
-      } catch {}
-      fs.copyFileSync(sourcePath, destPath);
+      const destination = String(destPath).replaceAll("'", "''");
+      db.exec(`VACUUM INTO '${destination}'`);
     }
   } finally {
     db.close();

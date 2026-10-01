@@ -1,19 +1,14 @@
 import { NextResponse } from "next/server";
-import path from "path";
 import fs from "fs";
-import os from "os";
-import { getDbInstance, resetDbInstance, SQLITE_FILE } from "@/lib/db/core";
 import { openDatabaseAsync } from "@/lib/db/adapters/driverFactory";
 import type { SqliteAdapter } from "@/lib/db/adapters/types";
-import {
-  backupDbFile,
-  getTableNamesFromAdapter,
-  countImportedRows,
-  unlinkFileWithRetry,
-} from "@/lib/db/backup";
+import { getTableNamesFromAdapter, countImportedRows } from "@/lib/db/backup";
 import { isAuthRequired, isAuthenticated } from "@/shared/utils/apiAuth";
 import { getSettings } from "@/lib/db/settings";
 import { setSystemPromptConfig } from "@omniroute/open-sse/services/systemPrompt.ts";
+import { replaceDatabaseFromFile } from "@/lib/db/databaseRecovery";
+import { DatabaseMaintenanceError } from "@/lib/db/maintenance";
+import { readBackupUpload, BackupUploadError } from "@/lib/recovery/upload";
 import { sanitizeErrorMessage } from "@omniroute/open-sse/utils/error";
 
 const DEFAULT_MAX_UPLOAD_MB = 100;
@@ -29,9 +24,7 @@ const MAX_UPLOAD_MB_CEILING = 4096;
  * via `OMNIROUTE_DB_IMPORT_MAX_MB`. Invalid / out-of-range values fall back to the 100 MB
  * default and are clamped to a 4 GB ceiling.
  */
-export function resolveMaxUploadSizeBytes(
-  env: NodeJS.ProcessEnv = process.env
-): number {
+export function resolveMaxUploadSizeBytes(env: NodeJS.ProcessEnv = process.env): number {
   const raw = env.OMNIROUTE_DB_IMPORT_MAX_MB;
   const parsed = raw === undefined ? NaN : Number(raw);
   const mb =
@@ -59,66 +52,13 @@ export async function POST(request: Request) {
     }
   }
   let tmpPath: string | null = null;
+  let tmpDirectory: string | null = null;
 
   try {
-    let fileBuffer: Buffer | null = null;
-    let fileName = "";
-    const contentType = request.headers.get("content-type") || "";
-
-    if (contentType.includes("multipart/form-data")) {
-      const formData = await request.formData();
-      const file = formData.get("file") as File | null;
-      if (!file) {
-        return NextResponse.json(
-          { error: "No file provided. Upload a .sqlite file." },
-          { status: 400 }
-        );
-      }
-      fileName = file.name;
-      fileBuffer = Buffer.from(await file.arrayBuffer());
-    } else {
-      // Direct binary transfer to bypass Reverse Proxy / Next.js FormData parsing errors under chunked encoding (Bug #770)
-      const buffer = await request.arrayBuffer();
-      if (!buffer || buffer.byteLength === 0) {
-        return NextResponse.json({ error: "No file content provided." }, { status: 400 });
-      }
-      fileBuffer = Buffer.from(buffer);
-      const url = new URL(request.url);
-      fileName = url.searchParams.get("filename") || "import.sqlite";
-    }
-
-    // Validate filename extension
-    if (!fileName.endsWith(".sqlite")) {
-      return NextResponse.json(
-        { error: "Invalid file type. Only .sqlite files are accepted." },
-        { status: 400 }
-      );
-    }
-
-    // Validate file size
-    const maxUploadSize = resolveMaxUploadSizeBytes();
-    const fileSize = fileBuffer.length;
-    if (fileSize > maxUploadSize) {
-      return NextResponse.json(
-        {
-          error:
-            `File too large. Maximum allowed size is ${maxUploadSize / (1024 * 1024)} MB. ` +
-            `Set OMNIROUTE_DB_IMPORT_MAX_MB to raise it, or VACUUM the database before exporting.`,
-        },
-        { status: 400 }
-      );
-    }
-
-    if (fileSize < 4096) {
-      return NextResponse.json(
-        { error: "File too small to be a valid SQLite database." },
-        { status: 400 }
-      );
-    }
-
-    // Write uploaded file to temp location
-    tmpPath = path.join(os.tmpdir(), `omniroute-import-${Date.now()}.sqlite`);
-    fs.writeFileSync(tmpPath, fileBuffer!);
+    const upload = await readBackupUpload(request, resolveMaxUploadSizeBytes());
+    tmpPath = upload.filePath;
+    tmpDirectory = upload.directory;
+    const fileName = upload.filename;
 
     // Validate SQLite integrity.
     // Use the resilient driver factory (better-sqlite3 → node:sqlite → sql.js) rather than
@@ -128,7 +68,7 @@ export async function POST(request: Request) {
     let testDb: SqliteAdapter | null = null;
     try {
       testDb = await openDatabaseAsync(tmpPath, { readonly: true });
-      const result = testDb.pragma("integrity_check") as any[];
+      const result = testDb.pragma("integrity_check") as Array<{ integrity_check?: string }>;
       if (result[0]?.integrity_check !== "ok") {
         return NextResponse.json(
           { error: "Database integrity check failed. The file may be corrupted." },
@@ -152,40 +92,20 @@ export async function POST(request: Request) {
       testDb.close();
       testDb = null;
     } catch (e) {
-      if (testDb) testDb.close();
       return NextResponse.json(
         { error: `Invalid database file: ${sanitizeErrorMessage(e)}` },
         { status: 400 }
       );
+    } finally {
+      testDb?.close();
     }
 
-    // Create pre-import backup
-    backupDbFile("pre-import");
-
-    // Close and reset current DB connection
-    resetDbInstance();
-
-    // Remove main file and WAL sidecars
-    const sqliteFilesToReplace = [
-      SQLITE_FILE,
-      `${SQLITE_FILE}-wal`,
-      `${SQLITE_FILE}-shm`,
-      `${SQLITE_FILE}-journal`,
-    ];
-    // Delete with EBUSY/EPERM retry: after resetDbInstance() the OS may still
-    // hold the SQLite file handle for a moment (Windows mmap / antivirus), so a
-    // plain unlink races to EBUSY (#5406). Mirror the restore path's helper.
-    for (const filePath of sqliteFilesToReplace) {
-      if (!filePath) continue;
-      await unlinkFileWithRetry(filePath);
-    }
-
-    // Copy imported file over current DB
-    fs.copyFileSync(tmpPath, SQLITE_FILE!);
-
-    // Reopen and verify
-    getDbInstance();
-    const { connCount, nodeCount, comboCount, keyCount } = countImportedRows();
+    const { result, recoverySnapshot } = await replaceDatabaseFromFile(
+      tmpPath,
+      "pre-import",
+      countImportedRows
+    );
+    const { connCount, nodeCount, comboCount, keyCount } = result;
 
     console.log(
       `[DB] Imported database from upload: ${connCount} connections, ${nodeCount} nodes, ${comboCount} combos, ${keyCount} API keys`
@@ -204,6 +124,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       imported: true,
+      recoverySnapshot: recoverySnapshot.split(/[\\/]/).pop(),
       filename: fileName,
       connectionCount: connCount,
       nodeCount,
@@ -212,15 +133,18 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     console.error("[API] Error importing database:", error);
-    return NextResponse.json({ error: sanitizeErrorMessage(error) }, { status: 500 });
-  } finally {
-    // Cleanup temp file
-    if (tmpPath && fs.existsSync(tmpPath)) {
-      try {
-        fs.unlinkSync(tmpPath);
-      } catch {
-        /* best effort */
+    return NextResponse.json(
+      { error: sanitizeErrorMessage(error) },
+      {
+        status:
+          error instanceof BackupUploadError
+            ? error.status
+            : error instanceof DatabaseMaintenanceError
+              ? 503
+              : 500,
       }
-    }
+    );
+  } finally {
+    if (tmpDirectory) fs.rmSync(tmpDirectory, { recursive: true, force: true });
   }
 }

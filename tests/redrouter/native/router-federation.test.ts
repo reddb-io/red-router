@@ -21,6 +21,7 @@ const { remoteRouterSnapshot, parseRemoteRouterModels, createRemoteRouterCatalog
 const { getUnifiedModelsResponse } = await import("../../../src/app/api/v1/models/catalog.ts");
 const { handleChat } = await import("../../../src/sse/handlers/chat.ts");
 const { initTranslators } = await import("../../../open-sse/translator/index.ts");
+const { askJevDeliberation } = await import("../../../src/sse/services/jevRouting.ts");
 const { handleSystemOne } = await import("../../../src/sse/handlers/systemOne.ts");
 const { forwardSystemOne, resolveSystemOneTarget } =
   await import("../../../open-sse/handlers/systemOneCore.ts");
@@ -95,7 +96,15 @@ before(async () => {
               ],
               usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
             }
-          : { model: body.model, answers: { ready: { noul: 0.99 } } }
+          : {
+              model: body.model,
+              answers: Object.fromEntries(
+                Object.keys(body.questions as Record<string, unknown>).map((name) => [
+                  name,
+                  { type: "noul", noul: 0.99 },
+                ])
+              ),
+            }
       )
     );
   });
@@ -257,7 +266,7 @@ test("native decision forwarding strips exactly one hop and uses each connection
   requests.length = 0;
   const response = await decision(publicId);
   assert.equal(response.status, 200, await response.clone().text());
-  assert.deepEqual((await response.json()).answers, { ready: { noul: 0.99 } });
+  assert.deepEqual((await response.json()).answers, { ready: { type: "noul", noul: 0.99 } });
   assert.deepEqual(
     requests.map((r) => r.model),
     [downstreamId, decisionId]
@@ -420,6 +429,26 @@ test("tenant owner pins hide decision routes for restricted keys without widenin
     })
   );
   assert.equal(denied.status, 400);
+});
+
+test("internal JEV uses the same persisted remote endpoint and strips the same two hops", async () => {
+  requests.length = 0;
+  fail = false;
+  const result = await askJevDeliberation(
+    { messages: [{ role: "user", content: "Check readiness" }] },
+    { mode: "jev", model: publicId, toolMode: "off", modelMode: "off" },
+    { info() {}, warn() {} },
+    { allowedConnections: [String(connection.id)] }
+  );
+  assert.equal(result, 0.99);
+  assert.deepEqual(
+    requests.map((item) => item.path),
+    ["remote/v1/systemone", "final/v1/systemone"]
+  );
+  assert.deepEqual(
+    requests.map((item) => item.model),
+    [downstreamId, decisionId]
+  );
 });
 
 test("remote failures are sanitized and catalog recursion is bounded", async () => {
