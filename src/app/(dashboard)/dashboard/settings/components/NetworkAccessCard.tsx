@@ -53,8 +53,6 @@ export default function NetworkAccessCard() {
   useEffect(() => {
     const active = new AbortController();
     controller.current = active;
-    setLoading(true);
-    setError("");
     readStatus(active.signal)
       .then((data) => {
         if (active.signal.aborted) return;
@@ -260,7 +258,7 @@ export default function NetworkAccessCard() {
                 ))
               ) : (
                 <p className="mt-2 text-sm text-text-muted">
-                  No local network address detected. Check this computer's Wi-Fi or Ethernet
+                  No local network address detected. Check this computer&apos;s Wi-Fi or Ethernet
                   connection.
                 </p>
               )}

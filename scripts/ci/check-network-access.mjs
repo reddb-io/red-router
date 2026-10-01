@@ -3,6 +3,8 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, networkInterfaces, tmpdir, userInfo } from "node:os";
 import { dirname, join } from "node:path";
+import { createRequire } from "node:module";
+import { pathToFileURL } from "node:url";
 import { setTimeout as delay } from "node:timers/promises";
 
 // Runs only in CI against its own user-service fixture. Exercise the real systemd
@@ -16,6 +18,7 @@ const env = {
 const run = (command, args) =>
   execFileSync(command, args, { env, encoding: "utf8", timeout: 15000 }).trim();
 const root = process.cwd();
+const loader = pathToFileURL(createRequire(import.meta.url).resolve("tsx/esm")).href;
 const unit = join(homedir(), ".config/systemd/user/red-router.service");
 assert.equal(existsSync(unit), false, "the runner must not have an existing router service");
 const dataDir = mkdtempSync(join(tmpdir(), "redrouter-network-ci-"));
@@ -26,7 +29,7 @@ const address = Object.values(networkInterfaces())
 assert.ok(address, "runner must have an IPv4 network interface");
 const quote = (value) =>
   `"${String(value).replaceAll("\\", "\\\\").replaceAll('"', '\\"').replaceAll("%", "%%")}"`;
-const original = `[Unit]\nDescription=RedRouter AI routing gateway\n[Service]\nType=simple\nExecStart=${[process.execPath, "--import", "tsx/esm", join(root, "tests/redrouter/fixtures/network-listener.mjs"), "serve", "--port", String(port), "--host", "127.0.0.1", "--no-open"].map(quote).join(" ")}\nWorkingDirectory=${quote(root)}\nEnvironment=${quote("PORT=" + port)}\nEnvironment=${quote("RED_ROUTER_PORT=" + port)}\nEnvironment="RED_ROUTER_SERVER_HOST=127.0.0.1"\nEnvironment=${quote("DATA_DIR=" + dataDir)}\nEnvironment=${quote("XDG_RUNTIME_DIR=" + env.XDG_RUNTIME_DIR)}\nEnvironment=${quote("DBUS_SESSION_BUS_ADDRESS=" + env.DBUS_SESSION_BUS_ADDRESS)}\nRestart=on-failure\n`;
+const original = `[Unit]\nDescription=RedRouter AI routing gateway\n[Service]\nType=simple\nExecStart=${[process.execPath, "--import", loader, join(root, "tests/redrouter/fixtures/network-listener.mjs"), "serve", "--port", String(port), "--host", "127.0.0.1", "--no-open"].map(quote).join(" ")}\nEnvironment=${quote("PORT=" + port)}\nEnvironment=${quote("RED_ROUTER_PORT=" + port)}\nEnvironment="RED_ROUTER_SERVER_HOST=127.0.0.1"\nEnvironment=${quote("DATA_DIR=" + dataDir)}\nEnvironment=${quote("XDG_RUNTIME_DIR=" + env.XDG_RUNTIME_DIR)}\nEnvironment=${quote("DBUS_SESSION_BUS_ADDRESS=" + env.DBUS_SESSION_BUS_ADDRESS)}\nRestart=on-failure\n`;
 async function status(host = "127.0.0.1") {
   const response = await fetch(`http://${host}:${port}/network`, {
     signal: AbortSignal.timeout(2000),
