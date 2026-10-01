@@ -31,12 +31,18 @@ test("an upgrade restarts the active server and preserves its bind configuration
       },
       installTray: () => ({ state: "waiting-for-desktop" }),
       desktopInstaller: () => {},
-      probe: async ({ port }) => ({ matches: port === 25123 }),
+      probe: async ({ port, dataDir }) => ({
+        matches: port === 25123 && dataDir === join(dir, "custom data"),
+      }),
     });
     assert.equal(result.ok, true);
     assert.equal(result.action, "restarted");
     assert.deepEqual(calls.at(-1), ["--user", "restart", "red-router.service"]);
-    assert.deepEqual(readServiceConfiguration(paths.linux), { port: 25123, host: "0.0.0.0" });
+    assert.deepEqual(readServiceConfiguration(paths.linux), {
+      port: 25123,
+      host: "0.0.0.0",
+      dataDir: join(dir, "custom data"),
+    });
     const failed = await installService({
       paths,
       platform: "linux",

@@ -9,6 +9,7 @@ process.env.JWT_SECRET = "routing-preview-only-secret";
 process.env.API_KEY_SECRET ||= "routing-preview-api-secret";
 const { getDbInstance, resetDbInstance } = await import("../../../src/lib/db/core.ts");
 const { updateSettings } = await import("../../../src/lib/db/settings.ts");
+const { hashManagementPassword } = await import("../../../src/lib/auth/managementPassword.ts");
 const { createProviderConnection } = await import("../../../src/lib/db/providers.ts");
 const { createApiKey } = await import("../../../src/lib/db/apiKeys.ts");
 const tenants = await import("../../../src/lib/db/tenants.ts");
@@ -23,6 +24,7 @@ after(() => {
 test("routing preview follows the selected key's tenant and model restrictions without dispatch", async () => {
   await updateSettings({
     requireLogin: true,
+    password: await hashManagementPassword("routing-preview-owner-fixture-2026"),
     transparentModels: false,
     providerPriority: ["openai"],
   });
