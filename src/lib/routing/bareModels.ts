@@ -5,9 +5,8 @@
  * is off, the catalog lists each model ONCE under its bare name, and a request for that name is routed
  * to the provider that ranks first in the priority order (falling through to the next on failure).
  *
- * Two models are "the same" when their ids match once lower-cased and stripped of every namespace, i.e.
- * everything up to the last "/" (`openai/gpt-4o`, `gpt-4o` and `openrouter/openai/gpt-4o` are one).
- * That is also why a request that still carries a provider prefix is accepted and the prefix ignored.
+ * Manufacturer namespaces remain part of model identity. Legacy short names remain valid only when
+ * they identify one family in the authorized catalog. Routing hops are transport, not identity.
  */
 
 export const ROUTER_OWNER = "red-router";
@@ -26,16 +25,75 @@ export interface Target {
   provider: string;
 }
 
-/** Everything after the last "/". */
+const ROUTER_PREFIXES = new Set(["red", "red-router", "redrouter"]);
+const GATEWAY_PREFIXES = new Set(["openrouter"]);
+
+/** Remove router/gateway transport hops, preserving manufacturer namespaces. */
 export function stripNamespace(id: string): string {
-  const trimmed = id.trim();
-  const slash = trimmed.lastIndexOf("/");
-  return slash === -1 ? trimmed : trimmed.slice(slash + 1);
+  const parts = id.trim().split("/");
+  while (parts.length > 1 && ROUTER_PREFIXES.has(parts[0].toLowerCase())) parts.shift();
+  if (parts.length > 1 && GATEWAY_PREFIXES.has(parts[0].toLowerCase())) parts.shift();
+  return parts.join("/");
 }
 
-/** The identity two providers' versions of a model share. */
 export function bareKey(id: string): string {
   return stripNamespace(id).toLowerCase();
+}
+
+const leaf = (id: string) => id.slice(id.lastIndexOf("/") + 1);
+
+/** Root is already a provider's model ID. Only federated roots still contain transport providers. */
+export function modelIdentity(entry: CatalogEntry): string {
+  if (text(entry.model_identity)) return text(entry.model_identity).trim();
+  const root = text(entry.root);
+  let source = root || text(entry.id).split("/").slice(1).join("/");
+  const owner = text(entry.owned_by).toLowerCase();
+  if (ROUTER_PREFIXES.has(owner)) {
+    const parts = source.split("/");
+    while (parts.length > 1 && ROUTER_PREFIXES.has(parts[0].toLowerCase())) parts.shift();
+    if (parts.length > 1 && GATEWAY_PREFIXES.has(parts[0].toLowerCase())) parts.shift();
+    source = parts.join("/");
+  }
+  return source.trim();
+}
+
+/** Resolve direct unqualified models against a manufacturer ID only when the owner agrees. */
+function identityIndex(
+  models: readonly CatalogEntry[],
+  canonical: (id: string) => string = (id) => id
+) {
+  const qualified = new Map<string, Set<string>>();
+  for (const entry of models) {
+    if (!isPriorityModel(entry)) continue;
+    const id = modelIdentity(entry).toLowerCase();
+    if (!id.includes("/")) continue;
+    const key = `${entry.type === "systemone" ? "decision" : "chat"}:${leaf(id)}`;
+    const set = qualified.get(key) ?? new Set<string>();
+    set.add(id);
+    qualified.set(key, set);
+  }
+  const identities = new Map<CatalogEntry, string>();
+  const families = new Map<string, Set<string>>();
+  for (const entry of models) {
+    if (!isPriorityModel(entry)) continue;
+    let id = modelIdentity(entry).toLowerCase();
+    const kind = entry.type === "systemone" ? "decision" : "chat";
+    if (!id.includes("/")) {
+      const matching = [...(qualified.get(`${kind}:${id}`) ?? [])].filter((candidate) =>
+        providerKeys(entry).some(
+          (provider) =>
+            canonical(provider).toLowerCase() === canonical(candidate.split("/")[0]).toLowerCase()
+        )
+      );
+      if (matching.length === 1) id = matching[0];
+    }
+    identities.set(entry, id);
+    const key = `${kind}:${leaf(id)}`;
+    const set = families.get(key) ?? new Set<string>();
+    set.add(id);
+    families.set(key, set);
+  }
+  return { identities, families };
 }
 
 function text(value: unknown): string {
@@ -83,9 +141,14 @@ export function makeRanker(
   };
 }
 
-function displayId(entry: CatalogEntry): string {
-  const source = text(entry.root) || text(entry.id);
-  return stripNamespace(source);
+function displayId(
+  entry: CatalogEntry,
+  identity: string,
+  families: Map<string, Set<string>>
+): string {
+  const kind = entry.type === "systemone" ? "decision" : "chat";
+  const original = modelIdentity(entry);
+  return families.get(`${kind}:${leaf(identity)}`)?.size === 1 ? leaf(original) : identity;
 }
 
 const PROVIDER_ONLY_FIELDS = ["provider", "provider_id", "providerId", "parent", "route"] as const;
@@ -103,10 +166,6 @@ function isPriorityModel(entry: CatalogEntry): boolean {
   return isChatProviderModel(entry) || isDecisionProviderModel(entry);
 }
 
-function priorityKey(entry: CatalogEntry): string {
-  return `${entry.type === "systemone" ? "decision" : "chat"}:${bareKey(text(entry.root) || text(entry.id))}`;
-}
-
 /**
  * The catalog with each chat or decision model listed once under its bare name, taken from the provider that
  * ranks first. Chat and decisions remain separate; combos and other modalities keep their IDs.
@@ -117,6 +176,9 @@ export function collapseCatalogToBare<T extends CatalogEntry>(
   canonical?: (providerId: string) => string
 ): T[] {
   const rank = makeRanker(priority, canonical);
+  const { identities, families } = identityIndex(models, canonical);
+  const priorityKey = (entry: CatalogEntry) =>
+    `${entry.type === "systemone" ? "decision" : "chat"}:${identities.get(entry)}`;
   const best = new Map<string, { entry: T; rank: number }>();
   for (const entry of models) {
     if (!isPriorityModel(entry)) continue;
@@ -137,11 +199,12 @@ export function collapseCatalogToBare<T extends CatalogEntry>(
     if (emitted.has(key)) continue;
     emitted.add(key);
     const chosen = best.get(key)!.entry;
-    const bare = displayId(chosen);
+    const bare = displayId(chosen, identities.get(chosen)!, families);
     const rewritten: Record<string, unknown> = {
       ...chosen,
       id: bare,
       root: bare,
+      model_identity: identities.get(chosen),
       owned_by: ROUTER_OWNER,
     };
     for (const field of PROVIDER_ONLY_FIELDS) delete rewritten[field];
@@ -161,16 +224,31 @@ export function orderedTargetsFor(
   canonical?: (providerId: string) => string,
   kind: "chat" | "decision" = "chat"
 ): Target[] {
-  const key = bareKey(requested);
+  const { identities, families } = identityIndex(models, canonical);
+  const eligible = (entry: CatalogEntry) =>
+    kind === "decision" ? isDecisionProviderModel(entry) : isChatProviderModel(entry);
+  const input = requested.trim().toLowerCase();
+  if (!input) return [];
+  const exact = models.filter((entry) => eligible(entry) && text(entry.id).toLowerCase() === input);
+  let key = exact.length ? identities.get(exact[0]) : undefined;
+  if (!key) {
+    const normalized = bareKey(requested);
+    const roots = new Set(models.filter(eligible).map((entry) => identities.get(entry)));
+    if (roots.has(normalized)) key = normalized;
+    else {
+      const legacy = families.get(`${kind}:${leaf(normalized)}`);
+      // Only an unqualified legacy ID may use the short-name fallback. Unknown namespaces never
+      // select another manufacturer's family, and ambiguous names do not pick a provider silently.
+      if (!normalized.includes("/") && legacy?.size === 1) key = [...legacy][0];
+    }
+  }
   if (!key) return [];
+  // An unqualified name shared by several families must stay ambiguous even when one root is bare.
+  if (!input.includes("/") && (families.get(`${kind}:${input}`)?.size ?? 0) > 1) return [];
   const rank = makeRanker(priority, canonical);
   const matches = models
     .map((entry, index) => ({ entry, index }))
-    .filter(
-      ({ entry }) =>
-        (kind === "decision" ? isDecisionProviderModel(entry) : isChatProviderModel(entry)) &&
-        bareKey(text(entry.root) || text(entry.id)) === key
-    )
+    .filter(({ entry }) => eligible(entry) && identities.get(entry) === key)
     .sort((a, b) => rank(a.entry) - rank(b.entry) || a.index - b.index);
 
   const seen = new Set<string>();

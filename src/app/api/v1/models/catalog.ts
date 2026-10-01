@@ -1361,6 +1361,7 @@ async function buildUnifiedModelsResponseCore(
             ...(canonicalProviderId === "red-router"
               ? {
                   remoteCapabilities: sm.remoteCapabilities ?? {},
+                  ...(sm.remoteModelIdentity ? { model_identity: sm.remoteModelIdentity } : {}),
                 }
               : {}),
             ...(modelType ? { type: modelType } : {}),

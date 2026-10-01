@@ -55,6 +55,7 @@ export function commitRemoteRouterCatalog(
         apiFormat: isRemoteDecisionModel(model) ? "systemone" : "chat-completions",
         supportedEndpoints: isRemoteDecisionModel(model) ? ["systemone", "decisions"] : ["chat"],
         remoteCapabilities: model.capabilities ?? {},
+        remoteModelIdentity: model.model_identity,
         inputTokenLimit: model.context_length,
         outputTokenLimit: model.max_output_tokens,
         supportsTools: model.capabilities?.tools ?? model.capabilities?.tool_calling,

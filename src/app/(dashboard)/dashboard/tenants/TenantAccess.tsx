@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { Button, Input, Loading, Select } from "@/shared/components";
 import type { TenantProfile } from "@/lib/db/tenantProfiles";
+import Link from "next/link";
+import RoutingPreview from "@/shared/components/routing/RoutingPreview";
 import MonthlyUsageReport from "@/shared/components/MonthlyUsageReport";
 import { errorText, JSON_HEADERS, type TenantUserRow } from "./tenantsTypes";
 
@@ -202,6 +204,10 @@ export default function TenantAccess({
         )}
       </section>
       <div className="border-t border-border pt-6">
+        <Link href="/dashboard/settings/routing" className="text-sm text-primary underline">
+          Configure model visibility and owner provider priority
+        </Link>
+        <RoutingPreview key={tenantId} tenantId={tenantId} />
         <MonthlyUsageReport tenantId={tenantId} />
       </div>
     </>

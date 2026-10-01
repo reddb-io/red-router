@@ -5,6 +5,7 @@
 // word: a tenant's own choice counts only while it is delegated, and never over what is pinned below.
 
 import { ArrowDown, ArrowUp, Eye, Plus, X } from "lucide-react";
+import RoutingPreview from "@/shared/components/routing/RoutingPreview";
 import Icon from "@/shared/components/Icon";
 import { useCallback, useEffect, useState } from "react";
 import { Badge, Button, Card, Select, Toggle } from "@/shared/components";
@@ -267,7 +268,7 @@ export default function ModelVisibilityCard() {
           checked={transparent}
           onChange={setTransparent}
           label="Transparent model list"
-          description="On: clients see provider/model and choose the provider. Off: clients see model names only, and RedRouter picks the provider by the order below. A provider prefix in a request is then ignored."
+          description="On: clients see provider/model and choose the provider. Off: clients see model names only, and RedRouter picks the provider by the order below. Provider priority applies to the same model family. Manufacturer namespaces remain distinct."
         />
 
         <div className="flex flex-col gap-2">
@@ -376,6 +377,7 @@ export default function ModelVisibilityCard() {
           </div>
         ) : null}
       </div>
+      <RoutingPreview />
     </Card>
   );
 }

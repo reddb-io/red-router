@@ -15,6 +15,7 @@ import {
   type CatalogSortDirection,
   type CatalogSortField,
 } from "./modelCatalogUtils";
+import Link from "next/link";
 import ModelCatalogTable from "./ModelCatalogTable";
 
 const PAGE_SIZE = 50;
@@ -143,6 +144,9 @@ export default function ModelCatalogPage() {
         </div>
       </header>
 
+      <Link href="/dashboard/settings/routing" className="text-sm text-primary underline">
+        Model visibility, provider priority and routing preview
+      </Link>
       <Card padding="none" className="overflow-hidden">
         <div className="flex flex-col gap-4 border-b border-border p-4 lg:flex-row lg:items-end">
           <Input

@@ -18,9 +18,9 @@ const catalog = [
   { id: "groq/llama-3.3-70b", root: "llama-3.3-70b", owned_by: "groq" },
 ];
 
-test("bare keys ignore case and every namespace", () => {
-  assert.equal(bare.bareKey("openai/gpt-4o"), "gpt-4o");
-  assert.equal(bare.bareKey("openrouter/OpenAI/GPT-4o"), "gpt-4o");
+test("bare keys remove transport hops and preserve manufacturer namespaces", () => {
+  assert.equal(bare.bareKey("openai/gpt-4o"), "openai/gpt-4o");
+  assert.equal(bare.bareKey("openrouter/OpenAI/GPT-4o"), "openai/gpt-4o");
   assert.equal(bare.bareKey("gpt-4o"), "gpt-4o");
   assert.equal(bare.bareKey("  gpt-4o  "), "gpt-4o");
   assert.equal(bare.bareKey(""), "");
@@ -115,7 +115,7 @@ test("provider-only fields never leak into the collapsed entry", () => {
     ],
     []
   );
-  assert.deepEqual(Object.keys(out[0]).sort(), ["id", "ok", "owned_by", "root"]);
+  assert.deepEqual(Object.keys(out[0]).sort(), ["id", "model_identity", "ok", "owned_by", "root"]);
 });
 
 test("targets for a bare request are every matching provider, best first", () => {
@@ -152,4 +152,54 @@ test("unknown models, combos and other modalities give no targets", () => {
   );
   assert.deepEqual(bare.orderedTargetsFor(catalog, "text-embedding-3-small", []), []);
   assert.deepEqual(bare.orderedTargetsFor(catalog, "", []), []);
+});
+
+test("same leaf from different manufacturers stays distinct and refuses ambiguous legacy names", () => {
+  const models = [
+    { id: "openrouter/vendor-a/reasoner", root: "vendor-a/reasoner", owned_by: "openrouter" },
+    { id: "openrouter/vendor-b/reasoner", root: "vendor-b/reasoner", owned_by: "openrouter" },
+    {
+      id: "red/red/openrouter/vendor-a/reasoner",
+      root: "red/openrouter/vendor-a/reasoner",
+      owned_by: "red-router",
+    },
+  ];
+  assert.deepEqual(
+    bare.collapseCatalogToBare(models, []).map((row) => row.id),
+    ["vendor-a/reasoner", "vendor-b/reasoner"]
+  );
+  assert.deepEqual(bare.orderedTargetsFor(models, "reasoner", []), []);
+  assert.deepEqual(bare.orderedTargetsFor(models, "unknown/reasoner", []), []);
+  assert.deepEqual(
+    bare.orderedTargetsFor(models, "vendor-a/reasoner", ["red-router"]).map((row) => row.id),
+    [models[2].id, models[0].id]
+  );
+});
+
+test("decision families keep their namespace identity across multiple router hops", () => {
+  const models = [
+    {
+      id: "red/red/openrouter/typesafe/jev-1.13",
+      root: "red/openrouter/typesafe/jev-1.13",
+      owned_by: "red-router",
+      type: "systemone",
+    },
+    {
+      id: "openrouter/other/jev-1.13",
+      root: "other/jev-1.13",
+      owned_by: "openrouter",
+      type: "systemone",
+    },
+  ];
+  assert.deepEqual(
+    bare.collapseCatalogToBare(models, []).map((row) => row.id),
+    ["typesafe/jev-1.13", "other/jev-1.13"]
+  );
+  assert.deepEqual(bare.orderedTargetsFor(models, "jev-1.13", [], undefined, "decision"), []);
+  assert.deepEqual(
+    bare
+      .orderedTargetsFor(models, "typesafe/jev-1.13", [], undefined, "decision")
+      .map((row) => row.id),
+    [models[0].id]
+  );
 });

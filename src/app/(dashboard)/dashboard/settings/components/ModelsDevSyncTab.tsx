@@ -13,6 +13,7 @@ interface ModelsDevStatus {
   lastSyncCapabilityCount: number;
   nextSync: string | null;
   intervalMs: number;
+  snapshot?: { fetchedAt: string; sha256: string; source: string } | null;
   providerCount: number;
   modelCount: number;
   capabilityCount: number;
@@ -385,6 +386,13 @@ export default function ModelsDevSyncTab() {
             </div>
           </div>
 
+          {status.snapshot && (
+            <p className="mt-3 break-all text-xs text-text-muted">
+              Source: {status.snapshot.source}. Fetched{" "}
+              {new Date(status.snapshot.fetchedAt).toLocaleString()}. Snapshot{" "}
+              {status.snapshot.sha256.slice(0, 12)}.
+            </p>
+          )}
           {status.lastSync && (
             <div className="mt-4 text-xs text-text-muted text-center">
               {t("lastSyncFull")}: {new Date(status.lastSync).toLocaleString()}

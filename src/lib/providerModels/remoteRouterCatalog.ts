@@ -18,6 +18,7 @@ const connectionSchema = z.object({
 const modelSchema = z.object({
   id: z.string().trim().min(1).max(2048),
   name: z.string().max(4096).optional(),
+  model_identity: z.string().trim().min(1).max(2048).optional(),
   owned_by: z.string().optional(),
   type: z.string().optional(),
   supported_endpoints: z.array(z.string().max(100)).max(20).optional(),

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { isAuthenticated } from "@/shared/utils/apiAuth";
+import { requireManagementAuth } from "@/lib/api/requireManagementAuth";
+import { buildErrorBody, sanitizeErrorMessage } from "@omniroute/open-sse/utils/error";
 import { isValidationFailure, validateBody } from "@/shared/validation/helpers";
 import {
   syncModelsDev,
@@ -18,9 +19,8 @@ const modelsDevActionSchema = z.object({
 });
 
 export async function GET(request: NextRequest) {
-  if (!(await isAuthenticated(request))) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requireManagementAuth(request);
+  if (auth) return auth;
 
   const { searchParams } = new URL(request.url);
   const action = searchParams.get("action");
@@ -48,19 +48,18 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  return NextResponse.json({ error: "Unknown action" }, { status: 400 });
+  return NextResponse.json(buildErrorBody(400, "Unknown action"), { status: 400 });
 }
 
 export async function POST(request: NextRequest) {
-  if (!(await isAuthenticated(request))) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requireManagementAuth(request);
+  if (auth) return auth;
 
   let rawBody: unknown;
   try {
     rawBody = await request.json();
   } catch {
-    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+    return NextResponse.json(buildErrorBody(400, "Invalid JSON body"), { status: 400 });
   }
 
   const validation = validateBody(modelsDevActionSchema, rawBody);
@@ -74,8 +73,13 @@ export async function POST(request: NextRequest) {
     const result = await syncModelsDev({
       dryRun: dryRun ?? false,
       syncCapabilities: syncCapabilities !== false,
+      force: true,
+      signal: AbortSignal.any([request.signal, AbortSignal.timeout(30000)]),
     });
-    return NextResponse.json(result);
+    return NextResponse.json(
+      { ...result, ...(result.error ? { error: sanitizeErrorMessage(result.error) } : {}) },
+      { status: result.success ? 200 : 503 }
+    );
   }
 
   if (action === "start") {
@@ -88,5 +92,5 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true, message: "Periodic sync stopped" });
   }
 
-  return NextResponse.json({ error: "Unknown action" }, { status: 400 });
+  return NextResponse.json(buildErrorBody(400, "Unknown action"), { status: 400 });
 }
