@@ -38,6 +38,8 @@ interface ValidationCheck {
 }
 
 interface Validation {
+  selection?: string;
+  credential?: string;
   status: "ready" | "action_required" | "error";
   checks?: ValidationCheck[];
 }
@@ -97,14 +99,21 @@ export default function SetupWorkbench() {
   const [existingSecret, setExistingSecret] = useState("");
   const [copiedSelection, setCopiedSelection] = useState("");
   const [progressLoaded, setProgressLoaded] = useState(false);
-  const [smokeStatus, setSmokeStatus] = useState<"idle" | "running" | "pass" | "fail">("idle");
+  const [smoke, setSmoke] = useState<{
+    status: "running" | "pass" | "fail";
+    selection: string;
+    credential: string;
+  } | null>(null);
   const pending = useRef<AbortController | null>(null);
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [keyName, setKeyName] = useState(() => t("keyDefaultName"));
   const [creatingKey, setCreatingKey] = useState(false);
   const [createdKey, setCreatedKey] = useState<CreatedKey | null>(null);
   const [validation, setValidation] = useState<Validation | null>(null);
-  const [validating, setValidating] = useState(false);
+  const [validationRequest, setValidationRequest] = useState<{
+    selection: string;
+    credential: string;
+  } | null>(null);
   const [copied, setCopied] = useState("");
   const [organized, setOrganized] = useState(false);
 
@@ -146,22 +155,28 @@ export default function SetupWorkbench() {
   }, [t]);
 
   useEffect(() => {
-    let saved: ReturnType<typeof readSetupProgress> = null;
-    try {
-      saved = readSetupProgress(localStorage);
-    } catch {
-      /* Storage may be blocked. */
-    }
-    if (saved) {
-      setSelectedConnectionId(saved.connectionId);
-      setSelectedModel(saved.model);
-      setSelectedKeyId(saved.apiKeyId);
-      setCopiedSelection(saved.copiedSelection);
-      setOrganized(saved.organized);
-    }
-    setProgressLoaded(true);
-    queueMicrotask(load);
+    let cancelled = false;
+    // Read browser storage after hydration, with identical initial server/client markup.
+    queueMicrotask(() => {
+      if (cancelled) return;
+      let saved: ReturnType<typeof readSetupProgress> = null;
+      try {
+        saved = readSetupProgress(localStorage);
+      } catch {
+        /* Storage may be blocked. */
+      }
+      if (saved) {
+        setSelectedConnectionId(saved.connectionId);
+        setSelectedModel(saved.model);
+        setSelectedKeyId(saved.apiKeyId);
+        setCopiedSelection(saved.copiedSelection);
+        setOrganized(saved.organized);
+      }
+      setProgressLoaded(true);
+      void load();
+    });
     return () => {
+      cancelled = true;
       pending.current?.abort();
       if (copyTimer.current) clearTimeout(copyTimer.current);
     };
@@ -184,8 +199,13 @@ export default function SetupWorkbench() {
   };
   const fingerprint = selectionFingerprint(selection, baseUrl);
   const fingerprintRef = useRef(fingerprint);
-  fingerprintRef.current = fingerprint;
-  const isReady = validation?.status === "ready";
+  const currentValidation =
+    validation?.selection === fingerprint && validation.credential === secret ? validation : null;
+  const validating =
+    validationRequest?.selection === fingerprint && validationRequest.credential === secret;
+  const smokeStatus =
+    smoke?.selection === fingerprint && smoke.credential === secret ? smoke.status : "idle";
+  const isReady = hasProvider && hasKey && currentValidation?.status === "ready";
   const configCopied = !!copiedSelection && copiedSelection === fingerprint;
   const canCheck = hasProvider && hasKey && !!selectedModel && !!secret;
   const currentStep = !hasProvider
@@ -204,10 +224,8 @@ export default function SetupWorkbench() {
       : "";
 
   useEffect(() => {
+    fingerprintRef.current = fingerprint;
     pending.current?.abort();
-    setValidation(null);
-    setSmokeStatus("idle");
-    setValidating(false);
   }, [fingerprint, secret]);
 
   useEffect(() => {
@@ -284,7 +302,7 @@ export default function SetupWorkbench() {
     pending.current?.abort();
     const controller = new AbortController();
     pending.current = controller;
-    setValidating(true);
+    setValidationRequest({ selection: fingerprint, credential: secret });
     setValidation(null);
     try {
       const response = await fetch("/api/setup/validate", {
@@ -296,29 +314,29 @@ export default function SetupWorkbench() {
       const result = await readJson(response);
       if (controller.signal.aborted) return;
       // A rejected request carries `{ error }` instead of `{ status, checks }`.
-      setValidation(
-        response.ok
-          ? (result as unknown as Validation)
-          : {
-              status: "error",
-              checks: [
-                {
-                  id: "server",
-                  status: "fail",
-                  message:
-                    typeof result.error === "string" ? result.error : t("validateUnreachable"),
-                },
-              ],
-            }
-      );
+      const resultValidation: Validation = response.ok
+        ? (result as unknown as Validation)
+        : {
+            status: "error",
+            checks: [
+              {
+                id: "server",
+                status: "fail",
+                message: typeof result.error === "string" ? result.error : t("validateUnreachable"),
+              },
+            ],
+          };
+      setValidation({ ...resultValidation, selection: fingerprint, credential: secret });
     } catch {
       if (controller.signal.aborted) return;
       setValidation({
+        selection: fingerprint,
+        credential: secret,
         status: "error",
         checks: [{ id: "server", status: "fail", message: t("validateUnreachable") }],
       });
     } finally {
-      if (!controller.signal.aborted) setValidating(false);
+      if (pending.current === controller) setValidationRequest(null);
     }
   }
 
@@ -327,7 +345,7 @@ export default function SetupWorkbench() {
     pending.current?.abort();
     const controller = new AbortController();
     pending.current = controller;
-    setSmokeStatus("running");
+    setSmoke({ status: "running", selection: fingerprint, credential: secret });
     try {
       // This goes through the public route with the actual client credential,
       // so auth, tenant policy, quotas and usage accounting all apply.
@@ -349,9 +367,15 @@ export default function SetupWorkbench() {
       const result = await readJson(response);
       const choices = result.choices;
       const completed = response.ok && Array.isArray(choices) && choices.length > 0;
-      if (!controller.signal.aborted) setSmokeStatus(completed ? "pass" : "fail");
+      if (!controller.signal.aborted)
+        setSmoke({
+          status: completed ? "pass" : "fail",
+          selection: fingerprint,
+          credential: secret,
+        });
     } catch {
-      if (!controller.signal.aborted) setSmokeStatus("fail");
+      if (!controller.signal.aborted)
+        setSmoke({ status: "fail", selection: fingerprint, credential: secret });
     }
   }
 
@@ -490,9 +514,9 @@ export default function SetupWorkbench() {
           {smokeStatus === "pass" ? t("testInferencePassed") : t("testInferenceFailed")}
         </p>
       ) : null}
-      {validation?.checks ? (
+      {currentValidation?.checks ? (
         <ul className="flex flex-col gap-1.5" aria-live="polite">
-          {validation.checks.map((check) => (
+          {currentValidation.checks.map((check) => (
             <li
               key={check.id}
               className={`flex items-start gap-2 text-sm ${

@@ -10,10 +10,13 @@ process.env.INITIAL_PASSWORD = "";
 const { resetDbInstance } = await import("../../../src/lib/db/core.ts");
 const { createProviderConnection } = await import("../../../src/lib/db/providers.ts");
 const { createApiKey } = await import("../../../src/lib/db/apiKeys.ts");
+const { createTenant, assignResourcesToTenant } = await import("../../../src/lib/db/tenants.ts");
 const { updateSettings } = await import("../../../src/lib/db/settings.ts");
 const { commitRemoteRouterCatalog } = await import("../../../src/lib/db/remoteRouterCatalog.ts");
 const { remoteRouterSnapshot } =
   await import("../../../src/lib/providerModels/remoteRouterCatalog.ts");
+const { persistDiscoveredModels } =
+  await import("../../../src/lib/providerModels/modelDiscovery.ts");
 const { GET: models } = await import("../../../src/app/api/providers/[id]/models/route.ts");
 const { POST: validate } = await import("../../../src/app/api/setup/validate/route.ts");
 let remoteId: string;
@@ -137,4 +140,50 @@ test("malformed input and unknown accounts return sanitized errors", async () =>
     assert.equal(body.error.message.includes("at /"), false);
     assert.equal(JSON.stringify(body).includes("upstream-secret"), false);
   }
+});
+
+test("moving a connection to another tenant invalidates the chosen key's readiness immediately", async () => {
+  const tenant = createTenant({ name: "Other tenant", slug: "other" });
+  assignResourcesToTenant(tenant.id, { connectionIds: [remoteId] });
+  const response = await validate(
+    request("/api/setup/validate", {
+      connectionId: remoteId,
+      model: "red/openrouter/chat",
+      apiKeyId: client.id,
+      apiKey: client.key,
+    })
+  );
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.status, "action_required");
+  assert.equal(body.checks.find((check: { id: string }) => check.id === "provider").status, "fail");
+});
+
+test("an unsynced account never borrows models discovered for another account", async () => {
+  const first = await createProviderConnection({
+    provider: "openai",
+    authType: "apikey",
+    apiKey: "first-key",
+    isActive: true,
+    providerSpecificData: { autoFetchModels: false },
+  });
+  const second = await createProviderConnection({
+    provider: "openai",
+    authType: "apikey",
+    apiKey: "second-key",
+    isActive: true,
+    providerSpecificData: { autoFetchModels: false },
+  });
+  await persistDiscoveredModels("openai", String(second.id), [
+    { id: "private-model-for-second-account", name: "Private" },
+  ]);
+  const response = await models(request(`/api/providers/${first.id}/models?capabilities=chat`), {
+    params: { id: String(first.id) },
+  });
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(
+    body.models.some((row: { id: string }) => row.id === "private-model-for-second-account"),
+    false
+  );
 });

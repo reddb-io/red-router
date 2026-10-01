@@ -57,17 +57,19 @@ export default function ConnectionModelSelect({
   // Catalog state is stamped with its source to hide old-account rows immediately,
   // before effects run, and to reject late responses after a connection change.
   const [source, setSource] = useState("");
-  const currentSource = `${value.connectionId}:${role}`;
+  const currentSource = `${value.connectionId}:${role}:${retry}`;
 
   useEffect(() => {
     if (suppliedConnections) return;
     const controller = new AbortController();
-    setConnectionsError(false);
     fetch("/api/providers", { cache: "no-store", signal: controller.signal })
       .then(async (response) => {
         if (!response.ok) throw new Error("unavailable");
         const data = await response.json();
-        if (!controller.signal.aborted) setConnections(data.connections || []);
+        if (!controller.signal.aborted) {
+          setConnections(data.connections || []);
+          setConnectionsError(false);
+        }
       })
       .catch(() => {
         if (!controller.signal.aborted) setConnectionsError(true);
@@ -78,9 +80,6 @@ export default function ConnectionModelSelect({
   useEffect(() => {
     if (!value.connectionId) return;
     const controller = new AbortController();
-    setStatus("loading");
-    setSource(currentSource);
-    setModels([]);
     fetch(
       `/api/providers/${encodeURIComponent(value.connectionId)}/models?excludeHidden=true&capabilities=${role}`,
       {
@@ -96,11 +95,16 @@ export default function ConnectionModelSelect({
           setModels(
             data.models.filter((model: ModelOption) => typeof model.fullModel === "string")
           );
+          setSource(currentSource);
           setStatus("ready");
         }
       })
       .catch(() => {
-        if (!controller.signal.aborted) setStatus("error");
+        if (!controller.signal.aborted) {
+          setModels([]);
+          setSource(currentSource);
+          setStatus("error");
+        }
       });
     return () => controller.abort();
   }, [value.connectionId, role, currentSource, retry]);
@@ -166,7 +170,14 @@ export default function ConnectionModelSelect({
       (value.connectionId && source === currentSource && status === "error") ? (
         <div role="alert" className="text-sm text-feedback-danger-foreground">
           Could not load the connection catalog.{" "}
-          <Button size="sm" variant="secondary" onClick={() => setRetry((current) => current + 1)}>
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => {
+              setConnectionsError(false);
+              setRetry((current) => current + 1);
+            }}
+          >
             Retry
           </Button>
         </div>

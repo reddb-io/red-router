@@ -94,7 +94,12 @@ import {
 } from "@/lib/providerModels/modelDiscovery";
 import { buildProviderModelsUrl, getDiscoveryClientVersionOptions } from "./discoveryClientVersion";
 import { getAdobeModels } from "./adobeFireflyDiscovery";
-import { getSyncedAvailableModels, getCustomModels, getModelIsHidden } from "@/lib/db/models";
+import {
+  getSyncedAvailableModels,
+  getSyncedAvailableModelsForConnection,
+  getCustomModels,
+  getModelIsHidden,
+} from "@/lib/db/models";
 import { isConnectionUnavailableToAuxiliaryActivity } from "@/lib/exclusiveLeaseIsolation";
 import { fetchCursorAgentModels } from "@/lib/providerModels/cursorAgent";
 import { fetchCursorAvailableModels } from "@/lib/providerModels/cursorAvailableModels";
@@ -294,9 +299,12 @@ async function getConnectionModels(
           chatOnly
         );
 
-    // Check for synced models from ANY connection of this provider.
-    // When sync has been performed (even on a different connection),
-    // use the synced list as the authoritative source instead of static models.
+    // Import/discovery retains its historical provider-wide fallback. A role
+    // selector must never borrow another account's discovered entitlements.
+    const readSyncedModels = () =>
+      searchParams.has("capabilities")
+        ? getSyncedAvailableModelsForConnection(provider, connectionId)
+        : getSyncedAvailableModels(provider);
     let providerSyncedModels: Array<{
       id: string;
       name: string;
@@ -304,7 +312,7 @@ async function getConnectionModels(
       supportedEndpoints?: string[];
     }> | null = null;
     try {
-      const allSynced = usesCuratedModelsOnly ? [] : await getSyncedAvailableModels(provider);
+      const allSynced = usesCuratedModelsOnly ? [] : await readSyncedModels();
       const selectableSynced = filterModelsForRoute(provider, allSynced, chatOnly);
       if (selectableSynced.length > 0) {
         providerSyncedModels = selectableSynced.map((m) => ({
@@ -459,11 +467,7 @@ async function getConnectionModels(
       // its other connections) or the static catalog when none remain.
       let freshSynced: Awaited<ReturnType<typeof getSyncedAvailableModels>> = [];
       try {
-        freshSynced = filterModelsForRoute(
-          provider,
-          await getSyncedAvailableModels(provider),
-          chatOnly
-        );
+        freshSynced = filterModelsForRoute(provider, await readSyncedModels(), chatOnly);
       } catch {
         /* DB unavailable — fall through to static catalog */
       }

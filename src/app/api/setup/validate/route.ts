@@ -25,8 +25,24 @@ export async function POST(request: Request) {
   if (isValidationFailure(validation))
     return errorResponse(400, "Select a connection, model and client key");
   try {
-    const readiness = await validateSetupSelection(validation.data, {
-      connection: getProviderConnectionById,
+    const selection = {
+      connectionId: validation.data.connectionId!,
+      model: validation.data.model!,
+      apiKeyId: validation.data.apiKeyId!,
+      apiKey: validation.data.apiKey!,
+    };
+    const readiness = await validateSetupSelection(selection, {
+      connection: async (id) => {
+        const connection = await getProviderConnectionById(id);
+        return connection
+          ? {
+              isActive: connection.isActive,
+              displayName: connection.displayName,
+              name: connection.name,
+              provider: connection.provider,
+            }
+          : null;
+      },
       metadata: getApiKeyMetadata,
       validKey: isValidApiKey,
       modelAllowed: isModelAllowedForKey,

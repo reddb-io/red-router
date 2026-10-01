@@ -120,7 +120,7 @@ test("combo writes bound the decision model and reject unsupported JEV modes", (
     false
   );
   assert.equal(
-    comboRuntimeConfigSchema.safeParse({ decision: { mode: "jev", model: "x".repeat(201) } })
+    comboRuntimeConfigSchema.safeParse({ decision: { mode: "jev", model: "x".repeat(2049) } })
       .success,
     false
   );

@@ -1,3 +1,4 @@
+import { comboRuntimeConfigSchema } from "../../../src/shared/validation/schemas/combo.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { projectConnectionModels } from "../../../src/lib/providerModels/selection.ts";
@@ -65,4 +66,18 @@ test("a pinned S1 connection cannot escape key/quota policy", async () => {
   assert.equal(evaluated, false);
   assert.equal(await canEvaluateJevModel(config, ["chosen"], async () => true), true);
   assert.equal(parseJevRoutingConfig({}).connectionId, undefined);
+});
+
+test("federated evaluator IDs use the public 2048-character bound", () => {
+  assert.equal(
+    comboRuntimeConfigSchema.safeParse({
+      decision: { mode: "jev", model: "red/" + "x".repeat(2044) },
+    }).success,
+    true
+  );
+  assert.equal(
+    comboRuntimeConfigSchema.safeParse({ decision: { mode: "jev", model: "x".repeat(2049) } })
+      .success,
+    false
+  );
 });

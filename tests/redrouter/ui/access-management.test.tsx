@@ -130,7 +130,7 @@ it("lists tenant owners, protects membership actions and creates a usable invita
   ).toBe(true);
   await fill(field("Search users"), "owner@");
   expect(container.querySelectorAll("tbody tr").length).toBe(1);
-});
+}, 15000); // CI's first render can include cold component transforms (observed 6.7s).
 
 it("saves tenant contact metadata without fetching credentials and shows empty monthly usage", async () => {
   await mount(<TenantAccess tenantId="a" users={[owner, user]} />);

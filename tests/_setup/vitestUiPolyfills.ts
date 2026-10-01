@@ -1,3 +1,7 @@
+// These suites drive React through act(). Declare the test environment so React
+// reports actual unwrapped updates instead of repeating a configuration warning.
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
 // jsdom (unlike real browsers) does not implement `window.matchMedia`. Several
 // dashboard components read the OS color-scheme preference via
 // `window.matchMedia("(prefers-color-scheme: dark)")` (see

@@ -72,7 +72,10 @@ for (const viewport of [
     await page.getByRole("button", { name: "Copy config", exact: true }).click();
     await expect(page.getByRole("button", { name: "Copy config", exact: true })).toBeVisible();
     await expect(
-      page.locator("ol > li").nth(2).getByRole("img", { name: "Complete", exact: true })
+      page
+        .getByRole("listitem")
+        .filter({ has: page.getByRole("heading", { name: "Configure your client", exact: true }) })
+        .getByRole("img", { name: "Complete", exact: true })
     ).toBeVisible();
     await page.getByRole("button", { name: "Run validation", exact: true }).click();
     await expect(page.getByText("Configuration checked.", { exact: true })).toBeVisible();
