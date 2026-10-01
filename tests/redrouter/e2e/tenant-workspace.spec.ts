@@ -65,7 +65,7 @@ for (const width of [1280, 390]) {
       await expect(page.getByLabel("Password", { exact: true })).toBeVisible();
       expect(errors).toEqual([]);
     } finally {
-      await page.request.delete(`/api/tenants/${tenant.id}`);
+      expect((await page.request.delete(`/api/tenants/${tenant.id}`)).ok()).toBe(true);
     }
   });
 }

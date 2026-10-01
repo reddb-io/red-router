@@ -204,7 +204,7 @@ export default function TenantAccess({
         )}
       </section>
       <div className="border-t border-border pt-6">
-        <Link href="/dashboard/settings/routing" className="text-sm text-primary underline">
+        <Link href="/system/settings/routing" className="text-sm text-primary underline">
           Configure model visibility and owner provider priority
         </Link>
         <RoutingPreview key={tenantId} tenantId={tenantId} />

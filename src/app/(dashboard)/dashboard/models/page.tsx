@@ -144,7 +144,7 @@ export default function ModelCatalogPage() {
         </div>
       </header>
 
-      <Link href="/dashboard/settings/routing" className="text-sm text-primary underline">
+      <Link href="/system/settings/routing" className="text-sm text-primary underline">
         Model visibility, provider priority and routing preview
       </Link>
       <Card padding="none" className="overflow-hidden">

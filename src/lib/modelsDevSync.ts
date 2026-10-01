@@ -200,11 +200,66 @@ export async function fetchModelsDev(
         z.string(),
         z
           .object({
-            models: z.record(z.string(), z.object({ id: z.string().min(1) }).passthrough()),
+            id: z.string().min(1),
+            name: z.string().optional(),
+            env: z.array(z.string()).optional(),
+            npm: z.string().optional(),
+            api: z.string().optional(),
+            doc: z.string().optional(),
+            models: z.record(
+              z.string(),
+              z
+                .object({
+                  id: z.string().min(1),
+                  name: z.string(),
+                  family: z.string().optional(),
+                  attachment: z.boolean().optional(),
+                  reasoning: z.boolean().optional(),
+                  tool_call: z.boolean().optional(),
+                  structured_output: z.boolean().optional(),
+                  temperature: z.boolean().optional(),
+                  knowledge: z.string().optional(),
+                  release_date: z.string().optional(),
+                  last_updated: z.string().optional(),
+                  open_weights: z.boolean().optional(),
+                  status: z.string().optional(),
+                  cost: z
+                    .object({
+                      input: z.number().nonnegative().optional(),
+                      output: z.number().nonnegative().optional(),
+                      reasoning: z.number().nonnegative().optional(),
+                      cache_read: z.number().nonnegative().optional(),
+                      cache_write: z.number().nonnegative().optional(),
+                      input_audio: z.number().nonnegative().optional(),
+                      output_audio: z.number().nonnegative().optional(),
+                    })
+                    .passthrough()
+                    .optional(),
+                  limit: z
+                    .object({
+                      context: z.number().nonnegative().optional(),
+                      input: z.number().nonnegative().optional(),
+                      output: z.number().nonnegative().optional(),
+                    })
+                    .passthrough()
+                    .optional(),
+                  modalities: z
+                    .object({
+                      input: z.array(z.string()).optional(),
+                      output: z.array(z.string()).optional(),
+                    })
+                    .passthrough()
+                    .optional(),
+                  interleaved: z
+                    .union([z.boolean(), z.object({ field: z.string().optional() }).passthrough()])
+                    .optional(),
+                })
+                .passthrough()
+            ),
           })
           .passthrough()
       )
-      .parse(JSON.parse(text)) as ModelsDevData;
+      .parse(JSON.parse(text));
     if (!Object.values(data).some((provider) => Object.keys(provider.models).length))
       throw new Error("Empty snapshot");
     cachedData = data;

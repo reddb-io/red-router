@@ -95,4 +95,9 @@ test("invalid refresh retains the last usable snapshot and never reports success
   globalThis.fetch = async () => Response.json({ error: "remote fixture" });
   assert.equal((await sync.syncModelsDev({ force: true, maxRetries: 0 })).success, false);
   assert.deepEqual(sync.getSyncStatus().snapshot, old);
+  const invalid = fixture();
+  invalid.openai.models.fixture.cost.input = -1;
+  globalThis.fetch = async () => Response.json(invalid);
+  assert.equal((await sync.syncModelsDev({ force: true, maxRetries: 0 })).success, false);
+  assert.deepEqual(sync.getSyncStatus().snapshot, old);
 });

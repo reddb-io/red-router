@@ -26,7 +26,7 @@ test("routing preview follows the selected key's tenant and model restrictions w
     transparentModels: false,
     providerPriority: ["openai"],
   });
-  const cookie = `auth_token=${await mintDashboardSessionToken(process.env.JWT_SECRET!, "owner")}`;
+  const cookie = `auth_token=${await mintDashboardSessionToken(new TextEncoder().encode(process.env.JWT_SECRET!), "owner")}`;
   const tenant = tenants.createTenant({ slug: "preview" });
   const connection = await createProviderConnection({
     provider: "openai",
