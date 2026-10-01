@@ -7,6 +7,12 @@ import {
 import { redRouterEndpoint } from "@omniroute/open-sse/config/redRouter";
 import { errorResponse } from "@omniroute/open-sse/utils/error.ts";
 import { runWithProxyContext } from "@omniroute/open-sse/utils/proxyFetch.ts";
+import {
+  checkTokenLimits,
+  recordTokenUsage,
+} from "@omniroute/open-sse/services/tokenLimitCounter.ts";
+import { computeBillableTokens } from "@omniroute/open-sse/handlers/chatCore/upstreamTimeouts.ts";
+import { checkKeyQuota, recordKeyQuotaUsage } from "@/domain/keyQuota";
 import { normalizeUsage } from "@omniroute/open-sse/utils/usageTracking.ts";
 import { resolveProxyForConnection } from "@/lib/db/settings";
 import { hasBlockingProxyAssignment } from "@/lib/db/proxies";
@@ -23,7 +29,6 @@ import { calculateCostDetailed } from "@/lib/usage/costCalculator";
 import { rejectIfMeteredBudgetExceeded, meteredBudgetCost } from "@/lib/usage/meteredBudgetPolicy";
 import { recordCost } from "@/domain/costRules";
 import { recordBudgetTokensFor } from "@/domain/budgetEngine";
-import { getLoggedInputTokens, getLoggedOutputTokens } from "@/lib/usage/tokenAccounting";
 import type { RequestAttribution } from "@/lib/usage/attribution";
 import {
   getProviderCredentialsWithQuotaPreflight,
@@ -43,6 +48,10 @@ const defaults = {
   cost: calculateCostDetailed,
   recordCost,
   recordTokens: recordBudgetTokensFor,
+  keyQuota: checkKeyQuota,
+  tokenLimits: checkTokenLimits,
+  recordKeyQuota: recordKeyQuotaUsage,
+  recordWindowTokens: recordTokenUsage,
   recover: clearRecoveredProviderState,
   unavailable: markAccountUnavailable,
 };
@@ -87,6 +96,17 @@ export async function dispatchSystemOne(
     !options.allowedConnections.includes(options.forcedConnectionId)
   ) {
     return fail(403, "Connection is not allowed for this API key");
+  }
+  if (options.apiKeyId) {
+    try {
+      const quota = deps.keyQuota(options.apiKeyId);
+      if (!quota.allowed) return fail(429, quota.reason || "API key quota exceeded");
+      if (deps.tokenLimits(options.apiKeyId, target.provider, target.model)) {
+        return fail(429, "Token limit exceeded for this API key");
+      }
+    } catch {
+      return fail(503, "System One quota policy unavailable");
+    }
   }
   const actor = { id: options.apiKeyId, attribution: options.attribution };
   // Admission is once per evaluation, not once per credential retry.
@@ -199,15 +219,20 @@ export async function dispatchSystemOne(
                 requestId: randomUUID(),
                 attribution: options.attribution,
               });
-              deps.recordTokens(
-                actor,
-                target.provider,
-                getLoggedInputTokens(tokens) + getLoggedOutputTokens(tokens)
-              );
             }
           } catch {
             accountingSucceeded = false;
             options.warn?.("System One cost accounting failed");
+          }
+          try {
+            if (options.apiKeyId) {
+              const billable = computeBillableTokens(tokens);
+              deps.recordTokens(actor, target.provider, billable);
+              deps.recordKeyQuota(options.apiKeyId, billable);
+              deps.recordWindowTokens(options.apiKeyId, target.provider, target.model, billable);
+            }
+          } catch {
+            accountingSucceeded = false;
           }
           try {
             if (
@@ -225,6 +250,13 @@ export async function dispatchSystemOne(
             ) {
               accountingSucceeded = false;
             }
+          } catch {
+            accountingSucceeded = false;
+          }
+        }
+        if (!tokens && options.apiKeyId) {
+          try {
+            deps.recordKeyQuota(options.apiKeyId, 0);
           } catch {
             accountingSucceeded = false;
           }

@@ -34,6 +34,10 @@ function setup(overrides: Dependencies = {}) {
       return null;
     },
     blockedProxy: () => false,
+    keyQuota: () => ({ allowed: true, reason: null, dimension: null }),
+    tokenLimits: () => null,
+    recordKeyQuota: () => {},
+    recordWindowTokens: () => {},
     leased: async () => false,
     forward: async (_target, _token, forwarded) => {
       assert.deepEqual(forwarded, body);
@@ -98,6 +102,30 @@ test("S1 budget refusal prevents credential acquisition and upstream inference",
   const result = await dispatchSystemOne(target, body, options, dependencies);
   assert.equal(result.response.status, 429);
   assert.deepEqual(events, []);
+});
+
+test("key quotas reject internal S1 before inference and reasoning tokens count toward token limits", async () => {
+  const blocked = setup({
+    keyQuota: () => ({ allowed: false, reason: "quota exhausted", dimension: "tpm" }),
+  });
+  assert.equal(
+    (await dispatchSystemOne(target, body, options, blocked.dependencies)).response.status,
+    429
+  );
+  assert.deepEqual(blocked.events, []);
+  const successful = setup({
+    forward: async () => ({
+      response: Response.json({ answers: {} }),
+      usage: { input_tokens: 10, output_tokens: 5, reasoning_tokens: 7 },
+    }),
+    recordTokens: (_actor, _provider, tokens) => assert.equal(tokens, 22),
+    recordKeyQuota: (_id, tokens) => assert.equal(tokens, 22),
+    recordWindowTokens: (_id, _provider, _model, tokens) => assert.equal(tokens, 22),
+  });
+  assert.equal(
+    (await dispatchSystemOne(target, body, options, successful.dependencies)).response.status,
+    200
+  );
 });
 
 test("S1 uses per-key proxy and records usage, cost, ledger context and TPM once", async () => {
@@ -238,6 +266,10 @@ test("real S1 accounting writes one usage row and one attributed ledger row, the
     .prepare("SELECT tokens_input, tokens_output, endpoint FROM usage_history WHERE api_key_id = ?")
     .all(key.id);
   assert.deepEqual(usage, [{ tokens_input: 10, tokens_output: 5, endpoint: "/v1/systemone" }]);
+  const { getKeyQuotaStatus } = await import("../../../src/lib/db/keyQuota.ts");
+  const quotaStatus = getKeyQuotaStatus(key.id);
+  assert.equal(quotaStatus.counters.tpmUsed, 15);
+  assert.equal(quotaStatus.counters.rpmUsed, 1);
   const ledger = db
     .prepare(
       "SELECT amount_usd, end_user, tags, session_id FROM request_cost_ledger WHERE api_key_id = ?"
