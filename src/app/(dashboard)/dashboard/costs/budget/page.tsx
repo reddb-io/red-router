@@ -20,6 +20,11 @@ export default function CostsBudgetPage() {
 
   return (
     <div className={styles.root()}>
+      <p className="mb-4 max-w-prose text-sm text-text-muted">
+        USD caps include recorded costs and estimated reservations for calls in flight. Final
+        provider charges can differ from estimates. Subscription providers are exempt from USD caps,
+        but still count toward RPM and TPM limits. Unavailable budget policy blocks new calls.
+      </p>
       <div role="tablist" aria-label={t("tabsLabel")} className={styles.list()}>
         {items.map((item) => (
           <button

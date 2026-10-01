@@ -389,9 +389,9 @@ test("the alert flag survives a restart of the in-memory state", () => {
   assert.equal(events.length, 1);
 });
 
-// --- fail open (drops a table, keep last) -----------------------------------------------------
+// --- unavailable policy (drops a table, keep last) -----------------------------------------------------
 
-test("an unreadable budget table fails open instead of blocking traffic", () => {
+test("an unreadable budget table refuses admission without replaying completed usage", () => {
   const budget = makeBudget({ maxUsd: 1 });
   assignKey(budget.id, "k1");
   engine.recordBudgetSpend({ keyId: "k1", provider: METERED, usd: 5 }, NOW);
@@ -399,12 +399,12 @@ test("an unreadable budget table fails open instead of blocking traffic", () => 
 
   getDbInstance().prepare("DROP TABLE budget_windows").run();
   engine.resetBudgetEngineCache();
-  assert.equal(engine.checkBudgets({ keyId: "k1", provider: METERED }, NOW).state, "ok");
+  assert.equal(engine.checkBudgets({ keyId: "k1", provider: METERED }, NOW).state, "blocked");
   assert.doesNotThrow(() =>
     engine.recordBudgetSpend({ keyId: "k1", provider: METERED, usd: 5 }, NOW)
   );
 
   getDbInstance().prepare("DROP TABLE budget_assignments").run();
   engine.resetBudgetEngineCache();
-  assert.equal(engine.checkBudgets({ keyId: "k1", provider: METERED }, NOW).state, "ok");
+  assert.equal(engine.checkBudgets({ keyId: "k1", provider: METERED }, NOW).state, "blocked");
 });

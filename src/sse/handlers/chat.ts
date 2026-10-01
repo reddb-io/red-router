@@ -165,7 +165,7 @@ import { RequestTelemetry, recordTelemetry } from "../../shared/utils/requestTel
 import { generateRequestId } from "../../shared/utils/requestId";
 import { logAuditEvent } from "../../lib/compliance/index";
 import { enforceApiKeyPolicy } from "../../shared/utils/apiKeyPolicy";
-import { rejectIfMeteredBudgetExceeded } from "@/lib/usage/meteredBudgetPolicy";
+import { withFinancialRequest } from "@/lib/usage/financialAdmission";
 import { withRequestAttribution } from "@/lib/usage/attribution";
 import { hasProviderQuotaBypassScope } from "../../shared/constants/apiKeyPolicyScopes";
 import { isMicrosoftDesignerWebProviderRetiredError } from "../../shared/constants/designerWebRetirement";
@@ -1640,751 +1640,1022 @@ async function handleSingleModelChat(
     return runtimeOptions.providerId;
   })();
   const forceLiveComboTest = runtimeOptions.forceLiveComboTest === true;
-  const budgetRejection = await rejectIfMeteredBudgetExceeded(apiKeyInfo, provider, modelStr);
-  if (budgetRejection) return budgetRejection;
-  const bypassProviderQuotaPolicy = hasProviderQuotaBypassScope(apiKeyInfo?.scopes);
-  const forcedConnectionId =
-    typeof runtimeOptions.forcedConnectionId === "string"
-      ? runtimeOptions.forcedConnectionId.trim()
-      : "";
-  const hasForcedConnection = forcedConnectionId.length > 0;
-  let effectiveAllowedConnections = intersectAllowedConnectionIds(
-    apiKeyInfo?.allowedConnections ?? null,
-    comboPinAllowlist(isCombo, forcedConnectionId || null, runtimeOptions.allowedConnectionIds)
-  );
-
-  // A4: quota-exclusive keys must only use the pool's connection(s).
-  if (apiKeyInfo?.allowedQuotas && apiKeyInfo.allowedQuotas.length > 0) {
-    const quotaScope = await resolveQuotaKeyScope(apiKeyInfo.allowedQuotas);
-    effectiveAllowedConnections = constrainConnectionsToQuota(
-      effectiveAllowedConnections ?? [],
-      quotaScope.connectionIds
+  return withFinancialRequest(apiKeyInfo, provider, model, body, async () => {
+    const bypassProviderQuotaPolicy = hasProviderQuotaBypassScope(apiKeyInfo?.scopes);
+    const forcedConnectionId =
+      typeof runtimeOptions.forcedConnectionId === "string"
+        ? runtimeOptions.forcedConnectionId.trim()
+        : "";
+    const hasForcedConnection = forcedConnectionId.length > 0;
+    let effectiveAllowedConnections = intersectAllowedConnectionIds(
+      apiKeyInfo?.allowedConnections ?? null,
+      comboPinAllowlist(isCombo, forcedConnectionId || null, runtimeOptions.allowedConnectionIds)
     );
-  }
 
-  const bypassReason = forceLiveComboTest
-    ? "combo live test"
-    : hasForcedConnection
-      ? "fixed combo step connection"
-      : undefined;
+    // A4: quota-exclusive keys must only use the pool's connection(s).
+    if (apiKeyInfo?.allowedQuotas && apiKeyInfo.allowedQuotas.length > 0) {
+      const quotaScope = await resolveQuotaKeyScope(apiKeyInfo.allowedQuotas);
+      effectiveAllowedConnections = constrainConnectionsToQuota(
+        effectiveAllowedConnections ?? [],
+        quotaScope.connectionIds
+      );
+    }
 
-  // 2. Local pressure precedes availability/breaker gates and account selection.
-  const pressureGuard = checkResourcePressureBeforeProviderWork();
-  if (pressureGuard) return pressureGuard.response;
-  const providerProfile = await getRuntimeProviderProfile(provider);
-  const gate = await checkPipelineGates(provider, model, {
-    ignoreCircuitBreaker: forceLiveComboTest || hasForcedConnection,
-    ignoreModelCooldown: forceLiveComboTest || hasForcedConnection,
-    providerProfile,
-    ...(bypassReason ? { bypassReason } : {}),
-  });
-  const rejectionScope = {
-    body,
-    modelStr,
-    clientRawRequest,
-    apiKeyInfo,
-    runtimeOptions,
-    telemetry,
-    comboName,
-    isCombo,
-  };
-  if (gate) {
-    await recordGateRejection(gate.status, provider, model, rejectionScope);
-    return gate;
-  }
+    const bypassReason = forceLiveComboTest
+      ? "combo live test"
+      : hasForcedConnection
+        ? "fixed combo step connection"
+        : undefined;
 
-  // Issue #2100 follow-up: opt-in upstream 429 hint trust per provider.
-  const useHints429 = resolveUseUpstream429BreakerHints(
-    provider,
-    (providerProfile as { useUpstream429BreakerHints?: boolean }).useUpstream429BreakerHints
-  );
-  const breaker = getCircuitBreaker(provider, {
-    failureThreshold: providerProfile.failureThreshold,
-    resetTimeout: providerProfile.resetTimeoutMs,
-    // #4602: a local WS-bridge "Controller is already closed" throw is not an
-    // upstream outage — keep it from tripping the whole-provider breaker.
-    isFailure: (e) => !isLocalStreamLifecycleError(e),
-    onStateChange: (name: string, from: string, to: string) =>
-      log.info("CIRCUIT", `${name}: ${from} → ${to}`),
-    ...(useHints429
-      ? {
-          cooldownByKind: {
-            rate_limit: 60_000,
-            quota_exhausted: 3_600_000,
-          } satisfies Partial<Record<FailureKind, number>>,
-          classifyError: classify429FromError,
+    // 2. Local pressure precedes availability/breaker gates and account selection.
+    const pressureGuard = checkResourcePressureBeforeProviderWork();
+    if (pressureGuard) return pressureGuard.response;
+    const providerProfile = await getRuntimeProviderProfile(provider);
+    const gate = await checkPipelineGates(provider, model, {
+      ignoreCircuitBreaker: forceLiveComboTest || hasForcedConnection,
+      ignoreModelCooldown: forceLiveComboTest || hasForcedConnection,
+      providerProfile,
+      ...(bypassReason ? { bypassReason } : {}),
+    });
+    const rejectionScope = {
+      body,
+      modelStr,
+      clientRawRequest,
+      apiKeyInfo,
+      runtimeOptions,
+      telemetry,
+      comboName,
+      isCombo,
+    };
+    if (gate) {
+      await recordGateRejection(gate.status, provider, model, rejectionScope);
+      return gate;
+    }
+
+    // Issue #2100 follow-up: opt-in upstream 429 hint trust per provider.
+    const useHints429 = resolveUseUpstream429BreakerHints(
+      provider,
+      (providerProfile as { useUpstream429BreakerHints?: boolean }).useUpstream429BreakerHints
+    );
+    const breaker = getCircuitBreaker(provider, {
+      failureThreshold: providerProfile.failureThreshold,
+      resetTimeout: providerProfile.resetTimeoutMs,
+      // #4602: a local WS-bridge "Controller is already closed" throw is not an
+      // upstream outage — keep it from tripping the whole-provider breaker.
+      isFailure: (e) => !isLocalStreamLifecycleError(e),
+      onStateChange: (name: string, from: string, to: string) =>
+        log.info("CIRCUIT", `${name}: ${from} → ${to}`),
+      ...(useHints429
+        ? {
+            cooldownByKind: {
+              rate_limit: 60_000,
+              quota_exhausted: 3_600_000,
+            } satisfies Partial<Record<FailureKind, number>>,
+            classifyError: classify429FromError,
+          }
+        : {}),
+    });
+
+    const userAgent = request?.headers?.get("user-agent") || "";
+    const baseRetrySettings = resolveCooldownAwareRetrySettings(
+      runtimeOptions.cachedSettings ?? (await getCachedSettings().catch(() => ({})))
+    );
+    const retrySettings = disableCooldownAwareRetry(
+      baseRetrySettings,
+      provider === "claude-web" ||
+        isCombo ||
+        forceLiveComboTest ||
+        runtimeOptions.emergencyFallbackTried === true
+    );
+    const requestSignal = clientRawRequest?.signal ?? request?.signal ?? null;
+    // Cumulative cap across all waits for this request (#7360 follow-up) — mirrors
+    // combo.ts's comboCooldownBudgetLeftMs. Declared outside requestAttemptLoop so
+    // it persists (and only decreases) across `continue requestAttemptLoop` retries.
+    let requestRetryBudgetLeftMs = retrySettings.budgetMs;
+
+    if (Array.isArray(effectiveAllowedConnections) && effectiveAllowedConnections.length === 0) {
+      log.debug(
+        "AUTH",
+        `${provider}/${model} filtered out by connection-level routing constraints`
+      );
+      return errorResponse(
+        HTTP_STATUS.SERVICE_UNAVAILABLE,
+        "No eligible connections matched the requested routing constraints"
+      );
+    }
+
+    // 3. Credential retry loop
+    let requestRetryAttempt = 0;
+    let requestRetryLastError = null;
+    let requestRetryLastStatus = null;
+    let requestRetryLastCooldownMs = 0;
+    // Bug #3758: per-request counter bounding the early-close (STREAM_EARLY_EOF)
+    // re-attempt to exactly one for the whole request. Declared outside both retry
+    // loops so it can never reset and loop.
+    let streamEarlyEofRetries = 0;
+    let streamReadinessTimeoutRetries = 0;
+    // STREAM_EARLY_EOF_SIBLING_FAILOVER_ENABLED: at most ONE sibling hop per request. Keeps the
+    // original early-EOF 502 so an exhausted sibling pool surfaces it verbatim (combo detection).
+    let earlyEofOriginal: Response | null = null;
+    const sameAccountTransportRetries = new Map<string, number>();
+    const occupancySessionKey =
+      runtimeOptions.sessionAffinityKey ?? runtimeOptions.sessionId ?? `request:${randomUUID()}`;
+    let initialPreselectedCredentials = runtimeOptions.preselectedCredentials;
+    // ANTIGRAVITY_ACCOUNT_LEASE_ENABLED (#10011 re-land): off ⇒ every `agy.*` branch is inert
+    // and selection/dispatch behave exactly as before. `attempted` survives a loop restart.
+    const agy = agyLease.startAntigravityLeaseRequest(provider, runtimeOptions.correlationId);
+
+    requestAttemptLoop: while (true) {
+      const excludedConnectionIds = new Set<string>(agy.on ? agy.attempted : []);
+      let lastError = requestRetryLastError;
+      let lastStatus = requestRetryLastStatus;
+      let lastCooldownMs = requestRetryLastCooldownMs;
+      let preselectedCredentials = initialPreselectedCredentials;
+      initialPreselectedCredentials = null;
+
+      while (true) {
+        const credentials =
+          preselectedCredentials && excludedConnectionIds.size === 0 && !agy.on
+            ? preselectedCredentials
+            : await getProviderCredentialsWithQuotaPreflight(
+                provider,
+                null,
+                effectiveAllowedConnections,
+                model,
+                {
+                  sessionKey: occupancySessionKey,
+                  reserveOAuthSession: true,
+                  excludeConnectionIds: Array.from(excludedConnectionIds),
+                  ...(agy.on
+                    ? { reserveAntigravityLease: true, routingRequestId: agy.requestId }
+                    : {}),
+                  ...(runtimeOptions.allowRateLimitedConnection
+                    ? { allowRateLimitedConnections: true }
+                    : {}),
+                  ...(forceLiveComboTest
+                    ? {
+                        allowSuppressedConnections: true,
+                        bypassQuotaPolicy: true,
+                      }
+                    : {}),
+                  ...(!forceLiveComboTest && bypassProviderQuotaPolicy
+                    ? { bypassQuotaPolicy: true }
+                    : {}),
+                  ...(runtimeOptions.managedLease
+                    ? { lease: credentialLease(runtimeOptions.managedLease) }
+                    : {}),
+                  ...(() => {
+                    const effectiveForcedId = resolveForcedConnectionForCredentialPool({
+                      forcedConnectionId: forcedConnectionId || null,
+                      excludedConnectionIds,
+                      connections: [],
+                      allowRateLimitedConnections:
+                        runtimeOptions.allowRateLimitedConnection === true || forceLiveComboTest,
+                      bypassQuotaPolicy: forceLiveComboTest || bypassProviderQuotaPolicy,
+                      isQuotaExhausted: () => false,
+                      isQuotaPolicyBlocked: () => false,
+                    });
+                    return effectiveForcedId ? { forcedConnectionId: effectiveForcedId } : {};
+                  })(),
+                }
+              );
+        preselectedCredentials = null;
+
+        if (credentials && "leaseUnavailable" in credentials && credentials.leaseUnavailable) {
+          excludedConnectionIds.add(agyLease.trackAntigravityLeaseBusy(agy, credentials));
+          if (!hasForcedConnection) continue;
+          return agyLease.buildAntigravityPoolBusyResponse(agy.earliestRetryHintAtMs ?? Date.now());
         }
-      : {}),
-  });
 
-  const userAgent = request?.headers?.get("user-agent") || "";
-  const baseRetrySettings = resolveCooldownAwareRetrySettings(
-    runtimeOptions.cachedSettings ?? (await getCachedSettings().catch(() => ({})))
-  );
-  const retrySettings = disableCooldownAwareRetry(
-    baseRetrySettings,
-    provider === "claude-web" ||
-      isCombo ||
-      forceLiveComboTest ||
-      runtimeOptions.emergencyFallbackTried === true
-  );
-  const requestSignal = clientRawRequest?.signal ?? request?.signal ?? null;
-  // Cumulative cap across all waits for this request (#7360 follow-up) — mirrors
-  // combo.ts's comboCooldownBudgetLeftMs. Declared outside requestAttemptLoop so
-  // it persists (and only decreases) across `continue requestAttemptLoop` retries.
-  let requestRetryBudgetLeftMs = retrySettings.budgetMs;
+        if (runtimeOptions.managedLease && credentials) {
+          const leaseError = buildManagedLeaseSelectionErrorResponse(credentials);
+          if (leaseError) return leaseError;
+        }
 
-  if (Array.isArray(effectiveAllowedConnections) && effectiveAllowedConnections.length === 0) {
-    log.debug("AUTH", `${provider}/${model} filtered out by connection-level routing constraints`);
-    return errorResponse(
-      HTTP_STATUS.SERVICE_UNAVAILABLE,
-      "No eligible connections matched the requested routing constraints"
-    );
-  }
+        // #9467: also treat the auth layer's allExpired verdict as a no-credentials
+        // outcome (auth.ts produces it; without this check an all-expired pool fell
+        // through to a connectionless dispatch).
+        if (
+          !credentials ||
+          "allRateLimited" in credentials ||
+          "allExpired" in credentials ||
+          !credentials.connectionId
+        ) {
+          if (earlyEofOriginal) return earlyEofOriginal;
+          if (!credentials?.allRateLimited && agy.earliestRetryHintAtMs !== null)
+            return agyLease.buildAntigravityPoolBusyResponse(agy.earliestRetryHintAtMs);
+          if (credentials?.allRateLimited) {
+            const retryDecision = getCooldownAwareRetryDecision({
+              retryAfter: credentials.retryAfter,
+              settings: retrySettings,
+              attempt: requestRetryAttempt,
+              budgetLeftMs: requestRetryBudgetLeftMs,
+              lastErrorCode: credentials.lastErrorCode,
+            });
 
-  // 3. Credential retry loop
-  let requestRetryAttempt = 0;
-  let requestRetryLastError = null;
-  let requestRetryLastStatus = null;
-  let requestRetryLastCooldownMs = 0;
-  // Bug #3758: per-request counter bounding the early-close (STREAM_EARLY_EOF)
-  // re-attempt to exactly one for the whole request. Declared outside both retry
-  // loops so it can never reset and loop.
-  let streamEarlyEofRetries = 0;
-  let streamReadinessTimeoutRetries = 0;
-  // STREAM_EARLY_EOF_SIBLING_FAILOVER_ENABLED: at most ONE sibling hop per request. Keeps the
-  // original early-EOF 502 so an exhausted sibling pool surfaces it verbatim (combo detection).
-  let earlyEofOriginal: Response | null = null;
-  const sameAccountTransportRetries = new Map<string, number>();
-  const occupancySessionKey =
-    runtimeOptions.sessionAffinityKey ?? runtimeOptions.sessionId ?? `request:${randomUUID()}`;
-  let initialPreselectedCredentials = runtimeOptions.preselectedCredentials;
-  // ANTIGRAVITY_ACCOUNT_LEASE_ENABLED (#10011 re-land): off ⇒ every `agy.*` branch is inert
-  // and selection/dispatch behave exactly as before. `attempted` survives a loop restart.
-  const agy = agyLease.startAntigravityLeaseRequest(provider, runtimeOptions.correlationId);
-
-  requestAttemptLoop: while (true) {
-    const excludedConnectionIds = new Set<string>(agy.on ? agy.attempted : []);
-    let lastError = requestRetryLastError;
-    let lastStatus = requestRetryLastStatus;
-    let lastCooldownMs = requestRetryLastCooldownMs;
-    let preselectedCredentials = initialPreselectedCredentials;
-    initialPreselectedCredentials = null;
-
-    while (true) {
-      const credentials =
-        preselectedCredentials && excludedConnectionIds.size === 0 && !agy.on
-          ? preselectedCredentials
-          : await getProviderCredentialsWithQuotaPreflight(
-              provider,
-              null,
-              effectiveAllowedConnections,
-              model,
-              {
-                sessionKey: occupancySessionKey,
-                reserveOAuthSession: true,
-                excludeConnectionIds: Array.from(excludedConnectionIds),
-                ...(agy.on
-                  ? { reserveAntigravityLease: true, routingRequestId: agy.requestId }
-                  : {}),
-                ...(runtimeOptions.allowRateLimitedConnection
-                  ? { allowRateLimitedConnections: true }
-                  : {}),
-                ...(forceLiveComboTest
-                  ? {
-                      allowSuppressedConnections: true,
-                      bypassQuotaPolicy: true,
-                    }
-                  : {}),
-                ...(!forceLiveComboTest && bypassProviderQuotaPolicy
-                  ? { bypassQuotaPolicy: true }
-                  : {}),
-                ...(runtimeOptions.managedLease
-                  ? { lease: credentialLease(runtimeOptions.managedLease) }
-                  : {}),
-                ...(() => {
-                  const effectiveForcedId = resolveForcedConnectionForCredentialPool({
-                    forcedConnectionId: forcedConnectionId || null,
-                    excludedConnectionIds,
-                    connections: [],
-                    allowRateLimitedConnections:
-                      runtimeOptions.allowRateLimitedConnection === true || forceLiveComboTest,
-                    bypassQuotaPolicy: forceLiveComboTest || bypassProviderQuotaPolicy,
-                    isQuotaExhausted: () => false,
-                    isQuotaPolicyBlocked: () => false,
-                  });
-                  return effectiveForcedId ? { forcedConnectionId: effectiveForcedId } : {};
-                })(),
-              }
-            );
-      preselectedCredentials = null;
-
-      if (credentials && "leaseUnavailable" in credentials && credentials.leaseUnavailable) {
-        excludedConnectionIds.add(agyLease.trackAntigravityLeaseBusy(agy, credentials));
-        if (!hasForcedConnection) continue;
-        return agyLease.buildAntigravityPoolBusyResponse(agy.earliestRetryHintAtMs ?? Date.now());
-      }
-
-      if (runtimeOptions.managedLease && credentials) {
-        const leaseError = buildManagedLeaseSelectionErrorResponse(credentials);
-        if (leaseError) return leaseError;
-      }
-
-      // #9467: also treat the auth layer's allExpired verdict as a no-credentials
-      // outcome (auth.ts produces it; without this check an all-expired pool fell
-      // through to a connectionless dispatch).
-      if (
-        !credentials ||
-        "allRateLimited" in credentials ||
-        "allExpired" in credentials ||
-        !credentials.connectionId
-      ) {
-        if (earlyEofOriginal) return earlyEofOriginal;
-        if (!credentials?.allRateLimited && agy.earliestRetryHintAtMs !== null)
-          return agyLease.buildAntigravityPoolBusyResponse(agy.earliestRetryHintAtMs);
-        if (credentials?.allRateLimited) {
-          const retryDecision = getCooldownAwareRetryDecision({
-            retryAfter: credentials.retryAfter,
-            settings: retrySettings,
-            attempt: requestRetryAttempt,
-            budgetLeftMs: requestRetryBudgetLeftMs,
-            lastErrorCode: credentials.lastErrorCode,
-          });
-
-          if (retryDecision.shouldRetry) {
-            const waitSec = Math.max(Math.ceil(retryDecision.waitMs / 1000), 0);
-            log.info(
-              "COOLDOWN_RETRY",
-              `${provider}/${model} all connections cooling down (${retryDecision.retryAfterHuman || `retry in ${waitSec}s`}) — waiting ${waitSec}s before retry ${requestRetryAttempt + 1}/${retrySettings.maxRetries}`
-            );
-
-            const completed = await waitForCooldownAwareRetry(retryDecision.waitMs, requestSignal);
-            if (!completed) {
+            if (retryDecision.shouldRetry) {
+              const waitSec = Math.max(Math.ceil(retryDecision.waitMs / 1000), 0);
               log.info(
                 "COOLDOWN_RETRY",
-                `${provider}/${model} retry wait aborted by client disconnect`
+                `${provider}/${model} all connections cooling down (${retryDecision.retryAfterHuman || `retry in ${waitSec}s`}) — waiting ${waitSec}s before retry ${requestRetryAttempt + 1}/${retrySettings.maxRetries}`
               );
-              return errorResponse(499, "Request aborted");
+
+              const completed = await waitForCooldownAwareRetry(
+                retryDecision.waitMs,
+                requestSignal
+              );
+              if (!completed) {
+                log.info(
+                  "COOLDOWN_RETRY",
+                  `${provider}/${model} retry wait aborted by client disconnect`
+                );
+                return errorResponse(499, "Request aborted");
+              }
+
+              requestRetryAttempt += 1;
+              requestRetryBudgetLeftMs = Math.max(
+                0,
+                requestRetryBudgetLeftMs - retryDecision.waitMs
+              );
+              log.info(
+                "COOLDOWN_RETRY",
+                `${provider}/${model} cooldown elapsed — restarting request attempt ${requestRetryAttempt + 1}/${retrySettings.maxRetries}`
+              );
+              continue requestAttemptLoop;
             }
-
-            requestRetryAttempt += 1;
-            requestRetryBudgetLeftMs = Math.max(0, requestRetryBudgetLeftMs - retryDecision.waitMs);
-            log.info(
-              "COOLDOWN_RETRY",
-              `${provider}/${model} cooldown elapsed — restarting request attempt ${requestRetryAttempt + 1}/${retrySettings.maxRetries}`
-            );
-            continue requestAttemptLoop;
           }
-        }
 
-        const breakerFailureStatus = Number(lastStatus ?? credentials?.lastErrorCode);
-        // lastError is a string here — check for the proxy_unreachable tag embedded by
-        // tagProxyUnreachable (proxyFetch.ts) and OmniRoute's own queue timeouts. Both mean
-        // we never reached the provider, so they must not trip the provider breaker.
-        const isNetworkError =
-          typeof lastError === "string" &&
-          (lastError.includes("proxy_unreachable") || lastError.includes("PROXY_UNREACHABLE"));
-        const isQueueTimeout =
-          typeof lastError === "string" &&
-          (lastError.includes("RATE_LIMIT_QUEUE_TIMEOUT") ||
-            lastError.includes("RATE_LIMIT_QUEUE_WEDGED"));
-        if (
-          !forceLiveComboTest &&
-          credentials?.allRateLimited &&
-          isProviderBreakerFailureStatus(breakerFailureStatus) &&
-          !isNetworkError &&
-          !isQueueTimeout &&
-          // Probe-origin dispatches must not degrade the provider breaker —
-          // routing state untouched (#9817).
-          !(await shouldIsolateProbeFailures())
-        ) {
-          breaker._onFailure();
-        }
+          const breakerFailureStatus = Number(lastStatus ?? credentials?.lastErrorCode);
+          // lastError is a string here — check for the proxy_unreachable tag embedded by
+          // tagProxyUnreachable (proxyFetch.ts) and OmniRoute's own queue timeouts. Both mean
+          // we never reached the provider, so they must not trip the provider breaker.
+          const isNetworkError =
+            typeof lastError === "string" &&
+            (lastError.includes("proxy_unreachable") || lastError.includes("PROXY_UNREACHABLE"));
+          const isQueueTimeout =
+            typeof lastError === "string" &&
+            (lastError.includes("RATE_LIMIT_QUEUE_TIMEOUT") ||
+              lastError.includes("RATE_LIMIT_QUEUE_WEDGED"));
+          if (
+            !forceLiveComboTest &&
+            credentials?.allRateLimited &&
+            isProviderBreakerFailureStatus(breakerFailureStatus) &&
+            !isNetworkError &&
+            !isQueueTimeout &&
+            // Probe-origin dispatches must not degrade the provider breaker —
+            // routing state untouched (#9817).
+            !(await shouldIsolateProbeFailures())
+          ) {
+            breaker._onFailure();
+          }
 
-        const candidateAliases =
-          "candidateAliases" in resolved && Array.isArray(resolved.candidateAliases)
-            ? resolved.candidateAliases.filter(
-                (candidate): candidate is string => typeof candidate === "string"
-              )
-            : undefined;
-        // #11943: only when no connection was ever tried — a built-in provider
-        // whose id/alias is also a configured compatible-node prefix means the
-        // operator's node was shadowed by the reserved-prefix guard, not broken.
-        const shadowedNode =
-          excludedConnectionIds.size === 0 ? await findShadowedCompatibleNode(provider) : null;
-        const noCredsRes = handleNoCredentials(
-          credentials,
-          excludedConnectionIds.size > 0 ? Array.from(excludedConnectionIds)[0] : null,
-          provider,
-          model,
-          lastError,
-          lastStatus,
-          candidateAliases,
-          isCombo,
-          shadowedNode,
-          runtimeOptions?.correlationId ?? null
-        );
-        // #14360: log the synthesized quota-parking refusal (never for combo targets).
-        const skip = { credentials, lastError, lastStatus, provider, model };
-        await recordQuotaParkedSkip(skip, rejectionScope);
-        const lastFailedConnectionId =
-          excludedConnectionIds.size > 0
-            ? Array.from(excludedConnectionIds)[excludedConnectionIds.size - 1]
-            : null;
-        return withSelectedConnectionHeader(noCredsRes, lastFailedConnectionId);
-      }
-
-      const accountId = credentials.connectionId.slice(0, 8);
-      const releaseOAuthSession = credentials.releaseOAuthSession ?? (() => {});
-      // Undefined whenever the lease flag is off, which makes every release/hold below a no-op.
-      const leaseId: string | undefined = credentials.routing?.leaseId;
-      if (agy.on) agy.attempted.add(credentials.connectionId);
-      // #10348: redact the account prefix by default. Gated on the narrow
-      // AUTH_LOG_INCLUDE_ACCOUNT_ID flag (default off) rather than the broad
-      // `debugMode` setting — `debugMode` is a general dashboard-visibility
-      // toggle unrelated to log privacy (its own default has changed
-      // independently for unrelated reasons, see #10312/#10372), so deriving
-      // redaction from it would make log leakage depend on an unrelated
-      // setting. resolveFeatureFlag() reads straight from SQLite on every
-      // call (no stale cache to invalidate) and fails safe (redacted) if the
-      // lookup throws.
-      let includeAccountId = false;
-      try {
-        includeAccountId = isFeatureFlagEnabled("AUTH_LOG_INCLUDE_ACCOUNT_ID");
-      } catch {
-        includeAccountId = false;
-      }
-      log.info("AUTH", `Using ${provider} account: ${includeAccountId ? accountId : "***"}...`);
-      // #474: when the request used a bare model name (no "/" — e.g. an alias
-      // that resolved to "auto") and the selected connection declares a
-      // defaultModel, resolve the bare name to that real model ID before the
-      // upstream call so the provider receives a concrete model rather than the
-      // placeholder. A "/"-qualified model name is always left untouched.
-      let effectiveModel =
-        resolveBareModelToConnectionDefault(modelStr, model, credentials.defaultModel) ?? model;
-      let requestBody =
-        effectiveModel !== model ? { ...body, model: `${provider}/${effectiveModel}` } : body;
-
-      // If the combo explicitly overrode the provider to a passthrough provider, we
-      // must preserve the original unstripped modelStr so that proxy providers
-      // (e.g., cline, kilocode) get the exact string they expect.
-      if (provider !== resolvedProvider && getPassthroughProviders().has(provider)) {
-        effectiveModel = modelStr;
-        requestBody = { ...body, model: modelStr };
-      }
-      if (!runtimeOptions.reasoningDecision && runtimeOptions.reasoningIntent) {
-        const connectionRouting = await applyConnectionReasoningRule({
-          requestBody,
-          provider,
-          effectiveModel,
-          credentials,
-          apiKeyInfo,
-          reasoningIntent: runtimeOptions.reasoningIntent,
-          reasoningDecision: runtimeOptions.reasoningDecision,
-          requestRoutingTags: runtimeOptions.reasoningRequestTags,
-        }).catch(agyLease.releasingRethrow(leaseId));
-        if (connectionRouting.response) {
-          releaseOAuthSession();
-          agyLease.release(leaseId);
-          return connectionRouting.response;
-        }
-        requestBody = connectionRouting.body;
-      }
-      let injectedHandoff = null;
-      if (
-        comboStrategy === "context-relay" &&
-        comboName &&
-        runtimeOptions.sessionId &&
-        body?._omnirouteSkipContextRelay !== true
-      ) {
-        const handoff = getHandoff(runtimeOptions.sessionId, comboName);
-        if (handoff && handoff.fromAccount !== credentials.connectionId) {
-          // Inject only after a real account switch. The combo loop itself cannot
-          // reliably detect this because account selection happens inside auth.
-          requestBody = injectHandoffIntoBody(requestBody, handoff, undefined, sourceFormat);
-          injectedHandoff = handoff;
-          log.info(
-            "CONTEXT_RELAY",
-            `Injecting handoff for session ${runtimeOptions.sessionId}: ${handoff.fromAccount.slice(
-              0,
-              8
-            )} -> ${credentials.connectionId.slice(0, 8)}`
-          );
-        }
-      }
-      let refreshedCredentials;
-      try {
-        refreshedCredentials = await checkAndRefreshToken(provider, credentials).catch(
-          agyLease.releasingRethrow(leaseId)
-        );
-      } catch (error) {
-        releaseOAuthSession();
-        throw error;
-      }
-      const storeEnabled = isOpenAIResponsesStoreEnabled(
-        refreshedCredentials?.providerSpecificData ?? credentials?.providerSpecificData
-      );
-      if (provider === "codex" && storeEnabled && runtimeOptions.sessionId) {
-        requestBody = ensureOpenAIStoreSessionFallback(requestBody, runtimeOptions.sessionId);
-      }
-      if (provider === "codex" && refreshedCredentials?.accessToken && credentials.connectionId) {
-        const workspaceId =
-          typeof refreshedCredentials?.providerSpecificData?.workspaceId === "string" &&
-          refreshedCredentials.providerSpecificData.workspaceId.trim().length > 0
-            ? refreshedCredentials.providerSpecificData.workspaceId
-            : typeof credentials?.providerSpecificData?.workspaceId === "string" &&
-                credentials.providerSpecificData.workspaceId.trim().length > 0
-              ? credentials.providerSpecificData.workspaceId
+          const candidateAliases =
+            "candidateAliases" in resolved && Array.isArray(resolved.candidateAliases)
+              ? resolved.candidateAliases.filter(
+                  (candidate): candidate is string => typeof candidate === "string"
+                )
               : undefined;
-        registerCodexConnection(credentials.connectionId, {
-          accessToken: refreshedCredentials.accessToken,
-          ...(workspaceId ? { workspaceId } : {}),
-        });
-      }
-      if (runtimeOptions.sessionId && body?._omnirouteInternalRequest !== "context-handoff") {
-        touchSession(runtimeOptions.sessionId, credentials.connectionId);
-        startQuotaMonitor(
-          runtimeOptions.sessionId,
-          provider,
-          credentials.connectionId,
-          refreshedCredentials
-        );
-      }
-      let proxyInfo;
-      try {
-        proxyInfo = await safeResolveProxy(
-          credentials.connectionId,
-          apiKeyInfo?.id,
-          provider,
-          comboName
-        ).catch(agyLease.releasingRethrow(leaseId));
-      } catch (error) {
-        releaseOAuthSession();
-        throw error;
-      }
-      // #5217: sink for the proxy the executor pins internally (e.g. OpencodeExecutor
-      // rotation) so the egress log below reflects the real egress, not "direct".
-      // Also carries the masked rotation-account id (rotation attribution).
-      const appliedProxySink: {
-        proxy: unknown;
-        upstreamStatus?: number;
-        rotationAccount?: string | null;
-        reselectPoolMember?: () => Promise<unknown>;
-      } = { proxy: null };
-      const proxyStartTime = Date.now();
-      // 4. Execute chat via core after breaker gate checks (with optional TLS tracking)
-      if (telemetry) telemetry.startPhase("connect");
-      let execution: Awaited<ReturnType<typeof dispatchChatWithAffinityEviction>>;
-      try {
-        execution = await dispatchChatWithAffinityEviction(
-          {
-            bypassCircuitBreaker: forceLiveComboTest || hasForcedConnection,
-            breaker,
-            body: requestBody,
+          // #11943: only when no connection was ever tried — a built-in provider
+          // whose id/alias is also a configured compatible-node prefix means the
+          // operator's node was shadowed by the reserved-prefix guard, not broken.
+          const shadowedNode =
+            excludedConnectionIds.size === 0 ? await findShadowedCompatibleNode(provider) : null;
+          const noCredsRes = handleNoCredentials(
+            credentials,
+            excludedConnectionIds.size > 0 ? Array.from(excludedConnectionIds)[0] : null,
             provider,
-            model: effectiveModel,
-            refreshedCredentials,
-            proxyInfo,
-            appliedProxySink,
-            log,
-            clientRawRequest,
+            model,
+            lastError,
+            lastStatus,
+            candidateAliases,
+            isCombo,
+            shadowedNode,
+            runtimeOptions?.correlationId ?? null
+          );
+          // #14360: log the synthesized quota-parking refusal (never for combo targets).
+          const skip = { credentials, lastError, lastStatus, provider, model };
+          await recordQuotaParkedSkip(skip, rejectionScope);
+          const lastFailedConnectionId =
+            excludedConnectionIds.size > 0
+              ? Array.from(excludedConnectionIds)[excludedConnectionIds.size - 1]
+              : null;
+          return withSelectedConnectionHeader(noCredsRes, lastFailedConnectionId);
+        }
+
+        const accountId = credentials.connectionId.slice(0, 8);
+        const releaseOAuthSession = credentials.releaseOAuthSession ?? (() => {});
+        // Undefined whenever the lease flag is off, which makes every release/hold below a no-op.
+        const leaseId: string | undefined = credentials.routing?.leaseId;
+        if (agy.on) agy.attempted.add(credentials.connectionId);
+        // #10348: redact the account prefix by default. Gated on the narrow
+        // AUTH_LOG_INCLUDE_ACCOUNT_ID flag (default off) rather than the broad
+        // `debugMode` setting — `debugMode` is a general dashboard-visibility
+        // toggle unrelated to log privacy (its own default has changed
+        // independently for unrelated reasons, see #10312/#10372), so deriving
+        // redaction from it would make log leakage depend on an unrelated
+        // setting. resolveFeatureFlag() reads straight from SQLite on every
+        // call (no stale cache to invalidate) and fails safe (redacted) if the
+        // lookup throws.
+        let includeAccountId = false;
+        try {
+          includeAccountId = isFeatureFlagEnabled("AUTH_LOG_INCLUDE_ACCOUNT_ID");
+        } catch {
+          includeAccountId = false;
+        }
+        log.info("AUTH", `Using ${provider} account: ${includeAccountId ? accountId : "***"}...`);
+        // #474: when the request used a bare model name (no "/" — e.g. an alias
+        // that resolved to "auto") and the selected connection declares a
+        // defaultModel, resolve the bare name to that real model ID before the
+        // upstream call so the provider receives a concrete model rather than the
+        // placeholder. A "/"-qualified model name is always left untouched.
+        let effectiveModel =
+          resolveBareModelToConnectionDefault(modelStr, model, credentials.defaultModel) ?? model;
+        let requestBody =
+          effectiveModel !== model ? { ...body, model: `${provider}/${effectiveModel}` } : body;
+
+        // If the combo explicitly overrode the provider to a passthrough provider, we
+        // must preserve the original unstripped modelStr so that proxy providers
+        // (e.g., cline, kilocode) get the exact string they expect.
+        if (provider !== resolvedProvider && getPassthroughProviders().has(provider)) {
+          effectiveModel = modelStr;
+          requestBody = { ...body, model: modelStr };
+        }
+        if (!runtimeOptions.reasoningDecision && runtimeOptions.reasoningIntent) {
+          const connectionRouting = await applyConnectionReasoningRule({
+            requestBody,
+            provider,
+            effectiveModel,
             credentials,
             apiKeyInfo,
-            userAgent,
-            comboName,
-            comboStrategy,
-            isCombo,
-            comboStepId: runtimeOptions.comboStepId ?? null,
-            comboExecutionKey:
-              runtimeOptions.comboExecutionKey ?? runtimeOptions.comboStepId ?? null,
-            extendedContext,
-            modelApiFormat: apiFormat,
-            resolvedThinkingEffort:
-              effectiveModel === model && provider === resolvedProvider
-                ? resolvedThinkingEffort
-                : undefined,
-            // Forward only the DB override, not the credential-blind format fallback.
-            modelTargetFormat: customModelTargetFormat,
-            providerProfile,
-            cachedSettings: runtimeOptions.cachedSettings,
-            skipUpstreamRetry: runtimeOptions.skipUpstreamRetry ?? false,
-            correlationId: runtimeOptions?.correlationId ?? null,
-            conversationId: runtimeOptions?.conversationId ?? null,
-            modelPinned: runtimeOptions?.modelPinned ?? false,
-            routingComboId: runtimeOptions?.routingComboId ?? null,
-            sessionAffinityKey: runtimeOptions.sessionAffinityKey ?? null,
-            reasoningTransportFallback: runtimeOptions.reasoningTransportFallback ?? "drop",
-            managedLease: runtimeOptions.managedLease ?? null,
-            videoBridgeLog: runtimeOptions.videoBridgeLog,
-            previousResponseResumed: runtimeOptions.previousResponseResumed,
-            fallbackAttempts: runtimeOptions.fallbackAttempts,
-            forcedConnectionId: hasForcedConnection ? forcedConnectionId : null, // #14116
-            decideTool,
-          },
-          runtimeOptions
-        );
-      } catch (error) {
-        releaseOAuthSession();
-        agyLease.release(leaseId);
-        throw error;
-      }
-      if (telemetry) telemetry.endPhase();
-      if ("localResourcePressureResult" in execution) {
-        agyLease.release(leaseId);
-        return execution.localResourcePressureResult.response;
-      }
-      const { result, tlsFingerprintUsed } = execution;
-      if (!result.success) releaseOAuthSession();
-      // Hand the lease to the SSE body's terminal lifecycle; anything else frees it now.
-      if (result.success && agyLease.isStreamingAntigravityResponse(result.response))
-        result.response = agyLease.holdAntigravityLeaseThroughResponse(
-          result.response,
-          leaseId,
-          clientRawRequest?.signal
-        );
-      else agyLease.release(leaseId);
-
-      const proxyLatency = Date.now() - proxyStartTime;
-      const providerAlias = PROVIDER_ID_TO_ALIAS[provider] || provider;
-      const effectiveTargetFormat =
-        getModelTargetFormat(providerAlias, model) ||
-        getTargetFormat(provider, credentials.providerSpecificData) ||
-        targetFormat;
-
-      // 5. Log proxy + translation events (fire-and-forget; never blocks the response)
-      // #5217: reflect the proxy the executor actually applied (per-account rotation).
-      // Rotation attribution (single flag read per request — the DB override
-      // lookup is synchronous SQLite): forward the masked serving-account id
-      // and the request correlation id, or null when the flag is off so the
-      // new columns stay NULL on legacy-behavior requests.
-      const rotationAttributionOn = isRotationAttributionEnabled();
-      void safeLogEvents({
-        result,
-        proxyInfo: mergeAppliedProxySink(proxyInfo, appliedProxySink),
-        proxyLatency,
-        provider,
-        model,
-        sourceFormat,
-        targetFormat: effectiveTargetFormat,
-        credentials,
-        comboName,
-        clientRawRequest,
-        tlsFingerprintUsed,
-        rotationAccount: rotationAttributionOn ? (appliedProxySink.rotationAccount ?? null) : null,
-        correlationId: rotationAttributionOn ? (runtimeOptions?.correlationId ?? null) : null,
-      });
-
-      if (result.success) {
-        clearModelLock(provider, credentials.connectionId, model);
-        // #14359 — a real upstream success is authoritative: arm the healthy override.
-        markQuotaHealthy(credentials.connectionId);
-        // #12254: exactly-once breaker accounting — combo successes are recorded by
-        // combo.ts (recordProviderSuccess); live combo tests never touch the breaker.
-        if (classifyProviderBreakerResult(result, isCombo, forceLiveComboTest) === "success") {
-          breaker._onSuccess();
+            reasoningIntent: runtimeOptions.reasoningIntent,
+            reasoningDecision: runtimeOptions.reasoningDecision,
+            requestRoutingTags: runtimeOptions.reasoningRequestTags,
+          }).catch(agyLease.releasingRethrow(leaseId));
+          if (connectionRouting.response) {
+            releaseOAuthSession();
+            agyLease.release(leaseId);
+            return connectionRouting.response;
+          }
+          requestBody = connectionRouting.body;
         }
-        if (injectedHandoff && runtimeOptions.sessionId && comboName) {
-          deleteHandoff(runtimeOptions.sessionId, comboName);
-        }
-        if (telemetry) telemetry.startPhase("finalize");
-        if (telemetry) telemetry.endPhase();
-        const successResponse = withSelectedConnectionHeader(
-          result.response,
-          credentials?.connectionId
-        );
-        if (requestBody.stream === true) {
-          return wrapResponseWithOAuthSessionRelease(successResponse, releaseOAuthSession);
-        }
-        releaseOAuthSession();
-        return successResponse;
-      }
-
-      // A final hard-lease fence rejection is authoritative. It must never mutate
-      // connection health/cooldown state or fall through to ordinary account/model
-      // fallback, which could turn a stale lifecycle into unmanaged dispatch.
-      if (
-        runtimeOptions.managedLease &&
-        (result.errorType === "lease_error" || String(result.errorCode || "").startsWith("LEASE_"))
-      ) {
-        return result.response;
-      }
-
-      // Missing Cloud Code project assignment is configuration, not a transient failure.
-      // Preserve the typed fail-closed 422; marking it unavailable would trigger cooldown
-      // redispatch and repeat bootstrap within the same logical request.
-      if (isAntigravityMissingProjectError(provider, result)) {
-        markAntigravityMissingCloudCodeProject(credentials.connectionId);
-        return withSelectedConnectionHeader(result.response, credentials.connectionId);
-      }
-
-      const isAntigravityStreamReadinessFailure =
-        provider === "antigravity" &&
-        (result.errorCode === "STREAM_READINESS_TIMEOUT" ||
-          result.errorCode === "STREAM_EARLY_EOF" ||
-          result.errorType === "stream_timeout" ||
-          result.errorType === "stream_early_eof");
-
-      if (
-        shouldRetryStreamReadinessTimeout(
-          result.errorCode,
-          streamReadinessTimeoutRetries,
-          isCombo,
-          requestSignal?.aborted === true
-        ) &&
-        !hasForcedConnection
-      ) {
-        streamReadinessTimeoutRetries += 1;
-        log.warn(
-          "STREAM",
-          `${provider}/${model} produced no readiness event — retrying once on a fresh upstream request`
-        );
-        continue;
-      }
-
-      if (
-        (result.errorType === "stream_timeout" ||
-          result.errorType === "stream_early_eof" ||
-          result.errorCode === "empty_response") &&
-        !isAntigravityStreamReadinessFailure
-      ) {
-        // Bug #3758: flaky OpenAI-compatible upstreams (e.g. NVIDIA NIM) sometimes
-        // send HTTP 200 then close the SSE early with zero useful frames
-        // (STREAM_EARLY_EOF). That is a transient upstream glitch, not a bad key — so
-        // allow exactly ONE bounded same-connection re-attempt before surfacing the
-        // 502. The readiness-timeout retry is handled separately above. Do NOT mark
-        // the account unavailable for the early close.
+        let injectedHandoff = null;
         if (
-          shouldRetryStreamEarlyEof(result.errorCode, streamEarlyEofRetries) &&
-          !hasForcedConnection
+          comboStrategy === "context-relay" &&
+          comboName &&
+          runtimeOptions.sessionId &&
+          body?._omnirouteSkipContextRelay !== true
         ) {
-          streamEarlyEofRetries += 1;
-          log.warn(
-            "STREAM",
-            `${provider}/${model} closed the stream early before useful content — retrying once (attempt ${streamEarlyEofRetries})`
-          );
-          // Plain re-attempt of the same request: no markAccountUnavailable, no
-          // excludedConnectionIds mutation (an early close is not a bad connection).
-          continue;
-        }
-
-        // #8928: once the bounded same-connection retry is unavailable or exhausted,
-        // remove only the affinity pin that still points at this failed connection. This lets
-        // the next client retry select another eligible account without deleting a
-        // pin that may already have moved to a healthy connection.
-        const isTerminalStreamEarlyEof =
-          result.errorCode === "STREAM_EARLY_EOF" || result.errorType === "stream_early_eof";
-
-        if (isTerminalStreamEarlyEof && runtimeOptions.sessionAffinityKey) {
-          try {
-            evictSessionAccountAffinityForConnection(
-              runtimeOptions.sessionAffinityKey,
-              provider,
-              credentials.connectionId
+          const handoff = getHandoff(runtimeOptions.sessionId, comboName);
+          if (handoff && handoff.fromAccount !== credentials.connectionId) {
+            // Inject only after a real account switch. The combo loop itself cannot
+            // reliably detect this because account selection happens inside auth.
+            requestBody = injectHandoffIntoBody(requestBody, handoff, undefined, sourceFormat);
+            injectedHandoff = handoff;
+            log.info(
+              "CONTEXT_RELAY",
+              `Injecting handoff for session ${runtimeOptions.sessionId}: ${handoff.fromAccount.slice(
+                0,
+                8
+              )} -> ${credentials.connectionId.slice(0, 8)}`
             );
-          } catch {
-            // Best-effort: the current response still surfaces the original 502.
           }
         }
-
-        // Stream readiness timeout is an upstream stall after an HTTP response was received,
-        // not an account/quota failure. Do NOT mark the account unavailable here.
-        if (
-          isTerminalStreamEarlyEof &&
-          !hasForcedConnection &&
-          !earlyEofOriginal &&
-          isEarlyEofSiblingFailoverOn()
-        ) {
-          // Retry spent and nothing emitted yet: one hop to a sibling (routing only, no mark).
-          log.warn("STREAM", `${provider}/${model} early-EOF retry exhausted — trying one sibling`);
-          earlyEofOriginal = withSelectedConnectionHeader(
-            result.response,
-            credentials.connectionId
+        let refreshedCredentials;
+        try {
+          refreshedCredentials = await checkAndRefreshToken(provider, credentials).catch(
+            agyLease.releasingRethrow(leaseId)
           );
-          excludedConnectionIds.add(credentials.connectionId);
-          continue;
+        } catch (error) {
+          releaseOAuthSession();
+          throw error;
         }
-        return withSelectedConnectionHeader(result.response, credentials?.connectionId);
-      }
+        const storeEnabled = isOpenAIResponsesStoreEnabled(
+          refreshedCredentials?.providerSpecificData ?? credentials?.providerSpecificData
+        );
+        if (provider === "codex" && storeEnabled && runtimeOptions.sessionId) {
+          requestBody = ensureOpenAIStoreSessionFallback(requestBody, runtimeOptions.sessionId);
+        }
+        if (provider === "codex" && refreshedCredentials?.accessToken && credentials.connectionId) {
+          const workspaceId =
+            typeof refreshedCredentials?.providerSpecificData?.workspaceId === "string" &&
+            refreshedCredentials.providerSpecificData.workspaceId.trim().length > 0
+              ? refreshedCredentials.providerSpecificData.workspaceId
+              : typeof credentials?.providerSpecificData?.workspaceId === "string" &&
+                  credentials.providerSpecificData.workspaceId.trim().length > 0
+                ? credentials.providerSpecificData.workspaceId
+                : undefined;
+          registerCodexConnection(credentials.connectionId, {
+            accessToken: refreshedCredentials.accessToken,
+            ...(workspaceId ? { workspaceId } : {}),
+          });
+        }
+        if (runtimeOptions.sessionId && body?._omnirouteInternalRequest !== "context-handoff") {
+          touchSession(runtimeOptions.sessionId, credentials.connectionId);
+          startQuotaMonitor(
+            runtimeOptions.sessionId,
+            provider,
+            credentials.connectionId,
+            refreshedCredentials
+          );
+        }
+        let proxyInfo;
+        try {
+          proxyInfo = await safeResolveProxy(
+            credentials.connectionId,
+            apiKeyInfo?.id,
+            provider,
+            comboName
+          ).catch(agyLease.releasingRethrow(leaseId));
+        } catch (error) {
+          releaseOAuthSession();
+          throw error;
+        }
+        // #5217: sink for the proxy the executor pins internally (e.g. OpencodeExecutor
+        // rotation) so the egress log below reflects the real egress, not "direct".
+        // Also carries the masked rotation-account id (rotation attribution).
+        const appliedProxySink: {
+          proxy: unknown;
+          upstreamStatus?: number;
+          rotationAccount?: string | null;
+          reselectPoolMember?: () => Promise<unknown>;
+        } = { proxy: null };
+        const proxyStartTime = Date.now();
+        // 4. Execute chat via core after breaker gate checks (with optional TLS tracking)
+        if (telemetry) telemetry.startPhase("connect");
+        let execution: Awaited<ReturnType<typeof dispatchChatWithAffinityEviction>>;
+        try {
+          execution = await dispatchChatWithAffinityEviction(
+            {
+              bypassCircuitBreaker: forceLiveComboTest || hasForcedConnection,
+              breaker,
+              body: requestBody,
+              provider,
+              model: effectiveModel,
+              refreshedCredentials,
+              proxyInfo,
+              appliedProxySink,
+              log,
+              clientRawRequest,
+              credentials,
+              apiKeyInfo,
+              userAgent,
+              comboName,
+              comboStrategy,
+              isCombo,
+              comboStepId: runtimeOptions.comboStepId ?? null,
+              comboExecutionKey:
+                runtimeOptions.comboExecutionKey ?? runtimeOptions.comboStepId ?? null,
+              extendedContext,
+              modelApiFormat: apiFormat,
+              resolvedThinkingEffort:
+                effectiveModel === model && provider === resolvedProvider
+                  ? resolvedThinkingEffort
+                  : undefined,
+              // Forward only the DB override, not the credential-blind format fallback.
+              modelTargetFormat: customModelTargetFormat,
+              providerProfile,
+              cachedSettings: runtimeOptions.cachedSettings,
+              skipUpstreamRetry: runtimeOptions.skipUpstreamRetry ?? false,
+              correlationId: runtimeOptions?.correlationId ?? null,
+              conversationId: runtimeOptions?.conversationId ?? null,
+              modelPinned: runtimeOptions?.modelPinned ?? false,
+              routingComboId: runtimeOptions?.routingComboId ?? null,
+              sessionAffinityKey: runtimeOptions.sessionAffinityKey ?? null,
+              reasoningTransportFallback: runtimeOptions.reasoningTransportFallback ?? "drop",
+              managedLease: runtimeOptions.managedLease ?? null,
+              videoBridgeLog: runtimeOptions.videoBridgeLog,
+              previousResponseResumed: runtimeOptions.previousResponseResumed,
+              fallbackAttempts: runtimeOptions.fallbackAttempts,
+              forcedConnectionId: hasForcedConnection ? forcedConnectionId : null, // #14116
+              decideTool,
+            },
+            runtimeOptions
+          );
+        } catch (error) {
+          releaseOAuthSession();
+          agyLease.release(leaseId);
+          throw error;
+        }
+        if (telemetry) telemetry.endPhase();
+        if ("localResourcePressureResult" in execution) {
+          agyLease.release(leaseId);
+          return execution.localResourcePressureResult.response;
+        }
+        const { result, tlsFingerprintUsed } = execution;
+        if (!result.success) releaseOAuthSession();
+        // Hand the lease to the SSE body's terminal lifecycle; anything else frees it now.
+        if (result.success && agyLease.isStreamingAntigravityResponse(result.response))
+          result.response = agyLease.holdAntigravityLeaseThroughResponse(
+            result.response,
+            leaseId,
+            clientRawRequest?.signal
+          );
+        else agyLease.release(leaseId);
 
-      if (isAntigravityStreamReadinessFailure) {
-        const classificationError = resolveStreamReadinessClassificationError(result);
-        const { shouldFallback, cooldownMs } = await markAccountUnavailable(
-          credentials.connectionId,
-          result.status || HTTP_STATUS.BAD_GATEWAY,
-          classificationError,
+        const proxyLatency = Date.now() - proxyStartTime;
+        const providerAlias = PROVIDER_ID_TO_ALIAS[provider] || provider;
+        const effectiveTargetFormat =
+          getModelTargetFormat(providerAlias, model) ||
+          getTargetFormat(provider, credentials.providerSpecificData) ||
+          targetFormat;
+
+        // 5. Log proxy + translation events (fire-and-forget; never blocks the response)
+        // #5217: reflect the proxy the executor actually applied (per-account rotation).
+        // Rotation attribution (single flag read per request — the DB override
+        // lookup is synchronous SQLite): forward the masked serving-account id
+        // and the request correlation id, or null when the flag is off so the
+        // new columns stay NULL on legacy-behavior requests.
+        const rotationAttributionOn = isRotationAttributionEnabled();
+        void safeLogEvents({
+          result,
+          proxyInfo: mergeAppliedProxySink(proxyInfo, appliedProxySink),
+          proxyLatency,
           provider,
           model,
-          providerProfile,
-          buildExhaustionOptions(runtimeOptions.correlationId ?? null, { isCombo })
-        );
+          sourceFormat,
+          targetFormat: effectiveTargetFormat,
+          credentials,
+          comboName,
+          clientRawRequest,
+          tlsFingerprintUsed,
+          rotationAccount: rotationAttributionOn
+            ? (appliedProxySink.rotationAccount ?? null)
+            : null,
+          correlationId: rotationAttributionOn ? (runtimeOptions?.correlationId ?? null) : null,
+        });
 
-        if (shouldFallback && !hasForcedConnection) {
-          log.warn(
-            "AUTH",
-            `Antigravity connection ${accountId}... produced no useful stream content, trying fallback connection`
-          );
-          if (Number.isFinite(cooldownMs) && cooldownMs > 0) {
-            lastCooldownMs = cooldownMs;
-            requestRetryLastCooldownMs = cooldownMs;
+        if (result.success) {
+          clearModelLock(provider, credentials.connectionId, model);
+          // #14359 — a real upstream success is authoritative: arm the healthy override.
+          markQuotaHealthy(credentials.connectionId);
+          // #12254: exactly-once breaker accounting — combo successes are recorded by
+          // combo.ts (recordProviderSuccess); live combo tests never touch the breaker.
+          if (classifyProviderBreakerResult(result, isCombo, forceLiveComboTest) === "success") {
+            breaker._onSuccess();
           }
-          if (runtimeOptions.sessionAffinityKey) {
+          if (injectedHandoff && runtimeOptions.sessionId && comboName) {
+            deleteHandoff(runtimeOptions.sessionId, comboName);
+          }
+          if (telemetry) telemetry.startPhase("finalize");
+          if (telemetry) telemetry.endPhase();
+          const successResponse = withSelectedConnectionHeader(
+            result.response,
+            credentials?.connectionId
+          );
+          if (requestBody.stream === true) {
+            return wrapResponseWithOAuthSessionRelease(successResponse, releaseOAuthSession);
+          }
+          releaseOAuthSession();
+          return successResponse;
+        }
+
+        // A final hard-lease fence rejection is authoritative. It must never mutate
+        // connection health/cooldown state or fall through to ordinary account/model
+        // fallback, which could turn a stale lifecycle into unmanaged dispatch.
+        if (
+          runtimeOptions.managedLease &&
+          (result.errorType === "lease_error" ||
+            String(result.errorCode || "").startsWith("LEASE_"))
+        ) {
+          return result.response;
+        }
+
+        // Missing Cloud Code project assignment is configuration, not a transient failure.
+        // Preserve the typed fail-closed 422; marking it unavailable would trigger cooldown
+        // redispatch and repeat bootstrap within the same logical request.
+        if (isAntigravityMissingProjectError(provider, result)) {
+          markAntigravityMissingCloudCodeProject(credentials.connectionId);
+          return withSelectedConnectionHeader(result.response, credentials.connectionId);
+        }
+
+        const isAntigravityStreamReadinessFailure =
+          provider === "antigravity" &&
+          (result.errorCode === "STREAM_READINESS_TIMEOUT" ||
+            result.errorCode === "STREAM_EARLY_EOF" ||
+            result.errorType === "stream_timeout" ||
+            result.errorType === "stream_early_eof");
+
+        if (
+          shouldRetryStreamReadinessTimeout(
+            result.errorCode,
+            streamReadinessTimeoutRetries,
+            isCombo,
+            requestSignal?.aborted === true
+          ) &&
+          !hasForcedConnection
+        ) {
+          streamReadinessTimeoutRetries += 1;
+          log.warn(
+            "STREAM",
+            `${provider}/${model} produced no readiness event — retrying once on a fresh upstream request`
+          );
+          continue;
+        }
+
+        if (
+          (result.errorType === "stream_timeout" ||
+            result.errorType === "stream_early_eof" ||
+            result.errorCode === "empty_response") &&
+          !isAntigravityStreamReadinessFailure
+        ) {
+          // Bug #3758: flaky OpenAI-compatible upstreams (e.g. NVIDIA NIM) sometimes
+          // send HTTP 200 then close the SSE early with zero useful frames
+          // (STREAM_EARLY_EOF). That is a transient upstream glitch, not a bad key — so
+          // allow exactly ONE bounded same-connection re-attempt before surfacing the
+          // 502. The readiness-timeout retry is handled separately above. Do NOT mark
+          // the account unavailable for the early close.
+          if (
+            shouldRetryStreamEarlyEof(result.errorCode, streamEarlyEofRetries) &&
+            !hasForcedConnection
+          ) {
+            streamEarlyEofRetries += 1;
+            log.warn(
+              "STREAM",
+              `${provider}/${model} closed the stream early before useful content — retrying once (attempt ${streamEarlyEofRetries})`
+            );
+            // Plain re-attempt of the same request: no markAccountUnavailable, no
+            // excludedConnectionIds mutation (an early close is not a bad connection).
+            continue;
+          }
+
+          // #8928: once the bounded same-connection retry is unavailable or exhausted,
+          // remove only the affinity pin that still points at this failed connection. This lets
+          // the next client retry select another eligible account without deleting a
+          // pin that may already have moved to a healthy connection.
+          const isTerminalStreamEarlyEof =
+            result.errorCode === "STREAM_EARLY_EOF" || result.errorType === "stream_early_eof";
+
+          if (isTerminalStreamEarlyEof && runtimeOptions.sessionAffinityKey) {
             try {
-              const affinity = getSessionAccountAffinity(
+              evictSessionAccountAffinityForConnection(
                 runtimeOptions.sessionAffinityKey,
-                provider
+                provider,
+                credentials.connectionId
               );
-              if (affinity?.connectionId === credentials.connectionId) {
-                deleteSessionAccountAffinity(runtimeOptions.sessionAffinityKey, provider);
-              }
             } catch {
-              // best-effort: selection also excludes this connection for the current retry.
+              // Best-effort: the current response still surfaces the original 502.
             }
           }
+
+          // Stream readiness timeout is an upstream stall after an HTTP response was received,
+          // not an account/quota failure. Do NOT mark the account unavailable here.
+          if (
+            isTerminalStreamEarlyEof &&
+            !hasForcedConnection &&
+            !earlyEofOriginal &&
+            isEarlyEofSiblingFailoverOn()
+          ) {
+            // Retry spent and nothing emitted yet: one hop to a sibling (routing only, no mark).
+            log.warn(
+              "STREAM",
+              `${provider}/${model} early-EOF retry exhausted — trying one sibling`
+            );
+            earlyEofOriginal = withSelectedConnectionHeader(
+              result.response,
+              credentials.connectionId
+            );
+            excludedConnectionIds.add(credentials.connectionId);
+            continue;
+          }
+          return withSelectedConnectionHeader(result.response, credentials?.connectionId);
+        }
+
+        if (isAntigravityStreamReadinessFailure) {
+          const classificationError = resolveStreamReadinessClassificationError(result);
+          const { shouldFallback, cooldownMs } = await markAccountUnavailable(
+            credentials.connectionId,
+            result.status || HTTP_STATUS.BAD_GATEWAY,
+            classificationError,
+            provider,
+            model,
+            providerProfile,
+            buildExhaustionOptions(runtimeOptions.correlationId ?? null, { isCombo })
+          );
+
+          if (shouldFallback && !hasForcedConnection) {
+            log.warn(
+              "AUTH",
+              `Antigravity connection ${accountId}... produced no useful stream content, trying fallback connection`
+            );
+            if (Number.isFinite(cooldownMs) && cooldownMs > 0) {
+              lastCooldownMs = cooldownMs;
+              requestRetryLastCooldownMs = cooldownMs;
+            }
+            if (runtimeOptions.sessionAffinityKey) {
+              try {
+                const affinity = getSessionAccountAffinity(
+                  runtimeOptions.sessionAffinityKey,
+                  provider
+                );
+                if (affinity?.connectionId === credentials.connectionId) {
+                  deleteSessionAccountAffinity(runtimeOptions.sessionAffinityKey, provider);
+                }
+              } catch {
+                // best-effort: selection also excludes this connection for the current retry.
+              }
+            }
+            excludedConnectionIds.add(credentials.connectionId);
+            lastError = classificationError;
+            lastStatus = result.status;
+            requestRetryLastError = classificationError;
+            requestRetryLastStatus = result.status;
+            continue;
+          }
+          return withSelectedConnectionHeader(result.response, credentials?.connectionId);
+        }
+
+        const isAntigravityPreResponseTimeout =
+          provider === "antigravity" &&
+          result.status === HTTP_STATUS.GATEWAY_TIMEOUT &&
+          (result.errorType === "upstream_timeout" ||
+            result.errorCode === ANTIGRAVITY_PRE_RESPONSE_TIMEOUT_CODE);
+
+        if (isAntigravityPreResponseTimeout) {
+          const { shouldFallback, cooldownMs } = await markAccountUnavailable(
+            credentials.connectionId,
+            result.status,
+            result.error || ANTIGRAVITY_PRE_RESPONSE_TIMEOUT_CODE,
+            provider,
+            model,
+            providerProfile,
+            buildExhaustionOptions(runtimeOptions.correlationId ?? null, { isCombo })
+          );
+
+          if (shouldFallback && !hasForcedConnection) {
+            log.warn(
+              "AUTH",
+              `Antigravity connection ${accountId}... timed out before response headers, trying fallback connection`
+            );
+            if (Number.isFinite(cooldownMs) && cooldownMs > 0) {
+              lastCooldownMs = cooldownMs;
+              requestRetryLastCooldownMs = cooldownMs;
+            }
+            if (runtimeOptions.sessionAffinityKey) {
+              try {
+                const affinity = getSessionAccountAffinity(
+                  runtimeOptions.sessionAffinityKey,
+                  provider
+                );
+                if (affinity?.connectionId === credentials.connectionId) {
+                  deleteSessionAccountAffinity(runtimeOptions.sessionAffinityKey, provider);
+                }
+              } catch {
+                // best-effort: selection also excludes this connection for the current retry.
+              }
+            }
+            excludedConnectionIds.add(credentials.connectionId);
+            lastError = result.error;
+            lastStatus = result.status;
+            requestRetryLastError = result.error;
+            requestRetryLastStatus = result.status;
+            continue;
+          }
+
+          return withSelectedConnectionHeader(result.response, credentials?.connectionId);
+        }
+
+        if (result.errorType === "account_semaphore_capacity") {
+          // Local concurrency pressure is not an upstream quota failure. Prefer another
+          // account when possible; pinned combo steps fall through to combo orchestration.
+          if (hasForcedConnection) {
+            return withSelectedConnectionHeader(result.response, credentials?.connectionId);
+          }
+
+          log.warn(
+            "AUTH",
+            `Account ${accountId}... at local concurrency cap, trying fallback account`
+          );
           excludedConnectionIds.add(credentials.connectionId);
-          lastError = classificationError;
+          lastError = result.error;
           lastStatus = result.status;
-          requestRetryLastError = classificationError;
+          requestRetryLastError = result.error;
           requestRetryLastStatus = result.status;
           continue;
         }
-        return withSelectedConnectionHeader(result.response, credentials?.connectionId);
-      }
 
-      const isAntigravityPreResponseTimeout =
-        provider === "antigravity" &&
-        result.status === HTTP_STATUS.GATEWAY_TIMEOUT &&
-        (result.errorType === "upstream_timeout" ||
-          result.errorCode === ANTIGRAVITY_PRE_RESPONSE_TIMEOUT_CODE);
-
-      if (isAntigravityPreResponseTimeout) {
-        const { shouldFallback, cooldownMs } = await markAccountUnavailable(
-          credentials.connectionId,
-          result.status,
-          result.error || ANTIGRAVITY_PRE_RESPONSE_TIMEOUT_CODE,
-          provider,
-          model,
-          providerProfile,
-          buildExhaustionOptions(runtimeOptions.correlationId ?? null, { isCombo })
-        );
-
-        if (shouldFallback && !hasForcedConnection) {
-          log.warn(
-            "AUTH",
-            `Antigravity connection ${accountId}... timed out before response headers, trying fallback connection`
+        // Emergency fallback for budget exhaustion (402 / billing / quota keywords):
+        // reroute to a free model (default provider/model: nvidia + openai/gpt-oss-120b) exactly once.
+        // Combo targets never emergency-hop: the combo is the operator's fallback policy
+        // (target-level orchestration plus the global fallback #689 after it), and a
+        // per-target hop burns extra upstream calls against exhausted providers (#1731).
+        if (!runtimeOptions.emergencyFallbackTried && !comboName) {
+          const fallbackDecision = shouldUseFallback(
+            Number(result.status || 0),
+            String(result.error || ""),
+            Array.isArray(body?.tools) && body.tools.length > 0
           );
+
+          if (isFallbackDecision(fallbackDecision)) {
+            const fallbackModelStr = `${fallbackDecision.provider}/${fallbackDecision.model}`;
+            const currentModelStr = `${provider}/${model}`;
+
+            if (fallbackModelStr !== currentModelStr) {
+              const fallbackBody = { ...body, model: fallbackModelStr };
+
+              // Cap output on emergency fallback to avoid unexpected long responses.
+              const maxTokens = Math.min(
+                Number(
+                  fallbackBody.max_tokens ??
+                    fallbackBody.max_completion_tokens ??
+                    fallbackDecision.maxOutputTokens
+                ) || fallbackDecision.maxOutputTokens,
+                fallbackDecision.maxOutputTokens
+              );
+              fallbackBody.max_tokens = maxTokens;
+              fallbackBody.max_completion_tokens = maxTokens;
+
+              log.warn(
+                "EMERGENCY_FALLBACK",
+                `${currentModelStr} -> ${fallbackModelStr} | reason=${fallbackDecision.reason}`
+              );
+
+              const fallbackResponse = await handleSingleModelChat(
+                fallbackBody,
+                fallbackModelStr,
+                clientRawRequest,
+                request,
+                comboName,
+                apiKeyInfo,
+                telemetry,
+                {
+                  ...runtimeOptions,
+                  emergencyFallbackTried: true,
+                  forcedConnectionId: null,
+                  comboStepId: null,
+                  comboExecutionKey: null,
+                },
+                null, // no strategy for emergency fallback
+                Boolean(comboName) // isCombo if comboName exists
+              );
+
+              if (fallbackResponse.ok)
+                return markEmergencyFallback(fallbackResponse, currentModelStr, fallbackModelStr);
+
+              log.warn(
+                "EMERGENCY_FALLBACK",
+                `Emergency fallback to ${fallbackModelStr} failed with status ${fallbackResponse.status}. Resuming original provider account fallback.`
+              );
+            }
+          }
+        }
+
+        // 6. Daily quota error check - must be executed before markAccountUnavailable
+        // Check if it's a daily quota exhausted error (e.g., ModelScope/Kimi "today's quota for model")
+        // Daily quota lockout overrides subsequent rate_limited lockout, ensuring lockout until tomorrow 0:00
+        let dailyQuotaExhausted = false;
+        // #7360: prefer the full un-sanitized upstream text over result.error
+        // (truncated to its first line for the client response body) — Gemini's
+        // TPM/RPD metric name and retry hint live on lines 2-3, after the
+        // generic "quota exceeded" preamble on line 1.
+        const errorStr = String(result.rawMessage ?? result.error ?? "");
+        const failureKind =
+          result.status === 429
+            ? isSubscriptionQuotaText(errorStr.toLowerCase(), provider)
+              ? "quota_exhausted"
+              : classify429FromError({ status: result.status, message: errorStr })
+            : undefined;
+        if (result.status === 429 && isDailyQuotaExhausted(errorStr)) {
+          // Parse which model is quota-limited
+          const match = errorStr.match(/today's quota for model ([^,]+)/);
+          const limitedModel = match ? match[1].trim() : model;
+
+          const mlSettings = resolveModelLockoutSettings(runtimeOptions.cachedSettings);
+          if (mlSettings.enabled && mlSettings.errorCodes.includes(result.status)) {
+            // Lock until tomorrow 00:00. Antigravity meters per exact model (#8630).
+            const lockScope = provider === "antigravity" ? "exact" : undefined;
+            const lockResult = recordModelLockoutFailure(
+              provider,
+              credentials.connectionId,
+              limitedModel,
+              "quota_exhausted",
+              result.status,
+              0,
+              providerProfile,
+              { maxCooldownMs: mlSettings.maxCooldownMs, scope: lockScope }
+            );
+
+            log.info(
+              "MODEL_DAILY_QUOTA",
+              JSON.stringify({
+                connection: credentials.connectionId.slice(0, 8),
+                model: limitedModel,
+                cooldownMs: lockResult.cooldownMs,
+                failureCount: lockResult.failureCount,
+              })
+            );
+          }
+
+          dailyQuotaExhausted = true;
+        }
+
+        if (!dailyQuotaExhausted) {
+          await maybeMarkChatAccountExhaustedFrom429({
+            connectionId: credentials.connectionId,
+            provider,
+            status: result.status,
+            errorText: errorStr,
+            model,
+            passthroughModels: credentials.providerSpecificData?.passthroughModels,
+            failureKind,
+          });
+        }
+
+        // #9708: retry a retryable pre-output transport failure once on the same
+        // account (jittered 2-3s) before cooling the connection. A first 503/507
+        // must not rotate away from a still-healthy Codex prompt-cache partition.
+        // Skipped inside an emergency-fallback hop: that path guarantees exactly one
+        // upstream call against the free fallback model (#1731) — an extra retry there
+        // burns a second call against a provider we're already treating as a last resort.
+        // Skipped for combo targets too: combo routing owns its own target-level
+        // fallback/retry policy (per-target error handling in handleSingleModel,
+        // then the next combo target) — a same-account retry here just delays that
+        // policy and can surface the wrong terminal status when a later hop throws.
+        const transportAttempts = sameAccountTransportRetries.get(credentials.connectionId) || 0;
+        if (
+          !runtimeOptions.emergencyFallbackTried &&
+          !comboName &&
+          !forceLiveComboTest &&
+          shouldRetrySameAccountTransport({
+            status: result.status,
+            errorText: errorStr,
+            errorCode: result.errorCode,
+            errorType: result.errorType,
+            attempt: transportAttempts,
+            hasForcedConnection,
+          })
+        ) {
+          sameAccountTransportRetries.set(credentials.connectionId, transportAttempts + 1);
+          const waitMs = sameAccountTransportRetryDelayMs();
+          log.warn(
+            "RETRY",
+            `${provider}/${model} retryable pre-output ${result.status} — retrying same account once after ${waitMs}ms`
+          );
+          const completed = await waitForCooldownAwareRetry(waitMs, requestSignal);
+          if (!completed) {
+            releaseOAuthSession();
+            return errorResponse(499, "Request aborted");
+          }
+          preselectedCredentials = credentials;
+          continue;
+        }
+
+        // 8. Fallback to next account
+        // A3 guard: if 401 and connection has extra keys, skip connection-level disable
+        // (key-level failure already recorded in chatCore.ts via T07)
+        // Check extra keys directly from credentials for reliability across restarts
+        const hasExtraKeys =
+          ((credentials.providerSpecificData?.extraApiKeys as string[] | undefined) ?? []).length >
+            0 || connectionHasExtraKeys(credentials.connectionId);
+        const is401 = result.status === 401;
+        const skipConnectionDisable = shouldSkipConnDisable(result, is401, hasExtraKeys, provider);
+
+        const { shouldFallback, cooldownMs } = skipConnectionDisable
+          ? { shouldFallback: false, cooldownMs: 0 }
+          : await markAccountUnavailable(
+              credentials.connectionId,
+              result.status,
+              errorStr,
+              provider,
+              model,
+              providerProfile,
+              buildExhaustionOptions(runtimeOptions.correlationId ?? null, {
+                persistUnavailableState: !(
+                  isCombo &&
+                  result.status === 429 &&
+                  (failureKind === "rate_limit" || failureKind === "transient")
+                ),
+                isCombo,
+                headers: result.response.headers,
+              })
+            );
+
+        // An explicit pin (combo step `connectionId` / `x-omniroute-connection`) is an
+        // operator instruction, not a suggestion: the account cooldown above is still
+        // recorded, but selection must NOT silently rotate to a sibling account of the
+        // same provider. Pinned steps fall through to combo orchestration, which moves
+        // to the next target — with ITS own pin. Same rule the antigravity
+        // stream-readiness / pre-response-timeout and account-semaphore paths above
+        // already apply.
+        if (shouldFallback && !hasForcedConnection) {
           if (Number.isFinite(cooldownMs) && cooldownMs > 0) {
             lastCooldownMs = cooldownMs;
             requestRetryLastCooldownMs = cooldownMs;
           }
+          log.warn(
+            "AUTH",
+            `Account ${accountId}... unavailable (${result.status}), trying fallback`
+          );
+          // #6219: evict the sticky session pin when the pinned account fails over,
+          // otherwise the next request re-pins the same throttled account until
+          // restart. Guarded by connection match so a pin for a different (healthy)
+          // account is left intact.
           if (runtimeOptions.sessionAffinityKey) {
             try {
-              const affinity = getSessionAccountAffinity(
+              evictSessionAccountAffinityForConnection(
                 runtimeOptions.sessionAffinityKey,
-                provider
+                provider,
+                credentials.connectionId
               );
-              if (affinity?.connectionId === credentials.connectionId) {
-                deleteSessionAccountAffinity(runtimeOptions.sessionAffinityKey, provider);
-              }
             } catch {
               // best-effort: selection also excludes this connection for the current retry.
             }
@@ -2397,270 +2668,17 @@ async function handleSingleModelChat(
           continue;
         }
 
+        // T-PROBE: a probe failure must not degrade the provider-wide circuit
+        // breaker for real traffic (#9817).
+        if (
+          !(await shouldIsolateProbeFailures()) &&
+          classifyProviderBreakerResult(result, isCombo, forceLiveComboTest) === "failure"
+        ) {
+          breaker._onFailure();
+        }
+
         return withSelectedConnectionHeader(result.response, credentials?.connectionId);
       }
-
-      if (result.errorType === "account_semaphore_capacity") {
-        // Local concurrency pressure is not an upstream quota failure. Prefer another
-        // account when possible; pinned combo steps fall through to combo orchestration.
-        if (hasForcedConnection) {
-          return withSelectedConnectionHeader(result.response, credentials?.connectionId);
-        }
-
-        log.warn(
-          "AUTH",
-          `Account ${accountId}... at local concurrency cap, trying fallback account`
-        );
-        excludedConnectionIds.add(credentials.connectionId);
-        lastError = result.error;
-        lastStatus = result.status;
-        requestRetryLastError = result.error;
-        requestRetryLastStatus = result.status;
-        continue;
-      }
-
-      // Emergency fallback for budget exhaustion (402 / billing / quota keywords):
-      // reroute to a free model (default provider/model: nvidia + openai/gpt-oss-120b) exactly once.
-      // Combo targets never emergency-hop: the combo is the operator's fallback policy
-      // (target-level orchestration plus the global fallback #689 after it), and a
-      // per-target hop burns extra upstream calls against exhausted providers (#1731).
-      if (!runtimeOptions.emergencyFallbackTried && !comboName) {
-        const fallbackDecision = shouldUseFallback(
-          Number(result.status || 0),
-          String(result.error || ""),
-          Array.isArray(body?.tools) && body.tools.length > 0
-        );
-
-        if (isFallbackDecision(fallbackDecision)) {
-          const fallbackModelStr = `${fallbackDecision.provider}/${fallbackDecision.model}`;
-          const currentModelStr = `${provider}/${model}`;
-
-          if (fallbackModelStr !== currentModelStr) {
-            const fallbackBody = { ...body, model: fallbackModelStr };
-
-            // Cap output on emergency fallback to avoid unexpected long responses.
-            const maxTokens = Math.min(
-              Number(
-                fallbackBody.max_tokens ??
-                  fallbackBody.max_completion_tokens ??
-                  fallbackDecision.maxOutputTokens
-              ) || fallbackDecision.maxOutputTokens,
-              fallbackDecision.maxOutputTokens
-            );
-            fallbackBody.max_tokens = maxTokens;
-            fallbackBody.max_completion_tokens = maxTokens;
-
-            log.warn(
-              "EMERGENCY_FALLBACK",
-              `${currentModelStr} -> ${fallbackModelStr} | reason=${fallbackDecision.reason}`
-            );
-
-            const fallbackResponse = await handleSingleModelChat(
-              fallbackBody,
-              fallbackModelStr,
-              clientRawRequest,
-              request,
-              comboName,
-              apiKeyInfo,
-              telemetry,
-              {
-                ...runtimeOptions,
-                emergencyFallbackTried: true,
-                forcedConnectionId: null,
-                comboStepId: null,
-                comboExecutionKey: null,
-              },
-              null, // no strategy for emergency fallback
-              Boolean(comboName) // isCombo if comboName exists
-            );
-
-            if (fallbackResponse.ok)
-              return markEmergencyFallback(fallbackResponse, currentModelStr, fallbackModelStr);
-
-            log.warn(
-              "EMERGENCY_FALLBACK",
-              `Emergency fallback to ${fallbackModelStr} failed with status ${fallbackResponse.status}. Resuming original provider account fallback.`
-            );
-          }
-        }
-      }
-
-      // 6. Daily quota error check - must be executed before markAccountUnavailable
-      // Check if it's a daily quota exhausted error (e.g., ModelScope/Kimi "today's quota for model")
-      // Daily quota lockout overrides subsequent rate_limited lockout, ensuring lockout until tomorrow 0:00
-      let dailyQuotaExhausted = false;
-      // #7360: prefer the full un-sanitized upstream text over result.error
-      // (truncated to its first line for the client response body) — Gemini's
-      // TPM/RPD metric name and retry hint live on lines 2-3, after the
-      // generic "quota exceeded" preamble on line 1.
-      const errorStr = String(result.rawMessage ?? result.error ?? "");
-      const failureKind =
-        result.status === 429
-          ? isSubscriptionQuotaText(errorStr.toLowerCase(), provider)
-            ? "quota_exhausted"
-            : classify429FromError({ status: result.status, message: errorStr })
-          : undefined;
-      if (result.status === 429 && isDailyQuotaExhausted(errorStr)) {
-        // Parse which model is quota-limited
-        const match = errorStr.match(/today's quota for model ([^,]+)/);
-        const limitedModel = match ? match[1].trim() : model;
-
-        const mlSettings = resolveModelLockoutSettings(runtimeOptions.cachedSettings);
-        if (mlSettings.enabled && mlSettings.errorCodes.includes(result.status)) {
-          // Lock until tomorrow 00:00. Antigravity meters per exact model (#8630).
-          const lockScope = provider === "antigravity" ? "exact" : undefined;
-          const lockResult = recordModelLockoutFailure(
-            provider,
-            credentials.connectionId,
-            limitedModel,
-            "quota_exhausted",
-            result.status,
-            0,
-            providerProfile,
-            { maxCooldownMs: mlSettings.maxCooldownMs, scope: lockScope }
-          );
-
-          log.info(
-            "MODEL_DAILY_QUOTA",
-            JSON.stringify({
-              connection: credentials.connectionId.slice(0, 8),
-              model: limitedModel,
-              cooldownMs: lockResult.cooldownMs,
-              failureCount: lockResult.failureCount,
-            })
-          );
-        }
-
-        dailyQuotaExhausted = true;
-      }
-
-      if (!dailyQuotaExhausted) {
-        await maybeMarkChatAccountExhaustedFrom429({
-          connectionId: credentials.connectionId,
-          provider,
-          status: result.status,
-          errorText: errorStr,
-          model,
-          passthroughModels: credentials.providerSpecificData?.passthroughModels,
-          failureKind,
-        });
-      }
-
-      // #9708: retry a retryable pre-output transport failure once on the same
-      // account (jittered 2-3s) before cooling the connection. A first 503/507
-      // must not rotate away from a still-healthy Codex prompt-cache partition.
-      // Skipped inside an emergency-fallback hop: that path guarantees exactly one
-      // upstream call against the free fallback model (#1731) — an extra retry there
-      // burns a second call against a provider we're already treating as a last resort.
-      // Skipped for combo targets too: combo routing owns its own target-level
-      // fallback/retry policy (per-target error handling in handleSingleModel,
-      // then the next combo target) — a same-account retry here just delays that
-      // policy and can surface the wrong terminal status when a later hop throws.
-      const transportAttempts = sameAccountTransportRetries.get(credentials.connectionId) || 0;
-      if (
-        !runtimeOptions.emergencyFallbackTried &&
-        !comboName &&
-        !forceLiveComboTest &&
-        shouldRetrySameAccountTransport({
-          status: result.status,
-          errorText: errorStr,
-          errorCode: result.errorCode,
-          errorType: result.errorType,
-          attempt: transportAttempts,
-          hasForcedConnection,
-        })
-      ) {
-        sameAccountTransportRetries.set(credentials.connectionId, transportAttempts + 1);
-        const waitMs = sameAccountTransportRetryDelayMs();
-        log.warn(
-          "RETRY",
-          `${provider}/${model} retryable pre-output ${result.status} — retrying same account once after ${waitMs}ms`
-        );
-        const completed = await waitForCooldownAwareRetry(waitMs, requestSignal);
-        if (!completed) {
-          releaseOAuthSession();
-          return errorResponse(499, "Request aborted");
-        }
-        preselectedCredentials = credentials;
-        continue;
-      }
-
-      // 8. Fallback to next account
-      // A3 guard: if 401 and connection has extra keys, skip connection-level disable
-      // (key-level failure already recorded in chatCore.ts via T07)
-      // Check extra keys directly from credentials for reliability across restarts
-      const hasExtraKeys =
-        ((credentials.providerSpecificData?.extraApiKeys as string[] | undefined) ?? []).length >
-          0 || connectionHasExtraKeys(credentials.connectionId);
-      const is401 = result.status === 401;
-      const skipConnectionDisable = shouldSkipConnDisable(result, is401, hasExtraKeys, provider);
-
-      const { shouldFallback, cooldownMs } = skipConnectionDisable
-        ? { shouldFallback: false, cooldownMs: 0 }
-        : await markAccountUnavailable(
-            credentials.connectionId,
-            result.status,
-            errorStr,
-            provider,
-            model,
-            providerProfile,
-            buildExhaustionOptions(runtimeOptions.correlationId ?? null, {
-              persistUnavailableState: !(
-                isCombo &&
-                result.status === 429 &&
-                (failureKind === "rate_limit" || failureKind === "transient")
-              ),
-              isCombo,
-              headers: result.response.headers,
-            })
-          );
-
-      // An explicit pin (combo step `connectionId` / `x-omniroute-connection`) is an
-      // operator instruction, not a suggestion: the account cooldown above is still
-      // recorded, but selection must NOT silently rotate to a sibling account of the
-      // same provider. Pinned steps fall through to combo orchestration, which moves
-      // to the next target — with ITS own pin. Same rule the antigravity
-      // stream-readiness / pre-response-timeout and account-semaphore paths above
-      // already apply.
-      if (shouldFallback && !hasForcedConnection) {
-        if (Number.isFinite(cooldownMs) && cooldownMs > 0) {
-          lastCooldownMs = cooldownMs;
-          requestRetryLastCooldownMs = cooldownMs;
-        }
-        log.warn("AUTH", `Account ${accountId}... unavailable (${result.status}), trying fallback`);
-        // #6219: evict the sticky session pin when the pinned account fails over,
-        // otherwise the next request re-pins the same throttled account until
-        // restart. Guarded by connection match so a pin for a different (healthy)
-        // account is left intact.
-        if (runtimeOptions.sessionAffinityKey) {
-          try {
-            evictSessionAccountAffinityForConnection(
-              runtimeOptions.sessionAffinityKey,
-              provider,
-              credentials.connectionId
-            );
-          } catch {
-            // best-effort: selection also excludes this connection for the current retry.
-          }
-        }
-        excludedConnectionIds.add(credentials.connectionId);
-        lastError = result.error;
-        lastStatus = result.status;
-        requestRetryLastError = result.error;
-        requestRetryLastStatus = result.status;
-        continue;
-      }
-
-      // T-PROBE: a probe failure must not degrade the provider-wide circuit
-      // breaker for real traffic (#9817).
-      if (
-        !(await shouldIsolateProbeFailures()) &&
-        classifyProviderBreakerResult(result, isCombo, forceLiveComboTest) === "failure"
-      ) {
-        breaker._onFailure();
-      }
-
-      return withSelectedConnectionHeader(result.response, credentials?.connectionId);
     }
-  }
+  });
 }

@@ -287,6 +287,11 @@ export default function BudgetsTable() {
                       maxUsd={budget.maxUsd}
                       label={t("usedMeter", { name: budget.name })}
                     />
+                    {(budget.usage.reservedUsd ?? 0) > 0 && (
+                      <p className="mt-1 text-xs text-text-muted">
+                        {formatUsd(budget.usage.reservedUsd!)} estimated for calls in flight
+                      </p>
+                    )}
                   </td>
                   <td className="px-3 py-2">
                     <Toggle

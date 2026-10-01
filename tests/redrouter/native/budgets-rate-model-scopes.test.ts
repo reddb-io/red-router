@@ -113,7 +113,7 @@ test("a tokens-per-minute throttle waits for the minute to roll over instead of 
   assert.equal(throttled.budgetId, budget.id);
 });
 
-test("flat-rate providers and bad token counts touch no rate counter", () => {
+test("flat-rate providers consume rate limits but invalid token counts do not", () => {
   const budget = makeBudget({ tpmLimit: 10, rpmLimit: 1 });
   assignKey(budget.id, "k1");
   engine.recordBudgetTokens({ keyId: "k1", provider: FLAT_RATE, tokens: 500 }, NOW);
@@ -121,10 +121,10 @@ test("flat-rate providers and bad token counts touch no rate counter", () => {
   engine.recordBudgetTokens({ keyId: "k1", provider: METERED, tokens: -5 }, NOW);
   engine.recordBudgetTokens({ keyId: "k1", provider: METERED, tokens: Number.NaN }, NOW);
   engine.recordBudgetTokens({ keyId: null, provider: METERED, tokens: 50 }, NOW);
-  assert.equal(repo.getBudgetRateUsed(budget.id, "k1", "tpm", NOW), 0);
-  assert.equal(repo.getBudgetRateUsed(budget.id, "k1", "rpm", NOW), 0);
-  assert.equal(engine.checkBudgets({ keyId: "k1", provider: METERED }, NOW).state, "ok");
-  assert.equal(engine.checkBudgets({ keyId: "k1", provider: FLAT_RATE }, NOW).state, "ok");
+  assert.equal(repo.getBudgetRateUsed(budget.id, "k1", "tpm", NOW), 500);
+  assert.equal(repo.getBudgetRateUsed(budget.id, "k1", "rpm", NOW), 1);
+  assert.equal(engine.checkBudgets({ keyId: "k1", provider: METERED }, NOW).state, "blocked");
+  assert.equal(engine.checkBudgets({ keyId: "k1", provider: FLAT_RATE }, NOW).state, "blocked");
 });
 
 test("the rate counters share the key-quota table under a budget owner", () => {
@@ -194,10 +194,10 @@ test("the gate counts admissions and answers 429 BUDGET_EXCEEDED with Retry-Afte
   assert.ok(Number(response.headers.get("Retry-After")) > 0);
   assert.doesNotMatch(JSON.stringify(body), /at \/|node_modules/);
 
-  // A refused request is not an admission; a flat-rate provider is not counted at all.
+  // A refused request is not an admission; subscription traffic shares the RPM cap.
   assert.equal(
-    await policy.rejectIfMeteredBudgetExceeded("key-rpm", FLAT_RATE, "opencode-go/x"),
-    null
+    (await policy.rejectIfMeteredBudgetExceeded("key-rpm", FLAT_RATE, "opencode-go/x"))?.status,
+    429
   );
   assert.ok(repo.getBudgetRateUsed(budget.id, "key-rpm", "rpm") <= 2.0001);
 });

@@ -13,6 +13,8 @@
  * @module db/costLedger
  */
 
+import { createHash, randomUUID } from "node:crypto";
+import { logger } from "@/shared/utils/logger";
 import { tenantIdForUsageKey } from "./tenantUsageAttribution";
 import { getDbInstance } from "./core";
 import { toNumber } from "@/shared/utils/numeric";
@@ -42,6 +44,16 @@ export interface CostLedgerEntry {
   /** JSON array of lowercase tags, as serialized by `lib/usage/attribution`. */
   tags?: string | null;
   sessionId?: string | null;
+  /** Captured when the event is queued, so a later key transfer cannot rewrite ownership. */
+  tenantId?: string | null;
+  budgetRecovery?: {
+    keyId: string;
+    provider?: string | null;
+    model?: string | null;
+    usd: number;
+    tags?: readonly string[] | null;
+    endUser?: string | null;
+  };
 }
 
 export interface LedgerAggregate {
@@ -87,7 +99,7 @@ function toNonNegative(value: unknown): number {
  * Insert a single cost-ledger row. Fire-and-forget callers should use
  * {@link recordLedgerEntrySafe} so a ledger failure never crashes the request.
  */
-export function recordLedgerEntry(entry: CostLedgerEntry): void {
+export function recordLedgerEntry(entry: CostLedgerEntry, eventId: string | null = null): void {
   if (!entry?.apiKeyId) return;
   const db = getDbInstance();
   db.prepare(
@@ -96,8 +108,9 @@ export function recordLedgerEntry(entry: CostLedgerEntry): void {
       api_key_id, provider, model,
       tokens_input, tokens_output, tokens_cache_read, tokens_cache_creation, tokens_reasoning,
       unit_price_input, unit_price_output, amount_usd,
-      service_tier, success, timestamp, request_id, end_user, tags, session_id, tenant_id
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      service_tier, success, timestamp, request_id, end_user, tags, session_id, tenant_id, event_id
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(event_id) WHERE event_id IS NOT NULL DO NOTHING
     `
   ).run(
     entry.apiKeyId,
@@ -118,7 +131,8 @@ export function recordLedgerEntry(entry: CostLedgerEntry): void {
     entry.endUser ?? null,
     entry.tags ?? null,
     entry.sessionId ?? null,
-    tenantIdForUsageKey(entry.apiKeyId)
+    entry.tenantId === undefined ? tenantIdForUsageKey(entry.apiKeyId) : entry.tenantId,
+    eventId
   );
 }
 
@@ -126,11 +140,119 @@ export function recordLedgerEntry(entry: CostLedgerEntry): void {
  * Best-effort variant for hot-path callers: never throws, so a ledger hiccup
  * can never block an LLM response. Mirrors recordCost's swallow-and-log.
  */
-export function recordLedgerEntrySafe(entry: CostLedgerEntry): void {
+let failedWrites = 0;
+let retryTimer: ReturnType<typeof setTimeout> | null = null;
+const ledgerLog = logger.child({ module: "cost-ledger" });
+export function costLedgerEventId(
+  entry: Pick<CostLedgerEntry, "apiKeyId" | "provider" | "model" | "requestId">
+): string {
+  return entry.requestId
+    ? createHash("sha256")
+        .update(JSON.stringify([entry.apiKeyId, entry.provider, entry.model, entry.requestId]))
+        .digest("hex")
+    : randomUUID();
+}
+export function hasCostLedgerEvent(eventId: string): boolean {
+  return Boolean(
+    getDbInstance()
+      .prepare(
+        "SELECT 1 FROM request_cost_ledger WHERE event_id = ? UNION ALL SELECT 1 FROM cost_ledger_outbox WHERE event_id = ? LIMIT 1"
+      )
+      .get(eventId, eventId)
+  );
+}
+let recoverBudget: ((input: NonNullable<CostLedgerEntry["budgetRecovery"]>) => boolean) | null =
+  null;
+export function setCostLedgerBudgetRecovery(handler: typeof recoverBudget): void {
+  recoverBudget = handler;
+}
+
+function scheduleLedgerRecovery(): void {
+  if (retryTimer) return;
+  retryTimer = setTimeout(() => {
+    retryTimer = null;
+    try {
+      flushCostLedgerOutbox();
+      if (getCostLedgerHealth().pendingEvents > 0) scheduleLedgerRecovery();
+    } catch (error) {
+      ledgerLog.error({ err: error }, "Cost ledger recovery unavailable");
+      scheduleLedgerRecovery();
+    }
+  }, 5000);
+  retryTimer.unref();
+}
+
+/** Durable replay with one event ID; a failed insert never acknowledges or removes the event. */
+export function flushCostLedgerOutbox(limit = 25): void {
+  const db = getDbInstance();
+  const rows = db
+    .prepare("SELECT event_id, payload FROM cost_ledger_outbox ORDER BY created_at LIMIT ?")
+    .all(Math.max(1, Math.min(100, limit))) as Array<{ event_id: string; payload: string }>;
+  for (const row of rows) {
+    try {
+      db.transaction(() => {
+        const entry = JSON.parse(row.payload) as CostLedgerEntry;
+        const recorded = db
+          .prepare("SELECT 1 FROM request_cost_ledger WHERE event_id = ?")
+          .get(row.event_id);
+        if (
+          !recorded &&
+          entry.budgetRecovery &&
+          (!recoverBudget || !recoverBudget(entry.budgetRecovery))
+        )
+          throw new Error("Budget cost recovery pending");
+        recordLedgerEntry(entry, row.event_id);
+        db.prepare("DELETE FROM cost_ledger_outbox WHERE event_id = ?").run(row.event_id);
+      })();
+    } catch (error) {
+      db.prepare("UPDATE cost_ledger_outbox SET attempts = attempts + 1 WHERE event_id = ?").run(
+        row.event_id
+      );
+      ledgerLog.error({ err: error, eventId: row.event_id }, "Cost event retained for recovery");
+      break;
+    }
+  }
+}
+
+export function getCostLedgerHealth(apiKeyId?: string) {
+  const db = getDbInstance();
+  const row = (
+    apiKeyId
+      ? db
+          .prepare("SELECT COUNT(*) AS count FROM cost_ledger_outbox WHERE api_key_id = ?")
+          .get(apiKeyId)
+      : db.prepare("SELECT COUNT(*) AS count FROM cost_ledger_outbox").get()
+  ) as { count: number };
+  return {
+    pendingEvents: row.count,
+    failedWrites,
+    status: row.count || failedWrites ? "degraded" : "healthy",
+  };
+}
+
+export function recordLedgerEntrySafe(entry: CostLedgerEntry): "recorded" | "queued" | "failed" {
+  if (!entry?.apiKeyId) return "recorded";
   try {
-    recordLedgerEntry(entry);
+    const eventId = costLedgerEventId(entry);
+    const payload = {
+      ...entry,
+      timestamp: entry.timestamp || new Date().toISOString(),
+      tenantId: entry.tenantId === undefined ? tenantIdForUsageKey(entry.apiKeyId) : entry.tenantId,
+    };
+    getDbInstance()
+      .prepare(
+        "INSERT OR IGNORE INTO cost_ledger_outbox(event_id, api_key_id, payload, created_at) VALUES (?, ?, ?, ?)"
+      )
+      .run(eventId, entry.apiKeyId, JSON.stringify(payload), payload.timestamp);
+    flushCostLedgerOutbox();
+    const pending = getCostLedgerHealth(entry.apiKeyId).pendingEvents;
+    if (pending) scheduleLedgerRecovery();
+    return pending ? "queued" : "recorded";
   } catch (error) {
-    console.error("[CostLedger] Failed to record ledger entry:", error);
+    failedWrites += 1;
+    ledgerLog.error({ err: error }, "Cost accounting event could not be acknowledged");
+    scheduleLedgerRecovery();
+    return "failed";
   }
 }
 

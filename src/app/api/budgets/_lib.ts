@@ -26,6 +26,7 @@ export function serializeBudget(budget: Budget, assignments: readonly BudgetAssi
     users: assignments.filter((a) => a.scopeType === "user").map((a) => a.scopeValue),
     usage: {
       spentUsd: usage.spentUsd,
+      reservedUsd: usage.reservedUsd,
       windowStart: usage.windowStart > 0 ? new Date(usage.windowStart).toISOString() : null,
       resetAt: usage.resetAt === null ? null : new Date(usage.resetAt).toISOString(),
     },

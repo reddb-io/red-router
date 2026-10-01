@@ -22,7 +22,12 @@ export interface BudgetRow {
   /** Request tags and end users the budget applies to (client-supplied text: escape on render). */
   tags: string[];
   users: string[];
-  usage: { spentUsd: number; windowStart: string | null; resetAt: string | null };
+  usage: {
+    spentUsd: number;
+    reservedUsd?: number;
+    windowStart: string | null;
+    resetAt: string | null;
+  };
 }
 
 /** One row of `/api/usage/attribution`: the spend of a tag or an end user. */

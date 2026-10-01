@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getProviderConnections } from "@/lib/db/providers";
 import { getCachedSettings } from "@/lib/db/readCache";
 import { getWalMaintenanceState } from "@/lib/db/walMaintenance";
+import { getCostLedgerHealth } from "@/lib/db/costLedger";
 import { buildHealthPayload } from "@/lib/monitoring/observability";
 import { readRunningBuildSha } from "@/lib/monitoring/buildSha";
 import { APP_CONFIG } from "@/shared/constants/config";
@@ -101,7 +102,8 @@ function refreshDeepHealthVerdict(): void {
           await import("@/lib/monitoring/observability");
         const { getCachedSettings } = await import("@/lib/db/readCache");
         const settings = (await getCachedSettings()) as Record<string, unknown>;
-        const deepHealthUrl = typeof settings.deepHealthUrl === "string" ? settings.deepHealthUrl : "";
+        const deepHealthUrl =
+          typeof settings.deepHealthUrl === "string" ? settings.deepHealthUrl : "";
         if (!deepHealthUrl) return;
         const deepHealthToken =
           typeof settings.deepHealthToken === "string" ? settings.deepHealthToken : undefined;
@@ -303,32 +305,43 @@ async function rebuildHealthPayload(): Promise<unknown> {
   // the DB — a monitoring read stays cheap. Additive key, nothing moves.
   const walMaintenance = readHealthValue("wal maintenance", () => getWalMaintenanceState(), null);
 
-  const payload = buildHealthPayload({
-    appVersion: APP_CONFIG.version,
-    // #10427: surface the artifact's git SHA so a deployment can be audited over HTTP
-    // instead of SSH + grepping compiled chunks (the 2026-08-14 gateway outage).
-    buildSha: readRunningBuildSha(),
-    catalogCount: Object.keys(AI_PROVIDERS).length,
-    settings,
-    connections,
-    circuitBreakers,
-    rateLimitStatus,
-    learnedLimits,
-    lockouts,
-    localProviders,
-    inflightRequests:
-      requestDedupModule.status === "fulfilled"
-        ? readHealthValue("inflight requests", () => requestDedupModule.value.getInflightCount(), 0)
-        : 0,
-    quotaMonitorSummary,
-    quotaMonitorMonitors,
-    activeSessions,
-    activeSessionsByKey,
-    credentialHealth,
-    adaptiveAdmission,
-    chatAdmission,
-    walMaintenance,
-  });
+  const payload = {
+    ...buildHealthPayload({
+      appVersion: APP_CONFIG.version,
+      // #10427: surface the artifact's git SHA so a deployment can be audited over HTTP
+      // instead of SSH + grepping compiled chunks (the 2026-08-14 gateway outage).
+      buildSha: readRunningBuildSha(),
+      catalogCount: Object.keys(AI_PROVIDERS).length,
+      settings,
+      connections,
+      circuitBreakers,
+      rateLimitStatus,
+      learnedLimits,
+      lockouts,
+      localProviders,
+      inflightRequests:
+        requestDedupModule.status === "fulfilled"
+          ? readHealthValue(
+              "inflight requests",
+              () => requestDedupModule.value.getInflightCount(),
+              0
+            )
+          : 0,
+      quotaMonitorSummary,
+      quotaMonitorMonitors,
+      activeSessions,
+      activeSessionsByKey,
+      credentialHealth,
+      adaptiveAdmission,
+      chatAdmission,
+      walMaintenance,
+    }),
+    costAccounting: readHealthValue("cost accounting", () => getCostLedgerHealth(), {
+      status: "unavailable",
+      pendingEvents: null,
+      failedWrites: null,
+    }),
+  };
 
   if (generation === healthPayloadCacheGeneration) {
     healthPayloadCache = { payload, expiresAt: Date.now() + HEALTH_PAYLOAD_TTL_MS };

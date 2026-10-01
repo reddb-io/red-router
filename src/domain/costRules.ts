@@ -29,7 +29,16 @@ import {
   spendBatchWriter,
 } from "@/lib/spend/batchWriter";
 import { recordLedgerFromCost } from "@/lib/usage/costLedgerRecorder";
-import { recordLedgerEntrySafe } from "@/lib/db/costLedger";
+import {
+  recordLedgerEntrySafe,
+  setCostLedgerBudgetRecovery,
+  costLedgerEventId,
+  hasCostLedgerEvent,
+} from "@/lib/db/costLedger";
+import { logger } from "@/shared/utils/logger";
+
+setCostLedgerBudgetRecovery(recordBudgetSpend);
+const pendingCostEvents = new Set<string>();
 
 export { getBudgetWindow };
 export type { BudgetResetInterval };
@@ -164,14 +173,10 @@ function getActiveBudgetLimit(budget: NormalizedBudgetConfig): number {
 }
 
 function getBudgetWindowTotal(apiKeyId: string, periodStartAt: number): number {
-  try {
-    return (
-      loadCostTotal(apiKeyId, periodStartAt) +
-      spendBatchWriter.getPendingCostTotal(apiKeyId, periodStartAt)
-    );
-  } catch {
-    return 0;
-  }
+  return (
+    loadCostTotal(apiKeyId, periodStartAt) +
+    spendBatchWriter.getPendingCostTotal(apiKeyId, periodStartAt)
+  );
 }
 
 function getBudgetWindowRangeTotal(
@@ -289,13 +294,9 @@ export function getBudget(apiKeyId: string): NormalizedBudgetConfig | null {
     return syncBudgetSchedule(apiKeyId, cached);
   }
 
-  try {
-    const fromDb = loadBudget(apiKeyId) as BudgetConfig | null;
-    if (fromDb) {
-      return syncBudgetSchedule(apiKeyId, fromDb);
-    }
-  } catch {
-    // DB may not be ready.
+  const fromDb = loadBudget(apiKeyId) as BudgetConfig | null;
+  if (fromDb) {
+    return syncBudgetSchedule(apiKeyId, fromDb);
   }
 
   return null;
@@ -331,47 +332,69 @@ export function deleteBudget(apiKeyId: string) {
  * @param {RecordCostDetails} [details] - Optional per-request breakdown.
  */
 export function recordCost(apiKeyId: string, cost: number, details?: RecordCostDetails): void {
+  const eventId = details?.requestId
+    ? costLedgerEventId({
+        apiKeyId,
+        provider: details.provider || "unknown",
+        model: details.model || "unknown",
+        requestId: details.requestId,
+      })
+    : null;
+  if (eventId) {
+    if (pendingCostEvents.has(eventId)) return;
+    try {
+      if (hasCostLedgerEvent(eventId)) return;
+    } catch (error) {
+      logger.error({ err: error, module: "cost-accounting" }, "Cost event lookup unavailable");
+    }
+    pendingCostEvents.add(eventId);
+  }
+  const attribution = details?.attribution;
+  const spend = {
+    keyId: apiKeyId,
+    provider: details?.provider,
+    model: details?.model,
+    usd: cost,
+    tags: attribution?.tags,
+    endUser: attribution?.endUser,
+  };
+  const budgetRecorded = recordBudgetSpend(spend);
   try {
     spendBatchWriter.increment(apiKeyId, cost, Date.now());
     // Reusable budgets count the same spend. Every metered charge (non-streaming, streaming,
     // search) funnels through here, and flat-rate providers are already passed as 0 or exempted
     // by the engine, so this is the one place they all share.
-    const attribution = details?.attribution;
-    recordBudgetSpend({
-      keyId: apiKeyId,
-      provider: details?.provider,
-      model: details?.model,
-      usd: cost,
-      tags: attribution?.tags,
-      endUser: attribution?.endUser,
+  } catch (error) {
+    logger.error({ err: error, module: "cost-accounting" }, "Per-key spend recording failed");
+  }
+  if (details) {
+    // Fire-and-forget — never block the response on ledger I/O.
+    void recordLedgerFromCost({
+      apiKeyId,
+      provider: details.provider,
+      model: details.model,
+      tokens: details.tokens,
+      amountUsd: cost,
+      serviceTier: details.serviceTier,
+      success: details.success,
+      timestamp: details.timestamp,
+      requestId: details.requestId,
+      budgetRecovery: budgetRecorded ? undefined : spend,
+      attribution,
+    }).finally(() => {
+      if (eventId) pendingCostEvents.delete(eventId);
     });
-    if (details) {
-      // Fire-and-forget — never block the response on ledger I/O.
-      void recordLedgerFromCost({
-        apiKeyId,
-        provider: details.provider,
-        model: details.model,
-        tokens: details.tokens,
-        amountUsd: cost,
-        serviceTier: details.serviceTier,
-        success: details.success,
-        timestamp: details.timestamp,
-        requestId: details.requestId,
-        attribution,
-      });
-    } else if (apiKeyId && Number.isFinite(cost) && cost > 0) {
-      // Search and other amount-only charges previously disappeared from the
-      // request ledger, so quotas and downstream cost export undercounted them.
-      recordLedgerEntrySafe({
-        apiKeyId,
-        provider: "unknown",
-        model: "unknown",
-        amountUsd: cost,
-        success: true,
-      });
-    }
-  } catch {
-    // Non-critical.
+  } else if (apiKeyId && Number.isFinite(cost) && cost > 0) {
+    // Search and other amount-only charges previously disappeared from the
+    // request ledger, so quotas and downstream cost export undercounted them.
+    recordLedgerEntrySafe({
+      apiKeyId,
+      provider: "unknown",
+      model: "unknown",
+      amountUsd: cost,
+      success: true,
+      budgetRecovery: budgetRecorded ? undefined : spend,
+    });
   }
 }
 

@@ -34,11 +34,22 @@
  */
 
 import { checkBudget } from "@/domain/costRules";
-import { checkBudgets, MAX_THROTTLE_DELAY_MS, recordBudgetAdmission } from "@/domain/budgetEngine";
+import {
+  checkBudgets,
+  getBudgetReservationScopes,
+  MAX_THROTTLE_DELAY_MS,
+  recordBudgetAdmission,
+} from "@/domain/budgetEngine";
 import { isFlatRateProvider } from "./flatRateProviders";
 import { errorResponse } from "@omniroute/open-sse/utils/error.ts";
 import { HTTP_STATUS } from "@omniroute/open-sse/config/constants.ts";
 import * as log from "@/sse/utils/logger";
+import { flushCostLedgerOutbox, getCostLedgerHealth } from "@/lib/db/costLedger";
+import {
+  getReservedKeyCost,
+  reserveBudgetCost,
+  withBudgetAdmissionTransaction,
+} from "@/lib/db/budgetReservations";
 
 /**
  * Whether a call to this provider draws down the metered dollar allowance.
@@ -98,6 +109,7 @@ export interface MeteredBudgetDecision {
   retryAfter?: number;
   /** Throttle: the candidate is allowed, but only after waiting this many ms. */
   delayMs?: number;
+  code?: "BUDGET_UNAVAILABLE";
 }
 
 const ALLOWED: MeteredBudgetDecision = { allowed: true };
@@ -122,24 +134,54 @@ const ALLOWED: MeteredBudgetDecision = { allowed: true };
 export function checkMeteredBudgetForProvider(
   actor: BudgetActor,
   providerId: string | null | undefined,
-  model?: string | null
+  model?: string | null,
+  additionalUsd = 0
 ): MeteredBudgetDecision {
   const { keyId: apiKeyId, tags, endUser } = splitActor(actor);
   if (!apiKeyId) return ALLOWED;
-  if (!consumesMeteredBudget(providerId)) return ALLOWED;
-  const budget = checkBudget(apiKeyId);
-  if (!budget.allowed) {
-    return {
-      allowed: false,
-      reason: budget.reason || "Budget limit exceeded",
-      ...(budget.budgetResetAt ? { retryAfter: budget.budgetResetAt } : {}),
-    };
+  try {
+    flushCostLedgerOutbox();
+    if (getCostLedgerHealth(apiKeyId).pendingEvents > 0) {
+      return {
+        allowed: false,
+        code: "BUDGET_UNAVAILABLE",
+        reason: "Cost accounting recovery pending",
+      };
+    }
+  } catch {
+    return { allowed: false, code: "BUDGET_UNAVAILABLE", reason: "Cost accounting unavailable" };
   }
-  const engine = checkBudgets({ keyId: apiKeyId, provider: providerId, model, tags, endUser });
+  if (consumesMeteredBudget(providerId)) {
+    try {
+      const existing = checkBudget(apiKeyId);
+      const budget = checkBudget(
+        apiKeyId,
+        additionalUsd + getReservedKeyCost(apiKeyId, existing.periodStartAt ?? 0)
+      );
+      if (!budget.allowed) {
+        return {
+          allowed: false,
+          reason: budget.reason || "Budget limit exceeded",
+          ...(budget.budgetResetAt ? { retryAfter: budget.budgetResetAt } : {}),
+        };
+      }
+    } catch {
+      return { allowed: false, code: "BUDGET_UNAVAILABLE", reason: "Budget policy unavailable" };
+    }
+  }
+  const engine = checkBudgets({
+    keyId: apiKeyId,
+    provider: providerId,
+    model,
+    tags,
+    endUser,
+    additionalUsd,
+  });
   if (engine.state === "blocked") {
     return {
       allowed: false,
       reason: engine.reason || "Budget limit exceeded",
+      ...(engine.code ? { code: engine.code } : {}),
       ...(engine.resetAt ? { retryAfter: engine.resetAt } : {}),
     };
   }
@@ -159,26 +201,56 @@ const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
 export async function rejectIfMeteredBudgetExceeded(
   actor: BudgetActor,
   providerId: string | null | undefined,
-  modelStr: string
+  modelStr: string,
+  reservation?: { id: string; usd: number }
 ): Promise<Response | null> {
-  const decision = checkMeteredBudgetForProvider(actor, providerId, modelStr);
+  let decision = checkMeteredBudgetForProvider(actor, providerId, modelStr, reservation?.usd);
+  if (decision.allowed && decision.delayMs && decision.delayMs > 0) {
+    const waitMs = Math.min(decision.delayMs, MAX_THROTTLE_DELAY_MS);
+    log.info("BUDGET", `Throttling ${modelStr} by ${waitMs}ms — a budget on this key is spent`);
+    await sleep(waitMs);
+  }
   if (decision.allowed) {
-    if (decision.delayMs && decision.delayMs > 0) {
-      const waitMs = Math.min(decision.delayMs, MAX_THROTTLE_DELAY_MS);
-      log.info("BUDGET", `Throttling ${modelStr} by ${waitMs}ms — a budget on this key is spent`);
-      await sleep(waitMs);
+    try {
+      decision = withBudgetAdmissionTransaction(() => {
+        const latest = checkMeteredBudgetForProvider(actor, providerId, modelStr, reservation?.usd);
+        if (!latest.allowed) return latest;
+        const { keyId, tags, endUser } = splitActor(actor);
+        if (reservation && keyId)
+          reserveBudgetCost(
+            reservation.id,
+            keyId,
+            reservation.usd,
+            getBudgetReservationScopes({
+              keyId,
+              provider: providerId,
+              model: modelStr,
+              tags,
+              endUser,
+            })
+          );
+        recordBudgetAdmission({ keyId, provider: providerId, tags, endUser });
+        return latest;
+      });
+      if (decision.allowed) return null;
+    } catch {
+      decision = {
+        allowed: false,
+        code: "BUDGET_UNAVAILABLE",
+        reason: "Budget admission unavailable",
+      };
     }
-    // Admitted: this dispatch counts against the requests-per-minute limits.
-    const { keyId, tags, endUser } = splitActor(actor);
-    recordBudgetAdmission({ keyId, provider: providerId, tags, endUser });
-    return null;
   }
   log.info(
     "BUDGET",
     `Rejecting ${modelStr} — ${providerId} draws on the metered budget and it is exhausted`
   );
-  return errorResponse(HTTP_STATUS.RATE_LIMITED, decision.reason || "Budget limit exceeded", {
-    code: "BUDGET_EXCEEDED",
-    retryAfter: decision.retryAfter,
-  });
+  return errorResponse(
+    decision.code ? 503 : HTTP_STATUS.RATE_LIMITED,
+    decision.reason || "Budget limit exceeded",
+    {
+      code: decision.code || "BUDGET_EXCEEDED",
+      retryAfter: decision.retryAfter,
+    }
+  );
 }

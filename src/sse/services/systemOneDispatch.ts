@@ -28,6 +28,7 @@ import { saveRequestUsage } from "@/lib/usage/usageHistory";
 import { calculateCostDetailed } from "@/lib/usage/costCalculator";
 import { rejectIfMeteredBudgetExceeded, meteredBudgetCost } from "@/lib/usage/meteredBudgetPolicy";
 import { recordCost } from "@/domain/costRules";
+import { beginFinancialRequest, finishFinancialRequest } from "@/lib/usage/financialAdmission";
 import { recordBudgetTokensFor } from "@/domain/budgetEngine";
 import type { RequestAttribution } from "@/lib/usage/attribution";
 import {
@@ -110,183 +111,198 @@ export async function dispatchSystemOne(
   }
   const actor = { id: options.apiKeyId, attribution: options.attribution };
   // Admission is once per evaluation, not once per credential retry.
-  const rejection = await deps.budget(actor, target.provider, target.model);
-  if (rejection) return { response: rejection, accountingSucceeded: false };
-  const providers =
-    target.provider === "opencode-zen" ? ["opencode-zen", "opencode-go"] : [target.provider];
-  let last: Response | null = null;
-  for (const provider of providers) {
-    const excluded: string[] = [];
-    for (let attempt = 0; attempt < 3; attempt++) {
-      if (options.signal?.aborted) return fail(499, "System One request cancelled");
-      const credentials = await deps.credentials(
-        provider,
-        null,
-        options.allowedConnections ?? null,
+  const admission = overrides.budget
+    ? { id: null, error: await deps.budget(actor, target.provider, target.model) }
+    : await beginFinancialRequest(
+        actor,
+        target.provider,
         target.model,
-        { excludeConnectionIds: excluded, forcedConnectionId: options.forcedConnectionId }
+        body as unknown as Record<string, unknown>
       );
-      if (
-        !credentials ||
-        !("connectionId" in credentials) ||
-        typeof credentials.connectionId !== "string"
-      )
-        break;
-      const id = credentials.connectionId;
-      if (options.forcedConnectionId && id !== options.forcedConnectionId) break;
-      if (options.allowedConnections && !options.allowedConnections.includes(id)) break;
-      const value = credentials as { apiKey?: string; accessToken?: string; authType?: string };
-      const token = value.apiKey || value.accessToken || null;
-      const anonymous = target.provider === "opencode" && value.authType === "none";
-      if (!token && !anonymous) break;
-      if (await deps.leased(id)) {
-        if (options.forcedConnectionId) return fail(409, "System One connection is leased");
-        excluded.push(id);
-        continue;
-      }
-      let proxyInfo: Awaited<ReturnType<typeof resolveProxyForConnection>>;
-      try {
-        proxyInfo = await deps.proxy(id, options.apiKeyId ?? undefined, provider);
-        if (!proxyInfo?.proxy && deps.blockedProxy(id, provider)) {
-          return fail(503, "Assigned System One proxy unavailable");
-        }
-      } catch {
-        return fail(503, "System One proxy resolution failed");
-      }
-      let effectiveTarget = target;
-      if (target.provider === "red-router") {
-        try {
-          const snapshot = remoteRouterSnapshot({ ...credentials, provider: "red-router", id });
-          const catalog = deps.catalog(snapshot);
-          if (
-            !catalog?.models.some(
-              (model) => model.id === target.model && isRemoteDecisionModel(model)
-            )
-          ) {
-            excluded.push(id);
-            continue;
-          }
-          effectiveTarget = { ...target, url: redRouterEndpoint(snapshot.url, "systemone") };
-        } catch {
+  if (admission.error) return { response: admission.error, accountingSucceeded: false };
+  try {
+    const providers =
+      target.provider === "opencode-zen" ? ["opencode-zen", "opencode-go"] : [target.provider];
+    let last: Response | null = null;
+    for (const provider of providers) {
+      const excluded: string[] = [];
+      for (let attempt = 0; attempt < 3; attempt++) {
+        if (options.signal?.aborted) return fail(499, "System One request cancelled");
+        const credentials = await deps.credentials(
+          provider,
+          null,
+          options.allowedConnections ?? null,
+          target.model,
+          { excludeConnectionIds: excluded, forcedConnectionId: options.forcedConnectionId }
+        );
+        if (
+          !credentials ||
+          !("connectionId" in credentials) ||
+          typeof credentials.connectionId !== "string"
+        )
+          break;
+        const id = credentials.connectionId;
+        if (options.forcedConnectionId && id !== options.forcedConnectionId) break;
+        if (options.allowedConnections && !options.allowedConnections.includes(id)) break;
+        const value = credentials as { apiKey?: string; accessToken?: string; authType?: string };
+        const token = value.apiKey || value.accessToken || null;
+        const anonymous = target.provider === "opencode" && value.authType === "none";
+        if (!token && !anonymous) break;
+        if (await deps.leased(id)) {
+          if (options.forcedConnectionId) return fail(409, "System One connection is leased");
           excluded.push(id);
           continue;
         }
-      }
-      const started = Date.now();
-      let result: Awaited<ReturnType<typeof forwardSystemOne>>;
-      try {
-        result = await runWithProxyContext(proxyInfo?.proxy || null, () =>
-          deps.forward(effectiveTarget, token, body, {
-            signal: options.signal ?? undefined,
-            timeoutMs: options.timeoutMs,
-            ...(target.provider === "red-router"
-              ? {
-                  fetchImpl: (url, init) =>
-                    safeOutboundFetch(String(url), {
-                      ...init,
-                      guard: getProviderOutboundGuard(),
-                      allowRedirect: false,
-                      retry: false,
-                      timeoutMs: options.timeoutMs ?? 15000,
-                      proxyConfig: proxyInfo?.proxy || null,
-                    }),
-                }
-              : {}),
-          })
-        );
-      } catch {
-        return fail(503, "System One transport unavailable");
-      }
-      if (result.response.ok) {
-        // A paid, completed evaluation is never retried because a local side effect failed.
-        let accountingSucceeded = true;
+        let proxyInfo: Awaited<ReturnType<typeof resolveProxyForConnection>>;
         try {
-          if (!anonymous) await deps.recover(credentials);
+          proxyInfo = await deps.proxy(id, options.apiKeyId ?? undefined, provider);
+          if (!proxyInfo?.proxy && deps.blockedProxy(id, provider)) {
+            return fail(503, "Assigned System One proxy unavailable");
+          }
         } catch {
-          options.warn?.("System One connection recovery state could not be cleared");
+          return fail(503, "System One proxy resolution failed");
         }
-        const tokens = normalizeUsage(result.usage);
-        if (tokens) {
+        let effectiveTarget = target;
+        if (target.provider === "red-router") {
           try {
-            const cost = await deps.cost(target.provider, target.model, tokens);
-            if (!cost.priced)
-              options.warn?.("System One usage has no catalog price; cost remains unpriced");
-            if (options.apiKeyId) {
-              deps.recordCost(options.apiKeyId, meteredBudgetCost(target.provider, cost.costUsd), {
-                provider: target.provider,
-                model: target.model,
-                tokens,
-                requestId: randomUUID(),
-                attribution: options.attribution,
-              });
-            }
-          } catch {
-            accountingSucceeded = false;
-            options.warn?.("System One cost accounting failed");
-          }
-          try {
-            if (options.apiKeyId) {
-              const billable = computeBillableTokens(tokens);
-              deps.recordTokens(actor, target.provider, billable);
-              deps.recordKeyQuota(options.apiKeyId, billable);
-              deps.recordWindowTokens(options.apiKeyId, target.provider, target.model, billable);
-            }
-          } catch {
-            accountingSucceeded = false;
-          }
-          try {
+            const snapshot = remoteRouterSnapshot({ ...credentials, provider: "red-router", id });
+            const catalog = deps.catalog(snapshot);
             if (
-              (await deps.usage({
-                provider: target.provider,
-                model: target.model,
-                connectionId: id,
-                apiKeyId: options.apiKeyId ?? null,
-                apiKeyName: options.apiKeyName ?? null,
-                endpoint: "/v1/systemone",
-                tokens,
-                status: "success",
-                latencyMs: Date.now() - started,
-              })) === false
+              !catalog?.models.some(
+                (model) => model.id === target.model && isRemoteDecisionModel(model)
+              )
             ) {
+              excluded.push(id);
+              continue;
+            }
+            effectiveTarget = { ...target, url: redRouterEndpoint(snapshot.url, "systemone") };
+          } catch {
+            excluded.push(id);
+            continue;
+          }
+        }
+        const started = Date.now();
+        let result: Awaited<ReturnType<typeof forwardSystemOne>>;
+        try {
+          result = await runWithProxyContext(proxyInfo?.proxy || null, () =>
+            deps.forward(effectiveTarget, token, body, {
+              signal: options.signal ?? undefined,
+              timeoutMs: options.timeoutMs,
+              ...(target.provider === "red-router"
+                ? {
+                    fetchImpl: (url, init) =>
+                      safeOutboundFetch(String(url), {
+                        ...init,
+                        guard: getProviderOutboundGuard(),
+                        allowRedirect: false,
+                        retry: false,
+                        timeoutMs: options.timeoutMs ?? 15000,
+                        proxyConfig: proxyInfo?.proxy || null,
+                      }),
+                  }
+                : {}),
+            })
+          );
+        } catch {
+          return fail(503, "System One transport unavailable");
+        }
+        if (result.response.ok) {
+          // A paid, completed evaluation is never retried because a local side effect failed.
+          let accountingSucceeded = true;
+          try {
+            if (!anonymous) await deps.recover(credentials);
+          } catch {
+            options.warn?.("System One connection recovery state could not be cleared");
+          }
+          const tokens = normalizeUsage(result.usage);
+          if (tokens) {
+            try {
+              const cost = await deps.cost(target.provider, target.model, tokens);
+              if (!cost.priced)
+                options.warn?.("System One usage has no catalog price; cost remains unpriced");
+              if (options.apiKeyId) {
+                deps.recordCost(
+                  options.apiKeyId,
+                  meteredBudgetCost(target.provider, cost.costUsd),
+                  {
+                    provider: target.provider,
+                    model: target.model,
+                    tokens,
+                    requestId: randomUUID(),
+                    attribution: options.attribution,
+                  }
+                );
+              }
+            } catch {
+              accountingSucceeded = false;
+              options.warn?.("System One cost accounting failed");
+            }
+            try {
+              if (options.apiKeyId) {
+                const billable = computeBillableTokens(tokens);
+                deps.recordTokens(actor, target.provider, billable);
+                deps.recordKeyQuota(options.apiKeyId, billable);
+                deps.recordWindowTokens(options.apiKeyId, target.provider, target.model, billable);
+              }
+            } catch {
               accountingSucceeded = false;
             }
-          } catch {
-            accountingSucceeded = false;
+            try {
+              if (
+                (await deps.usage({
+                  provider: target.provider,
+                  model: target.model,
+                  connectionId: id,
+                  apiKeyId: options.apiKeyId ?? null,
+                  apiKeyName: options.apiKeyName ?? null,
+                  endpoint: "/v1/systemone",
+                  tokens,
+                  status: "success",
+                  latencyMs: Date.now() - started,
+                })) === false
+              ) {
+                accountingSucceeded = false;
+              }
+            } catch {
+              accountingSucceeded = false;
+            }
           }
-        }
-        if (!tokens && options.apiKeyId) {
-          try {
-            deps.recordKeyQuota(options.apiKeyId, 0);
-          } catch {
-            accountingSucceeded = false;
+          if (!tokens && options.apiKeyId) {
+            try {
+              deps.recordKeyQuota(options.apiKeyId, 0);
+            } catch {
+              accountingSucceeded = false;
+            }
           }
+          return { response: result.response, accountingSucceeded };
         }
-        return { response: result.response, accountingSucceeded };
-      }
-      last = result.response;
-      if (anonymous) return { response: last, accountingSucceeded: false };
-      // Zen rejecting a borrowed Go key must not disable ordinary Go coding traffic.
-      if (provider === "opencode-go" && [401, 403].includes(last.status)) {
+        last = result.response;
+        if (anonymous) return { response: last, accountingSucceeded: false };
+        // Zen rejecting a borrowed Go key must not disable ordinary Go coding traffic.
+        if (provider === "opencode-go" && [401, 403].includes(last.status)) {
+          excluded.push(id);
+          continue;
+        }
+        if (![408, 429, 500, 502, 503, 504, 529].includes(last.status)) {
+          return { response: last, accountingSucceeded: false };
+        }
+        await deps.unavailable(
+          id,
+          last.status,
+          "System One upstream unavailable",
+          provider,
+          target.model,
+          null,
+          { headers: last.headers }
+        );
         excluded.push(id);
-        continue;
       }
-      if (![408, 429, 500, 502, 503, 504, 529].includes(last.status)) {
-        return { response: last, accountingSucceeded: false };
-      }
-      await deps.unavailable(
-        id,
-        last.status,
-        "System One upstream unavailable",
-        provider,
-        target.model,
-        null,
-        { headers: last.headers }
-      );
-      excluded.push(id);
     }
+    return {
+      response: last ?? errorResponse(503, `No System One connection for ${target.provider}`),
+      accountingSucceeded: false,
+    };
+  } finally {
+    finishFinancialRequest(admission.id);
   }
-  return {
-    response: last ?? errorResponse(503, `No System One connection for ${target.provider}`),
-    accountingSucceeded: false,
-  };
 }

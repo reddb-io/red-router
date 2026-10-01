@@ -14,7 +14,8 @@
  * @module usage/costLedgerRecorder
  */
 
-import { recordLedgerEntrySafe } from "@/lib/db/costLedger";
+import { recordLedgerEntrySafe, type CostLedgerEntry } from "@/lib/db/costLedger";
+import { logger } from "@/shared/utils/logger";
 import { getPricingForModel } from "@/lib/db/settings/pricing";
 import { getLoggedInputTokens, getLoggedOutputTokens, getReasoningTokens } from "./tokenAccounting";
 import { toNumber } from "@/shared/utils/numeric";
@@ -30,6 +31,7 @@ export interface CostLedgerRecorderInput {
   success?: boolean;
   timestamp?: string;
   requestId?: string | null;
+  budgetRecovery?: CostLedgerEntry["budgetRecovery"];
   /** Who the call was for; stored on the row (never prompt text). */
   attribution?: {
     endUser?: string | null;
@@ -45,9 +47,9 @@ export interface CostLedgerRecorderInput {
  */
 export async function recordLedgerFromCost(input: CostLedgerRecorderInput): Promise<void> {
   if (!input?.apiKeyId) return;
+  let unitPriceInput = 0;
+  let unitPriceOutput = 0;
   try {
-    let unitPriceInput = 0;
-    let unitPriceOutput = 0;
     if (input.provider && input.model) {
       const pricing = await getPricingForModel(input.provider, input.model);
       if (pricing) {
@@ -55,26 +57,29 @@ export async function recordLedgerFromCost(input: CostLedgerRecorderInput): Prom
         unitPriceOutput = toNumber(pricing.output);
       }
     }
-
-    recordLedgerEntrySafe({
-      apiKeyId: input.apiKeyId,
-      provider: input.provider || "unknown",
-      model: input.model || "unknown",
-      tokensInput: getLoggedInputTokens(input.tokens),
-      tokensOutput: getLoggedOutputTokens(input.tokens),
-      tokensReasoning: getReasoningTokens(input.tokens),
-      unitPriceInput,
-      unitPriceOutput,
-      amountUsd: Math.max(0, Number.isFinite(input.amountUsd) ? input.amountUsd : 0),
-      serviceTier: input.serviceTier || "standard",
-      success: input.success !== false,
-      timestamp: input.timestamp || new Date().toISOString(),
-      requestId: input.requestId ?? null,
-      endUser: input.attribution?.endUser ?? null,
-      tags: serializeAttributionTags(input.attribution?.tags),
-      sessionId: input.attribution?.sessionId ?? null,
-    });
-  } catch {
-    // Best-effort only.
+  } catch (error) {
+    logger.error(
+      { err: error, module: "cost-ledger" },
+      "Unit price lookup failed; retaining the known cost event"
+    );
   }
+  recordLedgerEntrySafe({
+    apiKeyId: input.apiKeyId,
+    provider: input.provider || "unknown",
+    model: input.model || "unknown",
+    tokensInput: getLoggedInputTokens(input.tokens),
+    tokensOutput: getLoggedOutputTokens(input.tokens),
+    tokensReasoning: getReasoningTokens(input.tokens),
+    unitPriceInput,
+    unitPriceOutput,
+    amountUsd: Math.max(0, Number.isFinite(input.amountUsd) ? input.amountUsd : 0),
+    serviceTier: input.serviceTier || "standard",
+    success: input.success !== false,
+    timestamp: input.timestamp || new Date().toISOString(),
+    requestId: input.requestId ?? null,
+    budgetRecovery: input.budgetRecovery,
+    endUser: input.attribution?.endUser ?? null,
+    tags: serializeAttributionTags(input.attribution?.tags),
+    sessionId: input.attribution?.sessionId ?? null,
+  });
 }

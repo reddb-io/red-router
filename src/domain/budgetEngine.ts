@@ -15,10 +15,8 @@
  *   throttles; otherwise ok. Throttle applies only when EVERY exceeded budget is `throttle`. A
  *   throttled USD limit waits the budget's delay; a throttled rate limit waits until the minute
  *   bucket rolls over. Both are bounded by {@link MAX_THROTTLE_DELAY_MS}.
- * - Only metered usage counts. A flat-rate provider is neither checked against nor charged to a
- *   budget (same classification as `lib/usage/meteredBudgetPolicy`).
- * - Fail open: an unreadable budget table must never block traffic. Errors are logged (rate
- *   limited) and the request proceeds.
+ * - Flat-rate providers are exempt from USD limits, but still consume RPM and TPM.
+ * - An unreadable budget policy blocks admission; completed responses are never replayed.
  *
  * @module domain/budgetEngine
  */
@@ -50,6 +48,12 @@ import { getRequestBudgetScope } from "@/lib/usage/attribution";
 import { BUDGET_RATE_WINDOW_MS } from "@/shared/constants/budgets";
 import { logger } from "@/shared/utils/logger";
 import { getBudgetWindow } from "./budgetWindow";
+import {
+  getReservedScopeCost,
+  getReservedScopeCostTotal,
+  withBudgetAdmissionTransaction,
+  type ReservationScope,
+} from "@/lib/db/budgetReservations";
 
 const log = logger.child({ module: "budgets" });
 
@@ -58,6 +62,7 @@ export interface BudgetCheckInput extends BudgetScopeExtras {
   provider: string | null | undefined;
   /** The model the request targets (`provider/model` or a bare model id); matches model caps. */
   model?: string | null;
+  additionalUsd?: number;
 }
 
 export interface BudgetCheckResult {
@@ -70,6 +75,7 @@ export interface BudgetCheckResult {
   resetAt?: number;
   /** The budget that decided the outcome. */
   budgetId?: string;
+  code?: "BUDGET_UNAVAILABLE";
 }
 
 export interface BudgetSpendInput extends BudgetScopeExtras {
@@ -121,8 +127,10 @@ export function computeBudgetWindow(
 /** Current-window spend of a budget across all its scopes, for list views. */
 export function getBudgetUsage(budget: Budget, now = Date.now()) {
   const window = computeBudgetWindow(budget, now);
+  const reservedUsd = getReservedScopeCostTotal(budget.id, window.windowStart, now);
   return {
     spentUsd: getBudgetWindowTotal(budget.id, window.windowStart),
+    reservedUsd,
     windowStart: window.windowStart,
     resetAt: window.resetAt,
   };
@@ -233,6 +241,23 @@ function matchingCapKeys(budget: Budget, candidates: readonly string[]): string[
   return keys.filter((key) => candidates.includes(key.toLowerCase()));
 }
 
+export function getBudgetReservationScopes(
+  input: BudgetCheckInput,
+  now = Date.now()
+): ReservationScope[] {
+  if (!input.keyId || isFlatRateProvider(input.provider)) return [];
+  const candidates = budgetModelCandidates(input.provider, input.model);
+  return resolveApplicable(input.keyId, now, input).flatMap((entry) => {
+    const windowStart = computeBudgetWindow(entry.budget, now).windowStart;
+    return ["", ...matchingCapKeys(entry.budget, candidates)].map((capKey) => ({
+      budgetId: entry.budget.id,
+      scopeValue: entry.windowScope,
+      windowStart,
+      capKey,
+    }));
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Fail-open logging
 // ---------------------------------------------------------------------------
@@ -243,7 +268,7 @@ let lastWarnAt = 0;
 function warnFailOpen(action: string, error: unknown, now: number): void {
   if (now - lastWarnAt < WARN_INTERVAL_MS) return;
   lastWarnAt = now;
-  log.warn({ err: error, action }, "Budget engine unavailable; failing open");
+  log.warn({ err: error, action }, "Budget engine accounting or policy unavailable");
 }
 
 // ---------------------------------------------------------------------------
@@ -272,13 +297,22 @@ function nextRateBucketAt(now: number): number {
 function violationsOf(
   entry: ApplicableBudget,
   candidates: readonly string[],
-  now: number
+  now: number,
+  metered = true,
+  additionalUsd = 0
 ): Violation[] {
   const { budget, windowScope } = entry;
   const found: Violation[] = [];
   const window = computeBudgetWindow(budget, now);
-  const spent = getWindowSpent(budget.id, windowScope, window.windowStart);
-  if (spent >= budget.maxUsd) {
+  const reserved = (capKey: string) =>
+    getReservedScopeCost(
+      { budgetId: budget.id, scopeValue: windowScope, windowStart: window.windowStart, capKey },
+      now
+    );
+  const spent = metered
+    ? getWindowSpent(budget.id, windowScope, window.windowStart) + reserved("")
+    : 0;
+  if (metered && (spent >= budget.maxUsd || spent + additionalUsd > budget.maxUsd)) {
     found.push({
       part: "usd",
       message: `Budget "${budget.name}" exceeded (${money(spent)} of ${money(budget.maxUsd)}, ${budget.duration})`,
@@ -286,10 +320,11 @@ function violationsOf(
       delayMs: budget.throttleDelayMs,
     });
   }
-  for (const capKey of matchingCapKeys(budget, candidates)) {
+  for (const capKey of metered ? matchingCapKeys(budget, candidates) : []) {
     const cap = budget.modelMax[capKey];
-    const used = getModelSpent(budget.id, windowScope, window.windowStart, capKey);
-    if (used < cap) continue;
+    const used =
+      getModelSpent(budget.id, windowScope, window.windowStart, capKey) + reserved(capKey);
+    if (used < cap && used + additionalUsd <= cap) continue;
     found.push({
       part: `m:${capKey}`,
       message: `Budget "${budget.name}" cap for ${capKey} exceeded (${money(used)} of ${money(cap)}, ${budget.duration})`,
@@ -318,7 +353,7 @@ function violationsOf(
 /** Whether a request from this key to this provider may proceed under the assigned budgets. */
 export function checkBudgets(input: BudgetCheckInput, now = Date.now()): BudgetCheckResult {
   const { keyId, provider } = input;
-  if (!keyId || isFlatRateProvider(provider)) return OK;
+  if (!keyId) return OK;
   try {
     syncExhausted();
     const applicable = resolveApplicable(keyId, now, input);
@@ -329,7 +364,13 @@ export function checkBudgets(input: BudgetCheckInput, now = Date.now()): BudgetC
     let throttler: { entry: ApplicableBudget; delayMs: number } | null = null;
 
     for (const entry of applicable) {
-      for (const violation of violationsOf(entry, candidates, now)) {
+      for (const violation of violationsOf(
+        entry,
+        candidates,
+        now,
+        !isFlatRateProvider(provider),
+        Math.max(0, input.additionalUsd || 0)
+      )) {
         if (entry.budget.onExceed === "block") {
           markExhausted(entry, violation.part, violation.resetAt);
           // The blocker that clears last decides when the caller may retry (null = never resets).
@@ -363,7 +404,7 @@ export function checkBudgets(input: BudgetCheckInput, now = Date.now()): BudgetC
     return OK;
   } catch (error) {
     warnFailOpen("check", error, now);
-    return OK;
+    return { state: "blocked", code: "BUDGET_UNAVAILABLE", reason: "Budget policy unavailable" };
   }
 }
 
@@ -373,7 +414,7 @@ export function checkBudgets(input: BudgetCheckInput, now = Date.now()): BudgetC
  */
 export function recordBudgetAdmission(input: BudgetAdmissionInput, now = Date.now()): void {
   const { keyId, provider } = input;
-  if (!keyId || isFlatRateProvider(provider)) return;
+  if (!keyId) return;
   try {
     for (const entry of resolveApplicable(keyId, now, input)) {
       if (entry.budget.rpmLimit !== null) {
@@ -382,6 +423,7 @@ export function recordBudgetAdmission(input: BudgetAdmissionInput, now = Date.no
     }
   } catch (error) {
     warnFailOpen("admission", error, now);
+    throw new Error("Budget admission counter unavailable");
   }
 }
 
@@ -392,7 +434,7 @@ export function recordBudgetAdmission(input: BudgetAdmissionInput, now = Date.no
  */
 export function recordBudgetTokens(input: BudgetTokensInput, now = Date.now()): void {
   const { keyId, provider, tokens } = input;
-  if (!keyId || !(tokens > 0) || isFlatRateProvider(provider)) return;
+  if (!keyId || !(tokens > 0)) return;
   try {
     for (const entry of resolveApplicable(keyId, now, input)) {
       if (entry.budget.tpmLimit !== null) {
@@ -485,42 +527,46 @@ function notifyWarning(data: Record<string, unknown>): void {
  * alert, once per window, when a scope crosses its threshold. `usd` must already be the metered
  * share; a flat-rate provider records nothing here either.
  */
-export function recordBudgetSpend(input: BudgetSpendInput, now = Date.now()): void {
+export function recordBudgetSpend(input: BudgetSpendInput, now = Date.now()): boolean {
   const { keyId, provider, usd } = input;
-  if (!keyId || !Number.isFinite(usd) || usd <= 0 || isFlatRateProvider(provider)) return;
+  if (!keyId || !Number.isFinite(usd) || usd <= 0 || isFlatRateProvider(provider)) return true;
   try {
-    syncExhausted();
-    const candidates = budgetModelCandidates(provider, input.model);
-    for (const entry of resolveApplicable(keyId, now, input)) {
-      const { budget, scopeType, scopeValue, windowScope } = entry;
-      const window = computeBudgetWindow(budget, now);
-      const spent = incrementWindowSpend(budget.id, windowScope, window.windowStart, usd);
-      if (spent >= budget.maxUsd && budget.onExceed === "block") {
-        markExhausted(entry, "usd", window.resetAt);
-      }
-      for (const capKey of matchingCapKeys(budget, candidates)) {
-        const used = incrementModelSpend(budget.id, windowScope, window.windowStart, capKey, usd);
-        if (used >= budget.modelMax[capKey] && budget.onExceed === "block") {
-          markExhausted(entry, `m:${capKey}`, window.resetAt);
+    withBudgetAdmissionTransaction(() => {
+      syncExhausted();
+      const candidates = budgetModelCandidates(provider, input.model);
+      for (const entry of resolveApplicable(keyId, now, input)) {
+        const { budget, scopeType, scopeValue, windowScope } = entry;
+        const window = computeBudgetWindow(budget, now);
+        const spent = incrementWindowSpend(budget.id, windowScope, window.windowStart, usd);
+        if (spent >= budget.maxUsd && budget.onExceed === "block") {
+          markExhausted(entry, "usd", window.resetAt);
+        }
+        for (const capKey of matchingCapKeys(budget, candidates)) {
+          const used = incrementModelSpend(budget.id, windowScope, window.windowStart, capKey, usd);
+          if (used >= budget.modelMax[capKey] && budget.onExceed === "block") {
+            markExhausted(entry, `m:${capKey}`, window.resetAt);
+          }
+        }
+        const softUsd = effectiveSoftUsd(budget);
+        if (spent >= softUsd && claimSoftAlert(budget.id, windowScope, window.windowStart)) {
+          notifyWarning({
+            budgetId: budget.id,
+            budgetName: budget.name,
+            scopeType,
+            scopeValue,
+            spentUsd: spent,
+            softUsd,
+            maxUsd: budget.maxUsd,
+            duration: budget.duration,
+            windowStart: new Date(window.windowStart).toISOString(),
+            resetAt: window.resetAt === null ? null : new Date(window.resetAt).toISOString(),
+          });
         }
       }
-      const softUsd = effectiveSoftUsd(budget);
-      if (spent >= softUsd && claimSoftAlert(budget.id, windowScope, window.windowStart)) {
-        notifyWarning({
-          budgetId: budget.id,
-          budgetName: budget.name,
-          scopeType,
-          scopeValue,
-          spentUsd: spent,
-          softUsd,
-          maxUsd: budget.maxUsd,
-          duration: budget.duration,
-          windowStart: new Date(window.windowStart).toISOString(),
-          resetAt: window.resetAt === null ? null : new Date(window.resetAt).toISOString(),
-        });
-      }
-    }
+    });
+    return true;
   } catch (error) {
     warnFailOpen("record", error, now);
+    return false;
   }
 }
