@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.57.8
+
+### Patch Changes
+
+- Align decision model discovery and capabilities with the same key-scoped catalog, preserving complete routing IDs for S1 even when transparent models are disabled. Mark catalog availability as unprobed, honor safe advertised decision endpoints in router chains, validate keyed typed answers, and expose sanitized diagnostic codes for upstream failures.
+- Bundle offline model metadata, retain canonical identity and decision taxonomy, and preserve
+  provider-native IDs when enriching or discovering models. Separate provider pricing and effort
+  metadata by deployment, discover OpenRouter decision offerings, and fence cached catalogs after
+  connection or authorization changes. Runtime metadata refresh uses conditional HTTP and keeps
+  the last committed snapshot on failure. Connections and models remain explicitly opt-in.
+- Separate exact and semantic cache entries by generation settings, including reasoning effort, output limits and tool policies. Honor cache bypass for reads and writes, preserve caller namespaces, exclude paused or incomplete results, and apply the configured idempotency window with replay isolated by API key.
+
+  Report premature streaming EOF as a failure, preserve Anthropic paused turns as incomplete Responses results, and bound the wait for trailing usage after generation finishes. Clean up completion timers and upstream streams on cancellation.
+
+  Refresh imported OAuth credentials with numeric expiry values consistently. Allow successful half-open probes to recover the provider breaker and keep missing thread, message or file references scoped to the request.
+
 ## 0.57.7
 
 ### Patch Changes
