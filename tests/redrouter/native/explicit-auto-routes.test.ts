@@ -84,6 +84,18 @@ test("connections, activated models and catalog reads never create auto routes; 
   globalThis.fetch = async (input, init) => {
     const body = JSON.parse(String(init?.body)) as { model: string };
     calls.push({ url: String(input), model: body.model });
+    if (new URL(String(input)).pathname.endsWith("/responses")) {
+      return Response.json({
+        id: "resp-explicit-auto",
+        object: "response",
+        status: "completed",
+        model: body.model,
+        output: [
+          { type: "message", role: "assistant", content: [{ type: "output_text", text: "OK" }] },
+        ],
+        usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+      });
+    }
     return Response.json({
       id: "chatcmpl-explicit-auto",
       object: "chat.completion",

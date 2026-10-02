@@ -6,6 +6,12 @@ lastUpdated: 2026-08-06
 
 # Auto-Combo: Let RedRouter Pick the Best AI for You
 
+> RedRouter requires explicit route creation. First activate models in their provider,
+> then choose **Combos → Routing presets → Create combo** and confirm. Use the saved
+> combo name in your client. The `auto` IDs below describe preset intents, not
+> automatically available routes; a literal `auto` name requires a saved active combo.
+> Discovering providers or models does not activate models or create routes.
+
 > **TL;DR**: Set your model to `auto` and RedRouter automatically picks the best AI provider for each request. No configuration needed.
 
 ---

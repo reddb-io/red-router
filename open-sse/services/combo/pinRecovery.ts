@@ -28,7 +28,7 @@ export function buildRecoveryHint(
       return {
         action: "try-auto",
         next_step:
-          "Every candidate in this combo failed. Switch to model: auto to let RedRouter pick a working provider, or pick a different combo.",
+          "Every candidate in this combo failed. Choose another configured combo or an activated model.",
       };
     case "all_accounts_inactive":
       return {
@@ -46,7 +46,7 @@ export function buildRecoveryHint(
       return {
         action: "try-auto",
         next_step:
-          "Every model in this combo failed. Switch to model: auto to let RedRouter pick a working provider, or wait a few seconds for rate limits to recover.",
+          "Every model in this combo failed. Choose another configured combo or wait for rate limits to recover.",
         ...(typeof retryAfterSeconds === "number" && retryAfterSeconds > 0
           ? { retry_after_seconds: retryAfterSeconds }
           : {}),
@@ -82,7 +82,7 @@ export function buildRecoveryHint(
       return {
         action: "retry",
         next_step:
-          "The combo failed transiently. Retry the same combo, or switch to model: auto if the failure repeats.",
+          "The combo failed transiently. Retry the same combo, or choose another configured combo if the failure repeats.",
       };
   }
 }

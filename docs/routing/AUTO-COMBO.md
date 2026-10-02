@@ -8,74 +8,27 @@ lastUpdated: 2026-06-28
 
 > **For Users**: Looking for a quick start? See the [Auto-Combo User Guide](../getting-started/AUTO-COMBO-GUIDE.md) for simple explanations and examples.
 
-> Self-managing model chains with adaptive scoring + zero-config auto-routing
+> Operator-created model chains with adaptive scoring
 
-## Zero-Config Auto-Routing (`auto/` prefix)
+## Explicit routing presets
 
-> **NEW:** No combo creation required. Use `auto/` prefix directly in any client.
+Connections and model discovery never create or activate routes. Activate the desired
+models in their provider, then open **Combos → Routing presets** and click **Create combo**.
+Confirming the action saves an editable snapshot of activated models matching the preset.
+Send the saved combo's name in the request's `model` field.
 
-### Quick Examples
+`auto` and `auto/*` are not implicit routes. A request using one of these names requires
+an operator-created, active combo with that name; an unconfigured name is rejected.
+The public model catalog lists saved active combos rather than synthesizing preset IDs.
+The **Allow saved auto routes** switch in Settings → Routing allows or blocks saved
+combos named `auto` or `auto/*`; it does not create routes or activate models.
 
-| Model ID       | Variant | Behavior                                                                 |
-| -------------- | ------- | ------------------------------------------------------------------------ |
-| `auto`         | default | All connected providers, LKGP strategy, balanced weights                 |
-| `auto/coding`  | coding  | Quality-first weights, suitable for code generation                      |
-| `auto/fast`    | fast    | Low-latency weighted selection                                           |
-| `auto/cheap`   | cheap   | Cost-optimized routing (lowest cost first)                               |
-| `auto/offline` | offline | Favors providers with highest quota availability                         |
-| `auto/smart`   | smart   | Quality-first + higher exploration rate (10%) for better model discovery |
-| `auto/lkgp`    | lkgp    | Explicit LKGP (same as default `auto`)                                   |
-| `auto/chaos`   | chaos   | Parallel fan-out, one model per provider (not fault injection)           |
+A remote Router's `auto` is a provider model locally: `red/auto` requires local opt-in
+like every other imported model and forwards the native `auto` ID to that Router.
 
-### Category × Tier Composition (`auto/<category>:<tier>`)
-
-OpenRouter-style suffixes separate **what kind of route** (category) from **how to optimize it** (tier), so you can compose them freely (#4235 Phase B, `open-sse/services/autoCombo/suffixComposition.ts`):
-
-- **Categories** (filter the candidate pool by capability): `coding` · `reasoning` · `vision` · `chat` · `multimodal`. `vision`/`multimodal` keep vision-capable models; `reasoning` keeps reasoning/thinking models.
-- **Tiers** (pick the scoring weights / pool filter): `fast` (ship-fast) · `cheap` (alias `floor`, cost-saver) · `reliable` (circuit-breaker health + latency stability) · `free` / `pro` (filter the pool by model tier via `classifyTier` — free-tier vs. premium).
-
-| Example                | Resolves to                                             |
-| ---------------------- | ------------------------------------------------------- |
-| `auto/coding:fast`     | coding pool, low-latency weights                        |
-| `auto/coding:cheap`    | coding pool, cost-optimized (alias `auto/coding:floor`) |
-| `auto/reasoning:pro`   | reasoning/thinking models only, premium tier            |
-| `auto/vision`          | vision-capable models (no tier → balanced weights)      |
-| `auto/multimodal:free` | multimodal-capable models, free tier only               |
-
-Any valid `auto/<category>[:<tier>]` resolves on demand; a curated subset is advertised in `/v1/models` and the dashboard (`AUTO_SUFFIX_VARIANTS` in `open-sse/services/autoCombo/builtinCatalog.ts`). Filtering is **fail-open** — if a constraint matches no connected models, the full pool is used so routing never breaks. The core scorer (`combo.ts`) is unchanged; the category/tier filter is applied in `buildAutoCandidates`.
-
-> **Live model intelligence:** auto-routing fitness is informed by live **Arena ELO** rankings + **models.dev** tier data when the `ARENA_ELO_SYNC_ENABLED` flag is on (falls back to the static fitness map otherwise).
-
-**How to use:**
-
-```bash
-# Any IDE or CLI tool that supports OpenAI format
-Base URL: http://localhost:20128/v1
-API Key:  <your-endpoint-key>
-
-# In your code/config, set model to:
-model: "auto"                 # balanced default
-model: "auto/coding"          # best for coding tasks
-model: "auto/fast"            # fastest available
-model: "auto/cheap"           # cheapest per token
-```
-
-**What happens:**
-
-1. RedRouter detects `auto/` prefix in `src/sse/handlers/chat.ts`
-2. Queries all **active provider connections** from the database
-3. Filters to those with valid credentials (API key or OAuth token)
-4. Determines the model per connection (`connection.defaultModel` or provider's first model)
-5. Builds a **virtual combo** in-memory (not stored in DB)
-6. Routes using the selected variant's weight profile + LKGP strategy
-
-**Key properties:**
-
-- ✅ **Always-on:** No toggle, no combo creation, no configuration needed
-- ✅ **Dynamic:** Reflects current connected providers automatically
-- ✅ **Session stickiness:** LKGP ensures last successful provider is prioritized
-- ✅ **Multi-account aware:** Each provider connection becomes a separate candidate
-- ✅ **No DB writes:** Virtual combo exists only for the request, zero persistence overhead
+The preset factory and its category/tier filters remain available to the explicit
+creation action in `POST /api/combos/duplicate`. Its output is a saved combo, not a
+public route created during discovery or inference.
 
 ### Per-key candidate control (#7819, Level 1+2)
 
@@ -177,7 +130,7 @@ curl -X POST http://localhost:20128/v1/chat/completions \
 
 Two common pitfalls:
 
-- **`auto` does not use your combos.** `auto`/`auto/*` builds its own zero-config candidate pool and only consults persisted combos if a combo is literally named `auto` (not recommended). To route through a combo, send its exact name — not `auto`.
+- **Names do not create routes.** Send the name of a combo you created and activated. A literal `auto` or `auto/*` name also requires a saved combo.
 - **`openrouter/auto` is a real paid OpenRouter product** ("Auto Best Available"), not a RedRouter alias. It is the single static model entry of the OpenRouter registry (`open-sse/config/providers/registry/openrouter/index.ts`) and is billed separately. Use Settings → Routing → Hide paid models to exclude it from `auto` pools.
 
 See [#7992](https://github.com/reddb-io/red-router/issues/7992) and [#7111](https://github.com/reddb-io/red-router/issues/7111) for the original confusion this documents.
@@ -444,17 +397,11 @@ Then call it like any combo: `{"model":"fusion-panel","messages":[...]}`.
 
 ## Virtual Auto-Combo Factory
 
-The Auto Combo engine doesn't require pre-defined combos. Instead, `open-sse/services/autoCombo/virtualFactory.ts` builds candidates on-the-fly:
-
-1. Pulls `getProviderConnections({ isActive: true })` (all enabled connections)
-2. Filters to those with valid credentials (API key or non-expired OAuth token via `hasUsableOAuthToken()`)
-3. Cross-references with `getProviderRegistry()` for model availability + pricing
-4. For each tuple `(provider, model, connection)`, builds a `VirtualAutoComboCandidate`
-5. Picks `connection.defaultModel` (or the registry's first model) as the dispatch target
-6. Scores each candidate using the 16-factor `scorePool()` and the variant's weight pack
-7. Returns the resulting in-memory `AutoComboConfig` for `handleComboChat()` — never persisted to DB
-
-This means **adding a new provider with `auto/*` enabled automatically expands the candidate pool** — no manual combo editing needed. The virtual combo is rebuilt per request, so newly-added or newly-healthy connections are picked up immediately.
+The preset creation action uses `open-sse/services/autoCombo/virtualFactory.ts` to
+prepare a snapshot of eligible activated models. It scores candidates with the selected
+preset and saves those targets as an editable combo. Adding a provider or discovering
+new models does not modify that saved snapshot. Saved combos with an auto strategy
+can score their explicitly configured candidates at request time.
 
 ## Self-Healing
 
@@ -469,21 +416,13 @@ This means **adding a new provider with `auto/*` enabled automatically expands t
 
 ## API
 
-There is **no dedicated `POST /api/combos/auto` endpoint** — Auto-Combo is consumed in two ways:
-
-1. **Zero-config (recommended):** Send any chat completion request with `model: "auto"` or `model: "auto/<variant>"`. The virtual factory builds the combo per request — no persistence, no API calls needed.
-
-2. **Persisted combo with `strategy: "auto"`:** Create a regular combo via `POST /api/combos` and set `strategy: "auto"` plus `config.auto.weights` / `config.auto.candidatePool`. The same scoring engine is used; the combo is stored in `combos` and reusable by ID.
+Create a saved combo with `POST /api/combos`, or explicitly apply a preset using
+`POST /api/combos/duplicate`. Preset creation uses activated models only. Unconfigured
+`auto` names cannot be invoked as shortcuts.
 
 For discovery, `GET /api/combos/auto` lists every variant with its resolved candidate pool plus `context_length` / `max_output_tokens` — the MAX across the candidate pool's windows. Clients (e.g. the opencode plugin) must advertise these values instead of `0`: a zero context disables opencode's auto-compaction entirely, letting sessions grow until the gateway's history purge destroys context. MAX is safe to advertise because the auto-combo context pre-filter routes oversized requests to large-window candidates.
 
 ```bash
-# Zero-config usage (no combo creation)
-curl -X POST http://localhost:20128/v1/chat/completions \
-  -H "Authorization: Bearer <key>" \
-  -H "Content-Type: application/json" \
-  -d '{"model":"auto/coding","messages":[{"role":"user","content":"Hello"}]}'
-
 # Persisted auto combo via the regular combos endpoint
 curl -X POST http://localhost:20128/api/combos \
   -H "Content-Type: application/json" \
