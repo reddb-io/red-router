@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Button, Badge } from "@/shared/components";
+import { awaitWithAbort } from "@/shared/utils/awaitWithAbort";
 
 export interface ConnectionHealth {
   rateLimitedUntil?: string | null;
@@ -46,14 +47,19 @@ function ConnectionProbe({ connectionId, health, draft }: Props) {
     const timer = setTimeout(() => controller.abort(), 45_000);
     const input = JSON.parse(fingerprint) as { connectionId: string; draft?: Props["draft"] };
     let disposed = false;
-    void fetch(`/api/providers/${encodeURIComponent(input.connectionId)}/test`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(input.draft ? { draft: input.draft } : {}),
-      signal: controller.signal,
-    })
-      .then(async (response) => {
-        const data = await response.json();
+    void awaitWithAbort(async () => {
+      const response = await fetch(
+        `/api/providers/${encodeURIComponent(input.connectionId)}/test`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(input.draft ? { draft: input.draft } : {}),
+          signal: controller.signal,
+        }
+      );
+      return { response, data: await response.json() };
+    }, controller.signal)
+      .then(({ response, data }) => {
         if (controller.signal.aborted) return;
         setResult({
           valid: response.ok && data.valid === true,

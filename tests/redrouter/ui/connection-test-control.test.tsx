@@ -15,6 +15,7 @@ afterEach(() => {
   act(() => root.unmount());
   container.remove();
   vi.unstubAllGlobals();
+  vi.useRealTimers();
 });
 const clickTest = async () =>
   act(async () => container.querySelector<HTMLButtonElement>("button")!.click());
@@ -99,4 +100,18 @@ it("a successful saved probe updates the shown cooldown from the server response
   await clickTest();
   expect(container.textContent).toContain("No active connection cooldown");
   expect(container.textContent).toContain("Connection reached");
+});
+
+it("shows a bounded connection timeout when a response body never resolves", async () => {
+  vi.useFakeTimers();
+  const response = Response.json({ valid: true });
+  vi.spyOn(response, "json").mockImplementation(() => new Promise(() => {}));
+  vi.stubGlobal("fetch", async () => response);
+  await act(async () => root.render(<ConnectionTestControl connectionId="conn" health={{}} />));
+  await clickTest();
+  await act(async () => vi.advanceTimersByTimeAsync(45_000));
+  expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+    "Test timed out after 45 seconds"
+  );
+  expect(container.querySelector<HTMLButtonElement>("button")!.disabled).toBe(false);
 });

@@ -23,6 +23,8 @@ import { looksLikeQuotaExhausted } from "@/shared/utils/classify429";
 import { getTrustedLocalRateLimitError } from "@omniroute/open-sse/services/rateLimitManager/errors";
 import { runAsProbe } from "@/shared/utils/probeOrigin";
 import { isConnectionUnavailableToAuxiliaryActivity } from "@/lib/exclusiveLeaseIsolation";
+import { awaitWithAbort } from "@/shared/utils/awaitWithAbort";
+import { readModelTestBody } from "./modelTestBody";
 
 const INTERNAL_ORIGIN = "http://omniroute.internal";
 export const DEFAULT_MODEL_TEST_TIMEOUT_MS = 30_000;
@@ -381,6 +383,7 @@ export interface RunSingleModelTestOptions {
   connectionId?: string;
   timeoutMs?: number;
   streamChat?: boolean;
+  signal?: AbortSignal;
 }
 
 export interface SingleModelTestResult {
@@ -417,13 +420,15 @@ export function classifyModelTestOutput(
 
 export async function extractModelTestResponseText(
   response: Response,
-  streamChat: boolean
+  streamChat: boolean,
+  signal?: AbortSignal
 ): Promise<ModelTestResponseText> {
   const contentType = (response.headers.get("content-type") || "").toLowerCase();
-  if (streamChat && !contentType.includes("application/json")) {
-    return extractComboTestStreamResult(await response.text());
-  }
-  return { text: extractComboTestResponseText(await response.json()) };
+  const streaming = streamChat && !contentType.includes("application/json");
+  const body = await readModelTestBody(response, streaming, signal);
+  return streaming
+    ? extractComboTestStreamResult(body)
+    : { text: extractComboTestResponseText(JSON.parse(body)) };
 }
 
 function isRateLimitMessage(message: string): boolean {
@@ -580,8 +585,11 @@ export async function runSingleModelTest(
     timedOut = true;
     controller.abort(createModelTestTimeoutError(effectiveTimeoutMs));
   }, effectiveTimeoutMs);
+  const testSignal = options.signal
+    ? AbortSignal.any([controller.signal, options.signal])
+    : controller.signal;
 
-  const runInner = async (signal: AbortSignal): Promise<Response> => {
+  const dispatchInner = async (signal: AbortSignal): Promise<Response> => {
     if (isEmbedding) {
       return handleValidatedEmbeddingRequestBody(
         testBody as Record<string, unknown> & { model: string },
@@ -601,27 +609,48 @@ export async function runSingleModelTest(
     }
     return postChatCompletion(buildInternalChatRequest(testBody, signal, connectionId));
   };
+  const runInner = async (signal: AbortSignal): Promise<Response> => {
+    const response = await dispatchInner(signal);
+    if (signal.aborted) {
+      void response.body?.cancel(signal.reason).catch(() => {});
+      signal.throwIfAborted();
+    }
+    return response;
+  };
 
   let res: Response;
   try {
     if (connectionId) {
-      res = await withRateLimit(
-        providerId,
-        connectionId,
-        fullModelStr,
-        // T-PROBE: wrap the scheduled fn, not the withRateLimit call — a
-        // queued Bottleneck job executes from its own async resource and
-        // would otherwise run outside the probe context below.
-        (signal) => runAsProbe(() => runInner(signal)),
-        controller.signal
+      res = await awaitWithAbort(
+        () =>
+          withRateLimit(
+            providerId,
+            connectionId,
+            fullModelStr,
+            // T-PROBE: wrap the scheduled fn, not the withRateLimit call — a
+            // queued Bottleneck job executes from its own async resource and
+            // would otherwise run outside the probe context below.
+            (signal) => runAsProbe(() => runInner(signal)),
+            testSignal
+          ),
+        testSignal
       );
     } else {
-      res = await runAsProbe(() => runInner(controller.signal));
+      res = await awaitWithAbort(() => runAsProbe(() => runInner(testSignal)), testSignal);
     }
   } catch (error: unknown) {
     clearTimeout(timeoutHandle);
     const latencyMs = Date.now() - startTime;
     const errorName = getErrorName(error);
+    if (options.signal?.aborted)
+      return {
+        modelId: fullModelStr,
+        status: "error",
+        latencyMs,
+        httpStatus: 499,
+        error: "Model test canceled.",
+        isTransient: true,
+      };
     if (timedOut) {
       return {
         modelId: fullModelStr,
@@ -673,7 +702,7 @@ export async function runSingleModelTest(
 
     let errorMsg = "Rate limited";
     try {
-      const errBody = await res.json();
+      const errBody = JSON.parse(await readModelTestBody(res, false, testSignal));
       errorMsg = extractProviderErrorMessage(errBody, res.statusText || errorMsg);
     } catch {
       errorMsg = res.statusText || errorMsg;
@@ -689,12 +718,31 @@ export async function runSingleModelTest(
       ...(retryAfter !== undefined ? { retryAfter } : {}),
     };
     clearTimeout(timeoutHandle);
+    if (timedOut)
+      return {
+        modelId: fullModelStr,
+        status: "slow",
+        latencyMs: Date.now() - startTime,
+        httpStatus: 504,
+        error: `Model test did not complete within ${Math.round(effectiveTimeoutMs / 1000)}s`,
+        isTimeout: true,
+      };
+    if (options.signal?.aborted)
+      return {
+        modelId: fullModelStr,
+        status: "error",
+        latencyMs: Date.now() - startTime,
+        httpStatus: 499,
+        error: "Model test canceled.",
+        isTransient: true,
+      };
     return result;
   }
 
   if (res.ok) {
     let responseText = "";
     let streamError: ModelTestResponseText["error"];
+    let responseError: string | undefined;
     try {
       // T-PROBE: consume the stream inside the probe context too — the SSE
       // body is transformed by chatCore/chatHelpers generator code that
@@ -703,16 +751,30 @@ export async function runSingleModelTest(
       // deactivated") would run outside runAsProbe and could still reach
       // markAccountUnavailable (#9817).
       const parsedResponse = await runAsProbe(() =>
-        extractModelTestResponseText(res, !isEmbedding && !isRerank && !isResponses && streamChat)
+        extractModelTestResponseText(
+          res,
+          !isEmbedding && !isRerank && !isResponses && streamChat,
+          testSignal
+        )
       );
       responseText = parsedResponse.text;
       streamError = parsedResponse.error;
-    } catch {
+    } catch (error) {
       responseText = "";
+      responseError = getErrorMessage(error);
     } finally {
       clearTimeout(timeoutHandle);
     }
     latencyMs = Date.now() - startTime;
+    if (options.signal?.aborted)
+      return {
+        modelId: fullModelStr,
+        status: "error",
+        latencyMs,
+        httpStatus: 499,
+        error: "Model test canceled.",
+        isTransient: true,
+      };
     if (streamError) {
       const error = sanitizeErrorMessage(streamError.message) || "Upstream stream failed";
       const rateLimited = streamError.statusCode === 429 || isRateLimitMessage(error);
@@ -749,6 +811,14 @@ export async function runSingleModelTest(
         isTimeout: true,
       };
     }
+    if (responseError)
+      return {
+        modelId: fullModelStr,
+        status: "error",
+        latencyMs,
+        httpStatus: 502,
+        error: responseError,
+      };
     if (isRerank) {
       return {
         modelId: fullModelStr,
@@ -779,13 +849,31 @@ export async function runSingleModelTest(
 
   let errorMsg = "";
   try {
-    const errBody = await res.json();
+    const errBody = JSON.parse(await readModelTestBody(res, false, testSignal));
     errorMsg = extractProviderErrorMessage(errBody, res.statusText);
   } catch {
     errorMsg = res.statusText;
   } finally {
     clearTimeout(timeoutHandle);
   }
+  if (timedOut)
+    return {
+      modelId: fullModelStr,
+      status: "slow",
+      latencyMs: Date.now() - startTime,
+      httpStatus: 504,
+      error: `Model test did not complete within ${Math.round(effectiveTimeoutMs / 1000)}s`,
+      isTimeout: true,
+    };
+  if (options.signal?.aborted)
+    return {
+      modelId: fullModelStr,
+      status: "error",
+      latencyMs: Date.now() - startTime,
+      httpStatus: 499,
+      error: "Model test canceled.",
+      isTransient: true,
+    };
   // #9511: classify quota signals on the generic error branch so that
   // 401/402/403 "insufficient balance" / "quota exhausted" errors are
   // NOT auto-hidden by Test All.

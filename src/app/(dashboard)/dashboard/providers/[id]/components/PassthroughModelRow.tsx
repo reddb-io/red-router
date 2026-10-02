@@ -309,9 +309,12 @@ export default function PassthroughModelRow({
           </button>
           {onTestModel && (
             <button
+              type="button"
+              aria-label={testingModel ? `Testing ${modelId}` : `Test ${modelId}`}
+              aria-busy={testingModel || undefined}
               onClick={() => onTestModel(modelId, fullModel)}
               disabled={testingModel}
-              className={`rounded p-0.5 hover:bg-sidebar transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${testStatus === "ok" ? "text-feedback-success-foreground" : testStatus === "quota" ? "text-feedback-warning-foreground" : testStatus === "error" ? "text-feedback-danger-foreground" : "text-text-muted hover:text-primary"}`}
+              className={`inline-flex items-center gap-1 rounded p-0.5 hover:bg-sidebar transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${testStatus === "ok" ? "text-feedback-success-foreground" : testStatus === "quota" ? "text-feedback-warning-foreground" : testStatus === "error" ? "text-feedback-danger-foreground" : "text-text-muted hover:text-primary"}`}
               title={
                 testingModel
                   ? t("testingModel")
@@ -334,6 +337,11 @@ export default function PassthroughModelRow({
                 <Icon icon={CircleAlert} size="sm" color="current" />
               ) : (
                 <Icon icon={CirclePlay} size="sm" color="current" />
+              )}
+              {testingModel && (
+                <span className="text-xs" aria-live="polite">
+                  Testing…
+                </span>
               )}
             </button>
           )}

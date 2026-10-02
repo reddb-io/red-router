@@ -9,7 +9,7 @@ import { useModelVisibilityHandlers } from "@/app/(dashboard)/dashboard/provider
 let container: HTMLDivElement;
 let root: Root;
 const notify = { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() };
-function TestFlow() {
+function TestFlow({ connectionId = "connection" }: { connectionId?: string }) {
   const hook = useModelVisibilityHandlers({
     providerId: "openrouter",
     modelAliases: {},
@@ -19,7 +19,7 @@ function TestFlow() {
     fetchAliases: async () => {},
     notify: notify as unknown as Parameters<typeof useModelVisibilityHandlers>[0]["notify"],
     t: (key) => key,
-    selectedConnection: { id: "connection", provider: "openrouter" },
+    selectedConnection: { id: connectionId, provider: "openrouter" },
     providerNode: null,
   });
   return (
@@ -42,6 +42,7 @@ afterEach(() => {
   act(() => root.unmount());
   container.remove();
   vi.unstubAllGlobals();
+  vi.useRealTimers();
 });
 
 it("shows pending immediately, retains an HTTP failure after the toast, and replaces it on retry", async () => {
@@ -129,4 +130,53 @@ it("explains why a batch cannot run when the filter has no active models", async
     )
   );
   expect(container.textContent).toContain("Testing 1/2");
+});
+
+it("a test stops waiting even if fetch ignores abort, shows a timeout and allows retry", async () => {
+  vi.useFakeTimers();
+  const fetcher = vi.fn(() => new Promise<Response>(() => {}));
+  vi.stubGlobal("fetch", fetcher);
+  await act(async () => root.render(<TestFlow />));
+  await act(async () => container.querySelector<HTMLButtonElement>("button")!.click());
+  const signal = fetcher.mock.calls[0][1].signal as AbortSignal;
+  await act(async () => vi.advanceTimersByTimeAsync(40_000));
+  expect(signal.aborted).toBe(true);
+  expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+    "Test timed out after 40 seconds"
+  );
+  expect(container.querySelector('[aria-busy="true"]')).toBeNull();
+  fetcher.mockImplementation(async () => Response.json({ status: "ok", latencyMs: 12 }));
+  await act(async () => container.querySelector<HTMLButtonElement>("button")!.click());
+  expect(container.textContent).toContain("Model test passed");
+  expect(vi.getTimerCount()).toBe(0);
+});
+
+it("the client deadline covers a hung JSON body after headers arrive", async () => {
+  vi.useFakeTimers();
+  const response = Response.json({ status: "ok" });
+  vi.spyOn(response, "json").mockImplementation(() => new Promise(() => {}));
+  vi.stubGlobal("fetch", async () => response);
+  await act(async () => root.render(<TestFlow />));
+  await act(async () => container.querySelector<HTMLButtonElement>("button")!.click());
+  await act(async () => vi.advanceTimersByTimeAsync(40_000));
+  expect(container.textContent).toContain("Test timed out after 40 seconds");
+  expect(container.querySelector('[aria-busy="true"]')).toBeNull();
+});
+
+it("changing connections aborts the old test and a late response cannot overwrite the new scope", async () => {
+  let finish: (response: Response) => void;
+  let signal: AbortSignal;
+  vi.stubGlobal("fetch", (_url: string, init: RequestInit) => {
+    signal = init.signal as AbortSignal;
+    return new Promise<Response>((resolve) => {
+      finish = resolve;
+    });
+  });
+  await act(async () => root.render(<TestFlow />));
+  await act(async () => container.querySelector<HTMLButtonElement>("button")!.click());
+  await act(async () => root.render(<TestFlow connectionId="other" />));
+  expect(signal.aborted).toBe(true);
+  await act(async () => finish(Response.json({ status: "ok", latencyMs: 1 })));
+  expect(container.textContent).not.toContain("Model test passed");
+  expect(notify.success).not.toHaveBeenCalled();
 });

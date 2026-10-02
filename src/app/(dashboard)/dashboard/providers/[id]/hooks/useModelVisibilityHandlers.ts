@@ -20,7 +20,7 @@
  * ProviderDetailPageClient.
  */
 
-import { useState, useMemo, useRef } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import type { ModelTestFeedbackState } from "../components/ModelTestFeedback";
 import {
   formatProviderModelsErrorResponse,
@@ -33,6 +33,21 @@ import {
 } from "../providerPageHelpers";
 import { useNotificationStore } from "@/store/notificationStore";
 import { extractApiErrorMessage } from "@/shared/http/apiErrorMessage";
+import { awaitWithAbort } from "@/shared/utils/awaitWithAbort";
+
+export function modelTestClientTimeoutMs(providerId: string): number {
+  // Allow the server's provider-specific deadline plus time to return the diagnostic.
+  switch (providerId.trim().toLowerCase()) {
+    case "nvidia":
+      return 190_000;
+    case "doubao-web":
+      return 100_000;
+    case "zai-web":
+      return 70_000;
+    default:
+      return 40_000;
+  }
+}
 
 type NotifyStore = ReturnType<typeof useNotificationStore>;
 
@@ -120,6 +135,16 @@ export function useModelVisibilityHandlers({
   const [testingModelId, setTestingModelId] = useState<string | null>(null);
   const [modelTestFeedback, setModelTestFeedback] = useState<ModelTestFeedbackState | null>(null);
   const latestTest = useRef(0);
+  const activeTest = useRef<AbortController | null>(null);
+  useEffect(() => {
+    setTestingModelId(null);
+    setModelTestFeedback(null);
+    return () => {
+      latestTest.current++;
+      activeTest.current?.abort();
+      activeTest.current = null;
+    };
+  }, [providerId, selectedConnection?.id]);
   const [modelTestStatus, setModelTestStatus] = useState<Record<string, "ok" | "error" | "quota">>(
     {}
   );
@@ -294,6 +319,16 @@ export function useModelVisibilityHandlers({
 
   const onTestModel = async (modelId: string, fullModel: string) => {
     const attempt = ++latestTest.current;
+    activeTest.current?.abort();
+    const controller = new AbortController();
+    activeTest.current = controller;
+    const dispatchProvider = selectedConnection?.provider || providerNode?.id || providerId;
+    const clientTimeoutMs = modelTestClientTimeoutMs(dispatchProvider);
+    const startedAt = Date.now();
+    const timer = setTimeout(
+      () => controller.abort(new DOMException("Model test deadline exceeded", "TimeoutError")),
+      clientTimeoutMs
+    );
     const showFeedback = (result: ModelTestFeedbackState) => {
       if (latestTest.current === attempt) setModelTestFeedback(result);
     };
@@ -309,16 +344,21 @@ export function useModelVisibilityHandlers({
       return next;
     });
     try {
-      const res = await fetch("/api/models/test", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          providerId: selectedConnection?.provider || providerNode?.id || providerId,
-          modelId: fullModel,
-          connectionId: selectedConnection?.id,
-        }),
-      });
-      const data = await res.json();
+      const { res, data } = await awaitWithAbort(async () => {
+        const res = await fetch("/api/models/test", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            providerId: dispatchProvider,
+            modelId: fullModel,
+            connectionId: selectedConnection?.id,
+          }),
+          signal: controller.signal,
+        });
+        const data = await res.json();
+        return { res, data };
+      }, controller.signal);
+      if (latestTest.current !== attempt) return;
       if (res.ok && data.status === "ok") {
         showFeedback({
           model: fullModel,
@@ -358,12 +398,24 @@ export function useModelVisibilityHandlers({
         setModelTestStatus((prev) => ({ ...prev, [modelId]: "error" }));
       }
     } catch (err) {
-      const message = providerText(t, "modelTestNetworkError", "Network error testing model");
-      showFeedback({ model: fullModel, status: "error", message });
+      if (latestTest.current !== attempt) return;
+      const message = controller.signal.aborted
+        ? `Test timed out after ${Math.round(clientTimeoutMs / 1000)} seconds while waiting for RedRouter. Check the connection address and provider logs, then retry.`
+        : providerText(t, "modelTestNetworkError", "Network error testing model");
+      showFeedback({
+        model: fullModel,
+        status: "error",
+        message,
+        latencyMs: Date.now() - startedAt,
+      });
       notify.error(message);
       setModelTestStatus((prev) => ({ ...prev, [modelId]: "error" }));
     } finally {
-      if (latestTest.current === attempt) setTestingModelId(null);
+      clearTimeout(timer);
+      if (latestTest.current === attempt) {
+        setTestingModelId(null);
+        activeTest.current = null;
+      }
     }
   };
 

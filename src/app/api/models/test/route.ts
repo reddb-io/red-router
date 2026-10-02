@@ -71,6 +71,7 @@ export async function POST(request: Request) {
           ? NVIDIA_SINGLE_TEST_TIMEOUT_MS
           : DEFAULT_MODEL_TEST_TIMEOUT_MS,
       streamChat: true,
+      signal: request.signal,
     });
 
     if (result.status === "ok") {
