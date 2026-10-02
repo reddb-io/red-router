@@ -4,42 +4,46 @@ import test from "node:test";
 import { buildErrorBody } from "../../../open-sse/utils/error.ts";
 import { FORMATS } from "../../../open-sse/translator/formats.ts";
 import { createSSEStream } from "../../../open-sse/utils/stream.ts";
-import { normalizeStreamFailurePayload } from "../../../open-sse/utils/streamErrorFormat.ts";
+import {
+  normalizeStreamFailurePayload,
+  projectCompletedStreamError,
+  type StreamFailurePayload,
+} from "../../../open-sse/utils/streamErrorFormat.ts";
 
 test("a billing failure keeps its classification through two Router SSE hops", async () => {
   const encoder = new TextEncoder();
   const statuses: number[][] = [[], []];
   const upstream = buildErrorBody(402, "This request requires more credits, or fewer max_tokens.");
-  const source = new ReadableStream<Uint8Array>({
-    start(controller) {
-      controller.enqueue(encoder.encode(`data: ${JSON.stringify(upstream)}\n\n`));
-      controller.close();
-    },
-  });
-  let stream = source;
+  let payload = upstream;
   for (let hop = 0; hop < 2; hop++) {
-    stream = stream.pipeThrough(
+    let failure: StreamFailurePayload | undefined;
+    const source = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
+        controller.close();
+      },
+    });
+    const stream = source.pipeThrough(
       createSSEStream({
         mode: "passthrough",
         sourceFormat: FORMATS.OPENAI,
         clientResponseFormat: FORMATS.OPENAI,
-        onFailure: (failure) => {
-          statuses[hop].push(failure.status);
+        onFailure: (value) => {
+          failure = value;
+          statuses[hop].push(value.status);
           return true;
         },
       })
     );
+    // The stream's failure boundary rejects; the Router completion seam emits
+    // the canonical projected error to the next peer after recording the failure.
+    await assert.rejects(new Response(stream).text(), /more credits/);
+    assert.ok(failure);
+    payload = { error: projectCompletedStreamError(failure) as typeof upstream.error };
   }
-  const output = await new Response(stream).text();
-  const errors = output
-    .split("\n")
-    .filter((line) => line.startsWith("data:") && !line.includes("[DONE]"))
-    .map((line) => JSON.parse(line.slice(5)))
-    .filter((payload) => payload.error);
   assert.deepEqual(statuses, [[402], [402]]);
-  assert.equal(errors.length, 1);
-  assert.equal(normalizeStreamFailurePayload(errors[0])?.status, 402);
-  assert.match(errors[0].error.message, /more credits/);
+  assert.equal(normalizeStreamFailurePayload(payload)?.status, 402);
+  assert.match(payload.error.message, /more credits/);
 });
 
 test("numeric HTTP error codes retain their status without interpreting application codes", () => {
