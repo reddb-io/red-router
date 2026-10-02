@@ -18,6 +18,8 @@ if (process.argv.includes("--list")) {
           "./tests/_setup/isolateDataDir.ts",
           "--test",
           "--test-force-exit",
+          "--test-timeout=120000",
+          "--test-reporter=tap",
           "--test-concurrency=2",
           ...files,
         ]
