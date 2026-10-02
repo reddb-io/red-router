@@ -98,13 +98,13 @@ export default function EffectivePolicyDetails({
                   {connection.cooldownUntil && (
                     <>
                       {" "}
-                      until{" "}
+                      {connection.enabled ? "until " : "· Cooldown until "}
                       <time dateTime={connection.cooldownUntil}>{connection.cooldownUntil}</time>
                     </>
                   )}
                   {connection.testStatus
-                    ? ` · Last recorded test: ${connection.testStatus}`
-                    : " · No recorded test"}
+                    ? ` · Recorded status: ${connection.testStatus}`
+                    : " · No recorded status"}
                 </span>
               </li>
             ))}

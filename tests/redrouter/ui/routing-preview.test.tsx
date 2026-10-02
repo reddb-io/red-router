@@ -9,6 +9,7 @@ let container: HTMLElement;
 let urls: string[];
 let broken = false;
 let noModels = false;
+let connectionDisabled = false;
 beforeEach(() => {
   container = document.createElement("div");
   document.body.append(container);
@@ -16,6 +17,7 @@ beforeEach(() => {
   urls = [];
   broken = false;
   noModels = false;
+  connectionDisabled = false;
   vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
     const url = String(input);
     urls.push(url);
@@ -68,7 +70,7 @@ beforeEach(() => {
             id: "account",
             provider: "openai",
             name: "Acme account",
-            enabled: true,
+            enabled: !connectionDisabled,
             cooldownUntil: "2030-01-01T00:00:00Z",
             testStatus: "unavailable",
           },
@@ -102,7 +104,7 @@ it("limits key choices to the tenant and previews only a selected key's catalog"
   expect(container.textContent).toContain("Advertised endpoints: /v1/chat/completions");
   expect(container.textContent).toContain("Owner pin for this tenant");
   expect(container.textContent).toContain("Cooling down until");
-  expect(container.textContent).toContain("Last recorded test: unavailable");
+  expect(container.textContent).toContain("Recorded status: unavailable");
   broken = true;
   await act(async () =>
     [...container.querySelectorAll("button")]
@@ -130,4 +132,11 @@ it("explains an empty decision catalog without offering an unusable model select
   expect(container.textContent).toContain(
     "Check enabled connections, model activation and API-key permissions."
   );
+});
+
+it("keeps manual disablement distinct from a cooldown expiry", async () => {
+  connectionDisabled = true;
+  await act(async () => root.render(<RoutingPreview initialApiKeyId="a-key" />));
+  expect(container.textContent).toContain("Disabled · Cooldown until");
+  expect(container.textContent).not.toContain("Disabled until");
 });

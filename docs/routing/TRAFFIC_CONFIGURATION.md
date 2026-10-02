@@ -31,7 +31,7 @@ not alter model IDs, payloads, endpoints or credentials. Supported endpoints are
 declarations, not evidence that an upstream evaluation succeeded.
 
 Connection entries show enabled state, a future cooldown timestamp if present, and the last
-recorded test status. They do not select a credential or certify a model as working. Provider
+recorded connection status. They do not select a credential or certify a model as working. Provider
 breakers, model lockouts, budgets, quotas, payload capabilities and live availability still
 apply at dispatch. Cache and streaming rows describe key defaults; actual requests may differ
 according to their headers, explicit parameters and endpoint behavior.
