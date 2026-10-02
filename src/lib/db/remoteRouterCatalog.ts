@@ -93,3 +93,15 @@ export function clearRemoteRouterCatalog(connectionId: string): void {
   );
   finishModelCatalogWriteWithoutBackup();
 }
+
+/** Clear saved remote discovery for this provider without changing connection settings. */
+export function clearRemoteRouterCatalogsForProvider(providerId: string): number {
+  const result = getDbInstance()
+    .prepare(
+      "DELETE FROM key_value WHERE namespace = 'remoteRouterCatalog' AND key IN (SELECT id FROM provider_connections WHERE provider = ?)"
+    )
+    .run(providerId);
+  const removed = Number(result.changes);
+  if (removed > 0) finishModelCatalogWriteWithoutBackup();
+  return removed;
+}

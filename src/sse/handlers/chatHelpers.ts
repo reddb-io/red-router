@@ -12,7 +12,6 @@ import {
 } from "../services/auth";
 import { connectionHasExtraKeys } from "@omniroute/open-sse/services/apiKeyRotator.ts";
 import { clearRequestRejectedStreak } from "@omniroute/open-sse/services/requestRejectedStreak.ts";
-import { createBuiltinAutoCombo } from "@omniroute/open-sse/services/autoCombo/builtinCatalog.ts";
 import * as log from "../utils/logger";
 import { updateProviderCredentials } from "../services/tokenRefresh";
 import { detectFormatFromEndpoint } from "@omniroute/open-sse/services/provider.ts";
@@ -182,64 +181,25 @@ export async function resolveModelOrError(
   // splits it into provider="auto" model="fast", so resolve it before credential lookup.
   if (modelInfo.provider === "auto") {
     const suffix = modelInfo.model || "";
-    const fuzzyCandidates = [`auto/best-${suffix}`, `auto/${suffix}`];
-
     const exactCombo = await getComboForModel(modelStr);
     if (exactCombo) {
-      log.info("ROUTING", `"auto" provider → combo "${modelStr}"`);
+      if (exactCombo.isActive === false) {
+        return {
+          error: errorResponse(
+            HTTP_STATUS.FORBIDDEN,
+            "This combo is inactive. Activate it before use."
+          ),
+        };
+      }
       return { combo: exactCombo, provider: "auto", model: suffix };
     }
 
-    // Preserve persisted fuzzy combo behavior before falling back to built-in virtual catalog ids.
-    for (const candidate of fuzzyCandidates) {
-      const fuzzyCombo = await getComboForModel(candidate);
-      if (fuzzyCombo) {
-        log.info("ROUTING", `"auto/${suffix}" → combo "${candidate}" (fuzzy)`);
-        return { combo: fuzzyCombo, provider: "auto", model: suffix };
-      }
-    }
-
-    try {
-      const virtualCombo = await createBuiltinAutoCombo(modelStr, suffix);
-      const poolSize = virtualCombo.candidatePool?.length || 0;
-      log.info(
-        "AUTO",
-        `"auto" provider → built-in virtual combo "${modelStr}" (${poolSize} candidates)`
-      );
-      // #6458: fail fast instead of leaking a silent 15s upstream timeout when
-      // the category/tier filter (e.g. auto/coding:pro, auto/reasoning) matches
-      // zero connected candidates. An empty virtual combo has no targets to
-      // dispatch to, so downstream combo routing stalls on an empty set.
-      if (poolSize === 0) {
-        const msg = `No connected providers match '${modelStr}'. Connect a provider whose models satisfy this category/tier, or use a different auto combo.`;
-        log.warn("AUTO", msg, { model: modelStr });
-        return { error: errorResponse(HTTP_STATUS.SERVICE_UNAVAILABLE, msg) };
-      }
-      return { combo: virtualCombo, provider: "auto", model: suffix };
-    } catch (err) {
-      log.warn("CHAT", `Failed to create built-in auto combo "${modelStr}"`, { err });
-    }
-
-    // Fuzzy: "fast" → "auto/best-fast", "chat" → "auto/best-chat"
-    for (const candidate of fuzzyCandidates) {
-      try {
-        const virtualCombo = await createBuiltinAutoCombo(
-          candidate,
-          candidate.replace(/^auto\/?/, "")
-        );
-        log.info(
-          "AUTO",
-          `"auto/${suffix}" → built-in virtual combo "${candidate}" (fuzzy, ${virtualCombo.candidatePool?.length || 0} candidates)`
-        );
-        return { combo: virtualCombo, provider: "auto", model: suffix };
-      } catch {
-        /* Try next fuzzy candidate */
-      }
-    }
-
-    const message = `Model '${modelStr}' is not a valid combo or provider. Unknown built-in auto combo.`;
-    log.warn("CHAT", message, { model: modelStr });
-    return { error: errorResponse(HTTP_STATUS.BAD_REQUEST, message) };
+    return {
+      error: errorResponse(
+        HTTP_STATUS.FORBIDDEN,
+        "Auto route is not configured. Create and activate a combo in Routing > Combos before using this ID."
+      ),
+    };
   }
 
   if (!modelInfo.provider) {

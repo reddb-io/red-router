@@ -30,6 +30,7 @@ import {
   isOpenAICompatibleProvider,
   isAnthropicCompatibleProvider,
 } from "@/shared/constants/providers";
+import { clearRemoteRouterCatalogsForProvider } from "@/lib/db/remoteRouterCatalog";
 import { isAuthenticated } from "@/shared/utils/apiAuth";
 export const dynamic = "force-dynamic";
 import { providerModelMutationSchema } from "@/shared/validation/schemas";
@@ -564,9 +565,11 @@ export async function DELETE(request) {
       await replaceCustomModels(provider, [], { allowEmpty: true });
       const syncedAvailableModelListsRemoved =
         await deleteSyncedAvailableModelsForProvider(provider);
+      const remoteCatalogsRemoved = clearRemoteRouterCatalogsForProvider(provider);
       const removedAliases = await deleteManagedAvailableModelAliasesForProvider(provider);
       return Response.json({
         cleared: true,
+        remoteCatalogsRemoved,
         syncedAvailableModelListsRemoved,
         aliasChanges: { removed: removedAliases, assigned: [] },
       });

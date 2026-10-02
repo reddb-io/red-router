@@ -997,19 +997,6 @@ async function handleChatImplementation(
   let combo: any = await getComboForModel(resolvedModelStr);
   if (reasoningDecision?.targetCombo) combo = reasoningDecision.targetCombo;
 
-  // "auto" prefix fuzzy matching: "auto/fast" → "auto/best-fast", etc.
-  // parseModel splits "auto/fast" into provider="auto" which isn't a real provider.
-  if (!combo && resolvedModelStr.startsWith("auto/")) {
-    const suffix = resolvedModelStr.slice(5);
-    for (const candidate of [`auto/best-${suffix}`, `auto/${suffix}`]) {
-      combo = await getComboForModel(candidate);
-      if (combo) {
-        log.info("ROUTING", `"${resolvedModelStr}" → combo "${candidate}" (auto fuzzy)`);
-        break;
-      }
-    }
-  }
-
   const virtualCombo = await createVirtualAutoCombo(autoRouting, combo, apiKeyInfo?.id);
   if (virtualCombo instanceof Response) return virtualCombo;
   combo = virtualCombo;

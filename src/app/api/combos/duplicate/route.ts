@@ -5,7 +5,7 @@ import { normalizeComboModels } from "@/lib/combos/steps";
 import { duplicateAutoComboSchema } from "@/shared/validation/schemas";
 import { isValidationFailure, validateBody } from "@/shared/validation/helpers";
 import {
-  AUTO_FAMILY_IDS,
+  isRecognizedBuiltinAuto,
   resolveBuiltinAutoSpec,
 } from "@omniroute/open-sse/services/autoCombo/builtinCatalog";
 import { AutoVariant } from "@omniroute/open-sse/services/autoCombo/autoPrefix";
@@ -42,9 +42,6 @@ export async function POST(request: Request) {
   const { name, strategy } = validation.data;
 
   try {
-    const { createVirtualAutoCombo } =
-      await import("@omniroute/open-sse/services/autoCombo/virtualFactory");
-
     // Resolve the variant/spec using the same logic as builtinCatalog.
     const suffix = name.slice("auto/".length);
     const resolved = resolveBuiltinAutoSpec(name, suffix);
@@ -73,7 +70,7 @@ export async function POST(request: Request) {
     }
 
     // Reject unknown templates early instead of silently passing bad data downstream.
-    if (!variant && !spec) {
+    if (!isRecognizedBuiltinAuto(name, suffix)) {
       return NextResponse.json(
         { error: `Unknown auto-combo template: "${name}"` },
         { status: 422 }
@@ -94,7 +91,9 @@ export async function POST(request: Request) {
 
     if (!Array.isArray(virtualCombo.models) || virtualCombo.models.length === 0) {
       return NextResponse.json(
-        { error: "No connected providers/models match this auto-combo template" },
+        {
+          error: "No activated models match this preset. Activate models in their provider first.",
+        },
         { status: 422 }
       );
     }

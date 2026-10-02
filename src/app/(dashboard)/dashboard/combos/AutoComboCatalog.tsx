@@ -7,13 +7,8 @@ import { useTranslations } from "next-intl";
 import { Card } from "@/shared/components";
 import { AUTO_COMBO_TEMPLATES, type AutoComboTemplate } from "@/domain/assessment/types";
 
-// Informational catalog of zero-config auto-routing combos.
-// Auto combos are resolved at request time by the chat handler based on the
-// currently connected providers / models — they have no row in the combos
-// table, so they were previously invisible in the UI. This panel surfaces
-// the static catalog (name, intent, categories, tiers, strategy) so users
-// can discover the auto/ prefix without reading source. Duplicate icon lets
-// you materialize a snapshot into an editable static combo you can customize.
+// Presets remain suggestions until the operator explicitly saves a combo.
+// Saving snapshots the selected models into an editable persistent route.
 export default function AutoComboCatalog({
   onComboCreated,
 }: {
@@ -96,11 +91,13 @@ export default function AutoComboCatalog({
               className="rounded-lg border border-border bg-bg-subtle p-3 text-xs relative"
             >
               <button
+                type="button"
                 onClick={() => handleDuplicateTemplate(tpl)}
                 disabled={duplicatingName !== null}
-                className="absolute bottom-1.5 right-1.5 p-0.5 hover:bg-black/5 dark:hover:bg-white/5 rounded text-text-muted hover:text-primary transition-colors"
+                className="absolute bottom-1.5 right-1.5 flex items-center gap-1 p-0.5 hover:bg-black/5 dark:hover:bg-white/5 rounded text-text-muted hover:text-primary transition-colors"
                 title={t("duplicateAutoComboTitle", { name: tpl.name })}
               >
+                <span className="text-[11px]">Create combo</span>
                 <span
                   className={`material-symbols-outlined text-[14px] ${duplicatingName === tpl.name ? "animate-spin" : ""}`}
                 >

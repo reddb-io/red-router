@@ -12,10 +12,7 @@ import { catalogVersionFromBody } from "@/lib/catalogVersion";
 import { comboMemberIds, comboStrategyForClients } from "./catalogComboRouting";
 import { RED_ROUTER_CATALOG_VERSION_HEADER } from "@/shared/constants/redRouterHeaders";
 import { NOAUTH_PROVIDERS } from "@/shared/constants/providers";
-import {
-  listNotEnabledNoAuthKeys,
-  normalizeEnabledNoAuthProviders,
-} from "@/lib/providers/enabledProviders";
+import { listNotEnabledNoAuthKeys } from "@/lib/providers/enabledProviders";
 import { getCombos } from "@/lib/db/combos";
 import { isComboNameAllowedForKey } from "@/shared/utils/apiKeyPolicy";
 import { getSettings } from "@/lib/db/settings";
@@ -59,14 +56,6 @@ import {
 import { CODEX_NATIVE_UNPREFIXED_MODELS } from "@omniroute/open-sse/services/model";
 import { isModelSelectable } from "@omniroute/open-sse/services/modelLifecycle";
 import { resolveNestedComboTargets } from "@omniroute/open-sse/services/combo";
-import {
-  AUTO_TEMPLATE_VARIANTS,
-  AUTO_SUFFIX_VARIANTS,
-  AUTO_FAMILY_IDS,
-  createBuiltinAutoCombo,
-  prepareBuiltinAutoComboInputs,
-  isPaidTierAutoId,
-} from "@omniroute/open-sse/services/autoCombo/builtinCatalog";
 import {
   getSyncedAvailableModelsByConnection,
   SYNCED_AVAILABLE_MODELS_MALFORMED,
@@ -135,7 +124,6 @@ import {
   visionDerivedModalities,
   getConnectionScopedEffortTiers,
   type ConnectionScopedReasoningCatalog,
-  memoizeTargetMetadata,
 } from "./catalogHelpers";
 import {
   qualifyOpenRouterModelId,
@@ -215,8 +203,6 @@ export type { CachedCatalog, BackgroundRefreshScheduler } from "./catalogCache";
 export type CatalogResponseOptions = {
   scheduleBackgroundRefresh?: BackgroundRefreshScheduler;
 };
-
-const BUILTIN_AUTO_YIELD_INTERVAL = 2;
 
 function yieldCatalogBuildTurn(): Promise<void> {
   return new Promise((resolve) => setImmediate(resolve));
@@ -394,13 +380,6 @@ async function buildUnifiedModelsResponseCore(
     // exempt. Combos + auto/* + synced/custom/alias-backed rows also stay unfiltered —
     // extending v1 scope to those requires per-entry pricing lookup not available today.
     const hidePaid = settings.hidePaidModels === true;
-    // #9418: Opt-in filter — skip the entire auto/* synthesis loop when the operator
-    // does not want built-in virtual combos advertised in the catalog. User-defined
-    // combos are unaffected; routing still works for ids sent explicitly.
-    // #10831: also drop them when auto routing is switched off. Unlike
-    // hideAutoCombos — which only unadvertises ids that still route when sent
-    // explicitly — a disabled router rejects every auto/* id with a 400, so
-    // listing them offers the client a choice that cannot succeed.
     const hideAuto = settings.hideAutoCombos === true || settings.autoRoutingEnabled === false;
     const shouldHidePaid = (
       providerKey: string,
@@ -451,12 +430,6 @@ async function buildUnifiedModelsResponseCore(
       connections.map((c) => c.provider)
     ))
       blockedProviders.add(key);
-    // auto/* are virtual routers over the enabled providers: with none enabled they cannot
-    // route anywhere, so they are not advertised (fresh install lists nothing).
-    const nothingEnabled =
-      connections.length === 0 &&
-      normalizeEnabledNoAuthProviders(settings.enabledNoAuthProviders).length === 0;
-
     // Get provider nodes (for compatible providers with custom prefixes)
     let providerNodes = [];
     try {
@@ -923,116 +896,18 @@ async function buildUnifiedModelsResponseCore(
       }
     }
 
-    // #4164: advertise the built-in zero-setup `auto/*` combos at the very top.
-    // #4189: enrich each with the combo's advertised context/output limits (computed
-    // by createBuiltinAutoCombo from its candidate pool) + baseline capabilities, so
-    // OpenAI-compatible clients that build their picker from /v1/models (e.g. Hermes)
-    // receive token metadata before the first request instead of a bare entry. If the
-    // combo cannot be materialized (e.g. no eligible connections yet) the minimal
-    // #4164 entry is emitted instead, so the id is never dropped.
-    // #4235 Phase B: also advertise the curated `auto/<category>[:<tier>]` combos.
-    // #6453: also advertise the `auto/<family>` combos (auto/glm, auto/minimax, ...).
-    // #9199: prepare the shared connection/settings/registry candidate snapshot once for this
-    // catalog build. Runtime auto routing still prepares fresh request-scoped inputs.
-    let preparedAutoInputs: Awaited<ReturnType<typeof prepareBuiltinAutoComboInputs>> | undefined;
-    // A key with allowAutoCombos=false must not be offered ids it cannot use:
-    // the policy gate rejects auto/* for it at dispatch.
-    const autoCombosDisallowedForKey = earlyKeyMeta?.allowAutoCombos === false;
-    let materializedAutoCount = 0;
-    const autoMeta = memoizeTargetMetadata(getComboTargetCatalogMetadata, maybeYieldCatalogBuild);
-    for (const autoId of [
-      ...Object.keys(AUTO_TEMPLATE_VARIANTS),
-      ...AUTO_SUFFIX_VARIANTS,
-      ...AUTO_FAMILY_IDS,
-    ]) {
-      // #9418: skip the entire loop when hideAutoCombos is on — the ids are still
-      // routable when sent explicitly, just not advertised in the catalog.
-      if (hideAuto || autoCombosDisallowedForKey || nothingEnabled) break;
-      if (blockedProviders.has("auto") || listedIds.has(autoId)) continue; // #5192
-      // #6328 (follow-up to #6495 / #6512): REMOVE — not just hide — paid-tier
-      // auto/* ids (auto/pro-* + auto/*:pro) from the advertised catalog when the
-      // operator opts into hidePaidModels. The candidate-pool filter in
-      // virtualFactory (#6512) still gates request-time routing for the rest.
-      if (hidePaid && isPaidTierAutoId(autoId)) continue;
-      listedIds.add(autoId);
-      const baseAutoEntry = {
-        id: autoId,
-        object: "model",
-        created: timestamp,
-        owned_by: "combo",
-        permission: [],
-        root: autoId,
-        parent: null,
-      };
-      try {
-        const suffix = autoId.replace(/^auto\/?/, "");
-        if (!preparedAutoInputs) {
-          preparedAutoInputs = await prepareBuiltinAutoComboInputs(capabilityResolutionSnapshot);
-          await yieldCatalogBuildTurn();
-        }
-        if (
-          preparedAutoInputs.regularCandidates.length === 0 &&
-          preparedAutoInputs.familyCandidates.length === 0
-        )
-          break;
-        const virtualCombo = await createBuiltinAutoCombo(autoId, suffix, preparedAutoInputs);
-        const contextLength = virtualCombo.advertisedContextLength || 128000;
-        const maxOutputTokens = virtualCombo.advertisedMaxOutputTokens || 8192;
-
-        // #11947: derive modalities and vision from the effective target pool so
-        // OpenAI-compatible clients can detect vision support for auto/* combos.
-        const autoTargets: ComboCatalogTarget[] = virtualCombo.models.map((m) => ({
-          modelStr: m.model,
-          providerId: m.providerId,
-          connectionId: m.connectionId,
-          ...(m.allowedConnectionIds ? { allowedConnectionIds: m.allowedConnectionIds } : {}),
-        }));
-        const autoTargetMetadata = await autoMeta(autoTargets); // #9147: once per build
-        const knownAutoMeta = autoTargetMetadata.filter(
-          (m): m is ComboTargetCatalogMetadata => m !== null
-        );
-        const autoInputModalities = intersectKnownStringArrays(
-          knownAutoMeta.map((m) => (Array.isArray(m.inputModalities) ? m.inputModalities : []))
-        );
-        const autoOutputModalities = intersectKnownStringArrays(
-          knownAutoMeta.map((m) => (Array.isArray(m.outputModalities) ? m.outputModalities : []))
-        );
-        const autoCapabilities: Record<string, boolean | string[]> = {
-          tool_calling: true,
-          reasoning: true,
-          thinking: true,
-          temperature: true,
-        };
-        if (knownAutoMeta.length > 0) {
-          const allVision = knownAutoMeta.every((m) => m.capabilities.vision === true);
-          if (allVision) autoCapabilities.vision = true;
-        }
-
-        models.push({
-          ...baseAutoEntry,
-          context_length: contextLength,
-          max_input_tokens: contextLength,
-          max_output_tokens: maxOutputTokens,
-          ...(autoInputModalities.length > 0 ? { input_modalities: autoInputModalities } : {}),
-          ...(autoOutputModalities.length > 0 ? { output_modalities: autoOutputModalities } : {}),
-          capabilities: autoCapabilities,
-        });
-      } catch (err) {
-        console.log(`[catalog] Could not materialize built-in auto model ${autoId}:`, err);
-        models.push(baseAutoEntry);
-      }
-
-      materializedAutoCount++;
-      if (materializedAutoCount % BUILTIN_AUTO_YIELD_INTERVAL === 0) {
-        await yieldCatalogBuildTurn();
-      }
-    }
-
+    // Templates are management-only suggestions. Public routes must come from an
+    // operator-created combo; discovering connections never materializes auto IDs.
     // Add combos first (they appear at the top) — only active ones
     for (const combo of combos) {
       if (combo.isActive === false || combo.isHidden === true) continue;
       if (typeof combo.name !== "string" || combo.name.length === 0) continue;
-      if (listedIds.has(combo.name)) continue; // #4164: don't shadow a built-in auto/* id
+      if (listedIds.has(combo.name)) continue;
+      if (
+        (combo.name === "auto" || combo.name.startsWith("auto/")) &&
+        (hideAuto || earlyKeyMeta?.allowAutoCombos === false)
+      )
+        continue;
 
       // Skip combos whose any underlying target model is hidden
       const comboTargets = resolveNestedComboTargets(
@@ -2231,9 +2106,7 @@ async function buildUnifiedModelsResponseCore(
           // an empty `allowedModels` gets an EMPTY catalog even though every combo in
           // its `allowedCombos` dispatches fine — the catalog contradicted the key.
           // Listing a combo the key can already dispatch grants no new access.
-          // auto/* rows are exempt: they fail open at dispatch (they resolve to no
-          // stored combo), and `allowAutoCombos` already gated their synthesis above.
-          if (m.owned_by === "combo" && !String(m.id).startsWith("auto/")) {
+          if (m.owned_by === "combo") {
             if (isComboNameAllowedForKey(keyMeta.allowedCombos, String(m.id))) {
               filtered.push(m);
             }

@@ -299,7 +299,7 @@ export function useModelVisibilityHandlers({
     setClearingModels(true);
     try {
       const res = await fetch(
-        `/api/provider-models?provider=${encodeURIComponent(providerStorageAlias)}&all=true`,
+        `/api/provider-models?provider=${encodeURIComponent(providerId)}&all=true`,
         { method: "DELETE" }
       );
       if (res.ok) {
