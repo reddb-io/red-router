@@ -13,14 +13,21 @@ export function finalizeResponsesTerminalStatus(
   response: Record<string, unknown>,
   finishReason: unknown,
   hasUpstreamError = false
-): "response.completed" | "response.incomplete" {
+): "response.completed" | "response.incomplete" | "response.failed" {
+  if (hasUpstreamError) return "response.failed";
+  if (finishReason === "pause_turn") {
+    response.status = "incomplete";
+    // Anthropic server-tool pauses have no corresponding Responses reason.
+    response.incomplete_details = null;
+    return "response.incomplete";
+  }
   const reason =
     finishReason === "length"
       ? "max_output_tokens"
       : finishReason === "content_filter"
         ? "content_filter"
         : undefined;
-  if (hasUpstreamError || !reason) return "response.completed";
+  if (!reason) return "response.completed";
   response.status = "incomplete";
   response.incomplete_details = { reason };
   return "response.incomplete";

@@ -1,3 +1,4 @@
+import { canUseLegacyResponseCache } from "../../services/cache/requestPolicy.ts";
 import {
   generateSignature,
   getCachedResponse,
@@ -16,6 +17,13 @@ import {
   getSemanticCacheManager,
   type CacheLookupResult,
 } from "../../services/cache/semanticCacheManager.ts";
+
+export function isSemanticCacheEnabled(
+  settings: { semanticCacheEnabled?: unknown },
+  apiKeyInfo?: { cacheDefaultMode?: "legacy" | "bypass" | null } | null
+): boolean {
+  return settings.semanticCacheEnabled !== false && apiKeyInfo?.cacheDefaultMode !== "bypass";
+}
 
 export function isSemanticCacheVerificationEnabled(): boolean {
   return getSemanticCacheManager().getConfig().verificationEnabled;
@@ -76,7 +84,9 @@ export async function checkSemanticCache({
       apiKeyId ?? undefined,
       outputContractOf(body)
     );
-    const legacyCached = getCachedResponse(signature);
+    const legacyCached = canUseLegacyResponseCache(clientRawRequest?.headers)
+      ? getCachedResponse(signature)
+      : null;
     const managerResult: CacheLookupResult = legacyCached
       ? { hit: false }
       : await manager.lookup({

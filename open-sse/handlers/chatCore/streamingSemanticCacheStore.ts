@@ -4,10 +4,9 @@
  *
  * Extracted from handleChatCore's onStreamComplete callback: after a 200 streaming response is
  * assembled, store it under its signature so a future temp=0 request can be served from cache.
- * Side-effect only (cache write + debug log), wrapped in fail-open try/catch. Behaviour is
- * byte-identical to the previous inline block — including the `_streamed` strip, the early
- * skip-on-too-large, and the `Number(...) || 0` token accounting. The early return was the last
- * statement of the callback, so returning from this helper is equivalent.
+ * Side-effect only (cache write + debug log), wrapped in fail-open try/catch. Request policy and
+ * per-key bypass govern both cache layers; the `_streamed` strip, size limit and `Number(...) || 0`
+ * token accounting are preserved.
  */
 import {
   generateSignature as defaultGenerateSignature,
@@ -17,6 +16,7 @@ import {
   isTruncatedStreamBody as defaultIsTruncatedStreamBody,
 } from "@/lib/semanticCache";
 import { isSmallEnoughForSemanticCache as defaultIsSmallEnough } from "../../utils/estimateSize.ts";
+import { canUseLegacyResponseCache } from "../../services/cache/requestPolicy.ts";
 import { getSemanticCacheManager } from "../../services/cache/semanticCacheManager.ts";
 
 type LoggerLike = { debug?: (...args: unknown[]) => void } | null | undefined;
@@ -47,6 +47,7 @@ const DEFAULT_DEPS: StreamingSemanticCacheStoreDeps = {
 
 interface StreamingCacheArgs {
   enabled: boolean;
+  cacheDefaultMode?: "legacy" | "bypass" | null;
   streamStatus: number;
   streamResponseBody: Record<string, unknown> | null | undefined;
   body: CacheBody;
@@ -82,11 +83,13 @@ function writeStreamingCacheEntry(
       outputContractOf(args.body)
     );
     const tokensSaved = streamTokensSaved(args.streamUsage);
-    deps.setCachedResponse(sig, args.model, cleanBody, tokensSaved);
-    args.log?.debug?.(
-      "CACHE",
-      `Stored streaming response for ${args.model} (${tokensSaved} tokens)`
-    );
+    if (canUseLegacyResponseCache(args.headers)) {
+      deps.setCachedResponse(sig, args.model, cleanBody, tokensSaved);
+      args.log?.debug?.(
+        "CACHE",
+        `Stored streaming response for ${args.model} (${tokensSaved} tokens)`
+      );
+    }
 
     getSemanticCacheManager()
       .store({
@@ -97,6 +100,7 @@ function writeStreamingCacheEntry(
         model: args.model,
         provider: args.provider || (cleanBody.provider as string) || "",
         apiKeyId: args.apiKeyId,
+        cacheDefaultMode: args.cacheDefaultMode,
         signature: sig,
         tokensSaved,
       })
@@ -113,6 +117,7 @@ export function storeStreamingSemanticCacheResponse(
   if (
     args.videoTranscriptSensitive ||
     !args.enabled ||
+    args.cacheDefaultMode === "bypass" ||
     args.streamStatus !== 200 ||
     !args.streamResponseBody ||
     !deps.isCacheableForWrite(args.body, args.headers) ||

@@ -293,7 +293,10 @@ export function claudeToOpenAIResponse(chunk, state) {
             results.push(createChunk(state, { content: explanation }));
           }
         }
-        state.finishReason = convertStopReason(chunk.delta.stop_reason);
+        state.finishReason =
+          chunk.delta.stop_reason === "pause_turn" && typeof state.responseId === "string"
+            ? "pause_turn"
+            : convertStopReason(chunk.delta.stop_reason);
         const finalChunk: {
           id: string;
           object: string;

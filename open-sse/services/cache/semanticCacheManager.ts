@@ -13,13 +13,25 @@
 
 import crypto from "crypto";
 import {
+  getCacheHeader as getHeader,
+  responseCacheBypassed,
+  responseCacheWriteDisabled,
+} from "./requestPolicy.ts";
+import {
   buildVerificationProof,
   prepareSemanticVerification,
   type SemanticVerifier,
   type SemanticVerificationResult,
 } from "./semanticVerification.ts";
 import { recordCacheVerification, recordSkippedCacheVerification } from "./verificationStats.ts";
-import { outputContractOf } from "@/lib/semanticCache";
+import {
+  CACHE_SIGNATURE_VERSION,
+  canonicalCacheValue,
+  generationContractHash,
+  normalizeGenerationContract,
+  outputContractOf,
+  type GenerationContract,
+} from "./generationContract.ts";
 import {
   type SemanticCacheConfig,
   type SemanticCacheType,
@@ -67,6 +79,7 @@ export interface CacheLookupResult {
 }
 
 export interface CacheStoreParams {
+  cacheDefaultMode?: "legacy" | "bypass" | null;
   verificationBody?: Record<string, unknown>;
   body: Record<string, unknown> & {
     messages?: unknown;
@@ -83,25 +96,6 @@ export interface CacheStoreParams {
   signature?: string;
   tokensSaved?: number;
   ttlMs?: number;
-}
-
-function getHeader(headers: unknown, name: string): string | null {
-  if (!headers) return null;
-  const needle = name.toLowerCase();
-
-  if (typeof (headers as { get?: (n: string) => string | null }).get === "function") {
-    return (headers as { get: (n: string) => string | null }).get(name);
-  }
-
-  if (typeof headers === "object" && !Array.isArray(headers)) {
-    for (const [key, val] of Object.entries(headers as Record<string, unknown>)) {
-      if (key.toLowerCase() === needle && typeof val === "string") {
-        return val;
-      }
-    }
-  }
-
-  return null;
 }
 
 function stringifyValue(val: unknown): string {
@@ -153,17 +147,20 @@ export function generateDirectHash(
   // tools/a forced output contract gets replayed to a later request with identical messages
   // but a different (or absent) contract, e.g. a tool_calls response served to a plain-chat
   // request. Mirrors the #12307 fix already applied to the legacy signature path.
-  outputContract?: unknown
+  outputContract?: GenerationContract | null
 ): string {
-  const payload = JSON.stringify({
-    model: scoping?.cacheByModel !== false ? model : "*",
-    provider: scoping?.cacheByProvider ? scoping.provider || "*" : "*",
-    cacheKey: scoping?.cacheKey || undefined,
-    messages: normalizeMessagesForHash(conversation),
-    temperature,
-    top_p: topP,
-    outputContract: outputContract ?? undefined,
-  });
+  const payload = JSON.stringify(
+    canonicalCacheValue({
+      version: CACHE_SIGNATURE_VERSION,
+      model: scoping?.cacheByModel !== false ? model : "*",
+      provider: scoping?.cacheByProvider ? scoping.provider || "*" : "*",
+      cacheKey: scoping?.cacheKey || undefined,
+      messages: normalizeMessagesForHash(conversation),
+      temperature,
+      top_p: topP,
+      outputContract: normalizeGenerationContract(outputContract),
+    })
+  );
 
   const digest = crypto.createHash("sha256").update(payload).digest("hex");
   return scoping?.apiKeyId ? `${scoping.apiKeyId}.${digest}` : digest;
@@ -217,18 +214,7 @@ export class SemanticCacheManager {
   }
 
   private isBypassed(headers: unknown, body: Record<string, unknown>): boolean {
-    const noCacheHeader = getHeader(headers, "x-omniroute-no-cache");
-    if (noCacheHeader && noCacheHeader.toLowerCase() === "true") {
-      return true;
-    }
-    const cacheControl = getHeader(headers, "cache-control");
-    if (cacheControl && cacheControl.toLowerCase().includes("no-cache")) {
-      return true;
-    }
-    const pragma = getHeader(headers, "pragma");
-    if (pragma && pragma.toLowerCase().includes("no-cache")) {
-      return true;
-    }
+    if (responseCacheBypassed(headers)) return true;
 
     if (this.config.requireZeroTemperature) {
       if (typeof body.temperature === "number" && body.temperature !== 0) {
@@ -350,6 +336,7 @@ export class SemanticCacheManager {
       provider: this.config.cacheByProvider ? params.provider : undefined,
       apiKeyId: params.apiKeyId || null,
       cacheKey: cacheKey || null,
+      generationContractHash: generationContractHash(params.body),
     };
 
     try {
@@ -359,7 +346,11 @@ export class SemanticCacheManager {
         threshold,
         1
       );
-      if (nearest.length > 0 && nearest[0].similarity >= threshold) {
+      if (
+        nearest.length > 0 &&
+        nearest[0].similarity >= threshold &&
+        nearest[0].entry.generationContractHash === filter.generationContractHash
+      ) {
         let verification: SemanticVerificationResult | undefined;
         if (this.config.verificationEnabled) {
           const input = prepareSemanticVerification(
@@ -416,13 +407,10 @@ export class SemanticCacheManager {
   }
 
   public async store(params: CacheStoreParams): Promise<void> {
-    if (!this.config.enabled) return;
+    if (!this.config.enabled || params.cacheDefaultMode === "bypass") return;
 
-    // Check no-store header
-    const noStore = getHeader(params.headers, "x-omniroute-cache-no-store");
-    if (noStore && noStore.toLowerCase() === "true") return;
-
-    if (this.isBypassed(params.headers, params.body)) return;
+    if (responseCacheWriteDisabled(params.headers) || this.isBypassed(params.headers, params.body))
+      return;
 
     const cacheKey = getHeader(params.headers, "x-omniroute-cache-key");
     const conv = params.body.messages ?? params.body.input;
@@ -483,6 +471,7 @@ export class SemanticCacheManager {
         : undefined,
       id: crypto.randomUUID(),
       hash: directHash,
+      generationContractHash: generationContractHash(params.body),
       signature: params.signature || undefined,
       embedding,
       promptText,

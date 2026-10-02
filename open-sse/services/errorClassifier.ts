@@ -1,3 +1,4 @@
+import { isResourceNotFoundResponse } from "./requestResourceErrors.ts";
 import {
   ACCOUNT_DEACTIVATED_SIGNALS,
   CREDITS_EXHAUSTED_SIGNALS,
@@ -8,6 +9,8 @@ import {
 } from "./accountFallback.ts";
 import { isSubscriptionQuotaText } from "./quotaTextCooldowns.ts";
 import { getProviderCategory, getRegistryEntry } from "../config/providerRegistry.ts";
+
+export { isResourceNotFoundResponse };
 
 // Terminal stop signals where an empty content payload is still a legitimate,
 // successful completion (truncated at the token limit, or a tool-call turn) —
@@ -357,30 +360,6 @@ function responseBodyToString(responseBody: unknown): string {
     }
   }
   return "";
-}
-
-// A provider can return 404 for request-scoped resources (Files API ids,
-// response items, uploads, etc.). These failures describe the request payload,
-// not provider/model health. Keep every expression bounded to avoid ReDoS on
-// upstream-controlled error bodies.
-const RESOURCE_NOT_FOUND_PATTERNS = [
-  /\bfiles?\b[^\n]{0,160}\b(?:not found|does not exist)\b/i,
-  /\b(?:not found|does not exist)\b[^\n]{0,160}\bfiles?\b/i,
-  /\b(?:input[_ -]?file|file[_ -]?id|item|response|vector[_ -]?store|upload)\b[^\n]{0,160}\b(?:not found|does not exist)\b/i,
-  /\b(?:not found|does not exist)\b[^\n]{0,160}\b(?:input[_ -]?file|file[_ -]?id|item|response|vector[_ -]?store|upload)\b/i,
-  /\bfile-[a-z0-9_-]+\b[^\n]{0,160}\b(?:not found|does not exist)\b/i,
-];
-
-/**
- * Whether an upstream error identifies a missing request-scoped resource.
- *
- * Resource signals intentionally take precedence over an outer
- * `code: "model_not_found"` because compatibility layers may synthesize that
- * code from the HTTP status before preserving the upstream file error.
- */
-export function isResourceNotFoundResponse(responseBody: unknown): boolean {
-  const body = responseBodyToString(responseBody);
-  return RESOURCE_NOT_FOUND_PATTERNS.some((pattern) => pattern.test(body));
 }
 
 function shouldPreserveQuotaSignalsFor429(provider?: string | null): boolean {

@@ -1,3 +1,4 @@
+import { isResourceNotFoundResponse } from "./requestResourceErrors.ts";
 import {
   BACKOFF_STEPS_MS,
   EXECUTOR_CONTRACT_VIOLATION_CODE,
@@ -1306,7 +1307,13 @@ export function recordProviderSuccess(
   if (connectionId) {
     lastConnectionFailure.delete(`${provider}:${connectionId}`);
     const providerBreaker = getProviderBreaker(provider);
-    if (providerBreaker && providerBreaker !== breaker && providerBreaker.canExecute()) {
+    // canExecute() is an admission check: a valid in-flight HALF_OPEN probe
+    // has already consumed its slot, but its success must still close the parent.
+    if (
+      providerBreaker &&
+      providerBreaker !== breaker &&
+      providerBreaker.getStatus().state !== "OPEN"
+    ) {
       providerBreaker._onSuccess();
     }
   }
@@ -1717,6 +1724,20 @@ export function checkFallbackError(
       shouldFallback: false,
       cooldownMs: 0,
       reason: EXECUTOR_CONTRACT_VIOLATION_CODE,
+      skipProviderBreaker: true,
+    };
+  }
+
+  // A missing conversation/file reference belongs to this payload, not the
+  // selected account/model. Classify before generic 404 rules or quota lockout.
+  if (
+    status === HTTP_STATUS.NOT_FOUND &&
+    (isResourceNotFoundResponse(errorText) || isResourceNotFoundResponse(structuredError))
+  ) {
+    return {
+      shouldFallback: false,
+      cooldownMs: 0,
+      reason: "request_resource_not_found",
       skipProviderBreaker: true,
     };
   }

@@ -4,6 +4,7 @@
   "scope": "Initial capability-family inventory; not exhaustive and not proof of parity.",
   "recordedAt": "2026-09-29",
   "capabilityMap": "config/upstream/capability-map.json",
+  "runtimeContractAdaptations": "config/upstream/runtime-contract-adaptations.json",
   "sources": [
     {
       "id": "redrouter",

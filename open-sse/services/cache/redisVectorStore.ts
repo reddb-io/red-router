@@ -192,6 +192,12 @@ export class RedisVectorStore implements IVectorStore {
           continue;
         }
 
+        if (
+          filter.generationContractHash !== undefined &&
+          entry.generationContractHash !== filter.generationContractHash
+        )
+          continue;
+
         if (filter.provider && entry.provider !== filter.provider) continue;
 
         // Partition key isolation: null means must have NO key, string means exact match

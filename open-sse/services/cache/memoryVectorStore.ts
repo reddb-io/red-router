@@ -131,6 +131,12 @@ export class MemoryVectorStore implements IVectorStore {
         continue;
       }
 
+      if (
+        filter.generationContractHash !== undefined &&
+        item.entry.generationContractHash !== filter.generationContractHash
+      )
+        continue;
+
       // Metadata filter checks
       if (filter.model && item.entry.model !== filter.model) continue;
       if (filter.provider && item.entry.provider !== filter.provider) continue;

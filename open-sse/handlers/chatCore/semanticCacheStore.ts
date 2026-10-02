@@ -5,8 +5,8 @@
  * Extracted from handleChatCore's non-streaming success path (Phase 9.1): when semantic caching is
  * enabled and the request/response are cacheable, store the translated response under its signature
  * so a later temp=0 request can be served from cache. Side-effect only (cache write + debug log);
- * no early-return, no outer-variable reassignment. Behaviour is byte-identical to the previous
- * inline block, including the `prompt + completion || 0` token-saved precedence.
+ * no outer-variable reassignment. Request policy and per-key bypass govern both cache layers;
+ * the legacy `prompt + completion || 0` token-saved precedence is preserved.
  */
 import {
   generateSignature as defaultGenerateSignature,
@@ -16,6 +16,7 @@ import {
   isTruncatedCompletion as defaultIsTruncatedCompletion,
 } from "@/lib/semanticCache";
 import { isSmallEnoughForSemanticCache as defaultIsSmallEnough } from "../../utils/estimateSize.ts";
+import { canUseLegacyResponseCache } from "../../services/cache/requestPolicy.ts";
 import { getSemanticCacheManager } from "../../services/cache/semanticCacheManager.ts";
 
 type LoggerLike = { debug?: (...args: unknown[]) => void } | null | undefined;
@@ -49,6 +50,7 @@ const DEFAULT_DEPS: SemanticCacheStoreDeps = {
 export function storeSemanticCacheResponse(
   args: {
     enabled: boolean;
+    cacheDefaultMode?: "legacy" | "bypass" | null;
     body: CacheBody;
     verificationBody?: Record<string, unknown>;
     headers: unknown;
@@ -65,6 +67,7 @@ export function storeSemanticCacheResponse(
   if (
     args.videoTranscriptSensitive ||
     !args.enabled ||
+    args.cacheDefaultMode === "bypass" ||
     !deps.isCacheableForWrite(args.body, args.headers) ||
     (deps.isTruncatedCompletion ?? defaultIsTruncatedCompletion)(args.translatedResponse) ||
     !deps.isSmallEnoughForSemanticCache(args.translatedResponse)
@@ -80,8 +83,10 @@ export function storeSemanticCacheResponse(
     outputContractOf(args.body)
   );
   const tokensSaved = args.usage?.prompt_tokens + args.usage?.completion_tokens || 0;
-  deps.setCachedResponse(signature, args.model, args.translatedResponse, tokensSaved);
-  args.log?.debug?.("CACHE", `Stored response for ${args.model} (${tokensSaved} tokens)`);
+  if (canUseLegacyResponseCache(args.headers)) {
+    deps.setCachedResponse(signature, args.model, args.translatedResponse, tokensSaved);
+    args.log?.debug?.("CACHE", `Stored response for ${args.model} (${tokensSaved} tokens)`);
+  }
 
   if (args.translatedResponse && typeof args.translatedResponse === "object") {
     getSemanticCacheManager()
@@ -96,6 +101,7 @@ export function storeSemanticCacheResponse(
           ((args.translatedResponse as Record<string, unknown>).provider as string) ||
           "",
         apiKeyId: args.apiKeyId,
+        cacheDefaultMode: args.cacheDefaultMode,
         signature,
         tokensSaved,
       })

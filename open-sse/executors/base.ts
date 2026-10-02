@@ -1,4 +1,5 @@
 import { HTTP_STATUS, FETCH_TIMEOUT_MS } from "../config/constants.ts";
+import { parseTokenExpiryMs } from "../utils/tokenExpiry.ts";
 import { getRegistryEntry, requireCompatibleBaseUrl } from "../config/providerRegistry.ts";
 import { resolveFetchStartTimeout } from "../utils/fetchStartTimeoutPolicy.ts";
 import {
@@ -637,13 +638,13 @@ export class BaseExecutor {
 
   needsRefresh(credentials?: ProviderCredentials | null) {
     if (!credentials?.expiresAt) return false;
-    const expiresAtMs = new Date(credentials.expiresAt).getTime();
+    const expiresAtMs = parseTokenExpiryMs(credentials.expiresAt);
     // Use the provider-specific lead time (REFRESH_LEAD_MS) so rotating-token
     // providers like Codex refresh proactively far ahead of expiry. Keeping the
     // refresh_token "warm" prevents Auth0 from marking it as stale and revoking
     // the token family on first use after long idle.
     const lead = getRefreshLeadMs(this.provider);
-    return expiresAtMs - Date.now() < lead;
+    return expiresAtMs > 0 && expiresAtMs - Date.now() < lead;
   }
 
   parseError(response: Response, bodyText: string) {

@@ -37,6 +37,7 @@ import { checkIdempotencyCache } from "./chatCore/idempotency.ts";
 import { acquireTurnExecution, createTurnInProgressResult } from "./chatCore/turnExecutionGuard.ts";
 import {
   checkSemanticCache,
+  isSemanticCacheEnabled,
   isSemanticCacheVerificationEnabled,
 } from "./chatCore/semanticCache.ts";
 import { checkLifecycle, resolveLifecycle } from "./chatCore/modelLifecyclePolicy.ts";
@@ -396,7 +397,7 @@ import {
   recordCoreOwnedAntigravityQuotaState,
   shouldDeferAntigravityQuotaStateToCaller,
 } from "../services/accountFallback.ts";
-import { saveIdempotency } from "@/lib/idempotencyLayer";
+import { saveIdempotency, resolveIdempotencyWindowMs } from "@/lib/idempotencyLayer";
 import {
   isModelUnavailableError,
   getNextFamilyFallback,
@@ -773,6 +774,7 @@ async function handleChatCoreInner({
   // rather than re-deriving it. (#3821-review LEDGER-6)
   const { hit: idempotencyHit, idempotencyKey } = await checkIdempotencyCache({
     clientRawRequest,
+    apiKeyId: apiKeyInfo?.id ?? null,
     provider,
     model,
     // NEXA fusion-idempotency fix: body.messages feeds the key digest so combo-internal
@@ -1261,7 +1263,9 @@ async function handleChatCoreInner({
   });
   effectiveServiceTier = resolveEffectiveServiceTier(body);
   setGeminiThoughtSignatureMode(settings.antigravitySignatureCacheMode);
-  const semanticCacheEnabled = settings.semanticCacheEnabled !== false;
+  const cacheDefaultMode = (apiKeyInfo as { cacheDefaultMode?: "legacy" | "bypass" } | null)
+    ?.cacheDefaultMode;
+  const semanticCacheEnabled = isSemanticCacheEnabled(settings, { cacheDefaultMode });
 
   const reqLogger = await createRequestLogger(sourceFormat, targetFormat, model, {
     enabled: detailedLoggingEnabled && !videoBridgeObserved,
@@ -1335,8 +1339,7 @@ async function handleChatCoreInner({
     log,
     persistAttemptLogs,
     apiKeyId: apiKeyInfo?.id ?? undefined,
-    cacheDefaultMode: (apiKeyInfo as { cacheDefaultMode?: "legacy" | "bypass" } | null)
-      ?.cacheDefaultMode,
+    cacheDefaultMode,
     videoTranscriptSensitive: videoBridgeObserved,
   };
   const cacheHit = await checkSemanticCache({
@@ -5755,6 +5758,7 @@ async function handleChatCoreInner({
       // ── Phase 9.1: Cache store (non-streaming, temp=0) ──
       storeSemanticCacheResponse({
         enabled: semanticCacheEnabled,
+        cacheDefaultMode,
         body: bodyForCacheWrite,
         verificationBody: bodyForCacheVerification,
         headers: clientRawRequest?.headers,
@@ -5772,7 +5776,12 @@ async function handleChatCoreInner({
       // ── Phase 9.2: Save for idempotency ──
       // Reuse the key resolved by checkIdempotencyCache() above (single derivation per
       // request). (#3821-review LEDGER-6)
-      saveIdempotency(idempotencyKey, translatedResponse, 200);
+      saveIdempotency(
+        idempotencyKey,
+        translatedResponse,
+        200,
+        resolveIdempotencyWindowMs(settings.idempotencyWindowMs)
+      );
       reqLogger.logConvertedResponse(translatedResponse);
       persistAttemptLogs({
         status: 200,
@@ -6341,6 +6350,7 @@ async function handleChatCoreInner({
     // Semantic cache: store assembled streaming response for future cache hits
     storeStreamingSemanticCacheResponse({
       enabled: semanticCacheEnabled,
+      cacheDefaultMode,
       streamStatus,
       streamResponseBody,
       body: bodyForCacheWrite,

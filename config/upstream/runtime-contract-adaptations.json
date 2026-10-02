@@ -1,0 +1,282 @@
+{
+  "schemaVersion": 1,
+  "product": "RedRouter",
+  "recordedAt": "2026-10-02",
+  "scope": "Scoped runtime-contract adaptations informed by upstream source review. Implementation and prepared regressions are not proof of upstream feature parity or live-provider compatibility.",
+  "baseline": {
+    "repository": "reddb-io/red-router",
+    "ref": "main",
+    "version": "0.57.7",
+    "sha": "8b96bd84c77e1b833ff75a384fb9a6845645240e",
+    "productPreservationInventory": "config/upstream/product-inheritance.json"
+  },
+  "validation": {
+    "status": "pending-ci",
+    "locallyPerformed": ["Scoped Prettier formatting", "git diff --check"],
+    "executionPolicy": "Tests, build, lint and typecheck are validated in RedRouter CI/CD, not locally for this batch.",
+    "requiredAcceptance": [
+      "Automatically discovered tests/redrouter/native product regressions pass in a terminal CI run.",
+      "Existing RedRouter product regression, typecheck, build and package installation/boot checks pass.",
+      "Review any fixture failures against preserved RedRouter public contracts before integration."
+    ],
+    "limits": [
+      "No live upstream provider, paid credential or external federation request was tested.",
+      "Redis regression coverage uses an injected fake Redis client, not a live Redis server or cluster.",
+      "Streaming fixtures exercise helpers/transforms; they do not establish complete HTTP endpoint or reverse-proxy compatibility.",
+      "No release or complete upstream parity claim is made by this inventory."
+    ]
+  },
+  "attribution": "The pinned upstream changes identify defects and behavioral acceptance cases. The local batch adapts RedRouter modules and contracts; it does not bulk-import an upstream repository or replace product ownership. Existing attribution remains preserved.",
+  "sources": [
+    {
+      "id": "omniroute-cache-bypass",
+      "repository": "diegosouzapw/OmniRoute",
+      "pullRequest": 15155,
+      "headSha": "f9c931dc307cd5c4fba92da029a161b733da0db2",
+      "stateAtReview": "open",
+      "url": "https://github.com/diegosouzapw/OmniRoute/pull/15155",
+      "subject": "Honor cache bypass and the database toggle for reads and writes."
+    },
+    {
+      "id": "omniroute-cache-generation",
+      "repository": "diegosouzapw/OmniRoute",
+      "pullRequest": 15156,
+      "headSha": "63dcfe61838010f93b065475d76bf8ad133b9e45",
+      "stateAtReview": "open",
+      "url": "https://github.com/diegosouzapw/OmniRoute/pull/15156",
+      "subject": "Include generation parameters such as reasoning effort and output limits in semantic-cache signatures."
+    },
+    {
+      "id": "omniroute-idempotency-window",
+      "repository": "diegosouzapw/OmniRoute",
+      "pullRequest": 15196,
+      "headSha": "191a4650f076a247c3bc5fb08dcd8304d92325c2",
+      "stateAtReview": "open",
+      "url": "https://github.com/diegosouzapw/OmniRoute/pull/15196",
+      "subject": "Apply the configured idempotencyWindowMs to completed-response replay."
+    },
+    {
+      "id": "omniroute-responses-premature-eof",
+      "repository": "diegosouzapw/OmniRoute",
+      "pullRequest": 15310,
+      "headSha": "e803669fc6b1eb576367e8ad060d011274013856",
+      "stateAtReview": "open",
+      "url": "https://github.com/diegosouzapw/OmniRoute/pull/15310",
+      "subject": "Reject premature upstream EOF in Responses translation."
+    },
+    {
+      "id": "omniroute-provider-parent-probe",
+      "repository": "diegosouzapw/OmniRoute",
+      "pullRequest": 15257,
+      "headSha": "43887bc70fe677e7c631ca297459f6bec42d9a62",
+      "stateAtReview": "open",
+      "isDraft": true,
+      "url": "https://github.com/diegosouzapw/OmniRoute/pull/15257",
+      "subject": "Close a provider breaker after a successful probe consumed its admission slot."
+    },
+    {
+      "id": "9router-oauth-epoch-expiry",
+      "repository": "decolua/9router",
+      "pullRequest": 3997,
+      "headSha": "ac8021e13a755ed3898fa4fe5a3680991bf7a55d",
+      "stateAtReview": "open",
+      "url": "https://github.com/decolua/9router/pull/3997",
+      "subject": "Parse imported numeric epoch expiresAt values so connections still refresh."
+    },
+    {
+      "id": "9router-trailing-usage-watchdog",
+      "repository": "decolua/9router",
+      "commitSha": "fbcaa2828c0775503899c22df5e6bb04790758ec",
+      "url": "https://github.com/decolua/9router/commit/fbcaa2828c0775503899c22df5e6bb04790758ec",
+      "subject": "Bound the post-generation wait for optional usage trailers with a three-second watchdog."
+    },
+    {
+      "id": "cliproxy-chat-premature-eof",
+      "repository": "router-for-me/CLIProxyAPI",
+      "pullRequest": 6010,
+      "headSha": "1dd1aa8969e6469fefef94c29328b37932dc25a1",
+      "stateAtReview": "open",
+      "url": "https://github.com/router-for-me/CLIProxyAPI/pull/6010",
+      "subject": "Expose unterminated Chat Completions streams instead of manufacturing successful completion."
+    },
+    {
+      "id": "cliproxy-claude-pause-turn",
+      "repository": "router-for-me/CLIProxyAPI",
+      "pullRequest": 6124,
+      "headSha": "9e2020629cfd03c56d4054b7c9551ace65d5670a",
+      "stateAtReview": "open",
+      "url": "https://github.com/router-for-me/CLIProxyAPI/pull/6124",
+      "subject": "Represent Claude pause_turn as an incomplete Responses turn."
+    },
+    {
+      "id": "cliproxy-request-thread-not-found",
+      "repository": "router-for-me/CLIProxyAPI",
+      "pullRequest": 6265,
+      "headSha": "0c5181e08cf1f28622f3ec0c21343078236cdab4",
+      "stateAtReview": "open",
+      "url": "https://github.com/router-for-me/CLIProxyAPI/pull/6265",
+      "subject": "Treat missing thread state as a request fault without rotating or cooling healthy credentials."
+    }
+  ],
+  "adaptations": [
+    {
+      "id": "response-cache-generation-and-bypass",
+      "status": "implemented-ci-pending",
+      "sources": ["omniroute-cache-bypass", "omniroute-cache-generation"],
+      "baselineGap": "Legacy and vector response caches did not consistently preserve all generation constraints or enforce key/header bypass policies across reads and writes.",
+      "localPaths": [
+        "open-sse/services/cache/generationContract.ts",
+        "open-sse/services/cache/requestPolicy.ts",
+        "open-sse/services/cache/semanticCacheManager.ts",
+        "open-sse/services/cache/memoryVectorStore.ts",
+        "open-sse/services/cache/redisVectorStore.ts",
+        "open-sse/services/cache/vectorStore.ts",
+        "src/lib/semanticCache.ts",
+        "open-sse/handlers/chatCore/semanticCache.ts",
+        "open-sse/handlers/chatCore/semanticCacheStore.ts",
+        "open-sse/handlers/chatCore/streamingSemanticCacheStore.ts",
+        "open-sse/handlers/chatCore.ts"
+      ],
+      "tests": ["tests/redrouter/native/cache-generation-contract.test.ts"],
+      "behavior": [
+        "Versioned exact signatures and fuzzy-candidate contract hashes include effort, thinking, output limits, tool policy, schemas and provider generation containers.",
+        "Per-key bypass applies to both cache layers and cannot be overridden by request headers.",
+        "Shared header policy propagates no-cache, no-store and Pragma restrictions to JSON and streaming cache paths; the custom cache-no-store header disables writes while permitting reads.",
+        "Custom namespaces and semantic-only lookups bypass the legacy cache, which cannot represent those scopes.",
+        "Old cache entries remain stored but cannot match the new signatures or fuzzy generation contract."
+      ],
+      "differencesAndLimits": [
+        "RedRouter retains its legacy cache and optional vector/JEV configuration; this batch does not automatically enable vector caching, embeddings or paid verification.",
+        "Generation containers and contract filtering extend the specific upstream effort/output-limit fixes; copying an upstream diff alone was insufficient for both local cache layers.",
+        "Redis filtering is covered by a fake-client fixture. Redis deployment, cluster behavior and real provider costs remain unverified."
+      ]
+    },
+    {
+      "id": "idempotency-window-and-request-isolation",
+      "status": "implemented-ci-pending",
+      "sources": ["omniroute-idempotency-window", "omniroute-cache-generation"],
+      "baselineGap": "Completed-response replay used a fixed five-second window, and composed request keys lacked API key identity and several generation constraints.",
+      "localPaths": [
+        "src/lib/idempotencyLayer.ts",
+        "open-sse/handlers/chatCore/idempotency.ts",
+        "open-sse/services/cache/generationContract.ts",
+        "open-sse/handlers/chatCore.ts"
+      ],
+      "tests": [
+        "tests/redrouter/native/idempotency-window.test.ts",
+        "tests/redrouter/native/idempotency-request-isolation.test.ts"
+      ],
+      "behavior": [
+        "New entries use the configured positive finite window; invalid values use the five-second default and unrepresentable expiry is bounded to the safe Date range.",
+        "Stats report the effective window and prune expired entries without waiting for the periodic sweeper.",
+        "A versioned JSON tuple keeps API key identity outside the request digest and separates raw keys, providers and models without delimiter collisions.",
+        "The shared generation contract prevents replay across effort or provider-option changes while preserving legitimate retries and separate fusion panel/judge responses.",
+        "Unserializable contracts produce a miss/null key rather than a shared fallback digest; replay debug logs contain no raw key or identity."
+      ],
+      "differencesAndLimits": [
+        "Existing positive window settings are preserved without adding an arbitrary duration cap. Updating the setting does not extend an already saved response.",
+        "Request-isolation protection extends the upstream configured-window fix because a longer window must not amplify cross-key replay.",
+        "The store remains process-local and in memory; this is not distributed idempotency, a financial reservation or proof of exactly-once execution."
+      ]
+    },
+    {
+      "id": "stream-terminal-and-trailing-usage",
+      "status": "implemented-ci-pending",
+      "sources": [
+        "omniroute-responses-premature-eof",
+        "cliproxy-chat-premature-eof",
+        "cliproxy-claude-pause-turn",
+        "9router-trailing-usage-watchdog"
+      ],
+      "baselineGap": "Premature EOF could manufacture successful completion, and waiting for optional usage after generation completion could remain unbounded. Claude pause_turn could also be reported as completed.",
+      "localPaths": [
+        "open-sse/utils/streamTerminal.ts",
+        "open-sse/utils/stream.ts",
+        "open-sse/utils/streamFailureBoundary.ts",
+        "open-sse/transformer/responsesTransformer.ts",
+        "open-sse/handlers/responsesHandler.ts",
+        "open-sse/translator/helpers/responsesTerminalStatus.ts",
+        "open-sse/translator/response/claude-to-openai.ts",
+        "open-sse/translator/response/openai-responses.ts"
+      ],
+      "tests": ["tests/redrouter/native/stream-terminal-contract.test.ts"],
+      "behavior": [
+        "Premature EOF preserves partial output and produces an explicit sanitized protocol failure; Responses emits response.failed rather than a synthetic successful terminal event.",
+        "A terminal-aware one-shot three-second deadline bounds optional trailing-usage waits without applying the deadline to active generation or extending it for heartbeats.",
+        "Multiple-choice terminal tracking does not stop another choice that is still generating.",
+        "Readable cancellation and writable abort propagate through actual Web Streams lifecycle boundaries and clear timers without being counted as upstream failures.",
+        "Claude pause_turn maps to response.incomplete with null incomplete_details; max-token and normal stop meanings are retained."
+      ],
+      "differencesAndLimits": [
+        "The independent TypeScript adaptation covers RedRouter's live SSE and legacy Responses transform paths rather than importing CLIProxyAPI Go handlers.",
+        "Explicit OpenAI [DONE] compatibility remains accepted. The batch is not a blanket provider-by-provider streaming parity claim.",
+        "Fixtures cover partial text/tools, stop controls, trailing usage and cancellation. Live providers, HTTP disconnects through deployment proxies and all provider dialects remain unverified.",
+        "Serializers process choices[0] per frame. The n>1 fixture covers choices arriving in separate frames, not multiple simultaneous choices in one frame."
+      ]
+    },
+    {
+      "id": "oauth-shared-expiry-parser",
+      "status": "implemented-ci-pending",
+      "sources": ["9router-oauth-epoch-expiry"],
+      "baselineGap": "Request refresh and stale-token reuse interpreted expiresAt differently from health checks, so imported textual epoch values could fail to refresh.",
+      "localPaths": [
+        "open-sse/utils/tokenExpiry.ts",
+        "src/lib/tokenHealthCheckExpiry.ts",
+        "open-sse/executors/base.ts",
+        "open-sse/services/tokenRefresh.ts",
+        "src/sse/services/tokenRefresh.ts"
+      ],
+      "tests": ["tests/redrouter/native/oauth-expiry-paths.test.ts"],
+      "behavior": [
+        "Health checks, proactive request refresh, executor refresh and database token reuse share the existing ISO/epoch-seconds/epoch-milliseconds parser.",
+        "Invalid or unknown expiry does not trigger an unnecessary proactive rotation; an existing absolute expiry is returned without extending token lifetime.",
+        "Refresh mutexes, compare-and-swap protection, rotated refresh-token handling and provider-specific lead times remain preserved."
+      ],
+      "differencesAndLimits": [
+        "The parser is moved from an existing RedRouter module and re-exported from its old path; this is a local compatibility-preserving adaptation.",
+        "The existing less-than-1e12 epoch-seconds heuristic is retained, not presented as a universal new upstream convention.",
+        "OAuth HTTP responses are mocked in the prepared regressions; live provider refresh behavior and paid credentials remain untested."
+      ]
+    },
+    {
+      "id": "request-scoped-resource-faults",
+      "status": "implemented-ci-pending",
+      "sources": ["cliproxy-request-thread-not-found"],
+      "baselineGap": "Missing request/session references could reach generic 404 fallback and model/account cooldown rules even though changing credentials cannot repair the payload.",
+      "localPaths": [
+        "open-sse/services/requestResourceErrors.ts",
+        "open-sse/services/errorClassifier.ts",
+        "open-sse/services/accountFallback.ts"
+      ],
+      "tests": ["tests/redrouter/native/request-resource-cooldown.test.ts"],
+      "behavior": [
+        "Recognized thread, previous-message, conversation, file, response and upload reference failures are classified before generic 404 fallback/lockout.",
+        "Request-scoped missing references stop fallback, carry zero cooldown, skip provider-breaker accounting and preserve connection health/backoff state.",
+        "Genuine model/endpoint 404 and transient 503 retain their existing scope and retry policies."
+      ],
+      "differencesAndLimits": [
+        "A pure leaf matcher avoids an errorClassifier/accountFallback import cycle while preserving the previous exported matcher contract.",
+        "Classification is bounded text/code matching. Unknown upstream formats may require explicit additions; HTTP status alone does not become a request fault.",
+        "Fixtures verify classifier/fallback precedence and persisted connection state, not a complete live provider request."
+      ]
+    },
+    {
+      "id": "provider-parent-consumed-probe-success",
+      "status": "implemented-ci-pending",
+      "sources": ["omniroute-provider-parent-probe"],
+      "baselineGap": "A successful connection probe could leave its provider parent HALF_OPEN because a second admission check rejected the slot already consumed by that in-flight probe.",
+      "localPaths": ["open-sse/services/accountFallback.ts"],
+      "tests": ["tests/redrouter/native/provider-breaker-probe-success.test.ts"],
+      "behavior": [
+        "A successful admitted connection probe closes a non-OPEN provider parent even when the HALF_OPEN slot has already been consumed.",
+        "The existing child OPEN and parent OPEN guards remain; late connection success cannot prematurely close an OPEN parent.",
+        "Existing CircuitBreaker.execute generation protections remain unchanged and have prepared success/failure regression controls."
+      ],
+      "differencesAndLimits": [
+        "recordProviderSuccess still receives no generation token. It cannot distinguish an obsolete request success arriving during a later HALF_OPEN generation.",
+        "The minimum helper fix does not change dispatch, request-context propagation or CircuitBreaker generation logic. Stale-generation protection for this helper remains unresolved.",
+        "Prepared breaker fixtures are not evidence of live provider recovery, load behavior or full resilience parity."
+      ]
+    }
+  ]
+}

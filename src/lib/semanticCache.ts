@@ -6,9 +6,9 @@
  * are cached after assembly; cache hits always return JSON.
  * Two-tier: in-memory LRU (fast) + SQLite (persistent across restarts).
  *
- * Cache key = SHA-256(model + normalized messages + temperature + top_p
- *             + output contract, when present — see outputContractOf, #12307)
- * Bypass: X-OmniRoute-No-Cache: true
+ * Versioned cache key includes model, messages, temperature, top_p,
+ * API key scope and the generation contract from outputContractOf.
+ * Request cache directives control reads and writes through requestPolicy.
  *
  * @module lib/semanticCache
  */
@@ -17,6 +17,21 @@ import crypto from "crypto";
 import { LRUCache } from "./cacheLayer";
 import { getDbInstance } from "./db/core";
 import { toNumber } from "@/shared/utils/numeric";
+import {
+  CACHE_SIGNATURE_VERSION,
+  canonicalCacheValue,
+  normalizeGenerationContract,
+  outputContractOf,
+  type GenerationContract,
+} from "@omniroute/open-sse/services/cache/generationContract.ts";
+
+import {
+  responseCacheBypassed,
+  responseCacheWriteDisabled,
+} from "@omniroute/open-sse/services/cache/requestPolicy.ts";
+
+export { outputContractOf };
+export type SignatureConstraints = GenerationContract;
 
 type JsonRecord = Record<string, unknown>;
 
@@ -77,25 +92,6 @@ function getMetricValue(metric: string): number {
   }
 }
 
-function getHeaderValue(
-  headers: { get?: (name: string) => string | null } | Record<string, unknown> | null | undefined,
-  name: string
-): string | null {
-  if (!headers) return null;
-
-  if (typeof headers.get === "function") {
-    return headers.get(name);
-  }
-
-  const needle = name.toLowerCase();
-  for (const [key, value] of Object.entries(headers)) {
-    if (key.toLowerCase() !== needle) continue;
-    return typeof value === "string" ? value : null;
-  }
-
-  return null;
-}
-
 // ─── Singleton ─────────────────
 
 let memoryCache: LRUCache | null = null;
@@ -130,79 +126,8 @@ export function clearMemoryCache(): void {
 
 // ─── Signature Generation ─────────────────
 
-/**
- * Behavior-changing generation constraints that MUST be folded into the cache signature
- * (#12734). Without these, a cached response produced under one `tool_choice`/`tools`/
- * `response_format` could be replayed for a later request that forbids or changes that
- * behavior (e.g. a cached `tool_calls` response served to a `tool_choice: "none"` request).
- *
- * The snake_case fields mirror the raw request body shape and are what `outputContractOf`
- * (#12307) fills in; the camelCase fields are the pre-existing (#12734) call-site shape.
- * `generateSignature` folds both spellings in so neither call style silently drops a field.
- */
-export interface SignatureConstraints {
-  toolChoice?: unknown;
-  tools?: unknown;
-  responseFormat?: unknown;
-  tool_choice?: unknown;
-  response_format?: unknown;
-  text_format?: unknown;
-}
-
-/**
- * The parts of a request that decide what a *valid response* looks like.
- * Two calls that agree on the conversation but disagree here are not
- * interchangeable and must not share a cache entry (#12307): a request for
- * {color, wheels} must not be served a stored {value: "..."} body, and a
- * tool-calling request must not be served the body of one without tools.
- *
- * Returns null when the request carries none of these, so plain-chat
- * signatures — and every cache entry already written for them — are unchanged.
- */
-export function outputContractOf(body: unknown): SignatureConstraints | null {
-  const record = asRecord(body);
-  const text = asRecord(record.text);
-  const contract: SignatureConstraints = {};
-  // Both spellings are set for each field so callers built against either the
-  // pre-existing (#12734) camelCase constraints shape or this snake_case one
-  // (matching the raw request body) can read the field they expect.
-  if (record.response_format != null) {
-    contract.response_format = record.response_format;
-    contract.responseFormat = record.response_format;
-  }
-  if (text.format != null) contract.text_format = text.format;
-  if (record.tools != null) contract.tools = record.tools;
-  if (record.tool_choice != null) {
-    contract.tool_choice = record.tool_choice;
-    contract.toolChoice = record.tool_choice;
-  }
-  return Object.keys(contract).length > 0 ? contract : null;
-}
-
-/** Normalize a single tool definition, keeping only the fields that define its policy. */
-function normalizeTool(tool: unknown): unknown {
-  const record = asRecord(tool);
-  const fn = asRecord(record.function);
-  if (Object.keys(fn).length === 0 && Object.keys(record).length === 0) return tool;
-  return {
-    type: typeof record.type === "string" ? record.type : "function",
-    function: {
-      name: fn.name,
-      description: fn.description,
-      parameters: fn.parameters,
-    },
-  };
-}
-
-/**
- * Normalize `tools` for consistent hashing (mirrors `normalizeConversation` for messages):
- * strips volatile/irrelevant fields while keeping name/description/parameters, which are
- * what actually define the tool policy a cached response was generated under.
- */
-function normalizeTools(tools: unknown): unknown {
-  if (!Array.isArray(tools) || tools.length === 0) return undefined;
-  return tools.map(normalizeTool);
-}
+// Generation/output constraints are shared with the vector cache. Versioning
+// also isolates old plain-chat entries that may have been written with unrecorded effort.
 
 /**
  * Generate deterministic cache signature from request params.
@@ -224,16 +149,16 @@ export function generateSignature(
   apiKeyId?: string,
   constraints?: SignatureConstraints | null
 ) {
-  const payload = JSON.stringify({
-    model,
-    messages: normalizeConversation(conversation),
-    temperature,
-    top_p: topP,
-    tool_choice: constraints?.toolChoice ?? constraints?.tool_choice,
-    tools: normalizeTools(constraints?.tools),
-    response_format: constraints?.responseFormat ?? constraints?.response_format,
-    text_format: constraints?.text_format,
-  });
+  const payload = JSON.stringify(
+    canonicalCacheValue({
+      version: CACHE_SIGNATURE_VERSION,
+      model,
+      messages: normalizeConversation(conversation),
+      temperature,
+      top_p: topP,
+      contract: normalizeGenerationContract(constraints),
+    })
+  );
   const digest = crypto.createHash("sha256").update(payload).digest("hex");
   // Per-key cache isolation (#3740) namespaces the signature with the apiKeyId as a
   // PLAINTEXT prefix instead of folding it into the digest. The apiKeyId is an internal
@@ -481,15 +406,7 @@ export function getCacheStats() {
  * because the provider default may be non-deterministic (e.g. random/creative tasks).
  */
 export function isCacheableForRead(body, headers) {
-  if ((getHeaderValue(headers, "x-omniroute-no-cache") || "").toLowerCase() === "true") {
-    return false;
-  }
-  const cacheControl = (getHeaderValue(headers, "cache-control") || "").toLowerCase();
-  if (cacheControl.includes("no-cache")) {
-    return false;
-  }
-  if (typeof body.temperature !== "number" || body.temperature !== 0) return false;
-  return true;
+  return !responseCacheBypassed(headers) && body.temperature === 0;
 }
 
 /**
@@ -499,15 +416,7 @@ export function isCacheableForRead(body, headers) {
  * because the provider default may be non-deterministic.
  */
 export function isCacheableForWrite(body, headers) {
-  if ((getHeaderValue(headers, "x-omniroute-no-cache") || "").toLowerCase() === "true") {
-    return false;
-  }
-  const cacheControl = (getHeaderValue(headers, "cache-control") || "").toLowerCase();
-  if (cacheControl.includes("no-cache")) {
-    return false;
-  }
-  if (body.temperature !== 0) return false;
-  return true;
+  return !responseCacheWriteDisabled(headers) && body.temperature === 0;
 }
 
 /**

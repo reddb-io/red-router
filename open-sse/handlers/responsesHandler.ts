@@ -97,6 +97,7 @@ export async function handleResponsesCore({
   const transformStream = createResponsesApiTransformStream(null, undefined, {
     customToolNames,
     requestToolIdentityMap,
+    expectedChoices: Number(convertedBody.n ?? 1),
   });
   const transformedBody = response.body.pipeThrough(transformStream).pipeThrough(
     createSseHeartbeatTransform({

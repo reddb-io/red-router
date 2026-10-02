@@ -1,6 +1,7 @@
 // Re-export from open-sse with local logger
 import * as log from "../utils/logger";
 import { updateProviderConnection } from "@/lib/db/providers";
+import { parseTokenExpiryMs } from "@omniroute/open-sse/utils/tokenExpiry.ts";
 import { resolveProxyForConnection } from "@/lib/db/settings";
 import { resolveProxyForProvider, hasBlockingProxyAssignment } from "@/lib/db/proxies";
 import {
@@ -242,11 +243,11 @@ export async function checkAndRefreshToken(provider: string, credentials: any) {
   // keeps the refresh_token "warm" — refreshed regularly enough that Auth0 doesn't
   // mark it as stale and revoke the token family on first use after long idle.
   if (updatedCredentials.expiresAt) {
-    const expiresAt = new Date(updatedCredentials.expiresAt).getTime();
+    const expiresAt = parseTokenExpiryMs(updatedCredentials.expiresAt);
     const now = Date.now();
     const refreshLead = _getRefreshLeadMs(provider, updatedCredentials.providerSpecificData);
 
-    if (expiresAt - now < refreshLead) {
+    if (expiresAt > 0 && expiresAt - now < refreshLead) {
       log.info("TOKEN_REFRESH", "Token expiring soon, refreshing proactively", {
         provider,
         expiresIn: Math.round((expiresAt - now) / 1000),

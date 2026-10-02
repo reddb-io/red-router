@@ -6,6 +6,10 @@ import { register } from "../registry.ts";
 import { FORMATS } from "../formats.ts";
 import { appendToolCallArgumentDelta } from "../../utils/toolCallArguments.ts";
 import { projectCompletedStreamError } from "../../utils/streamErrorFormat.ts";
+import {
+  createStreamTerminalTracker,
+  INCOMPLETE_STREAM_FAILURE,
+} from "../../utils/streamTerminal.ts";
 import { fallbackToolCallId } from "../helpers/toolCallHelper.ts";
 import { finalizeResponsesTerminalStatus } from "../helpers/responsesTerminalStatus.ts";
 import { shouldParseTextualReasoningTags } from "../../handlers/responseSanitizer.ts";
@@ -167,6 +171,16 @@ export function openaiToOpenAIResponsesResponse(chunk, state) {
   if (!chunk) {
     return flushEvents(state);
   }
+  if (state.completedSent) return [];
+  if (chunk.done === true) {
+    state.sawExplicitDone = true;
+    return flushEvents(state);
+  }
+  state.openaiTerminalTracker ??= createStreamTerminalTracker(
+    FORMATS.OPENAI,
+    state.expectedChoices
+  );
+  state.sawGenerationTerminal = state.sawGenerationTerminal || state.openaiTerminalTracker(chunk);
 
   // Normalize usage from any chunk so response.completed has Responses token fields.
   if (chunk.usage) {
@@ -356,6 +370,8 @@ export function openaiToOpenAIResponsesResponse(chunk, state) {
   // Handle finish_reason
   if (choice.finish_reason) {
     state.finishReason = choice.finish_reason; // read by sendCompleted() → finalizeResponsesTerminalStatus
+  }
+  if (choice.finish_reason && state.sawGenerationTerminal) {
     for (const i in state.msgItemAdded) closeMessage(state, emit, i);
     closeReasoning(state, emit);
     for (const i in state.funcCallIds) closeToolCall(state, emit, i);
@@ -455,7 +471,7 @@ function closeReasoning(state, emit) {
       id: state.reasoningId,
       type: "reasoning",
       summary: [{ type: "summary_text", text: state.reasoningBuf }],
-      status: "completed",
+      status: state.upstreamError ? "incomplete" : "completed",
     };
 
     emit("response.output_item.done", {
@@ -557,7 +573,7 @@ function closeMessage(state, emit, idx) {
       type: "message",
       content: [{ type: "output_text", annotations: [], logprobs: [], text: fullText }],
       role: "assistant",
-      status: "completed",
+      status: state.upstreamError ? "incomplete" : "completed",
     };
 
     emit("response.output_item.done", {
@@ -735,7 +751,7 @@ function closeToolCall(state, emit, idx, recordAsCompleted = true) {
         input: rawInput,
         call_id: callId,
         name: state.funcNames[idx] || "",
-        status: "completed",
+        status: state.upstreamError ? "incomplete" : "completed",
       };
 
       // #7936 identity closure for custom_tool_call items (apply_patch stays
@@ -768,7 +784,7 @@ function closeToolCall(state, emit, idx, recordAsCompleted = true) {
         arguments: args,
         call_id: callId,
         name: state.funcNames[idx] || "",
-        status: "completed",
+        status: state.upstreamError ? "incomplete" : "completed",
       };
 
       // #7936/#14154 identity closure + collaboration plaintext marker.
@@ -814,7 +830,7 @@ function sendCompleted(state, emit) {
     const output = buildDenseOutput(state);
 
     // Surface upstream mid-stream errors (e.g. Gemini 503) in the
-    // Responses-API `response.completed` event instead of silently emitting
+    // Responses-API `response.failed` event instead of silently emitting
     // `status: "completed"`. The error is set by the Gemini-to-OpenAI
     // translator or the OpenAI-Responses translator itself when the upstream
     // SSE stream emits a JSON error object after partial content.
@@ -847,6 +863,14 @@ function sendCompleted(state, emit) {
 
 function flushEvents(state) {
   if (state.completedSent) return [];
+
+  if (
+    !(state.sawGenerationTerminal ?? !!state.finishReason) &&
+    !state.sawExplicitDone &&
+    !state.upstreamError
+  ) {
+    state.upstreamError = INCOMPLETE_STREAM_FAILURE;
+  }
 
   const { events, emit } = createEventEmitter(state);
 

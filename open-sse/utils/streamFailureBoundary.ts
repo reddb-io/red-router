@@ -33,7 +33,7 @@ export function createStreamFailureAborter(context: AborterContext) {
     controller: TransformStreamDefaultController<Uint8Array>,
     failure: StreamFailurePayload,
     publicMessage: string,
-    options: { notifyComplete?: boolean } = {}
+    options: { notifyComplete?: boolean; preserveOutput?: boolean } = {}
   ): void => {
     let handled = false;
     context.timing.markInterrupted();
@@ -71,6 +71,11 @@ export function createStreamFailureAborter(context: AborterContext) {
     }
     context.clearIdleTimer();
     if (!handled) context.clearPendingRequest();
-    controller.error(context.markPendingRequestCleared(new Error(safeMessage)));
+    const error = context.markPendingRequestCleared(new Error(safeMessage));
+    // error() discards queued deltas and the protocol error frame. A terminal
+    // failure emitted after partial output must remain readable while the
+    // writable side is stopped, cancelling the upstream pipe without replay.
+    if (options.preserveOutput) controller.terminate();
+    else controller.error(error);
   };
 }

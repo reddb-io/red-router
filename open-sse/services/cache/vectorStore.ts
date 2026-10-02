@@ -9,6 +9,8 @@
 import type { SemanticVerificationProof } from "./semanticVerification.ts";
 
 export interface CacheEntry {
+  /** Missing on pre-v2 entries, which cannot be reused as fuzzy candidates. */
+  generationContractHash?: string;
   verificationProof?: SemanticVerificationProof;
   id: string;
   hash: string;
@@ -27,6 +29,7 @@ export interface CacheEntry {
 }
 
 export interface StoreFilter {
+  generationContractHash?: string;
   model?: string;
   provider?: string;
   /**
