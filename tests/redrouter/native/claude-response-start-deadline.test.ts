@@ -69,3 +69,42 @@ test("an operator connection deadline wins over streaming defaults and disabled 
     );
   }
 });
+
+test("Claude dispatch forwards the active connection's explicit response-start deadline", async (context) => {
+  const originalSetTimeout = globalThis.setTimeout;
+  const deadlines: number[] = [];
+  context.mock.method(
+    globalThis,
+    "setTimeout",
+    (callback: (...args: unknown[]) => void, delay?: number, ...args: unknown[]) => {
+      deadlines.push(delay ?? 0);
+      return originalSetTimeout(callback, delay, ...args);
+    }
+  );
+  context.mock.method(globalThis, "fetch", async () => {
+    return new Response("event: message_start\ndata: {}\n\n", {
+      headers: { "Content-Type": "text/event-stream" },
+    });
+  });
+  const executor = new DefaultExecutor("claude");
+  const result = await executor.execute({
+    model: "claude-sonnet-5",
+    stream: true,
+    body: {
+      model: "claude-sonnet-5",
+      stream: true,
+      max_tokens: 1024,
+      messages: [{ role: "user", content: "Reply only OK." }],
+    },
+    credentials: {
+      accessToken: "sk-ant-oat01-test-only",
+      providerSpecificData: { timeoutMs: 180_000 },
+    },
+    skipUpstreamRetry: true,
+  });
+  assert.equal(result.response.status, 200);
+  assert.ok(deadlines.includes(180_000));
+  assert.ok(!deadlines.includes(600_000));
+  assert.ok(!deadlines.includes(110_000));
+  await result.response.body?.cancel();
+});
