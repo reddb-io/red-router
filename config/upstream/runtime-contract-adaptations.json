@@ -143,6 +143,7 @@
         "Per-key bypass applies to both cache layers and cannot be overridden by request headers.",
         "Shared header policy propagates no-cache, no-store and Pragma restrictions to JSON and streaming cache paths; the custom cache-no-store header disables writes while permitting reads.",
         "Custom namespaces and semantic-only lookups bypass the legacy cache, which cannot represent those scopes.",
+        "Paused, incomplete, failed or cancelled results cannot enter either response cache; assembled streaming bodies preserve the original terminal reason for this decision.",
         "Old cache entries remain stored but cannot match the new signatures or fuzzy generation contract."
       ],
       "differencesAndLimits": [

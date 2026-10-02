@@ -420,19 +420,31 @@ export function isCacheableForWrite(body, headers) {
 }
 
 /**
- * A response cut short by the output-token ceiling is a partial answer, not a
- * reusable one. Caching it under a temperature:0 signature pins the truncation
+ * A response cut short by the output-token ceiling or paused for continuation
+ * is a partial answer. Caching it under a temperature:0 signature pins that result
  * for every later identical request — the caller sees a mid-sentence reply that
  * no retry clears, because each retry is served the same poisoned entry.
  *
- * Only `length` (and its Claude-side spelling `max_tokens`) is treated as
- * truncation. `stop`, `tool_calls`, and a missing/unknown reason are complete
- * responses and stay cacheable, so this never narrows the cache beyond the bug.
+ * `length`, Claude's `max_tokens`/`pause_turn`, and explicit failed or incomplete
+ * Responses statuses cannot be reused. Normal `stop`/`tool_calls` and absent or
+ * unknown reasons retain their existing cache behavior.
  */
-const TRUNCATED_FINISH_REASONS = new Set(["length", "max_tokens"]);
+const TRUNCATED_FINISH_REASONS = new Set(["length", "max_tokens", "pause_turn"]);
+const NON_REUSABLE_STATUSES = new Set(["incomplete", "failed", "cancelled", "canceled"]);
 
 export function isTruncatedCompletion(response: unknown): boolean {
   if (!response || typeof response !== "object") return false;
+  const record = asRecord(response);
+  const nestedResponse = asRecord(record.response);
+  if (
+    NON_REUSABLE_STATUSES.has(String(record.status)) ||
+    NON_REUSABLE_STATUSES.has(String(nestedResponse.status)) ||
+    ["response.incomplete", "response.failed", "response.cancelled", "response.canceled"].includes(
+      String(record.type)
+    )
+  ) {
+    return true;
+  }
   const r = response as {
     choices?: Array<{ finish_reason?: unknown }>;
     stop_reason?: unknown;

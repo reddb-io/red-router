@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { isTruncatedCompletion } from "../../../src/lib/semanticCache.ts";
+
 import { FORMATS } from "../../../open-sse/translator/formats.ts";
 import { initState, translateResponse } from "../../../open-sse/translator/index.ts";
 import { openaiToOpenAIResponsesResponse } from "../../../open-sse/translator/response/openai-responses.ts";
@@ -284,6 +286,142 @@ for (const [stopReason, terminal] of [
   });
 }
 
+for (const mode of ["passthrough", "translate"] as const) {
+  test(`${mode} Claude pause keeps its reason in accounting and is excluded from cache`, async () => {
+    let recorded: unknown;
+    const text = await collect(
+      source([
+        frame({
+          type: "message_start",
+          message: { id: "msg-accounting", model: "claude", usage: { input_tokens: 12 } },
+        }),
+        frame({ type: "content_block_start", index: 0, content_block: { type: "text", text: "" } }),
+        frame({
+          type: "content_block_delta",
+          index: 0,
+          delta: { type: "text_delta", text: "Partial result" },
+        }),
+        frame({ type: "content_block_stop", index: 0 }),
+        frame({
+          type: "message_delta",
+          delta: { stop_reason: "pause_turn" },
+          usage: { output_tokens: 2 },
+        }),
+        frame({ type: "message_stop" }),
+      ]),
+      createSSEStream({
+        mode,
+        targetFormat: FORMATS.CLAUDE,
+        sourceFormat: mode === "passthrough" ? FORMATS.CLAUDE : FORMATS.OPENAI_RESPONSES,
+        clientResponseFormat: mode === "passthrough" ? FORMATS.CLAUDE : FORMATS.OPENAI_RESPONSES,
+        onComplete: (result) => {
+          assert.equal(result.status, 200);
+          recorded = result.responseBody;
+        },
+      })
+    );
+    assert.ok(text.includes("Partial result"));
+    assert.equal(
+      (recorded as { choices: Array<{ finish_reason: string }> }).choices[0].finish_reason,
+      "pause_turn"
+    );
+    assert.equal(isTruncatedCompletion(recorded), true);
+  });
+
+  test(`${mode} OpenAI length with a partial tool call is excluded from cache`, async () => {
+    let recorded: unknown;
+    await collect(
+      source([
+        frame(
+          chat({
+            tool_calls: [
+              {
+                index: 0,
+                id: "call_limit",
+                type: "function",
+                function: { name: "lookup", arguments: '{"query":' },
+              },
+            ],
+          })
+        ),
+        frame(chat({}, "length")),
+      ]),
+      createSSEStream({
+        mode,
+        targetFormat: FORMATS.OPENAI,
+        sourceFormat: mode === "passthrough" ? FORMATS.OPENAI : FORMATS.OPENAI_RESPONSES,
+        clientResponseFormat: FORMATS.OPENAI,
+        onComplete: (result) => {
+          assert.equal(result.status, 200);
+          recorded = result.responseBody;
+        },
+      })
+    );
+    assert.equal(
+      (recorded as { choices: Array<{ finish_reason: string }> }).choices[0].finish_reason,
+      "length"
+    );
+    assert.equal(isTruncatedCompletion(recorded), true);
+  });
+
+  test(`${mode} complete tool calls retain normalized accounting`, async () => {
+    let recorded: unknown;
+    await collect(
+      source([
+        frame(
+          chat({
+            tool_calls: [
+              {
+                index: 0,
+                id: "call_complete",
+                type: "function",
+                function: { name: "lookup", arguments: '{"query":"ok"}' },
+              },
+            ],
+          })
+        ),
+        frame(chat({}, "stop")),
+      ]),
+      createSSEStream({
+        mode,
+        targetFormat: FORMATS.OPENAI,
+        sourceFormat: mode === "passthrough" ? FORMATS.OPENAI : FORMATS.OPENAI_RESPONSES,
+        clientResponseFormat: FORMATS.OPENAI,
+        onComplete: (result) => {
+          recorded = result.responseBody;
+        },
+      })
+    );
+    assert.equal(
+      (recorded as { choices: Array<{ finish_reason: string }> }).choices[0].finish_reason,
+      "tool_calls"
+    );
+  });
+}
+
+test("native Responses incomplete status reaches accounting and blocks cache", async () => {
+  let recorded: unknown;
+  await collect(
+    source([
+      frame({ type: "response.output_text.delta", delta: "Partial result" }),
+      frame({
+        type: "response.incomplete",
+        response: { id: "resp_incomplete", status: "incomplete", incomplete_details: null },
+      }),
+    ]),
+    createSSEStream({
+      mode: "passthrough",
+      sourceFormat: FORMATS.OPENAI_RESPONSES,
+      clientResponseFormat: FORMATS.OPENAI_RESPONSES,
+      onComplete: (result) => {
+        recorded = result.responseBody;
+      },
+    })
+  );
+  assert.equal((recorded as { status: string }).status, "incomplete");
+  assert.equal(isTruncatedCompletion(recorded), true);
+});
+
 test("one finished OpenAI/Gemini choice cannot stop another active choice", () => {
   const openai = createStreamTerminalTracker(FORMATS.OPENAI, 2);
   assert.equal(openai(chat({ content: "First" }, null, 0)), false);
@@ -368,35 +506,48 @@ test("post-finish heartbeats do not extend the one-shot usage deadline", (t) => 
   }
 });
 
-test("natural EOF shares an in-progress deadline flush and records completion once", async (t) => {
-  t.mock.timers.enable({ apis: ["setTimeout"] });
-  let completed = 0;
-  let failed = 0;
-  const stream = createSSEStream({
-    mode: "translate",
-    targetFormat: FORMATS.OPENAI,
-    sourceFormat: FORMATS.OPENAI_RESPONSES,
-    trailingUsageTimeoutMs: 20,
-    onComplete: () => {
-      completed += 1;
-    },
-    onFailure: () => {
-      failed += 1;
-    },
+for (const clientFormat of [FORMATS.OPENAI_RESPONSES, FORMATS.OPENAI]) {
+  test(`natural EOF shares an in-progress deadline flush and records completion once: ${clientFormat}`, async (t) => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    let completed = 0;
+    let failed = 0;
+    const stream = createSSEStream({
+      mode: "translate",
+      targetFormat: FORMATS.OPENAI,
+      sourceFormat: clientFormat,
+      trailingUsageTimeoutMs: 20,
+      onComplete: () => {
+        completed += 1;
+      },
+      onFailure: () => {
+        failed += 1;
+      },
+    });
+    const reading = new Response(stream.readable).text();
+    const writer = stream.writable.getWriter();
+    await writer.write(encoder.encode(frame(chat({ content: "Answer" }))));
+    await writer.write(encoder.encode(frame(chat({}, "stop"))));
+    // The timer begins async finalization, then EOF arrives before its await resumes.
+    t.mock.timers.tick(20);
+    await writer.close().catch(() => {}); // Termination can reject the source writer.
+    const text = await reading;
+    if (clientFormat === FORMATS.OPENAI_RESPONSES) {
+      assert.equal(payloads(text).filter((event) => event.type === "response.completed").length, 1);
+      assert.equal(text.split("data: [DONE]").length - 1, 0);
+    } else {
+      assert.equal(
+        payloads(text).filter(
+          (event) =>
+            (event.choices as Array<{ finish_reason?: string }> | undefined)?.[0]?.finish_reason
+        ).length,
+        1
+      );
+      assert.equal(text.split("data: [DONE]").length - 1, 1);
+    }
+    assert.equal(completed, 1);
+    assert.equal(failed, 0);
   });
-  const reading = new Response(stream.readable).text();
-  const writer = stream.writable.getWriter();
-  await writer.write(encoder.encode(frame(chat({ content: "Answer" }))));
-  await writer.write(encoder.encode(frame(chat({}, "stop"))));
-  // The timer begins async finalization, then EOF arrives before its await resumes.
-  t.mock.timers.tick(20);
-  await writer.close().catch(() => {}); // Termination can reject the source writer.
-  const text = await reading;
-  assert.equal(payloads(text).filter((event) => event.type === "response.completed").length, 1);
-  assert.equal(text.split("data: [DONE]").length - 1, 1);
-  assert.equal(completed, 1);
-  assert.equal(failed, 0);
-});
+}
 
 test("cancel clears a pending usage deadline without emitting a late failure", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });

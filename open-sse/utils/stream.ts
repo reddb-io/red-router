@@ -55,6 +55,7 @@ import {
   type StreamFailurePayload,
 } from "./streamErrorFormat.ts";
 import { createStreamFailureAborter } from "./streamFailureBoundary.ts";
+import { normalizeOpenAICompatibleFinishReasonString } from "./finishReason.ts";
 import {
   createTrailingUsageDeadline,
   createStreamTerminalTracker,
@@ -1027,6 +1028,16 @@ export function createSSEStream(options: StreamOptions = {}) {
   );
   if (state) state.expectedChoices = expectedChoices;
   const terminalTracker = createStreamTerminalTracker(upstreamFormat, expectedChoices);
+  let upstreamFinishReason: string | null = null;
+  let upstreamResponseStatus: string | null = null;
+  const accountingFinishReason = (reason: unknown, hasToolCalls: boolean) => {
+    // A pause remains resumable even when the client's chat format maps it to stop.
+    if (typeof reason === "string" && reason.toLowerCase() === "pause_turn") return "pause_turn";
+    const normalized = normalizeOpenAICompatibleFinishReasonString(reason);
+    return hasToolCalls && ["stop", "function_call"].includes(normalized)
+      ? "tool_calls"
+      : normalized;
+  };
   let sawUpstreamTerminal = false;
   let finalized = false;
   let flushPromise: Promise<void> | null = null;
@@ -1388,6 +1399,17 @@ export function createSSEStream(options: StreamOptions = {}) {
     payload: unknown,
     controller: TransformStreamDefaultController<Uint8Array>
   ) => {
+    const raw = payload as JsonRecord | null;
+    const rawChoices = raw?.choices as JsonRecord[] | undefined;
+    const reason = rawChoices?.[0]?.finish_reason ?? (raw?.delta as JsonRecord)?.stop_reason;
+    if (typeof reason === "string" && reason) upstreamFinishReason = reason;
+    const responseStatus = (raw?.response as JsonRecord)?.status;
+    if (
+      typeof raw?.type === "string" &&
+      raw.type.startsWith("response.") &&
+      typeof responseStatus === "string"
+    )
+      upstreamResponseStatus = responseStatus;
     if (upstreamFormat === FORMATS.OPENAI && (payload as JsonRecord)?.done === true && state)
       state.sawExplicitDone = true;
     if (!terminalTracker(payload)) return;
@@ -2945,7 +2967,10 @@ export function createSSEStream(options: StreamOptions = {}) {
                   choices: [
                     {
                       message,
-                      finish_reason: passthroughHasToolCalls ? "tool_calls" : "stop",
+                      finish_reason: accountingFinishReason(
+                        upstreamFinishReason,
+                        passthroughHasToolCalls
+                      ),
                     },
                   ],
                   usage: {
@@ -2954,6 +2979,7 @@ export function createSSEStream(options: StreamOptions = {}) {
                     total_tokens: prompt + completion,
                   },
                   _streamed: true,
+                  ...(upstreamResponseStatus ? { status: upstreamResponseStatus } : {}),
                 };
                 onComplete({
                   status: 200,
@@ -3243,7 +3269,12 @@ export function createSSEStream(options: StreamOptions = {}) {
                 choices: [
                   {
                     message,
-                    finish_reason: hasToolCalls ? "tool_calls" : "stop",
+                    finish_reason: accountingFinishReason(
+                      upstreamFinishReason === "pause_turn"
+                        ? upstreamFinishReason
+                        : (state?.finishReason ?? upstreamFinishReason),
+                      hasToolCalls
+                    ),
                   },
                 ],
                 usage: {
@@ -3252,6 +3283,7 @@ export function createSSEStream(options: StreamOptions = {}) {
                   total_tokens: prompt + completion,
                 },
                 _streamed: true,
+                ...(upstreamResponseStatus ? { status: upstreamResponseStatus } : {}),
               };
               onComplete({
                 status: 200,

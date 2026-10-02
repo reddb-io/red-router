@@ -6,6 +6,8 @@ import {
   outputContractOf,
   isCacheableForRead,
   isCacheableForWrite,
+  isTruncatedCompletion,
+  isTruncatedStreamBody,
 } from "../../../src/lib/semanticCache.ts";
 import { canUseLegacyResponseCache } from "../../../open-sse/services/cache/requestPolicy.ts";
 import { SemanticCacheManager } from "../../../open-sse/services/cache/semanticCacheManager.ts";
@@ -29,6 +31,45 @@ const similar = {
 const response = {
   choices: [{ finish_reason: "stop", message: { role: "assistant", content: "Cached answer" } }],
 };
+
+test("paused or incomplete responses never enter JSON or streaming response caches", () => {
+  const partials = [
+    { choices: [{ finish_reason: "pause_turn" }] },
+    { stop_reason: "pause_turn" },
+    { status: "incomplete" },
+    { status: "failed" },
+    { type: "response.incomplete", response: { status: "incomplete" } },
+    { type: "response.failed", response: { status: "failed" } },
+    { status: "cancelled" },
+  ];
+  const forbidden = () => {
+    throw new Error("An incomplete turn reached cache storage");
+  };
+  const deps = {
+    isCacheableForWrite,
+    isSmallEnoughForSemanticCache: forbidden,
+    generateSignature: forbidden,
+    setCachedResponse: forbidden,
+  };
+  for (const partial of partials) {
+    assert.equal(isTruncatedCompletion(partial), true);
+    assert.equal(isTruncatedStreamBody(`data: ${JSON.stringify(partial)}\n\n`), true);
+    const args = {
+      ...scope,
+      enabled: true,
+      body: original,
+      headers: {},
+      translatedResponse: partial,
+      streamStatus: 200,
+      streamResponseBody: partial,
+    };
+    storeSemanticCacheResponse(args, deps);
+    storeStreamingSemanticCacheResponse(args, deps);
+  }
+  for (const complete of [response, { choices: [{ finish_reason: "tool_calls" }] }, {}]) {
+    assert.equal(isTruncatedCompletion(complete), false);
+  }
+});
 
 function signature(
   body: Record<string, unknown> & { temperature?: number; top_p?: number },
