@@ -169,7 +169,9 @@ export async function dispatchSystemOne(
         }
         let effectiveTarget = target;
         if (target.provider === "openrouter") {
-          const configured = configuredOpenRouterModelsUrl(credentials.providerSpecificData);
+          const configured = configuredOpenRouterModelsUrl(
+            "providerSpecificData" in credentials ? credentials.providerSpecificData : undefined
+          );
           if (configured)
             effectiveTarget = { ...target, url: configured.replace(/\/models$/, "/systemone") };
         }
