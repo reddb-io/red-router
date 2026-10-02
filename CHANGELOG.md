@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.58.0
+
+### Minor Changes
+
+- Clarify connections, routes and policies across provider, endpoint and routing screens. Extend authorized routing previews with effective setting sources, API-key restrictions, connection cooldown metadata and resolved upstream model IDs without dispatching requests or changing provider contracts.
+- Add opt-in reusable routing profiles for instance defaults and owner tenant pins. Keep local overrides and tenant/key access boundaries, show profile origins in the effective preview, invalidate discovery after edits, and block deletion while attached.
+
+### Patch Changes
+
+- Keep OpenAI-compatible model tests responsive when upstream streams or response bodies stall. Enforce diagnostic deadlines, stop at completed SSE events, release canceled readers, propagate client cancellation, and show progress beside the tested model with persistent timeout feedback.
+
 ## 0.57.9
 
 ### Patch Changes
