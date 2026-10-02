@@ -41,3 +41,17 @@ export async function activateCatalogFixtureInventory() {
     await activateFixtureModels(provider, modelIds);
   }
 }
+
+/** Explicit combo targets are selected by the catalog fixture's operator too. */
+export async function activateFixtureComboTargets() {
+  const { getCombos } = await import("../../src/lib/db/combos.ts");
+  for (const combo of await getCombos()) {
+    for (const target of combo.models || []) {
+      const fullModel = typeof target === "string" ? target : target.model;
+      if (typeof fullModel !== "string") continue;
+      const slash = fullModel.indexOf("/");
+      if (slash > 0)
+        await activateFixtureModels(fullModel.slice(0, slash), [fullModel.slice(slash + 1)]);
+    }
+  }
+}

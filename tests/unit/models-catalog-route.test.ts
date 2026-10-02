@@ -18,13 +18,15 @@ const apiKeysDb = await import("../../src/lib/db/apiKeys.ts");
 const featureFlagsDb = await import("../../src/lib/db/featureFlags.ts");
 const modelsDevSync = await import("../../src/lib/modelsDevSync.ts");
 const catalogImplementation = await import("../../src/app/api/v1/models/catalog.ts");
-const { activateCatalogFixtureInventory } = await import("../helpers/modelActivationFixtures.ts");
+const { activateCatalogFixtureInventory, activateFixtureComboTargets } =
+  await import("../helpers/modelActivationFixtures.ts");
 const v1ModelsCatalog = {
   ...catalogImplementation,
   getUnifiedModelsResponse: async (
     ...args: Parameters<typeof catalogImplementation.getUnifiedModelsResponse>
   ) => {
     await activateCatalogFixtureInventory();
+    await activateFixtureComboTargets();
     return catalogImplementation.getUnifiedModelsResponse(...args);
   },
 };

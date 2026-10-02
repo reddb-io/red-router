@@ -57,6 +57,11 @@ before(async () => {
       })
     ).id
   );
+  const { activateFixtureModels } = await import("../../helpers/modelActivationFixtures.ts");
+  await activateFixtureModels("red-router", [
+    "openrouter/chat",
+    "red/openrouter/typesafe/jev-1.13",
+  ]);
   client = await createApiKey("Client", "tests", [], {
     allowedConnections: [remoteId],
     allowedModels: ["red/openrouter/chat"],

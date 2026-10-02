@@ -186,7 +186,7 @@ import {
   getNextFromDeckSync,
   planNextFromDeckSync,
 } from "@/shared/utils/shuffleDeck";
-import { shouldIsolateProbeFailures } from "@/shared/utils/probeOrigin";
+import { isProbeContext, shouldIsolateProbeFailures } from "@/shared/utils/probeOrigin";
 import {
   applyExclusiveConnectionLeasePolicy,
   invalidateManagedConnectionLease,
@@ -1194,6 +1194,7 @@ export async function getProviderCredentials(
 
   if (
     requestedModel &&
+    !isProbeContext() &&
     getModelIsHidden(provider, requestedModel, options.modelModality || "chat")
   ) {
     invalidateManagedLease(options, "AUTHORIZATION_CHANGED");

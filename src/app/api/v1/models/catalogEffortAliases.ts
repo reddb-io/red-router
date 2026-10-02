@@ -1,6 +1,6 @@
 import { codexProvider } from "@omniroute/open-sse/config/providers/registry/codex";
 import { GLM_SHARED_MODELS } from "@omniroute/open-sse/config/glmProvider";
-import { splitCodexReasoningSuffix } from "@omniroute/open-sse/executors/codex/reasoningSuffix";
+import { splitCodexReasoningSuffix } from "@omniroute/open-sse/services/modelActivationIdentity";
 
 type CatalogEntry = {
   id?: unknown;

@@ -108,6 +108,7 @@ test("route lists global MiniMax voices with a POST, the stored key and a timeou
   await createProviderConnection({
     provider: "minimax",
     authType: "apikey",
+    isActive: true,
     name: "mm",
     apiKey: KEY,
   });
@@ -153,6 +154,7 @@ test("minimax-cn uses the China endpoint and its own connection", async () => {
   await createProviderConnection({
     provider: "minimax-cn",
     authType: "apikey",
+    isActive: true,
     name: "mm-cn",
     apiKey: "cn-key-456",
   });

@@ -2507,7 +2507,12 @@ export async function GET(
     });
     const models = projectConnectionModels(provider, prefix, rows, requested.data).filter(
       (model) =>
-        !getModelIsHidden(provider, model.id) &&
+        (new URL(request.url).searchParams.get("excludeHidden") !== "true" ||
+          !getModelIsHidden(
+            provider,
+            model.id,
+            requested.data.includes("decision") ? "systemone" : "chat"
+          )) &&
         !isModelExcludedByConnection(model.id, connection?.providerSpecificData)
     );
     return NextResponse.json({ ...payload, models });

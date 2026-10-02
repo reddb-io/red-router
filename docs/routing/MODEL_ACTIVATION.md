@@ -1,3 +1,8 @@
+---
+title: Connection and model activation
+description: Explicit opt-in for provider connections and discovered models.
+---
+
 # Connection and model activation
 
 Provider discovery and model selection are separate operator actions. A free badge

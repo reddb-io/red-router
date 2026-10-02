@@ -37,6 +37,8 @@ test("routing preview follows the selected key's tenant and model restrictions w
     isActive: true,
     name: "Private",
   });
+  const { activateFixtureModels } = await import("../../helpers/modelActivationFixtures.ts");
+  await activateFixtureModels("openai", ["gpt-4o"]);
   tenants.assignResourcesToTenant(tenant.id, { connectionIds: [String(connection.id)] });
   const key = await createApiKey("Restricted preview", "routing-preview-machine", [], {
     modelAccessMode: "restricted",

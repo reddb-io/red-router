@@ -39,7 +39,6 @@ import {
   isOverrideHiddenForModality,
   type CompatByProtocolMap,
   type ModelCompatProtocolKey,
-  type ModelCompatOverride,
   type ModelCompatPerProtocol,
 } from "./models/compat";
 

@@ -1,4 +1,5 @@
 import { errorResponse } from "@omniroute/open-sse/utils/error";
+import { isProbeContext } from "@/shared/utils/probeOrigin";
 import { getModelIsHidden } from "@/lib/db/models";
 import { isProviderEnabledNow } from "./enabledProvidersAccessor";
 
@@ -9,7 +10,7 @@ export async function getInferenceActivationRejection(
   modality: string,
   credentialProviderId: string = providerId
 ): Promise<Response | null> {
-  if (getModelIsHidden(providerId, modelId, modality)) {
+  if (!isProbeContext() && getModelIsHidden(providerId, modelId, modality)) {
     return errorResponse(403, "Model is inactive. Activate it in the provider's model list.");
   }
   if (!(await isProviderEnabledNow(credentialProviderId))) {

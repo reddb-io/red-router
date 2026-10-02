@@ -957,7 +957,11 @@ async function buildUnifiedModelsResponseCore(
           preparedAutoInputs = await prepareBuiltinAutoComboInputs(capabilityResolutionSnapshot);
           await yieldCatalogBuildTurn();
         }
-        if (preparedAutoInputs.candidatePool.length === 0) break;
+        if (
+          preparedAutoInputs.regularCandidates.length === 0 &&
+          preparedAutoInputs.familyCandidates.length === 0
+        )
+          break;
         const virtualCombo = await createBuiltinAutoCombo(autoId, suffix, preparedAutoInputs);
         const contextLength = virtualCombo.advertisedContextLength || 128000;
         const maxOutputTokens = virtualCombo.advertisedMaxOutputTokens || 8192;

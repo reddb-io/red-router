@@ -33,10 +33,17 @@ const IMAGE_BODY = {
 };
 
 async function run(settings: unknown) {
+  const { activateFixtureModels } = await import("../../helpers/modelActivationFixtures.ts");
+  await activateFixtureModels("openai", ["gpt-4o"]);
   const dispatched: string[] = [];
   const response = await handleComboChat({
     body: structuredClone(IMAGE_BODY),
-    combo: { id: "c1", name: "text-only", strategy: "priority", models: ["deepseek/deepseek-chat"] },
+    combo: {
+      id: "c1",
+      name: "text-only",
+      strategy: "priority",
+      models: ["deepseek/deepseek-chat"],
+    },
     handleSingleModel: async (_body: unknown, modelStr: string) => {
       dispatched.push(modelStr);
       return new Response(JSON.stringify({ choices: [{ message: { content: "ok" } }] }), {

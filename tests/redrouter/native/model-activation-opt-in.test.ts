@@ -112,7 +112,7 @@ test("sync preserves selections while new discoveries stay off; bulk selection s
   for (const model of inventory)
     assert.equal(models.getModelIsHidden("openrouter", model.id), true);
   assert.equal(
-    (await prepareVirtualAutoComboInputs({ includeResolvedCapabilities: false })).candidatePool
+    (await prepareVirtualAutoComboInputs({ includeResolvedCapabilities: false })).regularCandidates
       .length,
     0
   );
@@ -135,7 +135,7 @@ test("sync preserves selections while new discoveries stay off; bulk selection s
   active = (await listedIds()).filter((id) => id.startsWith("openrouter/"));
   assert.equal(active.length, 205);
   assert.equal(
-    (await prepareVirtualAutoComboInputs({ includeResolvedCapabilities: false })).candidatePool
+    (await prepareVirtualAutoComboInputs({ includeResolvedCapabilities: false })).regularCandidates
       .length,
     205
   );
@@ -145,7 +145,7 @@ test("sync preserves selections while new discoveries stay off; bulk selection s
     true
   );
   assert.equal(
-    (await prepareVirtualAutoComboInputs({ includeResolvedCapabilities: false })).candidatePool
+    (await prepareVirtualAutoComboInputs({ includeResolvedCapabilities: false })).regularCandidates
       .length,
     0
   );

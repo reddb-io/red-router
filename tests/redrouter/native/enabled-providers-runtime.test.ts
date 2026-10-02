@@ -128,6 +128,9 @@ test("no-auth models appear in /v1/models and the dashboard catalog only once en
   );
 
   await enable(["aihorde"]);
+  const { activateCatalogFixtureInventory } =
+    await import("../../helpers/modelActivationFixtures.ts");
+  await activateCatalogFixtureInventory();
   assert.ok(modelsOf(await listedModels(), "aihorde").length > 0, "enabled: models are listed");
   const after = (await (
     await getModelCatalog(new Request("http://localhost/api/models/catalog"))
@@ -155,6 +158,8 @@ test("keyless search endpoints follow the same gate", async () => {
     false
   );
   await enable(["duckduckgo-free"]);
+  const { activateFixtureModels } = await import("../../helpers/modelActivationFixtures.ts");
+  await activateFixtureModels("duckduckgo-free", ["search"]);
   assert.equal(await isNoAuthGateOpenNow("duckduckgo-free"), true);
   assert.equal(
     (await listedModels()).some((m) => m.id === "duckduckgo-free/search"),

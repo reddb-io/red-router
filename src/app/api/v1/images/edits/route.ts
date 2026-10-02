@@ -238,7 +238,6 @@ async function handleAdobeFireflyEditRequest(params: {
     parsed,
     providerConfig,
     allowedConnections,
-    resolvedModel,
     prompt,
     size,
     responseFormat,

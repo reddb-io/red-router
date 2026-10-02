@@ -44,3 +44,6 @@ export function activationModelIds(provider: string, modelId: string): string[] 
   }
   return [modelId];
 }
+
+// Expose parameter parsing through the service boundary used by catalog consumers.
+export { splitCodexReasoningSuffix };
