@@ -98,6 +98,7 @@ export interface ModelVisibilityToolbarProps {
   selectAllDisabled?: boolean;
   deselectAllDisabled?: boolean;
   onTestAll?: () => void;
+  testableCount?: number;
   testingAll?: boolean;
   testProgress?: { done: number; total: number } | null;
   visibilityFilter?: "all" | "visible" | "hidden";
@@ -121,6 +122,7 @@ export function ModelVisibilityToolbar({
   selectAllDisabled,
   deselectAllDisabled,
   onTestAll,
+  testableCount = activeCount,
   testingAll,
   testProgress,
   visibilityFilter,
@@ -231,9 +233,13 @@ export function ModelVisibilityToolbar({
       {onTestAll && (
         <button
           onClick={onTestAll}
-          disabled={testingAll}
+          disabled={testingAll || testableCount === 0}
           className="flex items-center gap-1.5 rounded-lg border border-border bg-transparent px-2.5 py-1 text-[12px] text-text-main disabled:cursor-not-allowed disabled:opacity-50"
-          title={providerText(t, "testAllModels", "Test all")}
+          title={
+            testableCount === 0
+              ? "No active models match the current filter"
+              : providerText(t, "testAllModels", "Test all")
+          }
         >
           <span className="material-symbols-outlined text-[16px]">
             {testingAll ? "progress_activity" : "science"}
@@ -241,9 +247,15 @@ export function ModelVisibilityToolbar({
           <span>
             {testingAll && testProgress
               ? providerText(t, "testingAllModels", "Testing {done}/{total}", testProgress)
-              : providerText(t, "testAllModels", "Test all")}
+              : `Test active models (${testableCount})`}
           </span>
         </button>
+      )}
+      {onTestAll && testableCount === 0 && (
+        <p className="w-full text-xs text-text-muted" role="status">
+          No active models match the current filter. Activate a model for batch testing, or use its
+          individual test button without activating it.
+        </p>
       )}
       <button
         onClick={onSelectAll}

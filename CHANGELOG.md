@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.57.9
+
+### Patch Changes
+
+- Keep model-test progress, HTTP errors and latency visible on the provider page. Disable empty batch tests with an explanation, show the active filtered model count and restore progress for passthrough providers. Align synced catalog discovery with management authentication so local CLI sessions do not fall back to stale static models.
+
 ## 0.57.8
 
 ### Patch Changes

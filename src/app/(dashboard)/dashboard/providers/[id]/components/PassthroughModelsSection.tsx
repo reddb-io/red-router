@@ -149,7 +149,7 @@ export default function PassthroughModelsSection({
   const handleTestAll = async () => {
     const modelsToTest = filteredModels.filter((m) => !m.isHidden);
     if (modelsToTest.length === 0) {
-      notify.error(providerText(t, "noModelsToTest", "No models to test"));
+      notify.error("No active models match the current filter");
       return;
     }
     setTestingAll(true);
@@ -435,7 +435,9 @@ export default function PassthroughModelsSection({
             selectAllDisabled={bulkTogglePending || filteredModels.length === 0}
             deselectAllDisabled={bulkTogglePending || filteredModels.length === 0}
             onTestAll={handleTestAll}
+            testableCount={filteredModels.filter((model) => !model.isHidden).length}
             testingAll={testingAll}
+            testProgress={testProgress}
             visibilityFilter={visibilityFilter}
             onVisibilityFilterChange={setVisibilityFilter}
             autoHideFailed={autoHideFailed}

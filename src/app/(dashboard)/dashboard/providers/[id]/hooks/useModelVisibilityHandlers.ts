@@ -20,7 +20,8 @@
  * ProviderDetailPageClient.
  */
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
+import type { ModelTestFeedbackState } from "../components/ModelTestFeedback";
 import {
   formatProviderModelsErrorResponse,
   providerText,
@@ -71,6 +72,7 @@ export interface UseModelVisibilityHandlersReturn {
   modelFilter: string;
   testingModelId: string | null;
   modelTestStatus: Record<string, "ok" | "error" | "quota">;
+  modelTestFeedback: ModelTestFeedbackState | null;
   testingAll: boolean;
   testProgress: { done: number; total: number } | null;
   autoHideFailed: boolean;
@@ -116,6 +118,8 @@ export function useModelVisibilityHandlers({
   const [clearingModels, setClearingModels] = useState(false);
   const [modelFilter, setModelFilter] = useState("");
   const [testingModelId, setTestingModelId] = useState<string | null>(null);
+  const [modelTestFeedback, setModelTestFeedback] = useState<ModelTestFeedbackState | null>(null);
+  const latestTest = useRef(0);
   const [modelTestStatus, setModelTestStatus] = useState<Record<string, "ok" | "error" | "quota">>(
     {}
   );
@@ -289,8 +293,21 @@ export function useModelVisibilityHandlers({
   };
 
   const onTestModel = async (modelId: string, fullModel: string) => {
+    const attempt = ++latestTest.current;
+    const showFeedback = (result: ModelTestFeedbackState) => {
+      if (latestTest.current === attempt) setModelTestFeedback(result);
+    };
+    showFeedback({
+      model: fullModel,
+      status: "testing",
+      message: "Waiting for the provider response…",
+    });
     setTestingModelId(modelId);
-    setModelTestStatus((prev) => ({ ...prev, [modelId]: undefined as any }));
+    setModelTestStatus((prev) => {
+      const next = { ...prev };
+      delete next[modelId];
+      return next;
+    });
     try {
       const res = await fetch("/api/models/test", {
         method: "POST",
@@ -303,6 +320,13 @@ export function useModelVisibilityHandlers({
       });
       const data = await res.json();
       if (res.ok && data.status === "ok") {
+        showFeedback({
+          model: fullModel,
+          status: "ok",
+          message: "Model responded successfully.",
+          latencyMs: data.latencyMs,
+          statusCode: res.status,
+        });
         notify.success(
           providerText(
             t,
@@ -319,16 +343,27 @@ export function useModelVisibilityHandlers({
         // extractApiErrorMessage coerces any object-shaped `error` (e.g. a Zod
         // format object) to a string so notify.error never hands the toast a
         // non-string child (React #31 → frozen page).
-        notify.error(
-          extractApiErrorMessage(data, providerText(t, "modelTestFailed", "Model test failed"))
+        const message = extractApiErrorMessage(
+          data,
+          providerText(t, "modelTestFailed", "Model test failed")
         );
+        showFeedback({
+          model: fullModel,
+          status: "error",
+          message,
+          latencyMs: data.latencyMs,
+          statusCode: data.statusCode ?? res.status,
+        });
+        notify.error(message);
         setModelTestStatus((prev) => ({ ...prev, [modelId]: "error" }));
       }
     } catch (err) {
-      notify.error(providerText(t, "modelTestNetworkError", "Network error testing model"));
+      const message = providerText(t, "modelTestNetworkError", "Network error testing model");
+      showFeedback({ model: fullModel, status: "error", message });
+      notify.error(message);
       setModelTestStatus((prev) => ({ ...prev, [modelId]: "error" }));
     } finally {
-      setTestingModelId(null);
+      if (latestTest.current === attempt) setTestingModelId(null);
     }
   };
 
@@ -337,7 +372,7 @@ export function useModelVisibilityHandlers({
   ): Promise<void> => {
     if (testingAll) return;
     if (targets.length === 0) {
-      notify.error(providerText(t, "noModelsToTest", "No models to test"));
+      notify.error("No active models match the current filter");
       return;
     }
     setTestingAll(true);
@@ -426,6 +461,7 @@ export function useModelVisibilityHandlers({
     modelFilter,
     testingModelId,
     modelTestStatus,
+    modelTestFeedback,
     testingAll,
     testProgress,
     autoHideFailed,

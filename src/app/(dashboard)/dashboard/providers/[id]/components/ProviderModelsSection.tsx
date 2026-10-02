@@ -488,6 +488,7 @@ export default function ProviderModelsSection({
           selectAllDisabled={hiddenFilteredCount === 0 || bulkVisibilityAction !== null}
           deselectAllDisabled={visibleFilteredCount === 0 || bulkVisibilityAction !== null}
           onTestAll={() => handleTestAll(testAllTargets)}
+          testableCount={testAllTargets.length}
           testingAll={testingAll}
           testProgress={testProgress}
           visibilityFilter={visibilityFilter}

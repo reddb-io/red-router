@@ -1,5 +1,7 @@
 "use client";
 
+import ModelTestFeedback from "./components/ModelTestFeedback";
+
 // Issue #3501 strangler-fig decomposition — Phase 1t (final push)
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useParams, useSearchParams } from "next/navigation";
@@ -506,6 +508,7 @@ export default function ProviderDetailPageClient() {
     modelFilter,
     testingModelId,
     modelTestStatus,
+    modelTestFeedback,
     testingAll,
     testProgress,
     autoHideFailed,
@@ -792,6 +795,7 @@ export default function ProviderDetailPageClient() {
       {!isSearchProvider && !isUpstreamProxyProvider && (
         <Card>
           <h2 className="text-lg font-semibold mb-4">{t("availableModels")}</h2>
+          <ModelTestFeedback result={modelTestFeedback} />
           <ProviderModelsSection
             providerId={providerId}
             providerAlias={providerAlias}

@@ -545,6 +545,7 @@ export default function CompatibleModelsSection({
                 }));
               return onTestAll?.(targets);
             }}
+            testableCount={visibleFilteredCount}
             testingAll={testingAll}
             testProgress={testProgress}
             autoHideFailed={autoHideFailed}
