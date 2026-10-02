@@ -7,10 +7,14 @@ import { backupDbFile } from "../backup";
 import { getCachedPricing, invalidateDbCache } from "../readCache";
 import { PROVIDER_ID_TO_ALIAS } from "@omniroute/open-sse/config/providerModels.ts";
 import { type JsonRecord, toRecord } from "./shared";
+import { getDefaultPricing } from "@/shared/constants/pricing";
+import { getBundledModelsDevPricing } from "@/lib/catalog/modelsDevSeed";
+import { readModelsDevSnapshotMetadata } from "../modelsDevSnapshot";
+import { MODELS_DEV_SOURCE_URL, MODELS_DEV_TRANSFORM_VERSION } from "@/lib/modelsDevSync/transform";
 
 type PricingModels = Record<string, JsonRecord>;
 type PricingByProvider = Record<string, PricingModels>;
-export type PricingSource = "default" | "litellm" | "modelsDev" | "user";
+export type PricingSource = "bundled" | "default" | "litellm" | "modelsDev" | "user";
 export type PricingSourceMap = Record<string, Record<string, PricingSource>>;
 
 async function touchPricing(): Promise<void> {
@@ -68,6 +72,7 @@ function mergePricingLayers(layers: PricingByProvider[]): PricingByProvider {
 }
 
 function buildPricingSourceMap(layers: {
+  bundled: PricingByProvider;
   defaults: PricingByProvider;
   litellm: PricingByProvider;
   modelsDev: PricingByProvider;
@@ -75,6 +80,7 @@ function buildPricingSourceMap(layers: {
 }): PricingSourceMap {
   const sourceMap: PricingSourceMap = {};
   const mergedPricing = mergePricingLayers([
+    layers.bundled,
     layers.defaults,
     layers.litellm,
     layers.modelsDev,
@@ -91,8 +97,10 @@ function buildPricingSourceMap(layers: {
         sourceMap[provider][model] = "modelsDev";
       } else if (layers.litellm[provider]?.[model]) {
         sourceMap[provider][model] = "litellm";
-      } else {
+      } else if (layers.defaults[provider]?.[model]) {
         sourceMap[provider][model] = "default";
+      } else {
+        sourceMap[provider][model] = "bundled";
       }
     }
   }
@@ -100,32 +108,64 @@ function buildPricingSourceMap(layers: {
   return sourceMap;
 }
 
-async function getPricingLayers() {
+function getPricingLayers() {
   const db = getDbInstance();
+  const metadata = readModelsDevSnapshotMetadata();
+  const compatible =
+    metadata?.source === MODELS_DEV_SOURCE_URL &&
+    metadata.transformVersion === MODELS_DEV_TRANSFORM_VERSION;
 
-  // Layer 1: Hardcoded defaults (lowest priority)
-  const { getDefaultPricing } = await import("@/shared/constants/pricing");
   return {
+    bundled: getBundledModelsDevPricing() as PricingByProvider,
     defaults: getDefaultPricing(),
     litellm: readPricingNamespace(db, "pricing_synced"),
-    modelsDev: readPricingNamespace(db, "models_dev_pricing"),
+    // Old aliases mixed commercial products. Retain their data for recovery,
+    // but only a versioned, atomically committed refresh can supply live prices.
+    modelsDev: compatible ? readPricingNamespace(db, "models_dev_pricing") : {},
     user: readPricingNamespace(db, "pricing"),
   };
 }
 
 export async function getPricing() {
-  const layers = await getPricingLayers();
-  // Merge: defaults → LiteLLM → models.dev → user (each layer overrides the previous)
-  return mergePricingLayers([layers.defaults, layers.litellm, layers.modelsDev, layers.user]);
+  const layers = getPricingLayers();
+  // Merge: bundled → defaults → LiteLLM → models.dev → user (highest priority last).
+  return mergePricingLayers([
+    layers.bundled,
+    layers.defaults,
+    layers.litellm,
+    layers.modelsDev,
+    layers.user,
+  ]);
+}
+
+/** One bulk read for a catalog build; matches request cost estimation precedence. */
+export function getCatalogPricingSnapshot() {
+  const layers = getPricingLayers();
+  return {
+    pricing: mergePricingLayers([
+      layers.bundled,
+      layers.defaults,
+      layers.litellm,
+      layers.modelsDev,
+      layers.user,
+    ]),
+    userPricing: layers.user,
+  };
 }
 
 export async function getPricingWithSources(): Promise<{
   pricing: PricingByProvider;
   sourceMap: PricingSourceMap;
 }> {
-  const layers = await getPricingLayers();
+  const layers = getPricingLayers();
   return {
-    pricing: mergePricingLayers([layers.defaults, layers.litellm, layers.modelsDev, layers.user]),
+    pricing: mergePricingLayers([
+      layers.bundled,
+      layers.defaults,
+      layers.litellm,
+      layers.modelsDev,
+      layers.user,
+    ]),
     sourceMap: buildPricingSourceMap(layers),
   };
 }
@@ -162,24 +202,10 @@ export async function getPricingForModel(provider: string, model: string) {
     }
   }
 
-  if (!providerPricing) {
-    const np = pLower.replace(/-cn$/, "");
-    if (np && np !== pLower) {
-      providerPricing = findKeyInsensitive(pricing, np);
-    }
-  }
-
   if (!providerPricing) return null;
-
-  const mLower = (model || "").toLowerCase();
-  let modelPricing = findKeyInsensitive<JsonRecord>(providerPricing, mLower);
-
-  if (!modelPricing) {
-    const hyphenModel = mLower.replace(/\./g, "-");
-    modelPricing = findKeyInsensitive(providerPricing, hyphenModel);
-  }
-
-  return modelPricing || null;
+  // Routing aliases apply to providers. Native model IDs are opaque: punctuation,
+  // case, namespaces and versions cannot borrow another offering's economics.
+  return providerPricing[model] || null;
 }
 
 export async function updatePricing(pricingData: PricingByProvider) {

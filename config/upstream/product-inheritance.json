@@ -39,6 +39,15 @@
       "sha": "2c9b0e00acaf2d7cebc962bc9cf6a861796b5c68",
       "reviewScope": "README, repository tree, license boundaries, budget reservation, Redis Cluster cache and PostgreSQL schema sources; runtime equivalence not reviewed",
       "licenseBoundary": "MIT outside enterprise/; enterprise/ has a separate license. Preserve notices for any copied MIT implementation."
+    },
+    {
+      "id": "models-dev",
+      "role": "metadata-source",
+      "repository": "anomalyco/models.dev",
+      "ref": "dev",
+      "sha": "592a849d85d184cad180803a60ecaa0a521f96b9",
+      "reviewScope": "Provider/native versus canonical identity, type filtering, reasoning_options, public HTTP validators and OpenRouter decision omission; schema source ref is separate from live asset provenance.",
+      "licenseBoundary": "MIT; snapshot notice and upstream attribution retained."
     }
   ],
   "capabilities": [
@@ -355,6 +364,31 @@
         "Verify public registry metadata, downloaded checksum and clean installation.",
         "Run RedRouter workflow regressions alongside inherited feature tests in CI.",
         "No claim of release stability from upstream tests or upload acceptance alone."
+      ]
+    },
+    {
+      "id": "model-catalog-metadata-and-discovery",
+      "sources": ["redrouter", "models-dev"],
+      "status": "partial",
+      "implementationBaseline": "41121547974e40f683475636b62569b7ab40e70c",
+      "localPaths": [
+        "src/lib/catalog/modelsDevSeed.ts",
+        "src/lib/catalog/modelsDevSeed.json",
+        "scripts/research/update-models-dev-seed.mjs",
+        "src/lib/modelsDevSync.ts",
+        "src/lib/modelsDevSync/transform.ts",
+        "src/lib/modelMetadataRegistry.ts",
+        "src/lib/providerModels/modelDiscovery.ts",
+        "src/app/api/v1/models/catalogCache.ts",
+        "tests/redrouter/native/models-dev-seed.test.ts"
+      ],
+      "remaining": "Local adaptations require the exact-commit CI gates. Public discovery does not prove credential entitlement or a successful typed decision evaluation; unimplemented decision protocols remain non-executable. Canonical links are optional, and models.dev does not define a complete HTTP parameter schema. Multi-process/replica invalidation remains outside these process-local catalog guarantees.",
+      "acceptance": [
+        "Bundled metadata works offline and never creates connections or enables models.",
+        "Provider-native IDs and declared endpoint/credential/payload contracts survive enrichment and router federation.",
+        "Prices and controls stay scoped to the actual provider product and user overrides win.",
+        "Decision discovery stays distinct from chat and exposes only implemented protocols authorized to the calling key.",
+        "ETag/304 and failed refresh retain one atomic last-good metadata snapshot; authorization changes invalidate authenticated fallback."
       ]
     }
   ]

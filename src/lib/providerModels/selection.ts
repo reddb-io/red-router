@@ -23,9 +23,11 @@ export function projectConnectionModels(
     const fullModel =
       provider === "red-router"
         ? `red/${row.id}`
-        : row.id.startsWith(`${prefix}/`)
-          ? row.id
-          : `${prefix}/${row.id}`;
+        : row.nativeModelId === row.id
+          ? `${prefix}/${row.id}`
+          : row.id.startsWith(`${prefix}/`)
+            ? row.id
+            : `${prefix}/${row.id}`;
     const model = withCatalogRoleCapabilities({
       ...row,
       id: fullModel,

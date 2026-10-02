@@ -24,6 +24,7 @@ import {
 import { isConnectionUnavailableToAuxiliaryActivity } from "@/lib/exclusiveLeaseIsolation";
 import { getProviderOutboundGuard } from "@/shared/network/outboundUrlGuardPolicy";
 import { safeOutboundFetch } from "@/shared/network/safeOutboundFetch";
+import { configuredOpenRouterModelsUrl } from "@/lib/providerModels/openrouterModelFeeds";
 import { saveRequestUsage } from "@/lib/usage/usageHistory";
 import { calculateCostDetailed } from "@/lib/usage/costCalculator";
 import { rejectIfMeteredBudgetExceeded, meteredBudgetCost } from "@/lib/usage/meteredBudgetPolicy";
@@ -167,6 +168,11 @@ export async function dispatchSystemOne(
           return fail(503, "System One proxy resolution failed");
         }
         let effectiveTarget = target;
+        if (target.provider === "openrouter") {
+          const configured = configuredOpenRouterModelsUrl(credentials.providerSpecificData);
+          if (configured)
+            effectiveTarget = { ...target, url: configured.replace(/\/models$/, "/systemone") };
+        }
         if (target.provider === "red-router") {
           try {
             const snapshot = remoteRouterSnapshot({ ...credentials, provider: "red-router", id });
@@ -202,7 +208,7 @@ export async function dispatchSystemOne(
             deps.forward(effectiveTarget, token, body, {
               signal: options.signal ?? undefined,
               timeoutMs: options.timeoutMs,
-              ...(target.provider === "red-router"
+              ...(target.provider === "red-router" || target.provider === "openrouter"
                 ? {
                     fetchImpl: (url, init) =>
                       safeOutboundFetch(String(url), {

@@ -29,7 +29,7 @@ const FIELD_LABEL_KEYS: Record<(typeof PRICING_FIELDS)[number], string> = {
 };
 
 type PricingField = (typeof PRICING_FIELDS)[number];
-type PricingSource = "default" | "litellm" | "modelsDev" | "user";
+type PricingSource = "bundled" | "default" | "litellm" | "modelsDev" | "user";
 
 interface SyncStatus {
   enabled: boolean;
@@ -306,6 +306,8 @@ export default function PricingTab() {
   const getSourceLabel = useCallback(
     (source: PricingSource) => {
       switch (source) {
+        case "bundled":
+          return "Bundled models.dev catalog";
         case "user":
           return t("pricingSourceUser");
         case "modelsDev":

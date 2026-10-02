@@ -32,7 +32,7 @@ export function resolveSyncedEffortVariantBase(
     }
     // Same tier set as routing (`effectiveKnownEfforts` in src/sse/services/model.ts):
     // learned upstream caps win over the synced declaration.
-    const learned = getLearnedReasoningEffortForModel(candidate.id);
+    const learned = getLearnedReasoningEffortForModel(candidate.id, [providerId]);
     const knownEfforts = learned ? [...learned] : candidate.supportedThinkingEfforts;
     const { baseModel, effort } = splitSyncedEffortSuffix(modelId, knownEfforts);
     if (effort && baseModel === candidate.id) return candidate.id;

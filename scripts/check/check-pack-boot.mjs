@@ -14,7 +14,7 @@
  * 0 = boots and reports the right version · 1 = boot failed · 2 = missing build.
  */
 import { execFileSync, spawn } from "node:child_process";
-import { createHmac } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -307,6 +307,7 @@ function spawnServer(binPath, port, dataDir) {
       OMNIROUTE_PACK_BOOT_SMOKE: "1",
       OMNIROUTE_PACK_BOOT_FORCE_SQLJS: "1",
       INITIAL_PASSWORD: "pack-boot-machine-token-auth-required",
+      MODELS_DEV_SYNC_ENABLED: "0",
     },
     stdio: ["ignore", "pipe", "pipe"],
     detached: true,
@@ -361,6 +362,27 @@ async function verifyMachineTokenAuth(baseUrl, cliToken) {
     invalidStatus,
     authenticatedStatus,
   });
+}
+
+async function verifyBundledCatalog(baseUrl, cliToken, expectedManifest) {
+  const response = await fetch(`${baseUrl}/api/settings/models-dev?action=status`, {
+    headers: { "x-omniroute-cli-token": cliToken },
+  });
+  if (!response.ok) throw new Error(`Bundled catalog status HTTP ${response.status}`);
+  const body = await response.json();
+  if (
+    body.bundledSnapshot?.contentSha256 !== expectedManifest.contentSha256 ||
+    body.enabled !== false
+  ) {
+    throw new Error(
+      "Installed offline catalog differs from the shipped snapshot or enabled runtime sync"
+    );
+  }
+  const models = await fetch(`${baseUrl}/v1/models`);
+  const catalog = await models.json();
+  if (!models.ok || !Array.isArray(catalog.data) || catalog.data.length !== 0) {
+    throw new Error("Bundled catalog must not opt in any model on a fresh installation");
+  }
 }
 
 /** Poll /api/monitoring/health until the packed version answers or the boot deadline passes. */
@@ -476,6 +498,15 @@ async function main() {
       );
     }
     log("installed package contains the node-machine-id runtime");
+    const bundled = JSON.parse(
+      fs.readFileSync(path.join(packageRoot, "src/lib/catalog/modelsDevSeed.json"), "utf8")
+    );
+    const bundledHash = createHash("sha256")
+      .update(JSON.stringify({ providers: bundled.providers, models: bundled.models }))
+      .digest("hex");
+    if (bundledHash !== bundled.manifest.contentSha256 || bundled.manifest.providerModels <= 0) {
+      throw new Error("Installed package has an invalid initial model catalog");
+    }
 
     const dataDir = path.join(tmp, "data");
     fs.mkdirSync(dataDir, { recursive: true });
@@ -496,6 +527,8 @@ async function main() {
         verdict = machineAuth;
       } else {
         log("machine-token auth passed with no/invalid/valid contrast controls");
+        await verifyBundledCatalog(baseUrl, packagedCliToken, bundled.manifest);
+        log("offline catalog is packaged, runtime sync disabled and zero models activated");
       }
       const roundTrip = verdict.ok
         ? await verifySettingsRoundTrip(baseUrl, tail.join(""), packagedCliToken)

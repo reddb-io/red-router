@@ -5,6 +5,8 @@ import { asRecord, toNonEmptyString } from "./shared";
 
 export interface SyncedAvailableModel {
   id: string;
+  /** Exact id supplied by a discovery endpoint, independent of local routing prefixes. */
+  nativeModelId?: string;
   name: string;
   source: "imported";
   apiFormat?: string;
@@ -32,7 +34,7 @@ export interface SyncedAvailableModel {
   supportsVision?: boolean;
   dimensions?: number;
   supportedInputTypes?: string[];
-  modelType?: "chat" | "embedding" | "image" | "rerank";
+  modelType?: "chat" | "embedding" | "image" | "rerank" | "decision";
 }
 
 export type SyncedAvailableModelInput = Omit<SyncedAvailableModel, "source"> & {
@@ -64,6 +66,7 @@ function normalizeSyncedAvailableModel(model: unknown): SyncedAvailableModel | n
     id,
     name,
     source: "imported",
+    ...(toNonEmptyString(record.nativeModelId) ? { nativeModelId: id } : {}),
     ...(toNonEmptyString(record.remoteModelIdentity)
       ? { remoteModelIdentity: toNonEmptyString(record.remoteModelIdentity)! }
       : {}),
@@ -87,7 +90,9 @@ function normalizeSyncedAvailableModel(model: unknown): SyncedAvailableModel | n
     ...(toNonEmptyString(record.upstreamProtocol)
       ? { upstreamProtocol: toNonEmptyString(record.upstreamProtocol)! }
       : {}),
-    ...(supportedEndpoints && supportedEndpoints.length > 0 ? { supportedEndpoints } : {}),
+    ...(supportedEndpoints && (supportedEndpoints.length > 0 || record.modelType === "decision")
+      ? { supportedEndpoints }
+      : {}),
     ...(Array.isArray(record.supportedThinkingEfforts)
       ? {
           supportedThinkingEfforts: record.supportedThinkingEfforts.filter(
@@ -129,8 +134,9 @@ function normalizeSyncedAvailableModel(model: unknown): SyncedAvailableModel | n
           ),
         }
       : {}),
-    ...(typeof record.modelType === "string"
-      ? { modelType: record.modelType as "chat" | "embedding" | "image" | "rerank" }
+    ...(typeof record.modelType === "string" &&
+    ["chat", "embedding", "image", "rerank", "decision"].includes(record.modelType)
+      ? { modelType: record.modelType as SyncedAvailableModel["modelType"] }
       : {}),
   };
 }

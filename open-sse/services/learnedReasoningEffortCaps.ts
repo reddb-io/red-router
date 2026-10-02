@@ -78,24 +78,21 @@ export function getLearnedReasoningEffort(
 }
 
 /**
- * Model-scoped lookup bridging the key-space gap between executors and the
- * catalog: executors record under their CONNECTION id
- * (`openai-compatible-chat-<uuid>:<model>`, cf. compatibleProviderId.ts),
- * while the catalog loops on provider ids (`opencode`, …) — an exact
- * `${provider}:${model}` lookup would always miss. Scans by model segment
- * instead. Multiple connections teaching different sets for the same model
- * name intersect (most restrictive proven set wins — conservative across
- * connections sharing one catalog entry).
+ * Catalog lookup restricted to explicitly related execution providers. Equal
+ * model names on unrelated gateways do not share a parameter contract. Without
+ * a deployment scope there is no safe learned vocabulary to advertise.
  */
 export function getLearnedReasoningEffortForModel(
-  model: string | null | undefined
+  model: string | null | undefined,
+  executionProviders: readonly string[] = []
 ): Set<string> | null {
   const m = typeof model === "string" ? model.trim().toLowerCase() : "";
-  if (!m || learnedCaps.size === 0) return null;
+  if (!m || learnedCaps.size === 0 || executionProviders.length === 0) return null;
+  const providers = new Set(executionProviders.map((provider) => provider.trim().toLowerCase()));
   let result: Set<string> | null = null;
   for (const [key, value] of learnedCaps) {
     const colon = key.indexOf(":");
-    if (colon === -1 || key.slice(colon + 1) !== m) continue;
+    if (colon === -1 || !providers.has(key.slice(0, colon)) || key.slice(colon + 1) !== m) continue;
     result = result ? new Set([...result].filter((v) => value.has(v))) : new Set(value);
   }
   return result && result.size > 0 ? result : null;

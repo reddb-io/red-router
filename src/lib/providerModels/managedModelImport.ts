@@ -37,6 +37,7 @@ export type ManagedModelImportMode = "merge" | "sync";
 
 export type ManagedImportedModel = {
   id: string;
+  nativeModelId?: string;
   name: string;
   source: "imported";
   apiFormat: string;
@@ -69,6 +70,7 @@ function normalizeManagedSource(source: unknown): string {
 }
 
 function copyImportedModelMetadata(target: ManagedImportedModel, model: JsonRecord): void {
+  if (toNonEmptyString(model.nativeModelId)) target.nativeModelId = model.nativeModelId as string;
   if (toNonEmptyString(model.targetFormat)) target.targetFormat = model.targetFormat as string;
   if (toNonEmptyString(model.upstreamProtocol)) {
     target.upstreamProtocol = model.upstreamProtocol as string;
@@ -125,6 +127,7 @@ function getModelId(model: JsonRecord): string | null {
 }
 
 function copyComparableModelMetadata(target: JsonRecord, model: JsonRecord): void {
+  if (toNonEmptyString(model.nativeModelId)) target.nativeModelId = model.nativeModelId;
   if (toNonEmptyString(model.targetFormat)) target.targetFormat = model.targetFormat;
   if (toNonEmptyString(model.upstreamProtocol)) target.upstreamProtocol = model.upstreamProtocol;
   if (Array.isArray(model.supportedThinkingEfforts)) {
@@ -286,6 +289,11 @@ export async function importManagedModels({
   const discoveredModels = isSelfHostedChatProvider(providerId)
     ? selectableModels
     : filterChatSelectableModels(providerId, selectableModels);
+  // Decision discovery remains in the connection's management inventory, while
+  // chat import/aliases retain their own endpoint policy. This never activates it.
+  const discoveredInventory = selectableModels.filter(
+    (model) => model.modelType === "decision" || discoveredModels.includes(model)
+  );
   const candidateImportedModels = normalizeImportedModels(discoveredModels);
   const importedIds = new Set(candidateImportedModels.map((model) => model.id));
 
@@ -341,11 +349,11 @@ export async function importManagedModels({
   preserveRemovedCustomModelCompat(providerId, removedCustomModels);
 
   let syncedAvailableModels: SyncedAvailableModel[] = previousSyncedAvailableModels;
-  if (discoveredModels.length > 0) {
+  if (discoveredInventory.length > 0) {
     syncedAvailableModels = await replaceSyncedAvailableModelsForConnection(
       providerId,
       connectionId,
-      discoveredModels
+      discoveredInventory
     );
   }
 

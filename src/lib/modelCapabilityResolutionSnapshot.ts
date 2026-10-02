@@ -22,6 +22,7 @@ import {
   loadAllSyncedCapabilitiesUncached,
   type CapabilitiesByProvider,
 } from "@/lib/modelsDevSync";
+import { withBundledModelsDevCapabilities } from "@/lib/catalog/modelsDevSeed";
 
 /** Nested provider → model → numeric override map (collision-free). */
 export type NestedOverrideMap = ReadonlyMap<string, ReadonlyMap<string, number>>;
@@ -67,7 +68,7 @@ function setNestedOverride(
 export function createModelCapabilityResolutionSnapshot(
   options: ModelCapabilityResolutionSnapshotOptions = {}
 ): ModelCapabilityResolutionSnapshot {
-  const synced = loadAllSyncedCapabilitiesUncached();
+  const synced = withBundledModelsDevCapabilities(loadAllSyncedCapabilitiesUncached());
 
   const maxTokenOverrides = new Map<string, Map<string, number>>();
   const maxInputTokenOverrides = new Map<string, Map<string, number>>();

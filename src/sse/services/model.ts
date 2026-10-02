@@ -1,5 +1,6 @@
 // Re-export from open-sse with localDb integration
-import { getModelAliases, getCustomModels } from "@/lib/db/models";
+import { getModelAliases, getCustomModels, getSyncedAvailableModels } from "@/lib/db/models";
+import { normalizeCompatibleModelId } from "@omniroute/open-sse/services/compatibleModelIdentity.ts";
 import { getComboByName, getComboById, getComboByNameInsensitive } from "@/lib/db/combos";
 import { getCachedProviderNodes, getCachedSettings } from "@/lib/db/readCache";
 
@@ -130,10 +131,11 @@ function isSyncedEffortSkippedProvider(providerId: string): boolean {
  * synced metadata would strand learned-only tiers (dead-on-arrival ids).
  */
 function effectiveKnownEfforts(
+  providerId: string,
   modelId: string,
   syncedEfforts: readonly string[] | null | undefined
 ): string[] {
-  const learned = getLearnedReasoningEffortForModel(modelId);
+  const learned = getLearnedReasoningEffortForModel(modelId, [providerId]);
   if (learned) return [...learned];
   return Array.isArray(syncedEfforts) ? [...syncedEfforts] : [];
 }
@@ -155,7 +157,7 @@ function resolveRegistryModelIdAndEffort(
     if (!Array.isArray(candidate?.supportedThinkingEfforts)) continue;
     const attempt = splitSyncedEffortSuffix(
       modelId,
-      effectiveKnownEfforts(candidate.id, candidate.supportedThinkingEfforts)
+      effectiveKnownEfforts(providerId, candidate.id, candidate.supportedThinkingEfforts)
     );
     if (attempt.effort && attempt.baseModel === candidate.id) {
       return { modelId: attempt.baseModel, effort: attempt.effort };
@@ -200,7 +202,11 @@ function resolveSyncedModelIdAndEffort(
     }
     const attempt = splitSyncedEffortSuffix(
       modelId,
-      effectiveKnownEfforts(candidate.id, candidate.supportedThinkingEfforts as string[])
+      effectiveKnownEfforts(
+        providerId,
+        candidate.id,
+        candidate.supportedThinkingEfforts as string[]
+      )
     );
     if (attempt.effort && attempt.baseModel === candidate.id) {
       return { modelId: attempt.baseModel, effort: attempt.effort };
@@ -453,26 +459,28 @@ async function lookupModelMeta(
  * Observed in production traffic: `<connId>/<connId>/<model>` — requests addressed
  * by the node's internal id (#2778) left a second `<connId>/` segment in parsed.model
  * that the historical strip (prefix alone, #6772) never saw, and the composite went
- * upstream verbatim. We now shed ANY of the matched node's routing identifiers (prefix AND internal id), repeatedly, until stable.
- * A legitimate namespace different from these identifiers is untouched (#493);
- * an operator naming their prefix identically to one of their catalog namespaces
- * sees that namespace shed — accepted limitation, precedent #6772.
+ * upstream verbatim. Legacy duplicates recover only when exactly one discovered
+ * or custom native ID matches. An exact native ID wins even when its namespace
+ * equals the node prefix. Unknown or ambiguous namespaces remain literal.
  */
-function stripRedundantNodeRoutingSegments(model: string, routingIds: unknown[]): string {
-  let out = model;
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (const seg of routingIds) {
-      if (typeof seg !== "string" || !seg) continue;
-      const redundant = `${seg}/`;
-      if (out.startsWith(redundant)) {
-        out = out.slice(redundant.length);
-        changed = true;
-      }
+async function resolveCompatibleModelIdentity(
+  providerId: string,
+  model: string,
+  routingIds: unknown[]
+): Promise<string> {
+  const snapshots = await Promise.allSettled([
+    getCustomModels(providerId),
+    getSyncedAvailableModels(providerId),
+  ]);
+  const declaredIds = new Set<string>();
+  for (const snapshot of snapshots) {
+    if (snapshot.status !== "fulfilled" || !Array.isArray(snapshot.value)) continue;
+    for (const row of snapshot.value) {
+      const id = row.id;
+      if (typeof id === "string" && id) declaredIds.add(id);
     }
   }
-  return out;
+  return normalizeCompatibleModelId(model, routingIds, declaredIds);
 }
 
 /**
@@ -554,10 +562,11 @@ export async function getModelInfo(modelStr) {
         (node) => node.prefix === prefixToCheck || node.id === prefixToCheck
       );
       if (matchedOpenAI) {
-        const normalizedModel = stripRedundantNodeRoutingSegments(parsed.model as string, [
-          matchedOpenAI.prefix,
-          matchedOpenAI.id,
-        ]);
+        const normalizedModel = await resolveCompatibleModelIdentity(
+          matchedOpenAI.id as string,
+          parsed.model as string,
+          [matchedOpenAI.prefix, matchedOpenAI.id]
+        );
         const { modelId, metadata } = await lookupModelMeta(
           matchedOpenAI.id as string,
           normalizedModel
@@ -576,10 +585,11 @@ export async function getModelInfo(modelStr) {
         (node) => node.prefix === prefixToCheck || node.id === prefixToCheck
       );
       if (matchedAnthropic) {
-        const normalizedModel = stripRedundantNodeRoutingSegments(parsed.model as string, [
-          matchedAnthropic.prefix,
-          matchedAnthropic.id,
-        ]);
+        const normalizedModel = await resolveCompatibleModelIdentity(
+          matchedAnthropic.id as string,
+          parsed.model as string,
+          [matchedAnthropic.prefix, matchedAnthropic.id]
+        );
         const { modelId, metadata } = await lookupModelMeta(
           matchedAnthropic.id as string,
           normalizedModel

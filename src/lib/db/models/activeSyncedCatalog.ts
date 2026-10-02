@@ -13,6 +13,7 @@ import {
 } from "../models";
 import { normalizeSyncedAvailableModels } from "./synced";
 import { getRawProviderConnections } from "../providers";
+import { isModelExcludedByConnection } from "@/domain/connectionModelRules";
 
 export type ActiveSyncedCatalog = {
   authoritative: boolean;
@@ -139,13 +140,14 @@ function readConnectionRef(connection: unknown): ProviderConnectionRef | null {
 
 function collectModelsForConnections(
   modelsByConnection: Record<string, SyncedAvailableModel[]>,
-  connectionIds: Iterable<string>
+  connectionIds: Iterable<string>,
+  isEligible: (connectionId: string, model: SyncedAvailableModel) => boolean = () => true
 ): SyncedAvailableModel[] {
   const models = new Map<string, SyncedAvailableModel>();
 
   for (const connectionId of connectionIds) {
     for (const model of modelsByConnection[connectionId] || []) {
-      if (!model?.id || models.has(model.id)) continue;
+      if (!model?.id || models.has(model.id) || !isEligible(connectionId, model)) continue;
       models.set(model.id, model);
     }
   }
@@ -307,20 +309,30 @@ export async function getActiveSyncedCatalog(
 
 /**
  * Return non-empty synced catalogs grouped by provider, restricted to active
- * connections. This is the authoritative live source for /v1/models.
+ * connections. Public discovery must pass its already authorized connection pool;
+ * omitting it retains the administrative/provider-wide inventory view.
  */
-export async function getAllActiveSyncedModels(): Promise<Record<string, SyncedAvailableModel[]>> {
+export async function getAllActiveSyncedModels(
+  scopedConnections?: readonly unknown[]
+): Promise<Record<string, SyncedAvailableModel[]>> {
   try {
-    const connections = await getRawProviderConnections({ isActive: true }, undefined, undefined, [
-      "id",
-      "provider",
-    ]);
+    const connections =
+      scopedConnections ??
+      (await getRawProviderConnections({ isActive: true }, undefined, undefined, [
+        "id",
+        "provider",
+        "provider_specific_data",
+      ]));
 
     const connectionIdsByProvider = new Map<string, Set<string>>();
+    const connectionSettings = new Map<string, unknown>();
 
     for (const rawConnection of connections) {
       const connection = readConnectionRef(rawConnection);
       if (!connection) continue;
+      const raw = rawConnection as { isActive?: unknown; providerSpecificData?: unknown };
+      if (raw.isActive === false) continue;
+      connectionSettings.set(connection.id, raw.providerSpecificData);
 
       // Search providers have no chat models: their synced rows are the
       // static-import UI's searchTypes (web/news/x), not routable catalog
@@ -342,7 +354,12 @@ export async function getAllActiveSyncedModels(): Promise<Record<string, SyncedA
 
         const models = enrichCursorCatalog(
           providerId,
-          collectModelsForConnections(modelsByConnection, connectionIds)
+          collectModelsForConnections(
+            modelsByConnection,
+            connectionIds,
+            (connectionId, model) =>
+              !isModelExcludedByConnection(model.id, connectionSettings.get(connectionId))
+          )
         );
 
         if (models.length > 0) {

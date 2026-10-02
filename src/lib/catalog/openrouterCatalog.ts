@@ -10,9 +10,14 @@
 import fs from "fs";
 import path from "path";
 import { invalidateModelCatalogCache } from "@/lib/db/readCache";
+import {
+  fetchOpenRouterModelFeeds,
+  parseOpenRouterModelsResponse,
+} from "@/lib/providerModels/openrouterModelFeeds";
 
 const OPENROUTER_API_URL = "https://openrouter.ai/api/v1/models";
 const DEFAULT_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+const CACHE_VERSION = 2;
 
 function getTTL(): number {
   const env = process.env.OPENROUTER_CATALOG_TTL_MS;
@@ -52,9 +57,14 @@ interface CatalogEntry {
   };
   supported_parameters?: string[];
   created?: number;
+  nativeModelId?: string;
+  modelType?: string;
+  supportedEndpoints?: string[];
+  apiFormat?: string;
 }
 
 interface CacheFile {
+  version?: number;
   fetchedAt: string;
   data: CatalogEntry[];
 }
@@ -65,7 +75,11 @@ function readCache(): CacheFile | null {
   try {
     if (!fs.existsSync(filePath)) return null;
     const raw = fs.readFileSync(filePath, "utf8");
-    return JSON.parse(raw) as CacheFile;
+    const cache = JSON.parse(raw) as CacheFile;
+    if (typeof cache.fetchedAt !== "string" || !Number.isFinite(Date.parse(cache.fetchedAt)))
+      return null;
+    const data = parseOpenRouterModelsResponse({ data: cache.data }) as CatalogEntry[];
+    return { version: cache.version, fetchedAt: cache.fetchedAt, data };
   } catch {
     return null;
   }
@@ -75,6 +89,7 @@ function readCache(): CacheFile | null {
 function writeCache(data: CatalogEntry[]): void {
   const filePath = getCacheFilePath();
   const cache: CacheFile = {
+    version: CACHE_VERSION,
     fetchedAt: new Date().toISOString(),
     data,
   };
@@ -87,21 +102,12 @@ function writeCache(data: CatalogEntry[]): void {
 
 /** Fetch fresh catalog from OpenRouter API. */
 async function fetchFromAPI(): Promise<CatalogEntry[]> {
-  const res = await fetch(OPENROUTER_API_URL, {
-    headers: {
-      "User-Agent": "RedRouter/2.0",
-      Accept: "application/json",
-    },
-    signal: AbortSignal.timeout(15_000),
-  });
-
-  if (!res.ok) {
-    throw new Error(`OpenRouter API returned ${res.status}: ${res.statusText}`);
-  }
-
-  const json = (await res.json()) as { data?: CatalogEntry[] };
-  const models = Array.isArray(json.data) ? json.data : [];
-  return models;
+  return fetchOpenRouterModelFeeds(OPENROUTER_API_URL, (url) =>
+    fetch(url, {
+      headers: { "User-Agent": "RedRouter/2.0", Accept: "application/json" },
+      signal: AbortSignal.timeout(15_000),
+    })
+  ) as Promise<CatalogEntry[]>;
 }
 
 /**
@@ -125,7 +131,7 @@ export async function getOpenRouterCatalog(): Promise<{
   // Return cached data if still within TTL
   if (cache && cache.fetchedAt) {
     const age = now - new Date(cache.fetchedAt).getTime();
-    if (age < ttl) {
+    if (cache.version === CACHE_VERSION && age >= 0 && age < ttl) {
       return {
         data: cache.data,
         stale: false,

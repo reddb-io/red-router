@@ -10,6 +10,11 @@ import { isObsoleteKiroModelAlias } from "@omniroute/open-sse/services/kiroModel
 import { filterSelectableModels } from "@omniroute/open-sse/services/modelLifecycle.ts";
 import { getEmbeddingProvider } from "@omniroute/open-sse/config/embeddingRegistry.ts";
 import { hasPayloadFreeEvidence } from "@/shared/utils/payloadFreeEvidence";
+import {
+  isOpenRouterDecisionFamilyModelId,
+  isOpenRouterSystemOneModelId,
+} from "@omniroute/open-sse/services/modelEndpointPolicy.ts";
+import { isOpenRouterDecisionRecord } from "./openrouterModelFeeds";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -568,35 +573,54 @@ export function normalizeDiscoveredModels(
       id;
 
     const modality = detectModelModality(record, providerId);
+    const isDecision =
+      record.modelType === "decision" ||
+      record.type === "decision" ||
+      record.type === "systemone" ||
+      (providerId === "openrouter" &&
+        (isOpenRouterDecisionRecord(record) || isOpenRouterDecisionFamilyModelId(id)));
+    const hasSystemOneAdapter = providerId === "openrouter" && isOpenRouterSystemOneModelId(id);
     // Only non-chat modalities are stamped on the synced row. Chat models keep the
     // tip's exact shape (no `modelType`/`supportedInputTypes` defaults) so the
     // import-mode diff stays stable and existing catalog snapshots do not churn.
-    const modelType = modality.isEmbedding
-      ? "embedding"
-      : modality.isRerank
-        ? "rerank"
-        : modality.isImage
-          ? "image"
-          : undefined;
+    const modelType = isDecision
+      ? "decision"
+      : modality.isEmbedding
+        ? "embedding"
+        : modality.isRerank
+          ? "rerank"
+          : modality.isImage
+            ? "image"
+            : undefined;
     const explicitInputTypes = Array.isArray(record.supportedInputTypes);
 
-    const supportedEndpoints = Array.isArray(record.supportedEndpoints)
-      ? Array.from(
-          new Set(
-            record.supportedEndpoints
-              .map((endpoint) => toNonEmptyString(endpoint))
-              .filter((endpoint): endpoint is string => Boolean(endpoint))
-          )
-        ).sort()
-      : modality.isEmbedding
-        ? ["embeddings"]
-        : modality.isRerank
-          ? ["rerank"]
-          : modality.isImage
-            ? ["images"]
-            : undefined;
+    const supportedEndpoints =
+      providerId === "openrouter" && isDecision
+        ? hasSystemOneAdapter
+          ? ["systemone", "decisions"]
+          : []
+        : Array.isArray(record.supportedEndpoints)
+          ? Array.from(
+              new Set(
+                record.supportedEndpoints
+                  .map((endpoint) => toNonEmptyString(endpoint))
+                  .filter((endpoint): endpoint is string => Boolean(endpoint))
+              )
+            ).sort()
+          : modality.isEmbedding
+            ? ["embeddings"]
+            : modality.isRerank
+              ? ["rerank"]
+              : modality.isImage
+                ? ["images"]
+                : undefined;
 
     const apiFormat =
+      (providerId === "openrouter" && isDecision
+        ? hasSystemOneAdapter
+          ? "systemone"
+          : "decision-native"
+        : undefined) ||
       toNonEmptyString(record.apiFormat) ||
       (modality.isEmbedding
         ? "embeddings"
@@ -655,6 +679,7 @@ export function normalizeDiscoveredModels(
 
     deduped.set(id, {
       id,
+      nativeModelId: id,
       name,
       source: "imported",
       ...(apiFormat ? { apiFormat } : {}),
@@ -664,7 +689,9 @@ export function normalizeDiscoveredModels(
       ...(toNonEmptyString(record.upstreamProtocol)
         ? { upstreamProtocol: toNonEmptyString(record.upstreamProtocol)! }
         : {}),
-      ...(supportedEndpoints && supportedEndpoints.length > 0 ? { supportedEndpoints } : {}),
+      ...(supportedEndpoints && (supportedEndpoints.length > 0 || isDecision)
+        ? { supportedEndpoints }
+        : {}),
       ...(supportedThinkingEfforts !== undefined ? { supportedThinkingEfforts } : {}),
       ...(defaultThinkingEffort !== undefined ? { defaultThinkingEffort } : {}),
       ...(typeof inputTokenLimit === "number" ? { inputTokenLimit } : {}),

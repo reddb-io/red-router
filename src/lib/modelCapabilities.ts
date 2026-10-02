@@ -16,7 +16,10 @@ import {
   type ModelSpec,
 } from "@/shared/constants/modelSpecs";
 import { getSyncedCapability } from "@/lib/modelsDevSync";
-import { MODELS_DEV_PROVIDER_MAP } from "@/lib/modelsDevSync/transform";
+import {
+  MODELS_DEV_PROVIDER_MAP,
+  type ModelsDevReasoningOption,
+} from "@/lib/modelsDevSync/transform";
 import { getModelContextOverride } from "@/lib/db/modelContextOverrides";
 import {
   getModelCapabilityOverride,
@@ -83,6 +86,8 @@ const NON_CHAT_SURFACE_TYPES = new Set([
   "rerank",
   "embedding",
   "music",
+  "decision",
+  "systemone",
 ]);
 
 export function isNonChatCatalogSurface(type: unknown): boolean {
@@ -127,6 +132,8 @@ export interface ResolvedModelCapabilities {
   reasoning: boolean;
   supportsThinking: boolean | null;
   supportedThinkingEfforts: readonly string[] | null;
+  /** Descriptive native options; adapter/override efforts remain execution authority. */
+  reasoningOptions?: readonly ModelsDevReasoningOption[] | null;
   reasoningEffortsOverride: boolean;
   supportsTools: boolean | null;
   supportsVision: boolean | null;
@@ -168,6 +175,51 @@ function parseModalities(value: string | null | undefined): string[] {
   } catch {
     return [];
   }
+}
+
+function parseReasoningOptions(
+  value: string | null | undefined
+): ModelsDevReasoningOption[] | null {
+  if (!value) return null;
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (!Array.isArray(parsed)) return null;
+    const options: ModelsDevReasoningOption[] = [];
+    for (const option of parsed) {
+      if (!option || typeof option !== "object") return null;
+      const record = option as Record<string, unknown>;
+      if (record.type === "toggle") {
+        options.push({ type: "toggle" });
+      } else if (
+        record.type === "effort" &&
+        Array.isArray(record.values) &&
+        record.values.every((entry) => entry === null || typeof entry === "string")
+      ) {
+        options.push({ type: "effort", values: record.values as (string | null)[] });
+      } else if (
+        record.type === "budget_tokens" &&
+        [record.min, record.max].every(
+          (entry) => entry === undefined || (typeof entry === "number" && Number.isFinite(entry))
+        )
+      ) {
+        options.push({
+          type: "budget_tokens",
+          ...(typeof record.min === "number" ? { min: record.min } : {}),
+          ...(typeof record.max === "number" ? { max: record.max } : {}),
+        });
+      } else {
+        return null;
+      }
+    }
+    // A present, valid empty list is descriptive data, not an absent contract.
+    return options;
+  } catch {
+    return null;
+  }
+}
+
+function isBundledCapability(synced: SyncedCapabilities): boolean {
+  return synced?.metadata_source === "models-dev-bundled";
 }
 
 function getRegistryModel(providerIdOrAlias: string | null, modelId: string | null) {
@@ -463,10 +515,10 @@ function getSyncedCapabilityForResolved(
     )
   );
 
-  // Include common host providers that re-publish OpenAI specialty models under
-  // qualified ids (observed: vercel/openai/whisper-1, vercel/openai/tts-1).
+  // Only identical deployment aliases can share executable metadata. A hosted
+  // reseller with the same model leaf is a different deployment contract.
   const providerCandidates = Array.from(
-    new Set([provider, ...reverseModelsDevProviders(provider), "vercel"])
+    new Set([provider, ...reverseModelsDevProviders(provider)])
   );
 
   const bulk = snapshot?.synced ?? null;
@@ -523,7 +575,7 @@ function isKnownTextOnlyDespiteSync(modelId: string | null | undefined): boolean
   return KNOWN_TEXT_ONLY_DESPITE_SYNC.some((pattern) => pattern.test(id));
 }
 
-/** True when a modality list declares image and/or video input/output. */
+/** True when a modality list declares image and/or video input. */
 function modalitiesDeclareVision(modalities: readonly string[]): boolean {
   return modalities.some((entry) => {
     const lower = String(entry).toLowerCase();
@@ -536,14 +588,11 @@ function resolveVisionCapability(
   registryModel: { supportsVision?: boolean } | null,
   synced: SyncedCapabilities,
   modalitiesInput: string[],
-  modalitiesOutput: string[],
   modelId?: string,
   customVisionOverride?: boolean | null,
   syncedAvailableModelVision?: boolean | null
 ): boolean | null {
-  const allModalities = [...modalitiesInput, ...modalitiesOutput].map((entry) =>
-    String(entry).toLowerCase()
-  );
+  const inputModalities = modalitiesInput.map((entry) => String(entry).toLowerCase());
 
   // #9195: explicit custom model supportsVision override (from the dashboard
   // "Vision capable" toggle) is the operator's authoritative choice for a
@@ -558,6 +607,12 @@ function resolveVisionCapability(
   // image request can never be routed to a blind model (#4071).
   if (isKnownTextOnlyDespiteSync(modelId)) return false;
 
+  // Bundled vendor facts only fill unknown capabilities on a deployment.
+  if (isBundledCapability(synced)) {
+    if (typeof registryModel?.supportsVision === "boolean") return registryModel.supportsVision;
+    if (typeof spec?.supportsVision === "boolean") return spec.supportsVision;
+  }
+
   // #14081: a custom OpenAI-compatible node's synced `syncedAvailableModels`
   // row already made /v1/models report capabilities.vision:true for this
   // model (buildSyncedCapabilities). Agree with that catalog verdict here too
@@ -566,14 +621,11 @@ function resolveVisionCapability(
   // add vision, never downgrade another source's verdict.
   if (syncedAvailableModelVision === true) return true;
 
+  // Generated image output is not evidence of image-input understanding. An
+  // explicit operator override above remains authoritative for custom models.
+  if (inputModalities.length > 0) return modalitiesDeclareVision(inputModalities);
+
   if (typeof synced?.attachment === "boolean") {
-    // #8250: models.dev sometimes ships attachment=false alongside image/video
-    // modalities (observed for Kimi K3). Prefer the richer modality signal over
-    // the contradictory false flag so supportsVision / attachment / modalities
-    // can be reconciled to a single vision-capable verdict.
-    if (synced.attachment === false && modalitiesDeclareVision(allModalities)) {
-      return true;
-    }
     // #8032: attachment=false without modalities must not beat authoritative
     // registry/spec vision for path-shaped custom/routed ids (e.g. Cline Pass
     // `cp/cline-pass/kimi-k3` → MODEL_SPECS["kimi-k3"].supportsVision).
@@ -583,14 +635,6 @@ function resolveVisionCapability(
       return false;
     }
     return synced.attachment;
-  }
-
-  if (allModalities.some((entry) => entry.includes("image"))) {
-    return true;
-  }
-
-  if (allModalities.length > 0) {
-    return false;
   }
 
   if (typeof registryModel?.supportsVision === "boolean") return registryModel.supportsVision;
@@ -758,13 +802,14 @@ export function getExplicitModelOutputCap(
     resolved.rawModel,
     snapshot
   );
-  if (synced && typeof synced.limit_output === "number") return synced.limit_output;
+  if (!isBundledCapability(synced) && typeof synced?.limit_output === "number")
+    return synced.limit_output;
 
   const registryModel = getRegistryModel(resolved.provider, resolved.model);
   if (typeof registryModel?.maxOutputTokens === "number") return registryModel.maxOutputTokens;
 
   const spec = getStaticSpec(resolved.model, resolved.rawModel);
-  return spec?.maxOutputTokens ?? null;
+  return spec?.maxOutputTokens ?? synced?.limit_output ?? null;
 }
 
 export function getResolvedModelCapabilities(
@@ -810,13 +855,15 @@ export function getResolvedModelCapabilities(
 
   const modalitiesInput = parseModalities(synced?.modalities_input);
   const modalitiesOutput = parseModalities(synced?.modalities_output);
+  const bundled = isBundledCapability(synced);
   const lookupKey =
     toNonEmptyString(
       resolved.provider && resolved.model
         ? `${resolved.provider}/${resolved.model}`
         : resolved.model || resolved.rawModel || resolved.lookupKey
     ) || "";
-  const reasoningDenied = !heuristicReasoning(lookupKey);
+  const decisionOnly = synced?.model_type === "decision";
+  const reasoningDenied = decisionOnly || !heuristicReasoning(lookupKey);
 
   // Provider-level fallback: a live-discovered model (passthroughModels
   // providers like AI Horde) has no per-model registry entry, synced
@@ -830,24 +877,34 @@ export function getResolvedModelCapabilities(
       ? getUnsupportedParams(resolved.provider, resolved.model).includes("tools")
       : false;
 
+  const registryTools =
+    typeof registryModel?.toolCalling === "boolean" ? registryModel.toolCalling : null;
+  const specTools = typeof spec?.supportsTools === "boolean" ? spec.supportsTools : null;
   const supportsTools =
-    synced?.tool_call ??
-    (typeof registryModel?.toolCalling === "boolean" ? registryModel.toolCalling : null) ??
-    (typeof spec?.supportsTools === "boolean" ? spec.supportsTools : null) ??
-    (providerDeniesTools ? false : null);
+    decisionOnly || providerDeniesTools || registryTools === false
+      ? false
+      : bundled
+        ? (registryTools ?? specTools ?? synced?.tool_call ?? null)
+        : (synced?.tool_call ?? registryTools ?? specTools ?? null);
 
   const reasoningEffortsOverride = usePersistedOverrides
     ? getReasoningEffortsCapabilityOverride(resolved, snapshot)
     : null;
-  const supportsThinking = reasoningEffortsOverride
-    ? true
-    : reasoningDenied
-      ? false
-      : (synced?.reasoning ??
-        (typeof registryModel?.supportsReasoning === "boolean"
-          ? registryModel.supportsReasoning
-          : null) ??
-        (typeof spec?.supportsThinking === "boolean" ? spec.supportsThinking : null));
+  const supportsThinking = decisionOnly
+    ? false
+    : reasoningEffortsOverride
+      ? true
+      : reasoningDenied || registryModel?.supportsReasoning === false
+        ? false
+        : bundled
+          ? (registryModel?.supportsReasoning ??
+            spec?.supportsThinking ??
+            synced?.reasoning ??
+            null)
+          : (synced?.reasoning ??
+            registryModel?.supportsReasoning ??
+            spec?.supportsThinking ??
+            null);
 
   const authoritativeContextWindow = getAuthoritativeStaticContextWindow(
     resolved.provider,
@@ -864,9 +921,10 @@ export function getResolvedModelCapabilities(
   const contextWindow =
     persistedContextWindow ??
     authoritativeContextWindow ??
-    synced?.limit_context ??
+    (!bundled ? synced?.limit_context : null) ??
     (typeof registryModel?.contextLength === "number" ? registryModel.contextLength : null) ??
     spec?.contextWindow ??
+    synced?.limit_context ??
     null;
 
   const maxInputOverride = !usePersistedOverrides
@@ -913,7 +971,6 @@ export function getResolvedModelCapabilities(
     registryModel,
     synced,
     modalitiesInput,
-    modalitiesOutput,
     lookupKey,
     customVisionOverride,
     syncedAvailableModelVision
@@ -935,9 +992,11 @@ export function getResolvedModelCapabilities(
     toolCalling: supportsTools ?? heuristicToolCalling(lookupKey),
     reasoning: supportsThinking ?? heuristicReasoning(lookupKey),
     supportsThinking,
-    supportedThinkingEfforts:
-      reasoningEffortsOverride ?? registryModel?.supportedThinkingEfforts ?? null,
-    reasoningEffortsOverride: reasoningEffortsOverride !== null,
+    supportedThinkingEfforts: decisionOnly
+      ? null
+      : (reasoningEffortsOverride ?? registryModel?.supportedThinkingEfforts ?? null),
+    reasoningOptions: parseReasoningOptions(synced?.reasoning_options),
+    reasoningEffortsOverride: !decisionOnly && reasoningEffortsOverride !== null,
     supportsTools,
     supportsVision,
     supportsAudio,
@@ -965,9 +1024,10 @@ export function getResolvedModelCapabilities(
     })(),
     maxOutputTokens:
       maxTokenOverride ??
-      synced?.limit_output ??
+      (!bundled ? synced?.limit_output : null) ??
       (typeof registryModel?.maxOutputTokens === "number" ? registryModel.maxOutputTokens : null) ??
       spec?.maxOutputTokens ??
+      synced?.limit_output ??
       null,
     defaultThinkingBudget: spec?.defaultThinkingBudget ?? 0,
     thinkingBudgetCap: spec?.thinkingBudgetCap ?? null,

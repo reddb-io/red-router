@@ -806,6 +806,12 @@ export async function updateApiKeyPermissions(
     normalized.allowedCombos !== undefined ||
     normalized.allowedConnections !== undefined ||
     normalized.allowedQuotas !== undefined ||
+    normalized.isActive !== undefined ||
+    normalized.isBanned !== undefined ||
+    normalized.expiresAt !== undefined ||
+    normalized.accessSchedule !== undefined ||
+    normalized.scopes !== undefined ||
+    normalized.proxyId !== undefined ||
     normalized.disableNonPublicModels !== undefined ||
     normalized.allowAutoCombos !== undefined ||
     normalized.catalogScope !== undefined ||
@@ -1211,6 +1217,7 @@ export async function deleteApiKey(id: string) {
 
   // Invalidate caches since a key was removed
   invalidateCaches();
+  invalidateModelCatalogCache();
   invalidateReasoningRoutingRuleCache();
   await deleteRedisAuthCacheEntry(row?.key_hash);
 
@@ -1236,6 +1243,7 @@ export async function revokeApiKey(id: string): Promise<boolean> {
   if ((result.changes ?? 0) === 0) return false;
 
   invalidateCaches();
+  invalidateModelCatalogCache();
   await deleteRedisAuthCacheForKeyId(db, id);
   backupDbFile("pre-write");
   return true;
@@ -1255,6 +1263,7 @@ export async function setApiKeyExpiry(id: string, expiresAt: string | null): Pro
   if ((result.changes ?? 0) === 0) return false;
 
   invalidateCaches();
+  invalidateModelCatalogCache();
   await deleteRedisAuthCacheForKeyId(db, id);
   backupDbFile("pre-write");
   return true;

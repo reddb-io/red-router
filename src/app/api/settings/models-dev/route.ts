@@ -6,11 +6,12 @@ import { isValidationFailure, validateBody } from "@/shared/validation/helpers";
 import {
   syncModelsDev,
   getModelsDevPricing,
-  getSyncedCapabilities,
   getSyncStatus,
   startPeriodicSync,
   stopPeriodicSync,
 } from "@/lib/modelsDevSync";
+import { getBundledModelsDevManifest } from "@/lib/catalog/modelsDevSeed";
+import { MODELS_DEV_TRANSFORM_VERSION } from "@/lib/modelsDevSync/transform";
 
 const modelsDevActionSchema = z.object({
   action: z.enum(["sync", "start", "stop"]),
@@ -28,20 +29,21 @@ export async function GET(request: NextRequest) {
   if (action === "status") {
     const status = getSyncStatus();
     const pricing = getModelsDevPricing();
-    const caps = getSyncedCapabilities();
 
     const providerCount = Object.keys(pricing).length;
     const modelCount = Object.values(pricing).reduce(
       (sum, models) => sum + Object.keys(models).length,
       0
     );
-    const capabilityCount = Object.values(caps).reduce(
-      (sum, models) => sum + Object.keys(models).length,
-      0
-    );
+    // Connection-discovered rows are a different catalog source.
+    const capabilityCount =
+      status.snapshot?.transformVersion === MODELS_DEV_TRANSFORM_VERSION
+        ? (status.snapshot.capabilityCount ?? 0)
+        : 0;
 
     return NextResponse.json({
       ...status,
+      bundledSnapshot: getBundledModelsDevManifest(),
       providerCount,
       modelCount,
       capabilityCount,

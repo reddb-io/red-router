@@ -17,14 +17,10 @@ import {
 } from "@/shared/constants/modelSpecs";
 import { AI_PROVIDERS } from "@/shared/constants/providers";
 import { PROVIDER_ID_TO_ALIAS, PROVIDER_MODELS } from "@/shared/constants/models";
-import {
-  getSyncStatus,
-  getSyncedCapability,
-  getModelsDevPricing,
-  type PricingByProvider,
-} from "@/lib/modelsDevSync";
-import { getSyncedPricing } from "@/lib/pricingSync";
-import { getPricingForModel as getDefaultPricingForModel } from "@/shared/constants/pricing";
+import { getSyncStatus, getSyncedCapability, type PricingByProvider } from "@/lib/modelsDevSync";
+import { getCatalogPricingSnapshot } from "@/lib/db/settings/pricing";
+import { getModelCatalogCacheVersion } from "@/lib/db/readCache";
+import { getBundledModelsDevPricing } from "@/lib/catalog/modelsDevSeed";
 import {
   CANONICAL_EFFORT_VALUES,
   extendCodexGpt56EffortValues,
@@ -40,6 +36,8 @@ type JsonRecord = Record<string, unknown>;
 
 export interface CatalogEnrichmentSnapshot {
   modelsDevPricing: PricingByProvider | null;
+  effectivePricing?: Record<string, Record<string, JsonRecord>>;
+  userPricing?: Record<string, Record<string, JsonRecord>>;
   providerNodeIdsByPrefix?: Readonly<Record<string, string>>;
   /** #9147: build-local bulk load of synced capabilities + token/context overrides
    * so per-entry enrichment never hits SQLite again (see catalogResponse.ts). */
@@ -81,6 +79,10 @@ export interface CanonicalModelMetadata {
     adaptiveMaxTokens: number | null;
   };
   metadata: {
+    canonicalModelId: string | null;
+    modelType: string | null;
+    catalogSource: string | null;
+    reasoningOptions: unknown[] | null;
     family: string | null;
     status: string | null;
     knowledgeCutoff: string | null;
@@ -273,6 +275,10 @@ export function getCanonicalModelMetadata(input: {
       adaptiveMaxTokens: resolved.adaptiveMaxTokens,
     },
     metadata: {
+      canonicalModelId: syncedCapability?.canonical_model_id ?? null,
+      modelType: syncedCapability?.model_type ?? null,
+      catalogSource: syncedCapability?.metadata_source ?? null,
+      reasoningOptions: resolved.reasoningOptions ? [...resolved.reasoningOptions] : null,
       family: resolved.family,
       status: resolved.status,
       knowledgeCutoff: resolved.knowledgeCutoff,
@@ -351,95 +357,84 @@ export function findInsensitive<T>(
   return index.get(key.toLowerCase()) as T | undefined;
 }
 
+let cachedCatalogPricing: ReturnType<typeof getCatalogPricingSnapshot> | null = null;
+let cachedCatalogPricingRevision = -1;
+let cachedCatalogPricingUntil = 0;
+
+function catalogPricingSnapshot(): ReturnType<typeof getCatalogPricingSnapshot> {
+  const revision = getModelCatalogCacheVersion();
+  if (
+    !cachedCatalogPricing ||
+    revision !== cachedCatalogPricingRevision ||
+    Date.now() >= cachedCatalogPricingUntil
+  ) {
+    cachedCatalogPricing = getCatalogPricingSnapshot();
+    cachedCatalogPricingRevision = revision;
+    cachedCatalogPricingUntil = Date.now() + 5000;
+  }
+  return cachedCatalogPricing;
+}
+
+function exactDeploymentPricing(
+  pricing: Record<string, Record<string, JsonRecord>>,
+  provider: string,
+  model: string
+): Record<string, number> | null {
+  // Provider aliases describe local routing; native model IDs remain opaque.
+  const byModel =
+    findInsensitive(pricing, provider) ||
+    findInsensitive(pricing, PROVIDER_ID_TO_ALIAS[provider] || provider);
+  const entry = byModel?.[model];
+  if (!entry || (typeof entry.input !== "number" && typeof entry.output !== "number")) return null;
+  return Object.fromEntries(
+    Object.entries(entry).filter(([, value]) => typeof value === "number")
+  ) as Record<string, number>;
+}
+
 function resolveCatalogPricing(
   provider: string | null,
   model: string | null,
   snapshot?: CatalogEnrichmentSnapshot
 ): Record<string, number> | null {
   if (!provider || !model) return null;
-
-  // Prefer models.dev synced pricing when present; fall back to hardcoded defaults.
   try {
-    const modelsDev = (
-      snapshot ? snapshot.modelsDevPricing || {} : getModelsDevPricing()
-    ) as Record<string, Record<string, Record<string, number>>>;
-    const providerPricing =
-      findInsensitive(modelsDev, provider) ||
-      findInsensitive(modelsDev, provider.replace(/-cn$/, ""));
-    if (providerPricing) {
-      const modelPricing =
-        findInsensitive(providerPricing, model) ||
-        findInsensitive(providerPricing, model.replace(/\./g, "-")) ||
-        findInsensitive(
-          providerPricing,
-          model.includes("/") ? model.split("/").pop() || model : model
-        );
-      if (modelPricing && typeof modelPricing === "object") {
-        const input = modelPricing.input;
-        const output = modelPricing.output;
-        if (typeof input === "number" || typeof output === "number") {
-          const pricing: Record<string, number> = {};
-          if (typeof input === "number") pricing.input = input;
-          if (typeof output === "number") pricing.output = output;
-          if (typeof modelPricing.cached === "number") pricing.cached = modelPricing.cached;
-          if (typeof modelPricing.cache_creation === "number") {
-            pricing.cache_creation = modelPricing.cache_creation;
-          }
-          return pricing;
-        }
-      }
+    if (snapshot?.effectivePricing)
+      return exactDeploymentPricing(snapshot.effectivePricing, provider, model);
+    // Older explicit build-local snapshots remain valid. They never borrow another
+    // region, vendor namespace or dotted model version on a miss.
+    if (snapshot) {
+      return (
+        exactDeploymentPricing(
+          snapshot.userPricing || catalogPricingSnapshot().userPricing,
+          provider,
+          model
+        ) ||
+        exactDeploymentPricing(snapshot.modelsDevPricing || {}, provider, model) ||
+        exactDeploymentPricing(catalogPricingSnapshot().pricing, provider, model)
+      );
     }
+    return exactDeploymentPricing(catalogPricingSnapshot().pricing, provider, model);
   } catch {
-    // pricing lookup must never break catalog assembly
+    // Metadata enrichment must not prevent a connection's catalog from loading.
+    return exactDeploymentPricing(getBundledModelsDevPricing(), provider, model);
   }
+}
 
-  // LiteLLM-synced pricing (`pricing_synced` namespace) — Layer 3 in the
-  // documented resolution order (user > models.dev > LiteLLM > defaults).
-  // Consulted only when models.dev returned nothing, matching the order
-  // already implemented in db/settings/pricing.ts::getPricing().
+function resolveUserCatalogPricing(
+  provider: string | null,
+  model: string | null,
+  snapshot?: CatalogEnrichmentSnapshot
+): Record<string, number> | null {
+  if (!provider || !model) return null;
   try {
-    const litellm = getSyncedPricing() as unknown as Record<
-      string,
-      Record<string, Record<string, number>>
-    >;
-    const providerPricing =
-      findInsensitive(litellm, provider) || findInsensitive(litellm, provider.replace(/-cn$/, ""));
-    if (providerPricing) {
-      const modelPricing =
-        findInsensitive(providerPricing, model) ||
-        findInsensitive(providerPricing, model.replace(/\./g, "-")) ||
-        findInsensitive(
-          providerPricing,
-          model.includes("/") ? model.split("/").pop() || model : model
-        );
-      if (modelPricing && typeof modelPricing === "object") {
-        const input = modelPricing.input;
-        const output = modelPricing.output;
-        if (typeof input === "number" || typeof output === "number") {
-          const pricing: Record<string, number> = {};
-          if (typeof input === "number") pricing.input = input;
-          if (typeof output === "number") pricing.output = output;
-          if (typeof modelPricing.cached === "number") pricing.cached = modelPricing.cached;
-          if (typeof modelPricing.cache_creation === "number") {
-            pricing.cache_creation = modelPricing.cache_creation;
-          }
-          return pricing;
-        }
-      }
-    }
+    return exactDeploymentPricing(
+      snapshot?.userPricing || catalogPricingSnapshot().userPricing,
+      provider,
+      model
+    );
   } catch {
-    // pricing lookup must never break catalog assembly
+    return null;
   }
-
-  try {
-    const defaults = getDefaultPricingForModel(provider, model) as Record<string, number> | null;
-    if (defaults && (typeof defaults.input === "number" || typeof defaults.output === "number")) {
-      return defaults;
-    }
-  } catch {
-    // ignore
-  }
-  return null;
 }
 
 export function enrichCatalogModelEntry<T extends JsonRecord>(
@@ -495,13 +490,18 @@ export function enrichCatalogModelEntry<T extends JsonRecord>(
   const sourceDeclaresThinking =
     typeof existingCapabilities.thinking === "boolean" ||
     typeof existingCapabilities.supportsThinking === "boolean";
+  const descriptiveThinkingOnly =
+    Array.isArray(entry.reasoning_options) ||
+    metadata.metadata.reasoningOptions !== null ||
+    (metadata.metadata.source.syncedCapability &&
+      !metadata.metadata.source.providerRegistry &&
+      !metadata.metadata.source.staticSpec);
   const effortTiers =
-    metadata.capabilities.supportedThinkingEfforts &&
-    metadata.capabilities.supportedThinkingEfforts.length > 0
+    metadata.capabilities.supportedThinkingEfforts !== null
       ? [...metadata.capabilities.supportedThinkingEfforts]
-      : declaredEffortTiers.length > 0
+      : Array.isArray(existingCapabilities.effort_tiers)
         ? declaredEffortTiers
-        : sourceDeclaresThinking
+        : sourceDeclaresThinking || descriptiveThinkingOnly
           ? undefined
           : // #10963: GLM-family models never inherit generic OpenAI tiers — an
             // explicit empty list is authoritative unless a provider-declared
@@ -648,9 +648,19 @@ export function enrichCatalogModelEntry<T extends JsonRecord>(
     nextEntry.name = metadata.displayName;
   }
 
-  if (nextEntry.pricing == null) {
-    const pricing = resolveCatalogPricing(provider, model, snapshot);
+  const userPricing = resolveUserCatalogPricing(provider, model, snapshot);
+  if (userPricing || nextEntry.pricing == null) {
+    const pricing = userPricing || resolveCatalogPricing(provider, model, snapshot);
     if (pricing) nextEntry.pricing = pricing;
+  }
+  if (metadata.metadata.canonicalModelId && !nextEntry.canonical_model_id) {
+    nextEntry.canonical_model_id = metadata.metadata.canonicalModelId;
+  }
+  if (metadata.metadata.reasoningOptions && !nextEntry.reasoning_options) {
+    nextEntry.reasoning_options = metadata.metadata.reasoningOptions;
+  }
+  if (metadata.metadata.catalogSource && !nextEntry.catalog_source) {
+    nextEntry.catalog_source = metadata.metadata.catalogSource;
   }
 
   return nextEntry as T;

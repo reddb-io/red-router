@@ -14,7 +14,7 @@ import { providerUsesCuratedModelsOnly } from "@/lib/providers/modelListingCapab
 import { mergeModelsWithCustomPrecedence } from "@/lib/providers/modelMetadataPrecedence";
 import { addModelsSuffix } from "@/lib/providers/validation/urlHelpers";
 import { getCachedProviderConnectionById } from "@/lib/db/readCache";
-import { resolveProxyForProvider } from "@/lib/db/proxies";
+import { hasBlockingProxyAssignment, resolveProxyForProvider } from "@/lib/db/proxies";
 import { resolveProxyForConnection } from "@/lib/db/settings";
 import {
   SAFE_OUTBOUND_FETCH_PRESETS,
@@ -141,6 +141,13 @@ import {
   reconcileCodexDiscoveryCatalog,
 } from "./discovery/codex";
 import { getCodexDiscoveryMode } from "@/shared/services/codexDiscoveryPolicy";
+import {
+  configuredOpenRouterModelsUrl,
+  fetchOpenRouterDecisionModels,
+  isOpenRouterDecisionRecord,
+  mergeOpenRouterModelFeeds,
+  parseOpenRouterModelsResponse,
+} from "@/lib/providerModels/openrouterModelFeeds";
 import { fetchClaudeDiscoveryModels } from "./discovery/claude";
 import { isModelExcludedByConnection } from "@/domain/connectionModelRules";
 import { requireManagementAuth } from "@/lib/api/requireManagementAuth";
@@ -237,7 +244,10 @@ async function getConnectionModels(
     const usesCuratedModelsOnly = providerUsesCuratedModelsOnly(provider);
 
     // Resolve proxy for this provider (provider-level → global → direct)
-    const proxy = await resolveProxyForProvider(provider);
+    const proxy =
+      provider === "openrouter"
+        ? (await resolveProxyForConnection(id, undefined, provider)).proxy
+        : await resolveProxyForProvider(provider);
 
     // #6247 — user-added custom models live in key_value namespace
     // `customModels`. Merge them with explicit custom metadata taking precedence
@@ -447,7 +457,10 @@ async function getConnectionModels(
         // OpenRouter's embeddingRegistry catalog) into the live-discovery
         // response; the live /v1/models endpoint only lists chat models, and
         // the specialty catalog otherwise only reached local_catalog fallback.
-        const mergedModels = mergeSpecialtyCatalogIntoLiveModels(models, provider);
+        const mergedModels = mergeSpecialtyCatalogIntoLiveModels(
+          models.map((model) => ({ ...model, nativeModelId: model.id })),
+          provider
+        );
         return buildResponse({
           provider,
           connectionId,
@@ -2233,6 +2246,9 @@ async function getConnectionModels(
       );
     }
 
+    if (provider === "openrouter" && !proxy && hasBlockingProxyAssignment(id, provider))
+      return errorResponse(503, "Assigned OpenRouter discovery proxy unavailable");
+
     // Build request URL
     let url = config.url;
     if (provider === "alibaba" || provider === "alibaba-cn" || provider === "qwen-cloud") {
@@ -2278,10 +2294,7 @@ async function getConnectionModels(
     // it drops a trailing chat/responses/messages path, appends /models, and
     // leaves an already-/models URL untouched.
     if (provider === "openrouter") {
-      const customBaseUrl = getProviderBaseUrl(connection.providerSpecificData);
-      if (customBaseUrl) {
-        url = addModelsSuffix(customBaseUrl) || url;
-      }
+      url = configuredOpenRouterModelsUrl(connection.providerSpecificData) || url;
     }
     if (provider === "cloudflare-ai") {
       const pData = asRecord(connection.providerSpecificData);
@@ -2381,6 +2394,31 @@ async function getConnectionModels(
       );
     }
 
+    let decisionCatalogWarning: string | undefined;
+    if (provider === "openrouter") {
+      const chatModels = parseOpenRouterModelsResponse({ data: allModels });
+      try {
+        const decisions = await fetchOpenRouterDecisionModels(paginationBaseUrl, (decisionUrl) =>
+          safeOutboundFetch(String(decisionUrl), {
+            ...SAFE_OUTBOUND_FETCH_PRESETS.modelsPagination,
+            guard: getProviderOutboundGuard(),
+            proxyConfig: proxy,
+            ...fetchOptions,
+          })
+        );
+        allModels = mergeOpenRouterModelFeeds(chatModels, decisions);
+      } catch {
+        // A partial discovery must not erase this connection's previous decision inventory.
+        const previous = await getCachedDiscoveredModels(provider, connectionId);
+        const decisions = parseOpenRouterModelsResponse({
+          data: previous.filter((model) => isOpenRouterDecisionRecord(model)),
+        });
+        allModels = mergeOpenRouterModelFeeds(chatModels, decisions);
+        decisionCatalogWarning =
+          "Decision catalog unavailable — previous connection metadata retained";
+      }
+    }
+
     if (
       !searchParams.has("capabilities") &&
       getProviderConnectionFamilyIds("alibaba").includes(provider)
@@ -2423,7 +2461,9 @@ async function getConnectionModels(
       }
     }
 
-    return buildApiDiscoveryResponse(allModels);
+    return buildApiDiscoveryResponse(allModels, decisionCatalogWarning, {
+      ...(decisionCatalogWarning ? { decisionCatalogStale: true } : {}),
+    });
   } catch (error) {
     if (error instanceof SafeOutboundFetchError && error.code === "URL_GUARD_BLOCKED") {
       return NextResponse.json({ error: sanitizeErrorMessage(error.message) }, { status: 400 });
@@ -2457,17 +2497,32 @@ export async function GET(
     if (requested.data.includes("decision") && connection?.provider !== "red-router") {
       if (!connection) return errorResponse(404, "Connection not found");
       const provider = typeof connection.provider === "string" ? connection.provider : "";
-      // JEV is listed in systemOneConfig, not in the upstream chat /models response.
-      // Selection must not require a chat probe (or schedule inference probes).
+      // Role selection uses this connection's inventory plus the implemented adapter.
+      // It never probes inference or borrows another connection's discovery.
+      const discovered = await getCachedDiscoveredModels(provider, id);
+      const decisionModels = new Map<string, Record<string, unknown>>();
+      for (const model of getRegistryEntry(provider)?.systemOneConfig?.models ?? []) {
+        decisionModels.set(model.id, {
+          ...model,
+          nativeModelId: model.id,
+          type: "systemone",
+          supported_endpoints: ["systemone", "decisions"],
+        });
+      }
+      for (const model of discovered) {
+        if (model.modelType !== "decision" && !model.supportedEndpoints?.includes("systemone"))
+          continue;
+        decisionModels.set(model.id, {
+          ...model,
+          type: model.supportedEndpoints?.includes("systemone") ? "systemone" : "decision",
+          supported_endpoints: model.supportedEndpoints ?? [],
+        });
+      }
       payload = {
         provider,
         connectionId: id,
-        source: "decision_registry",
-        models: (getRegistryEntry(provider)?.systemOneConfig?.models ?? []).map((model) => ({
-          ...model,
-          type: "systemone",
-          supported_endpoints: ["systemone", "decisions"],
-        })),
+        source: discovered.length ? "connection_inventory" : "decision_registry",
+        models: [...decisionModels.values()],
       };
     } else {
       const response = await getConnectionModels(request, context);

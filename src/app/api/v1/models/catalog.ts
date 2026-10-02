@@ -19,6 +19,7 @@ import {
 import { getCombos } from "@/lib/db/combos";
 import { isComboNameAllowedForKey } from "@/shared/utils/apiKeyPolicy";
 import { getSettings } from "@/lib/db/settings";
+import { getCatalogPricingSnapshot } from "@/lib/db/settings/pricing";
 import { getUserDatabaseSettings } from "@/lib/db/databaseSettings";
 import { createLazyConnectionView } from "@/lib/db/providers/lazyConnectionView";
 import { extractAliasBackedModels } from "./aliasBackedModels";
@@ -160,7 +161,10 @@ import {
   isCcDiscoveryModelCatalogClient,
 } from "./catalogRequest";
 import { incrementCcDiscoveryHitCount } from "@/lib/db/ccDiscoveryMetrics";
-import { isUnifiedChatSourceModelSelectable } from "./catalogModelPolicy";
+import {
+  isImplementedCatalogDecisionSource,
+  isUnifiedChatSourceModelSelectable,
+} from "./catalogModelPolicy";
 import { decideHidePaid } from "./catalogPaidFilter";
 import { isModelExposureAllowed } from "@/shared/utils/modelExposureList";
 import { isModelDisabledGlobally } from "@/shared/utils/disabledModelsList";
@@ -1090,7 +1094,7 @@ async function buildUnifiedModelsResponseCore(
     let syncedModelsByProvider: Record<string, SyncedAvailableModel[]> = {};
     try {
       await yieldCatalogBuildTurn();
-      syncedModelsByProvider = await getAllActiveSyncedModels();
+      syncedModelsByProvider = await getAllActiveSyncedModels(connections);
       await yieldCatalogBuildTurn();
     } catch (e) {
       // DB unavailable — log and fall through; static models remain as defaults.
@@ -1326,8 +1330,7 @@ async function buildUnifiedModelsResponseCore(
           const decisionSource =
             (canonicalProviderId === "red-router" ||
               !!REGISTRY[canonicalProviderId]?.systemOneConfig) &&
-            getModelEndpointDecision(canonicalProviderId, sm.id, sm.supportedEndpoints).kind ===
-              "systemone";
+            isImplementedCatalogDecisionSource(canonicalProviderId, sm);
           if (!decisionSource && !isUnifiedChatSourceModelSelectable(canonicalProviderId, sm))
             continue;
           if (!providerSupportsModel(canonicalProviderId, sm.id)) continue;
@@ -1404,8 +1407,8 @@ async function buildUnifiedModelsResponseCore(
             // #4264/#7694: vision + reasoning-effort-tier flags captured at sync time,
             // merged into a single capabilities object (see ./syncedCapabilities.ts).
             // ownedBy gates effort_tiers off for codex/glm/kimi (own suffix mechanism).
-            ...(buildSyncedCapabilities(sm, syncedOwnedBy)
-              ? { capabilities: buildSyncedCapabilities(sm, syncedOwnedBy) }
+            ...(buildSyncedCapabilities(sm, syncedOwnedBy, canonicalProviderId)
+              ? { capabilities: buildSyncedCapabilities(sm, syncedOwnedBy, canonicalProviderId) }
               : {}),
           };
 
@@ -1414,7 +1417,8 @@ async function buildUnifiedModelsResponseCore(
             const mergedCapabilities = mergeSyncedCapabilities(
               existingAliasModel.capabilities,
               sm,
-              syncedOwnedBy
+              syncedOwnedBy,
+              canonicalProviderId
             );
             Object.assign(existingAliasModel, syncedFields);
             if (mergedCapabilities) existingAliasModel.capabilities = mergedCapabilities;
@@ -1495,7 +1499,10 @@ async function buildUnifiedModelsResponseCore(
         const openRouterCaps: Record<string, ModelCapabilityEntry> = {};
         for (const openRouterModel of openRouterCatalog.data || []) {
           if (!openRouterModel?.id || typeof openRouterModel.id !== "string") continue;
-          if (getModelEndpointDecision("openrouter", openRouterModel.id).kind === "systemone") {
+          if (
+            openRouterModel.modelType === "decision" ||
+            getModelEndpointDecision("openrouter", openRouterModel.id).kind === "systemone"
+          ) {
             continue;
           }
           const qualifiedId = qualifyOpenRouterModelId(openRouterModel.id);
@@ -1864,8 +1871,7 @@ async function buildUnifiedModelsResponseCore(
           const decisionSource =
             (canonicalProviderId === "red-router" ||
               !!REGISTRY[canonicalProviderId]?.systemOneConfig) &&
-            getModelEndpointDecision(canonicalProviderId, modelId, model.supportedEndpoints)
-              .kind === "systemone";
+            isImplementedCatalogDecisionSource(canonicalProviderId, { ...model, id: modelId });
           if (
             !decisionSource &&
             !isUnifiedChatSourceModelSelectable(canonicalProviderId, { ...model, id: modelId })
@@ -2280,8 +2286,11 @@ async function buildUnifiedModelsResponseCore(
       } catch {
         // Pricing lookup is optional; hardcoded defaults still enrich the response.
       }
+      const pricingSnapshot = getCatalogPricingSnapshot();
       enrichmentSnapshot = {
         modelsDevPricing,
+        effectivePricing: pricingSnapshot.pricing,
+        userPricing: pricingSnapshot.userPricing,
         capabilityResolutionSnapshot,
         providerNodeIdsByPrefix: providerNodeIdByPrefix,
       };

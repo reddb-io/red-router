@@ -45,6 +45,8 @@ export type CachedCatalog = {
   headers: Record<string, string>;
   status: number;
   expiresAt: number;
+  generation?: number;
+  builtAt?: number;
 };
 
 /** Payload shape returned by the builder the caller injects. */
@@ -63,6 +65,8 @@ export type CatalogPayload = {
  * past this window callers fall back to waiting, same as a cold cache.
  */
 export const CATALOG_STALE_WHILE_REVALIDATE_MS = 30_000;
+export const CATALOG_CACHE_MAX_ENTRIES = 128;
+export const CATALOG_IN_FLIGHT_MAX_ENTRIES = 32;
 
 /**
  * Schedules the stale-while-revalidate rebuild. Injected so the App Router route can
@@ -191,8 +195,8 @@ const catalogCache = new Map<string, CachedCatalog>();
  * (`getModelCatalogCacheVersion()` at launch). After a write invalidates the
  * catalog, the generation moves on: a stale in-flight build must neither be
  * joined by new requests nor repopulate the now-current cache when it finishes.
- * It still resolves to its own original caller (that request legitimately waits
- * on it), just without being persisted.
+ * Its original callers receive a retryable 503 if the generation changes while
+ * they wait, because their projection may contain models they can no longer access.
  */
 type InFlightBuild = {
   generation: number;
@@ -236,11 +240,12 @@ function dropCatalogCacheIfStateChanged(): void {
   if (currentVersion === lastSeenCatalogCacheVersion) return;
   lastSeenCatalogCacheVersion = currentVersion;
   catalogCache.clear();
+  catalogLastGood.clear();
   // Deliberately NOT clearing catalogInFlight: an in-flight build bound to the
-  // previous generation is left to finish for its original caller, but the
-  // generation check in the join path (below) keeps new requests from joining
-  // it, and the generation check in storePayload keeps it from repopulating
-  // the now-current cache. Clearing it here would just detach the entry while
+  // previous generation is left to finish, but the generation checks below prevent
+  // new requests from joining it and prevent its original callers from receiving
+  // the obsolete body. storePayload also cannot repopulate the current cache.
+  // Clearing it here would just detach the entry while
   // the build still ran — wasted work with no correctness gain.
 }
 
@@ -268,27 +273,59 @@ export function mergeCatalogHeaders(
  * Persist a freshly built payload — but only when the build still belongs to the
  * current catalog-state generation. A build that started before a write
  * invalidation (its `buildGeneration` is older than `getModelCatalogCacheVersion()`)
- * returns its entry to its original caller but must NOT repopulate the cache: the
- * payload reflects pre-write state and caching it would serve stale data.
+ * must not repopulate the cache. The awaiting caller also checks the generation
+ * before returning the body, because the payload reflects pre-write state.
  */
 function storePayload(
   cacheKey: string,
   payload: CatalogPayload,
   buildGeneration: number
 ): CachedCatalog {
+  const builtAt = Date.now();
+  const cacheTTL = Number.isFinite(payload.cacheTTL)
+    ? Math.min(CATALOG_CACHE_TTL_MS_DEFAULT, Math.max(0, payload.cacheTTL))
+    : 0;
   const entry: CachedCatalog = {
     body: payload.body,
     headers: payload.headers,
     status: payload.status,
-    expiresAt: Date.now() + payload.cacheTTL,
+    expiresAt: builtAt + cacheTTL,
+    generation: buildGeneration,
+    builtAt,
   };
   if (buildGeneration === getModelCatalogCacheVersion()) {
     catalogCache.set(cacheKey, entry);
     if (entry.status === 200) catalogLastGood.set(cacheKey, entry);
+    trimCatalogEntries();
   }
-  // Cross-generation orphan: return entry to its original caller unchanged,
-  // persist neither cache nor lastGood.
+  // An obsolete entry is not persisted; awaitCatalogInFlight rejects its body.
   return entry;
+}
+
+function trimCatalogEntries(): void {
+  for (const entries of [catalogCache, catalogLastGood]) {
+    while (entries.size > CATALOG_CACHE_MAX_ENTRIES) {
+      const oldest = entries.keys().next().value;
+      if (oldest === undefined) break;
+      catalogCache.delete(oldest);
+      catalogLastGood.delete(oldest);
+    }
+  }
+}
+
+function catalogUnavailable(
+  reason: string,
+  corsHeaders: Record<string, string>,
+  diagnosticHeaders: Record<string, string>
+): Response {
+  return catalogStringResponse(
+    JSON.stringify(buildErrorBody(503, reason, undefined, { type: "service_unavailable" })),
+    mergeCatalogHeaders(corsHeaders, diagnosticHeaders, {
+      "x-omniroute-catalog": reason,
+      "Retry-After": "1",
+    }),
+    503
+  );
 }
 
 /**
@@ -316,6 +353,7 @@ function startBackgroundRefresh(
   schedule: BackgroundRefreshScheduler
 ): void {
   if (catalogInFlight.has(cacheKey)) return; // a refresh for this key is already running
+  if (catalogInFlight.size >= CATALOG_IN_FLIGHT_MAX_ENTRIES) return;
 
   const generation = getModelCatalogCacheVersion();
   const refreshPromise: Promise<CachedCatalog> = new Promise((resolve, reject) => {
@@ -336,8 +374,6 @@ function startBackgroundRefresh(
   // Nobody on the stale path awaits this, so pre-handle the rejection; a cold-path
   // caller that joins it via catalogInFlight attaches its own handler and still
   // observes the failure.
-  refreshPromise.catch(() => {});
-
   catalogInFlight.set(cacheKey, {
     generation,
     promise: refreshPromise,
@@ -376,8 +412,13 @@ async function awaitCatalogInFlight(
       }
       throw err;
     }
+    const generation = getModelCatalogCacheVersion();
     const lastGood = catalogLastGood.get(cacheKey);
-    if (lastGood) {
+    if (
+      lastGood?.generation === generation &&
+      inflight.generation === generation &&
+      Date.now() <= lastGood.expiresAt + CATALOG_STALE_WHILE_REVALIDATE_MS
+    ) {
       return catalogStringResponse(
         lastGood.body,
         mergeCatalogHeaders(corsHeaders, lastGood.headers, diagnosticHeaders, {
@@ -407,6 +448,9 @@ async function awaitCatalogInFlight(
       503
     );
   }
+  if (inflight.generation !== getModelCatalogCacheVersion()) {
+    return catalogUnavailable("catalog_state_changed", corsHeaders, diagnosticHeaders);
+  }
   return catalogStringResponse(
     payload.body,
     mergeCatalogHeaders(corsHeaders, payload.headers, diagnosticHeaders),
@@ -432,7 +476,24 @@ export async function resolveCachedCatalogResponse(
 
   const cacheKey = buildCatalogCacheKey(request, catalogSettings);
   const now = Date.now();
-  const cached = catalogCache.get(cacheKey);
+  const currentGeneration = getModelCatalogCacheVersion();
+  let cached = catalogCache.get(cacheKey);
+  if (cached && cached.generation !== currentGeneration) {
+    catalogCache.delete(cacheKey);
+    catalogLastGood.delete(cacheKey);
+    cached = undefined;
+  }
+
+  if (cached) {
+    // Refresh insertion order for bounded LRU retention without extending freshness.
+    catalogCache.delete(cacheKey);
+    catalogCache.set(cacheKey, cached);
+    const lastGood = catalogLastGood.get(cacheKey);
+    if (lastGood) {
+      catalogLastGood.delete(cacheKey);
+      catalogLastGood.set(cacheKey, lastGood);
+    }
+  }
 
   if (cached && cached.expiresAt > now) {
     return catalogStringResponse(
@@ -463,7 +524,6 @@ export async function resolveCachedCatalogResponse(
     );
   }
 
-  const currentGeneration = getModelCatalogCacheVersion();
   let inflight = catalogInFlight.get(cacheKey);
   // Only join an in-flight build from the CURRENT generation. A build bound to an
   // older (pre-write) generation reflects stale state, so a new request starts a
@@ -476,16 +536,20 @@ export async function resolveCachedCatalogResponse(
     Date.now() - (existing.lastKeptAt ?? 0) <= 3 * boundMs &&
     (existing.timeoutCount ?? 0) < 3;
   if (!joinable) {
+    if (!existing && catalogInFlight.size >= CATALOG_IN_FLIGHT_MAX_ENTRIES) {
+      return catalogUnavailable("catalog_capacity_exceeded", corsHeaders, diagnosticHeaders);
+    }
     const generation = currentGeneration;
     const promise = runBuilder(buildPayload, request).then((payload) =>
       storePayload(cacheKey, payload, generation)
     );
     inflight = { generation, promise, lastKeptAt: Date.now(), timeoutCount: 0 };
     catalogInFlight.set(cacheKey, inflight);
-    promise.catch(() => {});
-    promise.finally(() => {
-      if (catalogInFlight.get(cacheKey)?.promise === promise) catalogInFlight.delete(cacheKey);
-    });
+    promise
+      .catch(() => {})
+      .finally(() => {
+        if (catalogInFlight.get(cacheKey)?.promise === promise) catalogInFlight.delete(cacheKey);
+      });
   }
 
   return awaitCatalogInFlight(cacheKey, inflight, corsHeaders, diagnosticHeaders);
@@ -517,6 +581,8 @@ export function __expireCatalogCacheForTest(msAgo = 1): void {
   const expiresAt = Date.now() - msAgo;
   for (const [key, entry] of catalogCache.entries()) {
     catalogCache.set(key, { ...entry, expiresAt });
+    const lastGood = catalogLastGood.get(key);
+    if (lastGood) catalogLastGood.set(key, { ...lastGood, expiresAt });
   }
 }
 
@@ -526,7 +592,20 @@ export function __expireCatalogCacheForTest(msAgo = 1): void {
  * non-200). Takes the Request so the cache-key format stays private to this module.
  */
 export function __setCatalogCacheEntryForTest(request: Request, entry: CachedCatalog): void {
-  catalogCache.set(buildCatalogCacheKey(request), entry);
+  catalogCache.set(buildCatalogCacheKey(request), {
+    ...entry,
+    generation: entry.generation ?? getModelCatalogCacheVersion(),
+    builtAt: entry.builtAt ?? Date.now(),
+  });
+  trimCatalogEntries();
+}
+
+export function __getCatalogCacheSizesForTest() {
+  return {
+    cache: catalogCache.size,
+    lastGood: catalogLastGood.size,
+    inFlight: catalogInFlight.size,
+  };
 }
 
 /** Awaits any background refresh in flight, instead of guessing at a real-time sleep. */

@@ -2,6 +2,7 @@ import { redRouterEndpoint, RED_ROUTER_DEFAULT_BASE_URL } from "../config/redRou
 import { REGISTRY } from "../config/providers/index.ts";
 import { JEV_DEFAULT_MODEL } from "../config/jev.ts";
 import { buildErrorBody } from "../utils/error.ts";
+import { isOpenRouterSystemOneModelId } from "../services/modelEndpointPolicy.ts";
 import {
   forwardOpencodeClientHeaders,
   resolveOpencodeCliDefaults,
@@ -84,10 +85,7 @@ export function resolveSystemOneTarget(requestedModel?: string): SystemOneTarget
   const config = REGISTRY[provider]?.systemOneConfig;
   if (!config) return null;
   if (provider === "openrouter") {
-    if (
-      !/^typesafe\/jev-\d+(?:[.][0-9]+)*(?:-[a-z0-9._-]+)?$/.test(model) &&
-      !Object.hasOwn(config.modelMap ?? {}, model)
-    ) {
+    if (!isOpenRouterSystemOneModelId(model) && !Object.hasOwn(config.modelMap ?? {}, model)) {
       return null;
     }
   } else if (provider === "opencode") {

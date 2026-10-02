@@ -16,7 +16,17 @@ export type PricingEntry = {
   cached?: number;
   cache_creation?: number;
   reasoning?: number;
+  input_audio?: number;
+  output_audio?: number;
 };
+
+export const MODELS_DEV_SOURCE_URL = "https://models.dev/api.json?type=all";
+export const MODELS_DEV_TRANSFORM_VERSION = 2;
+
+export type ModelsDevReasoningOption =
+  | { type: "toggle" }
+  | { type: "effort"; values: Array<string | null> }
+  | { type: "budget_tokens"; min?: number; max?: number };
 
 export type PricingModels = Record<string, PricingEntry>;
 export type PricingByProvider = Record<string, PricingModels>;
@@ -39,6 +49,12 @@ export interface ModelCapabilityEntry {
   limit_input: number | null;
   limit_output: number | null;
   interleaved_field: string | null;
+  model_type?: string | null;
+  canonical_model_id?: string | null;
+  reasoning_options?: string | null; // JSON; native option values, not inferred efforts
+  source_provider?: string | null;
+  native_model_id?: string | null;
+  metadata_source?: string;
 }
 
 export type CapabilitiesByProvider = Record<string, Record<string, ModelCapabilityEntry>>;
@@ -73,6 +89,9 @@ export interface ModelsDevInterleaved {
 export interface ModelsDevModel {
   id: string;
   name: string;
+  type?: string;
+  canonical_model_id?: string;
+  reasoning_options?: ModelsDevReasoningOption[];
   family?: string;
   attachment?: boolean;
   reasoning?: boolean;
@@ -104,25 +123,26 @@ export type ModelsDevData = Record<string, ModelsDevProvider>;
 
 // ─── Provider mapping: models.dev provider ID → OmniRoute provider IDs/aliases ──
 //
-// models.dev uses canonical provider IDs (e.g. "openai", "anthropic", "google").
-// OmniRoute uses both full IDs and short aliases (e.g. "cc" for claude, "cx" for codex).
-// We map each models.dev provider to ALL OmniRoute identifiers that should receive
-// its pricing/capability data.
+// Map only the same commercial deployment. A subscription transport, region or
+// gateway is not an alias of a vendor API merely because it serves the same model.
+// Keep the upstream source ID too, so its offering metadata remains addressable.
 
 export const MODELS_DEV_PROVIDER_MAP: Record<string, string[]> = {
   // Major providers
-  openai: ["openai", "cx"], // cx = Codex (uses OpenAI models)
-  anthropic: ["anthropic", "cc"], // cc = Claude Code
+  openai: ["openai"],
+  anthropic: ["anthropic"],
   google: ["gemini"],
-  "google-vertex": ["gemini", "vertex"],
-  "google-vertex-anthropic": ["anthropic", "cc", "vertex"],
-  vertex_ai: ["gemini", "vertex"],
-  deepseek: ["deepseek", "if"], // if = Qoder (routes through DeepSeek)
+  "google-vertex": ["vertex"],
+  // google-vertex already contains partner offerings for the main Vertex deployment.
+  // Keep the Anthropic-specific transport on its own configured partner provider.
+  "google-vertex-anthropic": ["vertex-partner", "vp"],
+  vertex_ai: ["vertex"],
+  deepseek: ["deepseek"],
   groq: ["groq"],
   xai: ["xai"],
   mistral: ["mistral"],
-  togetherai: ["together", "openrouter"],
-  together_ai: ["together", "openrouter"],
+  togetherai: ["together"],
+  together_ai: ["together"],
   "fireworks-ai": ["fireworks"],
   fireworks: ["fireworks"],
   cerebras: ["cerebras"],
@@ -135,7 +155,7 @@ export const MODELS_DEV_PROVIDER_MAP: Record<string, string[]> = {
   openrouter: ["openrouter"],
   perplexity: ["pplx", "perplexity"],
   // OAuth / special providers
-  bedrock: ["kiro", "kr"], // kr = Kiro (AWS Bedrock)
+  bedrock: ["bedrock"],
   "github-copilot": ["github", "gh"],
   kilo: ["kilocode", "kc", "kilo-gateway"],
   kilocode: ["kilocode", "kc", "kilo-gateway"],
@@ -151,17 +171,17 @@ export const MODELS_DEV_PROVIDER_MAP: Record<string, string[]> = {
   // any combo that targets `opencode/...` ends up with no computed context.
   // Symmetric mapping keeps both lookup paths populated.
   opencode: ["opencode", "opencode-zen"],
-  "opencode-go": ["opencode-go", "opencode-zen"],
+  "opencode-go": ["opencode-go"],
   // Additional providers that may overlap with OmniRoute
   alibaba: ["ali", "alibaba"],
   "alibaba-cn": ["ali-cn", "alibaba-cn", "alibaba-china"],
   "alibaba-coding-plan": ["bcp", "bailian-coding-plan"],
-  zai: ["zai", "glm"], // GLM models via Z.AI
-  "zai-coding-plan": ["zai", "glm"],
+  zai: ["zai"],
+  "zai-coding-plan": ["glm", "glmt"], // both presets use /api/coding/paas/v4
   moonshotai: ["moonshot", "kimi"],
-  "moonshotai-cn": ["moonshot", "kimi"],
-  moonshot: ["moonshot", "kimi", "kimi-coding", "kmc", "kmca"],
-  minimax: ["minimax", "minimax-cn"],
+  "moonshotai-cn": ["moonshotai-cn"],
+  moonshot: ["moonshot", "kimi"],
+  minimax: ["minimax"],
   "minimax-cn": ["minimax-cn"],
   longcat: ["lc", "longcat"],
   pollinations: ["pol", "pollinations"],
@@ -171,7 +191,7 @@ export const MODELS_DEV_PROVIDER_MAP: Record<string, string[]> = {
   blackbox: ["bb", "blackbox"],
   cline: ["cl", "cline"],
   cursor: ["cu", "cursor"],
-  github: ["gh", "github"],
+  github: ["github-models"], // GitHub Models is not the Copilot deployment.
   // Fallback: if no mapping exists, use the models.dev ID as-is
 };
 
@@ -180,7 +200,39 @@ export const MODELS_DEV_PROVIDER_MAP: Record<string, string[]> = {
  * Returns array of provider identifiers (may include aliases).
  */
 export function mapProviderId(modelsDevProviderId: string): string[] {
-  return MODELS_DEV_PROVIDER_MAP[modelsDevProviderId] || [modelsDevProviderId];
+  const mapped = MODELS_DEV_PROVIDER_MAP[modelsDevProviderId];
+  // A known different deployment named `github` must not enrich local Copilot.
+  return modelsDevProviderId === "github"
+    ? [...(mapped || [])]
+    : [...new Set([modelsDevProviderId, ...(mapped || [])])];
+}
+
+function setOwn<T>(target: Record<string, T>, key: string, value: T): void {
+  Object.defineProperty(target, key, {
+    value,
+    enumerable: true,
+    configurable: true,
+    writable: true,
+  });
+}
+
+function putOffering<T>(
+  result: Record<string, Record<string, T>>,
+  owners: Map<string, string>,
+  provider: string,
+  model: string,
+  source: string,
+  value: T
+): void {
+  const key = JSON.stringify([provider, model]);
+  const previous = owners.get(key);
+  if (previous && previous !== source) {
+    // Fail the candidate snapshot instead of silently choosing its JSON order.
+    throw new Error(`models.dev mapping collision: ${provider}/${model} (${previous}, ${source})`);
+  }
+  if (!Object.hasOwn(result, provider)) setOwn(result, provider, {});
+  setOwn(result[provider], model, value);
+  owners.set(key, source);
 }
 
 // ─── Transform: Pricing ──────────────────────────────────
@@ -193,11 +245,17 @@ export function mapProviderId(modelsDevProviderId: string): string[] {
  */
 export function transformModelsDevToPricing(raw: ModelsDevData): PricingByProvider {
   const result: PricingByProvider = {};
+  const owners = new Map<string, string>();
 
-  for (const [providerId, providerData] of Object.entries(raw)) {
+  for (const [providerId, providerData] of Object.entries(raw).sort(([a], [b]) =>
+    a < b ? -1 : a > b ? 1 : 0
+  )) {
     const omniRouteProviders = mapProviderId(providerId);
 
-    for (const [modelId, model] of Object.entries(providerData.models || {})) {
+    for (const [, model] of Object.entries(providerData.models || {}).sort(([a], [b]) =>
+      a < b ? -1 : a > b ? 1 : 0
+    )) {
+      const modelId = model.id;
       if (!model.cost) continue;
 
       // Must have at least input pricing
@@ -217,11 +275,12 @@ export function transformModelsDevToPricing(raw: ModelsDevData): PricingByProvid
       if (model.cost.reasoning != null) {
         entry.reasoning = model.cost.reasoning;
       }
+      if (model.cost.input_audio != null) entry.input_audio = model.cost.input_audio;
+      if (model.cost.output_audio != null) entry.output_audio = model.cost.output_audio;
 
       // Write to ALL mapped OmniRoute providers
       for (const omniProvider of omniRouteProviders) {
-        if (!result[omniProvider]) result[omniProvider] = {};
-        result[omniProvider][modelId] = entry;
+        putOffering(result, owners, omniProvider, modelId, providerId, entry);
       }
     }
   }
@@ -236,11 +295,17 @@ export function transformModelsDevToPricing(raw: ModelsDevData): PricingByProvid
  */
 export function transformModelsDevToCapabilities(raw: ModelsDevData): CapabilitiesByProvider {
   const result: CapabilitiesByProvider = {};
+  const owners = new Map<string, string>();
 
-  for (const [providerId, providerData] of Object.entries(raw)) {
+  for (const [providerId, providerData] of Object.entries(raw).sort(([a], [b]) =>
+    a < b ? -1 : a > b ? 1 : 0
+  )) {
     const omniRouteProviders = mapProviderId(providerId);
 
-    for (const [modelId, model] of Object.entries(providerData.models || {})) {
+    for (const [, model] of Object.entries(providerData.models || {}).sort(([a], [b]) =>
+      a < b ? -1 : a > b ? 1 : 0
+    )) {
+      const modelId = model.id;
       const modalitiesInput = model.modalities?.input ?? [];
       const modalitiesOutput = model.modalities?.output ?? [];
       // #8250: models.dev can ship attachment=false while modalities.input still
@@ -248,8 +313,8 @@ export function transformModelsDevToCapabilities(raw: ModelsDevData): Capabiliti
       // internally consistent before resolve-time reconciliation.
       let attachment = model.attachment ?? null;
       if (
-        attachment === false &&
-        [...modalitiesInput, ...modalitiesOutput].some((entry) => {
+        attachment !== true &&
+        modalitiesInput.some((entry) => {
           const lower = String(entry).toLowerCase();
           return lower.includes("image") || lower.includes("video");
         })
@@ -280,11 +345,16 @@ export function transformModelsDevToCapabilities(raw: ModelsDevData): Capabiliti
             : model.interleaved === true
               ? "reasoning_content"
               : null,
+        model_type: model.type ?? null,
+        canonical_model_id: model.canonical_model_id ?? null,
+        reasoning_options: model.reasoning_options ? JSON.stringify(model.reasoning_options) : null,
+        source_provider: providerId,
+        native_model_id: model.id,
+        metadata_source: "models-dev",
       };
 
       for (const omniProvider of omniRouteProviders) {
-        if (!result[omniProvider]) result[omniProvider] = {};
-        result[omniProvider][modelId] = cap;
+        putOffering(result, owners, omniProvider, modelId, providerId, cap);
       }
     }
   }

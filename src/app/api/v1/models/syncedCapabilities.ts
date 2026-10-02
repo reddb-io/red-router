@@ -9,10 +9,10 @@
  * effort_tiers loop (2026-08-23): a runtime-learned accepted set (#11232,
  * learnedReasoningEffortCaps) REPLACES the synced `supportedThinkingEfforts`
  * when one exists — the proven contract beats the advertised one. Lookup is
- * model-scoped: executors record under connection ids while this module sees
- * provider ids, so an exact provider:model key would always miss.
+ * scoped to the actual execution provider, separately from its public display
+ * prefix. Equal model names on unrelated gateways never share learned enums.
  *
- * Exclusion gate: `ownedBy` is REQUIRED and checked against
+ * Exclusion gate: the execution provider (defaulting to required `ownedBy`) is checked against
  * `isSkippedEffortProvider` (codex/glm/kimi — providers that already own a
  * conflicting `-{effort}` suffix mechanism, see syncedEffortVariants.ts, #7694).
  * Without this, the blind opencode-plugin mapping (`capabilities.effort_tiers`
@@ -63,18 +63,25 @@ function isExemptKimiK3BaseModel(sm: SyncedCapabilityFlags, ownedBy: string): bo
   );
 }
 
-function effectiveEffortTiers(sm: SyncedCapabilityFlags, ownedBy: string): string[] | undefined {
+function effectiveEffortTiers(
+  sm: SyncedCapabilityFlags,
+  executionProviderId: string
+): string[] | undefined {
   // Exclusion gate (#7694): codex/glm/kimi own a conflicting `-{effort}` suffix
   // mechanism — the blind opencode-plugin mapping must never see effort_tiers
   // for them, or it double-handles the suffix. #12299 narrows only the kimi K3
   // base-model entries out of that gate; everything else stays excluded.
-  if (isSkippedEffortProvider(ownedBy) && !isExemptKimiK3BaseModel(sm, ownedBy)) return undefined;
-  const learned = sm.id ? getLearnedReasoningEffortForModel(sm.id) : null;
+  if (
+    isSkippedEffortProvider(executionProviderId) &&
+    !isExemptKimiK3BaseModel(sm, executionProviderId)
+  )
+    return undefined;
+  const learned = sm.id ? getLearnedReasoningEffortForModel(sm.id, [executionProviderId]) : null;
   const synced =
     Array.isArray(sm.supportedThinkingEfforts) && sm.supportedThinkingEfforts.length > 0
       ? sm.supportedThinkingEfforts
       : null;
-  const explicit = sm.id ? getRegistryModelThinkingEfforts(ownedBy, sm.id) : undefined;
+  const explicit = sm.id ? getRegistryModelThinkingEfforts(executionProviderId, sm.id) : undefined;
   if (explicit) {
     const observed = learned ? [...learned] : synced;
     const narrowed = observed
@@ -85,16 +92,17 @@ function effectiveEffortTiers(sm: SyncedCapabilityFlags, ownedBy: string): strin
   if (learned) return [...learned];
   if (synced) return synced;
   if (!sm.supportsThinking || !sm.id) return undefined;
-  const registryEfforts = getRegistryThinkingEfforts(ownedBy, sm.id);
+  const registryEfforts = getRegistryThinkingEfforts(executionProviderId, sm.id);
   return registryEfforts && registryEfforts.length > 0 ? [...registryEfforts] : undefined;
 }
 
 /** Build the `capabilities` object for a fresh synced-model catalog entry, or `undefined` when neither flag applies. */
 export function buildSyncedCapabilities(
   sm: SyncedCapabilityFlags,
-  ownedBy: string
+  ownedBy: string,
+  executionProviderId = ownedBy
 ): Record<string, boolean | string[]> | undefined {
-  const tiers = effectiveEffortTiers(sm, ownedBy);
+  const tiers = effectiveEffortTiers(sm, executionProviderId);
   if (!sm.supportsVision && !tiers) return undefined;
   return {
     ...(sm.supportsVision ? { vision: true } : {}),
@@ -110,9 +118,10 @@ export function buildSyncedCapabilities(
 export function mergeSyncedCapabilities(
   existing: Record<string, unknown> | undefined,
   sm: SyncedCapabilityFlags,
-  ownedBy: string
+  ownedBy: string,
+  executionProviderId = ownedBy
 ): Record<string, unknown> | undefined {
-  const tiers = effectiveEffortTiers(sm, ownedBy);
+  const tiers = effectiveEffortTiers(sm, executionProviderId);
   if (!sm.supportsVision && !tiers && !existing) return undefined;
   return {
     ...(existing || {}),

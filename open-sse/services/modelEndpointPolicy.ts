@@ -19,6 +19,7 @@ export type ModelEndpointDecision = {
 type EndpointAwareModel = {
   id: string;
   supportedEndpoints?: readonly string[];
+  modelType?: string;
 };
 
 const CHAT_ENDPOINTS = new Set([
@@ -106,17 +107,31 @@ function classifyOpenAiModel(modelId: string): ModelEndpointDecision | null {
 const OPENROUTER_BATCH_SUFFIX = ":batch";
 
 function classifyOpenRouterModel(modelId: string): ModelEndpointDecision | null {
-  return modelId.trim().toLowerCase().endsWith(OPENROUTER_BATCH_SUFFIX)
+  const id = modelId.trim().toLowerCase();
+  return id.endsWith(OPENROUTER_BATCH_SUFFIX) ||
+    (isOpenRouterDecisionFamilyModelId(id) && !isOpenRouterSystemOneModelId(id))
     ? { kind: "non-chat", chatSelectable: false, reason: "provider-policy" }
     : null;
 }
 
 /** Known decision routes override stale synced rows stamped with synthetic `chat`. */
+export function isOpenRouterSystemOneModelId(modelId: string): boolean {
+  return (
+    modelId === "~typesafe/jev-latest" ||
+    /^typesafe\/jev-\d+(?:[.][0-9]+)*(?:-[a-z0-9._-]+)?$/.test(modelId)
+  );
+}
+
+/** Historical decision IDs remain outside chat even when no adapter accepts them. */
+export function isOpenRouterDecisionFamilyModelId(modelId: string): boolean {
+  return /^~?typesafe\/jev-(?:latest|preview|\d+(?:[.][0-9]+)*(?:-[a-z0-9._-]+)?)$/.test(modelId);
+}
+
 function classifySystemOneModel(provider: string, modelId: string): ModelEndpointDecision | null {
   const id = modelId.trim().toLowerCase();
   const decisionOnly =
     provider === "typesafe-ai" ||
-    (provider === "openrouter" && /^typesafe\/jev-(?:latest|preview|\d+(?:[.-]|$))/.test(id)) ||
+    (provider === "openrouter" && isOpenRouterSystemOneModelId(id)) ||
     ((provider === "opencode" || provider === "opencode-zen") && /^jev-[a-z0-9]/.test(id));
   return decisionOnly
     ? { kind: "systemone", chatSelectable: false, reason: "provider-policy" }
@@ -126,11 +141,15 @@ function classifySystemOneModel(provider: string, modelId: string): ModelEndpoin
 export function getModelEndpointDecision(
   provider: string | null | undefined,
   modelId: string,
-  supportedEndpoints?: readonly string[]
+  supportedEndpoints?: readonly string[],
+  modelType?: string
 ): ModelEndpointDecision {
   const normalizedProvider = provider?.trim().toLowerCase() ?? "";
   const systemOne = classifySystemOneModel(normalizedProvider, modelId);
   if (systemOne) return systemOne;
+  if (modelType === "decision" && !supportedEndpoints?.length) {
+    return { kind: "non-chat", chatSelectable: false, reason: "explicit-endpoints" };
+  }
   const explicit = classifyExplicitEndpoints(supportedEndpoints);
   if (normalizedProvider === "openrouter") {
     // Unconditional, unlike the OpenAI branch below: there is no "batch"
@@ -180,7 +199,8 @@ export function isChatSelectableModel(
   provider: string | null | undefined,
   model: EndpointAwareModel
 ): boolean {
-  return getModelEndpointDecision(provider, model.id, model.supportedEndpoints).chatSelectable;
+  return getModelEndpointDecision(provider, model.id, model.supportedEndpoints, model.modelType)
+    .chatSelectable;
 }
 
 export function filterChatSelectableModels<T extends EndpointAwareModel>(

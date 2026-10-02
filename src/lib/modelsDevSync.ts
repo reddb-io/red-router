@@ -4,8 +4,7 @@
  * models.dev (https://github.com/anomalyco/models.dev) is an open-source database
  * of AI model specifications maintained by the SST/OpenCode team (MIT license).
  *
- * API: https://models.dev/api.json
- * - 109 providers, 4,146+ models
+ * API: https://models.dev/api.json?type=all
  * - Data: pricing, capabilities, limits, modalities, metadata
  *
  * Resolution order (highest → lowest):
@@ -25,16 +24,21 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 import {
   commitModelsDevSnapshot,
+  clearModelsDevSnapshot,
+  readModelsDevSnapshotData,
   readModelsDevSnapshotMetadata,
   type ModelsDevSnapshotMetadata,
 } from "./db/modelsDevSnapshot";
 import { getDbInstance } from "./db/core";
 import { invalidateDbCache, getModelCatalogCacheVersion } from "./db/readCache";
 import { backupDbFile } from "./db/backup";
+import { getBundledModelsDevCapability } from "./catalog/modelsDevSeed";
 
 import {
   transformModelsDevToPricing,
   transformModelsDevToCapabilities,
+  MODELS_DEV_SOURCE_URL,
+  MODELS_DEV_TRANSFORM_VERSION,
 } from "./modelsDevSync/transform";
 import type {
   PricingModels,
@@ -67,6 +71,7 @@ interface SyncStatus {
   nextSync: string | null;
   intervalMs: number;
   snapshot: ModelsDevSnapshotMetadata | null;
+  lastCheck: string | null;
 }
 
 interface SyncResult {
@@ -81,7 +86,7 @@ interface SyncResult {
 
 // ─── Configuration ───────────────────────────────────────
 
-const MODELS_DEV_API_URL = "https://models.dev/api.json";
+const MODELS_DEV_API_URL = MODELS_DEV_SOURCE_URL;
 
 const parsedInterval = parseInt(process.env.MODELS_DEV_SYNC_INTERVAL || "86400", 10);
 const SYNC_INTERVAL_MS =
@@ -114,18 +119,46 @@ export function isModelsDevSyncEnvForcedOn(): boolean {
 // ─── Periodic sync state ─────────────────────────────────
 
 let syncTimer: ReturnType<typeof setInterval> | null = null;
-let activeSyncAbortController: AbortController | null = null;
-let activeSyncPromise: Promise<SyncResult> | null = null;
-let activePeriodicSyncToken: { stopped: boolean } | null = null;
+type SyncOptions = {
+  dryRun?: boolean;
+  syncCapabilities?: boolean;
+  maxRetries?: number;
+  signal?: AbortSignal;
+  force?: boolean;
+};
+interface SharedModelsDevSync {
+  key: string;
+  controller: AbortController;
+  promise: Promise<SyncResult>;
+  subscribers: Set<symbol>;
+  completed: boolean;
+}
+let sharedSync: SharedModelsDevSync | null = null;
+let activePeriodicSyncToken: { stopped: boolean; controller: AbortController } | null = null;
 let lastSyncTime: string | null = null;
 let lastSyncModelCount = 0;
 let lastSyncCapabilityCount = 0;
 let activeSyncIntervalMs = SYNC_INTERVAL_MS;
-let cachedData: ModelsDevData | null = null;
 let cacheTime = 0;
+interface PublicModelsDevSnapshot {
+  data: ModelsDevData;
+  fetchedAt: string;
+  checkedAt: string;
+  sha256: string;
+  etag: string | null;
+  lastModified: string | null;
+  notModified: boolean;
+}
+let cachedPublicSnapshot: PublicModelsDevSnapshot | null = null;
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 let cachedCapabilities: CapabilitiesByProvider | null = null;
 let cachedCapabilitiesLoadedAll = false;
+let cachedCapabilitiesDb: ReturnType<typeof getDbInstance> | null = null;
+let cachedCapabilitiesVersion = -1;
+let overlayCompatibilityDb: ReturnType<typeof getDbInstance> | null = null;
+let overlayCompatibilityVersion = -1;
+let overlayCompatible = false;
+let capabilityOverlayCompatible = false;
 const MODELS_DEV_ABORT_ERROR = "AbortError";
 
 function createAbortError(): Error {
@@ -171,29 +204,27 @@ async function sleepWithAbort(ms: number, signal?: AbortSignal): Promise<void> {
 
 // ─── Core: Fetch ─────────────────────────────────────────
 
-/**
- * Fetch raw data from models.dev API.
- * Uses in-memory cache with 24h TTL to avoid repeated fetches.
- */
-export async function fetchModelsDev(
-  signal?: AbortSignal,
-  options: { force?: boolean; timeoutMs?: number } = {}
-): Promise<ModelsDevData> {
-  signal?.throwIfAborted();
-  // Return cached data if still fresh
-  if (!options.force && cachedData && Date.now() - cacheTime < CACHE_TTL_MS) {
-    return cachedData;
-  }
+const reasoningOptionSchema = z
+  .discriminatedUnion("type", [
+    z.object({ type: z.literal("toggle") }),
+    z.object({ type: z.literal("effort"), values: z.array(z.string().min(1).nullable()) }),
+    z.object({
+      type: z.literal("budget_tokens"),
+      min: z.number().min(-1).optional(),
+      max: z.number().nonnegative().optional(),
+    }),
+  ])
+  .refine(
+    (option) =>
+      option.type !== "budget_tokens" ||
+      option.min === undefined ||
+      option.max === undefined ||
+      option.min <= option.max,
+    "Invalid reasoning budget range"
+  );
 
-  const response = await fetch(MODELS_DEV_API_URL, {
-    signal: signal
-      ? AbortSignal.any([signal, AbortSignal.timeout(options.timeoutMs ?? 30000)])
-      : AbortSignal.timeout(options.timeoutMs ?? 30000),
-  });
-  if (!response.ok) {
-    throw new Error(`models.dev fetch failed [${response.status}]: ${response.statusText}`);
-  }
-  const text = await response.text();
+/** Keep public descriptors only: API/body/env/header fields never enter this cache. */
+function parseModelsDevPublicData(input: unknown): ModelsDevData {
   try {
     const data = z
       .record(
@@ -202,10 +233,6 @@ export async function fetchModelsDev(
           .object({
             id: z.string().min(1),
             name: z.string().optional(),
-            env: z.array(z.string()).optional(),
-            npm: z.string().optional(),
-            api: z.string().optional(),
-            doc: z.string().optional(),
             models: z.record(
               z.string(),
               z
@@ -213,6 +240,9 @@ export async function fetchModelsDev(
                   id: z.string().min(1),
                   name: z.string(),
                   family: z.string().optional(),
+                  type: z.string().min(1).optional(),
+                  canonical_model_id: z.string().min(1).optional(),
+                  reasoning_options: z.array(reasoningOptionSchema).optional(),
                   attachment: z.boolean().optional(),
                   reasoning: z.boolean().optional(),
                   tool_call: z.boolean().optional(),
@@ -233,7 +263,7 @@ export async function fetchModelsDev(
                       input_audio: z.number().nonnegative().optional(),
                       output_audio: z.number().nonnegative().optional(),
                     })
-                    .passthrough()
+                    .strip()
                     .optional(),
                   limit: z
                     .object({
@@ -241,39 +271,145 @@ export async function fetchModelsDev(
                       input: z.number().nonnegative().optional(),
                       output: z.number().nonnegative().optional(),
                     })
-                    .passthrough()
+                    .strip()
                     .optional(),
                   modalities: z
                     .object({
                       input: z.array(z.string()).optional(),
                       output: z.array(z.string()).optional(),
                     })
-                    .passthrough()
+                    .strip()
                     .optional(),
                   interleaved: z
-                    .union([z.boolean(), z.object({ field: z.string().optional() }).passthrough()])
+                    .union([z.boolean(), z.object({ field: z.string().optional() }).strip()])
                     .optional(),
                 })
-                .passthrough()
+                .strip()
             ),
           })
-          .passthrough()
+          .strip()
       )
-      .parse(JSON.parse(text));
+      .parse(input);
     if (!Object.values(data).some((provider) => Object.keys(provider.models).length))
       throw new Error("Empty snapshot");
-    cachedData = data;
-    cacheTime = Date.now();
     return data;
   } catch {
     throw new Error("models.dev returned an invalid or empty catalog snapshot");
   }
 }
 
+function loadPersistedPublicSnapshot(): PublicModelsDevSnapshot | null {
+  const metadata = readModelsDevSnapshotMetadata();
+  if (!metadata || metadata.source !== MODELS_DEV_API_URL) return null;
+  const stored = readModelsDevSnapshotData();
+  if (stored === null) return null;
+  try {
+    const data = parseModelsDevPublicData(stored);
+    const sha256 = createHash("sha256").update(JSON.stringify(data)).digest("hex");
+    if (sha256 !== metadata.sha256) return null;
+    return {
+      data,
+      fetchedAt: metadata.fetchedAt,
+      checkedAt: metadata.checkedAt || metadata.fetchedAt,
+      sha256,
+      etag: metadata.etag || null,
+      lastModified: metadata.lastModified || null,
+      notModified: false,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function fetchModelsDevPublicSnapshot(
+  signal?: AbortSignal,
+  options: { force?: boolean; timeoutMs?: number } = {}
+): Promise<PublicModelsDevSnapshot> {
+  signal?.throwIfAborted();
+  if (!options.force && cachedPublicSnapshot && Date.now() - cacheTime < CACHE_TTL_MS) {
+    return cachedPublicSnapshot;
+  }
+
+  const previous = cachedPublicSnapshot || loadPersistedPublicSnapshot();
+  const headers = new Headers();
+  if (previous?.etag) headers.set("If-None-Match", previous.etag);
+  if (previous?.lastModified) headers.set("If-Modified-Since", previous.lastModified);
+  const response = await fetch(MODELS_DEV_API_URL, {
+    headers,
+    signal: signal
+      ? AbortSignal.any([signal, AbortSignal.timeout(options.timeoutMs ?? 30000)])
+      : AbortSignal.timeout(options.timeoutMs ?? 30000),
+  });
+  const checkedAt = new Date().toISOString();
+  let snapshot: PublicModelsDevSnapshot;
+  if (response.status === 304) {
+    if (!previous) throw new Error("models.dev returned 304 without a usable public snapshot");
+    snapshot = {
+      ...previous,
+      checkedAt,
+      etag: response.headers.get("etag") || previous.etag,
+      lastModified: response.headers.get("last-modified") || previous.lastModified,
+      notModified: true,
+    };
+  } else {
+    if (!response.ok) {
+      throw new Error(`models.dev fetch failed [${response.status}]: ${response.statusText}`);
+    }
+    let data: ModelsDevData;
+    try {
+      data = parseModelsDevPublicData(await response.json());
+    } catch {
+      throw new Error("models.dev returned an invalid or empty catalog snapshot");
+    }
+    snapshot = {
+      data,
+      fetchedAt: checkedAt,
+      checkedAt,
+      sha256: createHash("sha256").update(JSON.stringify(data)).digest("hex"),
+      etag: response.headers.get("etag"),
+      lastModified: response.headers.get("last-modified"),
+      notModified: false,
+    };
+  }
+  signal?.throwIfAborted();
+  cachedPublicSnapshot = snapshot;
+  cacheTime = Date.now();
+  return snapshot;
+}
+
+/** Fetch public metadata; force bypasses TTL while retaining conditional HTTP validation. */
+export async function fetchModelsDev(
+  signal?: AbortSignal,
+  options: { force?: boolean; timeoutMs?: number } = {}
+): Promise<ModelsDevData> {
+  return (await fetchModelsDevPublicSnapshot(signal, options)).data;
+}
+
 // ─── DB: models.dev pricing namespace ────────────────────
 
 function toRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+}
+
+/** Old transform output is quarantined on read; user/discovery namespaces stay intact. */
+function isCurrentModelsDevOverlay(requireCapabilities = false): boolean {
+  const db = getDbInstance();
+  const version = getModelCatalogCacheVersion();
+  if (overlayCompatibilityDb !== db || overlayCompatibilityVersion !== version) {
+    const metadata = readModelsDevSnapshotMetadata();
+    overlayCompatible =
+      metadata?.source === MODELS_DEV_API_URL &&
+      metadata.transformVersion === MODELS_DEV_TRANSFORM_VERSION;
+    capabilityOverlayCompatible = overlayCompatible && metadata?.capabilitiesSynced === true;
+    overlayCompatibilityDb = db;
+    overlayCompatibilityVersion = version;
+  }
+  return requireCapabilities ? capabilityOverlayCompatible : overlayCompatible;
+}
+
+function filterCurrentCapabilityRows(rows: unknown[]): unknown[] {
+  if (isCurrentModelsDevOverlay(true)) return rows;
+  return rows.filter((row) => toRecord(row).capability_source !== "models-dev");
 }
 
 function mapCapabilityRecord(record: Record<string, unknown>): ModelCapabilityEntry {
@@ -298,6 +434,15 @@ function mapCapabilityRecord(record: Record<string, unknown>): ModelCapabilityEn
     limit_output: typeof record.limit_output === "number" ? record.limit_output : null,
     interleaved_field:
       typeof record.interleaved_field === "string" ? record.interleaved_field : null,
+    model_type: typeof record.model_type === "string" ? record.model_type : null,
+    canonical_model_id:
+      typeof record.canonical_model_id === "string" ? record.canonical_model_id : null,
+    reasoning_options:
+      typeof record.reasoning_options === "string" ? record.reasoning_options : null,
+    source_provider: typeof record.source_provider === "string" ? record.source_provider : null,
+    native_model_id: typeof record.native_model_id === "string" ? record.native_model_id : null,
+    metadata_source:
+      typeof record.capability_source === "string" ? record.capability_source : "legacy",
   };
 }
 
@@ -321,6 +466,7 @@ export function getModelsDevPricing(): PricingByProvider {
   if (isModelsDevSyncEnvDisabled()) {
     return {};
   }
+  if (!isCurrentModelsDevOverlay()) return {};
 
   const currentVersion = getModelCatalogCacheVersion();
   if (pricingMemo !== null && pricingMemoVersion === currentVersion) {
@@ -376,6 +522,7 @@ export function saveModelsDevPricing(data: PricingByProvider, notify = true): vo
 export function clearModelsDevPricing(): void {
   const db = getDbInstance();
   db.prepare("DELETE FROM key_value WHERE namespace = 'models_dev_pricing'").run();
+  clearModelsDevSnapshot();
   backupDbFile("pre-write");
   invalidateDbCache("pricing");
 }
@@ -410,6 +557,12 @@ export function ensureCapabilitiesTable(): void {
       limit_output INTEGER,
       interleaved_field TEXT,
       last_synced TEXT,
+      capability_source TEXT NOT NULL DEFAULT 'legacy',
+      model_type TEXT,
+      canonical_model_id TEXT,
+      reasoning_options TEXT,
+      source_provider TEXT,
+      native_model_id TEXT,
       PRIMARY KEY (provider, model_id)
     )
   `);
@@ -455,13 +608,19 @@ export function loadAllSyncedCapabilitiesUncached(): CapabilitiesByProvider {
   const db = getDbInstance();
   ensureCapabilitiesTable();
   const rows = db.prepare("SELECT * FROM model_capabilities").all();
-  return capabilitiesFromRows(rows);
+  return capabilitiesFromRows(filterCurrentCapabilityRows(rows));
 }
 
 /**
  * Read synced capabilities from `model_capabilities` table.
  */
 export function getSyncedCapabilities(provider?: string, modelId?: string): CapabilitiesByProvider {
+  const currentDb = getDbInstance();
+  const currentVersion = getModelCatalogCacheVersion();
+  if (cachedCapabilitiesDb !== currentDb || cachedCapabilitiesVersion !== currentVersion) {
+    cachedCapabilities = null;
+    cachedCapabilitiesLoadedAll = false;
+  }
   if (cachedCapabilitiesLoadedAll) {
     if (!provider) {
       return cachedCapabilities || {};
@@ -490,11 +649,15 @@ export function getSyncedCapabilities(provider?: string, modelId?: string): Capa
     }
   }
 
-  const result = capabilitiesFromRows(db.prepare(query).all(...params));
+  const result = capabilitiesFromRows(
+    filterCurrentCapabilityRows(db.prepare(query).all(...params))
+  );
 
   if (!provider && !modelId) {
     cachedCapabilities = result;
     cachedCapabilitiesLoadedAll = true;
+    cachedCapabilitiesDb = currentDb;
+    cachedCapabilitiesVersion = currentVersion;
   }
 
   return result;
@@ -511,7 +674,6 @@ export function getSyncedCapabilities(provider?: string, modelId?: string): Capa
 const SYNCED_CAPABILITY_FALLBACK_ALIASES: Record<string, string[]> = {
   opencode: ["opencode-zen"],
   "opencode-zen": ["opencode"],
-  "opencode-go": ["opencode-zen"],
 };
 
 function lookupSyncedCapabilityWithFallbacks(
@@ -541,19 +703,27 @@ export function getSyncedCapability(
   if (!provider || !modelId) return null;
 
   if (bulk) {
-    return lookupSyncedCapabilityWithFallbacks(
-      provider,
-      modelId,
-      (p) => bulk[p]?.[modelId] ?? null
+    return (
+      lookupSyncedCapabilityWithFallbacks(provider, modelId, (p) => bulk[p]?.[modelId] ?? null) ??
+      getBundledModelsDevCapability(provider, modelId)
     );
   }
 
   // Fast path: every provider is in the in-memory cache, skip SQLite entirely.
+  if (
+    cachedCapabilitiesDb !== getDbInstance() ||
+    cachedCapabilitiesVersion !== getModelCatalogCacheVersion()
+  ) {
+    cachedCapabilities = null;
+    cachedCapabilitiesLoadedAll = false;
+  }
   if (cachedCapabilitiesLoadedAll) {
-    return lookupSyncedCapabilityWithFallbacks(
-      provider,
-      modelId,
-      (p) => cachedCapabilities?.[p]?.[modelId] ?? null
+    return (
+      lookupSyncedCapabilityWithFallbacks(
+        provider,
+        modelId,
+        (p) => cachedCapabilities?.[p]?.[modelId] ?? null
+      ) ?? getBundledModelsDevCapability(provider, modelId)
     );
   }
 
@@ -563,11 +733,16 @@ export function getSyncedCapability(
   const stmt = db.prepare(
     "SELECT * FROM model_capabilities WHERE provider = ? AND model_id = ? LIMIT 1"
   );
-  return lookupSyncedCapabilityWithFallbacks(provider, modelId, (p) => {
-    const row = stmt.get(p, modelId);
-    if (!row) return null;
-    return mapCapabilityRecord(toRecord(row));
-  });
+  return (
+    lookupSyncedCapabilityWithFallbacks(provider, modelId, (p) => {
+      const row = stmt.get(p, modelId);
+      if (!row) return null;
+      const record = toRecord(row);
+      if (record.capability_source === "models-dev" && !isCurrentModelsDevOverlay(true))
+        return null;
+      return mapCapabilityRecord(record);
+    }) ?? getBundledModelsDevCapability(provider, modelId)
+  );
 }
 
 /**
@@ -583,8 +758,9 @@ export function saveModelsDevCapabilities(data: CapabilitiesByProvider, notify =
       provider, model_id, tool_call, reasoning, attachment, structured_output,
       temperature, modalities_input, modalities_output, knowledge_cutoff,
       release_date, last_updated, status, family, open_weights,
-      limit_context, limit_input, limit_output, interleaved_field, last_synced, capability_source
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'models-dev')
+      limit_context, limit_input, limit_output, interleaved_field, last_synced, capability_source,
+      model_type, canonical_model_id, reasoning_options, source_provider, native_model_id
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'models-dev', ?, ?, ?, ?, ?)
     ON CONFLICT(provider, model_id) DO UPDATE SET
       tool_call=excluded.tool_call, reasoning=excluded.reasoning, attachment=excluded.attachment,
       structured_output=excluded.structured_output, temperature=excluded.temperature,
@@ -594,8 +770,11 @@ export function saveModelsDevCapabilities(data: CapabilitiesByProvider, notify =
       open_weights=excluded.open_weights, limit_context=excluded.limit_context,
       limit_input=excluded.limit_input, limit_output=excluded.limit_output,
       interleaved_field=excluded.interleaved_field, last_synced=excluded.last_synced,
-      capability_source='models-dev'
-    WHERE model_capabilities.capability_source != 'discovery'
+      capability_source='models-dev',
+      model_type=excluded.model_type, canonical_model_id=excluded.canonical_model_id,
+      reasoning_options=excluded.reasoning_options, source_provider=excluded.source_provider,
+      native_model_id=excluded.native_model_id
+    WHERE model_capabilities.capability_source IN ('legacy', 'models-dev')
   `);
 
   const now = new Date().toISOString();
@@ -624,7 +803,12 @@ export function saveModelsDevCapabilities(data: CapabilitiesByProvider, notify =
           cap.limit_input,
           cap.limit_output,
           cap.interleaved_field,
-          now
+          now,
+          cap.model_type ?? null,
+          cap.canonical_model_id ?? null,
+          cap.reasoning_options ?? null,
+          cap.source_provider ?? null,
+          cap.native_model_id ?? modelId
         );
         if (info.changes > 0) changed = true;
       }
@@ -656,8 +840,9 @@ export function upsertSyncedCapabilities(
       provider, model_id, tool_call, reasoning, attachment, structured_output,
       temperature, modalities_input, modalities_output, knowledge_cutoff,
       release_date, last_updated, status, family, open_weights,
-      limit_context, limit_input, limit_output, interleaved_field, last_synced, capability_source
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'discovery')
+      limit_context, limit_input, limit_output, interleaved_field, last_synced, capability_source,
+      model_type, canonical_model_id, reasoning_options, source_provider, native_model_id
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'discovery', ?, ?, ?, ?, ?)
     ON CONFLICT(provider, model_id) DO UPDATE SET
       tool_call=excluded.tool_call,
       reasoning=excluded.reasoning,
@@ -677,7 +862,12 @@ export function upsertSyncedCapabilities(
       limit_output=excluded.limit_output,
       interleaved_field=excluded.interleaved_field,
       last_synced=excluded.last_synced,
-      capability_source='discovery'
+      capability_source='discovery',
+      model_type=COALESCE(excluded.model_type, model_capabilities.model_type),
+      canonical_model_id=COALESCE(excluded.canonical_model_id, model_capabilities.canonical_model_id),
+      reasoning_options=COALESCE(excluded.reasoning_options, model_capabilities.reasoning_options),
+      source_provider=COALESCE(excluded.source_provider, model_capabilities.source_provider),
+      native_model_id=COALESCE(excluded.native_model_id, model_capabilities.native_model_id)
   `);
   const now = new Date().toISOString();
   let changed = false;
@@ -703,18 +893,19 @@ export function upsertSyncedCapabilities(
         cap.limit_input,
         cap.limit_output,
         cap.interleaved_field,
-        now
+        now,
+        cap.model_type ?? null,
+        cap.canonical_model_id ?? null,
+        cap.reasoning_options ?? null,
+        cap.source_provider ?? null,
+        cap.native_model_id ?? modelId
       );
       if (info.changes > 0) changed = true;
     }
   });
   tx();
-  if (cachedCapabilities) {
-    cachedCapabilities[provider] = {
-      ...(cachedCapabilities[provider] || {}),
-      ...models,
-    };
-  }
+  cachedCapabilities = null;
+  cachedCapabilitiesLoadedAll = false;
   if (changed) invalidateDbCache("model-capabilities");
 }
 
@@ -727,6 +918,7 @@ export function clearModelsDevCapabilities(): void {
   const info = db
     .prepare("DELETE FROM model_capabilities WHERE capability_source = 'models-dev'")
     .run();
+  clearModelsDevSnapshot();
   backupDbFile("pre-write");
   cachedCapabilities = null;
   cachedCapabilitiesLoadedAll = false;
@@ -738,13 +930,59 @@ export function clearModelsDevCapabilities(): void {
 /**
  * Fetch, transform, and save pricing + capabilities from models.dev.
  */
-export async function syncModelsDev(opts?: {
-  dryRun?: boolean;
-  syncCapabilities?: boolean;
-  maxRetries?: number;
-  signal?: AbortSignal;
-  force?: boolean;
-}): Promise<SyncResult> {
+function subscribeToSync(shared: SharedModelsDevSync, signal?: AbortSignal): Promise<SyncResult> {
+  if (signal?.aborted) return Promise.resolve(createAbortedSyncResult(false));
+  const subscriber = Symbol("models-dev-refresh");
+  shared.subscribers.add(subscriber);
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (result: SyncResult | Error, failed = false) => {
+      if (settled) return;
+      settled = true;
+      signal?.removeEventListener("abort", onAbort);
+      shared.subscribers.delete(subscriber);
+      if (!shared.completed && shared.subscribers.size === 0) shared.controller.abort();
+      if (failed) reject(result);
+      else resolve(result as SyncResult);
+    };
+    const onAbort = () => finish(createAbortedSyncResult(false));
+    signal?.addEventListener("abort", onAbort, { once: true });
+    shared.promise.then(
+      (result) => finish(result),
+      (error: Error) => finish(error, true)
+    );
+  });
+}
+
+/** Manual and periodic refresh share one operation; cancellation releases only its caller. */
+export async function syncModelsDev(opts?: SyncOptions): Promise<SyncResult> {
+  if (opts?.signal?.aborted) return createAbortedSyncResult(opts?.dryRun ?? false);
+  if (opts?.dryRun) return performModelsDevSync(opts);
+  const key = JSON.stringify([
+    opts?.force === true,
+    opts?.syncCapabilities !== false,
+    opts?.maxRetries ?? 3,
+  ]);
+  if (sharedSync && !sharedSync.completed && !sharedSync.controller.signal.aborted) {
+    const current = sharedSync;
+    if (current.key === key) return subscribeToSync(current, opts?.signal);
+    // A caller asking for a different refresh mode waits for the current commit.
+    await subscribeToSync(current, opts?.signal);
+    if (opts?.signal?.aborted) return createAbortedSyncResult(false);
+    return syncModelsDev(opts);
+  }
+  const controller = new AbortController();
+  let shared: SharedModelsDevSync;
+  const promise = performModelsDevSync({ ...opts, signal: controller.signal }).finally(() => {
+    shared.completed = true;
+    if (sharedSync === shared) sharedSync = null;
+  });
+  shared = { key, controller, promise, subscribers: new Set(), completed: false };
+  sharedSync = shared;
+  return subscribeToSync(shared, opts?.signal);
+}
+
+async function performModelsDevSync(opts?: SyncOptions): Promise<SyncResult> {
   const dryRun = opts?.dryRun ?? false;
   const syncCapabilities = opts?.syncCapabilities ?? true;
   const maxRetries = opts?.maxRetries ?? 3;
@@ -758,7 +996,35 @@ export async function syncModelsDev(opts?: {
     }
 
     try {
-      const raw = await fetchModelsDev(signal, { force: opts?.force });
+      const publicSnapshot = await fetchModelsDevPublicSnapshot(signal, { force: opts?.force });
+      const raw = publicSnapshot.data;
+      const previous = readModelsDevSnapshotMetadata();
+      if (
+        !dryRun &&
+        previous?.source === MODELS_DEV_API_URL &&
+        previous.sha256 === publicSnapshot.sha256 &&
+        previous.transformVersion === MODELS_DEV_TRANSFORM_VERSION &&
+        (!syncCapabilities || previous.capabilitiesSynced === true)
+      ) {
+        signal?.throwIfAborted();
+        // 304 (or an identical 200) updates validators/check time, not capability rows.
+        commitModelsDevSnapshot(
+          {
+            ...previous,
+            checkedAt: publicSnapshot.checkedAt,
+            etag: publicSnapshot.etag,
+            lastModified: publicSnapshot.lastModified,
+          },
+          () => {}
+        );
+        return {
+          success: true,
+          modelCount: previous.modelCount ?? 0,
+          providerCount: previous.providerCount ?? 0,
+          capabilityCount: syncCapabilities ? (previous.capabilityCount ?? 0) : 0,
+          dryRun,
+        };
+      }
       const pricing = transformModelsDevToPricing(raw);
       const capabilities = syncCapabilities ? transformModelsDevToCapabilities(raw) : {};
 
@@ -776,23 +1042,32 @@ export async function syncModelsDev(opts?: {
       }
 
       if (!dryRun) {
+        backupDbFile("pre-write");
         commitModelsDevSnapshot(
           {
             source: MODELS_DEV_API_URL,
-            fetchedAt: new Date(cacheTime).toISOString(),
+            fetchedAt: publicSnapshot.fetchedAt,
             savedAt: new Date().toISOString(),
-            sha256: createHash("sha256").update(JSON.stringify(raw)).digest("hex"),
+            checkedAt: publicSnapshot.checkedAt,
+            sha256: publicSnapshot.sha256,
+            etag: publicSnapshot.etag,
+            lastModified: publicSnapshot.lastModified,
+            transformVersion: MODELS_DEV_TRANSFORM_VERSION,
+            modelCount,
+            providerCount,
+            capabilityCount,
+            capabilitiesSynced: syncCapabilities,
           },
           () => {
             saveModelsDevPricing(pricing, false);
             if (syncCapabilities) saveModelsDevCapabilities(capabilities, false);
-          }
+          },
+          raw
         );
         cachedCapabilities = null;
         cachedCapabilitiesLoadedAll = false;
         invalidateDbCache("pricing");
         if (syncCapabilities) invalidateDbCache("model-capabilities");
-        backupDbFile("pre-write");
         lastSyncTime = new Date().toISOString();
         lastSyncModelCount = modelCount;
         lastSyncCapabilityCount = capabilityCount;
@@ -849,32 +1124,28 @@ export async function syncModelsDev(opts?: {
  * Start periodic models.dev sync (non-blocking).
  */
 export function startPeriodicSync(intervalMs?: number): void {
+  if (isModelsDevSyncEnvDisabled()) return;
   if (syncTimer) return; // Already running
 
   const interval = intervalMs ?? SYNC_INTERVAL_MS;
   activeSyncIntervalMs = interval;
-  const syncToken = { stopped: false };
+  const syncToken = { stopped: false, controller: new AbortController() };
   activePeriodicSyncToken = syncToken;
   console.log(`[MODELS_DEV] Starting periodic sync every ${interval / 1000}s`);
+  let periodicPromise: Promise<SyncResult> | null = null;
 
   const launchSync = () => {
     if (syncToken.stopped) {
       return Promise.resolve(createAbortedSyncResult(false));
     }
 
-    if (activeSyncPromise) return activeSyncPromise;
-
-    const controller = new AbortController();
-    activeSyncAbortController = controller;
-    const promise = syncModelsDev({ signal: controller.signal, force: true }).finally(() => {
-      if (activeSyncAbortController === controller) {
-        activeSyncAbortController = null;
+    if (periodicPromise) return periodicPromise;
+    const promise = syncModelsDev({ signal: syncToken.controller.signal, force: true }).finally(
+      () => {
+        if (periodicPromise === promise) periodicPromise = null;
       }
-      if (activeSyncPromise === promise) {
-        activeSyncPromise = null;
-      }
-    });
-    activeSyncPromise = promise;
+    );
+    periodicPromise = promise;
     return promise;
   };
 
@@ -914,12 +1185,8 @@ export function startPeriodicSync(intervalMs?: number): void {
 export function stopPeriodicSync(): void {
   if (activePeriodicSyncToken) {
     activePeriodicSyncToken.stopped = true;
+    activePeriodicSyncToken.controller.abort();
     activePeriodicSyncToken = null;
-  }
-
-  if (activeSyncAbortController) {
-    activeSyncAbortController.abort();
-    activeSyncAbortController = null;
   }
 
   if (syncTimer) {
@@ -935,17 +1202,20 @@ export function stopPeriodicSync(): void {
 export function getSyncStatus(): SyncStatus {
   // If the sync timer is active, it's enabled.
   const enabled = syncTimer !== null;
+  const snapshot = readModelsDevSnapshotMetadata();
+  const lastCheck = snapshot?.checkedAt || snapshot?.savedAt || lastSyncTime;
   return {
     enabled,
-    lastSync: lastSyncTime,
-    lastSyncModelCount,
-    lastSyncCapabilityCount,
+    lastSync: snapshot?.savedAt || lastSyncTime,
+    lastSyncModelCount: snapshot?.modelCount ?? lastSyncModelCount,
+    lastSyncCapabilityCount: snapshot?.capabilityCount ?? lastSyncCapabilityCount,
+    lastCheck,
     nextSync:
-      syncTimer && lastSyncTime
-        ? new Date(new Date(lastSyncTime).getTime() + activeSyncIntervalMs).toISOString()
+      syncTimer && lastCheck
+        ? new Date(new Date(lastCheck).getTime() + activeSyncIntervalMs).toISOString()
         : null,
     intervalMs: activeSyncIntervalMs,
-    snapshot: readModelsDevSnapshotMetadata(),
+    snapshot,
   };
 }
 

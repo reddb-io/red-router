@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { createHash } from "node:crypto";
 
 const TEST_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "omniroute-model-catalog-"));
 process.env.DATA_DIR = TEST_DATA_DIR;
@@ -17,6 +18,10 @@ const settingsDb = await import("../../src/lib/db/settings.ts");
 const apiKeysDb = await import("../../src/lib/db/apiKeys.ts");
 const featureFlagsDb = await import("../../src/lib/db/featureFlags.ts");
 const modelsDevSync = await import("../../src/lib/modelsDevSync.ts");
+const { commitModelsDevSnapshot } = await import("../../src/lib/db/modelsDevSnapshot.ts");
+const { invalidateDbCache } = await import("../../src/lib/db/readCache.ts");
+const { MODELS_DEV_SOURCE_URL, MODELS_DEV_TRANSFORM_VERSION } =
+  await import("../../src/lib/modelsDevSync/transform.ts");
 const catalogImplementation = await import("../../src/app/api/v1/models/catalog.ts");
 const { activateCatalogFixtureInventory, activateFixtureComboTargets } =
   await import("../helpers/modelActivationFixtures.ts");
@@ -77,6 +82,27 @@ function capability(overrides = {}) {
     interleaved_field: null,
     ...overrides,
   };
+}
+
+function saveCurrentModelsDevCapabilities(
+  data: Parameters<typeof modelsDevSync.saveModelsDevCapabilities>[0]
+) {
+  const now = new Date().toISOString();
+  // These fixtures represent the transformed models.dev overlay, rather than
+  // connection discovery. Commit its current provenance as the real sync does;
+  // legacy/unversioned overlays are intentionally quarantined by the reader.
+  commitModelsDevSnapshot(
+    {
+      source: MODELS_DEV_SOURCE_URL,
+      fetchedAt: now,
+      savedAt: now,
+      sha256: createHash("sha256").update(JSON.stringify(data)).digest("hex"),
+      transformVersion: MODELS_DEV_TRANSFORM_VERSION,
+      capabilitiesSynced: true,
+    },
+    () => modelsDevSync.saveModelsDevCapabilities(data, false)
+  );
+  invalidateDbCache("model-capabilities");
 }
 
 test.beforeEach(async () => {
@@ -409,7 +435,7 @@ test("v1 models catalog keeps only visible combos when no providers are active",
 
 test("v1 models catalog derives combo metadata from known targets conservatively", async () => {
   try {
-    modelsDevSync.saveModelsDevCapabilities({
+    saveCurrentModelsDevCapabilities({
       openai: {
         "combo-alpha": capability({
           tool_call: true,
@@ -470,13 +496,13 @@ test("v1 models catalog derives combo metadata from known targets conservatively
     assert.equal("top_provider" in combo, false);
     assert.equal("supported_parameters" in combo, false);
   } finally {
-    modelsDevSync.saveModelsDevCapabilities({});
+    saveCurrentModelsDevCapabilities({});
   }
 });
 
 test("v1 models catalog lets explicit combo context override derived context", async () => {
   try {
-    modelsDevSync.saveModelsDevCapabilities({
+    saveCurrentModelsDevCapabilities({
       openai: {
         "context-alpha": capability({
           modalities_input: JSON.stringify(["text"]),
@@ -515,7 +541,7 @@ test("v1 models catalog lets explicit combo context override derived context", a
     assert.equal(listed.max_input_tokens, 700);
     assert.equal(listed.max_output_tokens, 90);
   } finally {
-    modelsDevSync.saveModelsDevCapabilities({});
+    saveCurrentModelsDevCapabilities({});
   }
 });
 
@@ -544,7 +570,7 @@ test("v1 models catalog keeps unknown combo targets visible without guessed meta
 
 test("v1 models catalog aggregates nested combos and keeps hidden child combos unlisted", async () => {
   try {
-    modelsDevSync.saveModelsDevCapabilities({
+    saveCurrentModelsDevCapabilities({
       openai: {
         "nested-alpha": capability({
           modalities_input: JSON.stringify(["text"]),
@@ -592,13 +618,13 @@ test("v1 models catalog aggregates nested combos and keeps hidden child combos u
       false
     );
   } finally {
-    modelsDevSync.saveModelsDevCapabilities({});
+    saveCurrentModelsDevCapabilities({});
   }
 });
 
 test("v1 models catalog resolves provider aliases without corrupting slashful model ids", async () => {
   try {
-    modelsDevSync.saveModelsDevCapabilities({
+    saveCurrentModelsDevCapabilities({
       claude: {
         "alias-model": capability({
           modalities_input: JSON.stringify(["text"]),
@@ -640,7 +666,7 @@ test("v1 models catalog resolves provider aliases without corrupting slashful mo
     assert.equal(combo.max_input_tokens, 1500);
     assert.equal(combo.max_output_tokens, 150);
   } finally {
-    modelsDevSync.saveModelsDevCapabilities({});
+    saveCurrentModelsDevCapabilities({});
   }
 });
 
@@ -1017,7 +1043,7 @@ test("v1 models catalog advertises GLM-5.2 provider aliases with hosted context 
   ]);
 
   try {
-    modelsDevSync.saveModelsDevCapabilities({
+    saveCurrentModelsDevCapabilities({
       huggingface: {
         "zai-org/GLM-5.2": capability({ limit_context: 128000, limit_input: 128000 }),
       },
@@ -1047,7 +1073,7 @@ test("v1 models catalog advertises GLM-5.2 provider aliases with hosted context 
       assert.equal(model.max_input_tokens, expectedContext, id);
     }
   } finally {
-    modelsDevSync.saveModelsDevCapabilities({});
+    saveCurrentModelsDevCapabilities({});
   }
 });
 
@@ -1296,7 +1322,7 @@ test("v1 models catalog uses synced models.dev limits instead of provider defaul
   await seedConnection("openai", { name: "openai-models-dev" });
 
   try {
-    modelsDevSync.saveModelsDevCapabilities({
+    saveCurrentModelsDevCapabilities({
       openai: {
         "gpt-5.5": {
           tool_call: true,
@@ -1332,7 +1358,7 @@ test("v1 models catalog uses synced models.dev limits instead of provider defaul
     assert.equal(model.max_input_tokens, 1050000);
     assert.equal(model.max_output_tokens, 128000);
   } finally {
-    modelsDevSync.saveModelsDevCapabilities({});
+    saveCurrentModelsDevCapabilities({});
   }
 });
 
@@ -1369,7 +1395,7 @@ test("v1 models catalog lets provider-specific synced limits beat global static 
   });
 
   try {
-    modelsDevSync.saveModelsDevCapabilities({
+    saveCurrentModelsDevCapabilities({
       github: {
         "gpt-5.5": {
           tool_call: true,
@@ -1405,7 +1431,7 @@ test("v1 models catalog lets provider-specific synced limits beat global static 
     assert.equal(model.max_input_tokens, 272000);
     assert.equal(model.max_output_tokens, 128000);
   } finally {
-    modelsDevSync.saveModelsDevCapabilities({});
+    saveCurrentModelsDevCapabilities({});
   }
 });
 
