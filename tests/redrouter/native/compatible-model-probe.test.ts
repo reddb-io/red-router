@@ -22,6 +22,8 @@ after(async () => {
 test("compatible model tests preserve native namespaces and return a bounded timeout without poisoning the connection", async () => {
   await settings.updateSettings({ requireLogin: false, probeCanDisable: false });
   const node = await providers.createProviderNode({
+    // Match the identity assigned by the provider-node creation API.
+    id: "openai-compatible-chat-probe",
     name: "Probe gateway",
     type: "openai-compatible",
     apiType: "chat",
@@ -73,7 +75,8 @@ test("compatible model tests preserve native namespaces and return a bounded tim
         (call) =>
           call.url === "https://compatible.example/v1/chat/completions" &&
           call.model === "vendor/glm-5.3-flash"
-      )
+      ),
+      JSON.stringify(calls)
     );
     hang = true;
     const timedOut = await runSingleModelTest(options);
