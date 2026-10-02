@@ -37,6 +37,12 @@ test("compatible model tests preserve native namespaces and return a bounded tim
     apiKey: "fixture-key",
     isActive: true,
     testStatus: "active",
+    // POST /api/providers persists the selected node's dispatch settings.
+    providerSpecificData: {
+      baseUrl: node.baseUrl,
+      apiType: node.apiType,
+      prefix: node.prefix,
+    },
   });
   await models.replaceSyncedAvailableModelsForConnection(providerId, String(connection.id), [
     {
