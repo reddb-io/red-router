@@ -66,7 +66,8 @@ test("compatible model tests preserve native namespaces and return a bounded tim
     timeoutMs: 1000,
   };
   try {
-    assert.equal((await runSingleModelTest({ ...options, timeoutMs: 10_000 })).status, "ok");
+    const successful = await runSingleModelTest({ ...options, timeoutMs: 10_000 });
+    assert.equal(successful.status, "ok", JSON.stringify(successful));
     assert.ok(
       calls.some(
         (call) =>

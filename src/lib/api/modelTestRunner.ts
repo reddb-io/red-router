@@ -630,7 +630,7 @@ export async function runSingleModelTest(
             // T-PROBE: wrap the scheduled fn, not the withRateLimit call — a
             // queued Bottleneck job executes from its own async resource and
             // would otherwise run outside the probe context below.
-            (signal) => runAsProbe(() => runInner(signal)),
+            (signal = testSignal) => runAsProbe(() => runInner(signal)),
             testSignal
           ),
         testSignal

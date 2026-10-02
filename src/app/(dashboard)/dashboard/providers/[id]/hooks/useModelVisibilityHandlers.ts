@@ -134,20 +134,27 @@ export function useModelVisibilityHandlers({
   const [modelFilter, setModelFilter] = useState("");
   const [testingModelId, setTestingModelId] = useState<string | null>(null);
   const [modelTestFeedback, setModelTestFeedback] = useState<ModelTestFeedbackState | null>(null);
-  const latestTest = useRef(0);
   const activeTest = useRef<AbortController | null>(null);
   useEffect(() => {
-    setTestingModelId(null);
-    setModelTestFeedback(null);
+    const slot = activeTest;
     return () => {
-      latestTest.current++;
-      activeTest.current?.abort();
-      activeTest.current = null;
+      const controller = slot.current;
+      slot.current = null;
+      controller?.abort();
     };
   }, [providerId, selectedConnection?.id]);
   const [modelTestStatus, setModelTestStatus] = useState<Record<string, "ok" | "error" | "quota">>(
     {}
   );
+  const testScope = JSON.stringify([providerId, selectedConnection?.id ?? null]);
+  const [previousTestScope, setPreviousTestScope] = useState(testScope);
+  // Reset connection-specific results before rendering the new connection.
+  if (previousTestScope !== testScope) {
+    setPreviousTestScope(testScope);
+    setTestingModelId(null);
+    setModelTestFeedback(null);
+    setModelTestStatus({});
+  }
   const [testingAll, setTestingAll] = useState(false);
   const [testProgress, setTestProgress] = useState<{ done: number; total: number } | null>(null);
   const [autoHideFailed, setAutoHideFailed] = useState(false);
@@ -318,7 +325,6 @@ export function useModelVisibilityHandlers({
   };
 
   const onTestModel = async (modelId: string, fullModel: string) => {
-    const attempt = ++latestTest.current;
     activeTest.current?.abort();
     const controller = new AbortController();
     activeTest.current = controller;
@@ -330,7 +336,7 @@ export function useModelVisibilityHandlers({
       clientTimeoutMs
     );
     const showFeedback = (result: ModelTestFeedbackState) => {
-      if (latestTest.current === attempt) setModelTestFeedback(result);
+      if (activeTest.current === controller) setModelTestFeedback(result);
     };
     showFeedback({
       model: fullModel,
@@ -358,7 +364,7 @@ export function useModelVisibilityHandlers({
         const data = await res.json();
         return { res, data };
       }, controller.signal);
-      if (latestTest.current !== attempt) return;
+      if (activeTest.current !== controller) return;
       if (res.ok && data.status === "ok") {
         showFeedback({
           model: fullModel,
@@ -398,7 +404,7 @@ export function useModelVisibilityHandlers({
         setModelTestStatus((prev) => ({ ...prev, [modelId]: "error" }));
       }
     } catch (err) {
-      if (latestTest.current !== attempt) return;
+      if (activeTest.current !== controller) return;
       const message = controller.signal.aborted
         ? `Test timed out after ${Math.round(clientTimeoutMs / 1000)} seconds while waiting for RedRouter. Check the connection address and provider logs, then retry.`
         : providerText(t, "modelTestNetworkError", "Network error testing model");
@@ -412,7 +418,7 @@ export function useModelVisibilityHandlers({
       setModelTestStatus((prev) => ({ ...prev, [modelId]: "error" }));
     } finally {
       clearTimeout(timer);
-      if (latestTest.current === attempt) {
+      if (activeTest.current === controller) {
         setTestingModelId(null);
         activeTest.current = null;
       }

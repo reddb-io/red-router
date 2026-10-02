@@ -28,6 +28,7 @@ function TestFlow({ connectionId = "connection" }: { connectionId?: string }) {
         Test
       </button>
       <ModelTestFeedback result={hook.modelTestFeedback} />
+      <span data-model-status>{hook.modelTestStatus["vendor/model"] ?? "untested"}</span>
     </>
   );
 }
@@ -179,4 +180,14 @@ it("changing connections aborts the old test and a late response cannot overwrit
   await act(async () => finish(Response.json({ status: "ok", latencyMs: 1 })));
   expect(container.textContent).not.toContain("Model test passed");
   expect(notify.success).not.toHaveBeenCalled();
+});
+
+it("successful model status is scoped to the selected connection", async () => {
+  vi.stubGlobal("fetch", async () => Response.json({ status: "ok", latencyMs: 12 }));
+  await act(async () => root.render(<TestFlow />));
+  await act(async () => container.querySelector<HTMLButtonElement>("button")!.click());
+  expect(container.querySelector("[data-model-status]")?.textContent).toBe("ok");
+  await act(async () => root.render(<TestFlow connectionId="other" />));
+  expect(container.querySelector("[data-model-status]")?.textContent).toBe("untested");
+  expect(container.textContent).not.toContain("Model test passed");
 });
