@@ -34,6 +34,11 @@ import {
   type CompatModelRow,
   type CompatByProtocolMap,
 } from "../providerPageHelpers";
+import {
+  matchesModelCatalogQuery,
+  normalizeModelCatalogSource,
+} from "@/shared/utils/modelCatalogSearch";
+import { ModelVisibilityToolbar } from "./ModelRow";
 import ModelCompatPopover from "./ModelCompatPopover";
 import PaginatedProviderModels from "./PaginatedProviderModels";
 
@@ -48,6 +53,7 @@ export interface CustomModelsSectionProps {
   onCopy: (text: string, key: string) => void;
   onModelsChanged?: () => void;
   syncedModelIds?: readonly string[];
+  inventoryModels?: readonly CompatModelRow[];
 }
 
 // ---------------------------------------------------------------------------
@@ -95,7 +101,15 @@ async function fetchProviderModelsPayload(providerId: string): Promise<{
     const res = await fetch(`/api/provider-models?provider=${encodeURIComponent(providerId)}`);
     if (!res.ok) return null;
     const data = await res.json();
-    return { models: data.models || [], overrides: data.modelCompatOverrides || [] };
+    return {
+      // Imported records carry metadata and selections for the main inventory.
+      // Keep them persisted, but do not render them a second time here.
+      models: (data.models || []).filter(
+        (model: CompatModelRow) =>
+          normalizeModelCatalogSource(model.source) !== "imported" && model.source !== "auto"
+      ),
+      overrides: data.modelCompatOverrides || [],
+    };
   } catch (e) {
     console.error("Failed to fetch custom models:", e);
     return null;
@@ -113,6 +127,7 @@ export default function CustomModelsSection({
   onCopy,
   onModelsChanged,
   syncedModelIds = [],
+  inventoryModels,
 }: CustomModelsSectionProps) {
   const t = useTranslations("providers");
   const notify = useNotificationStore();
@@ -126,6 +141,9 @@ export default function CustomModelsSection({
   const [newEndpoints, setNewEndpoints] = useState(["chat"]);
   const [adding, setAdding] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [modelFilter, setModelFilter] = useState("");
+  const [visibilityFilter, setVisibilityFilter] = useState<"all" | "visible" | "hidden">("all");
+  const [bulkTogglePending, setBulkTogglePending] = useState(false);
   const [editingModelId, setEditingModelId] = useState<string | null>(null);
   const [editingApiFormat, setEditingApiFormat] = useState("chat-completions");
   const [editingEndpoints, setEditingEndpoints] = useState<string[]>(["chat"]);
@@ -151,6 +169,24 @@ export default function CustomModelsSection({
   const overrideMap = useMemo(() => buildCompatMap(modelCompatOverrides), [modelCompatOverrides]);
   const syncedModelIdSet = useMemo(() => new Set(syncedModelIds), [syncedModelIds]);
 
+  const filteredModels = customModels.filter((model) => {
+    const hidden = isModelHiddenFn(model.id || "", customMap, overrideMap);
+    return (
+      matchesModelCatalogQuery(modelFilter, {
+        modelId: model.id,
+        modelName: model.name,
+        source: "custom",
+      }) &&
+      (visibilityFilter === "all" || (visibilityFilter === "hidden" ? hidden : !hidden))
+    );
+  });
+  const activeCount = customModels.filter(
+    (model) => !isModelHiddenFn(model.id || "", customMap, overrideMap)
+  ).length;
+  const hiddenFilteredCount = filteredModels.filter((model) =>
+    isModelHiddenFn(model.id || "", customMap, overrideMap)
+  ).length;
+
   const fetchCustomModels = useCallback(async () => {
     const payload = await fetchProviderModelsPayload(providerId);
     if (payload) {
@@ -173,7 +209,7 @@ export default function CustomModelsSection({
       setLoading(false);
     };
     void run();
-  }, [providerId]);
+  }, [providerId, inventoryModels]);
 
   const handleAdd = async () => {
     if (!newModelId.trim() || adding) return;
@@ -271,6 +307,26 @@ export default function CustomModelsSection({
       console.error("Failed to toggle model visibility:", e);
     } finally {
       setTogglingModelId(null);
+    }
+  };
+
+  const handleBulkToggleHidden = async (hidden: boolean) => {
+    const modelIds = filteredModels.map((model) => model.id).filter((id): id is string => !!id);
+    if (!modelIds.length || bulkTogglePending) return;
+    setBulkTogglePending(true);
+    try {
+      const res = await fetch(`/api/provider-models?provider=${encodeURIComponent(providerId)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ modelIds, isActive: !hidden }),
+      });
+      if (!res.ok) throw new Error("Failed to update model activation");
+      await fetchCustomModels();
+      onModelsChanged?.();
+    } catch {
+      notify.error("Failed to update model activation. Try again.");
+    } finally {
+      setBulkTogglePending(false);
     }
   };
 
@@ -419,7 +475,10 @@ export default function CustomModelsSection({
         <Icon icon={SlidersHorizontal} size="md" color="primary" />
         {t("customModels")}
       </h3>
-      <p className="text-xs text-text-muted mb-3">{t("customModelsHint")}</p>
+      <p className="text-xs text-text-muted mb-3">
+        Add models manually when they are missing from the provider inventory. Imported models
+        appear in Models above.
+      </p>
 
       {/* Add form */}
       <div className="flex flex-col gap-3 mb-3">
@@ -559,11 +618,34 @@ export default function CustomModelsSection({
         </div>
       </div>
 
+      {!loading && customModels.length > 0 && (
+        <ModelVisibilityToolbar
+          t={t}
+          filterValue={modelFilter}
+          onFilterChange={setModelFilter}
+          activeCount={activeCount}
+          totalCount={customModels.length}
+          visibilityFilter={visibilityFilter}
+          onVisibilityFilterChange={setVisibilityFilter}
+          onSelectAll={() => void handleBulkToggleHidden(false)}
+          onDeselectAll={() => void handleBulkToggleHidden(true)}
+          selectAllDisabled={bulkTogglePending || !!togglingModelId || hiddenFilteredCount === 0}
+          deselectAllDisabled={
+            bulkTogglePending || !!togglingModelId || filteredModels.length === hiddenFilteredCount
+          }
+        />
+      )}
+      {!loading && customModels.length > 0 && filteredModels.length === 0 && (
+        <p className="text-xs text-text-muted">No custom models match these filters.</p>
+      )}
       {/* List */}
       {loading ? (
         <p className="text-xs text-text-muted">{t("loading")}</p>
       ) : customModels.length > 0 ? (
-        <PaginatedProviderModels models={customModels} resetKey={providerId}>
+        <PaginatedProviderModels
+          models={filteredModels}
+          resetKey={`${providerId}:${modelFilter}:${visibilityFilter}`}
+        >
           {(pageModels) => (
             <div className="flex flex-col gap-2">
               {pageModels.map((model) => {
@@ -873,7 +955,7 @@ export default function CustomModelsSection({
                             !isModelHiddenFn(model.id!, customMap, overrideMap)
                           )
                         }
-                        disabled={togglingModelId === model.id}
+                        disabled={bulkTogglePending || togglingModelId === model.id}
                         className="rounded p-1 text-text-muted hover:bg-sidebar hover:text-primary disabled:opacity-50"
                         aria-pressed={!isModelHiddenFn(model.id!, customMap, overrideMap)}
                         title={

@@ -864,6 +864,7 @@ export default function ProviderDetailPageClient() {
             onCopy={copy}
             onModelsChanged={fetchProviderModelMeta}
             syncedModelIds={syncedAvailableModels.map((model) => model.id)}
+            inventoryModels={modelMeta.customModels}
           />
         </Card>
       )}

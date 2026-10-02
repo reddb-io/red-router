@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.57.6
+
+### Patch Changes
+
+- Keep imported and synchronized models in the main provider inventory instead of rendering them again in Custom Models. Preserve their stored metadata and activation choices. Add search, activation filters and bulk activation/deactivation to the manual custom model list; pagination stays at 100 rows and bulk actions cover all matching pages.
+
 ## 0.57.5
 
 ### Patch Changes
