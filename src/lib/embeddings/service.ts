@@ -179,7 +179,7 @@ export async function createEmbeddingResponse(
     provider = syncedEndpointRoute.provider;
     resolvedModel = syncedEndpointRoute.model;
   }
-  if (!provider) {
+  if (!provider || !resolvedModel) {
     return errorResponse(
       HTTP_STATUS.BAD_REQUEST,
       `Invalid embedding model: ${body.model}. Use format: provider/model`
