@@ -8,12 +8,14 @@ let root: Root;
 let container: HTMLElement;
 let urls: string[];
 let broken = false;
+let noModels = false;
 beforeEach(() => {
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
   urls = [];
   broken = false;
+  noModels = false;
   vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
     const url = String(input);
     urls.push(url);
@@ -32,7 +34,7 @@ beforeEach(() => {
         providerPriority: ["openai"],
         source: { transparent: "owner", providerPriority: "tenant" },
       },
-      models: [{ id: "gpt-6-astra", name: "GPT-6 Astra" }],
+      models: noModels ? [] : [{ id: "gpt-6-astra", name: "GPT-6 Astra" }],
       targets: url.includes("model=")
         ? [
             {
@@ -117,4 +119,15 @@ it("opens with the key selected from key routing navigation", async () => {
   expect(container.querySelector("select")?.value).toBe("a-key");
   expect(urls.filter((url) => url.includes("preview"))).toHaveLength(1);
   expect(urls.at(-1)).toContain("apiKeyId=a-key");
+});
+
+it("explains an empty decision catalog without offering an unusable model selector", async () => {
+  noModels = true;
+  await act(async () => root.render(<RoutingPreview initialApiKeyId="a-key" />));
+  await change(1, "decision");
+  expect(container.querySelectorAll("select")[2].disabled).toBe(true);
+  expect(container.textContent).toContain("No decision models are visible in this scope.");
+  expect(container.textContent).toContain(
+    "Check enabled connections, model activation and API-key permissions."
+  );
 });

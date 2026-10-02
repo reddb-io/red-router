@@ -73,8 +73,8 @@ export default function EffectivePolicyDetails({
       <div className="space-y-2">
         <h3 className="text-sm font-semibold">Connections in this scope</h3>
         <p className="text-xs text-text-muted">
-          Defined by: {snapshot.connectionSource}. These are configured connections, not a
-          credential selection or a successful model test.
+          Defined by: {snapshot.connectionSource}. Live dispatch also checks provider health,
+          budgets, quotas and model access.
         </p>
         {snapshot.connections.length === 0 ? (
           <p className="text-sm text-text-muted">No connections are accessible in this scope.</p>

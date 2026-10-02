@@ -133,19 +133,27 @@ export default function RoutingPreview({
       )}
       {preview && (
         <>
-          {preview.effectivePolicy && <EffectivePolicyDetails snapshot={preview.effectivePolicy} />}
-          <p className="text-sm text-text-muted">
-            Mode: {preview.policy.transparent ? "Transparent" : "Providers hidden"} (
-            {preview.policy.source.transparent}). Provider order from{" "}
-            {preview.policy.source.providerPriority}.
-          </p>
+          {!preview.effectivePolicy && (
+            <p className="text-sm text-text-muted">
+              Mode: {preview.policy.transparent ? "Transparent" : "Providers hidden"} (
+              {preview.policy.source.transparent}). Provider order from{" "}
+              {preview.policy.source.providerPriority}.
+            </p>
+          )}
           <Select
             label="Preview model"
+            disabled={preview.models.length === 0}
             value={model}
             placeholder="Choose a model"
             options={preview.models.map((item) => ({ value: item.id, label: String(item.name) }))}
             onChange={(event) => setModel(event.target.value)}
           />
+          {preview.models.length === 0 && (
+            <p role="status" className="text-sm text-text-muted">
+              No {kind === "decision" ? "decision" : "chat"} models are visible in this scope. Check
+              enabled connections, model activation and API-key permissions.
+            </p>
+          )}
           {!!preview.targets.length && (
             <ol className="space-y-2 text-sm">
               {preview.targets.map((target) => (
@@ -172,6 +180,7 @@ export default function RoutingPreview({
               {preview.reason}
             </p>
           )}
+          {preview.effectivePolicy && <EffectivePolicyDetails snapshot={preview.effectivePolicy} />}
           <p className="max-w-prose text-xs text-text-muted">{preview.note}</p>
         </>
       )}
