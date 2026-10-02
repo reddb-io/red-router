@@ -203,7 +203,12 @@ const NOT_LINKS = [
 test("every area URL written in source is a URL the table serves (no stale link after a table change)", async () => {
   const { readdirSync, statSync } = await import("node:fs");
   const areas = dashboardAreaIds().join("|");
-  const literal = new RegExp(`(["'\`])(/(?:${areas})(?:/[^"'\`$\\s]*)?)`, "g");
+  const literal = new RegExp(`(["'\`])(/(?:${areas})(?=/|["'\`?#$\\s])(?:/[^"'\`$\\s]*)?)`, "g");
+  // API endpoints sharing a prefix with an area are not navigation links.
+  assert.deepEqual(
+    [...'"/systemone" "/system/not-a-page"'.matchAll(literal)].map((match) => match[2]),
+    ["/system/not-a-page"]
+  );
   const root = path.resolve(".");
   const stale: string[] = [];
   let checked = 0;

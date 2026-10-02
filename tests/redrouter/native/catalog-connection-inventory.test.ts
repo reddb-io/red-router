@@ -172,6 +172,10 @@ test("an aliased effort variant uses the real provider's learned contract in pub
 
   const key = await keys.createApiKey("Aliased efforts", "tests");
   await keys.updateApiKeyPermissions(key.id, { disableNonPublicModels: true });
+  assert.equal(await keys.isModelAllowedForKey(key.key, "gc/grok-private-low"), false);
+  // Discovery is not activation: publish the base model explicitly before
+  // verifying that the permitted alias uses this provider's learned enum.
+  await models.setModelActivation("grok-cli", "grok-private", true);
   assert.equal(await keys.isModelAllowedForKey(key.key, "gc/grok-private-low"), true);
   assert.equal(await keys.isModelAllowedForKey(key.key, "gc/grok-private-high"), false);
   await keys.updateApiKeyPermissions(key.id, { blockedModels: ["grok-cli/grok-private"] });

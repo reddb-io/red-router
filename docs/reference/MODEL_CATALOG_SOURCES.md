@@ -1,3 +1,9 @@
+---
+title: "Model Catalog Sources"
+version: 0.57.7
+lastUpdated: 2026-10-02
+---
+
 # Model catalog sources
 
 RedRouter keeps provider routing separate from model metadata. A connection and its adapter
