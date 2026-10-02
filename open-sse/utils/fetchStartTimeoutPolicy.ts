@@ -1,3 +1,5 @@
+import { MAX_PROVIDER_SPECIFIC_TIMEOUT_MS } from "@/shared/validation/providerSpecificData";
+
 // #11526: the fetch-start (headers-wait) phase had no ceiling comparable to a
 // real client's patience for STREAMING requests — it inherited the flat,
 // non-adaptive FETCH_TIMEOUT_MS (default 600_000ms / 10 minutes), five times
@@ -20,6 +22,8 @@ export type FetchStartTimeoutPolicyInput = {
   /** Only streaming requests are capped — non-streaming keeps the flat default. */
   stream?: boolean | null;
   capMs?: number;
+  /** Explicit operator deadline takes precedence over a default client cap. */
+  connectionTimeoutMs?: unknown;
 };
 
 export type FetchStartTimeoutPolicyResult = {
@@ -38,6 +42,15 @@ export const DEFAULT_FETCH_START_TIMEOUT_CAP_MS = 110_000;
 export function resolveFetchStartTimeout(
   input: FetchStartTimeoutPolicyInput
 ): FetchStartTimeoutPolicyResult {
+  if (
+    typeof input.connectionTimeoutMs === "number" &&
+    Number.isFinite(input.connectionTimeoutMs) &&
+    input.connectionTimeoutMs >= 1 &&
+    input.connectionTimeoutMs <= MAX_PROVIDER_SPECIFIC_TIMEOUT_MS
+  ) {
+    const timeoutMs = Math.floor(input.connectionTimeoutMs);
+    return { timeoutMs, baseTimeoutMs: timeoutMs, capped: false };
+  }
   const baseTimeoutMs = Math.max(0, Math.floor(input.baseTimeoutMs || 0));
   if (baseTimeoutMs <= 0 || !input.stream) {
     return { timeoutMs: baseTimeoutMs, baseTimeoutMs, capped: false };

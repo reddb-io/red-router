@@ -19,6 +19,10 @@ export const claudeProvider: RegistryEntry = {
   urlSuffix: "?beta=true",
   authType: "oauth",
   authHeader: "x-api-key",
+  // Native Anthropic requests with large tool histories can take >110s before
+  // headers. Keep the executor's bounded SDK-style deadline (600s by default),
+  // rather than applying a Codex client assumption to every Claude client.
+  fetchStartTimeoutCapMs: 0,
   defaultContextLength: 200000,
   headers: getClaudeCliHeaders(),
   oauth: {

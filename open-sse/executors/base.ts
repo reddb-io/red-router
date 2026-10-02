@@ -932,6 +932,7 @@ export class BaseExecutor {
         // behind the gateway, e.g. opencode-go's Console Go GLM tier) can take
         // minutes before first bytes; the registry overrides the 110s cap.
         capMs: this.config?.fetchStartTimeoutCapMs,
+        connectionTimeoutMs: activeCredentials?.providerSpecificData?.timeoutMs,
       });
       const fetchStartTimeoutMs = fetchStartTimeoutPolicy.timeoutMs;
       if (fetchStartTimeoutPolicy.capped) {
