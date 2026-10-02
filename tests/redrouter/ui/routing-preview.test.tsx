@@ -32,10 +32,46 @@ beforeEach(() => {
         providerPriority: ["openai"],
         source: { transparent: "owner", providerPriority: "tenant" },
       },
-      models: [{ id: "gpt-4o", name: "GPT-4o" }],
+      models: [{ id: "gpt-6-astra", name: "GPT-6 Astra" }],
       targets: url.includes("model=")
-        ? [{ id: "openai/gpt-4o", provider: "openai", position: 1 }]
+        ? [
+            {
+              id: "openai/gpt-6-astra",
+              provider: "openai",
+              position: 1,
+              upstreamModel: "gpt-6-astra",
+              supportedEndpoints: ["/v1/chat/completions"],
+            },
+          ]
         : [],
+      effectivePolicy: {
+        rows: [
+          {
+            id: "model-visibility",
+            setting: "Model visibility",
+            value: "Provider prefixes hidden",
+            source: "Owner pin for this tenant",
+            explanation: "Authorized catalog",
+          },
+        ],
+        access: {
+          modelAccessMode: "restricted",
+          allowedModels: ["openai/gpt-6-astra"],
+          blockedModels: [],
+          allowedEndpoints: [],
+        },
+        connectionSource: "Tenant boundary",
+        connections: [
+          {
+            id: "account",
+            provider: "openai",
+            name: "Acme account",
+            enabled: true,
+            cooldownUntil: "2030-01-01T00:00:00Z",
+            testStatus: "unavailable",
+          },
+        ],
+      },
       note: "Live budgets checked at dispatch.",
     });
   });
@@ -58,14 +94,27 @@ it("limits key choices to the tenant and previews only a selected key's catalog"
   expect(urls.filter((url) => url.includes("preview")).length).toBe(0);
   await change(0, "a-key");
   expect(urls.at(-1)).toContain("apiKeyId=a-key");
-  await change(2, "gpt-4o");
-  expect(container.textContent).toContain("1. openai/gpt-4o");
+  await change(2, "gpt-6-astra");
+  expect(container.textContent).toContain("1. openai/gpt-6-astra");
+  expect(container.textContent).toContain("Resolved upstream model: gpt-6-astra");
+  expect(container.textContent).toContain("Advertised endpoints: /v1/chat/completions");
+  expect(container.textContent).toContain("Owner pin for this tenant");
+  expect(container.textContent).toContain("Cooling down until");
+  expect(container.textContent).toContain("Last recorded test: unavailable");
   broken = true;
   await act(async () =>
     [...container.querySelectorAll("button")]
       .find((b) => b.textContent === "Refresh preview")!
       .click()
   );
-  expect(container.textContent).not.toContain("1. openai/gpt-4o");
+  expect(container.textContent).not.toContain("1. openai/gpt-6-astra");
+  expect(container.textContent).not.toContain("Acme account");
   expect(container.querySelector('[role="alert"]')?.textContent).toContain("Catalog unavailable");
+});
+
+it("opens with the key selected from key routing navigation", async () => {
+  await act(async () => root.render(<RoutingPreview initialApiKeyId="a-key" />));
+  expect(container.querySelector("select")?.value).toBe("a-key");
+  expect(urls.filter((url) => url.includes("preview"))).toHaveLength(1);
+  expect(urls.at(-1)).toContain("apiKeyId=a-key");
 });

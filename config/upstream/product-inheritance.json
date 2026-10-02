@@ -48,6 +48,15 @@
       "sha": "592a849d85d184cad180803a60ecaa0a521f96b9",
       "reviewScope": "Provider/native versus canonical identity, type filtering, reasoning_options, public HTTP validators and OpenRouter decision omission; schema source ref is separate from live asset provenance.",
       "licenseBoundary": "MIT; snapshot notice and upstream attribution retained."
+    },
+    {
+      "id": "apisix",
+      "role": "concept-source",
+      "repository": "apache/apisix",
+      "ref": "3.19.0",
+      "sha": "473043623c161966f3f6ef4e8f12d2d8667a12d2",
+      "reviewScope": "Routes, Services, Plugin Configs, precedence and deployment modes; traffic-resource concepts adapted locally, no Lua plugin implementation copied.",
+      "licenseBoundary": "Apache-2.0 upstream; source references retained. This adaptation does not copy APISIX code."
     }
   ],
   "capabilities": [
@@ -389,6 +398,39 @@
         "Prices and controls stay scoped to the actual provider product and user overrides win.",
         "Decision discovery stays distinct from chat and exposes only implemented protocols authorized to the calling key.",
         "ETag/304 and failed refresh retain one atomic last-good metadata snapshot; authorization changes invalidate authenticated fallback."
+      ]
+    },
+    {
+      "id": "effective-traffic-configuration",
+      "sources": ["redrouter", "apisix"],
+      "status": "partial",
+      "implementationBaseline": "060ee58d45a2a85e560d8308dbdfb8060d44925c",
+      "localPaths": [
+        "src/lib/routing/effectivePolicy.ts",
+        "src/lib/routing/routingPolicy.ts",
+        "src/app/api/routing/preview/route.ts",
+        "src/shared/components/routing/EffectivePolicyDetails.tsx",
+        "src/shared/components/routing/TrafficConfigurationGuide.tsx",
+        "tests/redrouter/native/effective-policy.test.ts",
+        "tests/redrouter/native/routing-preview.test.ts",
+        "tests/redrouter/native/router-federation.test.ts",
+        "tests/redrouter/ui/routing-preview.test.tsx"
+      ],
+      "upstreamPaths": {
+        "apisix": [
+          "docs/en/latest/terminology/route.md",
+          "docs/en/latest/terminology/service.md",
+          "docs/en/latest/terminology/plugin-config.md",
+          "docs/en/latest/terminology/plugin.md"
+        ]
+      },
+      "remaining": "First adaptation clarifies existing resources and effective policy origins. Named reusable traffic-policy profiles, declarative promotion and split control/data-plane deployment remain unimplemented. Preview does not prove credential selection, live availability, endpoint success or APISIX parity. Exact-commit CI is required.",
+      "acceptance": [
+        "The existing runtime resolvers determine mode, priority and key/tenant scope; owner pins remain authoritative.",
+        "Provider/native model IDs and one-hop System One federation remain unchanged.",
+        "Preview never sends a completion or decision and returns no credentials, token hashes, headers or provider-specific secrets.",
+        "Disabled and cooling connections remain visible as configuration metadata without being treated as eligible credentials.",
+        "Scope changes and failed refreshes remove stale routes and connection metadata; model examples come from the authorized catalog."
       ]
     }
   ]

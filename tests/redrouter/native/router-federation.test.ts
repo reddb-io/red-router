@@ -19,6 +19,7 @@ const { commitRemoteRouterCatalog, readRemoteRouterCatalog } =
 const { remoteRouterSnapshot, parseRemoteRouterModels, createRemoteRouterCatalogSync } =
   await import("../../../src/lib/providerModels/remoteRouterCatalog.ts");
 const { getUnifiedModelsResponse } = await import("../../../src/app/api/v1/models/catalog.ts");
+const { GET: previewRouting } = await import("../../../src/app/api/routing/preview/route.ts");
 const { handleChat } = await import("../../../src/sse/handlers/chat.ts");
 const { initTranslators } = await import("../../../open-sse/translator/index.ts");
 const { askJevDeliberation } = await import("../../../src/sse/services/jevRouting.ts");
@@ -266,6 +267,23 @@ test("discovery persists both protocols and adds one public red hop per router",
   assert.ok(s2.some((m) => m.id === "red/red/openrouter/vendor/s2"));
   assert.ok(!s2.some((m) => m.id === publicId));
   assert.ok(!("remoteCapabilities" in model));
+});
+
+test("decision preview resolves one federation hop without sending an upstream evaluation", async () => {
+  const before = requests.length;
+  const query = new URLSearchParams({ kind: "decision", model: publicId });
+  const response = await previewRouting(
+    new Request(`http://localhost/api/routing/preview?${query}`)
+  );
+  assert.equal(response.status, 200, await response.clone().text());
+  const body = await response.json();
+  const target = body.targets.find((item: { id: string }) => item.id === publicId);
+  assert.ok(target);
+  assert.equal(target.upstreamModel, downstreamId);
+  assert.ok(target.supportedEndpoints.length > 0);
+  assert.equal(requests.length, before);
+  assert.ok(!JSON.stringify(body).includes("local-next-key"));
+  assert.ok(!JSON.stringify(body).includes("unrelated-key"));
 });
 
 test("native decision forwarding strips exactly one hop and uses each connection's credential", async () => {

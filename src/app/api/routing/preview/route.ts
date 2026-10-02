@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireManagementAuth } from "@/lib/api/requireManagementAuth";
-import { getApiKeyById, validateApiKey } from "@/lib/db/apiKeys";
+import { getApiKeyById, getApiKeyMetadata, validateApiKey } from "@/lib/db/apiKeys";
+import { getRawProviderConnections } from "@/lib/db/providers";
+import { describeEffectivePolicy, type AccessPolicyInput } from "@/lib/routing/effectivePolicy";
+import { getModelInfo } from "@/sse/services/model";
 import { resolveRoutingPolicy } from "@/lib/routing/routingPolicy";
 import {
   collapseCatalogToBare,
@@ -14,6 +17,7 @@ import { getUnifiedModelsResponse } from "@/app/api/v1/models/catalog";
 import { markTransparentCatalogRequest } from "@/app/api/v1/models/catalogTransparency";
 import { buildAliasMaps } from "@/app/api/v1/models/catalogProviderMaps";
 import { buildErrorBody } from "@omniroute/open-sse/utils/error";
+import { resolveSystemOneTarget } from "@omniroute/open-sse/handlers/systemOneCore";
 
 const querySchema = z.object({
   apiKeyId: z.string().min(1).max(128).optional(),
@@ -33,12 +37,20 @@ export async function GET(request: Request) {
   const { apiKeyId, model, kind } = parsed.data;
   try {
     let tenantId: string | null = null;
+    let configuredAccess: AccessPolicyInput | null = null;
+    let effectiveAccess: AccessPolicyInput | null = null;
     const headers = new Headers(request.headers);
     if (apiKeyId) {
       const key = await getApiKeyById(apiKeyId);
       if (!key || typeof key.key !== "string" || !(await validateApiKey(key.key)))
         return NextResponse.json(buildErrorBody(404, "Choose an active API key."), { status: 404 });
       tenantId = typeof key.tenantId === "string" ? key.tenantId : null;
+      configuredAccess = key;
+      effectiveAccess = await getApiKeyMetadata(key.key);
+      if (!effectiveAccess)
+        return NextResponse.json(buildErrorBody(503, "API key policy is unavailable."), {
+          status: 503,
+        });
       headers.delete("cookie");
       headers.set("authorization", `Bearer ${key.key}`);
     }
@@ -67,17 +79,51 @@ export async function GET(request: Request) {
             .filter((entry) => entry.id === model)
             .map((entry) => ({ id: String(entry.id), provider: String(entry.owned_by) }))
         : orderedTargetsFor(eligible, model, policy.providerPriority, canonical, kind);
-    return NextResponse.json({
-      scope: { apiKeyId: apiKeyId ?? null, tenantId },
-      policy,
-      models: visible.map((entry) => ({ id: entry.id, name: entry.name ?? entry.id })),
-      model: model ?? null,
-      targets: targets.map((target, index) => ({ ...target, position: index + 1 })),
-      note: "Catalog order preview only. Live availability, budgets, quotas and request capabilities are checked at dispatch.",
-      ...(model && !targets.length
-        ? { reason: "No authorized unambiguous route for this model." }
-        : {}),
-    });
+    const connections = await getRawProviderConnections({}, undefined, undefined, [
+      "id",
+      "provider",
+      "name",
+      "is_active",
+      "rate_limited_until",
+      "test_status",
+    ]);
+    const resolvedTargets = await Promise.all(
+      targets.map(async (target, index) => {
+        const info =
+          kind === "decision" ? resolveSystemOneTarget(target.id) : await getModelInfo(target.id);
+        const entry = eligible.find((item) => item.id === target.id);
+        return {
+          ...target,
+          position: index + 1,
+          upstreamModel: typeof info?.model === "string" ? info.model : null,
+          supportedEndpoints: Array.isArray(entry?.supported_endpoints)
+            ? entry.supported_endpoints.filter(
+                (value): value is string => typeof value === "string"
+              )
+            : [],
+        };
+      })
+    );
+    return NextResponse.json(
+      {
+        scope: { apiKeyId: apiKeyId ?? null, tenantId },
+        policy,
+        models: visible.map((entry) => ({ id: entry.id, name: entry.name ?? entry.id })),
+        model: model ?? null,
+        targets: resolvedTargets,
+        effectivePolicy: describeEffectivePolicy(
+          policy,
+          configuredAccess,
+          effectiveAccess,
+          connections
+        ),
+        note: "Catalog order preview only. Live availability, budgets, quotas and request capabilities are checked at dispatch.",
+        ...(model && !targets.length
+          ? { reason: "No authorized unambiguous route for this model." }
+          : {}),
+      },
+      { headers: { "Cache-Control": "no-store" } }
+    );
   } catch {
     return NextResponse.json(buildErrorBody(503, "Routing preview unavailable."), { status: 503 });
   }

@@ -9,6 +9,7 @@ import ProviderIcon from "@/shared/components/ProviderIcon";
 import { getHeaderIconProviderId, providerText } from "../providerPageHelpers";
 import type { ProviderMessageTranslator } from "../providerPageHelpers";
 import type { ProviderNotice } from "@/lib/providers/catalog";
+import TrafficConfigurationGuide from "@/shared/components/routing/TrafficConfigurationGuide";
 
 interface ProviderInfo {
   id: string;
@@ -80,6 +81,7 @@ export default function ProviderPageHeader({
 
   return (
     <div>
+      <TrafficConfigurationGuide current="connections" />
       <Link
         href="/proxy/providers"
         className="inline-flex items-center gap-1 text-sm text-text-muted hover:text-primary transition-colors mb-4"

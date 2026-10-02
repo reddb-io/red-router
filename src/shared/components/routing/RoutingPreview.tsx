@@ -1,6 +1,8 @@
 "use client";
 import { useEffect, useState } from "react";
 import { Button, Select } from "@/shared/components";
+import type { EffectivePolicySnapshot } from "@/lib/routing/effectivePolicy";
+import EffectivePolicyDetails from "./EffectivePolicyDetails";
 
 type KeyChoice = { id: string; name: string; tenantId: string };
 type Preview = {
@@ -10,14 +12,27 @@ type Preview = {
     source: { transparent: string; providerPriority: string };
   };
   models: { id: string; name: string }[];
-  targets: { id: string; provider: string; position: number }[];
+  targets: {
+    id: string;
+    provider: string;
+    position: number;
+    upstreamModel?: string | null;
+    supportedEndpoints?: string[];
+  }[];
+  effectivePolicy?: EffectivePolicySnapshot;
   reason?: string;
   note: string;
 };
 
-export default function RoutingPreview({ tenantId }: { tenantId?: string }) {
+export default function RoutingPreview({
+  tenantId,
+  initialApiKeyId = "",
+}: {
+  tenantId?: string;
+  initialApiKeyId?: string;
+}) {
   const [keys, setKeys] = useState<KeyChoice[]>([]);
-  const [keyId, setKeyId] = useState("");
+  const [keyId, setKeyId] = useState(initialApiKeyId);
   const [kind, setKind] = useState("chat");
   const [model, setModel] = useState("");
   const [choicesError, setChoicesError] = useState("");
@@ -118,6 +133,7 @@ export default function RoutingPreview({ tenantId }: { tenantId?: string }) {
       )}
       {preview && (
         <>
+          {preview.effectivePolicy && <EffectivePolicyDetails snapshot={preview.effectivePolicy} />}
           <p className="text-sm text-text-muted">
             Mode: {preview.policy.transparent ? "Transparent" : "Providers hidden"} (
             {preview.policy.source.transparent}). Provider order from{" "}
@@ -133,8 +149,20 @@ export default function RoutingPreview({ tenantId }: { tenantId?: string }) {
           {!!preview.targets.length && (
             <ol className="space-y-2 text-sm">
               {preview.targets.map((target) => (
-                <li key={target.id} className="break-all font-mono">
-                  {target.position}. {target.id}
+                <li key={target.id} className="break-all">
+                  <span className="font-mono">
+                    {target.position}. {target.id}
+                  </span>
+                  {target.upstreamModel && (
+                    <p className="text-xs text-text-muted">
+                      Resolved upstream model: <code>{target.upstreamModel}</code>
+                    </p>
+                  )}
+                  {!!target.supportedEndpoints?.length && (
+                    <p className="text-xs text-text-muted">
+                      Advertised endpoints: {target.supportedEndpoints.join(", ")}
+                    </p>
+                  )}
                 </li>
               ))}
             </ol>

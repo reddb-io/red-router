@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 import ReasoningRoutingRules from "@/shared/components/ReasoningRoutingRules";
+import RoutingPreview from "@/shared/components/routing/RoutingPreview";
+import TrafficConfigurationGuide from "@/shared/components/routing/TrafficConfigurationGuide";
 
 export default function RoutingPageClient() {
   const t = useTranslations("reasoningRouting.editor");
@@ -17,6 +19,11 @@ export default function RoutingPageClient() {
         <h1 className="text-2xl font-semibold tracking-tight text-text-main">{t("pageTitle")}</h1>
         <p className="max-w-3xl text-sm leading-relaxed text-text-muted">{t("pageDescription")}</p>
       </header>
+      <TrafficConfigurationGuide current="routes" />
+      <RoutingPreview
+        key={searchParams.get("apiKeyId") || "instance"}
+        initialApiKeyId={searchParams.get("apiKeyId") || ""}
+      />
       <ReasoningRoutingRules
         key={searchParams.get("apiKeyId") || "all"}
         initialApiKeyId={searchParams.get("apiKeyId") || ""}

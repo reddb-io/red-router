@@ -2,6 +2,7 @@
 
 import { CircleAlert, CircleQuestionMark, Puzzle, SearchX, X } from "lucide-react";
 import Icon from "@/shared/components/Icon";
+import TrafficConfigurationGuide from "@/shared/components/routing/TrafficConfigurationGuide";
 import { useState, useEffect, useCallback, useMemo, Suspense } from "react";
 import { Card, CardSkeleton, Badge, Button, CollapsibleSection } from "@/shared/components";
 import { tabs } from "@/shared/design-system/contracts/tabs.variants";
@@ -805,6 +806,7 @@ function ProvidersPageContent() {
   return (
     <OpenRouterProviderStatsProvider entries={openRouterProviderStats}>
       <div className="flex flex-col gap-6">
+        <TrafficConfigurationGuide current="connections" />
         <DeprecatedProviderBanner />
 
         <div className={viewTabs.root()}>

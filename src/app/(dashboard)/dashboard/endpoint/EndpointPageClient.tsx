@@ -16,6 +16,7 @@ import {
   X,
 } from "lucide-react";
 import Link from "next/link";
+import TrafficConfigurationGuide from "@/shared/components/routing/TrafficConfigurationGuide";
 import Icon from "@/shared/components/Icon";
 import { useState, useEffect, useMemo, useCallback } from "react";
 import {
@@ -1306,6 +1307,7 @@ export default function APIPageClient({ machineId }: Readonly<APIPageClientProps
           <span>{t("advancedProtocols")}</span>
         </div>
       </div>
+      <TrafficConfigurationGuide />
       <SegmentedControl
         options={ENDPOINT_TABS.map((tab) => ({ ...tab, label: t(tab.labelKey) }))}
         value={activeEndpointTab}
