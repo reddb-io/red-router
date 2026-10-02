@@ -95,6 +95,19 @@ function main() {
           .join("\n") +
         `\n\nFix new API-route TypeScript regressions rather than widening the baseline.\n`
     );
+    const diagnostics = stdout
+      .split("\n")
+      .filter((line) =>
+        regressions.some(
+          ({ file, code }) => line.startsWith(`${file}(`) && line.includes(`): error ${code}:`)
+        )
+      )
+      .slice(0, 50);
+    if (diagnostics.length > 0) {
+      process.stderr.write(
+        `\nLive diagnostics for regressed file/code pairs (up to 50):\n${diagnostics.join("\n")}\n`
+      );
+    }
     process.exit(1);
   }
 

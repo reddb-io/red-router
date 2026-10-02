@@ -53,8 +53,10 @@ export function parseOpenRouterModelsResponse(payload: unknown): OpenRouterModel
   return responseSchema.parse(payload).data;
 }
 
-export function isOpenRouterDecisionRecord(model: Record<string, unknown>): boolean {
-  const architecture = model.architecture;
+export function isOpenRouterDecisionRecord(model: unknown): boolean {
+  if (!model || typeof model !== "object" || Array.isArray(model)) return false;
+  const record = model as Record<string, unknown>;
+  const architecture = record.architecture;
   return (
     Boolean(
       architecture &&
@@ -64,7 +66,7 @@ export function isOpenRouterDecisionRecord(model: Record<string, unknown>): bool
       ((architecture as Record<string, unknown>).output_modalities as unknown[]).includes(
         "decisions"
       )
-    ) || model.modelType === "decision"
+    ) || record.modelType === "decision"
   );
 }
 
