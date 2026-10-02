@@ -13,6 +13,8 @@ const originalFetch = globalThis.fetch;
 const providers = await import("../../src/lib/db/providers.ts");
 const jobs = await import("../../src/lib/db/videoJobs.ts");
 const leases = await import("../../src/lib/db/exclusiveConnectionLeases.ts");
+const models = await import("../../src/lib/db/models.ts");
+models.setModelIsHidden("xai", "grok-imagine-video", false);
 const asyncVideo = await import("../../src/app/api/v1/_shared/xaiAsyncVideo.ts");
 
 test.afterEach(() => {
@@ -38,6 +40,7 @@ test("async video submission is durable, idempotent, and polls its creating acco
   const connection = await providers.createProviderConnection({
     provider: "xai",
     authType: "apikey",
+    isActive: true,
     apiKey: "video-async-test-key",
   });
   const calls: Array<{ url: string; method: string }> = [];
@@ -152,6 +155,7 @@ test("a duplicate arriving during the first billable POST never sends a second P
   await providers.createProviderConnection({
     provider: "xai",
     authType: "apikey",
+    isActive: true,
     apiKey: "video-inflight-test-key",
   });
   let signalFirstPost: (() => void) | undefined;
@@ -229,6 +233,7 @@ test("an exclusive lease prevents video submission and polling on its connection
   const connection = await providers.createProviderConnection({
     provider: "xai",
     authType: "apikey",
+    isActive: true,
     apiKey: "video-leased-test-key",
   });
   const reservation = jobs.reserveVideoJob({

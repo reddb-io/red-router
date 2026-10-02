@@ -930,7 +930,8 @@ test("v1 models catalog includes synced non-Gemini provider models from discover
   assert.equal(syncedModel.context_length, 262144);
 });
 
-test("v1 models catalog retains registered effort aliases beside synced OpenCode Go bases", async () => {
+test("v1 models catalog retains effort aliases in explicit legacy compatibility mode", async () => {
+  featureFlagsDb.setFeatureFlagOverride("OMNIROUTE_DISABLE_THINKING_LEVEL_VARIANTS", "false");
   const connection = await seedConnection("opencode-go", {
     name: "opencode-go-effort-aliases",
     apiKey: "go-key",
