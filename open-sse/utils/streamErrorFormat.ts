@@ -175,7 +175,12 @@ export function normalizeStreamFailurePayload(payload: unknown): StreamFailurePa
       : Object.keys(asRecord(rootError)).length
         ? asRecord(rootError)
         : record;
-  const code = typeof error.code === "string" ? error.code : "upstream_error";
+  const code =
+    typeof error.code === "string"
+      ? error.code
+      : toStreamFailureStatus(error.code) !== null
+        ? String(error.code)
+        : "upstream_error";
   const type = typeof error.type === "string" ? error.type : undefined;
   const message =
     typeof error.message === "string" && error.message.trim()
@@ -203,15 +208,18 @@ export function normalizeStreamFailurePayload(payload: unknown): StreamFailurePa
     toStreamFailureStatus(response.status) ??
     toStreamFailureStatus(record.status_code) ??
     toStreamFailureStatus(record.status) ??
+    toStreamFailureStatus(error.code) ??
     (requestScopedInputFailure
       ? 400
       : type === "authentication_error" || code === "invalid_api_key"
         ? 401
         : type === "permission_error" || code === "permission_denied"
           ? 403
-          : looksLikeStreamRateLimit(code, type || "", message)
-            ? 429
-            : 502);
+          : type === "billing_error" || code === "payment_required"
+            ? 402
+            : looksLikeStreamRateLimit(code, type || "", message)
+              ? 429
+              : 502);
 
   return {
     status,
