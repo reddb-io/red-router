@@ -207,7 +207,12 @@ export function deleteTenant(id: string): void {
       "This tenant still owns API keys, connections or combos. Move or delete them first."
     );
   }
-  getDbInstance().prepare("DELETE FROM tenants WHERE id = ?").run(tenant.id);
+  const db = getDbInstance();
+  db.transaction(() => {
+    // Clean explicit policy attachments even on adapters without foreign-key enforcement.
+    db.prepare("DELETE FROM routing_profile_bindings WHERE tenant_id = ?").run(tenant.id);
+    db.prepare("DELETE FROM tenants WHERE id = ?").run(tenant.id);
+  })();
 }
 
 export function listTenantUsers(tenantId: string): TenantUser[] {

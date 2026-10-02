@@ -53,6 +53,13 @@ test("routing preview follows the selected key's tenant and model restrictions w
   });
   tenants.assignApiKeysToTenant(tenant.id, [key.id]);
   await updateApiKeyPermissions(key.id, { cacheDefaultMode: "bypass", streamDefaultMode: "json" });
+  const profiles = await import("../../../src/lib/db/routingProfiles.ts");
+  const profile = profiles.saveRoutingProfile({
+    name: "Restricted traffic",
+    transparent: false,
+    providerPriority: ["groq", "openai"],
+  });
+  profiles.setRoutingProfileBinding(profile.id, tenant.id);
   const query = new URLSearchParams({ apiKeyId: key.id, model: "gpt-6-astra" });
   const response = await GET(
     new Request(`http://localhost/api/routing/preview?${query}`, { headers: { cookie } })
@@ -60,6 +67,10 @@ test("routing preview follows the selected key's tenant and model restrictions w
   assert.equal(response.status, 200, await response.clone().text());
   const body = await response.json();
   assert.equal(body.scope.tenantId, tenant.id);
+  assert.equal(
+    body.effectivePolicy.rows[0].source,
+    "Owner pin for this tenant · Profile: Restricted traffic"
+  );
   assert.equal(response.headers.get("cache-control"), "no-store");
   assert.equal(
     body.effectivePolicy.rows.find((row: { id: string }) => row.id === "cache-default").value,
@@ -90,6 +101,25 @@ test("routing preview follows the selected key's tenant and model restrictions w
   assert.equal(
     (getDbInstance().prepare("SELECT COUNT(*) AS n FROM usage_history").get() as { n: number }).n,
     0
+  );
+  profiles.saveRoutingProfile(
+    { name: "Updated traffic", transparent: true, providerPriority: ["openai"] },
+    profile.id
+  );
+  query.set("model", "openai/gpt-6-astra");
+  const refreshed = await (
+    await GET(new Request(`http://localhost/api/routing/preview?${query}`, { headers: { cookie } }))
+  ).json();
+  assert.equal(refreshed.policy.transparent, true);
+  assert.equal(
+    refreshed.effectivePolicy.rows[0].source,
+    "Owner pin for this tenant · Profile: Updated traffic"
+  );
+  assert.ok(refreshed.models.some((model: { id: string }) => model.id === "openai/gpt-6-astra"));
+  assert.ok(
+    refreshed.targets.every(
+      (target: { upstreamModel: string }) => target.upstreamModel === "gpt-6-astra"
+    )
   );
   query.set("model", "claude-sonnet-5-5");
   const denied = await GET(

@@ -4,6 +4,14 @@ import { requireManagementAuth } from "@/lib/api/requireManagementAuth";
 import { logAuditEvent } from "@/lib/compliance/index";
 import { auditActorFor } from "@/lib/compliance/auditActor";
 import { getSettings, updateSettings } from "@/lib/db/settings";
+import { createErrorResponse } from "@/lib/api/errorResponse";
+import {
+  getRoutingProfile,
+  getRoutingProfileBinding,
+  listRoutingProfiles,
+  setRoutingProfileBinding,
+  setInstanceProfileOverrides,
+} from "@/lib/db/routingProfiles";
 import { getTenantRoutingRow, listRoutableProviders } from "@/lib/db/routingPolicy";
 import { listTenants } from "@/lib/db/tenants";
 import {
@@ -16,8 +24,9 @@ import { isValidationFailure, validateBody } from "@/shared/validation/helpers";
 
 const updateSchema = z
   .object({
-    transparent: z.boolean().optional(),
-    providerPriority: z.array(z.string().trim().min(1).max(100)).max(300).optional(),
+    transparent: z.boolean().nullable().optional(),
+    providerPriority: z.array(z.string().trim().min(1).max(100)).max(300).nullable().optional(),
+    profileId: z.string().min(1).max(100).nullable().optional(),
     delegateToTenants: z.boolean().optional(),
   })
   .refine((value) => Object.keys(value).length > 0, { message: "Nothing to update" });
@@ -45,6 +54,7 @@ export async function GET(request: Request) {
         name: tenant.name,
         isDefault: tenant.isDefault,
         ownerPin: {
+          profileId: getRoutingProfileBinding(tenant.id)?.profileId ?? null,
           transparent: row?.ownerTransparent ?? null,
           providerPriority: row?.ownerPriority ?? null,
         },
@@ -56,7 +66,10 @@ export async function GET(request: Request) {
       };
     })
   );
-  return NextResponse.json({ policy: instance, providers, tenants });
+  return NextResponse.json(
+    { policy: instance, providers, tenants, profiles: listRoutingProfiles() },
+    { headers: { "Cache-Control": "no-store" } }
+  );
 }
 
 /** PUT /api/routing — the owner sets the instance's mode, provider order and delegation. */
@@ -74,11 +87,31 @@ export async function PUT(request: Request) {
   if (isValidationFailure(validation)) {
     return NextResponse.json({ error: validation.error }, { status: 400 });
   }
-  const { transparent, providerPriority, delegateToTenants } = validation.data;
+  const { transparent, providerPriority, delegateToTenants, profileId } = validation.data;
+  const nextProfileId = profileId === undefined ? getRoutingProfileBinding()?.profileId : profileId;
+  if (nextProfileId && !getRoutingProfile(nextProfileId))
+    return createErrorResponse({ status: 404, message: "Routing profile not found." });
+  if (!nextProfileId && (transparent === null || providerPriority === null))
+    return createErrorResponse({
+      status: 400,
+      message: "Inherit is available only with an instance profile attached.",
+    });
+
+  if (profileId !== undefined) setRoutingProfileBinding(profileId);
+  if (nextProfileId)
+    setInstanceProfileOverrides({
+      transparent,
+      providerPriority:
+        providerPriority === undefined
+          ? undefined
+          : providerPriority === null
+            ? null
+            : normalizeProviderPriority(providerPriority),
+    });
 
   await updateSettings({
-    ...(transparent !== undefined ? { transparentModels: transparent } : {}),
-    ...(providerPriority !== undefined
+    ...(!nextProfileId && transparent !== undefined ? { transparentModels: transparent } : {}),
+    ...(!nextProfileId && providerPriority !== undefined
       ? { providerPriority: normalizeProviderPriority(providerPriority) }
       : {}),
     ...(delegateToTenants !== undefined ? { delegateRoutingToTenants: delegateToTenants } : {}),
@@ -89,7 +122,7 @@ export async function PUT(request: Request) {
     target: "instance",
     resourceType: "routing_policy",
     status: "success",
-    metadata: { transparent, delegateToTenants, providers: providerPriority?.length },
+    metadata: { transparent, delegateToTenants, profileId, providers: providerPriority?.length },
   });
   void getSettings;
   return NextResponse.json({ policy: await getInstanceRoutingPolicy() });

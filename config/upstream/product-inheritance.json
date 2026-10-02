@@ -414,7 +414,12 @@
         "tests/redrouter/native/effective-policy.test.ts",
         "tests/redrouter/native/routing-preview.test.ts",
         "tests/redrouter/native/router-federation.test.ts",
-        "tests/redrouter/ui/routing-preview.test.tsx"
+        "tests/redrouter/ui/routing-preview.test.tsx",
+        "src/lib/db/routingProfiles.ts",
+        "src/app/api/routing/profiles/route.ts",
+        "src/app/(dashboard)/dashboard/settings/components/RoutingProfilesEditor.tsx",
+        "tests/redrouter/native/routing-profiles.test.ts",
+        "tests/redrouter/ui/routing-profiles.test.tsx"
       ],
       "upstreamPaths": {
         "apisix": [
@@ -424,13 +429,15 @@
           "docs/en/latest/terminology/plugin.md"
         ]
       },
-      "remaining": "First adaptation clarifies existing resources and effective policy origins. Named reusable traffic-policy profiles, declarative promotion and split control/data-plane deployment remain unimplemented. Preview does not prove credential selection, live availability, endpoint success or APISIX parity. Exact-commit CI is required.",
+      "remaining": "Reusable visibility/priority profiles now attach explicitly at instance and owner-tenant levels, with local overrides and effective origins. Profiles do not configure cache, budgets, key restrictions, endpoints or payload transforms. Declarative promotion and split control/data-plane deployment remain unimplemented. Preview does not prove live dispatch or APISIX parity. Exact-commit CI is required.",
       "acceptance": [
         "The existing runtime resolvers determine mode, priority and key/tenant scope; owner pins remain authoritative.",
         "Provider/native model IDs and one-hop System One federation remain unchanged.",
         "Preview never sends a completion or decision and returns no credentials, token hashes, headers or provider-specific secrets.",
         "Disabled and cooling connections remain visible as configuration metadata without being treated as eligible credentials.",
-        "Scope changes and failed refreshes remove stale routes and connection metadata; model examples come from the authorized catalog."
+        "Scope changes and failed refreshes remove stale routes and connection metadata; model examples come from the authorized catalog.",
+        "Profile creation does not attach or enable anything; edits update all attachments and invalidate discovery while explicit local overrides remain.",
+        "Attached profiles cannot be deleted, and tenant admins cannot replace owner profile pins."
       ]
     }
   ]

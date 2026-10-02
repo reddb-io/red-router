@@ -26,6 +26,9 @@ const session = await import("../../../src/lib/auth/tenantSession.ts");
 const rows = await import("../../../src/lib/db/routingPolicy.ts");
 const policy = await import("../../../src/lib/routing/routingPolicy.ts");
 const { runAuthzPipeline } = await import("../../../src/server/authz/pipeline.ts");
+const profilesDb = await import("../../../src/lib/db/routingProfiles.ts");
+const profilesRoute = await import("../../../src/app/api/routing/profiles/route.ts");
+const profileRoute = await import("../../../src/app/api/routing/profiles/[id]/route.ts");
 const instanceRoute = await import("../../../src/app/api/routing/route.ts");
 const pinRoute = await import("../../../src/app/api/tenants/[id]/routing/route.ts");
 const tenantRoute = await import("../../../src/app/api/tenant/routing/route.ts");
@@ -54,6 +57,8 @@ async function connect(provider: string, tenantId?: string) {
 beforeEach(async () => {
   const db = getDbInstance();
   for (const table of [
+    "routing_profile_bindings",
+    "routing_profiles",
     "tenant_routing_policy",
     "tenant_users",
     "provider_connections",
@@ -321,4 +326,123 @@ test("a tenant can clear its own choice with null", async () => {
     tenantTransparent: null,
     tenantPriority: null,
   });
+});
+
+const profileInput = {
+  name: "Private routing",
+  transparent: false,
+  providerPriority: ["openai", "groq"],
+};
+const profileCtx = (id: string) => ({ params: Promise.resolve({ id }) });
+
+test("profile CRUD is owner-only, validated, audited, and safe on errors", async () => {
+  assert.equal((await profilesRoute.GET(req("GET"))).status, 401);
+  assert.equal((await profilesRoute.POST(req("POST", profileInput))).status, 401);
+  const admin = await tenantCookie(adminId);
+  assert.equal((await profilesRoute.POST(req("POST", profileInput, admin))).status, 401);
+  const owner = await ownerCookie();
+  const invalid = await profilesRoute.POST(
+    req("POST", { ...profileInput, transparent: null, providerPriority: null }, owner)
+  );
+  assert.equal(invalid.status, 400);
+  assert.ok(!JSON.stringify(await invalid.json()).includes("at /"));
+  assert.equal(
+    (
+      await profilesRoute.POST(
+        req("POST", { ...profileInput, allowedConnections: ["foreign"] }, owner)
+      )
+    ).status,
+    400
+  );
+  const created = await profilesRoute.POST(req("POST", profileInput, owner));
+  assert.equal(created.status, 201);
+  const { profile } = await created.json();
+  assert.equal(
+    (await profileRoute.PUT(req("PUT", profileInput, admin), profileCtx(profile.id))).status,
+    401
+  );
+  assert.equal(
+    (await profileRoute.DELETE(req("DELETE", undefined, admin), profileCtx(profile.id))).status,
+    401
+  );
+  assert.equal(
+    (
+      await profileRoute.PUT(
+        req("PUT", { ...profileInput, name: "Updated" }, owner),
+        profileCtx(profile.id)
+      )
+    ).status,
+    200
+  );
+  const listed = await profilesRoute.GET(req("GET", undefined, owner));
+  assert.equal(listed.headers.get("cache-control"), "no-store");
+  assert.equal((await listed.json()).profiles[0].name, "Updated");
+  assert.equal(
+    (await profileRoute.DELETE(req("DELETE", undefined, owner), profileCtx(profile.id))).status,
+    200
+  );
+  assert.equal(
+    (await profileRoute.DELETE(req("DELETE", undefined, owner), profileCtx(profile.id))).status,
+    404
+  );
+});
+
+test("instance attachment follows live profiles, preserves defaults and supports nullable local overrides", async () => {
+  const owner = await ownerCookie();
+  const profile = profilesDb.saveRoutingProfile(profileInput);
+  assert.equal((await instanceRoute.PUT(req("PUT", { profileId: profile.id }, owner))).status, 200);
+  assert.equal((await policy.resolveRoutingPolicy()).transparent, false);
+  assert.equal((await instanceRoute.PUT(req("PUT", { transparent: true }, owner))).status, 200);
+  assert.equal((await policy.resolveRoutingPolicy()).transparent, true);
+  assert.equal((await instanceRoute.PUT(req("PUT", { transparent: null }, owner))).status, 200);
+  assert.equal((await policy.resolveRoutingPolicy()).transparent, false);
+  assert.equal((await getSettings()).transparentModels, true, "stored fallback remains unchanged");
+  assert.equal(
+    (await profileRoute.DELETE(req("DELETE", undefined, owner), profileCtx(profile.id))).status,
+    409
+  );
+  assert.equal(
+    (await instanceRoute.PUT(req("PUT", { profileId: "missing", transparent: true }, owner)))
+      .status,
+    404
+  );
+  assert.equal(
+    (await policy.resolveRoutingPolicy()).transparent,
+    false,
+    "bad attachment must not partially change settings"
+  );
+  await instanceRoute.PUT(req("PUT", { profileId: null }, owner));
+  assert.equal((await policy.resolveRoutingPolicy()).transparent, true);
+  assert.equal((await instanceRoute.PUT(req("PUT", { transparent: null }, owner))).status, 400);
+});
+
+test("owner profile pins only its defined fields; tenant admins cannot override its fields or attach a profile", async () => {
+  const owner = await ownerCookie();
+  const admin = await tenantCookie(adminId);
+  const profile = profilesDb.saveRoutingProfile({ ...profileInput, providerPriority: null });
+  await instanceRoute.PUT(req("PUT", { delegateToTenants: true }, owner));
+  assert.equal(
+    (await pinRoute.PUT(req("PUT", { profileId: profile.id }, owner), idCtx())).status,
+    200
+  );
+  const state = await (await tenantRoute.GET(req("GET", undefined, admin))).json();
+  assert.deepEqual(state.locked, { transparent: true, priority: false });
+  assert.equal((await tenantRoute.PUT(req("PUT", { transparent: true }, admin))).status, 403);
+  assert.equal((await tenantRoute.PUT(req("PUT", { priority: ["groq"] }, admin))).status, 200);
+  assert.equal((await tenantRoute.PUT(req("PUT", { profileId: profile.id }, admin))).status, 400);
+  assert.equal(
+    (await policy.resolveRoutingPolicy(acme.id)).profiles?.transparent?.name,
+    profile.name
+  );
+  await pinRoute.PUT(req("PUT", { transparent: true }, owner), idCtx());
+  assert.equal((await policy.resolveRoutingPolicy(acme.id)).profiles?.transparent, null);
+  assert.equal(
+    (await profileRoute.DELETE(req("DELETE", undefined, owner), profileCtx(profile.id))).status,
+    409
+  );
+  await pinRoute.PUT(req("PUT", { profileId: null, transparent: null }, owner), idCtx());
+  assert.equal(
+    (await profileRoute.DELETE(req("DELETE", undefined, owner), profileCtx(profile.id))).status,
+    200
+  );
 });

@@ -5,6 +5,12 @@ import { logAuditEvent } from "@/lib/compliance/index";
 import { auditActorFor } from "@/lib/compliance/auditActor";
 import { getTenantRoutingRow, setTenantRoutingSide } from "@/lib/db/routingPolicy";
 import { getTenant } from "@/lib/db/tenants";
+import { createErrorResponse } from "@/lib/api/errorResponse";
+import {
+  getRoutingProfile,
+  getRoutingProfileBinding,
+  setRoutingProfileBinding,
+} from "@/lib/db/routingProfiles";
 import { normalizeProviderPriority, resolveRoutingPolicy } from "@/lib/routing/routingPolicy";
 import { isValidationFailure, validateBody } from "@/shared/validation/helpers";
 
@@ -15,10 +21,17 @@ const pinSchema = z
   .object({
     transparent: z.boolean().nullable().optional(),
     priority: z.array(z.string().trim().min(1).max(100)).max(300).nullable().optional(),
+    profileId: z.string().min(1).max(100).nullable().optional(),
   })
-  .refine((value) => value.transparent !== undefined || value.priority !== undefined, {
-    message: "Nothing to update",
-  });
+  .refine(
+    (value) =>
+      value.transparent !== undefined ||
+      value.priority !== undefined ||
+      value.profileId !== undefined,
+    {
+      message: "Nothing to update",
+    }
+  );
 
 /** GET /api/tenants/:id/routing — what is pinned for the tenant, what it chose, and what applies. */
 export async function GET(request: Request, context: Context) {
@@ -29,7 +42,11 @@ export async function GET(request: Request, context: Context) {
     return NextResponse.json({ error: { message: "Tenant not found." } }, { status: 404 });
   const row = getTenantRoutingRow(tenant.id);
   return NextResponse.json({
-    ownerPin: { transparent: row?.ownerTransparent ?? null, priority: row?.ownerPriority ?? null },
+    ownerPin: {
+      transparent: row?.ownerTransparent ?? null,
+      priority: row?.ownerPriority ?? null,
+      profileId: getRoutingProfileBinding(tenant.id)?.profileId ?? null,
+    },
     tenantChoice: {
       transparent: row?.tenantTransparent ?? null,
       priority: row?.tenantPriority ?? null,
@@ -56,7 +73,10 @@ export async function PUT(request: Request, context: Context) {
   if (isValidationFailure(validation)) {
     return NextResponse.json({ error: validation.error }, { status: 400 });
   }
-  const { transparent, priority } = validation.data;
+  const { transparent, priority, profileId } = validation.data;
+  if (profileId && !getRoutingProfile(profileId))
+    return createErrorResponse({ status: 404, message: "Routing profile not found." });
+  if (profileId !== undefined) setRoutingProfileBinding(profileId, tenant.id);
 
   setTenantRoutingSide(tenant.id, "owner", {
     transparent,
@@ -73,7 +93,7 @@ export async function PUT(request: Request, context: Context) {
     target: tenant.id,
     resourceType: "tenant",
     status: "success",
-    metadata: { transparent: transparent ?? undefined, providers: priority?.length },
+    metadata: { transparent: transparent ?? undefined, profileId, providers: priority?.length },
   });
   return NextResponse.json({ effective: await resolveRoutingPolicy(tenant.id) });
 }

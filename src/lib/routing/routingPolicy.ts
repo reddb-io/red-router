@@ -12,8 +12,13 @@
 
 import { getSettings } from "@/lib/db/settings";
 import { getTenantRoutingRow } from "@/lib/db/routingPolicy";
+import { getRoutingProfile, getRoutingProfileBinding } from "@/lib/db/routingProfiles";
 
 export type PolicySource = "instance" | "owner" | "tenant";
+export interface ProfileOrigin {
+  id: string;
+  name: string;
+}
 
 export interface RoutingPolicy {
   /** true (default): `provider/model` ids, the client picks the provider. */
@@ -23,6 +28,7 @@ export interface RoutingPolicy {
   source: { transparent: PolicySource; providerPriority: PolicySource };
   /** Whether tenant admins may currently override the instance policy. */
   delegated: boolean;
+  profiles?: { transparent: ProfileOrigin | null; providerPriority: ProfileOrigin | null };
 }
 
 export const DEFAULT_TENANT_ID = "red";
@@ -48,14 +54,43 @@ export interface InstanceRoutingPolicy {
   transparent: boolean;
   providerPriority: string[];
   delegated: boolean;
+  profileId: string | null;
+  local: { transparent: boolean | null; providerPriority: string[] | null };
+  defaults: { transparent: boolean; providerPriority: string[] };
+  profiles: { transparent: ProfileOrigin | null; providerPriority: ProfileOrigin | null };
 }
 
 export async function getInstanceRoutingPolicy(): Promise<InstanceRoutingPolicy> {
   const settings = (await getSettings()) as Record<string, unknown>;
+  const binding = getRoutingProfileBinding();
+  const profile = binding ? getRoutingProfile(binding.profileId) : null;
+  const origin = profile ? { id: profile.id, name: profile.name } : null;
   return {
-    transparent: settings.transparentModels !== false,
-    providerPriority: normalizeProviderPriority(settings.providerPriority),
+    transparent:
+      binding?.transparent ?? profile?.transparent ?? settings.transparentModels !== false,
+    providerPriority: normalizeProviderPriority(
+      binding?.providerPriority ?? profile?.providerPriority ?? settings.providerPriority
+    ),
     delegated: settings.delegateRoutingToTenants === true,
+    profileId: profile?.id ?? null,
+    defaults: {
+      transparent: settings.transparentModels !== false,
+      providerPriority: normalizeProviderPriority(settings.providerPriority),
+    },
+    local: {
+      transparent: profile ? binding!.transparent : settings.transparentModels !== false,
+      providerPriority: profile
+        ? binding!.providerPriority
+        : normalizeProviderPriority(settings.providerPriority),
+    },
+    profiles: {
+      transparent:
+        profile && binding?.transparent === null && profile.transparent !== null ? origin : null,
+      providerPriority:
+        profile && binding?.providerPriority === null && profile.providerPriority !== null
+          ? origin
+          : null,
+    },
   };
 }
 
@@ -70,28 +105,37 @@ export async function resolveRoutingPolicy(tenantId?: string | null): Promise<Ro
     providerPriority: instance.providerPriority,
     source: { transparent: "instance", providerPriority: "instance" },
     delegated: instance.delegated,
+    profiles: { ...instance.profiles },
   };
   if (!tenantId) return policy;
 
   const row = getTenantRoutingRow(tenantId);
-  if (!row) return policy;
+  const binding = getRoutingProfileBinding(tenantId);
+  const profile = binding ? getRoutingProfile(binding.profileId) : null;
+  const origin = profile ? { id: profile.id, name: profile.name } : null;
+  const ownerTransparent = row?.ownerTransparent ?? profile?.transparent ?? null;
+  const ownerPriority = row?.ownerPriority ?? profile?.providerPriority ?? null;
 
   // Mode
-  if (row.ownerTransparent !== null) {
-    policy.transparent = row.ownerTransparent;
+  if (ownerTransparent !== null) {
+    policy.transparent = ownerTransparent;
     policy.source.transparent = "owner";
-  } else if (instance.delegated && row.tenantTransparent !== null) {
+    policy.profiles.transparent = row?.ownerTransparent != null ? null : origin;
+  } else if (instance.delegated && row?.tenantTransparent != null) {
     policy.transparent = row.tenantTransparent;
     policy.source.transparent = "tenant";
+    policy.profiles.transparent = null;
   }
 
   // Priority
-  if (row.ownerPriority !== null) {
-    policy.providerPriority = normalizeProviderPriority(row.ownerPriority);
+  if (ownerPriority !== null) {
+    policy.providerPriority = normalizeProviderPriority(ownerPriority);
     policy.source.providerPriority = "owner";
-  } else if (instance.delegated && row.tenantPriority !== null) {
+    policy.profiles.providerPriority = row?.ownerPriority != null ? null : origin;
+  } else if (instance.delegated && row?.tenantPriority != null) {
     policy.providerPriority = normalizeProviderPriority(row.tenantPriority);
     policy.source.providerPriority = "tenant";
+    policy.profiles.providerPriority = null;
   }
   return policy;
 }

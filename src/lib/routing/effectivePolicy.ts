@@ -65,13 +65,18 @@ export function describeEffectivePolicy(
       : configuredIds.length > 0
         ? "API key within tenant boundary"
         : "Instance catalog within tenant boundary";
+  const sourceFor = (field: "transparent" | "providerPriority") => {
+    const label = SOURCE_LABELS[policy.source[field]];
+    const profile = policy.profiles?.[field];
+    return profile ? `${label} · Profile: ${profile.name}` : label;
+  };
   return {
     rows: [
       {
         id: "model-visibility",
         setting: "Model visibility",
         value: policy.transparent ? "Provider prefixes visible" : "Provider prefixes hidden",
-        source: SOURCE_LABELS[policy.source.transparent],
+        source: sourceFor("transparent"),
         explanation: policy.transparent
           ? "The client selects a provider-qualified model."
           : "The router resolves the model against the authorized catalog.",
@@ -80,7 +85,7 @@ export function describeEffectivePolicy(
         id: "provider-order",
         setting: "Provider priority",
         value: policy.providerPriority.join(" → ") || "Catalog order",
-        source: SOURCE_LABELS[policy.source.providerPriority],
+        source: sourceFor("providerPriority"),
         explanation: policy.transparent
           ? "This order applies when provider prefixes are hidden."
           : "Unlisted providers follow in catalog order; access restrictions still apply.",

@@ -14,6 +14,7 @@ import {
   resolveRoutingPolicy,
 } from "@/lib/routing/routingPolicy";
 import { getProviderById } from "@/shared/constants/providers";
+import { getRoutingProfile, getRoutingProfileBinding } from "@/lib/db/routingProfiles";
 import { isValidationFailure, validateBody } from "@/shared/validation/helpers";
 
 const label = (id: string) => (getProviderById(id) as { name?: string } | undefined)?.name || id;
@@ -34,12 +35,16 @@ const updateSchema = z
 async function describe(tenantId: string) {
   const instance = await getInstanceRoutingPolicy();
   const row = getTenantRoutingRow(tenantId);
+  const binding = getRoutingProfileBinding(tenantId);
+  const profile = binding ? getRoutingProfile(binding.profileId) : null;
   return {
     effective: await resolveRoutingPolicy(tenantId),
     delegated: instance.delegated,
     locked: {
-      transparent: !instance.delegated || (row?.ownerTransparent ?? null) !== null,
-      priority: !instance.delegated || (row?.ownerPriority ?? null) !== null,
+      transparent:
+        !instance.delegated || (row?.ownerTransparent ?? profile?.transparent ?? null) !== null,
+      priority:
+        !instance.delegated || (row?.ownerPriority ?? profile?.providerPriority ?? null) !== null,
     },
     choice: { transparent: row?.tenantTransparent ?? null, priority: row?.tenantPriority ?? null },
     providers: listRoutableProviders(tenantId).map((entry) => ({

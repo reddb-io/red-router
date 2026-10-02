@@ -29,6 +29,16 @@ let container: HTMLElement;
 let calls: Call[];
 let state: { transparent: boolean; providerPriority: string[]; delegated: boolean };
 let failPut: boolean;
+let instanceProfileId: string | null;
+let localTransparent: boolean | null;
+let localPriority: string[] | null;
+const PROFILE = {
+  id: "p",
+  name: "Shared",
+  transparent: false,
+  providerPriority: ["groq"],
+  attachments: 0,
+};
 
 const tenantRows = () => [
   {
@@ -62,6 +72,9 @@ const tenantRows = () => [
 beforeEach(() => {
   calls = [];
   failPut = false;
+  instanceProfileId = null;
+  localTransparent = null;
+  localPriority = null;
   state = { transparent: true, providerPriority: [], delegated: false };
   vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
@@ -69,10 +82,28 @@ beforeEach(() => {
     const body = init?.body ? JSON.parse(String(init.body)) : undefined;
     calls.push({ url, method, body });
     if (method === "GET") {
-      return Response.json({ policy: state, providers: PROVIDERS, tenants: tenantRows() });
+      return Response.json({
+        policy: {
+          ...state,
+          profileId: instanceProfileId,
+          local: {
+            transparent: instanceProfileId ? localTransparent : state.transparent,
+            providerPriority: instanceProfileId ? localPriority : state.providerPriority,
+          },
+          defaults: { transparent: state.transparent, providerPriority: state.providerPriority },
+        },
+        providers: PROVIDERS,
+        tenants: tenantRows(),
+        profiles: [PROFILE],
+      });
     }
     if (failPut) return Response.json({ error: { message: "Nope" } }, { status: 400 });
     if (url === "/api/routing") {
+      instanceProfileId = body.profileId ?? null;
+      if (instanceProfileId) {
+        localTransparent = body.transparent;
+        localPriority = body.providerPriority;
+      }
       state = {
         transparent: body.transparent ?? state.transparent,
         providerPriority: body.providerPriority ?? state.providerPriority,
@@ -139,24 +170,28 @@ describe("ModelVisibilityCard", () => {
     await mount();
     expect(text()).toContain("Model visibility");
     expect(
-      container
-        .querySelector('button[role="switch"][aria-label="Transparent model list"]')!
-        .getAttribute("aria-checked")
-    ).toBe("true");
+      (container.querySelector('select[aria-label="Model visibility"]') as HTMLSelectElement | null)
+        ?.value ?? container.querySelectorAll("select")[1].value
+    ).toBe("on");
     expect(buttonByText("Save")!.disabled).toBe(true);
-    expect(text()).toContain("Not used while the model list is transparent");
+    expect(text()).toContain("Used when provider prefixes are hidden.");
   });
 
   it("turns transparency off, orders the providers, and saves everything in one request", async () => {
     await mount();
-    await click(container.querySelector('button[aria-label="Transparent model list"]'));
-    expect(text()).toContain("The first provider that offers a model is tried first");
+    await act(async () => {
+      const select = container.querySelectorAll("select")[1];
+      select.value = "off";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    expect(text()).toContain("Unlisted providers follow in catalog order.");
     await click(buttonByLabel("Add Kiro to the order"));
     await click(buttonByLabel("Add OpenAI to the order"));
     await click(buttonByLabel("Move OpenAI up"));
     await click(buttonByText("Save"));
     const put = calls.find((c) => c.method === "PUT" && c.url === "/api/routing")!;
     expect(put.body).toEqual({
+      profileId: null,
       transparent: false,
       providerPriority: ["openai", "kiro"],
       delegateToTenants: false,
@@ -182,7 +217,11 @@ describe("ModelVisibilityCard", () => {
 
   it("shows why a save failed", async () => {
     await mount();
-    await click(container.querySelector('button[aria-label="Transparent model list"]'));
+    await act(async () => {
+      const select = container.querySelectorAll("select")[1];
+      select.value = "off";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
     failPut = true;
     await click(buttonByText("Save"));
     expect(text()).toContain("Nope");
@@ -194,7 +233,7 @@ describe("ModelVisibilityCard", () => {
     const acme = [...container.querySelectorAll("div")].find(
       (d) => d.textContent?.includes("Save for Acme") && d.className.includes("rounded-md")
     )!;
-    const select = acme.querySelector("select") as HTMLSelectElement;
+    const select = acme.querySelectorAll("select")[1] as HTMLSelectElement;
     await act(async () => {
       select.value = "off";
       select.dispatchEvent(new Event("change", { bubbles: true }));
@@ -202,7 +241,7 @@ describe("ModelVisibilityCard", () => {
     await click(buttonByText("Save for Acme"));
     const put = calls.find((c) => c.url === "/api/tenants/t-acme/routing")!;
     expect(put.method).toBe("PUT");
-    expect(put.body).toEqual({ transparent: false, priority: null });
+    expect(put.body).toEqual({ profileId: null, transparent: false, priority: null });
   });
 
   it("pins a provider order for a tenant too", async () => {
@@ -215,6 +254,25 @@ describe("ModelVisibilityCard", () => {
     await click(acme().querySelector('button[aria-label="Add Groq to the order"]'));
     await click(buttonByText("Save for Acme"));
     const put = calls.find((c) => c.url === "/api/tenants/t-acme/routing")!;
-    expect(put.body).toEqual({ transparent: null, priority: ["groq"] });
+    expect(put.body).toEqual({ profileId: null, transparent: null, priority: ["groq"] });
   });
+});
+
+it("attaches an instance profile with inheritance without copying effective values into overrides", async () => {
+  await mount();
+  await act(async () => {
+    const select = container.querySelectorAll("select")[0];
+    select.value = "p";
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  expect(container.querySelectorAll("select")[1].value).toBe("inherit");
+  await click(buttonByText("Save"));
+  const saved = calls.find((call) => call.method === "PUT" && call.url === "/api/routing")!;
+  expect(saved.body).toEqual({
+    profileId: "p",
+    transparent: null,
+    providerPriority: null,
+    delegateToTenants: false,
+  });
+  expect(buttonByText("Save")!.disabled).toBe(true);
 });
