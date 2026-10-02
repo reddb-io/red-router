@@ -9,7 +9,7 @@ import { isRetiredGitHubCopilotModelId } from "@omniroute/open-sse/config/provid
 import { getDbInstance } from "./core";
 import { getModelCatalogCacheVersion } from "./readCache";
 import { activationModelIds } from "@omniroute/open-sse/services/modelActivationIdentity";
-import { resolveProviderId, PROVIDER_ID_TO_ALIAS } from "@/shared/constants/providers";
+import { resolveProviderId, getProviderAlias } from "@/shared/constants/providers";
 import {
   isModelHiddenInSnapshot,
   type ModelActivationSnapshot,
@@ -979,7 +979,7 @@ export function getModelIsHidden(
 ): boolean {
   const canonical = resolveProviderId(providerId);
   const keys = [
-    ...new Set([providerId, canonical, PROVIDER_ID_TO_ALIAS[canonical], ...additionalProviderKeys]),
+    ...new Set([providerId, canonical, getProviderAlias(canonical), ...additionalProviderKeys]),
   ].filter((key): key is string => typeof key === "string" && key.length > 0);
   return isModelHiddenInSnapshot(
     getModelActivationByProvider(modality),
@@ -1082,7 +1082,7 @@ export async function setModelActivation(
   active: boolean
 ): Promise<void> {
   const canonical = resolveProviderId(providerId);
-  const keys = new Set([providerId, canonical, PROVIDER_ID_TO_ALIAS[canonical]].filter(Boolean));
+  const keys = new Set([providerId, canonical, getProviderAlias(canonical)].filter(Boolean));
   for (const key of keys) {
     await updateCustomModel(key, modelId, { isHidden: !active });
     const list = readCompatList(key);

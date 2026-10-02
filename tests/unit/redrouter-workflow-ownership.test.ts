@@ -67,11 +67,11 @@ test("npm propagation recovery verifies the original published tarball", () => {
 
   assert.equal(
     build.steps.find((step: { name?: string }) => step.name === "Build once").if,
-    "${{ inputs.artifact_run_id == '' }}"
+    "${{ inputs.artifact_run_id == '' && !startsWith(github.ref, 'refs/tags/v') && inputs.tag == '' }}"
   );
   assert.equal(
     build.steps.find((step: { name?: string }) => step.name === "Pack once").if,
-    "${{ inputs.artifact_run_id == '' }}"
+    "${{ inputs.artifact_run_id == '' && !startsWith(github.ref, 'refs/tags/v') && inputs.tag == '' }}"
   );
   const download = release.steps.find(
     (step: { name?: string }) => step.name === "Download the tested tarball"
