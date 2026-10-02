@@ -204,7 +204,9 @@ test("shared set size includes live REGISTRY and retired Designer + Felo + Qwen 
   // Gateway upstreams (cloudflare-ai-gateway + cfaig, helicone, portkey) add four members
   // (431 -> 435).
   // RedRouter adds public `red` plus compatibility `redrouter`; internal id is unchanged.
-  assert.equal(RESERVED_PREFIX_COUNT, 437);
+  // AI Horde aligns its runtime alias with the public `horde` prefix (437 -> 438).
+  assert.equal(isReservedProviderPrefix("horde"), true);
+  assert.equal(RESERVED_PREFIX_COUNT, 438);
 });
 
 test("isReservedProviderPrefix rejects non-string input", () => {
