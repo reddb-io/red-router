@@ -70,6 +70,21 @@ test("discovery, free pricing and a connected provider never implicitly activate
     [],
     "enabling the connection does not activate its inventory"
   );
+  const { runAsProbe } = await import("../../../src/shared/utils/probeOrigin.ts");
+  assert.ok(
+    await runAsProbe(() => getProviderCredentials("openai", null, null, modelId)),
+    "a trusted management diagnostic may test an unselected model"
+  );
+  assert.equal(
+    models.getModelIsHidden("openai", modelId),
+    true,
+    "diagnostics do not persist activation"
+  );
+  assert.equal(
+    await getProviderCredentials("openai", null, null, modelId),
+    null,
+    "normal inference remains blocked after the diagnostic"
+  );
   assert.equal(isComboModelVisible(`openai/${modelId}`), false);
 
   await select("openai", [modelId]);
