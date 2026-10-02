@@ -15,6 +15,8 @@ const keys = await import("../../../src/lib/db/apiKeys.ts");
 const { updateSettings } = await import("../../../src/lib/db/settings.ts");
 const { GET: catalog } = await import("../../../src/app/api/v1/models/route.ts");
 const { GET: capabilities } = await import("../../../src/app/api/v1/capabilities/route.ts");
+const { resolvePriorityDecisionTargets } =
+  await import("../../../src/sse/handlers/priorityRouting.ts");
 const { POST: evaluate } = await import("../../../src/app/api/v1/systemone/route.ts");
 const { commitRemoteRouterCatalog } = await import("../../../src/lib/db/remoteRouterCatalog.ts");
 const { remoteRouterSnapshot } =
@@ -110,6 +112,18 @@ test("S1 discovery agrees across keys, transparency, federation and immediate po
     "a cached remote-key projection never leaks across keys"
   );
 
+  const combined = await keys.createApiKey("Both routes", "tests", [], {
+    allowedConnections: [String(openrouter.id), String(remote.id)],
+  });
+  await updateSettings({ providerPriority: ["red-router", "openrouter"] });
+  assert.deepEqual(
+    await resolvePriorityDecisionTargets({
+      apiKey: combined.key,
+      requestedModel: "openrouter/typesafe/jev-1.13",
+    }),
+    ["openrouter/typesafe/jev-1.13"],
+    "an explicit S1 catalog selection keeps its route regardless of provider precedence"
+  );
   let sends = 0;
   const body = {
     model: "openrouter/typesafe/jev-1.13",

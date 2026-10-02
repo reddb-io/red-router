@@ -117,8 +117,15 @@ export async function resolvePriorityDecisionTargets(input: {
   const policy = await resolveRoutingPolicy(input.tenantId ?? null);
   if (policy.transparent) return null;
   const { aliasToProviderId } = buildAliasMaps();
+  const models = await loadTransparentCatalog(input.apiKey);
+  // Connection-based S1 setup persists the exact catalog route. Preserve that
+  // selection; provider precedence applies when the client selected a bare ID.
+  const exact = models.find(
+    (model) => model.id === input.requestedModel && model.type === "systemone"
+  );
+  if (exact) return [input.requestedModel];
   return orderedTargetsFor(
-    await loadTransparentCatalog(input.apiKey),
+    models,
     input.requestedModel,
     policy.providerPriority,
     (provider) => aliasToProviderId[provider] || provider,
