@@ -1,4 +1,5 @@
 import { isResourceNotFoundResponse } from "./requestResourceErrors.ts";
+import { isRequestTokenReservationFailure } from "./requestTokenReservation.ts";
 import {
   BACKOFF_STEPS_MS,
   EXECUTOR_CONTRACT_VIOLATION_CODE,
@@ -1738,6 +1739,15 @@ export function checkFallbackError(
       shouldFallback: false,
       cooldownMs: 0,
       reason: "request_resource_not_found",
+      skipProviderBreaker: true,
+    };
+  }
+
+  if (isRequestTokenReservationFailure(provider, status, errorText)) {
+    return {
+      shouldFallback: false,
+      cooldownMs: 0,
+      reason: "request_token_reservation",
       skipProviderBreaker: true,
     };
   }

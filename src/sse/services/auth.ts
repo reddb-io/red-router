@@ -172,6 +172,7 @@ import { resolveAccountProxiesFromRegistry } from "./noAuthProxyResolution";
 import { getNoAuthHydrationProviderIds } from "./noAuthProviderSiblings";
 import { loadOptionalNoAuthApiKeyCredentials } from "./noAuthOptionalApiKey";
 import { getResource404Bypass } from "./requestResourceHealth";
+import { isRequestTokenReservationFailure } from "@omniroute/open-sse/services/requestTokenReservation.ts";
 import { isVertexConnectionWidePermissionDenied } from "./vertexErrorClassifier";
 import { maybeAutoDisableBannedAccount } from "./autoDisableBannedAccount";
 import {
@@ -2684,6 +2685,10 @@ export async function markAccountUnavailable(
     correlationId?: string | null;
   } = {}
 ) {
+  // Preserve the upstream 402 without locking a model that can serve smaller requests.
+  if (isRequestTokenReservationFailure(provider, status, errorText)) {
+    return { shouldFallback: false, cooldownMs: 0 };
+  }
   const currentMutex = markMutexes.get(connectionId) || Promise.resolve();
   let resolveMutex: (() => void) | undefined;
   markMutexes.set(
