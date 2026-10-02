@@ -378,10 +378,48 @@ async function verifyBundledCatalog(baseUrl, cliToken, expectedManifest) {
       "Installed offline catalog differs from the shipped snapshot or enabled runtime sync"
     );
   }
-  const models = await fetch(`${baseUrl}/v1/models`);
-  const catalog = await models.json();
-  if (!models.ok || !Array.isArray(catalog.data) || catalog.data.length !== 0) {
-    throw new Error("Bundled catalog must not opt in any model on a fresh installation");
+  const unauthenticated = await fetch(`${baseUrl}/v1/models`);
+  if (unauthenticated.status !== 401) {
+    throw new Error(`Protected catalog without credentials HTTP ${unauthenticated.status}`);
+  }
+
+  // The machine token authorizes management, not the inference catalog. Create an
+  // unrestricted client key so key restrictions cannot mask accidental activation.
+  const created = await fetch(`${baseUrl}/api/keys`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-omniroute-cli-token": cliToken },
+    body: JSON.stringify({ name: "pack-boot-catalog", modelAccessMode: "all", scopes: [] }),
+  });
+  if (created.status !== 201)
+    throw new Error(`Catalog fixture key creation HTTP ${created.status}`);
+  const fixture = await created.json().catch(() => null);
+  if (
+    typeof fixture?.id !== "string" ||
+    typeof fixture?.key !== "string" ||
+    fixture.modelAccessMode !== "all"
+  ) {
+    throw new Error("Catalog fixture key creation returned an invalid response");
+  }
+  try {
+    const models = await fetch(`${baseUrl}/v1/models`, {
+      headers: { Authorization: `Bearer ${fixture.key}` },
+    });
+    if (!models.ok) throw new Error(`Authenticated installed catalog HTTP ${models.status}`);
+    const catalog = await models.json().catch(() => null);
+    if (!Array.isArray(catalog?.data)) {
+      throw new Error("Authenticated installed catalog returned an invalid models response");
+    }
+    if (catalog.data.length !== 0) {
+      throw new Error(
+        `Fresh installation catalog exposes ${catalog.data.length} models before opt-in`
+      );
+    }
+  } finally {
+    const deleted = await fetch(`${baseUrl}/api/keys/${encodeURIComponent(fixture.id)}`, {
+      method: "DELETE",
+      headers: { "x-omniroute-cli-token": cliToken },
+    });
+    if (!deleted.ok) throw new Error(`Catalog fixture key cleanup HTTP ${deleted.status}`);
   }
 }
 
