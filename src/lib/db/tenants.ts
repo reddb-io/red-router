@@ -10,6 +10,7 @@
 import { v4 as uuidv4 } from "uuid";
 import { getDbInstance } from "./core";
 import { clearApiKeyCaches } from "./apiKeys";
+import { invalidateDbCache } from "./readCache";
 import { isInstanceWideScope } from "./tenantScope";
 
 export const DEFAULT_TENANT_ID = "red";
@@ -344,6 +345,7 @@ export function assignResourcesToTenant(
   });
   run();
   clearApiKeyCaches();
+  invalidateDbCache();
   return moved;
 }
 

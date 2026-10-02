@@ -1690,6 +1690,9 @@ function clearPreparedStatementCache() {
  */
 export function clearApiKeyCaches() {
   invalidateCaches();
+  // Tenant ownership and sharing updates call this boundary too: discovery
+  // must not keep a projection computed before the effective key scope changed.
+  invalidateModelCatalogCache();
 }
 
 /**

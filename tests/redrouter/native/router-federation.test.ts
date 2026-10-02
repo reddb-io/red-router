@@ -332,13 +332,13 @@ test("a selected connection cannot use another credential's decision catalog", a
   assert.equal(requests.length, 0);
 });
 
-test("opaque model names retain role and route S1 by provider priority", async () => {
+test("decision discovery preserves qualified routes while legacy bare S1 requests use provider priority", async () => {
   await updateSettings({ transparentModels: false, providerPriority: ["red-router"] });
   resetPriorityRoutingForTests();
   try {
     const models = await catalog("decision");
-    assert.ok(models.some((m) => m.id === "jev-1.13"));
-    assert.ok(models.every((m) => !String(m.id).includes("/")));
+    assert.ok(models.some((m) => m.id === publicId));
+    assert.ok(models.every((m) => String(m.id).includes("/")));
     const response = await decision("jev-1.13");
     assert.equal(response.status, 200, await response.clone().text());
     const s2 = await catalog("chat");
@@ -417,7 +417,7 @@ test("tenant owner pins hide decision routes for restricted keys without widenin
   );
   assert.deepEqual(
     (await models.json()).data.map((m: { id: string }) => m.id),
-    ["jev-1.13"]
+    [publicId]
   );
   const response = await handleSystemOne(
     new Request("http://localhost/v1/systemone", {

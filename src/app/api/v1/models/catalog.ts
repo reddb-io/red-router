@@ -427,6 +427,15 @@ async function buildUnifiedModelsResponseCore(
       totalConnectionCount = connections.length;
       // Filter to only active connections
       connections = connections.filter((c) => c.isActive === true);
+      const token = extractApiKey(request);
+      if (token) {
+        const { getApiKeyMetadata } = await import("@/lib/db/apiKeys");
+        const scope = (await getApiKeyMetadata(token))?.allowedConnections;
+        if (scope?.length) {
+          const allowed = new Set(scope);
+          connections = connections.filter((connection) => allowed.has(String(connection.id)));
+        }
+      }
     } catch (e) {
       // If database not available, show no provider models (safe default)
       console.log("[catalog] Could not fetch providers:", e);

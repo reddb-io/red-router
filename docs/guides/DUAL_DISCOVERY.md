@@ -1,3 +1,7 @@
+---
+title: Dual reasoning discovery
+---
+
 # Dual reasoning discovery
 
 Select S1 from `GET /v1/models?capabilities=decision`. Each authorized decision
