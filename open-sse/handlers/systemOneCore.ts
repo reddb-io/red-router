@@ -84,7 +84,10 @@ export function resolveSystemOneTarget(requestedModel?: string): SystemOneTarget
   const config = REGISTRY[provider]?.systemOneConfig;
   if (!config) return null;
   if (provider === "openrouter") {
-    if (model !== "typesafe/jev-1.13" && !Object.hasOwn(config.modelMap ?? {}, model)) {
+    if (
+      !/^typesafe\/jev-\d+(?:[.][0-9]+)*(?:-[a-z0-9._-]+)?$/.test(model) &&
+      !Object.hasOwn(config.modelMap ?? {}, model)
+    ) {
       return null;
     }
   } else if (provider === "opencode") {

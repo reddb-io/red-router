@@ -22,3 +22,16 @@ export function getAllSystemOneModels(): SystemOneModel[] {
   }
   return models;
 }
+
+/** Management inventory supplements chat discovery without activating any model. */
+export function getSystemOneModelsByProvider(providerId: string) {
+  const entry = Object.values(REGISTRY).find(
+    (provider) => provider.id === providerId || provider.alias === providerId
+  );
+  return (entry?.systemOneConfig?.models ?? []).map((model) => ({
+    id: model.id,
+    name: model.name,
+    source: "system",
+    supportedEndpoints: ["systemone", "decisions"],
+  }));
+}

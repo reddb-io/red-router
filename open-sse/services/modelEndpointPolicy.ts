@@ -116,7 +116,7 @@ function classifySystemOneModel(provider: string, modelId: string): ModelEndpoin
   const id = modelId.trim().toLowerCase();
   const decisionOnly =
     provider === "typesafe-ai" ||
-    (provider === "openrouter" && id.startsWith("typesafe/jev-")) ||
+    (provider === "openrouter" && /^typesafe\/jev-(?:latest|preview|\d+(?:[.-]|$))/.test(id)) ||
     ((provider === "opencode" || provider === "opencode-zen") && /^jev-[a-z0-9]/.test(id));
   return decisionOnly
     ? { kind: "systemone", chatSelectable: false, reason: "provider-policy" }

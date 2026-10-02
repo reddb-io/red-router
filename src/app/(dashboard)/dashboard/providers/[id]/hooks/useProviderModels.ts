@@ -144,7 +144,15 @@ export function useProviderModels(
           if (Array.isArray(syncData.models)) {
             setSyncedCatalog({
               providerId,
-              models: syncData.models,
+              // Decision providers often omit JEV from their chat /models response.
+              // Include the separate management registry so the operator can opt in.
+              models: [
+                ...syncData.models,
+                ...(Array.isArray(syncData.decisionModels) ? syncData.decisionModels : []).filter(
+                  (model: { id: string }) =>
+                    !syncData.models.some((synced: { id: string }) => synced.id === model.id)
+                ),
+              ],
               authoritative: syncData.authoritative === true,
             });
           }

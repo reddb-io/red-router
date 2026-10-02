@@ -1,3 +1,4 @@
+import { getSystemOneModelsByProvider } from "@omniroute/open-sse/config/systemOneRegistry";
 import { getAllSyncedAvailableModels } from "@/lib/db/models";
 import { enrichCursorCatalog, getActiveSyncedCatalog } from "@/lib/db/models/activeSyncedCatalog";
 import { isAuthenticated } from "@/shared/utils/apiAuth";
@@ -25,6 +26,7 @@ export async function GET(request: Request) {
       return Response.json({
         ...catalog,
         models: enrichCursorCatalog(provider, catalog.models),
+        decisionModels: getSystemOneModelsByProvider(provider),
       });
     }
 

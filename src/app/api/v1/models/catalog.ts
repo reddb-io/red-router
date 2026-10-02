@@ -1314,17 +1314,26 @@ async function buildUnifiedModelsResponseCore(
               }))
             )
           : syncedModels) {
-          const remoteDecision =
-            canonicalProviderId === "red-router" &&
+          const decisionSource =
+            (canonicalProviderId === "red-router" ||
+              !!REGISTRY[canonicalProviderId]?.systemOneConfig) &&
             getModelEndpointDecision(canonicalProviderId, sm.id, sm.supportedEndpoints).kind ===
               "systemone";
-          if (!remoteDecision && !isUnifiedChatSourceModelSelectable(canonicalProviderId, sm))
+          if (!decisionSource && !isUnifiedChatSourceModelSelectable(canonicalProviderId, sm))
             continue;
           if (!providerSupportsModel(canonicalProviderId, sm.id)) continue;
           if (canonicalProviderId === "codex" && isCodexDiscoveryModelExcluded(sm)) {
             continue;
           }
-          if (isModelHiddenBulk(providerId, sm.id, canonicalProviderId)) continue;
+          if (
+            isModelHiddenBulk(
+              providerId,
+              sm.id,
+              canonicalProviderId,
+              decisionSource ? "systemone" : "chat"
+            )
+          )
+            continue;
           if (isExcludedByProviderConnections(canonicalProviderId, sm.id)) continue;
           // #6457: some upstream discovery catalogs (e.g. HuggingFace's live
           // `/v1/models`) return image/diffusion models with no modality info,
@@ -1362,7 +1371,7 @@ async function buildUnifiedModelsResponseCore(
           const endpoints = nodeModelEndpoints(sm.supportedEndpoints, nodeApiTypes[providerId]);
           const apiFormat = typeof sm.apiFormat === "string" ? sm.apiFormat : "chat-completions";
           const classification = classifyModelSupportedEndpoints(endpoints);
-          const modelType = remoteDecision ? "systemone" : classification.type;
+          const modelType = decisionSource ? "systemone" : classification.type;
           // Same owned_by the alias/canonical entries below will carry — computed once
           // so the effort_tiers exclusion (codex/glm/kimi) and the entries agree.
           const syncedOwnedBy = resolvePublicOwnerId(providerId, canonicalProviderId);
@@ -1843,10 +1852,26 @@ async function buildUnifiedModelsResponseCore(
         for (const model of providerCustomModels) {
           const modelId = typeof model.id === "string" ? model.id : null;
           if (!modelId) continue;
-          if (!isUnifiedChatSourceModelSelectable(canonicalProviderId, { ...model, id: modelId }))
+          const decisionSource =
+            (canonicalProviderId === "red-router" ||
+              !!REGISTRY[canonicalProviderId]?.systemOneConfig) &&
+            getModelEndpointDecision(canonicalProviderId, modelId, model.supportedEndpoints)
+              .kind === "systemone";
+          if (
+            !decisionSource &&
+            !isUnifiedChatSourceModelSelectable(canonicalProviderId, { ...model, id: modelId })
+          )
             continue;
           if (model.isHidden === true) continue;
-          if (isModelHiddenBulk(providerId, modelId, canonicalProviderId)) continue;
+          if (
+            isModelHiddenBulk(
+              providerId,
+              modelId,
+              canonicalProviderId,
+              decisionSource ? "systemone" : "chat"
+            )
+          )
+            continue;
           if (isExcludedByProviderConnections(canonicalProviderId, modelId)) continue;
           // #6328: apply hidePaidModels to user-defined custom rows too. A local custom
           // row flagged isFree:true stays trusted, even outside the free-tier catalog.
@@ -1919,7 +1944,7 @@ async function buildUnifiedModelsResponseCore(
           const apiFormat =
             typeof model.apiFormat === "string" ? model.apiFormat : "chat-completions";
           const classification = classifyModelSupportedEndpoints(endpoints);
-          const modelType = classification.type;
+          const modelType = decisionSource ? "systemone" : classification.type;
           if (
             modelType &&
             hasEquivalentSpecialtyModel(canonicalProviderId, modelId, modelType, aliasId)

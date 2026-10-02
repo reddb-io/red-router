@@ -285,7 +285,7 @@ export default function CompatibleModelsSection({
     };
 
     for (const model of availableModels) {
-      addModel(model, "imported");
+      addModel(model, model.source === "system" ? "system" : "imported");
     }
 
     for (const model of customModels) {

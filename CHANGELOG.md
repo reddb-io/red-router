@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.57.7
+
+### Patch Changes
+
+- Expose the separate JEV decision registry in provider management so users can explicitly activate System One models even when chat discovery omits them. Preserve selected synced decision models and their protocol in the public catalog consumed by RedCode. Keep OpenRouter's Jev Router chat model distinct from JEV decision models.
+
 ## 0.57.6
 
 ### Patch Changes

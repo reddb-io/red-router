@@ -102,7 +102,7 @@ it("keeps discovered records in Models and paginates manual custom models in gro
 
 it("searches the entire custom inventory and changes only matching models", async () => {
   await render();
-  const search = container.querySelector<HTMLInputElement>('input[placeholder="Filter models…"]')!;
+  const search = container.querySelector<HTMLInputElement>('input[type="text"]:not([id])')!;
   await act(async () => {
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(
       search,
@@ -128,4 +128,32 @@ it("preserves legacy manual entries and leaves selections unchanged when bulk sa
   expect(onModelsChanged).not.toHaveBeenCalled();
   expect(stored[0].isHidden).toBe(false);
   expect(button("Deactivate all matching models").disabled).toBe(false);
+});
+
+it("refreshes Custom Models when importing changes a previously manual record", async () => {
+  stored = [{ id: "previously-manual", source: "manual", isHidden: false }];
+  await act(async () =>
+    root.render(
+      <CustomModelsSection
+        providerId="karavela"
+        providerAlias="karavela"
+        onCopy={vi.fn()}
+        inventoryModels={stored}
+      />
+    )
+  );
+  expect(container.textContent).toContain("karavela/previously-manual");
+  stored = [{ id: "previously-manual", source: "imported", isHidden: false }];
+  await act(async () =>
+    root.render(
+      <CustomModelsSection
+        providerId="karavela"
+        providerAlias="karavela"
+        onCopy={vi.fn()}
+        inventoryModels={stored}
+      />
+    )
+  );
+  expect(container.textContent).not.toContain("karavela/previously-manual");
+  expect(stored[0].isHidden).toBe(false);
 });
