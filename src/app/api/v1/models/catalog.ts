@@ -4,7 +4,7 @@ import {
 } from "@/shared/utils/modelVisibility";
 import { activationModelIds } from "@omniroute/open-sse/services/modelActivationIdentity";
 import { PROVIDER_MODELS, PROVIDER_ID_TO_ALIAS } from "@/shared/constants/models";
-import { isTransparentCatalogRequest } from "./catalogTransparency";
+import { isProviderQualifiedCatalogRequest } from "./catalogTransparency";
 import { parseCatalogCapabilities } from "./catalogCapabilities";
 import { resolveRoutingPolicy } from "@/lib/routing/routingPolicy";
 import { collapseCatalogToBare } from "@/lib/routing/bareModels";
@@ -2255,7 +2255,7 @@ async function buildUnifiedModelsResponseCore(
     // owner delegated, the tenant's admin) turned that off, each chat model is listed once under its
     // bare name from the provider that ranks first, and the router picks the provider itself.
     // The router's own lookups ask for the transparent view (they need to know who offers what).
-    if (!isTransparentCatalogRequest(request)) {
+    if (!isProviderQualifiedCatalogRequest(request)) {
       const routingPolicy = await resolveRoutingPolicy(routingTenantId);
       if (!routingPolicy.transparent) {
         finalModels = collapseCatalogToBare(

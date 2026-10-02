@@ -22,7 +22,10 @@ import { buildErrorBody } from "@omniroute/open-sse/utils/error";
 
 import { catalogPageCacheKey, catalogStringResponse, parseCatalogPage } from "./catalogPagination";
 import { isCodexModelCatalogClient } from "./catalogRequest";
-import { isTransparentCatalogRequest } from "./catalogTransparency";
+import {
+  isTransparentCatalogRequest,
+  isProviderQualifiedCatalogRequest,
+} from "./catalogTransparency";
 import { catalogCapabilityCacheKey } from "./catalogCapabilities";
 
 /** Fingerprint an API key for the catalog memo Map. Never store the raw secret. */
@@ -210,7 +213,11 @@ function buildCatalogCacheKey(request: Request, catalogSettings?: CatalogCacheOp
   const hideNoThink = catalogSettings?.hideNoThinkVariants ? "1" : "0";
   const page = catalogPageCacheKey(parseCatalogPage(request));
   // The router's own transparent view (see catalogTransparency.ts) is a separate cache entry.
-  const transparent = isTransparentCatalogRequest(request) ? "t" : "-";
+  const transparent = isTransparentCatalogRequest(request)
+    ? "t"
+    : isProviderQualifiedCatalogRequest(request)
+      ? "d"
+      : "-";
   const capabilities = catalogCapabilityCacheKey(request);
   return `${prefix}|${isCodex}|${fingerprintCatalogAuthKey(apiKey)}|${configuredOnly}|${hideAuto}|${hideNoThink}|${page}|${transparent}|${capabilities}`;
 }

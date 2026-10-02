@@ -205,8 +205,7 @@ export default function StudioConfigPane({ configState, setConfigState }: Studio
             value={provider}
             onChange={(e) => {
               setProvider(e.target.value);
-              update("provider", e.target.value);
-              update("model", "");
+              setConfigState({ ...configState, provider: e.target.value, model: "" });
             }}
             disabled={loadingProviders}
             className="w-full text-xs bg-surface border border-border rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-primary text-text-main"

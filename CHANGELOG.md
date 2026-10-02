@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.57.5
+
+### Patch Changes
+
+- Keep the dashboard playground provider picker working when public model discovery hides provider prefixes. Use a management-authenticated catalog with provider-qualified IDs, preserve explicit model activation and effort compatibility settings, and keep the public catalog unchanged. Update provider and model selection together so changing a provider does not silently restore the previous one.
+
 ## 0.57.4
 
 ### Patch Changes

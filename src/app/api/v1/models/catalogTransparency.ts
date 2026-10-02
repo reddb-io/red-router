@@ -15,3 +15,16 @@ export function markTransparentCatalogRequest<T extends Request>(request: T): T 
 export function isTransparentCatalogRequest(request: Request): boolean {
   return transparentRequests.has(request);
 }
+
+// The authenticated dashboard needs provider-qualified IDs for its provider picker,
+// while preserving the public effort-alias compatibility setting.
+const dashboardRequests = new WeakSet<Request>();
+
+export function markDashboardCatalogRequest<T extends Request>(request: T): T {
+  dashboardRequests.add(request);
+  return request;
+}
+
+export function isProviderQualifiedCatalogRequest(request: Request): boolean {
+  return isTransparentCatalogRequest(request) || dashboardRequests.has(request);
+}

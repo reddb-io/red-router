@@ -52,7 +52,7 @@ export function useAvailableModels(provider?: string) {
   useEffect(() => {
     const fetchModels = async () => {
       try {
-        const res = await fetch("/api/v1/models");
+        const res = await fetch("/api/playground/models");
         const data = await res.json();
         const entries = data.data || [];
         const models = entries.map((m) => m.id).sort((a, b) => compareTr(a, b));
