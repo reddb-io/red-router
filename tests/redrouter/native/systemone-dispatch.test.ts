@@ -312,3 +312,42 @@ test("a pinned evaluator uses only the chosen connection and never widens a deni
   assert.equal(allowed.response.status, 200);
   assert.ok(events.includes("forward"));
 });
+
+test("federated S1 honors an advertised decisions alias without accepting arbitrary credential destinations", async () => {
+  const remoteTarget = resolveSystemOneTarget("red/red/openrouter/typesafe/jev-1.13")!;
+  for (const endpoint of ["/v1/decisions", "https://untrusted.example/decisions"]) {
+    const { dependencies } = setup({
+      credentials: async () =>
+        ({
+          connectionId: "remote",
+          apiKey: "remote-key",
+          providerSpecificData: { baseUrl: "https://remote.example/v1" },
+        }) as Awaited<ReturnType<NonNullable<Dependencies["credentials"]>>>,
+      catalog: (snapshot) => ({
+        fingerprint: snapshot.fingerprint,
+        syncedAt: Date.now(),
+        models: [
+          {
+            id: remoteTarget.model,
+            capabilities: { decision: true },
+            supported_endpoints: [endpoint],
+          },
+        ],
+      }),
+      forward: async (resolved) => {
+        assert.equal(resolved.model, "red/openrouter/typesafe/jev-1.13");
+        assert.equal(
+          resolved.url,
+          endpoint === "/v1/decisions"
+            ? "https://remote.example/v1/decisions"
+            : "https://remote.example/v1/systemone"
+        );
+        return { response: Response.json({ answers: {} }), usage: null };
+      },
+    });
+    assert.equal(
+      (await dispatchSystemOne(remoteTarget, body, options, dependencies)).response.status,
+      200
+    );
+  }
+});

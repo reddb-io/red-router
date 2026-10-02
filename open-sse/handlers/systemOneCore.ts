@@ -108,6 +108,70 @@ export function systemOneResponseHeaders(upstream: Response): Headers {
   return headers;
 }
 
+/** Classify bounded upstream errors without returning their potentially sensitive text. */
+async function classifySystemOneError(upstream: Response): Promise<string> {
+  if ([401, 403].includes(upstream.status)) {
+    await upstream.body?.cancel().catch(() => undefined);
+    return "systemone_credential_rejected";
+  }
+  if (upstream.status === 405) {
+    await upstream.body?.cancel().catch(() => undefined);
+    return "systemone_endpoint_not_found";
+  }
+  let error: Record<string, unknown> | null = null;
+  try {
+    const payload = await readBoundedResponseJson(upstream);
+    if (payload && typeof payload === "object" && !Array.isArray(payload)) {
+      const nested = (payload as Record<string, unknown>).error;
+      if (nested && typeof nested === "object" && !Array.isArray(nested))
+        error = nested as Record<string, unknown>;
+    }
+  } catch {
+    /* Non-JSON errors do not establish whether a route or model is missing. */
+  }
+  const code = typeof error?.code === "string" ? error.code : "";
+  const message = typeof error?.message === "string" ? error.message : "";
+  if (
+    [400, 404, 422, 503].includes(upstream.status) &&
+    (/^(model_not_found|model_unavailable|invalid_model|no_available_provider)$/.test(code) ||
+      /(?:model.{0,80}(?:not found|does not exist|unavailable)|no (?:available )?(?:endpoints|providers).{0,80}(?:model|available))/i.test(
+        message
+      ))
+  )
+    return "systemone_model_unavailable";
+  if (
+    upstream.status === 404 &&
+    (/^(endpoint_not_found|route_not_found)$/.test(code) ||
+      /(?:endpoint|route).{0,80}(?:not found|does not exist)/i.test(message))
+  )
+    return "systemone_endpoint_not_found";
+  return upstream.status === 404 ? "systemone_resource_not_found" : "systemone_upstream_http_error";
+}
+
+function validSystemOneAnswers(
+  answers: Record<string, unknown>,
+  questions: Record<string, unknown>
+): boolean {
+  return Object.entries(questions).every(([id, question]) => {
+    const answer = answers[id];
+    if (!answer || typeof answer !== "object" || Array.isArray(answer)) return false;
+    const row = answer as Record<string, unknown>;
+    const type =
+      question && typeof question === "object"
+        ? (question as Record<string, unknown>).type
+        : undefined;
+    if (row.type !== undefined && row.type !== type) return false;
+    if (type === "noul")
+      return (
+        typeof row.noul === "number" && Number.isFinite(row.noul) && row.noul >= 0 && row.noul <= 1
+      );
+    if (type === "score") return typeof row.score === "number" && Number.isFinite(row.score);
+    if (type === "choice") return typeof row.choice === "string";
+    // The upstream owns future question types; require the keyed object without discarding extensions.
+    return true;
+  });
+}
+
 /** Keep upstream status/retry hints but never expose raw upstream error text. */
 export async function forwardSystemOne(
   target: SystemOneTarget,
@@ -118,7 +182,11 @@ export async function forwardSystemOne(
   if (!token && target.provider !== "opencode") {
     return {
       response: new Response(
-        JSON.stringify(buildErrorBody(401, "System One credential required")),
+        JSON.stringify(
+          buildErrorBody(401, "System One credential required", undefined, {
+            code: "systemone_credential_required",
+          })
+        ),
         {
           status: 401,
           headers: { "content-type": "application/json" },
@@ -159,7 +227,11 @@ export async function forwardSystemOne(
   } catch {
     return {
       response: new Response(
-        JSON.stringify(buildErrorBody(502, "System One upstream unavailable")),
+        JSON.stringify(
+          buildErrorBody(502, "System One upstream unavailable", undefined, {
+            code: "systemone_transport_failure",
+          })
+        ),
         {
           status: 502,
           headers: { "content-type": "application/json" },
@@ -171,10 +243,14 @@ export async function forwardSystemOne(
 
   const headers = systemOneResponseHeaders(upstream);
   if (!upstream.ok) {
-    await upstream.body?.cancel().catch(() => undefined);
+    const code = await classifySystemOneError(upstream);
     return {
       response: new Response(
-        JSON.stringify(buildErrorBody(upstream.status, "System One upstream rejected the request")),
+        JSON.stringify(
+          buildErrorBody(upstream.status, "System One upstream rejected the request", undefined, {
+            code,
+          })
+        ),
         { status: upstream.status, headers }
       ),
       usage: null,
@@ -188,20 +264,39 @@ export async function forwardSystemOne(
   }
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
     return {
-      response: new Response(JSON.stringify(buildErrorBody(502, "Invalid System One response")), {
-        status: 502,
-        headers,
-      }),
+      response: new Response(
+        JSON.stringify(
+          buildErrorBody(502, "Invalid System One response", undefined, {
+            code: "systemone_invalid_response",
+          })
+        ),
+        {
+          status: 502,
+          headers,
+        }
+      ),
       usage: null,
     };
   }
   const result = payload as Record<string, unknown>;
-  if (!result.answers || typeof result.answers !== "object" || Array.isArray(result.answers)) {
+  if (
+    !result.answers ||
+    typeof result.answers !== "object" ||
+    Array.isArray(result.answers) ||
+    !validSystemOneAnswers(result.answers as Record<string, unknown>, body.questions)
+  ) {
     return {
-      response: new Response(JSON.stringify(buildErrorBody(502, "Invalid System One answers")), {
-        status: 502,
-        headers,
-      }),
+      response: new Response(
+        JSON.stringify(
+          buildErrorBody(502, "Invalid System One answers", undefined, {
+            code: "systemone_invalid_response",
+          })
+        ),
+        {
+          status: 502,
+          headers,
+        }
+      ),
       usage: null,
     };
   }

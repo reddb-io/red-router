@@ -28,3 +28,19 @@ export function markDashboardCatalogRequest<T extends Request>(request: T): T {
 export function isProviderQualifiedCatalogRequest(request: Request): boolean {
   return isTransparentCatalogRequest(request) || dashboardRequests.has(request);
 }
+
+// S1 selection binds a connection and therefore needs a complete routing ID,
+// even when ordinary S2 discovery follows the tenant's transparent=off policy.
+const decisionRequests = new WeakSet<Request>();
+export function markDecisionCatalogRequest<T extends Request>(request: T): T {
+  decisionRequests.add(request);
+  return request;
+}
+export function isDecisionCatalogRequest(request: Request): boolean {
+  return (
+    decisionRequests.has(request) ||
+    new URL(request.url).searchParams
+      .getAll("capabilities")
+      .some((value) => value.split(",").some((item) => item.trim() === "decision"))
+  );
+}

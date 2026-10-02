@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { markDecisionCatalogRequest } from "@/app/api/v1/models/catalogTransparency";
+import { filterCatalogCapabilities } from "@/app/api/v1/models/catalogCapabilities";
 
 import { errorResponse } from "../utils/error";
 import { computeCatalogVersion } from "@/lib/catalogVersion";
@@ -181,11 +183,13 @@ export async function handleCatalogDiscovery(
     // The unified catalog's x-api-key support is Anthropic-specific. Normalize
     // a validated discovery credential to preserve the same key's visibility.
     if (token) headers.set("Authorization", `Bearer ${token}`);
-    const source = await deps.catalog(new Request(url, { headers, signal: request.signal }));
+    const source = await deps.catalog(
+      markDecisionCatalogRequest(new Request(url, { headers, signal: request.signal }))
+    );
     if (!source.ok) return privateResponse(source);
     const models = catalogSchema.parse(await source.json()).data;
     const version = catalogVersion(models);
-    const systemOneModels = models.filter((model) => model.type === "systemone");
+    const systemOneModels = filterCatalogCapabilities(models, ["decision"]);
     const body =
       kind === "catalog"
         ? {

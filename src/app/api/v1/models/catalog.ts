@@ -4,8 +4,8 @@ import {
 } from "@/shared/utils/modelVisibility";
 import { activationModelIds } from "@omniroute/open-sse/services/modelActivationIdentity";
 import { PROVIDER_MODELS, PROVIDER_ID_TO_ALIAS } from "@/shared/constants/models";
-import { isProviderQualifiedCatalogRequest } from "./catalogTransparency";
-import { parseCatalogCapabilities } from "./catalogCapabilities";
+import { isProviderQualifiedCatalogRequest, isDecisionCatalogRequest } from "./catalogTransparency";
+import { parseCatalogCapabilities, filterCatalogCapabilities } from "./catalogCapabilities";
 import { resolveRoutingPolicy } from "@/lib/routing/routingPolicy";
 import { collapseCatalogToBare } from "@/lib/routing/bareModels";
 import { catalogVersionFromBody } from "@/lib/catalogVersion";
@@ -2201,7 +2201,13 @@ async function buildUnifiedModelsResponseCore(
         // preference, not an access control — dispatch is unaffected either way.
         const catalogScope = keyMeta.catalogScope ?? "all";
         const filtered = [];
+        const decisionsDenied =
+          keyMeta.allowedEndpoints?.length > 0 && !keyMeta.allowedEndpoints.includes("decisions");
+        const deniedDecisions = new Set(
+          decisionsDenied ? filterCatalogCapabilities(models, ["decision"]) : []
+        );
         for (const m of models) {
+          if (deniedDecisions.has(m)) continue;
           const isComboRow = m.owned_by === "combo";
           if (catalogScope === "combos" && !isComboRow) continue;
           if (catalogScope === "models" && isComboRow) continue;
@@ -2283,11 +2289,18 @@ async function buildUnifiedModelsResponseCore(
     if (!isProviderQualifiedCatalogRequest(request)) {
       const routingPolicy = await resolveRoutingPolicy(routingTenantId);
       if (!routingPolicy.transparent) {
-        finalModels = collapseCatalogToBare(
-          finalModels,
-          routingPolicy.providerPriority,
-          (providerId) => aliasToProviderId[providerId] || providerId
-        );
+        const decisions = isDecisionCatalogRequest(request)
+          ? filterCatalogCapabilities(finalModels, ["decision"])
+          : [];
+        const preserved = new Set(decisions);
+        finalModels = [
+          ...decisions,
+          ...collapseCatalogToBare(
+            finalModels.filter((model) => !preserved.has(model)),
+            routingPolicy.providerPriority,
+            (providerId) => aliasToProviderId[providerId] || providerId
+          ),
+        ];
       }
     }
 

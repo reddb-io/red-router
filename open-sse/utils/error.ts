@@ -48,6 +48,15 @@ export type ErrorBodyClassification = {
 
 const PUBLIC_ERROR_IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const SAFE_PUBLIC_ERROR_IDENTIFIERS = new Set([
+  "systemone_credential_required",
+  "systemone_credential_rejected",
+  "systemone_endpoint_not_found",
+  "systemone_resource_not_found",
+  "systemone_model_unavailable",
+  "systemone_transport_failure",
+  "systemone_invalid_response",
+  "systemone_upstream_http_error",
+  "systemone_connection_unavailable",
   "abort",
   "aborted",
   "account_semaphore_capacity",

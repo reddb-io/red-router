@@ -171,15 +171,25 @@ export async function dispatchSystemOne(
           try {
             const snapshot = remoteRouterSnapshot({ ...credentials, provider: "red-router", id });
             const catalog = deps.catalog(snapshot);
-            if (
-              !catalog?.models.some(
-                (model) => model.id === target.model && isRemoteDecisionModel(model)
-              )
-            ) {
+            const model = catalog?.models.find(
+              (model) => model.id === target.model && isRemoteDecisionModel(model)
+            );
+            if (!model) {
               excluded.push(id);
               continue;
             }
-            effectiveTarget = { ...target, url: redRouterEndpoint(snapshot.url, "systemone") };
+            // Honor a remote model's advertised route, restricted to the two native aliases.
+            // Never trust catalog metadata to redirect credentials to an arbitrary URL.
+            const advertised = model.supported_endpoints
+              ?.map((endpoint) => endpoint.replace(/^\/?(?:v1\/)?/, ""))
+              .find((endpoint) => endpoint === "systemone" || endpoint === "decisions");
+            effectiveTarget = {
+              ...target,
+              url: redRouterEndpoint(
+                snapshot.url,
+                advertised === "decisions" ? "decisions" : "systemone"
+              ),
+            };
           } catch {
             excluded.push(id);
             continue;
@@ -303,7 +313,11 @@ export async function dispatchSystemOne(
       }
     }
     return {
-      response: last ?? errorResponse(503, `No System One connection for ${target.provider}`),
+      response:
+        last ??
+        errorResponse(503, `No System One connection for ${target.provider}`, {
+          code: "systemone_connection_unavailable",
+        }),
       accountingSucceeded: false,
     };
   } finally {

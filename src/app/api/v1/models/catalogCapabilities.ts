@@ -66,6 +66,7 @@ export function withCatalogRoleCapabilities(model: CatalogModel): CatalogModel {
   return {
     ...model,
     type: "systemone",
+    availability: "not_probed",
     supported_endpoints: ["systemone", "decisions"],
     capabilities,
   };

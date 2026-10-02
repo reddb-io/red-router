@@ -808,7 +808,8 @@ export async function updateApiKeyPermissions(
     normalized.allowedQuotas !== undefined ||
     normalized.disableNonPublicModels !== undefined ||
     normalized.allowAutoCombos !== undefined ||
-    normalized.catalogScope !== undefined;
+    normalized.catalogScope !== undefined ||
+    normalized.allowedEndpoints !== undefined;
 
   if (
     normalized.name === undefined &&

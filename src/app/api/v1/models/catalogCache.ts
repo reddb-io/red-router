@@ -24,6 +24,7 @@ import { catalogPageCacheKey, catalogStringResponse, parseCatalogPage } from "./
 import { isCodexModelCatalogClient } from "./catalogRequest";
 import {
   isTransparentCatalogRequest,
+  isDecisionCatalogRequest,
   isProviderQualifiedCatalogRequest,
 } from "./catalogTransparency";
 import { catalogCapabilityCacheKey } from "./catalogCapabilities";
@@ -217,7 +218,9 @@ function buildCatalogCacheKey(request: Request, catalogSettings?: CatalogCacheOp
     ? "t"
     : isProviderQualifiedCatalogRequest(request)
       ? "d"
-      : "-";
+      : isDecisionCatalogRequest(request)
+        ? "s1"
+        : "-";
   const capabilities = catalogCapabilityCacheKey(request);
   return `${prefix}|${isCodex}|${fingerprintCatalogAuthKey(apiKey)}|${configuredOnly}|${hideAuto}|${hideNoThink}|${page}|${transparent}|${capabilities}`;
 }
