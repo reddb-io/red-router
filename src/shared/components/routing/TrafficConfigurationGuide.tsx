@@ -9,7 +9,7 @@ const AREAS = [
   },
   {
     id: "routes",
-    href: "/dashboard/api-manager/routing",
+    href: "/proxy/keys/routing",
     label: "Routes",
     description: "Public model IDs and authorized destinations",
   },

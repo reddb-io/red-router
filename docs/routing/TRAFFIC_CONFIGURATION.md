@@ -1,9 +1,13 @@
+---
+title: "Connections, Routes and Effective Policies"
+---
+
 # Connections, routes and effective policies
 
 RedRouter groups traffic configuration into three areas:
 
 - **Connections** (`/proxy/providers`): provider accounts, credentials and destination URLs.
-- **Routes** (`/dashboard/api-manager/routing`): authorized public model IDs, target order and reasoning-routing rules.
+- **Routes** (`/proxy/keys/routing`): authorized public model IDs, target order and reasoning-routing rules.
 - **Policies** (`/system/settings/routing`): model visibility, provider priority and tenant delegation.
 
 These links also appear on the Endpoints screen. Endpoints describes the client-facing protocols;
