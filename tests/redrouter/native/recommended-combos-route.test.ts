@@ -41,16 +41,21 @@ test("GET previews and POST applies the recommended combos with Friday's respons
   await createProviderConnection({
     provider: "openai",
     authType: "apikey",
+    isActive: true,
     name: "OpenAI",
     apiKey: "sk-test-openai",
   });
   await createProviderConnection({
     provider: "anthropic",
     authType: "apikey",
+    isActive: true,
     name: "Anthropic",
     apiKey: "sk-test-anthropic",
   });
 
+  const { activateCatalogFixtureInventory } =
+    await import("../../helpers/modelActivationFixtures.ts");
+  await activateCatalogFixtureInventory();
   const preview = await (await route.GET(new Request(url))).json();
   assert.deepEqual(
     Object.keys(preview).sort(),

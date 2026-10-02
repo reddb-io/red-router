@@ -197,6 +197,12 @@ before(async () => {
     fetch: (url, init) => fetch(url, init),
   });
   assert.equal((await sync(connection)).source, "api");
+  const { activateFixtureModels } = await import("../../helpers/modelActivationFixtures.ts");
+  await activateFixtureModels("red-router", [
+    downstreamId,
+    "red/openrouter/vendor/s2",
+    "different",
+  ]);
   const other = remoteRouterSnapshot(unrelated);
   assert.equal(
     commitRemoteRouterCatalog(other, {

@@ -26,6 +26,7 @@ import ModelRow, { ModelVisibilityToolbar } from "./ModelRow";
 import PassthroughModelsSection from "./PassthroughModelsSection";
 import CompatibleModelsSection from "./CompatibleModelsSection";
 import type { ModelCompatSavePatch } from "../hooks/useModelVisibilityHandlers";
+import PaginatedProviderModels from "./PaginatedProviderModels";
 
 export interface ProviderModelsSectionProps {
   // Provider identity
@@ -499,46 +500,61 @@ export default function ProviderModelsSection({
           onSortFreeFirstChange={setSortFreeFirst}
         />
       )}
-      <div className="flex flex-wrap gap-3">
-        {displayModels.map((model) => {
-          return (
-            <ModelRow
-              key={model.id}
-              model={model}
-              fullModel={`${providerDisplayAlias}/${model.id}`}
-              provider={providerId}
-              alias={aliasByModelId[model.id]}
-              copied={copied}
-              onCopy={onCopy}
-              onSetAlias={(a) => onSetAlias(model.id, a, providerDisplayAlias)}
-              onDeleteAlias={
-                aliasByModelId[model.id] ? () => onDeleteAlias(aliasByModelId[model.id]) : undefined
-              }
-              t={t}
-              showDeveloperToggle
-              effectiveModelNormalize={effectiveModelNormalize}
-              effectiveModelPreserveDeveloper={effectiveModelPreserveDeveloper}
-              getUpstreamHeadersRecord={(p) => getUpstreamHeadersRecordForModel(model.id, p)}
-              saveModelCompatFlags={saveModelCompatFlags}
-              compatDisabled={compatSavingModelId === model.id}
-              onToggleHidden={(modelId, hidden) =>
-                handleToggleModelHidden(providerId, modelId, hidden)
-              }
-              togglingHidden={togglingModelId === model.id}
-              onTestModel={onTestModel}
-              testStatus={modelTestStatus[model.id] || null}
-              testingModel={testingModelId === model.id}
-            />
-          );
-        })}
-        {filteredModels.length === 0 && modelFilter && (
-          <p className="text-sm text-text-muted py-2">
-            {providerText(t, "noModelsMatch", `No models match "${modelFilter}"`, {
-              filter: modelFilter,
+      <PaginatedProviderModels
+        models={displayModels}
+        resetKey={JSON.stringify([
+          providerId,
+          modelFilter,
+          visibilityFilter,
+          freeFilter,
+          sortFreeFirst,
+        ])}
+      >
+        {(pageModels) => (
+          <div className="flex flex-wrap gap-3">
+            {pageModels.map((model) => {
+              return (
+                <ModelRow
+                  key={model.id}
+                  model={model}
+                  fullModel={`${providerDisplayAlias}/${model.id}`}
+                  provider={providerId}
+                  alias={aliasByModelId[model.id]}
+                  copied={copied}
+                  onCopy={onCopy}
+                  onSetAlias={(a) => onSetAlias(model.id, a, providerDisplayAlias)}
+                  onDeleteAlias={
+                    aliasByModelId[model.id]
+                      ? () => onDeleteAlias(aliasByModelId[model.id])
+                      : undefined
+                  }
+                  t={t}
+                  showDeveloperToggle
+                  effectiveModelNormalize={effectiveModelNormalize}
+                  effectiveModelPreserveDeveloper={effectiveModelPreserveDeveloper}
+                  getUpstreamHeadersRecord={(p) => getUpstreamHeadersRecordForModel(model.id, p)}
+                  saveModelCompatFlags={saveModelCompatFlags}
+                  compatDisabled={compatSavingModelId === model.id}
+                  onToggleHidden={(modelId, hidden) =>
+                    handleToggleModelHidden(providerId, modelId, hidden)
+                  }
+                  togglingHidden={togglingModelId === model.id}
+                  onTestModel={onTestModel}
+                  testStatus={modelTestStatus[model.id] || null}
+                  testingModel={testingModelId === model.id}
+                />
+              );
             })}
-          </p>
+            {filteredModels.length === 0 && modelFilter && (
+              <p className="text-sm text-text-muted py-2">
+                {providerText(t, "noModelsMatch", `No models match "${modelFilter}"`, {
+                  filter: modelFilter,
+                })}
+              </p>
+            )}
+          </div>
         )}
-      </div>
+      </PaginatedProviderModels>
     </div>
   );
 }

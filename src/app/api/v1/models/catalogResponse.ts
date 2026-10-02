@@ -26,6 +26,8 @@ import { buildFunctionalGatewayPredicate } from "./functionalGatewayPredicate";
 import { getPassthroughProviders, REGISTRY } from "@omniroute/open-sse/config/providerRegistry";
 import { hasEligibleConnectionForModel } from "@/domain/connectionModelRules";
 import { dedupeExactCatalogIds } from "./catalogDedupe";
+import { hideRegisteredEffortAliases } from "./catalogEffortAliases";
+import { isTransparentCatalogRequest } from "./catalogTransparency";
 import { sortCatalogModelsProviderGrouped } from "./catalogOrder";
 import {
   disambiguateCatalogModelNames,
@@ -106,6 +108,11 @@ export async function applyCatalogPostFilters(
 ): Promise<Array<Record<string, any>>> {
   const yieldTurn = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
   let finalModels = models;
+  // Bare-model routing resolves legacy IDs through a private transparent catalog.
+  // Hiding aliases in public discovery must not remove that routing vocabulary.
+  // The marker is process-local; public query parameters cannot request this view.
+  const hideEffortAliases =
+    !isTransparentCatalogRequest(request) && isDisableThinkingLevelVariantsEnabled();
   const authorizeSyntheticModel =
     ctx.authorizeSyntheticModel ?? (await resolveCatalogVariantAuthorizer(request));
 
@@ -131,6 +138,10 @@ export async function applyCatalogPostFilters(
     });
   }
 
+  // Registered parameter aliases predate the generated variant passes. Hide them
+  // only if the same route's authorized base survives the filters above.
+  if (hideEffortAliases) finalModels = hideRegisteredEffortAliases(finalModels);
+
   // #9147: the variant-append passes each walk the full model list (O(n) per pass),
   // so a catalog-scale build must not run all of them in one synchronous stretch.
   // Yield once between the expensive passes to let the event loop breathe.
@@ -142,7 +153,7 @@ export async function applyCatalogPostFilters(
   // suffixed ids (claudeEffortVariant.ts), this just makes them selectable in catalog-only
   // clients (OpenCode) that can't set a reasoning_effort config the way VS Code does.
   // Gated like the synced-effort pass below: OMNIROUTE_DISABLE_THINKING_LEVEL_VARIANTS suppresses -low/-medium/-high catalog variants.
-  if (!isDisableThinkingLevelVariantsEnabled()) {
+  if (!hideEffortAliases) {
     const beforeClaudeEffortVariants = finalModels;
     finalModels = await filterUnauthorizedAppendedVariants(
       beforeClaudeEffortVariants,
@@ -233,7 +244,7 @@ export async function applyCatalogPostFilters(
   // #7694: advertise `<provider>/<model>-<tier>` variants for synced models that
   // captured `reasoning.supported_efforts` at sync time (capabilities.effort_tiers).
   // Derived from the already key-filtered list; skips codex/kimi (own suffix mechanism).
-  if (!isDisableThinkingLevelVariantsEnabled()) {
+  if (!hideEffortAliases) {
     const beforeSyncedEffortVariants = finalModels;
     finalModels = await filterUnauthorizedAppendedVariants(
       beforeSyncedEffortVariants,

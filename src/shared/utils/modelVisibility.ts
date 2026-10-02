@@ -20,7 +20,8 @@ export type ModelHiddenFlags = {
 /**
  * Resolve whether a compat-override row hides its model for a given modality.
  * An explicit `hiddenModalities[modality]` entry always wins; otherwise the legacy
- * all-modalities `isHidden` flag applies.
+ * all-modalities `isHidden` flag applies. Without an explicit false flag, the model
+ * is inactive: discovery, pricing and compatibility metadata never opt in.
  */
 export function isHiddenForModality(
   flags: ModelHiddenFlags | null | undefined,
@@ -28,5 +29,27 @@ export function isHiddenForModality(
 ): boolean {
   const scoped = flags?.hiddenModalities?.[modality];
   if (scoped !== undefined) return Boolean(scoped);
-  return Boolean(flags?.isHidden);
+  return flags?.isHidden !== false;
+}
+
+/** Explicit activation state, bulk-loaded once for catalog and candidate builders. */
+export type ModelActivationSnapshot = Map<string, Map<string, boolean>>;
+
+/** Exact model decisions win over parameter aliases; explicit deactivation wins across keys. */
+export function isModelHiddenInSnapshot(
+  snapshot: ModelActivationSnapshot,
+  providerKeys: readonly (string | null | undefined)[],
+  modelIds: readonly string[]
+): boolean {
+  for (const modelId of modelIds) {
+    let activated = false;
+    for (const key of providerKeys) {
+      if (!key) continue;
+      const decision = snapshot.get(key)?.get(modelId);
+      if (decision === true) return true;
+      if (decision === false) activated = true;
+    }
+    if (activated) return false;
+  }
+  return true;
 }

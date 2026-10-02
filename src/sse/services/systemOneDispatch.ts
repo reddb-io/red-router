@@ -133,7 +133,11 @@ export async function dispatchSystemOne(
           null,
           options.allowedConnections ?? null,
           target.model,
-          { excludeConnectionIds: excluded, forcedConnectionId: options.forcedConnectionId }
+          {
+            excludeConnectionIds: excluded,
+            forcedConnectionId: options.forcedConnectionId,
+            modelModality: "systemone",
+          }
         );
         if (
           !credentials ||

@@ -100,7 +100,8 @@ async function postHandler(request, context) {
       effectiveProviderId,
       null,
       null,
-      resolvedModelId
+      resolvedModelId,
+      { modelModality: "rerank" }
     );
     if (!credentials) {
       return errorResponse(
@@ -172,7 +173,13 @@ async function postHandler(request, context) {
     const localProvider = localProviders.find((p) => p.id === prefix);
 
     if (localProvider) {
-      const credentials = await getProviderCredentialsWithQuotaPreflight(localProvider.providerId);
+      const credentials = await getProviderCredentialsWithQuotaPreflight(
+        localProvider.providerId,
+        null,
+        null,
+        localModel,
+        { modelModality: "rerank" }
+      );
       if (!credentials) {
         return errorResponse(
           HTTP_STATUS.BAD_REQUEST,

@@ -27,6 +27,7 @@ import { ModelVisibilityToolbar } from "./ModelRow";
 import { sortModelsFreeFirst, isModelFreeBadge } from "@/shared/utils/freeModels";
 import { useStrictFreeBadge } from "./useStrictFreeBadge";
 import PassthroughModelRow, { type PassthroughModelRowProps } from "./PassthroughModelRow";
+import PaginatedProviderModels from "./PaginatedProviderModels";
 
 // ---------------------------------------------------------------------------
 // Props
@@ -549,48 +550,61 @@ export default function CompatibleModelsSection({
             autoHideFailed={autoHideFailed}
             onAutoHideFailedChange={onAutoHideFailedChange}
           />
-          <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
-            {displayModels.map(({ modelId, alias, displayName, isHidden, source, isFree }) => {
-              const fullModel = `${providerDisplayAlias}/${modelId}`;
-              return (
-                <PassthroughModelRow
-                  key={`${providerStorageAlias}:${modelId}`}
-                  modelId={modelId}
-                  fullModel={fullModel}
-                  alias={alias}
-                  displayName={displayName}
-                  source={source}
-                  isFree={isFree}
-                  isHidden={isHidden}
-                  copied={copied}
-                  onCopy={onCopy}
-                  onDeleteAlias={
-                    source === "custom" || source === "manual"
-                      ? () => handleDeleteModel(modelId, alias)
-                      : source === "alias" && alias
-                        ? () => onDeleteAlias(alias)
-                        : undefined
-                  }
-                  onSetAlias={(a) => onSetAlias(modelId, a, providerStorageAlias)}
-                  t={t}
-                  showDeveloperToggle={!isAnthropic}
-                  effectiveModelNormalize={effectiveModelNormalize}
-                  effectiveModelPreserveDeveloper={effectiveModelPreserveDeveloper}
-                  getUpstreamHeadersRecord={(p) => getUpstreamHeadersRecord(modelId, p)}
-                  saveModelCompatFlags={saveModelCompatFlags}
-                  compatDisabled={compatSavingModelId === modelId}
-                  onToggleHidden={onToggleHidden}
-                  togglingHidden={togglingModelId === modelId}
-                  onTestModel={onTestModel}
-                  testStatus={modelTestStatus?.[modelId] || null}
-                  testingModel={testingModelId === modelId}
-                  contextWindowOverride={contextOverrides[modelId] ?? null}
-                  onSaveContextWindowOverride={saveContextWindowOverride}
-                  savingContextOverride={savingContextModelId === modelId}
-                />
-              );
-            })}
-          </div>
+          <PaginatedProviderModels
+            models={displayModels}
+            resetKey={JSON.stringify([
+              providerStorageAlias,
+              modelFilter,
+              visibilityFilter,
+              freeFilter,
+              sortFreeFirst,
+            ])}
+          >
+            {(pageModels) => (
+              <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+                {pageModels.map(({ modelId, alias, displayName, isHidden, source, isFree }) => {
+                  const fullModel = `${providerDisplayAlias}/${modelId}`;
+                  return (
+                    <PassthroughModelRow
+                      key={`${providerStorageAlias}:${modelId}`}
+                      modelId={modelId}
+                      fullModel={fullModel}
+                      alias={alias}
+                      displayName={displayName}
+                      source={source}
+                      isFree={isFree}
+                      isHidden={isHidden}
+                      copied={copied}
+                      onCopy={onCopy}
+                      onDeleteAlias={
+                        source === "custom" || source === "manual"
+                          ? () => handleDeleteModel(modelId, alias)
+                          : source === "alias" && alias
+                            ? () => onDeleteAlias(alias)
+                            : undefined
+                      }
+                      onSetAlias={(a) => onSetAlias(modelId, a, providerStorageAlias)}
+                      t={t}
+                      showDeveloperToggle={!isAnthropic}
+                      effectiveModelNormalize={effectiveModelNormalize}
+                      effectiveModelPreserveDeveloper={effectiveModelPreserveDeveloper}
+                      getUpstreamHeadersRecord={(p) => getUpstreamHeadersRecord(modelId, p)}
+                      saveModelCompatFlags={saveModelCompatFlags}
+                      compatDisabled={compatSavingModelId === modelId}
+                      onToggleHidden={onToggleHidden}
+                      togglingHidden={togglingModelId === modelId}
+                      onTestModel={onTestModel}
+                      testStatus={modelTestStatus?.[modelId] || null}
+                      testingModel={testingModelId === modelId}
+                      contextWindowOverride={contextOverrides[modelId] ?? null}
+                      onSaveContextWindowOverride={saveContextWindowOverride}
+                      savingContextOverride={savingContextModelId === modelId}
+                    />
+                  );
+                })}
+              </div>
+            )}
+          </PaginatedProviderModels>
           {filteredModels.length === 0 && modelFilter && (
             <p className="py-2 text-sm text-text-muted">
               {providerText(t, "noModelsMatch", `No models match "${modelFilter}"`, {

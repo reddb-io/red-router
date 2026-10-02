@@ -1,3 +1,4 @@
+import { getInferenceActivationRejection } from "@/lib/providers/inferenceActivation";
 import { handleMusicGeneration } from "@omniroute/open-sse/handlers/musicGeneration.ts";
 import { withInjectionGuard } from "@/middleware/promptInjectionGuard";
 import {
@@ -73,7 +74,7 @@ async function postHandler(request, context) {
   if (policy.rejection) return policy.rejection;
 
   // Parse model to get provider
-  const { provider } = parseMusicModel(body.model);
+  const { provider, model: requestedModel } = parseMusicModel(body.model);
   if (!provider) {
     return errorResponse(
       HTTP_STATUS.BAD_REQUEST,
@@ -81,13 +82,26 @@ async function postHandler(request, context) {
     );
   }
 
+  const activationRejection = await getInferenceActivationRejection(
+    provider,
+    requestedModel,
+    "music"
+  );
+  if (activationRejection) return activationRejection;
+
   // Check provider config for auth bypass
   const providerConfig = getMusicProvider(provider);
 
   // Get credentials — skip for local providers (authType: "none")
   let credentials = null;
   if (providerConfig && providerConfig.authType !== "none") {
-    credentials = await getProviderCredentialsWithQuotaPreflight(provider);
+    credentials = await getProviderCredentialsWithQuotaPreflight(
+      provider,
+      null,
+      null,
+      requestedModel,
+      { modelModality: "music" }
+    );
     if (!credentials) {
       return errorResponse(
         HTTP_STATUS.BAD_REQUEST,

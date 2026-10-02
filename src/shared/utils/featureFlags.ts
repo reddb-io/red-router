@@ -159,10 +159,10 @@ export function isDisableThinkingLevelVariantsEnabled(): boolean {
     return isFeatureFlagEnabled("OMNIROUTE_DISABLE_THINKING_LEVEL_VARIANTS");
   } catch (error) {
     console.error(
-      "[featureFlags] Failed to resolve OMNIROUTE_DISABLE_THINKING_LEVEL_VARIANTS, defaulting to disabled:",
+      "[featureFlags] Failed to resolve OMNIROUTE_DISABLE_THINKING_LEVEL_VARIANTS, defaulting to hidden effort aliases:",
       error instanceof Error ? error.message : error
     );
-    return false;
+    return true;
   }
 }
 

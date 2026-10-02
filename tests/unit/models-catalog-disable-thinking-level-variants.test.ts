@@ -12,7 +12,8 @@ after(() => {
   resetDbInstance();
 });
 
-test("catalog advertises claude effort variants by default", async () => {
+test("catalog hides claude effort variants by default", async () => {
+  removeFeatureFlagOverride("OMNIROUTE_DISABLE_THINKING_LEVEL_VARIANTS");
   const out = await applyCatalogPostFilters(
     new Request("http://localhost/v1/models"),
     [
@@ -23,14 +24,7 @@ test("catalog advertises claude effort variants by default", async () => {
   );
   assert.deepEqual(
     out.map((m) => m.id),
-    [
-      "cmd/claude-opus-4-7",
-      "dva/claude-fable-5-1",
-      "cmd/claude-opus-4-7-low",
-      "cmd/claude-opus-4-7-medium",
-      "cmd/claude-opus-4-7-high",
-      "cmd/claude-opus-4-7-xhigh",
-    ]
+    ["cmd/claude-opus-4-7", "dva/claude-fable-5-1"]
   );
 });
 

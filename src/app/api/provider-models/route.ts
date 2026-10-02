@@ -1,3 +1,4 @@
+import { z } from "zod";
 import {
   getCustomModels,
   getAllCustomModels,
@@ -10,6 +11,7 @@ import {
   getModelCompatOverrides,
   mergeModelCompatOverride,
   getHiddenModelsByProvider,
+  setModelActivation,
   type ModelCompatPatch,
 } from "@/lib/db/models";
 import {
@@ -397,6 +399,13 @@ export async function PUT(request) {
  * PATCH /api/provider-models?provider=<id>&modelId=<modelId>
  * Body: { isHidden: boolean, modelIds?: string[] }
  */
+const modelSelectionSchema = z.object({
+  isActive: z.boolean().optional(),
+  isHidden: z.boolean().optional(),
+  modelIds: z.array(z.string().trim().min(1).max(500)).optional(),
+  modality: z.string().max(100).optional(),
+});
+
 export async function PATCH(request) {
   let rawBody;
   try {
@@ -430,12 +439,35 @@ export async function PATCH(request) {
       );
     }
 
-    if (typeof body.isHidden !== "boolean") {
+    const selection = modelSelectionSchema.safeParse(body);
+    if (!selection.success) {
       return Response.json(
-        { error: { message: "isHidden boolean is required", type: "validation_error" } },
+        { error: { message: "Invalid model selection", type: "validation_error" } },
         { status: 400 }
       );
     }
+    const activation = selection.data.isActive;
+    if (activation === undefined && typeof body.isHidden !== "boolean") {
+      return Response.json(
+        {
+          error: { message: "isActive or isHidden boolean is required", type: "validation_error" },
+        },
+        { status: 400 }
+      );
+    }
+
+    if (activation !== undefined && (body.isHidden !== undefined || body.modality !== undefined)) {
+      return Response.json(
+        {
+          error: {
+            message: "isActive cannot be combined with visibility or modality overrides",
+            type: "validation_error",
+          },
+        },
+        { status: 400 }
+      );
+    }
+    const hidden = activation === undefined ? (body.isHidden as boolean) : !activation;
 
     // #12172: optional modality scope (e.g. "chat", "images") so hiding a model on one
     // registry surface does not also hide an identically-ID'd model on another one.
@@ -462,21 +494,23 @@ export async function PATCH(request) {
     }
 
     for (const modelId of modelIds) {
-      const updatedModel = await updateCustomModel(provider, modelId, { isHidden: body.isHidden });
-      if (!updatedModel) {
-        mergeModelCompatOverride(provider, modelId, { isHidden: body.isHidden, modality });
+      if (activation !== undefined) {
+        await setModelActivation(provider, modelId, activation);
+      } else {
+        const updatedModel = await updateCustomModel(provider, modelId, { isHidden: hidden });
+        if (!updatedModel)
+          mergeModelCompatOverride(provider, modelId, { isHidden: hidden, modality });
       }
     }
 
-    const aliasChanges =
-      body.isHidden === true
-        ? { removed: await deleteManagedAvailableModelAliases(provider, modelIds), assigned: [] }
-        : {
-            removed: [],
-            assigned: (
-              await syncManagedAvailableModelAliases(provider, modelIds, { pruneMissing: false })
-            ).assignedAliases,
-          };
+    const aliasChanges = hidden
+      ? { removed: await deleteManagedAvailableModelAliases(provider, modelIds), assigned: [] }
+      : {
+          removed: [],
+          assigned: (
+            await syncManagedAvailableModelAliases(provider, modelIds, { pruneMissing: false })
+          ).assignedAliases,
+        };
 
     return Response.json({
       ok: true,

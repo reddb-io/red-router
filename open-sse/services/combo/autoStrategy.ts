@@ -1,3 +1,4 @@
+import { getModelIsHidden } from "@/lib/db/models";
 /**
  * Auto-combo scoring, intent extraction, request-tag routing, candidate-pool
  * expansion and the quota-soft execution-candidate registry — extracted from
@@ -521,6 +522,7 @@ export async function expandAutoComboCandidatePool(
         ? Array.from(userVisibleIds)
         : getProviderModels(providerId).map((m) => m.id);
       for (const modelId of expandIds) {
+        if (getModelIsHidden(providerId, modelId)) continue;
         const modelStr = `${providerId}/${modelId}`;
         if (!seenModelStrs.has(modelStr)) {
           seenModelStrs.add(modelStr);

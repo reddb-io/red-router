@@ -1,3 +1,4 @@
+import { getInferenceActivationRejection } from "@/lib/providers/inferenceActivation";
 import { handleImageGeneration } from "@omniroute/open-sse/handlers/imageGeneration.ts";
 import { withInjectionGuard } from "@/middleware/promptInjectionGuard";
 import {
@@ -253,6 +254,13 @@ async function postHandler(request, context) {
     );
   }
 
+  const activationRejection = await getInferenceActivationRejection(
+    provider,
+    requestedModel,
+    "images"
+  );
+  if (activationRejection) return activationRejection;
+
   // Get credentials — skip for local providers (authType: "none")
   let credentials = null;
   if (providerConfig && providerConfig.authType !== "none") {
@@ -260,7 +268,8 @@ async function postHandler(request, context) {
       provider,
       null,
       null,
-      requestedModel
+      requestedModel,
+      { modelModality: "images" }
     );
     if (!credentials) {
       return errorResponse(
@@ -281,7 +290,8 @@ async function postHandler(request, context) {
       provider,
       null,
       syncedEndpointRoute?.connectionIds ?? null,
-      requestedModel
+      requestedModel,
+      { modelModality: "images" }
     );
     if (!credentials) {
       return errorResponse(
@@ -305,7 +315,8 @@ async function postHandler(request, context) {
       provider,
       null,
       null,
-      requestedModel
+      requestedModel,
+      { modelModality: "images" }
     );
     if (localCredentials && !isAllRateLimitedCredentials(localCredentials)) {
       credentials = localCredentials;

@@ -1,3 +1,4 @@
+import { getInferenceActivationRejection } from "@/lib/providers/inferenceActivation";
 // Allow large audio/video file uploads — 5min for processing large files (up to 2GB)
 export const maxDuration = 300;
 import { handleAudioTranscription } from "@omniroute/open-sse/handlers/audioTranscription.ts";
@@ -121,7 +122,13 @@ async function transcribeWithModel(
     const credentialKey = providerConfig.credentialProviderId || provider;
     // NOTE: the 2nd arg of this helper is `excludeConnectionId`, not "use this
     // connection" — a combo target's connectionId must never be passed here.
-    credentials = await getProviderCredentialsWithQuotaPreflight(credentialKey);
+    credentials = await getProviderCredentialsWithQuotaPreflight(
+      credentialKey,
+      null,
+      null,
+      resolvedModel,
+      { modelModality: "audio" }
+    );
     // Prefix match wins (`deepgram/nova-3` → native Deepgram). If that
     // provider has no credentials, retry gateways that list the same nested
     // model id (e.g. OpenRouter's `deepgram/nova-3`).
@@ -134,7 +141,11 @@ async function transcribeWithModel(
       );
       if (alternate) {
         const alternateCredentials = await getProviderCredentialsWithQuotaPreflight(
-          alternate.provider
+          alternate.provider,
+          null,
+          null,
+          alternate.model,
+          { modelModality: "audio" }
         );
         if (alternateCredentials && !isAllRateLimitedCredentials(alternateCredentials)) {
           provider = alternate.provider;
@@ -158,6 +169,14 @@ async function transcribeWithModel(
       return rateLimitedProviderResponse(provider, credentials);
     }
   }
+
+  const activationRejection = await getInferenceActivationRejection(
+    provider,
+    resolvedModel,
+    "audio",
+    providerConfig?.credentialProviderId || provider
+  );
+  if (activationRejection) return activationRejection;
 
   let response = await handleAudioTranscription({
     formData,

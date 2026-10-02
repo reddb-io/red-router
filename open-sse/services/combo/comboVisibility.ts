@@ -1,4 +1,4 @@
-import { getHiddenModelsByProvider } from "../../../src/lib/db/models";
+import { getHiddenModelsByProvider, getModelIsHidden } from "../../../src/lib/db/models";
 import { parseModel, resolveCanonicalProviderModel } from "../model.ts";
 import type { HiddenModelsByProvider } from "./types.ts";
 
@@ -18,6 +18,7 @@ export function isComboModelVisible(
   return (
     !resolved.provider ||
     !resolved.model ||
-    !hiddenModelsByProvider.get(resolved.provider)?.has(resolved.model)
+    (!getModelIsHidden(resolved.provider, resolved.model) &&
+      !hiddenModelsByProvider.get(resolved.provider)?.has(resolved.model))
   );
 }

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.57.4
+
+### Patch Changes
+
+- Hide generated reasoning-effort model aliases by default and hide registered Codex and GLM 5.3 parameter aliases when their authorized base model is visible. Preserve native upstream IDs, scoped alias-only catalogs, existing operator overrides, and routing of legacy aliases. Add a compatibility control in Settings → AI so older clients can restore effort aliases in model discovery.
+- Require explicit connection and model activation regardless of free pricing. Health probes and pinned inference requests no longer enable inactive connections. Keep full management inventories, preserve explicit selections through discovery, and add individual and bulk activation controls across paginated model lists. Apply selections to public catalogs, automatic routing and inference credential admission, including decision models. Previously implicit model visibility now requires selection.
+- Paginate provider model lists in groups of 100, including compatible providers, passthrough gateways, and custom models. Search, filters, sorting, and bulk actions still use the full matching inventory. Reset pagination when filters change and adjust the current page when models are removed.
+
 ## 0.57.3
 
 ### Patch Changes

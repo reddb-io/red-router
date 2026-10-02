@@ -17,7 +17,17 @@ const settingsDb = await import("../../src/lib/db/settings.ts");
 const apiKeysDb = await import("../../src/lib/db/apiKeys.ts");
 const featureFlagsDb = await import("../../src/lib/db/featureFlags.ts");
 const modelsDevSync = await import("../../src/lib/modelsDevSync.ts");
-const v1ModelsCatalog = await import("../../src/app/api/v1/models/catalog.ts");
+const catalogImplementation = await import("../../src/app/api/v1/models/catalog.ts");
+const { activateCatalogFixtureInventory } = await import("../helpers/modelActivationFixtures.ts");
+const v1ModelsCatalog = {
+  ...catalogImplementation,
+  getUnifiedModelsResponse: async (
+    ...args: Parameters<typeof catalogImplementation.getUnifiedModelsResponse>
+  ) => {
+    await activateCatalogFixtureInventory();
+    return catalogImplementation.getUnifiedModelsResponse(...args);
+  },
+};
 
 async function resetStorage() {
   core.resetDbInstance();

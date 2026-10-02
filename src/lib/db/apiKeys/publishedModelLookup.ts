@@ -88,10 +88,7 @@ export function isPublishedModelHidden(
   providerOrAlias: string,
   publishedModelId: string
 ): boolean {
-  return (
-    getModelIsHidden(providerId, publishedModelId) ||
-    (providerId !== providerOrAlias && getModelIsHidden(providerOrAlias, publishedModelId))
-  );
+  return getModelIsHidden(providerId, publishedModelId, "chat", [providerOrAlias]);
 }
 
 /**

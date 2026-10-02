@@ -116,7 +116,9 @@ export function useModelVisibilityHandlers({
   const [clearingModels, setClearingModels] = useState(false);
   const [modelFilter, setModelFilter] = useState("");
   const [testingModelId, setTestingModelId] = useState<string | null>(null);
-  const [modelTestStatus, setModelTestStatus] = useState<Record<string, "ok" | "error" | "quota">>({});
+  const [modelTestStatus, setModelTestStatus] = useState<Record<string, "ok" | "error" | "quota">>(
+    {}
+  );
   const [testingAll, setTestingAll] = useState(false);
   const [testProgress, setTestProgress] = useState<{ done: number; total: number } | null>(null);
   const [autoHideFailed, setAutoHideFailed] = useState(false);
@@ -212,10 +214,8 @@ export function useModelVisibilityHandlers({
         {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          // #12172: this page manages only Chat models — scope the hide/unhide to
-          // "chat" so it never suppresses an identically-ID'd model registered
-          // under a different modality's registry (e.g. Image).
-          body: JSON.stringify({ isHidden: hidden, modality: "chat" }),
+          // Explicit selection activates this model across its supported endpoints.
+          body: JSON.stringify({ isActive: !hidden }),
         }
       );
       if (!res.ok) {
@@ -242,8 +242,7 @@ export function useModelVisibilityHandlers({
       const res = await fetch(`/api/provider-models?provider=${encodeURIComponent(providerKey)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        // #12172: same "chat"-only scoping as the single-model toggle above.
-        body: JSON.stringify({ isHidden: hidden, modelIds, modality: "chat" }),
+        body: JSON.stringify({ isActive: !hidden, modelIds }),
       });
       if (!res.ok) {
         const detail = await res.text().catch(() => "");

@@ -1,3 +1,4 @@
+import { getInferenceActivationRejection } from "@/lib/providers/inferenceActivation";
 // Allow large audio/video file uploads — 5min for processing large files (up to 2GB)
 export const maxDuration = 300;
 import { handleAudioTranslation } from "@omniroute/open-sse/handlers/audioTranslation.ts";
@@ -89,7 +90,13 @@ async function translateWithModel(
     const credentialKey = providerConfig.credentialProviderId || provider;
     // NOTE: the 2nd arg of this helper is `excludeConnectionId`, not "use this
     // connection" — a combo target's connectionId must never be passed here.
-    credentials = await getProviderCredentialsWithQuotaPreflight(credentialKey);
+    credentials = await getProviderCredentialsWithQuotaPreflight(
+      credentialKey,
+      null,
+      null,
+      resolvedModel,
+      { modelModality: "audio" }
+    );
     if (!credentials) {
       return errorResponse(HTTP_STATUS.BAD_REQUEST, `No credentials for provider: ${provider}`);
     }
@@ -97,6 +104,14 @@ async function translateWithModel(
       return rateLimitedProviderResponse(provider, credentials);
     }
   }
+
+  const activationRejection = await getInferenceActivationRejection(
+    provider,
+    resolvedModel,
+    "audio",
+    providerConfig?.credentialProviderId || provider
+  );
+  if (activationRejection) return activationRejection;
 
   let response = await handleAudioTranslation({
     formData,

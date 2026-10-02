@@ -57,7 +57,6 @@ export { classifyFailure, projectProviderRuntimeForPublicResponse } from "./publ
 const OAUTH_TEST_TIMEOUT_MS = 30_000;
 
 import { CLI_RUNTIME_PROVIDER_MAP } from "./cliRuntimeProviderMap";
-import { isOperatorDisabled } from "@/lib/providers/operatorDisable";
 import { getRequestPeerLocality } from "@/shared/utils/apiAuth";
 
 // The draft schema permits only the current URL, key and probe model.
@@ -1107,25 +1106,8 @@ export async function testSingleConnection(
     lockModelIfPerModelQuota(provider, connectionId, probedModelId, "credits", 60 * 60 * 1000);
   }
 
-  // Unsupported validation capability is neutral: the probe established that
-  // this provider cannot be verified through the generic test surface, not
-  // that its credential is invalid. Do not mutate persisted credential health
-  // (testStatus/lastError/etc.) — but DO activate it if it isn't already: a
-  // connection that can never be health-checked would otherwise stay hidden
-  // from /v1/models forever under the "only advertise tested connections"
-  // default (isActive starts false on creation — see POST /api/providers),
-  // silently regressing every provider without a test surface. Operator-disabled stays off.
+  // Diagnostics never change operator activation, including unsupported probes.
   if (result.skipped === true) {
-    if (connection.isActive !== true && !isOperatorDisabled(connection)) {
-      try {
-        await updateProviderConnection(connectionId, { isActive: true });
-      } catch (activateError) {
-        console.log(
-          `[ConnectionTest] Failed to activate unverifiable connection ${connectionId}:`,
-          toSafeMessage(activateError, "Connection activation failed")
-        );
-      }
-    }
     return {
       ...result,
       latencyMs,
@@ -1172,14 +1154,6 @@ export async function testSingleConnection(
 
   const updateData: Record<string, any> = {
     testStatus: clearErrorState ? "active" : result.valid ? connection.testStatus : "error",
-    // A passing test is the sole activation signal under the "only advertise
-    // tested-working connections" default — see POST /api/providers, which
-    // now creates connections isActive:false. Only ever flips ON here: a
-    // failing test intentionally leaves isActive untouched (a transient
-    // failure on an already-active, already-working connection must not take
-    // it out of rotation — that's what the cooldown/rateLimitedUntil below is
-    // for), so this never deactivates anything, nor re-enables an operator-disabled one.
-    ...(result.valid && !isOperatorDisabled(connection) ? { isActive: true } : {}),
     lastError: clearErrorState ? null : result.valid ? connection.lastError : result.error,
     lastErrorAt: clearErrorState ? null : result.valid ? connection.lastErrorAt : now,
     lastTested: now,

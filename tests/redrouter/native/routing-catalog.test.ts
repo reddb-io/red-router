@@ -40,6 +40,9 @@ async function connect(provider: string) {
 }
 
 async function list(apiKey?: string, mark = false): Promise<Entry[]> {
+  const { activateCatalogFixtureInventory } =
+    await import("../../helpers/modelActivationFixtures.ts");
+  await activateCatalogFixtureInventory();
   const request = new Request("http://localhost/v1/models", {
     headers: apiKey ? { authorization: `Bearer ${apiKey}` } : {},
   });

@@ -7,6 +7,13 @@
 import { isRetiredGitHubCopilotModelId } from "@omniroute/open-sse/config/providers/registry/github/retiredModels.ts";
 
 import { getDbInstance } from "./core";
+import { getModelCatalogCacheVersion } from "./readCache";
+import { activationModelIds } from "@omniroute/open-sse/services/modelActivationIdentity";
+import { resolveProviderId, PROVIDER_ID_TO_ALIAS } from "@/shared/constants/providers";
+import {
+  isModelHiddenInSnapshot,
+  type ModelActivationSnapshot,
+} from "@/shared/utils/modelVisibility";
 import { getProviderConnectionsCount, touchConnectionSyncedModelsAt } from "./providers";
 import { type JsonRecord, getKeyValue } from "./models/shared";
 import {
@@ -959,7 +966,7 @@ export function getModelPreserveOpenAIDeveloperRole(
 }
 
 /**
- * Check if the model is flagged as hidden from the public catalog.
+ * Check whether a model is inactive for the requested inference modality.
  * `modality` (default "chat") scopes the check to one endpoint/registry — see
  * {@link isOverrideHiddenForModality} — so an identically-ID'd model in a different
  * modality's registry (e.g. Chat vs Image, #12172) is not silently suppressed too.
@@ -967,14 +974,70 @@ export function getModelPreserveOpenAIDeveloperRole(
 export function getModelIsHidden(
   providerId: string,
   modelId: string,
-  modality: string = "chat"
+  modality: string = "chat",
+  additionalProviderKeys: readonly string[] = []
 ): boolean {
-  const m = getCustomModelRow(providerId, modelId);
-  if (m && Object.prototype.hasOwnProperty.call(m, "isHidden")) {
-    return Boolean(m.isHidden);
+  const canonical = resolveProviderId(providerId);
+  const keys = [
+    ...new Set([providerId, canonical, PROVIDER_ID_TO_ALIAS[canonical], ...additionalProviderKeys]),
+  ].filter((key): key is string => typeof key === "string" && key.length > 0);
+  return isModelHiddenInSnapshot(
+    getModelActivationByProvider(modality),
+    keys,
+    activationModelIds(canonical, modelId)
+  );
+}
+
+const activationSnapshots = new Map<
+  string,
+  {
+    db: ReturnType<typeof getDbInstance>;
+    version: number;
+    expiresAt: number;
+    value: ModelActivationSnapshot;
   }
-  const co = readCompatList(providerId).find((e) => e.id === modelId);
-  return isOverrideHiddenForModality(co, modality);
+>();
+
+/** Read explicit selections in one query. Unselected discoveries are absent and inactive. */
+export function getModelActivationByProvider(modality: string = "chat"): ModelActivationSnapshot {
+  const db = getDbInstance();
+  const version = getModelCatalogCacheVersion();
+  const cached = activationSnapshots.get(modality);
+  if (cached?.db === db && cached.version === version && cached.expiresAt > Date.now()) {
+    return cached.value;
+  }
+  const rows = db
+    .prepare(
+      "SELECT namespace, key, value FROM key_value WHERE namespace IN ('modelCompatOverrides', 'customModels')"
+    )
+    .all() as Array<{ namespace: string; key: string; value: string | null }>;
+  const snapshot: ModelActivationSnapshot = new Map();
+  for (const namespace of ["modelCompatOverrides", "customModels"]) {
+    for (const row of rows) {
+      if (row.namespace !== namespace || !row.value) continue;
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(row.value);
+      } catch {
+        continue;
+      }
+      if (!Array.isArray(parsed)) continue;
+      for (const entry of parsed) {
+        if (!entry || typeof entry !== "object" || typeof entry.id !== "string") continue;
+        const hasDecision =
+          typeof entry.isHidden === "boolean" ||
+          (namespace === "modelCompatOverrides" &&
+            typeof entry.hiddenModalities?.[modality] === "boolean");
+        if (!hasDecision) continue;
+        let decisions = snapshot.get(row.key);
+        if (!decisions) snapshot.set(row.key, (decisions = new Map()));
+        decisions.set(entry.id, isOverrideHiddenForModality(entry, modality));
+      }
+    }
+  }
+  // Writes invalidate immediately; the TTL also notices other processes' writes.
+  activationSnapshots.set(modality, { db, version, expiresAt: Date.now() + 5000, value: snapshot });
+  return snapshot;
 }
 
 /**
@@ -984,71 +1047,18 @@ export function getModelIsHidden(
  * building to skip user-hidden models. Single bulk DB query — not N+1 per model.
  */
 export function getHiddenModelsByProvider(modality: string = "chat"): Map<string, Set<string>> {
-  const db = getDbInstance();
-  const visibilityByProvider = new Map<string, Map<string, boolean>>();
-  const rows = db
-    .prepare(
-      "SELECT namespace, key, value FROM key_value WHERE namespace IN ('modelCompatOverrides', 'customModels')"
-    )
-    .all() as Array<{ namespace: string; key: string; value: string | null }>;
-
-  for (const namespace of ["modelCompatOverrides", "customModels"]) {
-    for (const row of rows) {
-      if (row.namespace !== namespace || !row.value) continue;
-      try {
-        const parsed = JSON.parse(row.value);
-        if (!Array.isArray(parsed)) continue;
-        for (const entry of parsed) {
-          if (!entry || typeof entry !== "object") continue;
-          const modelId = (entry as { id?: unknown }).id;
-          if (typeof modelId !== "string" || modelId.length === 0) continue;
-          const record = entry as { isHidden?: unknown; hiddenModalities?: unknown };
-          const hasHiddenInfo =
-            Object.prototype.hasOwnProperty.call(record, "isHidden") ||
-            (namespace === "modelCompatOverrides" &&
-              record.hiddenModalities &&
-              typeof record.hiddenModalities === "object");
-          if (!hasHiddenInfo) continue;
-          // #12172: customModels rows have no modality scope (single user-managed
-          // entry) — legacy global isHidden applies to every modality unchanged.
-          const isHidden =
-            namespace === "modelCompatOverrides"
-              ? isOverrideHiddenForModality(
-                  {
-                    isHidden: Boolean(record.isHidden),
-                    hiddenModalities: record.hiddenModalities as
-                      Record<string, boolean> | undefined,
-                  },
-                  modality
-                )
-              : Boolean(record.isHidden);
-          let visibility = visibilityByProvider.get(row.key);
-          if (!visibility) {
-            visibility = new Map<string, boolean>();
-            visibilityByProvider.set(row.key, visibility);
-          }
-          visibility.set(modelId, isHidden);
-        }
-      } catch {
-        // Skip malformed entries
-      }
-    }
-  }
-
   return new Map(
-    [...visibilityByProvider].flatMap(([providerId, visibility]) => {
-      const hiddenModels = [...visibility].flatMap(([modelId, isHidden]) =>
-        isHidden ? [modelId] : []
-      );
-      return hiddenModels.length > 0 ? [[providerId, new Set(hiddenModels)] as const] : [];
-    })
+    [...getModelActivationByProvider(modality)].map(([provider, decisions]) => [
+      provider,
+      new Set([...decisions].filter(([, hidden]) => hidden).map(([id]) => id)),
+    ])
   );
 }
 
 /**
  * Persist the hidden flag for a model. Stores the override on the custom-model
  * row when one exists, otherwise on the compat-override list. Setting
- * `hidden = false` is a no-op when the model is already visible.
+ * `hidden = false` is a durable, explicit activation decision.
  */
 export function setModelIsHidden(
   providerId: string,
@@ -1058,42 +1068,34 @@ export function setModelIsHidden(
 ): void {
   const customRow = getCustomModelRow(providerId, modelId);
   if (customRow) {
-    if (hidden) {
-      updateCustomModel(providerId, modelId, { isHidden: true });
-    } else if (Object.prototype.hasOwnProperty.call(customRow, "isHidden")) {
-      updateCustomModel(providerId, modelId, { isHidden: false });
-    }
+    updateCustomModel(providerId, modelId, { isHidden: hidden });
     return;
   }
+  // Keep false as a durable opt-in, even without other compatibility overrides.
+  mergeModelCompatOverride(providerId, modelId, { isHidden: hidden, modality });
+}
 
-  // #12172: a modality-scoped write never touches the legacy all-modalities
-  // `isHidden` flag — it only sets/clears that one modality's override, so an
-  // identically-ID'd model in a different modality's registry is unaffected.
-  if (modality) {
-    mergeModelCompatOverride(providerId, modelId, { isHidden: hidden, modality });
-    return;
-  }
-
-  const list = readCompatList(providerId);
-  const idx = list.findIndex((e) => e.id === modelId);
-  if (hidden) {
-    const prev = idx >= 0 ? list[idx] : { id: modelId };
-    const next: ModelCompatOverride = { ...prev, id: modelId, isHidden: true };
-    if (idx >= 0) list[idx] = next;
+/** Explicit dashboard activation applies to all endpoints of the selected model. */
+export async function setModelActivation(
+  providerId: string,
+  modelId: string,
+  active: boolean
+): Promise<void> {
+  const canonical = resolveProviderId(providerId);
+  const keys = new Set([providerId, canonical, PROVIDER_ID_TO_ALIAS[canonical]].filter(Boolean));
+  for (const key of keys) {
+    await updateCustomModel(key, modelId, { isHidden: !active });
+    const list = readCompatList(key);
+    const index = list.findIndex((entry) => entry.id === modelId);
+    // Update existing alias decisions too, so a previous hide under an old route
+    // key cannot contradict the operator's latest activation action.
+    if (key !== providerId && index < 0) continue;
+    const next = { ...(index >= 0 ? list[index] : {}), id: modelId, isHidden: !active };
+    delete next.hiddenModalities;
+    if (index >= 0) list[index] = next;
     else list.push(next);
-    writeCompatList(providerId, list);
-    return;
+    writeCompatList(key, list);
   }
-
-  if (idx < 0) return;
-  if (Object.keys(list[idx]).length <= 1) {
-    // Only `id` left; drop the entry entirely.
-    const filtered = list.filter((_, i) => i !== idx);
-    writeCompatList(providerId, filtered);
-    return;
-  }
-  delete list[idx].isHidden;
-  writeCompatList(providerId, list);
 }
 
 function readUpstreamFromJsonRecord(

@@ -51,11 +51,17 @@ async function postHandler(request, context) {
   const policy = await enforceApiKeyPolicy(request, model);
   if (policy.rejection) return policy.rejection;
 
-  const { provider } = parseModerationModel(model);
+  const { provider, model: resolvedModel } = parseModerationModel(model);
 
   // Default to openai if no provider prefix
   const resolvedProvider = provider || "openai";
-  const credentials = await getProviderCredentialsWithQuotaPreflight(resolvedProvider);
+  const credentials = await getProviderCredentialsWithQuotaPreflight(
+    resolvedProvider,
+    null,
+    null,
+    resolvedModel,
+    { modelModality: "moderation" }
+  );
   if (!credentials) {
     return errorResponse(
       HTTP_STATUS.BAD_REQUEST,

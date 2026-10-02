@@ -251,7 +251,8 @@ async function handleAdobeFireflyEditRequest(params: {
     parsed.provider,
     null,
     allowedConnections,
-    resolvedModel
+    parsed.model,
+    { modelModality: "images" }
   );
   if (!credentials) {
     return errorResponse(
@@ -373,7 +374,11 @@ async function dispatchImageEditTarget(
   if (providerConfig?.format === "codex-responses") {
     const modelEntry = getImageModelEntry(modelStr);
     if (!modelEntry || modelEntry.provider !== "codex" || modelEntry.model !== parsed.model) {
-      return { success: false, status: HTTP_STATUS.BAD_REQUEST, error: `Unsupported Codex image edit model: ${modelStr}` };
+      return {
+        success: false,
+        status: HTTP_STATUS.BAD_REQUEST,
+        error: `Unsupported Codex image edit model: ${modelStr}`,
+      };
     }
     const imageValidationError = validateCodexImageEditReferences(images);
     if (imageValidationError) {
@@ -439,7 +444,11 @@ async function dispatchImageEditTarget(
   if (providerConfig?.format === "adobe-firefly-image") {
     const dataUrls = buildAdobeFireflyEditDataUrls(images, imageBytes, imageMime);
     if (dataUrls.length === 0) {
-      return { success: false, status: HTTP_STATUS.BAD_REQUEST, error: "Missing required field: image" };
+      return {
+        success: false,
+        status: HTTP_STATUS.BAD_REQUEST,
+        error: "Missing required field: image",
+      };
     }
     return (await handleAdobeFireflyImageGeneration({
       provider: parsed.provider,
@@ -555,7 +564,8 @@ async function executeImageEditCombo(comboName: string, ctx: ImageEditContext): 
         target.credKey,
         null,
         ctx.allowedConnections,
-        target.modelStr
+        target.parsed.model,
+        { modelModality: "images" }
       ),
     isRateLimited: isAllRateLimitedCredentials,
     dispatch: ({ target, credentials }) => dispatchImageEditTarget(target, credentials, ctx),
@@ -730,7 +740,8 @@ async function postHandler(request: Request, _context?: unknown) {
       parsed.provider,
       null,
       allowedConnections,
-      resolvedModel
+      parsed.model,
+      { modelModality: "images" }
     );
     if (!credentials) {
       return errorResponse(
@@ -807,7 +818,8 @@ async function postHandler(request: Request, _context?: unknown) {
       parsed.provider,
       null,
       allowedConnections,
-      resolvedModel
+      parsed.model,
+      { modelModality: "images" }
     );
     if (!credentials) {
       return errorResponse(
@@ -874,7 +886,8 @@ async function postHandler(request: Request, _context?: unknown) {
       parsed.provider,
       null,
       allowedConnections,
-      resolvedModel
+      parsed.model,
+      { modelModality: "images" }
     );
     if (!credentials) {
       return errorResponse(
@@ -939,7 +952,8 @@ async function postHandler(request: Request, _context?: unknown) {
     customProviderId,
     null,
     allowedConnections,
-    resolvedModel
+    customModel,
+    { modelModality: "images" }
   );
   if (!credentials) {
     return errorResponse(

@@ -24,6 +24,7 @@ export {
   getMitmAlias,
   setMitmAliasAll,
   getHiddenModelsByProvider,
+  getModelActivationByProvider,
 } from "@/lib/db/models";
 export { getApiKeys, createApiKey, deleteApiKey, validateApiKey } from "@/lib/db/apiKeys";
 export { isCloudEnabled } from "@/lib/db/settings";

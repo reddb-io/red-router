@@ -10,7 +10,17 @@
  * Leaf component: imports from shared, leaf helpers, and sibling components.
  * Never imports from ProviderDetailPageClient.
  */
-import { ArrowDownUp, CircleAlert, CircleCheck, CirclePlay, Eye, EyeOff, LoaderCircle, Search, TriangleAlert } from "lucide-react";
+import {
+  ArrowDownUp,
+  CircleAlert,
+  CircleCheck,
+  CirclePlay,
+  Eye,
+  EyeOff,
+  LoaderCircle,
+  Search,
+  TriangleAlert,
+} from "lucide-react";
 import Icon from "@/shared/components/Icon";
 import React, { useState, useRef, useEffect } from "react";
 import {
@@ -124,8 +134,17 @@ export function ModelVisibilityToolbar({
 }: ModelVisibilityToolbarProps) {
   return (
     <div className="mb-3 flex flex-wrap items-center gap-2">
+      <p className="w-full text-xs text-text-muted">
+        Activate the models you want to use, then enable a connection. Free models also require
+        activation.
+      </p>
       <div className="relative min-w-[220px] flex-1">
-        <Icon icon={Search} size="md" color="ink-muted" className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2" />
+        <Icon
+          icon={Search}
+          size="md"
+          color="ink-muted"
+          className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2"
+        />
         <input
           type="text"
           value={filterValue}
@@ -149,8 +168,8 @@ export function ModelVisibilityToolbar({
               {f === "all"
                 ? providerText(t, "showAllModels", "All")
                 : f === "visible"
-                  ? providerText(t, "showVisibleOnly", "Visible")
-                  : providerText(t, "showHiddenOnly", "Hidden")}
+                  ? "Active"
+                  : "Inactive"}
             </button>
           ))}
         </div>
@@ -230,19 +249,19 @@ export function ModelVisibilityToolbar({
         onClick={onSelectAll}
         disabled={selectAllDisabled}
         className="flex items-center gap-1.5 rounded-lg border border-border bg-transparent px-2.5 py-1 text-[12px] text-text-main disabled:cursor-not-allowed disabled:opacity-50"
-        title={providerText(t, "showAllModels", "Show all")}
+        title="Activate all matching models"
       >
         <Icon icon={Eye} size="md" color="current" />
-        <span>{providerText(t, "showAllModels", "Show all")}</span>
+        <span>Activate matching</span>
       </button>
       <button
         onClick={onDeselectAll}
         disabled={deselectAllDisabled}
         className="flex items-center gap-1.5 rounded-lg border border-border bg-transparent px-2.5 py-1 text-[12px] text-text-main disabled:cursor-not-allowed disabled:opacity-50"
-        title={providerText(t, "hideAllModels", "Hide all")}
+        title="Deactivate all matching models"
       >
         <Icon icon={EyeOff} size="md" color="current" />
-        <span>{providerText(t, "hideAllModels", "Hide all")}</span>
+        <span>Deactivate matching</span>
       </button>
       <span className="whitespace-nowrap text-xs text-text-muted">
         {providerText(t, "modelsActiveCount", "{active}/{total} active", {
@@ -303,7 +322,7 @@ export default function ModelRow({
   testStatus,
   testingModel,
 }: ModelRowProps) {
-  const isHidden = Boolean(model.isHidden);
+  const isHidden = model.isHidden !== false;
   const [editing, setEditing] = useState(false);
   const [aliasValue, setAliasValue] = useState(alias || "");
   const inputRef = useRef<HTMLInputElement>(null);
@@ -431,14 +450,12 @@ export default function ModelRow({
         )}
         {onToggleHidden && (
           <button
+            aria-label={`${isHidden ? "Activate" : "Deactivate"} ${model.id}`}
+            aria-pressed={!isHidden}
             onClick={() => onToggleHidden(model.id, !isHidden)}
             disabled={togglingHidden}
             className="rounded p-0.5 text-text-muted hover:bg-sidebar hover:text-primary disabled:opacity-40 disabled:cursor-not-allowed"
-            title={
-              isHidden
-                ? providerText(t, "showModel", "Show model")
-                : providerText(t, "hideModel", "Hide model")
-            }
+            title={isHidden ? "Activate model" : "Deactivate model"}
           >
             <span className="material-symbols-outlined text-sm">
               {isHidden ? "visibility_off" : "visibility"}

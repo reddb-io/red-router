@@ -3,6 +3,7 @@
 import { useTranslations } from "next-intl";
 import Link from "next/link";
 import ThinkingBudgetTab from "../components/ThinkingBudgetTab";
+import ModelEffortCatalogTab from "../components/ModelEffortCatalogTab";
 import ModalityBridgeMovedCard from "../components/ModalityBridgeMovedCard";
 import ResponsesStatePolicyTab from "../components/ResponsesStatePolicyTab";
 import CodexFastTierTab from "../components/CodexFastTierTab";
@@ -19,6 +20,7 @@ export default function SettingsAiPage() {
     <div className="space-y-6">
       <p className="text-sm text-text-muted">{t("aiSettingsIntro")}</p>
       <ThinkingBudgetTab />
+      <ModelEffortCatalogTab />
       <ModalityBridgeMovedCard />
       <p className="text-sm text-text-muted">
         Manage instructions added to chat requests in{" "}

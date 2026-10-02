@@ -109,7 +109,12 @@ test("CI packs once and publication only promotes the verified artifact", async 
   assert.equal(build.env.REDROUTER_RELEASE_ARTIFACT_DIR, "release-artifacts");
   assert.equal(build.env.OMNIROUTE_PLAYWRIGHT_SKIP_BUILD, "1");
   const upload = build.steps.find((step) => step.name === "Upload the tested release artifact");
-  assert.match(upload.if, /refs\/tags\/v/);
+  assert.equal(upload.if, "inputs.artifact_run_id == ''");
+  const promotion = build.steps.find((step) => step.id === "promote");
+  assert.match(promotion.if, /refs\/tags\/v/);
+  assert.match(promotion.run, /promote-main-artifact/);
+  const buildOnce = build.steps.find((step) => step.name === "Build once");
+  assert.match(buildOnce.if, /!startsWith/);
   const releaseCommands = workflow.jobs.release.steps
     .map((step) => step.run)
     .filter(Boolean)

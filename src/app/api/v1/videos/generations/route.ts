@@ -1,3 +1,4 @@
+import { getInferenceActivationRejection } from "@/lib/providers/inferenceActivation";
 import { handleVideoGeneration } from "@omniroute/open-sse/handlers/videoGeneration.ts";
 import { resolveVideoCredentialProvider } from "@omniroute/open-sse/handlers/videoGeneration/googleFlow.ts";
 import { withInjectionGuard } from "@/middleware/promptInjectionGuard";
@@ -108,6 +109,14 @@ async function postHandler(request, context) {
     if (promptError) return promptError;
   }
 
+  const activationRejection = await getInferenceActivationRejection(
+    provider,
+    requestedModel,
+    "videos",
+    resolveVideoCredentialProvider(provider)
+  );
+  if (activationRejection) return activationRejection;
+
   // Check provider config for auth bypass
   const providerConfig = getVideoProvider(provider);
 
@@ -117,7 +126,10 @@ async function postHandler(request, context) {
   let credentials = null;
   if (providerConfig && providerConfig.authType !== "none") {
     credentials = await getProviderCredentialsWithQuotaPreflight(
-      resolveVideoCredentialProvider(provider)
+      resolveVideoCredentialProvider(provider),
+      null,
+      null,
+      null
     );
     if (!credentials) {
       return errorResponse(
@@ -133,7 +145,8 @@ async function postHandler(request, context) {
       provider,
       null,
       null,
-      requestedModel
+      requestedModel,
+      { modelModality: "videos" }
     );
     if (!credentials) {
       return errorResponse(

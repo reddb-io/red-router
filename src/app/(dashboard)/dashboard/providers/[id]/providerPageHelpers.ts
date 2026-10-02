@@ -544,12 +544,7 @@ export function getDisplayModelAlias(modelId: string, alias?: string | null): st
   return trimmed;
 }
 
-/**
- * #12172: this page manages Chat models only, and its hide/unhide PATCH sends
- * `modality: "chat"` — so the stored flag lives in `hiddenModalities.chat`, not in the
- * legacy all-modalities `isHidden`. Reading only the legacy flag made the eye toggle,
- * "Hide all" and the Hidden filter silently report every model as visible.
- */
+/** Read legacy scoped selections as well as the global activation selected by this page. */
 function readActiveHiddenFlag(row: CompatModelRow | undefined): boolean | undefined {
   if (!row) return undefined;
   const hasScopedFlag = row.hiddenModalities?.[DASHBOARD_MODEL_MODALITY] !== undefined;
@@ -570,7 +565,7 @@ export function isModelHiddenFn(
   const overrideHidden = readActiveHiddenFlag(overrideMap.get(modelId));
   if (overrideHidden !== undefined) return overrideHidden;
 
-  return false;
+  return true;
 }
 
 export function effectiveNormalizeForProtocol(

@@ -99,3 +99,27 @@ test("manual HTTP probes bypass a saved cooldown; drafts and failed tests leave 
     "http://10.0.0.2:25050/v1"
   );
 });
+
+test("successful and unsupported diagnostics cannot opt an inactive connection into routing", async () => {
+  globalThis.fetch = (async () => Response.json({ data: [{ id: "model" }] })) as typeof fetch;
+  for (const provider of ["red-router", "unsupported-opt-in-test-provider"]) {
+    const connection = await providers.createProviderConnection({
+      provider,
+      authType: "apikey",
+      apiKey: "test-key",
+      providerSpecificData: { baseUrl: "http://10.0.0.2:25050/v1" },
+    });
+    const id = String(connection.id);
+    assert.equal(connection.isActive, false);
+    const request = await makeManagementSessionRequest(
+      `http://localhost/api/providers/${id}/test`,
+      { method: "POST", body: {} }
+    );
+    const response = await route.POST(request, { params: Promise.resolve({ id }) });
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    if (provider === "red-router") assert.equal(body.valid, true);
+    else assert.equal(body.skipped, true);
+    assert.equal((await providers.getProviderConnectionById(id)).isActive, false);
+  }
+});

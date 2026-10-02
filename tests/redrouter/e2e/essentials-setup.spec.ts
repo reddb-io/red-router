@@ -35,7 +35,15 @@ for (const width of [1280, 390]) {
       })
     );
     await page.goto("/system/settings/sidebar");
-    for (const label of ["Setup", "Models", "Tenants", "Users", "Roles", "Network", "Prompts"]) {
+    for (const label of [
+      "Setup",
+      "Models",
+      "Tenants",
+      "Users",
+      "Roles",
+      "Network",
+      "Settings › Prompts",
+    ]) {
       await expect(page.getByRole("switch", { name: `Show: ${label}`, exact: true })).toBeChecked();
     }
     await page.goto("/home/setup");

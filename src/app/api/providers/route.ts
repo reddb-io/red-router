@@ -380,14 +380,8 @@ export async function POST(request: Request) {
       globalPriority: globalPriority || null,
       defaultModel: defaultModel || null,
       providerSpecificData,
-      // Start inactive: a connection is only advertised via /v1/models (which
-      // filters on isActive) once a connection test has actually confirmed it
-      // works. The auto-test fired below flips this to true on success (or on
-      // an "unsupported" test, which cannot be verified either way and keeps
-      // the historical trust-it default) — see testSingleConnection in
-      // ./[id]/test/route.ts. A connection that fails its test, or is never
-      // tested because auto-test itself errors, simply stays hidden until the
-      // operator fixes the credential and re-tests it manually.
+      // Connection discovery and health tests do not opt in to routing.
+      // The operator enables this connection explicitly through management.
       isActive: false,
       testStatus: testStatus || "unknown",
     });

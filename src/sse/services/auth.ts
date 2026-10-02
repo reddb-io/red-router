@@ -1,3 +1,4 @@
+import { getModelIsHidden } from "@/lib/db/models";
 import { randomUUID } from "crypto";
 import { nodeTypeFromId } from "@/lib/db/providerNodeSelect";
 import { hydrateConnectionProviderSpecificData } from "./compatibleNodeBaseUrl.ts"; // #13452
@@ -11,7 +12,6 @@ import {
   getCachedRawProviderConnections,
   getCachedProviderNodes,
   getCachedSettings,
-  getCachedProviderConnectionById,
 } from "@/lib/db/readCache";
 import {
   getProviderConnections,
@@ -164,12 +164,6 @@ import {
   syncSessionAffinityRuntimeFields,
 } from "./sessionAffinityPin";
 import {
-  EXPLICIT_INACTIVE_PROBE_INTERVAL_MS,
-  lastExplicitProbeTime,
-  noteExplicitProbe,
-  selectExplicitInactiveProbe,
-} from "./explicitInactiveProbe";
-import {
   isAnonymousFallbackDisabledBySettings,
   isNoAuthProviderBlockedBySettings,
   isSyntheticNoAuthAllowed,
@@ -217,6 +211,8 @@ interface RecoverableConnectionState {
   lastErrorSource?: string | null;
 }
 export interface CredentialSelectionOptions {
+  /** Activation is scoped to the actual inference endpoint, defaulting to chat. */
+  modelModality?: string;
   allowSuppressedConnections?: boolean;
   allowRateLimitedConnections?: boolean;
   bypassQuotaPolicy?: boolean;
@@ -1196,6 +1192,15 @@ export async function getProviderCredentials(
     return null;
   }
 
+  if (
+    requestedModel &&
+    getModelIsHidden(provider, requestedModel, options.modelModality || "chat")
+  ) {
+    invalidateManagedLease(options, "AUTHORIZATION_CHANGED");
+    log.info("AUTH", "Model has not been activated by the operator", { provider, requestedModel });
+    return null;
+  }
+
   const selectionLock = options._leaseRetryWithLockHeld
     ? null
     : createSelectionLock(getSelectionMutexKey(provider, options));
@@ -1299,29 +1304,7 @@ export async function getProviderCredentials(
     if (allowedConnections && allowedConnections.length > 0) {
       connections = connections.filter((conn) => allowedConnections.includes(conn.id));
     }
-    let explicitProbeKind: "probe" | "suppressed" | "skip" = "skip";
-    if (forcedConnectionId && !connections.some((c) => c.id === forcedConnectionId)) {
-      const pinnedRaw = await getCachedProviderConnectionById(forcedConnectionId);
-      const pinnedRow = pinnedRaw ? toProviderConnection(pinnedRaw) : null;
-      const nowMs = Date.now();
-      const decision = selectExplicitInactiveProbe({
-        forcedConnectionId,
-        activeConnections: connections,
-        pinnedRow,
-        providersToSearch,
-        allowedConnectionIds: allowedConnections ?? null,
-        nowMs,
-        lastProbeAtMs: lastExplicitProbeTime(forcedConnectionId),
-        intervalMs: EXPLICIT_INACTIVE_PROBE_INTERVAL_MS,
-      });
-      explicitProbeKind = decision.kind;
-      if (decision.kind === "probe" && pinnedRow) {
-        noteExplicitProbe(forcedConnectionId, nowMs);
-        connections = [pinnedRow];
-      }
-    }
-    const probeStamp =
-      explicitProbeKind === "probe" ? { reactivatedFromInactive: true as const } : {};
+    // An inference pin is never permission to reactivate an inactive connection.
     const forcedConnectionEligible = connections.some((conn) => conn.id === forcedConnectionId);
     if (options.lease && forcedConnectionId && !forcedConnectionEligible) return null;
     if (options.lease?.mode === "request" && forcedConnectionId) {
@@ -1565,7 +1548,7 @@ export async function getProviderCredentials(
         connectionFilterStatus.set(c.id, "modelNotAdvertised");
         return false;
       }
-      if (!allowSuppressedConnections && explicitProbeKind !== "probe") {
+      if (!allowSuppressedConnections) {
         if (!allowRateLimitedConnections && isAccountUnavailable(c.rateLimitedUntil)) {
           connectionFilterStatus.set(c.id, "rateLimited");
           return false;
@@ -2210,7 +2193,6 @@ export async function getProviderCredentials(
         return materializeConnection(connection, options, {
           commitSelectionSideEffects,
           selectNextLeaseCandidate,
-          ...probeStamp,
         });
       }
       let claim = mutateExclusiveConnectionLease(
@@ -2234,7 +2216,6 @@ export async function getProviderCredentials(
           exclusiveLease,
           connectionId: connection.id,
           provider: connection.provider,
-          ...probeStamp,
         };
       }
     }
@@ -2256,7 +2237,6 @@ export async function getProviderCredentials(
 
     return materializeConnection(connection, options, {
       exclusiveLease,
-      ...probeStamp,
       routingLease: reserved.lease,
       requestedModel,
     });

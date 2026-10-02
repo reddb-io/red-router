@@ -1,3 +1,4 @@
+import { getInferenceActivationRejection } from "@/lib/providers/inferenceActivation";
 import { handleAudioSpeech } from "@omniroute/open-sse/handlers/audioSpeech.ts";
 import { withInjectionGuard } from "@/middleware/promptInjectionGuard";
 import {
@@ -92,7 +93,13 @@ async function postHandler(request, _context) {
   let credentials = null;
   if (providerConfig && providerConfig.authType !== "none") {
     const credentialKey = providerConfig.credentialProviderId || provider;
-    credentials = await getProviderCredentialsWithQuotaPreflight(credentialKey);
+    credentials = await getProviderCredentialsWithQuotaPreflight(
+      credentialKey,
+      null,
+      null,
+      resolvedModel,
+      { modelModality: "audio" }
+    );
     if (!credentials) {
       return errorResponse(HTTP_STATUS.BAD_REQUEST, `No credentials for provider: ${provider}`);
     }
@@ -100,6 +107,14 @@ async function postHandler(request, _context) {
       return rateLimitedProviderResponse(provider, credentials);
     }
   }
+
+  const activationRejection = await getInferenceActivationRejection(
+    provider,
+    resolvedModel,
+    "audio",
+    providerConfig?.credentialProviderId || provider
+  );
+  if (activationRejection) return activationRejection;
 
   let response = await handleAudioSpeech({
     body,

@@ -1,3 +1,8 @@
+import {
+  isModelHiddenInSnapshot,
+  type ModelActivationSnapshot,
+} from "@/shared/utils/modelVisibility";
+import { activationModelIds } from "@omniroute/open-sse/services/modelActivationIdentity";
 import { PROVIDER_MODELS, PROVIDER_ID_TO_ALIAS } from "@/shared/constants/models";
 import { isTransparentCatalogRequest } from "./catalogTransparency";
 import { parseCatalogCapabilities } from "./catalogCapabilities";
@@ -67,7 +72,7 @@ import {
   type SyncedAvailableModel,
   getAllCustomModels,
   getModelAliases,
-  getHiddenModelsByProvider,
+  getModelActivationByProvider,
 } from "@/lib/db/models";
 import { getAllActiveSyncedModels } from "@/lib/db/models/activeSyncedCatalog";
 import {
@@ -343,11 +348,11 @@ async function buildUnifiedModelsResponseCore(
     // literal model id and must be hideable independently (#12172). Deliberately kept
     // INSIDE this try block: the builder's catch below sanitizes a build-time failure
     // into a 500 instead of a rejected promise.
-    const hiddenModelsByModality = new Map<string, Map<string, Set<string>>>();
-    const getHiddenModelsForModality = (modality: string): Map<string, Set<string>> => {
+    const hiddenModelsByModality = new Map<string, ModelActivationSnapshot>();
+    const getHiddenModelsForModality = (modality: string): ModelActivationSnapshot => {
       let m = hiddenModelsByModality.get(modality);
       if (!m) {
-        m = getHiddenModelsByProvider(modality);
+        m = getModelActivationByProvider(modality);
         hiddenModelsByModality.set(modality, m);
       }
       return m;
@@ -421,7 +426,7 @@ async function buildUnifiedModelsResponseCore(
       connections = (await getCachedRawProviderConnections()).map(createLazyConnectionView);
       totalConnectionCount = connections.length;
       // Filter to only active connections
-      connections = connections.filter((c) => c.isActive !== false);
+      connections = connections.filter((c) => c.isActive === true);
     } catch (e) {
       // If database not available, show no provider models (safe default)
       console.log("[catalog] Could not fetch providers:", e);
@@ -508,12 +513,11 @@ async function buildUnifiedModelsResponseCore(
       const keysToCheck = [providerKey, canonical, alias, nodePrefix].filter((k): k is string =>
         Boolean(k)
       );
-      const hiddenModelsForModality = getHiddenModelsForModality(modality);
-      for (const key of keysToCheck) {
-        const hiddenSet = hiddenModelsForModality.get(key);
-        if (hiddenSet?.has(modelId)) return true;
-      }
-      return false;
+      return isModelHiddenInSnapshot(
+        getHiddenModelsForModality(modality),
+        keysToCheck,
+        activationModelIds(canonical, modelId)
+      );
     };
 
     // Get combos
@@ -953,6 +957,7 @@ async function buildUnifiedModelsResponseCore(
           preparedAutoInputs = await prepareBuiltinAutoComboInputs(capabilityResolutionSnapshot);
           await yieldCatalogBuildTurn();
         }
+        if (preparedAutoInputs.candidatePool.length === 0) break;
         const virtualCombo = await createBuiltinAutoCombo(autoId, suffix, preparedAutoInputs);
         const contextLength = virtualCombo.advertisedContextLength || 128000;
         const maxOutputTokens = virtualCombo.advertisedMaxOutputTokens || 8192;
@@ -1238,7 +1243,7 @@ async function buildUnifiedModelsResponseCore(
       // `openai` provider page (codex runs on the openai-compatible connection)
       // or via the `cx` alias — check all three so a hide from any of them
       // suppresses the bare model id here.
-      if (isModelHiddenBulk("codex", modelId) || isModelHiddenBulk("openai", modelId)) continue;
+      if (isModelHiddenBulk("codex", modelId)) continue;
 
       const alias = providerIdToAlias.codex || "cx";
       const aliasId = `${alias}/${modelId}`;
@@ -1776,8 +1781,8 @@ async function buildUnifiedModelsResponseCore(
           const visibilityIds = search ? searchVisibilityProviderIds(search) : [providerId];
           if (visibilityIds.some((id) => isProviderBlockedByIdOrAlias(id, blockedProviders)))
             return false;
-          if (visibilityIds.some((id) => isModelHiddenBulk(id, modelId, null, kind))) return false;
-          if (visibilityIds.some((id) => isModelHiddenBulk(id, modelId))) return false;
+          if (isModelHiddenInSnapshot(getHiddenModelsForModality(kind), visibilityIds, [modelId]))
+            return false;
           if (visibilityIds.some((id) => shouldHideByExposure(id, modelId))) return false;
 
           if (kind === "webSearch") {

@@ -102,7 +102,10 @@ async function readUpscaleBody(request: Request): Promise<Record<string, unknown
       }
       return body;
     } catch (err) {
-      log.warn("IMAGE", `Invalid multipart upscale body: ${err instanceof Error ? err.message : err}`);
+      log.warn(
+        "IMAGE",
+        `Invalid multipart upscale body: ${err instanceof Error ? err.message : err}`
+      );
       return null;
     }
   }
@@ -183,7 +186,8 @@ async function postHandler(request: Request) {
     provider,
     null,
     allowedConnections,
-    `${provider}/${model}`
+    model,
+    { modelModality: "images" }
   );
   if (!credentialsResult) {
     return errorResponse(
@@ -226,7 +230,9 @@ async function postHandler(request: Request) {
   let proxyInfo: { proxy?: unknown } | null = null;
   if (creds.connectionId) {
     try {
-      proxyInfo = (await resolveProxyForConnection(creds.connectionId)) as { proxy?: unknown } | null;
+      proxyInfo = (await resolveProxyForConnection(creds.connectionId)) as {
+        proxy?: unknown;
+      } | null;
     } catch {
       log.debug("PROXY", `Failed to resolve proxy for upscale provider: ${provider}`);
     }

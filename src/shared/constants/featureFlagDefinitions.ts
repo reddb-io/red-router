@@ -695,10 +695,10 @@ export const FEATURE_FLAG_DEFINITIONS: FeatureFlagDefinition[] = [
     key: "OMNIROUTE_DISABLE_THINKING_LEVEL_VARIANTS",
     label: "Disable Thinking Level Variants",
     description:
-      "Disable the generation of thinking level variants (e.g. -low, -medium, -high) in the /v1/models catalog.",
+      "Hide generated reasoning-effort aliases and registered Codex and GLM 5.3 parameter aliases from /v1/models when their base model is visible (default). Clients select the base model and send effort separately. Existing aliases remain routable; native upstream model IDs are preserved. Turn off for older clients that select effort through model names.",
     descriptionI18nKey: "featureFlagOmnirouteDisableThinkingLevelVariantsDescription",
     category: "runtime",
-    defaultValue: "false",
+    defaultValue: "true",
     type: "boolean",
     requiresRestart: false,
     warningLevel: "info",

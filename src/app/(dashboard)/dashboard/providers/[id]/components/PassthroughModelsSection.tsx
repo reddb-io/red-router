@@ -36,6 +36,7 @@ import { ModelVisibilityToolbar } from "./ModelRow";
 import { sortModelsFreeFirst, isModelFreeBadge } from "@/shared/utils/freeModels";
 import { useStrictFreeBadge } from "./useStrictFreeBadge";
 import PassthroughModelRow from "./PassthroughModelRow";
+import PaginatedProviderModels from "./PaginatedProviderModels";
 
 // ---------------------------------------------------------------------------
 // Props
@@ -444,36 +445,52 @@ export default function PassthroughModelsSection({
             sortFreeFirst={sortFreeFirst}
             onSortFreeFirstChange={setSortFreeFirst}
           />
-          <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
-            {displayModels.map(({ modelId, fullModel, alias, isHidden, source, isFree }) => (
-              <PassthroughModelRow
-                key={fullModel as string}
-                modelId={modelId}
-                fullModel={fullModel}
-                provider={providerId}
-                alias={alias}
-                source={source}
-                isFree={isFree}
-                isHidden={isHidden}
-                copied={copied}
-                onCopy={onCopy}
-                onDeleteAlias={source === "alias" && alias ? () => onDeleteAlias(alias) : undefined}
-                onSetAlias={(a) => onSetAlias(modelId, a)}
-                t={t}
-                showDeveloperToggle
-                effectiveModelNormalize={effectiveModelNormalize}
-                effectiveModelPreserveDeveloper={effectiveModelPreserveDeveloper}
-                getUpstreamHeadersRecord={(p) => getUpstreamHeadersRecord(modelId, p)}
-                saveModelCompatFlags={saveModelCompatFlags}
-                compatDisabled={compatSavingModelId === modelId}
-                onToggleHidden={onToggleHidden}
-                togglingHidden={togglingModelId === modelId}
-                onTestModel={onTestModel}
-                testStatus={modelTestStatus?.[modelId] || null}
-                testingModel={testingModelId === modelId}
-              />
-            ))}
-          </div>
+          <PaginatedProviderModels
+            models={displayModels}
+            resetKey={JSON.stringify([
+              providerId,
+              connectionId,
+              modelFilter,
+              visibilityFilter,
+              freeFilter,
+              sortFreeFirst,
+            ])}
+          >
+            {(pageModels) => (
+              <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+                {pageModels.map(({ modelId, fullModel, alias, isHidden, source, isFree }) => (
+                  <PassthroughModelRow
+                    key={fullModel as string}
+                    modelId={modelId}
+                    fullModel={fullModel}
+                    provider={providerId}
+                    alias={alias}
+                    source={source}
+                    isFree={isFree}
+                    isHidden={isHidden}
+                    copied={copied}
+                    onCopy={onCopy}
+                    onDeleteAlias={
+                      source === "alias" && alias ? () => onDeleteAlias(alias) : undefined
+                    }
+                    onSetAlias={(a) => onSetAlias(modelId, a)}
+                    t={t}
+                    showDeveloperToggle
+                    effectiveModelNormalize={effectiveModelNormalize}
+                    effectiveModelPreserveDeveloper={effectiveModelPreserveDeveloper}
+                    getUpstreamHeadersRecord={(p) => getUpstreamHeadersRecord(modelId, p)}
+                    saveModelCompatFlags={saveModelCompatFlags}
+                    compatDisabled={compatSavingModelId === modelId}
+                    onToggleHidden={onToggleHidden}
+                    togglingHidden={togglingModelId === modelId}
+                    onTestModel={onTestModel}
+                    testStatus={modelTestStatus?.[modelId] || null}
+                    testingModel={testingModelId === modelId}
+                  />
+                ))}
+              </div>
+            )}
+          </PaginatedProviderModels>
           {filteredModels.length === 0 && modelFilter && (
             <p className="py-2 text-sm text-text-muted">
               {providerText(t, "noModelsMatch", `No models match "${modelFilter}"`, {

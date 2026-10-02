@@ -33,6 +33,7 @@ import { resolveVirtualCost } from "../providerCostData";
 import type { AutoVariant } from "./autoPrefix";
 import { buildFamilyCandidateFilter, type ModelFamily } from "./modelFamily";
 import { getHiddenModelsByProvider } from "@/models";
+import { getModelIsHidden } from "@/lib/db/models";
 import { getSyncedAvailableModelsByConnection, getCustomModels } from "@/lib/db/models";
 import { filterPaidOnlyCandidatesWithDiagnosis } from "./paidModelFilter";
 import { filterLockoutCandidates, warnPoolDrop } from "./modelLockoutFilter";
@@ -452,9 +453,9 @@ function getNoAuthCandidates(
 
     for (const model of registryModels) {
       const modelId = typeof model?.id === "string" && model.id.trim().length > 0 ? model.id : null;
-      if (!modelId) continue;
+      if (!modelId || getModelIsHidden(providerId, modelId)) continue;
       if (isModelExcludedByConnection(modelId, providerSpecificData)) continue;
-      if (hiddenModels?.has(modelId)) continue;
+      if (hiddenModels?.has(modelId) || getModelIsHidden(providerId, modelId)) continue;
       candidates.push({
         provider: providerId,
         connectionId: SYNTHETIC_NOAUTH_CONNECTION_ID,
@@ -691,7 +692,7 @@ export async function prepareVirtualAutoComboInputs(
         candidateModelsSinceYield = 0;
         await yieldVirtualAutoPreparationTurn();
       }
-      if (hiddenModels?.has(modelId)) continue;
+      if (hiddenModels?.has(modelId) || getModelIsHidden(providerId, modelId)) continue;
       if (nonChatIds.has(modelId)) continue;
 
       const allowedConnectionIds = providerConnections

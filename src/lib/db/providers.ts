@@ -696,7 +696,7 @@ export async function createProviderConnection(data: JsonRecord) {
     authType: data.authType || "oauth",
     name: connectionName,
     priority: connectionPriority,
-    isActive: data.isActive !== undefined ? data.isActive : true,
+    isActive: data.isActive !== undefined ? data.isActive : false,
     createdAt: now,
     updatedAt: now,
     proxyEnabled: normalizeBooleanColumn(data.proxyEnabled, true),

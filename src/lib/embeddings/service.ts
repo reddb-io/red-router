@@ -1,3 +1,4 @@
+import { getInferenceActivationRejection } from "@/lib/providers/inferenceActivation";
 import { handleEmbedding } from "@omniroute/open-sse/handlers/embeddings.ts";
 import {
   parseEmbeddingModel,
@@ -200,7 +201,8 @@ export async function createEmbeddingResponse(
       provider,
       null,
       syncedEndpointRoute.connectionIds,
-      syncedEndpointRoute.model
+      syncedEndpointRoute.model,
+      { modelModality: "embeddings" }
     );
     if (!credentials) {
       return errorResponse(
@@ -316,8 +318,17 @@ export async function createEmbeddingResponse(
     );
   }
 
+  const activationRejection = await getInferenceActivationRejection(
+    credentialsProviderId,
+    resolvedModel,
+    "embeddings"
+  );
+  if (activationRejection) return activationRejection;
+
   if (!credentials && providerConfig.authType !== "none") {
-    credentials = await getProviderCredentials(credentialsProviderId);
+    credentials = await getProviderCredentials(credentialsProviderId, null, null, resolvedModel, {
+      modelModality: "embeddings",
+    });
     if (!credentials) {
       return errorResponse(
         HTTP_STATUS.BAD_REQUEST,
@@ -364,7 +375,13 @@ export async function createEmbeddingResponse(
     // a custom host or API key (e.g. Lemonade bearer auth). Hydrate that optional
     // connection without imposing an authentication requirement, then keep the
     // static localhost default when no connection exists.
-    const localCredentials = await getProviderCredentials(credentialsProviderId);
+    const localCredentials = await getProviderCredentials(
+      credentialsProviderId,
+      null,
+      null,
+      resolvedModel,
+      { modelModality: "embeddings" }
+    );
     if (
       localCredentials &&
       !("allRateLimited" in localCredentials) &&

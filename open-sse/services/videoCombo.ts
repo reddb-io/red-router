@@ -1,3 +1,4 @@
+import { getInferenceActivationRejection } from "@/lib/providers/inferenceActivation";
 /**
  * Video Combo Strategy Execution
  *
@@ -120,6 +121,18 @@ export async function executeVideoCombo(
         return;
       }
 
+      const activationRejection = await getInferenceActivationRejection(
+        targetProvider,
+        targetModel,
+        "videos",
+        resolveVideoCredentialProvider(targetProvider)
+      );
+      if (activationRejection) {
+        lastError = { status: 403, error: "Video model or provider is inactive" };
+        fallbackCount += 1;
+        return;
+      }
+
       // Prompt requirements are per-target: some combo targets (I2V models) are
       // prompt-optional and others are not, so a missing prompt only rules out
       // this target rather than the whole combo.
@@ -168,7 +181,8 @@ export async function executeVideoCombo(
             targetProvider,
             null,
             null,
-            targetModel
+            targetModel,
+            { modelModality: "videos" }
           );
         } catch {
           lastError = { status: 502, error: `Failed to resolve credentials for ${targetProvider}` };

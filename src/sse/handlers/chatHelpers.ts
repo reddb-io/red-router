@@ -1,3 +1,4 @@
+import { getInferenceActivationRejection } from "@/lib/providers/inferenceActivation";
 import { isRemoteDecisionRoute } from "./remoteRouterModelPolicy";
 import {
   getModelInfo,
@@ -9,7 +10,6 @@ import {
   markAccountUnavailable,
   buildExhaustionOptions,
 } from "../services/auth";
-import { maybeReactivateAfterExplicitProbe } from "../services/explicitInactiveProbe";
 import { connectionHasExtraKeys } from "@omniroute/open-sse/services/apiKeyRotator.ts";
 import { clearRequestRejectedStreak } from "@omniroute/open-sse/services/requestRejectedStreak.ts";
 import { createBuiltinAutoCombo } from "@omniroute/open-sse/services/autoCombo/builtinCatalog.ts";
@@ -287,6 +287,8 @@ export async function resolveModelOrError(
   }
 
   const { provider, model, extendedContext } = modelInfo;
+  const activationRejection = await getInferenceActivationRejection(provider, model, "chat");
+  if (activationRejection) return { error: activationRejection };
   if (
     getModelEndpointDecision(provider, model).kind === "systemone" ||
     (await isRemoteDecisionRoute(provider, model))
@@ -559,7 +561,7 @@ export async function executeChatWithBreaker({
                 // credential doesn't go stale after Set-Cookie rotation.
                 apiKey: newCreds.apiKey,
                 testStatus: newCreds.testStatus ?? "active",
-                isActive: newCreds.isActive,
+                ...(newCreds.isActive === false ? { isActive: false } : {}),
               });
             },
             onRequestSuccess: async () => {
@@ -568,13 +570,6 @@ export async function executeChatWithBreaker({
               // (#12859) — only a real success does, not an elapsed cooldown.
               if (credentials.connectionId) clearRequestRejectedStreak(credentials.connectionId);
               await clearAccountError(credentials.connectionId, credentials);
-              await maybeReactivateAfterExplicitProbe({
-                connectionId: credentials.connectionId,
-                reactivatedFromInactive: credentials.reactivatedFromInactive,
-                isShadowTraffic,
-                requestedModel: model,
-                provider,
-              });
             },
             onStreamFailure: async (failure: any) => {
               if (isShadowTraffic) return;

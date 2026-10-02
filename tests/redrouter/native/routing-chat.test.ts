@@ -82,6 +82,8 @@ async function connect(provider: string, tenantId?: string) {
     isActive: true,
     testStatus: "active",
   })) as { id: string };
+  const { activateFixtureModels } = await import("../../helpers/modelActivationFixtures.ts");
+  await activateFixtureModels(provider, ["gpt-4o"]);
   if (tenantId) tenants.assignResourcesToTenant(tenantId, { connectionIds: [conn.id] });
   return conn;
 }

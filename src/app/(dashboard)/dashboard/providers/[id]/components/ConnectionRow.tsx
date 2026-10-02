@@ -4,7 +4,22 @@
 // ConnectionRow (and its local helpers CooldownTimer, inferErrorType,
 // getStatusPresentation) moved out of ProviderDetailPageClient.tsx.
 
-import { Banknote, Calendar, ChevronDown, ChevronUp, CircleAlert, GlobeLock, Key, RefreshCw, Rss, ScanFace, Shield, Timer, Trash2, TriangleAlert } from "lucide-react";
+import {
+  Banknote,
+  Calendar,
+  ChevronDown,
+  ChevronUp,
+  CircleAlert,
+  GlobeLock,
+  Key,
+  RefreshCw,
+  Rss,
+  ScanFace,
+  Shield,
+  Timer,
+  Trash2,
+  TriangleAlert,
+} from "lucide-react";
 import { readCookieExpiresAt } from "@/shared/utils/webCookieExpiry";
 import { useState, useEffect } from "react";
 import { useTranslations } from "next-intl";
@@ -1004,9 +1019,9 @@ export default function ConnectionRow({
         )}
         <Toggle
           size="sm"
-          checked={connection.isActive ?? true}
+          checked={connection.isActive === true}
           onChange={onToggleActive}
-          title={(connection.isActive ?? true) ? t("disableConnection") : t("enableConnection")}
+          title={connection.isActive === true ? t("disableConnection") : t("enableConnection")}
         />
         <div className="flex gap-1 ms-1 transition-opacity">
           {onReauth && (

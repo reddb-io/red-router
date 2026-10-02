@@ -8,7 +8,17 @@
  * Leaf component: imports from shared, leaf helpers, and sibling components.
  * Never imports from ProviderDetailPageClient.
  */
-import { Check, CircleAlert, CircleCheck, CirclePlay, LoaderCircle, Pencil, Trash2, TriangleAlert, X } from "lucide-react";
+import {
+  Check,
+  CircleAlert,
+  CircleCheck,
+  CirclePlay,
+  LoaderCircle,
+  Pencil,
+  Trash2,
+  TriangleAlert,
+  X,
+} from "lucide-react";
 import Icon from "@/shared/components/Icon";
 import React, { useState, useRef, useEffect } from "react";
 import { Badge } from "@/shared/components";
@@ -329,14 +339,12 @@ export default function PassthroughModelRow({
           )}
           {onToggleHidden && (
             <button
+              aria-label={`${isHidden ? "Activate" : "Deactivate"} ${modelId}`}
+              aria-pressed={!isHidden}
               onClick={() => onToggleHidden(modelId, !isHidden)}
               disabled={togglingHidden}
               className="rounded p-0.5 text-text-muted hover:bg-sidebar hover:text-primary disabled:cursor-not-allowed disabled:opacity-40"
-              title={
-                isHidden
-                  ? providerText(t, "showModel", "Show model")
-                  : providerText(t, "hideModel", "Hide model")
-              }
+              title={isHidden ? "Activate model" : "Deactivate model"}
             >
               <span className="material-symbols-outlined text-sm">
                 {isHidden ? "visibility_off" : "visibility"}

@@ -20,6 +20,7 @@ import {
 import { useNotificationStore } from "@/store/notificationStore";
 import {
   buildCompatMap,
+  isModelHiddenFn,
   anyNormalizeCompatBadge,
   anyNoPreserveCompatBadge,
   anyUpstreamHeadersBadge,
@@ -34,6 +35,7 @@ import {
   type CompatByProtocolMap,
 } from "../providerPageHelpers";
 import ModelCompatPopover from "./ModelCompatPopover";
+import PaginatedProviderModels from "./PaginatedProviderModels";
 
 // ---------------------------------------------------------------------------
 // Props
@@ -258,7 +260,7 @@ export default function CustomModelsSection({
         {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ isHidden: hidden }),
+          body: JSON.stringify({ isActive: !hidden }),
         }
       );
       if (res.ok) {
@@ -561,333 +563,358 @@ export default function CustomModelsSection({
       {loading ? (
         <p className="text-xs text-text-muted">{t("loading")}</p>
       ) : customModels.length > 0 ? (
-        <div className="flex flex-col gap-2">
-          {customModels.map((model) => {
-            const fullModel = `${providerAlias}/${model.id}`;
-            const copyKey = `custom-${model.id}`;
-            const hasSyncedBase = model.id ? syncedModelIdSet.has(model.id) : false;
-            return (
-              <div
-                key={model.id}
-                className="flex items-center gap-3 rounded-lg border border-border p-3 hover:bg-sidebar/50"
-              >
-                {editingModelId !== model.id && (
-                  <Icon icon={SlidersHorizontal} size="md" color="primary" className="shrink-0" />
-                )}
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium truncate">{model.name || model.id}</p>
-                  <div className="flex items-center gap-1 mt-1 flex-wrap">
-                    <code className="text-xs text-text-muted font-mono bg-sidebar px-1.5 py-0.5 rounded">
-                      {fullModel}
-                    </code>
-                    <button
-                      onClick={() => onCopy(fullModel, copyKey)}
-                      className="p-0.5 hover:bg-sidebar rounded text-text-muted hover:text-primary"
-                      title={t("copyModel")}
-                    >
-                      <span className="material-symbols-outlined text-sm">
-                        {copied === copyKey ? "check" : "content_copy"}
-                      </span>
-                    </button>
-                    {model.apiFormat === "responses" && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded-full border border-border bg-muted text-text-muted font-medium">
-                        {t("responses")}
-                      </span>
+        <PaginatedProviderModels models={customModels} resetKey={providerId}>
+          {(pageModels) => (
+            <div className="flex flex-col gap-2">
+              {pageModels.map((model) => {
+                const fullModel = `${providerAlias}/${model.id}`;
+                const copyKey = `custom-${model.id}`;
+                const hasSyncedBase = model.id ? syncedModelIdSet.has(model.id) : false;
+                return (
+                  <div
+                    key={model.id}
+                    className="flex items-center gap-3 rounded-lg border border-border p-3 hover:bg-sidebar/50"
+                  >
+                    {editingModelId !== model.id && (
+                      <Icon
+                        icon={SlidersHorizontal}
+                        size="md"
+                        color="primary"
+                        className="shrink-0"
+                      />
                     )}
-                    {hasSyncedBase && (
-                      <span
-                        className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary font-medium"
-                        title={providerText(
-                          t,
-                          "overridesUpstreamModelHint",
-                          "Your settings override this upstream model"
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium truncate">{model.name || model.id}</p>
+                      <div className="flex items-center gap-1 mt-1 flex-wrap">
+                        <code className="text-xs text-text-muted font-mono bg-sidebar px-1.5 py-0.5 rounded">
+                          {fullModel}
+                        </code>
+                        <button
+                          onClick={() => onCopy(fullModel, copyKey)}
+                          className="p-0.5 hover:bg-sidebar rounded text-text-muted hover:text-primary"
+                          title={t("copyModel")}
+                        >
+                          <span className="material-symbols-outlined text-sm">
+                            {copied === copyKey ? "check" : "content_copy"}
+                          </span>
+                        </button>
+                        {model.apiFormat === "responses" && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full border border-border bg-muted text-text-muted font-medium">
+                            {t("responses")}
+                          </span>
                         )}
-                      >
-                        {providerText(t, "overridesUpstreamModel", "Overrides upstream")}
-                      </span>
-                    )}
-                    {model.targetFormat && (
-                      <span
-                        className="text-[10px] px-1.5 py-0.5 rounded-full bg-feedback-success-surface text-feedback-success-foreground font-medium"
-                        title={t("targetFormatHint")}
-                      >
-                        {`→ ${targetFormatLabel(model.targetFormat, t)}`}
-                      </span>
-                    )}
-                    {typeof model.contextWindowOverride === "number" && (
-                      <span
-                        className="text-[10px] px-1.5 py-0.5 rounded-full bg-feedback-warning-surface text-feedback-warning-foreground font-medium"
-                        title={t("contextWindowOverrideHint")}
-                      >
-                        {`🪟 ${model.contextWindowOverride.toLocaleString()}`}
-                      </span>
-                    )}
-                    {model.supportsVision === true && (
-                      <span
-                        className="text-[10px] px-1.5 py-0.5 rounded-full border border-border bg-muted text-text-muted font-medium"
-                        title={t("visionCapableHint")}
-                      >
-                        {`👁️ ${t("visionCapableLabel")}`}
-                      </span>
-                    )}
-                    {model.isFree === true && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-feedback-success-surface text-feedback-success-foreground font-medium">
-                        FREE
-                      </span>
-                    )}
-                    {model.supportedEndpoints?.includes("embeddings") && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded-full border border-border bg-muted text-text-muted font-medium">
-                        {`📐 ${t("supportedEndpointEmbeddings")}`}
-                      </span>
-                    )}
-                    {model.supportedEndpoints?.includes("images") && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-feedback-warning-surface text-feedback-warning-foreground font-medium">
-                        {`🖼️ ${t("imagesShortLabel")}`}
-                      </span>
-                    )}
-                    {model.supportedEndpoints?.includes("audio") && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-feedback-success-surface text-feedback-success-foreground font-medium">
-                        {`🔊 ${t("audioShortLabel")}`}
-                      </span>
-                    )}
-                    {(model.supportedEndpoints?.includes("videos") ||
-                      model.supportedEndpoints?.includes("video")) && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-feedback-danger-surface text-feedback-danger-foreground font-medium">
-                        🎬 Video
-                      </span>
-                    )}
-                    {model.supportedEndpoints?.includes("audio-speech") && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-feedback-success-surface text-feedback-success-foreground font-medium">
-                        {`🔊 ${t("audioSpeech")}`}
-                      </span>
-                    )}
-                    {model.supportedEndpoints?.includes("audio-transcriptions") && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded-full border border-border bg-muted text-text-muted font-medium">
-                        {`🎙️ ${t("audioTranscriptions")}`}
-                      </span>
-                    )}
-                    {anyNormalizeCompatBadge(model.id!, customMap, overrideMap) && (
-                      <span
-                        className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-text-muted font-medium"
-                        title={t("normalizeToolCallIdLabel")}
-                      >
-                        ID×9
-                      </span>
-                    )}
-                    {anyNoPreserveCompatBadge(model.id!, customMap, overrideMap) && (
-                      <span
-                        className="text-[10px] px-1.5 py-0.5 rounded-full border border-border bg-muted text-text-muted font-medium"
-                        title={t("compatDoNotPreserveDeveloper")}
-                      >
-                        {t("compatBadgeNoPreserve")}
-                      </span>
-                    )}
-                    {anyUpstreamHeadersBadge(model.id!, customMap, overrideMap) && (
-                      <span
-                        className="text-[10px] px-1.5 py-0.5 rounded-full border border-border bg-muted text-text-muted font-medium"
-                        title={t("compatUpstreamHeadersLabel")}
-                      >
-                        {t("compatBadgeUpstreamHeaders")}
-                      </span>
-                    )}
-                  </div>
-
-                  {editingModelId === model.id && (
-                    <div className="mt-3 min-w-0 max-w-full rounded-lg border border-border bg-muted p-3">
-                      <div className="flex min-w-0 flex-wrap items-end gap-x-3 gap-y-2">
-                        <div className="w-[11rem] shrink-0 min-w-0">
-                          <label className="text-xs text-text-muted mb-1 block">
-                            {t("apiFormatLabel")}
-                          </label>
-                          <select
-                            value={editingApiFormat}
-                            onChange={(e) => setEditingApiFormat(e.target.value)}
-                            className="w-full px-2.5 py-2 text-xs border border-border rounded-lg bg-background text-text-main focus:outline-none focus:border-primary"
+                        {hasSyncedBase && (
+                          <span
+                            className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary font-medium"
+                            title={providerText(
+                              t,
+                              "overridesUpstreamModelHint",
+                              "Your settings override this upstream model"
+                            )}
                           >
-                            <option value="chat-completions">{t("chatCompletions")}</option>
-                            <option value="responses">{t("responsesApi")}</option>
-                            <option value="embeddings">{t("embeddings")}</option>
-                            <option value="rerank">Rerank</option>
-                            <option value="audio-transcriptions">{t("audioTranscriptions")}</option>
-                            <option value="audio-speech">{t("audioSpeech")}</option>
-                            <option value="images-generations">{t("imagesGenerations")}</option>
-                            <option value="video">Video</option>
-                          </select>
-                        </div>
-                        <div className="w-[11rem] shrink-0 min-w-0">
-                          <label className="text-xs text-text-muted mb-1 block">
-                            {t("targetFormatLabel")}
-                          </label>
-                          <select
-                            value={editingTargetFormat}
-                            onChange={(e) => setEditingTargetFormat(e.target.value)}
+                            {providerText(t, "overridesUpstreamModel", "Overrides upstream")}
+                          </span>
+                        )}
+                        {model.targetFormat && (
+                          <span
+                            className="text-[10px] px-1.5 py-0.5 rounded-full bg-feedback-success-surface text-feedback-success-foreground font-medium"
                             title={t("targetFormatHint")}
-                            className="w-full px-2.5 py-2 text-xs border border-border rounded-lg bg-background text-text-main focus:outline-none focus:border-primary"
                           >
-                            <option value="">{t("targetFormatAuto")}</option>
-                            <option value="openai">{t("compatProtocolOpenAI")}</option>
-                            <option value="openai-responses">
-                              {t("compatProtocolOpenAIResponses")}
-                            </option>
-                            <option value="claude">{t("compatProtocolClaude")}</option>
-                            <option value="gemini">{t("targetFormatGemini")}</option>
-                            <option value="antigravity">{t("targetFormatAntigravity")}</option>
-                          </select>
-                        </div>
-                        <div className="w-[10rem] shrink-0 min-w-0">
-                          <label className="text-xs text-text-muted mb-1 block">
-                            {t("contextWindowOverrideLabel")}
-                          </label>
-                          <input
-                            type="text"
-                            inputMode="numeric"
-                            value={editingContextWindowOverride}
-                            onChange={(e) => setEditingContextWindowOverride(e.target.value)}
-                            placeholder={t("contextWindowOverridePlaceholder")}
+                            {`→ ${targetFormatLabel(model.targetFormat, t)}`}
+                          </span>
+                        )}
+                        {typeof model.contextWindowOverride === "number" && (
+                          <span
+                            className="text-[10px] px-1.5 py-0.5 rounded-full bg-feedback-warning-surface text-feedback-warning-foreground font-medium"
                             title={t("contextWindowOverrideHint")}
-                            className="w-full px-2.5 py-2 text-xs border border-border rounded-lg bg-background text-text-main focus:outline-none focus:border-primary"
-                          />
-                        </div>
-                        <div className="w-[9rem] shrink-0 min-w-0">
-                          <label className="text-xs text-text-muted mb-1 block">&nbsp;</label>
-                          <label
-                            htmlFor={`custom-model-edit-vision-${model.id}`}
-                            className="flex items-center gap-1.5 text-xs text-text-main cursor-pointer whitespace-nowrap px-2.5 py-2"
+                          >
+                            {`🪟 ${model.contextWindowOverride.toLocaleString()}`}
+                          </span>
+                        )}
+                        {model.supportsVision === true && (
+                          <span
+                            className="text-[10px] px-1.5 py-0.5 rounded-full border border-border bg-muted text-text-muted font-medium"
                             title={t("visionCapableHint")}
                           >
-                            <input
-                              id={`custom-model-edit-vision-${model.id}`}
-                              type="checkbox"
-                              checked={editingSupportsVision}
-                              onChange={(e) => setEditingSupportsVision(e.target.checked)}
-                              className="rounded border-border"
-                            />
                             {`👁️ ${t("visionCapableLabel")}`}
-                          </label>
-                          <label
-                            htmlFor={`custom-model-edit-free-${model.id}`}
-                            className="flex items-center gap-1.5 text-xs text-text-main cursor-pointer whitespace-nowrap px-2.5 py-2"
-                            title="Mark as free-tier"
-                          >
-                            <input
-                              id={`custom-model-edit-free-${model.id}`}
-                              type="checkbox"
-                              checked={editingIsFree}
-                              onChange={(e) => setEditingIsFree(e.target.checked)}
-                              className="rounded border-border"
-                            />
-                            FREE
-                          </label>
-                        </div>
-                        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1 overflow-x-auto overflow-y-visible [scrollbar-width:thin]">
-                          <span className="text-xs text-text-muted shrink-0">
-                            {t("supportedEndpointsLabel")}
                           </span>
-                          <div className="flex flex-wrap items-center gap-x-2 sm:gap-x-3 gap-y-1 min-w-0">
-                            {MODEL_ENDPOINT_OPTIONS.map((ep) => (
+                        )}
+                        {model.isFree === true && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-feedback-success-surface text-feedback-success-foreground font-medium">
+                            FREE
+                          </span>
+                        )}
+                        {model.supportedEndpoints?.includes("embeddings") && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full border border-border bg-muted text-text-muted font-medium">
+                            {`📐 ${t("supportedEndpointEmbeddings")}`}
+                          </span>
+                        )}
+                        {model.supportedEndpoints?.includes("images") && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-feedback-warning-surface text-feedback-warning-foreground font-medium">
+                            {`🖼️ ${t("imagesShortLabel")}`}
+                          </span>
+                        )}
+                        {model.supportedEndpoints?.includes("audio") && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-feedback-success-surface text-feedback-success-foreground font-medium">
+                            {`🔊 ${t("audioShortLabel")}`}
+                          </span>
+                        )}
+                        {(model.supportedEndpoints?.includes("videos") ||
+                          model.supportedEndpoints?.includes("video")) && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-feedback-danger-surface text-feedback-danger-foreground font-medium">
+                            🎬 Video
+                          </span>
+                        )}
+                        {model.supportedEndpoints?.includes("audio-speech") && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-feedback-success-surface text-feedback-success-foreground font-medium">
+                            {`🔊 ${t("audioSpeech")}`}
+                          </span>
+                        )}
+                        {model.supportedEndpoints?.includes("audio-transcriptions") && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full border border-border bg-muted text-text-muted font-medium">
+                            {`🎙️ ${t("audioTranscriptions")}`}
+                          </span>
+                        )}
+                        {anyNormalizeCompatBadge(model.id!, customMap, overrideMap) && (
+                          <span
+                            className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-text-muted font-medium"
+                            title={t("normalizeToolCallIdLabel")}
+                          >
+                            ID×9
+                          </span>
+                        )}
+                        {anyNoPreserveCompatBadge(model.id!, customMap, overrideMap) && (
+                          <span
+                            className="text-[10px] px-1.5 py-0.5 rounded-full border border-border bg-muted text-text-muted font-medium"
+                            title={t("compatDoNotPreserveDeveloper")}
+                          >
+                            {t("compatBadgeNoPreserve")}
+                          </span>
+                        )}
+                        {anyUpstreamHeadersBadge(model.id!, customMap, overrideMap) && (
+                          <span
+                            className="text-[10px] px-1.5 py-0.5 rounded-full border border-border bg-muted text-text-muted font-medium"
+                            title={t("compatUpstreamHeadersLabel")}
+                          >
+                            {t("compatBadgeUpstreamHeaders")}
+                          </span>
+                        )}
+                      </div>
+
+                      {editingModelId === model.id && (
+                        <div className="mt-3 min-w-0 max-w-full rounded-lg border border-border bg-muted p-3">
+                          <div className="flex min-w-0 flex-wrap items-end gap-x-3 gap-y-2">
+                            <div className="w-[11rem] shrink-0 min-w-0">
+                              <label className="text-xs text-text-muted mb-1 block">
+                                {t("apiFormatLabel")}
+                              </label>
+                              <select
+                                value={editingApiFormat}
+                                onChange={(e) => setEditingApiFormat(e.target.value)}
+                                className="w-full px-2.5 py-2 text-xs border border-border rounded-lg bg-background text-text-main focus:outline-none focus:border-primary"
+                              >
+                                <option value="chat-completions">{t("chatCompletions")}</option>
+                                <option value="responses">{t("responsesApi")}</option>
+                                <option value="embeddings">{t("embeddings")}</option>
+                                <option value="rerank">Rerank</option>
+                                <option value="audio-transcriptions">
+                                  {t("audioTranscriptions")}
+                                </option>
+                                <option value="audio-speech">{t("audioSpeech")}</option>
+                                <option value="images-generations">{t("imagesGenerations")}</option>
+                                <option value="video">Video</option>
+                              </select>
+                            </div>
+                            <div className="w-[11rem] shrink-0 min-w-0">
+                              <label className="text-xs text-text-muted mb-1 block">
+                                {t("targetFormatLabel")}
+                              </label>
+                              <select
+                                value={editingTargetFormat}
+                                onChange={(e) => setEditingTargetFormat(e.target.value)}
+                                title={t("targetFormatHint")}
+                                className="w-full px-2.5 py-2 text-xs border border-border rounded-lg bg-background text-text-main focus:outline-none focus:border-primary"
+                              >
+                                <option value="">{t("targetFormatAuto")}</option>
+                                <option value="openai">{t("compatProtocolOpenAI")}</option>
+                                <option value="openai-responses">
+                                  {t("compatProtocolOpenAIResponses")}
+                                </option>
+                                <option value="claude">{t("compatProtocolClaude")}</option>
+                                <option value="gemini">{t("targetFormatGemini")}</option>
+                                <option value="antigravity">{t("targetFormatAntigravity")}</option>
+                              </select>
+                            </div>
+                            <div className="w-[10rem] shrink-0 min-w-0">
+                              <label className="text-xs text-text-muted mb-1 block">
+                                {t("contextWindowOverrideLabel")}
+                              </label>
+                              <input
+                                type="text"
+                                inputMode="numeric"
+                                value={editingContextWindowOverride}
+                                onChange={(e) => setEditingContextWindowOverride(e.target.value)}
+                                placeholder={t("contextWindowOverridePlaceholder")}
+                                title={t("contextWindowOverrideHint")}
+                                className="w-full px-2.5 py-2 text-xs border border-border rounded-lg bg-background text-text-main focus:outline-none focus:border-primary"
+                              />
+                            </div>
+                            <div className="w-[9rem] shrink-0 min-w-0">
+                              <label className="text-xs text-text-muted mb-1 block">&nbsp;</label>
                               <label
-                                key={ep}
-                                className="flex items-center gap-1.5 text-xs text-text-main cursor-pointer whitespace-nowrap"
+                                htmlFor={`custom-model-edit-vision-${model.id}`}
+                                className="flex items-center gap-1.5 text-xs text-text-main cursor-pointer whitespace-nowrap px-2.5 py-2"
+                                title={t("visionCapableHint")}
                               >
                                 <input
+                                  id={`custom-model-edit-vision-${model.id}`}
                                   type="checkbox"
-                                  checked={editingEndpoints.includes(ep)}
-                                  onChange={(e) => {
-                                    if (e.target.checked) {
-                                      setEditingEndpoints((prev) =>
-                                        prev.includes(ep) ? prev : [...prev, ep]
-                                      );
-                                    } else {
-                                      setEditingEndpoints((prev) => prev.filter((x) => x !== ep));
-                                    }
-                                  }}
+                                  checked={editingSupportsVision}
+                                  onChange={(e) => setEditingSupportsVision(e.target.checked)}
                                   className="rounded border-border"
                                 />
-                                {endpointLabel(ep, t)}
+                                {`👁️ ${t("visionCapableLabel")}`}
                               </label>
-                            ))}
+                              <label
+                                htmlFor={`custom-model-edit-free-${model.id}`}
+                                className="flex items-center gap-1.5 text-xs text-text-main cursor-pointer whitespace-nowrap px-2.5 py-2"
+                                title="Mark as free-tier"
+                              >
+                                <input
+                                  id={`custom-model-edit-free-${model.id}`}
+                                  type="checkbox"
+                                  checked={editingIsFree}
+                                  onChange={(e) => setEditingIsFree(e.target.checked)}
+                                  className="rounded border-border"
+                                />
+                                FREE
+                              </label>
+                            </div>
+                            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1 overflow-x-auto overflow-y-visible [scrollbar-width:thin]">
+                              <span className="text-xs text-text-muted shrink-0">
+                                {t("supportedEndpointsLabel")}
+                              </span>
+                              <div className="flex flex-wrap items-center gap-x-2 sm:gap-x-3 gap-y-1 min-w-0">
+                                {MODEL_ENDPOINT_OPTIONS.map((ep) => (
+                                  <label
+                                    key={ep}
+                                    className="flex items-center gap-1.5 text-xs text-text-main cursor-pointer whitespace-nowrap"
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={editingEndpoints.includes(ep)}
+                                      onChange={(e) => {
+                                        if (e.target.checked) {
+                                          setEditingEndpoints((prev) =>
+                                            prev.includes(ep) ? prev : [...prev, ep]
+                                          );
+                                        } else {
+                                          setEditingEndpoints((prev) =>
+                                            prev.filter((x) => x !== ep)
+                                          );
+                                        }
+                                      }}
+                                      className="rounded border-border"
+                                    />
+                                    {endpointLabel(ep, t)}
+                                  </label>
+                                ))}
+                              </div>
+                            </div>
+                            <div className="flex shrink-0 flex-wrap items-center gap-2 pb-0.5">
+                              <Button
+                                size="sm"
+                                onClick={() => saveEdit(model.id!)}
+                                disabled={savingModelId === model.id}
+                              >
+                                {savingModelId === model.id ? t("saving") : t("save")}
+                              </Button>
+                              <Button size="sm" variant="ghost" onClick={cancelEdit}>
+                                {t("cancel")}
+                              </Button>
+                            </div>
                           </div>
                         </div>
-                        <div className="flex shrink-0 flex-wrap items-center gap-2 pb-0.5">
-                          <Button
-                            size="sm"
-                            onClick={() => saveEdit(model.id!)}
-                            disabled={savingModelId === model.id}
-                          >
-                            {savingModelId === model.id ? t("saving") : t("save")}
-                          </Button>
-                          <Button size="sm" variant="ghost" onClick={cancelEdit}>
-                            {t("cancel")}
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-                <div className="flex shrink-0 items-center gap-1">
-                  <button
-                    onClick={() => beginEdit(model)}
-                    className="rounded p-1 text-text-muted hover:bg-sidebar hover:text-primary"
-                    title={t("edit")}
-                  >
-                    <Icon icon={Pencil} size="sm" color="current" />
-                  </button>
-                  <ModelCompatPopover
-                    t={t}
-                    providerId={providerId}
-                    modelId={model.id!}
-                    effectiveModelNormalize={(p) =>
-                      effectiveNormalizeForProtocol(model.id!, p, customMap, overrideMap)
-                    }
-                    effectiveModelPreserveDeveloper={(p) =>
-                      effectivePreserveForProtocol(model.id!, p, customMap, overrideMap)
-                    }
-                    getUpstreamHeadersRecord={(p) =>
-                      effectiveUpstreamHeadersForProtocol(model.id!, p, customMap, overrideMap)
-                    }
-                    onCompatPatch={(protocol, payload) =>
-                      saveCustomCompat(model.id!, {
-                        compatByProtocol: { [protocol]: payload },
-                      })
-                    }
-                    showDeveloperToggle
-                    disabled={savingModelId === model.id}
-                  />
-                  <button
-                    onClick={() => handleToggleHidden(model.id!, !model.isHidden)}
-                    disabled={togglingModelId === model.id}
-                    className="rounded p-1 text-text-muted hover:bg-sidebar hover:text-primary disabled:opacity-50"
-                    title={model.isHidden ? t("unhideModel") : t("hideModel")}
-                  >
-                    <span className="material-symbols-outlined text-sm">
-                      {model.isHidden ? "visibility_off" : "visibility"}
-                    </span>
-                  </button>
-                  {hasSyncedBase && (
-                    <button
-                      onClick={() => handleResetToUpstreamDefaults(model.id!)}
-                      className="rounded p-1 text-feedback-warning-foreground hover:bg-feedback-warning-surface"
-                      title={providerText(
-                        t,
-                        "resetToUpstreamDefaults",
-                        "Restore upstream defaults"
                       )}
-                    >
-                      <Icon icon={RotateCcw} size="sm" color="current" />
-                    </button>
-                  )}
-                  <button
-                    onClick={() => handleRemove(model.id!)}
-                    className="rounded p-1 text-feedback-danger-foreground hover:bg-feedback-danger-surface"
-                    title={t("removeCustomModel")}
-                  >
-                    <Icon icon={Trash2} size="sm" color="current" />
-                  </button>
-                </div>
-              </div>
-            );
-          })}
-        </div>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-1">
+                      <button
+                        onClick={() => beginEdit(model)}
+                        className="rounded p-1 text-text-muted hover:bg-sidebar hover:text-primary"
+                        title={t("edit")}
+                      >
+                        <Icon icon={Pencil} size="sm" color="current" />
+                      </button>
+                      <ModelCompatPopover
+                        t={t}
+                        providerId={providerId}
+                        modelId={model.id!}
+                        effectiveModelNormalize={(p) =>
+                          effectiveNormalizeForProtocol(model.id!, p, customMap, overrideMap)
+                        }
+                        effectiveModelPreserveDeveloper={(p) =>
+                          effectivePreserveForProtocol(model.id!, p, customMap, overrideMap)
+                        }
+                        getUpstreamHeadersRecord={(p) =>
+                          effectiveUpstreamHeadersForProtocol(model.id!, p, customMap, overrideMap)
+                        }
+                        onCompatPatch={(protocol, payload) =>
+                          saveCustomCompat(model.id!, {
+                            compatByProtocol: { [protocol]: payload },
+                          })
+                        }
+                        showDeveloperToggle
+                        disabled={savingModelId === model.id}
+                      />
+                      <button
+                        onClick={() =>
+                          handleToggleHidden(
+                            model.id!,
+                            !isModelHiddenFn(model.id!, customMap, overrideMap)
+                          )
+                        }
+                        disabled={togglingModelId === model.id}
+                        className="rounded p-1 text-text-muted hover:bg-sidebar hover:text-primary disabled:opacity-50"
+                        aria-pressed={!isModelHiddenFn(model.id!, customMap, overrideMap)}
+                        title={
+                          isModelHiddenFn(model.id!, customMap, overrideMap)
+                            ? "Activate model"
+                            : "Deactivate model"
+                        }
+                      >
+                        <span className="material-symbols-outlined text-sm">
+                          {isModelHiddenFn(model.id!, customMap, overrideMap)
+                            ? "visibility_off"
+                            : "visibility"}
+                        </span>
+                      </button>
+                      {hasSyncedBase && (
+                        <button
+                          onClick={() => handleResetToUpstreamDefaults(model.id!)}
+                          className="rounded p-1 text-feedback-warning-foreground hover:bg-feedback-warning-surface"
+                          title={providerText(
+                            t,
+                            "resetToUpstreamDefaults",
+                            "Restore upstream defaults"
+                          )}
+                        >
+                          <Icon icon={RotateCcw} size="sm" color="current" />
+                        </button>
+                      )}
+                      <button
+                        onClick={() => handleRemove(model.id!)}
+                        className="rounded p-1 text-feedback-danger-foreground hover:bg-feedback-danger-surface"
+                        title={t("removeCustomModel")}
+                      >
+                        <Icon icon={Trash2} size="sm" color="current" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </PaginatedProviderModels>
       ) : (
         <p className="text-xs text-text-muted">{t("noCustomModels")}</p>
       )}

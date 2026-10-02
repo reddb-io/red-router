@@ -8,6 +8,37 @@ Reasoning routing rules extend the existing model and combo routing. When no act
 the existing thinking, suffix, connection-default, and provider-translation behavior remains
 unchanged.
 
+## Model Discovery and Client Parameters
+
+The default `/v1/models` catalog lists base models without generating reasoning-effort aliases
+such as `claude-fable-5-1-xhigh`. Supported effort levels remain in
+`capabilities.effort_tiers`. Clients select a base model and send effort separately:
+
+| Client API              | Effort field           | Thinking mode                                 |
+| ----------------------- | ---------------------- | --------------------------------------------- |
+| OpenAI Chat Completions | `reasoning_effort`     | No universal `mode` field                     |
+| OpenAI Responses        | `reasoning.effort`     | No universal `mode` field                     |
+| Anthropic Messages      | `output_config.effort` | `thinking`, according to the model's contract |
+
+Levels and thinking modes are model-specific. Adaptive-only Claude models must use adaptive
+thinking rather than a manual token budget. See the [OpenAI reasoning guide](https://developers.openai.com/api/docs/guides/reasoning)
+and [Anthropic effort guide](https://platform.claude.com/docs/en/build-with-claude/effort).
+
+**Settings → AI → Models and reasoning effort** includes **Show effort aliases for older clients**.
+Enabling it restores generated aliases for clients that select effort through a model picker.
+Hidden aliases remain routable. The control uses the existing
+`OMNIROUTE_DISABLE_THINKING_LEVEL_VARIANTS` flag with inverted display semantics; explicit
+environment configuration and saved operator overrides retain their existing precedence.
+
+Registered Codex (including App-Server) and GLM 5.3 parameter aliases are hidden only when the
+same route's authorized base is visible. Alias-only scoped catalogs keep their selection.
+Native upstream IDs and remote-router IDs are preserved. GLM 5.2 transport-selecting aliases
+and the independent `no-think/` discovery setting are also preserved.
+
+Implementation: `src/app/api/v1/models/catalogResponse.ts`,
+`src/app/api/v1/models/catalogEffortAliases.ts`, and
+`open-sse/handlers/chatCore/claudeEffortVariant.ts`.
+
 ## Management
 
 Rule management is available under **Settings → Global Routing**. The API-key editor provides the

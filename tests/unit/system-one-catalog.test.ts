@@ -68,6 +68,10 @@ test("/v1/models lists JEV once as systemone, not as chat", async () => {
     { id: "openai/gpt-4o-mini", name: "GPT-4o mini", supportedEndpoints: ["chat"] },
   ]);
 
+  const { activateFixtureModels } = await import("../helpers/modelActivationFixtures.ts");
+  await activateFixtureModels("typesafe-ai", ["jev-latest"]);
+  await activateFixtureModels("openrouter", ["typesafe/jev-1.13", "openai/gpt-4o-mini"]);
+
   const response = await catalog.getUnifiedModelsResponse(
     new Request("http://localhost/api/v1/models")
   );
