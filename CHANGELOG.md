@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.58.1
+
+### Patch Changes
+
+- Make Clear all models use the provider's stored ID instead of its routing prefix. Clear connection-scoped remote discovery caches together with custom and synced inventories, preserving other providers and connection settings.
+- Require operator-created combos for auto routing. Catalog discovery and requests no longer synthesize auto routes. Keep presets as explicit creation actions using activated models, and retain local model opt-in for remote Router auto IDs.
+
 ## 0.58.0
 
 ### Minor Changes

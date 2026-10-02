@@ -1,6 +1,17 @@
 "use client";
 
-import { Activity, BadgeCheck, Compass, Database, Eraser, Fingerprint, IdCard, ShieldHalf, SlidersHorizontal, Sparkles } from "lucide-react";
+import {
+  Activity,
+  BadgeCheck,
+  Compass,
+  Database,
+  Eraser,
+  Fingerprint,
+  IdCard,
+  ShieldHalf,
+  SlidersHorizontal,
+  Sparkles,
+} from "lucide-react";
 import Icon from "@/shared/components/Icon";
 import { useEffect, useMemo, useState } from "react";
 import { Button, Card, Collapsible, Input, Select, Toggle } from "@/shared/components";
@@ -665,7 +676,6 @@ export default function RoutingTab() {
     antigravitySignatureCacheMode: "enabled",
     cliCompatProviders: [],
     autoRoutingEnabled: true,
-    autoRoutingDefaultVariant: "lkgp",
     systemTransforms: DEFAULT_SYSTEM_TRANSFORMS_CLIENT,
   });
   // Per-provider JSON draft + error state for the system-transforms editor.
@@ -920,73 +930,6 @@ export default function RoutingTab() {
               disabled={loading}
               ariaLabel={t("routingZeroConfigTitle")}
             />
-          </div>
-        </div>
-        <div className="mt-4 pt-4 border-t border-border/30">
-          <label className="block text-sm font-medium mb-2">{t("routingDefaultAutoVariant")}</label>
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-            {[
-              {
-                value: "lkgp",
-                label: t("routingDefaultAutoVariantLKGP"),
-                desc: t("routingDefaultAutoVariantLKGPDesc"),
-              },
-              {
-                value: "coding",
-                label: t("routingDefaultAutoVariantCoding"),
-                desc: t("routingDefaultAutoVariantCodingDesc"),
-              },
-              {
-                value: "fast",
-                label: t("routingDefaultAutoVariantFast"),
-                desc: t("routingDefaultAutoVariantFastDesc"),
-              },
-              {
-                value: "cheap",
-                label: t("routingDefaultAutoVariantCheap"),
-                desc: t("routingDefaultAutoVariantCheapDesc"),
-              },
-              {
-                value: "offline",
-                label: t("routingDefaultAutoVariantOffline"),
-                desc: t("routingDefaultAutoVariantOfflineDesc"),
-              },
-              {
-                value: "smart",
-                label: t("routingDefaultAutoVariantSmart"),
-                desc: t("routingDefaultAutoVariantSmartDesc"),
-              },
-            ].map((option) => (
-              <button
-                key={option.value}
-                onClick={() => updateSetting({ autoRoutingDefaultVariant: option.value })}
-                disabled={loading}
-                className={`p-2 rounded-lg border text-left transition-all ${
-                  settings.autoRoutingDefaultVariant === option.value
-                    ? "border-indigo-500/50 bg-indigo-500/5 ring-1 ring-indigo-500/20"
-                    : "border-border/50 hover:border-border hover:bg-surface/30"
-                }`}
-              >
-                <div className="flex items-center gap-1">
-                  <span
-                    className={`material-symbols-outlined text-[14px] ${
-                      settings.autoRoutingDefaultVariant === option.value
-                        ? "text-indigo-400"
-                        : "text-text-muted"
-                    }`}
-                  >
-                    {settings.autoRoutingDefaultVariant === option.value
-                      ? "check_circle"
-                      : "radio_button_unchecked"}
-                  </span>
-                  <span
-                    className={`text-xs font-medium ${settings.autoRoutingDefaultVariant === option.value ? "text-indigo-400" : ""}`}
-                  >
-                    {option.label}
-                  </span>
-                </div>
-              </button>
-            ))}
           </div>
         </div>
       </Card>
