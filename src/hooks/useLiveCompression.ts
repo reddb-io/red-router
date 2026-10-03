@@ -73,6 +73,7 @@ export function useLiveCompression(options?: UseLiveDashboardOptions): UseLiveCo
 
   const { connection, reconnect } = useLiveDashboard({
     channels: ["compression"],
+    retainEvents: false,
     onEvent: handleEvent,
     ...options,
   });

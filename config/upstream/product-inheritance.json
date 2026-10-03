@@ -439,6 +439,63 @@
         "Profile creation does not attach or enable anything; edits update all attachments and invalidate discovery while explicit local overrides remain.",
         "Attached profiles cannot be deleted, and tenant admins cannot replace owner profile pins."
       ]
+    },
+    {
+      "id": "responses-decoder-and-dashboard-retention",
+      "sources": ["redrouter", "9router", "omniroute"],
+      "status": "partial",
+      "reviewedAt": "2026-10-03",
+      "redrouterBaseline": "a7ee660c87135c103f754496770642cff5efcf1b",
+      "sourceReviews": [
+        {
+          "repository": "diegosouzapw/OmniRoute",
+          "ref": "pull/15213/head",
+          "sha": "0a190513b0fabcc7f32f14346bfe0fd13ba1f849",
+          "finding": "Same null response.id defect in synthesized keepalive and failure events. Local adaptation uses transport comments for keepalives and string IDs only for failures; upstream synthetic keepalive IDs are not adopted."
+        },
+        {
+          "repository": "diegosouzapw/OmniRoute",
+          "ref": "pull/15310/head",
+          "sha": "e803669fc6b1eb576367e8ad060d011274013856",
+          "finding": "Proposed premature EOF detection and queued failure preservation. Reviewed, not ported in this change."
+        },
+        {
+          "repository": "diegosouzapw/OmniRoute",
+          "ref": "pull/15433/head",
+          "sha": "688e32319d909a5bb26d25d2b6645f1b32377591",
+          "finding": "Proposed non-empty thinking/signature delta liveness. Reviewed, not ported in this change."
+        },
+        {
+          "repository": "decolua/9router",
+          "ref": "pull/4524/head",
+          "sha": "71ec1d3e49171a6b07b442fe3741e6a59fe6b511",
+          "finding": "GPT 6.1 Sol input context 872000. Local live normalization already prefers max_context_window; missing discovery was reproduced as a client-version gate."
+        },
+        {
+          "repository": "decolua/9router",
+          "ref": "pull/4376/head",
+          "sha": "08714d50679204d632bce7241759bc4da6391495",
+          "finding": "Proposed forwarding neutral SSE comments during translation. Supports transport-only heartbeats; this broader forwarding adaptation remains unported."
+        }
+      ],
+      "localPaths": [
+        "src/hooks/useLiveDashboard.ts",
+        "src/shared/utils/liveRequestState.ts",
+        "src/shared/utils/abortablePoll.ts",
+        "open-sse/utils/sseHeartbeat.ts",
+        "open-sse/utils/responsesSequence.ts",
+        "scripts/release/refresh-cli-identities.mjs",
+        "tests/redrouter/native/responses-transport-heartbeat.test.ts",
+        "tests/redrouter/native/live-dashboard-retention.test.ts"
+      ],
+      "remaining": "Browser crash after one hour is not reproduced by the short installed-runtime profile. Confirm reported decode failure against an exact client/request trace. Premature EOF, thinking-only liveness and native large-context server RSS remain separate follow-ups; reviewed open PRs are not claims of deployed fixes.",
+      "acceptance": [
+        "Lost terminal events retain at most 256 active requests and expire after 45 minutes even without further traffic. Reconnect rebuilds the live projection from the new session backlog.",
+        "Slow log polls do not overlap and abort on view cleanup or deadline.",
+        "Responses heartbeats preserve real provider events and never synthesize an in-progress response ID. Error terminals have string IDs and sequence numbers.",
+        "Codex discovery uses the same current identity as dispatch and preserves upstream model IDs, reasoning effort metadata and opt-in.",
+        "Release preparation resolves stable npm CLI versions and captures Claude identity fields from the integrity-checked native artifact; publication still promotes the exact CI artifact."
+      ]
     }
   ]
 }

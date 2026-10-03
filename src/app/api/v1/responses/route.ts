@@ -22,7 +22,7 @@ import {
 } from "@omniroute/open-sse/utils/earlyStreamKeepalive";
 import { createStreamDeadlineSignal } from "@omniroute/open-sse/utils/streamDeadlineSignal";
 import { resolveKeepaliveThreshold } from "@omniroute/open-sse/utils/keepaliveThreshold";
-import { OPENAI_RESPONSES_IN_PROGRESS_FRAME } from "@omniroute/open-sse/utils/sseHeartbeat";
+import { OPENAI_RESPONSES_KEEPALIVE_FRAME } from "@omniroute/open-sse/utils/sseHeartbeat";
 
 // NOTE: We do NOT call initTranslators() here — the translator registry is
 // bootstrapped at module level inside open-sse/translator/index.ts when it
@@ -190,7 +190,7 @@ export async function handleResponsesPost(request: Request, compact = false): Pr
 
     // Codex CLI (wire_api="responses") consumes this endpoint over SSE and its reqwest
     // client drops the connection if no bytes arrive within ~5s. Keep the connection
-    // warm with transport comments plus sparse parser-visible events while the upstream
+    // warm with transport comments while the upstream
     // produces its first token (#2544).
     const { request: resolved, body: resolvedBody } = await withCodexPreferredModel(
       request,
@@ -212,9 +212,9 @@ export async function handleResponsesPost(request: Request, compact = false): Pr
       return await withEarlyStreamKeepalive(handlerResponse, {
         signal: streamSignal,
         thresholdMs,
-        startupFrame: OPENAI_RESPONSES_IN_PROGRESS_FRAME,
+        startupFrame: OPENAI_RESPONSES_KEEPALIVE_FRAME,
         applicationKeepalive: {
-          frame: OPENAI_RESPONSES_IN_PROGRESS_FRAME,
+          frame: OPENAI_RESPONSES_KEEPALIVE_FRAME,
           intervalMs: SSE_HEARTBEAT_INTERVAL_MS,
         },
         errorFrame: OPENAI_RESPONSES_ERROR_FRAME,

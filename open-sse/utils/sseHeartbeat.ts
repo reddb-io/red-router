@@ -5,24 +5,20 @@
  * @changes
  * - [2026-07-28] [Cursor Grok 4.5] - Brand-neutral default OpenAI keepalive id/model
  */
-import { SYNTHETIC_RESPONSES_SEQUENCE_NUMBER } from "./responsesSequence.ts";
-
 const HEARTBEAT_ENCODER = new TextEncoder();
-// #14330: a bare {"type":"response.in_progress"} frame has no `sequence_number` or
-// `response` object, so a strict Responses decoder (openai-python, Codex/OpenCode/Grok
-// CLIs) aborts on it. Every typed Responses event requires both fields.
-const OPENAI_RESPONSES_IN_PROGRESS_PAYLOAD = `data: ${JSON.stringify({
-  type: "response.in_progress",
-  sequence_number: SYNTHETIC_RESPONSES_SEQUENCE_NUMBER,
-  response: { id: null, status: "in_progress" },
-})}\n\n`;
+// A proxy has no response ID before the provider responds. Inventing a
+// response.in_progress event (especially id:null) breaks strict decoders and
+// response lifecycle ordering. SSE comments carry transport liveness only.
+const OPENAI_RESPONSES_KEEPALIVE_PAYLOAD = ": keepalive\n\n";
 
 export const DEFAULT_SSE_HEARTBEAT_INTERVAL_MS = 15_000;
 
 /** Shared Responses API heartbeat frame for early and mid-stream keepalives. */
-export const OPENAI_RESPONSES_IN_PROGRESS_FRAME = HEARTBEAT_ENCODER.encode(
-  OPENAI_RESPONSES_IN_PROGRESS_PAYLOAD
+export const OPENAI_RESPONSES_KEEPALIVE_FRAME = HEARTBEAT_ENCODER.encode(
+  OPENAI_RESPONSES_KEEPALIVE_PAYLOAD
 );
+// Compatibility for consumers of the historical export.
+export const OPENAI_RESPONSES_IN_PROGRESS_FRAME = OPENAI_RESPONSES_KEEPALIVE_FRAME;
 
 export const HEARTBEAT_SHAPES = {
   COMMENT: "comment",
@@ -58,7 +54,7 @@ function buildHeartbeatPayload(
     case HEARTBEAT_SHAPES.ANTHROPIC_PING:
       return 'event: ping\ndata: {"type":"ping"}\n\n';
     case HEARTBEAT_SHAPES.OPENAI_RESPONSES_IN_PROGRESS:
-      return OPENAI_RESPONSES_IN_PROGRESS_PAYLOAD;
+      return OPENAI_RESPONSES_KEEPALIVE_PAYLOAD;
     case HEARTBEAT_SHAPES.OPENAI_CHUNK: {
       const payload = {
         id: opts.chunkId ?? "chatcmpl-keepalive",

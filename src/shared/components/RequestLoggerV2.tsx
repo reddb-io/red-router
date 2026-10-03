@@ -15,6 +15,7 @@ import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import Card from "./Card";
 import RequestLoggerDetail from "./RequestLoggerDetail";
+import { createAbortablePoll } from "@/shared/utils/abortablePoll";
 import { copyToClipboard } from "@/shared/utils/clipboard";
 import {
   PROVIDER_COLORS,
@@ -254,42 +255,45 @@ const RequestLoggerV2 = forwardRef<RequestLoggerV2Handle, RequestLoggerV2Initial
       []
     );
 
+    const listPoll = useMemo(() => createAbortablePoll(), []);
     const fetchLogs = useCallback(
-      async (showLoading = false) => {
-        if (showLoading) setLoading(true);
-        try {
-          const params = new URLSearchParams();
-          if (search) params.set("search", search);
-          if (activeFilter === "error") params.set("status", "error");
-          if (activeFilter === "ok") params.set("status", "ok");
-          if (activeFilter === "combo") params.set("combo", "1");
-          if (selectedModel) params.set("model", selectedModel);
-          if (selectedProvider) params.set("provider", selectedProvider);
-          if (selectedAccount) params.set("account", selectedAccount);
-          if (selectedApiKey) params.set("apiKey", selectedApiKey);
-          if (correlationIdFilter) params.set("correlationId", correlationIdFilter);
-          params.set("limit", String(limit));
+      async (showLoading = false) =>
+        listPoll.run(async (signal) => {
+          if (showLoading) setLoading(true);
+          try {
+            const params = new URLSearchParams();
+            if (search) params.set("search", search);
+            if (activeFilter === "error") params.set("status", "error");
+            if (activeFilter === "ok") params.set("status", "ok");
+            if (activeFilter === "combo") params.set("combo", "1");
+            if (selectedModel) params.set("model", selectedModel);
+            if (selectedProvider) params.set("provider", selectedProvider);
+            if (selectedAccount) params.set("account", selectedAccount);
+            if (selectedApiKey) params.set("apiKey", selectedApiKey);
+            if (correlationIdFilter) params.set("correlationId", correlationIdFilter);
+            params.set("limit", String(limit));
 
-          const res = await fetch(`/api/usage/call-logs?${params}`);
-          if (res.ok) {
-            const data = await res.json();
-            // If the server returned a full window, more rows may exist beyond it.
-            setHasMore(Array.isArray(data) && data.length >= limit);
-            // Skip re-render if data hasn't changed (#1369 GPU perf). The signature
-            // captures id + status + duration + tokens_out so in-progress updates
-            // still re-render while identical snapshots are skipped.
-            const sig = computeLogsSignature(data);
-            if (sig !== logsSignatureRef.current) {
-              logsSignatureRef.current = sig;
-              setLogs(data);
+            const res = await fetch(`/api/usage/call-logs?${params}`, { signal });
+            if (res.ok) {
+              const data = await res.json();
+              if (signal.aborted) return;
+              // If the server returned a full window, more rows may exist beyond it.
+              setHasMore(Array.isArray(data) && data.length >= limit);
+              // Skip re-render if data hasn't changed (#1369 GPU perf). The signature
+              // captures id + status + duration + tokens_out so in-progress updates
+              // still re-render while identical snapshots are skipped.
+              const sig = computeLogsSignature(data);
+              if (sig !== logsSignatureRef.current) {
+                logsSignatureRef.current = sig;
+                setLogs(data);
+              }
             }
+          } catch (error) {
+            if (!signal.aborted) console.error("Failed to fetch call logs:", error);
+          } finally {
+            if (!signal.aborted) setLoading(false);
           }
-        } catch (error) {
-          console.error("Failed to fetch call logs:", error);
-        } finally {
-          if (showLoading) setLoading(false);
-        }
-      },
+        }),
       [
         search,
         activeFilter,
@@ -299,6 +303,7 @@ const RequestLoggerV2 = forwardRef<RequestLoggerV2Handle, RequestLoggerV2Initial
         selectedApiKey,
         correlationIdFilter,
         limit,
+        listPoll,
       ]
     );
 
@@ -306,7 +311,8 @@ const RequestLoggerV2 = forwardRef<RequestLoggerV2Handle, RequestLoggerV2Initial
       const showLoading = !hasLoadedRef.current;
       hasLoadedRef.current = true;
       fetchLogs(showLoading);
-    }, [fetchLogs]);
+      return () => listPoll.cancel();
+    }, [fetchLogs, listPoll]);
 
     // Fetch provider nodes for display labels
     useEffect(() => {
@@ -677,39 +683,46 @@ const RequestLoggerV2 = forwardRef<RequestLoggerV2Handle, RequestLoggerV2Initial
       if (!selectedLog?.id || !isActive) return;
       let cancelled = false;
       let graceCount = 0;
-      const interval = setInterval(async () => {
-        if (document.visibilityState !== "visible") return;
-        try {
-          const res = await fetch(`/api/logs/${selectedLog.id}`, { cache: "no-store" });
-          if (cancelled) return;
-          if (res.status === 404) {
-            if (isActive) return;
-            clearInterval(interval);
-            return;
-          }
-          if (res.ok) {
-            const data = await res.json();
-            const stillActive = data.active === true;
-            setDetailData((prev: { pipelinePayloads: any }) => ({
-              ...prev,
-              ...data,
-              pipelinePayloads: data?.pipelinePayloads || prev?.pipelinePayloads,
-            }));
-            setSelectedLog((prev: any) => ({
-              ...prev,
-              ...data,
-              active: stillActive,
-            }));
-            if (!stillActive) {
-              graceCount++;
-              if (graceCount >= 3) clearInterval(interval);
+      const poll = createAbortablePoll();
+      const interval = setInterval(
+        () =>
+          void poll.run(async (signal) => {
+            if (document.visibilityState !== "visible") return;
+            try {
+              const res = await fetch(`/api/logs/${selectedLog.id}`, { cache: "no-store", signal });
+              if (cancelled) return;
+              if (res.status === 404) {
+                if (isActive) return;
+                clearInterval(interval);
+                return;
+              }
+              if (res.ok) {
+                const data = await res.json();
+                if (cancelled || signal.aborted) return;
+                const stillActive = data.active === true;
+                setDetailData((prev: { pipelinePayloads: any }) => ({
+                  ...prev,
+                  ...data,
+                  pipelinePayloads: data?.pipelinePayloads || prev?.pipelinePayloads,
+                }));
+                setSelectedLog((prev: any) => ({
+                  ...prev,
+                  ...data,
+                  active: stillActive,
+                }));
+                if (!stillActive) {
+                  graceCount++;
+                  if (graceCount >= 3) clearInterval(interval);
+                }
+              }
+            } catch {
+              // keep waiting; the detail endpoint is the single source of truth
             }
-          }
-        } catch {
-          // keep waiting; the detail endpoint is the single source of truth
-        }
-      }, 1000);
+          }),
+        1000
+      );
       return () => {
+        poll.cancel();
         cancelled = true;
         clearInterval(interval);
       };
@@ -721,43 +734,54 @@ const RequestLoggerV2 = forwardRef<RequestLoggerV2Handle, RequestLoggerV2Initial
       const cid = selectedLog?.correlationId;
       if (!selectedLog?.id || !cid) return;
       let cancelled = false;
-      const interval = setInterval(async () => {
-        if (document.visibilityState !== "visible") return;
-        try {
-          const res = await fetch(`/api/usage/call-logs?correlationId=${encodeURIComponent(cid)}`, {
-            cache: "no-store",
-          });
-          if (cancelled || !res.ok) return;
-          const cidLogs = await res.json();
-          if (!Array.isArray(cidLogs) || cidLogs.length === 0) return;
-          setLogs((prev) => {
-            const ids = new Set(cidLogs.map((l: any) => l.id));
-            let changed = false;
-            const merged = prev.map((l: any) => {
-              const updated = cidLogs.find((c: any) => c.id === l.id);
-              if (updated) {
-                changed = true;
-                return { ...l, ...updated };
-              }
-              return l;
-            });
-            for (const cl of cidLogs) {
-              if (!merged.some((m: any) => m.id === cl.id)) {
-                merged.push(cl);
-                changed = true;
-              }
+      const poll = createAbortablePoll();
+      const interval = setInterval(
+        () =>
+          void poll.run(async (signal) => {
+            if (document.visibilityState !== "visible") return;
+            try {
+              const res = await fetch(
+                `/api/usage/call-logs?correlationId=${encodeURIComponent(cid)}&limit=${PAGE_SIZE}`,
+                {
+                  cache: "no-store",
+                  signal,
+                }
+              );
+              if (cancelled || !res.ok) return;
+              const cidLogs = await res.json();
+              if (cancelled || signal.aborted) return;
+              if (!Array.isArray(cidLogs) || cidLogs.length === 0) return;
+              setLogs((prev) => {
+                const ids = new Set(cidLogs.map((l: any) => l.id));
+                let changed = false;
+                const merged = prev.map((l: any) => {
+                  const updated = cidLogs.find((c: any) => c.id === l.id);
+                  if (updated) {
+                    changed = true;
+                    return { ...l, ...updated };
+                  }
+                  return l;
+                });
+                for (const cl of cidLogs) {
+                  if (!merged.some((m: any) => m.id === cl.id)) {
+                    merged.push(cl);
+                    changed = true;
+                  }
+                }
+                return changed ? merged.slice(-Math.max(limit, PAGE_SIZE)) : prev;
+              });
+            } catch {
+              /* poll failed — non-critical */
             }
-            return changed ? merged : prev;
-          });
-        } catch {
-          /* poll failed — non-critical */
-        }
-      }, 3000);
+          }),
+        3000
+      );
       return () => {
+        poll.cancel();
         cancelled = true;
         clearInterval(interval);
       };
-    }, [selectedLog?.id, selectedLog?.correlationId]);
+    }, [selectedLog?.id, selectedLog?.correlationId, limit]);
 
     const currentLogIndex = useMemo(() => {
       if (!selectedLog) return -1;
@@ -952,7 +976,12 @@ const RequestLoggerV2 = forwardRef<RequestLoggerV2Handle, RequestLoggerV2Initial
 
           {/* Correlation ID Filter */}
           <div className="min-w-[180px] relative">
-            <Icon icon={Hash} size="md" color="ink-muted" className="absolute left-3 top-1/2 -translate-y-1/2" />
+            <Icon
+              icon={Hash}
+              size="md"
+              color="ink-muted"
+              className="absolute left-3 top-1/2 -translate-y-1/2"
+            />
             <input
               type="text"
               placeholder={t("correlationId")}
@@ -1222,7 +1251,13 @@ const RequestLoggerV2 = forwardRef<RequestLoggerV2Handle, RequestLoggerV2Initial
               <div className="p-8 text-center text-text-muted">{t("loadingLogs")}</div>
             ) : logs.length === 0 ? (
               <div className="p-8 text-center text-text-muted">
-                <Icon icon={Receipt} size="lg" color="current" className="mb-2 block opacity-40" style={{ width: 48, height: 48 }} />
+                <Icon
+                  icon={Receipt}
+                  size="lg"
+                  color="current"
+                  className="mb-2 block opacity-40"
+                  style={{ width: 48, height: 48 }}
+                />
                 {t("noLogs")}
               </div>
             ) : sortedLogs.length === 0 ? (

@@ -13,6 +13,7 @@ import { useLocale, useTranslations } from "next-intl";
  */
 
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { createAbortablePoll } from "@/shared/utils/abortablePoll";
 import { copyToClipboard } from "@/shared/utils/clipboard";
 import {
   bucketLogActivity,
@@ -119,27 +120,32 @@ export default function ConsoleLogViewer() {
     });
   };
 
-  const fetchLogs = useCallback(async () => {
-    const version = logUpdateVersionRef.current;
-    try {
-      const params = new URLSearchParams();
-      params.set("limit", "500");
+  const logPoll = useMemo(() => createAbortablePoll(), []);
+  const fetchLogs = useCallback(
+    async () =>
+      logPoll.run(async (signal) => {
+        const version = logUpdateVersionRef.current;
+        try {
+          const params = new URLSearchParams();
+          params.set("limit", "500");
 
-      const res = await fetch(`/api/logs/console?${params.toString()}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data: LogEntry[] = await res.json();
-      if (version !== logUpdateVersionRef.current) return;
+          const res = await fetch(`/api/logs/console?${params.toString()}`, { signal });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const data: LogEntry[] = await res.json();
+          if (signal.aborted || version !== logUpdateVersionRef.current) return;
 
-      setLogs(data);
-      setLastUpdated(new Date());
-      setError(null);
-    } catch (err: any) {
-      if (version !== logUpdateVersionRef.current) return;
-      setError(err.message || tv("fetchFailed"));
-    } finally {
-      if (version === logUpdateVersionRef.current) setLoading(false);
-    }
-  }, [tv]);
+          setLogs(data.slice(-500));
+          setLastUpdated(new Date());
+          setError(null);
+        } catch (err: any) {
+          if (signal.aborted || version !== logUpdateVersionRef.current) return;
+          setError(err.message || tv("fetchFailed"));
+        } finally {
+          if (version === logUpdateVersionRef.current) setLoading(false);
+        }
+      }),
+    [tv, logPoll]
+  );
 
   // The server sends one snapshot, then only appended lines. Polling remains a
   // fallback when EventSource is unavailable or the stream disconnects.
@@ -208,11 +214,12 @@ export default function ConsoleLogViewer() {
 
     return () => {
       logUpdateVersionRef.current += 1;
+      logPoll.cancel();
       source?.close();
       if (fallbackDelay) clearTimeout(fallbackDelay);
       stopPolling();
     };
-  }, [fetchLogs, tv]);
+  }, [fetchLogs, tv, logPoll]);
 
   useEffect(
     () => () => {
@@ -601,7 +608,13 @@ export default function ConsoleLogViewer() {
         <div className="p-3 space-y-px">
           {filteredLogs.length === 0 && !loading ? (
             <div className="text-[#8b949e] text-center py-12">
-              <Icon icon={Terminal} size="lg" color="current" className="block mb-2 opacity-30" style={{ width: 40, height: 40 }} />
+              <Icon
+                icon={Terminal}
+                size="lg"
+                color="current"
+                className="block mb-2 opacity-30"
+                style={{ width: 40, height: 40 }}
+              />
               <p>{t("noLogEntries")}</p>
               <p className="text-[10px] mt-1 opacity-60">{tv("emptyFileLoggingHint")}</p>
             </div>
@@ -672,7 +685,12 @@ export default function ConsoleLogViewer() {
 
           {loading && filteredLogs.length === 0 && (
             <div className="text-[#8b949e] text-center py-12">
-              <Icon icon={LoaderCircle} size="lg" color="current" className="animate-spin block mb-2" />
+              <Icon
+                icon={LoaderCircle}
+                size="lg"
+                color="current"
+                className="animate-spin block mb-2"
+              />
               {t("loadingLogs")}
             </div>
           )}

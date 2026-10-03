@@ -5758,7 +5758,7 @@
     "autoSyncToggleFailed": "Failed to toggle auto-sync",
     "autoSyncPartialFailure": "Auto-sync updated for some connections, but not all",
     "clearAllModels": "Clear All Models",
-    "clearAllModelsConfirm": "Are you sure you want to remove all models for this provider? This cannot be undone.",
+    "clearAllModelsConfirm": "Clear imported and custom models, remove aliases, and deactivate all catalog models for this provider? Built-in models remain listed for explicit activation.",
     "clearAllModelsSuccess": "All models cleared",
     "clearAllModelsFailed": "Failed to clear models",
     "addConnectionToImport": "Add a connection to enable importing.",

@@ -15,6 +15,11 @@
  */
 export const SYNTHETIC_RESPONSES_SEQUENCE_NUMBER = 1;
 
+/** Failure IDs must remain decodable when no upstream response was created. */
+export function buildSyntheticResponsesFailureId(): string {
+  return `resp_error_${globalThis.crypto.randomUUID()}`;
+}
+
 /** Wraps a `response.failed` payload's `response` object with the synthetic seed. */
 export function buildSyntheticResponsesFailedEvent(
   response: Record<string, unknown>
@@ -22,6 +27,12 @@ export function buildSyntheticResponsesFailedEvent(
   return {
     type: "response.failed",
     sequence_number: SYNTHETIC_RESPONSES_SEQUENCE_NUMBER,
-    response,
+    response: {
+      ...response,
+      id:
+        typeof response.id === "string" && response.id.length > 0
+          ? response.id
+          : buildSyntheticResponsesFailureId(),
+    },
   };
 }

@@ -96,6 +96,7 @@
   "homepage": "https://github.com/reddb-io/red-router",
   "scripts": {
     "changeset": "node scripts/release/changesets.mjs add",
+    "update:cli-identities": "node scripts/release/refresh-cli-identities.mjs",
     "release:status": "node scripts/release/changesets.mjs status",
     "release:version": "node scripts/release/changesets.mjs version",
     "release:pack": "node scripts/release/artifact.mjs pack",

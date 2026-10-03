@@ -231,7 +231,10 @@ export default function ProviderModelsSection({
     </>
   );
 
-  const clearAllButton = (modelMeta.customModels.length > 0 || providerAliasEntries.length > 0) && (
+  const clearAllButton = (models.length > 0 ||
+    syncedAvailableModels.length > 0 ||
+    modelMeta.customModels.length > 0 ||
+    providerAliasEntries.length > 0) && (
     <button
       onClick={handleClearAllModels}
       disabled={clearingModels}
@@ -390,23 +393,26 @@ export default function ProviderModelsSection({
     );
   }
 
-  const importButton = allowModelImport ? (
+  const importButton = (
     <div className="flex items-center gap-2 mb-4">
-      <Button
-        size="sm"
-        variant="secondary"
-        icon="download"
-        onClick={handleImportModels}
-        disabled={!canImportModels || importingModels}
-      >
-        {importingModels ? t("importingModels") : t("importFromModels")}
-      </Button>
+      {allowModelImport && (
+        <Button
+          size="sm"
+          variant="secondary"
+          icon="download"
+          onClick={handleImportModels}
+          disabled={!canImportModels || importingModels}
+        >
+          {importingModels ? t("importingModels") : t("importFromModels")}
+        </Button>
+      )}
       {modelDiscoveryControls}
-      {!canImportModels && (
+      {clearAllButton}
+      {allowModelImport && !canImportModels && (
         <span className="text-xs text-text-muted">{t("addConnectionToImport")}</span>
       )}
     </div>
-  ) : null;
+  );
 
   if (models.length === 0) {
     return (

@@ -13,6 +13,11 @@
 
 import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import type { DashboardChannel, DashboardEventName } from "@/lib/events/types";
+import {
+  applyLiveRequestEvent,
+  expireLiveRequests,
+  type LiveRequestState,
+} from "@/shared/utils/liveRequestState";
 import { deriveLiveWsPath, resolveLiveWsUrl, sanitizeLiveWsPort } from "@/shared/utils/wsPath";
 
 // ── Config ────────────────────────────────────────────────────────────────
@@ -78,6 +83,10 @@ export interface UseLiveDashboardOptions {
   channels?: DashboardChannel[];
   /** Auto-reconnect on disconnect (default: true) */
   autoReconnect?: boolean;
+  /** Keep raw event history (derived hooks already retain their bounded projections). */
+  retainEvents?: boolean;
+  /** Called before replaying the snapshot of an accepted WebSocket session. */
+  onReplayStart?: () => void;
   /** Event callback */
   onEvent?: (payload: WsEventPayload) => void;
 }
@@ -93,6 +102,8 @@ export function useLiveDashboard({
   channels = ["requests", "combo", "credentials"],
   autoReconnect = true,
   onEvent,
+  retainEvents = true,
+  onReplayStart,
 }: UseLiveDashboardOptions = {}) {
   const [connection, setConnection] = useState<DashboardConnectionState>({
     isConnected: false,
@@ -115,7 +126,9 @@ export function useLiveDashboard({
   useEffect(() => {
     if (!needsHandshake || wsUrlResolved) return;
     let cancelled = false;
-    fetch("/api/v1/ws?handshake=1")
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 10_000);
+    fetch("/api/v1/ws?handshake=1", { signal: controller.signal })
       .then((res) => (res.ok ? res.json() : null))
       .then((body) => {
         if (cancelled) return;
@@ -134,10 +147,13 @@ export function useLiveDashboard({
         // Handshake unavailable — fall back to the default URL.
       })
       .finally(() => {
+        clearTimeout(timer);
         if (!cancelled) setWsUrlResolved(true);
       });
     return () => {
       cancelled = true;
+      clearTimeout(timer);
+      controller.abort();
     };
   }, [needsHandshake, wsUrlResolved]);
 
@@ -169,10 +185,14 @@ export function useLiveDashboard({
   }, []);
   const maxEvents = 500;
 
+  const onReplayStartRef = useRef(onReplayStart);
+  const retainEventsRef = useRef(retainEvents);
   const onEventRef = useRef(onEvent);
   useEffect(() => {
     onEventRef.current = onEvent;
-  }, [onEvent]);
+    onReplayStartRef.current = onReplayStart;
+    retainEventsRef.current = retainEvents;
+  }, [onEvent, onReplayStart, retainEvents]);
 
   // Key + memo pair: the channel ARRAY is usually a fresh literal each render,
   // so `connect` deps use a stable identity derived from its contents.
@@ -237,10 +257,11 @@ export function useLiveDashboard({
               data: msg.data,
               timestamp: msg.timestamp || Date.now(),
             };
-            setEvents((prev) => {
-              const next = [...prev, payload];
-              return next.length > maxEvents ? next.slice(-maxEvents) : next;
-            });
+            if (retainEventsRef.current)
+              setEvents((prev) => {
+                const next = [...prev, payload];
+                return next.length > maxEvents ? next.slice(-maxEvents) : next;
+              });
             onEventRef.current?.(payload);
           } else if (msg.type === "pong") {
             // Heartbeat response
@@ -248,12 +269,10 @@ export function useLiveDashboard({
             // First frame of an accepted session: the backoff starts over.
             failedAttemptsRef.current = 0;
             setConnection((prev) => ({ ...prev, reconnectAttempt: 0 }));
-            // Send backlog
+            onReplayStartRef.current?.();
+            // Replace the prior snapshot; reconnects must not accumulate duplicate history.
             if (Array.isArray(msg.data)) {
-              setEvents((prev) => {
-                const next = [...prev, ...msg.data];
-                return next.length > maxEvents ? next.slice(-maxEvents) : next;
-              });
+              if (retainEventsRef.current) setEvents(msg.data.slice(-maxEvents));
               for (const item of msg.data) {
                 const payload: WsEventPayload = {
                   event: item.event,
@@ -397,87 +416,31 @@ export interface LiveRequest {
  * Hook for monitoring live requests.
  */
 export function useLiveRequests(options?: UseLiveDashboardOptions) {
-  const [requestState, setRequestState] = useState<{
-    active: Map<string, LiveRequest>;
-    completed: LiveRequest[];
-  }>({
+  const [requestState, setRequestState] = useState<LiveRequestState>({
     active: new Map(),
     completed: [],
   });
-  const maxCompleted = 100;
-
   const handleEvent = useCallback((event: WsEventPayload) => {
-    if (event.channel !== "requests") return;
-
-    if (event.event === "request.started") {
-      const data = event.data as any;
-      setRequestState((prev) => {
-        const active = new Map(prev.active);
-        active.set(data.id, {
-          id: data.id,
-          model: data.model,
-          provider: data.provider,
-          timestamp: data.timestamp,
-          status: "pending",
-          comboName: data.comboName,
-        });
-        return { active, completed: prev.completed };
-      });
-    } else if (event.event === "request.streaming") {
-      const data = event.data as any;
-      setRequestState((prev) => {
-        const active = new Map(prev.active);
-        const existing = active.get(data.id);
-        if (existing) {
-          active.set(data.id, { ...existing, status: "running" });
-        }
-        return { active, completed: prev.completed };
-      });
-    } else if (event.event === "request.completed") {
-      const data = event.data as any;
-      setRequestState((prev) => {
-        const active = new Map(prev.active);
-        const existing = active.get(data.id);
-        if (existing) {
-          active.delete(data.id);
-          const done: LiveRequest = {
-            ...existing,
-            status: data.status === "success" ? "success" : "error",
-            tokensInput: data.tokensInput,
-            tokensOutput: data.tokensOutput,
-            latencyMs: data.latencyMs,
-            error: data.error,
-          };
-          const completed = [done, ...prev.completed].slice(0, maxCompleted);
-          return { active, completed };
-        }
-        return prev;
-      });
-    } else if (event.event === "request.failed") {
-      const data = event.data as any;
-      setRequestState((prev) => {
-        const active = new Map(prev.active);
-        const existing = active.get(data.id);
-        if (existing) {
-          active.delete(data.id);
-          const done: LiveRequest = {
-            ...existing,
-            status: "error",
-            error: data.error,
-            latencyMs: data.latencyMs,
-          };
-          const completed = [done, ...prev.completed].slice(0, maxCompleted);
-          return { active, completed };
-        }
-        return prev;
-      });
-    }
+    setRequestState((previous) => applyLiveRequestEvent(previous, event));
+  }, []);
+  const resetActive = useCallback(() => {
+    setRequestState((previous) =>
+      previous.active.size === 0 ? previous : { ...previous, active: new Map() }
+    );
+  }, []);
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setRequestState((previous) => expireLiveRequests(previous, Date.now()));
+    }, 30_000);
+    return () => clearInterval(timer);
   }, []);
 
   const { connection, reconnect } = useLiveDashboard({
     channels: ["requests"],
     onEvent: handleEvent,
+    retainEvents: false,
     ...options,
+    onReplayStart: resetActive,
   });
 
   return {
@@ -557,6 +520,7 @@ export function useLiveComboStatus(options?: UseLiveDashboardOptions) {
 
   const { connection, reconnect } = useLiveDashboard({
     channels: ["combo"],
+    retainEvents: false,
     onEvent: handleEvent,
     ...options,
   });
@@ -591,6 +555,7 @@ export function useLiveComboStatus(options?: UseLiveDashboardOptions) {
 export function useLiveConnectionStatus(options?: UseLiveDashboardOptions) {
   const { connection, reconnect } = useLiveDashboard({
     channels: [],
+    retainEvents: false,
     ...options,
   });
   return { ...connection, reconnect };

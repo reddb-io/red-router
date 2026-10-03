@@ -144,7 +144,14 @@ export async function runChangesets(command, { root = projectRoot, args = [] } =
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  runChangesets(process.argv[2] || "add", { args: process.argv.slice(3) }).catch((error) => {
+  (async () => {
+    const command = process.argv[2] || "add";
+    if (command === "version" && process.argv.length === 3) {
+      const { refreshCliIdentities } = await import("./refresh-cli-identities.mjs");
+      await refreshCliIdentities();
+    }
+    await runChangesets(command, { args: process.argv.slice(3) });
+  })().catch((error) => {
     console.error(error.message);
     process.exitCode = 1;
   });

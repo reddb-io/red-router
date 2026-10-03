@@ -2,6 +2,7 @@ import { z } from "zod";
 import {
   getCustomModels,
   getAllCustomModels,
+  getSyncedAvailableModels,
   addCustomModel,
   removeCustomModel,
   replaceCustomModels,
@@ -31,6 +32,7 @@ import {
   isAnthropicCompatibleProvider,
 } from "@/shared/constants/providers";
 import { clearRemoteRouterCatalogsForProvider } from "@/lib/db/remoteRouterCatalog";
+import { getModelsByProviderId } from "@/shared/constants/models";
 import { isAuthenticated } from "@/shared/utils/apiAuth";
 export const dynamic = "force-dynamic";
 import { providerModelMutationSchema } from "@/shared/validation/schemas";
@@ -562,6 +564,19 @@ export async function DELETE(request) {
     // DELETE /api/provider-models?provider=<id>&all=true — clear all models
     const all = searchParams.get("all");
     if (all === "true") {
+      const modelIds = new Set(
+        [
+          ...(getModelsByProviderId(provider) || []),
+          ...(await getCustomModels(provider)),
+          ...(await getSyncedAvailableModels(provider)),
+          ...getModelCompatOverrides(provider),
+        ]
+          .map((model) => model.id)
+          .filter(Boolean)
+      );
+      // Clearing a catalog must revoke its opt-ins too. Otherwise the static
+      // fallback or a later discovery can restore previously selected models.
+      for (const id of modelIds) await setModelActivation(provider, id, false);
       await replaceCustomModels(provider, [], { allowEmpty: true });
       const syncedAvailableModelListsRemoved =
         await deleteSyncedAvailableModelsForProvider(provider);

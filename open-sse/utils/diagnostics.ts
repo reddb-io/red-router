@@ -11,7 +11,10 @@
 
 import { sanitizeErrorMessage } from "./error.ts";
 import { classifyFakeSuccessBody } from "../services/errorClassifier.ts";
-import { SYNTHETIC_RESPONSES_SEQUENCE_NUMBER } from "./responsesSequence.ts";
+import {
+  buildSyntheticResponsesFailureId,
+  SYNTHETIC_RESPONSES_SEQUENCE_NUMBER,
+} from "./responsesSequence.ts";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -152,7 +155,7 @@ export function synthResponsesFailure(reason?: MalformedReason): string {
     // required field — a strict Responses decoder aborts without it.
     sequence_number: SYNTHETIC_RESPONSES_SEQUENCE_NUMBER,
     response: {
-      id: null,
+      id: buildSyntheticResponsesFailureId(),
       status: "failed",
       error: {
         type: "stream_error",
