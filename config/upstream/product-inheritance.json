@@ -463,7 +463,7 @@
           "repository": "diegosouzapw/OmniRoute",
           "ref": "pull/15310/head",
           "sha": "e803669fc6b1eb576367e8ad060d011274013856",
-          "finding": "Proposed premature EOF detection and queued failure preservation. Reviewed, not ported in this change."
+          "finding": "Proposed premature EOF detection and queued failure preservation. RedRouter already has equivalent terminal detection, partial output preservation and failure accounting from cb878bcf8d, covered by stream-terminal-contract.test.ts. No additional port is needed for the reviewed EOF cases."
         },
         {
           "repository": "diegosouzapw/OmniRoute",
@@ -509,7 +509,7 @@
         "open-sse/executors/antigravity/streamingPassthrough.ts",
         "tests/redrouter/native/stream-byte-backpressure.test.ts"
       ],
-      "remaining": "Browser crash after one hour is not reproduced by the short installed-runtime profile. Confirm reported decode failure against an exact client/request trace. Premature EOF, thinking-only liveness and native large-context server RSS remain separate follow-ups; reviewed open PRs are not claims of deployed fixes.",
+      "remaining": "Browser crash after one hour is not reproduced by the short installed-runtime profile. Confirm reported decode failure against an exact client/request trace. Thinking/signature-only liveness and native large-context server RSS remain separate follow-ups; premature EOF already has local protection and regression coverage. Reviewed open PRs are not claims of deployed fixes.",
       "acceptance": [
         "Lost terminal events retain at most 256 active requests and expire after 45 minutes even without further traffic. Reconnect rebuilds the live projection from the new session backlog.",
         "Slow log polls do not overlap and abort on view cleanup or deadline.",
