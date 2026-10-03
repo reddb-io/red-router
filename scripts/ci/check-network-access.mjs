@@ -82,10 +82,24 @@ try {
     return result.pid !== first.pid && result.mode === "lan" && !result.pendingRestart && result;
   });
   assert.equal(lan.host, "0.0.0.0");
+  const savedLanUnit = readFileSync(unit, "utf8");
+  run("systemctl", ["--user", "restart", "red-router.service"]);
+  const restartedLan = await until(async () => {
+    const result = await status(address);
+    return result.pid !== lan.pid && result.mode === "lan" && !result.pendingRestart && result;
+  });
+  assert.equal(restartedLan.host, "0.0.0.0");
+  assert.equal(
+    readFileSync(unit, "utf8"),
+    savedLanUnit,
+    "ordinary restart preserves saved LAN access"
+  );
   await change("local");
   await until(async () => {
     const result = await status();
-    return result.pid !== lan.pid && result.mode === "local" && !result.pendingRestart && result;
+    return (
+      result.pid !== restartedLan.pid && result.mode === "local" && !result.pendingRestart && result
+    );
   });
   assert.equal(await reachable(address), false, "returning to loopback must close LAN access");
   assert.equal(

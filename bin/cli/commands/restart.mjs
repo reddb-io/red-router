@@ -1,6 +1,7 @@
 import { t } from "../i18n.mjs";
 import { runStopCommand } from "./stop.mjs";
 import { sleep } from "../utils/pid.mjs";
+import { restartManagedService } from "../service.mjs";
 
 export function registerRestart(program) {
   program
@@ -14,13 +15,24 @@ export function registerRestart(program) {
     });
 }
 
-export async function runRestartCommand(opts = {}) {
+export async function runRestartCommand(opts = {}, deps = {}) {
   console.log(t("restart.restarting"));
 
-  await runStopCommand(opts);
-  await sleep(1000);
+  const managed = await (deps.restartService || restartManagedService)({ port: opts.port });
+  if (managed.handled) {
+    if (!managed.ok) {
+      console.error(
+        "RedRouter service restart could not be verified. Inspect journalctl --user -u red-router.service."
+      );
+    }
+    return managed.ok ? 0 : 1;
+  }
 
-  const { runServe } = await import("./serve.mjs");
+  const stopCode = await (deps.stop || runStopCommand)(opts);
+  if (stopCode !== 0) return stopCode;
+  await (deps.sleep || sleep)(1000);
+
+  const runServe = deps.serve || (await import("./serve.mjs")).runServe;
   await runServe(opts);
   return 0;
 }

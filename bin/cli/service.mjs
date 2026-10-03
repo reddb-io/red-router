@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { setTimeout as delay } from "node:timers/promises";
 import { isLoopbackUrl } from "./api.mjs";
@@ -366,6 +366,39 @@ export function serviceStatus({
     kind: "unsupported",
     message: "Background service management is supported on Linux and macOS.",
   };
+}
+
+/** Restart through the owning manager rather than replace it with a foreground default. */
+export async function restartManagedService({
+  port,
+  dataDir = resolveDataDir(),
+  paths = servicePaths(),
+  platform = process.platform,
+  runCommand = run,
+  probe = probeRunningVersion,
+} = {}) {
+  if (platform !== "linux") return { handled: false };
+  const saved = readServiceConfiguration(paths.linux);
+  if (
+    !saved?.dataDir ||
+    resolve(saved.dataDir) !== resolve(dataDir) ||
+    (port !== undefined && Number(port) !== saved.port)
+  )
+    return { handled: false };
+  try {
+    await runCommand("systemctl", ["--user", "restart", LINUX_SERVICE_NAME]);
+    const version = await probe({ port: saved.port, dataDir: saved.dataDir });
+    return {
+      handled: true,
+      ok: version.matches,
+      host: saved.host,
+      port: saved.port,
+      version,
+    };
+  } catch {
+    // A manager failure must not silently launch a competing process on a different host.
+    return { handled: true, ok: false };
+  }
 }
 
 /** Reads installed metadata without starting the CLI/tray. */
