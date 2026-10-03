@@ -3343,7 +3343,7 @@ export function createSSEStream(options: StreamOptions = {}) {
     },
   } satisfies Transformer<Uint8Array, Uint8Array>;
   return withStreamCleanup(
-    new TransformStream(
+    new TransformStream<Uint8Array, Uint8Array>(
       transformer,
       new ByteLengthQueuingStrategy({ highWaterMark: streamBufferBytes }),
       new ByteLengthQueuingStrategy({ highWaterMark: streamBufferBytes })
