@@ -108,6 +108,7 @@ function ProviderNode({ data }: { data: ProviderNodeData }) {
 
       <span
         className="text-xs font-medium truncate flex-1"
+        title={label}
         style={{
           color: active ? color : error ? RED : healthy ? GREEN : "var(--color-text-main)",
         }}

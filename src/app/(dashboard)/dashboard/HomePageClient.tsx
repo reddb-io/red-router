@@ -1,6 +1,15 @@
 "use client";
 
-import { ArrowDownToLine, CircleAlert, CircleCheck, Coins, LoaderCircle, SearchX, Settings, TriangleAlert } from "lucide-react";
+import {
+  ArrowDownToLine,
+  CircleAlert,
+  CircleCheck,
+  Coins,
+  LoaderCircle,
+  SearchX,
+  Settings,
+  TriangleAlert,
+} from "lucide-react";
 import Icon from "@/shared/components/Icon";
 import { useTranslations } from "next-intl";
 
@@ -16,7 +25,7 @@ import {
 import { useNotificationStore } from "@/store/notificationStore";
 import { extractApiErrorMessage } from "@/shared/http/apiErrorMessage";
 import { copyToClipboard } from "@/shared/utils/clipboard";
-import { getProviderDisplayLabel } from "@/shared/utils/providerDisplayLabel";
+import { resolveTopologyProviderLabel } from "../home/topologyLabel";
 import { HomeProviderTopologySection } from "./HomeProviderTopologySection";
 import { shouldShowProviderTopologyOnHome } from "./homeAppearance";
 import HomeRecentRequests from "../home/HomeRecentRequests";
@@ -407,11 +416,12 @@ export default function HomePageClient({ machineId }: HomePageClientProps) {
       );
       if (!hasActiveConn) return;
 
-      const resolvedName =
-        getProviderDisplayLabel(rawProviderId, providerNodes) ||
-        name ||
-        providerConfig[canonicalProviderId]?.name ||
-        rawProviderId;
+      const resolvedName = resolveTopologyProviderLabel(
+        rawProviderId,
+        providerNodes,
+        providerConnections,
+        name || providerConfig[canonicalProviderId]?.name || rawProviderId
+      );
 
       byProvider.set(canonicalProviderId, {
         id: canonicalProviderId,
@@ -742,7 +752,12 @@ export default function HomePageClient({ machineId }: HomePageClientProps) {
                     }`}
                   >
                     {s.status === "running" ? (
-                      <Icon icon={LoaderCircle} size="md" color="primary" className="animate-spin" />
+                      <Icon
+                        icon={LoaderCircle}
+                        size="md"
+                        color="primary"
+                        className="animate-spin"
+                      />
                     ) : s.status === "done" ? (
                       <Icon icon={CircleCheck} size="md" color="feedback-success-foreground" />
                     ) : s.status === "failed" ? (
@@ -994,7 +1009,13 @@ function ProviderModelsModal({
 
         {models.length === 0 ? (
           <div className="text-center py-6">
-            <Icon icon={SearchX} size="lg" color="ink-muted" className="mb-2" style={{ width: 32, height: 32 }} />
+            <Icon
+              icon={SearchX}
+              size="lg"
+              color="ink-muted"
+              className="mb-2"
+              style={{ width: 32, height: 32 }}
+            />
             <p className="text-sm text-text-muted">{t("noModelsAvailable")}</p>
             <p className="text-xs text-text-muted mt-1">
               {t("configureFirst", { providers: ts("providers") })}
