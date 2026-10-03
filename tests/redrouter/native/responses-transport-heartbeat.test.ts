@@ -31,7 +31,9 @@ test("synthesized failures are decodable and retain an upstream response ID when
   );
   for (const frame of [
     synthResponsesFailure("no_terminal"),
-    new TextDecoder().decode(buildStreamErrorChunks("failed", 502, "openai-responses")),
+    buildStreamErrorChunks("failed", 502, "openai-responses")
+      .map((chunk) => new TextDecoder().decode(chunk))
+      .join(""),
   ]) {
     const failure = dataEvents(frame)[0];
     assert.equal(failure.type, "response.failed");
