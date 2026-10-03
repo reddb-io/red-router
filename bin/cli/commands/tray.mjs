@@ -1,5 +1,6 @@
 import { t } from "../i18n.mjs";
 import { DEFAULT_PORT } from "../product.mjs";
+import { openLocalDiagnostics } from "../runtime/localLogs.mjs";
 import { startManagedTray } from "../service.mjs";
 import { runTrayLifecycle } from "../tray/lifecycle.mjs";
 import {
@@ -30,7 +31,7 @@ export async function attachTray({ port = DEFAULT_PORT, replace = false, managed
         trayOnly: true,
         onQuit: () => process.emit("SIGTERM"),
         onOpenDashboard: () => open(`http://127.0.0.1:${port}/home`),
-        onShowLogs: () => open(`http://127.0.0.1:${port}/observe/logs`),
+        onShowLogs: () => openLocalDiagnostics(),
       }),
     destroy: killTray,
     release: releaseTrayLock,

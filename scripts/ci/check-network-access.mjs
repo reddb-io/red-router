@@ -94,11 +94,26 @@ try {
     savedLanUnit,
     "ordinary restart preserves saved LAN access"
   );
+  const restartResponse = await fetch(`http://127.0.0.1:${port}/restart`, { method: "POST" });
+  assert.equal(restartResponse.status, 200, "dashboard restart returns before the service stops");
+  assert.equal((await restartResponse.json()).mode, "service");
+  const dashboardRestarted = await until(async () => {
+    const result = await status(address);
+    return result.pid !== restartedLan.pid && result.mode === "lan" && result;
+  });
+  assert.equal(
+    readFileSync(unit, "utf8"),
+    savedLanUnit,
+    "dashboard restart preserves saved settings"
+  );
   await change("local");
   await until(async () => {
     const result = await status();
     return (
-      result.pid !== restartedLan.pid && result.mode === "local" && !result.pendingRestart && result
+      result.pid !== dashboardRestarted.pid &&
+      result.mode === "local" &&
+      !result.pendingRestart &&
+      result
     );
   });
   assert.equal(await reachable(address), false, "returning to loopback must close LAN access");

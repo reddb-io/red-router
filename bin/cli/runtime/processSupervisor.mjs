@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { writePidFile, cleanupPidFile, killAllSubprocesses, isPidRunning } from "../utils/pid.mjs";
 import { resolveDataDir } from "../data-dir.mjs";
+import { appendRuntimeLog, createRuntimeLogSink } from "./localLogs.mjs";
 import {
   RESTART_RESET_MS,
   DEFAULT_MAX_RESTARTS,
@@ -89,7 +90,7 @@ export class ServerSupervisor {
     this.child = spawn(process.execPath, buildServerSpawnArgs(this.serverPath, this.memoryLimit), {
       cwd: dirname(this.serverPath),
       env: this.env,
-      stdio: showLog ? "inherit" : ["ignore", "pipe", "pipe"],
+      stdio: ["ignore", "pipe", "pipe"],
       // Tray mode has no visible console. Keep the supervised server hidden on Windows,
       // including when it is restarted after a crash. Without this, each supervised
       // spawn can create a visible terminal window.
@@ -97,6 +98,7 @@ export class ServerSupervisor {
     });
 
     writePidFile("server", this.child.pid);
+    appendRuntimeLog(`Server child started (pid=${this.child.pid})`, { channel: "supervisor" });
 
     const bufferOutput = (data) => {
       const text = data.toString();
@@ -126,20 +128,38 @@ export class ServerSupervisor {
       }
     };
 
-    if (this.child.stdout) {
-      this.child.stdout.on("data", bufferOutput);
-    }
-    if (this.child.stderr) {
-      this.child.stderr.on("data", bufferOutput);
+    for (const [pipe, output, channel] of [
+      [this.child.stdout, process.stdout, "server.stdout"],
+      [this.child.stderr, process.stderr, "server.stderr"],
+    ]) {
+      const sink = createRuntimeLogSink({ channel });
+      pipe?.on("data", (data) => {
+        bufferOutput(data);
+        // serve captures the console when --log is on; persist suppressed output too.
+        if (showLog) output.write(data);
+        else sink.write(data);
+      });
+      pipe?.on("end", () => sink.flush());
     }
 
-    this.child.on("error", (err) => this.handleExit(-1, err));
-    this.child.on("exit", (code) => this.handleExit(code));
+    let spawnFailed = false;
+    this.child.once("error", (err) => {
+      spawnFailed = true;
+      this.handleExit(-1, err);
+    });
+    // close follows the pipe end events; persist final partial lines before exiting.
+    this.child.once("close", (code, signal) => {
+      if (!spawnFailed) this.handleExit(code, undefined, signal);
+    });
 
     return this.child;
   }
 
-  handleExit(code, err) {
+  handleExit(code, err, signal) {
+    appendRuntimeLog(
+      `Server child exited (code=${code ?? "none"}, signal=${signal || "none"}, shutdown=${this.isShuttingDown})`,
+      { channel: "supervisor" }
+    );
     // Node.js v24+ requires process.exit() to receive a number. Spawn-error events
     // deliver err.code (a string like 'ENOENT') via the 'error' listener; normalise here.
     const exitCode = typeof code === "number" ? code : null;
@@ -246,6 +266,7 @@ export class ServerSupervisor {
   }
 
   stop() {
+    appendRuntimeLog("Server stop requested", { channel: "supervisor" });
     this.isShuttingDown = true;
     if (this.child?.pid) {
       // #8045: on win32, process.kill(pid, "SIGTERM") unconditionally force-terminates

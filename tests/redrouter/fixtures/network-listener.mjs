@@ -3,8 +3,15 @@ import {
   applyNetworkAccess,
   readNetworkAccessStatus,
 } from "../../../src/lib/runtime/networkAccess.ts";
+import { requestServerRestart } from "../../../src/lib/runtime/serverRestart.ts";
 const server = createServer(async (request, response) => {
   try {
+    if (request.method === "POST" && request.url === "/restart") {
+      const mode = await requestServerRestart();
+      response.setHeader("Content-Type", "application/json");
+      response.end(JSON.stringify({ status: "restarting", mode }));
+      return;
+    }
     if (request.method === "POST") {
       let body = "";
       for await (const chunk of request) body += chunk;

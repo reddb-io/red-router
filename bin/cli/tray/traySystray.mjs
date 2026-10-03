@@ -1,3 +1,4 @@
+import { redactSensitiveErrorText } from "../../../open-sse/utils/errorSanitization.ts";
 import { existsSync, readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -47,7 +48,7 @@ export async function initSystrayUnix(
   const items = [
     { title: `RedRouter  •  port ${port}`, tooltip: "Open the local service", enabled: false },
     { title: "Open Dashboard", enabled: true },
-    { title: "Show Logs", enabled: true },
+    { title: "Open Diagnostic Logs", enabled: true },
     {
       title: trayOnly
         ? "Tray starts with desktop session"
@@ -82,7 +83,13 @@ export async function initSystrayUnix(
     if (action.seq_id === MENU_INDEX.DASHBOARD) {
       onOpenDashboard?.();
     } else if (action.seq_id === MENU_INDEX.LOGS) {
-      onShowLogs?.();
+      try {
+        await onShowLogs?.();
+      } catch (error) {
+        process.stderr.write(
+          `[RedRouter tray] Could not open local diagnostics: ${redactSensitiveErrorText(String(error.message || error))}. Use red-router logs --path.\n`
+        );
+      }
     } else if (action.seq_id === MENU_INDEX.AUTOSTART && !trayOnly) {
       const { enable, disable, isAutostartEnabled: isEnabled } = await import("./autostart.mjs");
       const wasOn = isEnabled();

@@ -99,6 +99,26 @@ red-router tray start
 journalctl --user -u red-router-tray.service
 ```
 
+Runtime diagnostics are local files, accessible even when the server cannot start.
+The tray's **Open Diagnostic Logs** opens a text file in your desktop viewer.
+
+```bash
+red-router logs
+red-router logs --open
+red-router logs --path
+red-router logs --follow --timeout 60000
+red-router logs --source requests
+```
+
+Server and CLI output is retained in `${DATA_DIR}/server/runtime.log`, with three
+rotated files of up to 4 MiB each. Credential redaction and private file permissions
+apply to these diagnostics. `logs --open` and `logs --path` write a bounded snapshot
+at `${DATA_DIR}/server/diagnostics.txt`, including the existing crash log and, on
+Linux, the local server/tray journal. The default data directory is `~/.red/router`.
+Explicit remote contexts, base URLs and request filters keep using the Router's
+request-log API; use `--source runtime` to explicitly read this computer's files.
+Dashboard request logs remain available while the server is running.
+
 Use `--host 0.0.0.0` or `--expose` only when network access is intentional and
 the inference API is protected. The inherited `OMNIROUTE_*` environment variables
 remain compatibility aliases; new RedRouter configuration should prefer

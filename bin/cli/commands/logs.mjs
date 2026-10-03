@@ -1,11 +1,22 @@
 import { writeFileSync, appendFileSync, existsSync, unlinkSync } from "node:fs";
 import { t } from "../i18n.mjs";
-import { getBaseUrl, buildHeaders } from "../api.mjs";
+import { getBaseUrl, buildHeaders, isLoopbackUrl } from "../api.mjs";
+import { setTimeout as sleep } from "node:timers/promises";
+import {
+  collectLocalDiagnostics,
+  createRuntimeLogFollower,
+  openLocalDiagnostics,
+  writeDiagnosticSnapshot,
+} from "../runtime/localLogs.mjs";
+import { redactSensitiveErrorText } from "../../../open-sse/utils/errorSanitization.ts";
 
 export function registerLogs(program) {
   program
     .command("logs")
-    .description(t("logs.description"))
+    .description("Read local runtime diagnostics, or stream request logs from a Router")
+    .option("--source <source>", "Log source: runtime (local files) or requests (Router API)")
+    .option("--open", "Open local diagnostic logs in the desktop text viewer")
+    .option("--path", "Write a local diagnostic snapshot and print its path")
     .option("--follow", t("logs.follow"))
     .option("--filter <level>", t("logs.filter"))
     .option("--lines <n>", t("logs.lines"), "100")
@@ -74,7 +85,101 @@ function buildLogFilter(opts) {
   };
 }
 
+export function resolveLogSource(opts = {}) {
+  if (opts.source) return opts.source;
+  if (opts.open || opts.path) return "runtime";
+  // Retain remote/context selection and legacy structured request filters.
+  if (
+    opts.baseUrl ||
+    opts["base-url"] ||
+    opts.context ||
+    !isLoopbackUrl(getBaseUrl(opts)) ||
+    opts.filter ||
+    opts.requestId ||
+    opts.apiKey ||
+    opts.combo ||
+    opts.status ||
+    opts.durationMin != null ||
+    opts.durationMax != null
+  )
+    return "requests";
+  return "runtime";
+}
+
 export async function runLogsCommand(opts = {}) {
+  const source = resolveLogSource(opts);
+  if (
+    !["runtime", "requests"].includes(source) ||
+    (source === "requests" && (opts.open || opts.path))
+  ) {
+    console.error(
+      "Choose --source runtime for local diagnostics, or --source requests for API logs."
+    );
+    return 2;
+  }
+  if (source === "runtime") return runLocalLogsCommand(opts);
+  return runRequestLogsCommand(opts);
+}
+
+async function runLocalLogsCommand(opts) {
+  const lines = Number(opts.lines ?? 100);
+  const timeout = Number(opts.timeout ?? 30000);
+  if (
+    !Number.isInteger(lines) ||
+    lines < 1 ||
+    lines > 10000 ||
+    !Number.isFinite(timeout) ||
+    timeout <= 0
+  ) {
+    console.error("Use --lines from 1 to 10000 and a positive --timeout in milliseconds.");
+    return 2;
+  }
+  let follower;
+  const controller = new AbortController();
+  const stop = () => controller.abort();
+  try {
+    if (opts.open || opts.path) {
+      const path = opts.open
+        ? await openLocalDiagnostics({ lines })
+        : await writeDiagnosticSnapshot({ lines });
+      console.log(opts.output === "json" ? JSON.stringify({ source: "runtime", path }) : path);
+      return 0;
+    }
+    if (opts.follow) follower = createRuntimeLogFollower();
+    const diagnostics = await collectLocalDiagnostics({ lines });
+    if (opts.export) writeFileSync(opts.export, diagnostics, { mode: 0o600 });
+    else if (opts.output === "json")
+      console.log(JSON.stringify({ source: "runtime", diagnostics }));
+    else process.stdout.write(diagnostics);
+    if (!follower) return 0;
+    process.once("SIGINT", stop);
+    process.once("SIGTERM", stop);
+    const deadline = Date.now() + timeout;
+    while (!controller.signal.aborted && Date.now() < deadline) {
+      const text = follower.poll();
+      if (text) {
+        if (opts.export) appendFileSync(opts.export, text, "utf8");
+        else if (opts.output === "json")
+          console.log(JSON.stringify({ source: "runtime", message: text }));
+        else process.stdout.write(text);
+      }
+      await sleep(250, undefined, { signal: controller.signal });
+    }
+    return 0;
+  } catch (error) {
+    if (error.name === "AbortError") return 0;
+    console.error(
+      `Could not read local diagnostics: ${redactSensitiveErrorText(String(error.message || error))}`
+    );
+    return 1;
+  } finally {
+    follower?.close();
+    process.removeListener("SIGINT", stop);
+    process.removeListener("SIGTERM", stop);
+  }
+}
+
+async function runRequestLogsCommand(opts = {}) {
   // Resolve the base URL the same way every other CLI command does: an explicit
   // --base-url wins, otherwise fall back to the active context / env / localhost.
   // Without this, `logs` always hit localhost and ignored a connected remote.

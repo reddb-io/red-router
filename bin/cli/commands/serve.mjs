@@ -35,6 +35,7 @@ import { resolveTlsOptions } from "../../../scripts/dev/tls-options.mjs";
 import { startDetachedTray, validateTrayOptions } from "../tray/detachedTray.mjs";
 import { shouldAutoAttachTray, spawnAttachedTray } from "../tray/attachedTray.mjs";
 import { DEFAULT_PORT, resolvePort } from "../product.mjs";
+import { captureConsoleDiagnostics, openLocalDiagnostics } from "../runtime/localLogs.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const _pkg = JSON.parse(readFileSync(join(__dirname, "..", "..", "..", "package.json"), "utf8"));
@@ -123,6 +124,7 @@ export function resetInstrumentationFailureHintForTests() {
 }
 
 export async function runServe(opts = {}) {
+  captureConsoleDiagnostics();
   const startedAt = performance.now();
   const requestedHost = opts.local
     ? "127.0.0.1"
@@ -458,7 +460,8 @@ function runWithoutRecovery(serverJs, env, memoryLimit, dashboardPort, apiPort, 
     process.exit(1);
   });
 
-  server.on("exit", (code) => {
+  server.on("exit", (code, signal) => {
+    console.error(`[server] exited (code=${code ?? "none"}, signal=${signal || "none"})`);
     if (code !== 0 && code !== null) {
       console.error(`\x1b[31m✖ Server exited with code ${code}\x1b[0m`);
     }
@@ -649,7 +652,7 @@ async function maybeStartTray(port, apiPort, supervisor) {
         supervisor.stop();
       },
       onOpenDashboard: () => open?.(dashboardUrl),
-      onShowLogs: () => open?.(`${dashboardUrl}/observe/logs`),
+      onShowLogs: () => openLocalDiagnostics(),
     });
     if (tray) {
       const { killTray } = await import("../tray/index.mjs");
