@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.58.3
+
+### Patch Changes
+
+- Preserve GPT 6.1 Sol native max reasoning effort through Responses translation and Codex dispatch instead of silently reducing it to xhigh. Keep the upstream-native model ID and explicit model activation.
+- Bound live dashboard request retention and cancel overlapping log polls. Restore Clear All Models for synced Codex catalogs and revoke model activation when clearing. Refresh Codex and Claude CLI identities before release preparation. Keep Responses heartbeats neutral to strict decoders and give failure events valid response IDs.
+- Restart managed Linux installations through systemd, preserving the saved network interface, port and data directory instead of launching a competing process with local-only defaults. Report service restart failures explicitly.
+- Persist bounded local runtime diagnostics and open them from the tray or CLI without a running server. Hand dashboard restarts to the managed Linux service through an independent timer so the supervisor and systemd do not compete during shutdown.
+- Add explicit SQLite operational-history cleanup windows of 7, 14 or 28 days, or Off, with a manual cleanup action. Preserve business configuration and financial records, retain the separate usage policy, prune completed task history, and make legacy cleanup writers respect the selected mode.
+- Show operator-defined compatible connection names in the topology instead of generic OAI-COMPAT or ANT-COMPAT labels. Keep provider IDs, routing prefixes and navigation unchanged, and expose full labels on hover when several enabled connections share a provider.
+- Apply stream queue budgets in bytes instead of chunks so slow clients cannot retain oversized SSE buffers. Adapted from the defect described in OmniRoute PR 15277 using standard byte-length queuing strategies.
+
 ## 0.58.2
 
 ### Patch Changes
