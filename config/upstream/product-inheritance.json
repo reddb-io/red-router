@@ -476,6 +476,18 @@
           "ref": "pull/4376/head",
           "sha": "08714d50679204d632bce7241759bc4da6391495",
           "finding": "Proposed forwarding neutral SSE comments during translation. Supports transport-only heartbeats; this broader forwarding adaptation remains unported."
+        },
+        {
+          "repository": "diegosouzapw/OmniRoute",
+          "ref": "pull/15277/head",
+          "sha": "d88d005ff97f990c956e5962ab8525a18918f201",
+          "finding": "Slow-reader queues count chunks despite byte-labelled budgets. Local adaptation uses built-in ByteLengthQueuingStrategy in generic SSE and Antigravity credits transforms. Compression-worker isolation, RSS fuse and abort listener changes remain unported; native server OOM and browser-tab memory are separate failure domains."
+        },
+        {
+          "repository": "diegosouzapw/OmniRoute",
+          "ref": "main",
+          "sha": "fc5e2bccd4f70fecf5aab94dfb8136c74ab5a21b",
+          "finding": "useLiveRequests still inserts active requests with no size bound or expiry. No upstream dashboard fix for this path was identified in the reviewed open PRs."
         }
       ],
       "localPaths": [
@@ -486,7 +498,10 @@
         "open-sse/utils/responsesSequence.ts",
         "scripts/release/refresh-cli-identities.mjs",
         "tests/redrouter/native/responses-transport-heartbeat.test.ts",
-        "tests/redrouter/native/live-dashboard-retention.test.ts"
+        "tests/redrouter/native/live-dashboard-retention.test.ts",
+        "open-sse/utils/stream.ts",
+        "open-sse/executors/antigravity/streamingPassthrough.ts",
+        "tests/redrouter/native/stream-byte-backpressure.test.ts"
       ],
       "remaining": "Browser crash after one hour is not reproduced by the short installed-runtime profile. Confirm reported decode failure against an exact client/request trace. Premature EOF, thinking-only liveness and native large-context server RSS remain separate follow-ups; reviewed open PRs are not claims of deployed fixes.",
       "acceptance": [
@@ -494,7 +509,8 @@
         "Slow log polls do not overlap and abort on view cleanup or deadline.",
         "Responses heartbeats preserve real provider events and never synthesize an in-progress response ID. Error terminals have string IDs and sequence numbers.",
         "Codex discovery uses the same current identity as dispatch and preserves upstream model IDs, reasoning effort metadata and opt-in.",
-        "Release preparation resolves stable npm CLI versions and captures Claude identity fields from the integrity-checked native artifact; publication still promotes the exact CI artifact."
+        "Release preparation resolves stable npm CLI versions and captures Claude identity fields from the integrity-checked native artifact; publication still promotes the exact CI artifact.",
+        "A 64KiB write exhausts a 16KiB SSE queue budget; downstream backpressure is counted in bytes."
       ]
     }
   ]

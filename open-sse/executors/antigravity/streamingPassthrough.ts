@@ -102,8 +102,8 @@ export function createCreditsExtractionTransform(
         buffer = "";
       },
     },
-    { highWaterMark: 16384 },
-    { highWaterMark: 16384 }
+    new ByteLengthQueuingStrategy({ highWaterMark: 16384 }),
+    new ByteLengthQueuingStrategy({ highWaterMark: 16384 })
   );
 }
 

@@ -3345,8 +3345,8 @@ export function createSSEStream(options: StreamOptions = {}) {
   return withStreamCleanup(
     new TransformStream(
       transformer,
-      { highWaterMark: streamBufferBytes },
-      { highWaterMark: streamBufferBytes }
+      new ByteLengthQueuingStrategy({ highWaterMark: streamBufferBytes }),
+      new ByteLengthQueuingStrategy({ highWaterMark: streamBufferBytes })
     ),
     clearIdleTimer
   );
