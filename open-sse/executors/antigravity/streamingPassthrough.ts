@@ -46,7 +46,7 @@ export function createCreditsExtractionTransform(
   let buffer = "";
   const decoder = new TextDecoder();
 
-  return new TransformStream(
+  return new TransformStream<Uint8Array, Uint8Array>(
     {
       transform(chunk, controller) {
         controller.enqueue(chunk);
