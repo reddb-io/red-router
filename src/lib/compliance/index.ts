@@ -9,6 +9,7 @@
  * @module lib/compliance
  */
 
+import { getHistoryWindowDays } from "@/lib/db/historyRetentionPolicy";
 import { getDbInstance } from "../db/core";
 import type { SqliteAdapter } from "@/lib/db/adapters/types";
 import { getClientIpFromRequest } from "../ipUtils";
@@ -421,8 +422,7 @@ export function countAuditLog(filter: AuditLogFilter = {}) {
   ensureAuditLogSchema(db);
   const { where, params } = buildAuditLogQuery(filter);
   const row = db.prepare(`SELECT COUNT(*) as count FROM audit_log ${where}`).get(...params) as
-    | { count?: number }
-    | undefined;
+    { count?: number } | undefined;
   return Number(row?.count || 0);
 }
 
@@ -465,12 +465,15 @@ export function getRetentionDays() {
  */
 export async function cleanupExpiredLogs() {
   const db = getDb();
+  const historyDays = db ? getHistoryWindowDays() : null;
   const appRetentionDays = getAppLogRetentionDays();
   const callRetentionDays = getCallLogRetentionDays();
   const callLogsMaxRows = getCallLogsTableMaxRows();
   const proxyLogsMaxRows = getProxyLogsTableMaxRows();
 
-  if (!db) {
+  if (!db || historyDays !== null) {
+    // The central SQLite cleanup owns explicit presets, including Off.
+    // Never let this legacy writer shorten the chosen window or bypass its rollup.
     return {
       deletedUsage: 0,
       deletedCallLogs: 0,

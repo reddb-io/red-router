@@ -11,6 +11,7 @@
  */
 
 import { getDbInstance } from "./core";
+import { getHistoryWindowDays } from "./historyRetentionPolicy";
 import type { JobRecord, JobRun } from "../jobRegistry/core";
 
 function mapJob(row: any): JobRecord {
@@ -137,7 +138,18 @@ export function recordRun(
  */
 export function pruneRuns(jobId: string, maxRuns = 100, maxDays = 30): void {
   const db = getDbInstance();
-  const threshold = new Date(Date.now() - maxDays * 86_400_000).toISOString();
+  const historyDays = getHistoryWindowDays();
+  if (historyDays === 0) return;
+  const threshold = new Date(Date.now() - (historyDays ?? maxDays) * 86_400_000).toISOString();
+  if (historyDays !== null) {
+    db.prepare(
+      `DELETE FROM job_runs WHERE rowid IN (
+      SELECT rowid FROM job_runs WHERE job_id = ? AND julianday(started_at) < julianday(?)
+        AND status != 'running' LIMIT 1000
+    )`
+    ).run(jobId, threshold);
+    return;
+  }
   db.prepare(
     `DELETE FROM job_runs
      WHERE job_id = ?

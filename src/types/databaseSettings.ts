@@ -63,6 +63,8 @@ export interface DatabaseSettings {
 
   /** 5. Retention (per-table cleanup policies) */
   retention: {
+    /** null preserves existing per-category policies; 0 disables automatic history cleanup. */
+    historyWindowDays?: 0 | 7 | 14 | 28 | null;
     quotaSnapshots: number;
     compressionAnalytics: number;
     mcpAudit: number;
@@ -160,6 +162,7 @@ export const DEFAULT_DATABASE_SETTINGS: Omit<DatabaseSettings, "location" | "sta
     modelCatalogCacheTtlMs: 60_000,
   },
   retention: {
+    historyWindowDays: null,
     quotaSnapshots: 7,
     compressionAnalytics: 30,
     mcpAudit: 30,

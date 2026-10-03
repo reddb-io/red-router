@@ -9,6 +9,8 @@ import { purgeCallLogArtifactDirectory } from "@/lib/usage/callLogArtifacts";
 
 import { getDbInstance } from "./core";
 import { getUserDatabaseSettings } from "./databaseSettings";
+import { cleanupSqliteHistory } from "./sqliteHistoryRetention";
+import { getHistoryWindowDays } from "./historyRetentionPolicy";
 import {
   describeReclaim,
   reclaimFreedPages,
@@ -672,6 +674,19 @@ export async function runAutoCleanup(): Promise<{
   totalErrors: number;
   results: Record<string, CleanupResult>;
 }> {
+  const historyDays = getHistoryWindowDays();
+  if (historyDays !== null) {
+    const history = await cleanupSqliteHistory(historyDays);
+    // Keep the operator's separate usage policy and its pre-delete accounting rollup.
+    // Financial ledger entries are retained independently of operational logs.
+    if (historyDays > 0 && getHistoryWindowDays() === historyDays) {
+      const usage = await cleanupUsageHistory();
+      history.results.usageHistory = usage;
+      history.totalDeleted += usage.deleted;
+      history.totalErrors += usage.errors;
+    }
+    return history;
+  }
   const retention = getRetentionSettings();
   const autoCleanupEnabled = retention.autoCleanupEnabled;
 
@@ -1044,12 +1059,18 @@ export {
 const CLEANUP_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours
 let _cleanupSchedulerTimer: ReturnType<typeof setInterval> | null = null;
 
-/**
- * One scheduled pass: retention cleanup (`runAutoCleanup` already covers
- * proxy_logs), then incremental space reclamation. Exported so tests can drive
- * the exact code path the timers run.
- */
-export async function runScheduledCleanupPass(phase: "startup" | "periodic"): Promise<void> {
+let activeCleanupPass: Promise<Awaited<ReturnType<typeof runAutoCleanup>>> | null = null;
+
+/** Manual and scheduled callers share one pass rather than racing deletions/reclamation. */
+export function runScheduledCleanupPass(phase: "startup" | "periodic") {
+  if (activeCleanupPass) return activeCleanupPass;
+  activeCleanupPass = performScheduledCleanupPass(phase).finally(() => {
+    activeCleanupPass = null;
+  });
+  return activeCleanupPass;
+}
+
+async function performScheduledCleanupPass(phase: "startup" | "periodic") {
   const label = phase === "startup" ? "Startup" : "Periodic";
   const result = await runAutoCleanup();
   if (result.totalDeleted > 0) {
@@ -1073,6 +1094,7 @@ export async function runScheduledCleanupPass(phase: "startup" | "periodic"): Pr
   } catch (reclaimErr) {
     console.error(`[Cleanup] Space reclamation after ${phase} cleanup failed:`, reclaimErr);
   }
+  return result;
 }
 /**
  * Start the background cleanup scheduler. Runs cleanup on startup and then

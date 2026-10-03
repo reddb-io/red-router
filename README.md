@@ -124,6 +124,20 @@ the inference API is protected. The inherited `OMNIROUTE_*` environment variable
 remain compatibility aliases; new RedRouter configuration should prefer
 `RED_ROUTER_*` names where available.
 
+In **Settings > System & Storage > Retention**, choose an automatic SQLite history
+window of **7 days**, **14 days**, **28 days**, or **Off**, then save. The selection
+survives restarts and applies to operational logs, captured payloads and completed
+task runs. Existing installations keep their per-category rules until a preset is
+selected. Off stops this cleanup and the legacy compliance/call-log/job pruners.
+The separate usage-history rule and financial ledger are preserved; this is not a
+reset of credentials, provider configuration, tenants, users or monthly budgets.
+Existing call-log row/file limits also apply while cleanup is enabled and may
+remove entries before the age limit. Saving Off stops further deletion batches.
+**Run cleanup now** applies the saved window immediately. Background passes run
+six hours apart with bounded deletion batches and existing page reclamation;
+large backlogs may require several passes. Full SQLite VACUUM keeps its separate
+schedule and can be run manually from the storage page.
+
 ## API surfaces
 
 These route implementations are present in the current source. Protocol and

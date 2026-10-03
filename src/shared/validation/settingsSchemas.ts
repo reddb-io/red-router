@@ -25,7 +25,10 @@ import {
 } from "@/shared/constants/spawnCapablePrefixes";
 import { isHttpUrl } from "@/shared/validation/schemas/misc";
 import { GUARDRAIL_IDS } from "@/shared/constants/guardrails/catalog";
-import { GUARDRAIL_ASSIGNMENT_MAX_SCOPES, GUARDRAIL_PRIORITY_MAX } from "@/shared/constants/guardrails/assignment";
+import {
+  GUARDRAIL_ASSIGNMENT_MAX_SCOPES,
+  GUARDRAIL_PRIORITY_MAX,
+} from "@/shared/constants/guardrails/assignment";
 import {
   CONTENT_FILTER_ACTIONS,
   CONTENT_FILTER_MAX_PATTERN_LENGTH,
@@ -117,7 +120,10 @@ const guardrailContentFilterRuleSchema = z
       .string()
       .min(1)
       .max(64)
-      .regex(/^[A-Za-z0-9_.-]+$/, "Rule id may only contain letters, digits, dot, dash and underscore"),
+      .regex(
+        /^[A-Za-z0-9_.-]+$/,
+        "Rule id may only contain letters, digits, dot, dash and underscore"
+      ),
     label: z.string().max(100),
     type: z.enum(CONTENT_FILTER_RULE_TYPES),
     pattern: z.string().min(1).max(CONTENT_FILTER_MAX_PATTERN_LENGTH),
@@ -164,7 +170,8 @@ const guardrailScopeMapSchema = z
   .record(z.string().min(1).max(200), guardrailScopeOverrideSchema)
   .refine(
     (map) =>
-      Object.keys(map).length <= GUARDRAIL_ASSIGNMENT_MAX_SCOPES && !Object.keys(map).includes("__proto__"),
+      Object.keys(map).length <= GUARDRAIL_ASSIGNMENT_MAX_SCOPES &&
+      !Object.keys(map).includes("__proto__"),
     "Too many scopes"
   );
 
@@ -724,6 +731,10 @@ export const databaseSettingsSchema = z
 
     // Retention settings
     retention: z.object({
+      historyWindowDays: z
+        .union([z.literal(0), z.literal(7), z.literal(14), z.literal(28)])
+        .nullable()
+        .optional(),
       quotaSnapshots: z.number().int().min(1).max(3650), // Max 10 years
       compressionAnalytics: z.number().int().min(1).max(365),
       mcpAudit: z.number().int().min(1).max(365),

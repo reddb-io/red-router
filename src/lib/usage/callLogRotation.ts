@@ -14,11 +14,8 @@ import {
   selectCallLogIdsBefore,
   selectOverflowArtifactPaths,
 } from "./callLogsBoundedQueries";
-import {
-  CALL_LOGS_DIR,
-  deleteCallArtifact,
-  type CallLogDetailState,
-} from "./callLogArtifacts";
+import { CALL_LOGS_DIR, deleteCallArtifact, type CallLogDetailState } from "./callLogArtifacts";
+import { getHistoryWindowDays } from "../db/historyRetentionPolicy";
 import { getCallLogMaxEntries, getCallLogRetentionDays, getCallLogsTableMaxRows } from "../logEnv";
 import { isSqlitePagerCorruptError, notePagerCorruption } from "../db/healthCheck";
 
@@ -333,9 +330,11 @@ export function handleCallLogRotateError(error: unknown): void {
 export function rotateCallLogs() {
   if (callLogRotatePaused) return;
   try {
+    const historyDays = getHistoryWindowDays();
+    if (historyDays === 0) return;
     if (!CALL_LOGS_DIR || !fs.existsSync(CALL_LOGS_DIR)) return;
 
-    const retentionMs = getCallLogRetentionDays() * 24 * 60 * 60 * 1000;
+    const retentionMs = (historyDays ?? getCallLogRetentionDays()) * 24 * 60 * 60 * 1000;
     const cutoff = new Date(Date.now() - retentionMs).toISOString();
 
     deleteCallLogsBefore(cutoff, CALL_LOG_ROTATE_BATCH_SIZE);

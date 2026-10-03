@@ -1,11 +1,35 @@
 "use client";
 
-import { Braces, BrushCleaning, ChartColumn, Clock, Download, Eraser, FileArchive, FileOutput, FolderX, HardDriveUpload, History, LoaderCircle, Minimize2, RefreshCw, RotateCcw, ScrollText, SlidersHorizontal, TimerReset, Trash, TriangleAlert, Upload, Wrench } from "lucide-react";
+import {
+  Braces,
+  BrushCleaning,
+  ChartColumn,
+  Clock,
+  Download,
+  Eraser,
+  FileArchive,
+  FileOutput,
+  FolderX,
+  HardDriveUpload,
+  History,
+  LoaderCircle,
+  Minimize2,
+  RefreshCw,
+  RotateCcw,
+  ScrollText,
+  SlidersHorizontal,
+  TimerReset,
+  Trash,
+  TriangleAlert,
+  Upload,
+  Wrench,
+} from "lucide-react";
 import Icon from "@/shared/components/Icon";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Card, Button, Badge, ConfirmModal } from "@/shared/components";
 import { useLocale, useTranslations } from "next-intl";
 import DatabaseBackupRetentionCard from "./DatabaseBackupRetentionCard";
+import SqliteHistoryRetentionControl from "./SqliteHistoryRetentionControl";
 import {
   fetchDatabaseSettingsData,
   isAuthRequiredResponse,
@@ -831,7 +855,13 @@ export default function SystemStorageTab() {
           </div>
         ) : backups.length === 0 ? (
           <div className="text-center py-6 text-text-muted text-sm">
-            <Icon icon={FolderX} size="lg" color="current" className="mb-2 block opacity-40" style={{ width: 32, height: 32 }} />
+            <Icon
+              icon={FolderX}
+              size="lg"
+              color="current"
+              className="mb-2 block opacity-40"
+              style={{ width: 32, height: 32 }}
+            />
             {t("noBackupsYet")}
           </div>
         ) : (
@@ -939,42 +969,65 @@ export default function SystemStorageTab() {
             </h4>
             <p className="mt-1 text-xs text-text-muted">{t("storageRetentionCleanupDesc")}</p>
           </div>
-          <div className="flex items-center gap-2">
-            <Badge variant="default" size="sm">
-              {t("retentionCallDays", { count: storageHealth.retentionDays.call })}
-            </Badge>
-            <Badge variant="default" size="sm">
-              {t("retentionAppDays", { count: storageHealth.retentionDays.app })}
-            </Badge>
-            <Badge variant="default" size="sm">
-              {t("retentionRows", {
-                count: (storageHealth.tableMaxRows?.callLogs ?? 100000).toLocaleString(),
-              })}
-            </Badge>
-          </div>
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {retentionFields.map(([key, label, fallback]) => (
-            <div key={String(key)}>
-              <label className="block text-xs text-text-muted mb-1">{label}</label>
-              <input
-                type="number"
-                min="1"
-                max="365"
-                value={dbSettings.retention[key]}
-                onChange={(e) =>
-                  setDbSettings({
-                    ...dbSettings,
-                    retention: {
-                      ...dbSettings.retention,
-                      [key]: parseInt(e.target.value) || fallback,
-                    },
-                  })
-                }
-                className="w-full px-3 py-2 text-sm rounded-lg border border-border bg-bg focus:outline-none focus:ring-2 focus:ring-primary"
-              />
+          {dbSettings.retention.historyWindowDays == null ? (
+            <div className="flex items-center gap-2">
+              <Badge variant="default" size="sm">
+                {t("retentionCallDays", { count: storageHealth.retentionDays.call })}
+              </Badge>
+              <Badge variant="default" size="sm">
+                {t("retentionAppDays", { count: storageHealth.retentionDays.app })}
+              </Badge>
+              <Badge variant="default" size="sm">
+                {t("retentionRows", {
+                  count: (storageHealth.tableMaxRows?.callLogs ?? 100000).toLocaleString(),
+                })}
+              </Badge>
             </div>
-          ))}
+          ) : (
+            <Badge variant="default" size="sm">
+              {dbSettings.retention.historyWindowDays === 0
+                ? "Automatic history cleanup: Off"
+                : `${dbSettings.retention.historyWindowDays}-day history window`}
+            </Badge>
+          )}
+        </div>
+        <SqliteHistoryRetentionControl
+          days={dbSettings.retention.historyWindowDays ?? null}
+          disabled={dbSettingsSaving}
+          onChange={(days) =>
+            setDbSettings({
+              ...dbSettings,
+              retention: { ...dbSettings.retention, historyWindowDays: days },
+            })
+          }
+          onCleaned={refreshDatabaseStats}
+        />
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {retentionFields
+            .filter(
+              ([key]) => dbSettings.retention.historyWindowDays == null || key === "usageHistory"
+            )
+            .map(([key, label, fallback]) => (
+              <div key={String(key)}>
+                <label className="block text-xs text-text-muted mb-1">{label}</label>
+                <input
+                  type="number"
+                  min="1"
+                  max="365"
+                  value={dbSettings.retention[key]}
+                  onChange={(e) =>
+                    setDbSettings({
+                      ...dbSettings,
+                      retention: {
+                        ...dbSettings.retention,
+                        [key]: parseInt(e.target.value) || fallback,
+                      },
+                    })
+                  }
+                  className="w-full px-3 py-2 text-sm rounded-lg border border-border bg-bg focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+              </div>
+            ))}
         </div>
         <div className="mt-3">
           <Button
@@ -1347,7 +1400,12 @@ export default function SystemStorageTab() {
         {confirmImport && pendingImportFile && (
           <div className="p-4 rounded-lg mt-3 bg-amber-500/10 border border-amber-500/30">
             <div className="flex items-start gap-3">
-              <Icon icon={TriangleAlert} size="lg" color="feedback-warning-foreground" className="mt-0.5" />
+              <Icon
+                icon={TriangleAlert}
+                size="lg"
+                color="feedback-warning-foreground"
+                className="mt-0.5"
+              />
               <div className="flex-1">
                 <p className="text-sm font-medium text-amber-500 mb-1">{t("confirmDbImport")}</p>
                 <p className="text-xs text-text-muted mb-2">
