@@ -449,6 +449,12 @@
       "sourceReviews": [
         {
           "repository": "diegosouzapw/OmniRoute",
+          "ref": "pull/15192/head",
+          "sha": "da3f152dc095227d95d3ae1e9482da7159c36763",
+          "finding": "Codex client-version gating for GPT 6.1 Sol corroborates our live catalog comparison. Local adaptation updates release-time CLI identity pins and preserves native max effort for this exact model through translation and dispatch. Static pricing, automatic activation and catalog effort variants are not adopted."
+        },
+        {
+          "repository": "diegosouzapw/OmniRoute",
           "ref": "pull/15213/head",
           "sha": "0a190513b0fabcc7f32f14346bfe0fd13ba1f849",
           "finding": "Same null response.id defect in synthesized keepalive and failure events. Local adaptation uses transport comments for keepalives and string IDs only for failures; upstream synthetic keepalive IDs are not adopted."
