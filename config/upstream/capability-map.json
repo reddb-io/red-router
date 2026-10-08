@@ -4674,7 +4674,7 @@
             "friday": "has"
           },
           "head": "missing",
-          "headEvidence": "SQLite-only runtime; src/lib/db/repositories/routingConfigRepositories.ts; src/lib/quota/redisQuotaStore.ts; docs/architecture/persistence-backend-boundary.md records the accepted local/offline SQLite and connected/server RedDB or PostgreSQL direction; external backends and replica readiness remain missing",
+          "headEvidence": "Experimental single-node combos/mappings external slice: src/lib/db/repositories/routingConfigRepositories.ts and docs/architecture/routing-storage-experimental.md; independent CI in .github/workflows/red-publish.yml; other durable domains remain SQLite, and shared OAuth/jobs, distributed invalidation and replica readiness remain missing",
           "ownUnique": false,
           "value": "M",
           "effort": "M",

@@ -46,6 +46,23 @@ export function registerComboRepositoryConformance(
     );
   });
 
+  test("combo repository: SQLite collation and negative sort-order semantics", async () => {
+    const harness = await createHarness();
+    await harness.reset();
+    const first = await harness.combos.create({ name: "Negative", sortOrder: -10, models: [] });
+    const next = await harness.combos.create({ name: "Next", models: [] });
+    assert.equal(first.sortOrder, -10);
+    assert.equal(next.sortOrder, -9);
+    await harness.combos.create({ name: "\u{10000}", sortOrder: 0, models: [] });
+    await harness.combos.create({ name: "\uE000", sortOrder: 0, models: [] });
+    await harness.combos.create({ name: "É", sortOrder: 0, models: [] });
+    assert.equal(await harness.combos.findByNameInsensitive("é"), null);
+    assert.deepEqual(
+      (await harness.combos.list()).map((combo) => combo.name),
+      ["Negative", "Next", "É", "\uE000", "\u{10000}"]
+    );
+  });
+
   test("combo repository: partial update, explicit null deletion, and missing rows", async () => {
     const harness = await createHarness();
     await harness.reset();

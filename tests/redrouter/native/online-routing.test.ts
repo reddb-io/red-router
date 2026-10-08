@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { registerComboRepositoryConformance } from "../../helpers/persistence/comboRepositoryConformance.ts";
-import { PgRoutingSnapshotStorage } from "../../../src/lib/db/repositories/pgRoutingSnapshotStorage.ts";
+import {
+  PgRoutingSnapshotStorage,
+  ROUTING_STATE_SCHEMA,
+} from "../../../src/lib/db/repositories/pgRoutingSnapshotStorage.ts";
+import { sanitizeErrorMessage } from "../../../open-sse/utils/error.ts";
 import { createRoutingConfigRepositories } from "../../../src/lib/db/repositories/routingConfigRepositories.ts";
 import {
   emptyRoutingSnapshot,
@@ -30,7 +34,21 @@ if (!url) {
   const store = new RoutingSnapshotStore(storage);
 
   test.before(async () => {
-    await storage.initialize();
+    // CI diagnostics use only the throwaway listener; production errors remain
+    // fixed and redacted. Probe each initializer statement to locate pgwire gaps.
+    let stage = "connect";
+    try {
+      await sql.query("SELECT 1");
+      stage = "schema";
+      await sql.query(ROUTING_STATE_SCHEMA);
+      stage = "parameterized read";
+      await sql.query("SELECT id FROM redrouter_routing_state WHERE id = $1", ["routing"]);
+      stage = "initialize";
+      await storage.initialize();
+    } catch (error) {
+      console.error("Online routing CI probe failed:", stage, sanitizeErrorMessage(error));
+      throw new RoutingStorageError("unavailable");
+    }
   });
   const reset = async () => {
     await store.mutate((state) => {

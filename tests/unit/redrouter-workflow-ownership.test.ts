@@ -25,7 +25,13 @@ test("RedRouter has one product-owned validation and release workflow", () => {
   assert.ok(workflow.jobs["test-vitest"]);
   assert.ok(workflow.jobs.build);
   assert.ok(workflow.jobs.release);
-  assert.deepEqual(workflow.jobs.release.needs, ["checks", "test-unit", "test-vitest", "build"]);
+  assert.deepEqual(workflow.jobs.release.needs, [
+    "checks",
+    "test-unit",
+    "test-routing-storage",
+    "test-vitest",
+    "build",
+  ]);
 });
 
 test("the one workflow owns exact-artifact npm and GitHub publication", () => {

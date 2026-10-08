@@ -1,6 +1,5 @@
 import { RoutingStorageError } from "./routingStorageConfig";
 import {
-  RoutingSnapshotStore,
   emptyRoutingSnapshot,
   parseRoutingSnapshot,
   type RoutingSnapshotStorage,
@@ -47,8 +46,12 @@ export async function importEmptyRoutingSnapshot(
   if (state.combos.length || state.mappings.length || state.pendingCleanup.length) {
     throw new RoutingStorageError("conflict");
   }
-  // Validate the revision through the same store contract, without a write.
-  await new RoutingSnapshotStore(storage).mutate(() => ({ result: undefined, changed: false }));
+  if (
+    !Number.isSafeInteger(current.revision) ||
+    current.revision < 0 ||
+    current.revision >= Number.MAX_SAFE_INTEGER
+  )
+    throw new RoutingStorageError("invalid_snapshot");
   if (!(await storage.compareAndSwap(current.revision, JSON.stringify(restored)))) {
     throw new RoutingStorageError("conflict");
   }

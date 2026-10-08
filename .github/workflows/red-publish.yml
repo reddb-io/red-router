@@ -62,7 +62,6 @@ jobs:
       - run: npm run check:node-runtime
       - run: npm run check:tracked-artifacts
       - run: npm run check:lockfile
-      - run: npm run audit:deps
       - run: npm run lint
       - run: npm run typecheck:core
       - name: Check API route TypeScript diagnostics
@@ -72,6 +71,7 @@ jobs:
       - name: Check Changesets root-package versioning
         run: node scripts/release/check-changesets.mjs
       - run: npm run release:status
+      - run: npm run audit:deps
 
   test-unit:
     name: RedRouter contracts

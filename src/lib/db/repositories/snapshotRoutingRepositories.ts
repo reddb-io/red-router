@@ -17,7 +17,7 @@ import {
 } from "./routingSnapshotStore";
 
 const asciiFold = (name: string) => name.replace(/[A-Z]/g, (letter) => letter.toLowerCase());
-const compareText = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+const compareText = (a: string, b: string) => Buffer.compare(Buffer.from(a), Buffer.from(b));
 const names = (state: RoutingSnapshot) => state.combos.map((row) => row.name.trim());
 const orderedCombos = (state: RoutingSnapshot) =>
   [...state.combos].sort(
@@ -64,7 +64,7 @@ function listCombos(state: RoutingSnapshot, limit?: number, offset?: number): Co
 }
 
 function nextSortOrder(state: RoutingSnapshot): number {
-  return Math.max(0, ...state.combos.map((row) => row.sortOrder)) + 1;
+  return (state.combos.length ? Math.max(...state.combos.map((row) => row.sortOrder)) : 0) + 1;
 }
 
 function checkName(state: RoutingSnapshot, name: string, exceptId?: string): void {

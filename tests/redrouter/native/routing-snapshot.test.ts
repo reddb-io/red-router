@@ -118,6 +118,14 @@ test("confirmed conflicts have a bounded retry budget", async () => {
 
 test("snapshot validation rejects corrupt references, unknown versions, duplicate names and oversized input", () => {
   for (const data of [
+    JSON.stringify({
+      schemaVersion: 1,
+      mappings: [],
+      combos: [
+        { id: "one", name: "duplicate", data: "{}", sortOrder: 0, contextCacheProtection: 0 },
+        { id: "two", name: "duplicate", data: "{}", sortOrder: 0, contextCacheProtection: 0 },
+      ],
+    }),
     "not JSON",
     JSON.stringify({ schemaVersion: 2, combos: [], mappings: [] }),
     JSON.stringify({
