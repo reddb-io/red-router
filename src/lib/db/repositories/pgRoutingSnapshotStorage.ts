@@ -19,7 +19,7 @@ interface SqlPool {
 export const ROUTING_STATE_SCHEMA = `CREATE TABLE IF NOT EXISTS redrouter_routing_state (
   id TEXT PRIMARY KEY,
   revision BIGINT NOT NULL,
-  data TEXT NOT NULL
+  snapshot_json TEXT NOT NULL
 )`;
 
 /** PostgreSQL wire is a transport; RedDB is tested independently of PostgreSQL. */
@@ -56,14 +56,20 @@ export class PgRoutingSnapshotStorage implements RoutingSnapshotStorage {
     try {
       const { rows } = await (
         await this.pool()
-      ).query("SELECT revision, data FROM redrouter_routing_state WHERE id = $1", ["routing"]);
+      ).query("SELECT revision, snapshot_json FROM redrouter_routing_state WHERE id = $1", [
+        "routing",
+      ]);
       const row = rows[0];
       if (!row) throw new RoutingStorageError("not_initialized");
       const revision = Number(row.revision);
-      if (!Number.isSafeInteger(revision) || revision < 0 || typeof row.data !== "string") {
+      if (
+        !Number.isSafeInteger(revision) ||
+        revision < 0 ||
+        typeof row.snapshot_json !== "string"
+      ) {
         throw new RoutingStorageError("invalid_snapshot");
       }
-      return { revision, data: row.data };
+      return { revision, data: row.snapshot_json };
     } catch (error) {
       if (error instanceof RoutingStorageError) throw error;
       throw new RoutingStorageError("unavailable");
@@ -75,7 +81,7 @@ export class PgRoutingSnapshotStorage implements RoutingSnapshotStorage {
       const { rowCount } = await (
         await this.pool()
       ).query(
-        "UPDATE redrouter_routing_state SET revision = $1, data = $2 WHERE id = $3 AND revision = $4",
+        "UPDATE redrouter_routing_state SET revision = $1, snapshot_json = $2 WHERE id = $3 AND revision = $4",
         [revision + 1, data, "routing", revision]
       );
       if (rowCount !== 0 && rowCount !== 1) throw new RoutingStorageError("invalid_snapshot");
@@ -101,7 +107,7 @@ export class PgRoutingSnapshotStorage implements RoutingSnapshotStorage {
       ]);
       if (!current.rows.length) {
         await client.query(
-          "INSERT INTO redrouter_routing_state (id, revision, data) VALUES ($1, $2, $3)",
+          "INSERT INTO redrouter_routing_state (id, revision, snapshot_json) VALUES ($1, $2, $3)",
           ["routing", 0, JSON.stringify(emptyRoutingSnapshot())]
         );
       }

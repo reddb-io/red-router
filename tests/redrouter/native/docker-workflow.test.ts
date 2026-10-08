@@ -76,10 +76,11 @@ test("the image is built from the published package for both platforms", () => {
   assert.match(dockerText, /\/healthz/);
 });
 
-test("red-publish.yml keeps its job list and gains no Docker job", () => {
+test("red-publish.yml adds routing conformance and gains no Docker publication job", () => {
   assert.deepEqual(Object.keys(publish.jobs), [
     "checks",
     "test-unit",
+    "test-routing-storage",
     "test-vitest",
     "build",
     "release",
