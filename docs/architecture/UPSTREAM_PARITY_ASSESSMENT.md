@@ -392,7 +392,8 @@ verification before claiming Decisions parity.
 and forbids attaching multiple replicas to one `storage.sqlite`. The existing
 `src/lib/db/repositories/routingConfigRepositories.ts` composes SQLite-only combo
 and model-mapping repositories. `docs/architecture/persistence-backend-boundary.md`
-is a **proposed** ADR, not an installed PostgreSQL/MySQL backend or HA guarantee.
+records the accepted local/offline SQLite and connected/server RedDB or PostgreSQL
+architecture. External backends remain unimplemented; the decision is not an HA guarantee.
 The reproducible [SQLite coupling inventory](SQLITE_COUPLING_INVENTORY.md)
 identifies the concrete lifecycle, migration, routing, cooldown, quota,
 affinity, cache, and video-job boundaries that must be proven before replicas.
@@ -407,7 +408,7 @@ already include optional Qdrant and Bifrost Compose profiles. Qdrant can share
 vector memory and Bifrost can centralize some proxy traffic, but neither
 coordinates API keys, provider connections, quotas, migrations, cooldowns,
 video jobs, or SQLite writes. Importing those sidecars is not a substitute for
-the proposed repository/shared-backend work or for a tested replica topology.
+the planned repository/shared-backend implementation or for a tested replica topology.
 
 The safe delivery order is:
 

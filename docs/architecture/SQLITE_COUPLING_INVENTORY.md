@@ -1,14 +1,16 @@
 ---
 title: "SQLite coupling inventory for shared persistence"
 status: assessment
-lastUpdated: 2026-09-26
+lastUpdated: 2026-10-08
 ---
 
 # SQLite coupling inventory for shared persistence
 
-This is the read-only inventory requested by the proposed
-[persistence boundary ADR](persistence-backend-boundary.md), not approval to add a
-database backend. It describes the current code and the new video-job worktree
+This is the historical read-only inventory requested by the
+[persistence boundary ADR](persistence-backend-boundary.md). The architecture selected
+on 2026-10-08 is local/offline SQLite and connected/server RedDB or PostgreSQL;
+external backend implementations remain pending. This inventory describes the
+2026-09-26 code and the then-new video-job worktree
 changes. SQLite remains the zero-configuration, single-writer default; multiple
 application replicas must not open the same `storage.sqlite` file. See
 [SQLite runtime topology](../ops/SQLITE_RUNTIME.md#single-writer-topology-ha-unsupported).
@@ -57,9 +59,10 @@ Before any external backend implementation, choose **one** bounded domain and
 document its methods, atomic invariants, error classification, idempotency and
 required ordering. Run the same behavioral conformance suite against the
 existing SQLite implementation, including competing writers where relevant.
-Keep the current SQLite startup and file readable throughout. The ADR's
-maintainer questions (backend direction, first domain and shared-state scope)
-remain open; this inventory does not answer them by assumption.
+Keep the current SQLite startup and file readable throughout. The accepted ADR
+selects combos and model-combo mappings as the first bounded slice. Refresh this
+inventory against the implementation revision; transaction, migration, shared-state
+and transport details still require evidence for RedDB and PostgreSQL.
 
 For a later multi-replica milestone, require evidence for migration ownership,
 credential encryption, connection cooldowns, quota updates, permission-cache

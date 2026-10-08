@@ -259,12 +259,19 @@ priced usage, not an invoice. `/system/tenants` redirects to `/access/tenants`.
 
 ## Persistence and scale
 
-SQLite is the initial local backend. Some runtime coordination has optional Redis
-implementations. That does not make the whole gateway safe to run as a cluster.
+SQLite is the current local backend. The selected architecture keeps SQLite for
+local/offline installations and adds an explicit RedDB or PostgreSQL choice for
+connected/server installations. External backends are not implemented yet. See the
+[persistence decision](docs/architecture/persistence-backend-boundary.md).
+
+Backend selection belongs to installation configuration; losing database
+connectivity does not imply switching to SQLite or synchronizing offline writes.
+Some runtime coordination has optional Redis implementations. That does not make
+the whole gateway safe to run as a cluster.
 
 Shared durable storage, atomic budgets, distributed leases, idempotent usage
 accounting and migration ownership require explicit implementation and
-multi-replica validation. PostgreSQL/replica support is an integration objective,
+multi-replica validation. RedDB/PostgreSQL and replica support are integration objectives,
 not a claim about the current release.
 
 ## Development and validation

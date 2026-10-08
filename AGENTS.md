@@ -31,6 +31,14 @@ another project's release branches, freeze issues, VPS or operator identity.
 Respect the operator's main-only workflow; do not reset the tree, remove other
 sessions' work or bulk-copy an upstream tree over RedRouter.
 
+The persistence architecture is local/offline SQLite and connected/server RedDB
+or PostgreSQL. SQLite remains the zero-configuration default; external backends
+are explicit opt-in choices per installation. Losing database connectivity must
+not switch the durable authority to SQLite. Offline/online synchronization is a
+separate capability. This is the selected architecture, not a claim of current
+external-backend or multi-replica support. Follow
+`docs/architecture/persistence-backend-boundary.md` for delivery and acceptance.
+
 For upstream work, record the RedRouter baseline, pinned upstream source,
 local implementation, remaining differences and behavioral acceptance checks.
 Path/provider counts and a green upstream suite are not proof of feature parity.

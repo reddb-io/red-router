@@ -1,7 +1,7 @@
 ---
 title: "Cluster Decisions"
 version: 3.8.40
-lastUpdated: 2026-06-28
+lastUpdated: 2026-10-08
 ---
 
 # Cluster Decisions — Optional Sidecar Profiles
@@ -9,6 +9,12 @@ lastUpdated: 2026-06-28
 **Status:** historical proposal; not an active-active deployment guide
 **Date:** 2026-06-20 (runtime topology rechecked 2026-09-26)
 **Refs:** [#3932](https://github.com/reddb-io/red-router/issues/3932), PR #4381
+
+The persistence direction selected on 2026-10-08 is local/offline SQLite and
+connected/server RedDB or PostgreSQL, as recorded in the
+[persistence boundary ADR](persistence-backend-boundary.md). The component decisions
+below are historical and do not override that direction. External backend support
+and replica safety still require implementation and behavioral validation.
 
 > **Current topology:** The checked-in [`docker-compose.yml`](../../docker-compose.yml)
 > defines application variants behind profiles, each mounting the same
