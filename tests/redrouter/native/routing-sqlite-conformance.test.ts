@@ -34,6 +34,11 @@ test("default SQLite facade count is asynchronous", async () => {
   assert.equal(await count, 0);
   await facade.createCombo({ name: "counted", models: [] });
   assert.equal(await facade.getCombosCount(), 1);
+  const { markServerReady } = await import("../../../src/lib/serverLifecycle.ts");
+  const healthz = await import("../../../src/app/healthz/route.ts");
+  markServerReady();
+  assert.equal((await healthz.GET()).status, 200);
+  assert.equal((await healthz.HEAD()).status, 200);
 });
 test.after(() => {
   core.resetDbInstance();

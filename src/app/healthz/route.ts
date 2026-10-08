@@ -1,6 +1,7 @@
 import { getServerLifecyclePhase } from "@/lib/serverLifecycle";
 import { observeHealthzEventLoopLag } from "@/lib/healthzLag";
 import { isManualDrainActive } from "@/lib/system/drainMode";
+import { verifyRoutingStorage } from "@/lib/db/repositories/routingConfigRepositories";
 
 export const dynamic = "force-dynamic";
 
@@ -10,14 +11,23 @@ const HEALTH_BODIES = {
   stopping: "stopping\n",
 } as const;
 
-function createHealthResponse(method: "GET" | "HEAD"): Response {
+async function createHealthResponse(method: "GET" | "HEAD"): Promise<Response> {
   const phase = getServerLifecyclePhase();
   // An operator drain (POST /api/system/drain) takes the node out of rotation: not ready.
   const draining = phase === "ready" && isManualDrainActive();
-  const body = draining ? "draining\n" : HEALTH_BODIES[phase];
+  let body: string = draining ? "draining\n" : HEALTH_BODIES[phase];
+  let ready = phase === "ready" && !draining;
+  if (ready) {
+    try {
+      await verifyRoutingStorage();
+    } catch {
+      ready = false;
+      body = "storage_unavailable\n";
+    }
+  }
 
   return new Response(method === "HEAD" ? null : body, {
-    status: phase === "ready" && !draining ? 200 : 503,
+    status: ready ? 200 : 503,
     headers: {
       "Cache-Control": "no-store",
       "Content-Length": String(body.length),
@@ -26,11 +36,11 @@ function createHealthResponse(method: "GET" | "HEAD"): Response {
   });
 }
 
-export function GET(): Response {
+export function GET(): Promise<Response> {
   observeHealthzEventLoopLag();
   return createHealthResponse("GET");
 }
 
-export function HEAD(): Response {
+export function HEAD(): Promise<Response> {
   return createHealthResponse("HEAD");
 }

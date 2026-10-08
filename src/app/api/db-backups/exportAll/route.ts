@@ -109,6 +109,8 @@ export async function GET(request: NextRequest) {
       throw innerError;
     }
   } catch (error: unknown) {
+    const storageError = routingStorageErrorResponse(error);
+    if (storageError) return storageError;
     console.error("[ExportAll] Error:", error);
     return NextResponse.json(
       {

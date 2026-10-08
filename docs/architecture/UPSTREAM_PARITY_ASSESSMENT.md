@@ -390,10 +390,13 @@ verification before claiming Decisions parity.
 
 `docs/ops/SQLITE_RUNTIME.md` explicitly defines the default as one SQLite writer
 and forbids attaching multiple replicas to one `storage.sqlite`. The existing
-`src/lib/db/repositories/routingConfigRepositories.ts` composes SQLite-only combo
-and model-mapping repositories. `docs/architecture/persistence-backend-boundary.md`
+`src/lib/db/repositories/routingConfigRepositories.ts` now offers explicit external
+selection for an experimental single-node combo/model-mapping slice; other durable
+domains remain SQLite. `docs/architecture/persistence-backend-boundary.md`
 records the accepted local/offline SQLite and connected/server RedDB or PostgreSQL
-architecture. External backends remain unimplemented; the decision is not an HA guarantee.
+architecture. See [experimental routing storage](routing-storage-experimental.md)
+for implemented scope and independent engine CI. Full external persistence and
+replica readiness remain pending; the decision is not an HA guarantee.
 The reproducible [SQLite coupling inventory](SQLITE_COUPLING_INVENTORY.md)
 identifies the concrete lifecycle, migration, routing, cooldown, quota,
 affinity, cache, and video-job boundaries that must be proven before replicas.

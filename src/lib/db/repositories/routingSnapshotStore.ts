@@ -59,7 +59,10 @@ export function parseRoutingSnapshot(data: string): RoutingSnapshot {
       ids.size !== snapshot.combos.length ||
       names.size !== snapshot.combos.length ||
       new Set(snapshot.mappings.map((row) => row.id)).size !== snapshot.mappings.length ||
-      snapshot.mappings.some((row) => !ids.has(row.comboId))
+      snapshot.mappings.some((row) => !ids.has(row.comboId)) ||
+      new Set(snapshot.pendingCleanup.map((entry) => entry.token)).size !==
+        snapshot.pendingCleanup.length ||
+      snapshot.pendingCleanup.some((entry) => ids.has(entry.id) || names.has(entry.name))
     )
       throw new Error();
     return snapshot;

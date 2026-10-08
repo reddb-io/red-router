@@ -9,7 +9,7 @@ lastUpdated: 2026-10-08
 This is the historical read-only inventory requested by the
 [persistence boundary ADR](persistence-backend-boundary.md). The architecture selected
 on 2026-10-08 is local/offline SQLite and connected/server RedDB or PostgreSQL;
-external backend implementations remain pending. This inventory describes the
+an experimental external combos/mappings slice exists; broader backend migration remains pending. This inventory describes the
 2026-09-26 code and the then-new video-job worktree
 changes. SQLite remains the zero-configuration, single-writer default; multiple
 application replicas must not open the same `storage.sqlite` file. See

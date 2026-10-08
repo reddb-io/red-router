@@ -3,6 +3,9 @@ import test from "node:test";
 process.env.RED_ROUTER_ROUTING_BACKEND = "postgres";
 process.env.RED_ROUTER_ROUTING_DATABASE_URL = "postgresql://secret:token@127.0.0.1:1/routing";
 const { GET } = await import("../../../src/app/api/health/ping/route.ts");
+const healthz = await import("../../../src/app/healthz/route.ts");
+const liveness = await import("../../../src/app/api/health/route.ts");
+const { markServerReady } = await import("../../../src/lib/serverLifecycle.ts");
 const core = await import("../../../src/lib/db/core.ts");
 const facade = await import("../../../src/lib/db/combos.ts");
 const { RoutingStorageError, requireCompleteSqlitePersistence } =
@@ -16,6 +19,14 @@ test("readiness fails on external outage while SQLite remains healthy; writes ne
   assert.equal(response.status, 503);
   const body = await response.text();
   assert.ok(!body.includes("token") && !body.includes("secret") && !body.includes("at /"));
+  markServerReady();
+  const probe = await healthz.GET();
+  assert.equal(probe.status, 503);
+  assert.equal(await probe.text(), "storage_unavailable\n");
+  const head = await healthz.HEAD();
+  assert.equal(head.status, 503);
+  assert.equal(await head.text(), "");
+  assert.equal((await liveness.GET()).status, 200);
   await assert.rejects(
     facade.createCombo({ name: "never-local", models: [] }),
     RoutingStorageError

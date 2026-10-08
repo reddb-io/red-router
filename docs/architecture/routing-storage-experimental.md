@@ -100,7 +100,9 @@ committed. Re-read before repeating an operation after an ambiguous outcome.
 Database loss does not change the selected backend and never sends routing writes to SQLite.
 Storage failures use fixed public messages. The lightweight `/api/health/ping` readiness
 check includes both node-local SQLite and the selected routing authority and returns 503
-on failure. `/api/health` remains a process liveness endpoint.
+on failure. `/healthz` also checks the external authority once the server is ready
+and supports GET/HEAD with a fixed 503 response during outages. `/api/health`
+remains a process liveness endpoint.
 
 Proxy assignments, rotation state, context history, LKGP pins and cache generations remain
 local. Combo deletion commits cleanup metadata in the same external write as its mapping
@@ -123,7 +125,8 @@ Product tests under `tests/redrouter/native/` cover SQLite and snapshot reposito
 conformance, compare-and-swap writers, uniqueness, cascades, failed cleanup recovery,
 missing initialization, bounded conflicts, redacted outages, readiness and empty-only
 maintenance import. The dedicated CI matrix runs the same domain harness against
-PostgreSQL 17.6 and a checksum-verified RedDB v1.23.4 binary independently.
+PostgreSQL 17.6 and a checksum-verified RedDB v1.23.4 binary independently, followed
+by persistence checks across a PostgreSQL restart and an abrupt RedDB process kill.
 
 Build/package smoke remains a separate product gate. The CI database listener checks do
 not prove Electron, restricted-runtime packaging, remote TLS deployment, distributed leases,
