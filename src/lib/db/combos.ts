@@ -14,38 +14,44 @@ import { invalidateDbCache } from "./readCache";
 import { invalidateReasoningRoutingRuleCache } from "./reasoningRoutingRules";
 import { routingConfigRepositories } from "./repositories/routingConfigRepositories";
 
-const repository = routingConfigRepositories.combos;
+const repository = () => routingConfigRepositories.combos;
 
 export function getCombos(limit?: number, offset?: number): Promise<ComboRecord[]> {
-  return repository.list(limit, offset);
+  return repository().list(limit, offset);
 }
 
-/** Keep the existing synchronous facade contract while repository APIs become async. */
-export function getCombosCount(): number {
-  return routingConfigRepositories.legacySync.getCombosCount();
+export function getCombosCount(): Promise<number> {
+  return repository().count();
+}
+
+/** A SQLite file backup cannot back up externally stored routing configuration. */
+function backupLocalRouting(): void {
+  if (routingConfigRepositories.backend === "sqlite") backupDbFile("pre-write");
 }
 
 export function getComboById(id: string): Promise<ComboRecord | null> {
-  return repository.findById(id);
+  return repository().findById(id);
 }
 
 export function getComboByName(name: string): Promise<ComboRecord | null> {
-  return repository.findByName(name);
+  return repository().findByName(name);
 }
 
 export function getComboByNameInsensitive(name: string): Promise<ComboRecord | null> {
-  return repository.findByNameInsensitive(name);
+  return repository().findByNameInsensitive(name);
 }
 
 export async function createCombo(data: ComboRecord): Promise<ComboRecord> {
-  const combo = await repository.create(data);
+  await routingConfigRepositories.reconcileLocalCleanup();
+  const combo = await repository().create(data);
   invalidateDbCache("combos");
-  backupDbFile("pre-write");
+  backupLocalRouting();
   return combo;
 }
 
 export async function updateCombo(id: string, data: ComboRecord): Promise<ComboRecord | null> {
-  const result = await repository.update(id, data);
+  await routingConfigRepositories.reconcileLocalCleanup();
+  const result = await repository().update(id, data);
   if (!result) return null;
 
   if (result.modelsFieldProvided) {
@@ -56,31 +62,41 @@ export async function updateCombo(id: string, data: ComboRecord): Promise<ComboR
   }
 
   invalidateDbCache("combos");
-  backupDbFile("pre-write");
+  backupLocalRouting();
   return result.combo;
 }
 
 export async function reorderCombos(comboIds: string[]): Promise<ComboRecord[]> {
-  const result = await repository.reorder(comboIds);
+  await routingConfigRepositories.reconcileLocalCleanup();
+  const result = await repository().reorder(comboIds);
   if (result.rowsReordered > 0) {
     invalidateDbCache("combos");
-    backupDbFile("pre-write");
+    backupLocalRouting();
   }
   return result.combos;
 }
 
 export async function deleteCombo(id: string): Promise<boolean> {
-  const deleted = await repository.deleteById(id);
+  await routingConfigRepositories.reconcileLocalCleanup();
+  const deleted = await repository().deleteById(id);
   if (!deleted) return false;
+
+  try {
+    await routingConfigRepositories.reconcileLocalCleanup();
+  } catch {
+    // The durable delete already committed. Recovery metadata remains in the
+    // external snapshot; readiness and the next write retry this local cleanup.
+    console.warn("Combo deleted; local cleanup remains pending");
+  }
 
   invalidateDbCache("combos");
   invalidateReasoningRoutingRuleCache();
-  backupDbFile("pre-write");
+  backupLocalRouting();
   return true;
 }
 
 export async function deleteComboByName(name: string): Promise<boolean> {
-  const combo = await repository.findByName(name);
+  const combo = await repository().findByName(name);
   if (!combo || typeof combo.id !== "string") return false;
   return deleteCombo(combo.id);
 }

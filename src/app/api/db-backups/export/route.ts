@@ -1,3 +1,5 @@
+import { requireCompleteSqlitePersistence } from "@/lib/db/repositories/routingStorageConfig";
+import { routingStorageErrorResponse } from "@/lib/api/routingStorageErrorResponse";
 import { NextResponse } from "next/server";
 import path from "path";
 import fs from "fs";
@@ -21,6 +23,7 @@ export async function GET(request: Request) {
     }
   }
   try {
+    requireCompleteSqlitePersistence();
     if (!SQLITE_FILE || !fs.existsSync(SQLITE_FILE)) {
       return NextResponse.json({ error: "Database file not found" }, { status: 404 });
     }
@@ -79,6 +82,8 @@ export async function GET(request: Request) {
       },
     });
   } catch (error) {
+    const storageError = routingStorageErrorResponse(error);
+    if (storageError) return storageError;
     console.error("[API] Error exporting database:", error);
     return NextResponse.json({ error: sanitizeErrorMessage(error) }, { status: 500 });
   }

@@ -1,3 +1,5 @@
+import { requireCompleteSqlitePersistence } from "@/lib/db/repositories/routingStorageConfig";
+import { routingStorageErrorResponse } from "@/lib/api/routingStorageErrorResponse";
 import { NextResponse } from "next/server";
 import { getDbInstance } from "@/lib/db/core";
 import { backupDbFile } from "@/lib/db/backup";
@@ -27,6 +29,7 @@ export async function POST(request: Request) {
   }
 
   try {
+    requireCompleteSqlitePersistence();
     let rawText: string | null = null;
     const contentType = request.headers.get("content-type") ?? "";
 
@@ -92,6 +95,8 @@ export async function POST(request: Request) {
       ...counts,
     });
   } catch (err) {
+    const storageError = routingStorageErrorResponse(err);
+    if (storageError) return storageError;
     console.error("[API] Error importing JSON backup:", err);
     return NextResponse.json(
       { error: sanitizeErrorMessage(err instanceof Error ? err.message : String(err)) },

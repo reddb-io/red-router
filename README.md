@@ -261,8 +261,11 @@ priced usage, not an invoice. `/system/tenants` redirects to `/access/tenants`.
 
 SQLite is the current local backend. The selected architecture keeps SQLite for
 local/offline installations and adds an explicit RedDB or PostgreSQL choice for
-connected/server installations. External backends are not implemented yet. See the
-[persistence decision](docs/architecture/persistence-backend-boundary.md).
+connected/server installations. An experimental single-node slice can store combos and
+model-combo mappings externally; other durable state remains SQLite. See the
+[persistence decision](docs/architecture/persistence-backend-boundary.md) and
+[experimental routing storage](docs/architecture/routing-storage-experimental.md) for
+explicit initialization, scope, recovery and independent CI acceptance.
 
 Backend selection belongs to installation configuration; losing database
 connectivity does not imply switching to SQLite or synchronizing offline writes.

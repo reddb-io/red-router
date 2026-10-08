@@ -1,3 +1,5 @@
+import { requireCompleteSqlitePersistence } from "@/lib/db/repositories/routingStorageConfig";
+import { routingStorageErrorResponse } from "@/lib/api/routingStorageErrorResponse";
 import { NextResponse } from "next/server";
 import { getSettings } from "@/lib/db/settings";
 import { getProviderConnections } from "@/lib/db/providers";
@@ -54,6 +56,7 @@ export async function GET(request: Request) {
   }
 
   try {
+    requireCompleteSqlitePersistence();
     const url = new URL(request.url);
     // Telemetry/history tables grow indefinitely and inflate backups.
     // Exclude them by default — opt-in with ?includeHistory=true (#2125).
@@ -109,6 +112,8 @@ export async function GET(request: Request) {
       },
     });
   } catch (error) {
+    const storageError = routingStorageErrorResponse(error);
+    if (storageError) return storageError;
     console.error("[API] Error exporting JSON backup:", error);
     return NextResponse.json({ error: "Failed to export JSON" }, { status: 500 });
   }

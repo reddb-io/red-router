@@ -12,36 +12,36 @@ import { routingConfigRepositories } from "./repositories/routingConfigRepositor
 
 export type { ModelComboMapping } from "@/domain/persistence/comboRepositories";
 
-const repository = routingConfigRepositories.modelComboMappings;
+const repository = () => routingConfigRepositories.modelComboMappings;
 
 export function getModelComboMappings(options?: {
   limit?: number;
   offset?: number;
 }): Promise<ModelComboMappingPage> {
-  return repository.list(options);
+  return repository().list(options);
 }
 
 export function getModelComboMappingById(id: string): Promise<ModelComboMapping | null> {
-  return repository.findById(id);
+  return repository().findById(id);
 }
 
 export function createModelComboMapping(
   data: CreateModelComboMappingInput
 ): Promise<ModelComboMapping> {
-  return repository.create(data);
+  return repository().create(data);
 }
 
 export function updateModelComboMapping(
   id: string,
   data: UpdateModelComboMappingInput
 ): Promise<ModelComboMapping | null> {
-  return repository.update(id, data);
+  return repository().update(id, data);
 }
 
 export function deleteModelComboMapping(id: string): Promise<boolean> {
-  return repository.deleteById(id);
+  return repository().deleteById(id);
 }
 
 export function resolveComboForModel(model: string): Promise<Record<string, unknown> | null> {
-  return repository.resolveForModel(model);
+  return repository().resolveForModel(model);
 }

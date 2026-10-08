@@ -6,10 +6,10 @@ lastUpdated: 2026-10-08
 
 # ADR: Pluggable persistence boundary
 
-- **Status:** Architecture accepted on 2026-10-08; external implementations pending
+- **Status:** Architecture accepted on 2026-10-08; first routing slice experimental
 - **Tracking issue:** [#8075](https://github.com/reddb-io/red-router/issues/8075)
 - **Scope:** Local/offline SQLite and connected/server RedDB or PostgreSQL; this document records
-  the selected architecture and delivery requirements, without adding backend support
+  the selected architecture and delivery requirements; full backend support remains pending
 
 ## Context
 
@@ -54,10 +54,12 @@ Cached reads, where allowed, must have explicit staleness and authorization rule
 offline writes, dual writes, and later synchronization require a separate conflict-resolution
 and reconciliation design; they are outside this decision.
 
-The current runtime remains SQLite-only. The existing RedDB usage-sink transport in
+An [experimental routing slice](routing-storage-experimental.md) now provides explicit
+external selection for combos and model-combo mappings. All other durable domains remain
+SQLite. The existing RedDB usage-sink transport in
 `src/lib/usageSinks/transports/reddb.ts` delivers events to a queue; it does not implement the
-durable authority described here. Backend names in this ADR are design choices, not available
-environment variables or CLI options.
+durable authority described here. The slice documentation records its implemented environment variables and maintenance
+commands; they do not establish complete external-backend or replica support.
 
 Adopt a two-level persistence boundary for portable durable state:
 
@@ -189,8 +191,8 @@ unproven abstraction in an earlier step.
 
 Start with combos and model-combo mappings, whose domain contracts already exist in
 `src/domain/persistence/comboRepositories.ts` and whose SQLite implementations are composed in
-`src/lib/db/repositories/routingConfigRepositories.ts`. The synchronous `legacySync.getCombosCount`
-path must be addressed explicitly. Inventory their consumers before changing backend selection.
+`src/lib/db/repositories/routingConfigRepositories.ts`. The count facade is now asynchronous and the combos API awaits it. Inventory remaining
+SQLite-only consumers before extending backend selection.
 The slice must include:
 
 - SQLite behavior-preservation tests;

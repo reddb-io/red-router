@@ -1,3 +1,4 @@
+import { routingStorageErrorResponse } from "@/lib/api/routingStorageErrorResponse";
 import { NextRequest, NextResponse } from "next/server";
 import {
   listDbBackups,
@@ -51,8 +52,10 @@ export async function PUT(request: NextRequest) {
     if (!result) {
       return NextResponse.json({ message: "No changes since last backup (throttled)" });
     }
-    return NextResponse.json({ created: true, ...result });
+    return NextResponse.json({ created: true, scope: "node-local-sqlite", ...result });
   } catch (error) {
+    const storageError = routingStorageErrorResponse(error);
+    if (storageError) return storageError;
     console.error("[API] Error creating manual backup:", error);
     return NextResponse.json({ error: sanitizeErrorMessage(error) }, { status: 500 });
   }
@@ -71,6 +74,8 @@ export async function GET(request: NextRequest) {
     const backups = await listDbBackups();
     return NextResponse.json({ backups });
   } catch (error) {
+    const storageError = routingStorageErrorResponse(error);
+    if (storageError) return storageError;
     console.error("[API] Error listing DB backups:", error);
     return NextResponse.json({ error: sanitizeErrorMessage(error) }, { status: 500 });
   }
@@ -111,6 +116,8 @@ export async function POST(request: NextRequest) {
     const result = await restoreDbBackup(backupId);
     return NextResponse.json(result);
   } catch (error) {
+    const storageError = routingStorageErrorResponse(error);
+    if (storageError) return storageError;
     console.error("[API] Error restoring DB backup:", error);
     return NextResponse.json({ error: sanitizeErrorMessage(error) }, { status: 500 });
   }
@@ -151,6 +158,8 @@ export async function PATCH(request: NextRequest) {
       ...persistDbBackupRetentionSettings(validation.data),
     });
   } catch (error) {
+    const storageError = routingStorageErrorResponse(error);
+    if (storageError) return storageError;
     console.error("[API] Error saving DB backup retention settings:", error);
     return NextResponse.json({ error: sanitizeErrorMessage(error) }, { status: 500 });
   }
@@ -195,6 +204,8 @@ export async function DELETE(request: NextRequest) {
       ...result,
     });
   } catch (error) {
+    const storageError = routingStorageErrorResponse(error);
+    if (storageError) return storageError;
     console.error("[API] Error cleaning DB backups:", error);
     return NextResponse.json({ error: sanitizeErrorMessage(error) }, { status: 500 });
   }

@@ -1,3 +1,4 @@
+import { routingStorageErrorResponse } from "@/lib/api/routingStorageErrorResponse";
 /**
  * API: Model-Combo Mapping by ID (#563)
  * PUT    — Update a mapping
@@ -33,7 +34,9 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
       return NextResponse.json({ error: "Mapping not found" }, { status: 404 });
     }
     return NextResponse.json({ mapping });
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const storageError = routingStorageErrorResponse(error);
+    if (storageError) return storageError;
     console.error("Failed to get mapping:", error);
     return NextResponse.json({ error: "Failed to get mapping" }, { status: 500 });
   }
@@ -58,7 +61,9 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
     }
 
     return NextResponse.json({ mapping });
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const storageError = routingStorageErrorResponse(error);
+    if (storageError) return storageError;
     console.error("Failed to update mapping:", error);
     return NextResponse.json({ error: "Failed to update mapping" }, { status: 500 });
   }
@@ -77,7 +82,9 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
     }
 
     return NextResponse.json({ success: true });
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const storageError = routingStorageErrorResponse(error);
+    if (storageError) return storageError;
     console.error("Failed to delete mapping:", error);
     return NextResponse.json({ error: "Failed to delete mapping" }, { status: 500 });
   }

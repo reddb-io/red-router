@@ -1,3 +1,4 @@
+import { routingStorageErrorResponse } from "@/lib/api/routingStorageErrorResponse";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireManagementAuth } from "@/lib/api/requireManagementAuth";
@@ -39,6 +40,8 @@ export async function GET(request: Request) {
       toSkip: items.filter((item) => item.exists).length,
     });
   } catch (error) {
+    const storageError = routingStorageErrorResponse(error);
+    if (storageError) return storageError;
     console.log("Error previewing combo presets:", error);
     return NextResponse.json({ error: "Failed to preview combo presets" }, { status: 500 });
   }
@@ -73,6 +76,8 @@ export async function POST(request: Request) {
     }
     return NextResponse.json({ source, created, failed, createdCount: created.length });
   } catch (error) {
+    const storageError = routingStorageErrorResponse(error);
+    if (storageError) return storageError;
     console.log("Error applying combo presets:", error);
     return NextResponse.json({ error: "Failed to apply combo presets" }, { status: 500 });
   }

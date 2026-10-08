@@ -1,3 +1,5 @@
+import { requireCompleteSqlitePersistence } from "@/lib/db/repositories/routingStorageConfig";
+import { routingStorageErrorResponse } from "@/lib/api/routingStorageErrorResponse";
 import { NextResponse } from "next/server";
 import fs from "fs";
 import { openDatabaseAsync } from "@/lib/db/adapters/driverFactory";
@@ -55,6 +57,7 @@ export async function POST(request: Request) {
   let tmpDirectory: string | null = null;
 
   try {
+    requireCompleteSqlitePersistence();
     const upload = await readBackupUpload(request, resolveMaxUploadSizeBytes());
     tmpPath = upload.filePath;
     tmpDirectory = upload.directory;
@@ -132,6 +135,8 @@ export async function POST(request: Request) {
       apiKeyCount: keyCount,
     });
   } catch (error) {
+    const storageError = routingStorageErrorResponse(error);
+    if (storageError) return storageError;
     console.error("[API] Error importing database:", error);
     return NextResponse.json(
       { error: sanitizeErrorMessage(error) },

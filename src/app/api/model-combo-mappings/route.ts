@@ -1,3 +1,4 @@
+import { routingStorageErrorResponse } from "@/lib/api/routingStorageErrorResponse";
 /**
  * API: Model-Combo Mappings (#563)
  * GET  — List all mappings
@@ -38,6 +39,8 @@ export async function GET(request: Request) {
     const result = await getModelComboMappings(limit !== undefined ? { limit, offset } : undefined);
     return NextResponse.json({ mappings: result.items, total: result.total });
   } catch (error) {
+    const storageError = routingStorageErrorResponse(error);
+    if (storageError) return storageError;
     console.error("Failed to list model-combo mappings:", error);
     return NextResponse.json({ error: "Failed to list model-combo mappings" }, { status: 500 });
   }
@@ -63,7 +66,9 @@ export async function POST(request: Request) {
     });
 
     return NextResponse.json({ mapping }, { status: 201 });
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const storageError = routingStorageErrorResponse(error);
+    if (storageError) return storageError;
     console.error("Failed to create model-combo mapping:", error);
     return NextResponse.json({ error: "Failed to create model-combo mapping" }, { status: 500 });
   }

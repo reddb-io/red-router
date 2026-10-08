@@ -1,3 +1,4 @@
+import { routingStorageErrorResponse } from "@/lib/api/routingStorageErrorResponse";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireManagementAuth } from "@/lib/api/requireManagementAuth";
@@ -33,11 +34,15 @@ export async function POST(request: Request) {
       try {
         if (await isCloudEnabled()) await syncToCloud(await getConsistentMachineId());
       } catch (error) {
+        const storageError = routingStorageErrorResponse(error);
+        if (storageError) return storageError;
         console.log("Cloud sync after bulk combo change failed:", error);
       }
     }
     return NextResponse.json(result);
   } catch (error) {
+    const storageError = routingStorageErrorResponse(error);
+    if (storageError) return storageError;
     console.log("Error running bulk combo action:", error);
     return NextResponse.json({ error: "Failed to run the bulk action" }, { status: 500 });
   }

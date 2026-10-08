@@ -1,3 +1,4 @@
+import { requireCompleteSqlitePersistence } from "./repositories/routingStorageConfig";
 /**
  * db/backup.js — Database backup/restore operations.
  */
@@ -347,6 +348,7 @@ export async function listDbBackups() {
 // ──────────────── Restore Backup ────────────────
 
 export async function restoreDbBackup(backupId: string) {
+  requireCompleteSqlitePersistence();
   const backupDir = getBackupDir();
 
   // Validate format: must be db_<timestamp>_<reason>.sqlite, no path separators
@@ -438,6 +440,7 @@ export interface ExportAllRows {
  * entire export — consistent with the original inline behaviour.
  */
 export function exportAllSummaryRows(): ExportAllRows {
+  requireCompleteSqlitePersistence();
   const db = getDbInstance();
 
   const settings: Record<string, string> = {};

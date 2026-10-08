@@ -385,6 +385,7 @@
     "js-tiktoken": "^1.0.20",
     "keytar": "^7.9.0",
     "onnxruntime-node": "1.30.0",
+    "pg": "^8.22.0",
     "sqlite-vec": "^0.1.9",
     "wreq-js": "3.2.0"
   },

@@ -1,3 +1,4 @@
+import { routingStorageErrorResponse } from "@/lib/api/routingStorageErrorResponse";
 import { NextResponse } from "next/server";
 import { reorderCombos } from "@/lib/db/combos";
 import { isCloudEnabled } from "@/lib/db/settings";
@@ -38,6 +39,8 @@ export async function POST(request) {
 
     return NextResponse.json({ combos });
   } catch (error) {
+    const storageError = routingStorageErrorResponse(error);
+    if (storageError) return storageError;
     console.log("Error reordering combos:", error);
     return NextResponse.json({ error: "Failed to reorder combos" }, { status: 500 });
   }

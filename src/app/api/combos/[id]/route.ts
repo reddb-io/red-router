@@ -1,3 +1,4 @@
+import { routingStorageErrorResponse } from "@/lib/api/routingStorageErrorResponse";
 import { NextResponse } from "next/server";
 import { getComboById, updateCombo, deleteCombo, getComboByName, getCombos } from "@/lib/db/combos";
 import { isCloudEnabled } from "@/lib/db/settings";
@@ -49,6 +50,8 @@ export async function GET(request, { params }) {
 
     return NextResponse.json(combo);
   } catch (error) {
+    const storageError = routingStorageErrorResponse(error);
+    if (storageError) return storageError;
     console.log("Error fetching combo:", error);
     return comboErrorResponse("INTERNAL_001", 500, undefined, request);
   }
@@ -244,6 +247,8 @@ export async function PUT(request, { params }) {
     const warning = comboName ? buildComboNameCollisionWarning(String(comboName)) : null;
     return NextResponse.json(warning ? { ...combo, warning } : combo);
   } catch (error) {
+    const storageError = routingStorageErrorResponse(error);
+    if (storageError) return storageError;
     if (error instanceof ComboInvariantError) {
       return comboErrorResponse("COMBO_008", 400, { reason: error.message }, request);
     }
@@ -288,6 +293,8 @@ export async function DELETE(request, { params }) {
 
     return NextResponse.json({ success: true });
   } catch (error) {
+    const storageError = routingStorageErrorResponse(error);
+    if (storageError) return storageError;
     console.log("Error deleting combo:", error);
     return comboErrorResponse("INTERNAL_001", 500, undefined, request);
   }

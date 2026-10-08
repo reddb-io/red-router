@@ -1,3 +1,5 @@
+import { requireCompleteSqlitePersistence } from "@/lib/db/repositories/routingStorageConfig";
+import { routingStorageErrorResponse } from "@/lib/api/routingStorageErrorResponse";
 import { NextRequest, NextResponse } from "next/server";
 import { getDbInstance, SQLITE_FILE } from "@/lib/db/core";
 import { exportAllSummaryRows } from "@/lib/db/backup";
@@ -19,6 +21,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   try {
+    requireCompleteSqlitePersistence();
     if (!SQLITE_FILE) {
       return NextResponse.json(
         { error: "Export is only available in local (non-cloud) mode" },

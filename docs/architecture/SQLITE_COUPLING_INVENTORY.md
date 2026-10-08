@@ -15,6 +15,14 @@ changes. SQLite remains the zero-configuration, single-writer default; multiple
 application replicas must not open the same `storage.sqlite` file. See
 [SQLite runtime topology](../ops/SQLITE_RUNTIME.md#single-writer-topology-ha-unsupported).
 
+The 2026-10-08 [experimental routing slice](routing-storage-experimental.md) adds
+opt-in external combos/mappings and removes the synchronous facade count path.
+The inventory below records the broader SQLite coupling, which remains unresolved.
+Tenant scope/sharing and counts, health repair, paid-model rewrites, JSON migration,
+whole-database backup and core recovery snapshots still read/write SQLite combos.
+External selection therefore remains single-node and refuses non-default tenants
+and whole-database backup/import/restore routes.
+
 ## Reproduce the inventory
 
 From the repository root, inspect the relevant call sites (these commands do

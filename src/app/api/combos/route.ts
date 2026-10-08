@@ -1,3 +1,4 @@
+import { routingStorageErrorResponse } from "@/lib/api/routingStorageErrorResponse";
 import { NextResponse } from "next/server";
 import { getCombos, getCombosCount, createCombo, getComboByName } from "@/lib/db/combos";
 import { isCloudEnabled } from "@/lib/db/settings";
@@ -32,7 +33,7 @@ export async function GET(request: Request) {
     }
 
     const range = validation.data;
-    const total = getCombosCount();
+    const total = await getCombosCount();
     const rawCombos = await getCombos(range.limit, range.offset);
     const combos = rawCombos.map((combo) => ({
       ...combo,
@@ -40,6 +41,8 @@ export async function GET(request: Request) {
     }));
     return NextResponse.json({ combos, total });
   } catch (error) {
+    const storageError = routingStorageErrorResponse(error);
+    if (storageError) return storageError;
     console.log("Error fetching combos:", error);
     return NextResponse.json({ error: "Failed to fetch combos" }, { status: 500 });
   }
@@ -127,6 +130,8 @@ export async function POST(request) {
     const warning = buildComboNameCollisionWarning(name);
     return NextResponse.json(warning ? { ...combo, warning } : combo, { status: 201 });
   } catch (error) {
+    const storageError = routingStorageErrorResponse(error);
+    if (storageError) return storageError;
     if (error instanceof ComboInvariantError) {
       return comboErrorResponse("COMBO_008", 400, { reason: error.message }, request);
     }
