@@ -9,7 +9,7 @@
 ### Patch Changes
 
 - Refresh Codex 0.162.0 and Claude Code 2.1.295 CLI identities and Docker pins.
-- Update the proxy address parser and command quoting dependencies to patched versions. Pin the evaluation tooling to the patched simple-git dependency chain while preserving the blocking dependency audit. Allow large native CLI identity downloads more time during release preparation.
+- Update the proxy address parser and command quoting dependencies to patched versions. Update evaluation tooling to promptfoo 0.124.1, which supports the patched simple-git dependency chain, while preserving the blocking dependency audit. Allow large native CLI identity downloads more time during release preparation.
 
 ## 0.58.3
 

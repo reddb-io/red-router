@@ -4,7 +4,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import simpleGit from "simple-git";
+import { simpleGit } from "simple-git";
 
 test("patched evaluation git dependency preserves branch and comparison metadata", async () => {
   const directory = await mkdtemp(join(tmpdir(), "redrouter-evaluation-git-"));
