@@ -137,7 +137,7 @@ export async function refreshCliIdentities({ root = projectRoot } = {}) {
     const url = new URL(metadata.dist.tarball);
     if (url.protocol !== "https:" || url.hostname !== "registry.npmjs.org")
       throw new Error("Unexpected npm artifact host");
-    const response = await fetch(url, { signal: AbortSignal.timeout(60_000) });
+    const response = await fetch(url, { signal: AbortSignal.timeout(180_000) });
     if (!response.ok) throw new Error(`Claude artifact download failed: HTTP ${response.status}`);
     const artifact = Buffer.from(await response.arrayBuffer());
     const integrity = `sha512-${createHash("sha512").update(artifact).digest("base64")}`;

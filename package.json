@@ -1,6 +1,6 @@
 {
   "name": "@reddb-io/red-router",
-  "version": "0.58.3",
+  "version": "0.59.0",
   "publishConfig": {
     "access": "public"
   },
@@ -501,12 +501,13 @@
       "undici": "^6.28.0"
     },
     "concurrently": {
-      "shell-quote": "^1.9.0"
+      "shell-quote": "^1.12.0"
     },
     "adm-zip": "^0.6.1",
     "promptfoo": {
       "js-yaml": "^5.2.2",
-      "undici": "^7.29.0"
+      "undici": "^7.29.0",
+      "simple-git": "^4.0.2"
     },
     "socket.io-parser": "^4.2.7",
     "tar": "^7.5.21",
@@ -536,6 +537,7 @@
     "monaco-editor": {
       "dompurify": "^3.4.14"
     },
-    "csv-parse": "^7.0.2"
+    "csv-parse": "^7.0.2",
+    "proxy-addr": "^2.0.8"
   }
 }

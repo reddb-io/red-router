@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.59.0
+
+### Minor Changes
+
+- Add an opt-in, experimental RedDB/PostgreSQL persistence slice for combos and model-combo mappings. Keep SQLite as the default and retain node-local SQLite for other durable state. Include explicit maintenance initialization, empty-only snapshot import, readiness checks, recoverable local deletion cleanup and independent engine conformance in CI.
+
+### Patch Changes
+
+- Refresh Codex 0.162.0 and Claude Code 2.1.295 CLI identities and Docker pins.
+- Update the proxy address parser and command quoting dependencies to patched versions. Pin the evaluation tooling to the patched simple-git dependency chain while preserving the blocking dependency audit. Allow large native CLI identity downloads more time during release preparation.
+
 ## 0.58.3
 
 ### Patch Changes
