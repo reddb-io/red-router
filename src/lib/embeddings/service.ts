@@ -30,7 +30,7 @@ import {
   formatUnknownEmbeddingProviderError,
 } from "./errors";
 import { isPrivateHost, isCloudMetadataHost } from "@/shared/network/outboundUrlGuard";
-import { calculateCost } from "@/lib/usage/costCalculator";
+import { recordEmbeddingUsage } from "./usage";
 import { attachOmniRouteMetaHeaders } from "@/domain/omnirouteResponseMeta";
 import { generateRequestId } from "@/shared/utils/requestId";
 import { resolveLocalSyncedEndpointRoute } from "@/lib/providerModels/syncedEndpointRouting";
@@ -477,14 +477,21 @@ export async function createEmbeddingResponse(
     if (credentials) await clearRecoveredProviderState(credentials as Record<string, unknown>);
     responseHeaders.set("Content-Type", "application/json");
     const usage = (result.data as { usage?: Record<string, number> })?.usage ?? null;
-    const costUsd = usage ? await calculateCost(provider, effectiveModel ?? "", usage) : 0;
+    const requestId = generateRequestId();
+    const costUsd = await recordEmbeddingUsage({
+      apiKeyId: options.apiKeyId,
+      provider,
+      model: effectiveModel ?? "",
+      usage,
+      requestId,
+    });
     attachOmniRouteMetaHeaders(responseHeaders, {
       provider,
       model: effectiveModel,
       usage,
       costUsd,
       latencyMs: Date.now() - startTime,
-      requestId: generateRequestId(),
+      requestId,
     });
     return new Response(JSON.stringify(result.data), {
       status: result.status,

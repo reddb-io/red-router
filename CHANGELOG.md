@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.60.1
+
+### Patch Changes
+
+- Report completed embedding usage through the durable cost ledger, retaining measured tokens without positive pricing when all-request reporting is enabled.
+
 ## 0.60.0
 
 ### Minor Changes
