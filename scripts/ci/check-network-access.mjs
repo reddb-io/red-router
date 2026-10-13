@@ -128,6 +128,15 @@ try {
 } catch (error) {
   try {
     console.error(
+      "[DEBUG-network-fixture]",
+      run("systemctl", [
+        "--user",
+        "show",
+        "red-router.service",
+        "--property=ActiveState,SubState,Result,StartLimitBurst,StartLimitIntervalUSec,NRestarts,MainPID",
+      ])
+    );
+    console.error(
       run("journalctl", ["--user", "-u", "red-router.service", "--no-pager", "-n", "40"])
     );
   } catch {
