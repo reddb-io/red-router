@@ -34,7 +34,7 @@ its own `tenantId` and `attributes`.
 
 ## Usage without a positive price
 
-`REDROUTER_USAGE_REPORT_ALL_REQUESTS=true` opts completed chat and streaming calls
+`REDROUTER_USAGE_REPORT_ALL_REQUESTS=true` opts completed chat, streaming and embedding calls
 into ledger recording even when their calculated price is zero or unavailable.
 The default preserves the positive-price recording behavior. This switch does
 not promise coverage for every other endpoint or for usage the upstream never
