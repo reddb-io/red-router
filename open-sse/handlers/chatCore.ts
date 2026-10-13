@@ -6310,7 +6310,7 @@ async function handleChatCoreInner({
         recordChatCallCost(
           { id: apiKeyId, attribution: apiKeyInfo?.attribution },
           meteredBudgetCost(provider, cost),
-          details,
+          details ?? {},
           details?.success ?? true
         );
       },
