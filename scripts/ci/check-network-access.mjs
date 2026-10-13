@@ -128,7 +128,7 @@ try {
 } catch (error) {
   try {
     console.error(
-      "[DEBUG-network-fixture]",
+      "[network-fixture] failure state",
       run("systemctl", [
         "--user",
         "show",

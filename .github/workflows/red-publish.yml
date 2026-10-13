@@ -333,7 +333,9 @@ jobs:
         if: ${{ inputs.artifact_run_id == '' }}
         uses: actions/download-artifact@v7
         with:
-          name: redrouter-release-${{ github.run_id }}-${{ github.run_attempt }}
+          name: redrouter-release-${{ needs.build.outputs.artifact_run_id }}-${{ needs.build.outputs.artifact_run_attempt }}
+          run-id: ${{ needs.build.outputs.artifact_run_id }}
+          github-token: ${{ github.token }}
           path: release-artifacts
       - name: Recover the original published tarball
         if: ${{ inputs.artifact_run_id != '' }}
