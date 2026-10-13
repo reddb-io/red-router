@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.60.0
+
+### Minor Changes
+
+- Add immutable operator attributes to API keys and persisted usage reports, with installation attributes configured through an environment variable. Preserve historical tenant bindings, expose cache creation and reasoning tokens, and optionally report completed chat/stream requests with zero or unavailable pricing.
+
+### Patch Changes
+
+- Refresh Codex 0.162.1 and Claude Code 2.1.296 CLI identities and Docker pins.
+
 ## 0.59.0
 
 ### Minor Changes
