@@ -50,6 +50,7 @@ import {
 } from "@/server/authz/headers";
 import { readSubjectFromHeaders } from "@/server/authz/assertAuth";
 import { OIDC_CONFIG_KEYS, OIDC_LAST_TEST_SETTING } from "@/lib/auth/oidcFlow";
+import { hasOidcAccessPolicy } from "@/shared/validation/oidcPolicy";
 import { samlConfigProblem } from "@/lib/auth/saml";
 import {
   PASSWORD_POLICY_MESSAGES,
@@ -140,6 +141,7 @@ const SECURITY_IMPACTING_KEYS = [
   "oidcEnabled",
   "oidcDisablePasswordLogin",
   "oidcClientSecret",
+  "oidcRequiredClaims",
   "samlEnabled",
   "samlEntryPoint",
   "samlCert",
@@ -410,20 +412,17 @@ export async function PATCH(request: Request) {
       }
     }
 
-    if (body.oidcEnabled === true) {
+    if (body.oidcEnabled === true || "oidcAllowedSubjects" in body || "oidcRequiredClaims" in body) {
       const current = await getSettings();
-      const subjects = Array.isArray(body.oidcAllowedSubjects)
-        ? (body.oidcAllowedSubjects as unknown[])
-        : ((current.oidcAllowedSubjects as unknown[] | undefined) ?? []);
-      const hasAtLeastOne = subjects.some((s) => typeof s === "string" && s.trim().length > 0);
-      if (!hasAtLeastOne) {
+      const effective = { ...current, ...body };
+      if (effective.oidcEnabled === true && !hasOidcAccessPolicy(effective)) {
         emitSettingsFailureAudit(request, actor, "OIDC_ALLOWED_SUBJECTS_REQUIRED", attemptedKeys);
         return NextResponse.json(
           {
             error: {
               code: "OIDC_ALLOWED_SUBJECTS_REQUIRED",
               message:
-                "oidcAllowedSubjects must contain at least one subject or email when oidcEnabled is true",
+                "OIDC requires at least one allowed subject or a signed-claim condition",
             },
           },
           { status: 400 }

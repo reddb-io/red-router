@@ -9,6 +9,7 @@ import Icon from "@/shared/components/Icon";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Button, Card, Input, Toggle } from "@/shared/components";
+import { oidcRequiredClaimsSchema } from "@/shared/validation/oidcPolicy";
 
 interface Check {
   name: string;
@@ -21,6 +22,10 @@ const TEST_MESSAGES: Record<string, { ok: boolean; message: string }> = {
   subject_not_allowed: {
     ok: false,
     message: "The provider signed you in, but that account is not on the allow list.",
+  },
+  claims_not_allowed: {
+    ok: false,
+    message: "The signed-in account does not meet this server's claim conditions.",
   },
   invalid_state: { ok: false, message: "The sign-in expired. Start the test again." },
   id_token_invalid: { ok: false, message: "The provider's ID token could not be verified." },
@@ -41,6 +46,8 @@ export default function OidcSection() {
   const [clientSecret, setClientSecret] = useState("");
   const [secretSaved, setSecretSaved] = useState(false);
   const [subjects, setSubjects] = useState("");
+  const [requiredClaims, setRequiredClaims] = useState("{}");
+  const [claimsError, setClaimsError] = useState<string | null>(null);
   const [tested, setTested] = useState(false);
   const [currentPassword, setCurrentPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -57,6 +64,7 @@ export default function OidcSection() {
       setClientId(typeof data.oidcClientId === "string" ? data.oidcClientId : "");
       setSecretSaved(typeof data.oidcClientSecret === "string" && data.oidcClientSecret.length > 0);
       setSubjects(Array.isArray(data.oidcAllowedSubjects) ? data.oidcAllowedSubjects.join("\n") : "");
+      setRequiredClaims(JSON.stringify(data.oidcRequiredClaims ?? {}, null, 2));
       setTested(typeof data.oidcLastTestSucceededAt === "string");
     } finally {
       setLoaded(true);
@@ -89,8 +97,21 @@ export default function OidcSection() {
     }
   };
 
-  const save = () =>
-    patch(
+  const save = () => {
+    let value: unknown;
+    try {
+      value = JSON.parse(requiredClaims);
+    } catch {
+      setClaimsError("Enter a JSON object with claim names and arrays of allowed values.");
+      return;
+    }
+    const parsed = oidcRequiredClaimsSchema.safeParse(value);
+    if (!parsed.success) {
+      setClaimsError("Each claim must contain at least one allowed string value.");
+      return;
+    }
+    setClaimsError(null);
+    return patch(
       {
         oidcIssuer: issuer.trim(),
         oidcClientId: clientId.trim(),
@@ -99,10 +120,12 @@ export default function OidcSection() {
           .split("\n")
           .map((line) => line.trim())
           .filter(Boolean),
+        oidcRequiredClaims: parsed.data,
         oidcEnabled: enabled,
       },
       "Saved. Run the connection check and a test sign-in next."
     );
+  };
 
   const checkConnection = async () => {
     setBusy(true);
@@ -177,7 +200,29 @@ export default function OidcSection() {
             className="rounded border border-control-edge bg-surface px-3 py-2 text-sm text-text-main"
           />
           <p className="text-xs text-text-muted">
-            Required to enable OIDC. Only these subjects or verified e-mails are let in.
+            Optional when claim conditions are configured. Both restrictions apply when both are set.
+          </p>
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <label htmlFor="oidc-claims" className="text-sm font-medium text-text-main">
+            Required claim conditions
+          </label>
+          <textarea
+            id="oidc-claims"
+            rows={4}
+            value={requiredClaims}
+            disabled={!loaded}
+            spellCheck={false}
+            aria-invalid={Boolean(claimsError)}
+            aria-describedby="oidc-claims-help"
+            onChange={(event) => {
+              setRequiredClaims(event.target.value);
+              setClaimsError(null);
+            }}
+            className="rounded border border-control-edge bg-surface px-3 py-2 text-sm text-text-main"
+          />
+          <p id="oidc-claims-help" className="text-xs text-text-muted">
+            {claimsError || 'All conditions must match the signed ID token. Example: {"role":["owner"]}. Use {} for no claim conditions; an allowed subject is then required.'}
           </p>
         </div>
         <div className="flex items-center justify-between">

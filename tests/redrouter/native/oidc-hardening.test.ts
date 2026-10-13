@@ -146,6 +146,46 @@ test("the callback sends the PKCE verifier and accepts a matching nonce", async 
   assert.equal(cookies[flow.OIDC_NONCE_COOKIE].value, "", "the flow cookies are single use");
 });
 
+test("signed owner claims admit an operator without a static subject allowlist", async () => {
+  await updateSettings({ oidcAllowedSubjects: [], oidcRequiredClaims: { realm: ["workforce"], org_role: ["owner"] } });
+  const { idToken, jwks } = await signedIdToken({ iss: "https://idp.test", aud: "client-1", sub: "operator-1", nonce: "n1", realm: "workforce", org_role: "owner" });
+  mockIdp(idToken, jwks);
+  cookies = { [flow.OIDC_STATE_COOKIE]: { value: "s1" }, [flow.OIDC_NONCE_COOKIE]: { value: "n1" } };
+  const response = await callback();
+  assert.ok(response.headers.get("location")?.endsWith("/dashboard"));
+  assert.ok(cookies.auth_token);
+});
+
+for (const claims of [{ realm: "workforce", org_role: "member" }, { realm: "workforce", org_role: "admin" }, { realm: "customers", org_role: "owner" }, { realm: "workforce" }]) {
+  test(`claim policy rejects ${JSON.stringify(claims)} before issuing an administrative session`, async () => {
+    await updateSettings({ oidcAllowedSubjects: [], oidcRequiredClaims: { realm: ["workforce"], org_role: ["owner"] } });
+    const { idToken, jwks } = await signedIdToken({ iss: "https://idp.test", aud: "client-1", sub: "operator-1", nonce: "n1", ...claims });
+    mockIdp(idToken, jwks);
+    cookies = { [flow.OIDC_STATE_COOKIE]: { value: "s1" }, [flow.OIDC_NONCE_COOKIE]: { value: "n1" } };
+    const response = await callback();
+    assert.match(response.headers.get("location") ?? "", /oidc_error=claims_not_allowed/);
+    assert.equal(cookies.auth_token, undefined);
+  });
+}
+
+test("an allowlisted subject cannot bypass a signed-claim restriction", async () => {
+  await updateSettings({ oidcRequiredClaims: { org_role: ["owner"] } });
+  const { idToken, jwks } = await signedIdToken({ iss: "https://idp.test", aud: "client-1", sub: "user-1", nonce: "n1", org_role: "member" });
+  mockIdp(idToken, jwks);
+  cookies = { [flow.OIDC_STATE_COOKIE]: { value: "s1" }, [flow.OIDC_NONCE_COOKIE]: { value: "n1" } };
+  assert.match((await callback()).headers.get("location") ?? "", /oidc_error=claims_not_allowed/);
+  assert.equal(cookies.auth_token, undefined);
+});
+
+test("malformed persisted claim policy denies access", async () => {
+  await updateSettings({ oidcAllowedSubjects: [], oidcRequiredClaims: { org_role: [] } });
+  const { idToken, jwks } = await signedIdToken({ iss: "https://idp.test", aud: "client-1", sub: "operator-1", nonce: "n1", org_role: "owner" });
+  mockIdp(idToken, jwks);
+  cookies = { [flow.OIDC_STATE_COOKIE]: { value: "s1" }, [flow.OIDC_NONCE_COOKIE]: { value: "n1" } };
+  assert.match((await callback()).headers.get("location") ?? "", /oidc_error=claims_not_allowed/);
+  assert.equal(cookies.auth_token, undefined);
+});
+
 test("an ID token whose nonce is not ours is refused", async () => {
   for (const nonce of ["other", undefined]) {
     const { idToken, jwks } = await signedIdToken({
@@ -276,4 +316,19 @@ test("after a successful test sign-in the guard steps aside, and changing the se
   assert.equal(typeof (await getSettings())[flow.OIDC_LAST_TEST_SETTING], "string");
   await patch({ oidcIssuer: "https://other-idp.test" });
   assert.equal((await getSettings())[flow.OIDC_LAST_TEST_SETTING] ?? null, null);
+});
+
+
+test("claim-restricted OIDC can be enabled without individual subject entries", async () => {
+  await updateSettings({ requireLogin: false, oidcEnabled: false, oidcAllowedSubjects: [] });
+  const response = await patch({ oidcEnabled: true, oidcRequiredClaims: { realm: ["workforce"], org_role: ["owner"] } });
+  assert.equal(response.status, 200);
+  assert.equal((await getSettings()).oidcEnabled, true);
+});
+
+test("an enabled provider cannot have its final access condition removed", async () => {
+  await updateSettings({ requireLogin: false, oidcAllowedSubjects: [], oidcRequiredClaims: { org_role: ["owner"] } });
+  const response = await patch({ oidcRequiredClaims: {} });
+  assert.equal(response.status, 400);
+  assert.deepEqual((await getSettings()).oidcRequiredClaims, { org_role: ["owner"] });
 });

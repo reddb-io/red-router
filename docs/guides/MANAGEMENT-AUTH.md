@@ -70,6 +70,39 @@ chat client key for automation unless you deliberately granted that scope.
 2. Cookie `auth_token` is HttpOnly. Browser dashboard uses it automatically.
 3. Log out via `/api/auth/logout`. There is no long-lived secret to copy.
 
+### OIDC administrative sign-in
+
+Configure the issuer, confidential client and callback at **Settings → Security → Single sign-on**.
+Register the exact `/api/auth/oidc/callback` URI with the provider, using Authorization Code,
+PKCE S256 and `client_secret_post`. Request `profile` when the policy uses role or realm claims.
+
+Access requires a subject allowlist, signed-claim conditions, or both. Conditions are configured
+in **Required claim conditions** or the `oidcRequiredClaims` settings API field:
+
+```json
+{
+  "oidcAllowedSubjects": [],
+  "oidcRequiredClaims": {
+    "realm": ["workforce"],
+    "org_role": ["owner"]
+  }
+}
+```
+
+Every configured claim must match a value in its array. String-array token claims match when
+at least one value is allowed. Values are case-sensitive. Missing or malformed claims deny
+access before a dashboard session is created. An additional subject allowlist must also match;
+it cannot bypass claim conditions. An enabled provider cannot have its final access condition removed.
+
+These are conditions on a signature-verified ID token, not request headers or profile inputs.
+The identity provider must issue the current authoritative role. OIDC opens an instance-wide
+administrative dashboard session; it does not map customers to inference tenants or API-key scopes.
+Role changes govern the next OIDC sign-in; existing dashboard sessions must be revoked separately.
+
+Run **Check connection** and **Test sign-in** before disabling password login. Changing the claim
+policy invalidates the previous successful sign-in test. Password recovery and inference keys retain
+their existing behavior.
+
 ### CLI machine-id token
 
 1. Run `omniroute` on the **same host** as the server (loopback).
