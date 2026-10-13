@@ -9,6 +9,8 @@
  * is byte-identical to the previous inline block.
  */
 
+import { reportAllRequests } from "@/lib/usage/reportingAttributes";
+
 type CostResolver = (
   provider: string,
   model: string,
@@ -61,8 +63,8 @@ export function recordStreamingCost(args: {
   args
     .calculateCost(args.provider, args.model, args.streamUsage, { serviceTier: args.serviceTier })
     .then((estimatedCost) => {
-      if (estimatedCost > 0) {
-        args.recordCost(apiKeyId, estimatedCost, {
+      if (estimatedCost > 0 || reportAllRequests()) {
+        args.recordCost(apiKeyId, Number.isFinite(estimatedCost) ? Math.max(0, estimatedCost) : 0, {
           provider: args.provider,
           model: args.model,
           tokens: args.streamUsage,
@@ -73,5 +75,17 @@ export function recordStreamingCost(args: {
         });
       }
     })
-    .catch(() => {});
+    .catch(() => {
+      if (reportAllRequests()) {
+        args.recordCost(apiKeyId, 0, {
+          provider: args.provider,
+          model: args.model,
+          tokens: args.streamUsage,
+          serviceTier: args.serviceTier ?? args.ledger?.serviceTier,
+          success: args.ledger?.success ?? true,
+          timestamp: args.ledger?.timestamp,
+          requestId: args.ledger?.requestId,
+        });
+      }
+    });
 }

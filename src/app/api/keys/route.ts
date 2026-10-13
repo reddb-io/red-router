@@ -85,6 +85,7 @@ export async function POST(request) {
       chaosModeEnabled,
       expiresAt,
       tenantId,
+      usageAttributes,
     } = validation.data;
 
     // A key for another tenant is checked before anything is created.
@@ -113,6 +114,7 @@ export async function POST(request) {
       allowedCombos,
       allowedConnections,
       expiresAt,
+      usageAttributes,
     });
     if (tenant && !tenant.isDefault) assignApiKeysToTenant(tenant.id, [apiKey.id]);
     if (

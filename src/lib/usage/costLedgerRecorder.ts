@@ -17,7 +17,13 @@
 import { recordLedgerEntrySafe, type CostLedgerEntry } from "@/lib/db/costLedger";
 import { logger } from "@/shared/utils/logger";
 import { getPricingForModel } from "@/lib/db/settings/pricing";
-import { getLoggedInputTokens, getLoggedOutputTokens, getReasoningTokens } from "./tokenAccounting";
+import {
+  getLoggedInputTokens,
+  getLoggedOutputTokens,
+  getReasoningTokens,
+  getPromptCacheReadTokens,
+  getPromptCacheCreationTokens,
+} from "./tokenAccounting";
 import { toNumber } from "@/shared/utils/numeric";
 import { serializeAttributionTags } from "@/shared/constants/attribution";
 
@@ -47,12 +53,14 @@ export interface CostLedgerRecorderInput {
  */
 export async function recordLedgerFromCost(input: CostLedgerRecorderInput): Promise<void> {
   if (!input?.apiKeyId) return;
+  let pricingKnown = false;
   let unitPriceInput = 0;
   let unitPriceOutput = 0;
   try {
     if (input.provider && input.model) {
       const pricing = await getPricingForModel(input.provider, input.model);
       if (pricing) {
+        pricingKnown = true;
         unitPriceInput = toNumber(pricing.input);
         unitPriceOutput = toNumber(pricing.output);
       }
@@ -70,6 +78,9 @@ export async function recordLedgerFromCost(input: CostLedgerRecorderInput): Prom
     tokensInput: getLoggedInputTokens(input.tokens),
     tokensOutput: getLoggedOutputTokens(input.tokens),
     tokensReasoning: getReasoningTokens(input.tokens),
+    tokensCacheRead: getPromptCacheReadTokens(input.tokens),
+    tokensCacheCreation: getPromptCacheCreationTokens(input.tokens),
+    pricingKnown,
     unitPriceInput,
     unitPriceOutput,
     amountUsd: Math.max(0, Number.isFinite(input.amountUsd) ? input.amountUsd : 0),

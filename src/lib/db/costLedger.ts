@@ -16,6 +16,8 @@
 import { createHash, randomUUID } from "node:crypto";
 import { logger } from "@/shared/utils/logger";
 import { tenantIdForUsageKey } from "./tenantUsageAttribution";
+import { usageAttributesForKey } from "./apiKeys/usageAttributes";
+import type { UsageAttributes } from "@/lib/usage/reportingAttributes";
 import { getDbInstance } from "./core";
 import { toNumber } from "@/shared/utils/numeric";
 
@@ -46,6 +48,8 @@ export interface CostLedgerEntry {
   sessionId?: string | null;
   /** Captured when the event is queued, so a later key transfer cannot rewrite ownership. */
   tenantId?: string | null;
+  usageAttributes?: UsageAttributes;
+  pricingKnown?: boolean;
   budgetRecovery?: {
     keyId: string;
     provider?: string | null;
@@ -108,8 +112,8 @@ export function recordLedgerEntry(entry: CostLedgerEntry, eventId: string | null
       api_key_id, provider, model,
       tokens_input, tokens_output, tokens_cache_read, tokens_cache_creation, tokens_reasoning,
       unit_price_input, unit_price_output, amount_usd,
-      service_tier, success, timestamp, request_id, end_user, tags, session_id, tenant_id, event_id
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      service_tier, success, timestamp, request_id, end_user, tags, session_id, tenant_id, event_id, usage_attributes, pricing_known
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(event_id) WHERE event_id IS NOT NULL DO NOTHING
     `
   ).run(
@@ -132,7 +136,9 @@ export function recordLedgerEntry(entry: CostLedgerEntry, eventId: string | null
     entry.tags ?? null,
     entry.sessionId ?? null,
     entry.tenantId === undefined ? tenantIdForUsageKey(entry.apiKeyId) : entry.tenantId,
-    eventId
+    eventId,
+    JSON.stringify(entry.usageAttributes ?? usageAttributesForKey(entry.apiKeyId)),
+    entry.pricingKnown === false ? 0 : 1
   );
 }
 
@@ -258,6 +264,7 @@ export function recordLedgerEntrySafe(entry: CostLedgerEntry): "recorded" | "que
   const payload = { ...entry, timestamp: entry.timestamp || new Date().toISOString(), tenantId };
   unpersistedEvents.set(eventId, payload);
   try {
+    payload.usageAttributes ??= usageAttributesForKey(entry.apiKeyId);
     getDbInstance()
       .prepare(
         "INSERT OR IGNORE INTO cost_ledger_outbox(event_id, api_key_id, payload, created_at) VALUES (?, ?, ?, ?)"
@@ -288,8 +295,8 @@ export function recordLedgerEntries(entries: CostLedgerEntry[]): void {
       api_key_id, provider, model,
       tokens_input, tokens_output, tokens_cache_read, tokens_cache_creation, tokens_reasoning,
       unit_price_input, unit_price_output, amount_usd,
-      service_tier, success, timestamp, request_id, end_user, tags, session_id, tenant_id
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      service_tier, success, timestamp, request_id, end_user, tags, session_id, tenant_id, usage_attributes, pricing_known
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `
   );
   const tx = db.transaction((rows: CostLedgerEntry[]) => {
@@ -314,7 +321,9 @@ export function recordLedgerEntries(entries: CostLedgerEntry[]): void {
         entry.endUser ?? null,
         entry.tags ?? null,
         entry.sessionId ?? null,
-        tenantIdForUsageKey(entry.apiKeyId)
+        entry.tenantId === undefined ? tenantIdForUsageKey(entry.apiKeyId) : entry.tenantId,
+        JSON.stringify(entry.usageAttributes ?? usageAttributesForKey(entry.apiKeyId)),
+        entry.pricingKnown === false ? 0 : 1
       );
     }
   });

@@ -28,6 +28,7 @@ import {
   resetSpendBatchWriterForTests,
   spendBatchWriter,
 } from "@/lib/spend/batchWriter";
+import { reportAllRequests } from "@/lib/usage/reportingAttributes";
 import { recordLedgerFromCost } from "@/lib/usage/costLedgerRecorder";
 import {
   recordLedgerEntrySafe,
@@ -449,8 +450,10 @@ export function recordChatCallCost(
   context: RecordCostDetails,
   success: boolean
 ): void {
-  if (!apiKeyInfo?.id || estimatedCost <= 0) return;
-  recordCost(apiKeyInfo.id, estimatedCost, {
+  if (!apiKeyInfo?.id) return;
+  const cost = Number.isFinite(estimatedCost) ? Math.max(0, estimatedCost) : 0;
+  if (cost <= 0 && !reportAllRequests()) return;
+  recordCost(apiKeyInfo.id, cost, {
     ...context,
     success,
     attribution: apiKeyInfo.attribution,

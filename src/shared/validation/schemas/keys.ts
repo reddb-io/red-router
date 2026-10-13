@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { usageAttributesSchema } from "@/lib/usage/reportingAttributes";
 import {
   ACCOUNT_FALLBACK_STRATEGY_VALUES,
   ROUTING_STRATEGY_VALUES,
@@ -66,6 +67,7 @@ export const createKeySchema = z
     allowedConnections: z.array(z.string().uuid()).min(1).max(100).optional(),
     // Tenant slug or id. Omitted = the default tenant ('red').
     tenantId: z.string().trim().min(1).max(64).optional(),
+    usageAttributes: usageAttributesSchema.optional(),
   })
   .superRefine((value, ctx) => {
     requireConsistentModelAccess(value, ctx);
