@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.60.2
+
+### Patch Changes
+
+- Preserve measured streaming chat usage in the durable ledger and export outbox when report-all is enabled, including unknown prices and pricing lookup failures. Keep zero-cost reporting opt-in and retain retry identity, request status and attribution.
+
 ## 0.60.1
 
 ### Patch Changes

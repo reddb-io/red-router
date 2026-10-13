@@ -424,7 +424,7 @@ export interface RecordCostDetails {
 
 /**
  * Build the provider/model/tokens/serviceTier/requestId breakdown shared by
- * both {@link recordChatCallCost} call sites in chatCore.ts (built once,
+ * non-streaming {@link recordChatCallCost} call sites in chatCore.ts (built once,
  * kept out of that file to stay under its frozen file-size ratchet).
  */
 export function buildCostCtx(
@@ -438,10 +438,9 @@ export function buildCostCtx(
 }
 
 /**
- * Record a chat-path cost when there is a real amount to log — the shared
- * `apiKeyInfo?.id && estimatedCost > 0` guard used at both chatCore.ts
- * `recordCost` call sites. `context` (see {@link buildCostCtx}) is
- * built once by the caller; only `success` varies per call site.
+ * Record chat usage for a positive amount or opt-in reporting of all requests.
+ * Streaming and non-streaming callers share this policy so missing pricing
+ * never discards measured tokens when complete reporting is enabled.
  */
 export function recordChatCallCost(
   apiKeyInfo:
