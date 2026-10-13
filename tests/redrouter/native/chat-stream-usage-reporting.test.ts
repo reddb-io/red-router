@@ -4,6 +4,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import ts from "typescript";
+import { runInNewContext } from "node:vm";
 
 const taskDir = mkdtempSync(join(tmpdir(), "redrouter-chat-stream-report-"));
 process.env.DATA_DIR = taskDir;
@@ -13,8 +14,7 @@ const { recordCost, recordChatCallCost } = await import("../../../src/domain/cos
 const { meteredBudgetCost } = await import("../../../src/lib/usage/meteredBudgetPolicy.ts");
 const { recordStreamingCost, buildStreamLedgerDetails } =
   await import("../../../open-sse/handlers/chatCore/streamingCost.ts");
-const { createUsageSink, listUsageDeliveries } =
-  await import("../../../src/lib/db/usageSinks.ts");
+const { createUsageSink, listUsageDeliveries } = await import("../../../src/lib/db/usageSinks.ts");
 const { aggregateUsageSink } = await import("../../../src/lib/usageSinks/engine.ts");
 
 // Execute the actual chatCore call expression, including its injected callback.
@@ -36,12 +36,6 @@ assert.equal(calls.length, 1, "exercise the sole production streaming cost call 
 const expression = ts.transpileModule(calls[0].getText(source), {
   compilerOptions: { target: ts.ScriptTarget.ES2022 },
 }).outputText;
-const runCallSite = new Function(
-  "recordStreamingCost", "recordCost", "recordChatCallCost", "meteredBudgetCost",
-  "buildStreamLedgerDetails", "apiKeyInfo", "provider", "model", "streamUsage",
-  "effectiveServiceTier", "normalizedStreamStatus", "traceId", "calculateCost",
-  expression
-);
 
 after(() => {
   delete process.env.REDROUTER_USAGE_REPORT_ALL_REQUESTS;
@@ -49,7 +43,13 @@ after(() => {
   rmSync(taskDir, { recursive: true, force: true });
 });
 
-for (const scenario of ["unknown", "pricing-error", "priced", "failed-stream", "cost-only"] as const) {
+for (const scenario of [
+  "unknown",
+  "pricing-error",
+  "priced",
+  "failed-stream",
+  "cost-only",
+] as const) {
   test(`chatCore streaming call site preserves durable usage: ${scenario}`, async () => {
     process.env.REDROUTER_USAGE_REPORT_ALL_REQUESTS = scenario === "cost-only" ? "false" : "true";
     const key = await createApiKey(`stream ${scenario}`, "stream-report-test", [], {
@@ -61,19 +61,39 @@ for (const scenario of ["unknown", "pricing-error", "priced", "failed-stream", "
       if (scenario === "pricing-error") throw new Error("Pricing unavailable");
       return cost;
     };
-    const invoke = () => runCallSite(
-      recordStreamingCost, recordCost, recordChatCallCost, meteredBudgetCost,
-      buildStreamLedgerDetails,
-      { id: key.id, attribution: { sessionId: "session-a" } },
-      "unpriced-test-provider", "generation-test",
-      { prompt_tokens: 40, completion_tokens: 1, prompt_tokens_details: { cached_tokens: 8 } },
-      "standard", scenario === "failed-stream" ? 502 : 200, requestId, calculateCost
-    );
+    const sink = createUsageSink({
+      name: `Stream ${scenario}`,
+      url: "https://example.test/report",
+      secretEncrypted: "fixture",
+      mode: "instant",
+      enabled: true,
+    });
+    const invoke = () =>
+      runInNewContext(expression, {
+        recordStreamingCost,
+        recordCost,
+        recordChatCallCost,
+        meteredBudgetCost,
+        buildStreamLedgerDetails,
+        apiKeyInfo: { id: key.id, attribution: { sessionId: "session-a" } },
+        provider: "unpriced-test-provider",
+        model: "generation-test",
+        streamUsage: {
+          prompt_tokens: 40,
+          completion_tokens: 1,
+          prompt_tokens_details: { cached_tokens: 8 },
+        },
+        effectiveServiceTier: "standard",
+        normalizedStreamStatus: scenario === "failed-stream" ? 502 : 200,
+        traceId: requestId,
+        calculateCost,
+      });
     invoke();
     invoke();
-    const query = () => getDbInstance()
-      .prepare("SELECT * FROM request_cost_ledger WHERE request_id = ?")
-      .all(requestId) as Array<Record<string, unknown>>;
+    const query = () =>
+      getDbInstance()
+        .prepare("SELECT * FROM request_cost_ledger WHERE request_id = ?")
+        .all(requestId) as Array<Record<string, unknown>>;
     if (scenario === "cost-only") {
       await new Promise((resolve) => setTimeout(resolve, 50));
       assert.equal(query().length, 0, "zero-cost reporting remains opt-in");
@@ -92,13 +112,10 @@ for (const scenario of ["unknown", "pricing-error", "priced", "failed-stream", "
     assert.equal(rows[0].amount_usd, cost);
     assert.equal(rows[0].success, scenario === "failed-stream" ? 0 : 1);
     assert.equal(rows[0].session_id, "session-a");
-    const sink = createUsageSink({
-      name: `Stream ${scenario}`, url: "https://example.test/report",
-      secretEncrypted: "fixture", mode: "instant", enabled: true,
-    });
     aggregateUsageSink(sink);
     const deliveries = listUsageDeliveries(sink.id);
-    const event = deliveries.map((delivery) => delivery.payload.event as Record<string, unknown>)
+    const event = deliveries
+      .map((delivery) => delivery.payload.event as Record<string, unknown>)
       .find((entry) => entry.requestId === requestId);
     assert.ok(event, "the generation event reaches the export outbox");
     assert.equal(event.pricingKnown, false);

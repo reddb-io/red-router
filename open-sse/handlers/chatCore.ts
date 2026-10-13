@@ -306,7 +306,7 @@ import {
   initialPendingBody,
   updatePendingScope,
 } from "@/lib/usage/pendingRequestScope";
-import { recordCost, recordChatCallCost, buildCostCtx } from "@/domain/costRules";
+import { recordChatCallCost, buildCostCtx } from "@/domain/costRules";
 import { meteredBudgetCost } from "@/lib/usage/meteredBudgetPolicy";
 import { calculateCost } from "@/lib/usage/costCalculator";
 import {
@@ -6307,9 +6307,12 @@ async function handleChatCoreInner({
       calculateCost,
       // Only the budget-consumable share may draw down the allowance.
       recordCost: (apiKeyId, cost, details) => {
-        const budgetCost = meteredBudgetCost(provider, cost);
-        if (budgetCost > 0)
-          recordCost(apiKeyId, budgetCost, { ...details, attribution: apiKeyInfo?.attribution });
+        recordChatCallCost(
+          { id: apiKeyId, attribution: apiKeyInfo?.attribution },
+          meteredBudgetCost(provider, cost),
+          details,
+          details?.success ?? true
+        );
       },
       ledger: buildStreamLedgerDetails(effectiveServiceTier, normalizedStreamStatus < 400, traceId),
     });
