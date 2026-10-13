@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.60.3
+
+### Patch Changes
+
+- Allow administrative OIDC login to require signed role and realm claims. Enforce every configured claim before issuing a session, preserve subject restrictions as additional conditions, and expose the policy in security settings.
+
 ## 0.60.2
 
 ### Patch Changes

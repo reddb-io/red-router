@@ -4,6 +4,7 @@ import { updateSettings } from "@/lib/db/settings";
 import { jwtVerify, createRemoteJWKSet } from "jose";
 import { cookies } from "next/headers";
 import { timingSafeCompare } from "@/shared/utils/timingSafeCompare";
+import { hasOidcAccessPolicy, matchesOidcRequiredClaims } from "@/shared/validation/oidcPolicy";
 import {
   OIDC_LAST_TEST_SETTING,
   OIDC_NONCE_COOKIE,
@@ -231,7 +232,11 @@ export async function GET(request: Request) {
       }
     }
 
-    // Optional subject / email whitelist
+    if (!hasOidcAccessPolicy(settings) || !matchesOidcRequiredClaims(settings.oidcRequiredClaims, payload)) {
+      return failTo("claims_not_allowed");
+    }
+
+    // Subject restrictions are additional to the signed-claim policy.
     const allowed = Array.isArray(settings.oidcAllowedSubjects) ? settings.oidcAllowedSubjects : [];
     const sub = typeof payload.sub === "string" ? payload.sub : "";
     const emailVerified = (payload as Record<string, unknown>).email_verified === true;

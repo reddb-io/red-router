@@ -21,6 +21,7 @@ export const OIDC_CONFIG_KEYS = [
   "oidcScopes",
   "oidcRedirectPath",
   "oidcAllowedSubjects",
+  "oidcRequiredClaims",
 ] as const;
 
 const b64url = (buffer: Buffer): string => buffer.toString("base64url");

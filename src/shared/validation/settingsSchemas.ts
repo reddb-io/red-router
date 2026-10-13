@@ -6,6 +6,7 @@
  * at runtime (see: https://github.com/vercel/next.js/issues/12557).
  */
 import { z } from "zod";
+import { oidcRequiredClaimsSchema } from "@/shared/validation/oidcPolicy";
 import { COMBO_CONFIG_MODES } from "@/shared/constants/comboConfigMode";
 import { MAX_REQUEST_BODY_LIMIT_MB, MIN_REQUEST_BODY_LIMIT_MB } from "@/shared/constants/bodySize";
 import { HIDEABLE_SIDEBAR_GROUP_IDS } from "@/shared/constants/sidebarGroupVisibility";
@@ -226,6 +227,7 @@ export const updateSettingsSchema = z.object({
   oidcScopes: z.array(z.string().max(100)).optional(),
   oidcRedirectPath: z.string().max(500).optional(),
   oidcAllowedSubjects: z.array(z.string().max(200)).optional(),
+  oidcRequiredClaims: oidcRequiredClaimsSchema.optional(),
   enableSocks5Proxy: z.boolean().optional(),
   instanceName: z.string().max(100).optional(),
   customLogoUrl: z.string().max(2000).optional(),
