@@ -1,3 +1,8 @@
+---
+title: Usage reporting context
+description: Stable operator attributes, tenant identity and optional reporting without positive pricing.
+---
+
 # Usage reporting context
 
 Usage sinks deliver persisted ledger records through webhook, SQS, Kafka or RedDB.
