@@ -685,6 +685,9 @@ export async function getApiKeyById(id: string) {
   return camelRow;
 }
 
+import { snapshotUsageAttributes } from "@/lib/usage/reportingAttributes";
+import { insertInitialUsageAttributes } from "./apiKeys/usageAttributes";
+
 export async function createApiKey(
   name: string,
   machineId: string,
@@ -705,6 +708,7 @@ export async function createApiKey(
   assertExclusiveLeaseKeyPolicy(scopes, allowedConnections);
   const quotaLimits = snapshotInitialKeyQuotaLimits(options.quotaLimits);
   const tags = snapshotApiKeyTags(options.tags);
+  const usageAttributes = snapshotUsageAttributes(options.usageAttributes ?? {});
   const modelIdFormat = validateApiKeyModelIdFormat(options.modelIdFormat ?? "prefixed");
 
   const db = getDbInstance() as ApiKeysDbLike;
@@ -750,6 +754,7 @@ export async function createApiKey(
     );
     if (quotaLimits) insertInitialKeyQuotaLimitsInTransaction(apiKey.id, quotaLimits);
     if (tags) insertInitialApiKeyTagsInTransaction(apiKey.id, tags);
+    insertInitialUsageAttributes(apiKey.id, usageAttributes);
     insertInitialApiKeyModelIdFormatInTransaction(apiKey.id, modelIdFormat);
   })();
   setNoLog(apiKey.id, false);

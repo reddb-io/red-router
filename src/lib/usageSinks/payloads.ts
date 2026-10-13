@@ -8,6 +8,7 @@
  * API keys travel as id and name, never the raw key. Every transport sends exactly these bodies;
  * only the envelope (webhook headers, SQS attributes, Kafka headers, RedDB DEDUP key) differs.
  */
+import { reportAllRequests } from "@/lib/usage/reportingAttributes";
 import type { CostedUsageRow, UsageSink } from "@/lib/db/usageSinks";
 
 export const PAYLOAD_VERSION = 1;
@@ -22,10 +23,14 @@ export function eventPayload(sink: UsageSink, row: CostedUsageRow, id: string) {
     version: PAYLOAD_VERSION,
     id,
     source: "request_cost_ledger",
-    coverage: "costed-requests-only",
+    coverage: reportAllRequests() ? "ledger-recorded-requests" : "costed-requests-only",
     sink: { id: sink.id, name: sink.name },
     event: {
       usageId: row.id,
+      eventId: row.eventId ?? null,
+      tenantId: row.tenantId ?? null,
+      attributes: row.usageAttributes ?? {},
+      pricingKnown: row.pricingKnown !== false,
       requestId: row.requestId,
       timestamp: row.timestamp,
       apiKey: keyIdentity(row),
@@ -36,6 +41,8 @@ export function eventPayload(sink: UsageSink, row: CostedUsageRow, id: string) {
         promptTokens: row.tokensInput,
         completionTokens: row.tokensOutput,
         cachedTokens: row.tokensCacheRead,
+        cacheCreationTokens: row.tokensCacheCreation ?? 0,
+        reasoningTokens: row.tokensReasoning ?? 0,
       },
       cost: row.amountUsd,
     },
@@ -48,6 +55,8 @@ type Totals = {
   promptTokens: number;
   completionTokens: number;
   cachedTokens: number;
+  cacheCreationTokens: number;
+  reasoningTokens: number;
   cost: number;
 };
 
@@ -57,6 +66,8 @@ const emptyTotals = (): Totals => ({
   promptTokens: 0,
   completionTokens: 0,
   cachedTokens: 0,
+  cacheCreationTokens: 0,
+  reasoningTokens: 0,
   cost: 0,
 });
 
@@ -66,6 +77,8 @@ function addRow(total: Totals, row: CostedUsageRow) {
   total.promptTokens += row.tokensInput;
   total.completionTokens += row.tokensOutput;
   total.cachedTokens += row.tokensCacheRead;
+  total.cacheCreationTokens += row.tokensCacheCreation ?? 0;
+  total.reasoningTokens += row.tokensReasoning ?? 0;
   total.cost += row.amountUsd;
 }
 
@@ -81,15 +94,29 @@ export function windowPayload(
     string,
     {
       apiKey: ReturnType<typeof keyIdentity>;
+      tenantId: string | null;
+      attributes: CostedUsageRow["usageAttributes"];
       totals: Totals;
       byModel: Map<string, Totals & { provider: string; model: string }>;
     }
   >();
   for (const row of rows) {
-    let group = groups.get(row.apiKeyId);
+    const attributes = row.usageAttributes ?? {};
+    const groupId = JSON.stringify([
+      row.apiKeyId,
+      row.tenantId ?? null,
+      Object.entries(attributes).sort(),
+    ]);
+    let group = groups.get(groupId);
     if (!group) {
-      group = { apiKey: keyIdentity(row), totals: emptyTotals(), byModel: new Map() };
-      groups.set(row.apiKeyId, group);
+      group = {
+        apiKey: keyIdentity(row),
+        tenantId: row.tenantId ?? null,
+        attributes,
+        totals: emptyTotals(),
+        byModel: new Map(),
+      };
+      groups.set(groupId, group);
     }
     addRow(group.totals, row);
     const modelKey = JSON.stringify([row.provider, row.model]);
@@ -105,12 +132,14 @@ export function windowPayload(
     version: PAYLOAD_VERSION,
     id,
     source: "request_cost_ledger",
-    coverage: "costed-requests-only",
+    coverage: reportAllRequests() ? "ledger-recorded-requests" : "costed-requests-only",
     sink: { id: sink.id, name: sink.name },
     window: { start, end, sizeSec: sink.windowSec },
     range,
     keys: [...groups.values()].map((group) => ({
       apiKey: group.apiKey,
+      tenantId: group.tenantId,
+      attributes: group.attributes,
       totals: group.totals,
       byModel: [...group.byModel.values()],
     })),
