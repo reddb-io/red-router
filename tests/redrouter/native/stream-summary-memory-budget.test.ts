@@ -77,6 +77,19 @@ test("event storage caps do not truncate an otherwise small live summary", () =>
   assert.equal(summary.choices[0].message.content, "first second last");
 });
 
+test("empty terminal output preserves the complete text reconstructed from deltas", () => {
+  const collector = createStructuredSSECollector({ format: FORMATS.OPENAI_RESPONSES });
+  collector.push({ type: "response.output_text.delta", delta: "Exact answer" });
+  collector.push({
+    type: "response.completed",
+    response: { id: "resp_empty_snapshot", status: "completed", output: [] },
+  });
+  const summary = collector.getSummary() as {
+    output: Array<{ content: Array<{ text: string }> }>;
+  };
+  assert.equal(summary.output[0].content[0].text, "Exact answer");
+});
+
 test("a long stream releases retained response text under a full garbage collection", () => {
   execFileSync(
     process.execPath,

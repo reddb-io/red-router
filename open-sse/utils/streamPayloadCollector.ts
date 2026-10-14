@@ -944,10 +944,12 @@ export function createStructuredSSECollector(options: CollectorOptions = {}) {
       // A Responses terminal event carries the complete output. It can replace
       // all earlier deltas, including after a budget overflow, without losing
       // the exact history required by previous_response_id continuation.
+      const snapshotOutput = asRecord(unwrapped.response).output;
       const completeSnapshot =
         normalizeFormat(format) === FORMATS.OPENAI_RESPONSES &&
         unwrapped.type === "response.completed" &&
-        Array.isArray(asRecord(unwrapped.response).output);
+        Array.isArray(snapshotOutput) &&
+        snapshotOutput.length > 0;
       if (reducer || (summaryTruncated && completeSnapshot)) {
         const bytes = estimateRetainedBytes(
           unwrapped,
