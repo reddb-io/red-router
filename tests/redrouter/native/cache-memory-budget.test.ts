@@ -13,6 +13,9 @@ test("oversized cache writes preserve useful entries and obey the byte budget", 
   assert.equal(cache.get("keep"), "small");
   assert.equal(cache.get("other"), "useful");
   assert.ok(cache.getStats().bytes <= cache.getStats().maxBytes);
+  const hugeKey = "k".repeat(4096);
+  cache.set(hugeKey, "small");
+  assert.equal(cache.has(hugeKey), false);
 });
 
 test("cache budgets include the cost of many tiny objects, not just serialized text", () => {

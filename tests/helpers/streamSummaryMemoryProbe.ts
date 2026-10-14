@@ -13,7 +13,7 @@ const before = process.memoryUsage().heapUsed;
 for (let index = 0; index < 256; index++) {
   // Materialize distinct strings, so V8 ropes/deduplication cannot disguise
   // retained response text. The baseline retains over 20MB after a full GC.
-  const content = Buffer.alloc(64 * 1024, index).toString("base64");
+  const content = new Array(4096).fill(index.toString(16).padStart(16, "x")).join("");
   collector.push({ choices: [{ delta: { content } }] });
 }
 gc();

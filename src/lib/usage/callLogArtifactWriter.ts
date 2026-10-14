@@ -3,9 +3,12 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { Worker } from "node:worker_threads";
 
+import { estimateRetainedBytes } from "../retainedSize";
 import type { CallLogArtifact, CallLogArtifactWriteResult } from "./callLogArtifacts.ts";
 
 const MAX_QUEUED_JOBS = 128;
+const MAX_PENDING_BYTES = 32 * 1024 * 1024;
+const MAX_JOB_BYTES = 8 * 1024 * 1024;
 const IDLE_TIMEOUT_MS = 30_000;
 const CLOSE_TIMEOUT_MS = 2_000;
 const WARNING_INTERVAL_MS = 30_000;
@@ -17,6 +20,7 @@ type WorkerReply = {
 
 type QueueItem = {
   id: number;
+  bytes: number;
   artifact: CallLogArtifact;
   environment: {
     pipelineMaxSizeKb?: string;
@@ -29,6 +33,7 @@ type QueueItem = {
 let worker: Worker | null = null;
 let active: QueueItem | null = null;
 const queue: QueueItem[] = [];
+let pendingBytes = 0;
 let nextId = 1;
 let idleTimer: NodeJS.Timeout | null = null;
 let closing = false;
@@ -128,6 +133,7 @@ function failOpen(warn = false, detail?: unknown): void {
   const failed = active ? [active, ...queue] : [...queue];
   active = null;
   queue.length = 0;
+  pendingBytes = 0;
   terminateWorker();
   for (const item of failed) item.resolve(null);
   notifyCloseWaiters();
@@ -156,14 +162,19 @@ function ensureWorker(): Worker {
   const created = Reflect.construct(Worker, [pathToFileURL(workerFile), { execArgv }]) as Worker;
   worker = created;
   created.on("message", (reply: WorkerReply) => {
-    if (!active || reply.id !== active.id) return;
+    if (worker !== created || !active || reply.id !== active.id) return;
     const completed = active;
     active = null;
+    pendingBytes -= completed.bytes;
     completed.resolve(reply.result);
     pump();
   });
-  created.on("error", (err) => failOpen(true, err));
-  created.on("messageerror", (err) => failOpen(true, err));
+  created.on("error", (err) => {
+    if (worker === created) failOpen(true, err);
+  });
+  created.on("messageerror", (err) => {
+    if (worker === created) failOpen(true, err);
+  });
   created.on("exit", (code) => {
     if (worker !== created) return;
     worker = null;
@@ -202,9 +213,21 @@ export function writeCallArtifactAsync(
     return Promise.resolve(null);
   }
 
+  // Count the active job as well as queued jobs. The worker's disk-size cap is
+  // applied after postMessage clones the payload, too late to bound this queue.
+  const bytes = estimateRetainedBytes(
+    artifact,
+    Math.min(MAX_JOB_BYTES, MAX_PENDING_BYTES - pendingBytes)
+  );
+  if (!Number.isFinite(bytes)) {
+    warnRateLimited("[callLogs] Call-log artifact memory budget exceeded; detail omitted.");
+    return Promise.resolve(null);
+  }
+
   return new Promise((resolve) => {
     const item = {
       id: nextId++,
+      bytes,
       artifact,
       environment: {
         pipelineMaxSizeKb: process.env.CALL_LOG_PIPELINE_MAX_SIZE_KB,
@@ -213,6 +236,7 @@ export function writeCallArtifactAsync(
       },
       resolve,
     };
+    pendingBytes += bytes;
     queue.push(item);
     pump();
   });

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.60.4
+
+### Patch Changes
+
+- Bound retained stream summaries and pending call-log payloads by estimated memory size, reject oversized cache entries before eviction, and release temporary conversation history when log persistence fails. Forwarded responses remain complete; an oversized diagnostic summary is explicitly marked incomplete instead of being reused as valid continuation history.
+- Refresh Codex 0.162.1 and Claude Code 2.1.300 CLI identities and Docker pins.
+
 ## 0.60.3
 
 ### Patch Changes

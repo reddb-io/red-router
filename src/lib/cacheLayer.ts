@@ -9,6 +9,7 @@
  */
 
 import crypto from "crypto";
+import { estimateRetainedBytes } from "./retainedSize";
 
 /**
  * @typedef {Object} CacheEntry
@@ -41,9 +42,9 @@ export class LRUCache {
    * @param {number} [options.defaultTTL=300000] - Default TTL in ms (5 min)
    */
   constructor(options: { maxSize?: number; maxBytes?: number; defaultTTL?: number } = {}) {
-    this.#maxSize = options.maxSize ?? DEFAULT_MAX_ENTRIES;
-    this.#maxBytes = options.maxBytes ?? DEFAULT_MAX_BYTES;
-    this.#defaultTTL = options.defaultTTL ?? DEFAULT_TTL;
+    this.#maxSize = this.#validLimit(options.maxSize, DEFAULT_MAX_ENTRIES);
+    this.#maxBytes = this.#validLimit(options.maxBytes, DEFAULT_MAX_BYTES);
+    this.#defaultTTL = this.#validLimit(options.defaultTTL, DEFAULT_TTL);
   }
 
   /**
@@ -90,7 +91,10 @@ export class LRUCache {
    * @param {number} [ttl] - Override default TTL
    */
   set(key: string, value: unknown, ttl?: number) {
-    const entrySize = this.#estimateSize(value);
+    // Reject before eviction: one oversized response must neither bypass the
+    // byte limit nor flush useful entries (including a previous value of key).
+    const entrySize = estimateRetainedBytes({ key, value }, this.#maxBytes);
+    if (!Number.isFinite(entrySize) || this.#maxSize === 0) return;
 
     if (this.#cache.has(key)) {
       const oldEntry = this.#cache.get(key)!;
@@ -115,7 +119,7 @@ export class LRUCache {
       key,
       value,
       createdAt: Date.now(),
-      ttl: ttl ?? this.#defaultTTL,
+      ttl: this.#validLimit(ttl, this.#defaultTTL),
       size: entrySize,
       hits: 0,
     };
@@ -126,14 +130,12 @@ export class LRUCache {
   }
 
   /**
-   * Estimate size of a value in bytes.
+   * Invalid environment-derived limits must not disable eviction via NaN.
    */
-  #estimateSize(value: unknown): number {
-    try {
-      return JSON.stringify(value).length * 2;
-    } catch {
-      return 1024;
-    }
+  #validLimit(value: number | undefined, fallback: number): number {
+    return typeof value === "number" && Number.isFinite(value) && value >= 0
+      ? Math.floor(value)
+      : fallback;
   }
 
   /**

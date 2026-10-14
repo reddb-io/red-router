@@ -1,4 +1,5 @@
 import { cloneLogPayload } from "@/lib/logPayloads";
+import { estimateRetainedBytes } from "@/lib/retainedSize";
 import { toNumber } from "@/shared/utils/numeric";
 import { FORMATS } from "../translator/formats.ts";
 import { jsonLength } from "./jsonSize.ts";
@@ -13,11 +14,13 @@ type StructuredSSEEvent = {
 type CollectorOptions = {
   maxEvents?: number;
   maxBytes?: number;
+  /** Separate budget for live reconstruction, independent of the event-log cap. */
+  maxSummaryBytes?: number;
   stage?: string;
   // When set, every pushed payload — even ones dropped from the retained
   // `events` array once maxEvents/maxBytes is hit — is also fed to a live
-  // per-format summary reducer, so build()'s summary reflects the FULL
-  // stream, not just the surviving (possibly truncated) event slice.
+  // per-format summary reducer, so build()'s summary reflects the full
+  // stream within maxSummaryBytes, independently of the retained event slice.
   // See #9315: reconstructing the summary from getEvents() after the fact
   // means a long stream that exceeds the cap gets a stale/incomplete
   // "provider response" (missing tool_calls, wrong finish_reason, cut-off
@@ -909,12 +912,25 @@ export function compactStructuredStreamPayload(payload: unknown): unknown {
 // now do this consistently.
 export function createStructuredSSECollector(options: CollectorOptions = {}) {
   const { maxEvents = 2000, maxBytes = 524288, stage, format, fallbackModel } = options;
+  const defaultSummaryBytes = 8 * 1024 * 1024;
+  const maxSummaryBytes =
+    typeof options.maxSummaryBytes === "number" &&
+    Number.isFinite(options.maxSummaryBytes) &&
+    options.maxSummaryBytes >= 0
+      ? options.maxSummaryBytes
+      : defaultSummaryBytes;
   const events: StructuredSSEEvent[] = [];
   let usedBytes = 0;
   let droppedEvents = 0;
   // Live-updated on every push() regardless of the storage cap above — see
   // the CollectorOptions.format doc comment for why (#9315).
-  const reducer = createSummaryReducer(format, fallbackModel);
+  let reducer = createSummaryReducer(format, fallbackModel);
+  let summaryBytes = 0;
+  let summaryTruncated = false;
+  const omittedSummary = () => ({
+    _omniroute_truncated: true,
+    reason: "stream_summary_memory_limit_exceeded",
+  });
 
   return {
     push(payload: unknown, explicitEvent?: string) {
@@ -924,7 +940,34 @@ export function createStructuredSSECollector(options: CollectorOptions = {}) {
       // The deep clone is deferred until after the cap check so dropped events
       // don't pay the structuredClone cost (~9,800 saved per stream — see
       // _tasks/research/2026-08-31_performance-resource-audit.md, Quick Win #2).
-      reducer?.ingest(unwrapEventEnvelope(payload));
+      const unwrapped = unwrapEventEnvelope(payload);
+      // A Responses terminal event carries the complete output. It can replace
+      // all earlier deltas, including after a budget overflow, without losing
+      // the exact history required by previous_response_id continuation.
+      const completeSnapshot =
+        normalizeFormat(format) === FORMATS.OPENAI_RESPONSES &&
+        unwrapped.type === "response.completed" &&
+        Array.isArray(asRecord(unwrapped.response).output);
+      if (reducer || (summaryTruncated && completeSnapshot)) {
+        const bytes = estimateRetainedBytes(
+          unwrapped,
+          completeSnapshot ? maxSummaryBytes : maxSummaryBytes - summaryBytes
+        );
+        if (!Number.isFinite(bytes)) {
+          // Release the reducer itself, not just its retained event slice.
+          reducer = undefined;
+          summaryBytes = 0;
+          summaryTruncated = true;
+        } else {
+          if (completeSnapshot) {
+            reducer = createSummaryReducer(format, fallbackModel);
+            summaryBytes = 0;
+            summaryTruncated = false;
+          }
+          reducer?.ingest(unwrapped);
+          summaryBytes += bytes;
+        }
+      }
 
       const event: StructuredSSEEvent = {
         index: events.length + droppedEvents,
@@ -960,19 +1003,22 @@ export function createStructuredSSECollector(options: CollectorOptions = {}) {
     // a reconstructed summary at all and only reads getEvents()/build()'s
     // raw event log).
     getSummary(): unknown {
-      return reducer?.finalize();
+      return summaryTruncated ? omittedSummary() : reducer?.finalize();
     },
 
     build(summary?: unknown, buildOptions: BuildOptions = {}) {
       const { includeEvents = true } = buildOptions;
+      const retainedSummary = summaryTruncated ? omittedSummary() : summary;
       return {
         _streamed: true,
         _format: "sse-json",
         ...(stage ? { _stage: stage } : {}),
         _eventCount: events.length + droppedEvents,
-        ...(droppedEvents > 0 ? { _truncated: true, _droppedEvents: droppedEvents } : {}),
+        ...(droppedEvents > 0 || summaryTruncated ? { _truncated: true } : {}),
+        ...(droppedEvents > 0 ? { _droppedEvents: droppedEvents } : {}),
+        ...(summaryTruncated ? { _summaryTruncated: true } : {}),
         ...(includeEvents ? { events } : {}),
-        ...(summary === undefined ? {} : { summary: cloneLogPayload(summary) }),
+        ...(retainedSummary === undefined ? {} : { summary: cloneLogPayload(retainedSummary) }),
       };
     },
   };

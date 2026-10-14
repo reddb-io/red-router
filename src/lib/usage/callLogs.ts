@@ -556,6 +556,7 @@ function getLegacyInlineDetail(id: string) {
 }
 
 async function saveCallLogOperation(entry: any): Promise<void> {
+  let pendingResponseId: string | null = null;
   try {
     // Bind the DB instance up front, before any await (resolveAccountName,
     // writeCallArtifactAsync). If the singleton is reset/closed while this
@@ -605,6 +606,7 @@ async function saveCallLogOperation(entry: any): Promise<void> {
         protectedPipelinePayloads as ContinuationPipeline | null,
         Boolean(entry.videoContentRemoved)
       );
+      pendingResponseId = entry.responseId;
     }
 
     // resilience resilience summary for this attempt (implicit ALS store opened
@@ -864,12 +866,6 @@ async function saveCallLogOperation(entry: any): Promise<void> {
     // attempt) keeps the summary instead of silently writing NULL.
     resetResilienceActions();
 
-    if (detailState === "ready" && typeof logEntry.responseId === "string") {
-      // The durable row is now authoritative; drop the bridge entry instead
-      // of letting it idle until its TTL.
-      clearPendingContinuationState(logEntry.responseId);
-    }
-
     scheduleCallLogRotation();
   } catch (error) {
     if (String((error as Error)?.message ?? error).includes("no such column")) {
@@ -879,6 +875,11 @@ async function saveCallLogOperation(entry: any): Promise<void> {
       "[callLogs] Failed to save call log:",
       sanitizeErrorMessage(error) || "Call log persistence failed"
     );
+  } finally {
+    // The bridge is only for the write-in-flight window. Missing artifacts,
+    // a full queue, or a failed INSERT must release the full input/output too;
+    // its TTL was checked only on lookup, so unreferenced failures leaked.
+    if (pendingResponseId) clearPendingContinuationState(pendingResponseId);
   }
 }
 
