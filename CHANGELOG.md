@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.60.5
+
+### Patch Changes
+
+- Refresh Codex 0.163.0 and Claude Code 2.1.301 CLI identities and Docker pins.
+- Preserve model input, output, cache and reasoning price snapshots in usage reports across price changes and delivery retries.
+
 ## 0.60.4
 
 ### Patch Changes
