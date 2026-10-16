@@ -24,6 +24,8 @@ import {
   getPromptCacheReadTokens,
   getPromptCacheCreationTokens,
 } from "./tokenAccounting";
+import { snapshotModelPricing, type UsagePricingSnapshot } from "./pricingSnapshot";
+import { getCodexFastCostMultiplier } from "./costCalculator";
 import { toNumber } from "@/shared/utils/numeric";
 import { serializeAttributionTags } from "@/shared/constants/attribution";
 
@@ -53,6 +55,8 @@ export interface CostLedgerRecorderInput {
  */
 export async function recordLedgerFromCost(input: CostLedgerRecorderInput): Promise<void> {
   if (!input?.apiKeyId) return;
+  const timestamp = input.timestamp || new Date().toISOString();
+  let pricingSnapshot: UsagePricingSnapshot | null = null;
   let pricingKnown = false;
   let unitPriceInput = 0;
   let unitPriceOutput = 0;
@@ -61,6 +65,8 @@ export async function recordLedgerFromCost(input: CostLedgerRecorderInput): Prom
       const pricing = await getPricingForModel(input.provider, input.model);
       if (pricing) {
         pricingKnown = true;
+        pricingSnapshot = snapshotModelPricing(pricing, timestamp,
+          getCodexFastCostMultiplier(input.provider, input.model, input.serviceTier));
         unitPriceInput = toNumber(pricing.input);
         unitPriceOutput = toNumber(pricing.output);
       }
@@ -81,12 +87,13 @@ export async function recordLedgerFromCost(input: CostLedgerRecorderInput): Prom
     tokensCacheRead: getPromptCacheReadTokens(input.tokens),
     tokensCacheCreation: getPromptCacheCreationTokens(input.tokens),
     pricingKnown,
+    pricingSnapshot,
     unitPriceInput,
     unitPriceOutput,
     amountUsd: Math.max(0, Number.isFinite(input.amountUsd) ? input.amountUsd : 0),
     serviceTier: input.serviceTier || "standard",
     success: input.success !== false,
-    timestamp: input.timestamp || new Date().toISOString(),
+    timestamp,
     requestId: input.requestId ?? null,
     budgetRecovery: input.budgetRecovery,
     endUser: input.attribution?.endUser ?? null,

@@ -39,6 +39,7 @@ export interface CostedUsageRow {
   tenantId?: string | null;
   usageAttributes?: import("@/lib/usage/reportingAttributes").UsageAttributes;
   pricingKnown?: boolean;
+  pricingSnapshot?: import("@/lib/usage/pricingSnapshot").UsagePricingSnapshot | null;
   eventId?: string | null;
   amountUsd: number;
   success: boolean;
@@ -284,7 +285,7 @@ export function listCostedUsageAfter(
       `SELECT l.id, l.api_key_id, k.name AS api_key_name,
       l.provider, l.model, l.tokens_input, l.tokens_output, l.tokens_cache_read,
       l.amount_usd, l.success, l.timestamp, l.request_id, l.tokens_cache_creation,
-      l.tokens_reasoning, l.tenant_id, l.usage_attributes, l.pricing_known, l.event_id
+      l.tokens_reasoning, l.tenant_id, l.usage_attributes, l.pricing_known, l.event_id, l.pricing_snapshot
       FROM request_cost_ledger l LEFT JOIN api_keys k ON k.id = l.api_key_id
       WHERE l.id > ? AND l.id <= ? ORDER BY l.id LIMIT ?`
     )
@@ -303,6 +304,7 @@ export function listCostedUsageAfter(
     tenantId: row.tenant_id == null ? null : asString(row.tenant_id),
     usageAttributes: JSON.parse(asString(row.usage_attributes) || "{}"),
     pricingKnown: asNumber(row.pricing_known) === 1,
+    pricingSnapshot: row.pricing_snapshot == null ? null : JSON.parse(asString(row.pricing_snapshot)),
     eventId: row.event_id == null ? null : asString(row.event_id),
     amountUsd: asNumber(row.amount_usd),
     success: asNumber(row.success) === 1,

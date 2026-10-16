@@ -31,6 +31,7 @@ export function eventPayload(sink: UsageSink, row: CostedUsageRow, id: string) {
       tenantId: row.tenantId ?? null,
       attributes: row.usageAttributes ?? {},
       pricingKnown: row.pricingKnown !== false,
+      pricing: row.pricingSnapshot ?? null,
       requestId: row.requestId,
       timestamp: row.timestamp,
       apiKey: keyIdentity(row),
@@ -97,7 +98,7 @@ export function windowPayload(
       tenantId: string | null;
       attributes: CostedUsageRow["usageAttributes"];
       totals: Totals;
-      byModel: Map<string, Totals & { provider: string; model: string }>;
+      byModel: Map<string, Totals & { provider: string; model: string; pricing: CostedUsageRow["pricingSnapshot"] }>;
     }
   >();
   for (const row of rows) {
@@ -119,10 +120,11 @@ export function windowPayload(
       groups.set(groupId, group);
     }
     addRow(group.totals, row);
-    const modelKey = JSON.stringify([row.provider, row.model]);
+    const { capturedAt: _capturedAt, ...prices } = row.pricingSnapshot ?? {};
+    const modelKey = JSON.stringify([row.provider, row.model, prices]);
     let model = group.byModel.get(modelKey);
     if (!model) {
-      model = { provider: row.provider, model: row.model, ...emptyTotals() };
+      model = { provider: row.provider, model: row.model, pricing: row.pricingSnapshot ?? null, ...emptyTotals() };
       group.byModel.set(modelKey, model);
     }
     addRow(model, row);
