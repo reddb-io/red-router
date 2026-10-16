@@ -54,3 +54,15 @@ remain distinct dimensions.
 Implementation: `src/lib/usage/reportingAttributes.ts`,
 `src/lib/db/apiKeys/usageAttributes.ts`, `src/lib/db/costLedger.ts`,
 `src/lib/usageSinks/payloads.ts` and `src/lib/usageSinks/engine.ts`.
+
+## Model price snapshots
+
+New ledger records capture the resolved recording-time model prices in
+`event.pricing`: USD per million tokens for `input`, `output`, `cacheRead`,
+`cacheWrite` and `reasoning`, with `capturedAt`, `source` and the service-tier
+multiplier. Every sink transport carries the same snapshot. Window reports
+split model groups when rates change. Historical rows without a snapshot export
+null; they are never repriced from today's model table. The snapshot is a model
+price estimate and does not assert a reconciled supplier invoice. Existing
+`cost` and token counters retain their meaning. Cache read/write are subsets of
+input and reasoning is a subset of output, so neither is added again to totals.

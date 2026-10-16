@@ -26,6 +26,7 @@ import { toNumber } from "@/shared/utils/numeric";
 // ---------------------------------------------------------------------------
 
 export interface CostLedgerEntry {
+  pricingSnapshot?: import("@/lib/usage/pricingSnapshot").UsagePricingSnapshot | null;
   apiKeyId: string;
   provider: string;
   model: string;
@@ -112,8 +113,8 @@ export function recordLedgerEntry(entry: CostLedgerEntry, eventId: string | null
       api_key_id, provider, model,
       tokens_input, tokens_output, tokens_cache_read, tokens_cache_creation, tokens_reasoning,
       unit_price_input, unit_price_output, amount_usd,
-      service_tier, success, timestamp, request_id, end_user, tags, session_id, tenant_id, event_id, usage_attributes, pricing_known
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      service_tier, success, timestamp, request_id, end_user, tags, session_id, tenant_id, event_id, usage_attributes, pricing_known, pricing_snapshot
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(event_id) WHERE event_id IS NOT NULL DO NOTHING
     `
   ).run(
@@ -138,7 +139,8 @@ export function recordLedgerEntry(entry: CostLedgerEntry, eventId: string | null
     entry.tenantId === undefined ? tenantIdForUsageKey(entry.apiKeyId) : entry.tenantId,
     eventId,
     JSON.stringify(entry.usageAttributes ?? usageAttributesForKey(entry.apiKeyId)),
-    entry.pricingKnown === false ? 0 : 1
+    entry.pricingKnown === false ? 0 : 1,
+    entry.pricingSnapshot ? JSON.stringify(entry.pricingSnapshot) : null
   );
 }
 
@@ -295,8 +297,8 @@ export function recordLedgerEntries(entries: CostLedgerEntry[]): void {
       api_key_id, provider, model,
       tokens_input, tokens_output, tokens_cache_read, tokens_cache_creation, tokens_reasoning,
       unit_price_input, unit_price_output, amount_usd,
-      service_tier, success, timestamp, request_id, end_user, tags, session_id, tenant_id, usage_attributes, pricing_known
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      service_tier, success, timestamp, request_id, end_user, tags, session_id, tenant_id, usage_attributes, pricing_known, pricing_snapshot
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `
   );
   const tx = db.transaction((rows: CostLedgerEntry[]) => {
@@ -323,7 +325,8 @@ export function recordLedgerEntries(entries: CostLedgerEntry[]): void {
         entry.sessionId ?? null,
         entry.tenantId === undefined ? tenantIdForUsageKey(entry.apiKeyId) : entry.tenantId,
         JSON.stringify(entry.usageAttributes ?? usageAttributesForKey(entry.apiKeyId)),
-        entry.pricingKnown === false ? 0 : 1
+        entry.pricingKnown === false ? 0 : 1,
+        entry.pricingSnapshot ? JSON.stringify(entry.pricingSnapshot) : null
       );
     }
   });
@@ -474,6 +477,7 @@ export function listLedgerEntries(
       tokensReasoning: toNumber(row.tokens_reasoning),
       unitPriceInput: toNumber(row.unit_price_input),
       unitPriceOutput: toNumber(row.unit_price_output),
+      pricingSnapshot: typeof row.pricing_snapshot === "string" ? JSON.parse(row.pricing_snapshot) : null,
       amountUsd: toNumber(row.amount_usd),
       serviceTier: typeof row.service_tier === "string" ? row.service_tier : "standard",
       success: toNumber(row.success) !== 0,
