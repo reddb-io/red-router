@@ -2,7 +2,7 @@ use axum::{routing::post, Router};
 use red_routerd::storage::{Backend, Database};
 use std::{
     process::{Child, Command, Stdio},
-    time::Duration,
+    time::{Duration, Instant},
 };
 use tempfile::TempDir;
 use url::Url;
@@ -46,9 +46,16 @@ async fn proxy_roundtrip(backend: Backend, database_url: &str, remote: bool) {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let proxy_addr = listener.local_addr().unwrap();
     drop(listener);
-    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .connect_timeout(Duration::from_millis(250))
+        .timeout(Duration::from_secs(3))
+        .build()
+        .unwrap();
     let base = format!("http://{proxy_addr}");
-    for _ in 0..2 {
+    let logs = TempDir::new().unwrap();
+    for attempt in 0..2 {
+        let log = logs.path().join(format!("proxy-{attempt}.log"));
         let mut command = Command::new(env!("CARGO_BIN_EXE_red-routerd"));
         command
             .env("RED_ROUTER_DATABASE_URL", database_url)
@@ -61,7 +68,7 @@ async fn proxy_roundtrip(backend: Backend, database_url: &str, remote: bool) {
                 "http://127.0.0.1:1/v1/chat/completions",
             )
             .stdout(Stdio::null())
-            .stderr(Stdio::null());
+            .stderr(Stdio::from(std::fs::File::create(&log).unwrap()));
         match backend {
             Backend::ReddbEmbedded => {
                 command.env_remove("RED_ROUTER_DB_BACKEND");
@@ -76,16 +83,30 @@ async fn proxy_roundtrip(backend: Backend, database_url: &str, remote: bool) {
                 command.env("RED_ROUTER_DB_BACKEND", "postgres");
             }
         }
-        let process = Process(command.spawn().unwrap());
+        let mut process = Process(command.spawn().unwrap());
         let mut ready = false;
-        for _ in 0..100 {
-            if client.get(format!("{base}/healthz")).send().await.is_ok() {
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while Instant::now() < deadline {
+            if process.0.try_wait().unwrap().is_some() {
+                break;
+            }
+            if client
+                .get(format!("{base}/healthz"))
+                .send()
+                .await
+                .is_ok_and(|response| response.status().is_success())
+            {
                 ready = true;
                 break;
             }
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
-        assert!(ready, "proxy did not start");
+        assert!(
+            ready,
+            "proxy did not start (attempt {attempt}, status {:?}): {}",
+            process.0.try_wait().unwrap(),
+            std::fs::read_to_string(&log).unwrap_or_default()
+        );
         let response = client
             .post(format!("{base}/v1/chat/completions"))
             .bearer_auth("test-client-key-12345")
