@@ -78,9 +78,12 @@ impl Database {
                         .map_err(|_| "cannot open embedded database lock")?;
                     fs2::FileExt::try_lock_exclusive(&lock)
                         .map_err(|_| "embedded database is already in use")?;
-                    let db = reddb_client::Reddb::connect(url)
-                        .await
+                    // The RedDB URI parser currently treats file URI escapes
+                    // literally. Open the decoded OS path so spaces and Windows
+                    // drive letters address the requested file.
+                    let embedded = reddb_client::embedded::EmbeddedClient::open(path)
                         .map_err(|_| "cannot open embedded RedDB")?;
+                    let db = reddb_client::Reddb::Embedded(embedded);
                     db.query(CREATE)
                         .await
                         .map_err(|_| "cannot initialize database")?;
