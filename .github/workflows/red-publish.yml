@@ -66,7 +66,7 @@ jobs:
           openssl x509 -req -in server.csr -CA ca.pem -CAkey ca.key -CAcreateserial -out server.pem -days 1 -extfile extensions.cnf >/dev/null 2>&1
           printf 'routing-ci:password' > admin-password
           chmod 600 admin-password
-          ./red-linux-x86_64-static server --path "$RUNNER_TEMP/auth.rdb" --wire-bind 127.0.0.1:15052 --wire-tls-bind 127.0.0.1:15051 --wire-tls-cert "$RUNNER_TEMP/server.pem" --wire-tls-key "$RUNNER_TEMP/server.key" --require-auth --bootstrap-preset production --bootstrap-admin routing --bootstrap-admin-password-file "$RUNNER_TEMP/admin-password" --no-log-file > "$RUNNER_TEMP/reddb-auth.log" 2>&1 &
+          ./red-linux-x86_64-static server --path "$RUNNER_TEMP/auth.rdb" --wire-bind 127.0.0.1:15052 --wire-tls-bind 127.0.0.1:15051 --wire-tls-cert "$RUNNER_TEMP/server.pem" --wire-tls-key "$RUNNER_TEMP/server.key" --require-auth --bootstrap-preset production --bootstrap-admin routing --bootstrap-admin-password-file "$RUNNER_TEMP/admin-password" --bootstrap-cert-out "$RUNNER_TEMP/bootstrap-cert.pem" --no-log-file > "$RUNNER_TEMP/reddb-auth.log" 2>&1 &
           pid=$!
           for attempt in $(seq 1 30); do
             if (echo > /dev/tcp/127.0.0.1/15051) 2>/dev/null; then
