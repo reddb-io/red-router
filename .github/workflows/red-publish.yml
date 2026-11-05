@@ -75,20 +75,69 @@ jobs:
 
   rust-data-plane:
     name: Rust data plane
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    defaults:
-      run:
-        working-directory: rust/red-routerd
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      CARGO_INCREMENTAL: 0
+      CARGO_PROFILE_DEV_DEBUG: 0
+      CARGO_PROFILE_TEST_DEBUG: 0
+      RED_ROUTER_TEST_DISPOSABLE: 1
+      RED_ROUTER_TEST_POSTGRES_URL: postgresql://routing:routing-ci-only@127.0.0.1:5432/routing
+      RED_ROUTER_TEST_REDDB_URL: red://127.0.0.1:15050
+    services:
+      postgres:
+        image: postgres:17.6
+        env:
+          POSTGRES_USER: routing
+          POSTGRES_PASSWORD: routing-ci-only
+          POSTGRES_DB: routing
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-      - run: cargo fmt --check
-      - run: cargo clippy --all-targets --locked -- -D warnings
-      - run: cargo test --locked
-      - run: cargo build --release --locked
+      - run: sudo apt-get update -qq && sudo apt-get install -y protobuf-compiler
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust/red-routerd
+          cache-on-failure: true
+      - name: Boot disposable RedDB
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          curl --fail --location --retry 3 -o red-linux-x86_64-static https://github.com/reddb-io/reddb/releases/download/v1.28.11/red-linux-x86_64-static
+          curl --fail --location --retry 3 -o SHA256SUMS https://github.com/reddb-io/reddb/releases/download/v1.28.11/SHA256SUMS
+          awk '$2 == "red-linux-x86_64-static" { print; found = 1 } END { if (!found) exit 1 }' SHA256SUMS > red.sha256
+          sha256sum --check red.sha256
+          chmod +x red-linux-x86_64-static
+          ./red-linux-x86_64-static server --path "$RUNNER_TEMP/rust-storage.rdb" --wire-bind 127.0.0.1:15050 --no-auth --no-log-file > "$RUNNER_TEMP/reddb.log" 2>&1 &
+          echo "$!" > reddb.pid
+          for attempt in $(seq 1 30); do
+            if (echo > /dev/tcp/127.0.0.1/15050) 2>/dev/null; then exit 0; fi
+            kill -0 "$(cat reddb.pid)"
+            sleep 1
+          done
+          cat reddb.log
+          exit 1
+      - name: Rust formatting
+        run: cargo fmt --check --manifest-path rust/red-routerd/Cargo.toml
+      - name: Rust storage and proxy tests
+        run: cargo test --locked --manifest-path rust/red-routerd/Cargo.toml
+      - name: Rust lint
+        run: cargo clippy --all-targets --locked --manifest-path rust/red-routerd/Cargo.toml -- -D warnings
+      - name: Remote-only build
+        run: cargo check --no-default-features --locked --manifest-path rust/red-routerd/Cargo.toml
+      - name: Build release binary
+        run: cargo build --release --locked --manifest-path rust/red-routerd/Cargo.toml
+      - name: RedDB diagnostics
+        if: failure()
+        run: cat "$RUNNER_TEMP/reddb.log" || true
 
   test-unit:
     name: RedRouter contracts
