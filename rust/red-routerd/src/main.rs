@@ -5,8 +5,23 @@ use red_routerd::{
 };
 use std::{env, error::Error, net::SocketAddr};
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn Error>> {
+fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
+    // RedDB initialization uses a deeper call stack than Windows' default
+    // executable thread stack. Keep it off the network worker threads.
+    std::thread::Builder::new()
+        .name("red-routerd-main".into())
+        .stack_size(8 * 1024 * 1024)
+        .spawn(|| {
+            let runtime = tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()?;
+            runtime.block_on(run())
+        })?
+        .join()
+        .map_err(|_| "router initialization thread panicked")?
+}
+
+async fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
     let mut args = env::args().skip(1);
     let command = args.next();
     if args.next().is_some() || !matches!(command.as_deref(), None | Some("set-upstream")) {
