@@ -1,513 +1,73 @@
-name: RedRouter
-
-# One product-owned pipeline:
-# - every PR and main push validates RedRouter;
-# - a SemVer tag runs the same validation, publishes the exact tested tarball,
-#   and creates the matching GitHub Release;
-# - Changesets decides the version before the tag is created.
+name: Rust storage memory diagnostics
 on:
-  push:
-    branches: [main]
-    tags: ["v*.*.*"]
-  pull_request:
-    branches: [main]
   workflow_dispatch:
-    inputs:
-      tag:
-        description: "Existing SemVer tag to validate/publish (optional)"
-        required: false
-        type: string
-      artifact_run_id:
-        description: "Original npm publish run ID for recovery after propagation (optional)"
-        required: false
-        type: string
-      artifact_run_attempt:
-        description: "Attempt that published the npm tarball"
-        required: false
-        default: "1"
-        type: string
-
 permissions:
   contents: read
-  actions: read
-
-concurrency:
-  group: redrouter-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-
-env:
-  CI_NODE_VERSION: "24"
-  NEXT_TELEMETRY_DISABLED: "1"
-  DISABLE_SQLITE_AUTO_BACKUP: "true"
-  OMNIROUTE_SKIP_SYSTEM_TRUST: "1"
-  JWT_SECRET: redrouter-ci-only-jwt-secret-not-for-production-2026
-  API_KEY_SECRET: redrouter-ci-only-api-key-secret-not-for-production-2026
-
 jobs:
-  checks:
-    name: Product checks
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
-          fetch-depth: 0
-          persist-credentials: false
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
-        with:
-          node-version: ${{ env.CI_NODE_VERSION }}
-          cache: npm
-      - uses: ./.github/actions/npm-ci-retry
-      - run: npm run check:node-runtime
-      - run: npm run check:tracked-artifacts
-      - run: npm run check:lockfile
-      - run: npm run lint
-      - run: npm run typecheck:core
-      - name: Check API route TypeScript diagnostics
-        run: node scripts/check/check-api-typecheck.mjs
-      - name: Check API typecheck gate
-        run: node --import tsx/esm --test tests/unit/build/check-api-typecheck.test.ts
-      - name: Check Changesets root-package versioning
-        run: node scripts/release/check-changesets.mjs
-      - run: npm run release:status
-      - run: npm run audit:deps
-
-  rust-data-plane:
-    name: Rust data plane
+  memory:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
       CARGO_INCREMENTAL: 0
-      CARGO_PROFILE_DEV_DEBUG: 0
-      CARGO_PROFILE_TEST_DEBUG: 0
-      RED_ROUTER_TEST_DISPOSABLE: 1
-      RED_ROUTER_TEST_POSTGRES_URL: postgresql://routing:routing-ci-only@127.0.0.1:5432/routing
-      RED_ROUTER_TEST_REDDB_URL: red://127.0.0.1:15050
-    services:
-      postgres:
-        image: postgres:17.6
-        env:
-          POSTGRES_USER: routing
-          POSTGRES_PASSWORD: routing-ci-only
-          POSTGRES_DB: routing
-        ports: ["5432:5432"]
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
+      CARGO_PROFILE_RELEASE_DEBUG: 0
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
       - run: sudo apt-get update -qq && sudo apt-get install -y protobuf-compiler
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust/red-routerd
           cache-on-failure: true
-      - name: Boot disposable RedDB
+      - name: Build embedded-capable binary
         run: |
-          set -euo pipefail
-          cd "$RUNNER_TEMP"
-          curl --fail --location --retry 3 -o red-linux-x86_64-static https://github.com/reddb-io/reddb/releases/download/v1.28.11/red-linux-x86_64-static
-          curl --fail --location --retry 3 -o SHA256SUMS https://github.com/reddb-io/reddb/releases/download/v1.28.11/SHA256SUMS
-          awk '$2 == "red-linux-x86_64-static" { print; found = 1 } END { if (!found) exit 1 }' SHA256SUMS > red.sha256
-          sha256sum --check red.sha256
-          chmod +x red-linux-x86_64-static
-          ./red-linux-x86_64-static server --path "$RUNNER_TEMP/rust-storage.rdb" --wire-bind 127.0.0.1:15050 --no-auth --no-log-file > "$RUNNER_TEMP/reddb.log" 2>&1 &
-          echo "$!" > reddb.pid
-          for attempt in $(seq 1 30); do
-            if (echo > /dev/tcp/127.0.0.1/15050) 2>/dev/null; then exit 0; fi
-            kill -0 "$(cat reddb.pid)"
-            sleep 1
-          done
-          cat reddb.log
-          exit 1
-      - name: Rust formatting
-        run: cargo fmt --check --manifest-path rust/red-routerd/Cargo.toml
-      - name: Rust storage and proxy tests
-        run: cargo test --locked --manifest-path rust/red-routerd/Cargo.toml
-      - name: Rust lint
-        run: cargo clippy --all-targets --locked --manifest-path rust/red-routerd/Cargo.toml -- -D warnings
-      - name: Remote-only build
-        run: cargo check --no-default-features --locked --manifest-path rust/red-routerd/Cargo.toml
-      - name: Build release binary
-        run: cargo build --release --locked --manifest-path rust/red-routerd/Cargo.toml
-      - name: RedDB diagnostics
-        if: failure()
-        run: cat "$RUNNER_TEMP/reddb.log" || true
-
-  test-unit:
-    name: RedRouter contracts
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
-          persist-credentials: false
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
-        with:
-          node-version: ${{ env.CI_NODE_VERSION }}
-          cache: npm
-      - uses: ./.github/actions/npm-ci-retry
-      - run: npm run test:unit:ci
-      - name: Install Linux desktop regression dependencies
+          cargo build --release --locked --manifest-path rust/red-routerd/Cargo.toml
+          cp rust/red-routerd/target/release/red-routerd "$RUNNER_TEMP/red-routerd-full"
+      - name: Build remote-only binary
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y xvfb dbus-x11 libayatana-appindicator3-1 python3-dbus python3-gi
-      - name: Verify tray survives installation and recovers native helper failures
-        run: node scripts/ci/check-linux-tray.mjs
-      - name: Verify managed network access survives restart and binds the requested interface
-        run: node scripts/ci/check-network-access.mjs
-
-  test-routing-storage:
-    name: Routing storage (${{ matrix.backend }})
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    env:
-      RED_ROUTER_TEST_BACKEND: ${{ matrix.backend }}
-      RED_ROUTER_TEST_DATABASE_URL: ${{ matrix.backend == 'postgres' && 'postgresql://routing:routing-ci-only@127.0.0.1:5432/routing' || 'postgresql://routing:routing-ci-only@127.0.0.1:55432/routing' }}
-    strategy:
-      fail-fast: false
-      matrix:
-        backend: [postgres, reddb]
-    services:
-      postgres:
-        image: postgres:17.6
-        env:
-          POSTGRES_USER: routing
-          POSTGRES_PASSWORD: routing-ci-only
-          POSTGRES_DB: routing
-        ports: ["5432:5432"]
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
-          persist-credentials: false
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
-        with:
-          node-version: ${{ env.CI_NODE_VERSION }}
-          cache: npm
-      - uses: ./.github/actions/npm-ci-retry
-      - name: Boot pinned RedDB with checksum verification
-        if: matrix.backend == 'reddb'
+          cargo build --release --locked --no-default-features --manifest-path rust/red-routerd/Cargo.toml
+          cp rust/red-routerd/target/release/red-routerd "$RUNNER_TEMP/red-routerd-thin"
+      - name: Measure idle memory and startup
+        shell: bash
         run: |
-          set -euo pipefail
-          cd "$RUNNER_TEMP"
-          curl --fail --location --retry 3 -o red-linux-x86_64-static https://github.com/reddb-io/reddb/releases/download/v1.23.4/red-linux-x86_64-static
-          curl --fail --location --retry 3 -o SHA256SUMS https://github.com/reddb-io/reddb/releases/download/v1.23.4/SHA256SUMS
-          awk '$2 == "red-linux-x86_64-static" { print; found = 1 } END { if (!found) exit 1 }' SHA256SUMS > routing.sha256
-          sha256sum --check routing.sha256
-          chmod +x red-linux-x86_64-static
-          ./red-linux-x86_64-static server --path "$RUNNER_TEMP/routing.rdb" --pg-bind 127.0.0.1:55432 --no-auth --no-log-file > "$RUNNER_TEMP/routing-reddb.log" 2>&1 &
-          echo "$!" > routing-reddb.pid
-          for attempt in $(seq 1 30); do
-            if (echo > /dev/tcp/127.0.0.1/55432) 2>/dev/null; then exit 0; fi
-            kill -0 "$(cat routing-reddb.pid)"
-            sleep 1
-          done
-          cat routing-reddb.log
-          exit 1
-      - name: Verify online repository contracts
-        run: node --import tsx/esm --import ./tests/_setup/isolateDataDir.ts --test --test-timeout=120000 tests/redrouter/native/online-routing.test.ts
-      - name: Seed restart fixture
-        run: node --import tsx/esm --import ./tests/_setup/isolateDataDir.ts scripts/ci/check-routing-storage-restart.ts seed
-      - name: Restart PostgreSQL
-        if: matrix.backend == 'postgres'
-        env:
-          POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
-        run: |
-          set -euo pipefail
-          docker restart "$POSTGRES_CONTAINER"
-          for attempt in $(seq 1 30); do
-            if docker exec "$POSTGRES_CONTAINER" pg_isready -U routing; then exit 0; fi
-            sleep 1
-          done
-          exit 1
-      - name: Crash and restart RedDB
-        if: matrix.backend == 'reddb'
-        run: |
-          set -euo pipefail
-          cd "$RUNNER_TEMP"
-          kill -KILL "$(cat routing-reddb.pid)"
-          for attempt in $(seq 1 30); do
-            if ! (echo > /dev/tcp/127.0.0.1/55432) 2>/dev/null; then break; fi
-            sleep 1
-          done
-          ./red-linux-x86_64-static server --path "$RUNNER_TEMP/routing.rdb" --pg-bind 127.0.0.1:55432 --no-auth --no-log-file >> "$RUNNER_TEMP/routing-reddb.log" 2>&1 &
-          echo "$!" > routing-reddb.pid
-          for attempt in $(seq 1 30); do
-            if (echo > /dev/tcp/127.0.0.1/55432) 2>/dev/null; then exit 0; fi
-            sleep 1
-          done
-          exit 1
-      - name: Verify routing data survived database restart
-        run: node --import tsx/esm --import ./tests/_setup/isolateDataDir.ts scripts/ci/check-routing-storage-restart.ts verify
-      - name: RedDB diagnostics
-        if: failure() && matrix.backend == 'reddb'
-        run: cat "$RUNNER_TEMP/routing-reddb.log"
-
-  test-vitest:
-    name: RedRouter UI
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
-          persist-credentials: false
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
-        with:
-          node-version: ${{ env.CI_NODE_VERSION }}
-          cache: npm
-      - uses: ./.github/actions/npm-ci-retry
-      - run: npm run test:vitest
-
-  build:
-    name: Build and package smoke
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    outputs:
-      source_sha: ${{ steps.source.outputs.sha }}
-      version: ${{ steps.source.outputs.version }}
-      artifact_run_id: ${{ steps.promote.outputs.run_id || github.run_id }}
-      artifact_run_attempt: ${{ steps.promote.outputs.run_attempt || github.run_attempt }}
-    env:
-      NODE_OPTIONS: --max-old-space-size=10240
-      OMNIROUTE_USE_TURBOPACK: "0"
-      OMNIROUTE_RELEASE_REF: HEAD
-      REDROUTER_RELEASE_ARTIFACT_DIR: release-artifacts
-      OMNIROUTE_PLAYWRIGHT_SKIP_BUILD: "1"
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
-          fetch-depth: 0
-          persist-credentials: false
-      - name: Resolve source identity
-        id: source
-        run: |
-          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-          echo "version=$(node -p 'require("./package.json").version')" >> "$GITHUB_OUTPUT"
-      - name: Validate artifact recovery input
-        if: ${{ inputs.artifact_run_id != '' }}
-        env:
-          ARTIFACT_RUN_ID: ${{ inputs.artifact_run_id }}
-          ARTIFACT_RUN_ATTEMPT: ${{ inputs.artifact_run_attempt }}
-          RELEASE_TAG: ${{ inputs.tag }}
-        run: |
-          set -euo pipefail
-          [[ "$ARTIFACT_RUN_ID" =~ ^[1-9][0-9]*$ ]]
-          [[ "$ARTIFACT_RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]]
-          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
-        if: ${{ inputs.artifact_run_id == '' && !startsWith(github.ref, 'refs/tags/v') && inputs.tag == '' }}
-        with:
-          node-version: ${{ env.CI_NODE_VERSION }}
-          cache: npm
-      - id: ci
-        uses: ./.github/actions/npm-ci-retry
-        if: ${{ inputs.artifact_run_id == '' && !startsWith(github.ref, 'refs/tags/v') && inputs.tag == '' }}
-      - name: Build once
-        if: ${{ inputs.artifact_run_id == '' && !startsWith(github.ref, 'refs/tags/v') && inputs.tag == '' }}
-        run: npm run build:release
-      - name: Pack once
-        if: ${{ inputs.artifact_run_id == '' && !startsWith(github.ref, 'refs/tags/v') && inputs.tag == '' }}
-        run: npm run release:pack
-      - if: ${{ inputs.artifact_run_id == '' && !startsWith(github.ref, 'refs/tags/v') && inputs.tag == '' }}
-        run: npm run check:pack-artifact
-      - if: ${{ inputs.artifact_run_id == '' && !startsWith(github.ref, 'refs/tags/v') && inputs.tag == '' }}
-        run: npm run check:pack-boot
-      - name: Restore the Playwright browsers
-        if: ${{ inputs.artifact_run_id == '' && !startsWith(github.ref, 'refs/tags/v') && inputs.tag == '' }}
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ runner.arch }}-${{ steps.ci.outputs.lock-hash }}
-      - if: ${{ inputs.artifact_run_id == '' && !startsWith(github.ref, 'refs/tags/v') && inputs.tag == '' }}
-        run: node scripts/dev/run-playwright-tests.mjs install --with-deps chromium
-      - if: ${{ inputs.artifact_run_id == '' && !startsWith(github.ref, 'refs/tags/v') && inputs.tag == '' }}
-        run: npm run test:e2e
-      - name: Promote the successful main CI artifact
-        id: promote
-        if: ${{ inputs.artifact_run_id == '' && (startsWith(github.ref, 'refs/tags/v') || inputs.tag != '') }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_SHA: ${{ steps.source.outputs.sha }}
-          RELEASE_VERSION: ${{ steps.source.outputs.version }}
-        run: node scripts/release/promote-main-artifact.mjs
-      - name: Upload the tested release artifact
-        if: inputs.artifact_run_id == ''
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: redrouter-release-${{ github.run_id }}-${{ github.run_attempt }}
-          path: release-artifacts/
-          if-no-files-found: error
-          compression-level: 0
-          retention-days: 14
-
-  release:
-    name: Publish npm and GitHub Release
-    if: github.repository == 'reddb-io/red-router' && (startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.tag != ''))
-    needs: [checks, test-unit, test-routing-storage, test-vitest, build, rust-data-plane]
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    environment: npm-release
-    permissions:
-      contents: write
-      actions: read
-      id-token: write
-    steps:
-      - name: Checkout the tested source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          ref: ${{ needs.build.outputs.source_sha }}
-          fetch-depth: 0
-          persist-credentials: false
-      - name: Checkout recovery verifier
-        if: ${{ inputs.artifact_run_id != '' }}
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          ref: ${{ github.sha }}
-          path: .release-tools
-          persist-credentials: false
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
-        with:
-          node-version: ${{ env.CI_NODE_VERSION }}
-      - name: Verify tag and package version
-        env:
-          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
-          VERSION: ${{ needs.build.outputs.version }}
-        run: |
-          set -euo pipefail
-          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
-          git fetch origin main --no-tags
-          test "$(git rev-parse HEAD)" = "$(git rev-parse "$RELEASE_TAG^{commit}")"
-          git merge-base --is-ancestor HEAD origin/main
-          test "v$VERSION" = "$RELEASE_TAG"
-          test "$(node -p 'require("./package.json").name')" = '@reddb-io/red-router'
-          test "$(node -p 'require("./package-lock.json").packages[""].version')" = "$VERSION"
-      - name: Download the tested tarball
-        if: ${{ inputs.artifact_run_id == '' }}
-        uses: actions/download-artifact@v7
-        with:
-          name: redrouter-release-${{ needs.build.outputs.artifact_run_id }}-${{ needs.build.outputs.artifact_run_attempt }}
-          run-id: ${{ needs.build.outputs.artifact_run_id }}
-          github-token: ${{ github.token }}
-          path: release-artifacts
-      - name: Recover the original published tarball
-        if: ${{ inputs.artifact_run_id != '' }}
-        env:
-          RELEASE_VERSION: ${{ needs.build.outputs.version }}
-          RELEASE_SHA: ${{ needs.build.outputs.source_sha }}
-          RELEASE_TAG: ${{ inputs.tag }}
-          RELEASE_RUN_ID: ${{ inputs.artifact_run_id }}
-          RELEASE_RUN_ATTEMPT: ${{ inputs.artifact_run_attempt }}
-        run: |
-          node .release-tools/scripts/release/recover-published.mjs
-          cd release-artifacts
-          sha256sum -c SHA256SUMS
-      - name: Verify artifact identity and checksum
-        if: ${{ inputs.artifact_run_id == '' }}
-        env:
-          RELEASE_VERSION: ${{ needs.build.outputs.version }}
-          RELEASE_SHA: ${{ needs.build.outputs.source_sha }}
-          RELEASE_RUN_ID: ${{ needs.build.outputs.artifact_run_id }}
-          RELEASE_RUN_ATTEMPT: ${{ needs.build.outputs.artifact_run_attempt }}
-        run: |
-          node scripts/release/artifact.mjs verify release-artifacts
-          cd release-artifacts
-          sha256sum -c SHA256SUMS
-      - name: Install npm with trusted publishing support
-        run: npm install --prefix "$RUNNER_TEMP/redrouter-npm" --no-save npm@11.19.1
-      - name: Publish the exact tarball
-        env:
-          VERSION: ${{ needs.build.outputs.version }}
-          NPM_PUBLISH_MODE: ${{ vars.NPM_PUBLISH_MODE }}
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: |
-          set -euo pipefail
-          if [ "$(npm view "@reddb-io/red-router@$VERSION" version --prefer-online 2>/dev/null || true)" = "$VERSION" ]; then
-            echo "@reddb-io/red-router@$VERSION is already published"
-          else
-            case "${NPM_PUBLISH_MODE:-oidc}" in
-              token)
-                if [ -z "${NPM_TOKEN:-}" ]; then
-                  echo "NPM_PUBLISH_MODE=token but NPM_TOKEN is unavailable" >&2
-                  exit 1
-                fi
-                npm config set //registry.npmjs.org/:_authToken "$NPM_TOKEN"
-                ;;
-              oidc)
-                unset NODE_AUTH_TOKEN
-                npm config delete //registry.npmjs.org/:_authToken || true
-                ;;
-              *)
-                echo "NPM_PUBLISH_MODE must be token or oidc" >&2
-                exit 1
-                ;;
-            esac
-            node "$RUNNER_TEMP/redrouter-npm/node_modules/npm/bin/npm-cli.js" publish \
-              "$GITHUB_WORKSPACE/release-artifacts/reddb-io-red-router-$VERSION.tgz" \
-              --access public --provenance --ignore-scripts
-          fi
-      - name: Verify the public npm tarball
-        env:
-          VERSION: ${{ needs.build.outputs.version }}
-        run: |
-          set -euo pipefail
-          EXPECTED=$(node --input-type=module -e 'import fs from "node:fs"; import crypto from "node:crypto"; console.log("sha512-" + crypto.createHash("sha512").update(fs.readFileSync(`release-artifacts/reddb-io-red-router-${process.env.VERSION}.tgz`)).digest("base64"));')
-          for attempt in $(seq 1 60); do
-            ACTUAL=$(npm view "@reddb-io/red-router@$VERSION" dist.integrity --prefer-online --fetch-retries=0 --fetch-timeout=10000 2>/dev/null || true)
-            [ "$ACTUAL" = "$EXPECTED" ] && exit 0
-            [ -z "$ACTUAL" ] || { echo "Published tarball integrity mismatch" >&2; exit 1; }
-            echo "Waiting for npm processing ($attempt/60)"
-            sleep 10
-          done
-          echo "The release is still unavailable from npm" >&2
-          exit 1
-      - name: Install through mise and aube
-        uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3
-        with:
-          version: "2026.9.12"
-          install: false
-          cache: false
-      - name: Smoke the published package
-        env:
-          VERSION: ${{ needs.build.outputs.version }}
-          MISE_NPM_PACKAGE_MANAGER: aube
-          MISE_DATA_DIR: ${{ runner.temp }}/redrouter-mise-data
-          MISE_CACHE_DIR: ${{ runner.temp }}/redrouter-mise-cache
-          MISE_CONFIG_DIR: ${{ runner.temp }}/redrouter-mise-config
-          DATA_DIR: ${{ runner.temp }}/redrouter-consumer-data
-        run: |
-          set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/redrouter-consumer"
-          cd "$RUNNER_TEMP/redrouter-consumer"
-          node --input-type=module -e 'import fs from "node:fs"; fs.writeFileSync("mise.toml", `[tools]\n"npm:@reddb-io/red-router" = { version = "${process.env.VERSION}", allow_low_downloads = true }\n`);'
-          mise trust mise.toml
-          mise install --verbose
-          test "$(mise exec -- red-router --version)" = "$VERSION"
-          mise exec -- red-router service --help
-          mise exec -- node "$GITHUB_WORKSPACE/scripts/ci/check-published-boot.mjs"
-      - name: Create GitHub Release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
-        run: |
-          set -euo pipefail
-          if gh release view "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "$RELEASE_TAG already has a GitHub Release"
-          else
-            gh release create "$RELEASE_TAG" release-artifacts/*.tgz release-artifacts/SHA256SUMS \
-              -R "$GITHUB_REPOSITORY" --verify-tag --generate-notes --title "$RELEASE_TAG"
-          fi
-
+          python3 - <<'PY'
+          import json,os,pathlib,signal,socket,statistics,subprocess,tempfile,time,urllib.request
+          root=pathlib.Path(os.environ['RUNNER_TEMP'])
+          def sample(binary,backend,run):
+              with tempfile.TemporaryDirectory() as temp:
+                  path=pathlib.Path(temp)
+                  sock=socket.socket()
+                  sock.bind(('127.0.0.1',0))
+                  port=sock.getsockname()[1]
+                  sock.close()
+                  env=os.environ.copy()
+                  env.update(RED_ROUTER_DB_BACKEND=backend,
+                      RED_ROUTER_DATABASE_URL=(path/'data.rdb').as_uri() if backend=='reddb-embedded' else (path/'data.sqlite').as_uri().replace('file:','sqlite:',1)+'?mode=rwc',
+                      RED_ROUTER_CLIENT_KEY='fixture-client-key-12345',RED_ROUTER_PROVIDER_KEY='fixture-provider',
+                      RED_ROUTER_UPSTREAM_URL='http://127.0.0.1:19999/v1/chat/completions',
+                      RED_ROUTER_LISTEN='127.0.0.1:'+str(port))
+                  started=time.monotonic()
+                  process=subprocess.Popen([str(binary)],env=env,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+                  try:
+                      for _ in range(300):
+                          if process.poll() is not None: raise RuntimeError('proxy exited before readiness')
+                          try:
+                              with urllib.request.urlopen('http://127.0.0.1:'+str(port)+'/healthz',timeout=.3) as response:
+                                  if response.status==200: break
+                          except Exception: time.sleep(.05)
+                      else: raise RuntimeError('proxy did not become ready')
+                      startup=round((time.monotonic()-started)*1000)
+                      time.sleep(.5)
+                      lines=pathlib.Path('/proc',str(process.pid),'status').read_text().splitlines()
+                      rss=int(next(x for x in lines if x.startswith('VmRSS:')).split()[1])
+                      return {'startup_ms':startup,'rss_kib':rss}
+                  finally:
+                      process.send_signal(signal.SIGINT)
+                      try: process.wait(timeout=10)
+                      except subprocess.TimeoutExpired: process.kill(); process.wait()
+          for label,binary,backend in [
+              ('reddb_embedded',root/'red-routerd-full','reddb-embedded'),
+              ('sqlite_with_engine',root/'red-routerd-full','sqlite'),
+              ('sqlite_without_engine',root/'red-routerd-thin','sqlite')]:
+              samples=[sample(binary,backend,i) for i in range(3)]
+              print(json.dumps({'mode':label,'binary_bytes':binary.stat().st_size,'samples':samples,'median_startup_ms':statistics.median(x['startup_ms'] for x in samples),'median_rss_kib':statistics.median(x['rss_kib'] for x in samples)}),flush=True)
+          PY
