@@ -80,6 +80,7 @@ test("red-publish.yml adds routing conformance and gains no Docker publication j
   assert.deepEqual(Object.keys(publish.jobs), [
     "checks",
     "rust-data-plane",
+    "rust-windows-storage",
     "test-unit",
     "test-routing-storage",
     "test-vitest",
