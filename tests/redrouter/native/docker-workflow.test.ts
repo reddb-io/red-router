@@ -79,6 +79,7 @@ test("the image is built from the published package for both platforms", () => {
 test("red-publish.yml adds routing conformance and gains no Docker publication job", () => {
   assert.deepEqual(Object.keys(publish.jobs), [
     "checks",
+    "rust-data-plane",
     "test-unit",
     "test-routing-storage",
     "test-vitest",
@@ -110,3 +111,4 @@ test("the container defaults match the CLI's real port", () => {
   assert.match(read("bin/cli/product.mjs"), /DEFAULT_PORT = 25050/);
   assert.ok(fs.existsSync(path.join(root, "src/app/healthz/route.ts")));
 });
+
