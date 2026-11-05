@@ -132,9 +132,9 @@ test("browser smoke and browser installation use the same Playwright test CLI", 
   const runner = await readFile(new URL("scripts/dev/run-playwright-tests.mjs", root), "utf8");
   assert.ok(runner.includes('require.resolve("@playwright/test/cli")'));
   assert.doesNotMatch(runner, /node_modules\/playwright\/cli\.js/);
-  const ci = YAML.parse(await readFile(new URL(".github/workflows/red-publish.yml", root), "utf8"));
+  const ci = YAML.parse(await readFile(new URL(".github/workflows/quality.yml", root), "utf8"));
   assert.ok(
-    ci.jobs.build.steps.some(
+    ci.jobs.browser.steps.some(
       (step) =>
         step.run === "node scripts/dev/run-playwright-tests.mjs install --with-deps chromium"
     )

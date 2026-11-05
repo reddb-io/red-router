@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { selectMainRun } from "../../../scripts/release/promote-main-artifact.mjs";
 
-test("promotion requires the completed successful main push for the exact source", () => {
+test("promotion requires a completed successful main build for the exact source", () => {
   const sha = "a".repeat(40);
   const valid = {
     id: 5,
@@ -17,9 +17,15 @@ test("promotion requires the completed successful main push for the exact source
     { ...valid, head_sha: "b".repeat(40) },
     { ...valid, head_branch: "v0.57.4" },
     { ...valid, event: "pull_request" },
+    { ...valid, event: "schedule" },
     { ...valid, status: "in_progress" },
     { ...valid, conclusion: "failure" },
   ];
   assert.equal(selectMainRun(rejected, sha), undefined);
   assert.equal(selectMainRun([...rejected, valid], sha), valid);
+  const manual = { ...valid, event: "workflow_dispatch" };
+  assert.equal(selectMainRun([...rejected, manual], sha), manual);
+  assert.equal(selectMainRun([{ ...manual, head_branch: "feature" }], sha), undefined);
+  assert.equal(selectMainRun([{ ...manual, head_sha: "b".repeat(40) }], sha), undefined);
+  assert.equal(selectMainRun([{ ...manual, conclusion: "failure" }], sha), undefined);
 });
