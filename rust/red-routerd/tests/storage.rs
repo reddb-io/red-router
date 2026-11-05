@@ -31,7 +31,9 @@ async fn exercise(backend: Backend, url: &str) {
 #[tokio::test]
 async fn sqlite_configuration_survives_restart() {
     let temp = TempDir::new().unwrap();
-    let file = Url::from_file_path(temp.path().join("config.sqlite")).unwrap();
+    let folder = temp.path().join("storage with spaces");
+    std::fs::create_dir_all(&folder).unwrap();
+    let file = Url::from_file_path(folder.join("config.sqlite")).unwrap();
     let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
     exercise(Backend::Sqlite, &url).await;
 }
@@ -40,7 +42,9 @@ async fn sqlite_configuration_survives_restart() {
 #[tokio::test]
 async fn embedded_reddb_configuration_survives_restart() {
     let temp = TempDir::new().unwrap();
-    let url = Url::from_file_path(temp.path().join("config.rdb")).unwrap();
+    let folder = temp.path().join("storage with spaces");
+    std::fs::create_dir_all(&folder).unwrap();
+    let url = Url::from_file_path(folder.join("config.rdb")).unwrap();
     exercise(Backend::ReddbEmbedded, url.as_str()).await;
 }
 
