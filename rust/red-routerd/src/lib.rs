@@ -1,4 +1,5 @@
 //! An isolated first slice of the Rust data plane. See README before use.
+pub mod storage;
 use axum::{
     body::{to_bytes, Body},
     extract::{Request, State},
