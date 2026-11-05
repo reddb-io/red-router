@@ -93,7 +93,36 @@ async fn remote_reddb_uses_tls_and_authentication() {
         std::env::var("RED_ROUTER_TEST_DISPOSABLE").as_deref(),
         Ok("1")
     );
-    let mut wrong = Url::parse(&url).unwrap();
+    let parsed = Url::parse(&url).unwrap();
+    let ca = parsed
+        .query_pairs()
+        .find(|(key, _)| key == "ca")
+        .unwrap()
+        .1
+        .into_owned();
+    let password = percent_encoding::percent_decode_str(parsed.password().unwrap())
+        .decode_utf8()
+        .unwrap()
+        .into_owned();
+    let options = reddb_client::redwire::ConnectOptions::new(
+        parsed.host_str().unwrap(),
+        parsed.port().unwrap(),
+    )
+    .with_auth(reddb_client::redwire::Auth::Basic {
+        user: parsed.username().into(),
+        pass: password,
+    })
+    .with_tls(
+        reddb_client::redwire::TlsConfig::from_files(Some(std::path::Path::new(&ca)), None, None)
+            .unwrap(),
+    );
+    reddb_client::redwire::RedWireClient::connect(options)
+        .await
+        .expect("synthetic authenticated TLS RedWire connection")
+        .close()
+        .await
+        .unwrap();
+    let mut wrong = parsed;
     wrong.set_password(Some("wrong-test-password")).unwrap();
     assert!(Database::connect(Backend::ReddbRemote, wrong.as_str())
         .await
