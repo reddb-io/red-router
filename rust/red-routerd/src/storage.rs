@@ -102,11 +102,15 @@ impl Database {
                     return Err("remote RedDB requires a red:// or reds:// URL");
                 }
                 let mut token = None;
+                let mut ca = None;
                 for (name, value) in parsed.query_pairs() {
-                    if name != "token" || token.is_some() || value.is_empty() {
-                        return Err("invalid RedDB connection options");
+                    match name.as_ref() {
+                        "token" if token.is_none() && !value.is_empty() => {
+                            token = Some(value.into_owned())
+                        }
+                        "ca" if ca.is_none() && !value.is_empty() => ca = Some(value.into_owned()),
+                        _ => return Err("invalid RedDB connection options"),
                     }
-                    token = Some(value.into_owned());
                 }
                 let auth = if !parsed.username().is_empty() {
                     if token.is_some() {
@@ -136,7 +140,15 @@ impl Database {
                 )
                 .with_auth(auth);
                 if parsed.scheme() == "reds" {
-                    options = options.with_tls(TlsConfig::new());
+                    let tls = if let Some(ca) = ca {
+                        TlsConfig::from_files(Some(std::path::Path::new(&ca)), None, None)
+                            .map_err(|_| "cannot load RedDB TLS CA")?
+                    } else {
+                        TlsConfig::new()
+                    };
+                    options = options.with_tls(tls);
+                } else if ca.is_some() {
+                    return Err("RedDB TLS CA requires reds://");
                 }
                 let client = tokio::time::timeout(
                     std::time::Duration::from_secs(5),

@@ -130,3 +130,10 @@ async fn proxy_uses_remote_reddb_after_restart() {
         proxy_roundtrip(Backend::ReddbRemote, &url, true).await;
     }
 }
+
+#[tokio::test]
+async fn proxy_uses_authenticated_tls_reddb_after_restart() {
+    if let Ok(url) = std::env::var("RED_ROUTER_TEST_REDDB_TLS_URL") {
+        proxy_roundtrip(Backend::ReddbRemote, &url, true).await;
+    }
+}

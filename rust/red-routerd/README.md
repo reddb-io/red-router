@@ -36,8 +36,9 @@ Alternatively set `RED_ROUTER_DB_BACKEND` and a matching database URL:
 | RedDB remote | `reddb-remote` | `reds://user:password@host:5050` |
 | PostgreSQL | `postgres` | `postgresql://user:password@host:port/database` |
 
-Remote RedDB uses RedWire. `reds://` enables TLS with trusted system roots; `red://`
-is plaintext. Authentication can be supplied as URL user/password or `?token=...`.
+Remote RedDB uses RedWire. `reds://` enables TLS with the bundled public WebPKI roots;
+`red://` is plaintext. Set `?ca=/absolute/path/ca.pem` on a `reds://` URL to trust a
+private CA. Authentication can be supplied as URL user/password or `?token=...`.
 Database connection strings can
 contain credentials; do not commit or log them. A selected backend that is
 unavailable causes startup to fail, with no automatic switch to a local database.

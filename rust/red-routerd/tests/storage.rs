@@ -85,6 +85,23 @@ async fn remote_reddb_configuration_survives_reconnect() {
 }
 
 #[tokio::test]
+async fn remote_reddb_uses_tls_and_authentication() {
+    let Ok(url) = std::env::var("RED_ROUTER_TEST_REDDB_TLS_URL") else {
+        return;
+    };
+    assert_eq!(
+        std::env::var("RED_ROUTER_TEST_DISPOSABLE").as_deref(),
+        Ok("1")
+    );
+    let mut wrong = Url::parse(&url).unwrap();
+    wrong.set_password(Some("wrong-test-password")).unwrap();
+    assert!(Database::connect(Backend::ReddbRemote, wrong.as_str())
+        .await
+        .is_err());
+    exercise(Backend::ReddbRemote, &url).await;
+}
+
+#[tokio::test]
 async fn unavailable_or_mismatched_database_never_falls_back() {
     assert!(Database::connect(
         Backend::Sqlite,
@@ -102,4 +119,15 @@ async fn unavailable_or_mismatched_database_never_falls_back() {
         Err(error) => error,
     };
     assert!(!error.contains("private"));
+    for url in [
+        "red://alice:private@127.0.0.1:1?token=second-secret",
+        "red://127.0.0.1:1?ca=/tmp/fixture.pem",
+        "red://127.0.0.1:1?unexpected=secret",
+    ] {
+        let error = match Database::connect(Backend::ReddbRemote, url).await {
+            Ok(_) => panic!("expected invalid connection options"),
+            Err(error) => error,
+        };
+        assert!(!error.contains("private") && !error.contains("secret"));
+    }
 }
