@@ -21,7 +21,7 @@ the body; streaming bodies are not replayed. Redirect loops are bounded. This be
 can reject an existing provider that legitimately moves POST requests to a different
 origin; configure its final trusted endpoint directly instead.
 
-The implementation is informed by [OmniRoute #19096](https://github.com/cheaper-inference/OmniRoute/commit/7c46564279a379b2f90f44b46228971e7e39970b),
+The implementation is informed by [upstream change #19096](https://github.com/cheaper-inference/OmniRoute/commit/7c46564279a379b2f90f44b46228971e7e39970b),
 with the additional cross-origin request-body restriction. Regression cases are in
 `tests/redrouter/native/provider-redirect-guard.test.ts` and are intended to run in
 product CI; they do not establish transport-wide security by themselves.
