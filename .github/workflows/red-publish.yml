@@ -55,6 +55,29 @@ jobs:
           done
           cat reddb.log
           exit 1
+      - name: Boot authenticated TLS RedDB
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          openssl req -x509 -newkey rsa:2048 -nodes -keyout ca.key -out ca.pem -days 1 -subj '/CN=RedRouter CI CA' -addext 'basicConstraints=critical,CA:TRUE' >/dev/null 2>&1
+          openssl req -new -newkey rsa:2048 -nodes -keyout server.key -out server.csr -subj '/CN=localhost' >/dev/null 2>&1
+          printf 'subjectAltName=DNS:localhost,IP:127.0.0.1\nbasicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\n' > extensions.cnf
+          openssl x509 -req -in server.csr -CA ca.pem -CAkey ca.key -CAcreateserial -out server.pem -days 1 -extfile extensions.cnf >/dev/null 2>&1
+          printf 'routing-ci:password' > admin-password
+          chmod 600 admin-password
+          ./red-linux-x86_64-static server --path "$RUNNER_TEMP/auth.rdb" --wire-bind 127.0.0.1:15052 --wire-tls-bind 127.0.0.1:15051 --wire-tls-cert "$RUNNER_TEMP/server.pem" --wire-tls-key "$RUNNER_TEMP/server.key" --require-auth --bootstrap-preset production --bootstrap-admin routing --bootstrap-admin-password-file "$RUNNER_TEMP/admin-password" --no-log-file > "$RUNNER_TEMP/reddb-auth.log" 2>&1 &
+          pid=$!
+          for attempt in $(seq 1 30); do
+            if (echo > /dev/tcp/127.0.0.1/15051) 2>/dev/null; then
+              echo "RED_ROUTER_TEST_REDDB_TLS_URL=reds://routing:routing-ci%3Apassword@localhost:15051?ca=$RUNNER_TEMP/ca.pem" >> "$GITHUB_ENV"
+              exit 0
+            fi
+            kill -0 "$pid"
+            sleep 1
+          done
+          cat "$RUNNER_TEMP/reddb-auth.log"
+          exit 1
       - name: Rust formatting
         run: cargo fmt --check --manifest-path rust/red-routerd/Cargo.toml
       - name: Rust storage and proxy tests
