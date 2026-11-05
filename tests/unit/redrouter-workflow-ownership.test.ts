@@ -21,6 +21,7 @@ test("RedRouter has one product-owned validation and release workflow", () => {
   assert.deepEqual(workflow.on.pull_request.branches, ["main"]);
   assert.equal(workflow.on.schedule, undefined);
   assert.ok(workflow.jobs.checks);
+  assert.ok(workflow.jobs["rust-data-plane"]);
   assert.ok(workflow.jobs["test-unit"]);
   assert.ok(workflow.jobs["test-vitest"]);
   assert.ok(workflow.jobs.build);
@@ -31,6 +32,7 @@ test("RedRouter has one product-owned validation and release workflow", () => {
     "test-routing-storage",
     "test-vitest",
     "build",
+    "rust-data-plane",
   ]);
 });
 
@@ -125,3 +127,4 @@ test("foreign upstream operational workflows remain inert fixtures", () => {
     assert.equal(existsSync(join(root, "tests/fixtures/upstream-workflows", file)), true, file);
   }
 });
+
