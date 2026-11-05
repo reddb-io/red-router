@@ -73,7 +73,7 @@ jobs:
               echo "RED_ROUTER_TEST_REDDB_TLS_URL=reds://routing:routing-ci%3Apassword@localhost:15051?ca=$RUNNER_TEMP/ca.pem" >> "$GITHUB_ENV"
               exit 0
             fi
-            kill -0 "$pid"
+            kill -0 "$pid" || { cat "$RUNNER_TEMP/reddb-auth.log"; exit 1; }
             sleep 1
           done
           cat "$RUNNER_TEMP/reddb-auth.log"
