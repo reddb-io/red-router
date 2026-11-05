@@ -60,6 +60,17 @@ async fn remote(backend: Backend, variable: &str) {
         .execute(pool)
         .await
         .unwrap();
+    if backend == Backend::ReddbRemote {
+        sqlx::query("INSERT INTO redrouter_proxy_config (id, upstream_url) VALUES (1, $1) ON CONFLICT (id) DO NOTHING")
+            .bind("https://fixture.example/v1/chat/completions")
+            .execute(pool)
+            .await
+            .expect("disposable RedDB parameterized insert");
+        sqlx::query("DELETE FROM redrouter_proxy_config")
+            .execute(pool)
+            .await
+            .unwrap();
+    }
     db.close().await.unwrap();
     drop(db);
     exercise(backend, &url).await;
