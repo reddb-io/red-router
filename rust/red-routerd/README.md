@@ -7,8 +7,11 @@ streams, reusable HTTP connections, incremental responses, and safe redirect ref
 It binds only to loopback. The operator can configure one OpenAI-compatible HTTPS
 provider or a literal-loopback HTTP mock. It does not provide a public listener.
 
-It does not yet implement RedRouter's provider selection, database, quotas, retries,
-policy, accounting, model translation, management API, remote listening or inbound TLS.
+It does not yet implement RedRouter's provider selection, quotas, retries, policy,
+accounting, model translation, management API, remote listening or inbound TLS.
+Its experimental database integration persists only the single upstream endpoint;
+client and provider keys remain environment configuration. It does not read or migrate
+the existing RedRouter configuration or credentials.
 It has not been validated as a production gateway. `/healthz` confirms that this
 process responds; it is not evidence of provider or database readiness.
 
@@ -19,6 +22,34 @@ export RED_ROUTER_CLIENT_KEY=replace-with-at-least-16-random-bytes
 export RED_ROUTER_PROVIDER_KEY=mock-provider-key
 cargo run --release --manifest-path rust/red-routerd/Cargo.toml
 ```
+
+## Experimental database selection
+
+The default is RedDB embedded, using `red-router.rdb` in the working directory.
+Override the file with an absolute `file://` URI in `RED_ROUTER_DATABASE_URL`.
+Alternatively set `RED_ROUTER_DB_BACKEND` and a matching database URL:
+
+| Backend | `RED_ROUTER_DB_BACKEND` | `RED_ROUTER_DATABASE_URL` |
+| --- | --- | --- |
+| RedDB embedded | `reddb-embedded` | `file:///absolute/path/red-router.rdb` |
+| SQLite embedded | `sqlite` | `sqlite:///absolute/path/router.sqlite?mode=rwc` |
+| RedDB remote | `reddb-remote` | `postgresql://user:password@host:port/database` |
+| PostgreSQL | `postgres` | `postgresql://user:password@host:port/database` |
+
+Remote RedDB uses its PostgreSQL-wire listener. Supply transport security and
+authentication appropriate to the deployment. Database connection strings can
+contain credentials; do not commit or log them. A selected backend that is
+unavailable causes startup to fail, with no automatic switch to a local database.
+RedDB's known concurrent indexed-read issue remains under investigation; these
+settings are not yet suitable evidence of safe clustered operation.
+
+On the first run against an empty database, `RED_ROUTER_UPSTREAM_URL` is validated
+and saved. On later runs the stored value wins over this initial seed. To change it,
+set the environment variables as above and run the binary with `set-upstream`;
+restart each proxy process to apply the change. This slice does not implement
+distributed configuration invalidation or database-backed provider credentials.
+Build with `--no-default-features` to omit the embedded RedDB engine for a
+remote-only or SQLite deployment; choosing `reddb-embedded` in that build fails.
 
 For an OpenAI-compatible provider, set `RED_ROUTER_UPSTREAM_URL` to its complete
 HTTPS chat-completions URL, `RED_ROUTER_PROVIDER_KEY` to its credential, and
@@ -44,4 +75,3 @@ and rate limits. See the [OpenRouter API documentation](https://openrouter.ai/do
 
 The next slice needs equivalent routing/authz, accounting, persistence and contract
 tests before considering a cluster deployment.
-
