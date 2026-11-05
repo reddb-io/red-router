@@ -148,26 +148,6 @@ fn allowed_address(ip: IpAddr, allow_private: bool) -> bool {
     }
 }
 
-#[cfg(test)]
-mod address_tests {
-    use super::*;
-
-    #[test]
-    fn metadata_and_private_addresses_are_not_public() {
-        for ip in [
-            "169.254.169.254",
-            "100.100.100.200",
-            "fd00:ec2::254",
-            "::ffff:169.254.169.254",
-        ] {
-            assert!(!allowed_address(ip.parse().unwrap(), true));
-        }
-        assert!(!allowed_address("10.0.0.1".parse().unwrap(), false));
-        assert!(allowed_address("10.0.0.1".parse().unwrap(), true));
-        assert!(allowed_address("8.8.8.8".parse().unwrap(), false));
-    }
-}
-
 pub fn router(state: ProxyState) -> Router {
     Router::new()
         .route("/healthz", get(|| async { StatusCode::OK }))
@@ -263,4 +243,24 @@ async fn chat(State(state): State<ProxyState>, request: Request) -> Response {
     *result.status_mut() = status;
     *result.headers_mut() = headers;
     result
+}
+
+#[cfg(test)]
+mod address_tests {
+    use super::*;
+
+    #[test]
+    fn metadata_and_private_addresses_are_not_public() {
+        for ip in [
+            "169.254.169.254",
+            "100.100.100.200",
+            "fd00:ec2::254",
+            "::ffff:169.254.169.254",
+        ] {
+            assert!(!allowed_address(ip.parse().unwrap(), true));
+        }
+        assert!(!allowed_address("10.0.0.1".parse().unwrap(), false));
+        assert!(allowed_address("10.0.0.1".parse().unwrap(), true));
+        assert!(allowed_address("8.8.8.8".parse().unwrap(), false));
+    }
 }
