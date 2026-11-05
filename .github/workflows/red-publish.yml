@@ -14,6 +14,24 @@ jobs:
         with:
           workspaces: rust/red-routerd
       - run: cargo build --locked --release --manifest-path rust/red-routerd/Cargo.toml
+      - name: Check real OpenRouter connection with intentionally invalid key
+        shell: bash
+        env:
+          RED_ROUTER_LISTEN: 127.0.0.1:19091
+          RED_ROUTER_UPSTREAM_URL: https://openrouter.ai/api/v1/chat/completions
+          RED_ROUTER_CLIENT_KEY: smoke-client-test-key-12345
+          RED_ROUTER_PROVIDER_KEY: deliberately-invalid-openrouter-test-key
+        run: |
+          set -euo pipefail
+          rust/red-routerd/target/release/red-routerd > proxy.log 2>&1 &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true' EXIT
+          for i in {1..30}; do curl -fsS http://127.0.0.1:19091/healthz > /dev/null && break || sleep 1; done
+          status=$(curl -sS -o response.json -w '%{http_code}' --max-time 30 http://127.0.0.1:19091/v1/chat/completions \
+            -H 'Authorization: Bearer smoke-client-test-key-12345' -H 'Content-Type: application/json' \
+            -d '{"model":"openrouter/free","messages":[{"role":"user","content":"Say hello"}],"max_tokens":8}')
+          echo "OpenRouter response status: $status (invalid test key)"
+          test "$status" = 401
       - uses: actions/upload-artifact@v4
         with:
           name: red-routerd-linux-x86_64
