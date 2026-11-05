@@ -28,5 +28,20 @@ Private HTTPS targets require `RED_ROUTER_ALLOW_PRIVATE_UPSTREAM=1`. Cloud metad
 and link-local addresses remain blocked. HTTP is allowed only for literal loopback.
 Redirects are refused. System proxy environment settings are deliberately ignored.
 
+For OpenRouter, use `https://openrouter.ai/api/v1/chat/completions` as the upstream
+URL and an OpenRouter API key as the provider key. For example, after starting the
+server with those settings, a client can send a small test request:
+
+```sh
+curl http://127.0.0.1:19091/v1/chat/completions \
+  -H "Authorization: Bearer $RED_ROUTER_CLIENT_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"openrouter/free","messages":[{"role":"user","content":"Say hello"}],"max_tokens":16}'
+```
+
+`openrouter/free` is OpenRouter's free-model router, subject to its availability
+and rate limits. See the [OpenRouter API documentation](https://openrouter.ai/docs/api/api-reference/chat/send-chat-completion-request).
+
 The next slice needs equivalent routing/authz, accounting, persistence and contract
 tests before considering a cluster deployment.
+
