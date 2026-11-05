@@ -33,11 +33,12 @@ Alternatively set `RED_ROUTER_DB_BACKEND` and a matching database URL:
 | --- | --- | --- |
 | RedDB embedded | `reddb-embedded` | `file:///absolute/path/red-router.rdb` |
 | SQLite embedded | `sqlite` | `sqlite:///absolute/path/router.sqlite?mode=rwc` |
-| RedDB remote | `reddb-remote` | `postgresql://user:password@host:port/database` |
+| RedDB remote | `reddb-remote` | `reds://user:password@host:5050` |
 | PostgreSQL | `postgres` | `postgresql://user:password@host:port/database` |
 
-Remote RedDB uses its PostgreSQL-wire listener. Supply transport security and
-authentication appropriate to the deployment. Database connection strings can
+Remote RedDB uses RedWire. `reds://` enables TLS with trusted system roots; `red://`
+is plaintext. Authentication can be supplied as URL user/password or `?token=...`.
+Database connection strings can
 contain credentials; do not commit or log them. A selected backend that is
 unavailable causes startup to fail, with no automatic switch to a local database.
 RedDB's known concurrent indexed-read issue remains under investigation; these
@@ -46,7 +47,8 @@ settings are not yet suitable evidence of safe clustered operation.
 On the first run against an empty database, `RED_ROUTER_UPSTREAM_URL` is validated
 and saved. On later runs the stored value wins over this initial seed. To change it,
 set the environment variables as above and run the binary with `set-upstream`;
-restart each proxy process to apply the change. This slice does not implement
+restart each proxy process to apply the change. Stop the proxy first when editing an
+embedded RedDB file: one RedRouter process can own that file at a time. This slice does not implement
 distributed configuration invalidation or database-backed provider credentials.
 Build with `--no-default-features` to omit the embedded RedDB engine for a
 remote-only or SQLite deployment; choosing `reddb-embedded` in that build fails.

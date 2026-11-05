@@ -44,6 +44,25 @@ async fn embedded_reddb_configuration_survives_restart() {
     exercise(Backend::ReddbEmbedded, url.as_str()).await;
 }
 
+#[cfg(feature = "reddb-embedded")]
+#[tokio::test]
+async fn embedded_reddb_refuses_a_second_owner() {
+    let temp = TempDir::new().unwrap();
+    let url = Url::from_file_path(temp.path().join("config.rdb")).unwrap();
+    let first = Database::connect(Backend::ReddbEmbedded, url.as_str())
+        .await
+        .unwrap();
+    assert!(Database::connect(Backend::ReddbEmbedded, url.as_str())
+        .await
+        .is_err());
+    first.close().await.unwrap();
+    drop(first);
+    let second = Database::connect(Backend::ReddbEmbedded, url.as_str())
+        .await
+        .unwrap();
+    second.close().await.unwrap();
+}
+
 async fn remote(backend: Backend, variable: &str) {
     let Ok(url) = std::env::var(variable) else {
         return;
@@ -52,27 +71,6 @@ async fn remote(backend: Backend, variable: &str) {
         std::env::var("RED_ROUTER_TEST_DISPOSABLE").as_deref(),
         Ok("1")
     );
-    let db = Database::connect(backend, &url).await.unwrap();
-    let Database::Sql(pool) = &db else {
-        panic!("expected SQL transport")
-    };
-    sqlx::query("DELETE FROM redrouter_proxy_config")
-        .execute(pool)
-        .await
-        .unwrap();
-    if backend == Backend::ReddbRemote {
-        sqlx::query("INSERT INTO redrouter_proxy_config (id, upstream_url) VALUES (1, $1) ON CONFLICT (id) DO NOTHING")
-            .bind("https://fixture.example/v1/chat/completions")
-            .execute(pool)
-            .await
-            .expect("disposable RedDB parameterized insert");
-        sqlx::query("DELETE FROM redrouter_proxy_config")
-            .execute(pool)
-            .await
-            .unwrap();
-    }
-    db.close().await.unwrap();
-    drop(db);
     exercise(backend, &url).await;
 }
 
