@@ -1,0 +1,31 @@
+name: Rust data plane
+
+on:
+  push:
+    branches: [main]
+    paths: ["rust/red-routerd/**", ".github/workflows/rust-data-plane.yml"]
+  pull_request:
+    branches: [main]
+    paths: ["rust/red-routerd/**", ".github/workflows/rust-data-plane.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rust-data-plane:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: rust/red-routerd
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets --locked -- -D warnings
+      - run: cargo test --locked
+      - run: cargo build --release --locked
+
