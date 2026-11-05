@@ -13,7 +13,7 @@ jobs:
       CARGO_PROFILE_TEST_DEBUG: 0
       RED_ROUTER_TEST_DISPOSABLE: 1
       RED_ROUTER_TEST_POSTGRES_URL: postgresql://routing:routing-ci-only@127.0.0.1:5432/routing
-      RED_ROUTER_TEST_REDDB_URL: postgresql://routing:routing-ci-only@127.0.0.1:55432/routing
+      RED_ROUTER_TEST_REDDB_URL: red://127.0.0.1:15050
     services:
       postgres:
         image: postgres:17.6
@@ -36,6 +36,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust/red-routerd
+          cache-on-failure: true
       - name: Boot disposable RedDB
         run: |
           set -euo pipefail
@@ -45,10 +46,10 @@ jobs:
           awk '$2 == "red-linux-x86_64-static" { print; found = 1 } END { if (!found) exit 1 }' SHA256SUMS > red.sha256
           sha256sum --check red.sha256
           chmod +x red-linux-x86_64-static
-          ./red-linux-x86_64-static server --path "$RUNNER_TEMP/rust-storage.rdb" --pg-bind 127.0.0.1:55432 --no-auth --no-log-file > "$RUNNER_TEMP/reddb.log" 2>&1 &
+          ./red-linux-x86_64-static server --path "$RUNNER_TEMP/rust-storage.rdb" --wire-bind 127.0.0.1:15050 --no-auth --no-log-file > "$RUNNER_TEMP/reddb.log" 2>&1 &
           echo "$!" > reddb.pid
           for attempt in $(seq 1 30); do
-            if (echo > /dev/tcp/127.0.0.1/55432) 2>/dev/null; then exit 0; fi
+            if (echo > /dev/tcp/127.0.0.1/15050) 2>/dev/null; then exit 0; fi
             kill -0 "$(cat reddb.pid)"
             sleep 1
           done
