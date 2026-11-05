@@ -334,7 +334,7 @@ class WreqTransportPool {
             method: options.method,
             headers: options.headers,
             body: options.body,
-            redirect: "follow",
+            redirect: options.redirect ?? "follow",
             timeout: options.timeoutMilliseconds,
             signal: options.signal,
             transport,
