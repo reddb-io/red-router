@@ -139,6 +139,33 @@ jobs:
         if: failure()
         run: cat "$RUNNER_TEMP/reddb.log" || true
 
+  rust-windows-storage:
+    name: Rust Windows storage
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      CARGO_INCREMENTAL: 0
+      CARGO_PROFILE_DEV_DEBUG: 0
+      CARGO_PROFILE_TEST_DEBUG: 0
+      RUST_MIN_STACK: 8388608
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install protoc
+        shell: pwsh
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP 'protoc.zip'
+          $destination = Join-Path $env:RUNNER_TEMP 'protoc'
+          Invoke-WebRequest 'https://github.com/protocolbuffers/protobuf/releases/download/v28.3/protoc-28.3-win64.zip' -OutFile $archive
+          Expand-Archive -LiteralPath $archive -DestinationPath $destination
+          Join-Path $destination 'bin' | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust/red-routerd
+          cache-on-failure: true
+      - name: Test local storage and proxy restarts
+        run: cargo test --locked --manifest-path rust/red-routerd/Cargo.toml --test storage --test storage_proxy
+
   test-unit:
     name: RedRouter contracts
     runs-on: ubuntu-latest
@@ -357,7 +384,7 @@ jobs:
   release:
     name: Publish npm and GitHub Release
     if: github.repository == 'reddb-io/red-router' && (startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.tag != ''))
-    needs: [checks, test-unit, test-routing-storage, test-vitest, build, rust-data-plane]
+    needs: [checks, test-unit, test-routing-storage, test-vitest, build, rust-data-plane, rust-windows-storage]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: npm-release
