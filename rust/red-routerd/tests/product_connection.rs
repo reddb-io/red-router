@@ -3,6 +3,8 @@ use futures_util::{stream, StreamExt};
 use red_routerd::{product::ProductConnection, router, ProxyState};
 use sha2::{Digest, Sha256};
 use sqlx::{sqlite::SqliteConnectOptions, Connection, SqliteConnection};
+use std::io::{BufRead, Read, Write};
+use std::process::{Command, Stdio};
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
     Arc,
@@ -449,6 +451,116 @@ async fn dashboard_keys_enforce_supported_policy_and_refuse_unimplemented_quotas
         sqlx::query(reset).execute(&mut db).await.unwrap();
     }
     assert_eq!(requests.load(Ordering::SeqCst), 2);
+    server.abort();
+    provider.abort();
+}
+
+#[tokio::test]
+async fn typescript_and_rust_share_rpm_admission() {
+    let (dir, mut db) = fixture().await;
+    sqlx::query(
+        "UPDATE provider_connections SET api_key = 'fixture-provider-key' WHERE id = 'test'",
+    )
+    .execute(&mut db)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO api_keys (id,key) VALUES ('mixed-client','mixed-dashboard-key-12345')",
+    )
+    .execute(&mut db)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO api_key_quota_limits VALUES ('mixed-client',NULL,8,NULL)")
+        .execute(&mut db)
+        .await
+        .unwrap();
+    let (connection, key) =
+        ProductConnection::open(&dir.path().join("storage.sqlite"), "test", None)
+            .await
+            .unwrap();
+    let connection = connection.with_shared_rpm().await.unwrap();
+    let upstream = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let upstream_address = upstream.local_addr().unwrap();
+    let provider = tokio::spawn(async move {
+        axum::serve(
+            upstream,
+            Router::new().route("/v1/chat/completions", post(|| async { "ok" })),
+        )
+        .await
+        .unwrap()
+    });
+    let state = ProxyState::new(
+        &format!("http://{upstream_address}/v1/chat/completions"),
+        "unused-client-key-12345",
+        &key,
+        false,
+    )
+    .await
+    .unwrap()
+    .with_product_connection(connection)
+    .with_product_client_keys()
+    .unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move { axum::serve(listener, router(state)).await.unwrap() });
+    let fixture =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/shared-rpm-node.mjs");
+    let mut node = Command::new("node")
+        .arg("--experimental-strip-types")
+        .arg(fixture)
+        .env("RED_ROUTER_TEST_SQLITE", dir.path().join("storage.sqlite"))
+        .env("NODE_NO_WARNINGS", "1")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdout = std::io::BufReader::new(node.stdout.take().unwrap());
+    let mut ready = String::new();
+    stdout.read_line(&mut ready).unwrap();
+    assert_eq!(ready.trim(), "ready");
+    // Both implementations use the current minute; avoid a rollover mid-test.
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64;
+    if now % 60_000 > 55_000 {
+        tokio::time::sleep(std::time::Duration::from_millis(60_050 - now % 60_000)).await;
+    }
+    node.stdin.take().unwrap().write_all(b"go\n").unwrap();
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let statuses: Vec<_> = stream::iter(0..16)
+        .map(|_| {
+            let client = client.clone();
+            async move {
+                client
+                    .post(format!("http://{address}/v1/chat/completions"))
+                    .bearer_auth("mixed-dashboard-key-12345")
+                    .header("content-type", "application/json")
+                    .body(r#"{"model":"openrouter/openai/gpt","messages":[]}"#)
+                    .send()
+                    .await
+                    .unwrap()
+                    .status()
+            }
+        })
+        .buffer_unordered(16)
+        .collect()
+        .await;
+    let status = node.wait().unwrap();
+    assert!(status.success());
+    let mut output = String::new();
+    stdout.read_to_string(&mut output).unwrap();
+    let result: serde_json::Value = serde_json::from_str(&output).unwrap();
+    let node_allowed = result["allowed"].as_u64().unwrap() as usize;
+    let rust_allowed = statuses.iter().filter(|s| **s == 200).count();
+    assert_eq!(rust_allowed + node_allowed, 8, "{statuses:?}: {output}");
+    assert!(
+        statuses.iter().all(|s| *s == 200 || *s == 429),
+        "{statuses:?}"
+    );
+    let total: f64 = sqlx::query_scalar("SELECT CAST(SUM(consumed) AS REAL) FROM api_key_quota_counters WHERE api_key_id = 'mixed-client'")
+        .fetch_one(&mut db).await.unwrap();
+    assert_eq!(total, 8.0);
     server.abort();
     provider.abort();
 }

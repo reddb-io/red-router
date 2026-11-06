@@ -13,6 +13,7 @@ import {
 } from "@omniroute/open-sse/services/tokenLimitCounter.ts";
 import { computeBillableTokens } from "@omniroute/open-sse/handlers/chatCore/upstreamTimeouts.ts";
 import { checkKeyQuota, recordKeyQuotaUsage } from "@/domain/keyQuota";
+import { reserveSharedKeyRpm } from "@/lib/db/keyQuota";
 import { normalizeUsage } from "@omniroute/open-sse/utils/usageTracking.ts";
 import { resolveProxyForConnection } from "@/lib/db/settings";
 import { hasBlockingProxyAssignment } from "@/lib/db/proxies";
@@ -53,6 +54,7 @@ const defaults = {
   keyQuota: checkKeyQuota,
   tokenLimits: checkTokenLimits,
   recordKeyQuota: recordKeyQuotaUsage,
+  reserveSharedRpm: reserveSharedKeyRpm,
   recordWindowTokens: recordTokenUsage,
   recover: clearRecoveredProviderState,
   unavailable: markAccountUnavailable,
@@ -63,6 +65,7 @@ export type SystemOneDispatchOptions = {
   forcedConnectionId?: string | null;
   apiKeyId?: string | null;
   apiKeyName?: string | null;
+  sharedRpmReserved?: boolean;
   attribution?: RequestAttribution | null;
   signal?: AbortSignal | null;
   timeoutMs?: number;
@@ -101,13 +104,22 @@ export async function dispatchSystemOne(
   }
   if (options.apiKeyId) {
     try {
-      const quota = deps.keyQuota(options.apiKeyId);
+      const quota = deps.keyQuota(options.apiKeyId, { skipRpmCheck: options.sharedRpmReserved === true });
       if (!quota.allowed) return fail(429, quota.reason || "API key quota exceeded");
       if (deps.tokenLimits(options.apiKeyId, target.provider, target.model)) {
         return fail(429, "Token limit exceeded for this API key");
       }
     } catch {
       return fail(503, "System One quota policy unavailable");
+    }
+  }
+  let sharedRpmReserved = options.sharedRpmReserved === true;
+  if (options.apiKeyId && !sharedRpmReserved && process.env.RED_ROUTER_PRODUCT_SHARED_RPM === "1") {
+    try {
+      if (!deps.reserveSharedRpm(options.apiKeyId)) return fail(429, "Client RPM quota exceeded");
+      sharedRpmReserved = true;
+    } catch {
+      return fail(503, "Client quota accounting unavailable");
     }
   }
   const actor = { id: options.apiKeyId, attribution: options.attribution };
@@ -263,7 +275,7 @@ export async function dispatchSystemOne(
               if (options.apiKeyId) {
                 const billable = computeBillableTokens(tokens);
                 deps.recordTokens(actor, target.provider, billable);
-                deps.recordKeyQuota(options.apiKeyId, billable);
+                deps.recordKeyQuota(options.apiKeyId, billable, { skipRpm: sharedRpmReserved });
                 deps.recordWindowTokens(options.apiKeyId, target.provider, target.model, billable);
               }
             } catch {
@@ -291,7 +303,7 @@ export async function dispatchSystemOne(
           }
           if (!tokens && options.apiKeyId) {
             try {
-              deps.recordKeyQuota(options.apiKeyId, 0);
+              deps.recordKeyQuota(options.apiKeyId, 0, { skipRpm: sharedRpmReserved });
             } catch {
               accountingSucceeded = false;
             }

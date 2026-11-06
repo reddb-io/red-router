@@ -111,6 +111,7 @@ export async function handleSystemOne(request: Request): Promise<Response> {
       forcedConnectionId: requestedConnectionId,
       apiKeyId: policy.apiKeyInfo?.id,
       apiKeyName: policy.apiKeyInfo?.name,
+      sharedRpmReserved: policy.apiKeyInfo?.sharedRpmReserved,
       attribution,
       signal: request.signal,
       warn: (message) => console.warn(message),

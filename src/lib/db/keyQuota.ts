@@ -15,6 +15,7 @@
 
 import { getDbInstance } from "./core";
 import { aggregateLedgerThisMonth } from "./costLedger";
+import { reserveSharedRpmOnDb } from "./sharedRpm";
 import { toNumber } from "@/shared/utils/numeric";
 
 // ---------------------------------------------------------------------------
@@ -361,6 +362,15 @@ export function getQuotaWindowCount(
   nowMs = Date.now()
 ): number {
   return effectiveWindowCount(ownerId, dimensionKey, nowMs);
+}
+
+/**
+ * Reserve one RPM slot in the product counter table, using the same
+ * BEGIN IMMEDIATE and two-bucket window as red-routerd. Callers must avoid
+ * incrementing RPM again when recording the completed response.
+ */
+export function reserveSharedKeyRpm(apiKeyId: string, nowMs = Date.now()): boolean {
+  return reserveSharedRpmOnDb(getDbInstance(), apiKeyId, nowMs);
 }
 
 /** Drop every counter of one owner (a deleted budget). */

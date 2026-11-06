@@ -100,6 +100,9 @@ jobs:
           --health-retries 10
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -154,6 +157,9 @@ jobs:
       RUST_MIN_STACK: 8388608
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
       - uses: dtolnay/rust-toolchain@stable
       - name: Install protoc
         shell: pwsh
@@ -171,6 +177,21 @@ jobs:
         run: cargo test --locked --manifest-path rust/red-routerd/Cargo.toml --test storage --test storage_proxy --test product_connection
       - name: Test embedded RedDB opt-in
         run: cargo test --locked --features reddb-embedded --manifest-path rust/red-routerd/Cargo.toml --test storage --test storage_proxy
+
+  rust-shared-rpm-typescript:
+    if: inputs.suite == 'all' || inputs.suite == 'rust'
+    name: Shared RPM TypeScript
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: ./.github/actions/npm-ci-retry
+      - name: Verify TypeScript quota admission
+        run: node --import tsx/esm --import ./open-sse/utils/setupPolyfill.ts --test tests/redrouter/native/shared-rpm.test.ts tests/redrouter/native/systemone-dispatch.test.ts
 
 
   plugin-dependencies:
