@@ -5,7 +5,7 @@ on:
       suite:
         type: choice
         description: Quality suite to run
-        options: [checks, unit, routing, vitest, browser, rust, all]
+        options: [checks, unit, routing, vitest, browser, rust, plugins, all]
         default: checks
 permissions:
   contents: read
@@ -148,6 +148,28 @@ jobs:
       - name: Test local storage and proxy restarts
         run: cargo test --locked --manifest-path rust/red-routerd/Cargo.toml --test storage --test storage_proxy
 
+
+  plugin-dependencies:
+    if: inputs.suite == 'all' || inputs.suite == 'plugins'
+    name: Plugin dependency compatibility (${{ matrix.package }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [opencode-plugin, opencode-plugin-v2, opencode-provider]
+    defaults:
+      run:
+        working-directory: '@omniroute/${{ matrix.package }}'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm ci --no-fund
+      - run: npm audit --audit-level=low
+      - run: npm run build
+      - run: npm test
 
   test-unit:
     if: inputs.suite == 'all' || inputs.suite == 'unit'
