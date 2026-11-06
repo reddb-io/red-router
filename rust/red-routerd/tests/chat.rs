@@ -656,3 +656,162 @@ async fn routes_models_with_priority_round_robin_and_opt_in_fallback() {
         provider.abort();
     }
 }
+
+#[tokio::test]
+async fn gemini_native_routes_preserve_bodies_streams_and_credentials() {
+    use axum::extract::{Path, Request};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let calls = Arc::new(AtomicUsize::new(0));
+    let seen = calls.clone();
+    let provider = Router::new().route(
+        "/v1beta/models/{model_action}",
+        post(move |Path(action): Path<String>, request: Request| {
+            let seen = seen.clone();
+            async move {
+                seen.fetch_add(1, Ordering::SeqCst);
+                assert_eq!(
+                    request.headers().get("x-goog-api-key").unwrap(),
+                    "gemini-provider-key"
+                );
+                assert!(request.headers().get(header::AUTHORIZATION).is_none());
+                let query = request.uri().query().map(str::to_owned);
+                let body = axum::body::to_bytes(request.into_body(), 1024)
+                    .await
+                    .unwrap();
+                let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+                assert_eq!(body["contents"][0]["parts"][0]["text"], "hello");
+                assert!(body.get("model").is_none());
+                match action.as_str() {
+                    "provider-model:generateContent" => {
+                        assert_eq!(query, None);
+                        (
+                            [(header::CONTENT_TYPE, "application/json")],
+                            "{\"ok\":true}",
+                        )
+                    }
+                    "provider-model:streamGenerateContent" => {
+                        assert_eq!(query.as_deref(), Some("alt=sse"));
+                        (
+                            [(header::CONTENT_TYPE, "text/event-stream")],
+                            "data: {\"ok\":true}\n\n",
+                        )
+                    }
+                    _ => panic!("unexpected provider path"),
+                }
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let provider_task = tokio::spawn(async move { axum::serve(listener, provider).await.unwrap() });
+    let config = serde_json::json!([{"model":"gemini-route", "protocol":"gemini", "targets":[{
+        "url":format!("http://{addr}/v1beta/models"), "model":"provider-model", "api_key_env":"GEMINI_KEY"
+    }]}]).to_string();
+    let state = ProxyState::new(
+        &format!("http://{addr}/v1/chat/completions"),
+        "client-key-12345678",
+        "unused",
+        false,
+    )
+    .await
+    .unwrap()
+    .with_routes(&config, |_| Some("gemini-provider-key".into()), false)
+    .await
+    .unwrap()
+    .with_client_policies(
+        r#"[{"api_key_env":"CLIENT","allowed_routes":["gemini-route"]}]"#,
+        |_| Some("client-key-12345678".into()),
+    )
+    .unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let proxy_task =
+        tokio::spawn(async move { axum::serve(listener, router(state)).await.unwrap() });
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let body = r#"{"contents":[{"parts":[{"text":"hello"}]}]}"#;
+    let path = "/v1beta/models/gemini-route:generateContent";
+    assert_eq!(
+        client
+            .post(format!("{base}{path}"))
+            .header("x-goog-api-key", "client-key-12345678")
+            .bearer_auth("client-key-12345678")
+            .body(body)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        client
+            .post(format!("{base}{path}?key=secret"))
+            .header("x-goog-api-key", "client-key-12345678")
+            .body(body)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::BAD_REQUEST
+    );
+    assert_eq!(
+        client
+            .post(format!("{base}/v1beta/models/unknown:generateContent"))
+            .header("x-goog-api-key", "client-key-12345678")
+            .body(body)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        client
+            .post(format!("{base}/v1/chat/completions"))
+            .bearer_auth("client-key-12345678")
+            .body(r#"{"model":"gemini-route"}"#)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        client
+            .post(format!("{base}{path}"))
+            .header("x-goog-api-key", "client-key-12345678")
+            .body(r#"{"model":"other","contents":[]}"#)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::BAD_REQUEST
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+    let response = client
+        .post(format!("{base}{path}"))
+        .header("x-goog-api-key", "client-key-12345678")
+        .body(body)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.text().await.unwrap(), "{\"ok\":true}");
+    let response = client
+        .post(format!(
+            "{base}/v1beta/models/gemini-route:streamGenerateContent?alt=sse"
+        ))
+        .bearer_auth("client-key-12345678")
+        .body(body)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        response.headers()[header::CONTENT_TYPE],
+        "text/event-stream"
+    );
+    assert_eq!(response.text().await.unwrap(), "data: {\"ok\":true}\n\n");
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+    proxy_task.abort();
+    provider_task.abort();
+}

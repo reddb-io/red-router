@@ -1,7 +1,8 @@
 # red-routerd: first Rust data-plane slice
 
 This is an **experimental development slice**, not a replacement for RedRouter. It
-implements OpenAI-compatible chat and native Anthropic Messages routes with a
+implements OpenAI-compatible chat, OpenAI Responses, native Anthropic Messages,
+and native Gemini GenerateContent routes with a
 required client key, separate provider keys, bounded request size and concurrent
 streams, reusable HTTP connections, incremental responses, and safe redirect refusal.
 It binds only to loopback. The operator can configure OpenAI-compatible HTTPS
@@ -109,7 +110,7 @@ Send native requests to `/v1/messages` with the proxy client key in `x-api-key`
 (or an Authorization bearer header). The proxy forwards `anthropic-version`
 (default `2023-06-01`) and `anthropic-beta`, and streams the native response.
 Each route has one protocol; OpenAI and Anthropic requests cannot be interchanged.
-Gemini and other native provider protocols are not yet implemented.
+Other native provider protocols are not yet implemented.
 
 For native OpenAI Responses, configure a distinct route with
 `"protocol":"openai-responses"` and a target URL ending in `/v1/responses`.
@@ -117,6 +118,23 @@ Send requests to `/v1/responses` with the proxy bearer key and an explicit
 `model` matching that route. JSON and server-sent events are relayed without
 translation; retrieval, cancellation and other Responses endpoints are not yet
 implemented. See the [official streaming guide](https://developers.openai.com/api/docs/guides/streaming-responses).
+
+Native Gemini GenerateContent supports both JSON and SSE responses:
+
+```sh
+export GEMINI_KEY='...'
+export RED_ROUTER_ROUTES_JSON='[{"model":"gemini-route","protocol":"gemini","targets":[{"url":"https://generativelanguage.googleapis.com/v1beta/models","model":"your-gemini-model","api_key_env":"GEMINI_KEY"}]}]'
+```
+
+Send a native Gemini request body to `/v1beta/models/gemini-route:generateContent`
+or `/v1beta/models/gemini-route:streamGenerateContent?alt=sse`, using the proxy
+client key in `x-goog-api-key` or an Authorization bearer header. The provider key
+is supplied separately from the named environment variable. Only `alt=sse` is
+accepted in the query string, only for streaming; credentials in query strings and
+model overrides in the JSON body are rejected. Route and target model names are
+single path segments. Native bodies and responses pass through without protocol
+translation. This is Gemini API support; Gemini CLI provider authentication is not
+implemented. See the [Gemini REST API reference](https://ai.google.dev/api/generate-content).
 
 ## Experimental client policies
 

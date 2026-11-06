@@ -3,7 +3,7 @@ mod policy;
 pub mod storage;
 use axum::{
     body::{to_bytes, Body},
-    extract::{Request, State},
+    extract::{Path, Request, State},
     http::{header, HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -49,6 +49,7 @@ enum ProviderProtocol {
     OpenAi,
     OpenAiResponses,
     Anthropic,
+    Gemini,
 }
 
 struct ModelTarget {
@@ -98,6 +99,7 @@ impl ProxyState {
                 ProviderProtocol::OpenAi => "/chat/completions",
                 ProviderProtocol::OpenAiResponses => "/responses",
                 ProviderProtocol::Anthropic => "/messages",
+                ProviderProtocol::Gemini => "/models",
             })
         {
             return Err("upstream must be a credential-free HTTPS chat endpoint (HTTP is allowed for literal loopback only)");
@@ -135,7 +137,7 @@ impl ProxyState {
             ProviderProtocol::OpenAi | ProviderProtocol::OpenAiResponses => {
                 format!("Bearer {provider_key}")
             }
-            ProviderProtocol::Anthropic => provider_key.to_owned(),
+            ProviderProtocol::Anthropic | ProviderProtocol::Gemini => provider_key.to_owned(),
         };
         let mut provider_key =
             HeaderValue::from_str(&provider_credential).map_err(|_| "invalid provider key")?;
@@ -205,8 +207,12 @@ impl ProxyState {
                     ProviderProtocol::OpenAiResponses
                 }
                 Some(value) if value.as_str() == Some("anthropic") => ProviderProtocol::Anthropic,
+                Some(value) if value.as_str() == Some("gemini") => ProviderProtocol::Gemini,
                 _ => return Err("unsupported route protocol"),
             };
+            if protocol == ProviderProtocol::Gemini && !valid_gemini_model(alias) {
+                return Err("invalid Gemini route model");
+            }
             let round_robin = match object.get("strategy") {
                 None => false,
                 Some(v) if v.as_str() == Some("priority") => false,
@@ -242,6 +248,9 @@ impl ProxyState {
                     .and_then(|v| v.as_str())
                     .filter(|s| !s.is_empty() && s.len() <= 256)
                     .ok_or("target model required")?;
+                if protocol == ProviderProtocol::Gemini && !valid_gemini_model(model) {
+                    return Err("invalid Gemini target model");
+                }
                 let key_name = target
                     .get("api_key_env")
                     .and_then(|v| v.as_str())
@@ -282,6 +291,18 @@ impl ProxyState {
         self.routes = Arc::new(routes);
         Ok(self)
     }
+}
+
+// A model is a single URL path segment; never let route data change the
+// pinned host, path hierarchy, query string, or requested operation.
+fn valid_gemini_model(model: &str) -> bool {
+    !model.is_empty()
+        && model.len() <= 256
+        && model
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'))
+        && model != "."
+        && model != ".."
 }
 
 fn allowed_address(ip: IpAddr, allow_private: bool) -> bool {
@@ -340,6 +361,7 @@ pub fn router(state: ProxyState) -> Router {
         .route("/v1/chat/completions", post(chat))
         .route("/v1/responses", post(responses))
         .route("/v1/messages", post(messages))
+        .route("/v1beta/models/{model_action}", post(gemini))
         .with_state(state)
 }
 
@@ -352,26 +374,57 @@ fn error(status: StatusCode, message: &'static str) -> Response {
 }
 
 async fn chat(State(state): State<ProxyState>, request: Request) -> Response {
-    proxy_request(state, request, ProviderProtocol::OpenAi).await
+    proxy_request(state, request, ProviderProtocol::OpenAi, None).await
 }
 
 async fn messages(State(state): State<ProxyState>, request: Request) -> Response {
-    proxy_request(state, request, ProviderProtocol::Anthropic).await
+    proxy_request(state, request, ProviderProtocol::Anthropic, None).await
 }
 
 async fn responses(State(state): State<ProxyState>, request: Request) -> Response {
-    proxy_request(state, request, ProviderProtocol::OpenAiResponses).await
+    proxy_request(state, request, ProviderProtocol::OpenAiResponses, None).await
+}
+
+async fn gemini(
+    State(state): State<ProxyState>,
+    Path(model_action): Path<String>,
+    request: Request,
+) -> Response {
+    let Some((model, action)) = model_action.split_once(':') else {
+        return error(StatusCode::NOT_FOUND, "Unknown Gemini operation");
+    };
+    let stream = match action {
+        "generateContent" => false,
+        "streamGenerateContent" => true,
+        _ => return error(StatusCode::NOT_FOUND, "Unknown Gemini operation"),
+    };
+    let query_allowed = match request.uri().query() {
+        None => true,
+        Some("alt=sse") => stream,
+        Some(_) => false,
+    };
+    if !valid_gemini_model(model) || !query_allowed {
+        return error(
+            StatusCode::BAD_REQUEST,
+            "Invalid Gemini request path or query",
+        );
+    }
+    proxy_request(
+        state,
+        request,
+        ProviderProtocol::Gemini,
+        Some((model.to_owned(), stream)),
+    )
+    .await
 }
 
 async fn proxy_request(
     state: ProxyState,
     request: Request,
     protocol: ProviderProtocol,
+    gemini: Option<(String, bool)>,
 ) -> Response {
-    let Some(policy) = state
-        .clients
-        .authenticate(request.headers(), protocol == ProviderProtocol::Anthropic)
-    else {
+    let Some(policy) = state.clients.authenticate(request.headers(), protocol) else {
         return error(StatusCode::UNAUTHORIZED, "Invalid API key");
     };
     let anthropic_headers = if protocol == ProviderProtocol::Anthropic {
@@ -413,12 +466,19 @@ async fn proxy_request(
         Ok(value) => value,
         Err(_) => return error(StatusCode::BAD_REQUEST, "Invalid JSON request"),
     };
-    let Some(model) = parsed
-        .get("model")
-        .and_then(|model| model.as_str())
-        .filter(|model| !model.is_empty())
-        .map(str::to_owned)
-    else {
+    let model = gemini.as_ref().map(|(model, _)| model.clone()).or_else(|| {
+        parsed
+            .get("model")
+            .and_then(|model| model.as_str())
+            .filter(|model| !model.is_empty())
+            .map(str::to_owned)
+    });
+    if protocol == ProviderProtocol::Gemini
+        && (!parsed.is_object() || parsed.get("model").is_some())
+    {
+        return error(StatusCode::BAD_REQUEST, "Invalid Gemini request body");
+    }
+    let Some(model) = model else {
         return error(StatusCode::BAD_REQUEST, "A model is required");
     };
     if !policy.route_allowed(&model) {
@@ -453,7 +513,9 @@ async fn proxy_request(
         let target = route.map(|_| eligible[(start + offset) % eligible.len()]);
         let (client, url, provider_key, payload) = match target {
             Some(target) => {
-                parsed["model"] = serde_json::Value::String(target.model.clone());
+                if protocol != ProviderProtocol::Gemini {
+                    parsed["model"] = serde_json::Value::String(target.model.clone());
+                }
                 let payload = match serde_json::to_vec(&parsed) {
                     Ok(value) => value,
                     Err(_) => return error(StatusCode::BAD_REQUEST, "Invalid JSON request"),
@@ -472,8 +534,20 @@ async fn proxy_request(
                 body.to_vec(),
             ),
         };
+        let mut target_url = url.clone();
+        if let (Some(target), Some((_, stream))) = (target, &gemini) {
+            let action = if *stream {
+                "streamGenerateContent"
+            } else {
+                "generateContent"
+            };
+            target_url.set_path(&format!("{}/{}:{action}", url.path(), target.model));
+            if *stream {
+                target_url.set_query(Some("alt=sse"));
+            }
+        }
         let mut upstream = client
-            .post(url.clone())
+            .post(target_url)
             .header(header::CONTENT_TYPE, "application/json")
             .body(payload);
         match &anthropic_headers {
@@ -484,6 +558,9 @@ async fn proxy_request(
                 if let Some(beta) = beta {
                     upstream = upstream.header("anthropic-beta", beta.clone());
                 }
+            }
+            None if protocol == ProviderProtocol::Gemini => {
+                upstream = upstream.header("x-goog-api-key", provider_key.clone())
             }
             None => upstream = upstream.header(header::AUTHORIZATION, provider_key.clone()),
         }

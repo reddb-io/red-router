@@ -115,21 +115,37 @@ impl ClientPolicies {
     pub(crate) fn authenticate(
         &self,
         headers: &HeaderMap,
-        anthropic: bool,
+        protocol: super::ProviderProtocol,
     ) -> Option<&ClientPolicy> {
         let mut values = headers.get_all(header::AUTHORIZATION).iter();
         let mut api_keys = headers.get_all("x-api-key").iter();
+        let mut google_keys = headers.get_all("x-goog-api-key").iter();
         let authorization = values.next();
         let api_key = api_keys.next();
+        let google_key = google_keys.next();
         if values.next().is_some()
             || api_keys.next().is_some()
-            || (authorization.is_some() && api_key.is_some())
+            || google_keys.next().is_some()
+            || [
+                authorization.is_some(),
+                api_key.is_some(),
+                google_key.is_some(),
+            ]
+            .into_iter()
+            .filter(|v| *v)
+            .count()
+                != 1
         {
             return None;
         }
-        let candidate = match (authorization, api_key) {
-            (Some(value), None) => value.to_str().ok()?.strip_prefix("Bearer ")?,
-            (None, Some(value)) if anthropic => value.to_str().ok()?,
+        let candidate = match (authorization, api_key, google_key) {
+            (Some(value), None, None) => value.to_str().ok()?.strip_prefix("Bearer ")?,
+            (None, Some(value), None) if protocol == super::ProviderProtocol::Anthropic => {
+                value.to_str().ok()?
+            }
+            (None, None, Some(value)) if protocol == super::ProviderProtocol::Gemini => {
+                value.to_str().ok()?
+            }
             _ => return None,
         };
         if !(16..=512).contains(&candidate.len()) {
