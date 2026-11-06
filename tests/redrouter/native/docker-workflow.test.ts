@@ -76,15 +76,8 @@ test("the image is built from the published package for both platforms", () => {
   assert.match(dockerText, /\/healthz/);
 });
 
-test("red-publish.yml adds routing conformance and gains no Docker publication job", () => {
-  assert.deepEqual(Object.keys(publish.jobs), [
-    "checks",
-    "test-unit",
-    "test-routing-storage",
-    "test-vitest",
-    "build",
-    "release",
-  ]);
+test("red-publish.yml owns packaging and gains no Docker publication job", () => {
+  assert.deepEqual(Object.keys(publish.jobs), ["build", "release"]);
   assert.doesNotMatch(read(".github/workflows/red-publish.yml"), /ghcr\.io|docker\//);
 });
 

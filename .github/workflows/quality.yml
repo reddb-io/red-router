@@ -5,7 +5,7 @@ on:
       suite:
         type: choice
         description: Quality suite to run
-        options: [checks, unit, routing, vitest, browser, all]
+        options: [checks, unit, routing, vitest, browser, rust, live, plugins, all]
         default: checks
 permissions:
   contents: read
@@ -22,6 +22,26 @@ env:
 
 
 jobs:
+  rust-live-openrouter:
+    if: inputs.suite == 'live'
+    name: Rust live OpenRouter
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      CARGO_INCREMENTAL: 0
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust/red-routerd
+      - name: Require configured provider credential
+        shell: bash
+        run: 'test -n "$OPENROUTER_API_KEY" || { echo "OPENROUTER_API_KEY is not configured"; exit 1; }'
+      - name: Call OpenRouter through the SQLite gateway
+        run: cargo test --locked --manifest-path rust/red-routerd/Cargo.toml --test live_provider -- --ignored
+
   checks:
     if: inputs.suite == 'all' || inputs.suite == 'checks'
     name: Product checks
@@ -52,6 +72,155 @@ jobs:
       - run: npm run release:status
       - run: npm run audit:deps
 
+
+  rust-data-plane:
+    if: inputs.suite == 'all' || inputs.suite == 'rust'
+    name: Rust data plane
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      CARGO_INCREMENTAL: 0
+      CARGO_PROFILE_DEV_DEBUG: 0
+      CARGO_PROFILE_TEST_DEBUG: 0
+      RED_ROUTER_TEST_DISPOSABLE: 1
+      RED_ROUTER_TEST_POSTGRES_URL: postgresql://routing:routing-ci-only@127.0.0.1:5432/routing
+      RED_ROUTER_TEST_REDDB_URL: red://127.0.0.1:15050
+    services:
+      postgres:
+        image: postgres:17.6
+        env:
+          POSTGRES_USER: routing
+          POSTGRES_PASSWORD: routing-ci-only
+          POSTGRES_DB: routing
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - run: sudo apt-get update -qq && sudo apt-get install -y protobuf-compiler
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust/red-routerd
+          cache-on-failure: true
+      - name: Boot disposable RedDB
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          curl --fail --location --retry 3 -o red-linux-x86_64-static https://github.com/reddb-io/reddb/releases/download/v1.28.13/red-linux-x86_64-static
+          curl --fail --location --retry 3 -o SHA256SUMS https://github.com/reddb-io/reddb/releases/download/v1.28.13/SHA256SUMS
+          awk '$2 == "red-linux-x86_64-static" { print; found = 1 } END { if (!found) exit 1 }' SHA256SUMS > red.sha256
+          sha256sum --check red.sha256
+          chmod +x red-linux-x86_64-static
+          ./red-linux-x86_64-static server --path "$RUNNER_TEMP/rust-storage.rdb" --wire-bind 127.0.0.1:15050 --no-auth --no-log-file > "$RUNNER_TEMP/reddb.log" 2>&1 &
+          echo "$!" > reddb.pid
+          for attempt in $(seq 1 30); do
+            if (echo > /dev/tcp/127.0.0.1/15050) 2>/dev/null; then exit 0; fi
+            kill -0 "$(cat reddb.pid)"
+            sleep 1
+          done
+          cat reddb.log
+          exit 1
+      - name: Rust formatting
+        run: cargo fmt --check --manifest-path rust/red-routerd/Cargo.toml
+      - name: Rust storage and proxy tests
+        run: cargo test --locked --manifest-path rust/red-routerd/Cargo.toml
+      - name: Embedded RedDB opt-in storage tests
+        run: env -u RED_ROUTER_TEST_POSTGRES_URL -u RED_ROUTER_TEST_REDDB_URL -u RED_ROUTER_TEST_REDDB_TLS_URL cargo test --locked --features reddb-embedded --manifest-path rust/red-routerd/Cargo.toml --test storage --test storage_proxy
+      - name: Rust lint
+        run: cargo clippy --all-targets --all-features --locked --manifest-path rust/red-routerd/Cargo.toml -- -D warnings
+      - name: Build release binary
+        run: cargo build --release --locked --manifest-path rust/red-routerd/Cargo.toml
+      - name: Measure SQLite product connection guard
+        run: cargo test --release --locked --manifest-path rust/red-routerd/Cargo.toml --test product_connection benchmark_product_guard -- --ignored --nocapture
+      - name: Measure mixed provider combo
+        run: cargo test --release --locked --manifest-path rust/red-routerd/Cargo.toml --test chat benchmark_mixed_combo -- --ignored --nocapture
+      - name: Measure dashboard combo
+        run: cargo test --release --locked --manifest-path rust/red-routerd/Cargo.toml --test product_connection benchmark_dashboard_combo -- --ignored --nocapture
+      - name: RedDB diagnostics
+        if: failure()
+        run: cat "$RUNNER_TEMP/reddb.log" || true
+
+  rust-windows-storage:
+    if: inputs.suite == 'all' || inputs.suite == 'rust'
+    name: Rust Windows storage
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      CARGO_INCREMENTAL: 0
+      CARGO_PROFILE_DEV_DEBUG: 0
+      CARGO_PROFILE_TEST_DEBUG: 0
+      RUST_MIN_STACK: 8388608
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install protoc
+        shell: pwsh
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP 'protoc.zip'
+          $destination = Join-Path $env:RUNNER_TEMP 'protoc'
+          Invoke-WebRequest 'https://github.com/protocolbuffers/protobuf/releases/download/v28.3/protoc-28.3-win64.zip' -OutFile $archive
+          Expand-Archive -LiteralPath $archive -DestinationPath $destination
+          Join-Path $destination 'bin' | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust/red-routerd
+          cache-on-failure: true
+      - name: Test local storage and proxy restarts
+        run: cargo test --locked --manifest-path rust/red-routerd/Cargo.toml --test storage --test storage_proxy --test product_connection
+      - name: Test embedded RedDB opt-in
+        run: cargo test --locked --features reddb-embedded --manifest-path rust/red-routerd/Cargo.toml --test storage --test storage_proxy
+
+  rust-shared-rpm-typescript:
+    if: inputs.suite == 'all' || inputs.suite == 'rust'
+    name: Shared RPM TypeScript
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: ./.github/actions/npm-ci-retry
+      - name: Verify TypeScript quota admission
+        run: node --import tsx/esm --import ./open-sse/utils/setupPolyfill.ts --test tests/redrouter/native/shared-rpm.test.ts tests/redrouter/native/systemone-dispatch.test.ts
+      - name: Type-check TypeScript core
+        run: npm run typecheck:core
+
+
+  plugin-dependencies:
+    if: inputs.suite == 'all' || inputs.suite == 'plugins'
+    name: Plugin dependency compatibility (${{ matrix.package }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [opencode-plugin, opencode-plugin-v2, opencode-provider]
+    defaults:
+      run:
+        working-directory: '@omniroute/${{ matrix.package }}'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm ci --no-fund
+      - run: npm audit --audit-level=low
+      - run: npm run build
+      - run: npm test
 
   test-unit:
     if: inputs.suite == 'all' || inputs.suite == 'unit'
@@ -119,8 +288,8 @@ jobs:
         run: |
           set -euo pipefail
           cd "$RUNNER_TEMP"
-          curl --fail --location --retry 3 -o red-linux-x86_64-static https://github.com/reddb-io/reddb/releases/download/v1.23.4/red-linux-x86_64-static
-          curl --fail --location --retry 3 -o SHA256SUMS https://github.com/reddb-io/reddb/releases/download/v1.23.4/SHA256SUMS
+          curl --fail --location --retry 3 -o red-linux-x86_64-static https://github.com/reddb-io/reddb/releases/download/v1.28.13/red-linux-x86_64-static
+          curl --fail --location --retry 3 -o SHA256SUMS https://github.com/reddb-io/reddb/releases/download/v1.28.13/SHA256SUMS
           awk '$2 == "red-linux-x86_64-static" { print; found = 1 } END { if (!found) exit 1 }' SHA256SUMS > routing.sha256
           sha256sum --check routing.sha256
           chmod +x red-linux-x86_64-static

@@ -1,0 +1,88 @@
+import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { after, test } from "node:test";
+
+const directory = mkdtempSync(join(tmpdir(), "redrouter-shared-rpm-"));
+process.env.DATA_DIR = directory;
+process.env.API_KEY_SECRET = process.env.API_KEY_SECRET || "shared-rpm-ci-only-secret";
+const { getDbInstance, resetDbInstance } = await import("../../../src/lib/db/core.ts");
+const { upsertKeyQuotaLimits, reserveSharedKeyRpm, getQuotaWindowCount } =
+  await import("../../../src/lib/db/keyQuota.ts");
+const { recordKeyQuotaUsage } = await import("../../../src/domain/keyQuota.ts");
+const { createApiKey, getApiKeyMetadata } = await import("../../../src/lib/db/apiKeys.ts");
+const { enforceApiKeyPolicy } = await import("../../../src/shared/utils/apiKeyPolicy.ts");
+
+after(() => {
+  resetDbInstance();
+  rmSync(directory, { recursive: true, force: true });
+});
+
+test("request policy reserves once without mutating cached client metadata", async () => {
+  const previous = process.env.RED_ROUTER_PRODUCT_SHARED_RPM;
+  process.env.RED_ROUTER_PRODUCT_SHARED_RPM = "1";
+  try {
+    const key = await createApiKey("mixed-rpm", "ci-machine");
+    upsertKeyQuotaLimits(key.id, { rpmLimit: 1 });
+    const request = () =>
+      new Request("http://localhost/v1/chat/completions", {
+        method: "POST",
+        headers: { authorization: `Bearer ${key.key}` },
+      });
+    const accepted = await enforceApiKeyPolicy(request(), "openrouter/openai/gpt");
+    assert.equal(accepted.rejection, null);
+    assert.equal(accepted.apiKeyInfo?.sharedRpmReserved, true);
+    assert.equal(
+      ((await getApiKeyMetadata(key.key)) as { sharedRpmReserved?: boolean }).sharedRpmReserved,
+      undefined
+    );
+    recordKeyQuotaUsage(key.id, 12, { skipRpm: accepted.apiKeyInfo?.sharedRpmReserved === true });
+    const rejected = await enforceApiKeyPolicy(request(), "openrouter/openai/gpt");
+    assert.equal(rejected.rejection?.status, 429);
+  } finally {
+    if (previous === undefined) delete process.env.RED_ROUTER_PRODUCT_SHARED_RPM;
+    else process.env.RED_ROUTER_PRODUCT_SHARED_RPM = previous;
+  }
+});
+
+test("shared RPM admission is durable and completion only adds tokens", () => {
+  const now = Date.UTC(2026, 0, 1, 12, 0, 0);
+  upsertKeyQuotaLimits("shared-client", { rpmLimit: 2 });
+  assert.equal(reserveSharedKeyRpm("shared-client", now), true);
+  assert.equal(reserveSharedKeyRpm("shared-client", now + 1), true);
+  assert.equal(reserveSharedKeyRpm("shared-client", now + 2), false);
+  recordKeyQuotaUsage("shared-client", 15, { now: () => now + 3, skipRpm: true });
+  assert.equal(getQuotaWindowCount("shared-client", "key-quota:rpm", now + 3), 2);
+  assert.equal(getQuotaWindowCount("shared-client", "key-quota:tpm", now + 3), 15);
+  assert.equal(reserveSharedKeyRpm("shared-client", now + 60_000), false);
+  assert.equal(reserveSharedKeyRpm("shared-client", now + 90_000), true);
+  const row = getDbInstance()
+    .prepare("SELECT SUM(consumed) AS n FROM api_key_quota_counters WHERE api_key_id = ? AND dimension_key = ?")
+    .get("shared-client", "key-quota:rpm") as { n: number };
+  assert.equal(row.n, 3);
+});
+
+test("strict mode blocks TypeScript access for keys governed by token or spend quotas", async () => {
+  const oldRpm = process.env.RED_ROUTER_PRODUCT_SHARED_RPM;
+  const oldStrict = process.env.RED_ROUTER_PRODUCT_STRICT_QUOTAS;
+  process.env.RED_ROUTER_PRODUCT_SHARED_RPM = "1";
+  process.env.RED_ROUTER_PRODUCT_STRICT_QUOTAS = "1";
+  try {
+    for (const limits of [{ tpmLimit: 100 }, { dailyTokensLimit: 100 }, { monthlyAmountUsd: 1 }]) {
+      const key = await createApiKey("strict-guard", "ci-machine");
+      upsertKeyQuotaLimits(key.id, limits);
+      const request = new Request("http://localhost/v1/chat/completions", { method: "POST", headers: { authorization: `Bearer ${key.key}` } });
+      const verdict = await enforceApiKeyPolicy(request, "openrouter/openai/gpt");
+      assert.equal(verdict.rejection?.status, 503);
+    }
+    const unrestricted = await createApiKey("strict-unrestricted", "ci-machine");
+    const request = () => new Request("http://localhost/v1/chat/completions", { method: "POST", headers: { authorization: `Bearer ${unrestricted.key}` } });
+    assert.equal((await enforceApiKeyPolicy(request(), "openrouter/openai/gpt")).rejection, null);
+    delete process.env.RED_ROUTER_PRODUCT_SHARED_RPM;
+    assert.equal((await enforceApiKeyPolicy(request(), "openrouter/openai/gpt")).rejection?.status, 503);
+  } finally {
+    if (oldRpm === undefined) delete process.env.RED_ROUTER_PRODUCT_SHARED_RPM; else process.env.RED_ROUTER_PRODUCT_SHARED_RPM = oldRpm;
+    if (oldStrict === undefined) delete process.env.RED_ROUTER_PRODUCT_STRICT_QUOTAS; else process.env.RED_ROUTER_PRODUCT_STRICT_QUOTAS = oldStrict;
+  }
+});

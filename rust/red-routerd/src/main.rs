@@ -1,0 +1,419 @@
+use axum::serve::ListenerExt;
+use red_routerd::{
+    product::ProductConnection,
+    product_combo::ProductCombo,
+    router,
+    storage::{embedded_default_url, sqlite_default_url, Backend, Database},
+    ProxyState,
+};
+use std::{env, error::Error, net::SocketAddr};
+
+fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
+    // RedDB initialization uses a deeper call stack than Windows' default
+    // executable thread stack. Keep it off the network worker threads.
+    std::thread::Builder::new()
+        .name("red-routerd-main".into())
+        .stack_size(8 * 1024 * 1024)
+        .spawn(|| {
+            let runtime = tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()?;
+            runtime.block_on(run())
+        })?
+        .join()
+        .map_err(|_| "router initialization thread panicked")?
+}
+
+async fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
+    let mut args = env::args().skip(1);
+    let command = args.next();
+    if matches!(
+        command.as_deref(),
+        Some("list-usage-reservations" | "reconcile-usage" | "cancel-undispatched")
+    ) {
+        let path = env::var_os("RED_ROUTER_PRODUCT_DB_PATH")
+            .ok_or("RED_ROUTER_PRODUCT_DB_PATH is required")?;
+        let path = std::path::Path::new(&path);
+        match command.as_deref() {
+            Some("list-usage-reservations") => {
+                if args.next().is_some() {
+                    return Err("usage: red-routerd list-usage-reservations".into());
+                }
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&red_routerd::reconcile::list(path).await?)?
+                );
+            }
+            Some("reconcile-usage") => {
+                use std::io::Read as _;
+                let id = args
+                    .next()
+                    .ok_or("usage: red-routerd reconcile-usage <reservation-id> <usage.json>")?;
+                let file = args
+                    .next()
+                    .ok_or("usage: red-routerd reconcile-usage <reservation-id> <usage.json>")?;
+                if args.next().is_some() {
+                    return Err(
+                        "usage: red-routerd reconcile-usage <reservation-id> <usage.json>".into(),
+                    );
+                }
+                let mut data = Vec::new();
+                std::fs::File::open(file)?
+                    .take(1_048_577)
+                    .read_to_end(&mut data)?;
+                if data.len() > 1_048_576 {
+                    return Err("usage JSON file is too large".into());
+                }
+                let response: serde_json::Value = serde_json::from_slice(&data)?;
+                red_routerd::reconcile::reconcile(path, &id, &response).await?;
+                println!("Usage reconciled");
+            }
+            Some("cancel-undispatched") => {
+                let id = args
+                    .next()
+                    .ok_or("usage: red-routerd cancel-undispatched <reservation-id>")?;
+                if args.next().is_some() {
+                    return Err("usage: red-routerd cancel-undispatched <reservation-id>".into());
+                }
+                if !red_routerd::reconcile::cancel_undispatched(path, &id).await? {
+                    return Err("reservation is missing or was already dispatched".into());
+                }
+                println!("Undispatched reservation cancelled");
+            }
+            _ => unreachable!(),
+        }
+        return Ok(());
+    }
+    if args.next().is_some() || !matches!(command.as_deref(), None | Some("set-upstream")) {
+        return Err("usage: red-routerd [set-upstream|list-usage-reservations|reconcile-usage|cancel-undispatched]".into());
+    }
+    let address: SocketAddr = env::var("RED_ROUTER_LISTEN")
+        .unwrap_or_else(|_| "127.0.0.1:19091".into())
+        .parse()?;
+    if !address.ip().is_loopback() {
+        return Err("this development slice only listens on loopback".into());
+    }
+    if let Some(path) = env::var_os("RED_ROUTER_PRODUCT_DB_PATH") {
+        if command.is_some() {
+            return Err("set-upstream is not available with a product connection".into());
+        }
+        for name in [
+            "RED_ROUTER_UPSTREAM_URL",
+            "RED_ROUTER_PROVIDER_KEY",
+            "RED_ROUTER_ROUTES_JSON",
+            "RED_ROUTER_DATABASE_URL",
+            "RED_ROUTER_DB_BACKEND",
+        ] {
+            if env::var_os(name).is_some() {
+                return Err("product connection mode cannot be combined with separate upstream, route, credential, or database configuration".into());
+            }
+        }
+        let combo = match env::var("RED_ROUTER_PRODUCT_COMBO") {
+            Ok(name) => Some(ProductCombo::load(std::path::Path::new(&path), &name).await?),
+            Err(env::VarError::NotPresent) => None,
+            Err(_) => return Err("RED_ROUTER_PRODUCT_COMBO must be valid Unicode".into()),
+        };
+        let (id, auto_selection) = if let Some(combo) = &combo {
+            if env::var_os("RED_ROUTER_PRODUCT_CONNECTION_ID").is_some()
+                || env::var_os("RED_ROUTER_PRODUCT_PROVIDER").is_some()
+            {
+                return Err(
+                    "product combo cannot be combined with provider or connection selection".into(),
+                );
+            }
+            (
+                ProductConnection::select_fill_first(
+                    std::path::Path::new(&path),
+                    &combo.targets[0].provider,
+                )
+                .await?,
+                true,
+            )
+        } else {
+            match (env::var("RED_ROUTER_PRODUCT_CONNECTION_ID"), env::var("RED_ROUTER_PRODUCT_PROVIDER")) {
+            (Ok(id), Err(env::VarError::NotPresent)) => (id, false),
+            (Err(env::VarError::NotPresent), Ok(provider)) => {
+                (ProductConnection::select_fill_first(std::path::Path::new(&path), &provider).await?, true)
+            }
+            _ => return Err("set exactly one of RED_ROUTER_PRODUCT_CONNECTION_ID or RED_ROUTER_PRODUCT_PROVIDER".into()),
+        }
+        };
+        let product_client_keys = match env::var("RED_ROUTER_PRODUCT_CLIENT_KEYS").as_deref() {
+            Ok("1") => true,
+            Err(env::VarError::NotPresent) | Ok("0") => false,
+            _ => return Err("RED_ROUTER_PRODUCT_CLIENT_KEYS must be 0 or 1".into()),
+        };
+        let shared_rpm = match env::var("RED_ROUTER_PRODUCT_SHARED_RPM").as_deref() {
+            Ok("1") => true,
+            Err(env::VarError::NotPresent) | Ok("0") => false,
+            _ => return Err("RED_ROUTER_PRODUCT_SHARED_RPM must be 0 or 1".into()),
+        };
+        if shared_rpm && !product_client_keys {
+            return Err("shared RPM accounting requires product client keys".into());
+        }
+        let usage_accounting = match env::var("RED_ROUTER_PRODUCT_ACCOUNT_USAGE").as_deref() {
+            Ok("1") => true,
+            Err(env::VarError::NotPresent) | Ok("0") => false,
+            _ => return Err("RED_ROUTER_PRODUCT_ACCOUNT_USAGE must be 0 or 1".into()),
+        };
+        if usage_accounting && !product_client_keys {
+            return Err("usage accounting requires product client keys".into());
+        }
+        let strict_quotas = match env::var("RED_ROUTER_PRODUCT_STRICT_QUOTAS").as_deref() {
+            Ok("1") => true,
+            Err(env::VarError::NotPresent) | Ok("0") => false,
+            _ => return Err("RED_ROUTER_PRODUCT_STRICT_QUOTAS must be 0 or 1".into()),
+        };
+        if strict_quotas && (!usage_accounting || !shared_rpm) {
+            return Err("strict quotas require product usage accounting and shared RPM".into());
+        }
+        let account_fallback = match env::var("RED_ROUTER_PRODUCT_ACCOUNT_FALLBACK").as_deref() {
+            Ok("1") => true,
+            Err(env::VarError::NotPresent) | Ok("0") => false,
+            _ => return Err("RED_ROUTER_PRODUCT_ACCOUNT_FALLBACK must be 0 or 1".into()),
+        };
+        if combo.is_some() && (!product_client_keys || account_fallback) {
+            return Err(
+                "product combo requires product client keys and no account fallback".into(),
+            );
+        }
+        if account_fallback && (!auto_selection || !product_client_keys) {
+            return Err(
+                "account fallback requires automatic selection and product client keys".into(),
+            );
+        }
+        let client_key = if product_client_keys {
+            if env::var_os("RED_ROUTER_CLIENT_KEY").is_some()
+                || env::var_os("RED_ROUTER_CLIENT_POLICIES_JSON").is_some()
+            {
+                return Err("product client keys cannot be combined with environment client keys or policies".into());
+            }
+            if env::var("DEFAULT_RATE_LIMIT_PER_DAY")
+                .is_ok_and(|v| !v.trim().is_empty() && v.trim() != "0")
+            {
+                return Err("product default request limits are unsupported".into());
+            }
+            // Unreachable as client authentication switches to the product DB.
+            "product-client-auth-placeholder".to_owned()
+        } else {
+            env::var("RED_ROUTER_CLIENT_KEY")?
+        };
+        let storage_key = env::var("STORAGE_ENCRYPTION_KEY")
+            .ok()
+            .map(zeroize::Zeroizing::new);
+        let (mut connection, credential) = ProductConnection::open(
+            std::path::Path::new(&path),
+            &id,
+            storage_key.as_deref().map(String::as_str),
+        )
+        .await?;
+        if auto_selection {
+            connection = connection.with_auto_selection_guard();
+        }
+        if shared_rpm {
+            connection = connection.with_shared_rpm().await?;
+        }
+        if usage_accounting {
+            connection = connection.with_usage_accounting().await?;
+        }
+        if strict_quotas {
+            let tokens: i64 = env::var("RED_ROUTER_PRODUCT_RESERVE_TOKENS")?.parse()?;
+            let usd: f64 = env::var("RED_ROUTER_PRODUCT_RESERVE_USD")?.parse()?;
+            connection = connection.with_strict_usage(tokens, usd)?;
+        }
+        let mut fallbacks = Vec::new();
+        if account_fallback {
+            for fallback_id in connection.fallback_ids().await? {
+                if let Ok((fallback, key)) = ProductConnection::open(
+                    std::path::Path::new(&path),
+                    &fallback_id,
+                    storage_key.as_deref().map(String::as_str),
+                )
+                .await
+                {
+                    fallbacks.push((fallback.inherit_accounting(&connection)?, key.to_string()));
+                }
+            }
+        }
+        let mut combo_connections = Vec::new();
+        let mut combo_keys = Vec::new();
+        let mut combo_route = None;
+        if let Some(combo) = &combo {
+            let mut targets = Vec::new();
+            for (index, target) in combo.targets.iter().enumerate() {
+                let (source, key) = if index == 0 {
+                    (
+                        connection.clone(),
+                        zeroize::Zeroizing::new(credential.to_string()),
+                    )
+                } else {
+                    let target_id = ProductConnection::select_fill_first(
+                        std::path::Path::new(&path),
+                        &target.provider,
+                    )
+                    .await?;
+                    let (source, key) = ProductConnection::open(
+                        std::path::Path::new(&path),
+                        &target_id,
+                        storage_key.as_deref().map(String::as_str),
+                    )
+                    .await?;
+                    (
+                        source
+                            .with_auto_selection_guard()
+                            .inherit_accounting(&connection)?,
+                        key,
+                    )
+                };
+                targets.push(serde_json::json!({"url":source.upstream_url(),"model":target.model,"api_key_env":format!("KEY_{index}")}));
+                combo_connections.push(source);
+                combo_keys.push(key);
+            }
+            combo_route = Some(
+                serde_json::json!([{"model":combo.name(),"fallback":true,"targets":targets}])
+                    .to_string(),
+            );
+        }
+        let mut state =
+            ProxyState::new(connection.upstream_url(), &client_key, &credential, false).await?;
+        if let Some(config) = combo_route {
+            state = state
+                .with_routes(
+                    &config,
+                    |name| {
+                        name.strip_prefix("KEY_")
+                            .and_then(|n| n.parse::<usize>().ok())
+                            .and_then(|n| combo_keys.get(n))
+                            .map(|key| key.to_string())
+                    },
+                    false,
+                )
+                .await?;
+        }
+        state = state.with_product_connection(connection);
+        if let Some(combo) = combo {
+            state = state.with_product_combo(combo, combo_connections)?;
+        }
+        if product_client_keys {
+            state = state.with_product_client_keys()?;
+        }
+        if account_fallback {
+            state = state.with_product_fallbacks(fallbacks)?;
+        }
+        match env::var("RED_ROUTER_CLIENT_POLICIES_JSON") {
+            Ok(policies) => {
+                state = state.with_client_policies(&policies, |name| env::var(name).ok())?
+            }
+            Err(env::VarError::NotPresent) => {}
+            Err(_) => return Err("RED_ROUTER_CLIENT_POLICIES_JSON must be valid Unicode".into()),
+        }
+        eprintln!("Experimental product mode: only a restricted subset of product policies and quota accounting is supported");
+        return serve_proxy(address, state).await;
+    }
+    match env::var("RED_ROUTER_PRODUCT_ACCOUNT_USAGE").as_deref() {
+        Ok("1") => {
+            return Err("product usage accounting requires RED_ROUTER_PRODUCT_DB_PATH".into())
+        }
+        Err(env::VarError::NotPresent) | Ok("0") => {}
+        _ => return Err("RED_ROUTER_PRODUCT_ACCOUNT_USAGE must be 0 or 1".into()),
+    }
+    if env::var_os("RED_ROUTER_PRODUCT_STRICT_QUOTAS").is_some_and(|v| v != "0") {
+        return Err("strict quotas require RED_ROUTER_PRODUCT_DB_PATH".into());
+    }
+    let backend_setting = match env::var("RED_ROUTER_DB_BACKEND") {
+        Ok(value) => Some(value),
+        Err(env::VarError::NotPresent) => None,
+        Err(_) => return Err("RED_ROUTER_DB_BACKEND must be valid Unicode".into()),
+    };
+    let backend = Backend::parse(backend_setting.as_deref().unwrap_or("sqlite"))?;
+    let database_url = match env::var("RED_ROUTER_DATABASE_URL") {
+        Ok(url) => url,
+        Err(env::VarError::NotPresent) if backend == Backend::ReddbEmbedded => {
+            embedded_default_url()?
+        }
+        Err(env::VarError::NotPresent) if backend == Backend::Sqlite => {
+            if backend_setting.is_none() {
+                let directory = env::current_dir()?;
+                if directory.join("red-router.rdb").try_exists()?
+                    && !directory.join("red-router.sqlite").try_exists()?
+                {
+                    return Err("existing default RedDB found; explicitly select sqlite or reddb-embedded to choose the database authority".into());
+                }
+            }
+            sqlite_default_url()?
+        }
+        Err(env::VarError::NotPresent) => {
+            return Err("RED_ROUTER_DATABASE_URL is required for the selected backend".into())
+        }
+        Err(_) => return Err("RED_ROUTER_DATABASE_URL must be valid Unicode".into()),
+    };
+    let db = Database::connect(backend, &database_url).await?;
+    let client_key = env::var("RED_ROUTER_CLIENT_KEY")?;
+    let provider_key = env::var("RED_ROUTER_PROVIDER_KEY")?;
+    let allow_private = env::var("RED_ROUTER_ALLOW_PRIVATE_UPSTREAM").as_deref() == Ok("1");
+    let requested = env::var("RED_ROUTER_UPSTREAM_URL").ok();
+    if command.as_deref() == Some("set-upstream") {
+        let upstream = requested.ok_or("RED_ROUTER_UPSTREAM_URL is required")?;
+        ProxyState::new(&upstream, &client_key, &provider_key, allow_private).await?;
+        db.set_upstream(&upstream).await?;
+        db.close().await?;
+        println!("Upstream configuration saved; restart the proxy to apply it");
+        return Ok(());
+    }
+    let upstream = match db.upstream().await? {
+        Some(value) => value,
+        None => {
+            let candidate = requested
+                .ok_or("RED_ROUTER_UPSTREAM_URL is required to initialize an empty database")?;
+            ProxyState::new(&candidate, &client_key, &provider_key, allow_private).await?;
+            db.seed(&candidate).await?;
+            db.upstream()
+                .await?
+                .ok_or("database configuration was not visible after initialization")?
+        }
+    };
+    let mut state = ProxyState::new(&upstream, &client_key, &provider_key, allow_private).await?;
+    match env::var("RED_ROUTER_ROUTES_JSON") {
+        Ok(routes) => {
+            state = state
+                .with_routes(&routes, |name| env::var(name).ok(), allow_private)
+                .await?
+        }
+        Err(env::VarError::NotPresent) => {}
+        Err(_) => return Err("RED_ROUTER_ROUTES_JSON must be valid Unicode".into()),
+    }
+    match env::var("RED_ROUTER_CLIENT_POLICIES_JSON") {
+        Ok(policies) => {
+            state = state.with_client_policies(&policies, |name| env::var(name).ok())?
+        }
+        Err(env::VarError::NotPresent) => {}
+        Err(_) => return Err("RED_ROUTER_CLIENT_POLICIES_JSON must be valid Unicode".into()),
+    }
+    serve_proxy(address, state).await?;
+    db.close().await?;
+    Ok(())
+}
+
+async fn serve_proxy(
+    address: SocketAddr,
+    state: ProxyState,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let listener = tokio::net::TcpListener::bind(address).await?;
+    println!(
+        "red-routerd development slice listening on {}",
+        listener.local_addr()?
+    );
+    // Streaming frequently sends small SSE chunks; avoid Nagle delaying them
+    // while waiting for an ACK from the client.
+    let listener = listener.tap_io(|socket| {
+        if let Err(error) = socket.set_nodelay(true) {
+            eprintln!("failed to enable TCP_NODELAY: {error}");
+        }
+    });
+    axum::serve(listener, router(state))
+        .with_graceful_shutdown(async {
+            let _ = tokio::signal::ctrl_c().await;
+        })
+        .await?;
+    Ok(())
+}

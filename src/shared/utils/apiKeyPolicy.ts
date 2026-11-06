@@ -15,6 +15,7 @@ import { isDashboardSessionAuthenticated } from "./apiAuth";
 import { resolveComboForModel } from "@/lib/db/modelComboMappings";
 import { checkBudget } from "@/domain/costRules";
 import { checkKeyQuota } from "@/domain/keyQuota";
+import { reserveSharedKeyRpm } from "@/lib/db/keyQuota";
 import { checkTokenLimits } from "@omniroute/open-sse/services/tokenLimitCounter.ts";
 import {
   errorResponse,
@@ -107,6 +108,8 @@ export interface ApiKeyMetadata {
   compressionEnabled?: boolean;
   allowAutoCombos?: boolean;
   catalogScope?: "all" | "combos" | "models";
+  /** Per-request marker; never written back to cached key metadata. */
+  sharedRpmReserved?: boolean;
 }
 
 /**
@@ -918,6 +921,9 @@ export async function enforceApiKeyPolicy(
   if (!apiKeyInfo) {
     return { apiKey, apiKeyInfo: null, rejection: null };
   }
+  if (process.env.RED_ROUTER_PRODUCT_STRICT_QUOTAS === "1" && process.env.RED_ROUTER_PRODUCT_SHARED_RPM !== "1") {
+    return { apiKey, apiKeyInfo, rejection: errorResponse(HTTP_STATUS.SERVICE_UNAVAILABLE, "Strict quota coordination unavailable") };
+  }
 
   const context = { request, apiKey, apiKeyInfo, modelStr };
   const statusRejection = validateKeyStatus(context);
@@ -941,5 +947,25 @@ export async function enforceApiKeyPolicy(
   const rateRejection = await validateRateLimitAndThrottle(context);
   if (rateRejection) return { apiKey, apiKeyInfo, rejection: rateRejection };
 
+  if (process.env.RED_ROUTER_PRODUCT_SHARED_RPM === "1" && apiKeyInfo.id) {
+    try {
+      if (!reserveSharedKeyRpm(apiKeyInfo.id)) {
+        return {
+          apiKey,
+          apiKeyInfo,
+          rejection: errorResponse(HTTP_STATUS.RATE_LIMITED, "Client RPM quota exceeded"),
+        };
+      }
+      // getApiKeyMetadata caches objects: never mutate its shared instance.
+      apiKeyInfo = { ...apiKeyInfo, sharedRpmReserved: true };
+    } catch (error) {
+      log.error("API_POLICY", "Shared RPM admission failed. Request blocked.", { error });
+      return {
+        apiKey,
+        apiKeyInfo,
+        rejection: errorResponse(HTTP_STATUS.SERVICE_UNAVAILABLE, "Client quota accounting unavailable"),
+      };
+    }
+  }
   return { apiKey, apiKeyInfo, rejection: null };
 }

@@ -1,0 +1,458 @@
+use axum::http::{header, HeaderMap};
+use serde_json::Value;
+use std::{
+    collections::VecDeque,
+    sync::{Arc, Mutex},
+    time::{Duration, Instant},
+};
+use subtle::ConstantTimeEq;
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
+
+pub(crate) struct ClientPolicies {
+    entries: Vec<ClientPolicy>,
+}
+
+pub(crate) struct ClientPolicy {
+    key: Arc<str>,
+    enabled: bool,
+    expires_at_unix: Option<u64>,
+    allowed_routes: Option<Vec<String>>,
+    allowed_models: Option<Vec<String>>,
+    allowed_endpoints: Vec<String>,
+    blocked_models: Vec<String>,
+    concurrency: Option<Arc<Semaphore>>,
+    rate_limit: Option<RateLimit>,
+}
+
+struct RateLimit {
+    minute: Option<usize>,
+    day: Option<usize>,
+    requests: Mutex<(VecDeque<Instant>, VecDeque<Instant>)>,
+}
+
+impl RateLimit {
+    fn admit(&self, now: Instant) -> bool {
+        let Ok(mut requests) = self.requests.lock() else {
+            return false;
+        };
+        let (minute, day) = &mut *requests;
+        // Calls can reach the mutex in a different order from their timestamp.
+        // Keep the queues monotonic so expiry never undercounts recent requests.
+        let now = minute
+            .back()
+            .into_iter()
+            .chain(day.back())
+            .fold(now, |now, last| now.max(*last));
+        while minute
+            .front()
+            .is_some_and(|at| now.saturating_duration_since(*at) >= Duration::from_secs(60))
+        {
+            minute.pop_front();
+        }
+        while day
+            .front()
+            .is_some_and(|at| now.saturating_duration_since(*at) >= Duration::from_secs(86_400))
+        {
+            day.pop_front();
+        }
+        if self.minute.is_some_and(|limit| minute.len() >= limit)
+            || self.day.is_some_and(|limit| day.len() >= limit)
+        {
+            return false;
+        }
+        if self.minute.is_some() {
+            minute.push_back(now);
+        }
+        if self.day.is_some() {
+            day.push_back(now);
+        }
+        true
+    }
+}
+
+impl ClientPolicies {
+    pub(crate) fn single(key: &str) -> Self {
+        Self {
+            entries: vec![ClientPolicy {
+                key: Arc::from(key),
+                enabled: true,
+                expires_at_unix: None,
+                allowed_routes: None,
+                allowed_models: None,
+                allowed_endpoints: Vec::new(),
+                blocked_models: Vec::new(),
+                concurrency: None,
+                rate_limit: None,
+            }],
+        }
+    }
+
+    pub(crate) fn parse<F>(config: &str, resolve: F) -> Result<Self, &'static str>
+    where
+        F: Fn(&str) -> Option<String>,
+    {
+        if config.len() > 256 * 1024 {
+            return Err("client policies are too large");
+        }
+        let value: Value =
+            serde_json::from_str(config).map_err(|_| "invalid client policies JSON")?;
+        let policies = value.as_array().ok_or("client policies must be an array")?;
+        if policies.is_empty() || policies.len() > 64 {
+            return Err("client policies must contain 1-64 entries");
+        }
+        let mut entries: Vec<ClientPolicy> = Vec::new();
+        for policy in policies {
+            let object = policy.as_object().ok_or("invalid client policy")?;
+            if object.keys().any(|name| {
+                ![
+                    "api_key_env",
+                    "enabled",
+                    "expires_at_unix",
+                    "allowed_routes",
+                    "allowed_models",
+                    "allowed_endpoints",
+                    "blocked_models",
+                    "max_concurrent_requests",
+                    "max_requests_per_minute",
+                    "max_requests_per_day",
+                ]
+                .contains(&name.as_str())
+            }) {
+                return Err("unknown client policy field");
+            }
+            let name = object
+                .get("api_key_env")
+                .and_then(Value::as_str)
+                .filter(|name| {
+                    !name.is_empty()
+                        && name.len() <= 128
+                        && name
+                            .bytes()
+                            .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_')
+                })
+                .ok_or("invalid client key environment variable")?;
+            let key = resolve(name).ok_or("client key is missing")?;
+            if !(16..=512).contains(&key.len())
+                || entries
+                    .iter()
+                    .any(|entry| entry.key.as_ref() == key.as_str())
+            {
+                return Err("client keys must be unique and 16-512 bytes");
+            }
+            let enabled = match object.get("enabled") {
+                None => true,
+                Some(value) => value
+                    .as_bool()
+                    .ok_or("invalid client policy enabled flag")?,
+            };
+            let allowed_routes = object
+                .get("allowed_routes")
+                .map(parse_patterns)
+                .transpose()?;
+            let expires_at_unix = object
+                .get("expires_at_unix")
+                .map(|value| value.as_u64().ok_or("invalid client key expiry"))
+                .transpose()?;
+            let allowed_models = object
+                .get("allowed_models")
+                .map(parse_patterns)
+                .transpose()?;
+            let allowed_endpoints = match object.get("allowed_endpoints") {
+                None => Vec::new(),
+                Some(value) => {
+                    let entries = value
+                        .as_array()
+                        .ok_or("endpoint categories must be an array")?;
+                    if entries.len() > 20 {
+                        return Err("too many endpoint categories");
+                    }
+                    entries
+                        .iter()
+                        .map(|entry| {
+                            entry
+                                .as_str()
+                                .map(str::trim)
+                                .filter(|name| !name.is_empty() && name.len() <= 64)
+                                .map(str::to_owned)
+                                .ok_or("invalid endpoint category")
+                        })
+                        .collect::<Result<Vec<_>, _>>()?
+                }
+            };
+            let blocked_models = object
+                .get("blocked_models")
+                .map(parse_patterns)
+                .transpose()?
+                .unwrap_or_default();
+            let concurrency = match object.get("max_concurrent_requests") {
+                None => None,
+                Some(value) => {
+                    let count = value
+                        .as_u64()
+                        .filter(|count| (1..=super::MAX_IN_FLIGHT as u64).contains(count))
+                        .ok_or("invalid client concurrency limit")?;
+                    Some(Arc::new(Semaphore::new(count as usize)))
+                }
+            };
+            let parse_limit = |name| {
+                object
+                    .get(name)
+                    .map(|value| {
+                        value
+                            .as_u64()
+                            .filter(|count| (1..=10_000).contains(count))
+                            .map(|count| count as usize)
+                            .ok_or("invalid client rate limit")
+                    })
+                    .transpose()
+            };
+            let minute = parse_limit("max_requests_per_minute")?;
+            let day = parse_limit("max_requests_per_day")?;
+            let rate_limit = (minute.is_some() || day.is_some()).then(|| RateLimit {
+                minute,
+                day,
+                requests: Mutex::new((VecDeque::new(), VecDeque::new())),
+            });
+            entries.push(ClientPolicy {
+                key: Arc::from(key),
+                enabled,
+                expires_at_unix,
+                allowed_routes,
+                allowed_models,
+                allowed_endpoints,
+                blocked_models,
+                concurrency,
+                rate_limit,
+            });
+        }
+        Ok(Self { entries })
+    }
+
+    pub(crate) fn authenticate(
+        &self,
+        headers: &HeaderMap,
+        protocol: super::ProviderProtocol,
+    ) -> Option<&ClientPolicy> {
+        let candidate = extract_candidate(headers, protocol)?;
+        // Examine every configured key rather than stopping at the first match.
+        let mut matched = None;
+        for policy in &self.entries {
+            let unexpired = policy.expires_at_unix.is_none_or(|deadline| {
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .is_ok_and(|elapsed| elapsed.as_secs() < deadline)
+            });
+            if bool::from(candidate.as_bytes().ct_eq(policy.key.as_bytes()))
+                && policy.enabled
+                && unexpired
+            {
+                matched = Some(policy);
+            }
+        }
+        matched
+    }
+}
+
+pub(crate) fn extract_candidate(
+    headers: &HeaderMap,
+    protocol: super::ProviderProtocol,
+) -> Option<&str> {
+    let mut values = headers.get_all(header::AUTHORIZATION).iter();
+    let mut api_keys = headers.get_all("x-api-key").iter();
+    let mut google_keys = headers.get_all("x-goog-api-key").iter();
+    let authorization = values.next();
+    let api_key = api_keys.next();
+    let google_key = google_keys.next();
+    if values.next().is_some()
+        || api_keys.next().is_some()
+        || google_keys.next().is_some()
+        || [
+            authorization.is_some(),
+            api_key.is_some(),
+            google_key.is_some(),
+        ]
+        .into_iter()
+        .filter(|v| *v)
+        .count()
+            != 1
+    {
+        return None;
+    }
+    let candidate = match (authorization, api_key, google_key) {
+        (Some(value), None, None) => value.to_str().ok()?.strip_prefix("Bearer ")?,
+        (None, Some(value), None) if protocol == super::ProviderProtocol::Anthropic => {
+            value.to_str().ok()?
+        }
+        (None, None, Some(value)) if protocol == super::ProviderProtocol::Gemini => {
+            value.to_str().ok()?
+        }
+        _ => return None,
+    };
+    if !(16..=512).contains(&candidate.len()) {
+        return None;
+    }
+    Some(candidate)
+}
+
+impl ClientPolicy {
+    pub(crate) fn allow_request(&self) -> bool {
+        self.rate_limit
+            .as_ref()
+            .is_none_or(|limit| limit.admit(Instant::now()))
+    }
+    pub(crate) fn try_acquire(&self) -> Result<Option<OwnedSemaphorePermit>, ()> {
+        self.concurrency
+            .as_ref()
+            .map(|semaphore| semaphore.clone().try_acquire_owned().map_err(|_| ()))
+            .transpose()
+    }
+
+    // Empty endpoint lists retain the product's unrestricted behavior.
+    pub(crate) fn endpoint_allowed(&self, endpoint: &str) -> bool {
+        self.allowed_endpoints.is_empty()
+            || self
+                .allowed_endpoints
+                .iter()
+                .any(|category| category == endpoint)
+    }
+
+    pub(crate) fn route_allowed(&self, model: &str) -> bool {
+        !self.model_blocked(model)
+            && self
+                .allowed_routes
+                .as_ref()
+                .is_none_or(|patterns| patterns.iter().any(|p| matches_pattern(p, model)))
+    }
+
+    pub(crate) fn target_allowed(&self, model: &str) -> bool {
+        !self.model_blocked(model)
+            && self.allowed_models.as_ref().is_none_or(|patterns| {
+                patterns
+                    .iter()
+                    .any(|pattern| matches_pattern(pattern, model))
+            })
+    }
+
+    pub(crate) fn model_blocked(&self, model: &str) -> bool {
+        self.blocked_models
+            .iter()
+            .any(|p| matches_pattern(p, model))
+    }
+}
+
+fn parse_patterns(value: &Value) -> Result<Vec<String>, &'static str> {
+    let values = value.as_array().ok_or("policy patterns must be an array")?;
+    if values.len() > 128 {
+        return Err("too many policy patterns");
+    }
+    values
+        .iter()
+        .map(|value| {
+            let pattern = value
+                .as_str()
+                .filter(|s| !s.is_empty() && s.len() <= 256)
+                .ok_or("invalid policy pattern")?;
+            if pattern != "*"
+                && pattern.contains('*')
+                && !(pattern.ends_with("/*") && !pattern[..pattern.len() - 1].contains('*'))
+            {
+                return Err("unsupported policy wildcard");
+            }
+            Ok(pattern.to_string())
+        })
+        .collect()
+}
+
+fn matches_pattern(pattern: &str, value: &str) -> bool {
+    pattern == "*"
+        || pattern == value
+        || pattern
+            .strip_suffix('*')
+            .is_some_and(|prefix| pattern.ends_with("/*") && value.starts_with(prefix))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn supported_patterns_have_explicit_prefix_boundaries() {
+        assert!(matches_pattern("provider/*", "provider/model"));
+        assert!(!matches_pattern("provider/*", "providers/model"));
+        assert!(!matches_pattern("provider/*", "provider"));
+        assert!(matches_pattern("*", "any/model"));
+        assert!(!matches_pattern("exact", "exact/other"));
+    }
+
+    #[test]
+    fn expiry_must_be_an_unsigned_unix_timestamp() {
+        for value in ["-1", "null", "1.5", "\"2030-01-01\""] {
+            let config = format!(r#"[{{"api_key_env":"KEY","expires_at_unix":{value}}}]"#);
+            assert!(
+                ClientPolicies::parse(&config, |_| Some("client-key-12345678".into())).is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn rate_limit_uses_a_rolling_minute_and_rejects_invalid_limits() {
+        let limit = RateLimit {
+            minute: Some(2),
+            day: None,
+            requests: Mutex::new((VecDeque::new(), VecDeque::new())),
+        };
+        let start = Instant::now();
+        assert!(limit.admit(start));
+        assert!(limit.admit(start + Duration::from_secs(1)));
+        assert!(!limit.admit(start + Duration::from_secs(59)));
+        assert!(limit.admit(start + Duration::from_secs(60)));
+        assert!(!limit.admit(start + Duration::from_secs(60)));
+        assert!(limit.admit(start + Duration::from_secs(61)));
+        for field in ["max_requests_per_minute", "max_requests_per_day"] {
+            for value in ["0", "-1", "10001", "null", "1.5"] {
+                let config = format!(r#"[{{"api_key_env":"KEY","{field}":{value}}}]"#);
+                assert!(
+                    ClientPolicies::parse(&config, |_| Some("client-key-12345678".into())).is_err()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn minute_and_day_limits_are_admitted_together() {
+        let limit = RateLimit {
+            minute: Some(2),
+            day: Some(3),
+            requests: Mutex::new((VecDeque::new(), VecDeque::new())),
+        };
+        let start = Instant::now();
+        assert!(limit.admit(start));
+        assert!(limit.admit(start + Duration::from_secs(1)));
+        assert!(!limit.admit(start + Duration::from_secs(2)));
+        assert!(limit.admit(start + Duration::from_secs(60)));
+        assert!(!limit.admit(start + Duration::from_secs(121)));
+        assert!(limit.admit(start + Duration::from_secs(86_400)));
+    }
+
+    #[test]
+    fn rate_limit_admission_is_atomic_under_concurrency() {
+        let limit = Arc::new(RateLimit {
+            minute: Some(4),
+            day: Some(4),
+            requests: Mutex::new((VecDeque::new(), VecDeque::new())),
+        });
+        let now = Instant::now();
+        let threads: Vec<_> = (0..32)
+            .map(|_| {
+                let limit = limit.clone();
+                std::thread::spawn(move || limit.admit(now))
+            })
+            .collect();
+        let admitted = threads
+            .into_iter()
+            .map(|thread| thread.join().unwrap())
+            .filter(|admitted| *admitted)
+            .count();
+        assert_eq!(admitted, 4);
+    }
+}
