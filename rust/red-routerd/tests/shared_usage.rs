@@ -40,6 +40,14 @@ async fn rust_and_typescript_reserve_one_shared_token_and_spend_budget() {
     .execute(&pool)
     .await
     .unwrap();
+    sqlx::raw_sql(include_str!(
+        "../../../src/lib/db/migrations/219_cost_ledger_recovery.sql"
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::raw_sql("CREATE TABLE api_keys (id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL); INSERT INTO api_keys VALUES ('node-key','red'); ALTER TABLE request_cost_ledger ADD COLUMN tenant_id TEXT; ALTER TABLE request_cost_ledger ADD COLUMN pricing_known INTEGER NOT NULL DEFAULT 1;").execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO api_key_usage_reservations VALUES ('rust-handoff','node-key',150,0.001,1700000000000,'dispatched')").execute(&pool).await.unwrap();
     sqlx::query("INSERT INTO api_key_quota_limits(api_key_id,tpm_limit,monthly_amount_usd) VALUES ('key',80,1.0)").execute(&pool).await.unwrap();
     sqlx::query(
         "INSERT INTO api_key_daily_token_limits(api_key_id,daily_tokens_limit) VALUES ('key',80)",
@@ -88,12 +96,37 @@ async fn rust_and_typescript_reserve_one_shared_token_and_spend_budget() {
     assert!(node.wait().unwrap().success());
     let mut output = String::new();
     stdout.read_to_string(&mut output).unwrap();
-    let node_count = serde_json::from_str::<serde_json::Value>(&output).unwrap()["allowed"]
-        .as_u64()
-        .unwrap() as usize;
+    let node_result = serde_json::from_str::<serde_json::Value>(&output).unwrap();
+    assert_eq!(node_result["settled"], true);
+    assert_eq!(node_result["duplicate"], false);
+    let node_count = node_result["allowed"].as_u64().unwrap() as usize;
     assert_eq!(results.iter().filter(|v| **v).count() + node_count, 8);
     let (count, total): (i64, i64) = sqlx::query_as("SELECT COUNT(*),SUM(reserved_tokens) FROM api_key_usage_reservations WHERE api_key_id = 'key'").fetch_one(&pool).await.unwrap();
     assert_eq!((count, total), (8, 80));
+    let usage = red_routerd::accounting::ChatUsage::from_response(
+        &serde_json::json!({"usage":{"prompt_tokens":100,"completion_tokens":50}}),
+    )
+    .unwrap();
+    let prices = red_routerd::accounting::TokenPrices::from_record(
+        &serde_json::json!({"input":2,"output":4}),
+    )
+    .unwrap();
+    assert_eq!(
+        red_routerd::accounting::record_reserved_usage(
+            &pool,
+            &red_routerd::accounting::CompletedUsage {
+                event_id: "rust-handoff",
+                key_id: "node-key",
+                provider: "openai",
+                model: "gpt",
+                usage: &usage,
+                prices: &prices,
+                timestamp_ms: 1_700_000_000_000
+            }
+        )
+        .await,
+        Ok(false)
+    );
     let id: String = sqlx::query_scalar("SELECT id FROM api_key_usage_reservations LIMIT 1")
         .fetch_one(&pool)
         .await

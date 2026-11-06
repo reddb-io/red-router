@@ -79,3 +79,65 @@ export function cancelUndispatchedUsageOnDb(db: ReservationDatabase, id: string,
   });
   return removed;
 }
+
+export type CompletedReservedUsage = Pick<UsageReservation, "id" | "keyId" | "nowMs"> & {
+  provider: "openai" | "openrouter";
+  model: string;
+  input: number;
+  output: number;
+  reasoning: number;
+  cacheRead: number;
+  cacheCreation: number;
+  prices: { input: number; output: number; cached: number; cacheCreation: number; reasoning: number };
+};
+
+/** Atomically commit a dispatched reservation, cost ledger and TPM counter. */
+export function settleUsageOnDb(db: ReservationDatabase, event: CompletedReservedUsage): boolean {
+  if (db.driver === "sql.js" || !event.id || event.id.length > 128 || !event.keyId || event.keyId.length > 512 ||
+      !event.model || event.model.length > 256 || !["openai", "openrouter"].includes(event.provider) ||
+      !Number.isSafeInteger(event.nowMs) || event.nowMs < 946_684_800_000 || event.nowMs >= 4_102_444_800_000 ||
+      ![event.input, event.output, event.reasoning, event.cacheRead, event.cacheCreation].every(n => Number.isSafeInteger(n) && n >= 0) ||
+      event.cacheRead + event.cacheCreation > event.input || event.reasoning > event.output)
+    throw new Error("Invalid completed usage");
+  const billable = event.input + event.output + event.reasoning;
+  if (!Number.isSafeInteger(billable)) throw new Error("Invalid completed usage");
+  const price = event.prices;
+  [price.input, price.output, price.cached, price.cacheCreation, price.reasoning].forEach(nonnegative);
+  const cost = nonnegative(((event.input - event.cacheRead - event.cacheCreation) * price.input +
+    event.cacheRead * price.cached + event.cacheCreation * price.cacheCreation +
+    (event.output - event.reasoning) * price.output + event.reasoning * price.reasoning) / 1_000_000);
+  const timestamp = new Date(event.nowMs).toISOString();
+  const outcome = { inserted: false, overrun: false };
+  db.immediate(() => {
+    const key = db.prepare("SELECT 1 AS present FROM api_keys WHERE id = ? AND tenant_id = 'red'").get(event.keyId);
+    if (!key) throw new Error("Accounting key unavailable");
+    const row = db.prepare("SELECT reserved_tokens, reserved_usd, state FROM api_key_usage_reservations WHERE id = ? AND api_key_id = ?").get(event.id, event.keyId) as { reserved_tokens: number; reserved_usd: number; state: string } | undefined;
+    if (row) {
+      if (row.state !== "dispatched" || !Number.isSafeInteger(row.reserved_tokens)) throw new Error("Invalid reservation");
+      nonnegative(row.reserved_tokens); nonnegative(row.reserved_usd);
+      if (billable > row.reserved_tokens || cost > row.reserved_usd) {
+        db.prepare("UPDATE api_key_usage_reservations SET reserved_tokens = 9007199254740991, reserved_usd = 1e300 WHERE id = ? AND api_key_id = ?").run(event.id, event.keyId);
+        outcome.overrun = true;
+        return;
+      }
+    }
+    const existing = db.prepare("SELECT api_key_id,provider,model,tokens_input,tokens_output,tokens_cache_read,tokens_cache_creation,tokens_reasoning,unit_price_input,unit_price_output,amount_usd,timestamp,tenant_id,success,pricing_known FROM request_cost_ledger WHERE event_id = ?").get(event.id) as Record<string, unknown> | undefined;
+    if (existing) {
+      const expected: Record<string, unknown> = { api_key_id: event.keyId, provider: event.provider, model: event.model,
+        tokens_input: event.input, tokens_output: event.output, tokens_cache_read: event.cacheRead, tokens_cache_creation: event.cacheCreation,
+        tokens_reasoning: event.reasoning, unit_price_input: price.input, unit_price_output: price.output, amount_usd: cost,
+        timestamp, tenant_id: "red", success: 1, pricing_known: 1 };
+      if (Object.keys(expected).some(k => existing[k] !== expected[k])) throw new Error("Accounting event ID collision");
+    } else {
+      if (!row) throw new Error("Reservation unavailable");
+      db.prepare("INSERT INTO request_cost_ledger(api_key_id,provider,model,tokens_input,tokens_output,tokens_cache_read,tokens_cache_creation,tokens_reasoning,unit_price_input,unit_price_output,amount_usd,service_tier,success,timestamp,event_id,pricing_known,tenant_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,'standard',1,?,?,1,'red')")
+        .run(event.keyId,event.provider,event.model,event.input,event.output,event.cacheRead,event.cacheCreation,event.reasoning,price.input,price.output,cost,timestamp,event.id);
+      if (billable > 0) db.prepare("INSERT INTO api_key_quota_counters(api_key_id,dimension_key,bucket_index,consumed,updated_at) VALUES (?,'key-quota:tpm',?,?,?) ON CONFLICT(api_key_id,dimension_key,bucket_index) DO UPDATE SET consumed = consumed + excluded.consumed, updated_at = excluded.updated_at")
+        .run(event.keyId, Math.floor(event.nowMs / 60_000), billable, event.nowMs);
+      outcome.inserted = true;
+    }
+    db.prepare("DELETE FROM api_key_usage_reservations WHERE id = ? AND api_key_id = ? AND state = 'dispatched'").run(event.id,event.keyId);
+  });
+  if (outcome.overrun) throw new Error("Usage exceeds reservation; reconciliation required");
+  return outcome.inserted;
+}

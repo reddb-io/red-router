@@ -1,5 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
-import { reserveUsageOnDb } from "../../../../src/lib/db/sharedUsageReservation.ts";
+import { reserveUsageOnDb, settleUsageOnDb } from "../../../../src/lib/db/sharedUsageReservation.ts";
 
 const raw = new DatabaseSync(process.env.RED_ROUTER_TEST_SQLITE);
 raw.exec("PRAGMA busy_timeout = 10000");
@@ -20,6 +20,10 @@ process.stdin.once("data", () => {
   for (let i = 0; i < 16; i++) {
     if (reserveUsageOnDb(db, { id: `node-${i}`, keyId: "key", tokens: 10, usd: 0.01, nowMs: 1_700_000_000_000 })) allowed++;
   }
+  const event = { id: "rust-handoff", keyId: "node-key", nowMs: 1_700_000_000_000, provider: "openai", model: "gpt", input: 100, output: 50,
+    reasoning: 0, cacheRead: 0, cacheCreation: 0, prices: { input: 2, output: 4, cached: 2, cacheCreation: 2, reasoning: 4 } };
+  const settled = settleUsageOnDb(db, event);
+  const duplicate = settleUsageOnDb(db, event);
   raw.close();
-  process.stdout.write(JSON.stringify({ allowed }) + "\n", () => process.exit(0));
+  process.stdout.write(JSON.stringify({ allowed, settled, duplicate }) + "\n", () => process.exit(0));
 });
