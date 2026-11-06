@@ -9,33 +9,24 @@ const active = join(root, ".github/workflows");
 
 // red-docker.yml only publishes an image built from the already-published npm package; it has no
 // push/pull_request/schedule trigger and cannot affect the release workflow (see docker-workflow.test.ts).
-test("RedRouter has one product-owned validation and release workflow", () => {
+test("RedRouter separates quick checks, optional quality, and release", () => {
   const files = readdirSync(active)
     .filter((file) => /\.ya?ml$/.test(file))
     .sort();
-  assert.deepEqual(files, ["red-docker.yml", "red-publish.yml"]);
+  assert.deepEqual(files, ["quality.yml", "quick-checks.yml", "red-docker.yml", "red-publish.yml"]);
 
   const text = readFileSync(join(active, "red-publish.yml"), "utf8");
   const workflow = YAML.parse(text);
-  assert.deepEqual(workflow.on.push.branches, ["main"]);
-  assert.deepEqual(workflow.on.pull_request.branches, ["main"]);
+  assert.equal(workflow.on.pull_request, undefined);
   assert.equal(workflow.on.schedule, undefined);
-  assert.ok(workflow.jobs.checks);
-  assert.ok(workflow.jobs["rust-data-plane"]);
-  assert.ok(workflow.jobs["rust-windows-storage"]);
-  assert.ok(workflow.jobs["test-unit"]);
-  assert.ok(workflow.jobs["test-vitest"]);
   assert.ok(workflow.jobs.build);
   assert.ok(workflow.jobs.release);
-  assert.deepEqual(workflow.jobs.release.needs, [
-    "checks",
-    "test-unit",
-    "test-routing-storage",
-    "test-vitest",
-    "build",
-    "rust-data-plane",
-    "rust-windows-storage",
-  ]);
+  assert.deepEqual(workflow.jobs.release.needs, ["build"]);
+  const quality = YAML.parse(readFileSync(join(active, "quality.yml"), "utf8"));
+  assert.ok(quality.jobs["rust-data-plane"]);
+  assert.ok(quality.jobs["rust-windows-storage"]);
+  assert.equal(quality.on.pull_request, undefined);
+  assert.ok(quality.on.workflow_dispatch.inputs.suite.options.includes("rust"));
 });
 
 test("the one workflow owns exact-artifact npm and GitHub publication", () => {
@@ -111,7 +102,6 @@ test("foreign upstream operational workflows remain inert fixtures", () => {
     "electron-release.yml",
     "nightly-release-green.yml",
     "build.yml",
-    "quality.yml",
     "release-acceptance.yml",
     "docker-publish.yml",
     "opencode-provider-ci.yml",

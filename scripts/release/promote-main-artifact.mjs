@@ -12,7 +12,7 @@ export function selectMainRun(runs, sha) {
     (run) =>
       run.head_sha === sha &&
       run.head_branch === "main" &&
-      run.event === "push" &&
+      ["push", "workflow_dispatch"].includes(run.event) &&
       run.status === "completed" &&
       run.conclusion === "success"
   );
@@ -30,10 +30,10 @@ export async function promoteMainArtifact(env = process.env) {
     return JSON.parse(stdout);
   };
   const { workflow_runs: runs } = await api(
-    `repos/${repo}/actions/workflows/red-publish.yml/runs?head_sha=${sha}&branch=main&event=push&status=success&per_page=100`
+    `repos/${repo}/actions/workflows/red-publish.yml/runs?head_sha=${sha}&branch=main&status=success&per_page=100`
   );
   const run = selectMainRun(runs, sha);
-  if (!run) throw new Error("No successful main CI run for this exact tagged commit");
+  if (!run) throw new Error("No successful main artifact build for this exact tagged commit; dispatch red-publish.yml on main first");
   const name = `redrouter-release-${run.id}-${run.run_attempt}`;
   const { artifacts } = await api(`repos/${repo}/actions/runs/${run.id}/artifacts?per_page=100`);
   if (!artifacts.some((artifact) => artifact.name === name && !artifact.expired)) {
