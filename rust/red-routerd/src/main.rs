@@ -1,3 +1,4 @@
+use axum::serve::ListenerExt;
 use red_routerd::{
     router,
     storage::{embedded_default_url, Backend, Database},
@@ -90,6 +91,13 @@ async fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
         "red-routerd development slice listening on {}",
         listener.local_addr()?
     );
+    // Streaming frequently sends small SSE chunks; avoid Nagle delaying them
+    // while waiting for an ACK from the client.
+    let listener = listener.tap_io(|socket| {
+        if let Err(error) = socket.set_nodelay(true) {
+            eprintln!("failed to enable TCP_NODELAY: {error}");
+        }
+    });
     axum::serve(listener, router(state))
         .with_graceful_shutdown(async {
             let _ = tokio::signal::ctrl_c().await;
