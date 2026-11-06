@@ -86,10 +86,20 @@ async fn non_streaming_product_usage_is_recorded_and_unhandled_quotas_fail_close
     let connection = connection.with_usage_accounting().await.unwrap();
     let upstream = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = upstream.local_addr().unwrap();
+    let mode = Arc::new(AtomicUsize::new(0));
+    let provider_mode = mode.clone();
     let provider = tokio::spawn(async move {
-        axum::serve(upstream, Router::new().route("/v1/chat/completions", post(|| async {
-        axum::Json(serde_json::json!({"id":"response", "usage":{"prompt_tokens":100,"completion_tokens":50}}))
-    }))).await.unwrap()
+        axum::serve(upstream, Router::new().route("/v1/chat/completions", post(move || {
+            let mode = provider_mode.clone();
+            async move {
+                let value = match mode.load(Ordering::SeqCst) {
+                    1 => serde_json::json!({"id":"response"}),
+                    2 => serde_json::json!({"id":"response", "service_tier":"priority", "usage":{"prompt_tokens":100,"completion_tokens":50}}),
+                    _ => serde_json::json!({"id":"response", "usage":{"prompt_tokens":100,"completion_tokens":50}}),
+                };
+                axum::Json(value)
+            }
+        }))).await.unwrap()
     });
     let state = ProxyState::new(
         &format!("http://{address}/v1/chat/completions"),
@@ -126,6 +136,25 @@ async fn non_streaming_product_usage_is_recorded_and_unhandled_quotas_fail_close
     assert!((cost - 0.0004).abs() < 1e-12);
     let tokens: f64 = sqlx::query_scalar("SELECT consumed FROM api_key_quota_counters WHERE api_key_id = 'usage-client' AND dimension_key = 'key-quota:tpm'").fetch_one(&mut db).await.unwrap();
     assert_eq!(tokens, 150.0);
+    for unsupported in [1, 2] {
+        mode.store(unsupported, Ordering::SeqCst);
+        assert_eq!(
+            send(r#"{"model":"openrouter/vendor/gpt","messages":[]}"#)
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            502
+        );
+    }
+    let count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM request_cost_ledger WHERE api_key_id = 'usage-client'",
+    )
+    .fetch_one(&mut db)
+    .await
+    .unwrap();
+    assert_eq!(count, 1);
+    mode.store(0, Ordering::SeqCst);
     assert_eq!(
         send(r#"{"model":"openrouter/vendor/gpt","messages":[],"stream":true}"#)
             .send()

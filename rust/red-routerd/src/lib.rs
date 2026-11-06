@@ -784,6 +784,12 @@ async fn proxy_request(
         .product_connection
         .as_ref()
         .is_some_and(|c| c.usage_accounting_enabled());
+    if usage_accounting && !state.product_client_keys {
+        return error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Usage accounting requires product client keys",
+        );
+    }
     if usage_accounting
         && (protocol != ProviderProtocol::OpenAi
             || !matches!(
@@ -1218,7 +1224,14 @@ async fn proxy_request(
             };
             let usage = serde_json::from_slice::<serde_json::Value>(&bytes)
                 .ok()
-                .and_then(|v| accounting::ChatUsage::from_response(&v).ok());
+                .and_then(|v| {
+                    if v.get("service_tier")
+                        .is_some_and(|tier| !tier.is_null() && tier.as_str() != Some("default"))
+                    {
+                        return None;
+                    }
+                    accounting::ChatUsage::from_response(&v).ok()
+                });
             let Some(usage) = usage else {
                 return error(
                     StatusCode::BAD_GATEWAY,
