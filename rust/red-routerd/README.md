@@ -16,7 +16,7 @@ RedRouter's full provider selection, quotas, policies, accounting, protocol
 full protocol translation, management API, remote listening or inbound TLS.
 Its standard database integration persists only the single upstream endpoint;
 client and provider keys remain environment configuration. An opt-in mode can
-read one OpenRouter API credential from the product SQLite database, as described
+read one OpenRouter or OpenAI API credential from the product SQLite database, as described
 below. No product database migration is performed.
 It has not been validated as a production gateway. `/healthz` confirms that this
 process responds; it is not evidence of provider or database readiness.
@@ -24,23 +24,43 @@ process responds; it is not evidence of provider or database readiness.
 ## Experimental product SQLite credential
 
 Set `RED_ROUTER_PRODUCT_DB_PATH` to the existing product `storage.sqlite` file,
-`RED_ROUTER_PRODUCT_CONNECTION_ID` to the ID of an active OpenRouter API-key
-connection and `RED_ROUTER_CLIENT_KEY` to a separate strong client key. If the
+`RED_ROUTER_PRODUCT_CONNECTION_ID` to the ID of an active OpenRouter or OpenAI API-key
+connection. Unless using dashboard keys below, set `RED_ROUTER_CLIENT_KEY` to
+a separate strong client key. If the
 provider credential uses field encryption, provide the same
 `STORAGE_ENCRYPTION_KEY` that the webapp uses through the process environment.
 Only the current `enc:v1` static-salt format and plaintext credentials are
 supported; legacy encrypted credentials require migration by the webapp first.
 
-This mode opens the product database read-only, uses the fixed OpenRouter HTTPS
+This mode opens the product database read-only, uses the provider's fixed HTTPS
 endpoint, and rechecks the selected connection before each request. Edits,
 deactivation, removal or database errors stop new requests until restart; requests
 already forwarded can still finish. It does not modify the existing database and
 does not use `RED_ROUTER_PROVIDER_KEY`, model route JSON or the separate gateway
-database. Inbound authentication and optional policy JSON remain independent.
-**Product API keys, client policies, quotas, accounting, provider selection and
-other connection settings are not imported or enforced.** Use a separate client
-key only for isolated evaluation, not as a replacement for the product proxy.
+database. By default, inbound authentication and optional policy JSON remain
+independent; dashboard keys may instead be enabled as described below. Product
+quotas, accounting, automatic provider selection and other connection settings
+are not enforced.
 Per-request database checks add overhead; this mode needs its own benchmarks.
+
+Set `RED_ROUTER_PRODUCT_CLIENT_KEYS=1` to use dashboard API keys instead of an
+independent client key. Do not set `RED_ROUTER_CLIENT_KEY` or environment client
+policies in that mode. The gateway reads the current key on each request, accepts
+plain or SHA-256-hashed product keys, rejects revoked, disabled, banned and expired
+keys, and enforces the supported model, endpoint and selected-connection restrictions.
+It rejects unsupported wildcards and policies instead of ignoring them.
+
+This is an intentionally narrow compatibility slice, not full dashboard policy
+enforcement. It refuses keys with configured request limits, usage caps, quota
+pools, token limits, budgets, group membership, schedules or other unsupported
+restrictions and model deny-lists (which require product alias resolution). It
+also refuses configured budget assignments, model-to-combo
+mappings and global disabled-model lists; combo and quota routes do not work.
+Missing expected schema fails closed. No usage or cost accounting is recorded,
+and counters are not shared with the existing proxy. Provider choice is an
+explicit connection ID, not the dashboard's automatic selection or fallback.
+Only direct chat requests to the two fixed provider endpoints are supported in
+this mode. Do not use it as a production replacement.
 
 ```sh
 export RED_ROUTER_LISTEN=127.0.0.1:19091

@@ -1,6 +1,7 @@
 use axum::{routing::post, Router};
 use futures_util::{stream, StreamExt};
 use red_routerd::{product::ProductConnection, router, ProxyState};
+use sha2::{Digest, Sha256};
 use sqlx::{sqlite::SqliteConnectOptions, Connection, SqliteConnection};
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
@@ -16,15 +17,27 @@ async fn fixture() -> (TempDir, SqliteConnection) {
         .filename(dir.path().join("storage.sqlite"))
         .create_if_missing(true);
     let mut db = SqliteConnection::connect_with(&options).await.unwrap();
-    sqlx::query("CREATE TABLE provider_connections (id TEXT PRIMARY KEY, provider TEXT, auth_type TEXT, is_active INTEGER, api_key TEXT, updated_at TEXT NOT NULL)")
+    sqlx::query("CREATE TABLE provider_connections (id TEXT PRIMARY KEY, provider TEXT, auth_type TEXT, is_active INTEGER, api_key TEXT, updated_at TEXT NOT NULL, tenant_id TEXT NOT NULL DEFAULT 'red')")
         .execute(&mut db).await.unwrap();
     sqlx::query(
-        "INSERT INTO provider_connections VALUES ('test', 'openrouter', 'apikey', 1, ?, 'a')",
+        "INSERT INTO provider_connections (id, provider, auth_type, is_active, api_key, updated_at) VALUES ('test', 'openrouter', 'apikey', 1, ?, 'a')",
     )
     .bind(ENCRYPTED)
     .execute(&mut db)
     .await
     .unwrap();
+    for statement in [
+        "CREATE TABLE api_keys (id TEXT PRIMARY KEY, key TEXT NOT NULL, key_hash TEXT, is_active INTEGER DEFAULT 1, is_banned INTEGER DEFAULT 0, revoked_at TEXT, expires_at TEXT, max_requests_per_day INTEGER, max_requests_per_minute INTEGER, throttle_delay_ms INTEGER, max_sessions INTEGER DEFAULT 0, usage_limit_enabled INTEGER DEFAULT 0, disable_non_public_models INTEGER DEFAULT 0, auto_resolve INTEGER DEFAULT 0, access_schedule TEXT, proxy_id TEXT, tenant_id TEXT DEFAULT 'red', ip_allowlist TEXT, scopes TEXT, rate_limits TEXT, allowed_quotas TEXT DEFAULT '[]', allowed_connections TEXT, allowed_models TEXT DEFAULT '[]', blocked_models TEXT, allowed_endpoints TEXT, model_access_mode TEXT DEFAULT 'all')",
+        "CREATE TABLE domain_budgets (api_key_id TEXT)",
+        "CREATE TABLE api_key_token_limits (api_key_id TEXT, enabled INTEGER)",
+        "CREATE TABLE api_key_quota_limits (api_key_id TEXT, tpm_limit INTEGER, rpm_limit INTEGER, monthly_amount_usd REAL)",
+        "CREATE TABLE api_key_daily_token_limits (api_key_id TEXT)",
+        "CREATE TABLE key_group_members (key_id TEXT)",
+        "CREATE TABLE budget_assignments (budget_id TEXT)",
+        "CREATE TABLE model_combo_mappings (enabled INTEGER)",
+        "CREATE TABLE key_value (namespace TEXT, key TEXT, value TEXT)",
+        "CREATE TABLE combos (name TEXT)",
+    ] { sqlx::query(statement).execute(&mut db).await.unwrap(); }
     (dir, db)
 }
 
@@ -69,6 +82,20 @@ async fn product_credential_decryption_and_revocation() {
             .await
             .is_err()
     );
+    sqlx::query(
+        "UPDATE provider_connections SET provider = 'openai', is_active = 1 WHERE id = 'test'",
+    )
+    .execute(&mut db)
+    .await
+    .unwrap();
+    let (openai, _) = ProductConnection::open(&path, "test", Some("fixture-password"))
+        .await
+        .unwrap();
+    assert_eq!(
+        openai.upstream_url(),
+        "https://api.openai.com/v1/chat/completions"
+    );
+    assert!(openai.unchanged().await);
 }
 
 #[tokio::test]
@@ -140,12 +167,207 @@ async fn proxy_stops_using_a_changed_product_connection() {
     provider.abort();
 }
 
+#[tokio::test]
+async fn dashboard_keys_enforce_supported_policy_and_refuse_unimplemented_quotas() {
+    let (dir, mut db) = fixture().await;
+    sqlx::query(
+        "UPDATE provider_connections SET api_key = 'fixture-provider-key' WHERE id = 'test'",
+    )
+    .execute(&mut db)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO api_keys (id, key, model_access_mode, allowed_models, blocked_models, allowed_endpoints, allowed_connections) VALUES ('client', 'dashboard-client-key-12345', 'restricted', '[\"openai/*\"]', '[]', '[\"chat\"]', '[\"test\"]')")
+        .execute(&mut db).await.unwrap();
+    let hash = hex::encode(Sha256::digest(b"dashboard-hashed-key-12345"));
+    sqlx::query("INSERT INTO api_keys (id, key, key_hash) VALUES ('hashed', 'hidden', ?)")
+        .bind(hash)
+        .execute(&mut db)
+        .await
+        .unwrap();
+    let (connection, key) =
+        ProductConnection::open(&dir.path().join("storage.sqlite"), "test", None)
+            .await
+            .unwrap();
+    let requests = Arc::new(AtomicUsize::new(0));
+    let count = requests.clone();
+    let upstream = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let upstream_address = upstream.local_addr().unwrap();
+    let provider = tokio::spawn(async move {
+        axum::serve(
+            upstream,
+            Router::new().route(
+                "/v1/chat/completions",
+                post(move || {
+                    let count = count.clone();
+                    async move {
+                        count.fetch_add(1, Ordering::SeqCst);
+                        "ok"
+                    }
+                }),
+            ),
+        )
+        .await
+        .unwrap();
+    });
+    let state = ProxyState::new(
+        &format!("http://{upstream_address}/v1/chat/completions"),
+        "unused-client-key-12345",
+        &key,
+        false,
+    )
+    .await
+    .unwrap()
+    .with_product_connection(connection)
+    .with_product_client_keys()
+    .unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move { axum::serve(listener, router(state)).await.unwrap() });
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let send = |client_key: &str, model: &str| {
+        client
+            .post(format!("http://{address}/v1/chat/completions"))
+            .bearer_auth(client_key)
+            .header("content-type", "application/json")
+            .body(serde_json::json!({"model":model,"messages":[]}).to_string())
+    };
+    let client_key = "dashboard-client-key-12345";
+    assert_eq!(
+        send(client_key, "openai/gpt")
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
+    assert_eq!(
+        send("dashboard-hashed-key-12345", "openai/gpt")
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
+    assert_eq!(
+        send(client_key, "other/model")
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        403
+    );
+    assert_eq!(
+        send("incorrect-client-key-12345", "openai/gpt")
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        401
+    );
+    for (change, reset, expected) in [
+        (
+            "UPDATE api_keys SET is_active = 0 WHERE id = 'client'",
+            "UPDATE api_keys SET is_active = 1 WHERE id = 'client'",
+            401,
+        ),
+        (
+            "UPDATE api_keys SET is_banned = 1 WHERE id = 'client'",
+            "UPDATE api_keys SET is_banned = 0 WHERE id = 'client'",
+            401,
+        ),
+        (
+            "UPDATE api_keys SET revoked_at = '2020-01-01' WHERE id = 'client'",
+            "UPDATE api_keys SET revoked_at = NULL WHERE id = 'client'",
+            401,
+        ),
+        (
+            "UPDATE api_keys SET expires_at = '2020-01-01' WHERE id = 'client'",
+            "UPDATE api_keys SET expires_at = NULL WHERE id = 'client'",
+            401,
+        ),
+        (
+            "UPDATE api_keys SET max_requests_per_minute = 1 WHERE id = 'client'",
+            "UPDATE api_keys SET max_requests_per_minute = NULL WHERE id = 'client'",
+            503,
+        ),
+        (
+            "UPDATE api_keys SET usage_limit_enabled = 1 WHERE id = 'client'",
+            "UPDATE api_keys SET usage_limit_enabled = 0 WHERE id = 'client'",
+            503,
+        ),
+        (
+            "UPDATE api_keys SET blocked_models = '[\"openai/blocked\"]' WHERE id = 'client'",
+            "UPDATE api_keys SET blocked_models = '[]' WHERE id = 'client'",
+            503,
+        ),
+        (
+            "INSERT INTO domain_budgets VALUES ('client')",
+            "DELETE FROM domain_budgets",
+            503,
+        ),
+        (
+            "INSERT INTO api_key_token_limits VALUES ('client', 1)",
+            "DELETE FROM api_key_token_limits",
+            503,
+        ),
+        (
+            "INSERT INTO api_key_quota_limits VALUES ('client', NULL, 1, NULL)",
+            "DELETE FROM api_key_quota_limits",
+            503,
+        ),
+        (
+            "INSERT INTO api_key_daily_token_limits VALUES ('client')",
+            "DELETE FROM api_key_daily_token_limits",
+            503,
+        ),
+        (
+            "INSERT INTO key_group_members VALUES ('client')",
+            "DELETE FROM key_group_members",
+            503,
+        ),
+        (
+            "INSERT INTO budget_assignments VALUES ('budget')",
+            "DELETE FROM budget_assignments",
+            503,
+        ),
+        (
+            "INSERT INTO model_combo_mappings VALUES (1)",
+            "DELETE FROM model_combo_mappings",
+            503,
+        ),
+        (
+            "INSERT INTO combos VALUES ('openai/gpt')",
+            "DELETE FROM combos",
+            403,
+        ),
+    ] {
+        sqlx::query(change).execute(&mut db).await.unwrap();
+        assert_eq!(
+            send(client_key, "openai/gpt")
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            expected,
+            "{change}"
+        );
+        sqlx::query(reset).execute(&mut db).await.unwrap();
+    }
+    assert_eq!(requests.load(Ordering::SeqCst), 2);
+    server.abort();
+    provider.abort();
+}
+
 // Descriptive benchmark on an isolated mock: no absolute latency threshold is
 // meaningful on a shared runner. The two cases share the same provider process.
 #[tokio::test]
 #[ignore = "run explicitly in release mode for descriptive performance"]
 async fn benchmark_product_guard() {
     let (dir, mut db) = fixture().await;
+    sqlx::query("INSERT INTO api_keys (id, key) VALUES ('bench', 'client-key-123456789')")
+        .execute(&mut db)
+        .await
+        .unwrap();
     sqlx::query(
         "UPDATE provider_connections SET api_key = 'fixture-provider-key' WHERE id = 'test'",
     )
@@ -173,9 +395,19 @@ async fn benchmark_product_guard() {
     let guarded = ProxyState::new(&upstream_url, "client-key-123456789", &key, false)
         .await
         .unwrap()
-        .with_product_connection(connection);
+        .with_product_connection(connection.clone());
+    let dashboard = ProxyState::new(&upstream_url, "client-key-123456789", &key, false)
+        .await
+        .unwrap()
+        .with_product_connection(connection)
+        .with_product_client_keys()
+        .unwrap();
     let mut servers = Vec::new();
-    for (label, state) in [("baseline", plain), ("product-sqlite", guarded)] {
+    for (label, state) in [
+        ("baseline", plain),
+        ("product-sqlite", guarded),
+        ("dashboard-policy", dashboard),
+    ] {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         servers.push(tokio::spawn(async move {

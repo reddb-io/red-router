@@ -38,6 +38,7 @@ pub struct ProxyState {
     routes: Arc<HashMap<String, ModelRoute>>,
     clients: Arc<policy::ClientPolicies>,
     product_connection: Option<product::ProductConnection>,
+    product_client_keys: bool,
 }
 
 struct ModelRoute {
@@ -174,6 +175,7 @@ impl ProxyState {
             routes: Arc::new(HashMap::new()),
             clients: Arc::new(policy::ClientPolicies::single(client_key)),
             product_connection: None,
+            product_client_keys: false,
         })
     }
 
@@ -181,6 +183,14 @@ impl ProxyState {
     pub fn with_product_connection(mut self, connection: product::ProductConnection) -> Self {
         self.product_connection = Some(connection);
         self
+    }
+
+    pub fn with_product_client_keys(mut self) -> Result<Self, &'static str> {
+        if self.product_connection.is_none() {
+            return Err("product client keys require a product connection");
+        }
+        self.product_client_keys = true;
+        Ok(self)
     }
 
     /// Replace the default client key with explicit per-key route policies.
@@ -494,7 +504,32 @@ async fn proxy_request(
     protocol: ProviderProtocol,
     gemini: Option<(String, bool)>,
 ) -> Response {
-    let Some(policy) = state.clients.authenticate(request.headers(), protocol) else {
+    let dashboard_policies;
+    let clients = if state.product_client_keys {
+        let Some(candidate) = policy::extract_candidate(request.headers(), protocol) else {
+            return error(StatusCode::UNAUTHORIZED, "Invalid API key");
+        };
+        let Some(connection) = &state.product_connection else {
+            return error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "Product policy unavailable",
+            );
+        };
+        dashboard_policies = match connection.client_policies(candidate).await {
+            Ok(Some(policies)) => policies,
+            Ok(None) => return error(StatusCode::UNAUTHORIZED, "Invalid API key"),
+            Err(_) => {
+                return error(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "Product policy unavailable or unsupported",
+                )
+            }
+        };
+        &dashboard_policies
+    } else {
+        state.clients.as_ref()
+    };
+    let Some(policy) = clients.authenticate(request.headers(), protocol) else {
         return error(StatusCode::UNAUTHORIZED, "Invalid API key");
     };
     let connection_changed = match &state.product_connection {
@@ -569,6 +604,29 @@ async fn proxy_request(
     let Some(model) = model else {
         return error(StatusCode::BAD_REQUEST, "A model is required");
     };
+    if state.product_client_keys {
+        let Some(connection) = &state.product_connection else {
+            return error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "Product policy unavailable",
+            );
+        };
+        match connection.direct_model(&model).await {
+            Ok(true) => {}
+            Ok(false) => {
+                return error(
+                    StatusCode::FORBIDDEN,
+                    "Product combo or quota route is unsupported",
+                )
+            }
+            Err(_) => {
+                return error(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "Product routing policy unavailable",
+                )
+            }
+        }
+    }
     if !policy.route_allowed(&model) {
         return error(StatusCode::FORBIDDEN, "Model is not allowed");
     }

@@ -51,7 +51,27 @@ async fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
             }
         }
         let id = env::var("RED_ROUTER_PRODUCT_CONNECTION_ID")?;
-        let client_key = env::var("RED_ROUTER_CLIENT_KEY")?;
+        let product_client_keys = match env::var("RED_ROUTER_PRODUCT_CLIENT_KEYS").as_deref() {
+            Ok("1") => true,
+            Err(env::VarError::NotPresent) | Ok("0") => false,
+            _ => return Err("RED_ROUTER_PRODUCT_CLIENT_KEYS must be 0 or 1".into()),
+        };
+        let client_key = if product_client_keys {
+            if env::var_os("RED_ROUTER_CLIENT_KEY").is_some()
+                || env::var_os("RED_ROUTER_CLIENT_POLICIES_JSON").is_some()
+            {
+                return Err("product client keys cannot be combined with environment client keys or policies".into());
+            }
+            if env::var("DEFAULT_RATE_LIMIT_PER_DAY")
+                .is_ok_and(|v| !v.trim().is_empty() && v.trim() != "0")
+            {
+                return Err("product default request limits are unsupported".into());
+            }
+            // Unreachable as client authentication switches to the product DB.
+            "product-client-auth-placeholder".to_owned()
+        } else {
+            env::var("RED_ROUTER_CLIENT_KEY")?
+        };
         let storage_key = env::var("STORAGE_ENCRYPTION_KEY")
             .ok()
             .map(zeroize::Zeroizing::new);
@@ -61,14 +81,12 @@ async fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
             storage_key.as_deref().map(String::as_str),
         )
         .await?;
-        let mut state = ProxyState::new(
-            "https://openrouter.ai/api/v1/chat/completions",
-            &client_key,
-            &credential,
-            false,
-        )
-        .await?
-        .with_product_connection(connection);
+        let mut state = ProxyState::new(connection.upstream_url(), &client_key, &credential, false)
+            .await?
+            .with_product_connection(connection);
+        if product_client_keys {
+            state = state.with_product_client_keys()?;
+        }
         match env::var("RED_ROUTER_CLIENT_POLICIES_JSON") {
             Ok(policies) => {
                 state = state.with_client_policies(&policies, |name| env::var(name).ok())?
@@ -76,7 +94,7 @@ async fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
             Err(env::VarError::NotPresent) => {}
             Err(_) => return Err("RED_ROUTER_CLIENT_POLICIES_JSON must be valid Unicode".into()),
         }
-        eprintln!("Experimental product credential mode: product API keys, policies, routing, quotas and accounting are not enforced");
+        eprintln!("Experimental product mode: only a restricted subset of product policies is supported; accounting and quotas are not implemented");
         return serve_proxy(address, state).await;
     }
     let backend_setting = match env::var("RED_ROUTER_DB_BACKEND") {

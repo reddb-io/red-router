@@ -2458,6 +2458,7 @@ dependencies = [
  "reqwest",
  "scrypt",
  "serde_json",
+ "sha2 0.10.9",
  "sqlx",
  "subtle",
  "tempfile",
