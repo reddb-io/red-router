@@ -1073,3 +1073,144 @@ async fn benchmark_product_guard() {
     }
     provider.abort();
 }
+
+// Measures the real dashboard combo/policy path with both a healthy first
+// provider and a 429 fallback, against loopback mocks on the same runner.
+#[tokio::test]
+#[ignore = "run explicitly in release mode for descriptive performance"]
+async fn benchmark_dashboard_combo() {
+    let (dir, mut db) = fixture().await;
+    sqlx::query("PRAGMA journal_mode = WAL")
+        .execute(&mut db)
+        .await
+        .unwrap();
+    sqlx::query(
+        "UPDATE provider_connections SET api_key = 'router-key', priority = 1 WHERE id = 'test'",
+    )
+    .execute(&mut db)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO provider_connections (id,provider,auth_type,is_active,api_key,updated_at,priority) VALUES ('openai1','openai','apikey',1,'openai-key','b',1)").execute(&mut db).await.unwrap();
+    let data = serde_json::json!({"name":"mix","strategy":"priority","models":["openrouter/vendor/gpt","openai/gpt"]}).to_string();
+    sqlx::query("INSERT INTO combos (name,data) VALUES ('mix',?)")
+        .bind(data)
+        .execute(&mut db)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO api_keys (id,key,allowed_combos) VALUES ('bench-combo','dashboard-combo-key-12345','[\"mix\"]')").execute(&mut db).await.unwrap();
+    let path = dir.path().join("storage.sqlite");
+    let combo = ProductCombo::load(&path, "mix").await.unwrap();
+    let (primary, primary_key) = ProductConnection::open(&path, "test", None).await.unwrap();
+    let primary = primary
+        .with_auto_selection_guard()
+        .with_shared_rpm()
+        .await
+        .unwrap();
+    let (secondary, _) = ProductConnection::open(&path, "openai1", None)
+        .await
+        .unwrap();
+    let secondary = secondary
+        .with_auto_selection_guard()
+        .inherit_accounting(&primary)
+        .unwrap();
+    let fallback = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let flag = fallback.clone();
+    let upstream = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let upstream_addr = upstream.local_addr().unwrap();
+    let provider = tokio::spawn(async move {
+        axum::serve(
+            upstream,
+            Router::new().route(
+                "/v1/chat/completions",
+                post(move |headers: axum::http::HeaderMap| {
+                    let flag = flag.clone();
+                    async move {
+                        if flag.load(Ordering::Relaxed)
+                            && headers.get("authorization").and_then(|v| v.to_str().ok())
+                                == Some("Bearer router-key")
+                        {
+                            axum::http::StatusCode::TOO_MANY_REQUESTS
+                        } else {
+                            axum::http::StatusCode::OK
+                        }
+                    }
+                }),
+            ),
+        )
+        .await
+        .unwrap()
+    });
+    let upstream_url = format!("http://{upstream_addr}/v1/chat/completions");
+    let routes = serde_json::json!([{"model":"mix","fallback":true,"targets":[
+        {"url":upstream_url,"model":"vendor/gpt","api_key_env":"ROUTER"},
+        {"url":upstream_url,"model":"gpt","api_key_env":"OPENAI"}
+    ]}])
+    .to_string();
+    let state = ProxyState::new(
+        &upstream_url,
+        "unused-client-key-12345",
+        &primary_key,
+        false,
+    )
+    .await
+    .unwrap()
+    .with_routes(
+        &routes,
+        |name| match name {
+            "ROUTER" => Some("router-key".into()),
+            "OPENAI" => Some("openai-key".into()),
+            _ => None,
+        },
+        false,
+    )
+    .await
+    .unwrap()
+    .with_product_connection(primary.clone())
+    .with_product_combo(combo, vec![primary, secondary])
+    .unwrap()
+    .with_product_client_keys()
+    .unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move { axum::serve(listener, router(state)).await.unwrap() });
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let url = format!("http://{address}/v1/chat/completions");
+    for (label, use_fallback) in [
+        ("dashboard-combo-primary", false),
+        ("dashboard-combo-fallback", true),
+    ] {
+        fallback.store(use_fallback, Ordering::Relaxed);
+        let samples: Vec<u128> = stream::iter(0..220)
+            .map(|_| {
+                let client = client.clone();
+                let url = url.clone();
+                async move {
+                    let start = std::time::Instant::now();
+                    let response = client
+                        .post(url)
+                        .bearer_auth("dashboard-combo-key-12345")
+                        .header("content-type", "application/json")
+                        .body(r#"{"model":"mix","messages":[]}"#)
+                        .send()
+                        .await
+                        .unwrap();
+                    assert_eq!(response.status(), 200);
+                    response.bytes().await.unwrap();
+                    start.elapsed().as_micros()
+                }
+            })
+            .buffered(16)
+            .collect()
+            .await;
+        let mut measured = samples[20..].to_vec();
+        measured.sort_unstable();
+        println!(
+            "{label}: journal=wal n={} concurrency=16 p50={}us p95={}us",
+            measured.len(),
+            measured[measured.len() / 2],
+            measured[measured.len() * 95 / 100]
+        );
+    }
+    server.abort();
+    provider.abort();
+}
