@@ -1,7 +1,7 @@
 # red-routerd: first Rust data-plane slice
 
 This is an **experimental development slice**, not a replacement for RedRouter. It
-implements OpenAI-compatible chat and embeddings, OpenAI Responses, native Anthropic Messages,
+implements OpenAI-compatible chat and embeddings, Cohere-compatible rerank, OpenAI Responses, native Anthropic Messages,
 and native Gemini GenerateContent routes with a
 required client key, separate provider keys, bounded request size and concurrent
 streams, reusable HTTP connections, incremental responses, and safe redirect refusal.
@@ -148,6 +148,13 @@ route alias as `model` to `/v1/embeddings`; the proxy substitutes the target
 model and passes the input and provider response through. This requires an
 explicit route and does not implement translation to other embedding APIs.
 
+For Cohere-compatible reranking, configure a separate `"protocol":"cohere-rerank"`
+route with a target URL ending in `/rerank`, such as `https://api.cohere.com/v2/rerank`.
+Send a JSON request with the route alias as `model` to `/v1/rerank`. The proxy
+substitutes the target model and relays the remaining body and response unchanged.
+Provider-specific adaptations for non-Cohere request or response formats are not
+implemented. See the [Cohere rerank API](https://docs.cohere.com/v2/reference/rerank).
+
 ## Experimental client policies
 
 `RED_ROUTER_CLIENT_POLICIES_JSON` replaces the default client credential with
@@ -159,7 +166,7 @@ never put a key in the JSON. Without this setting, the original
 export AGENT_CLIENT_KEY='replace-with-a-random-client-key'
 export RED_ROUTER_CLIENT_POLICIES_JSON='[
   {"api_key_env":"AGENT_CLIENT_KEY","allowed_routes":["my-combo"],
-   "allowed_models":["vendor/*"],"allowed_endpoints":["chat"],"blocked_models":["vendor/restricted-model"],"max_concurrent_requests":4,"expires_at_unix":2000000000}
+   "allowed_models":["vendor/*"],"allowed_endpoints":["chat"],"blocked_models":["vendor/restricted-model"],"max_concurrent_requests":4,"max_requests_per_minute":60,"expires_at_unix":2000000000}
 ]'
 ```
 
@@ -170,8 +177,8 @@ it restricts the requested model directly. Omitting it allows all targets, while
 empty array denies all. `blocked_models` denies matching requested models and filters
 matching upstream target model names before selection or fallback. Rules are exact, `*`, or a namespace prefix ending in `/*`.
 `allowed_endpoints` uses the existing RedRouter endpoint categories. All native
-proxy generation endpoints are in `chat`, while `/v1/embeddings` is in
-`embeddings`; an omitted or empty list permits all
+proxy generation endpoints are in `chat`, `/v1/embeddings` is in
+`embeddings`, and `/v1/rerank` is in `rerank`; an omitted or empty list permits all
 categories. `enabled: false` disables a key. Unknown fields, missing keys, duplicate keys,
 and malformed rules fail startup. `expires_at_unix` optionally sets an exclusive
 expiration time in Unix seconds, checked on each request; it does not terminate
@@ -182,6 +189,12 @@ it finishes or is dropped. A busy key receives HTTP 429. Changes apply after res
 local to this experimental process and do not import existing dashboard settings,
 per-key budgets, quotas, schedules, provider-account restrictions or distributed
 rate limits. Do not assume policy parity with the current RedRouter.
+
+`max_requests_per_minute` optionally limits a key to 1–10,000 admitted requests
+in any rolling 60-second window. Requests rejected before routing do not count;
+fallback attempts for one request count once. The limit returns HTTP 429 when full,
+is held in this process's memory, resets on restart, and is not shared between
+multiple proxy instances.
 
 For OpenRouter, use `https://openrouter.ai/api/v1/chat/completions` as the upstream
 URL and an OpenRouter API key as the provider key. For example, after starting the

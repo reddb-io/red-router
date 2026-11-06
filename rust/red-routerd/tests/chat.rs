@@ -11,6 +11,92 @@ use std::{io, sync::Arc, time::Duration};
 use tokio::sync::{oneshot, Mutex};
 
 #[tokio::test]
+async fn cohere_rerank_preserves_payload_and_enforces_per_client_rate_limit() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let calls = Arc::new(AtomicUsize::new(0));
+    let seen = calls.clone();
+    let provider = Router::new().route(
+        "/v2/rerank",
+        post(move |headers: HeaderMap, body: String| {
+            let seen = seen.clone();
+            async move {
+                seen.fetch_add(1, Ordering::SeqCst);
+                assert_eq!(
+                    headers[header::AUTHORIZATION],
+                    "Bearer cohere-provider-secret"
+                );
+                let body: serde_json::Value = serde_json::from_str(&body).unwrap();
+                assert_eq!(body["model"], "rerank-v3.5");
+                assert_eq!(body["query"], "needle");
+                assert_eq!(body["documents"], serde_json::json!(["first", "second"]));
+                assert_eq!(body["top_n"], 1);
+                (
+                    [(header::CONTENT_TYPE, "application/json")],
+                    r#"{"results":[{"index":1,"relevance_score":0.9}]}"#,
+                )
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let provider_task = tokio::spawn(async move { axum::serve(listener, provider).await.unwrap() });
+    let routes = serde_json::json!([{"model":"rank-route","protocol":"cohere-rerank","targets":[{
+        "url":format!("http://{addr}/v2/rerank"),"model":"rerank-v3.5","api_key_env":"PROVIDER"
+    }]}])
+    .to_string();
+    let policies = r#"[
+        {"api_key_env":"FIRST","allowed_endpoints":["rerank"],"allowed_models":["rerank-v3.5"],"max_requests_per_minute":1},
+        {"api_key_env":"SECOND","allowed_endpoints":["rerank"],"max_requests_per_minute":1},
+        {"api_key_env":"CHAT","allowed_endpoints":["chat"]}
+    ]"#;
+    let state = ProxyState::new(
+        &format!("http://{addr}/v1/chat/completions"),
+        "default-client-key-123",
+        "unused",
+        false,
+    )
+    .await
+    .unwrap()
+    .with_routes(&routes, |_| Some("cohere-provider-secret".into()), false)
+    .await
+    .unwrap()
+    .with_client_policies(policies, |name| match name {
+        "FIRST" => Some("first-client-key-123".into()),
+        "SECOND" => Some("second-client-key-123".into()),
+        "CHAT" => Some("chat-client-key-12345".into()),
+        _ => None,
+    })
+    .unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let task = tokio::spawn(async move { axum::serve(listener, router(state)).await.unwrap() });
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let send = |key: &str| {
+        client.post(format!("{base}/v1/rerank")).bearer_auth(key)
+        .body(r#"{"model":"rank-route","query":"needle","documents":["first","second"],"top_n":1}"#).send()
+    };
+    assert_eq!(
+        send("chat-client-key-12345").await.unwrap().status(),
+        StatusCode::FORBIDDEN
+    );
+    let response = send("first-client-key-123").await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: serde_json::Value = serde_json::from_str(&response.text().await.unwrap()).unwrap();
+    assert_eq!(body["results"][0]["index"], 1);
+    assert_eq!(
+        send("first-client-key-123").await.unwrap().status(),
+        StatusCode::TOO_MANY_REQUESTS
+    );
+    assert_eq!(
+        send("second-client-key-123").await.unwrap().status(),
+        StatusCode::OK
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+    task.abort();
+    provider_task.abort();
+}
+
+#[tokio::test]
 async fn embeddings_routes_enforce_endpoint_and_model_policies() {
     use std::sync::atomic::{AtomicUsize, Ordering};
     let calls = Arc::new(AtomicUsize::new(0));

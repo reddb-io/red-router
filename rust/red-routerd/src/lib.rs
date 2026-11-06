@@ -49,6 +49,7 @@ enum ProviderProtocol {
     OpenAi,
     OpenAiResponses,
     OpenAiEmbeddings,
+    CohereRerank,
     Anthropic,
     Gemini,
 }
@@ -100,6 +101,7 @@ impl ProxyState {
                 ProviderProtocol::OpenAi => "/chat/completions",
                 ProviderProtocol::OpenAiResponses => "/responses",
                 ProviderProtocol::OpenAiEmbeddings => "/embeddings",
+                ProviderProtocol::CohereRerank => "/rerank",
                 ProviderProtocol::Anthropic => "/messages",
                 ProviderProtocol::Gemini => "/models",
             })
@@ -138,7 +140,8 @@ impl ProxyState {
         let provider_credential = match protocol {
             ProviderProtocol::OpenAi
             | ProviderProtocol::OpenAiResponses
-            | ProviderProtocol::OpenAiEmbeddings => {
+            | ProviderProtocol::OpenAiEmbeddings
+            | ProviderProtocol::CohereRerank => {
                 format!("Bearer {provider_key}")
             }
             ProviderProtocol::Anthropic | ProviderProtocol::Gemini => provider_key.to_owned(),
@@ -212,6 +215,9 @@ impl ProxyState {
                 }
                 Some(value) if value.as_str() == Some("openai-embeddings") => {
                     ProviderProtocol::OpenAiEmbeddings
+                }
+                Some(value) if value.as_str() == Some("cohere-rerank") => {
+                    ProviderProtocol::CohereRerank
                 }
                 Some(value) if value.as_str() == Some("anthropic") => ProviderProtocol::Anthropic,
                 Some(value) if value.as_str() == Some("gemini") => ProviderProtocol::Gemini,
@@ -368,6 +374,7 @@ pub fn router(state: ProxyState) -> Router {
         .route("/v1/chat/completions", post(chat))
         .route("/v1/responses", post(responses))
         .route("/v1/embeddings", post(embeddings))
+        .route("/v1/rerank", post(rerank))
         .route("/v1/messages", post(messages))
         .route("/v1beta/models/{model_action}", post(gemini))
         .with_state(state)
@@ -395,6 +402,10 @@ async fn responses(State(state): State<ProxyState>, request: Request) -> Respons
 
 async fn embeddings(State(state): State<ProxyState>, request: Request) -> Response {
     proxy_request(state, request, ProviderProtocol::OpenAiEmbeddings, None).await
+}
+
+async fn rerank(State(state): State<ProxyState>, request: Request) -> Response {
+    proxy_request(state, request, ProviderProtocol::CohereRerank, None).await
 }
 
 async fn gemini(
@@ -439,10 +450,10 @@ async fn proxy_request(
     let Some(policy) = state.clients.authenticate(request.headers(), protocol) else {
         return error(StatusCode::UNAUTHORIZED, "Invalid API key");
     };
-    let category = if protocol == ProviderProtocol::OpenAiEmbeddings {
-        "embeddings"
-    } else {
-        "chat"
+    let category = match protocol {
+        ProviderProtocol::OpenAiEmbeddings => "embeddings",
+        ProviderProtocol::CohereRerank => "rerank",
+        _ => "chat",
     };
     if !policy.endpoint_allowed(category) {
         return error(StatusCode::FORBIDDEN, "Endpoint category is not allowed");
@@ -522,6 +533,9 @@ async fn proxy_request(
     }
     if route.is_some() && eligible.is_empty() {
         return error(StatusCode::FORBIDDEN, "No permitted route target");
+    }
+    if !policy.allow_request() {
+        return error(StatusCode::TOO_MANY_REQUESTS, "Client rate limit exceeded");
     }
     let start = route.map_or(0, |route| {
         if route.round_robin {
