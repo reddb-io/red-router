@@ -103,5 +103,3 @@ test("the container defaults match the CLI's real port", () => {
   assert.match(read("bin/cli/product.mjs"), /DEFAULT_PORT = 25050/);
   assert.ok(fs.existsSync(path.join(root, "src/app/healthz/route.ts")));
 });
-
-

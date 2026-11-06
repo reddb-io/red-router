@@ -112,5 +112,3 @@ and rate limits. See the [OpenRouter API documentation](https://openrouter.ai/do
 
 The next slice needs equivalent routing/authz, accounting, persistence and contract
 tests before considering a cluster deployment.
-
-

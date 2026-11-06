@@ -119,5 +119,3 @@ test("foreign upstream operational workflows remain inert fixtures", () => {
     assert.equal(existsSync(join(root, "tests/fixtures/upstream-workflows", file)), true, file);
   }
 });
-
-
