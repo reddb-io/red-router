@@ -71,12 +71,11 @@ pub(crate) fn forward(
     key: String,
     model: String,
     prices: TokenPrices,
-    permit: OwnedSemaphorePermit,
-    client_permit: Option<OwnedSemaphorePermit>,
+    permits: (OwnedSemaphorePermit, Option<OwnedSemaphorePermit>),
 ) -> Body {
     let (sender, receiver) = mpsc::channel::<Result<Bytes, io::Error>>(8);
     tokio::spawn(async move {
-        let _permits = (permit, client_permit);
+        let _permits = permits;
         let mut source = response.bytes_stream();
         let mut pending = Vec::<u8>::new();
         let mut usage = None;

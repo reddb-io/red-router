@@ -111,9 +111,10 @@ export function settleUsageOnDb(db: ReservationDatabase, event: CompletedReserve
   db.immediate(() => {
     const key = db.prepare("SELECT 1 AS present FROM api_keys WHERE id = ? AND tenant_id = 'red'").get(event.keyId);
     if (!key) throw new Error("Accounting key unavailable");
-    const row = db.prepare("SELECT reserved_tokens, reserved_usd, state FROM api_key_usage_reservations WHERE id = ? AND api_key_id = ?").get(event.id, event.keyId) as { reserved_tokens: number; reserved_usd: number; state: string } | undefined;
+    const row = db.prepare("SELECT reserved_tokens, reserved_usd, state, provider, model FROM api_key_usage_reservations WHERE id = ? AND api_key_id = ?").get(event.id, event.keyId) as { reserved_tokens: number; reserved_usd: number; state: string; provider: string | null; model: string | null } | undefined;
     if (row) {
-      if (row.state !== "dispatched" || !Number.isSafeInteger(row.reserved_tokens)) throw new Error("Invalid reservation");
+      if (row.state !== "dispatched" || !Number.isSafeInteger(row.reserved_tokens) ||
+          (row.provider !== null && row.provider !== event.provider) || (row.model !== null && row.model !== event.model)) throw new Error("Invalid reservation");
       nonnegative(row.reserved_tokens); nonnegative(row.reserved_usd);
       if (billable > row.reserved_tokens || cost > row.reserved_usd) {
         db.prepare("UPDATE api_key_usage_reservations SET reserved_tokens = 9007199254740991, reserved_usd = 1e300 WHERE id = ? AND api_key_id = ?").run(event.id, event.keyId);

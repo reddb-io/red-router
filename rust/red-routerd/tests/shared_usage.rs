@@ -62,6 +62,7 @@ async fn rust_and_typescript_reserve_one_shared_token_and_spend_budget() {
     assert!(mark_dispatched(&pool, "rust-handoff", "node-key")
         .await
         .unwrap());
+    sqlx::query("UPDATE api_key_usage_reservations SET provider='openai', model='gpt' WHERE id='rust-handoff'").execute(&pool).await.unwrap();
     sqlx::query("INSERT INTO api_key_quota_limits(api_key_id,tpm_limit,monthly_amount_usd) VALUES ('key',80,1.0)").execute(&pool).await.unwrap();
     sqlx::query(
         "INSERT INTO api_key_daily_token_limits(api_key_id,daily_tokens_limit) VALUES ('key',80)",
@@ -114,6 +115,7 @@ async fn rust_and_typescript_reserve_one_shared_token_and_spend_budget() {
     assert_eq!(node_result["settled"], true);
     assert_eq!(node_result["duplicate"], false);
     assert_eq!(node_result["collision"], true);
+    assert_eq!(node_result["modelMismatch"], true);
     assert_eq!(node_result["overrunReservation"], true);
     assert_eq!(node_result["dispatched"], true);
     assert_eq!(node_result["cancelled"], false);

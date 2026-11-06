@@ -22,6 +22,8 @@ process.stdin.once("data", () => {
   }
   const event = { id: "rust-handoff", keyId: "node-key", nowMs: 1_700_000_000_000, provider: "openai", model: "gpt", input: 100, output: 50,
     reasoning: 0, cacheRead: 0, cacheCreation: 0, prices: { input: 2, output: 4, cached: 2, cacheCreation: 2, reasoning: 4 } };
+  let modelMismatch = false;
+  try { settleUsageOnDb(db, { ...event, model: "other" }); } catch { modelMismatch = true; }
   const settled = settleUsageOnDb(db, event);
   const duplicate = settleUsageOnDb(db, event);
   let collision = false;
@@ -32,5 +34,5 @@ process.stdin.once("data", () => {
   let overrun = false;
   try { settleUsageOnDb(db, { ...event, id: "node-overrun" }); } catch { overrun = true; }
   raw.close();
-  process.stdout.write(JSON.stringify({ allowed, settled, duplicate, collision, overrunReservation, dispatched, cancelled, overrun }) + "\n", () => process.exit(0));
+  process.stdout.write(JSON.stringify({ allowed, settled, duplicate, collision, modelMismatch, overrunReservation, dispatched, cancelled, overrun }) + "\n", () => process.exit(0));
 });

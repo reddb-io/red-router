@@ -213,7 +213,7 @@ async fn record_usage(
         return Err("accounting key unavailable");
     }
     if reserved {
-        let row = sqlx::query("SELECT reserved_tokens, reserved_usd, state FROM api_key_usage_reservations WHERE id = ? AND api_key_id = ?")
+        let row = sqlx::query("SELECT reserved_tokens, reserved_usd, state, provider, model FROM api_key_usage_reservations WHERE id = ? AND api_key_id = ?")
             .bind(event.event_id).bind(event.key_id).fetch_optional(&mut *tx).await.map_err(|_| "reservation unavailable")?;
         if let Some(row) = row {
             let state: String = row.try_get("state").map_err(|_| "invalid reservation")?;
@@ -223,7 +223,15 @@ async fn record_usage(
             let usd_bound: f64 = row
                 .try_get("reserved_usd")
                 .map_err(|_| "invalid reservation")?;
-            if state != "dispatched" || token_bound < 0 || !usd_bound.is_finite() || usd_bound < 0.0
+            let provider: Option<String> =
+                row.try_get("provider").map_err(|_| "invalid reservation")?;
+            let model: Option<String> = row.try_get("model").map_err(|_| "invalid reservation")?;
+            if state != "dispatched"
+                || token_bound < 0
+                || !usd_bound.is_finite()
+                || usd_bound < 0.0
+                || provider.as_deref().is_some_and(|v| v != event.provider)
+                || model.as_deref().is_some_and(|v| v != event.model)
             {
                 return Err("invalid reservation");
             }
@@ -351,11 +359,17 @@ mod tests {
             Err("invalid reservation")
         );
         sqlx::query(
-            "UPDATE api_key_usage_reservations SET state = 'dispatched' WHERE id = 'event-1'",
+            "UPDATE api_key_usage_reservations SET state = 'dispatched', provider = 'openai', model = 'gpt' WHERE id = 'event-1'",
         )
         .execute(&pool)
         .await
         .unwrap();
+        event.model = "wrong";
+        assert_eq!(
+            record_reserved_usage(&pool, &event).await,
+            Err("invalid reservation")
+        );
+        event.model = "gpt";
         assert_eq!(record_reserved_usage(&pool, &event).await, Ok(true));
         assert_eq!(record_reserved_usage(&pool, &event).await, Ok(false));
         let count: i64 = sqlx::query_scalar("SELECT count(*) FROM api_key_usage_reservations")

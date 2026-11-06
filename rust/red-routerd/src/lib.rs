@@ -1260,8 +1260,7 @@ async fn proxy_request(
                     access.key_id.clone(),
                     model,
                     prices,
-                    permit,
-                    client_permit,
+                    (permit, client_permit),
                 );
                 let mut result = Response::new(body);
                 *result.status_mut() = status;
