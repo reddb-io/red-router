@@ -62,3 +62,27 @@ test("shared RPM admission is durable and completion only adds tokens", () => {
     .get("shared-client", "key-quota:rpm") as { n: number };
   assert.equal(row.n, 3);
 });
+
+test("strict mode blocks TypeScript access for keys governed by token or spend quotas", async () => {
+  const oldRpm = process.env.RED_ROUTER_PRODUCT_SHARED_RPM;
+  const oldStrict = process.env.RED_ROUTER_PRODUCT_STRICT_QUOTAS;
+  process.env.RED_ROUTER_PRODUCT_SHARED_RPM = "1";
+  process.env.RED_ROUTER_PRODUCT_STRICT_QUOTAS = "1";
+  try {
+    for (const limits of [{ tpmLimit: 100 }, { dailyTokensLimit: 100 }, { monthlyAmountUsd: 1 }]) {
+      const key = await createApiKey("strict-guard", "ci-machine");
+      upsertKeyQuotaLimits(key.id, limits);
+      const request = new Request("http://localhost/v1/chat/completions", { method: "POST", headers: { authorization: `Bearer ${key.key}` } });
+      const verdict = await enforceApiKeyPolicy(request, "openrouter/openai/gpt");
+      assert.equal(verdict.rejection?.status, 503);
+    }
+    const unrestricted = await createApiKey("strict-unrestricted", "ci-machine");
+    const request = () => new Request("http://localhost/v1/chat/completions", { method: "POST", headers: { authorization: `Bearer ${unrestricted.key}` } });
+    assert.equal((await enforceApiKeyPolicy(request(), "openrouter/openai/gpt")).rejection, null);
+    delete process.env.RED_ROUTER_PRODUCT_SHARED_RPM;
+    assert.equal((await enforceApiKeyPolicy(request(), "openrouter/openai/gpt")).rejection?.status, 503);
+  } finally {
+    if (oldRpm === undefined) delete process.env.RED_ROUTER_PRODUCT_SHARED_RPM; else process.env.RED_ROUTER_PRODUCT_SHARED_RPM = oldRpm;
+    if (oldStrict === undefined) delete process.env.RED_ROUTER_PRODUCT_STRICT_QUOTAS; else process.env.RED_ROUTER_PRODUCT_STRICT_QUOTAS = oldStrict;
+  }
+});

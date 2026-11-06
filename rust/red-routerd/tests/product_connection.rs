@@ -251,6 +251,173 @@ async fn non_streaming_product_usage_is_recorded_and_unhandled_quotas_fail_close
 }
 
 #[tokio::test]
+async fn strict_usage_applies_product_limits_and_keeps_uncertain_attempts() {
+    let (dir, mut db) = fixture().await;
+    sqlx::raw_sql(include_str!(
+        "../../../src/lib/db/migrations/182_request_cost_ledger_and_key_quota.sql"
+    ))
+    .execute(&mut db)
+    .await
+    .unwrap();
+    sqlx::raw_sql(include_str!(
+        "../../../src/lib/db/migrations/219_cost_ledger_recovery.sql"
+    ))
+    .execute(&mut db)
+    .await
+    .unwrap();
+    sqlx::raw_sql(include_str!(
+        "../../../src/lib/db/migrations/226_shared_usage_reservations.sql"
+    ))
+    .execute(&mut db)
+    .await
+    .unwrap();
+    sqlx::raw_sql("ALTER TABLE request_cost_ledger ADD COLUMN tenant_id TEXT; ALTER TABLE request_cost_ledger ADD COLUMN pricing_known INTEGER NOT NULL DEFAULT 1;").execute(&mut db).await.unwrap();
+    sqlx::query("UPDATE provider_connections SET api_key='provider-key' WHERE id='test'")
+        .execute(&mut db)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO api_keys (id,key) VALUES ('quota','strict-client-key-123456'),('uncertain','uncertain-client-key-123'),('stream','stream-client-key-123456')").execute(&mut db).await.unwrap();
+    sqlx::query("INSERT INTO api_key_quota_limits VALUES ('quota',300,NULL,0.0008),('uncertain',300,NULL,0.0008),('stream',150,NULL,0.0004)").execute(&mut db).await.unwrap();
+    sqlx::query("INSERT INTO api_key_daily_token_limits(api_key_id,daily_tokens_limit) VALUES ('quota',300),('uncertain',300),('stream',150)").execute(&mut db).await.unwrap();
+    sqlx::query("INSERT INTO key_value VALUES ('pricing','openrouter',?)")
+        .bind(
+            r#"{"vendor/gpt":{"input":2,"output":4,"cached":1,"cache_creation":2,"reasoning":4}}"#,
+        )
+        .execute(&mut db)
+        .await
+        .unwrap();
+    let (connection, key) =
+        ProductConnection::open(&dir.path().join("storage.sqlite"), "test", None)
+            .await
+            .unwrap();
+    let connection = connection
+        .with_shared_rpm()
+        .await
+        .unwrap()
+        .with_usage_accounting()
+        .await
+        .unwrap()
+        .with_strict_usage(150, 0.0004)
+        .unwrap();
+    let calls = Arc::new(AtomicUsize::new(0));
+    let mode = Arc::new(AtomicUsize::new(0));
+    let provider_calls = calls.clone();
+    let provider_mode = mode.clone();
+    let upstream = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let upstream_addr = upstream.local_addr().unwrap();
+    let provider = tokio::spawn(async move {
+        axum::serve(upstream, Router::new().route("/v1/chat/completions", post(move |axum::Json(request): axum::Json<serde_json::Value>| {
+        let calls = provider_calls.clone(); let mode = provider_mode.clone(); async move {
+            calls.fetch_add(1, Ordering::SeqCst);
+            tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+            if request["stream"] == true {
+                return axum::http::Response::builder().header("content-type", "text/event-stream")
+                    .body(axum::body::Body::from("data: {\"usage\":{\"prompt_tokens\":100,\"completion_tokens\":50}}\n\ndata: [DONE]\n\n")).unwrap();
+            }
+            if mode.load(Ordering::SeqCst) == 1 { axum::Json(serde_json::json!({"id":"unknown"})).into_response() }
+            else { axum::Json(serde_json::json!({"id":"ok","usage":{"prompt_tokens":100,"completion_tokens":50}})).into_response() }
+        }
+    }))).await.unwrap()
+    });
+    let state = ProxyState::new(
+        &format!("http://{upstream_addr}/v1/chat/completions"),
+        "unused-client-key-12345",
+        &key,
+        false,
+    )
+    .await
+    .unwrap()
+    .with_product_connection(connection)
+    .with_product_client_keys()
+    .unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move { axum::serve(listener, router(state)).await.unwrap() });
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let send = |key: &'static str| {
+        client
+            .post(format!("http://{address}/v1/chat/completions"))
+            .bearer_auth(key)
+            .header("content-type", "application/json")
+            .body(r#"{"model":"openrouter/vendor/gpt","messages":[]}"#)
+    };
+    let (a, b) = tokio::join!(
+        send("strict-client-key-123456").send(),
+        send("strict-client-key-123456").send()
+    );
+    let statuses = [a.unwrap().status(), b.unwrap().status()];
+    assert!(
+        statuses.contains(&axum::http::StatusCode::OK),
+        "{statuses:?}"
+    );
+    assert!(
+        statuses.contains(&axum::http::StatusCode::TOO_MANY_REQUESTS),
+        "{statuses:?}"
+    );
+    assert_eq!(
+        send("strict-client-key-123456")
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
+    assert_eq!(
+        send("strict-client-key-123456")
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        429
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+    let (count, cost): (i64, f64) = sqlx::query_as(
+        "SELECT count(*), sum(amount_usd) FROM request_cost_ledger WHERE api_key_id='quota'",
+    )
+    .fetch_one(&mut db)
+    .await
+    .unwrap();
+    assert_eq!(count, 2);
+    assert!((cost - 0.0008).abs() < 1e-12);
+    mode.store(1, Ordering::SeqCst);
+    assert_eq!(
+        send("uncertain-client-key-123")
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        502
+    );
+    mode.store(0, Ordering::SeqCst);
+    assert_eq!(
+        send("uncertain-client-key-123")
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        429
+    );
+    let pending: i64 = sqlx::query_scalar("SELECT count(*) FROM api_key_usage_reservations WHERE api_key_id='uncertain' AND state='dispatched'").fetch_one(&mut db).await.unwrap();
+    assert_eq!(pending, 1);
+    let stream_request = || {
+        client.post(format!("http://{address}/v1/chat/completions")).bearer_auth("stream-client-key-123456").header("content-type","application/json")
+        .body(r#"{"model":"openrouter/vendor/gpt","messages":[],"stream":true,"stream_options":{"include_usage":true}}"#)
+    };
+    let response = stream_request().send().await.unwrap();
+    assert_eq!(response.status(), 200);
+    assert!(response.text().await.unwrap().contains("[DONE]"));
+    assert_eq!(stream_request().send().await.unwrap().status(), 429);
+    let recorded: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM request_cost_ledger WHERE api_key_id='stream'")
+            .fetch_one(&mut db)
+            .await
+            .unwrap();
+    assert_eq!(recorded, 1);
+    server.abort();
+    provider.abort();
+}
+
+#[tokio::test]
 async fn automatic_fill_first_respects_priority_and_refuses_unsupported_state() {
     let (dir, mut db) = fixture().await;
     let path = dir.path().join("storage.sqlite");

@@ -108,7 +108,7 @@ does not increment RPM a second time for a request already reserved. A process
 running without this setting retains the older check-before/increment-after
 behavior, so mixed traffic with that process can still exceed the limit.
 
-Token, daily and monthly spend quotas, and other request limits remain
+By default token, daily and monthly spend quotas, and other request limits remain
 unsupported by Rust and block requests when configured. SQLite is not a
 distributed database; do not assume separate node-local files or network-mounted
 files share safe cluster coordination. Keep the mode experimental.
@@ -126,8 +126,27 @@ response atomically writes its usage and releases its reservation. An interrupte
 upstream response, failed attempt, process crash, or provider failure can have
 unrecorded cost and leaves an unresolved dispatched reservation for reconciliation;
 these reservations never expire automatically. This mode does not apply token or
-spend quotas, and TypeScript does not yet reserve for live requests, so it is not
-a reliable billing or enforcement boundary.
+spend quotas by default, and TypeScript does not yet reserve for live requests,
+so it is not a reliable billing or enforcement boundary.
+
+For a restricted trial of per-key TPM, daily-token and monthly-USD quotas, set
+`RED_ROUTER_PRODUCT_STRICT_QUOTAS=1`, `RED_ROUTER_PRODUCT_RESERVE_TOKENS` and
+`RED_ROUTER_PRODUCT_RESERVE_USD` in the Rust process, in addition to product
+client keys, usage accounting and shared RPM. The token and USD values are
+conservative upper bounds for one provider attempt; a request is refused if the
+bound cannot fit. Only one attempt per key may be outstanding, and an uncertain
+or oversized response requires reconciliation. An attempt costing more than its
+configured bound can itself exceed a quota before its usage is observed; this
+is not a hard spending guarantee. Independently governed budgets, per-model
+token limits and other unsupported policies still block in Rust.
+
+Enable both `RED_ROUTER_PRODUCT_STRICT_QUOTAS=1` and
+`RED_ROUTER_PRODUCT_SHARED_RPM=1` in **every** TypeScript process using the same
+SQLite file. TypeScript then refuses keys with these token or spend quotas;
+send those requests to the Rust proxy. Other TypeScript requests continue as
+before. Existing processes without these settings or the updated code can
+still bypass this mode. Drain existing requests before enabling it. Fallback
+after an uncertain attempt is blocked until that attempt is reconciled.
 
 ```sh
 export RED_ROUTER_LISTEN=127.0.0.1:19091

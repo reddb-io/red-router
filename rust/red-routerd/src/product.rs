@@ -30,6 +30,7 @@ pub struct ProductConnection {
     path: Arc<PathBuf>,
     shared_rpm: Option<mpsc::Sender<RpmReservation>>,
     usage_pool: Option<SqlitePool>,
+    strict_usage: Option<(i64, f64)>,
     auto_selection: bool,
 }
 
@@ -40,6 +41,7 @@ pub(crate) struct ProductAccess {
 
 struct RpmReservation {
     key_id: String,
+    strict_usage: bool,
     reply: oneshot::Sender<Result<bool, &'static str>>,
 }
 
@@ -235,6 +237,7 @@ impl ProductConnection {
                 path: Arc::new(path.to_path_buf()),
                 shared_rpm: None,
                 usage_pool: None,
+                strict_usage: None,
                 auto_selection: false,
             },
             credential,
@@ -268,6 +271,7 @@ impl ProductConnection {
         }
         self.shared_rpm = source.shared_rpm.clone();
         self.usage_pool = source.usage_pool.clone();
+        self.strict_usage = source.strict_usage;
         Ok(self)
     }
 
@@ -296,6 +300,24 @@ impl ProductConnection {
 
     pub(crate) fn usage_accounting_enabled(&self) -> bool {
         self.usage_pool.is_some()
+    }
+
+    /// Opt in to bounded, exclusive admission. Every other live proxy must
+    /// participate in the same mode or block the affected keys.
+    pub fn with_strict_usage(mut self, tokens: i64, usd: f64) -> Result<Self, &'static str> {
+        if self.usage_pool.is_none()
+            || self.shared_rpm.is_none()
+            || tokens <= 0
+            || tokens > 9_007_199_254_740_991
+            || !usd.is_finite()
+            || usd <= 0.0
+        {
+            return Err(
+                "strict usage requires accounting, shared RPM and positive reservation bounds",
+            );
+        }
+        self.strict_usage = Some((tokens, usd));
+        Ok(self)
     }
 
     pub(crate) async fn usage_prices(
@@ -348,14 +370,20 @@ impl ProductConnection {
                 .as_millis(),
         )
         .map_err(|_| "invalid clock")?;
+        let (tokens, usd) = self.strict_usage.unwrap_or((9_007_199_254_740_991, 1e300));
         let request = crate::shared_usage::UsageReservation {
             id: &event_id,
             key_id,
-            tokens: 9_007_199_254_740_991,
-            usd: 1e300,
+            tokens,
+            usd,
             now_ms: now,
         };
-        if !crate::shared_usage::reserve_usage(pool, &request).await? {
+        let allowed = if self.strict_usage.is_some() {
+            crate::shared_usage::reserve_usage_exclusive(pool, &request).await?
+        } else {
+            crate::shared_usage::reserve_usage(pool, &request).await?
+        };
+        if !allowed {
             return Err("usage reservation denied");
         }
         let marked = sqlx::query("UPDATE api_key_usage_reservations SET state = 'dispatched', provider = ?, model = ?, connection_id = ? WHERE id = ? AND api_key_id = ? AND state = 'reserved'")
@@ -521,6 +549,7 @@ impl ProductConnection {
         sender
             .send(RpmReservation {
                 key_id: key_id.to_owned(),
+                strict_usage: self.strict_usage.is_some(),
                 reply,
             })
             .await
@@ -659,13 +688,13 @@ impl ProductConnection {
         let unsupported: i64 = sqlx::query_scalar(
             "SELECT EXISTS(SELECT 1 FROM domain_budgets WHERE api_key_id = ?)
               OR EXISTS(SELECT 1 FROM api_key_token_limits WHERE api_key_id = ? AND enabled = 1)
-              OR EXISTS(SELECT 1 FROM api_key_quota_limits WHERE api_key_id = ? AND (COALESCE(tpm_limit,0)>0 OR (COALESCE(rpm_limit,0)>0 AND ? = 0) OR COALESCE(monthly_amount_usd,0)>0))
-              OR EXISTS(SELECT 1 FROM api_key_daily_token_limits WHERE api_key_id = ?)
+              OR EXISTS(SELECT 1 FROM api_key_quota_limits WHERE api_key_id = ? AND ((COALESCE(tpm_limit,0)>0 AND ? = 0) OR (COALESCE(rpm_limit,0)>0 AND ? = 0) OR (COALESCE(monthly_amount_usd,0)>0 AND ? = 0)))
+              OR EXISTS(SELECT 1 FROM api_key_daily_token_limits WHERE api_key_id = ? AND ? = 0)
               OR EXISTS(SELECT 1 FROM key_group_members WHERE key_id = ?)
               OR EXISTS(SELECT 1 FROM budget_assignments)
               OR NOT EXISTS(SELECT 1 FROM provider_connections WHERE id = ? AND tenant_id = 'red')
               OR EXISTS(SELECT 1 FROM model_combo_mappings WHERE enabled = 1)"
-        ).bind(&key_id).bind(&key_id).bind(&key_id).bind(i64::from(self.shared_rpm.is_some())).bind(&key_id).bind(&key_id).bind(self.id.as_ref())
+        ).bind(&key_id).bind(&key_id).bind(&key_id).bind(i64::from(self.strict_usage.is_some())).bind(i64::from(self.shared_rpm.is_some())).bind(i64::from(self.strict_usage.is_some())).bind(&key_id).bind(i64::from(self.strict_usage.is_some())).bind(&key_id).bind(self.id.as_ref())
             .fetch_one(&mut *tx).await.map_err(|_| "product quota schema unavailable")?;
         if unsupported != 0 {
             return Err("unsupported product quota or routing policy");
@@ -750,7 +779,7 @@ async fn reserve_batch(
             let monthly: Option<f64> = row
                 .try_get("monthly_amount_usd")
                 .map_err(|_| "invalid quota limits")?;
-            if tpm.unwrap_or(0) > 0 || monthly.unwrap_or(0.0) > 0.0 {
+            if !request.strict_usage && (tpm.unwrap_or(0) > 0 || monthly.unwrap_or(0.0) > 0.0) {
                 return Err("unsupported product quota");
             }
             row.try_get::<Option<i64>, _>("rpm_limit")

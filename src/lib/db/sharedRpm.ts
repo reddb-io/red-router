@@ -23,6 +23,16 @@ export function reserveSharedRpmOnDb(
   const bucket = Math.floor(nowMs / 60_000);
   let allowed = false;
   db.immediate(() => {
+    // Until TypeScript participates in token/spend settlement, do not admit
+    // keys governed by these quotas in strict mode. Rust handles those keys.
+    if (process.env.RED_ROUTER_PRODUCT_STRICT_QUOTAS === "1") {
+      const guarded = db.prepare(
+        `SELECT EXISTS(SELECT 1 FROM api_key_quota_limits WHERE api_key_id = ? AND
+          (COALESCE(tpm_limit, 0) > 0 OR COALESCE(monthly_amount_usd, 0) > 0)) OR
+          EXISTS(SELECT 1 FROM api_key_daily_token_limits WHERE api_key_id = ?) AS guarded`
+      ).get(apiKeyId, apiKeyId) as { guarded: number };
+      if (guarded.guarded !== 0) throw new Error("Token and spend quota keys require the Rust proxy in strict mode");
+    }
     const limitRow = db
       .prepare("SELECT rpm_limit FROM api_key_quota_limits WHERE api_key_id = ?")
       .get(apiKeyId) as { rpm_limit?: number | null } | undefined;

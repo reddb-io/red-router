@@ -921,6 +921,9 @@ export async function enforceApiKeyPolicy(
   if (!apiKeyInfo) {
     return { apiKey, apiKeyInfo: null, rejection: null };
   }
+  if (process.env.RED_ROUTER_PRODUCT_STRICT_QUOTAS === "1" && process.env.RED_ROUTER_PRODUCT_SHARED_RPM !== "1") {
+    return { apiKey, apiKeyInfo, rejection: errorResponse(HTTP_STATUS.SERVICE_UNAVAILABLE, "Strict quota coordination unavailable") };
+  }
 
   const context = { request, apiKey, apiKeyInfo, modelStr };
   const statusRejection = validateKeyStatus(context);

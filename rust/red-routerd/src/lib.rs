@@ -1046,6 +1046,12 @@ async fn proxy_request(
             };
             let event_id = match connection.begin_usage(&access.key_id, target_model).await {
                 Ok(id) => id,
+                Err("usage reservation denied") => {
+                    return error(
+                        StatusCode::TOO_MANY_REQUESTS,
+                        "Client token or spend quota unavailable or exceeded",
+                    )
+                }
                 Err(_) => {
                     return error(
                         StatusCode::SERVICE_UNAVAILABLE,

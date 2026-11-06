@@ -23,6 +23,23 @@ pub async fn reserve_usage(
     pool: &SqlitePool,
     r: &UsageReservation<'_>,
 ) -> Result<bool, &'static str> {
+    reserve_usage_inner(pool, r, false).await
+}
+
+/// Admit at most one outstanding reservation for this key, including uncertain
+/// dispatched requests. Useful when the per-request bound needs reconciliation.
+pub async fn reserve_usage_exclusive(
+    pool: &SqlitePool,
+    r: &UsageReservation<'_>,
+) -> Result<bool, &'static str> {
+    reserve_usage_inner(pool, r, true).await
+}
+
+async fn reserve_usage_inner(
+    pool: &SqlitePool,
+    r: &UsageReservation<'_>,
+    exclusive: bool,
+) -> Result<bool, &'static str> {
     if r.id.is_empty()
         || r.id.len() > 128
         || r.key_id.is_empty()
@@ -71,8 +88,17 @@ pub async fn reserve_usage(
     .await
     .map_err(|_| "reservation daily limit unavailable")?;
     let day_limit = amount(daily.unwrap_or(0) as f64)?;
-    let outstanding = sqlx::query("SELECT CAST(COALESCE(SUM(reserved_tokens),0) AS REAL) AS tokens, CAST(COALESCE(SUM(reserved_usd),0) AS REAL) AS usd FROM api_key_usage_reservations WHERE api_key_id = ?")
+    let outstanding = sqlx::query("SELECT COUNT(*) AS count, CAST(COALESCE(SUM(reserved_tokens),0) AS REAL) AS tokens, CAST(COALESCE(SUM(reserved_usd),0) AS REAL) AS usd FROM api_key_usage_reservations WHERE api_key_id = ?")
         .bind(r.key_id).fetch_one(&mut *tx).await.map_err(|_| "reservation state unavailable")?;
+    let pending_count: i64 = outstanding
+        .try_get("count")
+        .map_err(|_| "invalid reservation")?;
+    if exclusive && pending_count > 0 {
+        tx.commit()
+            .await
+            .map_err(|_| "reservation database unavailable")?;
+        return Ok(false);
+    }
     let pending_tokens = amount(
         outstanding
             .try_get("tokens")

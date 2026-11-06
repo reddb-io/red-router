@@ -102,6 +102,14 @@ async fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
         if usage_accounting && !product_client_keys {
             return Err("usage accounting requires product client keys".into());
         }
+        let strict_quotas = match env::var("RED_ROUTER_PRODUCT_STRICT_QUOTAS").as_deref() {
+            Ok("1") => true,
+            Err(env::VarError::NotPresent) | Ok("0") => false,
+            _ => return Err("RED_ROUTER_PRODUCT_STRICT_QUOTAS must be 0 or 1".into()),
+        };
+        if strict_quotas && (!usage_accounting || !shared_rpm) {
+            return Err("strict quotas require product usage accounting and shared RPM".into());
+        }
         let account_fallback = match env::var("RED_ROUTER_PRODUCT_ACCOUNT_FALLBACK").as_deref() {
             Ok("1") => true,
             Err(env::VarError::NotPresent) | Ok("0") => false,
@@ -150,6 +158,11 @@ async fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
         }
         if usage_accounting {
             connection = connection.with_usage_accounting().await?;
+        }
+        if strict_quotas {
+            let tokens: i64 = env::var("RED_ROUTER_PRODUCT_RESERVE_TOKENS")?.parse()?;
+            let usd: f64 = env::var("RED_ROUTER_PRODUCT_RESERVE_USD")?.parse()?;
+            connection = connection.with_strict_usage(tokens, usd)?;
         }
         let mut fallbacks = Vec::new();
         if account_fallback {
@@ -246,6 +259,9 @@ async fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
         }
         Err(env::VarError::NotPresent) | Ok("0") => {}
         _ => return Err("RED_ROUTER_PRODUCT_ACCOUNT_USAGE must be 0 or 1".into()),
+    }
+    if env::var_os("RED_ROUTER_PRODUCT_STRICT_QUOTAS").is_some_and(|v| v != "0") {
+        return Err("strict quotas require RED_ROUTER_PRODUCT_DB_PATH".into());
     }
     let backend_setting = match env::var("RED_ROUTER_DB_BACKEND") {
         Ok(value) => Some(value),
