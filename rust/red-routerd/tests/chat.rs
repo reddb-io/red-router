@@ -306,7 +306,7 @@ async fn cohere_rerank_preserves_payload_and_enforces_per_client_rate_limit() {
     .to_string();
     let policies = r#"[
         {"api_key_env":"FIRST","allowed_endpoints":["rerank"],"allowed_models":["rerank-v3.5"],"max_requests_per_minute":1},
-        {"api_key_env":"SECOND","allowed_endpoints":["rerank"],"max_requests_per_minute":1},
+        {"api_key_env":"SECOND","allowed_endpoints":["rerank"],"max_requests_per_day":1},
         {"api_key_env":"CHAT","allowed_endpoints":["chat"]}
     ]"#;
     let state = ProxyState::new(
@@ -361,6 +361,10 @@ async fn cohere_rerank_preserves_payload_and_enforces_per_client_rate_limit() {
     assert_eq!(
         send("second-client-key-123").await.unwrap().status(),
         StatusCode::OK
+    );
+    assert_eq!(
+        send("second-client-key-123").await.unwrap().status(),
+        StatusCode::TOO_MANY_REQUESTS
     );
     assert_eq!(calls.load(Ordering::SeqCst), 2);
     assert_eq!(failures.load(Ordering::SeqCst), 2);

@@ -200,8 +200,9 @@ local to this experimental process and do not import existing dashboard settings
 per-key budgets, quotas, schedules, provider-account restrictions or distributed
 rate limits. Do not assume policy parity with the current RedRouter.
 
-`max_requests_per_minute` optionally limits a key to 1–10,000 admitted requests
-in any rolling 60-second window. Requests rejected before routing do not count;
+`max_requests_per_minute` and `max_requests_per_day` optionally limit a key to
+1–10,000 admitted requests per rolling 60-second or 24-hour window, respectively.
+When both are set, both must allow the request. Requests rejected before routing do not count;
 fallback attempts for one request count once. The limit returns HTTP 429 when full,
 is held in this process's memory, resets on restart, and is not shared between
 multiple proxy instances.

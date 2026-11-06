@@ -25,8 +25,9 @@ pub(crate) struct ClientPolicy {
 }
 
 struct RateLimit {
-    maximum: usize,
-    requests: Mutex<VecDeque<Instant>>,
+    minute: Option<usize>,
+    day: Option<usize>,
+    requests: Mutex<(VecDeque<Instant>, VecDeque<Instant>)>,
 }
 
 impl RateLimit {
@@ -34,16 +35,37 @@ impl RateLimit {
         let Ok(mut requests) = self.requests.lock() else {
             return false;
         };
-        while requests
+        let (minute, day) = &mut *requests;
+        // Calls can reach the mutex in a different order from their timestamp.
+        // Keep the queues monotonic so expiry never undercounts recent requests.
+        let now = minute
+            .back()
+            .into_iter()
+            .chain(day.back())
+            .fold(now, |now, last| now.max(*last));
+        while minute
             .front()
             .is_some_and(|at| now.saturating_duration_since(*at) >= Duration::from_secs(60))
         {
-            requests.pop_front();
+            minute.pop_front();
         }
-        if requests.len() >= self.maximum {
+        while day
+            .front()
+            .is_some_and(|at| now.saturating_duration_since(*at) >= Duration::from_secs(86_400))
+        {
+            day.pop_front();
+        }
+        if self.minute.is_some_and(|limit| minute.len() >= limit)
+            || self.day.is_some_and(|limit| day.len() >= limit)
+        {
             return false;
         }
-        requests.push_back(now);
+        if self.minute.is_some() {
+            minute.push_back(now);
+        }
+        if self.day.is_some() {
+            day.push_back(now);
+        }
         true
     }
 }
@@ -92,6 +114,7 @@ impl ClientPolicies {
                     "blocked_models",
                     "max_concurrent_requests",
                     "max_requests_per_minute",
+                    "max_requests_per_day",
                 ]
                 .contains(&name.as_str())
             }) {
@@ -171,20 +194,25 @@ impl ClientPolicies {
                     Some(Arc::new(Semaphore::new(count as usize)))
                 }
             };
-            let rate_limit = match object.get("max_requests_per_minute") {
-                None => None,
-                Some(value) => {
-                    let maximum = value
-                        .as_u64()
-                        .filter(|count| (1..=10_000).contains(count))
-                        .ok_or("invalid client rate limit")?
-                        as usize;
-                    Some(RateLimit {
-                        maximum,
-                        requests: Mutex::new(VecDeque::new()),
+            let parse_limit = |name| {
+                object
+                    .get(name)
+                    .map(|value| {
+                        value
+                            .as_u64()
+                            .filter(|count| (1..=10_000).contains(count))
+                            .map(|count| count as usize)
+                            .ok_or("invalid client rate limit")
                     })
-                }
+                    .transpose()
             };
+            let minute = parse_limit("max_requests_per_minute")?;
+            let day = parse_limit("max_requests_per_day")?;
+            let rate_limit = (minute.is_some() || day.is_some()).then(|| RateLimit {
+                minute,
+                day,
+                requests: Mutex::new((VecDeque::new(), VecDeque::new())),
+            });
             entries.push(ClientPolicy {
                 key: Arc::from(key),
                 enabled,
@@ -361,8 +389,9 @@ mod tests {
     #[test]
     fn rate_limit_uses_a_rolling_minute_and_rejects_invalid_limits() {
         let limit = RateLimit {
-            maximum: 2,
-            requests: Mutex::new(VecDeque::new()),
+            minute: Some(2),
+            day: None,
+            requests: Mutex::new((VecDeque::new(), VecDeque::new())),
         };
         let start = Instant::now();
         assert!(limit.admit(start));
@@ -371,19 +400,38 @@ mod tests {
         assert!(limit.admit(start + Duration::from_secs(60)));
         assert!(!limit.admit(start + Duration::from_secs(60)));
         assert!(limit.admit(start + Duration::from_secs(61)));
-        for value in ["0", "-1", "10001", "null", "1.5"] {
-            let config = format!(r#"[{{"api_key_env":"KEY","max_requests_per_minute":{value}}}]"#);
-            assert!(
-                ClientPolicies::parse(&config, |_| Some("client-key-12345678".into())).is_err()
-            );
+        for field in ["max_requests_per_minute", "max_requests_per_day"] {
+            for value in ["0", "-1", "10001", "null", "1.5"] {
+                let config = format!(r#"[{{"api_key_env":"KEY","{field}":{value}}}]"#);
+                assert!(
+                    ClientPolicies::parse(&config, |_| Some("client-key-12345678".into())).is_err()
+                );
+            }
         }
+    }
+
+    #[test]
+    fn minute_and_day_limits_are_admitted_together() {
+        let limit = RateLimit {
+            minute: Some(2),
+            day: Some(3),
+            requests: Mutex::new((VecDeque::new(), VecDeque::new())),
+        };
+        let start = Instant::now();
+        assert!(limit.admit(start));
+        assert!(limit.admit(start + Duration::from_secs(1)));
+        assert!(!limit.admit(start + Duration::from_secs(2)));
+        assert!(limit.admit(start + Duration::from_secs(60)));
+        assert!(!limit.admit(start + Duration::from_secs(121)));
+        assert!(limit.admit(start + Duration::from_secs(86_400)));
     }
 
     #[test]
     fn rate_limit_admission_is_atomic_under_concurrency() {
         let limit = Arc::new(RateLimit {
-            maximum: 4,
-            requests: Mutex::new(VecDeque::new()),
+            minute: Some(4),
+            day: Some(4),
+            requests: Mutex::new((VecDeque::new(), VecDeque::new())),
         });
         let now = Instant::now();
         let threads: Vec<_> = (0..32)
