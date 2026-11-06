@@ -71,7 +71,9 @@ function recordStreamingBillableTokens(usage: object, ctx: RecordStreamingUsageS
   try {
     const billable = computeBillableTokens(usage);
     // Key-quota tpm/rpm counters advance on every completed stream.
-    recordKeyQuotaUsage(ctx.apiKeyInfo.id, billable, { skipRpm: ctx.apiKeyInfo.sharedRpmReserved === true });
+    recordKeyQuotaUsage(ctx.apiKeyInfo.id, billable, {
+      skipRpm: ctx.apiKeyInfo.sharedRpmReserved === true,
+    });
     // Reusable budgets' tokens-per-minute counters advance on the same completed stream.
     recordBudgetTokensFor(ctx.apiKeyInfo, ctx.provider, billable);
     if (billable > 0)

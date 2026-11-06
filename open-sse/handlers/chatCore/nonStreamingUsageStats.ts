@@ -87,7 +87,9 @@ function recordBillableTokens(
     // Key-quota tpm/rpm counters advance for every successful call regardless
     // of token count (rpm always +1), so the gate in apiKeyPolicy sees current
     // usage. Mirrors recordTokenUsage's swallow-and-continue.
-    recordKeyQuotaUsage(apiKeyInfo.id, billable, { skipRpm: apiKeyInfo.sharedRpmReserved === true });
+    recordKeyQuotaUsage(apiKeyInfo.id, billable, {
+      skipRpm: apiKeyInfo.sharedRpmReserved === true,
+    });
     // Reusable budgets' tokens-per-minute counters advance on the same successful call.
     recordBudgetTokensFor(apiKeyInfo, provider, billable);
     if (billable > 0)

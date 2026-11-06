@@ -192,6 +192,8 @@ jobs:
       - uses: ./.github/actions/npm-ci-retry
       - name: Verify TypeScript quota admission
         run: node --import tsx/esm --import ./open-sse/utils/setupPolyfill.ts --test tests/redrouter/native/shared-rpm.test.ts tests/redrouter/native/systemone-dispatch.test.ts
+      - name: Type-check TypeScript core
+        run: npm run typecheck:core
 
 
   plugin-dependencies:

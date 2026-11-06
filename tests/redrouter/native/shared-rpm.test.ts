@@ -6,14 +6,44 @@ import { after, test } from "node:test";
 
 const directory = mkdtempSync(join(tmpdir(), "redrouter-shared-rpm-"));
 process.env.DATA_DIR = directory;
+process.env.API_KEY_SECRET = process.env.API_KEY_SECRET || "shared-rpm-ci-only-secret";
 const { getDbInstance, resetDbInstance } = await import("../../../src/lib/db/core.ts");
 const { upsertKeyQuotaLimits, reserveSharedKeyRpm, getQuotaWindowCount } =
   await import("../../../src/lib/db/keyQuota.ts");
 const { recordKeyQuotaUsage } = await import("../../../src/domain/keyQuota.ts");
+const { createApiKey, getApiKeyMetadata } = await import("../../../src/lib/db/apiKeys.ts");
+const { enforceApiKeyPolicy } = await import("../../../src/shared/utils/apiKeyPolicy.ts");
 
 after(() => {
   resetDbInstance();
   rmSync(directory, { recursive: true, force: true });
+});
+
+test("request policy reserves once without mutating cached client metadata", async () => {
+  const previous = process.env.RED_ROUTER_PRODUCT_SHARED_RPM;
+  process.env.RED_ROUTER_PRODUCT_SHARED_RPM = "1";
+  try {
+    const key = await createApiKey("mixed-rpm", "ci-machine");
+    upsertKeyQuotaLimits(key.id, { rpmLimit: 1 });
+    const request = () =>
+      new Request("http://localhost/v1/chat/completions", {
+        method: "POST",
+        headers: { authorization: `Bearer ${key.key}` },
+      });
+    const accepted = await enforceApiKeyPolicy(request(), "openrouter/openai/gpt");
+    assert.equal(accepted.rejection, null);
+    assert.equal(accepted.apiKeyInfo?.sharedRpmReserved, true);
+    assert.equal(
+      ((await getApiKeyMetadata(key.key)) as { sharedRpmReserved?: boolean }).sharedRpmReserved,
+      undefined
+    );
+    recordKeyQuotaUsage(key.id, 12, { skipRpm: accepted.apiKeyInfo?.sharedRpmReserved === true });
+    const rejected = await enforceApiKeyPolicy(request(), "openrouter/openai/gpt");
+    assert.equal(rejected.rejection?.status, 429);
+  } finally {
+    if (previous === undefined) delete process.env.RED_ROUTER_PRODUCT_SHARED_RPM;
+    else process.env.RED_ROUTER_PRODUCT_SHARED_RPM = previous;
+  }
 });
 
 test("shared RPM admission is durable and completion only adds tokens", () => {

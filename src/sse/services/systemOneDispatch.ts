@@ -104,7 +104,9 @@ export async function dispatchSystemOne(
   }
   if (options.apiKeyId) {
     try {
-      const quota = deps.keyQuota(options.apiKeyId, { skipRpmCheck: options.sharedRpmReserved === true });
+      const quota = deps.keyQuota(options.apiKeyId, {
+        skipRpmCheck: options.sharedRpmReserved === true,
+      });
       if (!quota.allowed) return fail(429, quota.reason || "API key quota exceeded");
       if (deps.tokenLimits(options.apiKeyId, target.provider, target.model)) {
         return fail(429, "Token limit exceeded for this API key");
@@ -114,7 +116,11 @@ export async function dispatchSystemOne(
     }
   }
   let sharedRpmReserved = options.sharedRpmReserved === true;
-  if (options.apiKeyId && !sharedRpmReserved && process.env.RED_ROUTER_PRODUCT_SHARED_RPM === "1") {
+  if (
+    options.apiKeyId &&
+    !sharedRpmReserved &&
+    process.env.RED_ROUTER_PRODUCT_SHARED_RPM === "1"
+  ) {
     try {
       if (!deps.reserveSharedRpm(options.apiKeyId)) return fail(429, "Client RPM quota exceeded");
       sharedRpmReserved = true;

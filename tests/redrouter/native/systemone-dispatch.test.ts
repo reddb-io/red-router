@@ -128,6 +128,38 @@ test("key quotas reject internal S1 before inference and reasoning tokens count 
   );
 });
 
+test("S1 reuses an outer RPM reservation and separately reserves internal evaluations", async () => {
+  const previous = process.env.RED_ROUTER_PRODUCT_SHARED_RPM;
+  process.env.RED_ROUTER_PRODUCT_SHARED_RPM = "1";
+  try {
+    let reservations = 0;
+    const observed: boolean[] = [];
+    const { dependencies } = setup({
+      reserveSharedRpm: () => {
+        reservations++;
+        return true;
+      },
+      keyQuota: (_id, opts) => {
+        observed.push(opts?.skipRpmCheck === true);
+        return { allowed: true, reason: null, dimension: null };
+      },
+      recordKeyQuota: (_id, _tokens, opts) => assert.equal(opts?.skipRpm, true),
+    });
+    assert.equal(
+      (await dispatchSystemOne(target, body, { ...options, sharedRpmReserved: true }, dependencies))
+        .response.status,
+      200
+    );
+    assert.equal(reservations, 0);
+    assert.equal((await dispatchSystemOne(target, body, options, dependencies)).response.status, 200);
+    assert.equal(reservations, 1);
+    assert.deepEqual(observed, [true, false]);
+  } finally {
+    if (previous === undefined) delete process.env.RED_ROUTER_PRODUCT_SHARED_RPM;
+    else process.env.RED_ROUTER_PRODUCT_SHARED_RPM = previous;
+  }
+});
+
 test("S1 uses per-key proxy and records usage, cost, ledger context and TPM once", async () => {
   const { dependencies, events } = setup();
   const result = await dispatchSystemOne(target, body, options, dependencies);

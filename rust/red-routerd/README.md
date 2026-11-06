@@ -89,12 +89,17 @@ using the same local SQLite file coordinate reservations transactionally. They
 also observe counters written by the existing proxy. A reservation is counted
 even if forwarding subsequently fails or the client disconnects.
 
-The TypeScript proxy checks and increments separately after completion, so mixed
-Rust/TypeScript traffic can still exceed the limit under concurrency. Tokens,
-daily and monthly quotas, costs, and other request limits remain unsupported and
-block requests when configured. SQLite is not a distributed database; do not
-assume separate node-local files or network-mounted files share safe cluster
-coordination. Keep the mode experimental.
+Enable `RED_ROUTER_PRODUCT_SHARED_RPM=1` in the TypeScript process as well,
+pointed at the same local product SQLite file, to reserve RPM atomically across
+both implementations. TypeScript records successful token usage separately and
+does not increment RPM a second time for a request already reserved. A process
+running without this setting retains the older check-before/increment-after
+behavior, so mixed traffic with that process can still exceed the limit.
+
+Tokens, daily and monthly quotas, costs, and other request limits remain
+unsupported by Rust and block requests when configured. SQLite is not a
+distributed database; do not assume separate node-local files or network-mounted
+files share safe cluster coordination. Keep the mode experimental.
 
 ```sh
 export RED_ROUTER_LISTEN=127.0.0.1:19091

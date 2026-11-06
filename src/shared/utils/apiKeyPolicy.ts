@@ -947,13 +947,21 @@ export async function enforceApiKeyPolicy(
   if (process.env.RED_ROUTER_PRODUCT_SHARED_RPM === "1" && apiKeyInfo.id) {
     try {
       if (!reserveSharedKeyRpm(apiKeyInfo.id)) {
-        return { apiKey, apiKeyInfo, rejection: errorResponse(HTTP_STATUS.RATE_LIMITED, "Client RPM quota exceeded") };
+        return {
+          apiKey,
+          apiKeyInfo,
+          rejection: errorResponse(HTTP_STATUS.RATE_LIMITED, "Client RPM quota exceeded"),
+        };
       }
       // getApiKeyMetadata caches objects: never mutate its shared instance.
       apiKeyInfo = { ...apiKeyInfo, sharedRpmReserved: true };
     } catch (error) {
       log.error("API_POLICY", "Shared RPM admission failed. Request blocked.", { error });
-      return { apiKey, apiKeyInfo, rejection: errorResponse(HTTP_STATUS.SERVICE_UNAVAILABLE, "Client quota accounting unavailable") };
+      return {
+        apiKey,
+        apiKeyInfo,
+        rejection: errorResponse(HTTP_STATUS.SERVICE_UNAVAILABLE, "Client quota accounting unavailable"),
+      };
     }
   }
   return { apiKey, apiKeyInfo, rejection: null };
