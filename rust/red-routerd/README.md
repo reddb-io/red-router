@@ -1,8 +1,8 @@
 # red-routerd: first Rust data-plane slice
 
 This is an **experimental development slice**, not a replacement for RedRouter. It
-implements one OpenAI-compatible chat route with a required client
-bearer key, a separate provider bearer key, bounded request size and concurrent
+implements OpenAI-compatible chat and native Anthropic Messages routes with a
+required client key, separate provider keys, bounded request size and concurrent
 streams, reusable HTTP connections, incremental responses, and safe redirect refusal.
 It binds only to loopback. The operator can configure OpenAI-compatible HTTPS
 providers or literal-loopback HTTP mocks. It does not provide a public listener.
