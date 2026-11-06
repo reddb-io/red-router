@@ -299,6 +299,19 @@ async fn strict_usage_applies_product_limits_and_keeps_uncertain_attempts() {
         .unwrap()
         .with_strict_usage(150, 0.0004)
         .unwrap();
+    let (other_connection, other_key) =
+        ProductConnection::open(&dir.path().join("storage.sqlite"), "test", None)
+            .await
+            .unwrap();
+    let other_connection = other_connection
+        .with_shared_rpm()
+        .await
+        .unwrap()
+        .with_usage_accounting()
+        .await
+        .unwrap()
+        .with_strict_usage(150, 0.0004)
+        .unwrap();
     let calls = Arc::new(AtomicUsize::new(0));
     let mode = Arc::new(AtomicUsize::new(0));
     let provider_calls = calls.clone();
@@ -330,9 +343,27 @@ async fn strict_usage_applies_product_limits_and_keeps_uncertain_attempts() {
     .with_product_connection(connection)
     .with_product_client_keys()
     .unwrap();
+    let other_state = ProxyState::new(
+        &format!("http://{upstream_addr}/v1/chat/completions"),
+        "unused-client-key-12345",
+        &other_key,
+        false,
+    )
+    .await
+    .unwrap()
+    .with_product_connection(other_connection)
+    .with_product_client_keys()
+    .unwrap();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     let server = tokio::spawn(async move { axum::serve(listener, router(state)).await.unwrap() });
+    let other_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let other_address = other_listener.local_addr().unwrap();
+    let other_server = tokio::spawn(async move {
+        axum::serve(other_listener, router(other_state))
+            .await
+            .unwrap()
+    });
     let client = reqwest::Client::builder().no_proxy().build().unwrap();
     let send = |key: &'static str| {
         client
@@ -343,7 +374,12 @@ async fn strict_usage_applies_product_limits_and_keeps_uncertain_attempts() {
     };
     let (a, b) = tokio::join!(
         send("strict-client-key-123456").send(),
-        send("strict-client-key-123456").send()
+        client
+            .post(format!("http://{other_address}/v1/chat/completions"))
+            .bearer_auth("strict-client-key-123456")
+            .header("content-type", "application/json")
+            .body(r#"{"model":"openrouter/vendor/gpt","messages":[]}"#)
+            .send()
     );
     let statuses = [a.unwrap().status(), b.unwrap().status()];
     assert!(
@@ -414,6 +450,7 @@ async fn strict_usage_applies_product_limits_and_keeps_uncertain_attempts() {
             .unwrap();
     assert_eq!(recorded, 1);
     server.abort();
+    other_server.abort();
     provider.abort();
 }
 
