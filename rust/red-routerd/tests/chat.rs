@@ -11,6 +11,106 @@ use std::{io, sync::Arc, time::Duration};
 use tokio::sync::{oneshot, Mutex};
 
 #[tokio::test]
+async fn embeddings_routes_enforce_endpoint_and_model_policies() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let calls = Arc::new(AtomicUsize::new(0));
+    let observed = calls.clone();
+    let provider = Router::new().route(
+        "/v1/embeddings",
+        post(move |headers: HeaderMap, body: String| {
+            let observed = observed.clone();
+            async move {
+                observed.fetch_add(1, Ordering::SeqCst);
+                assert_eq!(
+                    headers[header::AUTHORIZATION],
+                    "Bearer embedding-provider-secret"
+                );
+                let body: serde_json::Value = serde_json::from_str(&body).unwrap();
+                assert_eq!(body["model"], "vendor/embedding-model");
+                assert_eq!(body["input"], serde_json::json!(["one", "two"]));
+                (
+                    [(header::CONTENT_TYPE, "application/json")],
+                    r#"{"data":[{"embedding":[0.5]}]}"#,
+                )
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let provider_task = tokio::spawn(async move { axum::serve(listener, provider).await.unwrap() });
+    let routes = serde_json::json!([{"model":"vector-route","protocol":"openai-embeddings","targets":[{
+        "url":format!("http://{addr}/v1/embeddings"),"model":"vendor/embedding-model","api_key_env":"PROVIDER"
+    }]}]).to_string();
+    let policies = r#"[
+        {"api_key_env":"VECTOR","allowed_endpoints":["embeddings"],"allowed_models":["vendor/*"]},
+        {"api_key_env":"CHAT","allowed_endpoints":["chat"]},
+        {"api_key_env":"BLOCKED","allowed_endpoints":["embeddings"],"blocked_models":["vendor/*"]}
+    ]"#;
+    let state = ProxyState::new(
+        &format!("http://{addr}/v1/chat/completions"),
+        "default-client-key-123",
+        "unused",
+        false,
+    )
+    .await
+    .unwrap()
+    .with_routes(&routes, |_| Some("embedding-provider-secret".into()), false)
+    .await
+    .unwrap()
+    .with_client_policies(policies, |name| match name {
+        "VECTOR" => Some("vector-client-key-123".into()),
+        "CHAT" => Some("chat-client-key-12345".into()),
+        "BLOCKED" => Some("blocked-client-key-123".into()),
+        _ => None,
+    })
+    .unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let proxy_task =
+        tokio::spawn(async move { axum::serve(listener, router(state)).await.unwrap() });
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let send = |path: &str, key: &str| {
+        client
+            .post(format!("{base}{path}"))
+            .bearer_auth(key)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(serde_json::json!({"model":"vector-route","input":["one","two"]}).to_string())
+            .send()
+    };
+    assert_eq!(
+        send("/v1/embeddings", "chat-client-key-12345")
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        send("/v1/embeddings", "blocked-client-key-123")
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        send("/v1/chat/completions", "vector-client-key-123")
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    let response = send("/v1/embeddings", "vector-client-key-123")
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let response: serde_json::Value =
+        serde_json::from_str(&response.text().await.unwrap()).unwrap();
+    assert_eq!(response["data"][0]["embedding"], serde_json::json!([0.5]));
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    proxy_task.abort();
+    provider_task.abort();
+}
+
+#[tokio::test]
 async fn anthropic_messages_preserve_protocol_and_isolate_credentials() {
     use std::sync::atomic::{AtomicUsize, Ordering};
     let calls = Arc::new(AtomicUsize::new(0));

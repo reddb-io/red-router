@@ -1,7 +1,7 @@
 # red-routerd: first Rust data-plane slice
 
 This is an **experimental development slice**, not a replacement for RedRouter. It
-implements OpenAI-compatible chat, OpenAI Responses, native Anthropic Messages,
+implements OpenAI-compatible chat and embeddings, OpenAI Responses, native Anthropic Messages,
 and native Gemini GenerateContent routes with a
 required client key, separate provider keys, bounded request size and concurrent
 streams, reusable HTTP connections, incremental responses, and safe redirect refusal.
@@ -136,6 +136,12 @@ single path segments. Native bodies and responses pass through without protocol
 translation. This is Gemini API support; Gemini CLI provider authentication is not
 implemented. See the [Gemini REST API reference](https://ai.google.dev/api/generate-content).
 
+OpenAI-compatible embeddings use a separate `"protocol":"openai-embeddings"`
+route with a target URL ending in `/embeddings`. Send a JSON request with the
+route alias as `model` to `/v1/embeddings`; the proxy substitutes the target
+model and passes the input and provider response through. This requires an
+explicit route and does not implement translation to other embedding APIs.
+
 ## Experimental client policies
 
 `RED_ROUTER_CLIENT_POLICIES_JSON` replaces the default client credential with
@@ -158,7 +164,8 @@ it restricts the requested model directly. Omitting it allows all targets, while
 empty array denies all. `blocked_models` denies matching requested models and filters
 matching upstream target model names before selection or fallback. Rules are exact, `*`, or a namespace prefix ending in `/*`.
 `allowed_endpoints` uses the existing RedRouter endpoint categories. All native
-proxy generation endpoints are in `chat`; an omitted or empty list permits all
+proxy generation endpoints are in `chat`, while `/v1/embeddings` is in
+`embeddings`; an omitted or empty list permits all
 categories. `enabled: false` disables a key. Unknown fields, missing keys, duplicate keys,
 and malformed rules fail startup. `max_concurrent_requests` optionally limits each
 key to 1–64 concurrent requests within this process; a stream holds its slot until

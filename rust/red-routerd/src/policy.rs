@@ -204,14 +204,13 @@ impl ClientPolicy {
             .transpose()
     }
 
-    // Every currently implemented generation endpoint belongs to RedRouter's
-    // chat category; empty lists retain the product's unrestricted behavior.
-    pub(crate) fn chat_endpoint_allowed(&self) -> bool {
+    // Empty endpoint lists retain the product's unrestricted behavior.
+    pub(crate) fn endpoint_allowed(&self, endpoint: &str) -> bool {
         self.allowed_endpoints.is_empty()
             || self
                 .allowed_endpoints
                 .iter()
-                .any(|category| category == "chat")
+                .any(|category| category == endpoint)
     }
 
     pub(crate) fn route_allowed(&self, model: &str) -> bool {

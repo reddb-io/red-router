@@ -48,6 +48,7 @@ struct ModelRoute {
 enum ProviderProtocol {
     OpenAi,
     OpenAiResponses,
+    OpenAiEmbeddings,
     Anthropic,
     Gemini,
 }
@@ -98,6 +99,7 @@ impl ProxyState {
             || !upstream.path().ends_with(match protocol {
                 ProviderProtocol::OpenAi => "/chat/completions",
                 ProviderProtocol::OpenAiResponses => "/responses",
+                ProviderProtocol::OpenAiEmbeddings => "/embeddings",
                 ProviderProtocol::Anthropic => "/messages",
                 ProviderProtocol::Gemini => "/models",
             })
@@ -134,7 +136,9 @@ impl ProxyState {
             return Err("client key must be 16-512 bytes and provider key 1-512 bytes");
         }
         let provider_credential = match protocol {
-            ProviderProtocol::OpenAi | ProviderProtocol::OpenAiResponses => {
+            ProviderProtocol::OpenAi
+            | ProviderProtocol::OpenAiResponses
+            | ProviderProtocol::OpenAiEmbeddings => {
                 format!("Bearer {provider_key}")
             }
             ProviderProtocol::Anthropic | ProviderProtocol::Gemini => provider_key.to_owned(),
@@ -205,6 +209,9 @@ impl ProxyState {
                 Some(value) if value.as_str() == Some("openai") => ProviderProtocol::OpenAi,
                 Some(value) if value.as_str() == Some("openai-responses") => {
                     ProviderProtocol::OpenAiResponses
+                }
+                Some(value) if value.as_str() == Some("openai-embeddings") => {
+                    ProviderProtocol::OpenAiEmbeddings
                 }
                 Some(value) if value.as_str() == Some("anthropic") => ProviderProtocol::Anthropic,
                 Some(value) if value.as_str() == Some("gemini") => ProviderProtocol::Gemini,
@@ -360,6 +367,7 @@ pub fn router(state: ProxyState) -> Router {
         .route("/healthz", get(|| async { StatusCode::OK }))
         .route("/v1/chat/completions", post(chat))
         .route("/v1/responses", post(responses))
+        .route("/v1/embeddings", post(embeddings))
         .route("/v1/messages", post(messages))
         .route("/v1beta/models/{model_action}", post(gemini))
         .with_state(state)
@@ -383,6 +391,10 @@ async fn messages(State(state): State<ProxyState>, request: Request) -> Response
 
 async fn responses(State(state): State<ProxyState>, request: Request) -> Response {
     proxy_request(state, request, ProviderProtocol::OpenAiResponses, None).await
+}
+
+async fn embeddings(State(state): State<ProxyState>, request: Request) -> Response {
+    proxy_request(state, request, ProviderProtocol::OpenAiEmbeddings, None).await
 }
 
 async fn gemini(
@@ -427,7 +439,12 @@ async fn proxy_request(
     let Some(policy) = state.clients.authenticate(request.headers(), protocol) else {
         return error(StatusCode::UNAUTHORIZED, "Invalid API key");
     };
-    if !policy.chat_endpoint_allowed() {
+    let category = if protocol == ProviderProtocol::OpenAiEmbeddings {
+        "embeddings"
+    } else {
+        "chat"
+    };
+    if !policy.endpoint_allowed(category) {
         return error(StatusCode::FORBIDDEN, "Endpoint category is not allowed");
     }
     let anthropic_headers = if protocol == ProviderProtocol::Anthropic {
