@@ -14,7 +14,7 @@ futures-util = "0.3"
 fs2 = "0.4"
 reqwest = { version = "0.12", default-features = false, features = ["stream", "rustls-tls"] }
 percent-encoding = "2"
-reddb-io-client = { version = "=1.28.14", default-features = false, features = ["redwire-tls"] }
+reddb-io-client = { version = "=1.28.15", default-features = false, features = ["redwire-tls"] }
 serde_json = "1"
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "sqlite", "postgres", "any"] }
 subtle = "2"

@@ -2351,9 +2351,9 @@ dependencies = [
 
 [[package]]
 name = "reddb-io-client"
-version = "1.28.14"
+version = "1.28.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "06d274051ae981dca7682074463c607610ad95951e0e191d3a2975b53b7aa1e2"
+checksum = "8d24110d3706d0d16c7c9de3749bbdad73c59ca0b0ebd0517e702c2bc9950e3b"
 dependencies = [
  "async-trait",
  "getrandom 0.4.3",
@@ -2373,9 +2373,9 @@ dependencies = [
 
 [[package]]
 name = "reddb-io-crypto"
-version = "1.28.14"
+version = "1.28.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8e55204d862f1ae39e650b222ac0581dd14ac3cc20c57fd2f133c6ad875148c5"
+checksum = "697513ebeebac3431e31731947606df1b8cccc7938c3b44bb7912e6f416b83ea"
 dependencies = [
  "aes-gcm",
  "argon2",
@@ -2385,9 +2385,9 @@ dependencies = [
 
 [[package]]
 name = "reddb-io-engine"
-version = "1.28.14"
+version = "1.28.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c590e4710c2d1d8355b4aa998d3d05cf6f35789a9c1606062b8b7cb11a7df03f"
+checksum = "0c8e0ba87b22204e270e53a00124af2079ff9b41c30770247224c8df917a9380"
 dependencies = [
  "crc32fast",
  "hex",
@@ -2404,9 +2404,9 @@ dependencies = [
 
 [[package]]
 name = "reddb-io-file"
-version = "1.28.14"
+version = "1.28.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bc16a0f2165c3ad4223a1b2d1a1e314754abfee58acf0418d3b74abcf4163d65"
+checksum = "bfe255d19350dc3f3cad06288cc18d60b048fd9248af4b9ad0e0763ea1260b3d"
 dependencies = [
  "blake3",
  "crc32fast",
@@ -2423,9 +2423,9 @@ dependencies = [
 
 [[package]]
 name = "reddb-io-grpc-proto"
-version = "1.28.14"
+version = "1.28.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7d8a0463d8e2311c691aa42b15d8d183b42d50db44ce3e1f61c42808527b1189"
+checksum = "a04278b4b7e6aafee5bd2cedcd0c0009ab7c5c6eedcdd73771b1155356b2bf90"
 dependencies = [
  "prost",
  "reddb-io-tonic",
@@ -2437,18 +2437,18 @@ dependencies = [
 
 [[package]]
 name = "reddb-io-rql"
-version = "1.28.14"
+version = "1.28.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "97ac4c761e8586359294659e30601d1d7ca6517dd7b5a6cde1e323962d3a369b"
+checksum = "9a4a74221f792e5b99ca1e84c690ecfb7c20a2acb237732e8093f88f57a86444"
 dependencies = [
  "reddb-io-types",
 ]
 
 [[package]]
 name = "reddb-io-server"
-version = "1.28.14"
+version = "1.28.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a0daa80e4af075f85de21c6da6e7e96f8264e6858ee06784cb1d3943285bf431"
+checksum = "9883917fb8ee435ebfa0c8448fa1465ddb15d86558181e412cfd5ce07340de65"
 dependencies = [
  "aes-gcm",
  "argon2",
@@ -2509,9 +2509,9 @@ dependencies = [
 
 [[package]]
 name = "reddb-io-tonic"
-version = "1.28.14"
+version = "1.28.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "926045a3d4fd0a9aa4f18937adbed2ccce5ac811905ec557a74a622d100c7862"
+checksum = "a82b28d31c56d3f18fb59aeb5a68f957eabf82e10f25f058bd71b2961eee9c43"
 dependencies = [
  "async-trait",
  "axum",
@@ -2542,9 +2542,9 @@ dependencies = [
 
 [[package]]
 name = "reddb-io-tonic-prost"
-version = "1.28.14"
+version = "1.28.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "000f1128fea9245c0c70d07869d3f962261c2df847897ff41090ba7f25a787fd"
+checksum = "7ee76c5ab46fd19dfa005bb3718137356673da77b27414256966ee285fef1a88"
 dependencies = [
  "bytes",
  "prost",
@@ -2553,18 +2553,18 @@ dependencies = [
 
 [[package]]
 name = "reddb-io-types"
-version = "1.28.14"
+version = "1.28.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fa2de2e8fdb703c5ff81f943dd2f62bef0a8d5ccc15fa353574c7de9f9a0d562"
+checksum = "581fb424be5e2f42b6b3fe4ca806c7d08bef83c2531dda83cb7c4bb16695736b"
 dependencies = [
  "zstd",
 ]
 
 [[package]]
 name = "reddb-io-wire"
-version = "1.28.14"
+version = "1.28.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8cf92ec5082adddbb64e248bd1bb2b71110cb8a73d79331cccded8014e20979d"
+checksum = "1309bcf51355c005a8806dd0865e08c0d07a10f315b623c41c845ff2339e3160"
 dependencies = [
  "hmac 0.13.0",
  "reddb-io-types",
