@@ -162,6 +162,23 @@ pub async fn record_completed_usage(
     pool: &SqlitePool,
     event: &CompletedUsage<'_>,
 ) -> Result<bool, &'static str> {
+    record_usage(pool, event, false).await
+}
+
+/// Settle a dispatched reservation and its observed usage atomically. If the
+/// provider exceeds the bound, quarantine it until explicit reconciliation.
+pub async fn record_reserved_usage(
+    pool: &SqlitePool,
+    event: &CompletedUsage<'_>,
+) -> Result<bool, &'static str> {
+    record_usage(pool, event, true).await
+}
+
+async fn record_usage(
+    pool: &SqlitePool,
+    event: &CompletedUsage<'_>,
+    reserved: bool,
+) -> Result<bool, &'static str> {
     if event.event_id.is_empty()
         || event.event_id.len() > 256
         || event.key_id.is_empty()
@@ -195,6 +212,40 @@ pub async fn record_completed_usage(
     if key_exists != 1 {
         return Err("accounting key unavailable");
     }
+    if reserved {
+        let row = sqlx::query("SELECT reserved_tokens, reserved_usd, state FROM api_key_usage_reservations WHERE id = ? AND api_key_id = ?")
+            .bind(event.event_id).bind(event.key_id).fetch_optional(&mut *tx).await.map_err(|_| "reservation unavailable")?;
+        if let Some(row) = row {
+            let state: String = row.try_get("state").map_err(|_| "invalid reservation")?;
+            let token_bound: i64 = row
+                .try_get("reserved_tokens")
+                .map_err(|_| "invalid reservation")?;
+            let usd_bound: f64 = row
+                .try_get("reserved_usd")
+                .map_err(|_| "invalid reservation")?;
+            if state != "dispatched" || token_bound < 0 || !usd_bound.is_finite() || usd_bound < 0.0
+            {
+                return Err("invalid reservation");
+            }
+            if billable > token_bound as u64 || cost > usd_bound {
+                sqlx::query("UPDATE api_key_usage_reservations SET reserved_tokens = 9007199254740991, reserved_usd = 1e300 WHERE id = ? AND api_key_id = ?")
+                    .bind(event.event_id).bind(event.key_id).execute(&mut *tx).await.map_err(|_| "reservation unavailable")?;
+                tx.commit().await.map_err(|_| "accounting unavailable")?;
+                return Err("usage exceeds reservation; reconciliation required");
+            }
+        } else {
+            let existing: i64 = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM request_cost_ledger WHERE event_id = ?)",
+            )
+            .bind(event.event_id)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(|_| "cost ledger unavailable")?;
+            if existing != 1 {
+                return Err("reservation unavailable");
+            }
+        }
+    }
     let inserted = sqlx::query("INSERT INTO request_cost_ledger (api_key_id, provider, model, tokens_input, tokens_output, tokens_cache_read, tokens_cache_creation, tokens_reasoning, unit_price_input, unit_price_output, amount_usd, service_tier, success, timestamp, event_id, pricing_known, tenant_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'standard', 1, strftime('%Y-%m-%dT%H:%M:%fZ', ? / 1000.0, 'unixepoch'), ?, 1, 'red') ON CONFLICT(event_id) WHERE event_id IS NOT NULL DO NOTHING")
         .bind(event.key_id).bind(event.provider).bind(event.model).bind(input).bind(output)
         .bind(cache_read).bind(cache_creation).bind(reasoning).bind(event.prices.input).bind(event.prices.output)
@@ -222,6 +273,10 @@ pub async fn record_completed_usage(
         if !same {
             return Err("accounting event ID collision");
         }
+        if reserved {
+            sqlx::query("DELETE FROM api_key_usage_reservations WHERE id = ? AND api_key_id = ? AND state = 'dispatched'")
+                .bind(event.event_id).bind(event.key_id).execute(&mut *tx).await.map_err(|_| "reservation unavailable")?;
+        }
         tx.commit().await.map_err(|_| "accounting unavailable")?;
         return Ok(false);
     }
@@ -229,6 +284,10 @@ pub async fn record_completed_usage(
         sqlx::query("INSERT INTO api_key_quota_counters (api_key_id, dimension_key, bucket_index, consumed, updated_at) VALUES (?, 'key-quota:tpm', ?, ?, ?) ON CONFLICT(api_key_id, dimension_key, bucket_index) DO UPDATE SET consumed = consumed + excluded.consumed, updated_at = excluded.updated_at")
             .bind(event.key_id).bind(event.timestamp_ms / 60_000).bind(billable as i64).bind(event.timestamp_ms)
             .execute(&mut *tx).await.map_err(|_| "token counter unavailable")?;
+    }
+    if reserved {
+        sqlx::query("DELETE FROM api_key_usage_reservations WHERE id = ? AND api_key_id = ? AND state = 'dispatched'")
+            .bind(event.event_id).bind(event.key_id).execute(&mut *tx).await.map_err(|_| "reservation unavailable")?;
     }
     tx.commit().await.map_err(|_| "accounting unavailable")?;
     Ok(true)
@@ -258,9 +317,72 @@ mod tests {
         .execute(&pool)
         .await
         .unwrap();
+        sqlx::raw_sql(include_str!(
+            "../../../src/lib/db/migrations/226_shared_usage_reservations.sql"
+        ))
+        .execute(&pool)
+        .await
+        .unwrap();
         sqlx::raw_sql("CREATE TABLE api_keys (id TEXT PRIMARY KEY, tenant_id TEXT); INSERT INTO api_keys VALUES ('key', 'red'); ALTER TABLE request_cost_ledger ADD COLUMN tenant_id TEXT; ALTER TABLE request_cost_ledger ADD COLUMN pricing_known INTEGER NOT NULL DEFAULT 1;")
             .execute(&pool).await.unwrap();
         pool
+    }
+
+    #[tokio::test]
+    async fn reserved_usage_settles_atomically_and_overruns_are_quarantined() {
+        let pool = accounting_database().await;
+        let usage = ChatUsage::from_response(
+            &json!({"usage":{"prompt_tokens":100,"completion_tokens":50}}),
+        )
+        .unwrap();
+        let prices = TokenPrices::from_record(&json!({"input":2,"output":4})).unwrap();
+        let mut event = CompletedUsage {
+            event_id: "event-1",
+            key_id: "key",
+            provider: "openai",
+            model: "gpt",
+            usage: &usage,
+            prices: &prices,
+            timestamp_ms: 1_700_000_000_000,
+        };
+        sqlx::query("INSERT INTO api_key_usage_reservations VALUES ('event-1','key',150,0.001,1700000000000,'reserved')").execute(&pool).await.unwrap();
+        assert_eq!(
+            record_reserved_usage(&pool, &event).await,
+            Err("invalid reservation")
+        );
+        sqlx::query(
+            "UPDATE api_key_usage_reservations SET state = 'dispatched' WHERE id = 'event-1'",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        assert_eq!(record_reserved_usage(&pool, &event).await, Ok(true));
+        assert_eq!(record_reserved_usage(&pool, &event).await, Ok(false));
+        let count: i64 = sqlx::query_scalar("SELECT count(*) FROM api_key_usage_reservations")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(count, 0);
+        sqlx::query("INSERT INTO api_key_usage_reservations VALUES ('event-2','key',100,0.001,1700000000000,'dispatched')").execute(&pool).await.unwrap();
+        event.event_id = "event-2";
+        assert_eq!(
+            record_reserved_usage(&pool, &event).await,
+            Err("usage exceeds reservation; reconciliation required")
+        );
+        let tokens: i64 = sqlx::query_scalar(
+            "SELECT reserved_tokens FROM api_key_usage_reservations WHERE id = 'event-2'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(tokens, 9_007_199_254_740_991);
+        let count: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM request_cost_ledger WHERE event_id = 'event-2'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(count, 0);
     }
 
     #[tokio::test]
