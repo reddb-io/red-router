@@ -1,6 +1,7 @@
 //! An isolated first slice of the Rust data plane. See README before use.
 mod anthropic_stream;
 mod policy;
+pub mod product;
 pub mod storage;
 mod translation;
 use axum::{
@@ -36,6 +37,7 @@ pub struct ProxyState {
     permits: Arc<Semaphore>,
     routes: Arc<HashMap<String, ModelRoute>>,
     clients: Arc<policy::ClientPolicies>,
+    product_connection: Option<product::ProductConnection>,
 }
 
 struct ModelRoute {
@@ -171,7 +173,14 @@ impl ProxyState {
             permits: Arc::new(Semaphore::new(MAX_IN_FLIGHT)),
             routes: Arc::new(HashMap::new()),
             clients: Arc::new(policy::ClientPolicies::single(client_key)),
+            product_connection: None,
         })
+    }
+
+    /// Fail closed when the selected product connection is edited or disabled.
+    pub fn with_product_connection(mut self, connection: product::ProductConnection) -> Self {
+        self.product_connection = Some(connection);
+        self
     }
 
     /// Replace the default client key with explicit per-key route policies.
@@ -488,6 +497,16 @@ async fn proxy_request(
     let Some(policy) = state.clients.authenticate(request.headers(), protocol) else {
         return error(StatusCode::UNAUTHORIZED, "Invalid API key");
     };
+    let connection_changed = match &state.product_connection {
+        Some(connection) => !connection.unchanged().await,
+        None => false,
+    };
+    if connection_changed {
+        return error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Product connection changed or is unavailable; restart required",
+        );
+    }
     let category = match protocol {
         ProviderProtocol::OpenAiEmbeddings => "embeddings",
         ProviderProtocol::CohereRerank => "rerank",

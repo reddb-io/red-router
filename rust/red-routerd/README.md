@@ -14,11 +14,33 @@ priority or round-robin selection, opt-in fallback, and basic per-key route and
 model restrictions. It does not yet implement
 RedRouter's full provider selection, quotas, policies, accounting, protocol
 full protocol translation, management API, remote listening or inbound TLS.
-Its experimental database integration persists only the single upstream endpoint;
-client and provider keys remain environment configuration. It does not read or migrate
-the existing RedRouter configuration or credentials.
+Its standard database integration persists only the single upstream endpoint;
+client and provider keys remain environment configuration. An opt-in mode can
+read one OpenRouter API credential from the product SQLite database, as described
+below. No product database migration is performed.
 It has not been validated as a production gateway. `/healthz` confirms that this
 process responds; it is not evidence of provider or database readiness.
+
+## Experimental product SQLite credential
+
+Set `RED_ROUTER_PRODUCT_DB_PATH` to the existing product `storage.sqlite` file,
+`RED_ROUTER_PRODUCT_CONNECTION_ID` to the ID of an active OpenRouter API-key
+connection and `RED_ROUTER_CLIENT_KEY` to a separate strong client key. If the
+provider credential uses field encryption, provide the same
+`STORAGE_ENCRYPTION_KEY` that the webapp uses through the process environment.
+Only the current `enc:v1` static-salt format and plaintext credentials are
+supported; legacy encrypted credentials require migration by the webapp first.
+
+This mode opens the product database read-only, uses the fixed OpenRouter HTTPS
+endpoint, and rechecks the selected connection before each request. Edits,
+deactivation, removal or database errors stop new requests until restart; requests
+already forwarded can still finish. It does not modify the existing database and
+does not use `RED_ROUTER_PROVIDER_KEY`, model route JSON or the separate gateway
+database. Inbound authentication and optional policy JSON remain independent.
+**Product API keys, client policies, quotas, accounting, provider selection and
+other connection settings are not imported or enforced.** Use a separate client
+key only for isolated evaluation, not as a replacement for the product proxy.
+Per-request database checks add overhead; this mode needs its own benchmarks.
 
 ```sh
 export RED_ROUTER_LISTEN=127.0.0.1:19091
