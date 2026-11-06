@@ -1108,6 +1108,117 @@ async fn authenticates_separates_credentials_and_streams_incrementally() {
 }
 
 #[tokio::test]
+async fn mixed_provider_combo_translates_only_the_anthropic_attempt() {
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+
+    let fail_primary = Arc::new(AtomicBool::new(false));
+    let calls = Arc::new([AtomicUsize::new(0), AtomicUsize::new(0)]);
+    let first_fail = fail_primary.clone();
+    let first_calls = calls.clone();
+    let second_calls = calls.clone();
+    let provider = Router::new()
+        .route("/v1/chat/completions", post(move |headers: HeaderMap, body: String| {
+            let fail = first_fail.clone();
+            let calls = first_calls.clone();
+            async move {
+                calls[0].fetch_add(1, Ordering::SeqCst);
+                assert_eq!(headers[header::AUTHORIZATION], "Bearer openai-key");
+                let value: serde_json::Value = serde_json::from_str(&body).unwrap();
+                assert_eq!(value["model"], "gpt-model");
+                if fail.load(Ordering::SeqCst) {
+                    return (StatusCode::TOO_MANY_REQUESTS, "busy").into_response();
+                }
+                (StatusCode::OK, axum::Json(serde_json::json!({"provider":"openai"}))).into_response()
+            }
+        }))
+        .route("/v1/messages", post(move |headers: HeaderMap, body: String| {
+            let calls = second_calls.clone();
+            async move {
+                calls[1].fetch_add(1, Ordering::SeqCst);
+                assert_eq!(headers["x-api-key"], "anthropic-key");
+                assert_eq!(headers["anthropic-version"], "2023-06-01");
+                let value: serde_json::Value = serde_json::from_str(&body).unwrap();
+                assert_eq!(value["model"], "claude-model");
+                if value["stream"] == true {
+                    return ([(header::CONTENT_TYPE, "text/event-stream")], concat!(
+                        "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_1\",\"model\":\"claude-model\",\"usage\":{\"input_tokens\":3}}}\n\n",
+                        "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n",
+                        "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"fallback\"}}\n\n",
+                        "data: {\"type\":\"content_block_stop\",\"index\":0}\n\n",
+                        "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":1}}\n\n",
+                        "data: {\"type\":\"message_stop\"}\n\n"
+                    )).into_response();
+                }
+                axum::Json(serde_json::json!({"id":"msg_1","model":"claude-model",
+                    "content":[{"type":"text","text":"fallback"}],"stop_reason":"end_turn",
+                    "usage":{"input_tokens":3,"output_tokens":1}})).into_response()
+            }
+        }));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let provider_task = tokio::spawn(async move { axum::serve(listener, provider).await.unwrap() });
+    let routes = serde_json::json!([{"model":"mixed","fallback":true,"targets":[
+        {"url":format!("http://{addr}/v1/chat/completions"),"model":"gpt-model","api_key_env":"OPENAI"},
+        {"url":format!("http://{addr}/v1/messages"),"model":"claude-model","api_key_env":"ANTHROPIC","protocol":"openai-to-anthropic"}
+    ]}]).to_string();
+    let state = ProxyState::new(
+        &format!("http://{addr}/v1/chat/completions"),
+        "client-key-12345678",
+        "unused",
+        false,
+    )
+    .await
+    .unwrap()
+    .with_routes(
+        &routes,
+        |name| match name {
+            "OPENAI" => Some("openai-key".into()),
+            "ANTHROPIC" => Some("anthropic-key".into()),
+            _ => None,
+        },
+        false,
+    )
+    .await
+    .unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let proxy = listener.local_addr().unwrap();
+    let proxy_task =
+        tokio::spawn(async move { axum::serve(listener, router(state)).await.unwrap() });
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let send = |body: serde_json::Value| {
+        client
+            .post(format!("http://{proxy}/v1/chat/completions"))
+            .bearer_auth("client-key-12345678")
+            .body(body.to_string())
+            .send()
+    };
+    let body = serde_json::json!({"model":"mixed","messages":[{"role":"user","content":"hello"}]});
+    let first: serde_json::Value =
+        serde_json::from_str(&send(body.clone()).await.unwrap().text().await.unwrap()).unwrap();
+    assert_eq!(first["provider"], "openai");
+    fail_primary.store(true, Ordering::SeqCst);
+    let fallback: serde_json::Value =
+        serde_json::from_str(&send(body.clone()).await.unwrap().text().await.unwrap()).unwrap();
+    assert_eq!(fallback["choices"][0]["message"]["content"], "fallback");
+    let mut streaming = body.clone();
+    streaming["stream"] = true.into();
+    let stream = send(streaming).await.unwrap().text().await.unwrap();
+    assert!(stream.contains("fallback"));
+    assert!(stream.contains("[DONE]"));
+    let before = calls[0].load(Ordering::SeqCst);
+    let mut unsupported = body;
+    unsupported["modalities"] = serde_json::json!(["audio"]);
+    assert_eq!(
+        send(unsupported).await.unwrap().status(),
+        StatusCode::BAD_REQUEST
+    );
+    assert_eq!(calls[0].load(Ordering::SeqCst), before);
+    assert_eq!(calls[1].load(Ordering::SeqCst), 2);
+    proxy_task.abort();
+    provider_task.abort();
+}
+
+#[tokio::test]
 async fn routes_models_with_priority_round_robin_and_opt_in_fallback() {
     use std::sync::atomic::{AtomicUsize, Ordering};
 

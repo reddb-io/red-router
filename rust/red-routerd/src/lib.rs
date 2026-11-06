@@ -72,6 +72,7 @@ struct ModelTarget {
     provider_key: HeaderValue,
     model: String,
     anthropic_bearer: bool,
+    protocol: ProviderProtocol,
 }
 
 impl ProxyState {
@@ -317,10 +318,9 @@ impl ProxyState {
             let mut targets = Vec::new();
             for entry in entries {
                 let target = entry.as_object().ok_or("invalid target")?;
-                if target
-                    .keys()
-                    .any(|k| !["url", "model", "api_key_env", "auth"].contains(&k.as_str()))
-                {
+                if target.keys().any(|k| {
+                    !["url", "model", "api_key_env", "auth", "protocol"].contains(&k.as_str())
+                }) {
                     return Err("unknown target field");
                 }
                 let url = target
@@ -332,6 +332,22 @@ impl ProxyState {
                     .and_then(|v| v.as_str())
                     .filter(|s| !s.is_empty() && s.len() <= 256)
                     .ok_or("target model required")?;
+                let target_protocol = match target.get("protocol") {
+                    None => protocol,
+                    Some(value)
+                        if protocol == ProviderProtocol::OpenAi
+                            && value.as_str() == Some("openai") =>
+                    {
+                        ProviderProtocol::OpenAi
+                    }
+                    Some(value)
+                        if protocol == ProviderProtocol::OpenAi
+                            && value.as_str() == Some("openai-to-anthropic") =>
+                    {
+                        ProviderProtocol::OpenAiToAnthropic
+                    }
+                    _ => return Err("unsupported target protocol for route"),
+                };
                 if protocol == ProviderProtocol::Gemini && !valid_gemini_model(model) {
                     return Err("invalid Gemini target model");
                 }
@@ -350,7 +366,7 @@ impl ProxyState {
                     None => false,
                     Some(value)
                         if matches!(
-                            protocol,
+                            target_protocol,
                             ProviderProtocol::Anthropic | ProviderProtocol::OpenAiToAnthropic
                         ) && value.as_str() == Some("x-api-key") =>
                     {
@@ -358,7 +374,7 @@ impl ProxyState {
                     }
                     Some(value)
                         if matches!(
-                            protocol,
+                            target_protocol,
                             ProviderProtocol::Anthropic | ProviderProtocol::OpenAiToAnthropic
                         ) && value.as_str() == Some("bearer") =>
                     {
@@ -366,9 +382,14 @@ impl ProxyState {
                     }
                     _ => return Err("unsupported target authentication"),
                 };
-                let proxy =
-                    Self::new_for_protocol(url, &self.client_key, &secret, allow_private, protocol)
-                        .await?;
+                let proxy = Self::new_for_protocol(
+                    url,
+                    &self.client_key,
+                    &secret,
+                    allow_private,
+                    target_protocol,
+                )
+                .await?;
                 let provider_key = if anthropic_bearer {
                     let mut value = HeaderValue::from_str(&format!("Bearer {secret}"))
                         .map_err(|_| "invalid provider key")?;
@@ -383,6 +404,7 @@ impl ProxyState {
                     provider_key,
                     model: model.to_string(),
                     anthropic_bearer,
+                    protocol: target_protocol,
                 });
             }
             if routes
@@ -731,10 +753,13 @@ async fn proxy_request(
     if let Some(target) = product_target {
         parsed["model"] = serde_json::Value::String(target);
     }
-    let translate_anthropic =
-        route.is_some_and(|route| route.protocol == ProviderProtocol::OpenAiToAnthropic);
-    let mut translated = if translate_anthropic {
-        match translation::request(&parsed, &eligible[0].model) {
+    // Validate translation before sending any attempt, so fallback cannot
+    // silently discard fields that were accepted by a different provider.
+    let translation_target = eligible
+        .iter()
+        .find(|target| target.protocol == ProviderProtocol::OpenAiToAnthropic);
+    let mut translated = if let Some(target) = translation_target {
+        match translation::request(&parsed, &target.model) {
             Ok(value) => Some(value),
             Err(_) => {
                 return error(
@@ -776,6 +801,7 @@ async fn proxy_request(
     };
     let mut final_response = None;
     let mut last_retry_response = None;
+    let mut final_translated = false;
     for offset in 0..attempts {
         let product_index = selected_product + offset;
         if product_access.is_some() && offset > 0 {
@@ -804,17 +830,20 @@ async fn proxy_request(
             }
         }
         let target = route.map(|_| eligible[(start + offset) % eligible.len()]);
+        let translate_anthropic =
+            target.is_some_and(|target| target.protocol == ProviderProtocol::OpenAiToAnthropic);
         let (client, url, provider_key, payload) = match target {
             Some(target) => {
-                let encoded = if let Some(value) = translated.as_mut() {
-                    value["model"] = serde_json::Value::String(target.model.clone());
-                    serde_json::to_vec(value)
-                } else {
-                    if protocol != ProviderProtocol::Gemini {
-                        parsed["model"] = serde_json::Value::String(target.model.clone());
-                    }
-                    serde_json::to_vec(&parsed)
-                };
+                let encoded =
+                    if let Some(value) = translated.as_mut().filter(|_| translate_anthropic) {
+                        value["model"] = serde_json::Value::String(target.model.clone());
+                        serde_json::to_vec(value)
+                    } else {
+                        if protocol != ProviderProtocol::Gemini {
+                            parsed["model"] = serde_json::Value::String(target.model.clone());
+                        }
+                        serde_json::to_vec(&parsed)
+                    };
                 let payload = match encoded {
                     Ok(value) => value,
                     Err(_) => return error(StatusCode::BAD_REQUEST, "Invalid JSON request"),
@@ -901,6 +930,7 @@ async fn proxy_request(
             last_retry_response = Some(response);
             continue;
         }
+        final_translated = translate_anthropic;
         final_response = Some(response);
         break;
     }
@@ -911,7 +941,7 @@ async fn proxy_request(
     if response.status().is_redirection() {
         return error(StatusCode::BAD_GATEWAY, "Upstream redirect refused");
     }
-    if translate_anthropic && response.status().is_success() {
+    if final_translated && response.status().is_success() {
         if parsed.get("stream").and_then(serde_json::Value::as_bool) == Some(true) {
             let event_stream = response
                 .headers()

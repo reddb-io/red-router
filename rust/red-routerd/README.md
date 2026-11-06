@@ -197,6 +197,14 @@ An interrupted or unsupported upstream stream terminates without a `[DONE]` mark
 This limited
 adapter is not yet equivalent to RedRouter's existing protocol translators.
 
+An environment-configured OpenAI chat route may also mix OpenAI-compatible
+targets with an Anthropic Messages target by setting
+`"protocol":"openai-to-anthropic"` on that target. The request must be
+translatable before any target is called; unsupported fields are rejected rather
+than dropped during fallback. JSON and SSE responses from the Anthropic target
+are translated back to OpenAI format. This remains environment configuration;
+dashboard-defined cross-provider combos are not yet imported.
+
 Anthropic and `openai-to-anthropic` targets use `x-api-key` by default. For an
 Anthropic-compatible provider requiring Bearer authentication, such as the
 [OpenRouter Messages API](https://openrouter.ai/docs/api/api-reference/anthropic-messages/create-messages),
