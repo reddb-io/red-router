@@ -147,14 +147,16 @@ never put a key in the JSON. Without this setting, the original
 export AGENT_CLIENT_KEY='replace-with-a-random-client-key'
 export RED_ROUTER_CLIENT_POLICIES_JSON='[
   {"api_key_env":"AGENT_CLIENT_KEY","allowed_routes":["my-combo"],
-   "blocked_models":["vendor/restricted-model"],"max_concurrent_requests":4}
+   "allowed_models":["vendor/*"],"blocked_models":["vendor/restricted-model"],"max_concurrent_requests":4}
 ]'
 ```
 
 `allowed_routes` restricts the requested model or route alias; omitting it allows
-all, while an empty array denies all. `blocked_models` denies matching requested
-models and filters matching upstream target model names before selection or
-fallback. Rules are exact, `*`, or a namespace prefix ending in `/*`.
+all, while an empty array denies all. `allowed_models` optionally restricts the
+upstream target model names before selection or fallback; without configured routes
+it restricts the requested model directly. Omitting it allows all targets, while an
+empty array denies all. `blocked_models` denies matching requested models and filters
+matching upstream target model names before selection or fallback. Rules are exact, `*`, or a namespace prefix ending in `/*`.
 `enabled: false` disables a key. Unknown fields, missing keys, duplicate keys,
 and malformed rules fail startup. `max_concurrent_requests` optionally limits each
 key to 1–64 concurrent requests within this process; a stream holds its slot until

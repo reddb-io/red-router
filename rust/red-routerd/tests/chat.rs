@@ -211,7 +211,9 @@ async fn client_policies_restrict_routes_and_skip_blocked_targets() {
     .to_string();
     let policies = serde_json::json!([
         {"api_key_env":"CLIENT_ONE","allowed_routes":["combo"],"blocked_models":["vendor/blocked"]},
-        {"api_key_env":"CLIENT_DISABLED","enabled":false}
+        {"api_key_env":"CLIENT_DISABLED","enabled":false},
+        {"api_key_env":"CLIENT_ALLOW","allowed_models":["vendor/allowed"]},
+        {"api_key_env":"CLIENT_DENY","allowed_models":[]}
     ])
     .to_string();
     let state = ProxyState::new(&upstream, "default-client-key-123", "default", false)
@@ -231,6 +233,8 @@ async fn client_policies_restrict_routes_and_skip_blocked_targets() {
         .with_client_policies(&policies, |name| match name {
             "CLIENT_ONE" => Some("client-one-key-12345".into()),
             "CLIENT_DISABLED" => Some("disabled-key-123456".into()),
+            "CLIENT_ALLOW" => Some("client-allow-key-123".into()),
+            "CLIENT_DENY" => Some("client-deny-key-1234".into()),
             _ => None,
         })
         .unwrap();
@@ -271,6 +275,17 @@ async fn client_policies_restrict_routes_and_skip_blocked_targets() {
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(response.text().await.unwrap(), "allowed");
     assert_eq!(calls.load(Ordering::SeqCst), 1);
+    let response = send("client-allow-key-123", "combo").await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.text().await.unwrap(), "allowed");
+    assert_eq!(
+        send("client-deny-key-1234", "combo")
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
     task.abort();
     provider_task.abort();
 }
@@ -288,6 +303,7 @@ async fn client_policies_fail_closed_when_invalid() {
     for value in [
         serde_json::json!([]),
         serde_json::json!([{"api_key_env":"KEY","allowed_routes":"all"}]),
+        serde_json::json!([{"api_key_env":"KEY","allowed_models":"all"}]),
         serde_json::json!([{"api_key_env":"KEY","blocked_models":["ab*cd"]}]),
         serde_json::json!([{"api_key_env":"KEY","enabled":"true"}]),
         serde_json::json!([{"api_key_env":"KEY","max_concurrent_requests":0}]),
@@ -814,4 +830,39 @@ async fn gemini_native_routes_preserve_bodies_streams_and_credentials() {
     assert_eq!(calls.load(Ordering::SeqCst), 2);
     proxy_task.abort();
     provider_task.abort();
+}
+
+#[tokio::test]
+async fn allowed_models_also_applies_without_configured_routes() {
+    let state = ProxyState::new(
+        "http://127.0.0.1:12345/v1/chat/completions",
+        "default-client-key-123",
+        "provider",
+        false,
+    )
+    .await
+    .unwrap()
+    .with_client_policies(
+        r#"[{"api_key_env":"CLIENT","allowed_models":["vendor/allowed"]}]"#,
+        |_| Some("client-key-12345678".into()),
+    )
+    .unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!(
+        "http://{}/v1/chat/completions",
+        listener.local_addr().unwrap()
+    );
+    let task = tokio::spawn(async move { axum::serve(listener, router(state)).await.unwrap() });
+    let response = reqwest::Client::builder()
+        .no_proxy()
+        .build()
+        .unwrap()
+        .post(url)
+        .bearer_auth("client-key-12345678")
+        .body(r#"{"model":"vendor/not-allowed"}"#)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    task.abort();
 }

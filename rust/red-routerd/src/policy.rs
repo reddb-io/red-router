@@ -12,6 +12,7 @@ pub(crate) struct ClientPolicy {
     key: Arc<str>,
     enabled: bool,
     allowed_routes: Option<Vec<String>>,
+    allowed_models: Option<Vec<String>>,
     blocked_models: Vec<String>,
     concurrency: Option<Arc<Semaphore>>,
 }
@@ -23,6 +24,7 @@ impl ClientPolicies {
                 key: Arc::from(key),
                 enabled: true,
                 allowed_routes: None,
+                allowed_models: None,
                 blocked_models: Vec::new(),
                 concurrency: None,
             }],
@@ -50,6 +52,7 @@ impl ClientPolicies {
                     "api_key_env",
                     "enabled",
                     "allowed_routes",
+                    "allowed_models",
                     "blocked_models",
                     "max_concurrent_requests",
                 ]
@@ -86,6 +89,10 @@ impl ClientPolicies {
                 .get("allowed_routes")
                 .map(parse_patterns)
                 .transpose()?;
+            let allowed_models = object
+                .get("allowed_models")
+                .map(parse_patterns)
+                .transpose()?;
             let blocked_models = object
                 .get("blocked_models")
                 .map(parse_patterns)
@@ -105,6 +112,7 @@ impl ClientPolicies {
                 key: Arc::from(key),
                 enabled,
                 allowed_routes,
+                allowed_models,
                 blocked_models,
                 concurrency,
             });
@@ -176,6 +184,15 @@ impl ClientPolicy {
                 .allowed_routes
                 .as_ref()
                 .is_none_or(|patterns| patterns.iter().any(|p| matches_pattern(p, model)))
+    }
+
+    pub(crate) fn target_allowed(&self, model: &str) -> bool {
+        !self.model_blocked(model)
+            && self.allowed_models.as_ref().is_none_or(|patterns| {
+                patterns
+                    .iter()
+                    .any(|pattern| matches_pattern(pattern, model))
+            })
     }
 
     pub(crate) fn model_blocked(&self, model: &str) -> bool {

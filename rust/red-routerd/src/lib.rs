@@ -494,9 +494,12 @@ async fn proxy_request(
         route
             .targets
             .iter()
-            .filter(|target| !policy.model_blocked(&target.model))
+            .filter(|target| policy.target_allowed(&target.model))
             .collect()
     });
+    if route.is_none() && !policy.target_allowed(&model) {
+        return error(StatusCode::FORBIDDEN, "Model is not allowed");
+    }
     if route.is_some() && eligible.is_empty() {
         return error(StatusCode::FORBIDDEN, "No permitted route target");
     }
