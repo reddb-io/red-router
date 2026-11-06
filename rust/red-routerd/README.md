@@ -100,6 +100,8 @@ Tokens, daily and monthly quotas, costs, and other request limits remain
 unsupported by Rust and block requests when configured. SQLite is not a
 distributed database; do not assume separate node-local files or network-mounted
 files share safe cluster coordination. Keep the mode experimental.
+The Rust accounting module includes strict OpenAI usage normalization and cost
+arithmetic for future integration; it does not yet record usage or enforce caps.
 
 ```sh
 export RED_ROUTER_LISTEN=127.0.0.1:19091

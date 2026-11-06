@@ -1,4 +1,5 @@
 //! An isolated first slice of the Rust data plane. See README before use.
+pub mod accounting;
 mod anthropic_stream;
 mod policy;
 pub mod product;
