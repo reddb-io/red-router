@@ -42,9 +42,10 @@ async fn embeddings_routes_enforce_endpoint_and_model_policies() {
         "url":format!("http://{addr}/v1/embeddings"),"model":"vendor/embedding-model","api_key_env":"PROVIDER"
     }]}]).to_string();
     let policies = r#"[
-        {"api_key_env":"VECTOR","allowed_endpoints":["embeddings"],"allowed_models":["vendor/*"]},
+        {"api_key_env":"VECTOR","allowed_endpoints":["embeddings"],"allowed_models":["vendor/*"],"expires_at_unix":4102444800},
         {"api_key_env":"CHAT","allowed_endpoints":["chat"]},
-        {"api_key_env":"BLOCKED","allowed_endpoints":["embeddings"],"blocked_models":["vendor/*"]}
+        {"api_key_env":"BLOCKED","allowed_endpoints":["embeddings"],"blocked_models":["vendor/*"]},
+        {"api_key_env":"EXPIRED","expires_at_unix":0}
     ]"#;
     let state = ProxyState::new(
         &format!("http://{addr}/v1/chat/completions"),
@@ -61,6 +62,7 @@ async fn embeddings_routes_enforce_endpoint_and_model_policies() {
         "VECTOR" => Some("vector-client-key-123".into()),
         "CHAT" => Some("chat-client-key-12345".into()),
         "BLOCKED" => Some("blocked-client-key-123".into()),
+        "EXPIRED" => Some("expired-client-key-123".into()),
         _ => None,
     })
     .unwrap();
@@ -77,6 +79,13 @@ async fn embeddings_routes_enforce_endpoint_and_model_policies() {
             .body(serde_json::json!({"model":"vector-route","input":["one","two"]}).to_string())
             .send()
     };
+    assert_eq!(
+        send("/v1/embeddings", "expired-client-key-123")
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
     assert_eq!(
         send("/v1/embeddings", "chat-client-key-12345")
             .await

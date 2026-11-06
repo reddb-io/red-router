@@ -11,6 +11,7 @@ pub(crate) struct ClientPolicies {
 pub(crate) struct ClientPolicy {
     key: Arc<str>,
     enabled: bool,
+    expires_at_unix: Option<u64>,
     allowed_routes: Option<Vec<String>>,
     allowed_models: Option<Vec<String>>,
     allowed_endpoints: Vec<String>,
@@ -24,6 +25,7 @@ impl ClientPolicies {
             entries: vec![ClientPolicy {
                 key: Arc::from(key),
                 enabled: true,
+                expires_at_unix: None,
                 allowed_routes: None,
                 allowed_models: None,
                 allowed_endpoints: Vec::new(),
@@ -53,6 +55,7 @@ impl ClientPolicies {
                 ![
                     "api_key_env",
                     "enabled",
+                    "expires_at_unix",
                     "allowed_routes",
                     "allowed_models",
                     "allowed_endpoints",
@@ -91,6 +94,10 @@ impl ClientPolicies {
             let allowed_routes = object
                 .get("allowed_routes")
                 .map(parse_patterns)
+                .transpose()?;
+            let expires_at_unix = object
+                .get("expires_at_unix")
+                .map(|value| value.as_u64().ok_or("invalid client key expiry"))
                 .transpose()?;
             let allowed_models = object
                 .get("allowed_models")
@@ -136,6 +143,7 @@ impl ClientPolicies {
             entries.push(ClientPolicy {
                 key: Arc::from(key),
                 enabled,
+                expires_at_unix,
                 allowed_routes,
                 allowed_models,
                 allowed_endpoints,
@@ -188,7 +196,15 @@ impl ClientPolicies {
         // Examine every configured key rather than stopping at the first match.
         let mut matched = None;
         for policy in &self.entries {
-            if bool::from(candidate.as_bytes().ct_eq(policy.key.as_bytes())) && policy.enabled {
+            let unexpired = policy.expires_at_unix.is_none_or(|deadline| {
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .is_ok_and(|elapsed| elapsed.as_secs() < deadline)
+            });
+            if bool::from(candidate.as_bytes().ct_eq(policy.key.as_bytes()))
+                && policy.enabled
+                && unexpired
+            {
                 matched = Some(policy);
             }
         }
@@ -279,5 +295,15 @@ mod tests {
         assert!(!matches_pattern("provider/*", "provider"));
         assert!(matches_pattern("*", "any/model"));
         assert!(!matches_pattern("exact", "exact/other"));
+    }
+
+    #[test]
+    fn expiry_must_be_an_unsigned_unix_timestamp() {
+        for value in ["-1", "null", "1.5", "\"2030-01-01\""] {
+            let config = format!(r#"[{{"api_key_env":"KEY","expires_at_unix":{value}}}]"#);
+            assert!(
+                ClientPolicies::parse(&config, |_| Some("client-key-12345678".into())).is_err()
+            );
+        }
     }
 }

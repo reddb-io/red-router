@@ -152,7 +152,7 @@ never put a key in the JSON. Without this setting, the original
 export AGENT_CLIENT_KEY='replace-with-a-random-client-key'
 export RED_ROUTER_CLIENT_POLICIES_JSON='[
   {"api_key_env":"AGENT_CLIENT_KEY","allowed_routes":["my-combo"],
-   "allowed_models":["vendor/*"],"allowed_endpoints":["chat"],"blocked_models":["vendor/restricted-model"],"max_concurrent_requests":4}
+   "allowed_models":["vendor/*"],"allowed_endpoints":["chat"],"blocked_models":["vendor/restricted-model"],"max_concurrent_requests":4,"expires_at_unix":2000000000}
 ]'
 ```
 
@@ -166,7 +166,10 @@ matching upstream target model names before selection or fallback. Rules are exa
 proxy generation endpoints are in `chat`, while `/v1/embeddings` is in
 `embeddings`; an omitted or empty list permits all
 categories. `enabled: false` disables a key. Unknown fields, missing keys, duplicate keys,
-and malformed rules fail startup. `max_concurrent_requests` optionally limits each
+and malformed rules fail startup. `expires_at_unix` optionally sets an exclusive
+expiration time in Unix seconds, checked on each request; it does not terminate
+an active stream. This environment-only format does not import the dashboard's
+timestamp configuration. `max_concurrent_requests` optionally limits each
 key to 1–64 concurrent requests within this process; a stream holds its slot until
 it finishes or is dropped. A busy key receives HTTP 429. Changes apply after restart. These policies are
 local to this experimental process and do not import existing dashboard settings,
