@@ -221,6 +221,10 @@ async fn dashboard_keys_enforce_supported_policy_and_refuse_unimplemented_quotas
     .with_product_connection(connection)
     .with_product_client_keys()
     .unwrap();
+    assert!(matches!(
+        state.clone().with_routes("[]", |_| None, false).await,
+        Err("product client keys cannot be combined with environment routes")
+    ));
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     let server = tokio::spawn(async move { axum::serve(listener, router(state)).await.unwrap() });

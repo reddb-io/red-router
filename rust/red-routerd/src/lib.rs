@@ -189,6 +189,9 @@ impl ProxyState {
         if self.product_connection.is_none() {
             return Err("product client keys require a product connection");
         }
+        if !self.routes.is_empty() {
+            return Err("product client keys cannot be combined with environment routes");
+        }
         self.product_client_keys = true;
         Ok(self)
     }
@@ -213,6 +216,9 @@ impl ProxyState {
     where
         F: Fn(&str) -> Option<String>,
     {
+        if self.product_client_keys {
+            return Err("product client keys cannot be combined with environment routes");
+        }
         let value: serde_json::Value =
             serde_json::from_str(config).map_err(|_| "invalid routes JSON")?;
         let entries = value.as_array().ok_or("routes must be an array")?;
