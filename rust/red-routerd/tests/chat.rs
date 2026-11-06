@@ -72,7 +72,7 @@ async fn openai_to_anthropic_streams_text_and_incremental_tool_arguments() {
             let body: serde_json::Value = serde_json::from_str(&body).unwrap();
             assert_eq!(body["stream"], true);
             let first = concat!(
-                "event: message_start\r\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_1\",\"model\":\"claude-target\",\"usage\":{\"input_tokens\":5}}}\r\n\r\n",
+                "event: message_start\r\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_1\",\"model\":\"claude-target\",\"usage\":{\"input_tokens\":5,\"cache_creation_input_tokens\":2,\"cache_read_input_tokens\":3}}}\r\n\r\n",
                 "event: content_block_start\r\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\r\n\r\n",
                 "event: content_block_delta\r\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Olá\"}}\r\n\r\n"
             );
@@ -166,7 +166,11 @@ async fn openai_to_anthropic_streams_text_and_incremental_tool_arguments() {
             == Some(&serde_json::json!("tool_calls"))));
     assert!(events
         .iter()
-        .any(|event| event.pointer("/usage/total_tokens") == Some(&serde_json::json!(8))));
+        .any(|event| event.pointer("/usage/total_tokens") == Some(&serde_json::json!(13))));
+    assert!(events.iter().any(
+        |event| event.pointer("/usage/prompt_tokens_details/cached_tokens")
+            == Some(&serde_json::json!(3))
+    ));
     assert!(output.ends_with("data: [DONE]\n\n"));
     task.abort();
     provider_task.abort();
@@ -244,7 +248,7 @@ async fn openai_to_anthropic_translates_tool_history_and_response_without_leakin
             assert_eq!(body["messages"][2]["content"][0]["tool_use_id"], "call_1");
             assert_eq!(body["tools"][0]["input_schema"]["type"], "object");
             assert_eq!(body["tool_choice"]["disable_parallel_tool_use"], true);
-            ([(header::CONTENT_TYPE, "application/json")], r#"{"id":"msg_123","model":"claude-target","content":[{"type":"text","text":"Checking"},{"type":"tool_use","id":"tool_2","name":"weather","input":{"city":"Rome"}}],"stop_reason":"tool_use","usage":{"input_tokens":7,"output_tokens":4}}"#)
+            ([(header::CONTENT_TYPE, "application/json")], r#"{"id":"msg_123","model":"claude-target","content":[{"type":"text","text":"Checking"},{"type":"tool_use","id":"tool_2","name":"weather","input":{"city":"Rome"}}],"stop_reason":"tool_use","usage":{"input_tokens":7,"cache_creation_input_tokens":2,"cache_read_input_tokens":3,"output_tokens":4}}"#)
         }
     }));
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -308,7 +312,8 @@ async fn openai_to_anthropic_translates_tool_history_and_response_without_leakin
     )
     .unwrap();
     assert_eq!(args["city"], "Rome");
-    assert_eq!(result["usage"]["total_tokens"], 11);
+    assert_eq!(result["usage"]["total_tokens"], 16);
+    assert_eq!(result["usage"]["prompt_tokens_details"]["cached_tokens"], 3);
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     task.abort();
     provider_task.abort();

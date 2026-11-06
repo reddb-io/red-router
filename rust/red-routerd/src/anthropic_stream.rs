@@ -29,6 +29,7 @@ struct State {
     model: String,
     created: u64,
     input_tokens: u64,
+    cache_read_tokens: Option<u64>,
     output_tokens: Option<u64>,
     include_usage: bool,
     started: bool,
@@ -74,10 +75,11 @@ impl State {
                     .filter(|s| !s.is_empty())
                     .ok_or_else(invalid)?
                     .to_string();
-                self.input_tokens = message
-                    .pointer("/usage/input_tokens")
-                    .and_then(Value::as_u64)
-                    .ok_or_else(invalid)?;
+                let (prompt, cached) =
+                    crate::translation::prompt_usage(message.get("usage").ok_or_else(invalid)?)
+                        .map_err(|_| invalid())?;
+                self.input_tokens = prompt;
+                self.cache_read_tokens = cached;
                 self.started = true;
                 self.chunk(json!({"role":"assistant","content":""}), None);
             }
@@ -227,7 +229,11 @@ impl State {
                         .input_tokens
                         .checked_add(completion)
                         .ok_or_else(invalid)?;
-                    let value = json!({"id":self.id,"object":"chat.completion.chunk","created":self.created,"model":self.model,"choices":[],"usage":{"prompt_tokens":self.input_tokens,"completion_tokens":completion,"total_tokens":total}});
+                    let mut usage = json!({"prompt_tokens":self.input_tokens,"completion_tokens":completion,"total_tokens":total});
+                    if let Some(cached) = self.cache_read_tokens {
+                        usage["prompt_tokens_details"] = json!({"cached_tokens":cached});
+                    }
+                    let value = json!({"id":self.id,"object":"chat.completion.chunk","created":self.created,"model":self.model,"choices":[],"usage":usage});
                     self.pending
                         .push_back(Bytes::from(format!("data: {value}\n\n")));
                 }
@@ -259,6 +265,7 @@ pub(crate) fn translate(
             .duration_since(UNIX_EPOCH)
             .map_or(0, |time| time.as_secs()),
         input_tokens: 0,
+        cache_read_tokens: None,
         output_tokens: None,
         include_usage,
         started: false,
@@ -334,6 +341,7 @@ mod tests {
             model: String::new(),
             created: 0,
             input_tokens: 0,
+            cache_read_tokens: None,
             output_tokens: None,
             include_usage: false,
             started: false,

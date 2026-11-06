@@ -250,6 +250,24 @@ pub(crate) fn request(input: &Value, model: &str) -> Result<Value, ()> {
     Ok(result)
 }
 
+pub(crate) fn prompt_usage(usage: &Value) -> Result<(u64, Option<u64>), ()> {
+    let input = usage
+        .get("input_tokens")
+        .and_then(Value::as_u64)
+        .ok_or(())?;
+    let optional = |name| match usage.get(name) {
+        None | Some(Value::Null) => Ok(None),
+        Some(value) => value.as_u64().map(Some).ok_or(()),
+    };
+    let cache_read = optional("cache_read_input_tokens")?;
+    let cache_write = optional("cache_creation_input_tokens")?;
+    let total = input
+        .checked_add(cache_read.unwrap_or(0))
+        .and_then(|value| value.checked_add(cache_write.unwrap_or(0)))
+        .ok_or(())?;
+    Ok((total, cache_read))
+}
+
 pub(crate) fn response(input: &Value) -> Result<Value, ()> {
     let id = input
         .get("id")
@@ -302,10 +320,7 @@ pub(crate) fn response(input: &Value) -> Result<Value, ()> {
         _ => return Err(()),
     };
     let usage = input.get("usage").ok_or(())?;
-    let prompt = usage
-        .get("input_tokens")
-        .and_then(Value::as_u64)
-        .ok_or(())?;
+    let (prompt, cache_read) = prompt_usage(usage)?;
     let completion = usage
         .get("output_tokens")
         .and_then(Value::as_u64)
@@ -315,8 +330,13 @@ pub(crate) fn response(input: &Value) -> Result<Value, ()> {
     if !calls.is_empty() {
         message["tool_calls"] = json!(calls);
     }
+    let mut usage =
+        json!({"prompt_tokens":prompt,"completion_tokens":completion,"total_tokens":total});
+    if let Some(cached) = cache_read {
+        usage["prompt_tokens_details"] = json!({"cached_tokens":cached});
+    }
     Ok(
-        json!({"id":id,"object":"chat.completion","created":std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_err(|_| ())?.as_secs(),"model":model,"choices":[{"index":0,"message":message,"finish_reason":finish}],"usage":{"prompt_tokens":prompt,"completion_tokens":completion,"total_tokens":total}}),
+        json!({"id":id,"object":"chat.completion","created":std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_err(|_| ())?.as_secs(),"model":model,"choices":[{"index":0,"message":message,"finish_reason":finish}],"usage":usage}),
     )
 }
 
@@ -335,5 +355,23 @@ mod tests {
         assert!(response(&output).is_err());
         let output = json!({"id":"msg","model":"target","content":[{"type":"text","text":"text","citations":[{}]}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}});
         assert!(response(&output).is_err());
+    }
+
+    #[test]
+    fn cached_input_usage_is_accounted_for_without_overflow() {
+        assert_eq!(
+            prompt_usage(
+                &json!({"input_tokens":7,"cache_read_input_tokens":3,"cache_creation_input_tokens":2})
+            ),
+            Ok((12, Some(3)))
+        );
+        assert_eq!(
+            prompt_usage(&json!({"input_tokens":7,"cache_read_input_tokens":null})),
+            Ok((7, None))
+        );
+        assert!(
+            prompt_usage(&json!({"input_tokens":u64::MAX,"cache_read_input_tokens":1})).is_err()
+        );
+        assert!(prompt_usage(&json!({"input_tokens":1,"cache_read_input_tokens":"bad"})).is_err());
     }
 }
