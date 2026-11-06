@@ -11,6 +11,162 @@ use std::{io, sync::Arc, time::Duration};
 use tokio::sync::{oneshot, Mutex};
 
 #[tokio::test]
+async fn openai_to_anthropic_streams_text_and_incremental_tool_arguments() {
+    let (release, wait) = oneshot::channel::<()>();
+    let wait = Arc::new(Mutex::new(Some(wait)));
+    let provider = Router::new().route("/v1/messages", post(move |headers: HeaderMap, body: String| {
+        let wait = wait.clone();
+        async move {
+            assert_eq!(headers["x-api-key"], "anthropic-upstream-key");
+            let body: serde_json::Value = serde_json::from_str(&body).unwrap();
+            assert_eq!(body["stream"], true);
+            let first = concat!(
+                "event: message_start\r\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_1\",\"model\":\"claude-target\",\"usage\":{\"input_tokens\":5}}}\r\n\r\n",
+                "event: content_block_start\r\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\r\n\r\n",
+                "event: content_block_delta\r\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Olá\"}}\r\n\r\n"
+            );
+            let pieces: Vec<_> = first.as_bytes().chunks(3).map(|bytes| Ok::<_, io::Error>(Bytes::copy_from_slice(bytes))).collect();
+            let wait = wait.lock().await.take().unwrap();
+            let last = stream::once(async move {
+                let _ = wait.await;
+                Ok::<_, io::Error>(Bytes::from_static(concat!(
+                    "data: {\"type\":\"content_block_stop\",\"index\":0}\n\n",
+                    "data: {\"type\":\"content_block_start\",\"index\":1,\"content_block\":{\"type\":\"tool_use\",\"id\":\"tool_1\",\"name\":\"weather\",\"input\":{}}}\n\n",
+                    "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"city\\\":\"}}\n\n",
+                    "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\\\"Rome\\\"}\"}}\n\n",
+                    "data: {\"type\":\"content_block_stop\",\"index\":1}\n\n",
+                    "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"tool_use\"},\"usage\":{\"output_tokens\":3}}\n\n",
+                    "data: {\"type\":\"message_stop\"}\n\n"
+                ).as_bytes()))
+            });
+            ([(header::CONTENT_TYPE, "text/event-stream")], Body::from_stream(stream::iter(pieces).chain(last)))
+        }
+    }));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let provider_task = tokio::spawn(async move { axum::serve(listener, provider).await.unwrap() });
+    let routes = serde_json::json!([{"model":"claude-alias","protocol":"openai-to-anthropic","targets":[{
+        "url":format!("http://{addr}/v1/messages"),"model":"claude-target","api_key_env":"ANTHROPIC_KEY"
+    }]}]).to_string();
+    let state = ProxyState::new(
+        &format!("http://{addr}/v1/chat/completions"),
+        "client-key-12345678",
+        "unused",
+        false,
+    )
+    .await
+    .unwrap()
+    .with_routes(&routes, |_| Some("anthropic-upstream-key".into()), false)
+    .await
+    .unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let task = tokio::spawn(async move { axum::serve(listener, router(state)).await.unwrap() });
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let mut response = client.post(format!("{base}/v1/chat/completions")).bearer_auth("client-key-12345678")
+        .body(r#"{"model":"claude-alias","stream":true,"stream_options":{"include_usage":true},"messages":[{"role":"user","content":"hello"}]}"#)
+        .send().await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let mut bytes = Vec::new();
+    while !bytes
+        .windows("Olá".len())
+        .any(|part| part == "Olá".as_bytes())
+    {
+        let next = tokio::time::timeout(Duration::from_secs(5), response.chunk())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        bytes.extend_from_slice(&next);
+    }
+    assert!(!bytes.windows(6).any(|part| part == b"[DONE]"));
+    release.send(()).unwrap();
+    bytes.extend_from_slice(&response.bytes().await.unwrap());
+    let output = String::from_utf8(bytes).unwrap();
+    let events: Vec<serde_json::Value> = output
+        .lines()
+        .filter_map(|line| line.strip_prefix("data: "))
+        .filter(|line| *line != "[DONE]")
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    let mut arguments = String::new();
+    for event in &events {
+        if let Some(fragment) = event
+            .pointer("/choices/0/delta/tool_calls/0/function/arguments")
+            .and_then(|v| v.as_str())
+        {
+            arguments.push_str(fragment);
+        }
+    }
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&arguments).unwrap()["city"],
+        "Rome"
+    );
+    assert!(events
+        .iter()
+        .any(|event| event.pointer("/choices/0/finish_reason")
+            == Some(&serde_json::json!("tool_calls"))));
+    assert!(events
+        .iter()
+        .any(|event| event.pointer("/usage/total_tokens") == Some(&serde_json::json!(8))));
+    assert!(output.ends_with("data: [DONE]\n\n"));
+    task.abort();
+    provider_task.abort();
+}
+
+#[tokio::test]
+async fn openai_to_anthropic_truncated_stream_is_not_reported_as_complete() {
+    let provider = Router::new().route("/v1/messages", post(|| async {
+        ([(header::CONTENT_TYPE, "text/event-stream")], "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_1\",\"model\":\"target\",\"usage\":{\"input_tokens\":1}}}\n\n")
+    }));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let provider_task = tokio::spawn(async move { axum::serve(listener, provider).await.unwrap() });
+    let routes = serde_json::json!([{"model":"alias","protocol":"openai-to-anthropic","targets":[{
+        "url":format!("http://{addr}/v1/messages"),"model":"target","api_key_env":"KEY"
+    }]}])
+    .to_string();
+    let state = ProxyState::new(
+        &format!("http://{addr}/v1/chat/completions"),
+        "client-key-12345678",
+        "unused",
+        false,
+    )
+    .await
+    .unwrap()
+    .with_routes(&routes, |_| Some("provider-key".into()), false)
+    .await
+    .unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let task = tokio::spawn(async move { axum::serve(listener, router(state)).await.unwrap() });
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let mut response = client
+        .post(format!("{base}/v1/chat/completions"))
+        .bearer_auth("client-key-12345678")
+        .body(r#"{"model":"alias","stream":true,"messages":[{"role":"user","content":"hello"}]}"#)
+        .send()
+        .await
+        .unwrap();
+    let mut data = Vec::new();
+    let mut failed = false;
+    loop {
+        match response.chunk().await {
+            Ok(Some(bytes)) => data.extend_from_slice(&bytes),
+            Ok(None) => break,
+            Err(_) => {
+                failed = true;
+                break;
+            }
+        }
+    }
+    assert!(failed, "a truncated provider stream must fail");
+    assert!(!data.windows(6).any(|part| part == b"[DONE]"));
+    task.abort();
+    provider_task.abort();
+}
+
+#[tokio::test]
 async fn openai_to_anthropic_translates_tool_history_and_response_without_leaking_keys() {
     use std::sync::atomic::{AtomicUsize, Ordering};
     let calls = Arc::new(AtomicUsize::new(0));
@@ -72,7 +228,7 @@ async fn openai_to_anthropic_translates_tool_history_and_response_without_leakin
         StatusCode::BAD_REQUEST
     );
     let mut stream = body.clone();
-    stream["stream"] = serde_json::json!(true);
+    stream["stream"] = serde_json::json!("invalid");
     assert_eq!(
         send(&stream).await.unwrap().status(),
         StatusCode::BAD_REQUEST

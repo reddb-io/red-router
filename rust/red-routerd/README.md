@@ -106,12 +106,14 @@ are sent are not retried. Model aliases, provider routing, and strategies are a
 small experimental subset and do not provide full RedRouter combo, access, quota,
 billing, or data-handling compatibility.
 
-For a non-streaming OpenAI Chat Completions client targeting Anthropic Messages,
+For an OpenAI Chat Completions client targeting Anthropic Messages,
 configure an explicit `"protocol":"openai-to-anthropic"` route with a target URL
 ending in `/messages`. The adapter supports text messages, function tools and tool
-results, translates text/tool responses and token usage, and defaults `max_tokens`
-to 4096 if omitted. Unsupported request fields, multimodal content, streaming and
-unsupported response blocks fail instead of being silently omitted. This limited
+results, translates JSON and incremental SSE text/tool responses and token usage,
+and defaults `max_tokens` to 4096 if omitted. Unsupported request fields, multimodal
+content and unsupported response blocks fail instead of being silently omitted.
+An interrupted or unsupported upstream stream terminates without a `[DONE]` marker.
+This limited
 adapter is not yet equivalent to RedRouter's existing protocol translators.
 
 Native Anthropic Messages can be configured as a separate route:

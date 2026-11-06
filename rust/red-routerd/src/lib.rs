@@ -1,4 +1,5 @@
 //! An isolated first slice of the Rust data plane. See README before use.
+mod anthropic_stream;
 mod policy;
 pub mod storage;
 mod translation;
@@ -547,12 +548,19 @@ async fn proxy_request(
     }
     let translate_anthropic =
         route.is_some_and(|route| route.protocol == ProviderProtocol::OpenAiToAnthropic);
-    if translate_anthropic && translation::request(&parsed, &eligible[0].model).is_err() {
-        return error(
-            StatusCode::BAD_REQUEST,
-            "Unsupported OpenAI request for Anthropic translation",
-        );
-    }
+    let mut translated = if translate_anthropic {
+        match translation::request(&parsed, &eligible[0].model) {
+            Ok(value) => Some(value),
+            Err(_) => {
+                return error(
+                    StatusCode::BAD_REQUEST,
+                    "Unsupported OpenAI request for Anthropic translation",
+                )
+            }
+        }
+    } else {
+        None
+    };
     if !policy.allow_request() {
         return error(StatusCode::TOO_MANY_REQUESTS, "Client rate limit exceeded");
     }
@@ -569,16 +577,9 @@ async fn proxy_request(
         let target = route.map(|_| eligible[(start + offset) % eligible.len()]);
         let (client, url, provider_key, payload) = match target {
             Some(target) => {
-                let encoded = if translate_anthropic {
-                    match translation::request(&parsed, &target.model) {
-                        Ok(value) => serde_json::to_vec(&value),
-                        Err(_) => {
-                            return error(
-                                StatusCode::BAD_REQUEST,
-                                "Unsupported OpenAI request for Anthropic translation",
-                            )
-                        }
-                    }
+                let encoded = if let Some(value) = translated.as_mut() {
+                    value["model"] = serde_json::Value::String(target.model.clone());
+                    serde_json::to_vec(value)
                 } else {
                     if protocol != ProviderProtocol::Gemini {
                         parsed["model"] = serde_json::Value::String(target.model.clone());
@@ -665,6 +666,41 @@ async fn proxy_request(
         return error(StatusCode::BAD_GATEWAY, "Upstream redirect refused");
     }
     if translate_anthropic && response.status().is_success() {
+        if parsed.get("stream").and_then(serde_json::Value::as_bool) == Some(true) {
+            let event_stream = response
+                .headers()
+                .get(header::CONTENT_TYPE)
+                .and_then(|value| value.to_str().ok())
+                .is_some_and(|value| {
+                    value
+                        .split(';')
+                        .next()
+                        .is_some_and(|media| media.trim().eq_ignore_ascii_case("text/event-stream"))
+                });
+            if !event_stream {
+                return error(
+                    StatusCode::BAD_GATEWAY,
+                    "Invalid Anthropic stream content type",
+                );
+            }
+            let include_usage = parsed
+                .pointer("/stream_options/include_usage")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false);
+            let stream = anthropic_stream::translate(response, include_usage).map(move |chunk| {
+                let _keep_alive = (&permit, &client_permit);
+                chunk
+            });
+            return (
+                [
+                    (header::CONTENT_TYPE, "text/event-stream"),
+                    (header::CACHE_CONTROL, "no-cache"),
+                    (header::HeaderName::from_static("x-accel-buffering"), "no"),
+                ],
+                Body::from_stream(stream),
+            )
+                .into_response();
+        }
         let read = async {
             let mut bytes = Vec::new();
             let mut stream = response.bytes_stream();

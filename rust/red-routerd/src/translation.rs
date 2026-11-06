@@ -39,17 +39,26 @@ pub(crate) fn request(input: &Value, model: &str) -> Result<Value, ()> {
             "temperature",
             "top_p",
             "stream",
+            "stream_options",
             "tools",
             "tool_choice",
             "parallel_tool_calls",
             "stop",
         ],
     )?;
-    if source
-        .get("stream")
-        .is_some_and(|value| value != &Value::Bool(false))
-    {
-        return Err(());
+    let stream = match source.get("stream") {
+        None => false,
+        Some(value) => value.as_bool().ok_or(())?,
+    };
+    if let Some(options) = source.get("stream_options") {
+        let options = object(options, &["include_usage"])?;
+        if !stream
+            || options
+                .get("include_usage")
+                .is_some_and(|value| !value.is_boolean())
+        {
+            return Err(());
+        }
     }
     let max_tokens = match (
         source.get("max_tokens"),
@@ -139,6 +148,9 @@ pub(crate) fn request(input: &Value, model: &str) -> Result<Value, ()> {
         return Err(());
     }
     let mut result = json!({"model":model,"messages":messages,"max_tokens":max_tokens});
+    if stream {
+        result["stream"] = json!(true);
+    }
     if !system.is_empty() {
         result["system"] = json!(system);
     }
@@ -314,8 +326,7 @@ mod tests {
 
     #[test]
     fn rejects_unsupported_content_and_request_options() {
-        let input =
-            json!({"model":"alias","messages":[{"role":"user","content":"hello"}],"stream":true});
+        let input = json!({"model":"alias","messages":[{"role":"user","content":"hello"}],"stream":"invalid"});
         assert!(request(&input, "target").is_err());
         let input =
             json!({"model":"alias","messages":[{"role":"user","content":[{"type":"image_url"}]}]});
