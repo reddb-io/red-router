@@ -260,3 +260,57 @@ async fn daily_and_monthly_limits_include_ledger_and_uncertain_reservations() {
     );
     assert!(!cancel_undispatched(&pool, "valid", "key").await.unwrap());
 }
+
+#[tokio::test]
+async fn dispatched_reservation_survives_database_reopen() {
+    let dir = tempfile::tempdir().unwrap();
+    let options = SqliteConnectOptions::new()
+        .filename(dir.path().join("restart.sqlite"))
+        .create_if_missing(true);
+    let pool = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect_with(options.clone())
+        .await
+        .unwrap();
+    sqlx::raw_sql(include_str!(
+        "../../../src/lib/db/migrations/182_request_cost_ledger_and_key_quota.sql"
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::raw_sql(include_str!(
+        "../../../src/lib/db/migrations/191_api_key_daily_token_quota.sql"
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::raw_sql(include_str!(
+        "../../../src/lib/db/migrations/226_shared_usage_reservations.sql"
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO api_key_quota_limits(api_key_id,tpm_limit) VALUES ('key',10)")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let req = |id: &'static str| UsageReservation {
+        id,
+        key_id: "key",
+        tokens: 10,
+        usd: 0.0,
+        now_ms: 1_700_000_000_000,
+    };
+    assert!(reserve_usage(&pool, &req("pending")).await.unwrap());
+    assert!(mark_dispatched(&pool, "pending", "key").await.unwrap());
+    pool.close().await;
+    let reopened = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect_with(options.create_if_missing(false))
+        .await
+        .unwrap();
+    assert!(!cancel_undispatched(&reopened, "pending", "key")
+        .await
+        .unwrap());
+    assert!(!reserve_usage(&reopened, &req("another")).await.unwrap());
+}

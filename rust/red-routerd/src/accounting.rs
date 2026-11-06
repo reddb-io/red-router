@@ -400,6 +400,39 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn settlement_failure_keeps_the_dispatched_reservation() {
+        let pool = accounting_database().await;
+        let usage = ChatUsage::from_response(
+            &json!({"usage":{"prompt_tokens":100,"completion_tokens":50}}),
+        )
+        .unwrap();
+        let prices = TokenPrices::from_record(&json!({"input":2,"output":4})).unwrap();
+        let event = CompletedUsage {
+            event_id: "event-fail",
+            key_id: "key",
+            provider: "openai",
+            model: "gpt",
+            usage: &usage,
+            prices: &prices,
+            timestamp_ms: 1_700_000_000_000,
+        };
+        sqlx::query("INSERT INTO api_key_usage_reservations (id,api_key_id,reserved_tokens,reserved_usd,created_at,state) VALUES ('event-fail','key',150,0.001,1700000000000,'dispatched')").execute(&pool).await.unwrap();
+        sqlx::query("CREATE TRIGGER fail_counter BEFORE INSERT ON api_key_quota_counters BEGIN SELECT RAISE(ABORT, 'failure'); END").execute(&pool).await.unwrap();
+        assert_eq!(
+            record_reserved_usage(&pool, &event).await,
+            Err("token counter unavailable")
+        );
+        let ledger: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM request_cost_ledger WHERE event_id='event-fail'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let pending: i64 = sqlx::query_scalar("SELECT count(*) FROM api_key_usage_reservations WHERE id='event-fail' AND state='dispatched'").fetch_one(&pool).await.unwrap();
+        assert_eq!((ledger, pending), (0, 1));
+    }
+
+    #[tokio::test]
     async fn completed_usage_is_idempotent_and_atomic_with_token_counter() {
         let pool = accounting_database().await;
         let usage = ChatUsage::from_response(
