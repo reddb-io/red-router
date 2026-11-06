@@ -22,12 +22,16 @@ dashboard database and is not an implementation of the production adapter.
 ## What the CI experiment measures
 
 The `FastLLM SQLite fixture and concurrent agents` job builds the pinned
-FastLLM data plane without its default PostgreSQL control plane and the current
+FastLLM with default features and runs only its proxy role, without starting its
+PostgreSQL control plane. At this pinned commit, building with
+`--no-default-features` fails because `src/main.rs` refers to the gated
+`control` module; see CI run `42301297123`. The job also builds the current
 experimental Red Router Rust proxy. A Node process plays both a deterministic
 OpenAI-compatible provider and a **test-only** HTTP snapshot/usage adapter. The
 adapter reads one client-key hash, one provider credential and a one-target
-priority combo from a temporary SQLite fixture with relevant Red Router column
-names. It publishes FastLLM's snapshot format and records received events only
+priority combo from a temporary SQLite fixture built from Red Router migrations
+001, 005 and 211 and the relevant API-key fallback columns. This is not a full
+product migration or a dashboard integration. It publishes FastLLM's snapshot format and records received events only
 into that fixture. It never reads the real dashboard or its credential store.
 
 The same mock provider is called directly, through FastLLM, and through the

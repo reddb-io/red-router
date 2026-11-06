@@ -178,7 +178,7 @@ jobs:
       - name: Build standalone proxy and current Rust baseline
         run: |
           set -euo pipefail
-          cargo build --release --locked --no-default-features --manifest-path "$RUNNER_TEMP/fastllm/Cargo.toml"
+          cargo build --release --locked --manifest-path "$RUNNER_TEMP/fastllm/Cargo.toml"
           cargo build --release --locked --manifest-path rust/red-routerd/Cargo.toml
       - name: Measure streaming and SQLite fixture adapter
         env:

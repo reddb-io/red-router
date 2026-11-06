@@ -23,14 +23,20 @@ const principalId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const keyId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const digest = (value) => createHash("sha256").update(value).digest("hex");
 const db = new DatabaseSync(join(temp, "dashboard-fixture.sqlite"));
-db.exec(`CREATE TABLE api_keys (id TEXT PRIMARY KEY, key_hash TEXT, is_active INTEGER, allowed_models TEXT);
-  CREATE TABLE provider_connections (id TEXT PRIMARY KEY, provider TEXT, api_key TEXT, is_active INTEGER);
-  CREATE TABLE combos (name TEXT PRIMARY KEY, data TEXT, tenant_id TEXT, context_cache_protection INTEGER);
+for (const migration of ["001_initial_schema.sql", "005_combo_agent_fields.sql", "211_combos_tenant.sql"]) {
+  db.exec(readFileSync(new URL(`../../src/lib/db/migrations/${migration}`, import.meta.url), "utf8"));
+}
+// These columns are installed by the product's apiKeyColumnFallbacks.ts.
+db.exec(`ALTER TABLE api_keys ADD COLUMN key_hash TEXT;
+  ALTER TABLE api_keys ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1;
+  ALTER TABLE api_keys ADD COLUMN allowed_models TEXT;
   CREATE TABLE poc_usage (event_json TEXT);
   PRAGMA journal_mode=WAL;`);
-db.prepare("INSERT INTO api_keys VALUES (?, ?, 1, ?)").run(keyId, digest(fixtureKey), JSON.stringify(["bench"]));
-db.prepare("INSERT INTO provider_connections VALUES ('fixture-connection', 'openrouter', ?, 1)").run(fixtureProviderKey);
-db.prepare("INSERT INTO combos VALUES ('bench', ?, 'red', 0)").run(JSON.stringify({ name: "bench", strategy: "priority", models: ["openrouter/vendor/model-a"] }));
+db.prepare("INSERT INTO api_keys (id, name, key, created_at, key_hash, is_active, allowed_models) VALUES (?, 'fixture', ?, '2026-01-01T00:00:00Z', ?, 1, ?)")
+  .run(keyId, fixtureKey, digest(fixtureKey), JSON.stringify(["bench"]));
+db.prepare("INSERT INTO provider_connections (id, provider, auth_type, api_key, is_active, created_at, updated_at) VALUES ('fixture-connection', 'openrouter', 'apikey', ?, 1, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')").run(fixtureProviderKey);
+db.prepare("INSERT INTO combos (id, name, data, tenant_id, context_cache_protection, created_at, updated_at) VALUES ('fixture-combo', 'bench', ?, 'red', 0, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')")
+  .run(JSON.stringify({ name: "bench", strategy: "priority", models: ["openrouter/vendor/model-a"] }));
 
 let active = 0;
 let peakActive = 0;
