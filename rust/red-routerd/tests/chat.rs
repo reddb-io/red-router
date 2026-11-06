@@ -200,7 +200,11 @@ async fn routes_models_with_priority_round_robin_and_opt_in_fallback() {
                     calls[index].fetch_add(1, Ordering::Relaxed);
                     let value: serde_json::Value = serde_json::from_str(&body).unwrap();
                     assert_eq!(
-                        headers.get(header::AUTHORIZATION).unwrap(),
+                        headers
+                            .get(header::AUTHORIZATION)
+                            .unwrap()
+                            .to_str()
+                            .unwrap(),
                         format!("Bearer secret-{index}")
                     );
                     assert_eq!(value["model"], format!("provider-model-{index}"));
