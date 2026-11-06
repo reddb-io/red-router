@@ -141,22 +141,23 @@ async fn openai_to_anthropic_truncated_stream_is_not_reported_as_complete() {
     let base = format!("http://{}", listener.local_addr().unwrap());
     let task = tokio::spawn(async move { axum::serve(listener, router(state)).await.unwrap() });
     let client = reqwest::Client::builder().no_proxy().build().unwrap();
-    let mut response = client
+    let response = client
         .post(format!("{base}/v1/chat/completions"))
         .bearer_auth("client-key-12345678")
         .body(r#"{"model":"alias","stream":true,"messages":[{"role":"user","content":"hello"}]}"#)
         .send()
-        .await
-        .unwrap();
+        .await;
     let mut data = Vec::new();
-    let mut failed = false;
-    loop {
-        match response.chunk().await {
-            Ok(Some(bytes)) => data.extend_from_slice(&bytes),
-            Ok(None) => break,
-            Err(_) => {
-                failed = true;
-                break;
+    let mut failed = response.is_err();
+    if let Ok(mut response) = response {
+        loop {
+            match response.chunk().await {
+                Ok(Some(bytes)) => data.extend_from_slice(&bytes),
+                Ok(None) => break,
+                Err(_) => {
+                    failed = true;
+                    break;
+                }
             }
         }
     }

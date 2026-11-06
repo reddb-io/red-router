@@ -5,7 +5,7 @@ on:
       suite:
         type: choice
         description: Quality suite to run
-        options: [checks, unit, routing, vitest, browser, rust, plugins, all]
+        options: [checks, unit, routing, vitest, browser, rust, live, plugins, all]
         default: checks
 permissions:
   contents: read
@@ -22,6 +22,26 @@ env:
 
 
 jobs:
+  rust-live-openrouter:
+    if: inputs.suite == 'live'
+    name: Rust live OpenRouter
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      CARGO_INCREMENTAL: 0
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust/red-routerd
+      - name: Require configured provider credential
+        shell: bash
+        run: 'test -n "$OPENROUTER_API_KEY" || { echo "OPENROUTER_API_KEY is not configured"; exit 1; }'
+      - name: Call OpenRouter through the SQLite gateway
+        run: cargo test --locked --manifest-path rust/red-routerd/Cargo.toml --test live_provider -- --ignored
+
   checks:
     if: inputs.suite == 'all' || inputs.suite == 'checks'
     name: Product checks

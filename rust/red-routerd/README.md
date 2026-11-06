@@ -220,5 +220,12 @@ curl http://127.0.0.1:19091/v1/chat/completions \
 `openrouter/free` is OpenRouter's free-model router, subject to its availability
 and rate limits. See the [OpenRouter API documentation](https://openrouter.ai/docs/api/api-reference/chat/send-chat-completion-request).
 
+The explicitly dispatched `live` suite in the optional quality workflow uses the
+`OPENROUTER_API_KEY` GitHub Actions secret to call `openrouter/free` through the
+actual SQLite-backed gateway in both JSON and streaming modes. It is not included
+in the normal CI suites. The test logs neither the key nor the provider response;
+it requires network access and a valid key, and may fail when the free router is
+unavailable or rate-limited.
+
 The next slice needs equivalent routing/authz, accounting, persistence and contract
 tests before considering a cluster deployment.
