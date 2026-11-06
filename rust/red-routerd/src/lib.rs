@@ -62,6 +62,7 @@ struct ModelTarget {
     upstream: reqwest::Url,
     provider_key: HeaderValue,
     model: String,
+    anthropic_bearer: bool,
 }
 
 impl ProxyState {
@@ -256,7 +257,7 @@ impl ProxyState {
                 let target = entry.as_object().ok_or("invalid target")?;
                 if target
                     .keys()
-                    .any(|k| !["url", "model", "api_key_env"].contains(&k.as_str()))
+                    .any(|k| !["url", "model", "api_key_env", "auth"].contains(&k.as_str()))
                 {
                     return Err("unknown target field");
                 }
@@ -283,14 +284,43 @@ impl ProxyState {
                     })
                     .ok_or("invalid target key environment variable")?;
                 let secret = key(key_name).ok_or("target provider key is missing")?;
+                let anthropic_bearer = match target.get("auth") {
+                    None => false,
+                    Some(value)
+                        if matches!(
+                            protocol,
+                            ProviderProtocol::Anthropic | ProviderProtocol::OpenAiToAnthropic
+                        ) && value.as_str() == Some("x-api-key") =>
+                    {
+                        false
+                    }
+                    Some(value)
+                        if matches!(
+                            protocol,
+                            ProviderProtocol::Anthropic | ProviderProtocol::OpenAiToAnthropic
+                        ) && value.as_str() == Some("bearer") =>
+                    {
+                        true
+                    }
+                    _ => return Err("unsupported target authentication"),
+                };
                 let proxy =
                     Self::new_for_protocol(url, &self.client_key, &secret, allow_private, protocol)
                         .await?;
+                let provider_key = if anthropic_bearer {
+                    let mut value = HeaderValue::from_str(&format!("Bearer {secret}"))
+                        .map_err(|_| "invalid provider key")?;
+                    value.set_sensitive(true);
+                    value
+                } else {
+                    proxy.provider_key
+                };
                 targets.push(ModelTarget {
                     client: proxy.client,
                     upstream: proxy.upstream,
-                    provider_key: proxy.provider_key,
+                    provider_key,
                     model: model.to_string(),
+                    anthropic_bearer,
                 });
             }
             if routes
@@ -622,17 +652,23 @@ async fn proxy_request(
             .body(payload);
         match &anthropic_headers {
             Some((version, beta)) => {
-                upstream = upstream
-                    .header("x-api-key", provider_key.clone())
-                    .header("anthropic-version", version.clone());
+                upstream = if target.is_some_and(|target| target.anthropic_bearer) {
+                    upstream.header(header::AUTHORIZATION, provider_key.clone())
+                } else {
+                    upstream.header("x-api-key", provider_key.clone())
+                };
+                upstream = upstream.header("anthropic-version", version.clone());
                 if let Some(beta) = beta {
                     upstream = upstream.header("anthropic-beta", beta.clone());
                 }
             }
             None if translate_anthropic => {
-                upstream = upstream
-                    .header("x-api-key", provider_key.clone())
-                    .header("anthropic-version", "2023-06-01");
+                upstream = if target.is_some_and(|target| target.anthropic_bearer) {
+                    upstream.header(header::AUTHORIZATION, provider_key.clone())
+                } else {
+                    upstream.header("x-api-key", provider_key.clone())
+                };
+                upstream = upstream.header("anthropic-version", "2023-06-01");
             }
             None if protocol == ProviderProtocol::Gemini => {
                 upstream = upstream.header("x-goog-api-key", provider_key.clone())

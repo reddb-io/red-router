@@ -21,12 +21,15 @@ async fn openrouter_live_chat_and_stream_through_sqlite_gateway() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     drop(listener);
+    let routes = serde_json::json!([
+        {"model":"direct-free","protocol":"openai","targets":[{"url":"https://openrouter.ai/api/v1/chat/completions","model":"openrouter/free","api_key_env":"LIVE_OPENROUTER_KEY"}]},
+        {"model":"translated-free","protocol":"openai-to-anthropic","targets":[{"url":"https://openrouter.ai/api/v1/messages","model":"openrouter/free","api_key_env":"LIVE_OPENROUTER_KEY","auth":"bearer"}]}
+    ]).to_string();
     let mut process = Process(
         Command::new(env!("CARGO_BIN_EXE_red-routerd"))
             .current_dir(folder.path())
             .env_remove("RED_ROUTER_DB_BACKEND")
             .env_remove("RED_ROUTER_DATABASE_URL")
-            .env_remove("RED_ROUTER_ROUTES_JSON")
             .env_remove("RED_ROUTER_CLIENT_POLICIES_JSON")
             .env("RED_ROUTER_LISTEN", address.to_string())
             .env(
@@ -34,7 +37,9 @@ async fn openrouter_live_chat_and_stream_through_sqlite_gateway() {
                 "https://openrouter.ai/api/v1/chat/completions",
             )
             .env("RED_ROUTER_CLIENT_KEY", "live-test-client-key-12345")
-            .env("RED_ROUTER_PROVIDER_KEY", provider_key)
+            .env("RED_ROUTER_PROVIDER_KEY", &provider_key)
+            .env("LIVE_OPENROUTER_KEY", &provider_key)
+            .env("RED_ROUTER_ROUTES_JSON", routes)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -64,8 +69,13 @@ async fn openrouter_live_chat_and_stream_through_sqlite_gateway() {
         assert!(Instant::now() < deadline, "gateway did not start");
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
-    for stream in [false, true] {
-        let body = serde_json::json!({"model":"openrouter/free","messages":[{"role":"user","content":"Reply with OK."}],"max_tokens":8,"stream":stream});
+    for (model, stream) in [
+        ("direct-free", false),
+        ("direct-free", true),
+        ("translated-free", false),
+        ("translated-free", true),
+    ] {
+        let body = serde_json::json!({"model":model,"messages":[{"role":"user","content":"Reply with OK."}],"max_tokens":8,"stream":stream});
         let response = client
             .post(format!("{base}/v1/chat/completions"))
             .bearer_auth("live-test-client-key-12345")

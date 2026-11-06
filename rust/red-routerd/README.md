@@ -116,6 +116,12 @@ An interrupted or unsupported upstream stream terminates without a `[DONE]` mark
 This limited
 adapter is not yet equivalent to RedRouter's existing protocol translators.
 
+Anthropic and `openai-to-anthropic` targets use `x-api-key` by default. For an
+Anthropic-compatible provider requiring Bearer authentication, such as the
+[OpenRouter Messages API](https://openrouter.ai/docs/api/api-reference/anthropic-messages/create-messages),
+set `"auth":"bearer"` on that target. The provider key still comes only from
+the target's named environment variable.
+
 Native Anthropic Messages can be configured as a separate route:
 
 ```sh
@@ -223,7 +229,8 @@ and rate limits. See the [OpenRouter API documentation](https://openrouter.ai/do
 
 The explicitly dispatched `live` suite in the optional quality workflow uses the
 `OPENROUTER_API_KEY` GitHub Actions secret to call `openrouter/free` through the
-actual SQLite-backed gateway in both JSON and streaming modes. It is not included
+actual SQLite-backed gateway in both JSON and streaming modes, using the native
+OpenAI-compatible endpoint and the OpenAI-to-Anthropic translation route. It is not included
 in the normal CI suites. The test logs neither the key nor the provider response;
 it requires network access and a valid key, and may fail when the free router is
 unavailable or rate-limited.

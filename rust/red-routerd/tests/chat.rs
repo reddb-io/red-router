@@ -11,6 +11,57 @@ use std::{io, sync::Arc, time::Duration};
 use tokio::sync::{oneshot, Mutex};
 
 #[tokio::test]
+async fn anthropic_native_route_can_use_bearer_provider_authentication() {
+    let provider = Router::new().route(
+        "/v1/messages",
+        post(|headers: HeaderMap, body: String| async move {
+            assert_eq!(headers[header::AUTHORIZATION], "Bearer upstream-bearer-key");
+            assert!(headers.get("x-api-key").is_none());
+            assert_eq!(headers["anthropic-version"], "2023-06-01");
+            assert_eq!(
+                serde_json::from_str::<serde_json::Value>(&body).unwrap()["model"],
+                "provider/model"
+            );
+            "native-result"
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let provider_task = tokio::spawn(async move { axum::serve(listener, provider).await.unwrap() });
+    let routes = serde_json::json!([{"model":"native-alias","protocol":"anthropic","targets":[{
+        "url":format!("http://{addr}/v1/messages"),"model":"provider/model","api_key_env":"KEY","auth":"bearer"
+    }]}]).to_string();
+    let state = ProxyState::new(
+        &format!("http://{addr}/v1/chat/completions"),
+        "client-key-12345678",
+        "unused",
+        false,
+    )
+    .await
+    .unwrap()
+    .with_routes(&routes, |_| Some("upstream-bearer-key".into()), false)
+    .await
+    .unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let task = tokio::spawn(async move { axum::serve(listener, router(state)).await.unwrap() });
+    let response = reqwest::Client::builder()
+        .no_proxy()
+        .build()
+        .unwrap()
+        .post(format!("{base}/v1/messages"))
+        .header("x-api-key", "client-key-12345678")
+        .body(r#"{"model":"native-alias","messages":[]}"#)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.text().await.unwrap(), "native-result");
+    task.abort();
+    provider_task.abort();
+}
+
+#[tokio::test]
 async fn openai_to_anthropic_streams_text_and_incremental_tool_arguments() {
     let (release, wait) = oneshot::channel::<()>();
     let wait = Arc::new(Mutex::new(Some(wait)));
@@ -183,9 +234,9 @@ async fn openai_to_anthropic_translates_tool_history_and_response_without_leakin
         let seen = seen.clone();
         async move {
             seen.fetch_add(1, Ordering::SeqCst);
-            assert_eq!(headers["x-api-key"], "anthropic-upstream-key");
+            assert_eq!(headers[header::AUTHORIZATION], "Bearer anthropic-upstream-key");
             assert_eq!(headers["anthropic-version"], "2023-06-01");
-            assert!(headers.get(header::AUTHORIZATION).is_none());
+            assert!(headers.get("x-api-key").is_none());
             let body: serde_json::Value = serde_json::from_str(&body).unwrap();
             assert_eq!(body["model"], "claude-target");
             assert_eq!(body["system"][0]["text"], "Be concise");
@@ -200,7 +251,7 @@ async fn openai_to_anthropic_translates_tool_history_and_response_without_leakin
     let addr = listener.local_addr().unwrap();
     let provider_task = tokio::spawn(async move { axum::serve(listener, provider).await.unwrap() });
     let routes = serde_json::json!([{"model":"claude-alias","protocol":"openai-to-anthropic","targets":[{
-        "url":format!("http://{addr}/v1/messages"),"model":"claude-target","api_key_env":"ANTHROPIC_KEY"
+        "url":format!("http://{addr}/v1/messages"),"model":"claude-target","api_key_env":"ANTHROPIC_KEY","auth":"bearer"
     }]}]).to_string();
     let state = ProxyState::new(
         &format!("http://{addr}/v1/chat/completions"),
@@ -641,6 +692,8 @@ async fn rejects_invalid_route_configuration() {
         serde_json::json!([{"model":"a", "targets":[]}]),
         serde_json::json!([{"model":"a", "targets":[target], "unknown":true}]),
         serde_json::json!([{"model":"a", "targets":[target]}, {"model":"a", "targets":[target]}]),
+        serde_json::json!([{"model":"a", "targets":[{"url":"http://127.0.0.1:12345/v1/chat/completions", "model":"model", "api_key_env":"PROVIDER_KEY", "auth":"bearer"}]}]),
+        serde_json::json!([{"model":"a", "protocol":"anthropic", "targets":[{"url":"http://127.0.0.1:12345/v1/messages", "model":"model", "api_key_env":"PROVIDER_KEY", "auth":"unknown"}]}]),
     ] {
         assert!(state
             .clone()
