@@ -14,35 +14,49 @@ use tokio::sync::{oneshot, Mutex};
 async fn cohere_rerank_preserves_payload_and_enforces_per_client_rate_limit() {
     use std::sync::atomic::{AtomicUsize, Ordering};
     let calls = Arc::new(AtomicUsize::new(0));
+    let failures = Arc::new(AtomicUsize::new(0));
     let seen = calls.clone();
-    let provider = Router::new().route(
-        "/v2/rerank",
-        post(move |headers: HeaderMap, body: String| {
-            let seen = seen.clone();
-            async move {
-                seen.fetch_add(1, Ordering::SeqCst);
-                assert_eq!(
-                    headers[header::AUTHORIZATION],
-                    "Bearer cohere-provider-secret"
-                );
-                let body: serde_json::Value = serde_json::from_str(&body).unwrap();
-                assert_eq!(body["model"], "rerank-v3.5");
-                assert_eq!(body["query"], "needle");
-                assert_eq!(body["documents"], serde_json::json!(["first", "second"]));
-                assert_eq!(body["top_n"], 1);
-                (
-                    [(header::CONTENT_TYPE, "application/json")],
-                    r#"{"results":[{"index":1,"relevance_score":0.9}]}"#,
-                )
-            }
-        }),
-    );
+    let failed_attempts = failures.clone();
+    let provider = Router::new()
+        .route(
+            "/first/rerank",
+            post(move || {
+                let failed_attempts = failed_attempts.clone();
+                async move {
+                    failed_attempts.fetch_add(1, Ordering::SeqCst);
+                    StatusCode::SERVICE_UNAVAILABLE
+                }
+            }),
+        )
+        .route(
+            "/v2/rerank",
+            post(move |headers: HeaderMap, body: String| {
+                let seen = seen.clone();
+                async move {
+                    seen.fetch_add(1, Ordering::SeqCst);
+                    assert_eq!(
+                        headers[header::AUTHORIZATION],
+                        "Bearer cohere-provider-secret"
+                    );
+                    let body: serde_json::Value = serde_json::from_str(&body).unwrap();
+                    assert_eq!(body["model"], "rerank-v3.5");
+                    assert_eq!(body["query"], "needle");
+                    assert_eq!(body["documents"], serde_json::json!(["first", "second"]));
+                    assert_eq!(body["top_n"], 1);
+                    (
+                        [(header::CONTENT_TYPE, "application/json")],
+                        r#"{"results":[{"index":1,"relevance_score":0.9}]}"#,
+                    )
+                }
+            }),
+        );
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let provider_task = tokio::spawn(async move { axum::serve(listener, provider).await.unwrap() });
-    let routes = serde_json::json!([{"model":"rank-route","protocol":"cohere-rerank","targets":[{
-        "url":format!("http://{addr}/v2/rerank"),"model":"rerank-v3.5","api_key_env":"PROVIDER"
-    }]}])
+    let routes = serde_json::json!([{"model":"rank-route","protocol":"cohere-rerank","fallback":true,"targets":[
+        {"url":format!("http://{addr}/first/rerank"),"model":"rerank-v3.5","api_key_env":"PROVIDER"},
+        {"url":format!("http://{addr}/v2/rerank"),"model":"rerank-v3.5","api_key_env":"PROVIDER"}
+    ]}])
     .to_string();
     let policies = r#"[
         {"api_key_env":"FIRST","allowed_endpoints":["rerank"],"allowed_models":["rerank-v3.5"],"max_requests_per_minute":1},
@@ -79,6 +93,17 @@ async fn cohere_rerank_preserves_payload_and_enforces_per_client_rate_limit() {
         send("chat-client-key-12345").await.unwrap().status(),
         StatusCode::FORBIDDEN
     );
+    assert_eq!(
+        client
+            .post(format!("{base}/v1/rerank"))
+            .bearer_auth("first-client-key-123")
+            .body(r#"{"model":"unknown-route","query":"needle","documents":["first"]}"#)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::NOT_FOUND
+    );
     let response = send("first-client-key-123").await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
     let body: serde_json::Value = serde_json::from_str(&response.text().await.unwrap()).unwrap();
@@ -92,6 +117,7 @@ async fn cohere_rerank_preserves_payload_and_enforces_per_client_rate_limit() {
         StatusCode::OK
     );
     assert_eq!(calls.load(Ordering::SeqCst), 2);
+    assert_eq!(failures.load(Ordering::SeqCst), 2);
     task.abort();
     provider_task.abort();
 }
