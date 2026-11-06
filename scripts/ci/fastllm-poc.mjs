@@ -19,6 +19,7 @@ const temp = mkdtempSync(join(tmpdir(), "redrouter-fastllm-poc-"));
 const fixtureKey = "fixture-red-router-client-key-12345";
 const fixtureProviderKey = "fixture-upstream-key-12345";
 const controlToken = "fixture-control-token-12345";
+const agentPrompt = "agent-context ".repeat(2500);
 const principalId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const keyId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const digest = (value) => createHash("sha256").update(value).digest("hex");
@@ -40,6 +41,7 @@ db.prepare("INSERT INTO combos (id, name, data, tenant_id, context_cache_protect
 
 let active = 0;
 let peakActive = 0;
+let lastUpstreamModel;
 let snapshotVersion = 1;
 let usageEvents = [];
 const children = [];
@@ -65,6 +67,7 @@ const upstream = createServer(async (req, res) => {
   for await (const chunk of req) chunks.push(chunk);
   let body;
   try { body = JSON.parse(Buffer.concat(chunks)); } catch { res.writeHead(400).end(); return; }
+  lastUpstreamModel = body.model;
   active++;
   peakActive = Math.max(peakActive, active);
   let finished = false;
@@ -129,7 +132,7 @@ const rssKb = (child) => {
 };
 const request = async (url, key, model, signal) => fetch(url, {
   method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${key}` },
-  body: JSON.stringify({ model, messages: [{ role: "user", content: "hello" }], stream: true, stream_options: { include_usage: true } }), signal,
+  body: JSON.stringify({ model, messages: [{ role: "user", content: agentPrompt }], stream: true, stream_options: { include_usage: true } }), signal,
 });
 const percentile = (sorted, p) => sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * p) - 1)];
 const measure = async (label, url, key, model, concurrency, total, child) => {
@@ -197,7 +200,22 @@ try {
   await rejected.body?.cancel();
   const warm = await request(fastUrl, fixtureKey, "bench", AbortSignal.timeout(5000));
   if (warm.status !== 200) throw new Error(`FastLLM snapshot adapter returned ${warm.status}: ${await warm.text()}`);
-  assert.ok((await warm.text()).includes("vendor/model-a"));
+  assert.ok((await warm.text()).includes("[DONE]"));
+  assert.equal(lastUpstreamModel, "vendor/model-a");
+  const responsesProbe = await fetch(`http://127.0.0.1:${fastPort}/v1/responses`, {
+    method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${fixtureKey}` },
+    body: JSON.stringify({ model: "bench", input: "hello", stream: false }), signal: AbortSignal.timeout(5000),
+  });
+  const responsesBody = await responsesProbe.text();
+  const messagesProbe = await fetch(`http://127.0.0.1:${fastPort}/v1/messages`, {
+    method: "POST", headers: { "content-type": "application/json", "x-api-key": fixtureKey, "anthropic-version": "2023-06-01" },
+    body: JSON.stringify({ model: "bench", messages: [{ role: "user", content: "hello" }], max_tokens: 16, stream: true }), signal: AbortSignal.timeout(5000),
+  });
+  const messagesBody = await messagesProbe.text();
+  const protocolProbes = {
+    responses: { status: responsesProbe.status, has_response_object: responsesBody.includes('"response"') },
+    anthropic_messages_stream: { status: messagesProbe.status, has_message_events: messagesBody.includes("message_start") && messagesBody.includes("message_stop") },
+  };
   const measurements = [];
   for (const concurrency of [1, 8, 32, 64]) {
     for (const [label, url, key, model, child] of [
@@ -216,14 +234,15 @@ try {
   for (let attempt = 0; attempt < 40; attempt++) {
     await delay(250);
     const response = await request(fastUrl, fixtureKey, "bench", AbortSignal.timeout(5000));
-    if (response.status === 200 && (await response.text()).includes("vendor/model-b")) { reloaded = true; break; }
+    await response.text();
+    if (response.status === 200 && lastUpstreamModel === "vendor/model-b") { reloaded = true; break; }
   }
   assert.ok(reloaded, "SQLite fixture update was not reflected in FastLLM snapshot");
   await delay(6000);
   for (const event of usageEvents) db.prepare("INSERT INTO poc_usage VALUES (?)").run(JSON.stringify(event));
   const reported = db.prepare("SELECT COUNT(*) AS n FROM poc_usage").get().n;
   assert.ok(reported > 0, "FastLLM sent no usage events to the fixture control plane");
-  console.log(JSON.stringify({ fixture: "synthetic SQLite; no real dashboard or credentials", fastllm_commit: "07faa4a5068928da49eed5ffbd369d18f8a8243e", requests_per_case: 128, concurrency: [1, 8, 32, 64], upstream_simulated_first_chunk_ms: 15, upstream_simulated_remaining_ms: 10, fastllm_peak_concurrent_upstreams: fast64.upstream_peak_inflight, rejected_key_status: rejected.status, sqlite_fixture_reload: reloaded, fixture_usage_events: reported, memory_scope: "gateway process only; excludes Node fixture/control process and dashboard", measurements }, null, 2));
+  console.log(JSON.stringify({ fixture: "synthetic SQLite; no real dashboard or credentials", fastllm_commit: "07faa4a5068928da49eed5ffbd369d18f8a8243e", request_body_approx_bytes: Buffer.byteLength(agentPrompt), requests_per_case: 128, concurrency: [1, 8, 32, 64], upstream_simulated_first_chunk_ms: 15, upstream_simulated_remaining_ms: 10, fastllm_peak_concurrent_upstreams: fast64.upstream_peak_inflight, rejected_key_status: rejected.status, sqlite_fixture_reload: reloaded, fixture_usage_events: reported, protocol_probes: protocolProbes, memory_scope: "gateway process only; excludes Node fixture/control process and dashboard", measurements }, null, 2));
 } finally {
   for (const child of children) child.kill("SIGTERM");
   await Promise.all(children.map(async (child) => { if (child.exitCode !== null) return; await Promise.race([new Promise((resolve) => child.once("exit", resolve)), delay(3000)]); if (child.exitCode === null) child.kill("SIGKILL"); }));

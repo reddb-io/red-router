@@ -37,7 +37,9 @@ into that fixture. It never reads the real dashboard or its credential store.
 The same mock provider is called directly, through FastLLM, and through the
 current Rust proxy with its environment-configured key and upstream. For each
 case, 128 streaming responses run at concurrency 1, 8, 32 and 64, with the
-provider delaying its first chunk by 15 ms and its final chunk by another 10 ms.
+client sending about 35 KB of synthetic context, the provider delaying its first
+chunk by 15 ms and its final chunk by another 10 ms. The provider's reported
+token counts are deliberately synthetic and must not be used as pricing data.
 The CI log records response time to first chunk, total duration, throughput,
 maximum observed upstream concurrency, and Linux process RSS. RSS covers each
 gateway process only: the Node fixture, SQLite control adapter, dashboard,
@@ -48,7 +50,9 @@ production or cross-machine performance claim.
 
 The test checks unknown-key rejection, simultaneous FastLLM forwards on a
 single key, a SQLite fixture update reflected in the engine's snapshot, and at
-least one usage batch received by the fixture adapter. It does not prove durable
+least one usage batch received by the fixture adapter. It also reports simple
+Responses and streaming Anthropic Messages probes; a reported HTTP status is
+not full protocol compatibility. It does not prove durable
 or exactly-once accounting, actual quota enforcement under concurrent or
 multi-instance load, a complete dashboard, Windows support, the 9router or
 OmniRoute authentication flows, or a real provider response.
