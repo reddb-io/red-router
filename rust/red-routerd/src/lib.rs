@@ -3,6 +3,7 @@ pub mod accounting;
 mod anthropic_stream;
 mod policy;
 pub mod product;
+pub mod product_combo;
 pub mod storage;
 mod translation;
 use axum::{
@@ -41,6 +42,7 @@ pub struct ProxyState {
     product_connection: Option<product::ProductConnection>,
     product_client_keys: bool,
     product_fallbacks: Arc<Vec<ProductFallback>>,
+    product_combo: Option<product_combo::ProductCombo>,
 }
 
 struct ProductFallback {
@@ -74,6 +76,8 @@ struct ModelTarget {
     model: String,
     anthropic_bearer: bool,
     protocol: ProviderProtocol,
+    product_connection: Option<product::ProductConnection>,
+    product_model: Option<String>,
 }
 
 impl ProxyState {
@@ -185,6 +189,7 @@ impl ProxyState {
             product_connection: None,
             product_client_keys: false,
             product_fallbacks: Arc::new(Vec::new()),
+            product_combo: None,
         })
     }
 
@@ -198,10 +203,71 @@ impl ProxyState {
         if self.product_connection.is_none() {
             return Err("product client keys require a product connection");
         }
-        if !self.routes.is_empty() {
+        if !self.routes.is_empty() && self.product_combo.is_none() {
             return Err("product client keys cannot be combined with environment routes");
         }
         self.product_client_keys = true;
+        Ok(self)
+    }
+
+    /// Bind a strictly parsed dashboard combo to individually guarded product
+    /// connections. This must be called before enabling product client keys.
+    pub fn with_product_combo(
+        mut self,
+        combo: product_combo::ProductCombo,
+        connections: Vec<product::ProductConnection>,
+    ) -> Result<Self, &'static str> {
+        if self.product_client_keys
+            || self.product_combo.is_some()
+            || !self.product_fallbacks.is_empty()
+            || self.routes.len() != 1
+        {
+            return Err("invalid product combo initialization");
+        }
+        let primary = self
+            .product_connection
+            .as_ref()
+            .ok_or("product combo needs a connection")?;
+        let routes = Arc::get_mut(&mut self.routes).ok_or("product combo state is shared")?;
+        let route = routes
+            .get_mut(combo.name())
+            .ok_or("product combo route missing")?;
+        if route.protocol != ProviderProtocol::OpenAi
+            || !route.fallback
+            || route.round_robin
+            || route.targets.len() != combo.targets.len()
+            || connections.len() != combo.targets.len()
+        {
+            return Err("invalid product combo route");
+        }
+        for ((target, source), connection) in route
+            .targets
+            .iter_mut()
+            .zip(combo.targets.iter())
+            .zip(connections)
+        {
+            let loopback = target
+                .upstream
+                .host_str()
+                .and_then(|h| h.parse::<IpAddr>().ok())
+                .is_some_and(|ip| ip.is_loopback());
+            if !connection.same_database(primary)
+                || target.protocol != ProviderProtocol::OpenAi
+                || target.model != source.model
+                || connection.upstream_url()
+                    != match source.provider.as_str() {
+                        "openai" => "https://api.openai.com/v1/chat/completions",
+                        "openrouter" => "https://openrouter.ai/api/v1/chat/completions",
+                        _ => return Err("unsupported product combo provider"),
+                    }
+                || (!loopback && target.upstream.as_str() != connection.upstream_url())
+            {
+                return Err("product combo target does not match stored configuration");
+            }
+            target.product_model = Some(source.full_model.clone());
+            target.product_connection = Some(connection);
+        }
+        self.product_combo = Some(combo);
         Ok(self)
     }
 
@@ -214,7 +280,7 @@ impl ProxyState {
             .product_connection
             .as_ref()
             .ok_or("product fallback requires a connection")?;
-        if !self.product_client_keys || fallbacks.len() > 8 {
+        if !self.product_client_keys || self.product_combo.is_some() || fallbacks.len() > 8 {
             return Err("product fallback requires product client keys and at most eight accounts");
         }
         let mut result = Vec::with_capacity(fallbacks.len());
@@ -406,6 +472,8 @@ impl ProxyState {
                     model: model.to_string(),
                     anthropic_bearer,
                     protocol: target_protocol,
+                    product_connection: None,
+                    product_model: None,
                 });
             }
             if routes
@@ -585,17 +653,50 @@ async fn proxy_request(
             );
         };
         let mut selected = None;
-        for index in 0..=state.product_fallbacks.len() {
-            let connection = if index == 0 {
+        let choices = state
+            .product_combo
+            .as_ref()
+            .and_then(|combo| state.routes.get(combo.name()))
+            .map_or(1 + state.product_fallbacks.len(), |route| {
+                route.targets.len()
+            });
+        for index in 0..choices {
+            let connection = if let Some(combo) = &state.product_combo {
+                let Some(connection) = state
+                    .routes
+                    .get(combo.name())
+                    .and_then(|route| route.targets.get(index))
+                    .and_then(|target| target.product_connection.as_ref())
+                else {
+                    continue;
+                };
+                if !connection.unchanged().await {
+                    continue;
+                }
+                connection
+            } else if index == 0 {
                 primary
             } else {
-                &state.product_fallbacks[index - 1].connection
+                let connection = &state.product_fallbacks[index - 1].connection;
+                if !connection.fallback_eligible().await {
+                    continue;
+                }
+                connection
             };
-            if index != 0 && !connection.fallback_eligible().await {
-                continue;
-            }
             match connection.client_policies(&candidate).await {
                 Ok(Some(access)) => {
+                    if let Some(combo) = &state.product_combo {
+                        match connection.combo_allowed(&candidate, combo.name()).await {
+                            Ok(true) => {}
+                            Ok(false) => continue,
+                            Err(_) => {
+                                return error(
+                                    StatusCode::SERVICE_UNAVAILABLE,
+                                    "Product combo policy unavailable",
+                                )
+                            }
+                        }
+                    }
                     selected_product = index;
                     selected = Some(access);
                     break;
@@ -632,6 +733,14 @@ async fn proxy_request(
             StatusCode::SERVICE_UNAVAILABLE,
             "Product connection changed or is unavailable; restart required",
         );
+    }
+    if let Some(combo) = &state.product_combo {
+        if !combo.unchanged().await {
+            return error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "Product combo changed or is unavailable; restart required",
+            );
+        }
     }
     let category = match protocol {
         ProviderProtocol::OpenAiEmbeddings => "embeddings",
@@ -695,7 +804,12 @@ async fn proxy_request(
     let Some(model) = model else {
         return error(StatusCode::BAD_REQUEST, "A model is required");
     };
-    let product_target = if state.product_client_keys {
+    let product_target = if let Some(combo) = &state.product_combo {
+        if model != combo.name() {
+            return error(StatusCode::NOT_FOUND, "Unknown product combo");
+        }
+        None
+    } else if state.product_client_keys {
         let Some(primary) = &state.product_connection else {
             return error(
                 StatusCode::SERVICE_UNAVAILABLE,
@@ -725,7 +839,7 @@ async fn proxy_request(
     } else {
         None
     };
-    if !policy.route_allowed(&model) {
+    if state.product_combo.is_none() && !policy.route_allowed(&model) {
         return error(StatusCode::FORBIDDEN, "Model is not allowed");
     }
     let route = state.routes.get(&model);
@@ -742,7 +856,9 @@ async fn proxy_request(
         route
             .targets
             .iter()
-            .filter(|target| policy.target_allowed(&target.model))
+            .filter(|target| {
+                policy.target_allowed(target.product_model.as_deref().unwrap_or(&target.model))
+            })
             .collect()
     });
     if route.is_none() && !policy.target_allowed(&model) {
@@ -795,7 +911,9 @@ async fn proxy_request(
             0
         }
     });
-    let attempts = if product_access.is_some() {
+    let attempts = if state.product_combo.is_some() {
+        eligible.len()
+    } else if product_access.is_some() {
         1 + state.product_fallbacks.len() - selected_product
     } else {
         route.map_or(1, |route| if route.fallback { eligible.len() } else { 1 })
@@ -805,7 +923,7 @@ async fn proxy_request(
     let mut final_translated = false;
     for offset in 0..attempts {
         let product_index = selected_product + offset;
-        if product_access.is_some() && offset > 0 {
+        if state.product_combo.is_none() && product_access.is_some() && offset > 0 {
             let Some(primary) = &state.product_connection else {
                 break;
             };
@@ -831,6 +949,37 @@ async fn proxy_request(
             }
         }
         let target = route.map(|_| eligible[(start + offset) % eligible.len()]);
+        if let Some(combo) = &state.product_combo {
+            let Some(target) = target else { break };
+            let Some(connection) = &target.product_connection else {
+                continue;
+            };
+            let Some(candidate) = &product_candidate else {
+                break;
+            };
+            if !combo.unchanged().await || !connection.unchanged().await {
+                continue;
+            }
+            let access = match connection.client_policies(candidate).await {
+                Ok(Some(access)) => access,
+                _ => continue,
+            };
+            if !matches!(
+                connection.combo_allowed(candidate, combo.name()).await,
+                Ok(true)
+            ) {
+                continue;
+            }
+            let Some(rechecked) = access.policies.authenticate(&original_headers, protocol) else {
+                continue;
+            };
+            if !rechecked.endpoint_allowed(category)
+                || !rechecked
+                    .target_allowed(target.product_model.as_deref().unwrap_or(&target.model))
+            {
+                continue;
+            }
+        }
         let translate_anthropic =
             target.is_some_and(|target| target.protocol == ProviderProtocol::OpenAiToAnthropic);
         let (client, url, provider_key, payload) = match target {

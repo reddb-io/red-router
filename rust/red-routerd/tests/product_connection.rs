@@ -1,5 +1,6 @@
 use axum::{routing::post, Router};
 use futures_util::{stream, StreamExt};
+use red_routerd::product_combo::ProductCombo;
 use red_routerd::{product::ProductConnection, router, ProxyState};
 use sha2::{Digest, Sha256};
 use sqlx::{sqlite::SqliteConnectOptions, Connection, SqliteConnection};
@@ -29,7 +30,7 @@ async fn fixture() -> (TempDir, SqliteConnection) {
     .await
     .unwrap();
     for statement in [
-        "CREATE TABLE api_keys (id TEXT PRIMARY KEY, key TEXT NOT NULL, key_hash TEXT, is_active INTEGER DEFAULT 1, is_banned INTEGER DEFAULT 0, revoked_at TEXT, expires_at TEXT, max_requests_per_day INTEGER, max_requests_per_minute INTEGER, throttle_delay_ms INTEGER, max_sessions INTEGER DEFAULT 0, usage_limit_enabled INTEGER DEFAULT 0, disable_non_public_models INTEGER DEFAULT 0, auto_resolve INTEGER DEFAULT 0, access_schedule TEXT, proxy_id TEXT, tenant_id TEXT DEFAULT 'red', ip_allowlist TEXT, scopes TEXT, rate_limits TEXT, allowed_quotas TEXT DEFAULT '[]', allowed_connections TEXT, allowed_models TEXT DEFAULT '[]', blocked_models TEXT, allowed_endpoints TEXT, model_access_mode TEXT DEFAULT 'all')",
+        "CREATE TABLE api_keys (id TEXT PRIMARY KEY, key TEXT NOT NULL, key_hash TEXT, is_active INTEGER DEFAULT 1, is_banned INTEGER DEFAULT 0, revoked_at TEXT, expires_at TEXT, max_requests_per_day INTEGER, max_requests_per_minute INTEGER, throttle_delay_ms INTEGER, max_sessions INTEGER DEFAULT 0, usage_limit_enabled INTEGER DEFAULT 0, disable_non_public_models INTEGER DEFAULT 0, auto_resolve INTEGER DEFAULT 0, access_schedule TEXT, proxy_id TEXT, tenant_id TEXT DEFAULT 'red', ip_allowlist TEXT, scopes TEXT, rate_limits TEXT, allowed_quotas TEXT DEFAULT '[]', allowed_connections TEXT, allowed_combos TEXT, allowed_models TEXT DEFAULT '[]', blocked_models TEXT, allowed_endpoints TEXT, model_access_mode TEXT DEFAULT 'all')",
         "CREATE TABLE domain_budgets (api_key_id TEXT)",
         "CREATE TABLE api_key_token_limits (api_key_id TEXT, enabled INTEGER)",
         "CREATE TABLE api_key_quota_limits (api_key_id TEXT, tpm_limit INTEGER, rpm_limit INTEGER, monthly_amount_usd REAL)",
@@ -40,7 +41,7 @@ async fn fixture() -> (TempDir, SqliteConnection) {
         "CREATE TABLE budget_assignments (budget_id TEXT)",
         "CREATE TABLE model_combo_mappings (enabled INTEGER)",
         "CREATE TABLE key_value (namespace TEXT, key TEXT, value TEXT)",
-        "CREATE TABLE combos (name TEXT)",
+        "CREATE TABLE combos (name TEXT, data TEXT, context_cache_protection INTEGER DEFAULT 0, tenant_id TEXT DEFAULT 'red')",
     ] { sqlx::query(statement).execute(&mut db).await.unwrap(); }
     (dir, db)
 }
@@ -433,7 +434,7 @@ async fn dashboard_keys_enforce_supported_policy_and_refuse_unimplemented_quotas
             503,
         ),
         (
-            "INSERT INTO combos VALUES ('openrouter/openai/gpt')",
+            "INSERT INTO combos (name) VALUES ('openrouter/openai/gpt')",
             "DELETE FROM combos",
             403,
         ),
@@ -451,6 +452,151 @@ async fn dashboard_keys_enforce_supported_policy_and_refuse_unimplemented_quotas
         sqlx::query(reset).execute(&mut db).await.unwrap();
     }
     assert_eq!(requests.load(Ordering::SeqCst), 2);
+    server.abort();
+    provider.abort();
+}
+
+#[tokio::test]
+async fn dashboard_combo_enforces_key_and_connection_restrictions_across_providers() {
+    let (dir, mut db) = fixture().await;
+    sqlx::query(
+        "UPDATE provider_connections SET api_key = 'router-key', priority = 1 WHERE id = 'test'",
+    )
+    .execute(&mut db)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO provider_connections (id,provider,auth_type,is_active,api_key,updated_at,priority) VALUES ('openai1','openai','apikey',1,'openai-key','b',1)").execute(&mut db).await.unwrap();
+    let data = serde_json::json!({"name":"mix","strategy":"priority","version":2,"config":{},
+        "models":[{"id":"a","kind":"model","model":"openrouter/vendor/gpt","providerId":"openrouter","weight":0},
+        {"id":"b","kind":"model","model":"openai/gpt","providerId":"openai","weight":0}]}).to_string();
+    sqlx::query("INSERT INTO combos (name,data) VALUES ('mix',?)")
+        .bind(&data)
+        .execute(&mut db)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO api_keys (id,key,model_access_mode,allowed_models,allowed_combos,allowed_connections) VALUES ('combo-client','dashboard-combo-key-12345','restricted','[\"openrouter/*\",\"openai/*\"]','[\"mix\"]','[\"test\",\"openai1\"]')").execute(&mut db).await.unwrap();
+    sqlx::query("INSERT INTO api_key_quota_limits VALUES ('combo-client',NULL,20,NULL)")
+        .execute(&mut db)
+        .await
+        .unwrap();
+    let path = dir.path().join("storage.sqlite");
+    let combo = ProductCombo::load(&path, "mix").await.unwrap();
+    let (primary, primary_key) = ProductConnection::open(&path, "test", None).await.unwrap();
+    let primary = primary
+        .with_auto_selection_guard()
+        .with_shared_rpm()
+        .await
+        .unwrap();
+    let (secondary, _) = ProductConnection::open(&path, "openai1", None)
+        .await
+        .unwrap();
+    let secondary = secondary
+        .with_auto_selection_guard()
+        .inherit_accounting(&primary)
+        .unwrap();
+    let calls = Arc::new([AtomicUsize::new(0), AtomicUsize::new(0)]);
+    let seen = calls.clone();
+    let upstream = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let upstream_addr = upstream.local_addr().unwrap();
+    let provider = tokio::spawn(async move {
+        axum::serve(
+            upstream,
+            Router::new().route(
+                "/v1/chat/completions",
+                post(
+                    move |headers: axum::http::HeaderMap,
+                          axum::Json(body): axum::Json<serde_json::Value>| {
+                        let seen = seen.clone();
+                        async move {
+                            match headers.get("authorization").and_then(|v| v.to_str().ok()) {
+                                Some("Bearer router-key") => {
+                                    assert_eq!(body["model"], "vendor/gpt");
+                                    seen[0].fetch_add(1, Ordering::SeqCst);
+                                    axum::http::StatusCode::TOO_MANY_REQUESTS
+                                }
+                                Some("Bearer openai-key") => {
+                                    assert_eq!(body["model"], "gpt");
+                                    seen[1].fetch_add(1, Ordering::SeqCst);
+                                    axum::http::StatusCode::OK
+                                }
+                                _ => axum::http::StatusCode::UNAUTHORIZED,
+                            }
+                        }
+                    },
+                ),
+            ),
+        )
+        .await
+        .unwrap()
+    });
+    let routes = serde_json::json!([{"model":"mix","fallback":true,"targets":[
+        {"url":format!("http://{upstream_addr}/v1/chat/completions"),"model":"vendor/gpt","api_key_env":"ROUTER"},
+        {"url":format!("http://{upstream_addr}/v1/chat/completions"),"model":"gpt","api_key_env":"OPENAI"}
+    ]}]).to_string();
+    let state = ProxyState::new(
+        &format!("http://{upstream_addr}/v1/chat/completions"),
+        "unused-client-key-12345",
+        &primary_key,
+        false,
+    )
+    .await
+    .unwrap()
+    .with_routes(
+        &routes,
+        |name| match name {
+            "ROUTER" => Some("router-key".into()),
+            "OPENAI" => Some("openai-key".into()),
+            _ => None,
+        },
+        false,
+    )
+    .await
+    .unwrap()
+    .with_product_connection(primary.clone())
+    .with_product_combo(combo, vec![primary, secondary])
+    .unwrap()
+    .with_product_client_keys()
+    .unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move { axum::serve(listener, router(state)).await.unwrap() });
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let send = || {
+        client
+            .post(format!("http://{addr}/v1/chat/completions"))
+            .bearer_auth("dashboard-combo-key-12345")
+            .header("content-type", "application/json")
+            .body(r#"{"model":"mix","messages":[]}"#)
+    };
+    assert_eq!(send().send().await.unwrap().status(), 200);
+    assert_eq!(calls[0].load(Ordering::SeqCst), 1);
+    assert_eq!(calls[1].load(Ordering::SeqCst), 1);
+    let total: f64 = sqlx::query_scalar("SELECT CAST(SUM(consumed) AS REAL) FROM api_key_quota_counters WHERE api_key_id = 'combo-client'")
+        .fetch_one(&mut db).await.unwrap();
+    assert_eq!(total, 1.0);
+    sqlx::query(
+        "UPDATE api_keys SET allowed_connections = '[\"openai1\"]' WHERE id = 'combo-client'",
+    )
+    .execute(&mut db)
+    .await
+    .unwrap();
+    assert_eq!(send().send().await.unwrap().status(), 200);
+    assert_eq!(calls[0].load(Ordering::SeqCst), 1);
+    assert_eq!(calls[1].load(Ordering::SeqCst), 2);
+    sqlx::query("UPDATE api_keys SET allowed_combos = '[]' WHERE id = 'combo-client'")
+        .execute(&mut db)
+        .await
+        .unwrap();
+    assert_eq!(send().send().await.unwrap().status(), 401);
+    sqlx::query("UPDATE api_keys SET allowed_combos = '[\"mix\"]' WHERE id = 'combo-client'")
+        .execute(&mut db)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE combos SET data = '{\"changed\":true}' WHERE name = 'mix'")
+        .execute(&mut db)
+        .await
+        .unwrap();
+    assert_eq!(send().send().await.unwrap().status(), 503);
     server.abort();
     provider.abort();
 }

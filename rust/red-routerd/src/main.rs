@@ -1,6 +1,7 @@
 use axum::serve::ListenerExt;
 use red_routerd::{
     product::ProductConnection,
+    product_combo::ProductCombo,
     router,
     storage::{embedded_default_url, sqlite_default_url, Backend, Database},
     ProxyState,
@@ -50,12 +51,35 @@ async fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
                 return Err("product connection mode cannot be combined with separate upstream, route, credential, or database configuration".into());
             }
         }
-        let (id, auto_selection) = match (env::var("RED_ROUTER_PRODUCT_CONNECTION_ID"), env::var("RED_ROUTER_PRODUCT_PROVIDER")) {
+        let combo = match env::var("RED_ROUTER_PRODUCT_COMBO") {
+            Ok(name) => Some(ProductCombo::load(std::path::Path::new(&path), &name).await?),
+            Err(env::VarError::NotPresent) => None,
+            Err(_) => return Err("RED_ROUTER_PRODUCT_COMBO must be valid Unicode".into()),
+        };
+        let (id, auto_selection) = if let Some(combo) = &combo {
+            if env::var_os("RED_ROUTER_PRODUCT_CONNECTION_ID").is_some()
+                || env::var_os("RED_ROUTER_PRODUCT_PROVIDER").is_some()
+            {
+                return Err(
+                    "product combo cannot be combined with provider or connection selection".into(),
+                );
+            }
+            (
+                ProductConnection::select_fill_first(
+                    std::path::Path::new(&path),
+                    &combo.targets[0].provider,
+                )
+                .await?,
+                true,
+            )
+        } else {
+            match (env::var("RED_ROUTER_PRODUCT_CONNECTION_ID"), env::var("RED_ROUTER_PRODUCT_PROVIDER")) {
             (Ok(id), Err(env::VarError::NotPresent)) => (id, false),
             (Err(env::VarError::NotPresent), Ok(provider)) => {
                 (ProductConnection::select_fill_first(std::path::Path::new(&path), &provider).await?, true)
             }
             _ => return Err("set exactly one of RED_ROUTER_PRODUCT_CONNECTION_ID or RED_ROUTER_PRODUCT_PROVIDER".into()),
+        }
         };
         let product_client_keys = match env::var("RED_ROUTER_PRODUCT_CLIENT_KEYS").as_deref() {
             Ok("1") => true,
@@ -75,6 +99,11 @@ async fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
             Err(env::VarError::NotPresent) | Ok("0") => false,
             _ => return Err("RED_ROUTER_PRODUCT_ACCOUNT_FALLBACK must be 0 or 1".into()),
         };
+        if combo.is_some() && (!product_client_keys || account_fallback) {
+            return Err(
+                "product combo requires product client keys and no account fallback".into(),
+            );
+        }
         if account_fallback && (!auto_selection || !product_client_keys) {
             return Err(
                 "account fallback requires automatic selection and product client keys".into(),
@@ -125,9 +154,65 @@ async fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
                 }
             }
         }
-        let mut state = ProxyState::new(connection.upstream_url(), &client_key, &credential, false)
-            .await?
-            .with_product_connection(connection);
+        let mut combo_connections = Vec::new();
+        let mut combo_keys = Vec::new();
+        let mut combo_route = None;
+        if let Some(combo) = &combo {
+            let mut targets = Vec::new();
+            for (index, target) in combo.targets.iter().enumerate() {
+                let (source, key) = if index == 0 {
+                    (
+                        connection.clone(),
+                        zeroize::Zeroizing::new(credential.to_string()),
+                    )
+                } else {
+                    let target_id = ProductConnection::select_fill_first(
+                        std::path::Path::new(&path),
+                        &target.provider,
+                    )
+                    .await?;
+                    let (source, key) = ProductConnection::open(
+                        std::path::Path::new(&path),
+                        &target_id,
+                        storage_key.as_deref().map(String::as_str),
+                    )
+                    .await?;
+                    (
+                        source
+                            .with_auto_selection_guard()
+                            .inherit_accounting(&connection)?,
+                        key,
+                    )
+                };
+                targets.push(serde_json::json!({"url":source.upstream_url(),"model":target.model,"api_key_env":format!("KEY_{index}")}));
+                combo_connections.push(source);
+                combo_keys.push(key);
+            }
+            combo_route = Some(
+                serde_json::json!([{"model":combo.name(),"fallback":true,"targets":targets}])
+                    .to_string(),
+            );
+        }
+        let mut state =
+            ProxyState::new(connection.upstream_url(), &client_key, &credential, false).await?;
+        if let Some(config) = combo_route {
+            state = state
+                .with_routes(
+                    &config,
+                    |name| {
+                        name.strip_prefix("KEY_")
+                            .and_then(|n| n.parse::<usize>().ok())
+                            .and_then(|n| combo_keys.get(n))
+                            .map(|key| key.to_string())
+                    },
+                    false,
+                )
+                .await?;
+        }
+        state = state.with_product_connection(connection);
+        if let Some(combo) = combo {
+            state = state.with_product_combo(combo, combo_connections)?;
+        }
         if product_client_keys {
             state = state.with_product_client_keys()?;
         }

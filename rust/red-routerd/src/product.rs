@@ -243,8 +243,8 @@ impl ProductConnection {
 
     /// Share the same accounting queue, so fallback never charges twice.
     pub fn inherit_accounting(mut self, source: &Self) -> Result<Self, &'static str> {
-        if !self.same_provider_database(source) {
-            return Err("fallback must use the same database and provider");
+        if !self.same_database(source) {
+            return Err("accounting must use the same product database");
         }
         self.shared_rpm = source.shared_rpm.clone();
         Ok(self)
@@ -252,6 +252,10 @@ impl ProductConnection {
 
     pub(crate) fn same_provider_database(&self, source: &Self) -> bool {
         self.path == source.path && self.provider == source.provider
+    }
+
+    pub(crate) fn same_database(&self, source: &Self) -> bool {
+        self.path == source.path
     }
 
     pub(crate) async fn fallback_eligible(&self) -> bool {
@@ -391,6 +395,32 @@ impl ProductConnection {
             "openai" => "https://api.openai.com/v1/chat/completions",
             _ => "https://openrouter.ai/api/v1/chat/completions",
         }
+    }
+
+    pub(crate) async fn combo_allowed(
+        &self,
+        candidate: &str,
+        name: &str,
+    ) -> Result<bool, &'static str> {
+        let hash = hex::encode(Sha256::digest(candidate.as_bytes()));
+        let row = sqlx::query(
+            "SELECT allowed_combos FROM api_keys WHERE key = ? OR key_hash = ? LIMIT 1",
+        )
+        .bind(candidate)
+        .bind(hash)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|_| "product combo policy unavailable")?;
+        let Some(row) = row else { return Ok(false) };
+        let raw: Option<String> = row
+            .try_get("allowed_combos")
+            .map_err(|_| "product combo policy unavailable")?;
+        let Some(raw) = raw else { return Ok(true) };
+        let rules: Vec<String> =
+            serde_json::from_str(&raw).map_err(|_| "invalid product combo policy")?;
+        Ok(rules.iter().any(|rule| {
+            rule == "combo/*" || rule == name || rule.strip_prefix("combo/") == Some(name)
+        }))
     }
 
     /// This conservative subset refuses policies whose shared accounting or

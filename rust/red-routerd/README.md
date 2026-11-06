@@ -53,8 +53,9 @@ This is an intentionally narrow compatibility slice, not full dashboard policy
 enforcement. It refuses keys with configured request limits, usage caps, quota
 pools, token limits, budgets, group membership, schedules or other unsupported
 restrictions and model deny-lists (which require product alias resolution). It
-also refuses configured budget assignments, model-to-combo
-mappings and global disabled-model lists; combo and quota routes do not work.
+also refuses configured budget assignments, model-to-combo mappings and global
+disabled-model lists; quota routes do not work. A restricted dashboard combo
+mode is described below.
 Missing expected schema fails closed. No usage or cost accounting is recorded by
 default. Provider choice is an explicit connection ID unless the limited
 startup selection below is enabled.
@@ -80,6 +81,17 @@ duplicate charges. A single client RPM reservation covers the fallback attempts.
 The connection list is loaded at startup; configuration changes require restart.
 This does not implement cross-provider combos, all product routing strategies,
 or fallback after a response starts streaming.
+
+Alternatively set `RED_ROUTER_PRODUCT_COMBO` to a dashboard combo name,
+`RED_ROUTER_PRODUCT_CLIENT_KEYS=1`, and omit the provider and connection
+selection variables. This experimental mode reads one stored priority combo and
+selects fill-first API-key connections for its OpenAI and OpenRouter targets.
+It verifies the combo, key, permitted models and each connection before use;
+changes to the stored combo or selected connections require a restart. Only
+simple priority model steps with empty combo configuration are supported.
+Nested combos, provider wildcards, pinned connections, per-step prompts, and
+other strategies or settings are rejected. Fallback may submit the prompt to
+multiple providers. The selected combo does not import the rest of the dashboard.
 
 Set `RED_ROUTER_PRODUCT_SHARED_RPM=1` with dashboard client-key mode to enable
 the product's requests-per-minute quota. This opens the existing SQLite file for
@@ -205,7 +217,7 @@ targets with an Anthropic Messages target by setting
 translatable before any target is called; unsupported fields are rejected rather
 than dropped during fallback. JSON and SSE responses from the Anthropic target
 are translated back to OpenAI format. This remains environment configuration;
-dashboard-defined cross-provider combos are not yet imported.
+dashboard-defined combos use the separate restricted mode described above.
 
 Anthropic and `openai-to-anthropic` targets use `x-api-key` by default. For an
 Anthropic-compatible provider requiring Bearer authentication, such as the
