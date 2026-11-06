@@ -153,10 +153,12 @@ async fn rust_and_typescript_reserve_one_shared_token_and_spend_budget() {
         .await,
         Ok(false)
     );
-    let id: String = sqlx::query_scalar("SELECT id FROM api_key_usage_reservations LIMIT 1")
-        .fetch_one(&pool)
-        .await
-        .unwrap();
+    let id: String = sqlx::query_scalar(
+        "SELECT id FROM api_key_usage_reservations WHERE api_key_id = 'key' LIMIT 1",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
     assert!(mark_dispatched(&pool, &id, "key").await.unwrap());
     assert!(!cancel_undispatched(&pool, &id, "key").await.unwrap());
     assert!(!reserve_usage(

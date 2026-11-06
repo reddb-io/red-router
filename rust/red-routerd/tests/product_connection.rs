@@ -36,7 +36,7 @@ async fn fixture() -> (TempDir, SqliteConnection) {
         "CREATE TABLE api_key_token_limits (api_key_id TEXT, enabled INTEGER)",
         "CREATE TABLE api_key_quota_limits (api_key_id TEXT, tpm_limit INTEGER, rpm_limit INTEGER, monthly_amount_usd REAL)",
         "CREATE TABLE api_key_quota_counters (api_key_id TEXT, dimension_key TEXT, bucket_index INTEGER, consumed REAL, updated_at INTEGER, PRIMARY KEY(api_key_id,dimension_key,bucket_index))",
-        "CREATE TABLE api_key_daily_token_limits (api_key_id TEXT)",
+        "CREATE TABLE api_key_daily_token_limits (api_key_id TEXT, daily_tokens_limit INTEGER)",
         "CREATE TABLE provider_quota_state (connection_id TEXT)",
         "CREATE TABLE key_group_members (key_id TEXT)",
         "CREATE TABLE budget_assignments (budget_id TEXT)",
@@ -58,6 +58,12 @@ async fn non_streaming_product_usage_is_recorded_and_unhandled_quotas_fail_close
     .unwrap();
     sqlx::raw_sql(include_str!(
         "../../../src/lib/db/migrations/219_cost_ledger_recovery.sql"
+    ))
+    .execute(&mut db)
+    .await
+    .unwrap();
+    sqlx::raw_sql(include_str!(
+        "../../../src/lib/db/migrations/226_shared_usage_reservations.sql"
     ))
     .execute(&mut db)
     .await
@@ -213,6 +219,11 @@ async fn non_streaming_product_usage_is_recorded_and_unhandled_quotas_fail_close
     })
     .await
     .unwrap();
+    let uncertain: i64 = sqlx::query_scalar("SELECT count(*) FROM api_key_usage_reservations WHERE api_key_id = 'usage-client' AND state = 'dispatched'").fetch_one(&mut db).await.unwrap();
+    assert_eq!(
+        uncertain, 3,
+        "responses without trustworthy usage must retain their reservations"
+    );
     assert_eq!(
         send(r#"{"model":"openrouter/vendor/unknown","messages":[]}"#)
             .send()
@@ -600,7 +611,7 @@ async fn dashboard_keys_enforce_supported_policy_and_refuse_unimplemented_quotas
             503,
         ),
         (
-            "INSERT INTO api_key_daily_token_limits VALUES ('client')",
+            "INSERT INTO api_key_daily_token_limits (api_key_id) VALUES ('client')",
             "DELETE FROM api_key_daily_token_limits",
             503,
         ),

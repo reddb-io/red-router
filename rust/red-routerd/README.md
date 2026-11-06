@@ -121,9 +121,13 @@ to be true; non-default service tiers are rejected. In streaming mode the
 proxy drains the provider even if the client disconnects and forwards the final
 `[DONE]` only after recording usage. A successful response without valid usage or a failed
 SQLite write is returned as an error; the provider may still charge for it.
-An interrupted upstream response, failed attempt, process crash, or provider
-failure can likewise have unrecorded cost. This mode does not apply token or
-spend quotas and is not a reliable billing or enforcement boundary.
+Each upstream attempt creates a durable reservation before sending. A completed
+response atomically writes its usage and releases its reservation. An interrupted
+upstream response, failed attempt, process crash, or provider failure can have
+unrecorded cost and leaves an unresolved dispatched reservation for reconciliation;
+these reservations never expire automatically. This mode does not apply token or
+spend quotas, and TypeScript does not yet reserve for live requests, so it is not
+a reliable billing or enforcement boundary.
 
 ```sh
 export RED_ROUTER_LISTEN=127.0.0.1:19091

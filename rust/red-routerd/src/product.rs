@@ -288,6 +288,8 @@ impl ProductConnection {
             .execute(&pool)
             .await
             .map_err(|_| "product cost ledger schema unavailable")?;
+        sqlx::query("SELECT id, api_key_id, reserved_tokens, reserved_usd, created_at, state FROM api_key_usage_reservations LIMIT 0")
+            .execute(&pool).await.map_err(|_| "product usage reservation schema unavailable")?;
         self.usage_pool = Some(pool);
         Ok(self)
     }
@@ -324,8 +326,43 @@ impl ProductConnection {
         crate::accounting::TokenPrices::from_record(&serde_json::Value::Object(record.clone()))
     }
 
+    /// Create a durable reservation before dispatch. Token/spend quotas remain
+    /// blocked until TypeScript also participates in request admission.
+    pub(crate) async fn begin_usage(&self, key_id: &str) -> Result<String, &'static str> {
+        let pool = self
+            .usage_pool
+            .as_ref()
+            .ok_or("usage accounting unavailable")?;
+        let event_id: String = sqlx::query_scalar("SELECT lower(hex(randomblob(16)))")
+            .fetch_one(pool)
+            .await
+            .map_err(|_| "usage accounting unavailable")?;
+        let now = i64::try_from(
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map_err(|_| "invalid clock")?
+                .as_millis(),
+        )
+        .map_err(|_| "invalid clock")?;
+        let request = crate::shared_usage::UsageReservation {
+            id: &event_id,
+            key_id,
+            tokens: 9_007_199_254_740_991,
+            usd: 1e300,
+            now_ms: now,
+        };
+        if !crate::shared_usage::reserve_usage(pool, &request).await? {
+            return Err("usage reservation denied");
+        }
+        if !crate::shared_usage::mark_dispatched(pool, &event_id, key_id).await? {
+            return Err("usage reservation unavailable");
+        }
+        Ok(event_id)
+    }
+
     pub(crate) async fn record_usage(
         &self,
+        event_id: &str,
         key_id: &str,
         model: &str,
         usage: &crate::accounting::ChatUsage,
@@ -335,10 +372,6 @@ impl ProductConnection {
             .usage_pool
             .as_ref()
             .ok_or("usage accounting unavailable")?;
-        let event_id: String = sqlx::query_scalar("SELECT lower(hex(randomblob(16)))")
-            .fetch_one(pool)
-            .await
-            .map_err(|_| "usage accounting unavailable")?;
         let timestamp_ms = i64::try_from(
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
@@ -346,10 +379,10 @@ impl ProductConnection {
                 .as_millis(),
         )
         .map_err(|_| "invalid clock")?;
-        crate::accounting::record_completed_usage(
+        crate::accounting::record_reserved_usage(
             pool,
             &crate::accounting::CompletedUsage {
-                event_id: &event_id,
+                event_id,
                 key_id,
                 provider: &self.provider,
                 model,

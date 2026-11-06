@@ -1038,7 +1038,27 @@ async fn proxy_request(
                     )
                 }
             };
-            Some((connection.clone(), target_model.to_owned(), prices))
+            let Some(access) = &product_access else {
+                return error(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "Usage accounting unavailable",
+                );
+            };
+            let event_id = match connection.begin_usage(&access.key_id).await {
+                Ok(id) => id,
+                Err(_) => {
+                    return error(
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "Usage reservation unavailable",
+                    )
+                }
+            };
+            Some((
+                connection.clone(),
+                target_model.to_owned(),
+                prices,
+                event_id,
+            ))
         } else {
             None
         };
@@ -1209,7 +1229,7 @@ async fn proxy_request(
         };
     }
     if response.status().is_success() {
-        if let Some((connection, model, prices)) = final_accounting {
+        if let Some((connection, model, prices, event_id)) = final_accounting {
             let Some(access) = &product_access else {
                 return error(
                     StatusCode::SERVICE_UNAVAILABLE,
@@ -1236,6 +1256,7 @@ async fn proxy_request(
                 let body = usage_stream::forward(
                     response,
                     connection,
+                    event_id,
                     access.key_id.clone(),
                     model,
                     prices,
@@ -1289,7 +1310,7 @@ async fn proxy_request(
                 );
             };
             if connection
-                .record_usage(&access.key_id, &model, &usage, &prices)
+                .record_usage(&event_id, &access.key_id, &model, &usage, &prices)
                 .await
                 .is_err()
             {

@@ -67,6 +67,7 @@ fn frame_end(bytes: &[u8]) -> Option<usize> {
 pub(crate) fn forward(
     response: reqwest::Response,
     connection: ProductConnection,
+    event_id: String,
     key: String,
     model: String,
     prices: TokenPrices,
@@ -103,7 +104,7 @@ pub(crate) fn forward(
                         done_seen = true;
                         if let Some(usage) = usage.take() {
                             if connection
-                                .record_usage(&key, &model, &usage, &prices)
+                                .record_usage(&event_id, &key, &model, &usage, &prices)
                                 .await
                                 .is_ok()
                             {
