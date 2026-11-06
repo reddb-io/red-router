@@ -32,15 +32,14 @@ provider credential uses field encryption, provide the same
 Only the current `enc:v1` static-salt format and plaintext credentials are
 supported; legacy encrypted credentials require migration by the webapp first.
 
-This mode opens the product database read-only, uses the provider's fixed HTTPS
+By default this mode opens the product database read-only, uses the provider's fixed HTTPS
 endpoint, and rechecks the selected connection before each request. Edits,
 deactivation, removal or database errors stop new requests until restart; requests
-already forwarded can still finish. It does not modify the existing database and
+already forwarded can still finish. By default it does not modify the existing database and
 does not use `RED_ROUTER_PROVIDER_KEY`, model route JSON or the separate gateway
 database. By default, inbound authentication and optional policy JSON remain
 independent; dashboard keys may instead be enabled as described below. Product
-quotas, accounting, automatic provider selection and other connection settings
-are not enforced.
+automatic provider selection and other connection settings are not enforced.
 Per-request database checks add overhead; this mode needs its own benchmarks.
 
 Set `RED_ROUTER_PRODUCT_CLIENT_KEYS=1` to use dashboard API keys instead of an
@@ -56,13 +55,28 @@ pools, token limits, budgets, group membership, schedules or other unsupported
 restrictions and model deny-lists (which require product alias resolution). It
 also refuses configured budget assignments, model-to-combo
 mappings and global disabled-model lists; combo and quota routes do not work.
-Missing expected schema fails closed. No usage or cost accounting is recorded,
-and counters are not shared with the existing proxy. Provider choice is an
+Missing expected schema fails closed. No usage or cost accounting is recorded by
+default. Provider choice is an
 explicit connection ID, not the dashboard's automatic selection or fallback.
 Only direct chat requests to the two fixed provider endpoints are supported in
 this mode. The requested model must start with the selected product provider,
 for example `openrouter/openai/gpt-4o` or `openai/gpt-4o`; the provider prefix
 is removed before forwarding. Do not use it as a production replacement.
+
+Set `RED_ROUTER_PRODUCT_SHARED_RPM=1` with dashboard client-key mode to enable
+the product's requests-per-minute quota. This opens the existing SQLite file for
+writing and reserves one request in `api_key_quota_counters` before forwarding,
+using the product's two-bucket weighted window. Independent Rust processes
+using the same local SQLite file coordinate reservations transactionally. They
+also observe counters written by the existing proxy. A reservation is counted
+even if forwarding subsequently fails or the client disconnects.
+
+The TypeScript proxy checks and increments separately after completion, so mixed
+Rust/TypeScript traffic can still exceed the limit under concurrency. Tokens,
+daily and monthly quotas, costs, and other request limits remain unsupported and
+block requests when configured. SQLite is not a distributed database; do not
+assume separate node-local files or network-mounted files share safe cluster
+coordination. Keep the mode experimental.
 
 ```sh
 export RED_ROUTER_LISTEN=127.0.0.1:19091

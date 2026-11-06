@@ -31,6 +31,7 @@ async fn fixture() -> (TempDir, SqliteConnection) {
         "CREATE TABLE domain_budgets (api_key_id TEXT)",
         "CREATE TABLE api_key_token_limits (api_key_id TEXT, enabled INTEGER)",
         "CREATE TABLE api_key_quota_limits (api_key_id TEXT, tpm_limit INTEGER, rpm_limit INTEGER, monthly_amount_usd REAL)",
+        "CREATE TABLE api_key_quota_counters (api_key_id TEXT, dimension_key TEXT, bucket_index INTEGER, consumed REAL, updated_at INTEGER, PRIMARY KEY(api_key_id,dimension_key,bucket_index))",
         "CREATE TABLE api_key_daily_token_limits (api_key_id TEXT)",
         "CREATE TABLE key_group_members (key_id TEXT)",
         "CREATE TABLE budget_assignments (budget_id TEXT)",
@@ -383,6 +384,131 @@ async fn dashboard_keys_enforce_supported_policy_and_refuse_unimplemented_quotas
     provider.abort();
 }
 
+#[tokio::test]
+async fn shared_rpm_reservations_coordinate_independent_proxy_instances() {
+    let (dir, mut db) = fixture().await;
+    sqlx::query(
+        "UPDATE provider_connections SET api_key = 'fixture-provider-key' WHERE id = 'test'",
+    )
+    .execute(&mut db)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO api_keys (id, key) VALUES ('shared', 'shared-dashboard-key-12345')")
+        .execute(&mut db)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO api_key_quota_limits VALUES ('shared', NULL, 4, NULL)")
+        .execute(&mut db)
+        .await
+        .unwrap();
+    let sent = Arc::new(AtomicUsize::new(0));
+    let count = sent.clone();
+    let upstream = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let upstream_address = upstream.local_addr().unwrap();
+    let provider = tokio::spawn(async move {
+        axum::serve(
+            upstream,
+            Router::new().route(
+                "/v1/chat/completions",
+                post(move || {
+                    let count = count.clone();
+                    async move {
+                        count.fetch_add(1, Ordering::SeqCst);
+                        "ok"
+                    }
+                }),
+            ),
+        )
+        .await
+        .unwrap()
+    });
+    let mut addresses = Vec::new();
+    let mut servers = Vec::new();
+    for _ in 0..2 {
+        let (connection, key) =
+            ProductConnection::open(&dir.path().join("storage.sqlite"), "test", None)
+                .await
+                .unwrap();
+        let connection = connection.with_shared_rpm().await.unwrap();
+        let state = ProxyState::new(
+            &format!("http://{upstream_address}/v1/chat/completions"),
+            "unused-client-key-12345",
+            &key,
+            false,
+        )
+        .await
+        .unwrap()
+        .with_product_connection(connection)
+        .with_product_client_keys()
+        .unwrap();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        addresses.push(listener.local_addr().unwrap());
+        servers.push(tokio::spawn(async move {
+            axum::serve(listener, router(state)).await.unwrap()
+        }));
+    }
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let statuses: Vec<_> = stream::iter(0..16)
+        .map(|index| {
+            let client = client.clone();
+            let address = addresses[index % addresses.len()];
+            async move {
+                client
+                    .post(format!("http://{address}/v1/chat/completions"))
+                    .bearer_auth("shared-dashboard-key-12345")
+                    .header("content-type", "application/json")
+                    .body(r#"{"model":"openrouter/openai/gpt","messages":[]}"#)
+                    .send()
+                    .await
+                    .unwrap()
+                    .status()
+            }
+        })
+        .buffer_unordered(16)
+        .collect()
+        .await;
+    assert_eq!(statuses.iter().filter(|s| **s == 200).count(), 4);
+    assert_eq!(statuses.iter().filter(|s| **s == 429).count(), 12);
+    assert_eq!(sent.load(Ordering::SeqCst), 4);
+    let total: f64 = sqlx::query_scalar("SELECT SUM(consumed) FROM api_key_quota_counters WHERE api_key_id = 'shared' AND dimension_key = 'key-quota:rpm'")
+        .fetch_one(&mut db).await.unwrap();
+    assert_eq!(total, 4.0);
+    // A product-side write in the same table is visible to the Rust gate.
+    sqlx::query("DELETE FROM api_key_quota_counters")
+        .execute(&mut db)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE api_key_quota_limits SET rpm_limit = 1 WHERE api_key_id = 'shared'")
+        .execute(&mut db)
+        .await
+        .unwrap();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64;
+    sqlx::query("INSERT INTO api_key_quota_counters VALUES ('shared', 'key-quota:rpm', ?, 1, ?)")
+        .bind(now / 60_000)
+        .bind(now)
+        .execute(&mut db)
+        .await
+        .unwrap();
+    let status = client
+        .post(format!("http://{}/v1/chat/completions", addresses[0]))
+        .bearer_auth("shared-dashboard-key-12345")
+        .header("content-type", "application/json")
+        .body(r#"{"model":"openrouter/openai/gpt","messages":[]}"#)
+        .send()
+        .await
+        .unwrap()
+        .status();
+    assert_eq!(status, 429);
+    assert_eq!(sent.load(Ordering::SeqCst), 4);
+    for server in servers {
+        server.abort();
+    }
+    provider.abort();
+}
+
 // Descriptive benchmark on an isolated mock: no absolute latency threshold is
 // meaningful on a shared runner. The two cases share the same provider process.
 #[tokio::test]
@@ -424,7 +550,13 @@ async fn benchmark_product_guard() {
     let dashboard = ProxyState::new(&upstream_url, "client-key-123456789", &key, false)
         .await
         .unwrap()
-        .with_product_connection(connection)
+        .with_product_connection(connection.clone())
+        .with_product_client_keys()
+        .unwrap();
+    let shared = ProxyState::new(&upstream_url, "client-key-123456789", &key, false)
+        .await
+        .unwrap()
+        .with_product_connection(connection.with_shared_rpm().await.unwrap())
         .with_product_client_keys()
         .unwrap();
     let mut servers = Vec::new();
@@ -432,6 +564,7 @@ async fn benchmark_product_guard() {
         ("baseline", plain),
         ("product-sqlite", guarded),
         ("dashboard-policy", dashboard),
+        ("shared-rpm", shared),
     ] {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();

@@ -10,7 +10,11 @@ use sqlx::{
     sqlite::{SqliteConnectOptions, SqlitePoolOptions},
     Row, SqlitePool,
 };
-use std::{path::Path, sync::Arc};
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 use zeroize::Zeroizing;
 
 type ProductCipher = AesGcm<Aes256, U16>;
@@ -22,6 +26,13 @@ pub struct ProductConnection {
     stored_key: Arc<str>,
     updated_at: Arc<str>,
     provider: Arc<str>,
+    path: Arc<PathBuf>,
+    shared_rpm: Option<SqlitePool>,
+}
+
+pub(crate) struct ProductAccess {
+    pub policies: crate::policy::ClientPolicies,
+    pub key_id: String,
 }
 
 impl ProductConnection {
@@ -75,9 +86,92 @@ impl ProductConnection {
                 stored_key: Arc::from(stored),
                 updated_at: Arc::from(updated_at),
                 provider: Arc::from(provider),
+                path: Arc::new(path.to_path_buf()),
+                shared_rpm: None,
             },
             credential,
         ))
+    }
+
+    /// Opt in to updating the existing product RPM counters. The database and
+    /// counter table must already exist; this never creates or migrates them.
+    pub async fn with_shared_rpm(mut self) -> Result<Self, &'static str> {
+        let options = SqliteConnectOptions::new()
+            .filename(self.path.as_ref())
+            .read_only(false)
+            .create_if_missing(false)
+            .busy_timeout(Duration::from_secs(5));
+        let pool = SqlitePoolOptions::new()
+            .max_connections(4)
+            .connect_with(options)
+            .await
+            .map_err(|_| "cannot open product SQLite for quota accounting")?;
+        sqlx::query("SELECT api_key_id, dimension_key, bucket_index, consumed, updated_at FROM api_key_quota_counters LIMIT 0")
+            .execute(&pool).await.map_err(|_| "product quota counter schema unavailable")?;
+        self.shared_rpm = Some(pool);
+        Ok(self)
+    }
+
+    /// Reserve one request before forwarding using the product's 60-second,
+    /// weighted two-bucket RPM counter. Rust instances sharing this SQLite
+    /// file serialize reservations through BEGIN IMMEDIATE.
+    pub(crate) async fn reserve_rpm(&self, key_id: &str) -> Result<bool, &'static str> {
+        let Some(pool) = &self.shared_rpm else {
+            return Ok(true);
+        };
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|_| "system clock unavailable")?
+            .as_millis();
+        let now = i64::try_from(now).map_err(|_| "system clock unavailable")?;
+        let bucket = now / 60_000;
+        let mut tx = pool
+            .begin_with("BEGIN IMMEDIATE")
+            .await
+            .map_err(|_| "quota accounting unavailable")?;
+        let limits = sqlx::query("SELECT rpm_limit, tpm_limit, monthly_amount_usd FROM api_key_quota_limits WHERE api_key_id = ?")
+            .bind(key_id).fetch_optional(&mut *tx).await.map_err(|_| "quota limits unavailable")?;
+        let rpm = if let Some(row) = limits {
+            let tpm: Option<i64> = row
+                .try_get("tpm_limit")
+                .map_err(|_| "invalid quota limits")?;
+            let monthly: Option<f64> = row
+                .try_get("monthly_amount_usd")
+                .map_err(|_| "invalid quota limits")?;
+            if tpm.unwrap_or(0) > 0 || monthly.unwrap_or(0.0) > 0.0 {
+                return Err("unsupported product quota");
+            }
+            row.try_get::<Option<i64>, _>("rpm_limit")
+                .map_err(|_| "invalid quota limits")?
+        } else {
+            None
+        };
+        let row = sqlx::query("SELECT COALESCE(SUM(CASE WHEN bucket_index = ? THEN consumed ELSE 0 END), 0) AS current, COALESCE(SUM(CASE WHEN bucket_index = ? THEN consumed ELSE 0 END), 0) AS previous FROM api_key_quota_counters WHERE api_key_id = ? AND dimension_key = 'key-quota:rpm' AND bucket_index IN (?, ?)")
+            .bind(bucket).bind(bucket - 1).bind(key_id).bind(bucket).bind(bucket - 1)
+            .fetch_one(&mut *tx).await.map_err(|_| "quota counters unavailable")?;
+        let current: f64 = row
+            .try_get("current")
+            .map_err(|_| "invalid quota counter")?;
+        let previous: f64 = row
+            .try_get("previous")
+            .map_err(|_| "invalid quota counter")?;
+        if !current.is_finite() || !previous.is_finite() || current < 0.0 || previous < 0.0 {
+            return Err("invalid quota counter");
+        }
+        let effective = current + previous * (1.0 - (now % 60_000) as f64 / 60_000.0);
+        if rpm.is_some_and(|limit| limit > 0 && effective >= limit as f64) {
+            tx.rollback()
+                .await
+                .map_err(|_| "quota accounting unavailable")?;
+            return Ok(false);
+        }
+        sqlx::query("INSERT INTO api_key_quota_counters (api_key_id, dimension_key, bucket_index, consumed, updated_at) VALUES (?, 'key-quota:rpm', ?, 1, ?) ON CONFLICT(api_key_id, dimension_key, bucket_index) DO UPDATE SET consumed = consumed + 1, updated_at = excluded.updated_at")
+            .bind(key_id).bind(bucket).bind(now).execute(&mut *tx).await
+            .map_err(|_| "quota accounting unavailable")?;
+        tx.commit()
+            .await
+            .map_err(|_| "quota accounting unavailable")?;
+        Ok(true)
     }
 
     /// Recheck revocation and edits before each request. In-flight requests can
@@ -101,7 +195,7 @@ impl ProductConnection {
     pub(crate) async fn client_policies(
         &self,
         candidate: &str,
-    ) -> Result<Option<crate::policy::ClientPolicies>, &'static str> {
+    ) -> Result<Option<ProductAccess>, &'static str> {
         if !(16..=512).contains(&candidate.len()) {
             return Ok(None);
         }
@@ -192,13 +286,13 @@ impl ProductConnection {
         let unsupported: i64 = sqlx::query_scalar(
             "SELECT EXISTS(SELECT 1 FROM domain_budgets WHERE api_key_id = ?)
               OR EXISTS(SELECT 1 FROM api_key_token_limits WHERE api_key_id = ? AND enabled = 1)
-              OR EXISTS(SELECT 1 FROM api_key_quota_limits WHERE api_key_id = ? AND (COALESCE(tpm_limit,0)>0 OR COALESCE(rpm_limit,0)>0 OR COALESCE(monthly_amount_usd,0)>0))
+              OR EXISTS(SELECT 1 FROM api_key_quota_limits WHERE api_key_id = ? AND (COALESCE(tpm_limit,0)>0 OR (COALESCE(rpm_limit,0)>0 AND ? = 0) OR COALESCE(monthly_amount_usd,0)>0))
               OR EXISTS(SELECT 1 FROM api_key_daily_token_limits WHERE api_key_id = ?)
               OR EXISTS(SELECT 1 FROM key_group_members WHERE key_id = ?)
               OR EXISTS(SELECT 1 FROM budget_assignments)
               OR NOT EXISTS(SELECT 1 FROM provider_connections WHERE id = ? AND tenant_id = 'red')
               OR EXISTS(SELECT 1 FROM model_combo_mappings WHERE enabled = 1)"
-        ).bind(&key_id).bind(&key_id).bind(&key_id).bind(&key_id).bind(&key_id).bind(self.id.as_ref())
+        ).bind(&key_id).bind(&key_id).bind(&key_id).bind(i64::from(self.shared_rpm.is_some())).bind(&key_id).bind(&key_id).bind(self.id.as_ref())
             .fetch_one(&mut *tx).await.map_err(|_| "product quota schema unavailable")?;
         if unsupported != 0 {
             return Err("unsupported product quota or routing policy");
@@ -228,7 +322,7 @@ impl ProductConnection {
         let policies =
             crate::policy::ClientPolicies::parse(&config, |_| Some(candidate.to_owned()))
                 .map_err(|_| "unsupported product policy")?;
-        Ok(Some(policies))
+        Ok(Some(ProductAccess { policies, key_id }))
     }
 
     pub(crate) async fn direct_model(&self, model: &str) -> Result<Option<String>, &'static str> {

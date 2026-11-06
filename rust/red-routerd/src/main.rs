@@ -56,6 +56,14 @@ async fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
             Err(env::VarError::NotPresent) | Ok("0") => false,
             _ => return Err("RED_ROUTER_PRODUCT_CLIENT_KEYS must be 0 or 1".into()),
         };
+        let shared_rpm = match env::var("RED_ROUTER_PRODUCT_SHARED_RPM").as_deref() {
+            Ok("1") => true,
+            Err(env::VarError::NotPresent) | Ok("0") => false,
+            _ => return Err("RED_ROUTER_PRODUCT_SHARED_RPM must be 0 or 1".into()),
+        };
+        if shared_rpm && !product_client_keys {
+            return Err("shared RPM accounting requires product client keys".into());
+        }
         let client_key = if product_client_keys {
             if env::var_os("RED_ROUTER_CLIENT_KEY").is_some()
                 || env::var_os("RED_ROUTER_CLIENT_POLICIES_JSON").is_some()
@@ -75,12 +83,15 @@ async fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
         let storage_key = env::var("STORAGE_ENCRYPTION_KEY")
             .ok()
             .map(zeroize::Zeroizing::new);
-        let (connection, credential) = ProductConnection::open(
+        let (mut connection, credential) = ProductConnection::open(
             std::path::Path::new(&path),
             &id,
             storage_key.as_deref().map(String::as_str),
         )
         .await?;
+        if shared_rpm {
+            connection = connection.with_shared_rpm().await?;
+        }
         let mut state = ProxyState::new(connection.upstream_url(), &client_key, &credential, false)
             .await?
             .with_product_connection(connection);

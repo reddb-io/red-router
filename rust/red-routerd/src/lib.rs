@@ -510,8 +510,7 @@ async fn proxy_request(
     protocol: ProviderProtocol,
     gemini: Option<(String, bool)>,
 ) -> Response {
-    let dashboard_policies;
-    let clients = if state.product_client_keys {
+    let product_access = if state.product_client_keys {
         let Some(candidate) = policy::extract_candidate(request.headers(), protocol) else {
             return error(StatusCode::UNAUTHORIZED, "Invalid API key");
         };
@@ -521,8 +520,8 @@ async fn proxy_request(
                 "Product policy unavailable",
             );
         };
-        dashboard_policies = match connection.client_policies(candidate).await {
-            Ok(Some(policies)) => policies,
+        match connection.client_policies(candidate).await {
+            Ok(Some(access)) => Some(access),
             Ok(None) => return error(StatusCode::UNAUTHORIZED, "Invalid API key"),
             Err(_) => {
                 return error(
@@ -530,11 +529,13 @@ async fn proxy_request(
                     "Product policy unavailable or unsupported",
                 )
             }
-        };
-        &dashboard_policies
+        }
     } else {
-        state.clients.as_ref()
+        None
     };
+    let clients = product_access
+        .as_ref()
+        .map_or(state.clients.as_ref(), |access| &access.policies);
     let Some(policy) = clients.authenticate(request.headers(), protocol) else {
         return error(StatusCode::UNAUTHORIZED, "Invalid API key");
     };
@@ -681,6 +682,18 @@ async fn proxy_request(
     };
     if !policy.allow_request() {
         return error(StatusCode::TOO_MANY_REQUESTS, "Client rate limit exceeded");
+    }
+    if let (Some(access), Some(connection)) = (&product_access, &state.product_connection) {
+        match connection.reserve_rpm(&access.key_id).await {
+            Ok(true) => {}
+            Ok(false) => return error(StatusCode::TOO_MANY_REQUESTS, "Client RPM quota exceeded"),
+            Err(_) => {
+                return error(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "Client quota accounting unavailable",
+                )
+            }
+        }
     }
     let start = route.map_or(0, |route| {
         if route.round_robin {
