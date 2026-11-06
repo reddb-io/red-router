@@ -24,6 +24,10 @@ on:
         required: true
         type: string
 
+      preview_platforms:
+        type: boolean
+        description: Show selected platforms without running builds, tests or publication
+        default: false
 permissions:
   contents: read
 
@@ -34,17 +38,75 @@ concurrency:
 env:
   IMAGE: ghcr.io/reddb-io/red-router
 
+  ENABLE_LINUX_X64: ${{ vars.ENABLE_LINUX_X64 || 'true' }}
+  ENABLE_LINUX_ARM64: ${{ vars.ENABLE_LINUX_ARM64 || 'true' }}
+  ENABLE_WINDOWS_X64: ${{ vars.ENABLE_WINDOWS_X64 || 'true' }}
+  ENABLE_WINDOWS_ARM64: ${{ vars.ENABLE_WINDOWS_ARM64 || 'false' }}
+  ENABLE_MACOS_X64: ${{ vars.ENABLE_MACOS_X64 || 'false' }}
+  ENABLE_MACOS_ARM64: ${{ vars.ENABLE_MACOS_ARM64 || 'false' }}
+  ENABLE_LINUX_ARMV7: ${{ vars.ENABLE_LINUX_ARMV7 || 'false' }}
+  ENABLE_LINUX_X86: ${{ vars.ENABLE_LINUX_X86 || 'false' }}
 jobs:
+  platforms:
+    name: Select platforms
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    permissions: {}
+    outputs:
+      linux_x64: ${{ steps.select.outputs.linux_x64 }}
+      linux_arm64: ${{ steps.select.outputs.linux_arm64 }}
+      windows_x64: ${{ steps.select.outputs.windows_x64 }}
+      windows_arm64: ${{ steps.select.outputs.windows_arm64 }}
+      macos_x64: ${{ steps.select.outputs.macos_x64 }}
+      macos_arm64: ${{ steps.select.outputs.macos_arm64 }}
+      linux_armv7: ${{ steps.select.outputs.linux_armv7 }}
+      linux_x86: ${{ steps.select.outputs.linux_x86 }}
+      any: ${{ steps.select.outputs.any }}
+      docker_platforms: ${{ steps.select.outputs.docker_platforms }}
+    steps:
+      - id: select
+        name: Filter platforms before allocating runners
+        shell: python
+        env:
+          PLATFORM_DEFAULTS: '{"linux_x64":true,"linux_arm64":true,"windows_x64":true,"windows_arm64":false,"macos_x64":false,"macos_arm64":false,"linux_armv7":false,"linux_x86":false}'
+          PLATFORM_AVAILABLE: '["linux_arm64", "linux_x64"]'
+          PLATFORM_MATRICES: |
+            {}
+        run: |
+          import json
+          import os
+
+          defaults = json.loads(os.environ["PLATFORM_DEFAULTS"])
+          enabled = {}
+          for key in defaults:
+              name = "ENABLE_" + key.upper()
+              value = os.environ[name].lower()
+              if value not in ("true", "false"):
+                  raise SystemExit(f"{name} must be true or false, got {value!r}")
+              enabled[key] = value == "true"
+
+          matrices = json.loads(os.environ["PLATFORM_MATRICES"])
+          available = json.loads(os.environ["PLATFORM_AVAILABLE"])
+          output = {key: str(value).lower() for key, value in enabled.items()}
+          output["any"] = str(any(enabled[key] for key in available)).lower()
+          for job, entries in matrices.items():
+              selected = [entry["row"] for entry in entries if enabled[entry["flag"]]]
+              output["enabled_" + job] = str(bool(selected)).lower()
+              # A placeholder keeps GitHub's matrix schema valid when the job is skipped.
+              output["matrix_" + job] = json.dumps({"include": selected or [entries[0]["row"]]}, separators=(",", ":"))
+          docker = [target for key, target in (("linux_x64", "linux/amd64"), ("linux_arm64", "linux/arm64")) if enabled[key]]
+          output["docker_platforms"] = ",".join(docker)
+          with open(os.environ["GITHUB_OUTPUT"], "a") as handle:
+              for key, value in output.items():
+                  handle.write(f"{key}={value}\n")
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as handle:
+              handle.write("### Selected platforms\n\n")
+              for key in available:
+                  handle.write(f"- {key}: {str(enabled[key]).lower()}\n")
   resolve:
     name: Resolve release tag
     if: >-
-      github.repository == 'reddb-io/red-router' && (
-        github.event_name == 'workflow_dispatch' || (
-          github.event.workflow_run.conclusion == 'success' &&
-          github.event.workflow_run.event == 'push' &&
-          startsWith(github.event.workflow_run.head_branch, 'v')
-        )
-      )
+      ${{ !inputs.preview_platforms && ((github.repository == 'reddb-io/red-router' && (   github.event_name == 'workflow_dispatch' || (     github.event.workflow_run.conclusion == 'success' &&     github.event.workflow_run.event == 'push' &&     startsWith(github.event.workflow_run.head_branch, 'v')   ) )) && (needs.platforms.outputs.any == 'true')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -74,10 +136,14 @@ jobs:
             echo "version=${RELEASE_TAG#v}"
           } >> "$GITHUB_OUTPUT"
 
+    needs:
+      - platforms
   image:
     name: Build and publish image
-    needs: resolve
-    if: needs.resolve.outputs.publish == 'true'
+    needs:
+      - resolve
+      - platforms
+    if: ${{ !inputs.preview_platforms && ((needs.resolve.outputs.publish == 'true') && (needs.platforms.outputs.docker_platforms != '')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
@@ -127,6 +193,7 @@ jobs:
         uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
         with:
           platforms: arm64
+        if: env.ENABLE_LINUX_ARM64 == 'true'
       - name: Set up Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - name: Log in to GHCR
@@ -153,7 +220,7 @@ jobs:
         with:
           context: .
           file: Dockerfile.npm
-          platforms: linux/amd64,linux/arm64
+          platforms: ${{ needs.platforms.outputs.docker_platforms }}
           push: true
           build-args: |
             VERSION=${{ needs.resolve.outputs.version }}
@@ -165,9 +232,10 @@ jobs:
         run: |
           set -euo pipefail
           REF="$IMAGE@${{ steps.build.outputs.digest }}"
-          docker pull "$REF"
-          test "$(docker run --rm "$REF" red-router --version)" = "$VERSION"
-          docker run -d --name red-router-smoke -p 127.0.0.1:25050:25050 \
+          platform="${{ env.ENABLE_LINUX_X64 == 'true' && 'linux/amd64' || 'linux/arm64' }}"
+          docker pull --platform "$platform" "$REF"
+          test "$(docker run --platform "$platform" --rm "$REF" red-router --version)" = "$VERSION"
+          docker run --platform "$platform" -d --name red-router-smoke -p 127.0.0.1:25050:25050 \
             -e DISABLE_SQLITE_AUTO_BACKUP=true -e OMNIROUTE_SKIP_SYSTEM_TRUST=1 \
             "$REF"
           for attempt in $(seq 1 60); do
