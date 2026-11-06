@@ -108,7 +108,7 @@ does not increment RPM a second time for a request already reserved. A process
 running without this setting retains the older check-before/increment-after
 behavior, so mixed traffic with that process can still exceed the limit.
 
-Tokens, daily and monthly quotas, costs, and other request limits remain
+Token, daily and monthly spend quotas, and other request limits remain
 unsupported by Rust and block requests when configured. SQLite is not a
 distributed database; do not assume separate node-local files or network-mounted
 files share safe cluster coordination. Keep the mode experimental.
@@ -122,8 +122,6 @@ SQLite write is returned as an error; the provider may still charge for it.
 An interrupted upstream response, failed attempt, process crash, or provider
 failure can likewise have unrecorded cost. This mode does not apply token or
 spend quotas and is not a reliable billing or enforcement boundary.
-The Rust accounting module includes strict OpenAI usage normalization and cost
-arithmetic for future integration; it does not yet record usage or enforce caps.
 
 ```sh
 export RED_ROUTER_LISTEN=127.0.0.1:19091
