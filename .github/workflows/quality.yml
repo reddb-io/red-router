@@ -149,6 +149,43 @@ jobs:
         if: failure()
         run: cat "$RUNNER_TEMP/reddb.log" || true
 
+  fastllm-sqlite-poc:
+    if: inputs.suite == 'rust'
+    name: FastLLM SQLite fixture and concurrent agents
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      CARGO_INCREMENTAL: 0
+      CARGO_PROFILE_RELEASE_DEBUG: 0
+      FASTLLM_POC_DEBUG: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: dtolnay/rust-toolchain@stable
+      - run: sudo apt-get update -qq && sudo apt-get install -y protobuf-compiler
+      - name: Fetch pinned FastLLM source
+        run: |
+          set -euo pipefail
+          git init "$RUNNER_TEMP/fastllm"
+          git -C "$RUNNER_TEMP/fastllm" remote add origin https://github.com/azrtydxb/Fastllm-proxy.git
+          git -C "$RUNNER_TEMP/fastllm" fetch --depth=1 origin 07faa4a5068928da49eed5ffbd369d18f8a8243e
+          git -C "$RUNNER_TEMP/fastllm" checkout --detach FETCH_HEAD
+          test "$(git -C "$RUNNER_TEMP/fastllm" rev-parse HEAD)" = 07faa4a5068928da49eed5ffbd369d18f8a8243e
+      - name: Build standalone proxy and current Rust baseline
+        run: |
+          set -euo pipefail
+          cargo build --release --locked --no-default-features --manifest-path "$RUNNER_TEMP/fastllm/Cargo.toml"
+          cargo build --release --locked --manifest-path rust/red-routerd/Cargo.toml
+      - name: Measure streaming and SQLite fixture adapter
+        env:
+          FASTLLM_BINARY: ${{ runner.temp }}/fastllm/target/release/fastllm-proxy
+          RED_ROUTER_BINARY: ${{ github.workspace }}/rust/red-routerd/target/release/red-routerd
+        run: node --no-warnings scripts/ci/fastllm-poc.mjs
+
   rust-windows-storage:
     if: inputs.suite == 'all' || inputs.suite == 'rust'
     name: Rust Windows storage
