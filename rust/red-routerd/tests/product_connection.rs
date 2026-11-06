@@ -314,15 +314,21 @@ async fn strict_usage_applies_product_limits_and_keeps_uncertain_attempts() {
         .unwrap();
     let calls = Arc::new(AtomicUsize::new(0));
     let mode = Arc::new(AtomicUsize::new(0));
+    let entered = Arc::new(tokio::sync::Notify::new());
+    let release = Arc::new(tokio::sync::Notify::new());
     let provider_calls = calls.clone();
     let provider_mode = mode.clone();
+    let provider_entered = entered.clone();
+    let provider_release = release.clone();
     let upstream = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let upstream_addr = upstream.local_addr().unwrap();
     let provider = tokio::spawn(async move {
         axum::serve(upstream, Router::new().route("/v1/chat/completions", post(move |axum::Json(request): axum::Json<serde_json::Value>| {
-        let calls = provider_calls.clone(); let mode = provider_mode.clone(); async move {
-            calls.fetch_add(1, Ordering::SeqCst);
-            tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+        let calls = provider_calls.clone(); let mode = provider_mode.clone(); let entered = provider_entered.clone(); let release = provider_release.clone(); async move {
+            if calls.fetch_add(1, Ordering::SeqCst) == 0 {
+                entered.notify_one();
+                release.notified().await;
+            }
             if request["stream"] == true {
                 return axum::http::Response::builder().header("content-type", "text/event-stream")
                     .body(axum::body::Body::from("data: {\"usage\":{\"prompt_tokens\":100,\"completion_tokens\":50}}\n\ndata: [DONE]\n\n")).unwrap();
@@ -372,24 +378,28 @@ async fn strict_usage_applies_product_limits_and_keeps_uncertain_attempts() {
             .header("content-type", "application/json")
             .body(r#"{"model":"openrouter/vendor/gpt","messages":[]}"#)
     };
-    let (a, b) = tokio::join!(
-        send("strict-client-key-123456").send(),
+    let first_request = send("strict-client-key-123456").build().unwrap();
+    let first_client = client.clone();
+    let first = tokio::spawn(async move { first_client.execute(first_request).await });
+    tokio::time::timeout(std::time::Duration::from_secs(10), entered.notified())
+        .await
+        .expect("first request must reach provider");
+    let second = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
         client
             .post(format!("http://{other_address}/v1/chat/completions"))
             .bearer_auth("strict-client-key-123456")
             .header("content-type", "application/json")
             .body(r#"{"model":"openrouter/vendor/gpt","messages":[]}"#)
-            .send()
+            .send(),
+    )
+    .await;
+    release.notify_one();
+    assert_eq!(
+        second.expect("second request timed out").unwrap().status(),
+        429
     );
-    let statuses = [a.unwrap().status(), b.unwrap().status()];
-    assert!(
-        statuses.contains(&axum::http::StatusCode::OK),
-        "{statuses:?}"
-    );
-    assert!(
-        statuses.contains(&axum::http::StatusCode::TOO_MANY_REQUESTS),
-        "{statuses:?}"
-    );
+    assert_eq!(first.await.unwrap().unwrap().status(), 200);
     assert_eq!(
         send("strict-client-key-123456")
             .send()
@@ -531,6 +541,27 @@ async fn strict_usage_applies_product_limits_and_keeps_uncertain_attempts() {
             .await
             .unwrap();
     assert_eq!(recorded, 1);
+    sqlx::query("INSERT INTO api_key_usage_reservations(id,api_key_id,reserved_tokens,reserved_usd,created_at,state) VALUES ('never-sent','stream',1,0.01,1700000000000,'reserved')").execute(&mut db).await.unwrap();
+    let cancelled = Command::new(env!("CARGO_BIN_EXE_red-routerd"))
+        .arg("cancel-undispatched")
+        .arg("never-sent")
+        .env(
+            "RED_ROUTER_PRODUCT_DB_PATH",
+            dir.path().join("storage.sqlite"),
+        )
+        .output()
+        .unwrap();
+    assert!(
+        cancelled.status.success(),
+        "{}",
+        String::from_utf8_lossy(&cancelled.stderr)
+    );
+    let remaining: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM api_key_usage_reservations WHERE id='never-sent'")
+            .fetch_one(&mut db)
+            .await
+            .unwrap();
+    assert_eq!(remaining, 0);
     server.abort();
     other_server.abort();
     provider.abort();
