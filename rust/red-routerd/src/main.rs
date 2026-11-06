@@ -240,6 +240,13 @@ async fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
         eprintln!("Experimental product mode: only a restricted subset of product policies and quota accounting is supported");
         return serve_proxy(address, state).await;
     }
+    match env::var("RED_ROUTER_PRODUCT_ACCOUNT_USAGE").as_deref() {
+        Ok("1") => {
+            return Err("product usage accounting requires RED_ROUTER_PRODUCT_DB_PATH".into())
+        }
+        Err(env::VarError::NotPresent) | Ok("0") => {}
+        _ => return Err("RED_ROUTER_PRODUCT_ACCOUNT_USAGE must be 0 or 1".into()),
+    }
     let backend_setting = match env::var("RED_ROUTER_DB_BACKEND") {
         Ok(value) => Some(value),
         Err(env::VarError::NotPresent) => None,
