@@ -7,6 +7,7 @@ pub mod product_combo;
 pub mod shared_usage;
 pub mod storage;
 mod translation;
+mod usage_stream;
 use axum::{
     body::{to_bytes, Body},
     extract::{Path, Request, State},
@@ -791,19 +792,25 @@ async fn proxy_request(
             "Usage accounting requires product client keys",
         );
     }
+    let accounting_stream = parsed.get("stream").and_then(serde_json::Value::as_bool) == Some(true);
     if usage_accounting
         && (protocol != ProviderProtocol::OpenAi
             || !matches!(
                 parsed.get("stream"),
-                None | Some(serde_json::Value::Bool(false))
+                None | Some(serde_json::Value::Bool(_))
             )
+            || (accounting_stream
+                && parsed
+                    .pointer("/stream_options/include_usage")
+                    .and_then(serde_json::Value::as_bool)
+                    != Some(true))
             || parsed
                 .get("service_tier")
                 .is_some_and(|v| !v.is_null() && v.as_str() != Some("default")))
     {
         return error(
             StatusCode::BAD_REQUEST,
-            "Usage accounting supports non-streaming OpenAI chat at the default tier only",
+            "Usage accounting requires OpenAI chat, the default tier, and include_usage for streaming",
         );
     }
     let model = gemini.as_ref().map(|(model, _)| model.clone()).or_else(|| {
@@ -1211,6 +1218,44 @@ async fn proxy_request(
             };
             let status = response.status();
             let content_type = response.headers().get(header::CONTENT_TYPE).cloned();
+            if accounting_stream {
+                let event_stream = content_type
+                    .as_ref()
+                    .and_then(|v| v.to_str().ok())
+                    .is_some_and(|v| {
+                        v.split(';').next().is_some_and(|media| {
+                            media.trim().eq_ignore_ascii_case("text/event-stream")
+                        })
+                    });
+                if !event_stream {
+                    return error(
+                        StatusCode::BAD_GATEWAY,
+                        "Invalid provider stream content type",
+                    );
+                }
+                let body = usage_stream::forward(
+                    response,
+                    connection,
+                    access.key_id.clone(),
+                    model,
+                    prices,
+                    permit,
+                    client_permit,
+                );
+                let mut result = Response::new(body);
+                *result.status_mut() = status;
+                result.headers_mut().insert(
+                    header::CONTENT_TYPE,
+                    HeaderValue::from_static("text/event-stream"),
+                );
+                result
+                    .headers_mut()
+                    .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+                result
+                    .headers_mut()
+                    .insert("x-accel-buffering", HeaderValue::from_static("no"));
+                return result;
+            }
             let read = async {
                 let mut bytes = Vec::new();
                 let mut stream = response.bytes_stream();

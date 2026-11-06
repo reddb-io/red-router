@@ -112,12 +112,14 @@ Token, daily and monthly spend quotas, and other request limits remain
 unsupported by Rust and block requests when configured. SQLite is not a
 distributed database; do not assume separate node-local files or network-mounted
 files share safe cluster coordination. Keep the mode experimental.
-For experimental recording of completed non-streaming OpenAI-compatible chat
+For experimental recording of completed OpenAI-compatible chat
 responses, opt in with `RED_ROUTER_PRODUCT_ACCOUNT_USAGE=1` and product client
 keys. Each target must have explicit numeric `input`, `output`, `cached`,
 `cache_creation`, and `reasoning` prices in the dashboard's user pricing for
-that exact provider and model. Streaming and non-default service tiers are
-rejected in this mode. A successful response without valid usage or a failed
+that exact provider and model. Streaming requires `stream_options.include_usage`
+to be true; non-default service tiers are rejected. In streaming mode the
+proxy drains the provider even if the client disconnects and forwards the final
+`[DONE]` only after recording usage. A successful response without valid usage or a failed
 SQLite write is returned as an error; the provider may still charge for it.
 An interrupted upstream response, failed attempt, process crash, or provider
 failure can likewise have unrecorded cost. This mode does not apply token or
