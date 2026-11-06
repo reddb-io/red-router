@@ -94,6 +94,14 @@ async fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
         if shared_rpm && !product_client_keys {
             return Err("shared RPM accounting requires product client keys".into());
         }
+        let usage_accounting = match env::var("RED_ROUTER_PRODUCT_ACCOUNT_USAGE").as_deref() {
+            Ok("1") => true,
+            Err(env::VarError::NotPresent) | Ok("0") => false,
+            _ => return Err("RED_ROUTER_PRODUCT_ACCOUNT_USAGE must be 0 or 1".into()),
+        };
+        if usage_accounting && !product_client_keys {
+            return Err("usage accounting requires product client keys".into());
+        }
         let account_fallback = match env::var("RED_ROUTER_PRODUCT_ACCOUNT_FALLBACK").as_deref() {
             Ok("1") => true,
             Err(env::VarError::NotPresent) | Ok("0") => false,
@@ -139,6 +147,9 @@ async fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
         }
         if shared_rpm {
             connection = connection.with_shared_rpm().await?;
+        }
+        if usage_accounting {
+            connection = connection.with_usage_accounting().await?;
         }
         let mut fallbacks = Vec::new();
         if account_fallback {

@@ -47,6 +47,118 @@ async fn fixture() -> (TempDir, SqliteConnection) {
 }
 
 #[tokio::test]
+async fn non_streaming_product_usage_is_recorded_and_unhandled_quotas_fail_closed() {
+    let (dir, mut db) = fixture().await;
+    sqlx::raw_sql(include_str!(
+        "../../../src/lib/db/migrations/182_request_cost_ledger_and_key_quota.sql"
+    ))
+    .execute(&mut db)
+    .await
+    .unwrap();
+    sqlx::raw_sql(include_str!(
+        "../../../src/lib/db/migrations/219_cost_ledger_recovery.sql"
+    ))
+    .execute(&mut db)
+    .await
+    .unwrap();
+    sqlx::raw_sql("ALTER TABLE request_cost_ledger ADD COLUMN tenant_id TEXT; ALTER TABLE request_cost_ledger ADD COLUMN pricing_known INTEGER NOT NULL DEFAULT 1;").execute(&mut db).await.unwrap();
+    sqlx::query(
+        "UPDATE provider_connections SET api_key = 'fixture-provider-key' WHERE id = 'test'",
+    )
+    .execute(&mut db)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO api_keys (id,key) VALUES ('usage-client','usage-client-key-123456')")
+        .execute(&mut db)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO key_value VALUES ('pricing','openrouter',?)")
+        .bind(
+            r#"{"vendor/gpt":{"input":2,"output":4,"cached":1,"cache_creation":2,"reasoning":4}}"#,
+        )
+        .execute(&mut db)
+        .await
+        .unwrap();
+    let (connection, key) =
+        ProductConnection::open(&dir.path().join("storage.sqlite"), "test", None)
+            .await
+            .unwrap();
+    let connection = connection.with_usage_accounting().await.unwrap();
+    let upstream = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = upstream.local_addr().unwrap();
+    let provider = tokio::spawn(async move {
+        axum::serve(upstream, Router::new().route("/v1/chat/completions", post(|| async {
+        axum::Json(serde_json::json!({"id":"response", "usage":{"prompt_tokens":100,"completion_tokens":50}}))
+    }))).await.unwrap()
+    });
+    let state = ProxyState::new(
+        &format!("http://{address}/v1/chat/completions"),
+        "unused-client-key-12345",
+        &key,
+        false,
+    )
+    .await
+    .unwrap()
+    .with_product_connection(connection)
+    .with_product_client_keys()
+    .unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let proxy = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move { axum::serve(listener, router(state)).await.unwrap() });
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let send = |body: &'static str| {
+        client
+            .post(format!("http://{proxy}/v1/chat/completions"))
+            .bearer_auth("usage-client-key-123456")
+            .header("content-type", "application/json")
+            .body(body)
+    };
+    assert_eq!(
+        send(r#"{"model":"openrouter/vendor/gpt","messages":[]}"#)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
+    let (count, cost): (i64, f64) = sqlx::query_as("SELECT count(*), sum(amount_usd) FROM request_cost_ledger WHERE api_key_id = 'usage-client'").fetch_one(&mut db).await.unwrap();
+    assert_eq!(count, 1);
+    assert!((cost - 0.0004).abs() < 1e-12);
+    let tokens: f64 = sqlx::query_scalar("SELECT consumed FROM api_key_quota_counters WHERE api_key_id = 'usage-client' AND dimension_key = 'key-quota:tpm'").fetch_one(&mut db).await.unwrap();
+    assert_eq!(tokens, 150.0);
+    assert_eq!(
+        send(r#"{"model":"openrouter/vendor/gpt","messages":[],"stream":true}"#)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        400
+    );
+    assert_eq!(
+        send(r#"{"model":"openrouter/vendor/unknown","messages":[]}"#)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        503
+    );
+    sqlx::query("INSERT INTO api_key_quota_limits VALUES ('usage-client', 1000, NULL, NULL)")
+        .execute(&mut db)
+        .await
+        .unwrap();
+    assert_eq!(
+        send(r#"{"model":"openrouter/vendor/gpt","messages":[]}"#)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        503
+    );
+    server.abort();
+    provider.abort();
+}
+
+#[tokio::test]
 async fn automatic_fill_first_respects_priority_and_refuses_unsupported_state() {
     let (dir, mut db) = fixture().await;
     let path = dir.path().join("storage.sqlite");

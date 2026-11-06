@@ -112,6 +112,16 @@ Tokens, daily and monthly quotas, costs, and other request limits remain
 unsupported by Rust and block requests when configured. SQLite is not a
 distributed database; do not assume separate node-local files or network-mounted
 files share safe cluster coordination. Keep the mode experimental.
+For experimental recording of completed non-streaming OpenAI-compatible chat
+responses, opt in with `RED_ROUTER_PRODUCT_ACCOUNT_USAGE=1` and product client
+keys. Each target must have explicit numeric `input`, `output`, `cached`,
+`cache_creation`, and `reasoning` prices in the dashboard's user pricing for
+that exact provider and model. Streaming and non-default service tiers are
+rejected in this mode. A successful response without valid usage or a failed
+SQLite write is returned as an error; the provider may still charge for it.
+An interrupted upstream response, failed attempt, process crash, or provider
+failure can likewise have unrecorded cost. This mode does not apply token or
+spend quotas and is not a reliable billing or enforcement boundary.
 The Rust accounting module includes strict OpenAI usage normalization and cost
 arithmetic for future integration; it does not yet record usage or enforce caps.
 

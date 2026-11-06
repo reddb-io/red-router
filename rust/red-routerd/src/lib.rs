@@ -683,20 +683,11 @@ async fn proxy_request(
                 }
                 connection
             };
-            match connection.client_policies(&candidate).await {
+            match connection
+                .client_policies(&candidate, state.product_combo.as_ref().map(|c| c.name()))
+                .await
+            {
                 Ok(Some(access)) => {
-                    if let Some(combo) = &state.product_combo {
-                        match connection.combo_allowed(&candidate, combo.name()).await {
-                            Ok(true) => {}
-                            Ok(false) => continue,
-                            Err(_) => {
-                                return error(
-                                    StatusCode::SERVICE_UNAVAILABLE,
-                                    "Product combo policy unavailable",
-                                )
-                            }
-                        }
-                    }
                     selected_product = index;
                     selected = Some(access);
                     break;
@@ -724,9 +715,9 @@ async fn proxy_request(
     let Some(policy) = clients.authenticate(request.headers(), protocol) else {
         return error(StatusCode::UNAUTHORIZED, "Invalid API key");
     };
-    let connection_changed = match &state.product_connection {
-        Some(connection) => !connection.unchanged().await,
-        None => false,
+    let connection_changed = match (&state.product_connection, &state.product_combo) {
+        (Some(connection), None) => !connection.unchanged().await,
+        _ => false,
     };
     if connection_changed {
         return error(
@@ -789,6 +780,25 @@ async fn proxy_request(
         Ok(value) => value,
         Err(_) => return error(StatusCode::BAD_REQUEST, "Invalid JSON request"),
     };
+    let usage_accounting = state
+        .product_connection
+        .as_ref()
+        .is_some_and(|c| c.usage_accounting_enabled());
+    if usage_accounting
+        && (protocol != ProviderProtocol::OpenAi
+            || !matches!(
+                parsed.get("stream"),
+                None | Some(serde_json::Value::Bool(false))
+            )
+            || parsed
+                .get("service_tier")
+                .is_some_and(|v| !v.is_null() && v.as_str() != Some("default")))
+    {
+        return error(
+            StatusCode::BAD_REQUEST,
+            "Usage accounting supports non-streaming OpenAI chat at the default tier only",
+        );
+    }
     let model = gemini.as_ref().map(|(model, _)| model.clone()).or_else(|| {
         parsed
             .get("model")
@@ -921,6 +931,7 @@ async fn proxy_request(
     let mut final_response = None;
     let mut last_retry_response = None;
     let mut final_translated = false;
+    let mut final_accounting = None;
     for offset in 0..attempts {
         let product_index = selected_product + offset;
         if state.product_combo.is_none() && product_access.is_some() && offset > 0 {
@@ -934,7 +945,7 @@ async fn proxy_request(
             if !primary.unchanged().await || !fallback.connection.fallback_eligible().await {
                 continue;
             }
-            let access = match fallback.connection.client_policies(candidate).await {
+            let access = match fallback.connection.client_policies(candidate, None).await {
                 Ok(Some(access)) => access,
                 _ => continue,
             };
@@ -960,16 +971,13 @@ async fn proxy_request(
             if !combo.unchanged().await || !connection.unchanged().await {
                 continue;
             }
-            let access = match connection.client_policies(candidate).await {
+            let access = match connection
+                .client_policies(candidate, Some(combo.name()))
+                .await
+            {
                 Ok(Some(access)) => access,
                 _ => continue,
             };
-            if !matches!(
-                connection.combo_allowed(candidate, combo.name()).await,
-                Ok(true)
-            ) {
-                continue;
-            }
             let Some(rechecked) = access.policies.authenticate(&original_headers, protocol) else {
                 continue;
             };
@@ -980,6 +988,42 @@ async fn proxy_request(
                 continue;
             }
         }
+        let accounting_attempt = if usage_accounting {
+            let connection = if let Some(target) = target {
+                target.product_connection.as_ref()
+            } else if product_index > 0 {
+                state
+                    .product_fallbacks
+                    .get(product_index - 1)
+                    .map(|f| &f.connection)
+            } else {
+                state.product_connection.as_ref()
+            };
+            let Some(connection) = connection else {
+                return error(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "Usage accounting unavailable",
+                );
+            };
+            let target_model = target
+                .map(|t| t.model.as_str())
+                .or_else(|| parsed.get("model").and_then(serde_json::Value::as_str));
+            let Some(target_model) = target_model else {
+                return error(StatusCode::BAD_REQUEST, "A model is required");
+            };
+            let prices = match connection.usage_prices(target_model).await {
+                Ok(prices) => prices,
+                Err(_) => {
+                    return error(
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "Explicit model pricing unavailable",
+                    )
+                }
+            };
+            Some((connection.clone(), target_model.to_owned(), prices))
+        } else {
+            None
+        };
         let translate_anthropic =
             target.is_some_and(|target| target.protocol == ProviderProtocol::OpenAiToAnthropic);
         let (client, url, provider_key, payload) = match target {
@@ -1081,6 +1125,7 @@ async fn proxy_request(
             continue;
         }
         final_translated = translate_anthropic;
+        final_accounting = accounting_attempt;
         final_response = Some(response);
         break;
     }
@@ -1144,6 +1189,61 @@ async fn proxy_request(
             Ok(Ok(value)) => (StatusCode::OK, Json(value)).into_response(),
             _ => error(StatusCode::BAD_GATEWAY, "Invalid Anthropic response"),
         };
+    }
+    if response.status().is_success() {
+        if let Some((connection, model, prices)) = final_accounting {
+            let Some(access) = &product_access else {
+                return error(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "Usage accounting unavailable",
+                );
+            };
+            let status = response.status();
+            let content_type = response.headers().get(header::CONTENT_TYPE).cloned();
+            let read = async {
+                let mut bytes = Vec::new();
+                let mut stream = response.bytes_stream();
+                while let Some(chunk) = stream.next().await {
+                    let chunk = chunk.map_err(|_| ())?;
+                    if bytes.len().saturating_add(chunk.len()) > MAX_BODY_BYTES {
+                        return Err(());
+                    }
+                    bytes.extend_from_slice(&chunk);
+                }
+                Ok::<_, ()>(bytes)
+            };
+            let bytes = match tokio::time::timeout(HEADER_TIMEOUT, read).await {
+                Ok(Ok(bytes)) => bytes,
+                _ => return error(StatusCode::BAD_GATEWAY, "Invalid provider response"),
+            };
+            let usage = serde_json::from_slice::<serde_json::Value>(&bytes)
+                .ok()
+                .and_then(|v| accounting::ChatUsage::from_response(&v).ok());
+            let Some(usage) = usage else {
+                return error(
+                    StatusCode::BAD_GATEWAY,
+                    "Provider response is missing valid token usage",
+                );
+            };
+            if connection
+                .record_usage(&access.key_id, &model, &usage, &prices)
+                .await
+                .is_err()
+            {
+                return error(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "Usage accounting unavailable",
+                );
+            }
+            let mut result = Response::new(Body::from(bytes));
+            *result.status_mut() = status;
+            if let Some(content_type) = content_type {
+                result
+                    .headers_mut()
+                    .insert(header::CONTENT_TYPE, content_type);
+            }
+            return result;
+        }
     }
     let status = response.status();
     let mut headers = HeaderMap::new();

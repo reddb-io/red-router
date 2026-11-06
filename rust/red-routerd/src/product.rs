@@ -29,6 +29,7 @@ pub struct ProductConnection {
     provider: Arc<str>,
     path: Arc<PathBuf>,
     shared_rpm: Option<mpsc::Sender<RpmReservation>>,
+    usage_pool: Option<SqlitePool>,
     auto_selection: bool,
 }
 
@@ -55,10 +56,14 @@ impl ProductConnection {
             .connect_with(options)
             .await
             .map_err(|_| "cannot open product SQLite database read-only")?;
-        Self::select_from_pool(&pool, provider).await
+        Self::select_from_pool(&pool, provider, None).await
     }
 
-    async fn select_from_pool(pool: &SqlitePool, provider: &str) -> Result<String, &'static str> {
+    async fn select_from_pool(
+        pool: &SqlitePool,
+        provider: &str,
+        expected: Option<(&str, &str, &str)>,
+    ) -> Result<String, &'static str> {
         let settings = sqlx::query("SELECT key, value FROM key_value WHERE namespace = 'settings' AND key IN ('fallbackStrategy', 'providerStrategies')")
             .fetch_all(pool).await.map_err(|_| "product routing settings unavailable")?;
         let mut default_strategy = "fill-first".to_string();
@@ -101,12 +106,26 @@ impl ProductConnection {
         if override_strategy.as_deref().unwrap_or(&default_strategy) != "fill-first" {
             return Err("automatic product routing supports only fill-first");
         }
-        let row = sqlx::query("SELECT id, auth_type, tenant_id, rate_limited_until, test_status, per_key_proxy_enabled, max_concurrent, provider_specific_data, rate_limit_overrides_json FROM provider_connections WHERE provider = ? AND is_active = 1 ORDER BY priority ASC, updated_at DESC LIMIT 1")
+        let row = sqlx::query("SELECT id, api_key, updated_at, auth_type, tenant_id, rate_limited_until, test_status, per_key_proxy_enabled, max_concurrent, provider_specific_data, rate_limit_overrides_json FROM provider_connections WHERE provider = ? AND is_active = 1 ORDER BY priority ASC, updated_at DESC LIMIT 1")
             .bind(provider).fetch_optional(pool).await.map_err(|_| "product provider schema unavailable")?
             .ok_or("no active product provider connection")?;
         let id: String = row
             .try_get("id")
             .map_err(|_| "invalid product connection")?;
+        if let Some((expected_id, expected_key, expected_updated)) = expected {
+            let key: Option<String> = row
+                .try_get("api_key")
+                .map_err(|_| "invalid product connection")?;
+            let updated: String = row
+                .try_get("updated_at")
+                .map_err(|_| "invalid product connection")?;
+            if id != expected_id
+                || key.as_deref() != Some(expected_key)
+                || updated != expected_updated
+            {
+                return Err("product connection changed");
+            }
+        }
         let auth: Option<String> = row
             .try_get("auth_type")
             .map_err(|_| "invalid product connection")?;
@@ -215,6 +234,7 @@ impl ProductConnection {
                 provider: Arc::from(provider),
                 path: Arc::new(path.to_path_buf()),
                 shared_rpm: None,
+                usage_pool: None,
                 auto_selection: false,
             },
             credential,
@@ -247,7 +267,99 @@ impl ProductConnection {
             return Err("accounting must use the same product database");
         }
         self.shared_rpm = source.shared_rpm.clone();
+        self.usage_pool = source.usage_pool.clone();
         Ok(self)
+    }
+
+    /// Opt in to recording complete non-streaming chat responses. This does
+    /// not enable token or spend quotas; those remain explicitly unsupported.
+    pub async fn with_usage_accounting(mut self) -> Result<Self, &'static str> {
+        let options = SqliteConnectOptions::new()
+            .filename(self.path.as_ref())
+            .read_only(false)
+            .create_if_missing(false)
+            .busy_timeout(Duration::from_secs(5));
+        let pool = SqlitePoolOptions::new()
+            .max_connections(4)
+            .connect_with(options)
+            .await
+            .map_err(|_| "cannot open product SQLite for usage accounting")?;
+        sqlx::query("SELECT event_id, pricing_known, tenant_id FROM request_cost_ledger LIMIT 0")
+            .execute(&pool)
+            .await
+            .map_err(|_| "product cost ledger schema unavailable")?;
+        self.usage_pool = Some(pool);
+        Ok(self)
+    }
+
+    pub(crate) fn usage_accounting_enabled(&self) -> bool {
+        self.usage_pool.is_some()
+    }
+
+    pub(crate) async fn usage_prices(
+        &self,
+        model: &str,
+    ) -> Result<crate::accounting::TokenPrices, &'static str> {
+        let raw: String = sqlx::query_scalar(
+            "SELECT value FROM key_value WHERE namespace = 'pricing' AND key = ?",
+        )
+        .bind(self.provider.as_ref())
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|_| "pricing unavailable")?
+        .ok_or("explicit product pricing required")?;
+        let prices: serde_json::Value =
+            serde_json::from_str(&raw).map_err(|_| "invalid product pricing")?;
+        let record = prices
+            .get(model)
+            .and_then(serde_json::Value::as_object)
+            .ok_or("explicit model pricing required")?;
+        // All components must be explicit: inherited catalog prices can differ
+        // and are not yet reproduced by the Rust data plane.
+        for key in ["input", "output", "cached", "cache_creation", "reasoning"] {
+            if !record.get(key).is_some_and(serde_json::Value::is_number) {
+                return Err("complete explicit model pricing required");
+            }
+        }
+        crate::accounting::TokenPrices::from_record(&serde_json::Value::Object(record.clone()))
+    }
+
+    pub(crate) async fn record_usage(
+        &self,
+        key_id: &str,
+        model: &str,
+        usage: &crate::accounting::ChatUsage,
+        prices: &crate::accounting::TokenPrices,
+    ) -> Result<(), &'static str> {
+        let pool = self
+            .usage_pool
+            .as_ref()
+            .ok_or("usage accounting unavailable")?;
+        let event_id: String = sqlx::query_scalar("SELECT lower(hex(randomblob(16)))")
+            .fetch_one(pool)
+            .await
+            .map_err(|_| "usage accounting unavailable")?;
+        let timestamp_ms = i64::try_from(
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map_err(|_| "invalid clock")?
+                .as_millis(),
+        )
+        .map_err(|_| "invalid clock")?;
+        crate::accounting::record_completed_usage(
+            pool,
+            &crate::accounting::CompletedUsage {
+                event_id: &event_id,
+                key_id,
+                provider: &self.provider,
+                model,
+                usage,
+                prices,
+                timestamp_ms,
+            },
+        )
+        .await?;
+        Ok(())
     }
 
     pub(crate) fn same_provider_database(&self, source: &Self) -> bool {
@@ -379,10 +491,14 @@ impl ProductConnection {
     /// Recheck revocation and edits before each request. In-flight requests can
     /// still finish after a change; restart to pick up a changed credential.
     pub async fn unchanged(&self) -> bool {
-        if self.auto_selection
-            && !matches!(Self::select_from_pool(&self.pool, self.provider.as_ref()).await, Ok(id) if id == self.id.as_ref())
-        {
-            return false;
+        if self.auto_selection {
+            return Self::select_from_pool(
+                &self.pool,
+                self.provider.as_ref(),
+                Some((&self.id, &self.stored_key, &self.updated_at)),
+            )
+            .await
+            .is_ok();
         }
         let result = sqlx::query("SELECT 1 FROM provider_connections WHERE id = ? AND provider = ? AND auth_type = 'apikey' AND is_active = 1 AND api_key = ? AND updated_at = ?")
             .bind(self.id.as_ref()).bind(self.provider.as_ref()).bind(self.stored_key.as_ref()).bind(self.updated_at.as_ref())
@@ -397,37 +513,12 @@ impl ProductConnection {
         }
     }
 
-    pub(crate) async fn combo_allowed(
-        &self,
-        candidate: &str,
-        name: &str,
-    ) -> Result<bool, &'static str> {
-        let hash = hex::encode(Sha256::digest(candidate.as_bytes()));
-        let row = sqlx::query(
-            "SELECT allowed_combos FROM api_keys WHERE key = ? OR key_hash = ? LIMIT 1",
-        )
-        .bind(candidate)
-        .bind(hash)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|_| "product combo policy unavailable")?;
-        let Some(row) = row else { return Ok(false) };
-        let raw: Option<String> = row
-            .try_get("allowed_combos")
-            .map_err(|_| "product combo policy unavailable")?;
-        let Some(raw) = raw else { return Ok(true) };
-        let rules: Vec<String> =
-            serde_json::from_str(&raw).map_err(|_| "invalid product combo policy")?;
-        Ok(rules.iter().any(|rule| {
-            rule == "combo/*" || rule == name || rule.strip_prefix("combo/") == Some(name)
-        }))
-    }
-
     /// This conservative subset refuses policies whose shared accounting or
     /// routing semantics are not yet implemented by the Rust gateway.
     pub(crate) async fn client_policies(
         &self,
         candidate: &str,
+        combo_name: Option<&str>,
     ) -> Result<Option<ProductAccess>, &'static str> {
         if !(16..=512).contains(&candidate.len()) {
             return Ok(None);
@@ -450,6 +541,15 @@ impl ProductConnection {
             row.try_get::<Option<String>, _>(name)
                 .map_err(|_| "product key schema unavailable")
         };
+        if let (Some(name), Some(raw)) = (combo_name, string("allowed_combos")?) {
+            let rules: Vec<String> =
+                serde_json::from_str(&raw).map_err(|_| "invalid product combo policy")?;
+            if !rules.iter().any(|rule| {
+                rule == "combo/*" || rule == name || rule.strip_prefix("combo/") == Some(name)
+            }) {
+                return Ok(None);
+            }
+        }
         if integer("is_active")? != Some(1)
             || integer("is_banned")?.unwrap_or(0) != 0
             || string("revoked_at")?.is_some()
