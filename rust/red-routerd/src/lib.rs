@@ -1,6 +1,7 @@
 //! An isolated first slice of the Rust data plane. See README before use.
 mod policy;
 pub mod storage;
+mod translation;
 use axum::{
     body::{to_bytes, Body},
     extract::{Path, Request, State},
@@ -51,6 +52,7 @@ enum ProviderProtocol {
     OpenAiEmbeddings,
     CohereRerank,
     Anthropic,
+    OpenAiToAnthropic,
     Gemini,
 }
 
@@ -102,7 +104,7 @@ impl ProxyState {
                 ProviderProtocol::OpenAiResponses => "/responses",
                 ProviderProtocol::OpenAiEmbeddings => "/embeddings",
                 ProviderProtocol::CohereRerank => "/rerank",
-                ProviderProtocol::Anthropic => "/messages",
+                ProviderProtocol::Anthropic | ProviderProtocol::OpenAiToAnthropic => "/messages",
                 ProviderProtocol::Gemini => "/models",
             })
         {
@@ -144,7 +146,9 @@ impl ProxyState {
             | ProviderProtocol::CohereRerank => {
                 format!("Bearer {provider_key}")
             }
-            ProviderProtocol::Anthropic | ProviderProtocol::Gemini => provider_key.to_owned(),
+            ProviderProtocol::Anthropic
+            | ProviderProtocol::OpenAiToAnthropic
+            | ProviderProtocol::Gemini => provider_key.to_owned(),
         };
         let mut provider_key =
             HeaderValue::from_str(&provider_credential).map_err(|_| "invalid provider key")?;
@@ -220,6 +224,9 @@ impl ProxyState {
                     ProviderProtocol::CohereRerank
                 }
                 Some(value) if value.as_str() == Some("anthropic") => ProviderProtocol::Anthropic,
+                Some(value) if value.as_str() == Some("openai-to-anthropic") => {
+                    ProviderProtocol::OpenAiToAnthropic
+                }
                 Some(value) if value.as_str() == Some("gemini") => ProviderProtocol::Gemini,
                 _ => return Err("unsupported route protocol"),
             };
@@ -517,7 +524,11 @@ async fn proxy_request(
     }
     let route = state.routes.get(&model);
     if (route.is_none() && (!state.routes.is_empty() || protocol != ProviderProtocol::OpenAi))
-        || route.is_some_and(|route| route.protocol != protocol)
+        || route.is_some_and(|route| {
+            route.protocol != protocol
+                && !(protocol == ProviderProtocol::OpenAi
+                    && route.protocol == ProviderProtocol::OpenAiToAnthropic)
+        })
     {
         return error(StatusCode::NOT_FOUND, "Unknown model route");
     }
@@ -533,6 +544,14 @@ async fn proxy_request(
     }
     if route.is_some() && eligible.is_empty() {
         return error(StatusCode::FORBIDDEN, "No permitted route target");
+    }
+    let translate_anthropic =
+        route.is_some_and(|route| route.protocol == ProviderProtocol::OpenAiToAnthropic);
+    if translate_anthropic && translation::request(&parsed, &eligible[0].model).is_err() {
+        return error(
+            StatusCode::BAD_REQUEST,
+            "Unsupported OpenAI request for Anthropic translation",
+        );
     }
     if !policy.allow_request() {
         return error(StatusCode::TOO_MANY_REQUESTS, "Client rate limit exceeded");
@@ -550,10 +569,23 @@ async fn proxy_request(
         let target = route.map(|_| eligible[(start + offset) % eligible.len()]);
         let (client, url, provider_key, payload) = match target {
             Some(target) => {
-                if protocol != ProviderProtocol::Gemini {
-                    parsed["model"] = serde_json::Value::String(target.model.clone());
-                }
-                let payload = match serde_json::to_vec(&parsed) {
+                let encoded = if translate_anthropic {
+                    match translation::request(&parsed, &target.model) {
+                        Ok(value) => serde_json::to_vec(&value),
+                        Err(_) => {
+                            return error(
+                                StatusCode::BAD_REQUEST,
+                                "Unsupported OpenAI request for Anthropic translation",
+                            )
+                        }
+                    }
+                } else {
+                    if protocol != ProviderProtocol::Gemini {
+                        parsed["model"] = serde_json::Value::String(target.model.clone());
+                    }
+                    serde_json::to_vec(&parsed)
+                };
+                let payload = match encoded {
                     Ok(value) => value,
                     Err(_) => return error(StatusCode::BAD_REQUEST, "Invalid JSON request"),
                 };
@@ -596,6 +628,11 @@ async fn proxy_request(
                     upstream = upstream.header("anthropic-beta", beta.clone());
                 }
             }
+            None if translate_anthropic => {
+                upstream = upstream
+                    .header("x-api-key", provider_key.clone())
+                    .header("anthropic-version", "2023-06-01");
+            }
             None if protocol == ProviderProtocol::Gemini => {
                 upstream = upstream.header("x-goog-api-key", provider_key.clone())
             }
@@ -626,6 +663,25 @@ async fn proxy_request(
     // Redirects are intentionally not followed or relayed to the client.
     if response.status().is_redirection() {
         return error(StatusCode::BAD_GATEWAY, "Upstream redirect refused");
+    }
+    if translate_anthropic && response.status().is_success() {
+        let read = async {
+            let mut bytes = Vec::new();
+            let mut stream = response.bytes_stream();
+            while let Some(chunk) = stream.next().await {
+                let chunk = chunk.map_err(|_| ())?;
+                if bytes.len().saturating_add(chunk.len()) > MAX_BODY_BYTES {
+                    return Err(());
+                }
+                bytes.extend_from_slice(&chunk);
+            }
+            let value: serde_json::Value = serde_json::from_slice(&bytes).map_err(|_| ())?;
+            translation::response(&value).map_err(|_| ())
+        };
+        return match tokio::time::timeout(HEADER_TIMEOUT, read).await {
+            Ok(Ok(value)) => (StatusCode::OK, Json(value)).into_response(),
+            _ => error(StatusCode::BAD_GATEWAY, "Invalid Anthropic response"),
+        };
     }
     let status = response.status();
     let mut headers = HeaderMap::new();

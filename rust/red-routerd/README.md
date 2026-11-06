@@ -13,7 +13,7 @@ Anthropic Messages and Gemini GenerateContent endpoints,
 priority or round-robin selection, opt-in fallback, and basic per-key route and
 model restrictions. It does not yet implement
 RedRouter's full provider selection, quotas, policies, accounting, protocol
-translation, management API, remote listening or inbound TLS.
+full protocol translation, management API, remote listening or inbound TLS.
 Its experimental database integration persists only the single upstream endpoint;
 client and provider keys remain environment configuration. It does not read or migrate
 the existing RedRouter configuration or credentials.
@@ -104,7 +104,15 @@ multiple providers and can incur duplicate charges; enable it deliberately. A 4x
 other than 429 and a redirect do not trigger fallback. Stream failures after headers
 are sent are not retried. Model aliases, provider routing, and strategies are a
 small experimental subset and do not provide full RedRouter combo, access, quota,
-billing, or data-handling compatibility. Protocol translation is not implemented.
+billing, or data-handling compatibility.
+
+For a non-streaming OpenAI Chat Completions client targeting Anthropic Messages,
+configure an explicit `"protocol":"openai-to-anthropic"` route with a target URL
+ending in `/messages`. The adapter supports text messages, function tools and tool
+results, translates text/tool responses and token usage, and defaults `max_tokens`
+to 4096 if omitted. Unsupported request fields, multimodal content, streaming and
+unsupported response blocks fail instead of being silently omitted. This limited
+adapter is not yet equivalent to RedRouter's existing protocol translators.
 
 Native Anthropic Messages can be configured as a separate route:
 

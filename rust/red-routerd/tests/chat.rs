@@ -11,6 +11,95 @@ use std::{io, sync::Arc, time::Duration};
 use tokio::sync::{oneshot, Mutex};
 
 #[tokio::test]
+async fn openai_to_anthropic_translates_tool_history_and_response_without_leaking_keys() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let calls = Arc::new(AtomicUsize::new(0));
+    let seen = calls.clone();
+    let provider = Router::new().route("/v1/messages", post(move |headers: HeaderMap, body: String| {
+        let seen = seen.clone();
+        async move {
+            seen.fetch_add(1, Ordering::SeqCst);
+            assert_eq!(headers["x-api-key"], "anthropic-upstream-key");
+            assert_eq!(headers["anthropic-version"], "2023-06-01");
+            assert!(headers.get(header::AUTHORIZATION).is_none());
+            let body: serde_json::Value = serde_json::from_str(&body).unwrap();
+            assert_eq!(body["model"], "claude-target");
+            assert_eq!(body["system"][0]["text"], "Be concise");
+            assert_eq!(body["messages"][1]["content"][0]["input"]["city"], "Paris");
+            assert_eq!(body["messages"][2]["content"][0]["tool_use_id"], "call_1");
+            assert_eq!(body["tools"][0]["input_schema"]["type"], "object");
+            assert_eq!(body["tool_choice"]["disable_parallel_tool_use"], true);
+            ([(header::CONTENT_TYPE, "application/json")], r#"{"id":"msg_123","model":"claude-target","content":[{"type":"text","text":"Checking"},{"type":"tool_use","id":"tool_2","name":"weather","input":{"city":"Rome"}}],"stop_reason":"tool_use","usage":{"input_tokens":7,"output_tokens":4}}"#)
+        }
+    }));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let provider_task = tokio::spawn(async move { axum::serve(listener, provider).await.unwrap() });
+    let routes = serde_json::json!([{"model":"claude-alias","protocol":"openai-to-anthropic","targets":[{
+        "url":format!("http://{addr}/v1/messages"),"model":"claude-target","api_key_env":"ANTHROPIC_KEY"
+    }]}]).to_string();
+    let state = ProxyState::new(
+        &format!("http://{addr}/v1/chat/completions"),
+        "client-key-12345678",
+        "unused",
+        false,
+    )
+    .await
+    .unwrap()
+    .with_routes(&routes, |_| Some("anthropic-upstream-key".into()), false)
+    .await
+    .unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let task = tokio::spawn(async move { axum::serve(listener, router(state)).await.unwrap() });
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let body = serde_json::json!({"model":"claude-alias","max_tokens":64,"messages":[
+        {"role":"system","content":"Be concise"}, {"role":"user","content":"Weather?"},
+        {"role":"assistant","content":null,"tool_calls":[{"id":"call_1","type":"function","function":{"name":"weather","arguments":"{\"city\":\"Paris\"}"}}]},
+        {"role":"tool","tool_call_id":"call_1","content":"sunny"}],
+        "tools":[{"type":"function","function":{"name":"weather","parameters":{"type":"object"}}}],"tool_choice":"auto","parallel_tool_calls":false});
+    let mut invalid = body.clone();
+    invalid["response_format"] = serde_json::json!({"type":"json_object"});
+    let send = |value: &serde_json::Value| {
+        client
+            .post(format!("{base}/v1/chat/completions"))
+            .bearer_auth("client-key-12345678")
+            .body(value.to_string())
+            .send()
+    };
+    assert_eq!(
+        send(&invalid).await.unwrap().status(),
+        StatusCode::BAD_REQUEST
+    );
+    let mut stream = body.clone();
+    stream["stream"] = serde_json::json!(true);
+    assert_eq!(
+        send(&stream).await.unwrap().status(),
+        StatusCode::BAD_REQUEST
+    );
+    let response = send(&body).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let result: serde_json::Value = serde_json::from_str(&response.text().await.unwrap()).unwrap();
+    assert_eq!(result["choices"][0]["finish_reason"], "tool_calls");
+    assert_eq!(result["choices"][0]["message"]["content"], "Checking");
+    assert_eq!(
+        result["choices"][0]["message"]["tool_calls"][0]["function"]["name"],
+        "weather"
+    );
+    let args: serde_json::Value = serde_json::from_str(
+        result["choices"][0]["message"]["tool_calls"][0]["function"]["arguments"]
+            .as_str()
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(args["city"], "Rome");
+    assert_eq!(result["usage"]["total_tokens"], 11);
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    task.abort();
+    provider_task.abort();
+}
+
+#[tokio::test]
 async fn cohere_rerank_preserves_payload_and_enforces_per_client_rate_limit() {
     use std::sync::atomic::{AtomicUsize, Ordering};
     let calls = Arc::new(AtomicUsize::new(0));
