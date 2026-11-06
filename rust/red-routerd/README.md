@@ -8,8 +8,8 @@ streams, reusable HTTP connections, incremental responses, and safe redirect ref
 It binds only to loopback. The operator can configure OpenAI-compatible HTTPS
 providers or literal-loopback HTTP mocks. It does not provide a public listener.
 
-It supports explicitly configured model aliases for OpenAI-compatible and native
-Anthropic Messages endpoints,
+It supports explicitly configured model aliases for OpenAI-compatible, native
+Anthropic Messages and Gemini GenerateContent endpoints,
 priority or round-robin selection, opt-in fallback, and basic per-key route and
 model restrictions. It does not yet implement
 RedRouter's full provider selection, quotas, policies, accounting, protocol
@@ -110,7 +110,6 @@ Send native requests to `/v1/messages` with the proxy client key in `x-api-key`
 (or an Authorization bearer header). The proxy forwards `anthropic-version`
 (default `2023-06-01`) and `anthropic-beta`, and streams the native response.
 Each route has one protocol; OpenAI and Anthropic requests cannot be interchanged.
-Other native provider protocols are not yet implemented.
 
 For native OpenAI Responses, configure a distinct route with
 `"protocol":"openai-responses"` and a target URL ending in `/v1/responses`.
