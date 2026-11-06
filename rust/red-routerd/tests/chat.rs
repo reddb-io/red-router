@@ -47,6 +47,35 @@ async fn refuses_insecure_upstreams_and_weak_keys() {
 }
 
 #[tokio::test]
+async fn rejects_invalid_route_configuration() {
+    let state = ProxyState::new(
+        "http://127.0.0.1:12345/v1/chat/completions",
+        "local-client-key-123",
+        "provider",
+        false,
+    )
+    .await
+    .unwrap();
+    let target = serde_json::json!({"url":"http://127.0.0.1:12345/v1/chat/completions", "model":"model", "api_key_env":"PROVIDER_KEY"});
+    for config in [
+        serde_json::json!([]),
+        serde_json::json!([{"model":"a", "strategy":9, "targets":[target]}]),
+        serde_json::json!([{"model":"a", "fallback":"true", "targets":[target]}]),
+        serde_json::json!([{"model":"a", "targets":[]}]),
+        serde_json::json!([{"model":"a", "targets":[target], "unknown":true}]),
+        serde_json::json!([{"model":"a", "targets":[target]}, {"model":"a", "targets":[target]}]),
+    ] {
+        assert!(state
+            .clone()
+            .with_routes(&config.to_string(), |_| Some("provider".into()), false)
+            .await
+            .is_err());
+    }
+    let config = serde_json::json!([{"model":"a", "targets":[target]}]).to_string();
+    assert!(state.with_routes(&config, |_| None, false).await.is_err());
+}
+
+#[tokio::test]
 async fn authenticates_separates_credentials_and_streams_incrementally() {
     let (release, wait) = oneshot::channel::<()>();
     let wait = Arc::new(Mutex::new(Some(wait)));
@@ -152,4 +181,118 @@ async fn authenticates_separates_credentials_and_streams_incrementally() {
     assert_eq!(response.text().await.unwrap(), "data: [DONE]\n\n");
     task.abort();
     upstream_task.abort();
+}
+
+#[tokio::test]
+async fn routes_models_with_priority_round_robin_and_opt_in_fallback() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let calls = Arc::new([AtomicUsize::new(0), AtomicUsize::new(0)]);
+    let mut addresses = Vec::new();
+    let mut providers = Vec::new();
+    for index in 0..2 {
+        let calls = calls.clone();
+        let provider = Router::new().route(
+            "/v1/chat/completions",
+            post(move |headers: HeaderMap, body: String| {
+                let calls = calls.clone();
+                async move {
+                    calls[index].fetch_add(1, Ordering::Relaxed);
+                    let value: serde_json::Value = serde_json::from_str(&body).unwrap();
+                    assert_eq!(
+                        headers.get(header::AUTHORIZATION).unwrap(),
+                        format!("Bearer secret-{index}")
+                    );
+                    assert_eq!(value["model"], format!("provider-model-{index}"));
+                    if index == 0 && value["marker"] == "fail" {
+                        return (StatusCode::SERVICE_UNAVAILABLE, "unavailable".to_string());
+                    }
+                    if index == 0 && value["marker"] == "bad" {
+                        return (StatusCode::BAD_REQUEST, "bad request".to_string());
+                    }
+                    (StatusCode::OK, format!("provider-{index}"))
+                }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        addresses.push(listener.local_addr().unwrap());
+        providers.push(tokio::spawn(async move {
+            axum::serve(listener, provider).await.unwrap()
+        }));
+    }
+    let targets = serde_json::json!((0..2)
+        .map(|index| serde_json::json!({
+            "url": format!("http://{}/v1/chat/completions", addresses[index]),
+            "model": format!("provider-model-{index}"),
+            "api_key_env": format!("KEY_{index}"),
+        }))
+        .collect::<Vec<_>>());
+    let config = serde_json::json!([
+        {"model":"primary", "strategy":"priority", "fallback":true, "targets":targets},
+        {"model":"balanced", "strategy":"round-robin", "targets":targets}
+    ])
+    .to_string();
+    let state = ProxyState::new(
+        &format!("http://{}/v1/chat/completions", addresses[0]),
+        "local-client-key-123",
+        "unused",
+        false,
+    )
+    .await
+    .unwrap()
+    .with_routes(
+        &config,
+        |name| match name {
+            "KEY_0" => Some("secret-0".into()),
+            "KEY_1" => Some("secret-1".into()),
+            _ => None,
+        },
+        false,
+    )
+    .await
+    .unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!(
+        "http://{}/v1/chat/completions",
+        listener.local_addr().unwrap()
+    );
+    let task = tokio::spawn(async move { axum::serve(listener, router(state)).await.unwrap() });
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let send = |model: &str, marker: &str| {
+        client
+            .post(&url)
+            .bearer_auth("local-client-key-123")
+            .body(serde_json::json!({"model":model,"marker":marker}).to_string())
+            .send()
+    };
+    assert_eq!(
+        send("primary", "ok").await.unwrap().text().await.unwrap(),
+        "provider-0"
+    );
+    assert_eq!(
+        send("primary", "fail").await.unwrap().text().await.unwrap(),
+        "provider-1"
+    );
+    let before = calls[1].load(Ordering::Relaxed);
+    assert_eq!(
+        send("primary", "bad").await.unwrap().status(),
+        StatusCode::BAD_REQUEST
+    );
+    assert_eq!(calls[1].load(Ordering::Relaxed), before);
+    assert_eq!(
+        send("balanced", "ok").await.unwrap().text().await.unwrap(),
+        "provider-0"
+    );
+    assert_eq!(
+        send("balanced", "ok").await.unwrap().text().await.unwrap(),
+        "provider-1"
+    );
+    assert_eq!(
+        send("unknown", "ok").await.unwrap().status(),
+        StatusCode::NOT_FOUND
+    );
+    task.abort();
+    for provider in providers {
+        provider.abort();
+    }
 }

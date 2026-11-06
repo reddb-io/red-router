@@ -9,7 +9,15 @@ use axum::{
     Json, Router,
 };
 use futures_util::StreamExt;
-use std::{net::IpAddr, sync::Arc, time::Duration};
+use std::{
+    collections::HashMap,
+    net::IpAddr,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    },
+    time::Duration,
+};
 use subtle::ConstantTimeEq;
 use tokio::sync::Semaphore;
 
@@ -24,6 +32,21 @@ pub struct ProxyState {
     client_key: Arc<str>,
     provider_key: HeaderValue,
     permits: Arc<Semaphore>,
+    routes: Arc<HashMap<String, ModelRoute>>,
+}
+
+struct ModelRoute {
+    targets: Vec<ModelTarget>,
+    round_robin: bool,
+    fallback: bool,
+    cursor: AtomicUsize,
+}
+
+struct ModelTarget {
+    client: reqwest::Client,
+    upstream: reqwest::Url,
+    provider_key: HeaderValue,
+    model: String,
 }
 
 impl ProxyState {
@@ -95,7 +118,112 @@ impl ProxyState {
             client_key: Arc::from(client_key),
             provider_key,
             permits: Arc::new(Semaphore::new(MAX_IN_FLIGHT)),
+            routes: Arc::new(HashMap::new()),
         })
+    }
+
+    /// Configure explicit OpenAI-compatible targets and bounded combo behavior.
+    /// Credentials are resolved separately, never from JSON or request bodies.
+    pub async fn with_routes<F>(
+        mut self,
+        config: &str,
+        key: F,
+        allow_private: bool,
+    ) -> Result<Self, &'static str>
+    where
+        F: Fn(&str) -> Option<String>,
+    {
+        let value: serde_json::Value =
+            serde_json::from_str(config).map_err(|_| "invalid routes JSON")?;
+        let entries = value.as_array().ok_or("routes must be an array")?;
+        if entries.is_empty() || entries.len() > 64 {
+            return Err("routes must contain 1-64 entries");
+        }
+        let mut routes = HashMap::new();
+        for entry in entries {
+            let object = entry.as_object().ok_or("invalid route")?;
+            if object
+                .keys()
+                .any(|k| !["model", "strategy", "fallback", "targets"].contains(&k.as_str()))
+            {
+                return Err("unknown route field");
+            }
+            let alias = object
+                .get("model")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty() && s.len() <= 256)
+                .ok_or("invalid route model")?;
+            let round_robin = match object.get("strategy") {
+                None => false,
+                Some(v) if v.as_str() == Some("priority") => false,
+                Some(v) if v.as_str() == Some("round-robin") => true,
+                _ => return Err("unsupported route strategy"),
+            };
+            let fallback = match object.get("fallback") {
+                None => false,
+                Some(v) => v.as_bool().ok_or("invalid fallback")?,
+            };
+            let entries = object
+                .get("targets")
+                .and_then(|v| v.as_array())
+                .ok_or("route targets required")?;
+            if entries.is_empty() || entries.len() > 8 {
+                return Err("route targets must contain 1-8 entries");
+            }
+            let mut targets = Vec::new();
+            for entry in entries {
+                let target = entry.as_object().ok_or("invalid target")?;
+                if target
+                    .keys()
+                    .any(|k| !["url", "model", "api_key_env"].contains(&k.as_str()))
+                {
+                    return Err("unknown target field");
+                }
+                let url = target
+                    .get("url")
+                    .and_then(|v| v.as_str())
+                    .ok_or("target URL required")?;
+                let model = target
+                    .get("model")
+                    .and_then(|v| v.as_str())
+                    .filter(|s| !s.is_empty() && s.len() <= 256)
+                    .ok_or("target model required")?;
+                let key_name = target
+                    .get("api_key_env")
+                    .and_then(|v| v.as_str())
+                    .filter(|s| {
+                        !s.is_empty()
+                            && s.len() <= 128
+                            && s.bytes()
+                                .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_')
+                    })
+                    .ok_or("invalid target key environment variable")?;
+                let secret = key(key_name).ok_or("target provider key is missing")?;
+                let proxy = Self::new(url, &self.client_key, &secret, allow_private).await?;
+                targets.push(ModelTarget {
+                    client: proxy.client,
+                    upstream: proxy.upstream,
+                    provider_key: proxy.provider_key,
+                    model: model.to_string(),
+                });
+            }
+            if routes
+                .insert(
+                    alias.to_string(),
+                    ModelRoute {
+                        targets,
+                        round_robin,
+                        fallback,
+                        cursor: AtomicUsize::new(0),
+                    },
+                )
+                .is_some()
+            {
+                return Err("duplicate route model");
+            }
+        }
+        self.routes = Arc::new(routes);
+        Ok(self)
     }
 }
 
@@ -194,30 +322,86 @@ async fn chat(State(state): State<ProxyState>, request: Request) -> Response {
         Ok(body) => body,
         Err(_) => return error(StatusCode::PAYLOAD_TOO_LARGE, "Request body too large"),
     };
-    let parsed: serde_json::Value = match serde_json::from_slice(&body) {
+    let mut parsed: serde_json::Value = match serde_json::from_slice(&body) {
         Ok(value) => value,
         Err(_) => return error(StatusCode::BAD_REQUEST, "Invalid JSON request"),
     };
-    if !parsed
+    let Some(model) = parsed
         .get("model")
         .and_then(|model| model.as_str())
-        .is_some_and(|model| !model.is_empty())
-    {
+        .filter(|model| !model.is_empty())
+        .map(str::to_owned)
+    else {
         return error(StatusCode::BAD_REQUEST, "A model is required");
+    };
+    let route = state.routes.get(&model);
+    if !state.routes.is_empty() && route.is_none() {
+        return error(StatusCode::NOT_FOUND, "Unknown model route");
     }
-    let mut upstream = state
-        .client
-        .post(state.upstream.clone())
-        .header(header::CONTENT_TYPE, "application/json")
-        .header(header::AUTHORIZATION, state.provider_key.clone())
-        .body(body);
-    if let Some(accept) = accept {
-        upstream = upstream.header(header::ACCEPT, accept);
+    let start = route.map_or(0, |route| {
+        if route.round_robin {
+            route.cursor.fetch_add(1, Ordering::Relaxed) % route.targets.len()
+        } else {
+            0
+        }
+    });
+    let attempts = route.map_or(1, |route| {
+        if route.fallback {
+            route.targets.len()
+        } else {
+            1
+        }
+    });
+    let mut final_response = None;
+    for offset in 0..attempts {
+        let target = route.map(|route| &route.targets[(start + offset) % route.targets.len()]);
+        let (client, url, provider_key, payload) = match target {
+            Some(target) => {
+                parsed["model"] = serde_json::Value::String(target.model.clone());
+                let payload = match serde_json::to_vec(&parsed) {
+                    Ok(value) => value,
+                    Err(_) => return error(StatusCode::BAD_REQUEST, "Invalid JSON request"),
+                };
+                (
+                    &target.client,
+                    &target.upstream,
+                    &target.provider_key,
+                    payload,
+                )
+            }
+            None => (
+                &state.client,
+                &state.upstream,
+                &state.provider_key,
+                body.to_vec(),
+            ),
+        };
+        let mut upstream = client
+            .post(url.clone())
+            .header(header::CONTENT_TYPE, "application/json")
+            .header(header::AUTHORIZATION, provider_key.clone())
+            .body(payload);
+        if let Some(accept) = &accept {
+            upstream = upstream.header(header::ACCEPT, accept.clone());
+        }
+        let response = match tokio::time::timeout(HEADER_TIMEOUT, upstream.send()).await {
+            Ok(Ok(response)) => response,
+            Ok(Err(_)) if offset + 1 < attempts => continue,
+            Err(_) if offset + 1 < attempts => continue,
+            Ok(Err(_)) => return error(StatusCode::BAD_GATEWAY, "Upstream unavailable"),
+            Err(_) => return error(StatusCode::GATEWAY_TIMEOUT, "Upstream response timed out"),
+        };
+        if (response.status() == StatusCode::TOO_MANY_REQUESTS
+            || response.status().is_server_error())
+            && offset + 1 < attempts
+        {
+            continue;
+        }
+        final_response = Some(response);
+        break;
     }
-    let response = match tokio::time::timeout(HEADER_TIMEOUT, upstream.send()).await {
-        Ok(Ok(response)) => response,
-        Ok(Err(_)) => return error(StatusCode::BAD_GATEWAY, "Upstream unavailable"),
-        Err(_) => return error(StatusCode::GATEWAY_TIMEOUT, "Upstream response timed out"),
+    let Some(response) = final_response else {
+        return error(StatusCode::BAD_GATEWAY, "Upstream unavailable");
     };
     // Redirects are intentionally not followed or relayed to the client.
     if response.status().is_redirection() {

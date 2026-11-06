@@ -68,7 +68,16 @@ async fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
                 .ok_or("database configuration was not visible after initialization")?
         }
     };
-    let state = ProxyState::new(&upstream, &client_key, &provider_key, allow_private).await?;
+    let mut state = ProxyState::new(&upstream, &client_key, &provider_key, allow_private).await?;
+    match env::var("RED_ROUTER_ROUTES_JSON") {
+        Ok(routes) => {
+            state = state
+                .with_routes(&routes, |name| env::var(name).ok(), allow_private)
+                .await?
+        }
+        Err(env::VarError::NotPresent) => {}
+        Err(_) => return Err("RED_ROUTER_ROUTES_JSON must be valid Unicode".into()),
+    }
     let listener = tokio::net::TcpListener::bind(address).await?;
     println!(
         "red-routerd development slice listening on {}",

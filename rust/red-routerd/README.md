@@ -7,8 +7,10 @@ streams, reusable HTTP connections, incremental responses, and safe redirect ref
 It binds only to loopback. The operator can configure one OpenAI-compatible HTTPS
 provider or a literal-loopback HTTP mock. It does not provide a public listener.
 
-It does not yet implement RedRouter's provider selection, quotas, retries, policy,
-accounting, model translation, management API, remote listening or inbound TLS.
+It supports explicitly configured model aliases for OpenAI-compatible endpoints,
+priority or round-robin selection, and opt-in fallback. It does not yet implement
+RedRouter's full provider selection, quotas, policies, accounting, protocol
+translation, management API, remote listening or inbound TLS.
 Its experimental database integration persists only the single upstream endpoint;
 client and provider keys remain environment configuration. It does not read or migrate
 the existing RedRouter configuration or credentials.
@@ -63,6 +65,36 @@ DNS answers are checked and pinned at startup; restart to pick up DNS changes.
 Private HTTPS targets require `RED_ROUTER_ALLOW_PRIVATE_UPSTREAM=1`. Cloud metadata
 and link-local addresses remain blocked. HTTP is allowed only for literal loopback.
 Redirects are refused. System proxy environment settings are deliberately ignored.
+
+## Experimental model routes
+
+`RED_ROUTER_ROUTES_JSON` optionally configures model aliases and OpenAI-compatible
+providers. The single database-backed endpoint and `RED_ROUTER_PROVIDER_KEY` remain
+required at startup. Route definitions are environment-only and are not read from
+the existing dashboard or persisted to the selected database. Provider keys remain
+in the named environment variables, never in the JSON:
+
+```sh
+export OPENAI_KEY='...'
+export OPENROUTER_KEY='...'
+export RED_ROUTER_ROUTES_JSON='[
+  {"model":"my-combo","strategy":"round-robin","fallback":true,"targets":[
+    {"url":"https://api.openai.com/v1/chat/completions","model":"gpt-4.1-mini","api_key_env":"OPENAI_KEY"},
+    {"url":"https://openrouter.ai/api/v1/chat/completions","model":"openai/gpt-4.1-mini","api_key_env":"OPENROUTER_KEY"}
+  ]}
+]'
+```
+
+An unrecognized model is rejected when routes are configured. `priority` selects
+the first target; `round-robin` rotates per process. Both default to one attempt.
+With `fallback: true`, a connection failure, header timeout, HTTP 429, or HTTP 5xx
+tries the next target before streaming begins. This can submit the same prompt to
+multiple providers and can incur duplicate charges; enable it deliberately. A 4xx
+other than 429 and a redirect do not trigger fallback. Stream failures after headers
+are sent are not retried. Model aliases, provider routing, and strategies are a
+small experimental subset, not compatibility with RedRouter combos or its access,
+quota, billing, or data-handling policies. Native Anthropic, Gemini and other
+non-OpenAI protocols are not translated.
 
 For OpenRouter, use `https://openrouter.ai/api/v1/chat/completions` as the upstream
 URL and an OpenRouter API key as the provider key. For example, after starting the
