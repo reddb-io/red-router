@@ -28,6 +28,7 @@ pub struct ProductConnection {
     provider: Arc<str>,
     path: Arc<PathBuf>,
     shared_rpm: Option<SqlitePool>,
+    auto_selection: bool,
 }
 
 pub(crate) struct ProductAccess {
@@ -36,6 +37,126 @@ pub(crate) struct ProductAccess {
 }
 
 impl ProductConnection {
+    /// Pick the dashboard's fill-first connection at startup. More complex
+    /// strategies and connection-level quota settings remain unsupported.
+    pub async fn select_fill_first(path: &Path, provider: &str) -> Result<String, &'static str> {
+        if !matches!(provider, "openai" | "openrouter") {
+            return Err("unsupported automatic product provider");
+        }
+        let options = SqliteConnectOptions::new().filename(path).read_only(true);
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options)
+            .await
+            .map_err(|_| "cannot open product SQLite database read-only")?;
+        Self::select_from_pool(&pool, provider).await
+    }
+
+    async fn select_from_pool(pool: &SqlitePool, provider: &str) -> Result<String, &'static str> {
+        let settings = sqlx::query("SELECT key, value FROM key_value WHERE namespace = 'settings' AND key IN ('fallbackStrategy', 'providerStrategies')")
+            .fetch_all(pool).await.map_err(|_| "product routing settings unavailable")?;
+        let mut default_strategy = "fill-first".to_string();
+        let mut override_strategy = None;
+        for row in settings {
+            let name: String = row.try_get("key").map_err(|_| "invalid routing settings")?;
+            let value: String = row
+                .try_get("value")
+                .map_err(|_| "invalid routing settings")?;
+            let parsed: serde_json::Value =
+                serde_json::from_str(&value).map_err(|_| "invalid routing settings")?;
+            match name.as_str() {
+                "fallbackStrategy" => {
+                    default_strategy = parsed
+                        .as_str()
+                        .ok_or("invalid routing strategy")?
+                        .to_owned()
+                }
+                "providerStrategies" => {
+                    let overrides = parsed
+                        .as_object()
+                        .ok_or("invalid provider routing strategies")?;
+                    if let Some(entry) = overrides.get(provider) {
+                        let entry = entry
+                            .as_object()
+                            .ok_or("invalid provider routing strategy")?;
+                        if let Some(strategy) = entry.get("fallbackStrategy") {
+                            override_strategy = Some(
+                                strategy
+                                    .as_str()
+                                    .ok_or("invalid provider routing strategy")?
+                                    .to_owned(),
+                            );
+                        }
+                    }
+                }
+                _ => return Err("unsupported routing setting"),
+            }
+        }
+        if override_strategy.as_deref().unwrap_or(&default_strategy) != "fill-first" {
+            return Err("automatic product routing supports only fill-first");
+        }
+        let row = sqlx::query("SELECT id, auth_type, tenant_id, rate_limited_until, test_status, per_key_proxy_enabled, max_concurrent, provider_specific_data, rate_limit_overrides_json FROM provider_connections WHERE provider = ? AND is_active = 1 ORDER BY priority ASC, updated_at DESC LIMIT 1")
+            .bind(provider).fetch_optional(pool).await.map_err(|_| "product provider schema unavailable")?
+            .ok_or("no active product provider connection")?;
+        let id: String = row
+            .try_get("id")
+            .map_err(|_| "invalid product connection")?;
+        let auth: Option<String> = row
+            .try_get("auth_type")
+            .map_err(|_| "invalid product connection")?;
+        let tenant: String = row
+            .try_get("tenant_id")
+            .map_err(|_| "invalid product connection")?;
+        let status: Option<String> = row
+            .try_get("test_status")
+            .map_err(|_| "invalid product connection")?;
+        let cooldown: Option<String> = row
+            .try_get("rate_limited_until")
+            .map_err(|_| "invalid product connection")?;
+        let proxy: Option<i64> = row
+            .try_get("per_key_proxy_enabled")
+            .map_err(|_| "invalid product connection")?;
+        let concurrency: Option<i64> = row
+            .try_get("max_concurrent")
+            .map_err(|_| "invalid product connection")?;
+        if auth.as_deref() != Some("apikey")
+            || tenant != "red"
+            || status.as_deref().is_some_and(|s| {
+                matches!(
+                    s.trim().to_ascii_lowercase().as_str(),
+                    "banned" | "expired" | "credits_exhausted"
+                )
+            })
+            || cooldown.as_deref().is_some_and(|s| !s.trim().is_empty())
+            || proxy.unwrap_or(0) != 0
+            || concurrency.is_some_and(|n| n > 0)
+        {
+            return Err("first product connection has unsupported routing state");
+        }
+        for field in ["provider_specific_data", "rate_limit_overrides_json"] {
+            let value: Option<String> = row
+                .try_get(field)
+                .map_err(|_| "invalid product connection")?;
+            if value
+                .as_deref()
+                .is_some_and(|s| !matches!(s.trim(), "" | "{}" | "null" | "[]"))
+            {
+                return Err("first product connection has unsupported configuration");
+            }
+        }
+        let quota: i64 = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM provider_quota_state WHERE connection_id = ?)",
+        )
+        .bind(&id)
+        .fetch_one(pool)
+        .await
+        .map_err(|_| "provider quota schema unavailable")?;
+        if quota != 0 {
+            return Err("first product connection has unsupported provider quota");
+        }
+        Ok(id)
+    }
+
     /// The file is opened read-only and must already exist. No migrations occur.
     pub async fn open(
         path: &Path,
@@ -88,9 +209,15 @@ impl ProductConnection {
                 provider: Arc::from(provider),
                 path: Arc::new(path.to_path_buf()),
                 shared_rpm: None,
+                auto_selection: false,
             },
             credential,
         ))
+    }
+
+    pub fn with_auto_selection_guard(mut self) -> Self {
+        self.auto_selection = true;
+        self
     }
 
     /// Opt in to updating the existing product RPM counters. The database and
@@ -146,7 +273,7 @@ impl ProductConnection {
         } else {
             None
         };
-        let row = sqlx::query("SELECT COALESCE(SUM(CASE WHEN bucket_index = ? THEN consumed ELSE 0 END), 0) AS current, COALESCE(SUM(CASE WHEN bucket_index = ? THEN consumed ELSE 0 END), 0) AS previous FROM api_key_quota_counters WHERE api_key_id = ? AND dimension_key = 'key-quota:rpm' AND bucket_index IN (?, ?)")
+        let row = sqlx::query("SELECT CAST(COALESCE(SUM(CASE WHEN bucket_index = ? THEN consumed ELSE 0 END), 0) AS REAL) AS current, CAST(COALESCE(SUM(CASE WHEN bucket_index = ? THEN consumed ELSE 0 END), 0) AS REAL) AS previous FROM api_key_quota_counters WHERE api_key_id = ? AND dimension_key = 'key-quota:rpm' AND bucket_index IN (?, ?)")
             .bind(bucket).bind(bucket - 1).bind(key_id).bind(bucket).bind(bucket - 1)
             .fetch_one(&mut *tx).await.map_err(|_| "quota counters unavailable")?;
         let current: f64 = row
@@ -177,6 +304,11 @@ impl ProductConnection {
     /// Recheck revocation and edits before each request. In-flight requests can
     /// still finish after a change; restart to pick up a changed credential.
     pub async fn unchanged(&self) -> bool {
+        if self.auto_selection
+            && !matches!(Self::select_from_pool(&self.pool, self.provider.as_ref()).await, Ok(id) if id == self.id.as_ref())
+        {
+            return false;
+        }
         let result = sqlx::query("SELECT 1 FROM provider_connections WHERE id = ? AND provider = ? AND auth_type = 'apikey' AND is_active = 1 AND api_key = ? AND updated_at = ?")
             .bind(self.id.as_ref()).bind(self.provider.as_ref()).bind(self.stored_key.as_ref()).bind(self.updated_at.as_ref())
             .fetch_optional(&self.pool).await;

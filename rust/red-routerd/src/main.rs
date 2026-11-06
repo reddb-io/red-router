@@ -50,7 +50,13 @@ async fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
                 return Err("product connection mode cannot be combined with separate upstream, route, credential, or database configuration".into());
             }
         }
-        let id = env::var("RED_ROUTER_PRODUCT_CONNECTION_ID")?;
+        let (id, auto_selection) = match (env::var("RED_ROUTER_PRODUCT_CONNECTION_ID"), env::var("RED_ROUTER_PRODUCT_PROVIDER")) {
+            (Ok(id), Err(env::VarError::NotPresent)) => (id, false),
+            (Err(env::VarError::NotPresent), Ok(provider)) => {
+                (ProductConnection::select_fill_first(std::path::Path::new(&path), &provider).await?, true)
+            }
+            _ => return Err("set exactly one of RED_ROUTER_PRODUCT_CONNECTION_ID or RED_ROUTER_PRODUCT_PROVIDER".into()),
+        };
         let product_client_keys = match env::var("RED_ROUTER_PRODUCT_CLIENT_KEYS").as_deref() {
             Ok("1") => true,
             Err(env::VarError::NotPresent) | Ok("0") => false,
@@ -89,6 +95,9 @@ async fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
             storage_key.as_deref().map(String::as_str),
         )
         .await?;
+        if auto_selection {
+            connection = connection.with_auto_selection_guard();
+        }
         if shared_rpm {
             connection = connection.with_shared_rpm().await?;
         }

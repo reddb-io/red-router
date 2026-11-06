@@ -687,11 +687,12 @@ async fn proxy_request(
         match connection.reserve_rpm(&access.key_id).await {
             Ok(true) => {}
             Ok(false) => return error(StatusCode::TOO_MANY_REQUESTS, "Client RPM quota exceeded"),
-            Err(_) => {
+            Err(reason) => {
+                eprintln!("product RPM accounting failed: {reason}");
                 return error(
                     StatusCode::SERVICE_UNAVAILABLE,
                     "Client quota accounting unavailable",
-                )
+                );
             }
         }
     }

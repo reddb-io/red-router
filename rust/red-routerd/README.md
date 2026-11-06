@@ -39,7 +39,7 @@ already forwarded can still finish. By default it does not modify the existing d
 does not use `RED_ROUTER_PROVIDER_KEY`, model route JSON or the separate gateway
 database. By default, inbound authentication and optional policy JSON remain
 independent; dashboard keys may instead be enabled as described below. Product
-automatic provider selection and other connection settings are not enforced.
+most product routing strategies and other connection settings are not enforced.
 Per-request database checks add overhead; this mode needs its own benchmarks.
 
 Set `RED_ROUTER_PRODUCT_CLIENT_KEYS=1` to use dashboard API keys instead of an
@@ -56,12 +56,20 @@ restrictions and model deny-lists (which require product alias resolution). It
 also refuses configured budget assignments, model-to-combo
 mappings and global disabled-model lists; combo and quota routes do not work.
 Missing expected schema fails closed. No usage or cost accounting is recorded by
-default. Provider choice is an
-explicit connection ID, not the dashboard's automatic selection or fallback.
+default. Provider choice is an explicit connection ID unless the limited
+startup selection below is enabled. Product fallback is not implemented.
 Only direct chat requests to the two fixed provider endpoints are supported in
 this mode. The requested model must start with the selected product provider,
 for example `openrouter/openai/gpt-4o` or `openai/gpt-4o`; the provider prefix
 is removed before forwarding. Do not use it as a production replacement.
+
+As an experimental alternative to `RED_ROUTER_PRODUCT_CONNECTION_ID`, set
+`RED_ROUTER_PRODUCT_PROVIDER` to `openai` or `openrouter`. Startup then
+selects the active connection with the dashboard's fill-first priority order.
+The selected connection is fixed until restart. Other configured routing
+strategies and unsupported connection health, proxy, concurrency or quota
+settings fail startup. This is not per-request account selection and does not
+provide dashboard fallback.
 
 Set `RED_ROUTER_PRODUCT_SHARED_RPM=1` with dashboard client-key mode to enable
 the product's requests-per-minute quota. This opens the existing SQLite file for

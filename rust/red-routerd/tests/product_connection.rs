@@ -17,7 +17,7 @@ async fn fixture() -> (TempDir, SqliteConnection) {
         .filename(dir.path().join("storage.sqlite"))
         .create_if_missing(true);
     let mut db = SqliteConnection::connect_with(&options).await.unwrap();
-    sqlx::query("CREATE TABLE provider_connections (id TEXT PRIMARY KEY, provider TEXT, auth_type TEXT, is_active INTEGER, api_key TEXT, updated_at TEXT NOT NULL, tenant_id TEXT NOT NULL DEFAULT 'red')")
+    sqlx::query("CREATE TABLE provider_connections (id TEXT PRIMARY KEY, provider TEXT, auth_type TEXT, is_active INTEGER, api_key TEXT, updated_at TEXT NOT NULL, tenant_id TEXT NOT NULL DEFAULT 'red', priority INTEGER DEFAULT 0, rate_limited_until TEXT, test_status TEXT, per_key_proxy_enabled INTEGER DEFAULT 0, max_concurrent INTEGER, provider_specific_data TEXT, rate_limit_overrides_json TEXT)")
         .execute(&mut db).await.unwrap();
     sqlx::query(
         "INSERT INTO provider_connections (id, provider, auth_type, is_active, api_key, updated_at) VALUES ('test', 'openrouter', 'apikey', 1, ?, 'a')",
@@ -33,6 +33,7 @@ async fn fixture() -> (TempDir, SqliteConnection) {
         "CREATE TABLE api_key_quota_limits (api_key_id TEXT, tpm_limit INTEGER, rpm_limit INTEGER, monthly_amount_usd REAL)",
         "CREATE TABLE api_key_quota_counters (api_key_id TEXT, dimension_key TEXT, bucket_index INTEGER, consumed REAL, updated_at INTEGER, PRIMARY KEY(api_key_id,dimension_key,bucket_index))",
         "CREATE TABLE api_key_daily_token_limits (api_key_id TEXT)",
+        "CREATE TABLE provider_quota_state (connection_id TEXT)",
         "CREATE TABLE key_group_members (key_id TEXT)",
         "CREATE TABLE budget_assignments (budget_id TEXT)",
         "CREATE TABLE model_combo_mappings (enabled INTEGER)",
@@ -40,6 +41,74 @@ async fn fixture() -> (TempDir, SqliteConnection) {
         "CREATE TABLE combos (name TEXT)",
     ] { sqlx::query(statement).execute(&mut db).await.unwrap(); }
     (dir, db)
+}
+
+#[tokio::test]
+async fn automatic_fill_first_respects_priority_and_refuses_unsupported_state() {
+    let (dir, mut db) = fixture().await;
+    let path = dir.path().join("storage.sqlite");
+    sqlx::query("UPDATE provider_connections SET priority = 20 WHERE id = 'test'")
+        .execute(&mut db)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO provider_connections (id,provider,auth_type,is_active,api_key,updated_at,priority) VALUES ('first','openrouter','apikey',1,'other-key','b',10)")
+        .execute(&mut db).await.unwrap();
+    assert_eq!(
+        ProductConnection::select_fill_first(&path, "openrouter")
+            .await
+            .unwrap(),
+        "first"
+    );
+    sqlx::query("UPDATE provider_connections SET is_active = 0 WHERE id = 'first'")
+        .execute(&mut db)
+        .await
+        .unwrap();
+    assert_eq!(
+        ProductConnection::select_fill_first(&path, "openrouter")
+            .await
+            .unwrap(),
+        "test"
+    );
+    sqlx::query(
+        "UPDATE provider_connections SET rate_limited_until = '2099-01-01' WHERE id = 'test'",
+    )
+    .execute(&mut db)
+    .await
+    .unwrap();
+    assert!(ProductConnection::select_fill_first(&path, "openrouter")
+        .await
+        .is_err());
+    sqlx::query("UPDATE provider_connections SET rate_limited_until = NULL WHERE id = 'test'")
+        .execute(&mut db)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO key_value VALUES ('settings','fallbackStrategy','\"round-robin\"')")
+        .execute(&mut db)
+        .await
+        .unwrap();
+    assert!(ProductConnection::select_fill_first(&path, "openrouter")
+        .await
+        .is_err());
+    sqlx::query("INSERT INTO key_value VALUES ('settings','providerStrategies','{\"openrouter\":{\"fallbackStrategy\":\"fill-first\"}}')").execute(&mut db).await.unwrap();
+    assert_eq!(
+        ProductConnection::select_fill_first(&path, "openrouter")
+            .await
+            .unwrap(),
+        "test"
+    );
+    let (connection, _) = ProductConnection::open(&path, "test", Some("fixture-password"))
+        .await
+        .unwrap();
+    let connection = connection.with_auto_selection_guard();
+    assert!(connection.unchanged().await);
+    sqlx::query("INSERT INTO provider_quota_state VALUES ('test')")
+        .execute(&mut db)
+        .await
+        .unwrap();
+    assert!(ProductConnection::select_fill_first(&path, "openrouter")
+        .await
+        .is_err());
+    assert!(!connection.unchanged().await);
 }
 
 #[tokio::test]
@@ -467,8 +536,16 @@ async fn shared_rpm_reservations_coordinate_independent_proxy_instances() {
         .buffer_unordered(16)
         .collect()
         .await;
-    assert_eq!(statuses.iter().filter(|s| **s == 200).count(), 4);
-    assert_eq!(statuses.iter().filter(|s| **s == 429).count(), 12);
+    assert_eq!(
+        statuses.iter().filter(|s| **s == 200).count(),
+        4,
+        "{statuses:?}"
+    );
+    assert_eq!(
+        statuses.iter().filter(|s| **s == 429).count(),
+        12,
+        "{statuses:?}"
+    );
     assert_eq!(sent.load(Ordering::SeqCst), 4);
     let total: f64 = sqlx::query_scalar("SELECT SUM(consumed) FROM api_key_quota_counters WHERE api_key_id = 'shared' AND dimension_key = 'key-quota:rpm'")
         .fetch_one(&mut db).await.unwrap();
