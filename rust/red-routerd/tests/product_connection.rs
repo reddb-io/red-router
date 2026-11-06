@@ -224,6 +224,8 @@ async fn non_streaming_product_usage_is_recorded_and_unhandled_quotas_fail_close
         uncertain, 3,
         "responses without trustworthy usage must retain their reservations"
     );
+    let labeled: i64 = sqlx::query_scalar("SELECT count(*) FROM api_key_usage_reservations WHERE api_key_id = 'usage-client' AND provider = 'openrouter' AND model = 'vendor/gpt' AND connection_id = 'test'").fetch_one(&mut db).await.unwrap();
+    assert_eq!(labeled, 3);
     assert_eq!(
         send(r#"{"model":"openrouter/vendor/unknown","messages":[]}"#)
             .send()

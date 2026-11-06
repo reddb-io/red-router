@@ -6,7 +6,10 @@ CREATE TABLE IF NOT EXISTS api_key_usage_reservations (
   reserved_tokens INTEGER NOT NULL CHECK (reserved_tokens >= 0),
   reserved_usd REAL NOT NULL CHECK (reserved_usd >= 0),
   created_at INTEGER NOT NULL CHECK (created_at >= 0),
-  state TEXT NOT NULL CHECK (state IN ('reserved', 'dispatched'))
+  state TEXT NOT NULL CHECK (state IN ('reserved', 'dispatched')),
+  provider TEXT,
+  model TEXT,
+  connection_id TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_usage_reservations_key
   ON api_key_usage_reservations(api_key_id);

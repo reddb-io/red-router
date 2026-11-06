@@ -328,7 +328,11 @@ impl ProductConnection {
 
     /// Create a durable reservation before dispatch. Token/spend quotas remain
     /// blocked until TypeScript also participates in request admission.
-    pub(crate) async fn begin_usage(&self, key_id: &str) -> Result<String, &'static str> {
+    pub(crate) async fn begin_usage(
+        &self,
+        key_id: &str,
+        model: &str,
+    ) -> Result<String, &'static str> {
         let pool = self
             .usage_pool
             .as_ref()
@@ -354,7 +358,10 @@ impl ProductConnection {
         if !crate::shared_usage::reserve_usage(pool, &request).await? {
             return Err("usage reservation denied");
         }
-        if !crate::shared_usage::mark_dispatched(pool, &event_id, key_id).await? {
+        let marked = sqlx::query("UPDATE api_key_usage_reservations SET state = 'dispatched', provider = ?, model = ?, connection_id = ? WHERE id = ? AND api_key_id = ? AND state = 'reserved'")
+            .bind(self.provider.as_ref()).bind(model).bind(self.id.as_ref()).bind(&event_id).bind(key_id)
+            .execute(pool).await.map_err(|_| "usage reservation unavailable")?;
+        if marked.rows_affected() != 1 {
             return Err("usage reservation unavailable");
         }
         Ok(event_id)

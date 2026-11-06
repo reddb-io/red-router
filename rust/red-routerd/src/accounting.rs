@@ -345,7 +345,7 @@ mod tests {
             prices: &prices,
             timestamp_ms: 1_700_000_000_000,
         };
-        sqlx::query("INSERT INTO api_key_usage_reservations VALUES ('event-1','key',150,0.001,1700000000000,'reserved')").execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO api_key_usage_reservations (id,api_key_id,reserved_tokens,reserved_usd,created_at,state) VALUES ('event-1','key',150,0.001,1700000000000,'reserved')").execute(&pool).await.unwrap();
         assert_eq!(
             record_reserved_usage(&pool, &event).await,
             Err("invalid reservation")
@@ -363,7 +363,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(count, 0);
-        sqlx::query("INSERT INTO api_key_usage_reservations VALUES ('event-2','key',100,0.001,1700000000000,'dispatched')").execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO api_key_usage_reservations (id,api_key_id,reserved_tokens,reserved_usd,created_at,state) VALUES ('event-2','key',100,0.001,1700000000000,'dispatched')").execute(&pool).await.unwrap();
         event.event_id = "event-2";
         assert_eq!(
             record_reserved_usage(&pool, &event).await,

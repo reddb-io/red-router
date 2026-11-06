@@ -1044,7 +1044,7 @@ async fn proxy_request(
                     "Usage accounting unavailable",
                 );
             };
-            let event_id = match connection.begin_usage(&access.key_id).await {
+            let event_id = match connection.begin_usage(&access.key_id, target_model).await {
                 Ok(id) => id,
                 Err(_) => {
                     return error(
