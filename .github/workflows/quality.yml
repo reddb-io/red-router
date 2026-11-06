@@ -111,7 +111,7 @@ jobs:
       - name: Rust storage and proxy tests
         run: cargo test --locked --manifest-path rust/red-routerd/Cargo.toml
       - name: Embedded RedDB opt-in storage tests
-        run: cargo test --locked --features reddb-embedded --manifest-path rust/red-routerd/Cargo.toml --test storage --test storage_proxy
+        run: env -u RED_ROUTER_TEST_POSTGRES_URL -u RED_ROUTER_TEST_REDDB_URL -u RED_ROUTER_TEST_REDDB_TLS_URL cargo test --locked --features reddb-embedded --manifest-path rust/red-routerd/Cargo.toml --test storage --test storage_proxy
       - name: Rust lint
         run: cargo clippy --all-targets --all-features --locked --manifest-path rust/red-routerd/Cargo.toml -- -D warnings
       - name: Build release binary
