@@ -174,6 +174,11 @@ async fn proxy_loads_model_routes_from_environment() {
             .env("RED_ROUTER_CLIENT_KEY", "test-client-key-12345")
             .env("RED_ROUTER_PROVIDER_KEY", "unused-seed-key")
             .env("RED_ROUTER_ROUTES_JSON", routes)
+            .env(
+                "RED_ROUTER_CLIENT_POLICIES_JSON",
+                r#"[{"api_key_env":"TEST_ROUTER_CLIENT_KEY","allowed_routes":["alias"]}]"#,
+            )
+            .env("TEST_ROUTER_CLIENT_KEY", "route-client-key-12345")
             .env("TEST_ROUTER_PROVIDER_KEY", "route-secret")
             .stdout(Stdio::null())
             .stderr(Stdio::from(std::fs::File::create(&log).unwrap()))
@@ -208,9 +213,17 @@ async fn proxy_loads_model_routes_from_environment() {
         "proxy did not start: {}",
         std::fs::read_to_string(log).unwrap_or_default()
     );
-    let response = client
+    let old_key = client
         .post(format!("{base}/v1/chat/completions"))
         .bearer_auth("test-client-key-12345")
+        .body(r#"{"model":"alias","messages":[]}"#)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(old_key.status(), 401);
+    let response = client
+        .post(format!("{base}/v1/chat/completions"))
+        .bearer_auth("route-client-key-12345")
         .body(r#"{"model":"alias","messages":[]}"#)
         .send()
         .await

@@ -78,6 +78,13 @@ async fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
         Err(env::VarError::NotPresent) => {}
         Err(_) => return Err("RED_ROUTER_ROUTES_JSON must be valid Unicode".into()),
     }
+    match env::var("RED_ROUTER_CLIENT_POLICIES_JSON") {
+        Ok(policies) => {
+            state = state.with_client_policies(&policies, |name| env::var(name).ok())?
+        }
+        Err(env::VarError::NotPresent) => {}
+        Err(_) => return Err("RED_ROUTER_CLIENT_POLICIES_JSON must be valid Unicode".into()),
+    }
     let listener = tokio::net::TcpListener::bind(address).await?;
     println!(
         "red-routerd development slice listening on {}",

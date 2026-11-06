@@ -1,4 +1,5 @@
 //! An isolated first slice of the Rust data plane. See README before use.
+mod policy;
 pub mod storage;
 use axum::{
     body::{to_bytes, Body},
@@ -18,7 +19,6 @@ use std::{
     },
     time::Duration,
 };
-use subtle::ConstantTimeEq;
 use tokio::sync::Semaphore;
 
 const MAX_BODY_BYTES: usize = 2 * 1024 * 1024;
@@ -33,13 +33,21 @@ pub struct ProxyState {
     provider_key: HeaderValue,
     permits: Arc<Semaphore>,
     routes: Arc<HashMap<String, ModelRoute>>,
+    clients: Arc<policy::ClientPolicies>,
 }
 
 struct ModelRoute {
     targets: Vec<ModelTarget>,
+    protocol: ProviderProtocol,
     round_robin: bool,
     fallback: bool,
     cursor: AtomicUsize,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ProviderProtocol {
+    OpenAi,
+    Anthropic,
 }
 
 struct ModelTarget {
@@ -57,6 +65,23 @@ impl ProxyState {
         provider_key: &str,
         allow_private: bool,
     ) -> Result<Self, &'static str> {
+        Self::new_for_protocol(
+            upstream,
+            client_key,
+            provider_key,
+            allow_private,
+            ProviderProtocol::OpenAi,
+        )
+        .await
+    }
+
+    async fn new_for_protocol(
+        upstream: &str,
+        client_key: &str,
+        provider_key: &str,
+        allow_private: bool,
+        protocol: ProviderProtocol,
+    ) -> Result<Self, &'static str> {
         let upstream = reqwest::Url::parse(upstream).map_err(|_| "invalid upstream URL")?;
         let loopback = match upstream.host() {
             Some(url::Host::Ipv4(ip)) => ip.is_loopback(),
@@ -68,7 +93,10 @@ impl ProxyState {
             || upstream.password().is_some()
             || upstream.query().is_some()
             || upstream.fragment().is_some()
-            || !upstream.path().ends_with("/chat/completions")
+            || !upstream.path().ends_with(match protocol {
+                ProviderProtocol::OpenAi => "/chat/completions",
+                ProviderProtocol::Anthropic => "/messages",
+            })
         {
             return Err("upstream must be a credential-free HTTPS chat endpoint (HTTP is allowed for literal loopback only)");
         }
@@ -101,8 +129,12 @@ impl ProxyState {
         if !(16..=512).contains(&client_key.len()) || !(1..=512).contains(&provider_key.len()) {
             return Err("client key must be 16-512 bytes and provider key 1-512 bytes");
         }
-        let mut provider_key = HeaderValue::from_str(&format!("Bearer {provider_key}"))
-            .map_err(|_| "invalid provider key")?;
+        let provider_credential = match protocol {
+            ProviderProtocol::OpenAi => format!("Bearer {provider_key}"),
+            ProviderProtocol::Anthropic => provider_key.to_owned(),
+        };
+        let mut provider_key =
+            HeaderValue::from_str(&provider_credential).map_err(|_| "invalid provider key")?;
         provider_key.set_sensitive(true);
         let client = reqwest::Client::builder()
             .no_proxy()
@@ -119,7 +151,17 @@ impl ProxyState {
             provider_key,
             permits: Arc::new(Semaphore::new(MAX_IN_FLIGHT)),
             routes: Arc::new(HashMap::new()),
+            clients: Arc::new(policy::ClientPolicies::single(client_key)),
         })
+    }
+
+    /// Replace the default client key with explicit per-key route policies.
+    pub fn with_client_policies<F>(mut self, config: &str, resolve: F) -> Result<Self, &'static str>
+    where
+        F: Fn(&str) -> Option<String>,
+    {
+        self.clients = Arc::new(policy::ClientPolicies::parse(config, resolve)?);
+        Ok(self)
     }
 
     /// Configure explicit OpenAI-compatible targets and bounded combo behavior.
@@ -142,10 +184,9 @@ impl ProxyState {
         let mut routes = HashMap::new();
         for entry in entries {
             let object = entry.as_object().ok_or("invalid route")?;
-            if object
-                .keys()
-                .any(|k| !["model", "strategy", "fallback", "targets"].contains(&k.as_str()))
-            {
+            if object.keys().any(|k| {
+                !["model", "protocol", "strategy", "fallback", "targets"].contains(&k.as_str())
+            }) {
                 return Err("unknown route field");
             }
             let alias = object
@@ -153,6 +194,12 @@ impl ProxyState {
                 .and_then(|v| v.as_str())
                 .filter(|s| !s.is_empty() && s.len() <= 256)
                 .ok_or("invalid route model")?;
+            let protocol = match object.get("protocol") {
+                None => ProviderProtocol::OpenAi,
+                Some(value) if value.as_str() == Some("openai") => ProviderProtocol::OpenAi,
+                Some(value) if value.as_str() == Some("anthropic") => ProviderProtocol::Anthropic,
+                _ => return Err("unsupported route protocol"),
+            };
             let round_robin = match object.get("strategy") {
                 None => false,
                 Some(v) if v.as_str() == Some("priority") => false,
@@ -199,7 +246,9 @@ impl ProxyState {
                     })
                     .ok_or("invalid target key environment variable")?;
                 let secret = key(key_name).ok_or("target provider key is missing")?;
-                let proxy = Self::new(url, &self.client_key, &secret, allow_private).await?;
+                let proxy =
+                    Self::new_for_protocol(url, &self.client_key, &secret, allow_private, protocol)
+                        .await?;
                 targets.push(ModelTarget {
                     client: proxy.client,
                     upstream: proxy.upstream,
@@ -212,6 +261,7 @@ impl ProxyState {
                     alias.to_string(),
                     ModelRoute {
                         targets,
+                        protocol,
                         round_robin,
                         fallback,
                         cursor: AtomicUsize::new(0),
@@ -281,6 +331,7 @@ pub fn router(state: ProxyState) -> Router {
     Router::new()
         .route("/healthz", get(|| async { StatusCode::OK }))
         .route("/v1/chat/completions", post(chat))
+        .route("/v1/messages", post(messages))
         .with_state(state)
 }
 
@@ -292,27 +343,47 @@ fn error(status: StatusCode, message: &'static str) -> Response {
         .into_response()
 }
 
-fn authorized(headers: &HeaderMap, expected: &str) -> bool {
-    let mut values = headers.get_all(header::AUTHORIZATION).iter();
-    let Some(value) = values.next() else {
-        return false;
-    };
-    if values.next().is_some() {
-        return false;
-    }
-    let Ok(value) = value.to_str() else {
-        return false;
-    };
-    let Some(candidate) = value.strip_prefix("Bearer ") else {
-        return false;
-    };
-    bool::from(candidate.as_bytes().ct_eq(expected.as_bytes()))
+async fn chat(State(state): State<ProxyState>, request: Request) -> Response {
+    proxy_request(state, request, ProviderProtocol::OpenAi).await
 }
 
-async fn chat(State(state): State<ProxyState>, request: Request) -> Response {
-    if !authorized(request.headers(), &state.client_key) {
+async fn messages(State(state): State<ProxyState>, request: Request) -> Response {
+    proxy_request(state, request, ProviderProtocol::Anthropic).await
+}
+
+async fn proxy_request(
+    state: ProxyState,
+    request: Request,
+    protocol: ProviderProtocol,
+) -> Response {
+    let Some(policy) = state
+        .clients
+        .authenticate(request.headers(), protocol == ProviderProtocol::Anthropic)
+    else {
         return error(StatusCode::UNAUTHORIZED, "Invalid API key");
-    }
+    };
+    let anthropic_headers = if protocol == ProviderProtocol::Anthropic {
+        let mut version = request.headers().get_all("anthropic-version").iter();
+        let version_value = version
+            .next()
+            .cloned()
+            .unwrap_or_else(|| HeaderValue::from_static("2023-06-01"));
+        let mut beta = request.headers().get_all("anthropic-beta").iter();
+        let beta_value = beta.next().cloned();
+        if version.next().is_some()
+            || beta.next().is_some()
+            || version_value.is_empty()
+            || version_value.len() > 128
+            || beta_value
+                .as_ref()
+                .is_some_and(|v| v.is_empty() || v.len() > 512)
+        {
+            return error(StatusCode::BAD_REQUEST, "Invalid provider protocol headers");
+        }
+        Some((version_value, beta_value))
+    } else {
+        None
+    };
     let permit = match state.permits.clone().try_acquire_owned() {
         Ok(permit) => permit,
         Err(_) => return error(StatusCode::TOO_MANY_REQUESTS, "Proxy is at capacity"),
@@ -334,27 +405,36 @@ async fn chat(State(state): State<ProxyState>, request: Request) -> Response {
     else {
         return error(StatusCode::BAD_REQUEST, "A model is required");
     };
+    if !policy.route_allowed(&model) {
+        return error(StatusCode::FORBIDDEN, "Model is not allowed");
+    }
     let route = state.routes.get(&model);
-    if !state.routes.is_empty() && route.is_none() {
+    if (route.is_none() && (!state.routes.is_empty() || protocol == ProviderProtocol::Anthropic))
+        || route.is_some_and(|route| route.protocol != protocol)
+    {
         return error(StatusCode::NOT_FOUND, "Unknown model route");
+    }
+    let eligible: Vec<_> = route.map_or_else(Vec::new, |route| {
+        route
+            .targets
+            .iter()
+            .filter(|target| !policy.model_blocked(&target.model))
+            .collect()
+    });
+    if route.is_some() && eligible.is_empty() {
+        return error(StatusCode::FORBIDDEN, "No permitted route target");
     }
     let start = route.map_or(0, |route| {
         if route.round_robin {
-            route.cursor.fetch_add(1, Ordering::Relaxed) % route.targets.len()
+            route.cursor.fetch_add(1, Ordering::Relaxed) % eligible.len()
         } else {
             0
         }
     });
-    let attempts = route.map_or(1, |route| {
-        if route.fallback {
-            route.targets.len()
-        } else {
-            1
-        }
-    });
+    let attempts = route.map_or(1, |route| if route.fallback { eligible.len() } else { 1 });
     let mut final_response = None;
     for offset in 0..attempts {
-        let target = route.map(|route| &route.targets[(start + offset) % route.targets.len()]);
+        let target = route.map(|_| eligible[(start + offset) % eligible.len()]);
         let (client, url, provider_key, payload) = match target {
             Some(target) => {
                 parsed["model"] = serde_json::Value::String(target.model.clone());
@@ -379,8 +459,18 @@ async fn chat(State(state): State<ProxyState>, request: Request) -> Response {
         let mut upstream = client
             .post(url.clone())
             .header(header::CONTENT_TYPE, "application/json")
-            .header(header::AUTHORIZATION, provider_key.clone())
             .body(payload);
+        match &anthropic_headers {
+            Some((version, beta)) => {
+                upstream = upstream
+                    .header("x-api-key", provider_key.clone())
+                    .header("anthropic-version", version.clone());
+                if let Some(beta) = beta {
+                    upstream = upstream.header("anthropic-beta", beta.clone());
+                }
+            }
+            None => upstream = upstream.header(header::AUTHORIZATION, provider_key.clone()),
+        }
         if let Some(accept) = &accept {
             upstream = upstream.header(header::ACCEPT, accept.clone());
         }

@@ -7,8 +7,10 @@ streams, reusable HTTP connections, incremental responses, and safe redirect ref
 It binds only to loopback. The operator can configure OpenAI-compatible HTTPS
 providers or literal-loopback HTTP mocks. It does not provide a public listener.
 
-It supports explicitly configured model aliases for OpenAI-compatible endpoints,
-priority or round-robin selection, and opt-in fallback. It does not yet implement
+It supports explicitly configured model aliases for OpenAI-compatible and native
+Anthropic Messages endpoints,
+priority or round-robin selection, opt-in fallback, and basic per-key route and
+model restrictions. It does not yet implement
 RedRouter's full provider selection, quotas, policies, accounting, protocol
 translation, management API, remote listening or inbound TLS.
 Its experimental database integration persists only the single upstream endpoint;
@@ -92,9 +94,46 @@ tries the next target before streaming begins. This can submit the same prompt t
 multiple providers and can incur duplicate charges; enable it deliberately. A 4xx
 other than 429 and a redirect do not trigger fallback. Stream failures after headers
 are sent are not retried. Model aliases, provider routing, and strategies are a
-small experimental subset, not compatibility with RedRouter combos or its access,
-quota, billing, or data-handling policies. Native Anthropic, Gemini and other
-non-OpenAI protocols are not translated.
+small experimental subset and do not provide full RedRouter combo, access, quota,
+billing, or data-handling compatibility. Protocol translation is not implemented.
+
+Native Anthropic Messages can be configured as a separate route:
+
+```sh
+export ANTHROPIC_KEY='...'
+export RED_ROUTER_ROUTES_JSON='[{"model":"claude-route","protocol":"anthropic","targets":[{"url":"https://api.anthropic.com/v1/messages","model":"your-anthropic-model","api_key_env":"ANTHROPIC_KEY"}]}]'
+```
+
+Send native requests to `/v1/messages` with the proxy client key in `x-api-key`
+(or an Authorization bearer header). The proxy forwards `anthropic-version`
+(default `2023-06-01`) and `anthropic-beta`, and streams the native response.
+Each route has one protocol; OpenAI and Anthropic requests cannot be interchanged.
+Gemini and other native provider protocols are not yet implemented.
+
+## Experimental client policies
+
+`RED_ROUTER_CLIENT_POLICIES_JSON` replaces the default client credential with
+explicit per-key policies. Each key is read from the named environment variable;
+never put a key in the JSON. Without this setting, the original
+`RED_ROUTER_CLIENT_KEY` continues to have unrestricted access.
+
+```sh
+export AGENT_CLIENT_KEY='replace-with-a-random-client-key'
+export RED_ROUTER_CLIENT_POLICIES_JSON='[
+  {"api_key_env":"AGENT_CLIENT_KEY","allowed_routes":["my-combo"],
+   "blocked_models":["vendor/restricted-model"]}
+]'
+```
+
+`allowed_routes` restricts the requested model or route alias; omitting it allows
+all, while an empty array denies all. `blocked_models` denies matching requested
+models and filters matching upstream target model names before selection or
+fallback. Rules are exact, `*`, or a namespace prefix ending in `/*`.
+`enabled: false` disables a key. Unknown fields, missing keys, duplicate keys,
+and malformed rules fail startup. Changes apply after restart. These policies are
+local to this experimental process and do not import existing dashboard settings,
+per-key budgets, quotas, schedules, provider-account restrictions or distributed
+rate limits. Do not assume policy parity with the current RedRouter.
 
 For OpenRouter, use `https://openrouter.ai/api/v1/chat/completions` as the upstream
 URL and an OpenRouter API key as the provider key. For example, after starting the

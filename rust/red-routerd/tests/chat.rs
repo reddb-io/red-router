@@ -11,6 +11,105 @@ use std::{io, sync::Arc, time::Duration};
 use tokio::sync::{oneshot, Mutex};
 
 #[tokio::test]
+async fn anthropic_messages_preserve_protocol_and_isolate_credentials() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let calls = Arc::new(AtomicUsize::new(0));
+    let observed = calls.clone();
+    let provider = Router::new().route(
+        "/v1/messages",
+        post(move |headers: HeaderMap, body: String| {
+            let observed = observed.clone();
+            async move {
+                observed.fetch_add(1, Ordering::SeqCst);
+                assert_eq!(headers.get("x-api-key").unwrap(), "provider-secret");
+                assert!(headers.get(header::AUTHORIZATION).is_none());
+                assert_eq!(headers.get("anthropic-version").unwrap(), "2023-06-01");
+                assert_eq!(headers.get("anthropic-beta").unwrap(), "feature-example");
+                assert_eq!(
+                    serde_json::from_str::<serde_json::Value>(&body).unwrap()["model"],
+                    "claude-provider-model"
+                );
+                (
+                    [(header::CONTENT_TYPE, "text/event-stream")],
+                    "event: message_stop\ndata: {}\n\n",
+                )
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let provider_task = tokio::spawn(async move { axum::serve(listener, provider).await.unwrap() });
+    let config = serde_json::json!([{"model":"claude-route", "protocol":"anthropic", "targets":[{
+        "url":format!("http://{addr}/v1/messages"), "model":"claude-provider-model", "api_key_env":"ANTHROPIC_KEY"
+    }]}]).to_string();
+    let state = ProxyState::new(
+        &format!("http://{addr}/v1/chat/completions"),
+        "client-key-12345678",
+        "unused",
+        false,
+    )
+    .await
+    .unwrap()
+    .with_routes(&config, |_| Some("provider-secret".into()), false)
+    .await
+    .unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let proxy_task =
+        tokio::spawn(async move { axum::serve(listener, router(state)).await.unwrap() });
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let body = r#"{"model":"claude-route","stream":true,"messages":[]}"#;
+    let send = |path: &str| client.post(format!("{base}{path}")).body(body);
+    assert_eq!(
+        send("/v1/messages")
+            .header("x-api-key", "bad")
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        send("/v1/messages")
+            .header("x-api-key", "client-key-12345678")
+            .bearer_auth("client-key-12345678")
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        send("/v1/chat/completions")
+            .bearer_auth("client-key-12345678")
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+    let response = send("/v1/messages")
+        .header("x-api-key", "client-key-12345678")
+        .header("anthropic-beta", "feature-example")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response.headers()[header::CONTENT_TYPE],
+        "text/event-stream"
+    );
+    assert_eq!(
+        response.text().await.unwrap(),
+        "event: message_stop\ndata: {}\n\n"
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    proxy_task.abort();
+    provider_task.abort();
+}
+
+#[tokio::test]
 async fn refuses_insecure_upstreams_and_weak_keys() {
     assert!(ProxyState::new(
         "http://192.0.2.1/v1/chat/completions",
@@ -73,6 +172,135 @@ async fn rejects_invalid_route_configuration() {
     }
     let config = serde_json::json!([{"model":"a", "targets":[target]}]).to_string();
     assert!(state.with_routes(&config, |_| None, false).await.is_err());
+}
+
+#[tokio::test]
+async fn client_policies_restrict_routes_and_skip_blocked_targets() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let calls = Arc::new(AtomicUsize::new(0));
+    let seen = Arc::clone(&calls);
+    let provider = Router::new().route(
+        "/v1/chat/completions",
+        post(move |headers: HeaderMap, body: String| {
+            let seen = Arc::clone(&seen);
+            async move {
+                seen.fetch_add(1, Ordering::SeqCst);
+                assert_eq!(
+                    headers.get(header::AUTHORIZATION).unwrap(),
+                    "Bearer allowed-key"
+                );
+                assert_eq!(
+                    serde_json::from_str::<serde_json::Value>(&body).unwrap()["model"],
+                    "vendor/allowed"
+                );
+                "allowed"
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let upstream = format!(
+        "http://{}/v1/chat/completions",
+        listener.local_addr().unwrap()
+    );
+    let provider_task = tokio::spawn(async move { axum::serve(listener, provider).await.unwrap() });
+    let route_config = serde_json::json!([{"model":"combo", "targets":[
+        {"url":upstream,"model":"vendor/blocked","api_key_env":"BLOCKED_KEY"},
+        {"url":upstream,"model":"vendor/allowed","api_key_env":"ALLOWED_KEY"}
+    ]}])
+    .to_string();
+    let policies = serde_json::json!([
+        {"api_key_env":"CLIENT_ONE","allowed_routes":["combo"],"blocked_models":["vendor/blocked"]},
+        {"api_key_env":"CLIENT_DISABLED","enabled":false}
+    ])
+    .to_string();
+    let state = ProxyState::new(&upstream, "default-client-key-123", "default", false)
+        .await
+        .unwrap()
+        .with_routes(
+            &route_config,
+            |name| match name {
+                "BLOCKED_KEY" => Some("blocked-key".into()),
+                "ALLOWED_KEY" => Some("allowed-key".into()),
+                _ => None,
+            },
+            false,
+        )
+        .await
+        .unwrap()
+        .with_client_policies(&policies, |name| match name {
+            "CLIENT_ONE" => Some("client-one-key-12345".into()),
+            "CLIENT_DISABLED" => Some("disabled-key-123456".into()),
+            _ => None,
+        })
+        .unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!(
+        "http://{}/v1/chat/completions",
+        listener.local_addr().unwrap()
+    );
+    let task = tokio::spawn(async move { axum::serve(listener, router(state)).await.unwrap() });
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let send = |key: &str, model: &str| {
+        client
+            .post(&url)
+            .bearer_auth(key)
+            .body(serde_json::json!({"model":model}).to_string())
+            .send()
+    };
+    assert_eq!(
+        send("default-client-key-123", "combo")
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        send("disabled-key-123456", "combo").await.unwrap().status(),
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        send("client-one-key-12345", "elsewhere")
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+    let response = send("client-one-key-12345", "combo").await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.text().await.unwrap(), "allowed");
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    task.abort();
+    provider_task.abort();
+}
+
+#[tokio::test]
+async fn client_policies_fail_closed_when_invalid() {
+    let state = ProxyState::new(
+        "http://127.0.0.1:12345/v1/chat/completions",
+        "default-client-key-123",
+        "provider",
+        false,
+    )
+    .await
+    .unwrap();
+    for value in [
+        serde_json::json!([]),
+        serde_json::json!([{"api_key_env":"KEY","allowed_routes":"all"}]),
+        serde_json::json!([{"api_key_env":"KEY","blocked_models":["ab*cd"]}]),
+        serde_json::json!([{"api_key_env":"KEY","enabled":"true"}]),
+        serde_json::json!([{"api_key_env":"KEY"},{"api_key_env":"KEY"}]),
+        serde_json::json!([{"api_key_env":"KEY","unrecognized":true}]),
+    ] {
+        assert!(state
+            .clone()
+            .with_client_policies(&value.to_string(), |_| Some("client-key-12345678".into()))
+            .is_err());
+    }
+    assert!(state
+        .with_client_policies(r#"[{"api_key_env":"MISSING"}]"#, |_| None)
+        .is_err());
 }
 
 #[tokio::test]
