@@ -70,6 +70,16 @@ async fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
         if shared_rpm && !product_client_keys {
             return Err("shared RPM accounting requires product client keys".into());
         }
+        let account_fallback = match env::var("RED_ROUTER_PRODUCT_ACCOUNT_FALLBACK").as_deref() {
+            Ok("1") => true,
+            Err(env::VarError::NotPresent) | Ok("0") => false,
+            _ => return Err("RED_ROUTER_PRODUCT_ACCOUNT_FALLBACK must be 0 or 1".into()),
+        };
+        if account_fallback && (!auto_selection || !product_client_keys) {
+            return Err(
+                "account fallback requires automatic selection and product client keys".into(),
+            );
+        }
         let client_key = if product_client_keys {
             if env::var_os("RED_ROUTER_CLIENT_KEY").is_some()
                 || env::var_os("RED_ROUTER_CLIENT_POLICIES_JSON").is_some()
@@ -101,11 +111,28 @@ async fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
         if shared_rpm {
             connection = connection.with_shared_rpm().await?;
         }
+        let mut fallbacks = Vec::new();
+        if account_fallback {
+            for fallback_id in connection.fallback_ids().await? {
+                if let Ok((fallback, key)) = ProductConnection::open(
+                    std::path::Path::new(&path),
+                    &fallback_id,
+                    storage_key.as_deref().map(String::as_str),
+                )
+                .await
+                {
+                    fallbacks.push((fallback.inherit_accounting(&connection)?, key.to_string()));
+                }
+            }
+        }
         let mut state = ProxyState::new(connection.upstream_url(), &client_key, &credential, false)
             .await?
             .with_product_connection(connection);
         if product_client_keys {
             state = state.with_product_client_keys()?;
+        }
+        if account_fallback {
+            state = state.with_product_fallbacks(fallbacks)?;
         }
         match env::var("RED_ROUTER_CLIENT_POLICIES_JSON") {
             Ok(policies) => {
@@ -114,7 +141,7 @@ async fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
             Err(env::VarError::NotPresent) => {}
             Err(_) => return Err("RED_ROUTER_CLIENT_POLICIES_JSON must be valid Unicode".into()),
         }
-        eprintln!("Experimental product mode: only a restricted subset of product policies is supported; accounting and quotas are not implemented");
+        eprintln!("Experimental product mode: only a restricted subset of product policies and quota accounting is supported");
         return serve_proxy(address, state).await;
     }
     let backend_setting = match env::var("RED_ROUTER_DB_BACKEND") {

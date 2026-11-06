@@ -57,7 +57,7 @@ also refuses configured budget assignments, model-to-combo
 mappings and global disabled-model lists; combo and quota routes do not work.
 Missing expected schema fails closed. No usage or cost accounting is recorded by
 default. Provider choice is an explicit connection ID unless the limited
-startup selection below is enabled. Product fallback is not implemented.
+startup selection below is enabled.
 Only direct chat requests to the two fixed provider endpoints are supported in
 this mode. The requested model must start with the selected product provider,
 for example `openrouter/openai/gpt-4o` or `openai/gpt-4o`; the provider prefix
@@ -68,8 +68,18 @@ As an experimental alternative to `RED_ROUTER_PRODUCT_CONNECTION_ID`, set
 selects the active connection with the dashboard's fill-first priority order.
 The selected connection is fixed until restart. Other configured routing
 strategies and unsupported connection health, proxy, concurrency or quota
-settings fail startup. This is not per-request account selection and does not
-provide dashboard fallback.
+settings fail startup. This is not full per-request dashboard account selection.
+
+With automatic selection and dashboard client keys, set
+`RED_ROUTER_PRODUCT_ACCOUNT_FALLBACK=1` to enable bounded fallback among up to
+eight additional API-key connections of the same provider. Before an alternative
+is used, its state and the key's connection and model permissions are rechecked.
+On a transport failure, 429, or 5xx, the proxy can submit the request to another
+account before starting the response; this can repeat a request and incur
+duplicate charges. A single client RPM reservation covers the fallback attempts.
+The connection list is loaded at startup; configuration changes require restart.
+This does not implement cross-provider combos, all product routing strategies,
+or fallback after a response starts streaming.
 
 Set `RED_ROUTER_PRODUCT_SHARED_RPM=1` with dashboard client-key mode to enable
 the product's requests-per-minute quota. This opens the existing SQLite file for

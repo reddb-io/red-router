@@ -454,6 +454,129 @@ async fn dashboard_keys_enforce_supported_policy_and_refuse_unimplemented_quotas
 }
 
 #[tokio::test]
+async fn same_provider_fallback_honors_connection_policy_and_reserves_rpm_once() {
+    let (dir, mut db) = fixture().await;
+    sqlx::query(
+        "UPDATE provider_connections SET api_key = 'first-key', priority = 1 WHERE id = 'test'",
+    )
+    .execute(&mut db)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO provider_connections (id,provider,auth_type,is_active,api_key,updated_at,priority) VALUES ('second','openrouter','apikey',1,'second-key','b',2)")
+        .execute(&mut db).await.unwrap();
+    sqlx::query("INSERT INTO api_keys (id,key,allowed_connections) VALUES ('client','dashboard-fallback-key-12345','[\"test\",\"second\"]')")
+        .execute(&mut db).await.unwrap();
+    sqlx::query("INSERT INTO api_key_quota_limits VALUES ('client',NULL,1,NULL)")
+        .execute(&mut db)
+        .await
+        .unwrap();
+    let path = dir.path().join("storage.sqlite");
+    let (primary, primary_key) = ProductConnection::open(&path, "test", None).await.unwrap();
+    let primary = primary
+        .with_auto_selection_guard()
+        .with_shared_rpm()
+        .await
+        .unwrap();
+    assert_eq!(primary.fallback_ids().await.unwrap(), vec!["second"]);
+    let (secondary, secondary_key) = ProductConnection::open(&path, "second", None)
+        .await
+        .unwrap();
+    let secondary = secondary.inherit_accounting(&primary).unwrap();
+    let first_count = Arc::new(AtomicUsize::new(0));
+    let second_count = Arc::new(AtomicUsize::new(0));
+    let first_seen = first_count.clone();
+    let second_seen = second_count.clone();
+    let upstream = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let upstream_address = upstream.local_addr().unwrap();
+    let provider = tokio::spawn(async move {
+        axum::serve(
+            upstream,
+            Router::new().route(
+                "/v1/chat/completions",
+                post(move |headers: axum::http::HeaderMap| {
+                    let first_seen = first_seen.clone();
+                    let second_seen = second_seen.clone();
+                    async move {
+                        match headers.get("authorization").and_then(|v| v.to_str().ok()) {
+                            Some("Bearer first-key") => {
+                                first_seen.fetch_add(1, Ordering::SeqCst);
+                                axum::http::StatusCode::TOO_MANY_REQUESTS
+                            }
+                            Some("Bearer second-key") => {
+                                second_seen.fetch_add(1, Ordering::SeqCst);
+                                axum::http::StatusCode::OK
+                            }
+                            _ => axum::http::StatusCode::UNAUTHORIZED,
+                        }
+                    }
+                }),
+            ),
+        )
+        .await
+        .unwrap()
+    });
+    let state = ProxyState::new(
+        &format!("http://{upstream_address}/v1/chat/completions"),
+        "unused-client-key-12345",
+        &primary_key,
+        false,
+    )
+    .await
+    .unwrap()
+    .with_product_connection(primary)
+    .with_product_client_keys()
+    .unwrap()
+    .with_product_fallbacks(vec![(secondary, secondary_key.to_string())])
+    .unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move { axum::serve(listener, router(state)).await.unwrap() });
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let send = || {
+        client
+            .post(format!("http://{address}/v1/chat/completions"))
+            .bearer_auth("dashboard-fallback-key-12345")
+            .header("content-type", "application/json")
+            .body(r#"{"model":"openrouter/openai/gpt","messages":[]}"#)
+    };
+    assert_eq!(send().send().await.unwrap().status(), 200);
+    assert_eq!(first_count.load(Ordering::SeqCst), 1);
+    assert_eq!(second_count.load(Ordering::SeqCst), 1);
+    let total: f64 = sqlx::query_scalar(
+        "SELECT SUM(consumed) FROM api_key_quota_counters WHERE api_key_id = 'client'",
+    )
+    .fetch_one(&mut db)
+    .await
+    .unwrap();
+    assert_eq!(total, 1.0);
+    assert_eq!(send().send().await.unwrap().status(), 429);
+    sqlx::query("DELETE FROM api_key_quota_counters")
+        .execute(&mut db)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE api_keys SET allowed_connections = '[\"test\"]' WHERE id = 'client'")
+        .execute(&mut db)
+        .await
+        .unwrap();
+    assert_eq!(send().send().await.unwrap().status(), 429);
+    assert_eq!(first_count.load(Ordering::SeqCst), 2);
+    assert_eq!(second_count.load(Ordering::SeqCst), 1);
+    sqlx::query("DELETE FROM api_key_quota_counters")
+        .execute(&mut db)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE api_keys SET allowed_connections = '[\"second\"]' WHERE id = 'client'")
+        .execute(&mut db)
+        .await
+        .unwrap();
+    assert_eq!(send().send().await.unwrap().status(), 200);
+    assert_eq!(first_count.load(Ordering::SeqCst), 2);
+    assert_eq!(second_count.load(Ordering::SeqCst), 2);
+    server.abort();
+    provider.abort();
+}
+
+#[tokio::test]
 async fn shared_rpm_reservations_coordinate_independent_proxy_instances() {
     let (dir, mut db) = fixture().await;
     sqlx::query(

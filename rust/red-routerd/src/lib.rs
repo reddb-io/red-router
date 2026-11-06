@@ -39,6 +39,12 @@ pub struct ProxyState {
     clients: Arc<policy::ClientPolicies>,
     product_connection: Option<product::ProductConnection>,
     product_client_keys: bool,
+    product_fallbacks: Arc<Vec<ProductFallback>>,
+}
+
+struct ProductFallback {
+    connection: product::ProductConnection,
+    provider_key: HeaderValue,
 }
 
 struct ModelRoute {
@@ -176,6 +182,7 @@ impl ProxyState {
             clients: Arc::new(policy::ClientPolicies::single(client_key)),
             product_connection: None,
             product_client_keys: false,
+            product_fallbacks: Arc::new(Vec::new()),
         })
     }
 
@@ -193,6 +200,36 @@ impl ProxyState {
             return Err("product client keys cannot be combined with environment routes");
         }
         self.product_client_keys = true;
+        Ok(self)
+    }
+
+    /// Configure same-provider product accounts for pre-stream fallback.
+    pub fn with_product_fallbacks(
+        mut self,
+        fallbacks: Vec<(product::ProductConnection, String)>,
+    ) -> Result<Self, &'static str> {
+        let primary = self
+            .product_connection
+            .as_ref()
+            .ok_or("product fallback requires a connection")?;
+        if !self.product_client_keys || fallbacks.len() > 8 {
+            return Err("product fallback requires product client keys and at most eight accounts");
+        }
+        let mut result = Vec::with_capacity(fallbacks.len());
+        for (connection, key) in fallbacks {
+            let key = zeroize::Zeroizing::new(key);
+            if !connection.same_provider_database(primary) || !(1..=512).contains(&key.len()) {
+                return Err("invalid product fallback");
+            }
+            let mut provider_key = HeaderValue::from_str(&format!("Bearer {key}"))
+                .map_err(|_| "invalid provider key")?;
+            provider_key.set_sensitive(true);
+            result.push(ProductFallback {
+                connection,
+                provider_key,
+            });
+        }
+        self.product_fallbacks = Arc::new(result);
         Ok(self)
     }
 
@@ -510,25 +547,49 @@ async fn proxy_request(
     protocol: ProviderProtocol,
     gemini: Option<(String, bool)>,
 ) -> Response {
+    let mut selected_product = 0usize;
+    let mut product_candidate = None;
+    let original_headers = request.headers().clone();
     let product_access = if state.product_client_keys {
         let Some(candidate) = policy::extract_candidate(request.headers(), protocol) else {
             return error(StatusCode::UNAUTHORIZED, "Invalid API key");
         };
-        let Some(connection) = &state.product_connection else {
+        let candidate = zeroize::Zeroizing::new(candidate.to_owned());
+        let Some(primary) = &state.product_connection else {
             return error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "Product policy unavailable",
             );
         };
-        match connection.client_policies(candidate).await {
-            Ok(Some(access)) => Some(access),
-            Ok(None) => return error(StatusCode::UNAUTHORIZED, "Invalid API key"),
-            Err(_) => {
-                return error(
-                    StatusCode::SERVICE_UNAVAILABLE,
-                    "Product policy unavailable or unsupported",
-                )
+        let mut selected = None;
+        for index in 0..=state.product_fallbacks.len() {
+            let connection = if index == 0 {
+                primary
+            } else {
+                &state.product_fallbacks[index - 1].connection
+            };
+            if index != 0 && !connection.fallback_eligible().await {
+                continue;
             }
+            match connection.client_policies(&candidate).await {
+                Ok(Some(access)) => {
+                    selected_product = index;
+                    selected = Some(access);
+                    break;
+                }
+                Ok(None) => continue,
+                Err(_) => {
+                    return error(
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "Product policy unavailable or unsupported",
+                    )
+                }
+            }
+        }
+        product_candidate = Some(candidate);
+        match selected {
+            Some(access) => Some(access),
+            None => return error(StatusCode::UNAUTHORIZED, "Invalid API key"),
         }
     } else {
         None
@@ -612,11 +673,16 @@ async fn proxy_request(
         return error(StatusCode::BAD_REQUEST, "A model is required");
     };
     let product_target = if state.product_client_keys {
-        let Some(connection) = &state.product_connection else {
+        let Some(primary) = &state.product_connection else {
             return error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "Product policy unavailable",
             );
+        };
+        let connection = if selected_product == 0 {
+            primary
+        } else {
+            &state.product_fallbacks[selected_product - 1].connection
         };
         match connection.direct_model(&model).await {
             Ok(Some(target)) => Some(target),
@@ -703,9 +769,40 @@ async fn proxy_request(
             0
         }
     });
-    let attempts = route.map_or(1, |route| if route.fallback { eligible.len() } else { 1 });
+    let attempts = if product_access.is_some() {
+        1 + state.product_fallbacks.len() - selected_product
+    } else {
+        route.map_or(1, |route| if route.fallback { eligible.len() } else { 1 })
+    };
     let mut final_response = None;
+    let mut last_retry_response = None;
     for offset in 0..attempts {
+        let product_index = selected_product + offset;
+        if product_access.is_some() && offset > 0 {
+            let Some(primary) = &state.product_connection else {
+                break;
+            };
+            let fallback = &state.product_fallbacks[product_index - 1];
+            let Some(candidate) = &product_candidate else {
+                break;
+            };
+            if !primary.unchanged().await || !fallback.connection.fallback_eligible().await {
+                continue;
+            }
+            let access = match fallback.connection.client_policies(candidate).await {
+                Ok(Some(access)) => access,
+                _ => continue,
+            };
+            let Some(rechecked) = access.policies.authenticate(&original_headers, protocol) else {
+                continue;
+            };
+            if !rechecked.endpoint_allowed(category)
+                || !rechecked.route_allowed(&model)
+                || !rechecked.target_allowed(&model)
+            {
+                continue;
+            }
+        }
         let target = route.map(|_| eligible[(start + offset) % eligible.len()]);
         let (client, url, provider_key, payload) = match target {
             Some(target) => {
@@ -738,7 +835,12 @@ async fn proxy_request(
                 } else {
                     body.to_vec()
                 };
-                (&state.client, &state.upstream, &state.provider_key, payload)
+                let provider_key = if product_access.is_some() && product_index > 0 {
+                    &state.product_fallbacks[product_index - 1].provider_key
+                } else {
+                    &state.provider_key
+                };
+                (&state.client, &state.upstream, provider_key, payload)
             }
         };
         let mut target_url = url.clone();
@@ -796,12 +898,13 @@ async fn proxy_request(
             || response.status().is_server_error())
             && offset + 1 < attempts
         {
+            last_retry_response = Some(response);
             continue;
         }
         final_response = Some(response);
         break;
     }
-    let Some(response) = final_response else {
+    let Some(response) = final_response.or(last_retry_response) else {
         return error(StatusCode::BAD_GATEWAY, "Upstream unavailable");
     };
     // Redirects are intentionally not followed or relayed to the client.

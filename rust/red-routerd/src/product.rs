@@ -15,6 +15,7 @@ use std::{
     sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
+use tokio::sync::{mpsc, oneshot};
 use zeroize::Zeroizing;
 
 type ProductCipher = AesGcm<Aes256, U16>;
@@ -27,13 +28,18 @@ pub struct ProductConnection {
     updated_at: Arc<str>,
     provider: Arc<str>,
     path: Arc<PathBuf>,
-    shared_rpm: Option<SqlitePool>,
+    shared_rpm: Option<mpsc::Sender<RpmReservation>>,
     auto_selection: bool,
 }
 
 pub(crate) struct ProductAccess {
     pub policies: crate::policy::ClientPolicies,
     pub key_id: String,
+}
+
+struct RpmReservation {
+    key_id: String,
+    reply: oneshot::Sender<Result<bool, &'static str>>,
 }
 
 impl ProductConnection {
@@ -220,6 +226,90 @@ impl ProductConnection {
         self
     }
 
+    /// Other explicitly compatible accounts of the same provider, in the
+    /// dashboard's priority order. Health is rechecked before use.
+    pub async fn fallback_ids(&self) -> Result<Vec<String>, &'static str> {
+        if !self.auto_selection {
+            return Err("account fallback requires automatic selection");
+        }
+        let ids: Vec<String> = sqlx::query_scalar("SELECT id FROM provider_connections WHERE provider = ? AND is_active = 1 AND id <> ? ORDER BY priority ASC, updated_at DESC LIMIT 9")
+            .bind(self.provider.as_ref()).bind(self.id.as_ref()).fetch_all(&self.pool).await
+            .map_err(|_| "product provider schema unavailable")?;
+        if ids.len() > 8 {
+            return Err("too many fallback connections");
+        }
+        Ok(ids)
+    }
+
+    /// Share the same accounting queue, so fallback never charges twice.
+    pub fn inherit_accounting(mut self, source: &Self) -> Result<Self, &'static str> {
+        if !self.same_provider_database(source) {
+            return Err("fallback must use the same database and provider");
+        }
+        self.shared_rpm = source.shared_rpm.clone();
+        Ok(self)
+    }
+
+    pub(crate) fn same_provider_database(&self, source: &Self) -> bool {
+        self.path == source.path && self.provider == source.provider
+    }
+
+    pub(crate) async fn fallback_eligible(&self) -> bool {
+        let row = sqlx::query("SELECT auth_type, tenant_id, rate_limited_until, test_status, per_key_proxy_enabled, max_concurrent, provider_specific_data, rate_limit_overrides_json FROM provider_connections WHERE id = ? AND provider = ? AND is_active = 1")
+            .bind(self.id.as_ref()).bind(self.provider.as_ref()).fetch_optional(&self.pool).await;
+        let Ok(Some(row)) = row else { return false };
+        let Ok(auth) = row.try_get::<Option<String>, _>("auth_type") else {
+            return false;
+        };
+        let Ok(tenant) = row.try_get::<String, _>("tenant_id") else {
+            return false;
+        };
+        let Ok(status) = row.try_get::<Option<String>, _>("test_status") else {
+            return false;
+        };
+        let Ok(cooldown) = row.try_get::<Option<String>, _>("rate_limited_until") else {
+            return false;
+        };
+        let Ok(proxy) = row.try_get::<Option<i64>, _>("per_key_proxy_enabled") else {
+            return false;
+        };
+        let Ok(concurrency) = row.try_get::<Option<i64>, _>("max_concurrent") else {
+            return false;
+        };
+        if auth.as_deref() != Some("apikey")
+            || tenant != "red"
+            || status.as_deref().is_some_and(|s| {
+                matches!(
+                    s.trim().to_ascii_lowercase().as_str(),
+                    "banned" | "expired" | "credits_exhausted"
+                )
+            })
+            || cooldown.as_deref().is_some_and(|s| !s.trim().is_empty())
+            || proxy.unwrap_or(0) != 0
+            || concurrency.is_some_and(|n| n > 0)
+        {
+            return false;
+        }
+        for field in ["provider_specific_data", "rate_limit_overrides_json"] {
+            let Ok(value) = row.try_get::<Option<String>, _>(field) else {
+                return false;
+            };
+            if value
+                .as_deref()
+                .is_some_and(|s| !matches!(s.trim(), "" | "{}" | "null" | "[]"))
+            {
+                return false;
+            }
+        }
+        let quota: Result<i64, _> = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM provider_quota_state WHERE connection_id = ?)",
+        )
+        .bind(self.id.as_ref())
+        .fetch_one(&self.pool)
+        .await;
+        matches!(quota, Ok(0)) && self.unchanged().await
+    }
+
     /// Opt in to updating the existing product RPM counters. The database and
     /// counter table must already exist; this never creates or migrates them.
     pub async fn with_shared_rpm(mut self) -> Result<Self, &'static str> {
@@ -235,7 +325,32 @@ impl ProductConnection {
             .map_err(|_| "cannot open product SQLite for quota accounting")?;
         sqlx::query("SELECT api_key_id, dimension_key, bucket_index, consumed, updated_at FROM api_key_quota_counters LIMIT 0")
             .execute(&pool).await.map_err(|_| "product quota counter schema unavailable")?;
-        self.shared_rpm = Some(pool);
+        let (sender, mut receiver) = mpsc::channel::<RpmReservation>(256);
+        tokio::spawn(async move {
+            while let Some(first) = receiver.recv().await {
+                let mut batch = vec![first];
+                while batch.len() < 64 {
+                    match receiver.try_recv() {
+                        Ok(request) => batch.push(request),
+                        Err(_) => break,
+                    }
+                }
+                let result = reserve_batch(&pool, &batch).await;
+                match result {
+                    Ok(results) => {
+                        for (request, allowed) in batch.into_iter().zip(results) {
+                            let _ = request.reply.send(Ok(allowed));
+                        }
+                    }
+                    Err(error) => {
+                        for request in batch {
+                            let _ = request.reply.send(Err(error));
+                        }
+                    }
+                }
+            }
+        });
+        self.shared_rpm = Some(sender);
         Ok(self)
     }
 
@@ -243,62 +358,18 @@ impl ProductConnection {
     /// weighted two-bucket RPM counter. Rust instances sharing this SQLite
     /// file serialize reservations through BEGIN IMMEDIATE.
     pub(crate) async fn reserve_rpm(&self, key_id: &str) -> Result<bool, &'static str> {
-        let Some(pool) = &self.shared_rpm else {
+        let Some(sender) = &self.shared_rpm else {
             return Ok(true);
         };
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_err(|_| "system clock unavailable")?
-            .as_millis();
-        let now = i64::try_from(now).map_err(|_| "system clock unavailable")?;
-        let bucket = now / 60_000;
-        let mut tx = pool
-            .begin_with("BEGIN IMMEDIATE")
+        let (reply, response) = oneshot::channel();
+        sender
+            .send(RpmReservation {
+                key_id: key_id.to_owned(),
+                reply,
+            })
             .await
             .map_err(|_| "quota accounting unavailable")?;
-        let limits = sqlx::query("SELECT rpm_limit, tpm_limit, monthly_amount_usd FROM api_key_quota_limits WHERE api_key_id = ?")
-            .bind(key_id).fetch_optional(&mut *tx).await.map_err(|_| "quota limits unavailable")?;
-        let rpm = if let Some(row) = limits {
-            let tpm: Option<i64> = row
-                .try_get("tpm_limit")
-                .map_err(|_| "invalid quota limits")?;
-            let monthly: Option<f64> = row
-                .try_get("monthly_amount_usd")
-                .map_err(|_| "invalid quota limits")?;
-            if tpm.unwrap_or(0) > 0 || monthly.unwrap_or(0.0) > 0.0 {
-                return Err("unsupported product quota");
-            }
-            row.try_get::<Option<i64>, _>("rpm_limit")
-                .map_err(|_| "invalid quota limits")?
-        } else {
-            None
-        };
-        let row = sqlx::query("SELECT CAST(COALESCE(SUM(CASE WHEN bucket_index = ? THEN consumed ELSE 0 END), 0) AS REAL) AS current, CAST(COALESCE(SUM(CASE WHEN bucket_index = ? THEN consumed ELSE 0 END), 0) AS REAL) AS previous FROM api_key_quota_counters WHERE api_key_id = ? AND dimension_key = 'key-quota:rpm' AND bucket_index IN (?, ?)")
-            .bind(bucket).bind(bucket - 1).bind(key_id).bind(bucket).bind(bucket - 1)
-            .fetch_one(&mut *tx).await.map_err(|_| "quota counters unavailable")?;
-        let current: f64 = row
-            .try_get("current")
-            .map_err(|_| "invalid quota counter")?;
-        let previous: f64 = row
-            .try_get("previous")
-            .map_err(|_| "invalid quota counter")?;
-        if !current.is_finite() || !previous.is_finite() || current < 0.0 || previous < 0.0 {
-            return Err("invalid quota counter");
-        }
-        let effective = current + previous * (1.0 - (now % 60_000) as f64 / 60_000.0);
-        if rpm.is_some_and(|limit| limit > 0 && effective >= limit as f64) {
-            tx.rollback()
-                .await
-                .map_err(|_| "quota accounting unavailable")?;
-            return Ok(false);
-        }
-        sqlx::query("INSERT INTO api_key_quota_counters (api_key_id, dimension_key, bucket_index, consumed, updated_at) VALUES (?, 'key-quota:rpm', ?, 1, ?) ON CONFLICT(api_key_id, dimension_key, bucket_index) DO UPDATE SET consumed = consumed + 1, updated_at = excluded.updated_at")
-            .bind(key_id).bind(bucket).bind(now).execute(&mut *tx).await
-            .map_err(|_| "quota accounting unavailable")?;
-        tx.commit()
-            .await
-            .map_err(|_| "quota accounting unavailable")?;
-        Ok(true)
+        response.await.map_err(|_| "quota accounting unavailable")?
     }
 
     /// Recheck revocation and edits before each request. In-flight requests can
@@ -481,6 +552,68 @@ impl ProductConnection {
             .map_err(|_| "product combo schema unavailable")?;
         Ok((exists == 0).then(|| upstream_model.to_owned()))
     }
+}
+
+async fn reserve_batch(
+    pool: &SqlitePool,
+    requests: &[RpmReservation],
+) -> Result<Vec<bool>, &'static str> {
+    let mut tx = pool
+        .begin_with("BEGIN IMMEDIATE")
+        .await
+        .map_err(|_| "quota accounting unavailable")?;
+    let mut results = Vec::with_capacity(requests.len());
+    for request in requests {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|_| "system clock unavailable")?
+            .as_millis();
+        let now = i64::try_from(now).map_err(|_| "system clock unavailable")?;
+        let bucket = now / 60_000;
+        let key_id = &request.key_id;
+        let limits = sqlx::query("SELECT rpm_limit, tpm_limit, monthly_amount_usd FROM api_key_quota_limits WHERE api_key_id = ?")
+            .bind(key_id).fetch_optional(&mut *tx).await.map_err(|_| "quota limits unavailable")?;
+        let rpm = if let Some(row) = limits {
+            let tpm: Option<i64> = row
+                .try_get("tpm_limit")
+                .map_err(|_| "invalid quota limits")?;
+            let monthly: Option<f64> = row
+                .try_get("monthly_amount_usd")
+                .map_err(|_| "invalid quota limits")?;
+            if tpm.unwrap_or(0) > 0 || monthly.unwrap_or(0.0) > 0.0 {
+                return Err("unsupported product quota");
+            }
+            row.try_get::<Option<i64>, _>("rpm_limit")
+                .map_err(|_| "invalid quota limits")?
+        } else {
+            None
+        };
+        let row = sqlx::query("SELECT CAST(COALESCE(SUM(CASE WHEN bucket_index = ? THEN consumed ELSE 0 END), 0) AS REAL) AS current, CAST(COALESCE(SUM(CASE WHEN bucket_index = ? THEN consumed ELSE 0 END), 0) AS REAL) AS previous FROM api_key_quota_counters WHERE api_key_id = ? AND dimension_key = 'key-quota:rpm' AND bucket_index IN (?, ?)")
+            .bind(bucket).bind(bucket - 1).bind(key_id).bind(bucket).bind(bucket - 1)
+            .fetch_one(&mut *tx).await.map_err(|_| "quota counters unavailable")?;
+        let current: f64 = row
+            .try_get("current")
+            .map_err(|_| "invalid quota counter")?;
+        let previous: f64 = row
+            .try_get("previous")
+            .map_err(|_| "invalid quota counter")?;
+        if !current.is_finite() || !previous.is_finite() || current < 0.0 || previous < 0.0 {
+            return Err("invalid quota counter");
+        }
+        let effective = current + previous * (1.0 - (now % 60_000) as f64 / 60_000.0);
+        if rpm.is_some_and(|limit| limit > 0 && effective >= limit as f64) {
+            results.push(false);
+            continue;
+        }
+        sqlx::query("INSERT INTO api_key_quota_counters (api_key_id, dimension_key, bucket_index, consumed, updated_at) VALUES (?, 'key-quota:rpm', ?, 1, ?) ON CONFLICT(api_key_id, dimension_key, bucket_index) DO UPDATE SET consumed = consumed + 1, updated_at = excluded.updated_at")
+            .bind(key_id).bind(bucket).bind(now).execute(&mut *tx).await
+            .map_err(|_| "quota accounting unavailable")?;
+        results.push(true);
+    }
+    tx.commit()
+        .await
+        .map_err(|_| "quota accounting unavailable")?;
+    Ok(results)
 }
 
 fn decrypt(stored: &str, encryption_key: Option<&str>) -> Result<Zeroizing<String>, &'static str> {
