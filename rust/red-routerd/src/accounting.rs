@@ -213,7 +213,7 @@ async fn record_usage(
         return Err("accounting key unavailable");
     }
     if reserved {
-        let row = sqlx::query("SELECT reserved_tokens, reserved_usd, state, provider, model FROM api_key_usage_reservations WHERE id = ? AND api_key_id = ?")
+        let row = sqlx::query("SELECT reserved_tokens, reserved_usd, state, provider, model, pricing_snapshot FROM api_key_usage_reservations WHERE id = ? AND api_key_id = ?")
             .bind(event.event_id).bind(event.key_id).fetch_optional(&mut *tx).await.map_err(|_| "reservation unavailable")?;
         if let Some(row) = row {
             let state: String = row.try_get("state").map_err(|_| "invalid reservation")?;
@@ -226,6 +226,16 @@ async fn record_usage(
             let provider: Option<String> =
                 row.try_get("provider").map_err(|_| "invalid reservation")?;
             let model: Option<String> = row.try_get("model").map_err(|_| "invalid reservation")?;
+            let snapshot: Option<String> = row
+                .try_get("pricing_snapshot")
+                .map_err(|_| "invalid reservation")?;
+            if let Some(snapshot) = snapshot {
+                let snapshot: Value =
+                    serde_json::from_str(&snapshot).map_err(|_| "invalid reservation")?;
+                if TokenPrices::from_record(&snapshot)? != *event.prices {
+                    return Err("invalid reservation price");
+                }
+            }
             if state != "dispatched"
                 || token_bound < 0
                 || !usd_bound.is_finite()

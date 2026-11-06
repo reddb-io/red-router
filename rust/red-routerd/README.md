@@ -148,6 +148,20 @@ before. Existing processes without these settings or the updated code can
 still bypass this mode. Drain existing requests before enabling it. Fallback
 after an uncertain attempt is blocked until that attempt is reconciled.
 
+With `RED_ROUTER_PRODUCT_DB_PATH` set, run `red-routerd list-usage-reservations`
+to inspect up to 1,000 outstanding attempts. For a dispatched attempt, verify
+the actual usage and completion time with the provider before running
+`red-routerd reconcile-usage <reservation-id> <usage.json>`. The JSON file must
+contain `timestamp_ms` (UTC Unix milliseconds) and an OpenAI-compatible `usage`
+object with `prompt_tokens` and `completion_tokens`; include supported token
+details when present. Reconciliation uses the price snapshot from dispatch and
+atomically records usage before clearing the reservation. Only use zero tokens
+when the provider has confirmed that no usage occurred. Entries lacking the
+provider, model or price snapshot cannot be reconciled by this command.
+
+`red-routerd cancel-undispatched <reservation-id>` removes only an entry that
+has not been marked dispatched; it cannot release an uncertain provider attempt.
+
 ```sh
 export RED_ROUTER_LISTEN=127.0.0.1:19091
 export RED_ROUTER_UPSTREAM_URL=http://127.0.0.1:19090/v1/chat/completions

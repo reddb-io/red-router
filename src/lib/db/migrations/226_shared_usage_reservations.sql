@@ -9,7 +9,8 @@ CREATE TABLE IF NOT EXISTS api_key_usage_reservations (
   state TEXT NOT NULL CHECK (state IN ('reserved', 'dispatched')),
   provider TEXT,
   model TEXT,
-  connection_id TEXT
+  connection_id TEXT,
+  pricing_snapshot TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_usage_reservations_key
   ON api_key_usage_reservations(api_key_id);

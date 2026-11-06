@@ -4,6 +4,7 @@ mod anthropic_stream;
 mod policy;
 pub mod product;
 pub mod product_combo;
+pub mod reconcile;
 pub mod shared_usage;
 pub mod storage;
 mod translation;
@@ -1044,7 +1045,10 @@ async fn proxy_request(
                     "Usage accounting unavailable",
                 );
             };
-            let event_id = match connection.begin_usage(&access.key_id, target_model).await {
+            let event_id = match connection
+                .begin_usage(&access.key_id, target_model, &prices)
+                .await
+            {
                 Ok(id) => id,
                 Err("usage reservation denied") => {
                     return error(

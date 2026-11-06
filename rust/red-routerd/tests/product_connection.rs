@@ -435,6 +435,88 @@ async fn strict_usage_applies_product_limits_and_keeps_uncertain_attempts() {
     );
     let pending: i64 = sqlx::query_scalar("SELECT count(*) FROM api_key_usage_reservations WHERE api_key_id='uncertain' AND state='dispatched'").fetch_one(&mut db).await.unwrap();
     assert_eq!(pending, 1);
+    let (pending_id, created): (String, i64) = sqlx::query_as(
+        "SELECT id, created_at FROM api_key_usage_reservations WHERE api_key_id='uncertain'",
+    )
+    .fetch_one(&mut db)
+    .await
+    .unwrap();
+    let list = Command::new(env!("CARGO_BIN_EXE_red-routerd"))
+        .arg("list-usage-reservations")
+        .env(
+            "RED_ROUTER_PRODUCT_DB_PATH",
+            dir.path().join("storage.sqlite"),
+        )
+        .output()
+        .unwrap();
+    assert!(list.status.success());
+    let listed: serde_json::Value = serde_json::from_slice(&list.stdout).unwrap();
+    assert!(listed["reservations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|row| row["id"] == pending_id && row["model"] == "vendor/gpt"));
+    let refused = Command::new(env!("CARGO_BIN_EXE_red-routerd"))
+        .arg("cancel-undispatched")
+        .arg(&pending_id)
+        .env(
+            "RED_ROUTER_PRODUCT_DB_PATH",
+            dir.path().join("storage.sqlite"),
+        )
+        .output()
+        .unwrap();
+    assert!(!refused.status.success());
+    sqlx::query("UPDATE key_value SET value=? WHERE namespace='pricing' AND key='openrouter'").bind(r#"{"vendor/gpt":{"input":20,"output":40,"cached":10,"cache_creation":20,"reasoning":40}}"#).execute(&mut db).await.unwrap();
+    let usage_path = dir.path().join("verified-usage.json");
+    std::fs::write(&usage_path, serde_json::json!({"timestamp_ms":created+1,"usage":{"prompt_tokens":100,"completion_tokens":50}}).to_string()).unwrap();
+    let reconciled = Command::new(env!("CARGO_BIN_EXE_red-routerd"))
+        .arg("reconcile-usage")
+        .arg(&pending_id)
+        .arg(&usage_path)
+        .env(
+            "RED_ROUTER_PRODUCT_DB_PATH",
+            dir.path().join("storage.sqlite"),
+        )
+        .output()
+        .unwrap();
+    assert!(
+        reconciled.status.success(),
+        "{}",
+        String::from_utf8_lossy(&reconciled.stderr)
+    );
+    let recovered_cost: f64 =
+        sqlx::query_scalar("SELECT amount_usd FROM request_cost_ledger WHERE event_id=?")
+            .bind(&pending_id)
+            .fetch_one(&mut db)
+            .await
+            .unwrap();
+    assert!(
+        (recovered_cost - 0.0004).abs() < 1e-12,
+        "reconciliation must use dispatch-time pricing"
+    );
+    sqlx::query("UPDATE key_value SET value=? WHERE namespace='pricing' AND key='openrouter'")
+        .bind(
+            r#"{"vendor/gpt":{"input":2,"output":4,"cached":1,"cache_creation":2,"reasoning":4}}"#,
+        )
+        .execute(&mut db)
+        .await
+        .unwrap();
+    assert_eq!(
+        send("uncertain-client-key-123")
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
+    assert_eq!(
+        send("uncertain-client-key-123")
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        429
+    );
     let stream_request = || {
         client.post(format!("http://{address}/v1/chat/completions")).bearer_auth("stream-client-key-123456").header("content-type","application/json")
         .body(r#"{"model":"openrouter/vendor/gpt","messages":[],"stream":true,"stream_options":{"include_usage":true}}"#)

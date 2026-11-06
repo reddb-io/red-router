@@ -354,6 +354,7 @@ impl ProductConnection {
         &self,
         key_id: &str,
         model: &str,
+        prices: &crate::accounting::TokenPrices,
     ) -> Result<String, &'static str> {
         let pool = self
             .usage_pool
@@ -386,8 +387,9 @@ impl ProductConnection {
         if !allowed {
             return Err("usage reservation denied");
         }
-        let marked = sqlx::query("UPDATE api_key_usage_reservations SET state = 'dispatched', provider = ?, model = ?, connection_id = ? WHERE id = ? AND api_key_id = ? AND state = 'reserved'")
-            .bind(self.provider.as_ref()).bind(model).bind(self.id.as_ref()).bind(&event_id).bind(key_id)
+        let snapshot = serde_json::json!({"input":prices.input,"output":prices.output,"cached":prices.cache_read,"cache_creation":prices.cache_creation,"reasoning":prices.reasoning}).to_string();
+        let marked = sqlx::query("UPDATE api_key_usage_reservations SET state = 'dispatched', provider = ?, model = ?, connection_id = ?, pricing_snapshot = ? WHERE id = ? AND api_key_id = ? AND state = 'reserved'")
+            .bind(self.provider.as_ref()).bind(model).bind(self.id.as_ref()).bind(snapshot).bind(&event_id).bind(key_id)
             .execute(pool).await.map_err(|_| "usage reservation unavailable")?;
         if marked.rows_affected() != 1 {
             return Err("usage reservation unavailable");

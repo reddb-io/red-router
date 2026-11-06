@@ -27,8 +27,65 @@ fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
 async fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
     let mut args = env::args().skip(1);
     let command = args.next();
+    if matches!(
+        command.as_deref(),
+        Some("list-usage-reservations" | "reconcile-usage" | "cancel-undispatched")
+    ) {
+        let path = env::var_os("RED_ROUTER_PRODUCT_DB_PATH")
+            .ok_or("RED_ROUTER_PRODUCT_DB_PATH is required")?;
+        let path = std::path::Path::new(&path);
+        match command.as_deref() {
+            Some("list-usage-reservations") => {
+                if args.next().is_some() {
+                    return Err("usage: red-routerd list-usage-reservations".into());
+                }
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&red_routerd::reconcile::list(path).await?)?
+                );
+            }
+            Some("reconcile-usage") => {
+                use std::io::Read as _;
+                let id = args
+                    .next()
+                    .ok_or("usage: red-routerd reconcile-usage <reservation-id> <usage.json>")?;
+                let file = args
+                    .next()
+                    .ok_or("usage: red-routerd reconcile-usage <reservation-id> <usage.json>")?;
+                if args.next().is_some() {
+                    return Err(
+                        "usage: red-routerd reconcile-usage <reservation-id> <usage.json>".into(),
+                    );
+                }
+                let mut data = Vec::new();
+                std::fs::File::open(file)?
+                    .take(1_048_577)
+                    .read_to_end(&mut data)?;
+                if data.len() > 1_048_576 {
+                    return Err("usage JSON file is too large".into());
+                }
+                let response: serde_json::Value = serde_json::from_slice(&data)?;
+                red_routerd::reconcile::reconcile(path, &id, &response).await?;
+                println!("Usage reconciled");
+            }
+            Some("cancel-undispatched") => {
+                let id = args
+                    .next()
+                    .ok_or("usage: red-routerd cancel-undispatched <reservation-id>")?;
+                if args.next().is_some() {
+                    return Err("usage: red-routerd cancel-undispatched <reservation-id>".into());
+                }
+                if !red_routerd::reconcile::cancel_undispatched(path, &id).await? {
+                    return Err("reservation is missing or was already dispatched".into());
+                }
+                println!("Undispatched reservation cancelled");
+            }
+            _ => unreachable!(),
+        }
+        return Ok(());
+    }
     if args.next().is_some() || !matches!(command.as_deref(), None | Some("set-upstream")) {
-        return Err("usage: red-routerd [set-upstream]".into());
+        return Err("usage: red-routerd [set-upstream|list-usage-reservations|reconcile-usage|cancel-undispatched]".into());
     }
     let address: SocketAddr = env::var("RED_ROUTER_LISTEN")
         .unwrap_or_else(|_| "127.0.0.1:19091".into())
