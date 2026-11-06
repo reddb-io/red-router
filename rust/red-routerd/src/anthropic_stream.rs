@@ -12,10 +12,9 @@ use std::{
 const MAX_BUFFER: usize = 1024 * 1024;
 type Source = Pin<Box<dyn Stream<Item = Result<Bytes, reqwest::Error>> + Send>>;
 
-#[derive(Clone, Copy)]
 enum Block {
     Text,
-    Tool(usize),
+    Tool { index: usize, arguments: String },
 }
 
 struct State {
@@ -25,6 +24,7 @@ struct State {
     pending: VecDeque<Bytes>,
     blocks: HashMap<u64, Block>,
     next_tool: usize,
+    argument_bytes: usize,
     id: String,
     model: String,
     created: u64,
@@ -86,7 +86,7 @@ impl State {
                     .get("index")
                     .and_then(Value::as_u64)
                     .ok_or_else(invalid)?;
-                if self.blocks.contains_key(&index) {
+                if self.blocks.len() >= 128 || self.blocks.contains_key(&index) {
                     return Err(invalid());
                 }
                 let block = event.get("content_block").ok_or_else(invalid)?;
@@ -125,7 +125,13 @@ impl State {
                             .ok_or_else(invalid)?;
                         let tool = self.next_tool;
                         self.next_tool += 1;
-                        self.blocks.insert(index, Block::Tool(tool));
+                        self.blocks.insert(
+                            index,
+                            Block::Tool {
+                                index: tool,
+                                arguments: String::new(),
+                            },
+                        );
                         self.chunk(json!({"tool_calls":[{"index":tool,"id":id,"type":"function","function":{"name":name,"arguments":""}}]}), None);
                     }
                     _ => return Err(invalid()),
@@ -138,7 +144,7 @@ impl State {
                     .ok_or_else(invalid)?;
                 let delta = event.get("delta").ok_or_else(invalid)?;
                 match (
-                    self.blocks.get(&index).copied(),
+                    self.blocks.get_mut(&index),
                     delta.get("type").and_then(Value::as_str),
                 ) {
                     (Some(Block::Text), Some("text_delta")) => {
@@ -150,12 +156,25 @@ impl State {
                             self.chunk(json!({"content":text}), None);
                         }
                     }
-                    (Some(Block::Tool(tool)), Some("input_json_delta")) => {
+                    (
+                        Some(Block::Tool {
+                            index: tool,
+                            arguments,
+                        }),
+                        Some("input_json_delta"),
+                    ) => {
                         let fragment = delta
                             .get("partial_json")
                             .and_then(Value::as_str)
                             .ok_or_else(invalid)?;
                         if !fragment.is_empty() {
+                            self.argument_bytes = self
+                                .argument_bytes
+                                .checked_add(fragment.len())
+                                .filter(|bytes| *bytes <= MAX_BUFFER)
+                                .ok_or_else(invalid)?;
+                            arguments.push_str(fragment);
+                            let tool = *tool;
                             self.chunk(json!({"tool_calls":[{"index":tool,"function":{"arguments":fragment}}]}), None);
                         }
                     }
@@ -167,8 +186,21 @@ impl State {
                     .get("index")
                     .and_then(Value::as_u64)
                     .ok_or_else(invalid)?;
-                if self.blocks.remove(&index).is_none() {
-                    return Err(invalid());
+                match self.blocks.remove(&index).ok_or_else(invalid)? {
+                    Block::Text => {}
+                    Block::Tool { index, arguments } if arguments.is_empty() => {
+                        self.chunk(
+                            json!({"tool_calls":[{"index":index,"function":{"arguments":"{}"}}]}),
+                            None,
+                        );
+                    }
+                    Block::Tool { arguments, .. } => {
+                        let parsed: Value =
+                            serde_json::from_str(&arguments).map_err(|_| invalid())?;
+                        if !parsed.is_object() {
+                            return Err(invalid());
+                        }
+                    }
                 }
             }
             "message_delta" if self.started && !self.finished_reason && self.blocks.is_empty() => {
@@ -220,6 +252,7 @@ pub(crate) fn translate(
         pending: VecDeque::new(),
         blocks: HashMap::new(),
         next_tool: 0,
+        argument_bytes: 0,
         id: String::new(),
         model: String::new(),
         created: SystemTime::now()
@@ -281,4 +314,42 @@ pub(crate) fn translate(
             }
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn malformed_tool_arguments_never_produce_a_completed_stream() {
+        let mut state = State {
+            source: stream::empty().boxed(),
+            buffer: Vec::new(),
+            data: String::new(),
+            pending: VecDeque::new(),
+            blocks: HashMap::new(),
+            next_tool: 0,
+            argument_bytes: 0,
+            id: String::new(),
+            model: String::new(),
+            created: 0,
+            input_tokens: 0,
+            output_tokens: None,
+            include_usage: false,
+            started: false,
+            finished_reason: false,
+            done: false,
+        };
+        state.event(&json!({"type":"message_start","message":{"id":"msg","model":"model","usage":{"input_tokens":1}}})).unwrap();
+        state.event(&json!({"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"tool","name":"f","input":{}}})).unwrap();
+        state.event(&json!({"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"x\":"}})).unwrap();
+        assert!(state
+            .event(&json!({"type":"content_block_stop","index":0}))
+            .is_err());
+        assert!(!state.done);
+        assert!(!state
+            .pending
+            .iter()
+            .any(|bytes| bytes.as_ref() == b"data: [DONE]\n\n"));
+    }
 }

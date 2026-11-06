@@ -35,6 +35,8 @@ async fn openai_to_anthropic_streams_text_and_incremental_tool_arguments() {
                     "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"city\\\":\"}}\n\n",
                     "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\\\"Rome\\\"}\"}}\n\n",
                     "data: {\"type\":\"content_block_stop\",\"index\":1}\n\n",
+                    "data: {\"type\":\"content_block_start\",\"index\":3,\"content_block\":{\"type\":\"tool_use\",\"id\":\"tool_2\",\"name\":\"clock\",\"input\":{}}}\n\n",
+                    "data: {\"type\":\"content_block_stop\",\"index\":3}\n\n",
                     "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"tool_use\"},\"usage\":{\"output_tokens\":3}}\n\n",
                     "data: {\"type\":\"message_stop\"}\n\n"
                 ).as_bytes()))
@@ -90,18 +92,23 @@ async fn openai_to_anthropic_streams_text_and_incremental_tool_arguments() {
         .map(|line| serde_json::from_str(line).unwrap())
         .collect();
     let mut arguments = String::new();
+    let mut empty_arguments = String::new();
     for event in &events {
-        if let Some(fragment) = event
-            .pointer("/choices/0/delta/tool_calls/0/function/arguments")
-            .and_then(|v| v.as_str())
-        {
-            arguments.push_str(fragment);
+        if let Some(call) = event.pointer("/choices/0/delta/tool_calls/0") {
+            if let Some(fragment) = call.pointer("/function/arguments").and_then(|v| v.as_str()) {
+                match call.get("index").and_then(|value| value.as_u64()) {
+                    Some(0) => arguments.push_str(fragment),
+                    Some(1) => empty_arguments.push_str(fragment),
+                    _ => panic!("unexpected tool index"),
+                }
+            }
         }
     }
     assert_eq!(
         serde_json::from_str::<serde_json::Value>(&arguments).unwrap()["city"],
         "Rome"
     );
+    assert_eq!(empty_arguments, "{}");
     assert!(events
         .iter()
         .any(|event| event.pointer("/choices/0/finish_reason")
