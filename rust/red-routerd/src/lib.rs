@@ -604,7 +604,7 @@ async fn proxy_request(
     let Some(model) = model else {
         return error(StatusCode::BAD_REQUEST, "A model is required");
     };
-    if state.product_client_keys {
+    let product_target = if state.product_client_keys {
         let Some(connection) = &state.product_connection else {
             return error(
                 StatusCode::SERVICE_UNAVAILABLE,
@@ -612,11 +612,11 @@ async fn proxy_request(
             );
         };
         match connection.direct_model(&model).await {
-            Ok(true) => {}
-            Ok(false) => {
+            Ok(Some(target)) => Some(target),
+            Ok(None) => {
                 return error(
                     StatusCode::FORBIDDEN,
-                    "Product combo or quota route is unsupported",
+                    "Model does not select the configured product provider or uses an unsupported route",
                 )
             }
             Err(_) => {
@@ -626,7 +626,9 @@ async fn proxy_request(
                 )
             }
         }
-    }
+    } else {
+        None
+    };
     if !policy.route_allowed(&model) {
         return error(StatusCode::FORBIDDEN, "Model is not allowed");
     }
@@ -652,6 +654,9 @@ async fn proxy_request(
     }
     if route.is_some() && eligible.is_empty() {
         return error(StatusCode::FORBIDDEN, "No permitted route target");
+    }
+    if let Some(target) = product_target {
+        parsed["model"] = serde_json::Value::String(target);
     }
     let translate_anthropic =
         route.is_some_and(|route| route.protocol == ProviderProtocol::OpenAiToAnthropic);
@@ -704,12 +709,17 @@ async fn proxy_request(
                     payload,
                 )
             }
-            None => (
-                &state.client,
-                &state.upstream,
-                &state.provider_key,
-                body.to_vec(),
-            ),
+            None => {
+                let payload = if state.product_client_keys {
+                    match serde_json::to_vec(&parsed) {
+                        Ok(payload) => payload,
+                        Err(_) => return error(StatusCode::BAD_REQUEST, "Invalid JSON request"),
+                    }
+                } else {
+                    body.to_vec()
+                };
+                (&state.client, &state.upstream, &state.provider_key, payload)
+            }
         };
         let mut target_url = url.clone();
         if let (Some(target), Some((_, stream))) = (target, &gemini) {

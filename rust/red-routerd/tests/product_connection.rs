@@ -154,7 +154,7 @@ async fn proxy_stops_using_a_changed_product_connection() {
             .post(format!("http://{address}/v1/chat/completions"))
             .bearer_auth("client-key-123456789")
             .header("content-type", "application/json")
-            .body(r#"{"model":"test","messages":[]}"#)
+            .body(r#"{"model":"openrouter/openai/gpt","messages":[]}"#)
     };
     assert_eq!(send().send().await.unwrap().status(), 200);
     sqlx::query("UPDATE provider_connections SET api_key = 'changed' WHERE id = 'test'")
@@ -176,7 +176,7 @@ async fn dashboard_keys_enforce_supported_policy_and_refuse_unimplemented_quotas
     .execute(&mut db)
     .await
     .unwrap();
-    sqlx::query("INSERT INTO api_keys (id, key, model_access_mode, allowed_models, blocked_models, allowed_endpoints, allowed_connections) VALUES ('client', 'dashboard-client-key-12345', 'restricted', '[\"openai/*\"]', '[]', '[\"chat\"]', '[\"test\"]')")
+    sqlx::query("INSERT INTO api_keys (id, key, model_access_mode, allowed_models, blocked_models, allowed_endpoints, allowed_connections) VALUES ('client', 'dashboard-client-key-12345', 'restricted', '[\"openrouter/*\"]', '[]', '[\"chat\"]', '[\"test\"]')")
         .execute(&mut db).await.unwrap();
     let hash = hex::encode(Sha256::digest(b"dashboard-hashed-key-12345"));
     sqlx::query("INSERT INTO api_keys (id, key, key_hash) VALUES ('hashed', 'hidden', ?)")
@@ -197,9 +197,10 @@ async fn dashboard_keys_enforce_supported_policy_and_refuse_unimplemented_quotas
             upstream,
             Router::new().route(
                 "/v1/chat/completions",
-                post(move || {
+                post(move |axum::Json(body): axum::Json<serde_json::Value>| {
                     let count = count.clone();
                     async move {
+                        assert_eq!(body["model"], "openai/gpt");
                         count.fetch_add(1, Ordering::SeqCst);
                         "ok"
                     }
@@ -233,7 +234,7 @@ async fn dashboard_keys_enforce_supported_policy_and_refuse_unimplemented_quotas
     };
     let client_key = "dashboard-client-key-12345";
     assert_eq!(
-        send(client_key, "openai/gpt")
+        send(client_key, "openrouter/openai/gpt")
             .send()
             .await
             .unwrap()
@@ -241,7 +242,7 @@ async fn dashboard_keys_enforce_supported_policy_and_refuse_unimplemented_quotas
         200
     );
     assert_eq!(
-        send("dashboard-hashed-key-12345", "openai/gpt")
+        send("dashboard-hashed-key-12345", "openrouter/openai/gpt")
             .send()
             .await
             .unwrap()
@@ -257,7 +258,7 @@ async fn dashboard_keys_enforce_supported_policy_and_refuse_unimplemented_quotas
         403
     );
     assert_eq!(
-        send("incorrect-client-key-12345", "openai/gpt")
+        send("incorrect-client-key-12345", "openrouter/openai/gpt")
             .send()
             .await
             .unwrap()
@@ -336,14 +337,14 @@ async fn dashboard_keys_enforce_supported_policy_and_refuse_unimplemented_quotas
             503,
         ),
         (
-            "INSERT INTO combos VALUES ('openai/gpt')",
+            "INSERT INTO combos VALUES ('openrouter/openai/gpt')",
             "DELETE FROM combos",
             403,
         ),
     ] {
         sqlx::query(change).execute(&mut db).await.unwrap();
         assert_eq!(
-            send(client_key, "openai/gpt")
+            send(client_key, "openrouter/openai/gpt")
                 .send()
                 .await
                 .unwrap()
@@ -425,7 +426,7 @@ async fn benchmark_product_guard() {
                         .post(url)
                         .bearer_auth("client-key-123456789")
                         .header("content-type", "application/json")
-                        .body(r#"{"model":"test","messages":[]}"#)
+                        .body(r#"{"model":"openrouter/openai/gpt","messages":[]}"#)
                         .send()
                         .await
                         .unwrap();

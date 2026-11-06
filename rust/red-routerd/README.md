@@ -60,7 +60,9 @@ Missing expected schema fails closed. No usage or cost accounting is recorded,
 and counters are not shared with the existing proxy. Provider choice is an
 explicit connection ID, not the dashboard's automatic selection or fallback.
 Only direct chat requests to the two fixed provider endpoints are supported in
-this mode. Do not use it as a production replacement.
+this mode. The requested model must start with the selected product provider,
+for example `openrouter/openai/gpt-4o` or `openai/gpt-4o`; the provider prefix
+is removed before forwarding. Do not use it as a production replacement.
 
 ```sh
 export RED_ROUTER_LISTEN=127.0.0.1:19091

@@ -231,20 +231,29 @@ impl ProductConnection {
         Ok(Some(policies))
     }
 
-    pub(crate) async fn direct_model(&self, model: &str) -> Result<bool, &'static str> {
+    pub(crate) async fn direct_model(&self, model: &str) -> Result<Option<String>, &'static str> {
         if model.starts_with("auto/")
             || model.starts_with("qtSd/")
             || model.starts_with("combo/")
             || model.starts_with("quotaShared-")
         {
-            return Ok(false);
+            return Ok(None);
+        }
+        let Some((provider, upstream_model)) = model.split_once('/') else {
+            return Ok(None);
+        };
+        if provider != self.provider.as_ref()
+            || upstream_model.is_empty()
+            || upstream_model.trim() != upstream_model
+        {
+            return Ok(None);
         }
         let exists: i64 = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM combos WHERE name = ?)")
             .bind(model)
             .fetch_one(&self.pool)
             .await
             .map_err(|_| "product combo schema unavailable")?;
-        Ok(exists == 0)
+        Ok((exists == 0).then(|| upstream_model.to_owned()))
     }
 }
 
