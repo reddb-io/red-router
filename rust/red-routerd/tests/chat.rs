@@ -1108,6 +1108,87 @@ async fn authenticates_separates_credentials_and_streams_incrementally() {
 }
 
 #[tokio::test]
+#[ignore = "run explicitly in release mode for descriptive performance"]
+async fn benchmark_mixed_combo() {
+    let provider = Router::new()
+        .route(
+            "/v1/chat/completions",
+            post(|body: String| async move {
+                let value: serde_json::Value = serde_json::from_str(&body).unwrap();
+                if value["model"] == "gpt-fail" {
+                    (StatusCode::TOO_MANY_REQUESTS, "busy").into_response()
+                } else {
+                    axum::Json(serde_json::json!({"choices":[{"message":{"content":"ok"}}]}))
+                        .into_response()
+                }
+            }),
+        )
+        .route(
+            "/v1/messages",
+            post(|| async {
+                axum::Json(serde_json::json!({"id":"msg_1","model":"claude-model",
+                "content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn",
+                "usage":{"input_tokens":3,"output_tokens":1}}))
+            }),
+        );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let provider_task = tokio::spawn(async move { axum::serve(listener, provider).await.unwrap() });
+    let make_route = |name, model| {
+        serde_json::json!({"model":name,"fallback":true,"targets":[
+            {"url":format!("http://{addr}/v1/chat/completions"),"model":model,"api_key_env":"OPENAI"},
+            {"url":format!("http://{addr}/v1/messages"),"model":"claude-model","api_key_env":"ANTHROPIC","protocol":"openai-to-anthropic"}
+        ]})
+    };
+    let routes = serde_json::json!([
+        make_route("primary", "gpt-ok"),
+        make_route("fallback", "gpt-fail")
+    ])
+    .to_string();
+    let state = ProxyState::new(
+        &format!("http://{addr}/v1/chat/completions"),
+        "client-key-12345678",
+        "unused",
+        false,
+    )
+    .await
+    .unwrap()
+    .with_routes(&routes, |_| Some("upstream-key".into()), false)
+    .await
+    .unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let proxy = listener.local_addr().unwrap();
+    let proxy_task =
+        tokio::spawn(async move { axum::serve(listener, router(state)).await.unwrap() });
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    for route in ["primary", "fallback"] {
+        let samples: Vec<u128> = stream::iter(0..220).map(|_| {
+            let client = client.clone();
+            async move {
+                let start = std::time::Instant::now();
+                let response = client.post(format!("http://{proxy}/v1/chat/completions"))
+                    .bearer_auth("client-key-12345678")
+                    .body(serde_json::json!({"model":route,"messages":[{"role":"user","content":"hello"}]}).to_string())
+                    .send().await.unwrap();
+                assert_eq!(response.status(),StatusCode::OK);
+                response.bytes().await.unwrap();
+                start.elapsed().as_micros()
+            }
+        }).buffered(16).collect().await;
+        let mut measured = samples[20..].to_vec();
+        measured.sort_unstable();
+        println!(
+            "mixed-{route}: n={} concurrency=16 p50={}us p95={}us",
+            measured.len(),
+            measured[measured.len() / 2],
+            measured[measured.len() * 95 / 100]
+        );
+    }
+    proxy_task.abort();
+    provider_task.abort();
+}
+
+#[tokio::test]
 async fn mixed_provider_combo_translates_only_the_anthropic_attempt() {
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 

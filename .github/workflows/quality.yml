@@ -141,6 +141,8 @@ jobs:
         run: cargo build --release --locked --manifest-path rust/red-routerd/Cargo.toml
       - name: Measure SQLite product connection guard
         run: cargo test --release --locked --manifest-path rust/red-routerd/Cargo.toml --test product_connection benchmark_product_guard -- --ignored --nocapture
+      - name: Measure mixed provider combo
+        run: cargo test --release --locked --manifest-path rust/red-routerd/Cargo.toml --test chat benchmark_mixed_combo -- --ignored --nocapture
       - name: RedDB diagnostics
         if: failure()
         run: cat "$RUNNER_TEMP/reddb.log" || true
