@@ -55,7 +55,7 @@ test("each product runner selects a nonempty, disjoint set of real test files", 
   }
 });
 
-test("default commands and CI only run the product suites, with one shared build", () => {
+test("default commands and CI run the selected product suites", () => {
   const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
   for (const key of ["test", "test:unit", "test:unit:ci"]) {
     assert.equal(pkg.scripts[key], "node scripts/test/run-redrouter.mjs native");
@@ -68,9 +68,10 @@ test("default commands and CI only run the product suites, with one shared build
   );
   assert.ok(pkg.scripts["test:upstream:unit"]);
   const ci = YAML.parse(readFileSync(join(root, ".github/workflows/red-publish.yml"), "utf8"));
-  const jobs = Object.values(ci.jobs);
+  const quality = YAML.parse(readFileSync(join(root, ".github/workflows/quality.yml"), "utf8"));
+  const jobs = [...Object.values(ci.jobs), ...Object.values(quality.jobs)];
   const commands = jobs.flatMap((job) => job.steps.map((step) => step.run || ""));
-  assert.equal(commands.filter((command) => command === "npm run build:release").length, 1);
+  assert.equal(ci.jobs.build.steps.filter((step) => step.run === "npm run build:release").length, 1);
   for (const command of [
     "npm run test:unit:ci",
     "npm run test:vitest",
