@@ -221,7 +221,7 @@ impl ProxyState {
             if !connection.same_provider_database(primary) || !(1..=512).contains(&key.len()) {
                 return Err("invalid product fallback");
             }
-            let mut provider_key = HeaderValue::from_str(&format!("Bearer {key}"))
+            let mut provider_key = HeaderValue::from_str(&format!("Bearer {}", key.as_str()))
                 .map_err(|_| "invalid provider key")?;
             provider_key.set_sensitive(true);
             result.push(ProductFallback {
