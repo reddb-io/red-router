@@ -297,6 +297,21 @@ async fn dashboard_keys_enforce_supported_policy_and_refuse_unimplemented_quotas
             503,
         ),
         (
+            "UPDATE api_keys SET allowed_endpoints = '[\"embeddings\"]' WHERE id = 'client'",
+            "UPDATE api_keys SET allowed_endpoints = '[\"chat\"]' WHERE id = 'client'",
+            403,
+        ),
+        (
+            "UPDATE api_keys SET allowed_connections = '[\"another-connection\"]' WHERE id = 'client'",
+            "UPDATE api_keys SET allowed_connections = '[\"test\"]' WHERE id = 'client'",
+            401,
+        ),
+        (
+            "UPDATE api_keys SET allowed_models = '[\"*\"]' WHERE id = 'client'",
+            "UPDATE api_keys SET allowed_models = '[\"openrouter/*\"]' WHERE id = 'client'",
+            503,
+        ),
+        (
             "UPDATE api_keys SET blocked_models = '[\"openai/blocked\"]' WHERE id = 'client'",
             "UPDATE api_keys SET blocked_models = '[]' WHERE id = 'client'",
             503,
@@ -334,6 +349,11 @@ async fn dashboard_keys_enforce_supported_policy_and_refuse_unimplemented_quotas
         (
             "INSERT INTO model_combo_mappings VALUES (1)",
             "DELETE FROM model_combo_mappings",
+            503,
+        ),
+        (
+            "INSERT INTO key_value VALUES ('settings', 'disabledModels', '[\"openrouter/*\"]')",
+            "DELETE FROM key_value",
             503,
         ),
         (
