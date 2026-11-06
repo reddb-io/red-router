@@ -97,8 +97,7 @@ fn parse_combo(name: &str, data: &str) -> Result<Vec<ComboTarget>, &'static str>
     if object.get("name").and_then(Value::as_str) != Some(name)
         || object
             .get("strategy")
-            .and_then(Value::as_str)
-            .is_some_and(|s| s != "priority")
+            .is_some_and(|v| v.as_str() != Some("priority"))
         || object.get("version").is_some_and(|v| v.as_u64() != Some(2))
         || object
             .get("context_cache_protection")
@@ -133,8 +132,11 @@ fn parse_combo(name: &str, data: &str) -> Result<Vec<ComboTarget>, &'static str>
                 .get("model")
                 .and_then(Value::as_str)
                 .ok_or("product combo model missing")?;
-            if let Some(provider) = step.get("providerId").and_then(Value::as_str) {
-                if !model.starts_with(&format!("{provider}/")) {
+            if let Some(provider) = step.get("providerId") {
+                if !provider
+                    .as_str()
+                    .is_some_and(|provider| model.starts_with(&format!("{provider}/")))
+                {
                     return Err("product combo provider mismatch");
                 }
             }
@@ -176,6 +178,8 @@ mod tests {
         assert_eq!(targets[1].model, "vendor/model");
         for unsupported in [
             json!({"name":"mix","strategy":"round-robin","models":["openai/gpt"]}),
+            json!({"name":"mix","strategy":42,"models":["openai/gpt"]}),
+            json!({"name":"mix","models":[{"kind":"model","model":"openai/gpt","providerId":42}]}),
             json!({"name":"mix","models":[{"kind":"combo-ref","comboName":"other"}]}),
             json!({"name":"mix","models":[{"kind":"model","model":"openai/gpt","connectionId":"pinned"}]}),
             json!({"name":"mix","models":["openai/*"]}),

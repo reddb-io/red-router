@@ -1,6 +1,7 @@
-//! Strict usage normalization and pricing primitives for future quota accounting.
-//! These functions do not record usage or authorize requests.
+//! Strict usage normalization, pricing, and atomic completed-usage recording.
+//! These primitives are not connected to request admission or response handling.
 use serde_json::Value;
+use sqlx::{Row, SqlitePool};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChatUsage {
@@ -143,10 +144,173 @@ impl TokenPrices {
     }
 }
 
+pub struct CompletedUsage<'a> {
+    pub event_id: &'a str,
+    pub key_id: &'a str,
+    pub provider: &'a str,
+    pub model: &'a str,
+    pub usage: &'a ChatUsage,
+    pub prices: &'a TokenPrices,
+    pub timestamp_ms: i64,
+}
+
+/// Atomically record one fully observed, explicitly priced response in the
+/// product ledger and TPM counter. Duplicate event IDs are idempotent only
+/// when their persisted accounting values match. This is not admission:
+/// callers must reserve quota and coordinate incomplete streams separately.
+pub async fn record_completed_usage(
+    pool: &SqlitePool,
+    event: &CompletedUsage<'_>,
+) -> Result<bool, &'static str> {
+    if event.event_id.is_empty()
+        || event.event_id.len() > 256
+        || event.key_id.is_empty()
+        || event.key_id.len() > 512
+        || event.model.is_empty()
+        || event.model.len() > 256
+        || !matches!(event.provider, "openai" | "openrouter")
+        || event.timestamp_ms < 0
+    {
+        return Err("invalid accounting event");
+    }
+    let billable = event.usage.billable_tokens()?;
+    let cost = event.prices.cost_usd(event.usage)?;
+    let input = i64::try_from(event.usage.input).map_err(|_| "invalid token usage")?;
+    let output = i64::try_from(event.usage.output).map_err(|_| "invalid token usage")?;
+    let reasoning = i64::try_from(event.usage.reasoning).map_err(|_| "invalid token usage")?;
+    let cache_read = i64::try_from(event.usage.cache_read).map_err(|_| "invalid token usage")?;
+    let cache_creation =
+        i64::try_from(event.usage.cache_creation).map_err(|_| "invalid token usage")?;
+    let mut tx = pool
+        .begin_with("BEGIN IMMEDIATE")
+        .await
+        .map_err(|_| "accounting unavailable")?;
+    let key_exists: i64 = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM api_keys WHERE id = ? AND tenant_id = 'red')",
+    )
+    .bind(event.key_id)
+    .fetch_one(&mut *tx)
+    .await
+    .map_err(|_| "accounting key unavailable")?;
+    if key_exists != 1 {
+        return Err("accounting key unavailable");
+    }
+    let inserted = sqlx::query("INSERT INTO request_cost_ledger (api_key_id, provider, model, tokens_input, tokens_output, tokens_cache_read, tokens_cache_creation, tokens_reasoning, unit_price_input, unit_price_output, amount_usd, service_tier, success, timestamp, event_id, pricing_known, tenant_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'standard', 1, strftime('%Y-%m-%dT%H:%M:%fZ', ? / 1000.0, 'unixepoch'), ?, 1, 'red') ON CONFLICT(event_id) WHERE event_id IS NOT NULL DO NOTHING")
+        .bind(event.key_id).bind(event.provider).bind(event.model).bind(input).bind(output)
+        .bind(cache_read).bind(cache_creation).bind(reasoning).bind(event.prices.input).bind(event.prices.output)
+        .bind(cost).bind(event.timestamp_ms).bind(event.event_id).execute(&mut *tx).await
+        .map_err(|_| "cost ledger unavailable")?.rows_affected();
+    if inserted == 0 {
+        let row = sqlx::query("SELECT api_key_id, provider, model, tokens_input, tokens_output, tokens_cache_read, tokens_cache_creation, tokens_reasoning, unit_price_input, unit_price_output, amount_usd, (timestamp = strftime('%Y-%m-%dT%H:%M:%fZ', ? / 1000.0, 'unixepoch')) AS same_time, tenant_id, success, pricing_known FROM request_cost_ledger WHERE event_id = ?")
+            .bind(event.timestamp_ms).bind(event.event_id).fetch_optional(&mut *tx).await.map_err(|_| "cost ledger unavailable")?
+            .ok_or("cost ledger unavailable")?;
+        let same = row.try_get::<String, _>("api_key_id").ok().as_deref() == Some(event.key_id)
+            && row.try_get::<String, _>("provider").ok().as_deref() == Some(event.provider)
+            && row.try_get::<String, _>("model").ok().as_deref() == Some(event.model)
+            && row.try_get::<i64, _>("tokens_input").ok() == Some(input)
+            && row.try_get::<i64, _>("tokens_output").ok() == Some(output)
+            && row.try_get::<i64, _>("tokens_reasoning").ok() == Some(reasoning)
+            && row.try_get::<i64, _>("tokens_cache_read").ok() == Some(cache_read)
+            && row.try_get::<i64, _>("tokens_cache_creation").ok() == Some(cache_creation)
+            && row.try_get::<f64, _>("unit_price_input").ok() == Some(event.prices.input)
+            && row.try_get::<f64, _>("unit_price_output").ok() == Some(event.prices.output)
+            && row.try_get::<f64, _>("amount_usd").ok() == Some(cost)
+            && row.try_get::<i64, _>("same_time").ok() == Some(1)
+            && row.try_get::<String, _>("tenant_id").ok().as_deref() == Some("red")
+            && row.try_get::<i64, _>("success").ok() == Some(1)
+            && row.try_get::<i64, _>("pricing_known").ok() == Some(1);
+        if !same {
+            return Err("accounting event ID collision");
+        }
+        tx.commit().await.map_err(|_| "accounting unavailable")?;
+        return Ok(false);
+    }
+    if billable > 0 {
+        sqlx::query("INSERT INTO api_key_quota_counters (api_key_id, dimension_key, bucket_index, consumed, updated_at) VALUES (?, 'key-quota:tpm', ?, ?, ?) ON CONFLICT(api_key_id, dimension_key, bucket_index) DO UPDATE SET consumed = consumed + excluded.consumed, updated_at = excluded.updated_at")
+            .bind(event.key_id).bind(event.timestamp_ms / 60_000).bind(billable as i64).bind(event.timestamp_ms)
+            .execute(&mut *tx).await.map_err(|_| "token counter unavailable")?;
+    }
+    tx.commit().await.map_err(|_| "accounting unavailable")?;
+    Ok(true)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+    use sqlx::sqlite::SqlitePoolOptions;
+
+    async fn accounting_database() -> SqlitePool {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        sqlx::raw_sql(include_str!(
+            "../../../src/lib/db/migrations/182_request_cost_ledger_and_key_quota.sql"
+        ))
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::raw_sql(include_str!(
+            "../../../src/lib/db/migrations/219_cost_ledger_recovery.sql"
+        ))
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::raw_sql("CREATE TABLE api_keys (id TEXT PRIMARY KEY, tenant_id TEXT); INSERT INTO api_keys VALUES ('key', 'red'); ALTER TABLE request_cost_ledger ADD COLUMN tenant_id TEXT; ALTER TABLE request_cost_ledger ADD COLUMN pricing_known INTEGER NOT NULL DEFAULT 1;")
+            .execute(&pool).await.unwrap();
+        pool
+    }
+
+    #[tokio::test]
+    async fn completed_usage_is_idempotent_and_atomic_with_token_counter() {
+        let pool = accounting_database().await;
+        let usage = ChatUsage::from_response(
+            &json!({"usage":{"prompt_tokens":100,"completion_tokens":50}}),
+        )
+        .unwrap();
+        let prices = TokenPrices::from_record(&json!({"input":2,"output":4})).unwrap();
+        let mut event = CompletedUsage {
+            event_id: "event-1",
+            key_id: "key",
+            provider: "openai",
+            model: "gpt",
+            usage: &usage,
+            prices: &prices,
+            timestamp_ms: 1_700_000_000_000,
+        };
+        assert_eq!(record_completed_usage(&pool, &event).await, Ok(true));
+        assert_eq!(record_completed_usage(&pool, &event).await, Ok(false));
+        event.timestamp_ms += 60_000;
+        assert_eq!(
+            record_completed_usage(&pool, &event).await,
+            Err("accounting event ID collision")
+        );
+        let (count, amount): (i64, f64) =
+            sqlx::query_as("SELECT count(*), sum(amount_usd) FROM request_cost_ledger")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(count, 1);
+        assert!((amount - 0.0004).abs() < 1e-12);
+        let tokens: f64 = sqlx::query_scalar("SELECT consumed FROM api_key_quota_counters WHERE api_key_id = 'key' AND dimension_key = 'key-quota:tpm'").fetch_one(&pool).await.unwrap();
+        assert_eq!(tokens, 150.0);
+        sqlx::query("CREATE TRIGGER fail_counter BEFORE INSERT ON api_key_quota_counters BEGIN SELECT RAISE(ABORT, 'failure'); END").execute(&pool).await.unwrap();
+        event.event_id = "event-2";
+        assert_eq!(
+            record_completed_usage(&pool, &event).await,
+            Err("token counter unavailable")
+        );
+        let count: i64 = sqlx::query_scalar("SELECT count(*) FROM request_cost_ledger")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            count, 1,
+            "ledger insert must roll back when the counter fails"
+        );
+    }
 
     #[test]
     fn normalizes_breakdowns_and_matches_product_cost_math() {
