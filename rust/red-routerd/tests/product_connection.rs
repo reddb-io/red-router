@@ -827,6 +827,12 @@ async fn shared_rpm_reservations_coordinate_independent_proxy_instances() {
 #[ignore = "run explicitly in release mode for descriptive performance"]
 async fn benchmark_product_guard() {
     let (dir, mut db) = fixture().await;
+    // Match the product database's normal journal mode; functional concurrency
+    // tests also exercise SQLite's default rollback journal separately.
+    sqlx::query("PRAGMA journal_mode = WAL")
+        .execute(&mut db)
+        .await
+        .unwrap();
     sqlx::query("INSERT INTO api_keys (id, key) VALUES ('bench', 'client-key-123456789')")
         .execute(&mut db)
         .await
@@ -910,7 +916,7 @@ async fn benchmark_product_guard() {
         let mut measured = samples[20..].to_vec();
         measured.sort_unstable();
         println!(
-            "{label}: n={} concurrency=16 p50={}us p95={}us",
+            "{label}: journal=wal n={} concurrency=16 p50={}us p95={}us",
             measured.len(),
             measured[measured.len() / 2],
             measured[measured.len() * 95 / 100]
