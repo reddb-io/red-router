@@ -47,7 +47,21 @@ async fn rust_and_typescript_reserve_one_shared_token_and_spend_budget() {
     .await
     .unwrap();
     sqlx::raw_sql("CREATE TABLE api_keys (id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL); INSERT INTO api_keys VALUES ('node-key','red'); ALTER TABLE request_cost_ledger ADD COLUMN tenant_id TEXT; ALTER TABLE request_cost_ledger ADD COLUMN pricing_known INTEGER NOT NULL DEFAULT 1;").execute(&pool).await.unwrap();
-    sqlx::query("INSERT INTO api_key_usage_reservations VALUES ('rust-handoff','node-key',150,0.001,1700000000000,'dispatched')").execute(&pool).await.unwrap();
+    assert!(reserve_usage(
+        &pool,
+        &UsageReservation {
+            id: "rust-handoff",
+            key_id: "node-key",
+            tokens: 150,
+            usd: 0.001,
+            now_ms: 1_700_000_000_000
+        }
+    )
+    .await
+    .unwrap());
+    assert!(mark_dispatched(&pool, "rust-handoff", "node-key")
+        .await
+        .unwrap());
     sqlx::query("INSERT INTO api_key_quota_limits(api_key_id,tpm_limit,monthly_amount_usd) VALUES ('key',80,1.0)").execute(&pool).await.unwrap();
     sqlx::query(
         "INSERT INTO api_key_daily_token_limits(api_key_id,daily_tokens_limit) VALUES ('key',80)",
@@ -99,6 +113,18 @@ async fn rust_and_typescript_reserve_one_shared_token_and_spend_budget() {
     let node_result = serde_json::from_str::<serde_json::Value>(&output).unwrap();
     assert_eq!(node_result["settled"], true);
     assert_eq!(node_result["duplicate"], false);
+    assert_eq!(node_result["collision"], true);
+    assert_eq!(node_result["overrunReservation"], true);
+    assert_eq!(node_result["dispatched"], true);
+    assert_eq!(node_result["cancelled"], false);
+    assert_eq!(node_result["overrun"], true);
+    let quarantined: i64 = sqlx::query_scalar(
+        "SELECT reserved_tokens FROM api_key_usage_reservations WHERE id = 'node-overrun'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(quarantined, 9_007_199_254_740_991);
     let node_count = node_result["allowed"].as_u64().unwrap() as usize;
     assert_eq!(results.iter().filter(|v| **v).count() + node_count, 8);
     let (count, total): (i64, i64) = sqlx::query_as("SELECT COUNT(*),SUM(reserved_tokens) FROM api_key_usage_reservations WHERE api_key_id = 'key'").fetch_one(&pool).await.unwrap();

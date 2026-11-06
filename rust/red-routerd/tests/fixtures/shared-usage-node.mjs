@@ -1,5 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
-import { reserveUsageOnDb, settleUsageOnDb } from "../../../../src/lib/db/sharedUsageReservation.ts";
+import { reserveUsageOnDb, settleUsageOnDb, markUsageDispatchedOnDb, cancelUndispatchedUsageOnDb } from "../../../../src/lib/db/sharedUsageReservation.ts";
 
 const raw = new DatabaseSync(process.env.RED_ROUTER_TEST_SQLITE);
 raw.exec("PRAGMA busy_timeout = 10000");
@@ -24,6 +24,13 @@ process.stdin.once("data", () => {
     reasoning: 0, cacheRead: 0, cacheCreation: 0, prices: { input: 2, output: 4, cached: 2, cacheCreation: 2, reasoning: 4 } };
   const settled = settleUsageOnDb(db, event);
   const duplicate = settleUsageOnDb(db, event);
+  let collision = false;
+  try { settleUsageOnDb(db, { ...event, output: 51 }); } catch { collision = true; }
+  const overrunReservation = reserveUsageOnDb(db, { id: "node-overrun", keyId: "node-key", tokens: 10, usd: 0.001, nowMs: event.nowMs });
+  const dispatched = markUsageDispatchedOnDb(db, "node-overrun", "node-key");
+  const cancelled = cancelUndispatchedUsageOnDb(db, "node-overrun", "node-key");
+  let overrun = false;
+  try { settleUsageOnDb(db, { ...event, id: "node-overrun" }); } catch { overrun = true; }
   raw.close();
-  process.stdout.write(JSON.stringify({ allowed, settled, duplicate }) + "\n", () => process.exit(0));
+  process.stdout.write(JSON.stringify({ allowed, settled, duplicate, collision, overrunReservation, dispatched, cancelled, overrun }) + "\n", () => process.exit(0));
 });
