@@ -237,8 +237,8 @@ jobs:
         run: |
           set -euo pipefail
           cd "$RUNNER_TEMP"
-          curl --fail --location --retry 3 -o red-linux-x86_64-static https://github.com/reddb-io/reddb/releases/download/v1.23.4/red-linux-x86_64-static
-          curl --fail --location --retry 3 -o SHA256SUMS https://github.com/reddb-io/reddb/releases/download/v1.23.4/SHA256SUMS
+          curl --fail --location --retry 3 -o red-linux-x86_64-static https://github.com/reddb-io/reddb/releases/download/v1.28.13/red-linux-x86_64-static
+          curl --fail --location --retry 3 -o SHA256SUMS https://github.com/reddb-io/reddb/releases/download/v1.28.13/SHA256SUMS
           awk '$2 == "red-linux-x86_64-static" { print; found = 1 } END { if (!found) exit 1 }' SHA256SUMS > routing.sha256
           sha256sum --check routing.sha256
           chmod +x red-linux-x86_64-static
