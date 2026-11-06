@@ -47,6 +47,7 @@ struct ModelRoute {
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum ProviderProtocol {
     OpenAi,
+    OpenAiResponses,
     Anthropic,
 }
 
@@ -95,6 +96,7 @@ impl ProxyState {
             || upstream.fragment().is_some()
             || !upstream.path().ends_with(match protocol {
                 ProviderProtocol::OpenAi => "/chat/completions",
+                ProviderProtocol::OpenAiResponses => "/responses",
                 ProviderProtocol::Anthropic => "/messages",
             })
         {
@@ -130,7 +132,9 @@ impl ProxyState {
             return Err("client key must be 16-512 bytes and provider key 1-512 bytes");
         }
         let provider_credential = match protocol {
-            ProviderProtocol::OpenAi => format!("Bearer {provider_key}"),
+            ProviderProtocol::OpenAi | ProviderProtocol::OpenAiResponses => {
+                format!("Bearer {provider_key}")
+            }
             ProviderProtocol::Anthropic => provider_key.to_owned(),
         };
         let mut provider_key =
@@ -197,6 +201,9 @@ impl ProxyState {
             let protocol = match object.get("protocol") {
                 None => ProviderProtocol::OpenAi,
                 Some(value) if value.as_str() == Some("openai") => ProviderProtocol::OpenAi,
+                Some(value) if value.as_str() == Some("openai-responses") => {
+                    ProviderProtocol::OpenAiResponses
+                }
                 Some(value) if value.as_str() == Some("anthropic") => ProviderProtocol::Anthropic,
                 _ => return Err("unsupported route protocol"),
             };
@@ -331,6 +338,7 @@ pub fn router(state: ProxyState) -> Router {
     Router::new()
         .route("/healthz", get(|| async { StatusCode::OK }))
         .route("/v1/chat/completions", post(chat))
+        .route("/v1/responses", post(responses))
         .route("/v1/messages", post(messages))
         .with_state(state)
 }
@@ -349,6 +357,10 @@ async fn chat(State(state): State<ProxyState>, request: Request) -> Response {
 
 async fn messages(State(state): State<ProxyState>, request: Request) -> Response {
     proxy_request(state, request, ProviderProtocol::Anthropic).await
+}
+
+async fn responses(State(state): State<ProxyState>, request: Request) -> Response {
+    proxy_request(state, request, ProviderProtocol::OpenAiResponses).await
 }
 
 async fn proxy_request(
@@ -388,6 +400,10 @@ async fn proxy_request(
         Ok(permit) => permit,
         Err(_) => return error(StatusCode::TOO_MANY_REQUESTS, "Proxy is at capacity"),
     };
+    let client_permit = match policy.try_acquire() {
+        Ok(permit) => permit,
+        Err(()) => return error(StatusCode::TOO_MANY_REQUESTS, "Client is at capacity"),
+    };
     let accept = request.headers().get(header::ACCEPT).cloned();
     let body = match to_bytes(request.into_body(), MAX_BODY_BYTES).await {
         Ok(body) => body,
@@ -409,7 +425,7 @@ async fn proxy_request(
         return error(StatusCode::FORBIDDEN, "Model is not allowed");
     }
     let route = state.routes.get(&model);
-    if (route.is_none() && (!state.routes.is_empty() || protocol == ProviderProtocol::Anthropic))
+    if (route.is_none() && (!state.routes.is_empty() || protocol != ProviderProtocol::OpenAi))
         || route.is_some_and(|route| route.protocol != protocol)
     {
         return error(StatusCode::NOT_FOUND, "Unknown model route");
@@ -511,7 +527,7 @@ async fn proxy_request(
     headers.insert("x-accel-buffering", HeaderValue::from_static("no"));
     // The permit is retained until the upstream stream finishes or the client drops it.
     let stream = response.bytes_stream().map(move |chunk| {
-        let _keep_alive = &permit;
+        let _keep_alive = (&permit, &client_permit);
         chunk
     });
     let mut result = Response::new(Body::from_stream(stream));

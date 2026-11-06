@@ -290,6 +290,9 @@ async fn client_policies_fail_closed_when_invalid() {
         serde_json::json!([{"api_key_env":"KEY","allowed_routes":"all"}]),
         serde_json::json!([{"api_key_env":"KEY","blocked_models":["ab*cd"]}]),
         serde_json::json!([{"api_key_env":"KEY","enabled":"true"}]),
+        serde_json::json!([{"api_key_env":"KEY","max_concurrent_requests":0}]),
+        serde_json::json!([{"api_key_env":"KEY","max_concurrent_requests":65}]),
+        serde_json::json!([{"api_key_env":"KEY","max_concurrent_requests":"1"}]),
         serde_json::json!([{"api_key_env":"KEY"},{"api_key_env":"KEY"}]),
         serde_json::json!([{"api_key_env":"KEY","unrecognized":true}]),
     ] {
@@ -301,6 +304,131 @@ async fn client_policies_fail_closed_when_invalid() {
     assert!(state
         .with_client_policies(r#"[{"api_key_env":"MISSING"}]"#, |_| None)
         .is_err());
+}
+
+#[tokio::test]
+async fn responses_passthrough_enforces_concurrency_per_client_until_stream_end() {
+    let (release, wait) = oneshot::channel::<()>();
+    let wait = Arc::new(Mutex::new(Some(wait)));
+    let mock = Router::new().route(
+        "/v1/responses",
+        post(move |headers: HeaderMap, body: String| {
+            let wait = Arc::clone(&wait);
+            async move {
+                assert_eq!(
+                    headers.get(header::AUTHORIZATION).unwrap(),
+                    "Bearer upstream-secret"
+                );
+                let value: serde_json::Value = serde_json::from_str(&body).unwrap();
+                assert_eq!(value["model"], "provider-responses-model");
+                assert_eq!(value["input"], "hello");
+                if value["hold"] == true {
+                    let wait = wait.lock().await.take().unwrap();
+                    let first = stream::once(async {
+                        Ok::<_, io::Error>(Bytes::from_static(
+                            b"event: response.created\ndata: {}\n\n",
+                        ))
+                    });
+                    let last = stream::once(async move {
+                        let _ = wait.await;
+                        Ok::<_, io::Error>(Bytes::from_static(
+                            b"event: response.completed\ndata: {}\n\n",
+                        ))
+                    });
+                    (
+                        [(header::CONTENT_TYPE, "text/event-stream")],
+                        Body::from_stream(first.chain(last)),
+                    )
+                        .into_response()
+                } else {
+                    (
+                        [(header::CONTENT_TYPE, "application/json")],
+                        r#"{"object":"response"}"#,
+                    )
+                        .into_response()
+                }
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let mock_task = tokio::spawn(async move { axum::serve(listener, mock).await.unwrap() });
+    let config = serde_json::json!([{"model":"responses-route","protocol":"openai-responses","targets":[{
+        "url":format!("http://{addr}/v1/responses"),"model":"provider-responses-model","api_key_env":"UPSTREAM_KEY"
+    }]}]).to_string();
+    let policies = serde_json::json!([
+        {"api_key_env":"CLIENT_ONE","max_concurrent_requests":1},
+        {"api_key_env":"CLIENT_TWO","max_concurrent_requests":1}
+    ])
+    .to_string();
+    let state = ProxyState::new(
+        &format!("http://{addr}/v1/chat/completions"),
+        "default-client-key-123",
+        "unused",
+        false,
+    )
+    .await
+    .unwrap()
+    .with_routes(&config, |_| Some("upstream-secret".into()), false)
+    .await
+    .unwrap()
+    .with_client_policies(&policies, |name| match name {
+        "CLIENT_ONE" => Some("first-client-key-123".into()),
+        "CLIENT_TWO" => Some("other-client-key-123".into()),
+        _ => None,
+    })
+    .unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let task = tokio::spawn(async move { axum::serve(listener, router(state)).await.unwrap() });
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let send = |path: &str, key: &str, hold: bool| {
+        client.post(format!("{base}{path}"))
+        .bearer_auth(key).body(serde_json::json!({"model":"responses-route","input":"hello","stream":true,"hold":hold}).to_string()).send()
+    };
+    let mut first = send("/v1/responses", "first-client-key-123", true)
+        .await
+        .unwrap();
+    assert_eq!(first.status(), StatusCode::OK);
+    assert_eq!(
+        first.chunk().await.unwrap().unwrap(),
+        "event: response.created\ndata: {}\n\n"
+    );
+    assert_eq!(
+        send("/v1/responses", "first-client-key-123", false)
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::TOO_MANY_REQUESTS
+    );
+    assert_eq!(
+        send("/v1/chat/completions", "other-client-key-123", false)
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        send("/v1/responses", "other-client-key-123", false)
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    release.send(()).unwrap();
+    assert_eq!(
+        first.text().await.unwrap(),
+        "event: response.completed\ndata: {}\n\n"
+    );
+    assert_eq!(
+        send("/v1/responses", "first-client-key-123", false)
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    task.abort();
+    mock_task.abort();
 }
 
 #[tokio::test]

@@ -2,6 +2,7 @@ use axum::http::{header, HeaderMap};
 use serde_json::Value;
 use std::sync::Arc;
 use subtle::ConstantTimeEq;
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 pub(crate) struct ClientPolicies {
     entries: Vec<ClientPolicy>,
@@ -12,6 +13,7 @@ pub(crate) struct ClientPolicy {
     enabled: bool,
     allowed_routes: Option<Vec<String>>,
     blocked_models: Vec<String>,
+    concurrency: Option<Arc<Semaphore>>,
 }
 
 impl ClientPolicies {
@@ -22,6 +24,7 @@ impl ClientPolicies {
                 enabled: true,
                 allowed_routes: None,
                 blocked_models: Vec::new(),
+                concurrency: None,
             }],
         }
     }
@@ -43,8 +46,14 @@ impl ClientPolicies {
         for policy in policies {
             let object = policy.as_object().ok_or("invalid client policy")?;
             if object.keys().any(|name| {
-                !["api_key_env", "enabled", "allowed_routes", "blocked_models"]
-                    .contains(&name.as_str())
+                ![
+                    "api_key_env",
+                    "enabled",
+                    "allowed_routes",
+                    "blocked_models",
+                    "max_concurrent_requests",
+                ]
+                .contains(&name.as_str())
             }) {
                 return Err("unknown client policy field");
             }
@@ -82,11 +91,22 @@ impl ClientPolicies {
                 .map(parse_patterns)
                 .transpose()?
                 .unwrap_or_default();
+            let concurrency = match object.get("max_concurrent_requests") {
+                None => None,
+                Some(value) => {
+                    let count = value
+                        .as_u64()
+                        .filter(|count| (1..=super::MAX_IN_FLIGHT as u64).contains(count))
+                        .ok_or("invalid client concurrency limit")?;
+                    Some(Arc::new(Semaphore::new(count as usize)))
+                }
+            };
             entries.push(ClientPolicy {
                 key: Arc::from(key),
                 enabled,
                 allowed_routes,
                 blocked_models,
+                concurrency,
             });
         }
         Ok(Self { entries })
@@ -127,6 +147,13 @@ impl ClientPolicies {
 }
 
 impl ClientPolicy {
+    pub(crate) fn try_acquire(&self) -> Result<Option<OwnedSemaphorePermit>, ()> {
+        self.concurrency
+            .as_ref()
+            .map(|semaphore| semaphore.clone().try_acquire_owned().map_err(|_| ()))
+            .transpose()
+    }
+
     pub(crate) fn route_allowed(&self, model: &str) -> bool {
         !self.model_blocked(model)
             && self

@@ -110,6 +110,13 @@ Send native requests to `/v1/messages` with the proxy client key in `x-api-key`
 Each route has one protocol; OpenAI and Anthropic requests cannot be interchanged.
 Gemini and other native provider protocols are not yet implemented.
 
+For native OpenAI Responses, configure a distinct route with
+`"protocol":"openai-responses"` and a target URL ending in `/v1/responses`.
+Send requests to `/v1/responses` with the proxy bearer key and an explicit
+`model` matching that route. JSON and server-sent events are relayed without
+translation; retrieval, cancellation and other Responses endpoints are not yet
+implemented. See the [official streaming guide](https://developers.openai.com/api/docs/guides/streaming-responses).
+
 ## Experimental client policies
 
 `RED_ROUTER_CLIENT_POLICIES_JSON` replaces the default client credential with
@@ -121,7 +128,7 @@ never put a key in the JSON. Without this setting, the original
 export AGENT_CLIENT_KEY='replace-with-a-random-client-key'
 export RED_ROUTER_CLIENT_POLICIES_JSON='[
   {"api_key_env":"AGENT_CLIENT_KEY","allowed_routes":["my-combo"],
-   "blocked_models":["vendor/restricted-model"]}
+   "blocked_models":["vendor/restricted-model"],"max_concurrent_requests":4}
 ]'
 ```
 
@@ -130,7 +137,9 @@ all, while an empty array denies all. `blocked_models` denies matching requested
 models and filters matching upstream target model names before selection or
 fallback. Rules are exact, `*`, or a namespace prefix ending in `/*`.
 `enabled: false` disables a key. Unknown fields, missing keys, duplicate keys,
-and malformed rules fail startup. Changes apply after restart. These policies are
+and malformed rules fail startup. `max_concurrent_requests` optionally limits each
+key to 1–64 concurrent requests within this process; a stream holds its slot until
+it finishes or is dropped. A busy key receives HTTP 429. Changes apply after restart. These policies are
 local to this experimental process and do not import existing dashboard settings,
 per-key budgets, quotas, schedules, provider-account restrictions or distributed
 rate limits. Do not assume policy parity with the current RedRouter.
