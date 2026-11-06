@@ -4,8 +4,8 @@ This is an **experimental development slice**, not a replacement for RedRouter. 
 implements one OpenAI-compatible chat route with a required client
 bearer key, a separate provider bearer key, bounded request size and concurrent
 streams, reusable HTTP connections, incremental responses, and safe redirect refusal.
-It binds only to loopback. The operator can configure one OpenAI-compatible HTTPS
-provider or a literal-loopback HTTP mock. It does not provide a public listener.
+It binds only to loopback. The operator can configure OpenAI-compatible HTTPS
+providers or literal-loopback HTTP mocks. It does not provide a public listener.
 
 It supports explicitly configured model aliases for OpenAI-compatible endpoints,
 priority or round-robin selection, and opt-in fallback. It does not yet implement
