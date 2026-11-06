@@ -316,3 +316,14 @@ pub fn embedded_default_url() -> Result<String, &'static str> {
         .map(|url| url.to_string())
         .map_err(|_| "invalid database path")
 }
+
+pub fn sqlite_default_url() -> Result<String, &'static str> {
+    let path = std::env::current_dir()
+        .map_err(|_| "cannot resolve database path")?
+        .join("red-router.sqlite");
+    let url = url::Url::from_file_path(path).map_err(|_| "invalid database path")?;
+    Ok(format!(
+        "{}?mode=rwc",
+        url.as_str().replacen("file:", "sqlite:", 1)
+    ))
+}

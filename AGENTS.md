@@ -31,9 +31,9 @@ another project's release branches, freeze issues, VPS or operator identity.
 Respect the operator's main-only workflow; do not reset the tree, remove other
 sessions' work or bulk-copy an upstream tree over RedRouter.
 
-The existing TypeScript product uses local/offline SQLite by default. The
-experimental Rust core targets RedDB embedded by default and supports explicitly
-selected SQLite, remote RedDB and PostgreSQL backends. Losing database connectivity
+The existing TypeScript product and experimental Rust core use local/offline SQLite
+by default for now. The Rust core also supports explicitly selected embedded RedDB,
+remote RedDB and PostgreSQL backends. Losing database connectivity
 must not switch the durable authority to another backend. Offline/online
 synchronization is a separate capability. This is the selected architecture, not a
 claim of complete migration, external-backend or multi-replica support. Follow

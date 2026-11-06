@@ -30,14 +30,14 @@ cargo run --release --manifest-path rust/red-routerd/Cargo.toml
 
 ## Experimental database selection
 
-The default is RedDB embedded, using `red-router.rdb` in the working directory.
-Override the file with an absolute `file://` URI in `RED_ROUTER_DATABASE_URL`.
-Alternatively set `RED_ROUTER_DB_BACKEND` and a matching database URL:
+The default is SQLite, using `red-router.sqlite` in the working directory. Set
+`RED_ROUTER_DATABASE_URL` to a SQLite URL to choose another file, or select a
+different backend explicitly using `RED_ROUTER_DB_BACKEND` and a matching URL:
 
 | Backend | `RED_ROUTER_DB_BACKEND` | `RED_ROUTER_DATABASE_URL` |
 | --- | --- | --- |
-| RedDB embedded | `reddb-embedded` | `file:///absolute/path/red-router.rdb` |
 | SQLite embedded | `sqlite` | `sqlite:///absolute/path/router.sqlite?mode=rwc` |
+| RedDB embedded | `reddb-embedded` | `file:///absolute/path/red-router.rdb` |
 | RedDB remote | `reddb-remote` | `reds://user:password@host:5050` |
 | PostgreSQL | `postgres` | `postgresql://user:password@host:port/database` |
 
@@ -53,14 +53,21 @@ unavailable causes startup to fail, with no automatic switch to a local database
 RedDB's known concurrent indexed-read issue remains under investigation; these
 settings are not yet suitable evidence of safe clustered operation.
 
+An existing `red-router.rdb` from the previous default is not migrated. If it is
+present and the default SQLite file is absent, startup requires an explicit backend
+selection or database URL before creating a new authority. Set
+`RED_ROUTER_DB_BACKEND=sqlite` to start a new SQLite database, or select
+`reddb-embedded` and use a build with the feature enabled to keep using RedDB.
+
 On the first run against an empty database, `RED_ROUTER_UPSTREAM_URL` is validated
 and saved. On later runs the stored value wins over this initial seed. To change it,
 set the environment variables as above and run the binary with `set-upstream`;
 restart each proxy process to apply the change. Stop the proxy first when editing an
 embedded RedDB file: one RedRouter process can own that file at a time. This slice does not implement
 distributed configuration invalidation or database-backed provider credentials.
-Build with `--no-default-features` to omit the embedded RedDB engine for a
-remote-only or SQLite deployment; choosing `reddb-embedded` in that build fails.
+The default build omits the embedded RedDB engine. Build with
+`--features reddb-embedded` to select embedded RedDB; choosing it in the default
+build fails. Remote RedDB remains available without that feature.
 
 For an OpenAI-compatible provider, set `RED_ROUTER_UPSTREAM_URL` to its complete
 HTTPS chat-completions URL, `RED_ROUTER_PROVIDER_KEY` to its credential, and

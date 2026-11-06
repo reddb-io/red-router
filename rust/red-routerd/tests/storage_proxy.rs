@@ -71,7 +71,7 @@ async fn proxy_roundtrip(backend: Backend, database_url: &str, remote: bool) {
             .stderr(Stdio::from(std::fs::File::create(&log).unwrap()));
         match backend {
             Backend::ReddbEmbedded => {
-                command.env_remove("RED_ROUTER_DB_BACKEND");
+                command.env("RED_ROUTER_DB_BACKEND", "reddb-embedded");
             }
             Backend::Sqlite => {
                 command.env("RED_ROUTER_DB_BACKEND", "sqlite");
@@ -128,6 +128,126 @@ async fn proxy_uses_sqlite_after_restart() {
     let file = Url::from_file_path(temp.path().join("config.sqlite")).unwrap();
     let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
     proxy_roundtrip(Backend::Sqlite, &url, false).await;
+}
+
+#[tokio::test]
+async fn proxy_defaults_to_sqlite_and_keeps_configuration_after_restart() {
+    let folder = TempDir::new().unwrap();
+    let workdir = folder.path().join("database directory with spaces");
+    std::fs::create_dir(&workdir).unwrap();
+    let provider = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let provider_addr = provider.local_addr().unwrap();
+    let provider_task = tokio::spawn(async move {
+        let app = Router::new().route("/v1/chat/completions", post(|| async { "default-sqlite" }));
+        axum::serve(provider, app).await.unwrap();
+    });
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let proxy_addr = listener.local_addr().unwrap();
+    drop(listener);
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .timeout(Duration::from_secs(3))
+        .build()
+        .unwrap();
+    let base = format!("http://{proxy_addr}");
+    for attempt in 0..2 {
+        let log = workdir.join(format!("default-proxy-{attempt}.log"));
+        let seed = if attempt == 0 {
+            format!("http://{provider_addr}/v1/chat/completions")
+        } else {
+            "http://127.0.0.1:1/v1/chat/completions".to_string()
+        };
+        let mut process = Process(
+            Command::new(env!("CARGO_BIN_EXE_red-routerd"))
+                .current_dir(&workdir)
+                .env_remove("RED_ROUTER_DB_BACKEND")
+                .env_remove("RED_ROUTER_DATABASE_URL")
+                .env_remove("RED_ROUTER_ROUTES_JSON")
+                .env_remove("RED_ROUTER_CLIENT_POLICIES_JSON")
+                .env("RED_ROUTER_LISTEN", proxy_addr.to_string())
+                .env("RED_ROUTER_CLIENT_KEY", "test-client-key-12345")
+                .env("RED_ROUTER_PROVIDER_KEY", "test-provider-key")
+                .env("RED_ROUTER_UPSTREAM_URL", seed)
+                .stdout(Stdio::null())
+                .stderr(Stdio::from(std::fs::File::create(&log).unwrap()))
+                .spawn()
+                .unwrap(),
+        );
+        let deadline = Instant::now() + Duration::from_secs(20);
+        loop {
+            assert!(
+                process.0.try_wait().unwrap().is_none(),
+                "proxy exited: {}",
+                std::fs::read_to_string(&log).unwrap_or_default()
+            );
+            if client
+                .get(format!("{base}/healthz"))
+                .send()
+                .await
+                .is_ok_and(|r| r.status().is_success())
+            {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "proxy startup timed out: {}",
+                std::fs::read_to_string(&log).unwrap_or_default()
+            );
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        let response = client
+            .post(format!("{base}/v1/chat/completions"))
+            .bearer_auth("test-client-key-12345")
+            .body(r#"{"model":"example","messages":[]}"#)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 200);
+        assert_eq!(response.text().await.unwrap(), "default-sqlite");
+        drop(process);
+    }
+    assert!(workdir.join("red-router.sqlite").is_file());
+    assert!(!workdir.join("red-router.rdb").exists());
+    provider_task.abort();
+}
+
+#[test]
+fn existing_default_reddb_requires_explicit_backend_choice() {
+    let folder = TempDir::new().unwrap();
+    std::fs::write(folder.path().join("red-router.rdb"), b"existing-authority").unwrap();
+    let command = || {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_red-routerd"));
+        command
+            .arg("set-upstream")
+            .current_dir(folder.path())
+            .env_remove("RED_ROUTER_DB_BACKEND")
+            .env_remove("RED_ROUTER_DATABASE_URL")
+            .env("RED_ROUTER_CLIENT_KEY", "test-client-key-12345")
+            .env("RED_ROUTER_PROVIDER_KEY", "test-provider-key")
+            .env(
+                "RED_ROUTER_UPSTREAM_URL",
+                "http://127.0.0.1:1/v1/chat/completions",
+            );
+        command
+    };
+    let rejected = command().output().unwrap();
+    assert!(!rejected.status.success());
+    assert!(String::from_utf8_lossy(&rejected.stderr).contains("existing default RedDB found"));
+    assert!(!folder.path().join("red-router.sqlite").exists());
+    let selected = command()
+        .env("RED_ROUTER_DB_BACKEND", "sqlite")
+        .output()
+        .unwrap();
+    assert!(
+        selected.status.success(),
+        "{}",
+        String::from_utf8_lossy(&selected.stderr)
+    );
+    assert!(folder.path().join("red-router.sqlite").is_file());
+    assert_eq!(
+        std::fs::read(folder.path().join("red-router.rdb")).unwrap(),
+        b"existing-authority"
+    );
 }
 
 #[tokio::test]
@@ -236,7 +356,7 @@ async fn proxy_loads_model_routes_from_environment() {
 
 #[cfg(feature = "reddb-embedded")]
 #[tokio::test]
-async fn proxy_uses_default_embedded_reddb_after_restart() {
+async fn proxy_uses_explicit_embedded_reddb_after_restart() {
     let temp = TempDir::new().unwrap();
     let url = Url::from_file_path(temp.path().join("config.rdb")).unwrap();
     proxy_roundtrip(Backend::ReddbEmbedded, url.as_str(), false).await;

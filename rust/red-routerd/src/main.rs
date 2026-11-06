@@ -1,7 +1,7 @@
 use axum::serve::ListenerExt;
 use red_routerd::{
     router,
-    storage::{embedded_default_url, Backend, Database},
+    storage::{embedded_default_url, sqlite_default_url, Backend, Database},
     ProxyState,
 };
 use std::{env, error::Error, net::SocketAddr};
@@ -34,15 +34,32 @@ async fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
     if !address.ip().is_loopback() {
         return Err("this development slice only listens on loopback".into());
     }
-    let backend = Backend::parse(
-        &env::var("RED_ROUTER_DB_BACKEND").unwrap_or_else(|_| "reddb-embedded".into()),
-    )?;
+    let backend_setting = match env::var("RED_ROUTER_DB_BACKEND") {
+        Ok(value) => Some(value),
+        Err(env::VarError::NotPresent) => None,
+        Err(_) => return Err("RED_ROUTER_DB_BACKEND must be valid Unicode".into()),
+    };
+    let backend = Backend::parse(backend_setting.as_deref().unwrap_or("sqlite"))?;
     let database_url = match env::var("RED_ROUTER_DATABASE_URL") {
         Ok(url) => url,
-        Err(_) if backend == Backend::ReddbEmbedded => embedded_default_url()?,
-        Err(_) => {
+        Err(env::VarError::NotPresent) if backend == Backend::ReddbEmbedded => {
+            embedded_default_url()?
+        }
+        Err(env::VarError::NotPresent) if backend == Backend::Sqlite => {
+            if backend_setting.is_none() {
+                let directory = env::current_dir()?;
+                if directory.join("red-router.rdb").try_exists()?
+                    && !directory.join("red-router.sqlite").try_exists()?
+                {
+                    return Err("existing default RedDB found; explicitly select sqlite or reddb-embedded to choose the database authority".into());
+                }
+            }
+            sqlite_default_url()?
+        }
+        Err(env::VarError::NotPresent) => {
             return Err("RED_ROUTER_DATABASE_URL is required for the selected backend".into())
         }
+        Err(_) => return Err("RED_ROUTER_DATABASE_URL must be valid Unicode".into()),
     };
     let db = Database::connect(backend, &database_url).await?;
     let client_key = env::var("RED_ROUTER_CLIENT_KEY")?;
