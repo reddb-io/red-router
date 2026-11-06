@@ -974,13 +974,17 @@ async fn proxy_request(
             let Some(candidate) = &product_candidate else {
                 break;
             };
-            if !combo.unchanged().await || !connection.unchanged().await {
+            // These are independent read-only guards. Poll them concurrently,
+            // while still requiring all of them before sending to the target.
+            let (combo_ok, connection_ok, access) = tokio::join!(
+                combo.unchanged(),
+                connection.unchanged(),
+                connection.client_policies(candidate, Some(combo.name()))
+            );
+            if !combo_ok || !connection_ok {
                 continue;
             }
-            let access = match connection
-                .client_policies(candidate, Some(combo.name()))
-                .await
-            {
+            let access = match access {
                 Ok(Some(access)) => access,
                 _ => continue,
             };
