@@ -427,6 +427,9 @@ async fn proxy_request(
     let Some(policy) = state.clients.authenticate(request.headers(), protocol) else {
         return error(StatusCode::UNAUTHORIZED, "Invalid API key");
     };
+    if !policy.chat_endpoint_allowed() {
+        return error(StatusCode::FORBIDDEN, "Endpoint category is not allowed");
+    }
     let anthropic_headers = if protocol == ProviderProtocol::Anthropic {
         let mut version = request.headers().get_all("anthropic-version").iter();
         let version_value = version

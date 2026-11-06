@@ -213,7 +213,9 @@ async fn client_policies_restrict_routes_and_skip_blocked_targets() {
         {"api_key_env":"CLIENT_ONE","allowed_routes":["combo"],"blocked_models":["vendor/blocked"]},
         {"api_key_env":"CLIENT_DISABLED","enabled":false},
         {"api_key_env":"CLIENT_ALLOW","allowed_models":["vendor/allowed"]},
-        {"api_key_env":"CLIENT_DENY","allowed_models":[]}
+        {"api_key_env":"CLIENT_DENY","allowed_models":[]},
+        {"api_key_env":"CLIENT_ENDPOINT","allowed_endpoints":["images"]},
+        {"api_key_env":"CLIENT_EMPTY_ENDPOINTS","allowed_endpoints":[],"allowed_models":["vendor/allowed"]}
     ])
     .to_string();
     let state = ProxyState::new(&upstream, "default-client-key-123", "default", false)
@@ -235,6 +237,8 @@ async fn client_policies_restrict_routes_and_skip_blocked_targets() {
             "CLIENT_DISABLED" => Some("disabled-key-123456".into()),
             "CLIENT_ALLOW" => Some("client-allow-key-123".into()),
             "CLIENT_DENY" => Some("client-deny-key-1234".into()),
+            "CLIENT_ENDPOINT" => Some("client-nochat-key-123".into()),
+            "CLIENT_EMPTY_ENDPOINTS" => Some("client-empty-key-123".into()),
             _ => None,
         })
         .unwrap();
@@ -285,7 +289,17 @@ async fn client_policies_restrict_routes_and_skip_blocked_targets() {
             .status(),
         StatusCode::FORBIDDEN
     );
-    assert_eq!(calls.load(Ordering::SeqCst), 2);
+    assert_eq!(
+        send("client-nochat-key-123", "combo")
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    let response = send("client-empty-key-123", "combo").await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.text().await.unwrap(), "allowed");
+    assert_eq!(calls.load(Ordering::SeqCst), 3);
     task.abort();
     provider_task.abort();
 }
@@ -304,6 +318,8 @@ async fn client_policies_fail_closed_when_invalid() {
         serde_json::json!([]),
         serde_json::json!([{"api_key_env":"KEY","allowed_routes":"all"}]),
         serde_json::json!([{"api_key_env":"KEY","allowed_models":"all"}]),
+        serde_json::json!([{"api_key_env":"KEY","allowed_endpoints":"chat"}]),
+        serde_json::json!([{"api_key_env":"KEY","allowed_endpoints":[""]}]),
         serde_json::json!([{"api_key_env":"KEY","blocked_models":["ab*cd"]}]),
         serde_json::json!([{"api_key_env":"KEY","enabled":"true"}]),
         serde_json::json!([{"api_key_env":"KEY","max_concurrent_requests":0}]),

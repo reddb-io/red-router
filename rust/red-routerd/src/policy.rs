@@ -13,6 +13,7 @@ pub(crate) struct ClientPolicy {
     enabled: bool,
     allowed_routes: Option<Vec<String>>,
     allowed_models: Option<Vec<String>>,
+    allowed_endpoints: Vec<String>,
     blocked_models: Vec<String>,
     concurrency: Option<Arc<Semaphore>>,
 }
@@ -25,6 +26,7 @@ impl ClientPolicies {
                 enabled: true,
                 allowed_routes: None,
                 allowed_models: None,
+                allowed_endpoints: Vec::new(),
                 blocked_models: Vec::new(),
                 concurrency: None,
             }],
@@ -53,6 +55,7 @@ impl ClientPolicies {
                     "enabled",
                     "allowed_routes",
                     "allowed_models",
+                    "allowed_endpoints",
                     "blocked_models",
                     "max_concurrent_requests",
                 ]
@@ -93,6 +96,28 @@ impl ClientPolicies {
                 .get("allowed_models")
                 .map(parse_patterns)
                 .transpose()?;
+            let allowed_endpoints = match object.get("allowed_endpoints") {
+                None => Vec::new(),
+                Some(value) => {
+                    let entries = value
+                        .as_array()
+                        .ok_or("endpoint categories must be an array")?;
+                    if entries.len() > 20 {
+                        return Err("too many endpoint categories");
+                    }
+                    entries
+                        .iter()
+                        .map(|entry| {
+                            entry
+                                .as_str()
+                                .map(str::trim)
+                                .filter(|name| !name.is_empty() && name.len() <= 64)
+                                .map(str::to_owned)
+                                .ok_or("invalid endpoint category")
+                        })
+                        .collect::<Result<Vec<_>, _>>()?
+                }
+            };
             let blocked_models = object
                 .get("blocked_models")
                 .map(parse_patterns)
@@ -113,6 +138,7 @@ impl ClientPolicies {
                 enabled,
                 allowed_routes,
                 allowed_models,
+                allowed_endpoints,
                 blocked_models,
                 concurrency,
             });
@@ -176,6 +202,16 @@ impl ClientPolicy {
             .as_ref()
             .map(|semaphore| semaphore.clone().try_acquire_owned().map_err(|_| ()))
             .transpose()
+    }
+
+    // Every currently implemented generation endpoint belongs to RedRouter's
+    // chat category; empty lists retain the product's unrestricted behavior.
+    pub(crate) fn chat_endpoint_allowed(&self) -> bool {
+        self.allowed_endpoints.is_empty()
+            || self
+                .allowed_endpoints
+                .iter()
+                .any(|category| category == "chat")
     }
 
     pub(crate) fn route_allowed(&self, model: &str) -> bool {
