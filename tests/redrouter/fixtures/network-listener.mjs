@@ -29,6 +29,18 @@ const server = createServer(async (request, response) => {
   }
 });
 server.listen(Number(process.env.PORT), process.env.RED_ROUTER_SERVER_HOST);
+let shuttingDown = false;
 process.on("SIGTERM", () => {
-  server.close(() => process.exit(0));
+  if (shuttingDown) return;
+  shuttingDown = true;
+  const forceClose = setTimeout(() => {
+    server.closeAllConnections();
+    process.exit(0);
+  }, 2000);
+  forceClose.unref();
+  server.close(() => {
+    clearTimeout(forceClose);
+    process.exit(0);
+  });
+  server.closeIdleConnections();
 });
