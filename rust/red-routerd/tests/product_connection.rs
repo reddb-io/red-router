@@ -47,6 +47,135 @@ async fn fixture() -> (TempDir, SqliteConnection) {
     (dir, db)
 }
 
+#[cfg(unix)]
+#[tokio::test]
+async fn supervised_reload_keeps_engine_alive_until_active_work_drains() {
+    use std::os::unix::fs::PermissionsExt;
+    use tokio::sync::oneshot;
+
+    let (dir, mut db) = fixture().await;
+    let path = dir.path().join("storage.sqlite");
+    sqlx::query(
+        "UPDATE provider_connections SET api_key = 'fixture-provider-key' WHERE id = 'test'",
+    )
+    .execute(&mut db)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO combos (name,data) VALUES ('drain',?)")
+        .bind(r#"{"name":"drain","strategy":"priority","models":["openrouter/vendor/a"]}"#)
+        .execute(&mut db)
+        .await
+        .unwrap();
+    let combo = ProductCombo::load(&path, "drain").await.unwrap();
+    let (connection, _) = ProductConnection::open(&path, "test", None).await.unwrap();
+    let connection = connection.with_auto_selection_guard();
+    let internal = "fixture-internal-token-12345678901234567890";
+    let control = "fixture-control-token-123456789012345678901";
+    let engine_address = red_routerd::fastllm_supervisor::reserve_engine_address()
+        .await
+        .unwrap();
+    let endpoint = format!("http://{engine_address}/v1/chat/completions");
+    let routes = serde_json::json!([{"model":"drain","fallback":true,"targets":[
+        {"url":endpoint,"model":"vendor/a","api_key_env":"ENGINE"}
+    ]}])
+    .to_string();
+    let state = ProxyState::new(
+        &endpoint,
+        "unused-client-key-12345",
+        "fixture-provider-key",
+        false,
+    )
+    .await
+    .unwrap()
+    .with_routes(&routes, |_| Some(internal.to_owned()), false)
+    .await
+    .unwrap()
+    .with_product_connection(connection.clone())
+    .with_product_combo(combo, vec![connection])
+    .unwrap()
+    .with_product_client_keys()
+    .unwrap();
+    let (control_address, version, control_task) = red_routerd::fastllm_control::start(
+        &path,
+        "drain",
+        internal,
+        control,
+        None,
+        "127.0.0.1:0".parse().unwrap(),
+    )
+    .await
+    .unwrap();
+    let binary = dir.path().join("fake-fastllm.mjs");
+    std::fs::write(
+        &binary,
+        include_str!("fixtures/fake-fastllm-supervisor.mjs"),
+    )
+    .unwrap();
+    std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let (reload_tx, reload_rx) = oneshot::channel();
+    let (ready_tx, ready_rx) = oneshot::channel();
+    let (draining_tx, draining_rx) = oneshot::channel();
+    let (release_tx, release_rx) = oneshot::channel();
+    let gateway = async move {
+        let _ = ready_tx.send(());
+        let _ = reload_rx.await;
+        let _ = draining_tx.send(());
+        let _ = release_rx.await;
+        Ok(())
+    };
+    let task = tokio::spawn(async move {
+        red_routerd::fastllm_supervisor::run(
+            red_routerd::fastllm_supervisor::Config {
+                binary: &binary,
+                engine_address,
+                control_address,
+                control_token: control,
+                internal_token: internal,
+                version,
+            },
+            state,
+            control_task,
+            reload_tx,
+            gateway,
+        )
+        .await
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(10), ready_rx)
+        .await
+        .unwrap()
+        .unwrap();
+    sqlx::query("UPDATE combos SET data = ? WHERE name = 'drain'")
+        .bind(r#"{"name":"drain","strategy":"priority","models":["openrouter/vendor/b"]}"#)
+        .execute(&mut db)
+        .await
+        .unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(5), draining_rx)
+        .await
+        .unwrap()
+        .unwrap();
+    let health = reqwest::Client::builder()
+        .no_proxy()
+        .build()
+        .unwrap()
+        .get(format!("http://{engine_address}/health"))
+        .send()
+        .await
+        .unwrap();
+    assert!(
+        health.status().is_success(),
+        "engine stopped before active work drained"
+    );
+    release_tx.send(()).unwrap();
+    let result = tokio::time::timeout(std::time::Duration::from_secs(5), task)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(result
+        .unwrap_err()
+        .downcast_ref::<red_routerd::fastllm_supervisor::ReloadRequired>()
+        .is_some());
+}
+
 #[tokio::test]
 async fn fastllm_plan_reads_dashboard_combo_and_refuses_unimplemented_routing() {
     let (dir, mut db) = fixture().await;
