@@ -148,10 +148,7 @@ fn parse_combo(name: &str, data: &str) -> Result<Vec<ComboTarget>, &'static str>
         let (provider, target) = model
             .split_once('/')
             .ok_or("product combo provider missing")?;
-        if crate::product_provider::chat_url(provider).is_none()
-            || target.is_empty()
-            || target.trim() != target
-        {
+        if !crate::product_provider::supports_model(provider, target) {
             return Err("unsupported product combo provider");
         }
         targets.push(ComboTarget {

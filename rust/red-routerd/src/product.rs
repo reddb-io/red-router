@@ -751,8 +751,7 @@ impl ProductConnection {
             return Ok(None);
         };
         if provider != self.provider.as_ref()
-            || upstream_model.is_empty()
-            || upstream_model.trim() != upstream_model
+            || !crate::product_provider::supports_model(provider, upstream_model)
         {
             return Ok(None);
         }

@@ -223,6 +223,10 @@ async fn product_combo_accepts_pinned_openai_compatible_provider_endpoints() {
         ("deepseek", "https://api.deepseek.com/chat/completions"),
         ("together", "https://api.together.xyz/v1/chat/completions"),
         ("perplexity", "https://api.perplexity.ai/chat/completions"),
+        (
+            "fireworks",
+            "https://api.fireworks.ai/inference/v1/chat/completions",
+        ),
     ] {
         sqlx::query("INSERT INTO provider_connections (id,provider,auth_type,is_active,api_key,updated_at) VALUES (?,?,'apikey',1,'fixture-provider-key','a')")
             .bind(provider).bind(provider).execute(&mut db).await.unwrap();
@@ -250,6 +254,28 @@ async fn product_combo_accepts_pinned_openai_compatible_provider_endpoints() {
         vec!["groq", "mistral", "deepseek"]
     );
     assert!(red_routerd::product_provider::chat_url("untrusted-provider").is_none());
+    assert!(red_routerd::product_provider::supports_model(
+        "fireworks",
+        "accounts/fireworks/models/example"
+    ));
+    assert!(red_routerd::product_provider::supports_model(
+        "fireworks",
+        "accounts/fireworks/routers/example"
+    ));
+    assert!(!red_routerd::product_provider::supports_model(
+        "fireworks",
+        "example"
+    ));
+    sqlx::query("UPDATE combos SET data = ? WHERE name = 'providers'")
+        .bind(r#"{"name":"providers","strategy":"priority","models":["fireworks/example"]}"#)
+        .execute(&mut db)
+        .await
+        .unwrap();
+    assert!(
+        ProductCombo::load(&dir.path().join("storage.sqlite"), "providers")
+            .await
+            .is_err()
+    );
 }
 
 #[tokio::test]

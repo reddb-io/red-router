@@ -442,10 +442,10 @@ try {
   assert.equal(rotatedSnapshot.status, 200);
   assert.notEqual(rotatedSnapshot.headers.get("etag"), firstEtag);
   assert.equal((await rotatedSnapshot.json()).models[0].backends[0].api_key, "rotated-fixture-provider-key");
-  for (const provider of ["groq", "mistral", "deepseek", "together", "perplexity"]) {
+  for (const provider of ["groq", "mistral", "deepseek", "together", "perplexity", "fireworks"]) {
     credentialFixture.prepare("INSERT INTO provider_connections (id,provider,auth_type,api_key,is_active,created_at,updated_at) VALUES (?,?,'apikey','fixture-provider-key',1,'2026-01-01T00:00:00Z','2026-01-01T00:00:00Z')").run(provider, provider);
   }
-  credentialFixture.prepare("UPDATE combos SET data = ? WHERE name = 'bench'").run(JSON.stringify({ name: "bench", strategy: "priority", models: ["openrouter/vendor/model-a", "groq/fixture-groq", "mistral/fixture-mistral", "deepseek/fixture-deepseek", "together/fixture-together", "perplexity/fixture-perplexity"] }));
+  credentialFixture.prepare("UPDATE combos SET data = ? WHERE name = 'bench'").run(JSON.stringify({ name: "bench", strategy: "priority", models: ["openrouter/vendor/model-a", "groq/fixture-groq", "mistral/fixture-mistral", "deepseek/fixture-deepseek", "together/fixture-together", "perplexity/fixture-perplexity", "fireworks/accounts/fireworks/models/fixture"] }));
   const multiControlPort = await unusedPort();
   const multiControl = childProcess(redBinary, ["fastllm-control"], {
     RED_ROUTER_PRODUCT_DB_PATH: credentialDbPath, RED_ROUTER_PRODUCT_COMBO: "bench",
@@ -467,7 +467,7 @@ try {
   const providerModels = (await multiResponse.json()).models;
   assert.deepEqual(providerModels.map((model) => model.backends[0].api_base), [
     "https://openrouter.ai/api/v1", "https://api.groq.com/openai/v1",
-    "https://api.mistral.ai/v1", "https://api.deepseek.com", "https://api.together.xyz/v1", "https://api.perplexity.ai",
+    "https://api.mistral.ai/v1", "https://api.deepseek.com", "https://api.together.xyz/v1", "https://api.perplexity.ai", "https://api.fireworks.ai/inference/v1",
   ]);
   // The actual Red Router process authenticates the dashboard key and guards
   // the SQLite combo/connection before forwarding to the FastLLM process.
