@@ -280,8 +280,10 @@ try {
   const unpatched = spawnSync(redBinary, [], { env: { ...process.env, ...supervisedEnv, RED_ROUTER_FASTLLM_MANAGED_BINARY: unpatchedFastBinary }, encoding: "utf8", timeout: 30_000 });
   assert.notEqual(unpatched.status, 0, "the unpatched FastLLM must not be accepted");
   assert.match(unpatched.stderr, /FastLLM exited before readiness/);
+  process.stderr.write("CI: unpatched engine rejected\n");
   const supervised = childProcess(redBinary, [], { ...supervisedEnv, RED_ROUTER_FASTLLM_MANAGED_BINARY: fastBinary });
   await waitReady(`http://127.0.0.1:${supervisedPort}/healthz`, supervised);
+  process.stderr.write("CI: supervised engine ready\n");
   const engineChildren = () => {
     const result = spawnSync("ps", ["-o", "pid=", "--ppid", String(supervised.pid)], { encoding: "utf8" });
     return result.stdout.trim().split(/\s+/).filter(Boolean).map(Number);
@@ -289,20 +291,43 @@ try {
   const firstEngine = engineChildren()[0];
   assert.ok(firstEngine, "supervisor did not start a FastLLM child");
   process.kill(firstEngine, "SIGKILL");
+  process.stderr.write("CI: simulated engine exit\n");
   let restarted = false;
   for (let attempt = 0; attempt < 200; attempt++) {
     if (supervised.exitCode !== null) throw new Error(`supervisor exited: ${supervised.exitCode}`);
     await delay(100);
     const current = engineChildren()[0];
     if (current && current !== firstEngine) {
-      try { if ((await fetch(`http://127.0.0.1:${supervisedPort}/healthz`, { signal: AbortSignal.timeout(500) })).ok) { restarted = true; break; } } catch { /* restarting */ }
+      try {
+        const argv = readFileSync(`/proc/${current}/cmdline`, "utf8").split("\0");
+        const enginePort = argv[argv.indexOf("--port") + 1];
+        const engineReady = await fetch(`http://127.0.0.1:${enginePort}/health`, { signal: AbortSignal.timeout(500) });
+        if (engineReady.ok) {
+          // Let the supervisor finish its authenticated version and SQLite
+          // checks before intentionally changing the fixture configuration.
+          await delay(500);
+          if ((await fetch(`http://127.0.0.1:${supervisedPort}/healthz`, { signal: AbortSignal.timeout(500) })).ok) { restarted = true; break; }
+        }
+      } catch { /* restarting */ }
     }
   }
   assert.ok(restarted, "FastLLM was not restarted by the supervisor");
+  process.stderr.write("CI: supervised engine restarted\n");
   db.prepare("UPDATE provider_connections SET is_active = 0 WHERE id = 'fixture-connection'").run();
-  const stoppedConfig = await request(`http://127.0.0.1:${supervisedPort}/v1/chat/completions`, fixtureKey, "bench", AbortSignal.timeout(5000));
+  let stoppedConfig;
+  for (let attempt = 0; attempt < 100; attempt++) {
+    if (supervised.exitCode !== null) throw new Error(`supervisor exited before configuration check: ${supervised.exitCode}`);
+    try {
+      stoppedConfig = await request(`http://127.0.0.1:${supervisedPort}/v1/chat/completions`, fixtureKey, "bench", AbortSignal.timeout(5000));
+      break;
+    } catch (error) {
+      if (attempt === 99) throw new Error("supervisor unavailable after engine restart", { cause: error });
+      await delay(250);
+    }
+  }
   assert.ok([401, 503].includes(stoppedConfig.status), `changed configuration was not rejected: ${stoppedConfig.status}`);
   await stoppedConfig.body?.cancel();
+  process.stderr.write("CI: stale dashboard configuration rejected\n");
   db.prepare("UPDATE provider_connections SET is_active = 1 WHERE id = 'fixture-connection'").run();
   // Load a real encrypted product-format credential through the Rust control
   // source, then prove the patched FastLLM loads it without creating a cache.
