@@ -344,6 +344,13 @@ import { recordStreamingCost, buildStreamLedgerDetails } from "./chatCore/stream
 import { isJsonRecord } from "./chatCore/nonStreamingResponseParse.ts";
 import { recordNonStreamingUsageStats } from "./chatCore/nonStreamingUsageStats.ts";
 import {
+  executeWithChatSharedUsageAdmission,
+  isChatSharedUsageAdmissionError,
+  requiresChatSharedUsageAdmission,
+  trySettleChatSharedUsageAttempt,
+  type SharedUsageAttempt,
+} from "./chatCore/sharedUsageAdmission.ts";
+import {
   normalizeExecutorResult,
   executeWithUpstreamStartTimeout,
   getExecutorTimeoutMs,
@@ -556,6 +563,34 @@ async function handleChatCoreInner({
     defaultThinkingEffort,
   });
   let { provider, model, extendedContext } = modelInfo;
+  const sharedUsageAdmissionRequired = requiresChatSharedUsageAdmission(apiKeyInfo?.id);
+  let sharedUsageAttempt: SharedUsageAttempt | null = null;
+  let sharedUsageSettled = false;
+  const noteSharedUsageReservation = (attempt: SharedUsageAttempt) => {
+    sharedUsageAttempt = attempt;
+    sharedUsageSettled = false;
+  };
+  const settleCompletedSharedUsage = (usage: unknown) => {
+    if (!sharedUsageAttempt || sharedUsageSettled) return;
+    sharedUsageSettled = trySettleChatSharedUsageAttempt(
+      sharedUsageAttempt,
+      usage,
+      apiKeyInfo?.attribution as
+        | {
+            endUser?: string | null;
+            tags?: readonly string[] | null;
+            sessionId?: string | null;
+          }
+        | null
+        | undefined
+    );
+    if (!sharedUsageSettled) {
+      log?.warn?.(
+        "USAGE",
+        "Completed shared usage could not be settled; retaining its reservation for reconciliation"
+      );
+    }
+  };
   const getExecutorClientHeaders = () =>
     buildExecutorClientHeaders(clientRawRequest?.headers, userAgent, { provider, body });
   // Keep the selected rule across format conversion, retries and refreshed credentials.
@@ -653,6 +688,13 @@ async function handleChatCoreInner({
       errorCode: code,
     };
   };
+  const sharedUsageAdmissionErrorResult = (
+    error: import("./chatCore/sharedUsageAdmission.ts").ChatSharedUsageAdmissionError
+  ) => ({
+    ...createErrorResult(error.status, error.message, null, error.code),
+    errorType: "shared_usage_admission",
+    errorCode: error.code,
+  });
   let tokensCompressed: number | null = null;
   // ── Per-endpoint custom system prompt (port of upstream #2063) ──
   // Reads from cachedSettings if available (passed in from combo/chat layer)
@@ -3310,24 +3352,32 @@ async function handleChatCoreInner({
                     signal: streamController.signal,
                     log,
                     execute: (signal) =>
-                      runWithCapture(providerRequestCapture, () =>
-                        executor.execute({
-                          model: modelToCall,
-                          body: bodyToSend,
-                          stream: upstreamStream,
-                          credentials: execCreds,
-                          signal,
-                          log,
-                          extendedContext,
-                          upstreamExtraHeaders: buildUpstreamHeadersForExecute(modelToCall),
-                          clientHeaders: getExecutorClientHeaders(),
-                          clientResponseFormat,
-                          onCredentialsRefreshed,
-                          skipUpstreamRetry,
-                          contextEditing: { enabled: contextEditingEnabled },
-                          correlationId,
-                        })
-                      ),
+                      executeWithChatSharedUsageAdmission({
+                        apiKeyId: apiKeyInfo?.id,
+                        provider,
+                        model: modelToCall,
+                        connectionId: attemptConnectionId,
+                        onReserved: noteSharedUsageReservation,
+                        execute: () =>
+                          runWithCapture(providerRequestCapture, () =>
+                            executor.execute({
+                              model: modelToCall,
+                              body: bodyToSend,
+                              stream: upstreamStream,
+                              credentials: execCreds,
+                              signal,
+                              log,
+                              extendedContext,
+                              upstreamExtraHeaders: buildUpstreamHeadersForExecute(modelToCall),
+                              clientHeaders: getExecutorClientHeaders(),
+                              clientResponseFormat,
+                              onCredentialsRefreshed,
+                              skipUpstreamRetry: skipUpstreamRetry || sharedUsageAdmissionRequired,
+                              contextEditing: { enabled: contextEditingEnabled },
+                              correlationId,
+                            })
+                          ),
+                      }),
                   });
                 },
                 streamController.signal,
@@ -3489,7 +3539,10 @@ async function handleChatCoreInner({
                 }
 
                 let clientBody: ReadableStream<Uint8Array>;
-                if (streamRecoveryEnabled || throughputWatchdog.enabled) {
+                if (
+                  !sharedUsageAdmissionRequired &&
+                  (streamRecoveryEnabled || throughputWatchdog.enabled)
+                ) {
                   // Run the SAME upstream (same account/creds) with a given body and return
                   // its 2xx stream, or null. Used both by the early-retry re-open (same body)
                   // and the mid-stream continuation (assistant-prefilled body).
@@ -3677,7 +3730,7 @@ async function handleChatCoreInner({
       }
     };
 
-    if (allowDedup && dedupEnabled && dedupHash) {
+    if (!sharedUsageAdmissionRequired && allowDedup && dedupEnabled && dedupHash) {
       const dedupResult = await deduplicate(dedupHash, execute);
       if (dedupResult.wasDeduplicated) {
         log?.debug?.("DEDUP", `Joined in-flight request hash=${dedupHash}`);
@@ -4376,6 +4429,9 @@ async function handleChatCoreInner({
       }
     } catch (error) {
       trackPendingRequest(model, provider, pendingConnId, false, undefined, pendingRequestId);
+      if (isChatSharedUsageAdmissionError(error)) {
+        return sharedUsageAdmissionErrorResult(error);
+      }
       const errorMetadata = getSafeErrorMetadata(error);
       const managedLeaseFenceCode = getManagedLeaseFenceErrorCode(errorMetadata.code);
       if (managedLeaseFenceCode) return managedLeaseFenceErrorResult(managedLeaseFenceCode);
@@ -4647,24 +4703,32 @@ async function handleChatCoreInner({
           });
           assertManagedLeaseFence(getExecutionConnectionId(getExecutionCredentials()));
           const retryResult = normalizeExecutorResult(
-            await runWithCapture(providerRequestCapture, () =>
-              executor.execute({
-                model: retryModelId,
-                body: retryBody,
-                stream: upstreamStream,
-                credentials: getExecutionCredentials(),
-                signal: streamController.signal,
-                log,
-                extendedContext,
-                upstreamExtraHeaders: buildUpstreamHeadersForExecute(retryModelId),
-                clientHeaders: getExecutorClientHeaders(),
-                clientResponseFormat,
-                onCredentialsRefreshed,
-                skipUpstreamRetry: isCombo,
-                contextEditing: { enabled: contextEditingEnabled },
-                correlationId,
-              })
-            )
+            await executeWithChatSharedUsageAdmission({
+              apiKeyId: apiKeyInfo?.id,
+              provider,
+              model: retryModelId,
+              connectionId: getExecutionConnectionId(getExecutionCredentials()),
+              onReserved: noteSharedUsageReservation,
+              execute: () =>
+                runWithCapture(providerRequestCapture, () =>
+                  executor.execute({
+                    model: retryModelId,
+                    body: retryBody,
+                    stream: upstreamStream,
+                    credentials: getExecutionCredentials(),
+                    signal: streamController.signal,
+                    log,
+                    extendedContext,
+                    upstreamExtraHeaders: buildUpstreamHeadersForExecute(retryModelId),
+                    clientHeaders: getExecutorClientHeaders(),
+                    clientResponseFormat,
+                    onCredentialsRefreshed,
+                    skipUpstreamRetry: isCombo || sharedUsageAdmissionRequired,
+                    contextEditing: { enabled: contextEditingEnabled },
+                    correlationId,
+                  })
+                ),
+            })
           );
 
           if (retryResult.response.ok) {
@@ -4684,6 +4748,9 @@ async function handleChatCoreInner({
             upstreamErrorParsed = false; // Let it be parsed downstream
           }
         } catch (retryErr) {
+          if (isChatSharedUsageAdmissionError(retryErr)) {
+            return sharedUsageAdmissionErrorResult(retryErr);
+          }
           const retryLeaseFenceCode = getManagedLeaseFenceErrorCode(
             getUpstreamErrorIdentifier(retryErr)
           );
@@ -5528,6 +5595,7 @@ async function handleChatCoreInner({
           if (promptTokens > 0) incrementTokenUsage(model, promptTokens);
         }
       }
+      settleCompletedSharedUsage(usage);
       recordContextEditingTelemetryHook({
         contextEditingEnabled,
         provider,
@@ -5553,6 +5621,7 @@ async function handleChatCoreInner({
         isCombo,
         comboStrategy,
         endpoint: endpointPath, cpaAuthIndex: readCpaAuthIndex(providerResponse),
+        sharedUsageReserved: sharedUsageAttempt !== null,
       });
 
       // #12150 P1b surface 3 (fix round 1): a video-bridge-observed request's
@@ -5627,7 +5696,10 @@ async function handleChatCoreInner({
       const estimatedCost = costUsage
         ? await calculateCost(provider, model, costUsage, { serviceTier: effectiveServiceTier })
         : 0;
-      const chatCostCtx = buildCostCtx(provider, model, usage, effectiveServiceTier, traceId);
+      const chatCostCtx = {
+        ...buildCostCtx(provider, model, usage, effectiveServiceTier, traceId),
+        skipRequestLedger: sharedUsageAttempt !== null,
+      };
 
       if (postCallGuardrails.blocked) {
         const guardrailMessage = postCallGuardrails.message || "Response blocked by guardrail";
@@ -6219,6 +6291,7 @@ async function handleChatCoreInner({
         if (promptTokens > 0) incrementTokenUsage(model, promptTokens);
       }
     }
+    if (normalizedStreamStatus === 200) settleCompletedSharedUsage(streamUsage);
     recordStreamingUsageStats(streamUsage, {
       provider,
       model,
@@ -6232,6 +6305,7 @@ async function handleChatCoreInner({
       isCombo,
       comboStrategy,
       endpoint: endpointPath, cpaAuthIndex: readCpaAuthIndex(providerResponse),
+      sharedUsageReserved: sharedUsageAttempt !== null,
     });
 
     // Routing event (feedback foundation) — fire-and-forget, cheap, never blocks
@@ -6314,7 +6388,10 @@ async function handleChatCoreInner({
           details?.success ?? true
         );
       },
-      ledger: buildStreamLedgerDetails(effectiveServiceTier, normalizedStreamStatus < 400, traceId),
+      ledger: {
+        ...buildStreamLedgerDetails(effectiveServiceTier, normalizedStreamStatus < 400, traceId),
+        skipRequestLedger: sharedUsageAttempt !== null,
+      },
     });
 
     // === Quota Share POST-hook streaming (B/F7) — fire-and-forget, fail-open ===

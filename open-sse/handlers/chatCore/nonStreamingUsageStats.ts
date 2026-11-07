@@ -40,6 +40,8 @@ export type RecordNonStreamingUsageStatsContext = {
   comboStrategy: string | null | undefined;
   endpoint?: string | null | undefined;
   cpaAuthIndex?: string | null | undefined;
+  /** A shared SQLite transaction owns TPM for this completed provider attempt. */
+  sharedUsageReserved?: boolean;
 };
 
 function logUsageTrace(
@@ -89,6 +91,7 @@ function recordBillableTokens(
     // usage. Mirrors recordTokenUsage's swallow-and-continue.
     recordKeyQuotaUsage(apiKeyInfo.id, billable, {
       skipRpm: apiKeyInfo.sharedRpmReserved === true,
+      skipTpm: ctx.sharedUsageReserved === true,
     });
     // Reusable budgets' tokens-per-minute counters advance on the same successful call.
     recordBudgetTokensFor(apiKeyInfo, provider, billable);
