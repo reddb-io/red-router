@@ -24,6 +24,7 @@ struct ControlState {
     authorization: Zeroizing<String>,
     snapshot: Zeroizing<Vec<u8>>,
     etag: String,
+    version: u64,
     combo: ProductCombo,
     connections: Vec<ProductConnection>,
 }
@@ -121,6 +122,7 @@ async fn prepare(
         authorization: Zeroizing::new(format!("Bearer {control_token}")),
         snapshot: Zeroizing::new(bytes?),
         etag: format!("\"{version}\""),
+        version,
         combo,
         connections,
     }))
@@ -189,17 +191,49 @@ pub async fn serve(
     storage_key: Option<&str>,
     address: SocketAddr,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let (_, _, task) = start(
+        path,
+        combo,
+        internal_token,
+        control_token,
+        storage_key,
+        address,
+    )
+    .await?;
+    task.await??;
+    Ok(())
+}
+
+pub async fn start(
+    path: &Path,
+    combo: &str,
+    internal_token: &str,
+    control_token: &str,
+    storage_key: Option<&str>,
+    address: SocketAddr,
+) -> Result<
+    (
+        SocketAddr,
+        u64,
+        tokio::task::JoinHandle<std::io::Result<()>>,
+    ),
+    Box<dyn std::error::Error + Send + Sync>,
+> {
     if !address.ip().is_loopback() {
         return Err("FastLLM control must listen on loopback".into());
     }
     let state = prepare(path, combo, internal_token, control_token, storage_key).await?;
     let listener = tokio::net::TcpListener::bind(address).await?;
-    axum::serve(
-        listener,
-        Router::new()
-            .route("/snapshot", get(snapshot))
-            .with_state(state),
-    )
-    .await?;
-    Ok(())
+    let bound = listener.local_addr()?;
+    let version = state.version;
+    let task = tokio::spawn(async move {
+        axum::serve(
+            listener,
+            Router::new()
+                .route("/snapshot", get(snapshot))
+                .with_state(state),
+        )
+        .await
+    });
+    Ok((bound, version, task))
 }

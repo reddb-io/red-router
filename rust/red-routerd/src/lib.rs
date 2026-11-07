@@ -3,6 +3,7 @@ pub mod accounting;
 mod anthropic_stream;
 pub mod fastllm_control;
 pub mod fastllm_plan;
+pub mod fastllm_supervisor;
 mod policy;
 pub mod product;
 pub mod product_combo;
@@ -87,6 +88,31 @@ struct ModelTarget {
 }
 
 impl ProxyState {
+    /// Validate the exact dashboard combo and connections captured when this
+    /// state was built. Used before a supervised engine may accept traffic.
+    pub async fn product_configuration_unchanged(&self) -> bool {
+        let Some(combo) = &self.product_combo else {
+            return false;
+        };
+        let Some(route) = self.routes.get(combo.name()) else {
+            return false;
+        };
+        if !self.product_client_keys || route.targets.is_empty() || !combo.unchanged().await {
+            return false;
+        }
+        let mut checks = Vec::with_capacity(route.targets.len());
+        for target in &route.targets {
+            let Some(connection) = &target.product_connection else {
+                return false;
+            };
+            checks.push(connection.unchanged());
+        }
+        futures_util::future::join_all(checks)
+            .await
+            .into_iter()
+            .all(|valid| valid)
+    }
+
     /// The operator configures one endpoint. DNS is resolved and pinned at startup.
     pub async fn new(
         upstream: &str,

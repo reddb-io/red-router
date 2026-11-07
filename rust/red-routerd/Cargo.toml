@@ -12,13 +12,14 @@ reddb-embedded = ["reddb-io-client/embedded", "dep:fs2"]
 axum = "0.8"
 futures-util = "0.3"
 fs2 = { version = "0.4", optional = true }
+getrandom = "=0.3.4"
 reqwest = { version = "0.12", default-features = false, features = ["stream", "rustls-tls"] }
 percent-encoding = "2"
 reddb-io-client = { version = "=1.28.19", default-features = false, features = ["redwire-tls"] }
 serde_json = "1"
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "sqlite", "postgres", "any"] }
 subtle = "2"
-tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
+tokio = { version = "1", features = ["macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
 url = "2"
 aes-gcm = "0.10"
 scrypt = "0.11"

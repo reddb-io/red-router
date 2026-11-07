@@ -153,6 +153,7 @@ async fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
             Err(env::VarError::NotPresent) => None,
             Err(_) => return Err("RED_ROUTER_PRODUCT_COMBO must be valid Unicode".into()),
         };
+        let combo_name = combo.as_ref().map(|value| value.name().to_owned());
         let (id, auto_selection) = if let Some(combo) = &combo {
             if env::var_os("RED_ROUTER_PRODUCT_CONNECTION_ID").is_some()
                 || env::var_os("RED_ROUTER_PRODUCT_PROVIDER").is_some()
@@ -183,7 +184,27 @@ async fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
             Err(env::VarError::NotPresent) | Ok("0") => false,
             _ => return Err("RED_ROUTER_PRODUCT_CLIENT_KEYS must be 0 or 1".into()),
         };
-        let fastllm_transport = match (
+        let managed_binary = env::var_os("RED_ROUTER_FASTLLM_MANAGED_BINARY");
+        let managed = if let Some(binary) = managed_binary {
+            if env::var_os("RED_ROUTER_FASTLLM_URL").is_some()
+                || env::var_os("RED_ROUTER_FASTLLM_INTERNAL_KEY").is_some()
+                || env::var_os("RED_ROUTER_FASTLLM_CONTROL_TOKEN").is_some()
+            {
+                return Err("managed FastLLM cannot be combined with externally configured FastLLM tokens or URLs".into());
+            }
+            if !product_client_keys || combo.is_none() {
+                return Err("managed FastLLM requires dashboard keys and a priority combo".into());
+            }
+            Some((
+                std::path::PathBuf::from(binary),
+                red_routerd::fastllm_supervisor::reserve_engine_address().await?,
+                red_routerd::fastllm_supervisor::random_token()?,
+                red_routerd::fastllm_supervisor::random_token()?,
+            ))
+        } else {
+            None
+        };
+        let external_transport = match (
             env::var("RED_ROUTER_FASTLLM_URL"),
             env::var("RED_ROUTER_FASTLLM_INTERNAL_KEY"),
         ) {
@@ -212,6 +233,23 @@ async fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
                     "set both RED_ROUTER_FASTLLM_URL and RED_ROUTER_FASTLLM_INTERNAL_KEY".into(),
                 )
             }
+        };
+        let fastllm_transport = if let Some((_, address, internal, _)) = &managed {
+            let mut names = std::collections::HashSet::new();
+            if combo
+                .as_ref()
+                .is_some_and(|c| c.targets.iter().any(|t| !names.insert(t.model.as_str())))
+            {
+                return Err(
+                    "FastLLM transport requires unique upstream model names within a combo".into(),
+                );
+            }
+            Some((
+                format!("http://{address}/v1/chat/completions"),
+                internal.clone(),
+            ))
+        } else {
+            external_transport
         };
         let shared_rpm = match env::var("RED_ROUTER_PRODUCT_SHARED_RPM").as_deref() {
             Ok("1") => true,
@@ -403,9 +441,36 @@ async fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
             Err(_) => return Err("RED_ROUTER_CLIENT_POLICIES_JSON must be valid Unicode".into()),
         }
         eprintln!("Experimental product mode: only a restricted subset of product policies and quota accounting is supported");
+        if let Some((binary, engine_address, internal, control)) = managed {
+            let (control_address, version, control_task) = red_routerd::fastllm_control::start(
+                std::path::Path::new(&path),
+                combo_name
+                    .as_deref()
+                    .ok_or("managed FastLLM needs a combo")?,
+                internal.as_str(),
+                control.as_str(),
+                storage_key.as_deref().map(String::as_str),
+                "127.0.0.1:0".parse()?,
+            )
+            .await?;
+            let gateway = serve_proxy(address, state.clone());
+            return red_routerd::fastllm_supervisor::run(
+                &binary,
+                engine_address,
+                control_address,
+                control.as_str(),
+                internal.as_str(),
+                version,
+                state,
+                control_task,
+                gateway,
+            )
+            .await;
+        }
         return serve_proxy(address, state).await;
     }
-    if env::var_os("RED_ROUTER_FASTLLM_URL").is_some()
+    if env::var_os("RED_ROUTER_FASTLLM_MANAGED_BINARY").is_some()
+        || env::var_os("RED_ROUTER_FASTLLM_URL").is_some()
         || env::var_os("RED_ROUTER_FASTLLM_INTERNAL_KEY").is_some()
     {
         return Err("FastLLM transport requires RED_ROUTER_PRODUCT_DB_PATH".into());
