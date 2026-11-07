@@ -84,6 +84,17 @@ db.exec(`ALTER TABLE api_keys ADD COLUMN key_hash TEXT;
   CREATE TABLE provider_quota_state (connection_id TEXT);
   CREATE TABLE poc_usage (event_json TEXT);
   PRAGMA journal_mode=WAL;`);
+for (const migration of ["182_request_cost_ledger_and_key_quota.sql", "219_cost_ledger_recovery.sql", "226_shared_usage_reservations.sql"]) {
+  db.exec(readFileSync(new URL(`../../src/lib/db/migrations/${migration}`, import.meta.url), "utf8"));
+}
+db.exec(`ALTER TABLE api_key_daily_token_limits ADD COLUMN daily_tokens_limit INTEGER;
+  ALTER TABLE request_cost_ledger ADD COLUMN tenant_id TEXT;
+  ALTER TABLE request_cost_ledger ADD COLUMN pricing_known INTEGER NOT NULL DEFAULT 1;`);
+const fixturePrices = { input: 2, output: 4, cached: 1, cache_creation: 2, reasoning: 4 };
+db.prepare("INSERT INTO key_value(namespace,key,value) VALUES ('pricing','openrouter',?)")
+  .run(JSON.stringify({ "vendor/model-a": fixturePrices }));
+db.prepare("INSERT INTO key_value(namespace,key,value) VALUES ('pricing','openai',?)")
+  .run(JSON.stringify({ "vendor/model-b": fixturePrices }));
 db.prepare("INSERT INTO api_keys (id, name, key, created_at, key_hash, is_active, allowed_models) VALUES (?, 'fixture', ?, '2026-01-01T00:00:00Z', ?, 1, ?)")
   .run(keyId, fixtureKey, digest(fixtureKey), JSON.stringify(["openrouter/vendor/model-a", "openrouter/vendor/model-b", "openai/vendor/model-b"]));
 db.prepare("INSERT INTO provider_connections (id, provider, auth_type, api_key, is_active, created_at, updated_at) VALUES ('fixture-connection', 'openrouter', 'apikey', ?, 1, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')").run(fixtureProviderKey);
@@ -314,6 +325,14 @@ try {
   guardedFast.kill("SIGTERM");
   await new Promise((resolve) => guardedFast.once("exit", resolve));
   process.stderr.write("CI: no retry after uncertain pooled dispatch\n");
+  const accountingEnginePort = await unusedPort();
+  const accountingEngine = childProcess(fastBinary, ["--host", "127.0.0.1", "--port", String(accountingEnginePort), "--role", "proxy",
+    "--control-url", `http://127.0.0.1:${controlPort}/snapshot`, "--proxy-token", controlToken,
+    "--redrouter-memory-only", "--max-retries", "0", "--config-poll", "0",
+    "--rate-limit-reconcile-interval", "0", "--shutdown-delay", "0", "--log", "warn"],
+    { RED_ROUTER_DISABLE_UPSTREAM_RETRY: "1" });
+  await waitReady(`http://127.0.0.1:${accountingEnginePort}/health`, accountingEngine);
+  const accountingEngineUrl = `http://127.0.0.1:${accountingEnginePort}/v1/chat/completions`;
   // Managed mode creates separate random tokens, starts the in-memory source
   // and waits for the expected snapshot before exposing the dashboard proxy.
   const supervisedPort = await unusedPort();
@@ -657,6 +676,52 @@ try {
   assert.ok((await fallbackResponse.text()).includes("[DONE]"));
   assert.deepEqual(modelAttempts, ["vendor/model-a", "vendor/model-b"]);
   failModelA = false;
+  // Exercise the existing accounting adapter through a retry-guarded engine.
+  // Strict quotas stay disabled; this tests observability before enabling them.
+  const accountedPort = await unusedPort();
+  const accounted = childProcess(redBinary, [], {
+    RED_ROUTER_LISTEN: `127.0.0.1:${accountedPort}`, RED_ROUTER_PRODUCT_DB_PATH: fixtureDbPath,
+    RED_ROUTER_PRODUCT_COMBO: "bench", RED_ROUTER_PRODUCT_CLIENT_KEYS: "1",
+    RED_ROUTER_PRODUCT_SHARED_RPM: "1", RED_ROUTER_PRODUCT_ACCOUNT_USAGE: "1",
+    RED_ROUTER_FASTLLM_URL: accountingEngineUrl, RED_ROUTER_FASTLLM_INTERNAL_KEY: internalKey,
+  });
+  await waitReady(`http://127.0.0.1:${accountedPort}/healthz`, accounted);
+  const accountedUrl = `http://127.0.0.1:${accountedPort}/v1/chat/completions`;
+  const completedCount = () => db.prepare("SELECT COUNT(*) AS n FROM request_cost_ledger WHERE api_key_id = ?").get(keyId).n;
+  await Promise.all(Array.from({ length: 2 }, async () => {
+    const response = await request(accountedUrl, fixtureKey, "bench", AbortSignal.timeout(10_000));
+    if (response.status !== 200) throw new Error(`accounted streaming response ${response.status}: ${await response.text()}`);
+    assert.ok((await response.text()).includes("[DONE]"));
+  }));
+  const nonStreaming = await fetch(accountedUrl, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${fixtureKey}` },
+    body: JSON.stringify({ model: "bench", messages: [{ role: "user", content: "hello" }], stream: false }), signal: AbortSignal.timeout(10_000) });
+  if (nonStreaming.status !== 200) throw new Error(`accounted response ${nonStreaming.status}: ${await nonStreaming.text()}`);
+  assert.equal((await nonStreaming.json()).usage.total_tokens, 19);
+  assert.equal(completedCount(), 3);
+  const disconnected = await request(accountedUrl, fixtureKey, "bench", AbortSignal.timeout(10_000));
+  assert.equal(disconnected.status, 200);
+  const disconnectedReader = disconnected.body.getReader();
+  assert.equal((await disconnectedReader.read()).done, false);
+  await disconnectedReader.cancel();
+  for (let attempt = 0; attempt < 100 && completedCount() < 4; attempt++) await delay(50);
+  assert.equal(completedCount(), 4, "client disconnect must still settle a complete provider stream");
+  failModelA = true;
+  modelAttempts = [];
+  const accountedFallback = await request(accountedUrl, fixtureKey, "bench", AbortSignal.timeout(10_000));
+  if (accountedFallback.status !== 200) throw new Error(`accounted fallback ${accountedFallback.status}: ${await accountedFallback.text()}`);
+  assert.ok((await accountedFallback.text()).includes("[DONE]"));
+  failModelA = false;
+  assert.deepEqual(modelAttempts, ["vendor/model-a", "vendor/model-b"]);
+  assert.equal(completedCount(), 5);
+  const settledFallback = db.prepare("SELECT provider,model,tokens_input,tokens_output FROM request_cost_ledger WHERE api_key_id=? ORDER BY id DESC LIMIT 1").get(keyId);
+  assert.deepEqual({ ...settledFallback }, { provider: "openai", model: "vendor/model-b", tokens_input: 12, tokens_output: 7 });
+  const uncertain = db.prepare("SELECT COUNT(*) AS n FROM api_key_usage_reservations WHERE api_key_id=? AND state='dispatched' AND provider='openrouter' AND model='vendor/model-a'").get(keyId).n;
+  assert.equal(uncertain, 1, "failed attempt must retain its uncertain reservation");
+  accounted.kill("SIGTERM");
+  await new Promise((resolve) => accounted.once("exit", resolve));
+  accountingEngine.kill("SIGTERM");
+  await new Promise((resolve) => accountingEngine.once("exit", resolve));
+  process.stderr.write("CI: FastLLM usage and uncertain fallback accounted\n");
   db.prepare("UPDATE combos SET data = ? WHERE name = 'bench'").run(JSON.stringify({ name: "bench", strategy: "priority", models: ["openrouter/vendor/model-a"] }));
   const staleCombo = await request(`http://127.0.0.1:${fallbackPort}/v1/chat/completions`, fixtureKey, "bench", AbortSignal.timeout(5000));
   assert.equal(staleCombo.status, 503);
