@@ -1352,9 +1352,12 @@ try {
   await new Promise((resolve) => accountingEngine.once("exit", resolve));
   process.stderr.write("CI: FastLLM usage and uncertain fallback accounted\n");
 
-  // Managed FastLLM participates in the same bounded SQLite admission. Two
-  // requests fit the token window, while later concurrent requests must be
-  // refused before they reach the provider.
+  // The FastLLM transport participates in the same bounded SQLite admission.
+  // Keep this quota test on the already-authenticated local engine: a managed
+  // engine deliberately derives its provider URL from the dashboard, whose
+  // OpenRouter fixture points at the real service rather than this mock.
+  // Supervision itself is exercised above; here two requests fit the token
+  // window while later concurrent requests must be refused before the mock.
   db.prepare("UPDATE combos SET data = ? WHERE name = 'bench'").run(
     JSON.stringify({ name: "bench", strategy: "priority", models: ["openrouter/vendor/model-a"] })
   );
@@ -1377,7 +1380,8 @@ try {
     RED_ROUTER_PRODUCT_CONCURRENT_QUOTAS: "1",
     RED_ROUTER_PRODUCT_RESERVE_TOKENS: "19",
     RED_ROUTER_PRODUCT_RESERVE_USD: "0.0001",
-    RED_ROUTER_FASTLLM_MANAGED_BINARY: fastBinary,
+    RED_ROUTER_FASTLLM_URL: fastUrl,
+    RED_ROUTER_FASTLLM_INTERNAL_KEY: internalKey,
     RED_ROUTER_MAX_IN_FLIGHT: "16",
   });
   await waitReady(`http://127.0.0.1:${quotaPort}/healthz`, quotaSupervisor);
