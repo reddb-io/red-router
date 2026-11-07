@@ -281,6 +281,12 @@ try {
   assert.notEqual(unpatched.status, 0, "the unpatched FastLLM must not be accepted");
   assert.match(unpatched.stderr, /FastLLM exited before readiness/);
   process.stderr.write("CI: unpatched engine rejected\n");
+  const exclusiveQuota = spawnSync(redBinary, [], { env: { ...process.env, ...supervisedEnv,
+    RED_ROUTER_FASTLLM_MANAGED_BINARY: fastBinary, RED_ROUTER_PRODUCT_SHARED_RPM: "1",
+    RED_ROUTER_PRODUCT_ACCOUNT_USAGE: "1", RED_ROUTER_PRODUCT_STRICT_QUOTAS: "1",
+  }, encoding: "utf8", timeout: 30_000 });
+  assert.notEqual(exclusiveQuota.status, 0);
+  assert.match(exclusiveQuota.stderr, /does not yet support concurrent token and spend quota admission/);
   const supervised = childProcess(redBinary, [], { ...supervisedEnv, RED_ROUTER_FASTLLM_MANAGED_BINARY: fastBinary });
   await waitReady(`http://127.0.0.1:${supervisedPort}/healthz`, supervised);
   process.stderr.write("CI: supervised engine ready\n");

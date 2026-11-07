@@ -41,6 +41,10 @@ captured combo and connection state before each dispatch and refuses new work
 when they change. Restart the whole gateway to load a change; this initial
 mode does not yet perform automatic configuration reloads. It remains a local
 experimental mode and has not been validated using real provider credentials.
+Managed mode refuses `RED_ROUTER_PRODUCT_STRICT_QUOTAS=1`: that legacy mode
+admits only one outstanding request per key and does not satisfy concurrent
+agent usage. Concurrent token and spend admission is not implemented yet;
+keys requiring those limits remain unavailable rather than bypassing them.
 
 With `RED_ROUTER_PRODUCT_DB_PATH`, `RED_ROUTER_PRODUCT_COMBO` and
 `RED_ROUTER_PRODUCT_CLIENT_KEYS=1`, an operator may additionally set
