@@ -303,22 +303,21 @@ impl ClientPolicies {
         // Examine every configured key rather than stopping at the first match.
         let mut matched = None;
         for policy in &self.entries {
-            let unexpired = policy.expires_at_unix.is_none_or(|deadline| {
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .is_ok_and(|elapsed| elapsed.as_secs() < deadline)
-            });
             let credential_matches = match &policy.credential {
                 ClientCredential::Plain(key) => {
                     bool::from(candidate.as_bytes().ct_eq(key.as_bytes()))
                 }
                 ClientCredential::Sha256(hash) => bool::from(candidate_hash.ct_eq(hash)),
             };
-            if credential_matches && policy.enabled && unexpired {
+            if credential_matches && policy.is_active() {
                 matched = Some(policy);
             }
         }
         matched
+    }
+
+    pub(crate) fn has_active(&self) -> bool {
+        self.entries.iter().any(ClientPolicy::is_active)
     }
 }
 
@@ -364,6 +363,15 @@ pub(crate) fn extract_candidate(
 }
 
 impl ClientPolicy {
+    fn is_active(&self) -> bool {
+        self.enabled
+            && self.expires_at_unix.is_none_or(|deadline| {
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .is_ok_and(|elapsed| elapsed.as_secs() < deadline)
+            })
+    }
+
     pub(crate) fn allow_request(&self) -> bool {
         self.rate_limit
             .as_ref()

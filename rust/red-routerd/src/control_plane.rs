@@ -159,8 +159,11 @@ impl ControlPlane {
     }
 
     pub(crate) async fn ready(&self) -> bool {
-        let client_keys_ready =
-            !matches!(&*self.0.clients.read().await, ClientSnapshot::Unavailable);
+        let client_keys_ready = match &*self.0.clients.read().await {
+            ClientSnapshot::Legacy => true,
+            ClientSnapshot::Current(policies) => policies.has_active(),
+            ClientSnapshot::Unavailable => false,
+        };
         client_keys_ready
             && self
                 .0

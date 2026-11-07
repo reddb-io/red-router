@@ -360,6 +360,15 @@ async fn rust_control_plane_persists_redacts_and_live_reloads_providers() {
     );
     assert_eq!(
         client
+            .get(format!("{restarted_base}/readyz"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        503
+    );
+    assert_eq!(
+        client
             .delete(format!("{restarted_base}/api/admin/providers/first"))
             .bearer_auth(ADMIN_KEY)
             .send()
