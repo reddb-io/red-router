@@ -431,7 +431,8 @@ async fn rust_control_plane_persists_and_live_reloads_combo_routes() {
         .await
         .unwrap();
     assert_eq!(cost_combo.status(), 200);
-    let cost_combo: serde_json::Value = cost_combo.json().await.unwrap();
+    let cost_combo: serde_json::Value =
+        serde_json::from_str(&cost_combo.text().await.unwrap()).unwrap();
     assert_eq!(cost_combo["targets"][1]["input_cost_per_million"], 0.5);
     assert_eq!(
         chat_model(&client, &base, RUST_CLIENT_KEY, "agent-combo")

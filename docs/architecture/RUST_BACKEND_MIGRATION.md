@@ -89,8 +89,8 @@ URL; an enabled combo cannot bind targets from a different protocol.
 The load-aware strategies use provider-wide atomic counters that survive route snapshot
 replacement. Streaming attempts keep their counter until the upstream body is drained,
 including the background drain used to settle usage after a client disconnect.
-Cost and context strategies rank a fixed stack deck without allocating per request;
-their validated price and context-window metadata lives in the durable combo record.
+Cost and context strategies rank a fixed stack deck without adding a second request-path
+allocation; their validated price and context-window metadata lives in the durable combo record.
 Automatic catalog enrichment remains separate migration work.
 The remaining dashboard strategies remain explicit follow-up work rather than
 compatibility calls back into Next.js.
