@@ -15,7 +15,7 @@ capacity (default 64); it is separate from any per-key policy or usage quota.
 It supports explicitly configured model aliases for OpenAI-compatible, native
 Anthropic Messages and Gemini GenerateContent endpoints,
 priority, fill-first, round-robin, weighted, random, strict-random, least-used,
-power-of-two-choices, cost-optimized or context-optimized selection, opt-in
+power-of-two-choices, cost-optimized, context-optimized or last-known-good selection, opt-in
 fallback, and basic per-key route and model restrictions. It does not yet implement
 RedRouter's full provider selection, quotas, policies, accounting, protocol
 full protocol translation, remote listening or inbound TLS.
@@ -53,7 +53,7 @@ provider; subsequent provider changes do not require those environment secrets.
 - `PUT /api/admin/combos/{id}` creates or replaces a combo with `protocol`
   (`openai`, `openai-responses`, `openai-embeddings`, `cohere-rerank`, `anthropic`
   or `gemini`), `strategy` (`priority`, `fill-first`, `round-robin`, `weighted`, `random`,
-  `strict-random`, `least-used`, `p2c`, `cost-optimized` or `context-optimized`),
+  `strict-random`, `least-used`, `p2c`, `cost-optimized`, `context-optimized` or `lkgp`),
   `fallback`, `enabled`,
   and one to eight `{provider_id, model}` targets. Weighted targets require integer
   `weight` values from 1–100 that total exactly 100. `least-used` and `p2c` use
@@ -68,6 +68,7 @@ provider; subsequent provider changes do not require those environment secrets.
   combo JSON and returned by the admin API, so strategy changes and restarts do
   not lose their metadata.
 - `DELETE /api/admin/combos/{id}` disables the combo.
+- `DELETE /api/admin/combos/{id}/lkgp` clears one learned last-known-good target.
 - `GET /api/admin/provider-health` lists provider breaker state, failure counts,
   thresholds and retry windows without exposing credentials.
 - `DELETE /api/admin/provider-health/{id}` durably resets one provider breaker.
@@ -92,6 +93,13 @@ provider-wide failures. `401`, `403`, `429` and other account/model outcomes do 
 Local literal-loopback providers degrade/open after 1/2 failures with a 15 second reset;
 other API-key providers use 7/12 failures with a 30 second reset. An open breaker is
 skipped before dispatch, and only one half-open probe is admitted after cooldown.
+
+The `lkgp` strategy starts in dashboard order, learns the first successful target and
+stores only `{combo_id, provider_id, model, revision}` in `redrouter_route_pins`. Later
+requests read an atomic target index and do not query storage. SQLite/RedDB/PostgreSQL is
+written only when the selected target changes or a pinned target fails. Pins survive a
+restart, are exposed as redacted `last_known_good` metadata in combo listings, and are
+removed when the combo, provider target or strategy no longer matches.
 
 ## Experimental product SQLite credential
 

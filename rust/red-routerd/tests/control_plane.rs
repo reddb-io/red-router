@@ -433,7 +433,10 @@ async fn rust_control_plane_persists_and_live_reloads_combo_routes() {
     assert_eq!(cost_combo.status(), 200);
     let cost_combo: serde_json::Value =
         serde_json::from_str(&cost_combo.text().await.unwrap()).unwrap();
-    assert_eq!(cost_combo["targets"][1]["input_cost_per_million"], 0.5);
+    assert_eq!(
+        cost_combo["combo"]["targets"][1]["input_cost_per_million"],
+        0.5
+    );
     assert_eq!(
         chat_model(&client, &base, RUST_CLIENT_KEY, "agent-combo")
             .await
@@ -953,6 +956,215 @@ async fn rust_control_plane_balances_shared_stream_load_across_snapshot_reload()
     gateway_task.abort();
     held_task.abort();
     idle_task.abort();
+    database.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn rust_control_plane_persists_and_clears_last_known_good_target() {
+    let directory = TempDir::new().unwrap();
+    let file = Url::from_file_path(directory.path().join("lkgp.sqlite")).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    let database = Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap());
+    let control = ControlPlane::new(database.clone(), ADMIN_KEY, STORAGE_KEY, false)
+        .await
+        .unwrap();
+    let (first_url, first_task) = provider("lkgp-first-secret", "lkgp-first").await;
+    let (second_url, second_task) = provider("lkgp-second-secret", "lkgp-second").await;
+    let (base, gateway_task) = gateway(control).await;
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+
+    for (id, upstream_url, api_key) in [
+        ("lkgp-first", first_url, "lkgp-first-secret"),
+        ("lkgp-second", second_url, "lkgp-second-secret"),
+    ] {
+        assert_eq!(
+            client
+                .put(format!("{base}/api/admin/providers/{id}"))
+                .bearer_auth(ADMIN_KEY)
+                .header(header::CONTENT_TYPE.as_str(), "application/json")
+                .body(
+                    serde_json::json!({
+                        "provider":"openai-compatible",
+                        "upstream_url":upstream_url,
+                        "api_key":api_key
+                    })
+                    .to_string(),
+                )
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            200
+        );
+    }
+    assert_eq!(
+        client
+            .put(format!("{base}/api/admin/client-keys/lkgp-client"))
+            .bearer_auth(ADMIN_KEY)
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(
+                serde_json::json!({
+                    "label":"LKGP client",
+                    "api_key":RUST_CLIENT_KEY,
+                    "scopes":["inference:chat"],
+                    "allowed_endpoints":["chat"],
+                    "allowed_models":["lkgp-combo","upstream-model"],
+                    "allowed_provider_ids":["lkgp-second"]
+                })
+                .to_string(),
+            )
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
+    assert_eq!(
+        client
+            .put(format!("{base}/api/admin/combos/lkgp-combo"))
+            .bearer_auth(ADMIN_KEY)
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(
+                serde_json::json!({
+                    "strategy":"lkgp",
+                    "fallback":true,
+                    "targets":[
+                        {"provider_id":"lkgp-first","model":"upstream-model"},
+                        {"provider_id":"lkgp-second","model":"upstream-model"}
+                    ]
+                })
+                .to_string(),
+            )
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
+    assert_eq!(
+        chat_model(&client, &base, RUST_CLIENT_KEY, "lkgp-combo")
+            .await
+            .text()
+            .await
+            .unwrap(),
+        "lkgp-second"
+    );
+    assert_eq!(
+        client
+            .put(format!("{base}/api/admin/client-keys/lkgp-client"))
+            .bearer_auth(ADMIN_KEY)
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(
+                serde_json::json!({
+                    "label":"LKGP client",
+                    "scopes":["inference:chat"],
+                    "allowed_endpoints":["chat"],
+                    "allowed_models":["lkgp-combo","upstream-model"],
+                    "allowed_provider_ids":["lkgp-first","lkgp-second"]
+                })
+                .to_string(),
+            )
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
+    let combos = client
+        .get(format!("{base}/api/admin/combos"))
+        .bearer_auth(ADMIN_KEY)
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    let combos: serde_json::Value = serde_json::from_str(&combos).unwrap();
+    assert_eq!(
+        combos["combos"][0]["last_known_good"]["provider_id"],
+        "lkgp-second"
+    );
+
+    gateway_task.abort();
+    let restarted = ControlPlane::new(database.clone(), ADMIN_KEY, STORAGE_KEY, false)
+        .await
+        .unwrap();
+    let (restarted_base, restarted_task) = gateway(restarted).await;
+    assert_eq!(
+        chat_model(&client, &restarted_base, RUST_CLIENT_KEY, "lkgp-combo")
+            .await
+            .text()
+            .await
+            .unwrap(),
+        "lkgp-second"
+    );
+    let (failed_second_url, failed_second_task) = failing_provider("lkgp-second-secret").await;
+    assert_eq!(
+        client
+            .put(format!("{restarted_base}/api/admin/providers/lkgp-second"))
+            .bearer_auth(ADMIN_KEY)
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(
+                serde_json::json!({
+                    "provider":"openai-compatible",
+                    "upstream_url":failed_second_url,
+                    "api_key":"lkgp-second-secret"
+                })
+                .to_string(),
+            )
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
+    assert_eq!(
+        chat_model(&client, &restarted_base, RUST_CLIENT_KEY, "lkgp-combo")
+            .await
+            .text()
+            .await
+            .unwrap(),
+        "lkgp-first"
+    );
+    assert_eq!(
+        database.route_pins().await.unwrap()[0].provider_id,
+        "lkgp-first"
+    );
+    assert_eq!(
+        client
+            .delete(format!("{restarted_base}/api/admin/combos/lkgp-combo/lkgp"))
+            .bearer_auth(ADMIN_KEY)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        204
+    );
+    assert!(database.route_pins().await.unwrap().is_empty());
+    assert_eq!(
+        chat_model(&client, &restarted_base, RUST_CLIENT_KEY, "lkgp-combo")
+            .await
+            .text()
+            .await
+            .unwrap(),
+        "lkgp-first"
+    );
+    assert_eq!(
+        client
+            .delete(format!("{restarted_base}/api/admin/combos/lkgp-combo"))
+            .bearer_auth(ADMIN_KEY)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        204
+    );
+    assert!(database.route_pins().await.unwrap().is_empty());
+
+    restarted_task.abort();
+    first_task.abort();
+    second_task.abort();
+    failed_second_task.abort();
     database.close().await.unwrap();
 }
 

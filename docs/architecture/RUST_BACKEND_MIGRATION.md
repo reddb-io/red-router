@@ -80,7 +80,7 @@ only authenticated Rust admin APIs. The first durable combo makes this table the
 authority: unknown aliases and a table with no enabled routes fail closed rather than
 falling through to an environment route or the active provider. Priority, round-robin,
 weighted, random, strict-random deck, fill-first, least-used, power-of-two-choices,
-cost-optimized and context-optimized selection, target model rewriting, provider
+cost-optimized, context-optimized and durable last-known-good selection, target model rewriting, provider
 grants, pre-response fallback, live snapshot replacement and restart persistence
 are implemented for OpenAI chat, Responses, embeddings, Cohere rerank, native Anthropic
 and Gemini. Provider endpoints are validated and pinned for the protocol implied by their
@@ -92,6 +92,9 @@ including the background drain used to settle usage after a client disconnect.
 Cost and context strategies rank a fixed stack deck without adding a second request-path
 allocation; their validated price and context-window metadata lives in the durable combo record.
 Automatic catalog enrichment remains separate migration work.
+Last-known-good uses an atomic index in the request path and persists target identity only
+when the learned target changes. Retryable failure clears a matching pin before fallback;
+startup and live reload discard pins whose combo, strategy or target no longer exists.
 The remaining dashboard strategies remain explicit follow-up work rather than
 compatibility calls back into Next.js.
 

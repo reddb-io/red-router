@@ -38,6 +38,7 @@ use tokio::sync::Semaphore;
 const MAX_BODY_BYTES: usize = 2 * 1024 * 1024;
 const MAX_IN_FLIGHT: usize = 64;
 const MAX_ROUTE_TARGETS: usize = 8;
+const NO_ROUTE_TARGET: usize = usize::MAX;
 const HEADER_TIMEOUT: Duration = Duration::from_secs(120);
 
 #[derive(Clone)]
@@ -96,6 +97,7 @@ pub(crate) struct ModelRoute {
     fallback: bool,
     cursor: AtomicUsize,
     seed: usize,
+    last_good: AtomicUsize,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -110,6 +112,7 @@ pub(crate) enum RouteStrategy {
     StrictRandom,
     CostOptimized,
     ContextOptimized,
+    Lkgp,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -202,7 +205,8 @@ impl ModelRoute {
             }
             RouteStrategy::StrictRandom
             | RouteStrategy::CostOptimized
-            | RouteStrategy::ContextOptimized => {
+            | RouteStrategy::ContextOptimized
+            | RouteStrategy::Lkgp => {
                 unreachable!("strategy uses an ordered attempt deck")
             }
         }
@@ -215,6 +219,27 @@ impl ModelRoute {
                 self.seed,
                 self.cursor.fetch_add(1, Ordering::Relaxed),
             );
+        }
+        if self.strategy == RouteStrategy::Lkgp {
+            let pinned = self
+                .targets
+                .get(self.last_good.load(Ordering::Acquire))
+                .and_then(|target| {
+                    eligible
+                        .iter()
+                        .position(|candidate| std::ptr::eq(*candidate, target))
+                })
+                .unwrap_or(0);
+            let mut order = [0; MAX_ROUTE_TARGETS];
+            order[0] = pinned;
+            let mut output = 1;
+            for index in 0..eligible.len() {
+                if index != pinned {
+                    order[output] = index;
+                    output += 1;
+                }
+            }
+            return order;
         }
         if matches!(
             self.strategy,
@@ -262,6 +287,60 @@ impl ModelRoute {
             }
             _ => false,
         }
+    }
+
+    fn set_last_good(&self, target: &ModelTarget) -> bool {
+        if self.strategy != RouteStrategy::Lkgp {
+            return false;
+        }
+        let Some(index) = self
+            .targets
+            .iter()
+            .position(|candidate| std::ptr::eq(candidate, target))
+        else {
+            return false;
+        };
+        self.last_good.swap(index, Ordering::AcqRel) != index
+    }
+
+    fn clear_last_good(&self, target: &ModelTarget) -> bool {
+        if self.strategy != RouteStrategy::Lkgp {
+            return false;
+        }
+        let Some(index) = self
+            .targets
+            .iter()
+            .position(|candidate| std::ptr::eq(candidate, target))
+        else {
+            return false;
+        };
+        self.last_good
+            .compare_exchange(index, NO_ROUTE_TARGET, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok()
+    }
+
+    fn target_index(&self, provider_id: &str, model: &str) -> Option<usize> {
+        self.targets.iter().position(|target| {
+            target.provider_id.as_deref() == Some(provider_id) && target.model == model
+        })
+    }
+
+    fn set_last_good_index(&self, index: usize) -> bool {
+        self.strategy == RouteStrategy::Lkgp
+            && index < self.targets.len()
+            && self.last_good.swap(index, Ordering::AcqRel) != index
+    }
+
+    fn clear_last_good_index(&self, index: usize) -> bool {
+        self.strategy == RouteStrategy::Lkgp
+            && self
+                .last_good
+                .compare_exchange(index, NO_ROUTE_TARGET, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok()
+    }
+
+    fn clear_last_good_any(&self) {
+        self.last_good.store(NO_ROUTE_TARGET, Ordering::Release);
     }
 }
 
@@ -715,6 +794,7 @@ impl ProxyState {
                 Some(v) if v.as_str() == Some("context-optimized") => {
                     RouteStrategy::ContextOptimized
                 }
+                Some(v) if v.as_str() == Some("lkgp") => RouteStrategy::Lkgp,
                 _ => return Err("unsupported route strategy"),
             };
             let fallback = match object.get("fallback") {
@@ -903,6 +983,7 @@ impl ProxyState {
                         } else {
                             route_seed(alias)
                         },
+                        last_good: AtomicUsize::new(NO_ROUTE_TARGET),
                     }),
                 )
                 .is_some()
@@ -1032,6 +1113,10 @@ pub fn router(state: ProxyState) -> Router {
         .route(
             "/api/admin/combos/{id}",
             put(control_plane::put_combo).delete(control_plane::delete_combo),
+        )
+        .route(
+            "/api/admin/combos/{id}/lkgp",
+            axum::routing::delete(control_plane::delete_combo_route_pin),
         )
         .route(
             "/api/admin/provider-health",
@@ -1737,6 +1822,17 @@ async fn proxy_request(
             match circuit.try_acquire().await {
                 Ok(circuit::CircuitDecision::Permit(permit)) => Some(permit),
                 Ok(circuit::CircuitDecision::Open { retry_after_ms }) => {
+                    if let Some(target) = target {
+                        record_route_outcome(
+                            &state,
+                            route.map(|route| route.as_ref()),
+                            target,
+                            &model,
+                            control_routes_authoritative,
+                            false,
+                        )
+                        .await;
+                    }
                     saw_open_circuit = true;
                     closest_circuit_retry_ms = Some(
                         closest_circuit_retry_ms
@@ -1765,6 +1861,17 @@ async fn proxy_request(
         let response = match tokio::time::timeout(HEADER_TIMEOUT, upstream.send()).await {
             Ok(Ok(response)) => response,
             Ok(Err(_)) => {
+                if let Some(target) = target {
+                    record_route_outcome(
+                        &state,
+                        route.map(|route| route.as_ref()),
+                        target,
+                        &model,
+                        control_routes_authoritative,
+                        false,
+                    )
+                    .await;
+                }
                 if let (Some(circuit), Some(permit)) = (circuit, circuit_permit) {
                     if circuit.record_failure(permit).await.is_err() {
                         return error(
@@ -1779,6 +1886,17 @@ async fn proxy_request(
                 return error(StatusCode::BAD_GATEWAY, "Upstream unavailable");
             }
             Err(_) => {
+                if let Some(target) = target {
+                    record_route_outcome(
+                        &state,
+                        route.map(|route| route.as_ref()),
+                        target,
+                        &model,
+                        control_routes_authoritative,
+                        false,
+                    )
+                    .await;
+                }
                 if let (Some(circuit), Some(permit)) = (circuit, circuit_permit) {
                     if circuit.record_failure(permit).await.is_err() {
                         return error(
@@ -1809,11 +1927,33 @@ async fn proxy_request(
                 );
             }
         }
-        if (response.status() == StatusCode::TOO_MANY_REQUESTS
+        let retryable = response.status() == StatusCode::TOO_MANY_REQUESTS
             || response.status().is_server_error()
-            || response.status() == StatusCode::REQUEST_TIMEOUT)
-            && offset + 1 < attempts
-        {
+            || response.status() == StatusCode::REQUEST_TIMEOUT;
+        if let Some(target) = target {
+            if response.status().is_success() {
+                record_route_outcome(
+                    &state,
+                    route.map(|route| route.as_ref()),
+                    target,
+                    &model,
+                    control_routes_authoritative,
+                    true,
+                )
+                .await;
+            } else if retryable {
+                record_route_outcome(
+                    &state,
+                    route.map(|route| route.as_ref()),
+                    target,
+                    &model,
+                    control_routes_authoritative,
+                    false,
+                )
+                .await;
+            }
+        }
+        if retryable && offset + 1 < attempts {
             last_retry_response = Some(response);
             last_retry_load_guard = load_guard;
             continue;
@@ -2016,6 +2156,36 @@ async fn proxy_request(
     *result.status_mut() = status;
     *result.headers_mut() = headers;
     result
+}
+
+async fn record_route_outcome(
+    state: &ProxyState,
+    route: Option<&ModelRoute>,
+    target: &ModelTarget,
+    combo_id: &str,
+    control_authoritative: bool,
+    success: bool,
+) {
+    let Some(route) = route.filter(|route| route.strategy == RouteStrategy::Lkgp) else {
+        return;
+    };
+    if control_authoritative {
+        let Some(control) = &state.control_plane else {
+            return;
+        };
+        let result = if success {
+            control.record_route_success(combo_id, target).await
+        } else {
+            control.record_route_failure(combo_id, target).await
+        };
+        if result.is_err() {
+            eprintln!("LKGP route pin persistence unavailable");
+        }
+    } else if success {
+        route.set_last_good(target);
+    } else {
+        route.clear_last_good(target);
+    }
 }
 
 #[cfg(test)]

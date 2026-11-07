@@ -2,7 +2,7 @@
 use crate::{
     circuit::{BreakerStatus, ProviderCircuit},
     policy::{ClientPolicies, StoredPolicy},
-    storage::{StoredClientKey, StoredCombo, StoredProvider},
+    storage::{StoredClientKey, StoredCombo, StoredProvider, StoredRoutePin},
     LiveProvider, ModelRoute, ProviderProtocol, ProxyState, RouteStrategy,
 };
 use aes_gcm::aead::consts::U16;
@@ -154,6 +154,15 @@ pub struct ComboView {
     pub fallback: bool,
     pub targets: Vec<ComboTarget>,
     pub enabled: bool,
+    pub revision: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_known_good: Option<RoutePinView>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct RoutePinView {
+    pub provider_id: String,
+    pub model: String,
     pub revision: String,
 }
 
@@ -502,6 +511,15 @@ impl ControlPlane {
             return Ok(());
         }
         let providers = self.0.database.providers().await?;
+        let pins: HashMap<_, _> = self
+            .0
+            .database
+            .route_pins()
+            .await?
+            .into_iter()
+            .map(|pin| (pin.combo_id.clone(), pin))
+            .collect();
+        let mut retained_pins = Vec::new();
         let mut live = HashMap::<String, LiveProvider>::new();
         let mut routes = HashMap::new();
         for record in records.iter().filter(|record| record.enabled) {
@@ -562,8 +580,22 @@ impl ControlPlane {
                 "strict-random" => RouteStrategy::StrictRandom,
                 "cost-optimized" => RouteStrategy::CostOptimized,
                 "context-optimized" => RouteStrategy::ContextOptimized,
+                "lkgp" => RouteStrategy::Lkgp,
                 _ => return Err("unsupported combo strategy"),
             };
+            let last_good = if strategy == RouteStrategy::Lkgp {
+                pins.get(&record.id).and_then(|pin| {
+                    targets.iter().position(|target| {
+                        target.provider_id.as_deref() == Some(pin.provider_id.as_str())
+                            && target.model == pin.model
+                    })
+                })
+            } else {
+                None
+            };
+            if last_good.is_some() {
+                retained_pins.push(record.id.clone());
+            }
             routes.insert(
                 record.id.clone(),
                 Arc::new(ModelRoute {
@@ -577,11 +609,88 @@ impl ControlPlane {
                     } else {
                         crate::route_seed(&record.id)
                     },
+                    last_good: std::sync::atomic::AtomicUsize::new(
+                        last_good.unwrap_or(crate::NO_ROUTE_TARGET),
+                    ),
                 }),
             );
         }
+        for combo_id in pins.keys() {
+            if !retained_pins.contains(combo_id) {
+                self.0.database.delete_route_pin(combo_id).await?;
+            }
+        }
         *self.0.routes.write().await = RouteSnapshot::Current(Arc::new(routes));
         Ok(())
+    }
+
+    pub(crate) async fn record_route_success(
+        &self,
+        combo_id: &str,
+        target: &crate::ModelTarget,
+    ) -> Result<(), &'static str> {
+        let Some(provider_id) = target.provider_id.as_deref() else {
+            return Ok(());
+        };
+        let _mutation = self.0.mutation.lock().await;
+        let route = match &*self.0.routes.read().await {
+            RouteSnapshot::Current(routes) => routes.get(combo_id).cloned(),
+            _ => None,
+        };
+        let Some(route) = route else {
+            return Ok(());
+        };
+        let Some(index) = route.target_index(provider_id, &target.model) else {
+            return Ok(());
+        };
+        if !route.set_last_good_index(index) {
+            return Ok(());
+        }
+        self.0
+            .database
+            .upsert_route_pin(&StoredRoutePin {
+                combo_id: combo_id.to_owned(),
+                provider_id: provider_id.to_owned(),
+                model: target.model.clone(),
+                revision: revision()?,
+            })
+            .await
+    }
+
+    pub(crate) async fn record_route_failure(
+        &self,
+        combo_id: &str,
+        target: &crate::ModelTarget,
+    ) -> Result<(), &'static str> {
+        let Some(provider_id) = target.provider_id.as_deref() else {
+            return Ok(());
+        };
+        let _mutation = self.0.mutation.lock().await;
+        let route = match &*self.0.routes.read().await {
+            RouteSnapshot::Current(routes) => routes.get(combo_id).cloned(),
+            _ => None,
+        };
+        let Some(route) = route else {
+            return Ok(());
+        };
+        let Some(index) = route.target_index(provider_id, &target.model) else {
+            return Ok(());
+        };
+        if route.clear_last_good_index(index) {
+            self.0.database.delete_route_pin(combo_id).await?;
+        }
+        Ok(())
+    }
+
+    async fn clear_route_pin(&self, combo_id: &str) -> Result<(), &'static str> {
+        validate_id(combo_id)?;
+        let _mutation = self.0.mutation.lock().await;
+        if let RouteSnapshot::Current(routes) = &*self.0.routes.read().await {
+            if let Some(route) = routes.get(combo_id) {
+                route.clear_last_good_any();
+            }
+        }
+        self.0.database.delete_route_pin(combo_id).await
     }
 
     async fn views(&self) -> Result<Vec<ProviderView>, &'static str> {
@@ -603,12 +712,28 @@ impl ControlPlane {
     }
 
     async fn combo_views(&self) -> Result<Vec<ComboView>, &'static str> {
+        let pins: HashMap<_, _> = self
+            .0
+            .database
+            .route_pins()
+            .await?
+            .into_iter()
+            .map(|pin| (pin.combo_id.clone(), pin))
+            .collect();
         self.0
             .database
             .combos()
             .await?
             .iter()
-            .map(combo_view)
+            .map(|record| {
+                let mut view = combo_view(record)?;
+                view.last_known_good = pins.get(&record.id).map(|pin| RoutePinView {
+                    provider_id: pin.provider_id.clone(),
+                    model: pin.model.clone(),
+                    revision: pin.revision.to_string(),
+                });
+                Ok(view)
+            })
             .collect()
     }
 
@@ -730,6 +855,7 @@ fn combo_view(record: &StoredCombo) -> Result<ComboView, &'static str> {
         targets,
         enabled: record.enabled,
         revision: record.revision.to_string(),
+        last_known_good: None,
     })
 }
 
@@ -851,6 +977,7 @@ fn validate_combo(input: &ComboInput) -> Result<(), &'static str> {
             | "strict-random"
             | "cost-optimized"
             | "context-optimized"
+            | "lkgp"
     ) {
         return Err("unsupported combo strategy");
     }
@@ -1194,6 +1321,7 @@ fn is_runtime_error(error: &str) -> bool {
         || error.contains("cannot read")
         || error.contains("cannot reload")
         || error.contains("breaker")
+        || error.contains("route pin")
         || error.contains("combo has no enabled")
         || error.contains("combo provider unavailable")
 }
@@ -1257,6 +1385,27 @@ pub async fn delete_combo(
         Err(error) if is_runtime_error(error) || error == "cannot disable combo" => {
             api_error(StatusCode::SERVICE_UNAVAILABLE, "Combo storage unavailable")
         }
+        Err(_) => api_error(StatusCode::BAD_REQUEST, "Invalid combo identifier"),
+    }
+}
+
+pub async fn delete_combo_route_pin(
+    State(state): State<ProxyState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+    };
+    if !control.authorized(&headers) {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
+    }
+    match control.clear_route_pin(&id).await {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(error) if is_runtime_error(error) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Route pin storage unavailable",
+        ),
         Err(_) => api_error(StatusCode::BAD_REQUEST, "Invalid combo identifier"),
     }
 }

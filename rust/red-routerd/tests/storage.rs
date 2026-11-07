@@ -1,5 +1,5 @@
 use red_routerd::storage::{
-    Backend, Database, StoredBreaker, StoredClientKey, StoredCombo, StoredProvider,
+    Backend, Database, StoredBreaker, StoredClientKey, StoredCombo, StoredProvider, StoredRoutePin,
 };
 use tempfile::TempDir;
 use url::Url;
@@ -88,6 +88,14 @@ async fn exercise(backend: Backend, url: &str) {
     disabled_combo.enabled = false;
     disabled_combo.revision = 8;
     assert_eq!(db.combos().await.unwrap(), vec![disabled_combo.clone()]);
+    let route_pin = StoredRoutePin {
+        combo_id: "agent-combo".into(),
+        provider_id: "first".into(),
+        model: "openai/model".into(),
+        revision: 9,
+    };
+    db.upsert_route_pin(&route_pin).await.unwrap();
+    assert_eq!(db.route_pins().await.unwrap(), vec![route_pin.clone()]);
     let breaker = StoredBreaker {
         provider_id: "first".into(),
         state: "open".into(),
@@ -97,7 +105,7 @@ async fn exercise(backend: Backend, url: &str) {
         failure_threshold: 12,
         degradation_threshold: 7,
         reset_timeout_ms: 30_000,
-        revision: 9,
+        revision: 10,
     };
     db.upsert_breaker(&breaker).await.unwrap();
     assert_eq!(db.breakers().await.unwrap(), vec![breaker.clone()]);
@@ -111,6 +119,9 @@ async fn exercise(backend: Backend, url: &str) {
     assert_eq!(reopened.active_provider().await.unwrap(), Some(first));
     assert_eq!(reopened.client_keys().await.unwrap(), vec![revoked_key]);
     assert_eq!(reopened.combos().await.unwrap(), vec![disabled_combo]);
+    assert_eq!(reopened.route_pins().await.unwrap(), vec![route_pin]);
+    reopened.delete_route_pin("agent-combo").await.unwrap();
+    assert!(reopened.route_pins().await.unwrap().is_empty());
     assert_eq!(reopened.breakers().await.unwrap(), vec![breaker]);
     reopened.delete_breaker("first").await.unwrap();
     assert!(reopened.breakers().await.unwrap().is_empty());
