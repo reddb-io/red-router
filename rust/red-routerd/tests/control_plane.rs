@@ -236,6 +236,61 @@ async fn rust_control_plane_persists_and_live_reloads_combo_routes() {
     );
     assert_eq!(
         client
+            .put(format!("{base}/api/admin/client-keys/combo-client"))
+            .bearer_auth(ADMIN_KEY)
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(
+                serde_json::json!({
+                    "label":"Combo client",
+                    "scopes":["inference:chat"],
+                    "allowed_endpoints":["chat"],
+                    "allowed_models":["agent-combo","upstream-model"],
+                    "allowed_provider_ids":["first","second"]
+                })
+                .to_string()
+            )
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
+    assert_eq!(
+        client
+            .put(format!("{base}/api/admin/combos/agent-combo"))
+            .bearer_auth(ADMIN_KEY)
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(
+                serde_json::json!({
+                    "strategy":"weighted",
+                    "fallback":true,
+                    "targets":[
+                        {"provider_id":"first","model":"upstream-model","weight":50},
+                        {"provider_id":"second","model":"upstream-model","weight":50}
+                    ]
+                })
+                .to_string()
+            )
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
+    let mut saw_first = false;
+    let mut saw_second = false;
+    for _ in 0..20 {
+        let selected = chat_model(&client, &base, RUST_CLIENT_KEY, "agent-combo")
+            .await
+            .text()
+            .await
+            .unwrap();
+        saw_first |= selected == "combo-first";
+        saw_second |= selected == "combo-second";
+    }
+    assert!(saw_first && saw_second);
+    assert_eq!(
+        client
             .put(format!("{base}/api/admin/combos/agent-combo"))
             .bearer_auth(ADMIN_KEY)
             .header(header::CONTENT_TYPE.as_str(), "application/json")

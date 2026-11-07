@@ -46,7 +46,7 @@ features must not be implemented only there.
 | --------------------------- | ---------------------- | ---------------------------------------------------------------------------------- |
 | Provider connections        | Implemented foundation | Authenticated CRUD, encrypted secrets, live reload, restart persistence, readiness |
 | API/client keys             | Implemented foundation | Hash-only lookup, scopes, endpoint/model/connection grants, revocation, expiry     |
-| Combos and routing          | Implemented foundation | Durable OpenAI priority/round-robin targets, provider grants, fallback, live reload |
+| Combos and routing          | Implemented foundation | Durable OpenAI priority/round-robin/weighted/random routes, grants and live reload  |
 | Pricing, quotas and budgets | Partial                | Atomic reservations, streaming settlement, reconciliation, multi-process tests     |
 | Usage and audit             | Partial                | Complete protocol usage, idempotent ledger, retention/export APIs                  |
 | Settings and resilience     | Pending                | Versioned settings snapshots, health state and live invalidation                   |
@@ -78,8 +78,8 @@ selection or fallback.
 The combo slice stores bounded routing records in `redrouter_control_combos` and exposes
 only authenticated Rust admin APIs. The first durable combo makes this table the routing
 authority: unknown aliases and a table with no enabled routes fail closed rather than
-falling through to an environment route or the active provider. Priority and round-robin
-selection, target model rewriting, provider grants, pre-response fallback, live snapshot
+falling through to an environment route or the active provider. Priority, round-robin,
+weighted and random selection, target model rewriting, provider grants, pre-response fallback, live snapshot
 replacement and restart persistence are implemented for OpenAI-compatible chat. The
 remaining dashboard strategies, health/circuit state and non-chat combo protocols remain
 explicit follow-up work rather than compatibility calls back into Next.js.

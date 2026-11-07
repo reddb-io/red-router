@@ -2,7 +2,7 @@
 use crate::{
     policy::{ClientPolicies, StoredPolicy},
     storage::{StoredClientKey, StoredCombo, StoredProvider},
-    LiveProvider, ModelRoute, ProviderProtocol, ProxyState,
+    LiveProvider, ModelRoute, ProviderProtocol, ProxyState, RouteStrategy,
 };
 use aes_gcm::aead::consts::U16;
 use aes_gcm::{
@@ -120,6 +120,8 @@ pub struct ClientKeyView {
 pub struct ComboTarget {
     pub provider_id: String,
     pub model: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub weight: Option<u32>,
 }
 
 #[derive(Deserialize)]
@@ -492,6 +494,7 @@ impl ControlPlane {
                 targets.push(ProxyState::control_target(
                     live.get(&provider.id).ok_or("combo provider unavailable")?,
                     target.model,
+                    target.weight.unwrap_or(1),
                 ));
             }
             if targets.is_empty() {
@@ -502,7 +505,13 @@ impl ControlPlane {
                 Arc::new(ModelRoute {
                     targets,
                     protocol: ProviderProtocol::OpenAi,
-                    round_robin: record.strategy == "round-robin",
+                    strategy: match record.strategy.as_str() {
+                        "priority" => RouteStrategy::Priority,
+                        "round-robin" => RouteStrategy::RoundRobin,
+                        "weighted" => RouteStrategy::Weighted,
+                        "random" => RouteStrategy::Random,
+                        _ => return Err("unsupported combo strategy"),
+                    },
                     fallback: record.fallback,
                     cursor: std::sync::atomic::AtomicUsize::new(0),
                 }),
@@ -724,7 +733,10 @@ fn validate_combo(input: &ComboInput) -> Result<(), &'static str> {
     if input.protocol != "openai" {
         return Err("unsupported combo protocol");
     }
-    if !matches!(input.strategy.as_str(), "priority" | "round-robin") {
+    if !matches!(
+        input.strategy.as_str(),
+        "priority" | "round-robin" | "weighted" | "random"
+    ) {
         return Err("unsupported combo strategy");
     }
     if input.targets.is_empty() || input.targets.len() > 8 {
@@ -738,6 +750,22 @@ fn validate_combo(input: &ComboInput) -> Result<(), &'static str> {
         {
             return Err("invalid combo target model");
         }
+        match (input.strategy.as_str(), target.weight) {
+            ("weighted", Some(1..=100)) => {}
+            ("weighted", _) => return Err("weighted combo targets require weights"),
+            (_, None) => {}
+            (_, Some(_)) => return Err("combo target weights require the weighted strategy"),
+        }
+    }
+    if input.strategy == "weighted"
+        && input
+            .targets
+            .iter()
+            .filter_map(|target| target.weight)
+            .sum::<u32>()
+            != 100
+    {
+        return Err("weighted combo target weights must total 100");
     }
     if input.targets.iter().enumerate().any(|(index, target)| {
         input.targets[..index]

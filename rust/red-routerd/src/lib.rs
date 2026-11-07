@@ -70,9 +70,17 @@ struct ProductFallback {
 pub(crate) struct ModelRoute {
     targets: Vec<ModelTarget>,
     protocol: ProviderProtocol,
-    round_robin: bool,
+    strategy: RouteStrategy,
     fallback: bool,
     cursor: AtomicUsize,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RouteStrategy {
+    Priority,
+    RoundRobin,
+    Weighted,
+    Random,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -96,6 +104,40 @@ pub(crate) struct ModelTarget {
     product_connection: Option<product::ProductConnection>,
     product_model: Option<String>,
     provider_id: Option<Arc<str>>,
+    weight: u32,
+}
+
+impl ModelRoute {
+    fn selection_start(&self, eligible: &[&ModelTarget]) -> usize {
+        match self.strategy {
+            RouteStrategy::Priority => 0,
+            RouteStrategy::RoundRobin => {
+                self.cursor.fetch_add(1, Ordering::Relaxed) % eligible.len()
+            }
+            RouteStrategy::Random => {
+                pseudo_random(self.cursor.fetch_add(1, Ordering::Relaxed)) % eligible.len()
+            }
+            RouteStrategy::Weighted => {
+                let total: usize = eligible.iter().map(|target| target.weight as usize).sum();
+                let slot = pseudo_random(self.cursor.fetch_add(1, Ordering::Relaxed)) % total;
+                let mut cumulative = 0;
+                eligible
+                    .iter()
+                    .position(|target| {
+                        cumulative += target.weight as usize;
+                        slot < cumulative
+                    })
+                    .unwrap_or(0)
+            }
+        }
+    }
+}
+
+fn pseudo_random(counter: usize) -> usize {
+    let mut value = (counter as u64).wrapping_add(0x9e3779b97f4a7c15);
+    value = (value ^ (value >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
+    value = (value ^ (value >> 27)).wrapping_mul(0x94d049bb133111eb);
+    (value ^ (value >> 31)) as usize
 }
 
 impl ProxyState {
@@ -268,7 +310,11 @@ impl ProxyState {
         })
     }
 
-    pub(crate) fn control_target(provider: &LiveProvider, model: String) -> ModelTarget {
+    pub(crate) fn control_target(
+        provider: &LiveProvider,
+        model: String,
+        weight: u32,
+    ) -> ModelTarget {
         ModelTarget {
             client: provider.client.clone(),
             upstream: provider.upstream.clone(),
@@ -279,6 +325,7 @@ impl ProxyState {
             product_connection: None,
             product_model: None,
             provider_id: provider.provider_id.clone(),
+            weight,
         }
     }
 
@@ -329,7 +376,7 @@ impl ProxyState {
         let route = Arc::get_mut(route).ok_or("product combo route is shared")?;
         if route.protocol != ProviderProtocol::OpenAi
             || !route.fallback
-            || route.round_robin
+            || route.strategy != RouteStrategy::Priority
             || route.targets.len() != combo.targets.len()
             || connections.len() != combo.targets.len()
         {
@@ -455,10 +502,12 @@ impl ProxyState {
             if protocol == ProviderProtocol::Gemini && !valid_gemini_model(alias) {
                 return Err("invalid Gemini route model");
             }
-            let round_robin = match object.get("strategy") {
-                None => false,
-                Some(v) if v.as_str() == Some("priority") => false,
-                Some(v) if v.as_str() == Some("round-robin") => true,
+            let strategy = match object.get("strategy") {
+                None => RouteStrategy::Priority,
+                Some(v) if v.as_str() == Some("priority") => RouteStrategy::Priority,
+                Some(v) if v.as_str() == Some("round-robin") => RouteStrategy::RoundRobin,
+                Some(v) if v.as_str() == Some("weighted") => RouteStrategy::Weighted,
+                Some(v) if v.as_str() == Some("random") => RouteStrategy::Random,
                 _ => return Err("unsupported route strategy"),
             };
             let fallback = match object.get("fallback") {
@@ -476,7 +525,8 @@ impl ProxyState {
             for entry in entries {
                 let target = entry.as_object().ok_or("invalid target")?;
                 if target.keys().any(|k| {
-                    !["url", "model", "api_key_env", "auth", "protocol"].contains(&k.as_str())
+                    !["url", "model", "api_key_env", "auth", "protocol", "weight"]
+                        .contains(&k.as_str())
                 }) {
                     return Err("unknown target field");
                 }
@@ -519,6 +569,18 @@ impl ProxyState {
                     })
                     .ok_or("invalid target key environment variable")?;
                 let secret = key(key_name).ok_or("target provider key is missing")?;
+                let weight = match target.get("weight") {
+                    Some(value) if strategy == RouteStrategy::Weighted => value
+                        .as_u64()
+                        .and_then(|value| u32::try_from(value).ok())
+                        .filter(|value| (1..=100).contains(value))
+                        .ok_or("invalid target weight")?,
+                    None if strategy == RouteStrategy::Weighted => {
+                        return Err("weighted route targets require weights")
+                    }
+                    None => 1,
+                    Some(_) => return Err("target weights require the weighted strategy"),
+                };
                 let anthropic_bearer = match target.get("auth") {
                     None => false,
                     Some(value)
@@ -565,7 +627,13 @@ impl ProxyState {
                     product_connection: None,
                     product_model: None,
                     provider_id: None,
+                    weight,
                 });
+            }
+            if strategy == RouteStrategy::Weighted
+                && targets.iter().map(|target| target.weight).sum::<u32>() != 100
+            {
+                return Err("weighted route target weights must total 100");
             }
             if routes
                 .insert(
@@ -573,7 +641,7 @@ impl ProxyState {
                     Arc::new(ModelRoute {
                         targets,
                         protocol,
-                        round_robin,
+                        strategy,
                         fallback,
                         cursor: AtomicUsize::new(0),
                     }),
@@ -1098,13 +1166,7 @@ async fn proxy_request(
             }
         }
     }
-    let start = route.map_or(0, |route| {
-        if route.round_robin {
-            route.cursor.fetch_add(1, Ordering::Relaxed) % eligible.len()
-        } else {
-            0
-        }
-    });
+    let start = route.map_or(0, |route| route.selection_start(&eligible));
     let attempts = if state.product_combo.is_some() {
         eligible.len()
     } else if product_access.is_some() {

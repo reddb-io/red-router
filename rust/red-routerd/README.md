@@ -50,8 +50,9 @@ provider; subsequent provider changes do not require those environment secrets.
 - `DELETE /api/admin/client-keys/{id}` immediately revokes the key.
 - `GET /api/admin/combos` lists Rust-owned combo routes.
 - `PUT /api/admin/combos/{id}` creates or replaces an OpenAI-compatible combo with
-  `strategy` (`priority` or `round-robin`), `fallback`, `enabled`, and one to eight
-  `{provider_id, model}` targets.
+  `strategy` (`priority`, `round-robin`, `weighted` or `random`), `fallback`, `enabled`,
+  and one to eight `{provider_id, model}` targets. Weighted targets require integer
+  `weight` values from 1–100 that total exactly 100.
 - `DELETE /api/admin/combos/{id}` disables the combo.
 
 All management endpoints require `Authorization: Bearer <RED_ROUTER_ADMIN_KEY>`.
