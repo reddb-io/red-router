@@ -1,4 +1,6 @@
-use red_routerd::storage::{Backend, Database, StoredClientKey, StoredCombo, StoredProvider};
+use red_routerd::storage::{
+    Backend, Database, StoredBreaker, StoredClientKey, StoredCombo, StoredProvider,
+};
 use tempfile::TempDir;
 use url::Url;
 
@@ -86,6 +88,19 @@ async fn exercise(backend: Backend, url: &str) {
     disabled_combo.enabled = false;
     disabled_combo.revision = 8;
     assert_eq!(db.combos().await.unwrap(), vec![disabled_combo.clone()]);
+    let breaker = StoredBreaker {
+        provider_id: "first".into(),
+        state: "open".into(),
+        failure_count: 12,
+        last_failure_unix_ms: 1_700_000_000_000,
+        open_cycle_count: 2,
+        failure_threshold: 12,
+        degradation_threshold: 7,
+        reset_timeout_ms: 30_000,
+        revision: 9,
+    };
+    db.upsert_breaker(&breaker).await.unwrap();
+    assert_eq!(db.breakers().await.unwrap(), vec![breaker.clone()]);
     db.close().await.unwrap();
     drop(db);
     let reopened = Database::connect(backend, url).await.unwrap();
@@ -96,6 +111,9 @@ async fn exercise(backend: Backend, url: &str) {
     assert_eq!(reopened.active_provider().await.unwrap(), Some(first));
     assert_eq!(reopened.client_keys().await.unwrap(), vec![revoked_key]);
     assert_eq!(reopened.combos().await.unwrap(), vec![disabled_combo]);
+    assert_eq!(reopened.breakers().await.unwrap(), vec![breaker]);
+    reopened.delete_breaker("first").await.unwrap();
+    assert!(reopened.breakers().await.unwrap().is_empty());
     reopened.close().await.unwrap();
 }
 

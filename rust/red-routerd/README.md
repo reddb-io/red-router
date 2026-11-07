@@ -55,6 +55,9 @@ provider; subsequent provider changes do not require those environment secrets.
   and one to eight `{provider_id, model}` targets. Weighted targets require integer
   `weight` values from 1–100 that total exactly 100.
 - `DELETE /api/admin/combos/{id}` disables the combo.
+- `GET /api/admin/provider-health` lists provider breaker state, failure counts,
+  thresholds and retry windows without exposing credentials.
+- `DELETE /api/admin/provider-health/{id}` durably resets one provider breaker.
 
 All management endpoints require `Authorization: Bearer <RED_ROUTER_ADMIN_KEY>`.
 Provider credentials are encrypted with a random salt and nonce, authenticated against their
@@ -68,6 +71,13 @@ storage and are never returned. Supported client policy fields are `enabled`,
 snapshot becomes visible. Once any combo row exists, Rust-owned combos are authoritative;
 unknown or disabled aliases do not fall through to the active provider. Pricing,
 token/spend quotas and the remaining dashboard settings still need migration.
+
+Rust-owned providers share durable circuit breakers across aliases and live route
+snapshots. Network failures and `408`, `500`, `502`, `503` and `504` count as
+provider-wide failures. `401`, `403`, `429` and other account/model outcomes do not.
+Local literal-loopback providers degrade/open after 1/2 failures with a 15 second reset;
+other API-key providers use 7/12 failures with a 30 second reset. An open breaker is
+skipped before dispatch, and only one half-open probe is admitted after cooldown.
 
 ## Experimental product SQLite credential
 

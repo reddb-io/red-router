@@ -1,5 +1,6 @@
 //! Authenticated Rust control plane for provider persistence and live reload.
 use crate::{
+    circuit::{BreakerStatus, ProviderCircuit},
     policy::{ClientPolicies, StoredPolicy},
     storage::{StoredClientKey, StoredCombo, StoredProvider},
     LiveProvider, ModelRoute, ProviderProtocol, ProxyState, RouteStrategy,
@@ -34,6 +35,7 @@ struct Inner {
     current: RwLock<Option<LiveProvider>>,
     clients: RwLock<ClientSnapshot>,
     routes: RwLock<RouteSnapshot>,
+    breakers: RwLock<HashMap<String, Arc<ProviderCircuit>>>,
     mutation: tokio::sync::Mutex<()>,
     admin_hash: [u8; 32],
     encryption_key: Zeroizing<String>,
@@ -174,11 +176,25 @@ impl ControlPlane {
         if !(16..=512).contains(&encryption_key.len()) {
             return Err("STORAGE_ENCRYPTION_KEY must be 16-512 bytes");
         }
+        let mut breakers = HashMap::new();
+        for record in database.breakers().await? {
+            let id = record.provider_id.clone();
+            if breakers
+                .insert(
+                    id,
+                    Arc::new(ProviderCircuit::from_stored(&record, database.clone())?),
+                )
+                .is_some()
+            {
+                return Err("duplicate provider breaker state");
+            }
+        }
         let plane = Self(Arc::new(Inner {
             database,
             current: RwLock::new(None),
             clients: RwLock::new(ClientSnapshot::Unavailable),
             routes: RwLock::new(RouteSnapshot::Unavailable),
+            breakers: RwLock::new(breakers),
             mutation: tokio::sync::Mutex::new(()),
             admin_hash: Sha256::digest(admin_key.as_bytes()).into(),
             encryption_key: Zeroizing::new(encryption_key.to_owned()),
@@ -233,8 +249,16 @@ impl ControlPlane {
             RouteSnapshot::Current(routes) => !routes.is_empty(),
             RouteSnapshot::Unavailable => false,
         };
+        let breakers_ready = self
+            .0
+            .breakers
+            .read()
+            .await
+            .values()
+            .all(|breaker| breaker.persistence_ready());
         client_keys_ready
             && routes_ready
+            && breakers_ready
             && self
                 .0
                 .database
@@ -439,6 +463,7 @@ impl ControlPlane {
                 )
                 .await?;
                 live.provider_id = Some(Arc::from(record.id));
+                live.circuit = Some(self.circuit_for(&record.id, &record.upstream_url).await);
                 Some(live)
             }
             None => None,
@@ -495,6 +520,8 @@ impl ControlPlane {
                     )
                     .await?;
                     runtime.provider_id = Some(Arc::from(provider.id.clone()));
+                    runtime.circuit =
+                        Some(self.circuit_for(&provider.id, &provider.upstream_url).await);
                     live.insert(provider.id.clone(), runtime);
                 }
                 if live
@@ -559,6 +586,51 @@ impl ControlPlane {
             .iter()
             .map(combo_view)
             .collect()
+    }
+
+    async fn breaker_views(&self) -> Result<Vec<BreakerStatus>, &'static str> {
+        let providers = self.0.database.providers().await?;
+        let mut statuses = Vec::with_capacity(providers.len());
+        for provider in providers {
+            statuses.push(
+                self.circuit_for(&provider.id, &provider.upstream_url)
+                    .await
+                    .status()
+                    .await?,
+            );
+        }
+        statuses.sort_by(|left, right| left.provider_id.cmp(&right.provider_id));
+        Ok(statuses)
+    }
+
+    async fn reset_breaker(&self, id: &str) -> Result<(), &'static str> {
+        validate_id(id)?;
+        let _mutation = self.0.mutation.lock().await;
+        let provider = self
+            .0
+            .database
+            .providers()
+            .await?
+            .into_iter()
+            .find(|provider| provider.id == id)
+            .ok_or("provider does not exist")?;
+        self.circuit_for(&provider.id, &provider.upstream_url)
+            .await
+            .reset()
+            .await
+    }
+
+    async fn circuit_for(&self, id: &str, upstream_url: &str) -> Arc<ProviderCircuit> {
+        if let Some(circuit) = self.0.breakers.read().await.get(id).cloned() {
+            return circuit;
+        }
+        let created = Arc::new(ProviderCircuit::new(
+            id,
+            self.0.database.clone(),
+            local_endpoint(upstream_url),
+        ));
+        let mut breakers = self.0.breakers.write().await;
+        breakers.entry(id.to_owned()).or_insert(created).clone()
     }
 
     fn authorized(&self, headers: &HeaderMap) -> bool {
@@ -854,6 +926,17 @@ fn validate_provider(value: &str) -> Result<(), &'static str> {
     Ok(())
 }
 
+fn local_endpoint(value: &str) -> bool {
+    reqwest::Url::parse(value)
+        .ok()
+        .and_then(|url| match url.host()? {
+            url::Host::Ipv4(ip) => Some(ip.is_loopback()),
+            url::Host::Ipv6(ip) => Some(ip.is_loopback()),
+            url::Host::Domain(_) => Some(false),
+        })
+        .unwrap_or(false)
+}
+
 fn revision() -> Result<i64, &'static str> {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -983,6 +1066,43 @@ pub async fn list_combos(State(state): State<ProxyState>, headers: HeaderMap) ->
     }
 }
 
+pub async fn list_provider_health(State(state): State<ProxyState>, headers: HeaderMap) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+    };
+    if !control.authorized(&headers) {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
+    }
+    match control.breaker_views().await {
+        Ok(breakers) => Json(serde_json::json!({"provider_health":breakers})).into_response(),
+        Err(_) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Provider health storage unavailable",
+        ),
+    }
+}
+
+pub async fn delete_provider_health(
+    State(state): State<ProxyState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+    };
+    if !control.authorized(&headers) {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
+    }
+    match control.reset_breaker(&id).await {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(error) if is_runtime_error(error) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Provider health storage unavailable",
+        ),
+        Err(_) => api_error(StatusCode::BAD_REQUEST, "Invalid provider identifier"),
+    }
+}
+
 pub async fn put_provider(
     State(state): State<ProxyState>,
     Path(id): Path<String>,
@@ -1015,6 +1135,7 @@ fn is_runtime_error(error: &str) -> bool {
         || error.contains("cannot write")
         || error.contains("cannot read")
         || error.contains("cannot reload")
+        || error.contains("breaker")
         || error.contains("combo has no enabled")
         || error.contains("combo provider unavailable")
 }

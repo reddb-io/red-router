@@ -25,6 +25,10 @@ const LIST_COMBOS: &str = "SELECT id, protocol, routing_strategy, fallback_enabl
 const UPSERT_COMBO: &str = "INSERT INTO redrouter_control_combos (id, protocol, routing_strategy, fallback_enabled, targets_json, enabled, revision) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (id) DO UPDATE SET protocol = $2, routing_strategy = $3, fallback_enabled = $4, targets_json = $5, enabled = $6, revision = $7";
 const DISABLE_COMBO: &str =
     "UPDATE redrouter_control_combos SET enabled = 0, revision = $2 WHERE id = $1";
+const CREATE_BREAKERS: &str = "CREATE TABLE IF NOT EXISTS redrouter_provider_breakers (provider_id TEXT PRIMARY KEY, breaker_state TEXT NOT NULL, failure_count BIGINT NOT NULL, last_failure_unix_ms BIGINT NOT NULL, open_cycle_count BIGINT NOT NULL, failure_threshold BIGINT NOT NULL, degradation_threshold BIGINT NOT NULL, reset_timeout_ms BIGINT NOT NULL, revision BIGINT NOT NULL)";
+const LIST_BREAKERS: &str = "SELECT provider_id, breaker_state, failure_count, last_failure_unix_ms, open_cycle_count, failure_threshold, degradation_threshold, reset_timeout_ms, revision FROM redrouter_provider_breakers ORDER BY provider_id ASC";
+const UPSERT_BREAKER: &str = "INSERT INTO redrouter_provider_breakers (provider_id, breaker_state, failure_count, last_failure_unix_ms, open_cycle_count, failure_threshold, degradation_threshold, reset_timeout_ms, revision) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (provider_id) DO UPDATE SET breaker_state = $2, failure_count = $3, last_failure_unix_ms = $4, open_cycle_count = $5, failure_threshold = $6, degradation_threshold = $7, reset_timeout_ms = $8, revision = $9";
+const DELETE_BREAKER: &str = "DELETE FROM redrouter_provider_breakers WHERE provider_id = $1";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StoredProvider {
@@ -62,6 +66,19 @@ pub struct StoredCombo {
     pub fallback: bool,
     pub targets_json: String,
     pub enabled: bool,
+    pub revision: i64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StoredBreaker {
+    pub provider_id: String,
+    pub state: String,
+    pub failure_count: i64,
+    pub last_failure_unix_ms: i64,
+    pub open_cycle_count: i64,
+    pub failure_threshold: i64,
+    pub degradation_threshold: i64,
+    pub reset_timeout_ms: i64,
     pub revision: i64,
 }
 
@@ -139,7 +156,13 @@ impl Database {
                     let embedded = reddb_client::embedded::EmbeddedClient::open(path)
                         .map_err(|_| "cannot open embedded RedDB")?;
                     let db = reddb_client::Reddb::Embedded(embedded);
-                    for statement in [CREATE, CREATE_PROVIDERS, CREATE_CLIENT_KEYS, CREATE_COMBOS] {
+                    for statement in [
+                        CREATE,
+                        CREATE_PROVIDERS,
+                        CREATE_CLIENT_KEYS,
+                        CREATE_COMBOS,
+                        CREATE_BREAKERS,
+                    ] {
                         db.query(statement)
                             .await
                             .map_err(|_| "cannot initialize database")?;
@@ -222,6 +245,7 @@ impl Database {
                 db.remote_schema_query(CREATE_PROVIDERS).await?;
                 db.remote_schema_query(CREATE_CLIENT_KEYS).await?;
                 db.remote_schema_query(CREATE_COMBOS).await?;
+                db.remote_schema_query(CREATE_BREAKERS).await?;
                 Ok(db)
             }
             Backend::Sqlite | Backend::Postgres => {
@@ -244,7 +268,13 @@ impl Database {
                     .connect(url)
                     .await
                     .map_err(|_| "cannot connect to selected database")?;
-                for statement in [CREATE, CREATE_PROVIDERS, CREATE_CLIENT_KEYS, CREATE_COMBOS] {
+                for statement in [
+                    CREATE,
+                    CREATE_PROVIDERS,
+                    CREATE_CLIENT_KEYS,
+                    CREATE_COMBOS,
+                    CREATE_BREAKERS,
+                ] {
                     sqlx::query(statement)
                         .execute(&pool)
                         .await
@@ -597,6 +627,94 @@ impl Database {
         Ok(())
     }
 
+    pub async fn breakers(&self) -> Result<Vec<StoredBreaker>, &'static str> {
+        match self {
+            Self::Sql(pool) => sqlx::query(LIST_BREAKERS)
+                .fetch_all(pool)
+                .await
+                .map_err(|_| "cannot read provider breaker state")?
+                .iter()
+                .map(read_sql_breaker)
+                .collect(),
+            Self::Remote(_) => self
+                .remote_query(LIST_BREAKERS, &[])
+                .await?
+                .rows
+                .iter()
+                .map(read_reddb_breaker)
+                .collect(),
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => db
+                .query(LIST_BREAKERS)
+                .await
+                .map_err(|_| "cannot read provider breaker state")?
+                .rows
+                .iter()
+                .map(read_reddb_breaker)
+                .collect(),
+        }
+    }
+
+    pub async fn upsert_breaker(&self, breaker: &StoredBreaker) -> Result<(), &'static str> {
+        match self {
+            Self::Sql(pool) => {
+                sqlx::query(UPSERT_BREAKER)
+                    .bind(&breaker.provider_id)
+                    .bind(&breaker.state)
+                    .bind(breaker.failure_count)
+                    .bind(breaker.last_failure_unix_ms)
+                    .bind(breaker.open_cycle_count)
+                    .bind(breaker.failure_threshold)
+                    .bind(breaker.degradation_threshold)
+                    .bind(breaker.reset_timeout_ms)
+                    .bind(breaker.revision)
+                    .execute(pool)
+                    .await
+                    .map_err(|_| "cannot write provider breaker state")?;
+            }
+            Self::Remote(_) => {
+                self.remote_query(UPSERT_BREAKER, &breaker_params(breaker))
+                    .await?;
+            }
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => {
+                db.query_with(UPSERT_BREAKER, breaker_params(breaker))
+                    .await
+                    .map_err(|_| "cannot write provider breaker state")?;
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn delete_breaker(&self, provider_id: &str) -> Result<(), &'static str> {
+        match self {
+            Self::Sql(pool) => {
+                sqlx::query(DELETE_BREAKER)
+                    .bind(provider_id)
+                    .execute(pool)
+                    .await
+                    .map_err(|_| "cannot reset provider breaker")?;
+            }
+            Self::Remote(_) => {
+                self.remote_query(
+                    DELETE_BREAKER,
+                    &[reddb_client::Value::Text(provider_id.to_owned())],
+                )
+                .await?;
+            }
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => {
+                db.query_with(
+                    DELETE_BREAKER,
+                    vec![reddb_client::Value::Text(provider_id.to_owned())],
+                )
+                .await
+                .map_err(|_| "cannot reset provider breaker")?;
+            }
+        }
+        Ok(())
+    }
+
     /// Insert only when no configuration exists. The existing authority wins.
     pub async fn seed(&self, value: &str) -> Result<(), &'static str> {
         self.write(SEED, value).await
@@ -898,6 +1016,70 @@ fn combo_params(combo: &StoredCombo, fallback: i64, enabled: i64) -> Vec<reddb_c
         reddb_client::Value::Text(combo.targets_json.clone()),
         reddb_client::Value::Int(enabled),
         reddb_client::Value::Int(combo.revision),
+    ]
+}
+
+fn read_sql_breaker(row: &sqlx::any::AnyRow) -> Result<StoredBreaker, &'static str> {
+    let text = |name| {
+        row.try_get(name)
+            .map_err(|_| "invalid provider breaker record")
+    };
+    let integer = |name| {
+        row.try_get(name)
+            .map_err(|_| "invalid provider breaker record")
+    };
+    Ok(StoredBreaker {
+        provider_id: text("provider_id")?,
+        state: text("breaker_state")?,
+        failure_count: integer("failure_count")?,
+        last_failure_unix_ms: integer("last_failure_unix_ms")?,
+        open_cycle_count: integer("open_cycle_count")?,
+        failure_threshold: integer("failure_threshold")?,
+        degradation_threshold: integer("degradation_threshold")?,
+        reset_timeout_ms: integer("reset_timeout_ms")?,
+        revision: integer("revision")?,
+    })
+}
+
+fn read_reddb_breaker(row: &reddb_client::Row) -> Result<StoredBreaker, &'static str> {
+    let text = |name: &str| match row
+        .iter()
+        .find(|(column, _)| column.eq_ignore_ascii_case(name))
+    {
+        Some((_, reddb_client::ValueOut::String(value))) => Ok(value.clone()),
+        _ => Err("invalid provider breaker record"),
+    };
+    let integer = |name: &str| match row
+        .iter()
+        .find(|(column, _)| column.eq_ignore_ascii_case(name))
+    {
+        Some((_, reddb_client::ValueOut::Integer(value))) => Ok(*value),
+        _ => Err("invalid provider breaker record"),
+    };
+    Ok(StoredBreaker {
+        provider_id: text("provider_id")?,
+        state: text("breaker_state")?,
+        failure_count: integer("failure_count")?,
+        last_failure_unix_ms: integer("last_failure_unix_ms")?,
+        open_cycle_count: integer("open_cycle_count")?,
+        failure_threshold: integer("failure_threshold")?,
+        degradation_threshold: integer("degradation_threshold")?,
+        reset_timeout_ms: integer("reset_timeout_ms")?,
+        revision: integer("revision")?,
+    })
+}
+
+fn breaker_params(breaker: &StoredBreaker) -> Vec<reddb_client::Value> {
+    vec![
+        reddb_client::Value::Text(breaker.provider_id.clone()),
+        reddb_client::Value::Text(breaker.state.clone()),
+        reddb_client::Value::Int(breaker.failure_count),
+        reddb_client::Value::Int(breaker.last_failure_unix_ms),
+        reddb_client::Value::Int(breaker.open_cycle_count),
+        reddb_client::Value::Int(breaker.failure_threshold),
+        reddb_client::Value::Int(breaker.degradation_threshold),
+        reddb_client::Value::Int(breaker.reset_timeout_ms),
+        reddb_client::Value::Int(breaker.revision),
     ]
 }
 

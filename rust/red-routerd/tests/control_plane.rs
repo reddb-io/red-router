@@ -483,6 +483,139 @@ async fn rust_control_plane_persists_and_live_reloads_combo_routes() {
     );
     assert_eq!(
         client
+            .get(format!("{restarted_base}/api/admin/provider-health"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        401
+    );
+    let health = client
+        .get(format!("{restarted_base}/api/admin/provider-health"))
+        .bearer_auth(ADMIN_KEY)
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    let health: serde_json::Value = serde_json::from_str(&health).unwrap();
+    let failing_health = health["provider_health"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["provider_id"] == "failing")
+        .unwrap();
+    assert_eq!(failing_health["state"], "open");
+    assert_eq!(failing_health["failure_count"], 2);
+    assert_eq!(
+        client
+            .put(format!(
+                "{restarted_base}/api/admin/client-keys/combo-client"
+            ))
+            .bearer_auth(ADMIN_KEY)
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(
+                serde_json::json!({
+                    "label":"Combo client",
+                    "scopes":["inference:chat"],
+                    "allowed_endpoints":["chat"],
+                    "allowed_models":["agent-combo","upstream-model"],
+                    "allowed_provider_ids":["failing"]
+                })
+                .to_string()
+            )
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
+    let blocked = chat_model(&client, &restarted_base, RUST_CLIENT_KEY, "agent-combo").await;
+    assert_eq!(blocked.status(), 503);
+    assert!(blocked.headers().get(header::RETRY_AFTER).is_some());
+    assert_eq!(
+        client
+            .put(format!(
+                "{restarted_base}/api/admin/client-keys/combo-client"
+            ))
+            .bearer_auth(ADMIN_KEY)
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(
+                serde_json::json!({
+                    "label":"Combo client",
+                    "scopes":["inference:chat"],
+                    "allowed_endpoints":["chat"],
+                    "allowed_models":["agent-combo","upstream-model"],
+                    "allowed_provider_ids":["failing","second"]
+                })
+                .to_string()
+            )
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
+    assert_eq!(
+        chat_model(&client, &restarted_base, RUST_CLIENT_KEY, "agent-combo")
+            .await
+            .text()
+            .await
+            .unwrap(),
+        "combo-second"
+    );
+    let health = client
+        .get(format!("{restarted_base}/api/admin/provider-health"))
+        .bearer_auth(ADMIN_KEY)
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    let health: serde_json::Value = serde_json::from_str(&health).unwrap();
+    assert_eq!(
+        health["provider_health"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|entry| entry["provider_id"] == "failing")
+            .unwrap()["failure_count"],
+        2
+    );
+    assert_eq!(
+        client
+            .delete(format!(
+                "{restarted_base}/api/admin/provider-health/failing"
+            ))
+            .bearer_auth(ADMIN_KEY)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        204
+    );
+    let reset_health = client
+        .get(format!("{restarted_base}/api/admin/provider-health"))
+        .bearer_auth(ADMIN_KEY)
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    let reset_health: serde_json::Value = serde_json::from_str(&reset_health).unwrap();
+    let reset_failing = reset_health["provider_health"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["provider_id"] == "failing")
+        .unwrap();
+    assert_eq!(reset_failing["state"], "closed");
+    assert_eq!(reset_failing["failure_count"], 0);
+    assert_eq!(
+        client
             .delete(format!("{restarted_base}/api/admin/combos/agent-combo"))
             .bearer_auth(ADMIN_KEY)
             .send()

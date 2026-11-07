@@ -49,7 +49,7 @@ features must not be implemented only there.
 | Combos and routing          | Implemented foundation | Durable multi-protocol priority/round-robin/weighted/random routes and live reload  |
 | Pricing, quotas and budgets | Partial                | Atomic reservations, streaming settlement, reconciliation, multi-process tests     |
 | Usage and audit             | Partial                | Complete protocol usage, idempotent ledger, retention/export APIs                  |
-| Settings and resilience     | Pending                | Versioned settings snapshots, health state and live invalidation                   |
+| Settings and resilience     | Partial                | Durable provider breakers and reset API; versioned settings snapshots remain       |
 | SPA delivery                | Pending                | Rust-served static assets, same-origin admin API, no Next.js runtime               |
 | Legacy data migration       | Pending                | Maintenance-mode import, verification report and rollback boundary                 |
 
@@ -83,5 +83,15 @@ weighted and random selection, target model rewriting, provider grants, pre-resp
 replacement and restart persistence are implemented for OpenAI chat, Responses,
 embeddings, Cohere rerank, native Anthropic and Gemini. Provider endpoints are validated
 and pinned for the protocol implied by their URL; an enabled combo cannot bind targets
-from a different protocol. The remaining dashboard strategies and health/circuit state
-remain explicit follow-up work rather than compatibility calls back into Next.js.
+from a different protocol. The remaining dashboard strategies remain explicit follow-up
+work rather than compatibility calls back into Next.js.
+
+Provider-wide circuit state is owned by `redrouter_provider_breakers` in the same
+selected database authority. Network failures and upstream `408`, `500`, `502`, `503`
+and `504` responses move a provider through closed, degraded, open and half-open states;
+ordinary key/account/model responses such as `401`, `403` and `429` do not poison the
+whole provider. Open providers are skipped before dispatch, one concurrent half-open
+probe is allowed after the durable cooldown, and success or failure is committed before
+the updated runtime state is accepted. The authenticated health API exposes only
+non-secret state and supports an operator reset. Durable configuration of breaker
+thresholds and the remaining connection/model cooldown layers still need migration.

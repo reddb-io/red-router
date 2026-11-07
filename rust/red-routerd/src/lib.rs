@@ -1,6 +1,7 @@
 //! RedRouter's Rust proxy and production-backend migration target.
 pub mod accounting;
 mod anthropic_stream;
+mod circuit;
 pub mod control_plane;
 pub mod fastllm_control;
 pub mod fastllm_plan;
@@ -61,6 +62,7 @@ pub(crate) struct LiveProvider {
     provider_key: HeaderValue,
     provider_id: Option<Arc<str>>,
     protocol: ProviderProtocol,
+    circuit: Option<Arc<circuit::ProviderCircuit>>,
 }
 
 struct ProductFallback {
@@ -106,6 +108,7 @@ pub(crate) struct ModelTarget {
     product_model: Option<String>,
     provider_id: Option<Arc<str>>,
     weight: u32,
+    circuit: Option<Arc<circuit::ProviderCircuit>>,
 }
 
 impl ModelRoute {
@@ -311,6 +314,7 @@ impl ProxyState {
             provider_key: state.provider_key,
             provider_id: None,
             protocol,
+            circuit: None,
         })
     }
 
@@ -330,6 +334,7 @@ impl ProxyState {
             product_model: None,
             provider_id: provider.provider_id.clone(),
             weight,
+            circuit: provider.circuit.clone(),
         }
     }
 
@@ -632,6 +637,7 @@ impl ProxyState {
                     product_model: None,
                     provider_id: None,
                     weight,
+                    circuit: None,
                 });
             }
             if strategy == RouteStrategy::Weighted
@@ -778,6 +784,14 @@ pub fn router(state: ProxyState) -> Router {
             "/api/admin/combos/{id}",
             put(control_plane::put_combo).delete(control_plane::delete_combo),
         )
+        .route(
+            "/api/admin/provider-health",
+            get(control_plane::list_provider_health),
+        )
+        .route(
+            "/api/admin/provider-health/{id}",
+            axum::routing::delete(control_plane::delete_provider_health),
+        )
         .route("/v1/chat/completions", post(chat))
         .route("/v1/responses", post(responses))
         .route("/v1/embeddings", post(embeddings))
@@ -800,6 +814,18 @@ fn error(status: StatusCode, message: &'static str) -> Response {
         Json(serde_json::json!({"error": {"message": message, "type": "proxy_error"}})),
     )
         .into_response()
+}
+
+fn circuit_open_error(retry_after_ms: u64) -> Response {
+    let mut response = error(
+        StatusCode::SERVICE_UNAVAILABLE,
+        "All permitted provider circuits are open",
+    );
+    let seconds = retry_after_ms.div_ceil(1_000).max(1);
+    if let Ok(value) = HeaderValue::from_str(&seconds.to_string()) {
+        response.headers_mut().insert(header::RETRY_AFTER, value);
+    }
+    response
 }
 
 async fn chat(State(state): State<ProxyState>, request: Request) -> Response {
@@ -1226,6 +1252,8 @@ async fn proxy_request(
     let mut last_retry_response = None;
     let mut final_translated = false;
     let mut final_accounting = None;
+    let mut saw_open_circuit = false;
+    let mut closest_circuit_retry_ms: Option<u64> = None;
     if state.control_plane.is_some() && route.is_none() && live_provider.is_none() {
         return error(
             StatusCode::SERVICE_UNAVAILABLE,
@@ -1447,15 +1475,84 @@ async fn proxy_request(
         if let Some(accept) = &accept {
             upstream = upstream.header(header::ACCEPT, accept.clone());
         }
+        let circuit = target
+            .and_then(|target| target.circuit.as_ref())
+            .or_else(|| {
+                live_provider
+                    .as_ref()
+                    .and_then(|provider| provider.circuit.as_ref())
+            });
+        let circuit_permit = if let Some(circuit) = circuit {
+            match circuit.try_acquire().await {
+                Ok(circuit::CircuitDecision::Permit(permit)) => Some(permit),
+                Ok(circuit::CircuitDecision::Open { retry_after_ms }) => {
+                    saw_open_circuit = true;
+                    closest_circuit_retry_ms = Some(
+                        closest_circuit_retry_ms
+                            .map_or(retry_after_ms, |current| current.min(retry_after_ms)),
+                    );
+                    continue;
+                }
+                Err(_) => {
+                    return error(
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "Provider health accounting unavailable",
+                    )
+                }
+            }
+        } else {
+            None
+        };
         let response = match tokio::time::timeout(HEADER_TIMEOUT, upstream.send()).await {
             Ok(Ok(response)) => response,
-            Ok(Err(_)) if offset + 1 < attempts => continue,
-            Err(_) if offset + 1 < attempts => continue,
-            Ok(Err(_)) => return error(StatusCode::BAD_GATEWAY, "Upstream unavailable"),
-            Err(_) => return error(StatusCode::GATEWAY_TIMEOUT, "Upstream response timed out"),
+            Ok(Err(_)) => {
+                if let (Some(circuit), Some(permit)) = (circuit, circuit_permit) {
+                    if circuit.record_failure(permit).await.is_err() {
+                        return error(
+                            StatusCode::SERVICE_UNAVAILABLE,
+                            "Provider health accounting unavailable",
+                        );
+                    }
+                }
+                if offset + 1 < attempts {
+                    continue;
+                }
+                return error(StatusCode::BAD_GATEWAY, "Upstream unavailable");
+            }
+            Err(_) => {
+                if let (Some(circuit), Some(permit)) = (circuit, circuit_permit) {
+                    if circuit.record_failure(permit).await.is_err() {
+                        return error(
+                            StatusCode::SERVICE_UNAVAILABLE,
+                            "Provider health accounting unavailable",
+                        );
+                    }
+                }
+                if offset + 1 < attempts {
+                    continue;
+                }
+                return error(StatusCode::GATEWAY_TIMEOUT, "Upstream response timed out");
+            }
         };
+        if let (Some(circuit), Some(permit)) = (circuit, circuit_permit) {
+            let recorded = if circuit::provider_failure_status(response.status()) {
+                circuit.record_failure(permit).await
+            } else if response.status().is_success() {
+                circuit.record_success(permit).await
+            } else {
+                circuit.record_ignored(permit).await;
+                Ok(())
+            };
+            if recorded.is_err() {
+                return error(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "Provider health accounting unavailable",
+                );
+            }
+        }
         if (response.status() == StatusCode::TOO_MANY_REQUESTS
-            || response.status().is_server_error())
+            || response.status().is_server_error()
+            || response.status() == StatusCode::REQUEST_TIMEOUT)
             && offset + 1 < attempts
         {
             last_retry_response = Some(response);
@@ -1467,6 +1564,9 @@ async fn proxy_request(
         break;
     }
     let Some(response) = final_response.or(last_retry_response) else {
+        if saw_open_circuit {
+            return circuit_open_error(closest_circuit_retry_ms.unwrap_or(1_000));
+        }
         return error(StatusCode::BAD_GATEWAY, "Upstream unavailable");
     };
     // Redirects are intentionally not followed or relayed to the client.
