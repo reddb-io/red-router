@@ -15,7 +15,7 @@
 
 import { getDbInstance } from "./core";
 import { aggregateLedgerThisMonth } from "./costLedger";
-import { reserveSharedRpmOnDb } from "./sharedRpm";
+import { reserveSharedRpmOnDb, type SharedRpmReservationOptions } from "./sharedRpm";
 import { toNumber } from "@/shared/utils/numeric";
 
 // ---------------------------------------------------------------------------
@@ -369,8 +369,12 @@ export function getQuotaWindowCount(
  * BEGIN IMMEDIATE and two-bucket window as red-routerd. Callers must avoid
  * incrementing RPM again when recording the completed response.
  */
-export function reserveSharedKeyRpm(apiKeyId: string, nowMs = Date.now()): boolean {
-  return reserveSharedRpmOnDb(getDbInstance(), apiKeyId, nowMs);
+export function reserveSharedKeyRpm(
+  apiKeyId: string,
+  nowMs = Date.now(),
+  options: SharedRpmReservationOptions = {}
+): boolean {
+  return reserveSharedRpmOnDb(getDbInstance(), apiKeyId, nowMs, options);
 }
 
 /** Drop every counter of one owner (a deleted budget). */

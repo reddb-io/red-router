@@ -11,11 +11,16 @@ type SharedRpmDatabase = {
   immediate(fn: () => void): void;
   prepare(sql: string): SqliteStatement;
 };
+export type SharedRpmReservationOptions = {
+  /** The caller will reserve token and spend bounds before its provider attempt. */
+  allowConcurrentUsage?: boolean;
+};
 
 export function reserveSharedRpmOnDb(
   db: SharedRpmDatabase,
   apiKeyId: string,
-  nowMs = Date.now()
+  nowMs = Date.now(),
+  options: SharedRpmReservationOptions = {}
 ): boolean {
   if (!apiKeyId || !Number.isSafeInteger(nowMs) || nowMs < 0)
     throw new Error("Invalid shared RPM reservation");
@@ -23,15 +28,21 @@ export function reserveSharedRpmOnDb(
   const bucket = Math.floor(nowMs / 60_000);
   let allowed = false;
   db.immediate(() => {
-    // Until TypeScript participates in token/spend settlement, do not admit
-    // keys governed by these quotas in strict mode. Rust handles those keys.
-    if (process.env.RED_ROUTER_PRODUCT_STRICT_QUOTAS === "1") {
-      const guarded = db.prepare(
-        `SELECT EXISTS(SELECT 1 FROM api_key_quota_limits WHERE api_key_id = ? AND
+    // Ordinary TypeScript handlers do not yet participate in token/spend
+    // settlement. System One opts in only when concurrent reservations are on.
+    const concurrentUsage =
+      options.allowConcurrentUsage === true &&
+      process.env.RED_ROUTER_PRODUCT_CONCURRENT_QUOTAS === "1";
+    if (process.env.RED_ROUTER_PRODUCT_STRICT_QUOTAS === "1" && !concurrentUsage) {
+      const guarded = db
+        .prepare(
+          `SELECT EXISTS(SELECT 1 FROM api_key_quota_limits WHERE api_key_id = ? AND
           (COALESCE(tpm_limit, 0) > 0 OR COALESCE(monthly_amount_usd, 0) > 0)) OR
           EXISTS(SELECT 1 FROM api_key_daily_token_limits WHERE api_key_id = ?) AS guarded`
-      ).get(apiKeyId, apiKeyId) as { guarded: number };
-      if (guarded.guarded !== 0) throw new Error("Token and spend quota keys require the Rust proxy in strict mode");
+        )
+        .get(apiKeyId, apiKeyId) as { guarded: number };
+      if (guarded.guarded !== 0)
+        throw new Error("Token and spend quota keys require a shared reservation path");
     }
     const limitRow = db
       .prepare("SELECT rpm_limit FROM api_key_quota_limits WHERE api_key_id = ?")

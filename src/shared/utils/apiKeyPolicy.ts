@@ -262,7 +262,11 @@ function policyErrorResponse(
       headers: {
         "Content-Type": "application/json",
         ...routingErrorHeaders(anthropicStatusCode, {
-          error: { message: safeMessage, code: classification?.code, reason: classification?.reason },
+          error: {
+            message: safeMessage,
+            code: classification?.code,
+            reason: classification?.reason,
+          },
         }),
       },
     }
@@ -471,6 +475,8 @@ export interface EnforceApiKeyPolicyOptions {
    * entirely. Every other check on this path is unaffected.
    */
   meteredBudget?: "enforce" | "defer-to-candidate";
+  /** This endpoint durably reserves token and spend bounds before every provider attempt. */
+  concurrentUsageReservation?: boolean;
 }
 
 /**
@@ -921,8 +927,18 @@ export async function enforceApiKeyPolicy(
   if (!apiKeyInfo) {
     return { apiKey, apiKeyInfo: null, rejection: null };
   }
-  if (process.env.RED_ROUTER_PRODUCT_STRICT_QUOTAS === "1" && process.env.RED_ROUTER_PRODUCT_SHARED_RPM !== "1") {
-    return { apiKey, apiKeyInfo, rejection: errorResponse(HTTP_STATUS.SERVICE_UNAVAILABLE, "Strict quota coordination unavailable") };
+  if (
+    process.env.RED_ROUTER_PRODUCT_STRICT_QUOTAS === "1" &&
+    process.env.RED_ROUTER_PRODUCT_SHARED_RPM !== "1"
+  ) {
+    return {
+      apiKey,
+      apiKeyInfo,
+      rejection: errorResponse(
+        HTTP_STATUS.SERVICE_UNAVAILABLE,
+        "Strict quota coordination unavailable"
+      ),
+    };
   }
 
   const context = { request, apiKey, apiKeyInfo, modelStr };
@@ -949,7 +965,11 @@ export async function enforceApiKeyPolicy(
 
   if (process.env.RED_ROUTER_PRODUCT_SHARED_RPM === "1" && apiKeyInfo.id) {
     try {
-      if (!reserveSharedKeyRpm(apiKeyInfo.id)) {
+      if (
+        !reserveSharedKeyRpm(apiKeyInfo.id, Date.now(), {
+          allowConcurrentUsage: options?.concurrentUsageReservation === true,
+        })
+      ) {
         return {
           apiKey,
           apiKeyInfo,
@@ -963,7 +983,10 @@ export async function enforceApiKeyPolicy(
       return {
         apiKey,
         apiKeyInfo,
-        rejection: errorResponse(HTTP_STATUS.SERVICE_UNAVAILABLE, "Client quota accounting unavailable"),
+        rejection: errorResponse(
+          HTTP_STATUS.SERVICE_UNAVAILABLE,
+          "Client quota accounting unavailable"
+        ),
       };
     }
   }

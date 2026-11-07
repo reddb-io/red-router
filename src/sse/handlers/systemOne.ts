@@ -87,7 +87,8 @@ export async function handleSystemOne(request: Request): Promise<Response> {
   if (!targets.length) return errorResponse(400, "Unsupported System One model");
   const policy = await enforceApiKeyPolicy(
     request,
-    priorityTargets?.[0] || parsed.data.model || resolveSystemOneTarget()?.model
+    priorityTargets?.[0] || parsed.data.model || resolveSystemOneTarget()?.model,
+    { concurrentUsageReservation: true }
   );
   if (policy.rejection) return policy.rejection;
 

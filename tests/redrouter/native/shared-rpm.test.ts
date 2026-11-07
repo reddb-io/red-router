@@ -58,31 +58,61 @@ test("shared RPM admission is durable and completion only adds tokens", () => {
   assert.equal(reserveSharedKeyRpm("shared-client", now + 60_000), false);
   assert.equal(reserveSharedKeyRpm("shared-client", now + 90_000), true);
   const row = getDbInstance()
-    .prepare("SELECT SUM(consumed) AS n FROM api_key_quota_counters WHERE api_key_id = ? AND dimension_key = ?")
+    .prepare(
+      "SELECT SUM(consumed) AS n FROM api_key_quota_counters WHERE api_key_id = ? AND dimension_key = ?"
+    )
     .get("shared-client", "key-quota:rpm") as { n: number };
   assert.equal(row.n, 3);
 });
 
-test("strict mode blocks TypeScript access for keys governed by token or spend quotas", async () => {
+test("strict mode blocks ordinary TypeScript but admits a reserved System One path", async () => {
   const oldRpm = process.env.RED_ROUTER_PRODUCT_SHARED_RPM;
   const oldStrict = process.env.RED_ROUTER_PRODUCT_STRICT_QUOTAS;
+  const oldConcurrent = process.env.RED_ROUTER_PRODUCT_CONCURRENT_QUOTAS;
   process.env.RED_ROUTER_PRODUCT_SHARED_RPM = "1";
   process.env.RED_ROUTER_PRODUCT_STRICT_QUOTAS = "1";
   try {
     for (const limits of [{ tpmLimit: 100 }, { dailyTokensLimit: 100 }, { monthlyAmountUsd: 1 }]) {
       const key = await createApiKey("strict-guard", "ci-machine");
       upsertKeyQuotaLimits(key.id, limits);
-      const request = new Request("http://localhost/v1/chat/completions", { method: "POST", headers: { authorization: `Bearer ${key.key}` } });
+      const request = new Request("http://localhost/v1/chat/completions", {
+        method: "POST",
+        headers: { authorization: `Bearer ${key.key}` },
+      });
       const verdict = await enforceApiKeyPolicy(request, "openrouter/openai/gpt");
       assert.equal(verdict.rejection?.status, 503);
     }
     const unrestricted = await createApiKey("strict-unrestricted", "ci-machine");
-    const request = () => new Request("http://localhost/v1/chat/completions", { method: "POST", headers: { authorization: `Bearer ${unrestricted.key}` } });
+    const request = () =>
+      new Request("http://localhost/v1/chat/completions", {
+        method: "POST",
+        headers: { authorization: `Bearer ${unrestricted.key}` },
+      });
     assert.equal((await enforceApiKeyPolicy(request(), "openrouter/openai/gpt")).rejection, null);
     delete process.env.RED_ROUTER_PRODUCT_SHARED_RPM;
-    assert.equal((await enforceApiKeyPolicy(request(), "openrouter/openai/gpt")).rejection?.status, 503);
+    assert.equal(
+      (await enforceApiKeyPolicy(request(), "openrouter/openai/gpt")).rejection?.status,
+      503
+    );
+    process.env.RED_ROUTER_PRODUCT_SHARED_RPM = "1";
+    process.env.RED_ROUTER_PRODUCT_CONCURRENT_QUOTAS = "1";
+    const systemOne = await createApiKey("strict-system-one", "ci-machine");
+    upsertKeyQuotaLimits(systemOne.id, { tpmLimit: 100 });
+    const systemOneRequest = new Request("http://localhost/v1/systemone", {
+      method: "POST",
+      headers: { authorization: `Bearer ${systemOne.key}` },
+    });
+    const systemOnePolicy = await enforceApiKeyPolicy(systemOneRequest, "typesafe-ai/jev-latest", {
+      concurrentUsageReservation: true,
+    });
+    assert.equal(systemOnePolicy.rejection, null);
+    assert.equal(systemOnePolicy.apiKeyInfo?.sharedRpmReserved, true);
   } finally {
-    if (oldRpm === undefined) delete process.env.RED_ROUTER_PRODUCT_SHARED_RPM; else process.env.RED_ROUTER_PRODUCT_SHARED_RPM = oldRpm;
-    if (oldStrict === undefined) delete process.env.RED_ROUTER_PRODUCT_STRICT_QUOTAS; else process.env.RED_ROUTER_PRODUCT_STRICT_QUOTAS = oldStrict;
+    if (oldRpm === undefined) delete process.env.RED_ROUTER_PRODUCT_SHARED_RPM;
+    else process.env.RED_ROUTER_PRODUCT_SHARED_RPM = oldRpm;
+    if (oldStrict === undefined) delete process.env.RED_ROUTER_PRODUCT_STRICT_QUOTAS;
+    else process.env.RED_ROUTER_PRODUCT_STRICT_QUOTAS = oldStrict;
+    if (oldConcurrent === undefined) delete process.env.RED_ROUTER_PRODUCT_CONCURRENT_QUOTAS;
+    else process.env.RED_ROUTER_PRODUCT_CONCURRENT_QUOTAS = oldConcurrent;
   }
 });
