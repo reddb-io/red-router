@@ -18,10 +18,34 @@ fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
             let runtime = tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
                 .build()?;
-            runtime.block_on(run())
+            runtime.block_on(run_with_reload())
         })?
         .join()
         .map_err(|_| "router initialization thread panicked")?
+}
+
+async fn run_with_reload() -> Result<(), Box<dyn Error + Send + Sync>> {
+    let mut reloading = false;
+    loop {
+        match run().await {
+            Ok(()) => return Ok(()),
+            Err(error)
+                if error
+                    .downcast_ref::<red_routerd::fastllm_supervisor::ReloadRequired>()
+                    .is_some() =>
+            {
+                reloading = true;
+            }
+            Err(error) if reloading => {
+                eprintln!("waiting for a valid dashboard configuration: {error}");
+            }
+            Err(error) => return Err(error),
+        }
+        tokio::select! {
+            _ = tokio::time::sleep(std::time::Duration::from_secs(1)) => {},
+            _ = shutdown_signal() => return Ok(()),
+        }
+    }
 }
 
 async fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
@@ -490,11 +514,10 @@ async fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
             drop(managed_provider_data);
             if captured != version {
                 control_task.abort();
-                return Err(
-                    "FastLLM snapshot differs from the gateway's captured credentials".into(),
-                );
+                return Err(Box::new(red_routerd::fastllm_supervisor::ReloadRequired));
             }
-            let gateway = serve_proxy(address, state.clone());
+            let (reload_tx, reload_rx) = tokio::sync::oneshot::channel();
+            let gateway = serve_proxy(address, state.clone(), Some(reload_rx));
             return red_routerd::fastllm_supervisor::run(
                 red_routerd::fastllm_supervisor::Config {
                     binary: &binary,
@@ -506,11 +529,12 @@ async fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
                 },
                 state,
                 control_task,
+                reload_tx,
                 gateway,
             )
             .await;
         }
-        return serve_proxy(address, state).await;
+        return serve_proxy(address, state, None).await;
     }
     if env::var_os("RED_ROUTER_FASTLLM_MANAGED_BINARY").is_some()
         || env::var_os("RED_ROUTER_FASTLLM_URL").is_some()
@@ -600,7 +624,7 @@ async fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
         Err(env::VarError::NotPresent) => {}
         Err(_) => return Err("RED_ROUTER_CLIENT_POLICIES_JSON must be valid Unicode".into()),
     }
-    serve_proxy(address, state).await?;
+    serve_proxy(address, state, None).await?;
     db.close().await?;
     Ok(())
 }
@@ -608,6 +632,7 @@ async fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
 async fn serve_proxy(
     address: SocketAddr,
     state: ProxyState,
+    reload: Option<tokio::sync::oneshot::Receiver<()>>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     let listener = tokio::net::TcpListener::bind(address).await?;
     println!(
@@ -622,7 +647,13 @@ async fn serve_proxy(
         }
     });
     axum::serve(listener, router(state))
-        .with_graceful_shutdown(shutdown_signal())
+        .with_graceful_shutdown(async move {
+            if let Some(reload) = reload {
+                tokio::select! { _ = shutdown_signal() => {}, _ = reload => {} }
+            } else {
+                shutdown_signal().await;
+            }
+        })
         .await?;
     Ok(())
 }

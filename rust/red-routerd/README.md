@@ -46,10 +46,14 @@ A force-killed or crashed parent can still leave an orphan child; use a
 service manager or container process group that terminates all descendants.
 
 Managed FastLLM does not poll for snapshot changes. The gateway checks its
-captured combo and connection state before each dispatch and refuses new work
-when they change. Restart the whole gateway to load a change; this initial
-mode does not yet perform automatic configuration reloads. It remains a local
-experimental mode and has not been validated using real provider credentials.
+captured combo and connection state before dispatch and also watches for
+changes. When configuration changes, it stops accepting new traffic, allows
+up to 30 seconds for active requests to drain, then starts a new gateway and
+engine with a freshly verified snapshot and new internal tokens. Requests that
+are still active after the grace period can be interrupted. While a changed
+configuration is invalid, the gateway remains unavailable and retries.
+This is a local experimental mode and has not been validated with real
+provider credentials.
 Managed mode refuses `RED_ROUTER_PRODUCT_STRICT_QUOTAS=1`: that legacy mode
 admits only one outstanding request per key and does not satisfy concurrent
 agent usage. Concurrent token and spend admission is not implemented yet;
@@ -105,10 +109,9 @@ in-memory snapshot, so every client request must continue through the guarded
 Red Router listener. The control source does not handle FastLLM usage reports
 or implement token/spend quota reconciliation. It does not yet automatically
 launch or supervise FastLLM, and has not been validated with real credentials.
-Restart the gateway, control source and FastLLM together when changing a combo
-or credential: the gateway can reject an old configuration, but this first
-integration does not yet prove that a running FastLLM has consumed the new
-snapshot before the gateway accepts traffic. Snapshot versions are content
+When using the separately launched control source instead of supervised mode,
+restart the gateway, control source and FastLLM together when changing a combo
+or credential. Snapshot versions are content
 fingerprints, not timestamps, so FastLLM metrics that interpret them as a
 timestamp must not be used for snapshot age in this mode.
 

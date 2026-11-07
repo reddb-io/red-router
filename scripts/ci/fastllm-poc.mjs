@@ -325,34 +325,54 @@ try {
   }
   assert.ok(restarted, "FastLLM was not restarted by the supervisor");
   process.stderr.write("CI: supervised engine restarted\n");
+  const previousEngine = engineChildren()[0];
+  assert.ok(previousEngine);
   db.prepare("UPDATE provider_connections SET is_active = 0 WHERE id = 'fixture-connection'").run();
   let stoppedConfig;
-  for (let attempt = 0; attempt < 100; attempt++) {
-    if (supervised.exitCode !== null) throw new Error(`supervisor exited before configuration check: ${supervised.exitCode}`);
-    try {
-      stoppedConfig = await request(`http://127.0.0.1:${supervisedPort}/v1/chat/completions`, fixtureKey, "bench", AbortSignal.timeout(5000));
-      break;
-    } catch (error) {
-      if (attempt === 99) throw new Error("supervisor unavailable after engine restart", { cause: error });
-      await delay(250);
-    }
+  try { stoppedConfig = await request(`http://127.0.0.1:${supervisedPort}/v1/chat/completions`, fixtureKey, "bench", AbortSignal.timeout(5000)); } catch { /* draining is also unavailable */ }
+  if (stoppedConfig) {
+    assert.ok([401, 503].includes(stoppedConfig.status), `changed configuration was not rejected: ${stoppedConfig.status}`);
+    await stoppedConfig.body?.cancel();
   }
-  assert.ok([401, 503].includes(stoppedConfig.status), `changed configuration was not rejected: ${stoppedConfig.status}`);
-  await stoppedConfig.body?.cancel();
   process.stderr.write("CI: stale dashboard configuration rejected\n");
+  let drained = false;
+  for (let attempt = 0; attempt < 150; attempt++) {
+    if (supervised.exitCode !== null) throw new Error(`supervisor exited while waiting for a valid configuration: ${supervised.exitCode}`);
+    if (!engineChildren().includes(previousEngine)) { drained = true; break; }
+    await delay(100);
+  }
+  assert.ok(drained, "old FastLLM did not stop when its configuration became invalid");
+  db.prepare("UPDATE combos SET data = ? WHERE name = 'bench'").run(JSON.stringify({ name: "bench", strategy: "priority", models: ["openrouter/vendor/model-b"] }));
   db.prepare("UPDATE provider_connections SET is_active = 1 WHERE id = 'fixture-connection'").run();
-  const restartedEngine = engineChildren()[0];
-  assert.ok(restartedEngine, "supervised FastLLM disappeared before shutdown");
+  let reloadedEngine;
+  for (let attempt = 0; attempt < 200; attempt++) {
+    if (supervised.exitCode !== null) throw new Error(`supervisor exited during configuration reload: ${supervised.exitCode}`);
+    await delay(100);
+    const current = engineChildren()[0];
+    if (!current || current === previousEngine) continue;
+    try {
+      const response = await fetch(`http://127.0.0.1:${supervisedPort}/healthz`, { signal: AbortSignal.timeout(500) });
+      if (response.ok) { reloadedEngine = current; break; }
+    } catch { /* rebuilding */ }
+  }
+  assert.ok(reloadedEngine, "FastLLM did not reload after the dashboard configuration became valid");
+  const reloadedPlan = routePlan();
+  assert.equal(JSON.parse(reloadedPlan.stdout).upstream_model, "vendor/model-b");
+  const unknownAfterReload = await request(`http://127.0.0.1:${supervisedPort}/v1/chat/completions`, "unknown-dashboard-key-12345", "bench", AbortSignal.timeout(5000));
+  assert.equal(unknownAfterReload.status, 401);
+  await unknownAfterReload.body?.cancel();
+  process.stderr.write("CI: updated dashboard configuration reloaded\n");
   supervised.kill("SIGTERM");
   await Promise.race([new Promise((resolve) => supervised.once("exit", resolve)), delay(10_000)]);
   assert.notEqual(supervised.exitCode, null, "supervisor did not stop on SIGTERM");
   let engineStopped = false;
   for (let attempt = 0; attempt < 50; attempt++) {
-    const status = spawnSync("ps", ["-o", "stat=", "-p", String(restartedEngine)], { encoding: "utf8" });
+    const status = spawnSync("ps", ["-o", "stat=", "-p", String(reloadedEngine)], { encoding: "utf8" });
     if (status.status !== 0 || status.stdout.trim().startsWith("Z")) { engineStopped = true; break; }
     await delay(100);
   }
   assert.ok(engineStopped, "FastLLM survived supervisor SIGTERM");
+  db.prepare("UPDATE combos SET data = ? WHERE name = 'bench'").run(JSON.stringify({ name: "bench", strategy: "priority", models: ["openrouter/vendor/model-a"] }));
   // Load a real encrypted product-format credential through the Rust control
   // source, then prove the patched FastLLM loads it without creating a cache.
   const credentialDbPath = join(temp, "credential-fixture.sqlite");

@@ -11,6 +11,16 @@ use tokio::{
 
 type Failure = Box<dyn Error + Send + Sync>;
 
+#[derive(Debug)]
+pub struct ReloadRequired;
+
+impl std::fmt::Display for ReloadRequired {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("dashboard configuration changed")
+    }
+}
+impl Error for ReloadRequired {}
+
 pub fn random_token() -> Result<zeroize::Zeroizing<String>, &'static str> {
     let mut bytes = zeroize::Zeroizing::new([0u8; 32]);
     getrandom::fill(bytes.as_mut()).map_err(|_| "cannot generate FastLLM token")?;
@@ -129,6 +139,7 @@ pub async fn run<F>(
     config: Config<'_>,
     state: ProxyState,
     mut control_task: JoinHandle<std::io::Result<()>>,
+    reload: tokio::sync::oneshot::Sender<()>,
     gateway: F,
 ) -> Result<(), Failure>
 where
@@ -140,32 +151,70 @@ where
         config.control_address,
         config.control_token,
     )?;
-    wait_ready(
+    if let Err(error) = wait_ready(
         &mut child,
         config.engine_address,
         config.internal_token,
         config.version,
     )
-    .await?;
+    .await
+    {
+        if !state.product_configuration_unchanged().await {
+            return Err(Box::new(ReloadRequired));
+        }
+        return Err(error);
+    }
     if !state.product_configuration_unchanged().await {
-        return Err("dashboard configuration changed during FastLLM startup".into());
+        return Err(Box::new(ReloadRequired));
     }
     tokio::pin!(gateway);
     let mut restarts = 0;
+    let mut ticker = tokio::time::interval(Duration::from_secs(1));
+    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    let mut reload = Some(reload);
     loop {
         tokio::select! {
             outcome = &mut gateway => { control_task.abort(); return outcome; }
             outcome = &mut control_task => { return Err(format!("FastLLM control stopped: {outcome:?}").into()); }
+            _ = ticker.tick() => {
+                if !state.product_configuration_unchanged().await {
+                    if let Some(sender) = reload.take() { let _ = sender.send(()); }
+                    // Stop accepting traffic and allow active streams to drain.
+                    // A stuck stream is interrupted after the bounded grace.
+                    let _ = tokio::time::timeout(Duration::from_secs(30), &mut gateway).await;
+                    control_task.abort();
+                    return Err(Box::new(ReloadRequired));
+                }
+            }
             outcome = child.wait() => {
                 outcome?;
-                if restarts >= 3 || !state.product_configuration_unchanged().await {
-                    return Err("FastLLM exited or dashboard configuration changed".into());
+                if !state.product_configuration_unchanged().await {
+                    if let Some(sender) = reload.take() { let _ = sender.send(()); }
+                    let _ = tokio::time::timeout(Duration::from_secs(30), &mut gateway).await;
+                    control_task.abort();
+                    return Err(Box::new(ReloadRequired));
+                }
+                if restarts >= 3 {
+                    return Err("FastLLM repeatedly exited".into());
                 }
                 restarts += 1;
                 tokio::time::sleep(Duration::from_millis(200 * restarts)).await;
                 child = spawn_engine(config.binary, config.engine_address, config.control_address, config.control_token)?;
-                wait_ready(&mut child, config.engine_address, config.internal_token, config.version).await?;
-                if !state.product_configuration_unchanged().await { return Err("dashboard configuration changed during FastLLM restart".into()); }
+                if let Err(error) = wait_ready(&mut child, config.engine_address, config.internal_token, config.version).await {
+                    if !state.product_configuration_unchanged().await {
+                        if let Some(sender) = reload.take() { let _ = sender.send(()); }
+                        let _ = tokio::time::timeout(Duration::from_secs(30), &mut gateway).await;
+                        control_task.abort();
+                        return Err(Box::new(ReloadRequired));
+                    }
+                    return Err(error);
+                }
+                if !state.product_configuration_unchanged().await {
+                    if let Some(sender) = reload.take() { let _ = sender.send(()); }
+                    let _ = tokio::time::timeout(Duration::from_secs(30), &mut gateway).await;
+                    control_task.abort();
+                    return Err(Box::new(ReloadRequired));
+                }
             }
         }
     }
