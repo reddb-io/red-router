@@ -183,14 +183,14 @@ test("S1 reserves each real provider attempt and atomically settles confirmed us
   const attempt = {
     id: "shared-attempt",
     keyId: "client-key",
-    provider: "openrouter" as const,
+    provider: "typesafe-ai" as const,
     model: target.model,
     prices: { input: 1, output: 2, cached: 0.5, cacheCreation: 1.5, reasoning: 2 },
   };
   const { dependencies, events } = setup({
     beginSharedUsage: async (key, provider, model, connection) => {
       assert.equal(key, "client-key");
-      assert.equal(provider, "openrouter");
+      assert.equal(provider, "typesafe-ai");
       assert.equal(model, target.model);
       assert.equal(connection, "connection");
       events.push("reserve");
@@ -258,7 +258,7 @@ test("S1 keeps uncertain failed-attempt reservations and settles only the succes
         attempt: {
           id,
           keyId: key,
-          provider: provider as "openrouter",
+          provider: provider as "typesafe-ai",
           model,
           prices: { input: 1, output: 2, cached: 1, cacheCreation: 1, reasoning: 2 },
         },
@@ -291,7 +291,7 @@ test("S1 retains a dispatched reservation when the transport outcome is unknown"
       attempt: {
         id: "uncertain",
         keyId: key,
-        provider: provider as "openrouter",
+        provider: provider as "typesafe-ai",
         model,
         prices: { input: 1, output: 2, cached: 1, cacheCreation: 1, reasoning: 2 },
       },
@@ -466,7 +466,7 @@ test("real S1 SQLite admission bounds concurrent agents and commits each complet
     const key = await createApiKey("Concurrent System One", "s1-concurrent", []);
     upsertKeyQuotaLimits(key.id, { tpmLimit: 30, monthlyAmountUsd: 1 });
     await updatePricing({
-      openrouter: {
+      "typesafe-ai": {
         [target.model]: { input: 1, output: 2, cached: 0.5, cache_creation: 1, reasoning: 2 },
       },
     });

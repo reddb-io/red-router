@@ -13,7 +13,8 @@ export type ReservedUsagePrices = {
   reasoning: number;
 };
 
-// Keep in sync with the fixed chat endpoints in rust/red-routerd/src/product_provider.rs.
+// Rust uses the shared OpenAI-compatible subset; TypeScript additionally settles
+// its native System One provider through the same SQLite ledger.
 const accountedProviders = [
   "openai",
   "openrouter",
@@ -25,6 +26,7 @@ const accountedProviders = [
   "together",
   "perplexity",
   "fireworks",
+  "typesafe-ai",
 ] as const;
 export type AccountedProvider = (typeof accountedProviders)[number];
 export function isAccountedProvider(provider: string): provider is AccountedProvider {
