@@ -179,8 +179,8 @@ impl Database {
                 .map_err(|_| "database connection timed out")?
                 .map_err(|_| "cannot connect to selected database")?;
                 let db = Self::Remote(tokio::sync::Mutex::new(Some(client)));
-                db.remote_query(CREATE, &[]).await?;
-                db.remote_query(CREATE_PROVIDERS, &[]).await?;
+                db.remote_schema_query(CREATE).await?;
+                db.remote_schema_query(CREATE_PROVIDERS).await?;
                 Ok(db)
             }
             Backend::Sqlite | Backend::Postgres => {
@@ -430,6 +430,34 @@ impl Database {
         {
             Ok(Ok(result)) => Ok(result),
             _ => {
+                *guard = None;
+                Err("database operation failed")
+            }
+        }
+    }
+
+    /// Schema statements are static and never contain credentials, so retain
+    /// the RedDB engine diagnostic in operator logs while keeping the public
+    /// error free of connection strings and secrets.
+    async fn remote_schema_query(&self, sql: &'static str) -> Result<(), &'static str> {
+        let Self::Remote(client) = self else {
+            return Err("invalid database transport");
+        };
+        let mut guard = client.lock().await;
+        let connection = guard.as_mut().ok_or("database connection is closed")?;
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            connection.query_with(sql, &[]),
+        )
+        .await
+        {
+            Ok(Ok(_)) => Ok(()),
+            Ok(Err(error)) => {
+                eprintln!("RedDB schema initialization failed: {error}");
+                *guard = None;
+                Err("database operation failed")
+            }
+            Err(_) => {
                 *guard = None;
                 Err("database operation failed")
             }
