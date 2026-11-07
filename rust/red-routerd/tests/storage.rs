@@ -1,4 +1,4 @@
-use red_routerd::storage::{Backend, Database, StoredProvider};
+use red_routerd::storage::{Backend, Database, StoredClientKey, StoredProvider};
 use tempfile::TempDir;
 use url::Url;
 
@@ -47,6 +47,29 @@ async fn exercise(backend: Backend, url: &str) {
     assert_eq!(db.active_provider().await.unwrap(), Some(second.clone()));
     db.disable_provider("second", 4).await.unwrap();
     assert_eq!(db.active_provider().await.unwrap(), Some(first.clone()));
+    let client_key = StoredClientKey {
+        id: "agent-fleet".into(),
+        label: "Agent fleet".into(),
+        key_hash: "11".repeat(32),
+        enabled: true,
+        expiry_unix: 2_000_000_000,
+        scopes_json: r#"["inference:chat"]"#.into(),
+        allowed_endpoints_json: r#"["chat"]"#.into(),
+        allowed_models_json: r#"["openai/*"]"#.into(),
+        blocked_models_json: "[]".into(),
+        allowed_provider_ids_json: r#"["first"]"#.into(),
+        max_concurrent: 32,
+        max_rpm: 600,
+        max_rpd: 50_000,
+        revision: 5,
+    };
+    db.upsert_client_key(&client_key).await.unwrap();
+    assert_eq!(db.client_keys().await.unwrap(), vec![client_key.clone()]);
+    db.revoke_client_key("agent-fleet", 6).await.unwrap();
+    let mut revoked_key = client_key.clone();
+    revoked_key.enabled = false;
+    revoked_key.revision = 6;
+    assert_eq!(db.client_keys().await.unwrap(), vec![revoked_key.clone()]);
     db.close().await.unwrap();
     drop(db);
     let reopened = Database::connect(backend, url).await.unwrap();
@@ -55,6 +78,7 @@ async fn exercise(backend: Backend, url: &str) {
         Some("https://second.example/v1/chat/completions")
     );
     assert_eq!(reopened.active_provider().await.unwrap(), Some(first));
+    assert_eq!(reopened.client_keys().await.unwrap(), vec![revoked_key]);
     reopened.close().await.unwrap();
 }
 

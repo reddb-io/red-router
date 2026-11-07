@@ -19,19 +19,23 @@ model restrictions. It does not yet implement
 RedRouter's full provider selection, quotas, policies, accounting, protocol
 full protocol translation, remote listening or inbound TLS.
 Its Rust-owned control plane now persists encrypted provider configurations and
-applies provider changes without restarting. Client keys and most policies remain
-environment or compatibility configuration. An opt-in mode can
+applies provider changes without restarting. It also owns durable client-key hashes,
+revocation, expiry, inference scopes, endpoint/model/provider grants and per-key
+concurrency/request limits. The remaining policy and accounting domains still have
+compatibility paths. An opt-in mode can
 read a supported OpenAI-compatible API credential from the product SQLite database, as described
 below. No product database migration is performed.
 It has not been validated as a production gateway. `/healthz` confirms that this
 process responds. `/readyz` additionally requires an active provider when the Rust
 control plane is enabled.
 
-## Rust-owned provider control plane
+## Rust-owned provider and client-key control plane
 
 Set `RED_ROUTER_ADMIN_KEY` (32–512 bytes) and `STORAGE_ENCRYPTION_KEY` (16–512
-bytes) to enable the management API. `RED_ROUTER_CLIENT_KEY` continues to protect
-inference traffic. On an empty database, `RED_ROUTER_UPSTREAM_URL`,
+bytes) to enable the management API. `RED_ROUTER_CLIENT_KEY` is an optional migration
+fallback until the first durable client key is created; after that, only Rust-owned
+keys are accepted. If it is omitted, the empty database starts with an unobservable
+random fallback and inference remains closed until a key is created. On an empty database, `RED_ROUTER_UPSTREAM_URL`,
 `RED_ROUTER_PROVIDER_KEY` and optional `RED_ROUTER_PROVIDER_NAME` seed the first
 provider; subsequent provider changes do not require those environment secrets.
 
@@ -40,13 +44,21 @@ provider; subsequent provider changes do not require those environment secrets.
   and optional `enabled`.
 - `DELETE /api/admin/providers/{id}` disables that provider and activates the
   most recently updated remaining enabled provider.
+- `GET /api/admin/client-keys` lists redacted key metadata and grants.
+- `PUT /api/admin/client-keys/{id}` creates or replaces a key policy. `api_key` is
+  required on creation and may be omitted on later policy updates.
+- `DELETE /api/admin/client-keys/{id}` immediately revokes the key.
 
 All three endpoints require `Authorization: Bearer <RED_ROUTER_ADMIN_KEY>`.
-Credentials are encrypted with a random salt and nonce, authenticated against their
+Provider credentials are encrypted with a random salt and nonce, authenticated against their
 provider ID, and never returned by the API. The durable database is updated before an
 atomically replaced, DNS-pinned runtime target becomes visible. Invalid storage or
-configuration fails closed. This is the first Rust-owned vertical slice; API keys,
-combos, pricing, quotas and the remaining dashboard settings still need migration.
+configuration fails closed. Client secrets are reduced to SHA-256 lookup hashes before
+storage and are never returned. Supported client policy fields are `enabled`,
+`expires_at_unix`, `scopes`, `allowed_endpoints`, `allowed_models`, `blocked_models`,
+`allowed_provider_ids`, `max_concurrent_requests`, `max_requests_per_minute` and
+`max_requests_per_day`. Combos, pricing, token/spend quotas and the remaining dashboard
+settings still need migration.
 
 ## Experimental product SQLite credential
 

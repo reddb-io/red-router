@@ -59,6 +59,7 @@ pub(crate) struct LiveProvider {
     client: reqwest::Client,
     upstream: reqwest::Url,
     provider_key: HeaderValue,
+    provider_id: Option<Arc<str>>,
 }
 
 struct ProductFallback {
@@ -262,6 +263,7 @@ impl ProxyState {
             client: state.client,
             upstream: state.upstream,
             provider_key: state.provider_key,
+            provider_id: None,
         })
     }
 
@@ -640,6 +642,14 @@ pub fn router(state: ProxyState) -> Router {
             "/api/admin/providers/{id}",
             put(control_plane::put_provider).delete(control_plane::delete_provider),
         )
+        .route(
+            "/api/admin/client-keys",
+            get(control_plane::list_client_keys),
+        )
+        .route(
+            "/api/admin/client-keys/{id}",
+            put(control_plane::put_client_key).delete(control_plane::delete_client_key),
+        )
         .route("/v1/chat/completions", post(chat))
         .route("/v1/responses", post(responses))
         .route("/v1/embeddings", post(embeddings))
@@ -794,11 +804,32 @@ async fn proxy_request(
     } else {
         None
     };
-    let clients = product_access
-        .as_ref()
-        .map_or(state.clients.as_ref(), |access| &access.policies);
+    let control_clients = if product_access.is_none() {
+        match &state.control_plane {
+            Some(control) => match control.client_policies().await {
+                Ok(policies) => policies,
+                Err(_) => {
+                    return error(
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "Client key policy unavailable",
+                    )
+                }
+            },
+            None => None,
+        }
+    } else {
+        None
+    };
+    let clients = product_access.as_ref().map_or_else(
+        || control_clients.as_deref().unwrap_or(state.clients.as_ref()),
+        |access| &access.policies,
+    );
     let Some(policy) = clients.authenticate(request.headers(), protocol) else {
         return error(StatusCode::UNAUTHORIZED, "Invalid API key");
+    };
+    let live_provider = match &state.control_plane {
+        Some(control) => control.current().await,
+        None => None,
     };
     let connection_changed = match (&state.product_connection, &state.product_combo) {
         (Some(connection), None) => !connection.unchanged().await,
@@ -959,6 +990,16 @@ async fn proxy_request(
     {
         return error(StatusCode::NOT_FOUND, "Unknown model route");
     }
+    let provider_id = if route.is_none() {
+        live_provider
+            .as_ref()
+            .and_then(|provider| provider.provider_id.as_deref())
+    } else {
+        None
+    };
+    if !policy.provider_allowed(provider_id) {
+        return error(StatusCode::FORBIDDEN, "Provider connection is not allowed");
+    }
     let eligible: Vec<_> = route.map_or_else(Vec::new, |route| {
         route
             .targets
@@ -1029,10 +1070,6 @@ async fn proxy_request(
     let mut last_retry_response = None;
     let mut final_translated = false;
     let mut final_accounting = None;
-    let live_provider = match &state.control_plane {
-        Some(control) => control.current().await,
-        None => None,
-    };
     if state.control_plane.is_some() && route.is_none() && live_provider.is_none() {
         return error(
             StatusCode::SERVICE_UNAVAILABLE,

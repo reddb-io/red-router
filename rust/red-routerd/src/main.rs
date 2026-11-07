@@ -615,7 +615,25 @@ async fn run(
         Err(_) => return Err("RED_ROUTER_DATABASE_URL must be valid Unicode".into()),
     };
     let db = Arc::new(Database::connect(backend, &database_url).await?);
-    let client_key = env::var("RED_ROUTER_CLIENT_KEY")?;
+    let admin_key = match env::var("RED_ROUTER_ADMIN_KEY") {
+        Ok(value) => Some(value),
+        Err(env::VarError::NotPresent) => None,
+        Err(_) => return Err("RED_ROUTER_ADMIN_KEY must be valid Unicode".into()),
+    };
+    let client_key = match env::var("RED_ROUTER_CLIENT_KEY") {
+        Ok(value) => value,
+        Err(env::VarError::NotPresent) if admin_key.is_some() => {
+            // An empty Rust client-key table may use this only as an
+            // unobservable compatibility fallback. Operators create the first
+            // durable key through the authenticated admin API.
+            let mut random = zeroize::Zeroizing::new([0_u8; 32]);
+            getrandom::fill(random.as_mut())
+                .map_err(|_| "cannot initialize client authentication")?;
+            hex::encode(random.as_ref())
+        }
+        Err(env::VarError::NotPresent) => return Err("RED_ROUTER_CLIENT_KEY is required".into()),
+        Err(_) => return Err("RED_ROUTER_CLIENT_KEY must be valid Unicode".into()),
+    };
     let allow_private = env::var("RED_ROUTER_ALLOW_PRIVATE_UPSTREAM").as_deref() == Ok("1");
     let requested = env::var("RED_ROUTER_UPSTREAM_URL").ok();
     if command.as_deref() == Some("set-upstream") {
@@ -627,7 +645,7 @@ async fn run(
         println!("Upstream configuration saved; restart the proxy to apply it");
         return Ok(());
     }
-    if let Ok(admin_key) = env::var("RED_ROUTER_ADMIN_KEY") {
+    if let Some(admin_key) = admin_key {
         let admin_key = zeroize::Zeroizing::new(admin_key);
         let encryption_key = zeroize::Zeroizing::new(env::var("STORAGE_ENCRYPTION_KEY")?);
         let control = ControlPlane::new(

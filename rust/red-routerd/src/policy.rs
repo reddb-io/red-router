@@ -1,5 +1,6 @@
 use axum::http::{header, HeaderMap};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use std::{
     collections::VecDeque,
     sync::{Arc, Mutex},
@@ -13,15 +14,36 @@ pub(crate) struct ClientPolicies {
 }
 
 pub(crate) struct ClientPolicy {
-    key: Arc<str>,
+    credential: ClientCredential,
     enabled: bool,
     expires_at_unix: Option<u64>,
+    scopes: Vec<String>,
     allowed_routes: Option<Vec<String>>,
     allowed_models: Option<Vec<String>>,
     allowed_endpoints: Vec<String>,
     blocked_models: Vec<String>,
+    allowed_provider_ids: Vec<String>,
     concurrency: Option<Arc<Semaphore>>,
     rate_limit: Option<RateLimit>,
+}
+
+enum ClientCredential {
+    Plain(Arc<str>),
+    Sha256([u8; 32]),
+}
+
+pub(crate) struct StoredPolicy {
+    pub key_hash: [u8; 32],
+    pub enabled: bool,
+    pub expires_at_unix: Option<u64>,
+    pub scopes: Vec<String>,
+    pub allowed_models: Vec<String>,
+    pub allowed_endpoints: Vec<String>,
+    pub blocked_models: Vec<String>,
+    pub allowed_provider_ids: Vec<String>,
+    pub max_concurrent_requests: Option<usize>,
+    pub max_requests_per_minute: Option<usize>,
+    pub max_requests_per_day: Option<usize>,
 }
 
 struct RateLimit {
@@ -74,16 +96,56 @@ impl ClientPolicies {
     pub(crate) fn single(key: &str) -> Self {
         Self {
             entries: vec![ClientPolicy {
-                key: Arc::from(key),
+                credential: ClientCredential::Plain(Arc::from(key)),
                 enabled: true,
                 expires_at_unix: None,
+                scopes: Vec::new(),
                 allowed_routes: None,
                 allowed_models: None,
                 allowed_endpoints: Vec::new(),
                 blocked_models: Vec::new(),
+                allowed_provider_ids: Vec::new(),
                 concurrency: None,
                 rate_limit: None,
             }],
+        }
+    }
+
+    pub(crate) fn from_stored(policies: Vec<StoredPolicy>) -> Self {
+        Self {
+            entries: policies
+                .into_iter()
+                .map(|policy| {
+                    let allowed_models = if policy.allowed_models.is_empty() {
+                        None
+                    } else {
+                        Some(policy.allowed_models)
+                    };
+                    let concurrency = policy
+                        .max_concurrent_requests
+                        .map(|limit| Arc::new(Semaphore::new(limit)));
+                    let rate_limit = (policy.max_requests_per_minute.is_some()
+                        || policy.max_requests_per_day.is_some())
+                    .then(|| RateLimit {
+                        minute: policy.max_requests_per_minute,
+                        day: policy.max_requests_per_day,
+                        requests: Mutex::new((VecDeque::new(), VecDeque::new())),
+                    });
+                    ClientPolicy {
+                        credential: ClientCredential::Sha256(policy.key_hash),
+                        enabled: policy.enabled,
+                        expires_at_unix: policy.expires_at_unix,
+                        scopes: policy.scopes,
+                        allowed_routes: None,
+                        allowed_models,
+                        allowed_endpoints: policy.allowed_endpoints,
+                        blocked_models: policy.blocked_models,
+                        allowed_provider_ids: policy.allowed_provider_ids,
+                        concurrency,
+                        rate_limit,
+                    }
+                })
+                .collect(),
         }
     }
 
@@ -133,9 +195,10 @@ impl ClientPolicies {
                 .ok_or("invalid client key environment variable")?;
             let key = resolve(name).ok_or("client key is missing")?;
             if !(16..=512).contains(&key.len())
-                || entries
-                    .iter()
-                    .any(|entry| entry.key.as_ref() == key.as_str())
+                || entries.iter().any(|entry| match &entry.credential {
+                    ClientCredential::Plain(existing) => existing.as_ref() == key.as_str(),
+                    ClientCredential::Sha256(_) => false,
+                })
             {
                 return Err("client keys must be unique and 16-512 bytes");
             }
@@ -214,13 +277,15 @@ impl ClientPolicies {
                 requests: Mutex::new((VecDeque::new(), VecDeque::new())),
             });
             entries.push(ClientPolicy {
-                key: Arc::from(key),
+                credential: ClientCredential::Plain(Arc::from(key)),
                 enabled,
                 expires_at_unix,
+                scopes: Vec::new(),
                 allowed_routes,
                 allowed_models,
                 allowed_endpoints,
                 blocked_models,
+                allowed_provider_ids: Vec::new(),
                 concurrency,
                 rate_limit,
             });
@@ -234,6 +299,7 @@ impl ClientPolicies {
         protocol: super::ProviderProtocol,
     ) -> Option<&ClientPolicy> {
         let candidate = extract_candidate(headers, protocol)?;
+        let candidate_hash: [u8; 32] = Sha256::digest(candidate.as_bytes()).into();
         // Examine every configured key rather than stopping at the first match.
         let mut matched = None;
         for policy in &self.entries {
@@ -242,10 +308,13 @@ impl ClientPolicies {
                     .duration_since(std::time::UNIX_EPOCH)
                     .is_ok_and(|elapsed| elapsed.as_secs() < deadline)
             });
-            if bool::from(candidate.as_bytes().ct_eq(policy.key.as_bytes()))
-                && policy.enabled
-                && unexpired
-            {
+            let credential_matches = match &policy.credential {
+                ClientCredential::Plain(key) => {
+                    bool::from(candidate.as_bytes().ct_eq(key.as_bytes()))
+                }
+                ClientCredential::Sha256(hash) => bool::from(candidate_hash.ct_eq(hash)),
+            };
+            if credential_matches && policy.enabled && unexpired {
                 matched = Some(policy);
             }
         }
@@ -309,11 +378,17 @@ impl ClientPolicy {
 
     // Empty endpoint lists retain the product's unrestricted behavior.
     pub(crate) fn endpoint_allowed(&self, endpoint: &str) -> bool {
-        self.allowed_endpoints.is_empty()
+        let scope_allowed = self.scopes.is_empty()
             || self
-                .allowed_endpoints
+                .scopes
                 .iter()
-                .any(|category| category == endpoint)
+                .any(|scope| scope == "inference:*" || scope == &format!("inference:{endpoint}"));
+        scope_allowed
+            && (self.allowed_endpoints.is_empty()
+                || self
+                    .allowed_endpoints
+                    .iter()
+                    .any(|category| category == endpoint))
     }
 
     pub(crate) fn route_allowed(&self, model: &str) -> bool {
@@ -337,6 +412,15 @@ impl ClientPolicy {
         self.blocked_models
             .iter()
             .any(|p| matches_pattern(p, model))
+    }
+
+    pub(crate) fn provider_allowed(&self, provider_id: Option<&str>) -> bool {
+        self.allowed_provider_ids.is_empty()
+            || provider_id.is_some_and(|id| {
+                self.allowed_provider_ids
+                    .iter()
+                    .any(|allowed| allowed == id)
+            })
     }
 }
 

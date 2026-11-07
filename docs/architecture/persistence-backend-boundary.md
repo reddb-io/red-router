@@ -10,9 +10,10 @@ lastUpdated: 2026-10-08
 gateway plus a static SPA, as recorded in
 [Rust backend migration](RUST_BACKEND_MIGRATION.md). SQLite remains the default;
 embedded RedDB, remote RedDB and PostgreSQL remain explicit choices. The first
-Rust-owned control-plane slice persists encrypted provider configurations and
-reloads them without restart. It does not yet migrate the installed TypeScript
-product data or establish full domain parity.
+Rust-owned control-plane slices persist encrypted provider configurations plus
+hash-only client keys and their authorization policy, reloading both without restart.
+They do not yet migrate the installed TypeScript product data or establish full domain
+parity.
 
 - **Status:** Architecture accepted on 2026-10-08; Rust production migration active
 - **Tracking issue:** [#8075](https://github.com/reddb-io/red-router/issues/8075)

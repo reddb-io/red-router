@@ -45,7 +45,7 @@ features must not be implemented only there.
 | Slice                       | Rust authority         | Acceptance                                                                         |
 | --------------------------- | ---------------------- | ---------------------------------------------------------------------------------- |
 | Provider connections        | Implemented foundation | Authenticated CRUD, encrypted secrets, live reload, restart persistence, readiness |
-| API/client keys             | Next                   | Hash-only lookup, scopes, endpoint/model/connection grants, revocation, expiry     |
+| API/client keys             | Implemented foundation | Hash-only lookup, scopes, endpoint/model/connection grants, revocation, expiry     |
 | Combos and routing          | Next                   | All dashboard strategies, connection selection, fallback and circuit state         |
 | Pricing, quotas and budgets | Partial                | Atomic reservations, streaming settlement, reconciliation, multi-process tests     |
 | Usage and audit             | Partial                | Complete protocol usage, idempotent ledger, retention/export APIs                  |
@@ -53,7 +53,7 @@ features must not be implemented only there.
 | SPA delivery                | Pending                | Rust-served static assets, same-origin admin API, no Next.js runtime               |
 | Legacy data migration       | Pending                | Maintenance-mode import, verification report and rollback boundary                 |
 
-## First production slice
+## Rust-owned production slices
 
 The provider slice uses `redrouter_control_providers` in the configured Rust storage
 backend. `red-routerd` validates and DNS-pins an endpoint before committing it, stores
@@ -65,3 +65,12 @@ while `/healthz` and the authenticated admin API remain available for repair.
 
 This slice deliberately does not claim complete backend parity. Its purpose is to
 establish the production ownership boundary that subsequent domains extend.
+
+The client-key slice stores only a SHA-256 lookup hash and redacted policy metadata in
+`redrouter_control_client_keys`. Authenticated admin writes durably commit before a new
+immutable policy snapshot becomes visible to inference requests. Creating the first
+durable key atomically retires the environment-key compatibility path. Revocation,
+expiry, protocol scopes, endpoint/model/provider grants, rolling request limits and
+per-key concurrency are enforced by Rust and survive restart. Provider grants currently
+name Rust-owned provider IDs; Rust-native combo target grants will extend the same policy
+when the routing slice lands.

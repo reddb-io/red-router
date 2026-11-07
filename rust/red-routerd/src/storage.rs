@@ -15,6 +15,11 @@ const ACTIVE_PROVIDER: &str = "SELECT id, provider, upstream_url, credential_cip
 const UPSERT_PROVIDER: &str = "INSERT INTO redrouter_control_providers (id, provider, upstream_url, credential_ciphertext, enabled, revision) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (id) DO UPDATE SET provider = $2, upstream_url = $3, credential_ciphertext = $4, enabled = $5, revision = $6";
 const DISABLE_PROVIDER: &str =
     "UPDATE redrouter_control_providers SET enabled = 0, revision = $2 WHERE id = $1";
+const CREATE_CLIENT_KEYS: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_client_keys (id TEXT PRIMARY KEY, label TEXT NOT NULL, key_hash TEXT NOT NULL, enabled BIGINT NOT NULL, expiry_unix BIGINT NOT NULL, scopes_json TEXT NOT NULL, allowed_endpoints_json TEXT NOT NULL, allowed_models_json TEXT NOT NULL, blocked_models_json TEXT NOT NULL, allowed_provider_ids_json TEXT NOT NULL, max_concurrent BIGINT NOT NULL, max_rpm BIGINT NOT NULL, max_rpd BIGINT NOT NULL, revision BIGINT NOT NULL)";
+const LIST_CLIENT_KEYS: &str = "SELECT id, label, key_hash, enabled, expiry_unix, scopes_json, allowed_endpoints_json, allowed_models_json, blocked_models_json, allowed_provider_ids_json, max_concurrent, max_rpm, max_rpd, revision FROM redrouter_control_client_keys ORDER BY revision DESC, id ASC";
+const UPSERT_CLIENT_KEY: &str = "INSERT INTO redrouter_control_client_keys (id, label, key_hash, enabled, expiry_unix, scopes_json, allowed_endpoints_json, allowed_models_json, blocked_models_json, allowed_provider_ids_json, max_concurrent, max_rpm, max_rpd, revision) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) ON CONFLICT (id) DO UPDATE SET label = $2, key_hash = $3, enabled = $4, expiry_unix = $5, scopes_json = $6, allowed_endpoints_json = $7, allowed_models_json = $8, blocked_models_json = $9, allowed_provider_ids_json = $10, max_concurrent = $11, max_rpm = $12, max_rpd = $13, revision = $14";
+const REVOKE_CLIENT_KEY: &str =
+    "UPDATE redrouter_control_client_keys SET enabled = 0, revision = $2 WHERE id = $1";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StoredProvider {
@@ -24,6 +29,24 @@ pub struct StoredProvider {
     pub credential_ciphertext: String,
     pub enabled: bool,
     pub updated_at: i64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StoredClientKey {
+    pub id: String,
+    pub label: String,
+    pub key_hash: String,
+    pub enabled: bool,
+    pub expiry_unix: i64,
+    pub scopes_json: String,
+    pub allowed_endpoints_json: String,
+    pub allowed_models_json: String,
+    pub blocked_models_json: String,
+    pub allowed_provider_ids_json: String,
+    pub max_concurrent: i64,
+    pub max_rpm: i64,
+    pub max_rpd: i64,
+    pub revision: i64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -100,7 +123,7 @@ impl Database {
                     let embedded = reddb_client::embedded::EmbeddedClient::open(path)
                         .map_err(|_| "cannot open embedded RedDB")?;
                     let db = reddb_client::Reddb::Embedded(embedded);
-                    for statement in [CREATE, CREATE_PROVIDERS] {
+                    for statement in [CREATE, CREATE_PROVIDERS, CREATE_CLIENT_KEYS] {
                         db.query(statement)
                             .await
                             .map_err(|_| "cannot initialize database")?;
@@ -181,6 +204,7 @@ impl Database {
                 let db = Self::Remote(tokio::sync::Mutex::new(Some(client)));
                 db.remote_schema_query(CREATE).await?;
                 db.remote_schema_query(CREATE_PROVIDERS).await?;
+                db.remote_schema_query(CREATE_CLIENT_KEYS).await?;
                 Ok(db)
             }
             Backend::Sqlite | Backend::Postgres => {
@@ -203,7 +227,7 @@ impl Database {
                     .connect(url)
                     .await
                     .map_err(|_| "cannot connect to selected database")?;
-                for statement in [CREATE, CREATE_PROVIDERS] {
+                for statement in [CREATE, CREATE_PROVIDERS, CREATE_CLIENT_KEYS] {
                     sqlx::query(statement)
                         .execute(&pool)
                         .await
@@ -355,6 +379,107 @@ impl Database {
                 )
                 .await
                 .map_err(|_| "cannot disable provider")?;
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn client_keys(&self) -> Result<Vec<StoredClientKey>, &'static str> {
+        match self {
+            Self::Sql(pool) => sqlx::query(LIST_CLIENT_KEYS)
+                .fetch_all(pool)
+                .await
+                .map_err(|_| "cannot read client key configuration")?
+                .iter()
+                .map(read_sql_client_key)
+                .collect(),
+            Self::Remote(_) => self
+                .remote_query(LIST_CLIENT_KEYS, &[])
+                .await?
+                .rows
+                .iter()
+                .map(read_reddb_client_key)
+                .collect(),
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => db
+                .query(LIST_CLIENT_KEYS)
+                .await
+                .map_err(|_| "cannot read client key configuration")?
+                .rows
+                .iter()
+                .map(read_reddb_client_key)
+                .collect(),
+        }
+    }
+
+    pub async fn upsert_client_key(&self, key: &StoredClientKey) -> Result<(), &'static str> {
+        let enabled = if key.enabled { 1_i64 } else { 0_i64 };
+        match self {
+            Self::Sql(pool) => {
+                sqlx::query(UPSERT_CLIENT_KEY)
+                    .bind(&key.id)
+                    .bind(&key.label)
+                    .bind(&key.key_hash)
+                    .bind(enabled)
+                    .bind(key.expiry_unix)
+                    .bind(&key.scopes_json)
+                    .bind(&key.allowed_endpoints_json)
+                    .bind(&key.allowed_models_json)
+                    .bind(&key.blocked_models_json)
+                    .bind(&key.allowed_provider_ids_json)
+                    .bind(key.max_concurrent)
+                    .bind(key.max_rpm)
+                    .bind(key.max_rpd)
+                    .bind(key.revision)
+                    .execute(pool)
+                    .await
+                    .map_err(|_| "cannot write client key configuration")?;
+            }
+            Self::Remote(_) => {
+                self.remote_query(UPSERT_CLIENT_KEY, &client_key_params(key, enabled))
+                    .await?;
+            }
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => {
+                db.query_with(UPSERT_CLIENT_KEY, client_key_params(key, enabled))
+                    .await
+                    .map_err(|_| "cannot write client key configuration")?;
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn revoke_client_key(&self, id: &str, revision: i64) -> Result<(), &'static str> {
+        match self {
+            Self::Sql(pool) => {
+                sqlx::query(REVOKE_CLIENT_KEY)
+                    .bind(id)
+                    .bind(revision)
+                    .execute(pool)
+                    .await
+                    .map_err(|_| "cannot revoke client key")?;
+            }
+            Self::Remote(_) => {
+                self.remote_query(
+                    REVOKE_CLIENT_KEY,
+                    &[
+                        reddb_client::Value::Text(id.to_owned()),
+                        reddb_client::Value::Int(revision),
+                    ],
+                )
+                .await?;
+            }
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => {
+                db.query_with(
+                    REVOKE_CLIENT_KEY,
+                    vec![
+                        reddb_client::Value::Text(id.to_owned()),
+                        reddb_client::Value::Int(revision),
+                    ],
+                )
+                .await
+                .map_err(|_| "cannot revoke client key")?;
             }
         }
         Ok(())
@@ -533,6 +658,82 @@ fn provider_params(provider: &StoredProvider, enabled: i64) -> Vec<reddb_client:
         reddb_client::Value::Text(provider.credential_ciphertext.clone()),
         reddb_client::Value::Int(enabled),
         reddb_client::Value::Int(provider.updated_at),
+    ]
+}
+
+fn read_sql_client_key(row: &sqlx::any::AnyRow) -> Result<StoredClientKey, &'static str> {
+    let text = |name| row.try_get(name).map_err(|_| "invalid client key record");
+    let integer = |name| row.try_get(name).map_err(|_| "invalid client key record");
+    Ok(StoredClientKey {
+        id: text("id")?,
+        label: text("label")?,
+        key_hash: text("key_hash")?,
+        enabled: row
+            .try_get::<i64, _>("enabled")
+            .map_err(|_| "invalid client key record")?
+            == 1,
+        expiry_unix: integer("expiry_unix")?,
+        scopes_json: text("scopes_json")?,
+        allowed_endpoints_json: text("allowed_endpoints_json")?,
+        allowed_models_json: text("allowed_models_json")?,
+        blocked_models_json: text("blocked_models_json")?,
+        allowed_provider_ids_json: text("allowed_provider_ids_json")?,
+        max_concurrent: integer("max_concurrent")?,
+        max_rpm: integer("max_rpm")?,
+        max_rpd: integer("max_rpd")?,
+        revision: integer("revision")?,
+    })
+}
+
+fn read_reddb_client_key(row: &reddb_client::Row) -> Result<StoredClientKey, &'static str> {
+    let text = |name: &str| match row
+        .iter()
+        .find(|(column, _)| column.eq_ignore_ascii_case(name))
+    {
+        Some((_, reddb_client::ValueOut::String(value))) => Ok(value.clone()),
+        _ => Err("invalid client key record"),
+    };
+    let integer = |name: &str| match row
+        .iter()
+        .find(|(column, _)| column.eq_ignore_ascii_case(name))
+    {
+        Some((_, reddb_client::ValueOut::Integer(value))) => Ok(*value),
+        _ => Err("invalid client key record"),
+    };
+    Ok(StoredClientKey {
+        id: text("id")?,
+        label: text("label")?,
+        key_hash: text("key_hash")?,
+        enabled: integer("enabled")? == 1,
+        expiry_unix: integer("expiry_unix")?,
+        scopes_json: text("scopes_json")?,
+        allowed_endpoints_json: text("allowed_endpoints_json")?,
+        allowed_models_json: text("allowed_models_json")?,
+        blocked_models_json: text("blocked_models_json")?,
+        allowed_provider_ids_json: text("allowed_provider_ids_json")?,
+        max_concurrent: integer("max_concurrent")?,
+        max_rpm: integer("max_rpm")?,
+        max_rpd: integer("max_rpd")?,
+        revision: integer("revision")?,
+    })
+}
+
+fn client_key_params(key: &StoredClientKey, enabled: i64) -> Vec<reddb_client::Value> {
+    vec![
+        reddb_client::Value::Text(key.id.clone()),
+        reddb_client::Value::Text(key.label.clone()),
+        reddb_client::Value::Text(key.key_hash.clone()),
+        reddb_client::Value::Int(enabled),
+        reddb_client::Value::Int(key.expiry_unix),
+        reddb_client::Value::Text(key.scopes_json.clone()),
+        reddb_client::Value::Text(key.allowed_endpoints_json.clone()),
+        reddb_client::Value::Text(key.allowed_models_json.clone()),
+        reddb_client::Value::Text(key.blocked_models_json.clone()),
+        reddb_client::Value::Text(key.allowed_provider_ids_json.clone()),
+        reddb_client::Value::Int(key.max_concurrent),
+        reddb_client::Value::Int(key.max_rpm),
+        reddb_client::Value::Int(key.max_rpd),
+        reddb_client::Value::Int(key.revision),
     ]
 }
 
