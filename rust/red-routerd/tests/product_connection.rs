@@ -113,6 +113,7 @@ async fn supervised_reload_keeps_engine_alive_until_active_work_drains() {
     .unwrap();
     std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o700)).unwrap();
     let (reload_tx, reload_rx) = oneshot::channel();
+    let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
     let (ready_tx, ready_rx) = oneshot::channel();
     let (draining_tx, draining_rx) = oneshot::channel();
     let (release_tx, release_rx) = oneshot::channel();
@@ -136,6 +137,7 @@ async fn supervised_reload_keeps_engine_alive_until_active_work_drains() {
             state,
             control_task,
             reload_tx,
+            shutdown_rx,
             gateway,
         )
         .await

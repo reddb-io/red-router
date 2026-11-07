@@ -6,7 +6,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { DatabaseSync } from "node:sqlite";
 import { createServer } from "node:http";
 import { createServer as createTcpServer } from "node:net";
-import { chmodSync, copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
@@ -293,6 +293,29 @@ try {
   }, encoding: "utf8", timeout: 30_000 });
   assert.notEqual(exclusiveQuota.status, 0);
   assert.match(exclusiveQuota.stderr, /does not yet support concurrent token and spend quota admission/);
+  // A slow engine must not delay the cluster's termination request.
+  const slowEngine = join(temp, "slow-fastllm.mjs");
+  writeFileSync(slowEngine, "#!/usr/bin/env node\nsetInterval(() => {}, 1000);\n");
+  chmodSync(slowEngine, 0o700);
+  const slowSupervisor = childProcess(redBinary, [], { ...supervisedEnv, RED_ROUTER_FASTLLM_MANAGED_BINARY: slowEngine });
+  let slowPid;
+  for (let attempt = 0; attempt < 100 && !slowPid; attempt++) {
+    const result = spawnSync("ps", ["-o", "pid=", "--ppid", String(slowSupervisor.pid)], { encoding: "utf8" });
+    slowPid = Number(result.stdout.trim().split(/\s+/)[0]) || undefined;
+    if (!slowPid) await delay(50);
+  }
+  assert.ok(slowPid, "slow engine did not start");
+  slowSupervisor.kill("SIGTERM");
+  await Promise.race([new Promise((resolve) => slowSupervisor.once("exit", resolve)), delay(5000)]);
+  assert.equal(slowSupervisor.exitCode, 0, "SIGTERM did not stop the starting supervisor promptly");
+  let slowStopped = false;
+  for (let attempt = 0; attempt < 50; attempt++) {
+    const result = spawnSync("ps", ["-o", "stat=", "-p", String(slowPid)], { encoding: "utf8" });
+    if (!result.stdout.trim() || result.stdout.trim().startsWith("Z")) { slowStopped = true; break; }
+    await delay(100);
+  }
+  assert.ok(slowStopped, "slow engine survived supervisor SIGTERM");
+  process.stderr.write("CI: termination during startup honored\n");
   const supervised = childProcess(redBinary, [], { ...supervisedEnv, RED_ROUTER_FASTLLM_MANAGED_BINARY: fastBinary });
   await waitReady(`http://127.0.0.1:${supervisedPort}/healthz`, supervised);
   process.stderr.write("CI: supervised engine ready\n");

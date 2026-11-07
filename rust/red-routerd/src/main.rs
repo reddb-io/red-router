@@ -536,6 +536,10 @@ async fn run(
                 return Err(Box::new(red_routerd::fastllm_supervisor::ReloadRequired));
             }
             let (reload_tx, reload_rx) = tokio::sync::oneshot::channel();
+            let supervisor_shutdown = shutdown
+                .as_ref()
+                .ok_or("managed shutdown handler unavailable")?
+                .clone();
             let gateway = serve_proxy(address, state.clone(), Some(reload_rx), shutdown);
             return red_routerd::fastllm_supervisor::run(
                 red_routerd::fastllm_supervisor::Config {
@@ -549,6 +553,7 @@ async fn run(
                 state,
                 control_task,
                 reload_tx,
+                supervisor_shutdown,
                 gateway,
             )
             .await;

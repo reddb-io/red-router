@@ -6,6 +6,7 @@ use std::{
 };
 use tokio::{
     process::{Child, Command},
+    sync::watch,
     task::JoinHandle,
 };
 
@@ -140,6 +141,7 @@ pub async fn run<F>(
     state: ProxyState,
     mut control_task: JoinHandle<std::io::Result<()>>,
     reload: tokio::sync::oneshot::Sender<()>,
+    mut shutdown: watch::Receiver<bool>,
     gateway: F,
 ) -> Result<(), Failure>
 where
@@ -151,14 +153,11 @@ where
         config.control_address,
         config.control_token,
     )?;
-    if let Err(error) = wait_ready(
-        &mut child,
-        config.engine_address,
-        config.internal_token,
-        config.version,
-    )
-    .await
-    {
+    let readiness = tokio::select! {
+        result = wait_ready(&mut child, config.engine_address, config.internal_token, config.version) => result,
+        _ = wait_for_shutdown(&mut shutdown) => { control_task.abort(); return Ok(()); }
+    };
+    if let Err(error) = readiness {
         if !state.product_configuration_unchanged().await {
             return Err(Box::new(ReloadRequired));
         }
@@ -200,7 +199,11 @@ where
                 restarts += 1;
                 tokio::time::sleep(Duration::from_millis(200 * restarts)).await;
                 child = spawn_engine(config.binary, config.engine_address, config.control_address, config.control_token)?;
-                if let Err(error) = wait_ready(&mut child, config.engine_address, config.internal_token, config.version).await {
+                let readiness = tokio::select! {
+                    result = wait_ready(&mut child, config.engine_address, config.internal_token, config.version) => result,
+                    _ = wait_for_shutdown(&mut shutdown) => { control_task.abort(); return Ok(()); }
+                };
+                if let Err(error) = readiness {
                     if !state.product_configuration_unchanged().await {
                         if let Some(sender) = reload.take() { let _ = sender.send(()); }
                         let _ = tokio::time::timeout(Duration::from_secs(30), &mut gateway).await;
@@ -217,5 +220,11 @@ where
                 }
             }
         }
+    }
+}
+
+async fn wait_for_shutdown(receiver: &mut watch::Receiver<bool>) {
+    if !*receiver.borrow() {
+        let _ = receiver.changed().await;
     }
 }
