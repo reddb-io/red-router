@@ -362,6 +362,7 @@ async fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
         }
         let mut combo_connections = Vec::new();
         let mut combo_keys = Vec::new();
+        let mut managed_provider_data: Vec<red_routerd::fastllm_control::ProviderData> = Vec::new();
         let mut combo_route = None;
         if let Some(combo) = &combo {
             let mut targets = Vec::new();
@@ -397,6 +398,17 @@ async fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
                     return Err(
                         "FastLLM internal token must differ from every provider credential".into(),
                     );
+                }
+                if managed.is_some() {
+                    let api_base = source
+                        .upstream_url()
+                        .strip_suffix("/chat/completions")
+                        .ok_or("unsupported FastLLM provider URL")?;
+                    managed_provider_data.push((
+                        target.model.clone(),
+                        api_base,
+                        zeroize::Zeroizing::new(key.to_string()),
+                    ));
                 }
                 let (url, key) = match &fastllm_transport {
                     Some((url, token)) => {
@@ -459,6 +471,17 @@ async fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
                 "127.0.0.1:0".parse()?,
             )
             .await?;
+            let captured = red_routerd::fastllm_control::captured_version(
+                &managed_provider_data,
+                internal.as_str(),
+            )?;
+            drop(managed_provider_data);
+            if captured != version {
+                control_task.abort();
+                return Err(
+                    "FastLLM snapshot differs from the gateway's captured credentials".into(),
+                );
+            }
             let gateway = serve_proxy(address, state.clone());
             return red_routerd::fastllm_supervisor::run(
                 red_routerd::fastllm_supervisor::Config {

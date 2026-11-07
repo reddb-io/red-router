@@ -30,11 +30,18 @@ the patched FastLLM executable along with `RED_ROUTER_PRODUCT_DB_PATH`,
 `RED_ROUTER_PRODUCT_COMBO` and `RED_ROUTER_PRODUCT_CLIENT_KEYS=1`. The gateway
 creates two independent random internal tokens, starts an authenticated
 loopback control source and FastLLM, and waits until FastLLM reports the exact
-expected snapshot before listening for client traffic. It restarts the engine
+expected snapshot before listening for client traffic. That snapshot is also
+compared with the endpoints and credentials captured by the gateway, so a
+configuration that changes and changes back during startup is not silently
+accepted. It restarts the engine
 up to three times after exits and stops if the control source fails. The child
 does not inherit the dashboard encryption key. Do not combine managed mode
 with `RED_ROUTER_FASTLLM_URL`, `RED_ROUTER_FASTLLM_INTERNAL_KEY` or
 `RED_ROUTER_FASTLLM_CONTROL_TOKEN`.
+
+On Unix, normal SIGTERM drains the gateway and terminates its FastLLM child.
+A force-killed or crashed parent can still leave an orphan child; use a
+service manager or container process group that terminates all descendants.
 
 Managed FastLLM does not poll for snapshot changes. The gateway checks its
 captured combo and connection state before each dispatch and refuses new work

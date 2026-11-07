@@ -87,8 +87,29 @@ async fn prepare(
     {
         return Err("product configuration changed while preparing FastLLM control");
     }
+    let (snapshot, version) = build_snapshot(&provider_data, internal_token)?;
+    Ok(Arc::new(ControlState {
+        authorization: Zeroizing::new(format!("Bearer {control_token}")),
+        snapshot,
+        etag: format!("\"{version}\""),
+        version,
+        combo,
+        connections,
+    }))
+}
+
+/// Model, fixed provider base URL and protected credential captured at startup.
+pub type ProviderData = (String, &'static str, Zeroizing<String>);
+
+fn build_snapshot(
+    provider_data: &[ProviderData],
+    internal_token: &str,
+) -> Result<(Zeroizing<Vec<u8>>, u64), &'static str> {
     let hash = hex::encode(Sha256::digest(internal_token.as_bytes()));
-    let allowed: Vec<_> = combo.targets.iter().map(|t| t.model.clone()).collect();
+    let allowed: Vec<_> = provider_data
+        .iter()
+        .map(|(model, _, _)| model.clone())
+        .collect();
     let models: Vec<_> = provider_data
         .iter()
         .map(|(model, api_base, credential)| {
@@ -118,14 +139,17 @@ async fn prepare(
     snapshot["version"] = json!(version);
     let bytes = serde_json::to_vec(&snapshot).map_err(|_| "cannot serialize FastLLM configuration");
     clear_json(&mut snapshot);
-    Ok(Arc::new(ControlState {
-        authorization: Zeroizing::new(format!("Bearer {control_token}")),
-        snapshot: Zeroizing::new(bytes?),
-        etag: format!("\"{version}\""),
-        version,
-        combo,
-        connections,
-    }))
+    Ok((Zeroizing::new(bytes?), version))
+}
+
+/// Compare the control snapshot against the exact endpoints and credentials
+/// captured by the gateway, including if the database changed and changed back.
+pub fn captured_version(
+    provider_data: &[ProviderData],
+    internal_token: &str,
+) -> Result<u64, &'static str> {
+    let (_, version) = build_snapshot(provider_data, internal_token)?;
+    Ok(version)
 }
 
 async fn snapshot(State(state): State<Arc<ControlState>>, headers: HeaderMap) -> Response<Body> {
@@ -236,4 +260,25 @@ pub async fn start(
         .await
     });
     Ok((bound, version, task))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{captured_version, ProviderData};
+    use zeroize::Zeroizing;
+
+    #[test]
+    fn fingerprint_changes_with_captured_credential_or_provider() {
+        let item = |base, key: &str| -> Vec<ProviderData> {
+            vec![("model".into(), base, Zeroizing::new(key.into()))]
+        };
+        let token = "fixture-internal-fastllm-token-1234567890";
+        let first = item("https://example.test/v1", "credential-a");
+        let different_key = item("https://example.test/v1", "credential-b");
+        let different_base = item("https://other.test/v1", "credential-a");
+        let expected = captured_version(&first, token).unwrap();
+        assert_eq!(expected, captured_version(&first, token).unwrap());
+        assert_ne!(expected, captured_version(&different_key, token).unwrap());
+        assert_ne!(expected, captured_version(&different_base, token).unwrap());
+    }
 }
