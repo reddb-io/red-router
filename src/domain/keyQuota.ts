@@ -46,6 +46,8 @@ export interface CheckKeyQuotaDeps {
 export interface RecordKeyQuotaDeps {
   now?: () => number;
   skipRpm?: boolean;
+  /** TPM was already committed by the shared usage settlement transaction. */
+  skipTpm?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -105,7 +107,8 @@ export function recordKeyQuotaUsage(
   if (!apiKeyId) return;
   const nowMs = (deps.now ?? Date.now)();
   try {
-    if (billableTokens > 0) incrementKeyQuotaCounter(apiKeyId, "tpm", billableTokens, nowMs);
+    if (!deps.skipTpm && billableTokens > 0)
+      incrementKeyQuotaCounter(apiKeyId, "tpm", billableTokens, nowMs);
     if (!deps.skipRpm) incrementKeyQuotaCounter(apiKeyId, "rpm", 1, nowMs);
   } catch {
     // B29 — drift acceptable; never propagate.

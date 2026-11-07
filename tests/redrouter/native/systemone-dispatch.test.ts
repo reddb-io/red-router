@@ -151,7 +151,10 @@ test("S1 reuses an outer RPM reservation and separately reserves internal evalua
       200
     );
     assert.equal(reservations, 0);
-    assert.equal((await dispatchSystemOne(target, body, options, dependencies)).response.status, 200);
+    assert.equal(
+      (await dispatchSystemOne(target, body, options, dependencies)).response.status,
+      200
+    );
     assert.equal(reservations, 1);
     assert.deepEqual(observed, [true, false]);
   } finally {
@@ -174,6 +177,135 @@ test("S1 uses per-key proxy and records usage, cost, ledger context and TPM once
     "tokens",
     "usage",
   ]);
+});
+
+test("S1 reserves each real provider attempt and atomically settles confirmed usage", async () => {
+  const attempt = {
+    id: "shared-attempt",
+    keyId: "client-key",
+    provider: "openrouter" as const,
+    model: target.model,
+    prices: { input: 1, output: 2, cached: 0.5, cacheCreation: 1.5, reasoning: 2 },
+  };
+  const { dependencies, events } = setup({
+    beginSharedUsage: async (key, provider, model, connection) => {
+      assert.equal(key, "client-key");
+      assert.equal(provider, "openrouter");
+      assert.equal(model, target.model);
+      assert.equal(connection, "connection");
+      events.push("reserve");
+      return { state: "reserved", attempt };
+    },
+    settleSharedUsage: (reserved, tokens, attribution) => {
+      assert.equal(reserved, attempt);
+      assert.equal(tokens.input_tokens, 10);
+      assert.equal(tokens.output_tokens, 5);
+      assert.deepEqual(attribution?.tags, ["team"]);
+      events.push("settle");
+    },
+    recordCost: (_key, _amount, details) => {
+      assert.equal(details?.skipRequestLedger, true);
+      events.push("cost");
+    },
+    recordKeyQuota: (_key, tokens, details) => {
+      assert.equal(tokens, 15);
+      assert.equal(details?.skipTpm, true);
+    },
+  });
+  const result = await dispatchSystemOne(target, body, options, dependencies);
+  assert.equal(result.response.status, 200);
+  assert.equal(result.accountingSucceeded, true);
+  assert.deepEqual(events, [
+    "budget",
+    "proxy:client-key",
+    "reserve",
+    "forward",
+    "recover",
+    "settle",
+    "cost",
+    "tokens",
+    "usage",
+  ]);
+});
+
+test("S1 denies a failed shared reservation before provider dispatch", async () => {
+  const { dependencies, events } = setup({
+    beginSharedUsage: async () => ({ state: "denied" }),
+    forward: async () => {
+      throw new Error("must not dispatch");
+    },
+  });
+  const result = await dispatchSystemOne(target, body, options, dependencies);
+  assert.equal(result.response.status, 429);
+  assert.deepEqual(events, ["budget", "proxy:client-key"]);
+});
+
+test("S1 keeps uncertain failed-attempt reservations and settles only the successful retry", async () => {
+  let sends = 0;
+  const reserved: string[] = [];
+  const settled: string[] = [];
+  const { dependencies } = setup({
+    credentials: async (_provider, _context, _allowed, _model, selection) =>
+      ({
+        connectionId: selection?.excludeConnectionIds?.length ? "second" : "first",
+        apiKey: "secret",
+      }) as Awaited<ReturnType<NonNullable<Dependencies["credentials"]>>>,
+    beginSharedUsage: async (key, provider, model, connection) => {
+      const id = `attempt-${connection}`;
+      reserved.push(id);
+      return {
+        state: "reserved",
+        attempt: {
+          id,
+          keyId: key,
+          provider: provider as "openrouter",
+          model,
+          prices: { input: 1, output: 2, cached: 1, cacheCreation: 1, reasoning: 2 },
+        },
+      };
+    },
+    forward: async () => {
+      sends++;
+      return sends === 1
+        ? { response: new Response("{}", { status: 503 }), usage: null }
+        : {
+            response: Response.json({ answers: {} }),
+            usage: { input_tokens: 10, output_tokens: 5 },
+          };
+    },
+    settleSharedUsage: (attempt) => {
+      settled.push(attempt.id);
+    },
+  });
+  const result = await dispatchSystemOne(target, body, options, dependencies);
+  assert.equal(result.response.status, 200);
+  assert.deepEqual(reserved, ["attempt-first", "attempt-second"]);
+  assert.deepEqual(settled, ["attempt-second"]);
+});
+
+test("S1 retains a dispatched reservation when the transport outcome is unknown", async () => {
+  let settled = false;
+  const { dependencies } = setup({
+    beginSharedUsage: async (key, provider, model) => ({
+      state: "reserved",
+      attempt: {
+        id: "uncertain",
+        keyId: key,
+        provider: provider as "openrouter",
+        model,
+        prices: { input: 1, output: 2, cached: 1, cacheCreation: 1, reasoning: 2 },
+      },
+    }),
+    forward: async () => {
+      throw new Error("socket closed after send");
+    },
+    settleSharedUsage: () => {
+      settled = true;
+    },
+  });
+  const result = await dispatchSystemOne(target, body, options, dependencies);
+  assert.equal(result.response.status, 503);
+  assert.equal(settled, false);
 });
 
 test("completed paid response survives accounting failure without acquiring or dispatching another credential", async () => {
@@ -313,6 +445,96 @@ test("real S1 accounting writes one usage row and one attributed ledger row, the
   const second = await dispatchSystemOne(target, body, actor, transport);
   assert.equal(second.response.status, 429);
   assert.equal(events.filter((event) => event === "forward").length, 1);
+});
+
+test("real S1 SQLite admission bounds concurrent agents and commits each completion once", async () => {
+  const previous = {
+    strict: process.env.RED_ROUTER_PRODUCT_STRICT_QUOTAS,
+    concurrent: process.env.RED_ROUTER_PRODUCT_CONCURRENT_QUOTAS,
+    tokens: process.env.RED_ROUTER_PRODUCT_RESERVE_TOKENS,
+    usd: process.env.RED_ROUTER_PRODUCT_RESERVE_USD,
+  };
+  process.env.RED_ROUTER_PRODUCT_STRICT_QUOTAS = "1";
+  process.env.RED_ROUTER_PRODUCT_CONCURRENT_QUOTAS = "1";
+  process.env.RED_ROUTER_PRODUCT_RESERVE_TOKENS = "15";
+  process.env.RED_ROUTER_PRODUCT_RESERVE_USD = "0.01";
+  try {
+    const { createApiKey } = await import("../../../src/lib/db/apiKeys.ts");
+    const { getDbInstance } = await import("../../../src/lib/db/core.ts");
+    const { upsertKeyQuotaLimits } = await import("../../../src/lib/db/keyQuota.ts");
+    const { updatePricing } = await import("../../../src/lib/db/settings/pricing.ts");
+    const key = await createApiKey("Concurrent System One", "s1-concurrent", []);
+    upsertKeyQuotaLimits(key.id, { tpmLimit: 30, monthlyAmountUsd: 1 });
+    await updatePricing({
+      openrouter: {
+        [target.model]: { input: 1, output: 2, cached: 0.5, cache_creation: 1, reasoning: 2 },
+      },
+    });
+
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let active = 0;
+    const { dependencies } = setup({
+      forward: async () => {
+        active++;
+        await gate;
+        return {
+          response: Response.json({ answers: {} }),
+          usage: { input_tokens: 10, output_tokens: 5 },
+        };
+      },
+    });
+    const actor = { ...options, apiKeyId: key.id };
+    const requests = Array.from({ length: 3 }, () =>
+      dispatchSystemOne(target, body, actor, dependencies)
+    );
+    for (let i = 0; i < 20 && active < 2; i++) {
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    assert.equal(active, 2);
+    release();
+    const responses = await Promise.all(requests);
+    assert.deepEqual(responses.map((result) => result.response.status).sort(), [200, 200, 429]);
+
+    const db = getDbInstance();
+    assert.equal(
+      (
+        db
+          .prepare("SELECT COUNT(*) AS n FROM api_key_usage_reservations WHERE api_key_id = ?")
+          .get(key.id) as { n: number }
+      ).n,
+      0
+    );
+    assert.equal(
+      (
+        db
+          .prepare("SELECT COUNT(*) AS n FROM request_cost_ledger WHERE api_key_id = ?")
+          .get(key.id) as { n: number }
+      ).n,
+      2
+    );
+    assert.equal(
+      (
+        db
+          .prepare(
+            "SELECT COALESCE(SUM(consumed),0) AS n FROM api_key_quota_counters WHERE api_key_id = ? AND dimension_key = 'key-quota:tpm'"
+          )
+          .get(key.id) as { n: number }
+      ).n,
+      30
+    );
+  } finally {
+    const restore = (name: string, value: string | undefined) => {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    };
+    restore("RED_ROUTER_PRODUCT_STRICT_QUOTAS", previous.strict);
+    restore("RED_ROUTER_PRODUCT_CONCURRENT_QUOTAS", previous.concurrent);
+    restore("RED_ROUTER_PRODUCT_RESERVE_TOKENS", previous.tokens);
+    restore("RED_ROUTER_PRODUCT_RESERVE_USD", previous.usd);
+  }
 });
 
 test("a pinned evaluator uses only the chosen connection and never widens a denied scope", async () => {

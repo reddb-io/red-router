@@ -67,9 +67,8 @@ Managed mode requires `RED_ROUTER_PRODUCT_CONCURRENT_QUOTAS=1` whenever
 its configured token and USD upper bounds in SQLite before calling FastLLM.
 The patched engine disables its hidden retries, completed usage is settled by
 the gateway, and an uncertain or failed attempt retains its reservation for
-reconciliation. All TypeScript processes sharing the database must still block
-these governed keys until their live request path participates in the same
-reservation cycle.
+reconciliation. TypeScript System One uses the same reservation cycle; ordinary
+TypeScript chat must still block these governed keys.
 
 With `RED_ROUTER_PRODUCT_DB_PATH`, `RED_ROUTER_PRODUCT_COMBO` and
 `RED_ROUTER_PRODUCT_CLIENT_KEYS=1`, an operator may additionally set
@@ -237,8 +236,9 @@ response atomically writes its usage and releases its reservation. An interrupte
 upstream response, failed attempt, process crash, or provider failure can have
 unrecorded cost and leaves an unresolved dispatched reservation for reconciliation;
 these reservations never expire automatically. This mode does not apply token or
-spend quotas by default, and TypeScript does not yet reserve for live requests,
-so it is not a reliable billing or enforcement boundary.
+spend quotas by default. The TypeScript System One path participates in the
+same reservation protocol when concurrent strict quotas are enabled; ordinary
+TypeScript chat requests remain blocked for governed keys.
 
 For a restricted trial of per-key TPM, daily-token and monthly-USD quotas, set
 `RED_ROUTER_PRODUCT_STRICT_QUOTAS=1`, `RED_ROUTER_PRODUCT_RESERVE_TOKENS` and
@@ -251,23 +251,26 @@ configured bound can itself exceed a quota before its usage is observed; this
 is not a hard spending guarantee. Independently governed budgets, per-model
 token limits and other unsupported policies still block in Rust.
 
-For a direct Rust proxy only, `RED_ROUTER_PRODUCT_CONCURRENT_QUOTAS=1` opts into
-parallel reservations for the same key, limited by the configured remaining
-quota instead of the one-at-a-time gate. Each attempt reserves the full
-configured token and USD bounds. These values must be genuine per-attempt upper
-bounds: an underestimated bill can exceed the quota before it is observed, and
-its reservation is then quarantined. An interrupted attempt keeps its reservation
-until reconciled. The TypeScript proxy still blocks quota-governed keys in strict
-mode, and FastLLM transport rejects strict quotas; neither supports concurrent
-quota accounting yet. This opt-in is not a hard spending guarantee.
+`RED_ROUTER_PRODUCT_CONCURRENT_QUOTAS=1` opts into parallel reservations for the
+same key, limited by the configured remaining quota instead of the one-at-a-time
+gate. Direct Rust, supervised patched FastLLM, and TypeScript System One use this
+protocol. Each actual provider attempt reserves the full configured token and USD
+bounds. These values must be genuine per-attempt upper bounds: an underestimated
+bill can exceed the quota before it is observed, and its reservation is then
+quarantined. An interrupted attempt keeps its reservation until reconciled.
+Ordinary TypeScript chat still blocks quota-governed keys in strict mode until
+its retry and streaming paths participate. This opt-in is not a hard spending
+guarantee.
 
 Enable both `RED_ROUTER_PRODUCT_STRICT_QUOTAS=1` and
 `RED_ROUTER_PRODUCT_SHARED_RPM=1` in **every** TypeScript process using the same
-SQLite file. TypeScript then refuses keys with these token or spend quotas;
-send those requests to the Rust proxy. Other TypeScript requests continue as
-before. Existing processes without these settings or the updated code can
-still bypass this mode. Drain existing requests before enabling it. Fallback
-after an uncertain attempt is blocked until that attempt is reconciled.
+SQLite file. TypeScript then refuses ordinary chat requests for keys with these
+token or spend quotas; send those requests to the Rust proxy. System One may use
+them when concurrent quotas and reservation bounds are also configured. Other
+TypeScript requests continue as before. Existing processes without these settings
+or the updated code can still bypass this mode. Drain existing requests before
+enabling it. Every fallback after an uncertain attempt consumes a separate
+reservation until the uncertain attempt is reconciled.
 
 With `RED_ROUTER_PRODUCT_DB_PATH` set, run `red-routerd list-usage-reservations`
 to inspect up to 1,000 outstanding attempts. For a dispatched attempt, verify

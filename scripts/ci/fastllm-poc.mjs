@@ -730,7 +730,8 @@ try {
   db.prepare("DELETE FROM request_cost_ledger WHERE api_key_id = ?").run(keyId);
   db.prepare("DELETE FROM api_key_usage_reservations WHERE api_key_id = ?").run(keyId);
   db.prepare("DELETE FROM api_key_quota_counters WHERE api_key_id = ?").run(keyId);
-  db.prepare("INSERT INTO api_key_quota_limits(api_key_id,tpm_limit,monthly_amount_usd) VALUES (?,38,0.001) ON CONFLICT(api_key_id) DO UPDATE SET tpm_limit=38,rpm_limit=NULL,monthly_amount_usd=0.001").run(keyId);
+  db.prepare("DELETE FROM api_key_quota_limits WHERE api_key_id = ?").run(keyId);
+  db.prepare("INSERT INTO api_key_quota_limits(api_key_id,tpm_limit,monthly_amount_usd) VALUES (?,38,0.001)").run(keyId);
   const quotaPort = await unusedPort();
   const quotaSupervisor = childProcess(redBinary, [], {
     RED_ROUTER_LISTEN: `127.0.0.1:${quotaPort}`, RED_ROUTER_PRODUCT_DB_PATH: fixtureDbPath,
