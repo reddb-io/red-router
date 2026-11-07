@@ -170,7 +170,11 @@ async fn snapshot(State(state): State<Arc<ControlState>>, headers: HeaderMap) ->
         .header(header::CONTENT_TYPE, "application/json")
         .header(header::CACHE_CONTROL, "no-store")
         .header(header::ETAG, state.etag.as_str())
-        .body(Body::from(state.snapshot.to_vec()))
+        // Keep the owned response buffer zeroizing until Hyper releases its
+        // last reference, rather than dropping an ordinary plaintext Vec.
+        .body(Body::from(axum::body::Bytes::from_owner(Zeroizing::new(
+            state.snapshot.to_vec(),
+        ))))
         .unwrap()
 }
 

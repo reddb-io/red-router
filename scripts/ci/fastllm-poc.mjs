@@ -314,6 +314,28 @@ try {
   const invalidated = await fetch(credentialUrl, { headers: { ...controlAuth, "x-redrouter-memory-only": "1", "if-none-match": firstEtag } });
   assert.equal(invalidated.status, 503);
   credentialFixture.prepare("UPDATE provider_connections SET is_active = 1 WHERE id = 'fixture-connection'").run();
+  credentialControl.kill("SIGTERM");
+  await new Promise((resolve) => credentialControl.once("exit", resolve));
+  credentialFixture.prepare("UPDATE combos SET data = ? WHERE name = 'bench'").run(JSON.stringify({ name: "bench", strategy: "priority", models: ["openrouter/vendor/model-b"] }));
+  credentialFixture.prepare("UPDATE provider_connections SET api_key = 'rotated-fixture-provider-key' WHERE id = 'fixture-connection'").run();
+  const rotatedControl = childProcess(redBinary, ["fastllm-control"], {
+    RED_ROUTER_PRODUCT_DB_PATH: credentialDbPath, RED_ROUTER_PRODUCT_COMBO: "bench",
+    RED_ROUTER_FASTLLM_INTERNAL_KEY: internalKey, RED_ROUTER_FASTLLM_CONTROL_TOKEN: secureControlToken,
+    RED_ROUTER_FASTLLM_CONTROL_LISTEN: `127.0.0.1:${credentialControlPort}`, STORAGE_ENCRYPTION_KEY: "fixture-password",
+  });
+  let rotationLoaded = false;
+  for (let attempt = 0; attempt < 40; attempt++) {
+    if (rotatedControl.exitCode !== null) throw new Error(`rotated credential control exited: ${rotatedControl.exitCode}`);
+    await delay(250);
+    const response = await fetch(`http://127.0.0.1:${managedFastPort}/v1/models`, { headers: { authorization: `Bearer ${internalKey}` }, signal: AbortSignal.timeout(5000) });
+    if (response.ok && (await response.text()).includes("vendor/model-b")) { rotationLoaded = true; break; }
+  }
+  assert.ok(rotationLoaded, "FastLLM did not reload the changed control snapshot");
+  assert.ok(!existsSync(forbiddenCache), "FastLLM wrote a snapshot after rotation");
+  const rotatedSnapshot = await fetch(credentialUrl, { headers: { ...controlAuth, "x-redrouter-memory-only": "1", "if-none-match": firstEtag } });
+  assert.equal(rotatedSnapshot.status, 200);
+  assert.notEqual(rotatedSnapshot.headers.get("etag"), firstEtag);
+  assert.equal((await rotatedSnapshot.json()).models[0].backends[0].api_key, "rotated-fixture-provider-key");
   for (const provider of ["groq", "mistral", "deepseek"]) {
     credentialFixture.prepare("INSERT INTO provider_connections (id,provider,auth_type,api_key,is_active,created_at,updated_at) VALUES (?,?,'apikey','fixture-provider-key',1,'2026-01-01T00:00:00Z','2026-01-01T00:00:00Z')").run(provider, provider);
   }
