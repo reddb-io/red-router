@@ -6,7 +6,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { DatabaseSync } from "node:sqlite";
 import { createServer } from "node:http";
 import { createServer as createTcpServer } from "node:net";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
@@ -19,6 +19,9 @@ assert.ok(fastBinary && redBinary, "CI must provide both binary paths");
 // Apply the narrow Red Router patch to the pinned, ephemeral upstream source.
 // Rebuild on the hosted runner; never patch or compile the user's checkout.
 const upstreamSource = join(process.env.RUNNER_TEMP, "fastllm");
+const unpatchedFastBinary = join(process.env.RUNNER_TEMP, "fastllm-unpatched-fixture");
+copyFileSync(fastBinary, unpatchedFastBinary);
+chmodSync(unpatchedFastBinary, 0o755);
 const memoryPatch = fileURLToPath(new URL("../patches/fastllm-memory-only.patch", import.meta.url));
 for (const args of [["apply", "--check", memoryPatch], ["apply", memoryPatch]]) {
   const result = spawnSync("git", args, { cwd: upstreamSource, encoding: "utf8" });
@@ -267,6 +270,40 @@ try {
   if (warm.status !== 200) throw new Error(`FastLLM snapshot adapter returned ${warm.status}: ${await warm.text()}`);
   assert.ok((await warm.text()).includes("[DONE]"));
   assert.equal(lastUpstreamModel, "vendor/model-a");
+  // Managed mode creates separate random tokens, starts the in-memory source
+  // and waits for the expected snapshot before exposing the dashboard proxy.
+  const supervisedPort = await unusedPort();
+  const supervisedEnv = {
+    RED_ROUTER_LISTEN: `127.0.0.1:${supervisedPort}`, RED_ROUTER_PRODUCT_DB_PATH: fixtureDbPath,
+    RED_ROUTER_PRODUCT_COMBO: "bench", RED_ROUTER_PRODUCT_CLIENT_KEYS: "1",
+  };
+  const unpatched = spawnSync(redBinary, [], { env: { ...process.env, ...supervisedEnv, RED_ROUTER_FASTLLM_MANAGED_BINARY: unpatchedFastBinary }, encoding: "utf8", timeout: 30_000 });
+  assert.notEqual(unpatched.status, 0, "the unpatched FastLLM must not be accepted");
+  assert.match(unpatched.stderr, /FastLLM exited before readiness/);
+  const supervised = childProcess(redBinary, [], { ...supervisedEnv, RED_ROUTER_FASTLLM_MANAGED_BINARY: fastBinary });
+  await waitReady(`http://127.0.0.1:${supervisedPort}/healthz`, supervised);
+  const engineChildren = () => {
+    const result = spawnSync("ps", ["-o", "pid=", "--ppid", String(supervised.pid)], { encoding: "utf8" });
+    return result.stdout.trim().split(/\s+/).filter(Boolean).map(Number);
+  };
+  const firstEngine = engineChildren()[0];
+  assert.ok(firstEngine, "supervisor did not start a FastLLM child");
+  process.kill(firstEngine, "SIGKILL");
+  let restarted = false;
+  for (let attempt = 0; attempt < 200; attempt++) {
+    if (supervised.exitCode !== null) throw new Error(`supervisor exited: ${supervised.exitCode}`);
+    await delay(100);
+    const current = engineChildren()[0];
+    if (current && current !== firstEngine) {
+      try { if ((await fetch(`http://127.0.0.1:${supervisedPort}/healthz`, { signal: AbortSignal.timeout(500) })).ok) { restarted = true; break; } } catch { /* restarting */ }
+    }
+  }
+  assert.ok(restarted, "FastLLM was not restarted by the supervisor");
+  db.prepare("UPDATE provider_connections SET is_active = 0 WHERE id = 'fixture-connection'").run();
+  const stoppedConfig = await request(`http://127.0.0.1:${supervisedPort}/v1/chat/completions`, fixtureKey, "bench", AbortSignal.timeout(5000));
+  assert.ok([401, 503].includes(stoppedConfig.status), `changed configuration was not rejected: ${stoppedConfig.status}`);
+  await stoppedConfig.body?.cancel();
+  db.prepare("UPDATE provider_connections SET is_active = 1 WHERE id = 'fixture-connection'").run();
   // Load a real encrypted product-format credential through the Rust control
   // source, then prove the patched FastLLM loads it without creating a cache.
   const credentialDbPath = join(temp, "credential-fixture.sqlite");

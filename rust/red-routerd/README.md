@@ -25,6 +25,23 @@ process responds; it is not evidence of provider or database readiness.
 
 ### Experimental FastLLM transport for dashboard priority combos
 
+For supervised local operation, set `RED_ROUTER_FASTLLM_MANAGED_BINARY` to
+the patched FastLLM executable along with `RED_ROUTER_PRODUCT_DB_PATH`,
+`RED_ROUTER_PRODUCT_COMBO` and `RED_ROUTER_PRODUCT_CLIENT_KEYS=1`. The gateway
+creates two independent random internal tokens, starts an authenticated
+loopback control source and FastLLM, and waits until FastLLM reports the exact
+expected snapshot before listening for client traffic. It restarts the engine
+up to three times after exits and stops if the control source fails. The child
+does not inherit the dashboard encryption key. Do not combine managed mode
+with `RED_ROUTER_FASTLLM_URL`, `RED_ROUTER_FASTLLM_INTERNAL_KEY` or
+`RED_ROUTER_FASTLLM_CONTROL_TOKEN`.
+
+Managed FastLLM does not poll for snapshot changes. The gateway checks its
+captured combo and connection state before each dispatch and refuses new work
+when they change. Restart the whole gateway to load a change; this initial
+mode does not yet perform automatic configuration reloads. It remains a local
+experimental mode and has not been validated using real provider credentials.
+
 With `RED_ROUTER_PRODUCT_DB_PATH`, `RED_ROUTER_PRODUCT_COMBO` and
 `RED_ROUTER_PRODUCT_CLIENT_KEYS=1`, an operator may additionally set
 `RED_ROUTER_FASTLLM_URL` to a literal loopback HTTP
