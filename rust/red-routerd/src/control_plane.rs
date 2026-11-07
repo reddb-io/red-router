@@ -462,8 +462,8 @@ impl ControlPlane {
                     self.0.allow_private,
                 )
                 .await?;
-                live.provider_id = Some(Arc::from(record.id));
                 live.circuit = Some(self.circuit_for(&record.id, &record.upstream_url).await);
+                live.provider_id = Some(Arc::from(record.id));
                 Some(live)
             }
             None => None,
