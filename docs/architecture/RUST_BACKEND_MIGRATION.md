@@ -46,7 +46,7 @@ features must not be implemented only there.
 | --------------------------- | ---------------------- | ---------------------------------------------------------------------------------- |
 | Provider connections        | Implemented foundation | Authenticated CRUD, encrypted secrets, live reload, restart persistence, readiness |
 | API/client keys             | Implemented foundation | Hash-only lookup, scopes, endpoint/model/connection grants, revocation, expiry     |
-| Combos and routing          | Implemented foundation | Durable multi-protocol priority/round-robin/weighted/random routes and live reload  |
+| Combos and routing          | Implemented foundation | Durable multi-protocol priority/RR/weighted/random/least-used/P2C routes and reload |
 | Pricing, quotas and budgets | Partial                | Atomic reservations, streaming settlement, reconciliation, multi-process tests     |
 | Usage and audit             | Partial                | Complete protocol usage, idempotent ledger, retention/export APIs                  |
 | Settings and resilience     | Partial                | Durable provider breakers and reset API; versioned settings snapshots remain       |
@@ -79,12 +79,17 @@ The combo slice stores bounded routing records in `redrouter_control_combos` and
 only authenticated Rust admin APIs. The first durable combo makes this table the routing
 authority: unknown aliases and a table with no enabled routes fail closed rather than
 falling through to an environment route or the active provider. Priority, round-robin,
-weighted and random selection, target model rewriting, provider grants, pre-response fallback, live snapshot
-replacement and restart persistence are implemented for OpenAI chat, Responses,
-embeddings, Cohere rerank, native Anthropic and Gemini. Provider endpoints are validated
-and pinned for the protocol implied by their URL; an enabled combo cannot bind targets
-from a different protocol. The remaining dashboard strategies remain explicit follow-up
-work rather than compatibility calls back into Next.js.
+weighted, random, least-used and power-of-two-choices selection, target model rewriting,
+provider grants, pre-response fallback, live snapshot replacement and restart persistence
+are implemented for OpenAI chat, Responses, embeddings, Cohere rerank, native Anthropic
+and Gemini. Provider endpoints are validated and pinned for the protocol implied by their
+URL; an enabled combo cannot bind targets from a different protocol.
+
+The load-aware strategies use provider-wide atomic counters that survive route snapshot
+replacement. Streaming attempts keep their counter until the upstream body is drained,
+including the background drain used to settle usage after a client disconnect.
+The remaining dashboard strategies remain explicit follow-up work rather than
+compatibility calls back into Next.js.
 
 Provider-wide circuit state is owned by `redrouter_provider_breakers` in the same
 selected database authority. Network failures and upstream `408`, `500`, `502`, `503`

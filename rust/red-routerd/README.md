@@ -14,7 +14,8 @@ capacity (default 64); it is separate from any per-key policy or usage quota.
 
 It supports explicitly configured model aliases for OpenAI-compatible, native
 Anthropic Messages and Gemini GenerateContent endpoints,
-priority, round-robin, weighted or random selection, opt-in fallback, and basic per-key route and
+priority, round-robin, weighted, random, least-used or power-of-two-choices selection, opt-in
+fallback, and basic per-key route and
 model restrictions. It does not yet implement
 RedRouter's full provider selection, quotas, policies, accounting, protocol
 full protocol translation, remote listening or inbound TLS.
@@ -51,9 +52,12 @@ provider; subsequent provider changes do not require those environment secrets.
 - `GET /api/admin/combos` lists Rust-owned combo routes.
 - `PUT /api/admin/combos/{id}` creates or replaces a combo with `protocol`
   (`openai`, `openai-responses`, `openai-embeddings`, `cohere-rerank`, `anthropic`
-  or `gemini`), `strategy` (`priority`, `round-robin`, `weighted` or `random`), `fallback`, `enabled`,
+  or `gemini`), `strategy` (`priority`, `round-robin`, `weighted`, `random`, `least-used` or `p2c`),
+  `fallback`, `enabled`,
   and one to eight `{provider_id, model}` targets. Weighted targets require integer
-  `weight` values from 1–100 that total exactly 100.
+  `weight` values from 1–100 that total exactly 100. `least-used` and `p2c` use
+  provider-wide in-flight counters shared across live configuration snapshots; a
+  streaming request remains in flight until its upstream body has been drained.
 - `DELETE /api/admin/combos/{id}` disables the combo.
 - `GET /api/admin/provider-health` lists provider breaker state, failure counts,
   thresholds and retry windows without exposing credentials.

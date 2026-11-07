@@ -462,7 +462,9 @@ impl ControlPlane {
                     self.0.allow_private,
                 )
                 .await?;
-                live.circuit = Some(self.circuit_for(&record.id, &record.upstream_url).await);
+                let circuit = self.circuit_for(&record.id, &record.upstream_url).await;
+                live.in_flight = circuit.in_flight();
+                live.circuit = Some(circuit);
                 live.provider_id = Some(Arc::from(record.id));
                 Some(live)
             }
@@ -520,8 +522,9 @@ impl ControlPlane {
                     )
                     .await?;
                     runtime.provider_id = Some(Arc::from(provider.id.clone()));
-                    runtime.circuit =
-                        Some(self.circuit_for(&provider.id, &provider.upstream_url).await);
+                    let circuit = self.circuit_for(&provider.id, &provider.upstream_url).await;
+                    runtime.in_flight = circuit.in_flight();
+                    runtime.circuit = Some(circuit);
                     live.insert(provider.id.clone(), runtime);
                 }
                 if live
@@ -549,6 +552,8 @@ impl ControlPlane {
                         "round-robin" => RouteStrategy::RoundRobin,
                         "weighted" => RouteStrategy::Weighted,
                         "random" => RouteStrategy::Random,
+                        "least-used" => RouteStrategy::LeastUsed,
+                        "p2c" => RouteStrategy::P2c,
                         _ => return Err("unsupported combo strategy"),
                     },
                     fallback: record.fallback,
@@ -817,7 +822,7 @@ fn validate_combo(input: &ComboInput) -> Result<(), &'static str> {
     let protocol = ProviderProtocol::parse(&input.protocol)?;
     if !matches!(
         input.strategy.as_str(),
-        "priority" | "round-robin" | "weighted" | "random"
+        "priority" | "round-robin" | "weighted" | "random" | "least-used" | "p2c"
     ) {
         return Err("unsupported combo strategy");
     }

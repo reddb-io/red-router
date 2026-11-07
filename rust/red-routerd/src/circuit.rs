@@ -3,7 +3,7 @@ use crate::storage::{Database, StoredBreaker};
 use axum::http::StatusCode;
 use serde::Serialize;
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicUsize, Ordering},
     Arc,
 };
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -60,6 +60,7 @@ pub(crate) struct ProviderCircuit {
     persistence_ok: AtomicBool,
     blocked: AtomicBool,
     needs_recovery: AtomicBool,
+    in_flight: Arc<AtomicUsize>,
 }
 
 #[derive(Clone, Copy)]
@@ -108,6 +109,7 @@ impl ProviderCircuit {
             persistence_ok: AtomicBool::new(true),
             blocked: AtomicBool::new(false),
             needs_recovery: AtomicBool::new(false),
+            in_flight: Arc::new(AtomicUsize::new(0)),
         }
     }
 
@@ -154,11 +156,16 @@ impl ProviderCircuit {
             persistence_ok: AtomicBool::new(true),
             blocked: AtomicBool::new(matches!(state, CircuitState::Open | CircuitState::HalfOpen)),
             needs_recovery: AtomicBool::new(state != CircuitState::Closed || failure_count > 0),
+            in_flight: Arc::new(AtomicUsize::new(0)),
         })
     }
 
     pub(crate) fn persistence_ready(&self) -> bool {
         self.persistence_ok.load(Ordering::Acquire)
+    }
+
+    pub(crate) fn in_flight(&self) -> Arc<AtomicUsize> {
+        self.in_flight.clone()
     }
 
     pub(crate) async fn try_acquire(&self) -> Result<CircuitDecision, &'static str> {

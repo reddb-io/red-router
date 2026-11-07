@@ -2,6 +2,7 @@
 use crate::{
     accounting::{ChatUsage, TokenPrices},
     product::ProductConnection,
+    ProviderLoadGuard,
 };
 use axum::body::{Body, Bytes};
 use futures_util::{stream, StreamExt};
@@ -72,10 +73,12 @@ pub(crate) fn forward(
     model: String,
     prices: TokenPrices,
     permits: (OwnedSemaphorePermit, Option<OwnedSemaphorePermit>),
+    provider_load: Option<ProviderLoadGuard>,
 ) -> Body {
     let (sender, receiver) = mpsc::channel::<Result<Bytes, io::Error>>(8);
     tokio::spawn(async move {
         let _permits = permits;
+        let _provider_load = provider_load;
         let mut source = response.bytes_stream();
         let mut pending = Vec::<u8>::new();
         let mut usage = None;

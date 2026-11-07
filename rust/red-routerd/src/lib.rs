@@ -63,11 +63,29 @@ pub(crate) struct LiveProvider {
     provider_id: Option<Arc<str>>,
     protocol: ProviderProtocol,
     circuit: Option<Arc<circuit::ProviderCircuit>>,
+    in_flight: Arc<AtomicUsize>,
 }
 
 struct ProductFallback {
     connection: product::ProductConnection,
     provider_key: HeaderValue,
+}
+
+pub(crate) struct ProviderLoadGuard {
+    counter: Arc<AtomicUsize>,
+}
+
+impl ProviderLoadGuard {
+    fn new(counter: Arc<AtomicUsize>) -> Self {
+        counter.fetch_add(1, Ordering::AcqRel);
+        Self { counter }
+    }
+}
+
+impl Drop for ProviderLoadGuard {
+    fn drop(&mut self) {
+        self.counter.fetch_sub(1, Ordering::AcqRel);
+    }
 }
 
 pub(crate) struct ModelRoute {
@@ -84,6 +102,8 @@ pub(crate) enum RouteStrategy {
     RoundRobin,
     Weighted,
     Random,
+    LeastUsed,
+    P2c,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -109,6 +129,7 @@ pub(crate) struct ModelTarget {
     provider_id: Option<Arc<str>>,
     weight: u32,
     circuit: Option<Arc<circuit::ProviderCircuit>>,
+    in_flight: Arc<AtomicUsize>,
 }
 
 impl ModelRoute {
@@ -132,6 +153,43 @@ impl ModelRoute {
                         slot < cumulative
                     })
                     .unwrap_or(0)
+            }
+            RouteStrategy::LeastUsed => {
+                let minimum = eligible
+                    .iter()
+                    .map(|target| target.in_flight.load(Ordering::Acquire))
+                    .min()
+                    .unwrap_or(0);
+                let tied = eligible
+                    .iter()
+                    .filter(|target| target.in_flight.load(Ordering::Acquire) == minimum)
+                    .count();
+                let selected = self.cursor.fetch_add(1, Ordering::Relaxed) % tied;
+                eligible
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, target)| target.in_flight.load(Ordering::Acquire) == minimum)
+                    .nth(selected)
+                    .map(|(index, _)| index)
+                    .unwrap_or(0)
+            }
+            RouteStrategy::P2c => {
+                if eligible.len() == 1 {
+                    return 0;
+                }
+                let sample = pseudo_random(self.cursor.fetch_add(1, Ordering::Relaxed));
+                let first = sample % eligible.len();
+                let mut second = pseudo_random(sample) % (eligible.len() - 1);
+                if second >= first {
+                    second += 1;
+                }
+                let first_load = eligible[first].in_flight.load(Ordering::Acquire);
+                let second_load = eligible[second].in_flight.load(Ordering::Acquire);
+                if second_load < first_load {
+                    second
+                } else {
+                    first
+                }
             }
         }
     }
@@ -315,6 +373,7 @@ impl ProxyState {
             provider_id: None,
             protocol,
             circuit: None,
+            in_flight: Arc::new(AtomicUsize::new(0)),
         })
     }
 
@@ -335,6 +394,7 @@ impl ProxyState {
             provider_id: provider.provider_id.clone(),
             weight,
             circuit: provider.circuit.clone(),
+            in_flight: provider.in_flight.clone(),
         }
     }
 
@@ -517,6 +577,8 @@ impl ProxyState {
                 Some(v) if v.as_str() == Some("round-robin") => RouteStrategy::RoundRobin,
                 Some(v) if v.as_str() == Some("weighted") => RouteStrategy::Weighted,
                 Some(v) if v.as_str() == Some("random") => RouteStrategy::Random,
+                Some(v) if v.as_str() == Some("least-used") => RouteStrategy::LeastUsed,
+                Some(v) if v.as_str() == Some("p2c") => RouteStrategy::P2c,
                 _ => return Err("unsupported route strategy"),
             };
             let fallback = match object.get("fallback") {
@@ -638,6 +700,7 @@ impl ProxyState {
                     provider_id: None,
                     weight,
                     circuit: None,
+                    in_flight: Arc::new(AtomicUsize::new(0)),
                 });
             }
             if strategy == RouteStrategy::Weighted
@@ -1252,6 +1315,8 @@ async fn proxy_request(
     let mut last_retry_response = None;
     let mut final_translated = false;
     let mut final_accounting = None;
+    let mut final_load_guard = None;
+    let mut last_retry_load_guard = None;
     let mut saw_open_circuit = false;
     let mut closest_circuit_retry_ms: Option<u64> = None;
     if state.control_plane.is_some() && route.is_none() && live_provider.is_none() {
@@ -1503,6 +1568,14 @@ async fn proxy_request(
         } else {
             None
         };
+        let load_guard = target
+            .map(|target| target.in_flight.clone())
+            .or_else(|| {
+                live_provider
+                    .as_ref()
+                    .map(|provider| provider.in_flight.clone())
+            })
+            .map(ProviderLoadGuard::new);
         let response = match tokio::time::timeout(HEADER_TIMEOUT, upstream.send()).await {
             Ok(Ok(response)) => response,
             Ok(Err(_)) => {
@@ -1556,14 +1629,20 @@ async fn proxy_request(
             && offset + 1 < attempts
         {
             last_retry_response = Some(response);
+            last_retry_load_guard = load_guard;
             continue;
         }
         final_translated = translate_anthropic;
         final_accounting = accounting_attempt;
         final_response = Some(response);
+        final_load_guard = load_guard;
         break;
     }
-    let Some(response) = final_response.or(last_retry_response) else {
+    let (response, provider_load_guard) = if let Some(response) = final_response {
+        (response, final_load_guard)
+    } else if let Some(response) = last_retry_response {
+        (response, last_retry_load_guard)
+    } else {
         if saw_open_circuit {
             return circuit_open_error(closest_circuit_retry_ms.unwrap_or(1_000));
         }
@@ -1596,7 +1675,7 @@ async fn proxy_request(
                 .and_then(serde_json::Value::as_bool)
                 .unwrap_or(false);
             let stream = anthropic_stream::translate(response, include_usage).map(move |chunk| {
-                let _keep_alive = (&permit, &client_permit);
+                let _keep_alive = (&permit, &client_permit, &provider_load_guard);
                 chunk
             });
             return (
@@ -1660,6 +1739,7 @@ async fn proxy_request(
                     model,
                     prices,
                     (permit, client_permit),
+                    provider_load_guard,
                 );
                 let mut result = Response::new(body);
                 *result.status_mut() = status;
@@ -1741,7 +1821,7 @@ async fn proxy_request(
     headers.insert("x-accel-buffering", HeaderValue::from_static("no"));
     // The permit is retained until the upstream stream finishes or the client drops it.
     let stream = response.bytes_stream().map(move |chunk| {
-        let _keep_alive = (&permit, &client_permit);
+        let _keep_alive = (&permit, &client_permit, &provider_load_guard);
         chunk
     });
     let mut result = Response::new(Body::from_stream(stream));

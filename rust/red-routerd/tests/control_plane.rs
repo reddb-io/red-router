@@ -1,4 +1,5 @@
 use axum::{
+    body::{Body, Bytes},
     http::{header, HeaderMap, StatusCode},
     routing::post,
     Router,
@@ -47,6 +48,37 @@ async fn failing_provider(expected_key: &'static str) -> (String, tokio::task::J
                 format!("Bearer {expected_key}")
             );
             (StatusCode::SERVICE_UNAVAILABLE, "retry")
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    (format!("http://{address}/v1/chat/completions"), task)
+}
+
+async fn held_streaming_provider(
+    expected_key: &'static str,
+    label: &'static str,
+    release: Arc<tokio::sync::Semaphore>,
+) -> (String, tokio::task::JoinHandle<()>) {
+    let app = Router::new().route(
+        "/v1/chat/completions",
+        post(move |headers: HeaderMap| {
+            let release = release.clone();
+            async move {
+                assert_eq!(
+                    headers["authorization"].to_str().unwrap(),
+                    format!("Bearer {expected_key}")
+                );
+                let body = futures_util::stream::once(async move {
+                    let _release = release.acquire().await.unwrap();
+                    Ok::<Bytes, std::convert::Infallible>(Bytes::from_static(label.as_bytes()))
+                });
+                axum::http::Response::builder()
+                    .header(header::CONTENT_TYPE, "application/octet-stream")
+                    .body(Body::from_stream(body))
+                    .unwrap()
+            }
         }),
     );
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -644,6 +676,111 @@ async fn rust_control_plane_persists_and_live_reloads_combo_routes() {
     first_task.abort();
     second_task.abort();
     failing_task.abort();
+    database.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn rust_control_plane_balances_shared_stream_load_across_snapshot_reload() {
+    let directory = TempDir::new().unwrap();
+    let file = Url::from_file_path(directory.path().join("load-balancing.sqlite")).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    let database = Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap());
+    let control = ControlPlane::new(database.clone(), ADMIN_KEY, STORAGE_KEY, false)
+        .await
+        .unwrap();
+    let release = Arc::new(tokio::sync::Semaphore::new(0));
+    let (held_url, held_task) =
+        held_streaming_provider("combo-held-secret", "combo-held", release.clone()).await;
+    let (idle_url, idle_task) = provider("combo-idle-secret", "combo-idle").await;
+    let (base, gateway_task) = gateway(control).await;
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+
+    for (id, upstream_url, api_key) in [
+        ("held", held_url, "combo-held-secret"),
+        ("idle", idle_url, "combo-idle-secret"),
+    ] {
+        assert_eq!(
+            client
+                .put(format!("{base}/api/admin/providers/{id}"))
+                .bearer_auth(ADMIN_KEY)
+                .json(&serde_json::json!({
+                    "provider":"openai-compatible",
+                    "upstream_url":upstream_url,
+                    "api_key":api_key
+                }))
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            200
+        );
+    }
+    assert_eq!(
+        client
+            .put(format!("{base}/api/admin/client-keys/load-client"))
+            .bearer_auth(ADMIN_KEY)
+            .json(&serde_json::json!({
+                "label":"Load balancing client",
+                "api_key":RUST_CLIENT_KEY,
+                "scopes":["inference:chat"],
+                "allowed_endpoints":["chat"],
+                "allowed_models":["load-combo","upstream-model"],
+                "allowed_provider_ids":["held","idle"]
+            }))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
+    let configure = |strategy: &'static str| {
+        client
+            .put(format!("{base}/api/admin/combos/load-combo"))
+            .bearer_auth(ADMIN_KEY)
+            .json(&serde_json::json!({
+                "strategy":strategy,
+                "fallback":false,
+                "targets":[
+                    {"provider_id":"held","model":"upstream-model"},
+                    {"provider_id":"idle","model":"upstream-model"}
+                ]
+            }))
+            .send()
+    };
+    assert_eq!(configure("least-used").await.unwrap().status(), 200);
+
+    // Keep the first provider body open. Its load guard must remain active after
+    // response headers, so another agent is sent to the idle provider.
+    let held_response = chat_model(&client, &base, RUST_CLIENT_KEY, "load-combo").await;
+    assert_eq!(held_response.status(), 200);
+    assert_eq!(
+        chat_model(&client, &base, RUST_CLIENT_KEY, "load-combo")
+            .await
+            .text()
+            .await
+            .unwrap(),
+        "combo-idle"
+    );
+
+    // A live dashboard reload creates a new route snapshot. Provider load is
+    // shared independently of that snapshot, and P2C must still avoid the busy
+    // stream when comparing its two candidates.
+    assert_eq!(configure("p2c").await.unwrap().status(), 200);
+    assert_eq!(
+        chat_model(&client, &base, RUST_CLIENT_KEY, "load-combo")
+            .await
+            .text()
+            .await
+            .unwrap(),
+        "combo-idle"
+    );
+
+    release.add_permits(1);
+    assert_eq!(held_response.text().await.unwrap(), "combo-held");
+
+    gateway_task.abort();
+    held_task.abort();
+    idle_task.abort();
     database.close().await.unwrap();
 }
 
