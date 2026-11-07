@@ -45,8 +45,9 @@ the proxy, enforce key policies or guarantee live revocation; it must not be use
 as a production snapshot service. The POC's synthetic HTTP adapter is not that
 service either: FastLLM can retain a previous snapshot when its source fails.
 
-The same mock provider is called directly, through FastLLM, and through the
-current Rust proxy with its environment-configured key and upstream. For each
+The same mock provider is called directly, through FastLLM, through the
+current Rust proxy with its environment-configured key and upstream, and
+through the opt-in dashboard-key/SQLite guard forwarding to FastLLM. For each
 case, 128 streaming responses run at concurrency 1, 8, 32 and 64, with the
 client sending about 35 KB of synthetic context, the provider delaying its first
 chunk by 15 ms and its final chunk by another 10 ms. The provider's reported
@@ -54,7 +55,9 @@ token counts are deliberately synthetic and must not be used as pricing data.
 The CI log records response time to first chunk, total duration, throughput,
 maximum observed upstream concurrency, and Linux process RSS. RSS covers each
 gateway process only: the Node fixture, SQLite control adapter, dashboard,
-client and provider are excluded. The baseline Rust proxy does not have the
+client and provider are excluded. The bridge's RSS covers its Red Router
+process only and excludes the separate FastLLM process, so it is not the total
+memory footprint of the two-process configuration. The baseline Rust proxy does not have the
 dashboard-policy or quota path enabled; it is not an apples-to-apples product
 configuration comparison. These are short samples on a shared CI runner, not a
 production or cross-machine performance claim.

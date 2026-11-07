@@ -344,6 +344,7 @@ try {
       ["mock-direct", upstreamUrl, fixtureProviderKey, "vendor/model-a", null],
       ["fastllm-sqlite-fixture", fastUrl, fixtureKey, "bench", fast],
       ["current-rust-env-baseline", redUrl, fixtureKey, "vendor/model-a", red],
+      ["dashboard-sqlite-through-fastllm", bridgeUrl, fixtureKey, "bench", bridge],
     ]) {
       measurements.push(await measure(label, url, key, model, concurrency, 128, child));
     }
