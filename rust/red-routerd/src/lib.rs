@@ -1733,11 +1733,13 @@ async fn proxy_request(
                 }
                 let body = usage_stream::forward(
                     response,
-                    connection,
-                    event_id,
-                    access.key_id.clone(),
-                    model,
-                    prices,
+                    usage_stream::UsageContext {
+                        connection,
+                        event_id,
+                        key: access.key_id.clone(),
+                        model,
+                        prices,
+                    },
                     (permit, client_permit),
                     provider_load_guard,
                 );

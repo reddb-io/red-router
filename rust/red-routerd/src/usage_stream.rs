@@ -11,6 +11,14 @@ use tokio::sync::{mpsc, OwnedSemaphorePermit};
 
 const MAX_FRAME: usize = 1_048_576;
 
+pub(crate) struct UsageContext {
+    pub(crate) connection: ProductConnection,
+    pub(crate) event_id: String,
+    pub(crate) key: String,
+    pub(crate) model: String,
+    pub(crate) prices: TokenPrices,
+}
+
 enum Event {
     Ordinary,
     Usage(ChatUsage),
@@ -67,16 +75,19 @@ fn frame_end(bytes: &[u8]) -> Option<usize> {
 /// forwards [DONE] only after successfully recording usage in SQLite.
 pub(crate) fn forward(
     response: reqwest::Response,
-    connection: ProductConnection,
-    event_id: String,
-    key: String,
-    model: String,
-    prices: TokenPrices,
+    usage: UsageContext,
     permits: (OwnedSemaphorePermit, Option<OwnedSemaphorePermit>),
     provider_load: Option<ProviderLoadGuard>,
 ) -> Body {
     let (sender, receiver) = mpsc::channel::<Result<Bytes, io::Error>>(8);
     tokio::spawn(async move {
+        let UsageContext {
+            connection,
+            event_id,
+            key,
+            model,
+            prices,
+        } = usage;
         let _permits = permits;
         let _provider_load = provider_load;
         let mut source = response.bytes_stream();
