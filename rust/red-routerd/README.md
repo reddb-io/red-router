@@ -14,9 +14,9 @@ capacity (default 64); it is separate from any per-key policy or usage quota.
 
 It supports explicitly configured model aliases for OpenAI-compatible, native
 Anthropic Messages and Gemini GenerateContent endpoints,
-priority, fill-first, round-robin, weighted, random, strict-random, least-used or
-power-of-two-choices selection, opt-in fallback, and basic per-key route and
-model restrictions. It does not yet implement
+priority, fill-first, round-robin, weighted, random, strict-random, least-used,
+power-of-two-choices, cost-optimized or context-optimized selection, opt-in
+fallback, and basic per-key route and model restrictions. It does not yet implement
 RedRouter's full provider selection, quotas, policies, accounting, protocol
 full protocol translation, remote listening or inbound TLS.
 Its Rust-owned control plane now persists encrypted provider configurations and
@@ -53,7 +53,7 @@ provider; subsequent provider changes do not require those environment secrets.
 - `PUT /api/admin/combos/{id}` creates or replaces a combo with `protocol`
   (`openai`, `openai-responses`, `openai-embeddings`, `cohere-rerank`, `anthropic`
   or `gemini`), `strategy` (`priority`, `fill-first`, `round-robin`, `weighted`, `random`,
-  `strict-random`, `least-used` or `p2c`),
+  `strict-random`, `least-used`, `p2c`, `cost-optimized` or `context-optimized`),
   `fallback`, `enabled`,
   and one to eight `{provider_id, model}` targets. Weighted targets require integer
   `weight` values from 1–100 that total exactly 100. `least-used` and `p2c` use
@@ -61,6 +61,12 @@ provider; subsequent provider changes do not require those environment secrets.
   streaming request remains in flight until its upstream body has been drained.
   `strict-random` uses every eligible target once before a new deck cycle and
   randomizes the remaining fallback order without consecutive primary repeats.
+  `cost-optimized` requires `input_cost_per_million` and
+  `output_cost_per_million` on every target and tries the lowest combined price
+  first. `context-optimized` requires `context_window_tokens` and tries the
+  largest context window first. These optional target fields are stored in the
+  combo JSON and returned by the admin API, so strategy changes and restarts do
+  not lose their metadata.
 - `DELETE /api/admin/combos/{id}` disables the combo.
 - `GET /api/admin/provider-health` lists provider breaker state, failure counts,
   thresholds and retry windows without exposing credentials.
@@ -76,8 +82,9 @@ storage and are never returned. Supported client policy fields are `enabled`,
 `allowed_provider_ids`, `max_concurrent_requests`, `max_requests_per_minute` and
 `max_requests_per_day`. Combo writes are durable before an immutable, DNS-pinned routing
 snapshot becomes visible. Once any combo row exists, Rust-owned combos are authoritative;
-unknown or disabled aliases do not fall through to the active provider. Pricing,
-token/spend quotas and the remaining dashboard settings still need migration.
+unknown or disabled aliases do not fall through to the active provider. Target
+routing metadata is durable; automatic catalog pricing, token/spend quotas and
+the remaining dashboard settings still need migration.
 
 Rust-owned providers share durable circuit breakers across aliases and live route
 snapshots. Network failures and `408`, `500`, `502`, `503` and `504` count as

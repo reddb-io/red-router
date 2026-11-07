@@ -124,6 +124,12 @@ pub struct ComboTarget {
     pub model: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub weight: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_cost_per_million: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_cost_per_million: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_window_tokens: Option<u64>,
 }
 
 #[derive(Deserialize)]
@@ -537,6 +543,9 @@ impl ControlPlane {
                     live.get(&provider.id).ok_or("combo provider unavailable")?,
                     target.model,
                     target.weight.unwrap_or(1),
+                    target.input_cost_per_million,
+                    target.output_cost_per_million,
+                    target.context_window_tokens,
                 ));
             }
             if targets.is_empty() {
@@ -551,6 +560,8 @@ impl ControlPlane {
                 "p2c" => RouteStrategy::P2c,
                 "fill-first" => RouteStrategy::FillFirst,
                 "strict-random" => RouteStrategy::StrictRandom,
+                "cost-optimized" => RouteStrategy::CostOptimized,
+                "context-optimized" => RouteStrategy::ContextOptimized,
                 _ => return Err("unsupported combo strategy"),
             };
             routes.insert(
@@ -838,6 +849,8 @@ fn validate_combo(input: &ComboInput) -> Result<(), &'static str> {
             | "p2c"
             | "fill-first"
             | "strict-random"
+            | "cost-optimized"
+            | "context-optimized"
     ) {
         return Err("unsupported combo strategy");
     }
@@ -858,6 +871,31 @@ fn validate_combo(input: &ComboInput) -> Result<(), &'static str> {
             ("weighted", _) => return Err("weighted combo targets require weights"),
             (_, None) => {}
             (_, Some(_)) => return Err("combo target weights require the weighted strategy"),
+        }
+        for cost in [
+            target.input_cost_per_million,
+            target.output_cost_per_million,
+        ]
+        .into_iter()
+        .flatten()
+        {
+            if !cost.is_finite() || !(0.0..=1_000_000.0).contains(&cost) {
+                return Err("invalid combo target cost metadata");
+            }
+        }
+        if target
+            .context_window_tokens
+            .is_some_and(|value| !(1..=10_000_000).contains(&value))
+        {
+            return Err("invalid combo target context metadata");
+        }
+        if input.strategy == "cost-optimized"
+            && (target.input_cost_per_million.is_none() || target.output_cost_per_million.is_none())
+        {
+            return Err("cost-optimized targets require input and output costs");
+        }
+        if input.strategy == "context-optimized" && target.context_window_tokens.is_none() {
+            return Err("context-optimized targets require context windows");
         }
     }
     if input.strategy == "weighted"

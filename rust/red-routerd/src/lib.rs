@@ -108,6 +108,8 @@ pub(crate) enum RouteStrategy {
     P2c,
     FillFirst,
     StrictRandom,
+    CostOptimized,
+    ContextOptimized,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -132,6 +134,9 @@ pub(crate) struct ModelTarget {
     product_model: Option<String>,
     provider_id: Option<Arc<str>>,
     weight: u32,
+    input_cost_per_million: Option<f64>,
+    output_cost_per_million: Option<f64>,
+    context_window_tokens: Option<u64>,
     circuit: Option<Arc<circuit::ProviderCircuit>>,
     in_flight: Arc<AtomicUsize>,
 }
@@ -195,7 +200,11 @@ impl ModelRoute {
                     first
                 }
             }
-            RouteStrategy::StrictRandom => unreachable!("strict-random uses an attempt deck"),
+            RouteStrategy::StrictRandom
+            | RouteStrategy::CostOptimized
+            | RouteStrategy::ContextOptimized => {
+                unreachable!("strategy uses an ordered attempt deck")
+            }
         }
     }
 
@@ -207,12 +216,52 @@ impl ModelRoute {
                 self.cursor.fetch_add(1, Ordering::Relaxed),
             );
         }
+        if matches!(
+            self.strategy,
+            RouteStrategy::CostOptimized | RouteStrategy::ContextOptimized
+        ) {
+            let mut order = [0; MAX_ROUTE_TARGETS];
+            for (index, slot) in order.iter_mut().take(eligible.len()).enumerate() {
+                *slot = index;
+            }
+            // At most eight targets are accepted. Insertion sort keeps ties in
+            // dashboard order and avoids allocating on the request path.
+            for index in 1..eligible.len() {
+                let selected = order[index];
+                let mut position = index;
+                while position > 0
+                    && self.target_precedes(eligible[selected], eligible[order[position - 1]])
+                {
+                    order[position] = order[position - 1];
+                    position -= 1;
+                }
+                order[position] = selected;
+            }
+            return order;
+        }
         let start = self.selection_start(eligible);
         let mut order = [0; MAX_ROUTE_TARGETS];
         for (offset, slot) in order.iter_mut().take(eligible.len()).enumerate() {
             *slot = (start + offset) % eligible.len();
         }
         order
+    }
+
+    fn target_precedes(&self, candidate: &ModelTarget, current: &ModelTarget) -> bool {
+        match self.strategy {
+            RouteStrategy::CostOptimized => {
+                let candidate_cost = candidate.input_cost_per_million.unwrap_or(f64::INFINITY)
+                    + candidate.output_cost_per_million.unwrap_or(f64::INFINITY);
+                let current_cost = current.input_cost_per_million.unwrap_or(f64::INFINITY)
+                    + current.output_cost_per_million.unwrap_or(f64::INFINITY);
+                candidate_cost.total_cmp(&current_cost).is_lt()
+            }
+            RouteStrategy::ContextOptimized => {
+                candidate.context_window_tokens.unwrap_or(0)
+                    > current.context_window_tokens.unwrap_or(0)
+            }
+            _ => false,
+        }
     }
 }
 
@@ -456,6 +505,9 @@ impl ProxyState {
         provider: &LiveProvider,
         model: String,
         weight: u32,
+        input_cost_per_million: Option<f64>,
+        output_cost_per_million: Option<f64>,
+        context_window_tokens: Option<u64>,
     ) -> ModelTarget {
         ModelTarget {
             client: provider.client.clone(),
@@ -468,6 +520,9 @@ impl ProxyState {
             product_model: None,
             provider_id: provider.provider_id.clone(),
             weight,
+            input_cost_per_million,
+            output_cost_per_million,
+            context_window_tokens,
             circuit: provider.circuit.clone(),
             in_flight: provider.in_flight.clone(),
         }
@@ -656,6 +711,10 @@ impl ProxyState {
                 Some(v) if v.as_str() == Some("p2c") => RouteStrategy::P2c,
                 Some(v) if v.as_str() == Some("fill-first") => RouteStrategy::FillFirst,
                 Some(v) if v.as_str() == Some("strict-random") => RouteStrategy::StrictRandom,
+                Some(v) if v.as_str() == Some("cost-optimized") => RouteStrategy::CostOptimized,
+                Some(v) if v.as_str() == Some("context-optimized") => {
+                    RouteStrategy::ContextOptimized
+                }
                 _ => return Err("unsupported route strategy"),
             };
             let fallback = match object.get("fallback") {
@@ -673,8 +732,18 @@ impl ProxyState {
             for entry in entries {
                 let target = entry.as_object().ok_or("invalid target")?;
                 if target.keys().any(|k| {
-                    !["url", "model", "api_key_env", "auth", "protocol", "weight"]
-                        .contains(&k.as_str())
+                    ![
+                        "url",
+                        "model",
+                        "api_key_env",
+                        "auth",
+                        "protocol",
+                        "weight",
+                        "input_cost_per_million",
+                        "output_cost_per_million",
+                        "context_window_tokens",
+                    ]
+                    .contains(&k.as_str())
                 }) {
                     return Err("unknown target field");
                 }
@@ -729,6 +798,38 @@ impl ProxyState {
                     None => 1,
                     Some(_) => return Err("target weights require the weighted strategy"),
                 };
+                let target_cost = |field: &str| -> Result<Option<f64>, &'static str> {
+                    target
+                        .get(field)
+                        .map(|value| {
+                            value
+                                .as_f64()
+                                .filter(|value| {
+                                    value.is_finite() && (0.0..=1_000_000.0).contains(value)
+                                })
+                                .ok_or("invalid target cost metadata")
+                        })
+                        .transpose()
+                };
+                let input_cost_per_million = target_cost("input_cost_per_million")?;
+                let output_cost_per_million = target_cost("output_cost_per_million")?;
+                let context_window_tokens = target
+                    .get("context_window_tokens")
+                    .map(|value| {
+                        value
+                            .as_u64()
+                            .filter(|value| (1..=10_000_000).contains(value))
+                            .ok_or("invalid target context metadata")
+                    })
+                    .transpose()?;
+                if strategy == RouteStrategy::CostOptimized
+                    && (input_cost_per_million.is_none() || output_cost_per_million.is_none())
+                {
+                    return Err("cost-optimized targets require input and output costs");
+                }
+                if strategy == RouteStrategy::ContextOptimized && context_window_tokens.is_none() {
+                    return Err("context-optimized targets require context windows");
+                }
                 let anthropic_bearer = match target.get("auth") {
                     None => false,
                     Some(value)
@@ -776,6 +877,9 @@ impl ProxyState {
                     product_model: None,
                     provider_id: None,
                     weight,
+                    input_cost_per_million,
+                    output_cost_per_million,
+                    context_window_tokens,
                     circuit: None,
                     in_flight: Arc::new(AtomicUsize::new(0)),
                 });

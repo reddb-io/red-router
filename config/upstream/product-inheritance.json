@@ -167,12 +167,16 @@
       "localPaths": [
         "open-sse/services/combo.ts",
         "open-sse/services/accountFallback.ts",
-        "src/shared/utils/circuitBreaker.ts"
+        "src/shared/utils/circuitBreaker.ts",
+        "rust/red-routerd/src/lib.rs",
+        "rust/red-routerd/src/control_plane.rs",
+        "rust/red-routerd/src/circuit.rs",
+        "rust/red-routerd/tests/control_plane.rs"
       ],
       "upstreamPaths": {
         "litellm": ["litellm/router.py", "litellm/router_strategy"]
       },
-      "remaining": "Preserve RedRouter model/account failover while comparing strategies, retry boundaries, context routing, quotas and connection affinity.",
+      "remaining": "The Rust authority now covers durable priority/fill-first, round-robin, weighted, random/strict-random, least-used/P2C, cost-ranked and context-ranked combos plus provider breakers. Preserve RedRouter model/account failover while migrating reset/quota/cache/affinity strategies, retry boundaries, nested orchestration and catalog enrichment.",
       "acceptance": [
         "Do not retry a request after emitting upstream bytes or replay ambiguous billable writes.",
         "Account/model errors do not disable a whole provider.",

@@ -402,6 +402,102 @@ async fn rust_control_plane_persists_and_live_reloads_combo_routes() {
             .status(),
         200
     );
+    let cost_combo = client
+        .put(format!("{base}/api/admin/combos/agent-combo"))
+        .bearer_auth(ADMIN_KEY)
+        .header(header::CONTENT_TYPE.as_str(), "application/json")
+        .body(
+            serde_json::json!({
+                "strategy":"cost-optimized",
+                "fallback":true,
+                "targets":[
+                    {
+                        "provider_id":"first",
+                        "model":"upstream-model",
+                        "input_cost_per_million":5.0,
+                        "output_cost_per_million":15.0
+                    },
+                    {
+                        "provider_id":"second",
+                        "model":"upstream-model",
+                        "input_cost_per_million":0.5,
+                        "output_cost_per_million":1.5
+                    }
+                ]
+            })
+            .to_string(),
+        )
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(cost_combo.status(), 200);
+    let cost_combo: serde_json::Value = cost_combo.json().await.unwrap();
+    assert_eq!(cost_combo["targets"][1]["input_cost_per_million"], 0.5);
+    assert_eq!(
+        chat_model(&client, &base, RUST_CLIENT_KEY, "agent-combo")
+            .await
+            .text()
+            .await
+            .unwrap(),
+        "combo-second"
+    );
+    assert_eq!(
+        client
+            .put(format!("{base}/api/admin/combos/agent-combo"))
+            .bearer_auth(ADMIN_KEY)
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(
+                serde_json::json!({
+                    "strategy":"context-optimized",
+                    "fallback":true,
+                    "targets":[
+                        {
+                            "provider_id":"first",
+                            "model":"upstream-model",
+                            "context_window_tokens":128000
+                        },
+                        {
+                            "provider_id":"second",
+                            "model":"upstream-model",
+                            "context_window_tokens":1000000
+                        }
+                    ]
+                })
+                .to_string(),
+            )
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
+    assert_eq!(
+        chat_model(&client, &base, RUST_CLIENT_KEY, "agent-combo")
+            .await
+            .text()
+            .await
+            .unwrap(),
+        "combo-second"
+    );
+    assert_eq!(
+        client
+            .put(format!("{base}/api/admin/combos/agent-combo"))
+            .bearer_auth(ADMIN_KEY)
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(
+                serde_json::json!({
+                    "strategy":"cost-optimized",
+                    "fallback":true,
+                    "targets":[{"provider_id":"first","model":"upstream-model"}]
+                })
+                .to_string(),
+            )
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        400
+    );
     assert_eq!(
         client
             .put(format!("{base}/api/admin/combos/agent-combo"))
