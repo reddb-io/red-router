@@ -29,6 +29,12 @@ async fn rust_and_typescript_reserve_one_shared_token_and_spend_budget() {
     .await
     .unwrap();
     sqlx::raw_sql(include_str!(
+        "../../../src/lib/db/migrations/206_cost_attribution_ledger.sql"
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::raw_sql(include_str!(
         "../../../src/lib/db/migrations/191_api_key_daily_token_quota.sql"
     ))
     .execute(&pool)
