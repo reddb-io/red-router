@@ -1,6 +1,7 @@
-//! An isolated first slice of the Rust data plane. See README before use.
+//! RedRouter's Rust proxy and production-backend migration target.
 pub mod accounting;
 mod anthropic_stream;
+pub mod control_plane;
 pub mod fastllm_control;
 pub mod fastllm_plan;
 pub mod fastllm_supervisor;
@@ -18,7 +19,7 @@ use axum::{
     extract::{Path, Request, State},
     http::{header, HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
-    routing::{get, post},
+    routing::{get, post, put},
     Json, Router,
 };
 use futures_util::StreamExt;
@@ -50,6 +51,14 @@ pub struct ProxyState {
     product_client_keys: bool,
     product_fallbacks: Arc<Vec<ProductFallback>>,
     product_combo: Option<product_combo::ProductCombo>,
+    control_plane: Option<control_plane::ControlPlane>,
+}
+
+#[derive(Clone)]
+pub(crate) struct LiveProvider {
+    client: reqwest::Client,
+    upstream: reqwest::Url,
+    provider_key: HeaderValue,
 }
 
 struct ProductFallback {
@@ -231,7 +240,34 @@ impl ProxyState {
             product_client_keys: false,
             product_fallbacks: Arc::new(Vec::new()),
             product_combo: None,
+            control_plane: None,
         })
+    }
+
+    /// Build the network-pinned runtime representation used by the Rust-owned
+    /// control plane. Provider credentials never leave sensitive header storage.
+    pub(crate) async fn live_provider(
+        upstream: &str,
+        provider_key: &str,
+        allow_private: bool,
+    ) -> Result<LiveProvider, &'static str> {
+        let state = Self::new(
+            upstream,
+            "rust-control-plane-validation-key",
+            provider_key,
+            allow_private,
+        )
+        .await?;
+        Ok(LiveProvider {
+            client: state.client,
+            upstream: state.upstream,
+            provider_key: state.provider_key,
+        })
+    }
+
+    pub fn with_control_plane(mut self, control_plane: control_plane::ControlPlane) -> Self {
+        self.control_plane = Some(control_plane);
+        self
     }
 
     /// Fail closed when the selected product connection is edited or disabled.
@@ -598,6 +634,12 @@ fn allowed_address(ip: IpAddr, allow_private: bool) -> bool {
 pub fn router(state: ProxyState) -> Router {
     Router::new()
         .route("/healthz", get(|| async { StatusCode::OK }))
+        .route("/readyz", get(ready))
+        .route("/api/admin/providers", get(control_plane::list))
+        .route(
+            "/api/admin/providers/{id}",
+            put(control_plane::put_provider).delete(control_plane::delete_provider),
+        )
         .route("/v1/chat/completions", post(chat))
         .route("/v1/responses", post(responses))
         .route("/v1/embeddings", post(embeddings))
@@ -605,6 +647,13 @@ pub fn router(state: ProxyState) -> Router {
         .route("/v1/messages", post(messages))
         .route("/v1beta/models/{model_action}", post(gemini))
         .with_state(state)
+}
+
+async fn ready(State(state): State<ProxyState>) -> StatusCode {
+    match &state.control_plane {
+        Some(control) if !control.ready().await => StatusCode::SERVICE_UNAVAILABLE,
+        _ => StatusCode::OK,
+    }
 }
 
 fn error(status: StatusCode, message: &'static str) -> Response {
@@ -980,6 +1029,16 @@ async fn proxy_request(
     let mut last_retry_response = None;
     let mut final_translated = false;
     let mut final_accounting = None;
+    let live_provider = match &state.control_plane {
+        Some(control) => control.current().await,
+        None => None,
+    };
+    if state.control_plane.is_some() && route.is_none() && live_provider.is_none() {
+        return error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "No active Rust provider configuration",
+        );
+    }
     for offset in 0..attempts {
         let product_index = selected_product + offset;
         if state.product_combo.is_none() && product_access.is_some() && offset > 0 {
@@ -1139,12 +1198,16 @@ async fn proxy_request(
                 } else {
                     body.to_vec()
                 };
-                let provider_key = if product_access.is_some() && product_index > 0 {
-                    &state.product_fallbacks[product_index - 1].provider_key
+                if let Some(live) = &live_provider {
+                    (&live.client, &live.upstream, &live.provider_key, payload)
                 } else {
-                    &state.provider_key
-                };
-                (&state.client, &state.upstream, provider_key, payload)
+                    let provider_key = if product_access.is_some() && product_index > 0 {
+                        &state.product_fallbacks[product_index - 1].provider_key
+                    } else {
+                        &state.provider_key
+                    };
+                    (&state.client, &state.upstream, provider_key, payload)
+                }
             }
         };
         let mut target_url = url.clone();

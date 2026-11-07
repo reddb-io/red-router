@@ -1,12 +1,13 @@
 use axum::serve::ListenerExt;
 use red_routerd::{
+    control_plane::{ControlPlane, ProviderInput},
     product::ProductConnection,
     product_combo::ProductCombo,
     router,
     storage::{embedded_default_url, sqlite_default_url, Backend, Database},
     ProxyState,
 };
-use std::{env, error::Error, net::SocketAddr};
+use std::{env, error::Error, net::SocketAddr, sync::Arc};
 
 fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     // RedDB initialization uses a deeper call stack than Windows' default
@@ -613,12 +614,12 @@ async fn run(
         }
         Err(_) => return Err("RED_ROUTER_DATABASE_URL must be valid Unicode".into()),
     };
-    let db = Database::connect(backend, &database_url).await?;
+    let db = Arc::new(Database::connect(backend, &database_url).await?);
     let client_key = env::var("RED_ROUTER_CLIENT_KEY")?;
-    let provider_key = env::var("RED_ROUTER_PROVIDER_KEY")?;
     let allow_private = env::var("RED_ROUTER_ALLOW_PRIVATE_UPSTREAM").as_deref() == Ok("1");
     let requested = env::var("RED_ROUTER_UPSTREAM_URL").ok();
     if command.as_deref() == Some("set-upstream") {
+        let provider_key = env::var("RED_ROUTER_PROVIDER_KEY")?;
         let upstream = requested.ok_or("RED_ROUTER_UPSTREAM_URL is required")?;
         ProxyState::new(&upstream, &client_key, &provider_key, allow_private).await?;
         db.set_upstream(&upstream).await?;
@@ -626,6 +627,68 @@ async fn run(
         println!("Upstream configuration saved; restart the proxy to apply it");
         return Ok(());
     }
+    if let Ok(admin_key) = env::var("RED_ROUTER_ADMIN_KEY") {
+        let admin_key = zeroize::Zeroizing::new(admin_key);
+        let encryption_key = zeroize::Zeroizing::new(env::var("STORAGE_ENCRYPTION_KEY")?);
+        let control = ControlPlane::new(
+            db.clone(),
+            admin_key.as_str(),
+            encryption_key.as_str(),
+            allow_private,
+        )
+        .await?;
+        if !control.has_active_provider().await? {
+            if let Some(upstream) = requested.as_deref() {
+                let provider_key = zeroize::Zeroizing::new(env::var("RED_ROUTER_PROVIDER_KEY")?);
+                let provider =
+                    env::var("RED_ROUTER_PROVIDER_NAME").unwrap_or_else(|_| "openai".into());
+                control
+                    .configure_provider(
+                        "default",
+                        ProviderInput {
+                            provider,
+                            upstream_url: upstream.to_owned(),
+                            api_key: provider_key.to_string(),
+                            enabled: true,
+                        },
+                    )
+                    .await?;
+            }
+        }
+        // The static target is never selected while the control plane is enabled;
+        // it only lets the common proxy state initialize before the live snapshot.
+        let mut state = ProxyState::new(
+            "http://127.0.0.1:1/v1/chat/completions",
+            &client_key,
+            "control-plane-placeholder",
+            true,
+        )
+        .await?
+        .with_control_plane(control);
+        if let Some(limit) = max_in_flight {
+            state = state.with_max_in_flight(limit)?;
+        }
+        match env::var("RED_ROUTER_ROUTES_JSON") {
+            Ok(routes) => {
+                state = state
+                    .with_routes(&routes, |name| env::var(name).ok(), allow_private)
+                    .await?
+            }
+            Err(env::VarError::NotPresent) => {}
+            Err(_) => return Err("RED_ROUTER_ROUTES_JSON must be valid Unicode".into()),
+        }
+        match env::var("RED_ROUTER_CLIENT_POLICIES_JSON") {
+            Ok(policies) => {
+                state = state.with_client_policies(&policies, |name| env::var(name).ok())?
+            }
+            Err(env::VarError::NotPresent) => {}
+            Err(_) => return Err("RED_ROUTER_CLIENT_POLICIES_JSON must be valid Unicode".into()),
+        }
+        serve_proxy(address, state, None, shutdown).await?;
+        db.close().await?;
+        return Ok(());
+    }
+    let provider_key = env::var("RED_ROUTER_PROVIDER_KEY")?;
     let upstream = match db.upstream().await? {
         Some(value) => value,
         None => {
@@ -670,10 +733,7 @@ async fn serve_proxy(
     shutdown: Option<tokio::sync::watch::Receiver<bool>>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     let listener = tokio::net::TcpListener::bind(address).await?;
-    println!(
-        "red-routerd development slice listening on {}",
-        listener.local_addr()?
-    );
+    println!("red-routerd listening on {}", listener.local_addr()?);
     // Streaming frequently sends small SSE chunks; avoid Nagle delaying them
     // while waiting for an ACK from the client.
     let listener = listener.tap_io(|socket| {

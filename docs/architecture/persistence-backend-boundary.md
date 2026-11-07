@@ -6,14 +6,15 @@ lastUpdated: 2026-10-08
 
 # ADR: Pluggable persistence boundary
 
-**Rust-core update, 2026-11-06:** The experimental Rust gateway uses SQLite as
-its default for now and supports embedded RedDB, remote RedDB and PostgreSQL as
-explicit choices. This does not change or migrate the existing TypeScript product's
-installed data. The Rust gateway currently persists
-only its single upstream endpoint, and the remaining contracts in this ADR are
-still requirements rather than implemented parity.
+**Rust-backend update, 2026-11-07:** The accepted production target is the Rust
+gateway plus a static SPA, as recorded in
+[Rust backend migration](RUST_BACKEND_MIGRATION.md). SQLite remains the default;
+embedded RedDB, remote RedDB and PostgreSQL remain explicit choices. The first
+Rust-owned control-plane slice persists encrypted provider configurations and
+reloads them without restart. It does not yet migrate the installed TypeScript
+product data or establish full domain parity.
 
-- **Status:** Architecture accepted on 2026-10-08; first routing slice experimental
+- **Status:** Architecture accepted on 2026-10-08; Rust production migration active
 - **Tracking issue:** [#8075](https://github.com/reddb-io/red-router/issues/8075)
 - **Scope:** Local/offline SQLite and connected/server RedDB or PostgreSQL; this document records
   the selected architecture and delivery requirements; full backend support remains pending

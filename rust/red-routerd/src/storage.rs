@@ -1,7 +1,7 @@
-//! Experimental persistence of the single configured upstream endpoint.
+//! Rust-owned persistence boundary for proxy and control-plane configuration.
 //!
-//! Credentials stay in process configuration and are never written here. Each
-//! process selects one database authority; connection errors never fall back.
+//! Each process selects one database authority; connection errors never fall
+//! back. Provider credentials are accepted here only as encrypted ciphertext.
 use sqlx::{any::AnyPoolOptions, AnyPool, Row};
 use std::sync::Once;
 
@@ -9,6 +9,22 @@ const CREATE: &str = "CREATE TABLE IF NOT EXISTS redrouter_proxy_config (id INTE
 const READ: &str = "SELECT upstream_url FROM redrouter_proxy_config WHERE id = 1";
 const SEED: &str = "INSERT INTO redrouter_proxy_config (id, upstream_url) VALUES (1, $1) ON CONFLICT (id) DO NOTHING";
 const SET: &str = "INSERT INTO redrouter_proxy_config (id, upstream_url) VALUES (1, $1) ON CONFLICT (id) DO UPDATE SET upstream_url = $1";
+const CREATE_PROVIDERS: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_providers (id TEXT PRIMARY KEY, provider TEXT NOT NULL, upstream_url TEXT NOT NULL, credential_ciphertext TEXT NOT NULL, enabled BIGINT NOT NULL, updated_at BIGINT NOT NULL)";
+const LIST_PROVIDERS: &str = "SELECT id, provider, upstream_url, credential_ciphertext, enabled, updated_at FROM redrouter_control_providers ORDER BY updated_at DESC, id ASC";
+const ACTIVE_PROVIDER: &str = "SELECT id, provider, upstream_url, credential_ciphertext, enabled, updated_at FROM redrouter_control_providers WHERE enabled = 1 ORDER BY updated_at DESC, id ASC LIMIT 1";
+const UPSERT_PROVIDER: &str = "INSERT INTO redrouter_control_providers (id, provider, upstream_url, credential_ciphertext, enabled, updated_at) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (id) DO UPDATE SET provider = $2, upstream_url = $3, credential_ciphertext = $4, enabled = $5, updated_at = $6";
+const DISABLE_PROVIDER: &str =
+    "UPDATE redrouter_control_providers SET enabled = 0, updated_at = $2 WHERE id = $1";
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StoredProvider {
+    pub id: String,
+    pub provider: String,
+    pub upstream_url: String,
+    pub credential_ciphertext: String,
+    pub enabled: bool,
+    pub updated_at: i64,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Backend {
@@ -84,9 +100,11 @@ impl Database {
                     let embedded = reddb_client::embedded::EmbeddedClient::open(path)
                         .map_err(|_| "cannot open embedded RedDB")?;
                     let db = reddb_client::Reddb::Embedded(embedded);
-                    db.query(CREATE)
-                        .await
-                        .map_err(|_| "cannot initialize database")?;
+                    for statement in [CREATE, CREATE_PROVIDERS] {
+                        db.query(statement)
+                            .await
+                            .map_err(|_| "cannot initialize database")?;
+                    }
                     Ok(Self::Embedded { db, _lock: lock })
                 }
                 #[cfg(not(feature = "reddb-embedded"))]
@@ -162,6 +180,7 @@ impl Database {
                 .map_err(|_| "cannot connect to selected database")?;
                 let db = Self::Remote(tokio::sync::Mutex::new(Some(client)));
                 db.remote_query(CREATE, &[]).await?;
+                db.remote_query(CREATE_PROVIDERS, &[]).await?;
                 Ok(db)
             }
             Backend::Sqlite | Backend::Postgres => {
@@ -184,10 +203,12 @@ impl Database {
                     .connect(url)
                     .await
                     .map_err(|_| "cannot connect to selected database")?;
-                sqlx::query(CREATE)
-                    .execute(&pool)
-                    .await
-                    .map_err(|_| "cannot initialize database")?;
+                for statement in [CREATE, CREATE_PROVIDERS] {
+                    sqlx::query(statement)
+                        .execute(&pool)
+                        .await
+                        .map_err(|_| "cannot initialize database")?;
+                }
                 Ok(Self::Sql(pool))
             }
         }
@@ -216,6 +237,127 @@ impl Database {
                 read_reddb_row(&result)
             }
         }
+    }
+
+    pub async fn providers(&self) -> Result<Vec<StoredProvider>, &'static str> {
+        match self {
+            Self::Sql(pool) => sqlx::query(LIST_PROVIDERS)
+                .fetch_all(pool)
+                .await
+                .map_err(|_| "cannot read provider configuration")?
+                .iter()
+                .map(read_sql_provider)
+                .collect(),
+            Self::Remote(_) => self
+                .remote_query(LIST_PROVIDERS, &[])
+                .await?
+                .rows
+                .iter()
+                .map(read_reddb_provider)
+                .collect(),
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => db
+                .query(LIST_PROVIDERS)
+                .await
+                .map_err(|_| "cannot read provider configuration")?
+                .rows
+                .iter()
+                .map(read_reddb_provider)
+                .collect(),
+        }
+    }
+
+    pub async fn active_provider(&self) -> Result<Option<StoredProvider>, &'static str> {
+        match self {
+            Self::Sql(pool) => sqlx::query(ACTIVE_PROVIDER)
+                .fetch_optional(pool)
+                .await
+                .map_err(|_| "cannot read active provider")?
+                .as_ref()
+                .map(read_sql_provider)
+                .transpose(),
+            Self::Remote(_) => self
+                .remote_query(ACTIVE_PROVIDER, &[])
+                .await?
+                .rows
+                .first()
+                .map(read_reddb_provider)
+                .transpose(),
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => db
+                .query(ACTIVE_PROVIDER)
+                .await
+                .map_err(|_| "cannot read active provider")?
+                .rows
+                .first()
+                .map(read_reddb_provider)
+                .transpose(),
+        }
+    }
+
+    pub async fn upsert_provider(&self, provider: &StoredProvider) -> Result<(), &'static str> {
+        let enabled = if provider.enabled { 1_i64 } else { 0_i64 };
+        match self {
+            Self::Sql(pool) => {
+                sqlx::query(UPSERT_PROVIDER)
+                    .bind(&provider.id)
+                    .bind(&provider.provider)
+                    .bind(&provider.upstream_url)
+                    .bind(&provider.credential_ciphertext)
+                    .bind(enabled)
+                    .bind(provider.updated_at)
+                    .execute(pool)
+                    .await
+                    .map_err(|_| "cannot write provider configuration")?;
+            }
+            Self::Remote(_) => {
+                self.remote_query(UPSERT_PROVIDER, &provider_params(provider, enabled))
+                    .await?;
+            }
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => {
+                db.query_with(UPSERT_PROVIDER, provider_params(provider, enabled))
+                    .await
+                    .map_err(|_| "cannot write provider configuration")?;
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn disable_provider(&self, id: &str, updated_at: i64) -> Result<(), &'static str> {
+        match self {
+            Self::Sql(pool) => {
+                sqlx::query(DISABLE_PROVIDER)
+                    .bind(id)
+                    .bind(updated_at)
+                    .execute(pool)
+                    .await
+                    .map_err(|_| "cannot disable provider")?;
+            }
+            Self::Remote(_) => {
+                self.remote_query(
+                    DISABLE_PROVIDER,
+                    &[
+                        reddb_client::Value::Text(id.to_owned()),
+                        reddb_client::Value::Int(updated_at),
+                    ],
+                )
+                .await?;
+            }
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => {
+                db.query_with(
+                    DISABLE_PROVIDER,
+                    vec![
+                        reddb_client::Value::Text(id.to_owned()),
+                        reddb_client::Value::Int(updated_at),
+                    ],
+                )
+                .await
+                .map_err(|_| "cannot disable provider")?;
+            }
+        }
+        Ok(())
     }
 
     /// Insert only when no configuration exists. The existing authority wins.
@@ -306,6 +448,64 @@ fn read_reddb_row(result: &reddb_client::QueryResult) -> Result<Option<String>, 
         Some((_, reddb_client::ValueOut::String(value))) => Ok(Some(value.clone())),
         _ => Err("invalid database record"),
     }
+}
+
+fn read_sql_provider(row: &sqlx::any::AnyRow) -> Result<StoredProvider, &'static str> {
+    Ok(StoredProvider {
+        id: row.try_get("id").map_err(|_| "invalid provider record")?,
+        provider: row
+            .try_get("provider")
+            .map_err(|_| "invalid provider record")?,
+        upstream_url: row
+            .try_get("upstream_url")
+            .map_err(|_| "invalid provider record")?,
+        credential_ciphertext: row
+            .try_get("credential_ciphertext")
+            .map_err(|_| "invalid provider record")?,
+        enabled: row
+            .try_get::<i64, _>("enabled")
+            .map_err(|_| "invalid provider record")?
+            == 1,
+        updated_at: row
+            .try_get("updated_at")
+            .map_err(|_| "invalid provider record")?,
+    })
+}
+
+fn read_reddb_provider(row: &reddb_client::Row) -> Result<StoredProvider, &'static str> {
+    let text = |name: &str| match row
+        .iter()
+        .find(|(column, _)| column.eq_ignore_ascii_case(name))
+    {
+        Some((_, reddb_client::ValueOut::String(value))) => Ok(value.clone()),
+        _ => Err("invalid provider record"),
+    };
+    let integer = |name: &str| match row
+        .iter()
+        .find(|(column, _)| column.eq_ignore_ascii_case(name))
+    {
+        Some((_, reddb_client::ValueOut::Integer(value))) => Ok(*value),
+        _ => Err("invalid provider record"),
+    };
+    Ok(StoredProvider {
+        id: text("id")?,
+        provider: text("provider")?,
+        upstream_url: text("upstream_url")?,
+        credential_ciphertext: text("credential_ciphertext")?,
+        enabled: integer("enabled")? == 1,
+        updated_at: integer("updated_at")?,
+    })
+}
+
+fn provider_params(provider: &StoredProvider, enabled: i64) -> Vec<reddb_client::Value> {
+    vec![
+        reddb_client::Value::Text(provider.id.clone()),
+        reddb_client::Value::Text(provider.provider.clone()),
+        reddb_client::Value::Text(provider.upstream_url.clone()),
+        reddb_client::Value::Text(provider.credential_ciphertext.clone()),
+        reddb_client::Value::Int(enabled),
+        reddb_client::Value::Int(provider.updated_at),
+    ]
 }
 
 pub fn embedded_default_url() -> Result<String, &'static str> {

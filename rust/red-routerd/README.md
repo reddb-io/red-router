@@ -1,6 +1,8 @@
-# red-routerd: first Rust data-plane slice
+# red-routerd: Rust production-backend migration
 
-This is an **experimental development slice**, not a replacement for RedRouter. It
+This crate is the target RedRouter server: proxy, control plane and durable persistence
+move here while the dashboard becomes a static SPA. Feature parity is still incomplete,
+so it must not yet be presented as a stable replacement release. It
 implements OpenAI-compatible chat and embeddings, Cohere-compatible rerank, OpenAI Responses, native Anthropic Messages,
 and native Gemini GenerateContent routes with a
 required client key, separate provider keys, bounded request size and concurrent
@@ -15,13 +17,36 @@ Anthropic Messages and Gemini GenerateContent endpoints,
 priority or round-robin selection, opt-in fallback, and basic per-key route and
 model restrictions. It does not yet implement
 RedRouter's full provider selection, quotas, policies, accounting, protocol
-full protocol translation, management API, remote listening or inbound TLS.
-Its standard database integration persists only the single upstream endpoint;
-client and provider keys remain environment configuration. An opt-in mode can
+full protocol translation, remote listening or inbound TLS.
+Its Rust-owned control plane now persists encrypted provider configurations and
+applies provider changes without restarting. Client keys and most policies remain
+environment or compatibility configuration. An opt-in mode can
 read a supported OpenAI-compatible API credential from the product SQLite database, as described
 below. No product database migration is performed.
 It has not been validated as a production gateway. `/healthz` confirms that this
-process responds; it is not evidence of provider or database readiness.
+process responds. `/readyz` additionally requires an active provider when the Rust
+control plane is enabled.
+
+## Rust-owned provider control plane
+
+Set `RED_ROUTER_ADMIN_KEY` (32–512 bytes) and `STORAGE_ENCRYPTION_KEY` (16–512
+bytes) to enable the management API. `RED_ROUTER_CLIENT_KEY` continues to protect
+inference traffic. On an empty database, `RED_ROUTER_UPSTREAM_URL`,
+`RED_ROUTER_PROVIDER_KEY` and optional `RED_ROUTER_PROVIDER_NAME` seed the first
+provider; subsequent provider changes do not require those environment secrets.
+
+- `GET /api/admin/providers` lists redacted provider metadata.
+- `PUT /api/admin/providers/{id}` accepts `provider`, `upstream_url`, `api_key`
+  and optional `enabled`.
+- `DELETE /api/admin/providers/{id}` disables that provider and activates the
+  most recently updated remaining enabled provider.
+
+All three endpoints require `Authorization: Bearer <RED_ROUTER_ADMIN_KEY>`.
+Credentials are encrypted with a random salt and nonce, authenticated against their
+provider ID, and never returned by the API. The durable database is updated before an
+atomically replaced, DNS-pinned runtime target becomes visible. Invalid storage or
+configuration fails closed. This is the first Rust-owned vertical slice; API keys,
+combos, pricing, quotas and the remaining dashboard settings still need migration.
 
 ## Experimental product SQLite credential
 
@@ -82,7 +107,7 @@ shared RPM and optional accounting paths remain in the Red Router process;
 this mode does not add support for quota types or policies they do not handle.
 
 FastLLM must be independently configured to accept the internal token and
-resolve each combo *upstream model name* to the same provider and connection
+resolve each combo _upstream model name_ to the same provider and connection
 selected in SQLite. Red Router tries permitted targets in priority order on its
 existing pre-stream fallback path. The Red Router process cannot yet verify that mapping or
 provision, rotate or revoke the credential in FastLLM. Limit the FastLLM
@@ -300,12 +325,12 @@ The default is SQLite, using `red-router.sqlite` in the working directory. Set
 `RED_ROUTER_DATABASE_URL` to a SQLite URL to choose another file, or select a
 different backend explicitly using `RED_ROUTER_DB_BACKEND` and a matching URL:
 
-| Backend | `RED_ROUTER_DB_BACKEND` | `RED_ROUTER_DATABASE_URL` |
-| --- | --- | --- |
-| SQLite embedded | `sqlite` | `sqlite:///absolute/path/router.sqlite?mode=rwc` |
-| RedDB embedded | `reddb-embedded` | `file:///absolute/path/red-router.rdb` |
-| RedDB remote | `reddb-remote` | `reds://user:password@host:5050` |
-| PostgreSQL | `postgres` | `postgresql://user:password@host:port/database` |
+| Backend         | `RED_ROUTER_DB_BACKEND` | `RED_ROUTER_DATABASE_URL`                        |
+| --------------- | ----------------------- | ------------------------------------------------ |
+| SQLite embedded | `sqlite`                | `sqlite:///absolute/path/router.sqlite?mode=rwc` |
+| RedDB embedded  | `reddb-embedded`        | `file:///absolute/path/red-router.rdb`           |
+| RedDB remote    | `reddb-remote`          | `reds://user:password@host:5050`                 |
+| PostgreSQL      | `postgres`              | `postgresql://user:password@host:port/database`  |
 
 Remote RedDB uses RedWire. `reds://` enables TLS with the bundled public WebPKI roots;
 `red://` is plaintext. Set `?ca=/absolute/path/ca.pem` on a `reds://` URL to trust a

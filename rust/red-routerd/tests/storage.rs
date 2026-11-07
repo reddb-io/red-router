@@ -1,4 +1,4 @@
-use red_routerd::storage::{Backend, Database};
+use red_routerd::storage::{Backend, Database, StoredProvider};
 use tempfile::TempDir;
 use url::Url;
 
@@ -18,6 +18,35 @@ async fn exercise(backend: Backend, url: &str) {
     db.set_upstream("https://second.example/v1/chat/completions")
         .await
         .unwrap();
+    let first = StoredProvider {
+        id: "first".into(),
+        provider: "openai".into(),
+        upstream_url: "https://first.example/v1/chat/completions".into(),
+        credential_ciphertext: "encrypted-first".into(),
+        enabled: true,
+        updated_at: 1,
+    };
+    let mut second = StoredProvider {
+        id: "second".into(),
+        provider: "openrouter".into(),
+        upstream_url: "https://second.example/v1/chat/completions".into(),
+        credential_ciphertext: "encrypted-second".into(),
+        enabled: false,
+        updated_at: 2,
+    };
+    db.upsert_provider(&first).await.unwrap();
+    db.upsert_provider(&second).await.unwrap();
+    assert_eq!(
+        db.providers().await.unwrap(),
+        vec![second.clone(), first.clone()]
+    );
+    assert_eq!(db.active_provider().await.unwrap(), Some(first.clone()));
+    second.enabled = true;
+    second.updated_at = 3;
+    db.upsert_provider(&second).await.unwrap();
+    assert_eq!(db.active_provider().await.unwrap(), Some(second.clone()));
+    db.disable_provider("second", 4).await.unwrap();
+    assert_eq!(db.active_provider().await.unwrap(), Some(first.clone()));
     db.close().await.unwrap();
     drop(db);
     let reopened = Database::connect(backend, url).await.unwrap();
@@ -25,6 +54,7 @@ async fn exercise(backend: Backend, url: &str) {
         reopened.upstream().await.unwrap().as_deref(),
         Some("https://second.example/v1/chat/completions")
     );
+    assert_eq!(reopened.active_provider().await.unwrap(), Some(first));
     reopened.close().await.unwrap();
 }
 
