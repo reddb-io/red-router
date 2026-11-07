@@ -73,10 +73,13 @@ fn spawn_engine(
             "0",
             "--shutdown-delay",
             "0",
+            "--max-retries",
+            "0",
             "--log",
             "warn",
         ])
         .env("FASTLLM_PROXY_TOKEN", token)
+        .env("RED_ROUTER_DISABLE_UPSTREAM_RETRY", "1")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())

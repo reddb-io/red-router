@@ -96,6 +96,9 @@ let peakActive = 0;
 let lastUpstreamModel;
 let failModelA = false;
 let modelAttempts = [];
+let upstreamSockets = [];
+let dropNextUpstream = false;
+let retryGuardSeen = false;
 let holdGate = null;
 let releaseGate = null;
 let snapshotVersion = 1;
@@ -126,6 +129,12 @@ const upstream = createServer(async (req, res) => {
   try { body = JSON.parse(Buffer.concat(chunks)); } catch { res.writeHead(400).end(); return; }
   lastUpstreamModel = body.model;
   modelAttempts.push(body.model);
+  upstreamSockets.push(req.socket.remotePort);
+  if (dropNextUpstream) {
+    dropNextUpstream = false;
+    req.socket.destroy();
+    return;
+  }
   if (failModelA && body.model === "vendor/model-a") {
     res.writeHead(429, { "content-type": "application/json" }).end('{"error":"fixture rate limit"}');
     return;
@@ -243,6 +252,7 @@ try {
   const control = createServer(async (req, res) => {
     if (req.headers.authorization !== `Bearer ${controlToken}`) { res.writeHead(401).end(); return; }
     if (req.method === "GET" && req.url === "/snapshot") {
+      if (req.headers["x-redrouter-no-upstream-retry"] === "1") retryGuardSeen = true;
       if (req.headers["if-none-match"] === `"${snapshotVersion}"`) { res.writeHead(304).end(); return; }
       try {
         const snapshot = readSnapshot(upstreamPort);
@@ -276,6 +286,34 @@ try {
   if (warm.status !== 200) throw new Error(`FastLLM snapshot adapter returned ${warm.status}: ${await warm.text()}`);
   assert.ok((await warm.text()).includes("[DONE]"));
   assert.equal(lastUpstreamModel, "vendor/model-a");
+  // An upstream can consume a request and close before sending headers. The
+  // supervised configuration must not silently send it again on a fresh socket.
+  const guardedPort = await unusedPort();
+  const guardedFast = childProcess(fastBinary, ["--host", "127.0.0.1", "--port", String(guardedPort), "--role", "proxy",
+    "--control-url", `http://127.0.0.1:${controlPort}/snapshot`, "--proxy-token", controlToken,
+    "--redrouter-memory-only", "--max-retries", "0", "--config-poll", "0",
+    "--rate-limit-reconcile-interval", "0", "--shutdown-delay", "0", "--log", "warn"],
+    { RED_ROUTER_DISABLE_UPSTREAM_RETRY: "1" });
+  await waitReady(`http://127.0.0.1:${guardedPort}/health`, guardedFast);
+  assert.ok(retryGuardSeen, "guarded engine did not advertise its retry protection");
+  const guardedUrl = `http://127.0.0.1:${guardedPort}/v1/chat/completions`;
+  const guardedRequest = () => fetch(guardedUrl, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${fixtureKey}` },
+    body: JSON.stringify({ model: "bench", messages: [{ role: "user", content: "hello" }], stream: false }), signal: AbortSignal.timeout(10_000) });
+  modelAttempts = []; upstreamSockets = [];
+  const guardWarm = await guardedRequest();
+  assert.equal(guardWarm.status, 200);
+  await guardWarm.text();
+  await delay(50);
+  const warmSocket = upstreamSockets[0];
+  modelAttempts = []; upstreamSockets = []; dropNextUpstream = true;
+  const guardFailure = await guardedRequest();
+  assert.ok(guardFailure.status >= 500, `dropped upstream unexpectedly succeeded: ${guardFailure.status}`);
+  await guardFailure.text();
+  assert.deepEqual(modelAttempts, ["vendor/model-a"], "guarded engine repeated an uncertain provider request");
+  assert.equal(upstreamSockets[0], warmSocket, "the test did not exercise a pooled connection");
+  guardedFast.kill("SIGTERM");
+  await new Promise((resolve) => guardedFast.once("exit", resolve));
+  process.stderr.write("CI: no retry after uncertain pooled dispatch\n");
   // Managed mode creates separate random tokens, starts the in-memory source
   // and waits for the expected snapshot before exposing the dashboard proxy.
   const supervisedPort = await unusedPort();

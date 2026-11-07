@@ -55,13 +55,43 @@ index d8f52f9..e0386f7 100644
          let bytes = std::fs::read(&self.cache_path).ok()?;
          let wire = serde_json::from_slice(&bytes).ok()?;
          Some(Snapshot::from_wire(wire))
-@@ -61,6 +67,9 @@ impl SnapshotSource for HttpSource {
+@@ -61,6 +67,12 @@ impl SnapshotSource for HttpSource {
              hyper::header::AUTHORIZATION,
              format!("Bearer {}", self.token),
          );
 +        if self.cache_path.as_os_str().is_empty() {
 +            builder = builder.header("x-redrouter-memory-only", "1");
++            if std::env::var("RED_ROUTER_DISABLE_UPSTREAM_RETRY").as_deref() == Ok("1") {
++                builder = builder.header("x-redrouter-no-upstream-retry", "1");
++            }
 +        }
          if let Some(v) = have {
              builder = builder.header("if-none-match", format!("\"{v}\""));
+         }
+diff --git a/src/upstream.rs b/src/upstream.rs
+--- a/src/upstream.rs
++++ b/src/upstream.rs
+@@ -253,10 +253,18 @@
+         if let Some((sender, conn)) = self.pool.checkout(&key) {
+             match self.send_on(sender, conn, clone_request(&req), &key).await {
+                 Ok(resp) => return Ok(resp),
+-                Err(e) => debug!(
+-                    upstream = %key.addr(),
+-                    error = %e,
+-                    "pooled connection failed, retrying on a fresh one"
+-                ),
++                Err(e) => {
++                    // Red Router reserves once per dispatched request. A failed
++                    // pooled send can have reached the provider already, so an
++                    // automatic resend could incur an unreserved second bill.
++                    if std::env::var("RED_ROUTER_DISABLE_UPSTREAM_RETRY").as_deref() == Ok("1") {
++                        return Err(e);
++                    }
++                    debug!(
++                        upstream = %key.addr(),
++                        error = %e,
++                        "pooled connection failed, retrying on a fresh one"
++                    );
++                },
+             }
          }

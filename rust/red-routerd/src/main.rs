@@ -541,6 +541,7 @@ async fn run(
                 control.as_str(),
                 storage_key.as_deref().map(String::as_str),
                 "127.0.0.1:0".parse()?,
+                true,
             )
             .await?;
             let captured = red_routerd::fastllm_control::captured_version(

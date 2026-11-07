@@ -5,7 +5,7 @@ import { createServer } from "node:http";
 const args = process.argv.slice(2);
 const value = (name) => args[args.indexOf(name) + 1];
 const response = await fetch(value("--control-url"), {
-  headers: { authorization: `Bearer ${process.env.FASTLLM_PROXY_TOKEN}`, "x-redrouter-memory-only": "1" },
+  headers: { authorization: `Bearer ${process.env.FASTLLM_PROXY_TOKEN}`, "x-redrouter-memory-only": "1", "x-redrouter-no-upstream-retry": "1" },
 });
 if (!response.ok) process.exit(1);
 const snapshot = await response.json();

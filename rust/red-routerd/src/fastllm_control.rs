@@ -25,6 +25,7 @@ struct ControlState {
     snapshot: Zeroizing<Vec<u8>>,
     etag: String,
     version: u64,
+    require_no_retry: bool,
     combo: ProductCombo,
     connections: Vec<ProductConnection>,
 }
@@ -44,6 +45,7 @@ async fn prepare(
     internal_token: &str,
     control_token: &str,
     storage_key: Option<&str>,
+    require_no_retry: bool,
 ) -> Result<Arc<ControlState>, &'static str> {
     validate_transport("http://127.0.0.1/v1/chat/completions", internal_token)?;
     validate_transport("http://127.0.0.1/v1/chat/completions", control_token)?;
@@ -93,6 +95,7 @@ async fn prepare(
         snapshot,
         etag: format!("\"{version}\""),
         version,
+        require_no_retry,
         combo,
         connections,
     }))
@@ -170,6 +173,15 @@ async fn snapshot(State(state): State<Arc<ControlState>>, headers: HeaderMap) ->
             .body(Body::empty())
             .unwrap();
     }
+    if state.require_no_retry {
+        let mut markers = headers.get_all("x-redrouter-no-upstream-retry").iter();
+        if markers.next().is_none_or(|v| v.as_bytes() != b"1") || markers.next().is_some() {
+            return Response::builder()
+                .status(StatusCode::FORBIDDEN)
+                .body(Body::empty())
+                .unwrap();
+        }
+    }
     if !state.combo.unchanged().await
         || join_all(state.connections.iter().map(ProductConnection::unchanged))
             .await
@@ -222,6 +234,7 @@ pub async fn serve(
         control_token,
         storage_key,
         address,
+        false,
     )
     .await?;
     task.await??;
@@ -235,6 +248,7 @@ pub async fn start(
     control_token: &str,
     storage_key: Option<&str>,
     address: SocketAddr,
+    require_no_retry: bool,
 ) -> Result<
     (
         SocketAddr,
@@ -246,7 +260,15 @@ pub async fn start(
     if !address.ip().is_loopback() {
         return Err("FastLLM control must listen on loopback".into());
     }
-    let state = prepare(path, combo, internal_token, control_token, storage_key).await?;
+    let state = prepare(
+        path,
+        combo,
+        internal_token,
+        control_token,
+        storage_key,
+        require_no_retry,
+    )
+    .await?;
     let listener = tokio::net::TcpListener::bind(address).await?;
     let bound = listener.local_addr()?;
     let version = state.version;

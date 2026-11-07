@@ -103,6 +103,7 @@ async fn supervised_reload_keeps_engine_alive_until_active_work_drains() {
         control,
         None,
         "127.0.0.1:0".parse().unwrap(),
+        true,
     )
     .await
     .unwrap();
@@ -113,6 +114,29 @@ async fn supervised_reload_keeps_engine_alive_until_active_work_drains() {
     )
     .unwrap();
     std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let control_url = format!("http://{control_address}/snapshot");
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let unguarded = client
+        .get(&control_url)
+        .bearer_auth(control)
+        .header("x-redrouter-memory-only", "1")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        unguarded.status(),
+        403,
+        "supervised engine must prove retry protection"
+    );
+    let guarded = client
+        .get(&control_url)
+        .bearer_auth(control)
+        .header("x-redrouter-memory-only", "1")
+        .header("x-redrouter-no-upstream-retry", "1")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(guarded.status(), 200);
     let (reload_tx, reload_rx) = oneshot::channel();
     let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
     let (ready_tx, ready_rx) = oneshot::channel();

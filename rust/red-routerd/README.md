@@ -41,6 +41,12 @@ does not inherit the dashboard encryption key. Do not combine managed mode
 with `RED_ROUTER_FASTLLM_URL`, `RED_ROUTER_FASTLLM_INTERNAL_KEY` or
 `RED_ROUTER_FASTLLM_CONTROL_TOKEN`.
 
+The supervised engine disables internal backend retries and retries on failed
+pooled sends: a provider may have received a request even when its response is
+lost. The gateway may still perform its own configured fallback, subject to its
+separate admission rules. Rebuild the patched FastLLM executable after updating
+the integration patch. Token and spend quotas remain disabled for FastLLM.
+
 On Unix, normal SIGTERM drains the gateway and terminates its FastLLM child.
 A force-killed or crashed parent can still leave an orphan child; use a
 service manager or container process group that terminates all descendants.
