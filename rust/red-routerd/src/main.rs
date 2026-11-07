@@ -27,6 +27,31 @@ fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
 async fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
     let mut args = env::args().skip(1);
     let command = args.next();
+    if command.as_deref() == Some("fastllm-control") {
+        if args.next().is_some() {
+            return Err("usage: red-routerd fastllm-control".into());
+        }
+        let path = env::var_os("RED_ROUTER_PRODUCT_DB_PATH")
+            .ok_or("RED_ROUTER_PRODUCT_DB_PATH is required")?;
+        let combo = env::var("RED_ROUTER_PRODUCT_COMBO")?;
+        let internal = zeroize::Zeroizing::new(env::var("RED_ROUTER_FASTLLM_INTERNAL_KEY")?);
+        let control = zeroize::Zeroizing::new(env::var("RED_ROUTER_FASTLLM_CONTROL_TOKEN")?);
+        let storage = env::var("STORAGE_ENCRYPTION_KEY")
+            .ok()
+            .map(zeroize::Zeroizing::new);
+        let address: SocketAddr = env::var("RED_ROUTER_FASTLLM_CONTROL_LISTEN")
+            .unwrap_or_else(|_| "127.0.0.1:19092".into())
+            .parse()?;
+        return red_routerd::fastllm_control::serve(
+            std::path::Path::new(&path),
+            &combo,
+            internal.as_str(),
+            control.as_str(),
+            storage.as_deref().map(String::as_str),
+            address,
+        )
+        .await;
+    }
     if command.as_deref() == Some("fastllm-route-plan") {
         let name = args
             .next()

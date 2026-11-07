@@ -48,6 +48,34 @@ disk and retains stale snapshots on control-plane failure. Do not use this
 experimental mode with real secrets or production traffic until those gaps are
 fixed. It adds a loopback hop; no performance improvement is implied.
 
+An experimental alternative to manually provisioning FastLLM credentials is
+`red-routerd fastllm-control`. It reads `RED_ROUTER_PRODUCT_DB_PATH`,
+`RED_ROUTER_PRODUCT_COMBO`, `RED_ROUTER_FASTLLM_INTERNAL_KEY`, a **different**
+`RED_ROUTER_FASTLLM_CONTROL_TOKEN`, and optionally `STORAGE_ENCRYPTION_KEY`.
+Its `RED_ROUTER_FASTLLM_CONTROL_LISTEN` defaults to `127.0.0.1:19092` and is
+restricted to loopback. Both FastLLM tokens must be independent, unpredictable
+secrets of at least 32 characters; they may not match a product key.
+
+The corresponding FastLLM must be built at the pinned commit with
+`scripts/patches/fastllm-memory-only.patch`, started on loopback with
+`--control-url http://127.0.0.1:19092/snapshot --redrouter-memory-only`, and
+given the control token through `FASTLLM_PROXY_TOKEN`. The patch disables both
+reading and writing the HTTP snapshot cache. The control endpoint requires a
+bearer token and the patch's memory-only request marker before returning a
+snapshot. The marker prevents an ordinary unmodified FastLLM from accidentally
+downloading credentials; a caller that knows the control token can forge it.
+Snapshot bytes and decrypted credentials exist in process memory and travel
+over loopback HTTP. This is an experimental local trust boundary, not protection
+against a local process that has access to those tokens or process memory.
+
+The source supports the same simple OpenAI/OpenRouter priority combos as the
+guarded transport. Configuration edits and credential revocations make new
+snapshot requests fail until restart; the FastLLM can retain its previous
+in-memory snapshot, so every client request must continue through the guarded
+Red Router listener. The control source does not handle FastLLM usage reports
+or implement token/spend quota reconciliation. It does not yet automatically
+launch or supervise FastLLM, and has not been validated with real credentials.
+
 Set `RED_ROUTER_PRODUCT_DB_PATH` to the existing product `storage.sqlite` file,
 `RED_ROUTER_PRODUCT_CONNECTION_ID` to the ID of an active OpenRouter or OpenAI API-key
 connection. Unless using dashboard keys below, set `RED_ROUTER_CLIENT_KEY` to

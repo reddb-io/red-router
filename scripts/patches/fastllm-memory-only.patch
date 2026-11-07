@@ -1,0 +1,67 @@
+diff --git a/src/main.rs b/src/main.rs
+index ee74496..a89236d 100644
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -251,6 +251,10 @@ struct Cli {
+     #[arg(long, default_value = "/var/lib/fastllm/snapshot.json")]
+     snapshot_cache: PathBuf,
+ 
++    /// Red Router integration: never read or write the HTTP snapshot cache.
++    #[arg(long, default_value_t = false)]
++    redrouter_memory_only: bool,
++
+     /// Bind port for the admin API (`--role all`/`control`).
+     #[arg(long, default_value_t = 4001)]
+     admin_port: u16,
+@@ -1296,7 +1300,7 @@ async fn run_data_plane(cli: Cli) -> Result<()> {
+         let http_src = HttpSource::new(
+             url.clone(),
+             token.clone(),
+-            cli.snapshot_cache.clone(),
++            if cli.redrouter_memory_only { PathBuf::new() } else { cli.snapshot_cache.clone() },
+             Arc::clone(&client),
+         );
+         // Spawned before the first request can arrive, so `/metrics`' drop
+@@ -1393,7 +1397,7 @@ async fn run_data_plane(cli: Cli) -> Result<()> {
+                 let source = HttpSource::new(
+                     url.clone(),
+                     token.clone(),
+-                    cli.snapshot_cache.clone(),
++                    if cli.redrouter_memory_only { PathBuf::new() } else { cli.snapshot_cache.clone() },
+                     Arc::clone(&state.client),
+                 );
+                 spawn_poller(
+diff --git a/src/source/http.rs b/src/source/http.rs
+index d8f52f9..e0386f7 100644
+--- a/src/source/http.rs
++++ b/src/source/http.rs
+@@ -36,6 +36,9 @@ impl HttpSource {
+     }
+ 
+     pub fn write_cache(&self, snap: &Snapshot) -> anyhow::Result<()> {
++        if self.cache_path.as_os_str().is_empty() {
++            return Ok(());
++        }
+         if let Some(dir) = self.cache_path.parent() {
+             std::fs::create_dir_all(dir)?;
+         }
+@@ -49,6 +52,9 @@ impl HttpSource {
+ 
+     /// Last-known-good, or `None` for absent, unreadable or corrupt.
+     pub fn load_cached(&self) -> Option<Snapshot> {
++        if self.cache_path.as_os_str().is_empty() {
++            return None;
++        }
+         let bytes = std::fs::read(&self.cache_path).ok()?;
+         let wire = serde_json::from_slice(&bytes).ok()?;
+         Some(Snapshot::from_wire(wire))
+@@ -61,6 +67,9 @@ impl SnapshotSource for HttpSource {
+             hyper::header::AUTHORIZATION,
+             format!("Bearer {}", self.token),
+         );
++        if self.cache_path.as_os_str().is_empty() {
++            builder = builder.header("x-redrouter-memory-only", "1");
++        }
+         if let Some(v) = have {
+             builder = builder.header("if-none-match", format!("\"{v}\""));
+         }

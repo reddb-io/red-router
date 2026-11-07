@@ -6,8 +6,9 @@ import { spawn, spawnSync } from "node:child_process";
 import { DatabaseSync } from "node:sqlite";
 import { createServer } from "node:http";
 import { createServer as createTcpServer } from "node:net";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { performance } from "node:perf_hooks";
 import { setTimeout as delay } from "node:timers/promises";
@@ -15,6 +16,16 @@ import { setTimeout as delay } from "node:timers/promises";
 const fastBinary = process.env.FASTLLM_BINARY;
 const redBinary = process.env.RED_ROUTER_BINARY;
 assert.ok(fastBinary && redBinary, "CI must provide both binary paths");
+// Apply the narrow Red Router patch to the pinned, ephemeral upstream source.
+// Rebuild on the hosted runner; never patch or compile the user's checkout.
+const upstreamSource = join(process.env.RUNNER_TEMP, "fastllm");
+const memoryPatch = fileURLToPath(new URL("../patches/fastllm-memory-only.patch", import.meta.url));
+for (const args of [["apply", "--check", memoryPatch], ["apply", memoryPatch]]) {
+  const result = spawnSync("git", args, { cwd: upstreamSource, encoding: "utf8" });
+  assert.equal(result.status, 0, `cannot apply pinned FastLLM patch: ${result.stderr}`);
+}
+const rebuild = spawnSync("cargo", ["build", "--release", "--locked"], { cwd: upstreamSource, stdio: "inherit", timeout: 900_000 });
+assert.equal(rebuild.status, 0, "patched FastLLM build failed");
 const temp = mkdtempSync(join(tmpdir(), "redrouter-fastllm-poc-"));
 const fixtureKey = "fixture-red-router-client-key-12345";
 const fixtureProviderKey = "fixture-upstream-key-12345";
@@ -84,6 +95,7 @@ let failModelA = false;
 let modelAttempts = [];
 let snapshotVersion = 1;
 let usageEvents = [];
+let credentialFixture;
 const children = [];
 const servers = [];
 const serverListen = async (server) => {
@@ -255,6 +267,50 @@ try {
   if (warm.status !== 200) throw new Error(`FastLLM snapshot adapter returned ${warm.status}: ${await warm.text()}`);
   assert.ok((await warm.text()).includes("[DONE]"));
   assert.equal(lastUpstreamModel, "vendor/model-a");
+  // Load a real encrypted product-format credential through the Rust control
+  // source, then prove the patched FastLLM loads it without creating a cache.
+  const credentialDbPath = join(temp, "credential-fixture.sqlite");
+  db.exec(`VACUUM INTO '${credentialDbPath.replaceAll("'", "''")}'`);
+  credentialFixture = new DatabaseSync(credentialDbPath);
+  credentialFixture.prepare("UPDATE provider_connections SET api_key = ? WHERE id = 'fixture-connection'")
+    .run("enc:v1:07070707070707070707070707070707:c08df6423606efea3e7c0312a4ec91a5e0a8d368:d4c8fcd1abdb884abc46108ca32ae870");
+  const secureControlToken = "fixture-distinct-control-token-1234567890";
+  const credentialControlPort = await unusedPort();
+  const credentialControl = childProcess(redBinary, ["fastllm-control"], {
+    RED_ROUTER_PRODUCT_DB_PATH: credentialDbPath, RED_ROUTER_PRODUCT_COMBO: "bench",
+    RED_ROUTER_FASTLLM_INTERNAL_KEY: internalKey, RED_ROUTER_FASTLLM_CONTROL_TOKEN: secureControlToken,
+    RED_ROUTER_FASTLLM_CONTROL_LISTEN: `127.0.0.1:${credentialControlPort}`,
+    STORAGE_ENCRYPTION_KEY: "fixture-password",
+  });
+  const credentialUrl = `http://127.0.0.1:${credentialControlPort}/snapshot`;
+  let controlReady = false;
+  for (let attempt = 0; attempt < 300; attempt++) {
+    if (credentialControl.exitCode !== null) throw new Error(`credential control exited: ${credentialControl.exitCode}`);
+    try { if ((await fetch(credentialUrl, { signal: AbortSignal.timeout(500) })).status === 401) { controlReady = true; break; } } catch { /* starting */ }
+    await delay(100);
+  }
+  assert.ok(controlReady, "credential control did not start");
+  const controlAuth = { authorization: `Bearer ${secureControlToken}` };
+  assert.equal((await fetch(credentialUrl, { headers: controlAuth })).status, 403);
+  const protectedSnapshot = await fetch(credentialUrl, { headers: { ...controlAuth, "x-redrouter-memory-only": "1" } });
+  assert.equal(protectedSnapshot.status, 200);
+  assert.equal(protectedSnapshot.headers.get("cache-control"), "no-store");
+  const protectedConfig = await protectedSnapshot.json();
+  assert.equal(protectedConfig.models[0].backends[0].api_key, "fixture-provider-key");
+  assert.equal(protectedConfig.models[0].backends[0].api_base, "https://openrouter.ai/api/v1");
+  assert.ok(protectedConfig.keys[digest(internalKey)]);
+  const managedFastPort = await unusedPort();
+  const forbiddenCache = join(temp, "must-not-exist-fastllm-snapshot.json");
+  const managedFast = childProcess(fastBinary, ["--host", "127.0.0.1", "--port", String(managedFastPort), "--role", "proxy", "--control-url", credentialUrl, "--snapshot-cache", forbiddenCache, "--redrouter-memory-only", "--config-poll", "1", "--rate-limit-reconcile-interval", "0", "--shutdown-delay", "0", "--log", "warn"], { FASTLLM_PROXY_TOKEN: secureControlToken });
+  await waitReady(`http://127.0.0.1:${managedFastPort}/health`, managedFast);
+  const managedModels = await fetch(`http://127.0.0.1:${managedFastPort}/v1/models`, { headers: { authorization: `Bearer ${internalKey}` }, signal: AbortSignal.timeout(5000) });
+  assert.equal(managedModels.status, 200);
+  assert.ok((await managedModels.text()).includes("vendor/model-a"));
+  assert.ok(!existsSync(forbiddenCache), "patched FastLLM wrote a credential snapshot");
+  assert.ok(!existsSync(join(temp, "must-not-exist-fastllm-snapshot.tmp")), "patched FastLLM wrote a temporary credential snapshot");
+  credentialFixture.prepare("UPDATE provider_connections SET is_active = 0 WHERE id = 'fixture-connection'").run();
+  const invalidated = await fetch(credentialUrl, { headers: { ...controlAuth, "x-redrouter-memory-only": "1", "if-none-match": '"1"' } });
+  assert.equal(invalidated.status, 503);
   // The actual Red Router process authenticates the dashboard key and guards
   // the SQLite combo/connection before forwarding to the FastLLM process.
   const bridgePort = await unusedPort();
@@ -376,6 +432,7 @@ try {
   await Promise.all(children.map(async (child) => { if (child.exitCode !== null) return; await Promise.race([new Promise((resolve) => child.once("exit", resolve)), delay(3000)]); if (child.exitCode === null) child.kill("SIGKILL"); }));
   for (const server of servers) server.closeAllConnections();
   await Promise.all(servers.map((server) => new Promise((resolve) => server.close(resolve))));
+  credentialFixture?.close();
   db.close();
   rmSync(temp, { recursive: true, force: true });
 }

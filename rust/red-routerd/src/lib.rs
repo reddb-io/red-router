@@ -1,6 +1,7 @@
 //! An isolated first slice of the Rust data plane. See README before use.
 pub mod accounting;
 mod anthropic_stream;
+pub mod fastllm_control;
 pub mod fastllm_plan;
 mod policy;
 pub mod product;
