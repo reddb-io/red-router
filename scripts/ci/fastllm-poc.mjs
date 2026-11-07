@@ -2,7 +2,7 @@
 // FastLLM process and one current red-routerd process. No product DB or keys.
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { DatabaseSync } from "node:sqlite";
 import { createServer } from "node:http";
 import { createServer as createTcpServer } from "node:net";
@@ -23,7 +23,8 @@ const agentPrompt = "agent-context ".repeat(2500);
 const principalId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const keyId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const digest = (value) => createHash("sha256").update(value).digest("hex");
-const db = new DatabaseSync(join(temp, "dashboard-fixture.sqlite"));
+const fixtureDbPath = join(temp, "dashboard-fixture.sqlite");
+const db = new DatabaseSync(fixtureDbPath);
 for (const migration of ["001_initial_schema.sql", "005_combo_agent_fields.sql", "211_combos_tenant.sql"]) {
   db.exec(readFileSync(new URL(`../../src/lib/db/migrations/${migration}`, import.meta.url), "utf8"));
 }
@@ -93,21 +94,24 @@ const upstream = createServer(async (req, res) => {
   res.end("data: [DONE]\n\n");
 });
 
+const routePlan = () => spawnSync(redBinary, ["fastllm-route-plan", "bench"], {
+  env: { ...process.env, RED_ROUTER_PRODUCT_DB_PATH: fixtureDbPath }, encoding: "utf8", timeout: 10_000,
+});
+
 const readSnapshot = (upstreamPort) => {
   const key = db.prepare("SELECT id, key_hash, allowed_models FROM api_keys WHERE is_active = 1").get();
   const connection = db.prepare("SELECT provider, api_key FROM provider_connections WHERE id = 'fixture-connection' AND is_active = 1").get();
-  const combo = db.prepare("SELECT name, data FROM combos WHERE name = 'bench' AND tenant_id = 'red' AND context_cache_protection = 0").get();
-  const config = JSON.parse(combo.data);
-  assert.equal(config.strategy, "priority");
-  assert.equal(config.models.length, 1, "this fixture adapter only supports a single target");
-  const prefix = `${connection.provider}/`;
-  assert.ok(config.models[0].startsWith(prefix));
+  const command = routePlan();
+  assert.equal(command.status, 0, `Rust route plan failed: ${command.stderr}`);
+  const plan = JSON.parse(command.stdout);
+  assert.equal(plan.format, "red-router.fastllm.route-plan.v1");
+  assert.equal(plan.provider, connection.provider);
   return {
     version: snapshotVersion,
     open: false,
     keys: { [key.key_hash]: { principal: principalId, expires_at: null, disabled: false, id: key.id } },
     principals: [{ id: principalId, name: "fixture", allowed_models: JSON.parse(key.allowed_models), allow_all: false }],
-    models: [{ name: combo.name, backends: [{ api_base: `http://127.0.0.1:${upstreamPort}/v1`, upstream_model: config.models[0].slice(prefix.length), api_key: connection.api_key, protocol: "openai" }] }],
+    models: [{ name: plan.frontend_model, backends: [{ api_base: `http://127.0.0.1:${upstreamPort}/v1`, upstream_model: plan.upstream_model, api_key: connection.api_key, protocol: "openai" }] }],
   };
 };
 
@@ -174,8 +178,12 @@ try {
     if (req.headers.authorization !== `Bearer ${controlToken}`) { res.writeHead(401).end(); return; }
     if (req.method === "GET" && req.url === "/snapshot") {
       if (req.headers["if-none-match"] === `"${snapshotVersion}"`) { res.writeHead(304).end(); return; }
-      res.writeHead(200, { "content-type": "application/json", etag: `"${snapshotVersion}"` });
-      res.end(JSON.stringify(readSnapshot(upstreamPort))); return;
+      try {
+        const snapshot = readSnapshot(upstreamPort);
+        res.writeHead(200, { "content-type": "application/json", etag: `"${snapshotVersion}"` });
+        res.end(JSON.stringify(snapshot));
+      } catch { res.writeHead(503).end(); }
+      return;
     }
     if (req.method === "POST" && req.url === "/usage") {
       const chunks = []; for await (const chunk of req) chunks.push(chunk);
@@ -238,6 +246,11 @@ try {
     if (response.status === 200 && lastUpstreamModel === "vendor/model-b") { reloaded = true; break; }
   }
   assert.ok(reloaded, "SQLite fixture update was not reflected in FastLLM snapshot");
+  db.prepare("UPDATE combos SET data = ? WHERE name = 'bench'").run(JSON.stringify({ name: "bench", strategy: "priority", models: ["openrouter/vendor/model-a", "openrouter/vendor/model-b"] }));
+  const rejectedPlan = routePlan();
+  assert.notEqual(rejectedPlan.status, 0, "multiple targets must not be silently converted to a backend pool");
+  assert.ok(!rejectedPlan.stdout.includes(fixtureProviderKey), "route plans must not expose provider credentials");
+  db.prepare("UPDATE combos SET data = ? WHERE name = 'bench'").run(JSON.stringify({ name: "bench", strategy: "priority", models: ["openrouter/vendor/model-b"] }));
   await delay(6000);
   for (const event of usageEvents) db.prepare("INSERT INTO poc_usage VALUES (?)").run(JSON.stringify(event));
   const reported = db.prepare("SELECT COUNT(*) AS n FROM poc_usage").get().n;

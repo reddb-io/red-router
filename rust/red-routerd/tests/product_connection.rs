@@ -48,6 +48,44 @@ async fn fixture() -> (TempDir, SqliteConnection) {
 }
 
 #[tokio::test]
+async fn fastllm_plan_reads_dashboard_combo_and_refuses_unimplemented_routing() {
+    let (dir, mut db) = fixture().await;
+    let path = dir.path().join("storage.sqlite");
+    sqlx::query("INSERT INTO combos (name,data) VALUES (?,?)")
+        .bind("bench")
+        .bind(r#"{"name":"bench","strategy":"priority","models":["openrouter/vendor/model"]}"#)
+        .execute(&mut db)
+        .await
+        .unwrap();
+    let plan = red_routerd::fastllm_plan::single_target_plan(&path, "bench")
+        .await
+        .unwrap();
+    assert_eq!(plan["format"], "red-router.fastllm.route-plan.v1");
+    assert_eq!(plan["frontend_model"], "bench");
+    assert_eq!(plan["provider"], "openrouter");
+    assert_eq!(plan["product_model"], "openrouter/vendor/model");
+    assert_eq!(plan["upstream_model"], "vendor/model");
+    assert!(!plan.to_string().contains(ENCRYPTED));
+
+    for unsupported in [
+        r#"{"name":"bench","strategy":"priority","models":["openrouter/a","openai/b"]}"#,
+        r#"{"name":"bench","strategy":"round-robin","models":["openrouter/a"]}"#,
+        r#"{"name":"bench","strategy":"priority","models":[{"kind":"combo-ref","comboName":"other"}]}"#,
+    ] {
+        sqlx::query("UPDATE combos SET data = ? WHERE name = 'bench'")
+            .bind(unsupported)
+            .execute(&mut db)
+            .await
+            .unwrap();
+        assert!(
+            red_routerd::fastllm_plan::single_target_plan(&path, "bench")
+                .await
+                .is_err()
+        );
+    }
+}
+
+#[tokio::test]
 async fn non_streaming_product_usage_is_recorded_and_unhandled_quotas_fail_closed() {
     let (dir, mut db) = fixture().await;
     sqlx::raw_sql(include_str!(

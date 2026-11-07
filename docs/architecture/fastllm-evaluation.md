@@ -28,11 +28,22 @@ PostgreSQL control plane. At this pinned commit, building with
 `control` module; see CI run `42301297123`. The job also builds the current
 experimental Red Router Rust proxy. A Node process plays both a deterministic
 OpenAI-compatible provider and a **test-only** HTTP snapshot/usage adapter. The
-adapter reads one client-key hash, one provider credential and a one-target
-priority combo from a temporary SQLite fixture built from Red Router migrations
+adapter reads one client-key hash and one provider credential from a temporary
+SQLite fixture built from Red Router migrations. It obtains the one-target
+priority combo by invoking `red-routerd fastllm-route-plan`, the first Rust
+bridge to the actual product combo reader. The fixture is built from migrations
 001, 005 and 211 and the relevant API-key fallback columns. This is not a full
 product migration or a dashboard integration. It publishes FastLLM's snapshot format and records received events only
 into that fixture. It never reads the real dashboard or its credential store.
+
+`fastllm-route-plan <combo-name>` uses `RED_ROUTER_PRODUCT_DB_PATH` and opens the
+product database read-only. It emits route metadata only, without credentials or
+an authorization decision. It rejects multi-target combos, other strategies and
+unsupported combo fields rather than mapping them to a FastLLM backend pool
+whose balancing and fallback semantics can differ. This command does not launch
+the proxy, enforce key policies or guarantee live revocation; it must not be used
+as a production snapshot service. The POC's synthetic HTTP adapter is not that
+service either: FastLLM can retain a previous snapshot when its source fails.
 
 The same mock provider is called directly, through FastLLM, and through the
 current Rust proxy with its environment-configured key and upstream. For each
