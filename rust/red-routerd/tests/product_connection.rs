@@ -11,6 +11,7 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
     Arc,
 };
+use std::time::Duration;
 use tempfile::TempDir;
 
 const ENCRYPTED: &str = "enc:v1:07070707070707070707070707070707:c08df6423606efea3e7c0312a4ec91a5e0a8d368:d4c8fcd1abdb884abc46108ca32ae870";
@@ -221,6 +222,8 @@ async fn product_combo_accepts_pinned_openai_compatible_provider_endpoints() {
     let (dir, mut db) = fixture().await;
     for (provider, expected) in [
         ("groq", "https://api.groq.com/openai/v1/chat/completions"),
+        ("cerebras", "https://api.cerebras.ai/v1/chat/completions"),
+        ("sambanova", "https://api.sambanova.ai/v1/chat/completions"),
         ("mistral", "https://api.mistral.ai/v1/chat/completions"),
         ("deepseek", "https://api.deepseek.com/chat/completions"),
         ("together", "https://api.together.xyz/v1/chat/completions"),
@@ -510,6 +513,140 @@ async fn non_streaming_product_usage_is_recorded_and_unhandled_quotas_fail_close
             .status(),
         503
     );
+    server.abort();
+    provider.abort();
+}
+
+#[tokio::test]
+async fn concurrent_direct_requests_share_reservations_with_typescript() {
+    let (dir, mut db) = fixture().await;
+    for migration in [
+        include_str!("../../../src/lib/db/migrations/182_request_cost_ledger_and_key_quota.sql"),
+        include_str!("../../../src/lib/db/migrations/219_cost_ledger_recovery.sql"),
+        include_str!("../../../src/lib/db/migrations/226_shared_usage_reservations.sql"),
+    ] {
+        sqlx::raw_sql(migration).execute(&mut db).await.unwrap();
+    }
+    sqlx::raw_sql("ALTER TABLE request_cost_ledger ADD COLUMN tenant_id TEXT; ALTER TABLE request_cost_ledger ADD COLUMN pricing_known INTEGER NOT NULL DEFAULT 1;").execute(&mut db).await.unwrap();
+    sqlx::query("UPDATE provider_connections SET api_key='provider-key' WHERE id='test'")
+        .execute(&mut db)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO api_keys (id,key) VALUES ('quota','concurrent-client-key-123456')")
+        .execute(&mut db)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO api_key_quota_limits VALUES ('quota',450,NULL,0.00120001)")
+        .execute(&mut db)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO api_key_daily_token_limits(api_key_id,daily_tokens_limit) VALUES ('quota',450)").execute(&mut db).await.unwrap();
+    sqlx::query("INSERT INTO key_value VALUES ('pricing','openrouter',?)")
+        .bind(
+            r#"{"vendor/gpt":{"input":2,"output":4,"cached":1,"cache_creation":2,"reasoning":4}}"#,
+        )
+        .execute(&mut db)
+        .await
+        .unwrap();
+    let path = dir.path().join("storage.sqlite");
+    let (connection, key) = ProductConnection::open(&path, "test", None).await.unwrap();
+    let connection = connection
+        .with_shared_rpm()
+        .await
+        .unwrap()
+        .with_usage_accounting()
+        .await
+        .unwrap()
+        .with_concurrent_strict_usage(150, 0.0004)
+        .unwrap();
+    let entered = Arc::new(tokio::sync::Notify::new());
+    let release = Arc::new(tokio::sync::Notify::new());
+    let calls = Arc::new(AtomicUsize::new(0));
+    let upstream = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let upstream_addr = upstream.local_addr().unwrap();
+    let provider = tokio::spawn({
+        let entered = entered.clone();
+        let release = release.clone();
+        let calls = calls.clone();
+        async move {
+            axum::serve(upstream, Router::new().route("/v1/chat/completions", post(move || {
+            let entered = entered.clone(); let release = release.clone(); let calls = calls.clone(); async move {
+                if calls.fetch_add(1, Ordering::SeqCst) == 0 { entered.notify_one(); release.notified().await; }
+                axum::Json(serde_json::json!({"id":"ok","usage":{"prompt_tokens":100,"completion_tokens":50}}))
+            }
+        }))).await.unwrap()
+        }
+    });
+    let state = ProxyState::new(
+        &format!("http://{upstream_addr}/v1/chat/completions"),
+        "unused-client-key-12345",
+        &key,
+        false,
+    )
+    .await
+    .unwrap()
+    .with_product_connection(connection)
+    .with_product_client_keys()
+    .unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move { axum::serve(listener, router(state)).await.unwrap() });
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let send = || {
+        client
+            .post(format!("http://{address}/v1/chat/completions"))
+            .bearer_auth("concurrent-client-key-123456")
+            .header("content-type", "application/json")
+            .body(r#"{"model":"openrouter/vendor/gpt","messages":[]}"#)
+    };
+    let first_request = send().build().unwrap();
+    let first_client = client.clone();
+    let first = tokio::spawn(async move { first_client.execute(first_request).await });
+    tokio::time::timeout(Duration::from_secs(10), entered.notified())
+        .await
+        .expect("first request must reach provider");
+    let script = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/concurrent-usage-node.mjs");
+    let node = |action: &str| {
+        let output = Command::new("node")
+            .arg("--experimental-strip-types")
+            .arg(&script)
+            .arg(action)
+            .env("RED_ROUTER_TEST_SQLITE", &path)
+            .env("NODE_NO_WARNINGS", "1")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "node fixture failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(output.stdout, b"true");
+    };
+    node("reserve");
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(10), send().send())
+            .await
+            .unwrap()
+            .unwrap()
+            .status(),
+        200
+    );
+    assert_eq!(send().send().await.unwrap().status(), 429);
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+    node("cancel");
+    release.notify_one();
+    assert_eq!(first.await.unwrap().unwrap().status(), 200);
+    assert_eq!(send().send().await.unwrap().status(), 200);
+    assert_eq!(send().send().await.unwrap().status(), 429);
+    let (count, cost): (i64, f64) = sqlx::query_as(
+        "SELECT COUNT(*), SUM(amount_usd) FROM request_cost_ledger WHERE api_key_id='quota'",
+    )
+    .fetch_one(&mut db)
+    .await
+    .unwrap();
+    assert_eq!(count, 3);
+    assert!((cost - 0.0012).abs() < 1e-12);
     server.abort();
     provider.abort();
 }

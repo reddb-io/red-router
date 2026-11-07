@@ -287,6 +287,18 @@ try {
   assert.notEqual(unpatched.status, 0, "the unpatched FastLLM must not be accepted");
   assert.match(unpatched.stderr, /FastLLM exited before readiness/);
   process.stderr.write("CI: unpatched engine rejected\n");
+  const invalidConcurrentQuota = spawnSync(redBinary, [], { env: { ...process.env, ...supervisedEnv,
+    RED_ROUTER_PRODUCT_CONCURRENT_QUOTAS: "1",
+  }, encoding: "utf8", timeout: 30_000 });
+  assert.notEqual(invalidConcurrentQuota.status, 0);
+  assert.match(invalidConcurrentQuota.stderr, /concurrent quotas require strict quotas/);
+  const manualFastllmQuota = spawnSync(redBinary, [], { env: { ...process.env, ...supervisedEnv,
+    RED_ROUTER_FASTLLM_URL: fastUrl, RED_ROUTER_FASTLLM_INTERNAL_KEY: internalKey,
+    RED_ROUTER_PRODUCT_SHARED_RPM: "1", RED_ROUTER_PRODUCT_ACCOUNT_USAGE: "1",
+    RED_ROUTER_PRODUCT_STRICT_QUOTAS: "1",
+  }, encoding: "utf8", timeout: 30_000 });
+  assert.notEqual(manualFastllmQuota.status, 0);
+  assert.match(manualFastllmQuota.stderr, /FastLLM transport does not yet support token and spend quota admission/);
   const exclusiveQuota = spawnSync(redBinary, [], { env: { ...process.env, ...supervisedEnv,
     RED_ROUTER_FASTLLM_MANAGED_BINARY: fastBinary, RED_ROUTER_PRODUCT_SHARED_RPM: "1",
     RED_ROUTER_PRODUCT_ACCOUNT_USAGE: "1", RED_ROUTER_PRODUCT_STRICT_QUOTAS: "1",
@@ -491,10 +503,10 @@ try {
   assert.equal(rotatedSnapshot.status, 200);
   assert.notEqual(rotatedSnapshot.headers.get("etag"), firstEtag);
   assert.equal((await rotatedSnapshot.json()).models[0].backends[0].api_key, "rotated-fixture-provider-key");
-  for (const provider of ["groq", "mistral", "deepseek", "together", "perplexity", "fireworks"]) {
+  for (const provider of ["groq", "mistral", "deepseek", "together", "perplexity", "fireworks", "cerebras"]) {
     credentialFixture.prepare("INSERT INTO provider_connections (id,provider,auth_type,api_key,is_active,created_at,updated_at) VALUES (?,?,'apikey','fixture-provider-key',1,'2026-01-01T00:00:00Z','2026-01-01T00:00:00Z')").run(provider, provider);
   }
-  credentialFixture.prepare("UPDATE combos SET data = ? WHERE name = 'bench'").run(JSON.stringify({ name: "bench", strategy: "priority", models: ["openrouter/vendor/model-a", "groq/fixture-groq", "mistral/fixture-mistral", "deepseek/fixture-deepseek", "together/fixture-together", "perplexity/fixture-perplexity", "fireworks/accounts/fireworks/models/fixture"] }));
+  credentialFixture.prepare("UPDATE combos SET data = ? WHERE name = 'bench'").run(JSON.stringify({ name: "bench", strategy: "priority", models: ["openrouter/vendor/model-a", "groq/fixture-groq", "mistral/fixture-mistral", "deepseek/fixture-deepseek", "together/fixture-together", "perplexity/fixture-perplexity", "fireworks/accounts/fireworks/models/fixture", "cerebras/fixture-cerebras"] }));
   const multiControlPort = await unusedPort();
   const multiControl = childProcess(redBinary, ["fastllm-control"], {
     RED_ROUTER_PRODUCT_DB_PATH: credentialDbPath, RED_ROUTER_PRODUCT_COMBO: "bench",
@@ -516,7 +528,7 @@ try {
   const providerModels = (await multiResponse.json()).models;
   assert.deepEqual(providerModels.map((model) => model.backends[0].api_base), [
     "https://openrouter.ai/api/v1", "https://api.groq.com/openai/v1",
-    "https://api.mistral.ai/v1", "https://api.deepseek.com", "https://api.together.xyz/v1", "https://api.perplexity.ai", "https://api.fireworks.ai/inference/v1",
+    "https://api.mistral.ai/v1", "https://api.deepseek.com", "https://api.together.xyz/v1", "https://api.perplexity.ai", "https://api.fireworks.ai/inference/v1", "https://api.cerebras.ai/v1",
   ]);
   // The actual Red Router process authenticates the dashboard key and guards
   // the SQLite combo/connection before forwarding to the FastLLM process.

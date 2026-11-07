@@ -5,6 +5,8 @@ pub fn chat_url(provider: &str) -> Option<&'static str> {
         "openai" => Some("https://api.openai.com/v1/chat/completions"),
         "openrouter" => Some("https://openrouter.ai/api/v1/chat/completions"),
         "groq" => Some("https://api.groq.com/openai/v1/chat/completions"),
+        "cerebras" => Some("https://api.cerebras.ai/v1/chat/completions"),
+        "sambanova" => Some("https://api.sambanova.ai/v1/chat/completions"),
         "mistral" => Some("https://api.mistral.ai/v1/chat/completions"),
         "deepseek" => Some("https://api.deepseek.com/chat/completions"),
         "together" => Some("https://api.together.xyz/v1/chat/completions"),

@@ -31,6 +31,7 @@ pub struct ProductConnection {
     shared_rpm: Option<mpsc::Sender<RpmReservation>>,
     usage_pool: Option<SqlitePool>,
     strict_usage: Option<(i64, f64)>,
+    concurrent_usage: bool,
     auto_selection: bool,
 }
 
@@ -236,6 +237,7 @@ impl ProductConnection {
                 shared_rpm: None,
                 usage_pool: None,
                 strict_usage: None,
+                concurrent_usage: false,
                 auto_selection: false,
             },
             credential,
@@ -270,6 +272,7 @@ impl ProductConnection {
         self.shared_rpm = source.shared_rpm.clone();
         self.usage_pool = source.usage_pool.clone();
         self.strict_usage = source.strict_usage;
+        self.concurrent_usage = source.concurrent_usage;
         Ok(self)
     }
 
@@ -315,6 +318,20 @@ impl ProductConnection {
             );
         }
         self.strict_usage = Some((tokens, usd));
+        self.concurrent_usage = false;
+        Ok(self)
+    }
+
+    /// Opt in to parallel bounded reservations for the direct Rust proxy.
+    /// Callers must provide genuine upper bounds for every attempt and ensure
+    /// every other process sharing the database enforces the same limits.
+    pub fn with_concurrent_strict_usage(
+        mut self,
+        tokens: i64,
+        usd: f64,
+    ) -> Result<Self, &'static str> {
+        self = self.with_strict_usage(tokens, usd)?;
+        self.concurrent_usage = true;
         Ok(self)
     }
 
@@ -377,7 +394,7 @@ impl ProductConnection {
             usd,
             now_ms: now,
         };
-        let allowed = if self.strict_usage.is_some() {
+        let allowed = if self.strict_usage.is_some() && !self.concurrent_usage {
             crate::shared_usage::reserve_usage_exclusive(pool, &request).await?
         } else {
             crate::shared_usage::reserve_usage(pool, &request).await?

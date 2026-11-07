@@ -152,14 +152,14 @@ Missing expected schema fails closed. No usage or cost accounting is recorded by
 default. Provider choice is an explicit connection ID unless the limited
 startup selection below is enabled.
 Only direct chat requests to fixed endpoints for OpenAI, OpenRouter, Groq,
-Mistral, DeepSeek, Together, Perplexity and Fireworks are supported in
+Mistral, DeepSeek, Together, Perplexity, Fireworks, Cerebras and SambaNova are supported in
 this mode. The requested model must start with the selected product provider,
 for example `openrouter/openai/gpt-4o` or `openai/gpt-4o`; the provider prefix
 is removed before forwarding. Do not use it as a production replacement.
 
 As an experimental alternative to `RED_ROUTER_PRODUCT_CONNECTION_ID`, set
 `RED_ROUTER_PRODUCT_PROVIDER` to `openai`, `openrouter`, `groq`, `mistral`,
-`deepseek`, `together`, `perplexity`, or `fireworks`. Fireworks currently
+`deepseek`, `together`, `perplexity`, `fireworks`, `cerebras`, or `sambanova`. Fireworks currently
 requires a complete `accounts/fireworks/models/...` or
 `accounts/fireworks/routers/...` identifier; shorthand expansion is not yet
 implemented. Startup then
@@ -238,6 +238,16 @@ or oversized response requires reconciliation. An attempt costing more than its
 configured bound can itself exceed a quota before its usage is observed; this
 is not a hard spending guarantee. Independently governed budgets, per-model
 token limits and other unsupported policies still block in Rust.
+
+For a direct Rust proxy only, `RED_ROUTER_PRODUCT_CONCURRENT_QUOTAS=1` opts into
+parallel reservations for the same key, limited by the configured remaining
+quota instead of the one-at-a-time gate. Each attempt reserves the full
+configured token and USD bounds. These values must be genuine per-attempt upper
+bounds: an underestimated bill can exceed the quota before it is observed, and
+its reservation is then quarantined. An interrupted attempt keeps its reservation
+until reconciled. The TypeScript proxy still blocks quota-governed keys in strict
+mode, and FastLLM transport rejects strict quotas; neither supports concurrent
+quota accounting yet. This opt-in is not a hard spending guarantee.
 
 Enable both `RED_ROUTER_PRODUCT_STRICT_QUOTAS=1` and
 `RED_ROUTER_PRODUCT_SHARED_RPM=1` in **every** TypeScript process using the same

@@ -324,6 +324,14 @@ async fn run(
             Err(env::VarError::NotPresent) | Ok("0") => false,
             _ => return Err("RED_ROUTER_PRODUCT_STRICT_QUOTAS must be 0 or 1".into()),
         };
+        let concurrent_quotas = match env::var("RED_ROUTER_PRODUCT_CONCURRENT_QUOTAS").as_deref() {
+            Ok("1") => true,
+            Err(env::VarError::NotPresent) | Ok("0") => false,
+            _ => return Err("RED_ROUTER_PRODUCT_CONCURRENT_QUOTAS must be 0 or 1".into()),
+        };
+        if concurrent_quotas && !strict_quotas {
+            return Err("concurrent quotas require strict quotas".into());
+        }
         if strict_quotas && (!usage_accounting || !shared_rpm) {
             return Err("strict quotas require product usage accounting and shared RPM".into());
         }
@@ -331,6 +339,11 @@ async fn run(
             return Err(
                 "managed FastLLM does not yet support concurrent token and spend quota admission"
                     .into(),
+            );
+        }
+        if strict_quotas && fastllm_transport.is_some() {
+            return Err(
+                "FastLLM transport does not yet support token and spend quota admission".into(),
             );
         }
         let account_fallback = match env::var("RED_ROUTER_PRODUCT_ACCOUNT_FALLBACK").as_deref() {
@@ -396,7 +409,11 @@ async fn run(
         if strict_quotas {
             let tokens: i64 = env::var("RED_ROUTER_PRODUCT_RESERVE_TOKENS")?.parse()?;
             let usd: f64 = env::var("RED_ROUTER_PRODUCT_RESERVE_USD")?.parse()?;
-            connection = connection.with_strict_usage(tokens, usd)?;
+            connection = if concurrent_quotas {
+                connection.with_concurrent_strict_usage(tokens, usd)?
+            } else {
+                connection.with_strict_usage(tokens, usd)?
+            };
         }
         let mut fallbacks = Vec::new();
         if account_fallback {
