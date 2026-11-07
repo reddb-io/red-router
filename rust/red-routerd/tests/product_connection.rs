@@ -86,6 +86,37 @@ async fn fastllm_plan_reads_dashboard_combo_and_refuses_unimplemented_routing() 
 }
 
 #[tokio::test]
+async fn internal_fastllm_token_must_not_match_even_disabled_dashboard_keys() {
+    let (dir, mut db) = fixture().await;
+    let plain = "dashboard-key-with-a-long-plaintext-value";
+    let hashed = "dashboard-key-with-a-long-hashed-value";
+    let digest = hex::encode(Sha256::digest(hashed.as_bytes()));
+    sqlx::query("INSERT INTO api_keys (id,key,is_active) VALUES ('a',?,0)")
+        .bind(plain)
+        .execute(&mut db)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO api_keys (id,key,key_hash,is_active) VALUES ('b','redacted',?,0)")
+        .bind(digest)
+        .execute(&mut db)
+        .await
+        .unwrap();
+    let (connection, _) = ProductConnection::open(
+        &dir.path().join("storage.sqlite"),
+        "test",
+        Some("fixture-password"),
+    )
+    .await
+    .unwrap();
+    assert!(connection.dashboard_key_exists(plain).await.unwrap());
+    assert!(connection.dashboard_key_exists(hashed).await.unwrap());
+    assert!(!connection
+        .dashboard_key_exists("different-internal-token-01234567890")
+        .await
+        .unwrap());
+}
+
+#[tokio::test]
 async fn non_streaming_product_usage_is_recorded_and_unhandled_quotas_fail_closed() {
     let (dir, mut db) = fixture().await;
     sqlx::raw_sql(include_str!(

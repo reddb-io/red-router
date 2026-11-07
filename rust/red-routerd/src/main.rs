@@ -165,8 +165,20 @@ async fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
             (Err(env::VarError::NotPresent), Err(env::VarError::NotPresent)) => None,
             (Ok(url), Ok(token)) => {
                 red_routerd::fastllm_plan::validate_transport(&url, &token)?;
-                if !product_client_keys || combo.as_ref().is_none_or(|c| c.targets.len() != 1) {
-                    return Err("FastLLM transport requires dashboard keys and a single-target priority combo".into());
+                if !product_client_keys || combo.is_none() {
+                    return Err(
+                        "FastLLM transport requires dashboard keys and a priority combo".into(),
+                    );
+                }
+                let mut names = std::collections::HashSet::new();
+                if combo
+                    .as_ref()
+                    .is_some_and(|c| c.targets.iter().any(|t| !names.insert(t.model.as_str())))
+                {
+                    return Err(
+                        "FastLLM transport requires unique upstream model names within a combo"
+                            .into(),
+                    );
                 }
                 Some((url, zeroize::Zeroizing::new(token)))
             }
@@ -246,6 +258,11 @@ async fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
         {
             return Err("FastLLM internal token must differ from the provider credential".into());
         }
+        if let Some((_, token)) = &fastllm_transport {
+            if connection.dashboard_key_exists(token).await? {
+                return Err("FastLLM internal token must differ from all dashboard keys".into());
+            }
+        }
         if auto_selection {
             connection = connection.with_auto_selection_guard();
         }
@@ -304,6 +321,14 @@ async fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
                         key,
                     )
                 };
+                if fastllm_transport
+                    .as_ref()
+                    .is_some_and(|(_, token)| token.as_str() == key.as_str())
+                {
+                    return Err(
+                        "FastLLM internal token must differ from every provider credential".into(),
+                    );
+                }
                 let (url, key) = match &fastllm_transport {
                     Some((url, token)) => {
                         (url.as_str(), zeroize::Zeroizing::new(token.to_string()))

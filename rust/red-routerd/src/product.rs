@@ -584,6 +584,22 @@ impl ProductConnection {
         }
     }
 
+    /// Internal transport tokens must never equal a dashboard credential,
+    /// including a disabled or revoked one. Dashboard keys can be stored as
+    /// plaintext or as SHA-256 hashes.
+    pub async fn dashboard_key_exists(&self, candidate: &str) -> Result<bool, &'static str> {
+        let hash = hex::encode(Sha256::digest(candidate.as_bytes()));
+        let exists: i64 = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM api_keys WHERE key = ? OR key_hash = ?)",
+        )
+        .bind(candidate)
+        .bind(hash)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|_| "product key schema unavailable")?;
+        Ok(exists != 0)
+    }
+
     /// This conservative subset refuses policies whose shared accounting or
     /// routing semantics are not yet implemented by the Rust gateway.
     pub(crate) async fn client_policies(

@@ -71,14 +71,17 @@ db.exec(`ALTER TABLE api_keys ADD COLUMN key_hash TEXT;
   CREATE TABLE poc_usage (event_json TEXT);
   PRAGMA journal_mode=WAL;`);
 db.prepare("INSERT INTO api_keys (id, name, key, created_at, key_hash, is_active, allowed_models) VALUES (?, 'fixture', ?, '2026-01-01T00:00:00Z', ?, 1, ?)")
-  .run(keyId, fixtureKey, digest(fixtureKey), JSON.stringify(["openrouter/vendor/model-a", "openrouter/vendor/model-b"]));
+  .run(keyId, fixtureKey, digest(fixtureKey), JSON.stringify(["openrouter/vendor/model-a", "openrouter/vendor/model-b", "openai/vendor/model-b"]));
 db.prepare("INSERT INTO provider_connections (id, provider, auth_type, api_key, is_active, created_at, updated_at) VALUES ('fixture-connection', 'openrouter', 'apikey', ?, 1, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')").run(fixtureProviderKey);
+db.prepare("INSERT INTO provider_connections (id, provider, auth_type, api_key, is_active, created_at, updated_at) VALUES ('fixture-openai', 'openai', 'apikey', ?, 1, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')").run(fixtureProviderKey);
 db.prepare("INSERT INTO combos (id, name, data, tenant_id, context_cache_protection, created_at, updated_at) VALUES ('fixture-combo', 'bench', ?, 'red', 0, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')")
   .run(JSON.stringify({ name: "bench", strategy: "priority", models: ["openrouter/vendor/model-a"] }));
 
 let active = 0;
 let peakActive = 0;
 let lastUpstreamModel;
+let failModelA = false;
+let modelAttempts = [];
 let snapshotVersion = 1;
 let usageEvents = [];
 const children = [];
@@ -105,6 +108,11 @@ const upstream = createServer(async (req, res) => {
   let body;
   try { body = JSON.parse(Buffer.concat(chunks)); } catch { res.writeHead(400).end(); return; }
   lastUpstreamModel = body.model;
+  modelAttempts.push(body.model);
+  if (failModelA && body.model === "vendor/model-a") {
+    res.writeHead(429, { "content-type": "application/json" }).end('{"error":"fixture rate limit"}');
+    return;
+  }
   active++;
   peakActive = Math.max(peakActive, active);
   let finished = false;
@@ -148,7 +156,7 @@ const readSnapshot = (upstreamPort) => {
     keys: { [key.key_hash]: { principal: principalId, expires_at: null, disabled: false, id: key.id },
       [digest(internalKey)]: { principal: principalId, expires_at: null, disabled: false, id: internalKeyId } },
     principals: [{ id: principalId, name: "fixture", allowed_models: ["bench", "vendor/model-a", "vendor/model-b"], allow_all: false }],
-    models: [plan.frontend_model, plan.upstream_model].map((name) => ({ name, backends: [{ api_base: `http://127.0.0.1:${upstreamPort}/v1`, upstream_model: plan.upstream_model, api_key: connection.api_key, protocol: "openai" }] })),
+    models: [...new Set([plan.frontend_model, plan.upstream_model, "vendor/model-b"])].map((name) => ({ name, backends: [{ api_base: `http://127.0.0.1:${upstreamPort}/v1`, upstream_model: name === "vendor/model-b" ? "vendor/model-b" : plan.upstream_model, api_key: connection.api_key, protocol: "openai" }] })),
   };
 };
 
@@ -284,6 +292,38 @@ try {
   assert.equal(limited.status, 429);
   await limited.body?.cancel();
   db.prepare("DELETE FROM api_key_quota_limits WHERE api_key_id = ?").run(keyId);
+  db.prepare("UPDATE combos SET data = ? WHERE name = 'bench'").run(JSON.stringify({ name: "bench", strategy: "priority", models: ["openrouter/vendor/model-a", "openai/vendor/model-b"] }));
+  const fallbackPort = await unusedPort();
+  const fallbackBridge = childProcess(redBinary, [], {
+    RED_ROUTER_LISTEN: `127.0.0.1:${fallbackPort}`,
+    RED_ROUTER_PRODUCT_DB_PATH: fixtureDbPath,
+    RED_ROUTER_PRODUCT_COMBO: "bench",
+    RED_ROUTER_PRODUCT_CLIENT_KEYS: "1",
+    RED_ROUTER_PRODUCT_SHARED_RPM: "1",
+    RED_ROUTER_FASTLLM_URL: fastUrl,
+    RED_ROUTER_FASTLLM_INTERNAL_KEY: internalKey,
+  });
+  await waitReady(`http://127.0.0.1:${fallbackPort}/healthz`, fallbackBridge);
+  failModelA = true;
+  modelAttempts = [];
+  const fallbackResponse = await request(`http://127.0.0.1:${fallbackPort}/v1/chat/completions`, fixtureKey, "bench", AbortSignal.timeout(5000));
+  if (fallbackResponse.status !== 200) throw new Error(`dashboard fallback returned ${fallbackResponse.status}: ${await fallbackResponse.text()}`);
+  assert.ok((await fallbackResponse.text()).includes("[DONE]"));
+  assert.deepEqual(modelAttempts, ["vendor/model-a", "vendor/model-b"]);
+  failModelA = false;
+  db.prepare("UPDATE combos SET data = ? WHERE name = 'bench'").run(JSON.stringify({ name: "bench", strategy: "priority", models: ["openrouter/vendor/model-a"] }));
+  const staleCombo = await request(`http://127.0.0.1:${fallbackPort}/v1/chat/completions`, fixtureKey, "bench", AbortSignal.timeout(5000));
+  assert.equal(staleCombo.status, 503);
+  await staleCombo.body?.cancel();
+  db.prepare("UPDATE combos SET data = ? WHERE name = 'bench'").run(JSON.stringify({ name: "bench", strategy: "priority", models: ["openrouter/vendor/model-a", "openai/vendor/model-a"] }));
+  const duplicateAlias = spawnSync(redBinary, [], { env: { ...process.env,
+    RED_ROUTER_LISTEN: `127.0.0.1:${fallbackPort}`, RED_ROUTER_PRODUCT_DB_PATH: fixtureDbPath,
+    RED_ROUTER_PRODUCT_COMBO: "bench", RED_ROUTER_PRODUCT_CLIENT_KEYS: "1",
+    RED_ROUTER_FASTLLM_URL: fastUrl, RED_ROUTER_FASTLLM_INTERNAL_KEY: internalKey,
+  }, encoding: "utf8", timeout: 10_000 });
+  assert.notEqual(duplicateAlias.status, 0);
+  assert.match(duplicateAlias.stderr, /unique upstream model names/);
+  db.prepare("UPDATE combos SET data = ? WHERE name = 'bench'").run(JSON.stringify({ name: "bench", strategy: "priority", models: ["openrouter/vendor/model-a"] }));
   const responsesProbe = await fetch(`http://127.0.0.1:${fastPort}/v1/responses`, {
     method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${fixtureKey}` },
     body: JSON.stringify({ model: "bench", input: "hello", stream: false }), signal: AbortSignal.timeout(5000),
