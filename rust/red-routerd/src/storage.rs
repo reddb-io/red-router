@@ -9,12 +9,12 @@ const CREATE: &str = "CREATE TABLE IF NOT EXISTS redrouter_proxy_config (id INTE
 const READ: &str = "SELECT upstream_url FROM redrouter_proxy_config WHERE id = 1";
 const SEED: &str = "INSERT INTO redrouter_proxy_config (id, upstream_url) VALUES (1, $1) ON CONFLICT (id) DO NOTHING";
 const SET: &str = "INSERT INTO redrouter_proxy_config (id, upstream_url) VALUES (1, $1) ON CONFLICT (id) DO UPDATE SET upstream_url = $1";
-const CREATE_PROVIDERS: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_providers (id TEXT PRIMARY KEY, provider TEXT NOT NULL, upstream_url TEXT NOT NULL, credential_ciphertext TEXT NOT NULL, enabled BIGINT NOT NULL, updated_at BIGINT NOT NULL)";
-const LIST_PROVIDERS: &str = "SELECT id, provider, upstream_url, credential_ciphertext, enabled, updated_at FROM redrouter_control_providers ORDER BY updated_at DESC, id ASC";
-const ACTIVE_PROVIDER: &str = "SELECT id, provider, upstream_url, credential_ciphertext, enabled, updated_at FROM redrouter_control_providers WHERE enabled = 1 ORDER BY updated_at DESC, id ASC LIMIT 1";
-const UPSERT_PROVIDER: &str = "INSERT INTO redrouter_control_providers (id, provider, upstream_url, credential_ciphertext, enabled, updated_at) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (id) DO UPDATE SET provider = $2, upstream_url = $3, credential_ciphertext = $4, enabled = $5, updated_at = $6";
+const CREATE_PROVIDERS: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_providers (id TEXT PRIMARY KEY, provider TEXT NOT NULL, upstream_url TEXT NOT NULL, credential_ciphertext TEXT NOT NULL, enabled BIGINT NOT NULL, revision BIGINT NOT NULL)";
+const LIST_PROVIDERS: &str = "SELECT id, provider, upstream_url, credential_ciphertext, enabled, revision FROM redrouter_control_providers ORDER BY revision DESC, id ASC";
+const ACTIVE_PROVIDER: &str = "SELECT id, provider, upstream_url, credential_ciphertext, enabled, revision FROM redrouter_control_providers WHERE enabled = 1 ORDER BY revision DESC, id ASC LIMIT 1";
+const UPSERT_PROVIDER: &str = "INSERT INTO redrouter_control_providers (id, provider, upstream_url, credential_ciphertext, enabled, revision) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (id) DO UPDATE SET provider = $2, upstream_url = $3, credential_ciphertext = $4, enabled = $5, revision = $6";
 const DISABLE_PROVIDER: &str =
-    "UPDATE redrouter_control_providers SET enabled = 0, updated_at = $2 WHERE id = $1";
+    "UPDATE redrouter_control_providers SET enabled = 0, revision = $2 WHERE id = $1";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StoredProvider {
@@ -495,7 +495,7 @@ fn read_sql_provider(row: &sqlx::any::AnyRow) -> Result<StoredProvider, &'static
             .map_err(|_| "invalid provider record")?
             == 1,
         updated_at: row
-            .try_get("updated_at")
+            .try_get("revision")
             .map_err(|_| "invalid provider record")?,
     })
 }
@@ -521,7 +521,7 @@ fn read_reddb_provider(row: &reddb_client::Row) -> Result<StoredProvider, &'stat
         upstream_url: text("upstream_url")?,
         credential_ciphertext: text("credential_ciphertext")?,
         enabled: integer("enabled")? == 1,
-        updated_at: integer("updated_at")?,
+        updated_at: integer("revision")?,
     })
 }
 
