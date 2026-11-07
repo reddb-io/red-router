@@ -7,6 +7,8 @@ required client key, separate provider keys, bounded request size and concurrent
 streams, reusable HTTP connections, incremental responses, and safe redirect refusal.
 It binds only to loopback. The operator can configure OpenAI-compatible HTTPS
 providers or literal-loopback HTTP mocks. It does not provide a public listener.
+`RED_ROUTER_MAX_IN_FLIGHT` configures the process-wide simultaneous-request
+capacity (default 64); it is separate from any per-key policy or usage quota.
 
 It supports explicitly configured model aliases for OpenAI-compatible, native
 Anthropic Messages and Gemini GenerateContent endpoints,

@@ -96,6 +96,8 @@ let peakActive = 0;
 let lastUpstreamModel;
 let failModelA = false;
 let modelAttempts = [];
+let holdGate = null;
+let releaseGate = null;
 let snapshotVersion = 1;
 let usageEvents = [];
 let credentialFixture;
@@ -133,6 +135,10 @@ const upstream = createServer(async (req, res) => {
   let finished = false;
   const finish = () => { if (!finished) { finished = true; active--; } };
   res.once("close", finish);
+  if (holdGate) {
+    if (active >= 65) releaseGate?.();
+    await holdGate;
+  }
   if (req.url === "/v1/responses") {
     res.writeHead(200, { "content-type": "application/json" });
     res.end(JSON.stringify({ id: "fixture-response", object: "response", model: body.model, output: [], usage: { input_tokens: 12, output_tokens: 7, total_tokens: 19 } }));
@@ -452,6 +458,7 @@ try {
     RED_ROUTER_PRODUCT_COMBO: "bench",
     RED_ROUTER_PRODUCT_CLIENT_KEYS: "1",
     RED_ROUTER_PRODUCT_SHARED_RPM: "1",
+    RED_ROUTER_MAX_IN_FLIGHT: "128",
     RED_ROUTER_FASTLLM_URL: fastUrl,
     RED_ROUTER_FASTLLM_INTERNAL_KEY: internalKey,
   });
@@ -470,6 +477,24 @@ try {
   const bridgePeak = peakActive;
   assert.ok(bridgePeak > 1, `dashboard bridge serialized concurrent agents: ${bridgePeak}`);
   assert.equal(lastUpstreamModel, "vendor/model-a");
+  // Hold all provider responses until more than 64 are truly in flight, so
+  // merely scheduling 96 promises cannot hide a fixed gateway ceiling.
+  for (let attempt = 0; active !== 0 && attempt < 50; attempt++) await delay(20);
+  assert.equal(active, 0);
+  peakActive = 0;
+  holdGate = new Promise((resolve) => { releaseGate = resolve; });
+  const holdTimeout = setTimeout(() => releaseGate?.(), 10_000);
+  try {
+    await Promise.all(Array.from({ length: 96 }, async () => {
+      const response = await request(bridgeUrl, fixtureKey, "bench", AbortSignal.timeout(20_000));
+      if (response.status !== 200) throw new Error(`configurable capacity returned ${response.status}: ${await response.text()}`);
+      assert.ok((await response.text()).includes("[DONE]"));
+    }));
+  } finally {
+    releaseGate?.(); holdGate = null; releaseGate = null; clearTimeout(holdTimeout);
+  }
+  assert.ok(peakActive >= 65, `proxy failed to forward more than 64 concurrent requests: ${peakActive}`);
+  const bridgeHighPeak = peakActive;
   db.prepare("UPDATE api_keys SET is_active = 0 WHERE id = ?").run(keyId);
   const revoked = await request(bridgeUrl, fixtureKey, "bench", AbortSignal.timeout(5000));
   assert.equal(revoked.status, 401);
@@ -572,7 +597,7 @@ try {
   for (const event of usageEvents) db.prepare("INSERT INTO poc_usage VALUES (?)").run(JSON.stringify(event));
   const reported = db.prepare("SELECT COUNT(*) AS n FROM poc_usage").get().n;
   assert.ok(reported > 0, "FastLLM sent no usage events to the fixture control plane");
-  console.log(JSON.stringify({ fixture: "synthetic SQLite; no real dashboard or credentials", fastllm_commit: "07faa4a5068928da49eed5ffbd369d18f8a8243e", request_body_approx_bytes: Buffer.byteLength(agentPrompt), requests_per_case: 128, concurrency: [1, 8, 32, 64], upstream_simulated_first_chunk_ms: 15, upstream_simulated_remaining_ms: 10, fastllm_peak_concurrent_upstreams: fast64.upstream_peak_inflight, dashboard_bridge_peak_concurrent_upstreams: bridgePeak, dashboard_key_rejected: deniedBridge.status, dashboard_key_revoked: revoked.status, dashboard_rpm_limited: limited.status, rejected_key_status: rejected.status, sqlite_fixture_reload: reloaded, fixture_usage_events: reported, protocol_probes: protocolProbes, memory_scope: "gateway process only; excludes Node fixture/control process and dashboard", measurements }, null, 2));
+  console.log(JSON.stringify({ fixture: "synthetic SQLite; no real dashboard or credentials", fastllm_commit: "07faa4a5068928da49eed5ffbd369d18f8a8243e", request_body_approx_bytes: Buffer.byteLength(agentPrompt), requests_per_case: 128, concurrency: [1, 8, 32, 64], upstream_simulated_first_chunk_ms: 15, upstream_simulated_remaining_ms: 10, fastllm_peak_concurrent_upstreams: fast64.upstream_peak_inflight, dashboard_bridge_peak_concurrent_upstreams: bridgePeak, dashboard_bridge_configurable_capacity_peak: bridgeHighPeak, dashboard_key_rejected: deniedBridge.status, dashboard_key_revoked: revoked.status, dashboard_rpm_limited: limited.status, rejected_key_status: rejected.status, sqlite_fixture_reload: reloaded, fixture_usage_events: reported, protocol_probes: protocolProbes, memory_scope: "gateway process only; excludes Node fixture/control process and dashboard", measurements }, null, 2));
 } finally {
   for (const child of children) child.kill("SIGTERM");
   await Promise.all(children.map(async (child) => { if (child.exitCode !== null) return; await Promise.race([new Promise((resolve) => child.once("exit", resolve)), delay(3000)]); if (child.exitCode === null) child.kill("SIGKILL"); }));

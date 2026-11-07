@@ -88,6 +88,15 @@ struct ModelTarget {
 }
 
 impl ProxyState {
+    /// Set a process-wide capacity, independent of per-client quotas.
+    pub fn with_max_in_flight(mut self, limit: usize) -> Result<Self, &'static str> {
+        if limit == 0 || limit > Semaphore::MAX_PERMITS {
+            return Err("invalid proxy concurrency capacity");
+        }
+        self.permits = Arc::new(Semaphore::new(limit));
+        Ok(self)
+    }
+
     /// Validate the exact dashboard combo and connections captured when this
     /// state was built. Used before a supervised engine may accept traffic.
     pub async fn product_configuration_unchanged(&self) -> bool {

@@ -133,6 +133,15 @@ async fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
     if !address.ip().is_loopback() {
         return Err("this development slice only listens on loopback".into());
     }
+    let max_in_flight = match env::var("RED_ROUTER_MAX_IN_FLIGHT") {
+        Ok(value) => Some(
+            value
+                .parse::<usize>()
+                .map_err(|_| "invalid RED_ROUTER_MAX_IN_FLIGHT")?,
+        ),
+        Err(env::VarError::NotPresent) => None,
+        Err(_) => return Err("invalid RED_ROUTER_MAX_IN_FLIGHT".into()),
+    };
     if let Some(path) = env::var_os("RED_ROUTER_PRODUCT_DB_PATH") {
         if command.is_some() {
             return Err("set-upstream is not available with a product connection".into());
@@ -427,6 +436,9 @@ async fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
         }
         let mut state =
             ProxyState::new(connection.upstream_url(), &client_key, &credential, false).await?;
+        if let Some(limit) = max_in_flight {
+            state = state.with_max_in_flight(limit)?;
+        }
         if let Some(config) = combo_route {
             state = state
                 .with_routes(
@@ -569,6 +581,9 @@ async fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
         }
     };
     let mut state = ProxyState::new(&upstream, &client_key, &provider_key, allow_private).await?;
+    if let Some(limit) = max_in_flight {
+        state = state.with_max_in_flight(limit)?;
+    }
     match env::var("RED_ROUTER_ROUTES_JSON") {
         Ok(routes) => {
             state = state
