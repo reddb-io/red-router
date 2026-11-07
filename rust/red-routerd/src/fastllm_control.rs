@@ -23,6 +23,7 @@ const KEY_ID: &str = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 struct ControlState {
     authorization: Zeroizing<String>,
     snapshot: Zeroizing<Vec<u8>>,
+    etag: String,
     combo: ProductCombo,
     connections: Vec<ProductConnection>,
 }
@@ -97,16 +98,29 @@ async fn prepare(
         })
         .collect();
     let mut snapshot = json!({
-        "version": 1, "open": false,
+        "version": 0, "open": false,
         "keys": {(hash): {"principal": PRINCIPAL, "expires_at": null, "disabled": false, "id": KEY_ID}},
         "principals": [{"id": PRINCIPAL, "name": "red-router-internal", "allowed_models": allowed, "allow_all": false}],
         "models": models
     });
+    // A fixed version can make an engine retain old credentials after the
+    // control process restarts. Derive a nonzero version from all contents,
+    // including provider credentials, before returning conditional responses.
+    let mut initial = Zeroizing::new(
+        serde_json::to_vec(&snapshot).map_err(|_| "cannot serialize FastLLM configuration")?,
+    );
+    let digest = Sha256::digest(initial.as_slice());
+    let mut version_bytes = [0u8; 8];
+    version_bytes[2..].copy_from_slice(&digest[..6]);
+    let version = u64::from_be_bytes(version_bytes).max(1);
+    initial.zeroize();
+    snapshot["version"] = json!(version);
     let bytes = serde_json::to_vec(&snapshot).map_err(|_| "cannot serialize FastLLM configuration");
     clear_json(&mut snapshot);
     Ok(Arc::new(ControlState {
         authorization: Zeroizing::new(format!("Bearer {control_token}")),
         snapshot: Zeroizing::new(bytes?),
+        etag: format!("\"{version}\""),
         combo,
         connections,
     }))
@@ -143,7 +157,7 @@ async fn snapshot(State(state): State<Arc<ControlState>>, headers: HeaderMap) ->
     }
     if headers
         .get(header::IF_NONE_MATCH)
-        .is_some_and(|v| v.as_bytes() == b"\"1\"")
+        .is_some_and(|v| v.as_bytes() == state.etag.as_bytes())
     {
         return Response::builder()
             .status(StatusCode::NOT_MODIFIED)
@@ -155,7 +169,7 @@ async fn snapshot(State(state): State<Arc<ControlState>>, headers: HeaderMap) ->
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "application/json")
         .header(header::CACHE_CONTROL, "no-store")
-        .header(header::ETAG, "\"1\"")
+        .header(header::ETAG, state.etag.as_str())
         .body(Body::from(state.snapshot.to_vec()))
         .unwrap()
 }

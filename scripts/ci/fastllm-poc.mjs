@@ -295,6 +295,8 @@ try {
   const protectedSnapshot = await fetch(credentialUrl, { headers: { ...controlAuth, "x-redrouter-memory-only": "1" } });
   assert.equal(protectedSnapshot.status, 200);
   assert.equal(protectedSnapshot.headers.get("cache-control"), "no-store");
+  const firstEtag = protectedSnapshot.headers.get("etag");
+  assert.ok(firstEtag);
   const protectedConfig = await protectedSnapshot.json();
   assert.equal(protectedConfig.models[0].backends[0].api_key, "fixture-provider-key");
   assert.equal(protectedConfig.models[0].backends[0].api_base, "https://openrouter.ai/api/v1");
@@ -309,7 +311,7 @@ try {
   assert.ok(!existsSync(forbiddenCache), "patched FastLLM wrote a credential snapshot");
   assert.ok(!existsSync(join(temp, "must-not-exist-fastllm-snapshot.tmp")), "patched FastLLM wrote a temporary credential snapshot");
   credentialFixture.prepare("UPDATE provider_connections SET is_active = 0 WHERE id = 'fixture-connection'").run();
-  const invalidated = await fetch(credentialUrl, { headers: { ...controlAuth, "x-redrouter-memory-only": "1", "if-none-match": '"1"' } });
+  const invalidated = await fetch(credentialUrl, { headers: { ...controlAuth, "x-redrouter-memory-only": "1", "if-none-match": firstEtag } });
   assert.equal(invalidated.status, 503);
   credentialFixture.prepare("UPDATE provider_connections SET is_active = 1 WHERE id = 'fixture-connection'").run();
   for (const provider of ["groq", "mistral", "deepseek"]) {
@@ -327,12 +329,13 @@ try {
   for (let attempt = 0; attempt < 300; attempt++) {
     if (multiControl.exitCode !== null) throw new Error(`multi-provider credential control exited: ${multiControl.exitCode}`);
     try {
-      multiResponse = await fetch(multiUrl, { headers: { ...controlAuth, "x-redrouter-memory-only": "1" }, signal: AbortSignal.timeout(500) });
+      multiResponse = await fetch(multiUrl, { headers: { ...controlAuth, "x-redrouter-memory-only": "1", "if-none-match": firstEtag }, signal: AbortSignal.timeout(500) });
       if (multiResponse.status === 200) break;
     } catch { /* starting */ }
     await delay(100);
   }
   assert.equal(multiResponse?.status, 200);
+  assert.notEqual(multiResponse.headers.get("etag"), firstEtag);
   const providerModels = (await multiResponse.json()).models;
   assert.deepEqual(providerModels.map((model) => model.backends[0].api_base), [
     "https://openrouter.ai/api/v1", "https://api.groq.com/openai/v1",

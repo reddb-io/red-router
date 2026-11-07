@@ -75,6 +75,12 @@ in-memory snapshot, so every client request must continue through the guarded
 Red Router listener. The control source does not handle FastLLM usage reports
 or implement token/spend quota reconciliation. It does not yet automatically
 launch or supervise FastLLM, and has not been validated with real credentials.
+Restart the gateway, control source and FastLLM together when changing a combo
+or credential: the gateway can reject an old configuration, but this first
+integration does not yet prove that a running FastLLM has consumed the new
+snapshot before the gateway accepts traffic. Snapshot versions are content
+fingerprints, not timestamps, so FastLLM metrics that interpret them as a
+timestamp must not be used for snapshot age in this mode.
 
 Set `RED_ROUTER_PRODUCT_DB_PATH` to the existing product `storage.sqlite` file,
 `RED_ROUTER_PRODUCT_CONNECTION_ID` to the ID of an active supported API-key
