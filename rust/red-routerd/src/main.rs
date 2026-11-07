@@ -335,16 +335,8 @@ async fn run(
         if strict_quotas && (!usage_accounting || !shared_rpm) {
             return Err("strict quotas require product usage accounting and shared RPM".into());
         }
-        if strict_quotas && managed.is_some() {
-            return Err(
-                "managed FastLLM does not yet support concurrent token and spend quota admission"
-                    .into(),
-            );
-        }
-        if strict_quotas && fastllm_transport.is_some() {
-            return Err(
-                "FastLLM transport does not yet support token and spend quota admission".into(),
-            );
+        if strict_quotas && fastllm_transport.is_some() && !concurrent_quotas {
+            return Err("FastLLM token and spend quotas require concurrent quota admission".into());
         }
         let account_fallback = match env::var("RED_ROUTER_PRODUCT_ACCOUNT_FALLBACK").as_deref() {
             Ok("1") => true,

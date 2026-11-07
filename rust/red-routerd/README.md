@@ -45,7 +45,9 @@ The supervised engine disables internal backend retries and retries on failed
 pooled sends: a provider may have received a request even when its response is
 lost. The gateway may still perform its own configured fallback, subject to its
 separate admission rules. Rebuild the patched FastLLM executable after updating
-the integration patch. Token and spend quotas remain disabled for FastLLM.
+the integration patch. Concurrent token and spend admission can be enabled with
+the strict and concurrent quota settings documented below. The one-at-a-time
+legacy strict mode remains refused for FastLLM.
 
 On Unix, normal SIGTERM drains the gateway and terminates its FastLLM child.
 A force-killed or crashed parent can still leave an orphan child; use a
@@ -60,10 +62,14 @@ are still active after the grace period can be interrupted. While a changed
 configuration is invalid, the gateway remains unavailable and retries.
 This is a local experimental mode and has not been validated with real
 provider credentials.
-Managed mode refuses `RED_ROUTER_PRODUCT_STRICT_QUOTAS=1`: that legacy mode
-admits only one outstanding request per key and does not satisfy concurrent
-agent usage. Concurrent token and spend admission is not implemented yet;
-keys requiring those limits remain unavailable rather than bypassing them.
+Managed mode requires `RED_ROUTER_PRODUCT_CONCURRENT_QUOTAS=1` whenever
+`RED_ROUTER_PRODUCT_STRICT_QUOTAS=1` is enabled. Each gateway attempt reserves
+its configured token and USD upper bounds in SQLite before calling FastLLM.
+The patched engine disables its hidden retries, completed usage is settled by
+the gateway, and an uncertain or failed attempt retains its reservation for
+reconciliation. All TypeScript processes sharing the database must still block
+these governed keys until their live request path participates in the same
+reservation cycle.
 
 With `RED_ROUTER_PRODUCT_DB_PATH`, `RED_ROUTER_PRODUCT_COMBO` and
 `RED_ROUTER_PRODUCT_CLIENT_KEYS=1`, an operator may additionally set

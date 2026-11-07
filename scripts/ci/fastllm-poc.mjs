@@ -355,13 +355,13 @@ try {
     RED_ROUTER_PRODUCT_STRICT_QUOTAS: "1",
   }, encoding: "utf8", timeout: 30_000 });
   assert.notEqual(manualFastllmQuota.status, 0);
-  assert.match(manualFastllmQuota.stderr, /FastLLM transport does not yet support token and spend quota admission/);
+  assert.match(manualFastllmQuota.stderr, /FastLLM token and spend quotas require concurrent quota admission/);
   const exclusiveQuota = spawnSync(redBinary, [], { env: { ...process.env, ...supervisedEnv,
     RED_ROUTER_FASTLLM_MANAGED_BINARY: fastBinary, RED_ROUTER_PRODUCT_SHARED_RPM: "1",
     RED_ROUTER_PRODUCT_ACCOUNT_USAGE: "1", RED_ROUTER_PRODUCT_STRICT_QUOTAS: "1",
   }, encoding: "utf8", timeout: 30_000 });
   assert.notEqual(exclusiveQuota.status, 0);
-  assert.match(exclusiveQuota.stderr, /does not yet support concurrent token and spend quota admission/);
+  assert.match(exclusiveQuota.stderr, /FastLLM token and spend quotas require concurrent quota admission/);
   // A slow engine must not delay the cluster's termination request.
   const slowEngine = join(temp, "slow-fastllm.mjs");
   writeFileSync(slowEngine, "#!/usr/bin/env node\nsetInterval(() => {}, 1000);\n");
@@ -722,6 +722,49 @@ try {
   accountingEngine.kill("SIGTERM");
   await new Promise((resolve) => accountingEngine.once("exit", resolve));
   process.stderr.write("CI: FastLLM usage and uncertain fallback accounted\n");
+
+  // Managed FastLLM participates in the same bounded SQLite admission. Two
+  // requests fit the token window, while later concurrent requests must be
+  // refused before they reach the provider.
+  db.prepare("UPDATE combos SET data = ? WHERE name = 'bench'").run(JSON.stringify({ name: "bench", strategy: "priority", models: ["openrouter/vendor/model-a"] }));
+  db.prepare("DELETE FROM request_cost_ledger WHERE api_key_id = ?").run(keyId);
+  db.prepare("DELETE FROM api_key_usage_reservations WHERE api_key_id = ?").run(keyId);
+  db.prepare("DELETE FROM api_key_quota_counters WHERE api_key_id = ?").run(keyId);
+  db.prepare("INSERT INTO api_key_quota_limits(api_key_id,tpm_limit,monthly_amount_usd) VALUES (?,38,0.001) ON CONFLICT(api_key_id) DO UPDATE SET tpm_limit=38,rpm_limit=NULL,monthly_amount_usd=0.001").run(keyId);
+  const quotaPort = await unusedPort();
+  const quotaSupervisor = childProcess(redBinary, [], {
+    RED_ROUTER_LISTEN: `127.0.0.1:${quotaPort}`, RED_ROUTER_PRODUCT_DB_PATH: fixtureDbPath,
+    RED_ROUTER_PRODUCT_COMBO: "bench", RED_ROUTER_PRODUCT_CLIENT_KEYS: "1",
+    RED_ROUTER_PRODUCT_SHARED_RPM: "1", RED_ROUTER_PRODUCT_ACCOUNT_USAGE: "1",
+    RED_ROUTER_PRODUCT_STRICT_QUOTAS: "1", RED_ROUTER_PRODUCT_CONCURRENT_QUOTAS: "1",
+    RED_ROUTER_PRODUCT_RESERVE_TOKENS: "19", RED_ROUTER_PRODUCT_RESERVE_USD: "0.0001",
+    RED_ROUTER_FASTLLM_MANAGED_BINARY: fastBinary, RED_ROUTER_MAX_IN_FLIGHT: "16",
+  });
+  await waitReady(`http://127.0.0.1:${quotaPort}/healthz`, quotaSupervisor);
+  const quotaUrl = `http://127.0.0.1:${quotaPort}/v1/chat/completions`;
+  for (let attempt = 0; active !== 0 && attempt < 100; attempt++) await delay(20);
+  assert.equal(active, 0);
+  holdGate = new Promise((resolve) => { releaseGate = resolve; });
+  const quotaRequests = Array.from({ length: 4 }, () => request(quotaUrl, fixtureKey, "bench", AbortSignal.timeout(10_000)));
+  for (let attempt = 0; active < 2 && attempt < 100; attempt++) await delay(20);
+  assert.equal(active, 2, "exactly two bounded requests should reach FastLLM concurrently");
+  releaseGate?.(); holdGate = null; releaseGate = null;
+  const quotaResponses = await Promise.all(quotaRequests);
+  const quotaStatuses = quotaResponses.map((response) => response.status).sort();
+  assert.deepEqual(quotaStatuses, [200, 200, 429, 429]);
+  for (const response of quotaResponses) await response.text();
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM request_cost_ledger WHERE api_key_id=?").get(keyId).n, 2);
+  assert.equal(db.prepare("SELECT consumed FROM api_key_quota_counters WHERE api_key_id=? AND dimension_key='key-quota:tpm'").get(keyId).consumed, 38);
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM api_key_usage_reservations WHERE api_key_id=?").get(keyId).n, 0);
+  const quotaExhausted = await request(quotaUrl, fixtureKey, "bench", AbortSignal.timeout(5_000));
+  assert.equal(quotaExhausted.status, 429);
+  await quotaExhausted.body?.cancel();
+  quotaSupervisor.kill("SIGTERM");
+  await new Promise((resolve) => quotaSupervisor.once("exit", resolve));
+  process.stderr.write("CI: managed FastLLM concurrent token quota enforced\n");
+  db.prepare("DELETE FROM api_key_quota_limits WHERE api_key_id = ?").run(keyId);
+  db.prepare("DELETE FROM api_key_quota_counters WHERE api_key_id = ?").run(keyId);
+
   db.prepare("UPDATE combos SET data = ? WHERE name = 'bench'").run(JSON.stringify({ name: "bench", strategy: "priority", models: ["openrouter/vendor/model-a"] }));
   const staleCombo = await request(`http://127.0.0.1:${fallbackPort}/v1/chat/completions`, fixtureKey, "bench", AbortSignal.timeout(5000));
   assert.equal(staleCombo.status, 503);
