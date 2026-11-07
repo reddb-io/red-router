@@ -185,6 +185,14 @@ pub struct ProviderQuotaInput {
     pub ttl_seconds: u64,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProviderHealthInput {
+    pub failure_threshold: u64,
+    pub degradation_threshold: u64,
+    pub reset_timeout_ms: u64,
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub struct QuotaWindowView {
     pub remaining_percent: f64,
@@ -900,6 +908,31 @@ impl ControlPlane {
             .await
     }
 
+    async fn configure_breaker(
+        &self,
+        id: &str,
+        input: ProviderHealthInput,
+    ) -> Result<BreakerStatus, &'static str> {
+        validate_id(id)?;
+        let _mutation = self.0.mutation.lock().await;
+        let provider = self
+            .0
+            .database
+            .providers()
+            .await?
+            .into_iter()
+            .find(|provider| provider.id == id)
+            .ok_or("provider does not exist")?;
+        self.circuit_for(&provider.id, &provider.upstream_url)
+            .await
+            .configure(
+                input.failure_threshold,
+                input.degradation_threshold,
+                input.reset_timeout_ms,
+            )
+            .await
+    }
+
     async fn circuit_for(&self, id: &str, upstream_url: &str) -> Arc<ProviderCircuit> {
         if let Some(circuit) = self.0.breakers.read().await.get(id).cloned() {
             return circuit;
@@ -1517,6 +1550,31 @@ pub async fn delete_provider_health(
     }
 }
 
+pub async fn put_provider_health(
+    State(state): State<ProxyState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Json(input): Json<ProviderHealthInput>,
+) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+    };
+    if !control.authorized(&headers) {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
+    }
+    match control.configure_breaker(&id, input).await {
+        Ok(health) => Json(serde_json::json!({"provider_health":health})).into_response(),
+        Err(error) if is_runtime_error(error) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Provider health storage unavailable",
+        ),
+        Err(_) => api_error(
+            StatusCode::BAD_REQUEST,
+            "Invalid provider health configuration",
+        ),
+    }
+}
+
 pub async fn put_provider(
     State(state): State<ProxyState>,
     Path(id): Path<String>,
@@ -1549,7 +1607,7 @@ fn is_runtime_error(error: &str) -> bool {
         || error.contains("cannot write")
         || error.contains("cannot read")
         || error.contains("cannot reload")
-        || error.contains("breaker")
+        || error.contains("breaker storage")
         || error.contains("route pin")
         || error.contains("quota state")
         || error.contains("combo has no enabled")

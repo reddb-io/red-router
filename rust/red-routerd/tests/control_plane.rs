@@ -1729,3 +1729,162 @@ async fn rust_control_plane_applies_live_quota_strategies_without_route_reloads(
     second_task.abort();
     database.close().await.unwrap();
 }
+
+#[tokio::test]
+async fn rust_control_plane_persists_provider_breaker_configuration_across_reset() {
+    let directory = TempDir::new().unwrap();
+    let file = Url::from_file_path(directory.path().join("breaker-config.sqlite")).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    let database = Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap());
+    let control = ControlPlane::new(database.clone(), ADMIN_KEY, STORAGE_KEY, false)
+        .await
+        .unwrap();
+    let (provider_url, provider_task) = provider("breaker-secret", "healthy").await;
+    let (base, gateway_task) = gateway(control).await;
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+
+    assert_eq!(
+        client
+            .put(format!("{base}/api/admin/providers/configured"))
+            .bearer_auth(ADMIN_KEY)
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(
+                serde_json::json!({
+                    "provider":"openai",
+                    "upstream_url":provider_url,
+                    "api_key":"breaker-secret"
+                })
+                .to_string()
+            )
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
+    let endpoint = format!("{base}/api/admin/provider-health/configured");
+    assert_eq!(
+        client
+            .put(&endpoint)
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(
+                serde_json::json!({
+                    "failure_threshold":5,
+                    "degradation_threshold":2,
+                    "reset_timeout_ms":45_000
+                })
+                .to_string()
+            )
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        401
+    );
+    assert_eq!(
+        client
+            .put(&endpoint)
+            .bearer_auth(ADMIN_KEY)
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(
+                serde_json::json!({
+                    "failure_threshold":1,
+                    "degradation_threshold":2,
+                    "reset_timeout_ms":45_000
+                })
+                .to_string()
+            )
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        400
+    );
+    let configured = client
+        .put(&endpoint)
+        .bearer_auth(ADMIN_KEY)
+        .header(header::CONTENT_TYPE.as_str(), "application/json")
+        .body(
+            serde_json::json!({
+                "failure_threshold":5,
+                "degradation_threshold":2,
+                "reset_timeout_ms":45_000
+            })
+            .to_string(),
+        )
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(configured.status(), 200);
+    let configured: serde_json::Value =
+        serde_json::from_str(&configured.text().await.unwrap()).unwrap();
+    assert_eq!(configured["provider_health"]["failure_threshold"], 5);
+    assert_eq!(configured["provider_health"]["degradation_threshold"], 2);
+    assert_eq!(configured["provider_health"]["reset_timeout_ms"], 45_000);
+
+    gateway_task.abort();
+    let restarted = ControlPlane::new(database.clone(), ADMIN_KEY, STORAGE_KEY, false)
+        .await
+        .unwrap();
+    let (restarted_base, restarted_task) = gateway(restarted).await;
+    let restarted_endpoint = format!("{restarted_base}/api/admin/provider-health/configured");
+    let persisted = client
+        .get(format!("{restarted_base}/api/admin/provider-health"))
+        .bearer_auth(ADMIN_KEY)
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    let persisted: serde_json::Value = serde_json::from_str(&persisted).unwrap();
+    let persisted = persisted["provider_health"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["provider_id"] == "configured")
+        .unwrap();
+    assert_eq!(persisted["failure_threshold"], 5);
+    assert_eq!(persisted["degradation_threshold"], 2);
+    assert_eq!(persisted["reset_timeout_ms"], 45_000);
+    assert_eq!(
+        client
+            .delete(&restarted_endpoint)
+            .bearer_auth(ADMIN_KEY)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        204
+    );
+
+    restarted_task.abort();
+    let reset = ControlPlane::new(database.clone(), ADMIN_KEY, STORAGE_KEY, false)
+        .await
+        .unwrap();
+    let (reset_base, reset_task) = gateway(reset).await;
+    let reset = client
+        .get(format!("{reset_base}/api/admin/provider-health"))
+        .bearer_auth(ADMIN_KEY)
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    let reset: serde_json::Value = serde_json::from_str(&reset).unwrap();
+    let reset = reset["provider_health"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["provider_id"] == "configured")
+        .unwrap();
+    assert_eq!(reset["state"], "closed");
+    assert_eq!(reset["failure_threshold"], 5);
+    assert_eq!(reset["degradation_threshold"], 2);
+    assert_eq!(reset["reset_timeout_ms"], 45_000);
+
+    reset_task.abort();
+    provider_task.abort();
+    database.close().await.unwrap();
+}

@@ -73,7 +73,11 @@ provider; subsequent provider changes do not require those environment secrets.
 - `DELETE /api/admin/combos/{id}/lkgp` clears one learned last-known-good target.
 - `GET /api/admin/provider-health` lists provider breaker state, failure counts,
   thresholds and retry windows without exposing credentials.
-- `DELETE /api/admin/provider-health/{id}` durably resets one provider breaker.
+- `PUT /api/admin/provider-health/{id}` durably configures `failure_threshold`,
+  `degradation_threshold` and `reset_timeout_ms` and applies them to the live
+  provider without rebuilding routes.
+- `DELETE /api/admin/provider-health/{id}` durably resets one provider breaker
+  while preserving its configured thresholds and reset window.
 - `GET /api/admin/provider-quotas` lists the current redacted quota observations.
 - `PUT /api/admin/provider-quotas/{id}` publishes `session` and/or `weekly`
   `{remaining_percent, reset_at_unix_ms}` windows, optional `limit_reached`, and a
@@ -100,6 +104,9 @@ provider-wide failures. `401`, `403`, `429` and other account/model outcomes do 
 Local literal-loopback providers degrade/open after 1/2 failures with a 15 second reset;
 other API-key providers use 7/12 failures with a 30 second reset. An open breaker is
 skipped before dispatch, and only one half-open probe is admitted after cooldown.
+The authenticated health API can override those defaults per provider. Configuration
+survives restart and operator reset; the request path reads the existing live circuit
+and does not perform a configuration database lookup.
 
 The `lkgp` strategy starts in dashboard order, learns the first successful target and
 stores only `{combo_id, provider_id, model, revision}` in `redrouter_route_pins`. Later

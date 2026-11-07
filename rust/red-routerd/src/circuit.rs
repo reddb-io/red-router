@@ -134,8 +134,6 @@ impl ProviderCircuit {
             || (state == CircuitState::Closed && failure_count > degradation_threshold)
             || (state == CircuitState::Degraded
                 && !(degradation_threshold..failure_threshold).contains(&failure_count))
-            || (matches!(state, CircuitState::Open | CircuitState::HalfOpen)
-                && failure_count < failure_threshold)
         {
             return Err("invalid provider breaker record");
         }
@@ -308,18 +306,67 @@ impl ProviderCircuit {
     }
 
     pub(crate) async fn reset(&self) -> Result<(), &'static str> {
+        let now = unix_ms()?;
         let mut inner = self.inner.lock().await;
-        self.database.delete_breaker(&self.provider_id).await?;
         inner.state = CircuitState::Closed;
         inner.failure_count = 0;
         inner.last_failure_unix_ms = 0;
         inner.open_cycle_count = 0;
         inner.half_open_probe = false;
         inner.generation = inner.generation.wrapping_add(1);
+        self.persist(&inner, now).await?;
         self.blocked.store(false, Ordering::Release);
         self.needs_recovery.store(false, Ordering::Release);
         self.persistence_ok.store(true, Ordering::Release);
         Ok(())
+    }
+
+    pub(crate) async fn configure(
+        &self,
+        failure_threshold: u64,
+        degradation_threshold: u64,
+        reset_timeout_ms: u64,
+    ) -> Result<BreakerStatus, &'static str> {
+        if !(1..=1_000).contains(&failure_threshold)
+            || !(1..=failure_threshold).contains(&degradation_threshold)
+            || !(1_000..=MAX_RESET_MS).contains(&reset_timeout_ms)
+        {
+            return Err("invalid provider breaker configuration");
+        }
+        let now = unix_ms()?;
+        let mut inner = self.inner.lock().await;
+        inner.failure_threshold = failure_threshold;
+        inner.degradation_threshold = degradation_threshold;
+        inner.reset_timeout_ms = reset_timeout_ms;
+        if matches!(inner.state, CircuitState::Closed | CircuitState::Degraded) {
+            if inner.failure_count >= failure_threshold {
+                inner.state = CircuitState::Open;
+                inner.last_failure_unix_ms = now;
+                inner.half_open_probe = false;
+                inner.generation = inner.generation.wrapping_add(1);
+                self.blocked.store(true, Ordering::Release);
+                self.needs_recovery.store(true, Ordering::Release);
+            } else if inner.failure_count >= degradation_threshold {
+                inner.state = CircuitState::Degraded;
+                self.needs_recovery.store(true, Ordering::Release);
+            } else {
+                inner.state = CircuitState::Closed;
+                self.blocked.store(false, Ordering::Release);
+                self.needs_recovery
+                    .store(inner.failure_count > 0, Ordering::Release);
+            }
+        }
+        self.persist(&inner, now).await?;
+        Ok(BreakerStatus {
+            provider_id: self.provider_id.to_string(),
+            state: inner.state.as_str(),
+            failure_count: inner.failure_count,
+            retry_after_ms: retry_after(&inner, now),
+            open_cycle_count: inner.open_cycle_count,
+            failure_threshold: inner.failure_threshold,
+            degradation_threshold: inner.degradation_threshold,
+            reset_timeout_ms: inner.reset_timeout_ms,
+        })
     }
 
     async fn persist(&self, inner: &Inner, revision: u64) -> Result<(), &'static str> {
@@ -458,7 +505,60 @@ mod tests {
         assert_eq!(database.breakers().await.unwrap()[0].state, "closed");
 
         restored.reset().await.unwrap();
-        assert!(database.breakers().await.unwrap().is_empty());
+        let reset = database.breakers().await.unwrap().remove(0);
+        assert_eq!(reset.state, "closed");
+        assert_eq!(reset.failure_count, 0);
+        assert_eq!(reset.failure_threshold, 2);
+        assert_eq!(reset.degradation_threshold, 1);
+        assert_eq!(reset.reset_timeout_ms, 1_000);
+    }
+
+    #[tokio::test]
+    async fn persists_operator_configuration_and_preserves_it_on_reset() {
+        let (_directory, database) = database().await;
+        let circuit = ProviderCircuit::new("configured", database.clone(), false);
+        let configured = circuit.configure(5, 2, 45_000).await.unwrap();
+        assert_eq!(configured.failure_threshold, 5);
+        assert_eq!(configured.degradation_threshold, 2);
+        assert_eq!(configured.reset_timeout_ms, 45_000);
+
+        let record = database.breakers().await.unwrap().remove(0);
+        let restored = ProviderCircuit::from_stored(&record, database.clone()).unwrap();
+        let restored_status = restored.status().await.unwrap();
+        assert_eq!(restored_status.failure_threshold, 5);
+        assert_eq!(restored_status.degradation_threshold, 2);
+        assert_eq!(restored_status.reset_timeout_ms, 45_000);
+
+        restored.reset().await.unwrap();
+        let reset = database.breakers().await.unwrap().remove(0);
+        assert_eq!(reset.failure_threshold, 5);
+        assert_eq!(reset.degradation_threshold, 2);
+        assert_eq!(reset.reset_timeout_ms, 45_000);
+    }
+
+    #[tokio::test]
+    async fn lowering_threshold_applies_to_accumulated_failures() {
+        let (_directory, database) = database().await;
+        let circuit = ProviderCircuit::new("lowered", database.clone(), false);
+        let permit = match circuit.try_acquire().await.unwrap() {
+            CircuitDecision::Permit(permit) => permit,
+            CircuitDecision::Open { .. } => panic!("closed circuit refused request"),
+        };
+        circuit.record_failure(permit).await.unwrap();
+        assert_eq!(circuit.status().await.unwrap().state, "closed");
+
+        let configured = circuit.configure(1, 1, 60_000).await.unwrap();
+        assert_eq!(configured.state, "open");
+        assert_eq!(configured.failure_count, 1);
+        assert!(matches!(
+            circuit.try_acquire().await.unwrap(),
+            CircuitDecision::Open { .. }
+        ));
+
+        let raised = circuit.configure(5, 2, 60_000).await.unwrap();
+        assert_eq!(raised.state, "open");
+        let record = database.breakers().await.unwrap().remove(0);
+        assert!(ProviderCircuit::from_stored(&record, database).is_ok());
     }
 
     #[test]

@@ -1416,7 +1416,7 @@ pub fn router(state: ProxyState) -> Router {
         )
         .route(
             "/api/admin/provider-health/{id}",
-            axum::routing::delete(control_plane::delete_provider_health),
+            put(control_plane::put_provider_health).delete(control_plane::delete_provider_health),
         )
         .route(
             "/api/admin/provider-quotas",

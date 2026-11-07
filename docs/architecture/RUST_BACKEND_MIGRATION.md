@@ -49,7 +49,7 @@ features must not be implemented only there.
 | Combos and routing          | Implemented foundation | Durable deterministic, metadata-ranked, deck-random and load-aware routes and reload |
 | Pricing, quotas and budgets | Partial                | Atomic reservations, streaming settlement, reconciliation, multi-process tests     |
 | Usage and audit             | Partial                | Complete protocol usage, idempotent ledger, retention/export APIs                  |
-| Settings and resilience     | Partial                | Durable provider breakers and reset API; versioned settings snapshots remain       |
+| Settings and resilience     | Partial                | Durable configurable provider breakers and reset API; versioned settings snapshots remain |
 | SPA delivery                | Pending                | Rust-served static assets, same-origin admin API, no Next.js runtime               |
 | Legacy data migration       | Pending                | Maintenance-mode import, verification report and rollback boundary                 |
 
@@ -111,5 +111,7 @@ ordinary key/account/model responses such as `401`, `403` and `429` do not poiso
 whole provider. Open providers are skipped before dispatch, one concurrent half-open
 probe is allowed after the durable cooldown, and success or failure is committed before
 the updated runtime state is accepted. The authenticated health API exposes only
-non-secret state and supports an operator reset. Durable configuration of breaker
-thresholds and the remaining connection/model cooldown layers still need migration.
+non-secret state and supports durable per-provider thresholds, reset windows and an
+operator reset that preserves those settings. Configuration is committed before the
+live circuit changes and survives restart. The remaining connection/model cooldown
+layers still need migration.
