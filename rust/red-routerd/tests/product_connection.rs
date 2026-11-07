@@ -86,6 +86,42 @@ async fn fastllm_plan_reads_dashboard_combo_and_refuses_unimplemented_routing() 
 }
 
 #[tokio::test]
+async fn product_combo_accepts_pinned_openai_compatible_provider_endpoints() {
+    let (dir, mut db) = fixture().await;
+    for (provider, expected) in [
+        ("groq", "https://api.groq.com/openai/v1/chat/completions"),
+        ("mistral", "https://api.mistral.ai/v1/chat/completions"),
+        ("deepseek", "https://api.deepseek.com/chat/completions"),
+    ] {
+        sqlx::query("INSERT INTO provider_connections (id,provider,auth_type,is_active,api_key,updated_at) VALUES (?,?,'apikey',1,'fixture-provider-key','a')")
+            .bind(provider).bind(provider).execute(&mut db).await.unwrap();
+        let path = dir.path().join("storage.sqlite");
+        let id = ProductConnection::select_fill_first(&path, provider)
+            .await
+            .unwrap();
+        let (connection, key) = ProductConnection::open(&path, &id, None).await.unwrap();
+        assert_eq!(connection.upstream_url(), expected);
+        assert_eq!(key.as_str(), "fixture-provider-key");
+        assert!(connection.with_auto_selection_guard().unchanged().await);
+    }
+    sqlx::query("INSERT INTO combos (name,data) VALUES ('providers',?)")
+        .bind(r#"{"name":"providers","strategy":"priority","models":["groq/llama","mistral/large","deepseek/chat"]}"#)
+        .execute(&mut db).await.unwrap();
+    let combo = ProductCombo::load(&dir.path().join("storage.sqlite"), "providers")
+        .await
+        .unwrap();
+    assert_eq!(
+        combo
+            .targets
+            .iter()
+            .map(|target| target.provider.as_str())
+            .collect::<Vec<_>>(),
+        vec!["groq", "mistral", "deepseek"]
+    );
+    assert!(red_routerd::product_provider::chat_url("untrusted-provider").is_none());
+}
+
+#[tokio::test]
 async fn internal_fastllm_token_must_not_match_even_disabled_dashboard_keys() {
     let (dir, mut db) = fixture().await;
     let plain = "dashboard-key-with-a-long-plaintext-value";

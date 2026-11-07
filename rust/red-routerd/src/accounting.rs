@@ -185,7 +185,7 @@ async fn record_usage(
         || event.key_id.len() > 512
         || event.model.is_empty()
         || event.model.len() > 256
-        || !matches!(event.provider, "openai" | "openrouter")
+        || crate::product_provider::chat_url(event.provider).is_none()
         || event.timestamp_ms < 0
     {
         return Err("invalid accounting event");

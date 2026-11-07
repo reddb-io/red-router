@@ -311,6 +311,33 @@ try {
   credentialFixture.prepare("UPDATE provider_connections SET is_active = 0 WHERE id = 'fixture-connection'").run();
   const invalidated = await fetch(credentialUrl, { headers: { ...controlAuth, "x-redrouter-memory-only": "1", "if-none-match": '"1"' } });
   assert.equal(invalidated.status, 503);
+  credentialFixture.prepare("UPDATE provider_connections SET is_active = 1 WHERE id = 'fixture-connection'").run();
+  for (const provider of ["groq", "mistral", "deepseek"]) {
+    credentialFixture.prepare("INSERT INTO provider_connections (id,provider,auth_type,api_key,is_active,created_at,updated_at) VALUES (?,?,'apikey','fixture-provider-key',1,'2026-01-01T00:00:00Z','2026-01-01T00:00:00Z')").run(provider, provider);
+  }
+  credentialFixture.prepare("UPDATE combos SET data = ? WHERE name = 'bench'").run(JSON.stringify({ name: "bench", strategy: "priority", models: ["openrouter/vendor/model-a", "groq/fixture-groq", "mistral/fixture-mistral", "deepseek/fixture-deepseek"] }));
+  const multiControlPort = await unusedPort();
+  const multiControl = childProcess(redBinary, ["fastllm-control"], {
+    RED_ROUTER_PRODUCT_DB_PATH: credentialDbPath, RED_ROUTER_PRODUCT_COMBO: "bench",
+    RED_ROUTER_FASTLLM_INTERNAL_KEY: internalKey, RED_ROUTER_FASTLLM_CONTROL_TOKEN: secureControlToken,
+    RED_ROUTER_FASTLLM_CONTROL_LISTEN: `127.0.0.1:${multiControlPort}`, STORAGE_ENCRYPTION_KEY: "fixture-password",
+  });
+  const multiUrl = `http://127.0.0.1:${multiControlPort}/snapshot`;
+  let multiResponse;
+  for (let attempt = 0; attempt < 300; attempt++) {
+    if (multiControl.exitCode !== null) throw new Error(`multi-provider credential control exited: ${multiControl.exitCode}`);
+    try {
+      multiResponse = await fetch(multiUrl, { headers: { ...controlAuth, "x-redrouter-memory-only": "1" }, signal: AbortSignal.timeout(500) });
+      if (multiResponse.status === 200) break;
+    } catch { /* starting */ }
+    await delay(100);
+  }
+  assert.equal(multiResponse?.status, 200);
+  const providerModels = (await multiResponse.json()).models;
+  assert.deepEqual(providerModels.map((model) => model.backends[0].api_base), [
+    "https://openrouter.ai/api/v1", "https://api.groq.com/openai/v1",
+    "https://api.mistral.ai/v1", "https://api.deepseek.com",
+  ]);
   // The actual Red Router process authenticates the dashboard key and guards
   // the SQLite combo/connection before forwarding to the FastLLM process.
   const bridgePort = await unusedPort();

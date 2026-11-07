@@ -6,6 +6,7 @@ pub mod fastllm_plan;
 mod policy;
 pub mod product;
 pub mod product_combo;
+pub mod product_provider;
 pub mod reconcile;
 pub mod shared_usage;
 pub mod storage;
@@ -259,12 +260,7 @@ impl ProxyState {
             if !connection.same_database(primary)
                 || target.protocol != ProviderProtocol::OpenAi
                 || target.model != source.model
-                || connection.upstream_url()
-                    != match source.provider.as_str() {
-                        "openai" => "https://api.openai.com/v1/chat/completions",
-                        "openrouter" => "https://openrouter.ai/api/v1/chat/completions",
-                        _ => return Err("unsupported product combo provider"),
-                    }
+                || Some(connection.upstream_url()) != product_provider::chat_url(&source.provider)
                 || (!loopback && target.upstream.as_str() != connection.upstream_url())
             {
                 return Err("product combo target does not match stored configuration");

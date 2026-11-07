@@ -16,7 +16,7 @@ RedRouter's full provider selection, quotas, policies, accounting, protocol
 full protocol translation, management API, remote listening or inbound TLS.
 Its standard database integration persists only the single upstream endpoint;
 client and provider keys remain environment configuration. An opt-in mode can
-read one OpenRouter or OpenAI API credential from the product SQLite database, as described
+read a supported OpenAI-compatible API credential from the product SQLite database, as described
 below. No product database migration is performed.
 It has not been validated as a production gateway. `/healthz` confirms that this
 process responds; it is not evidence of provider or database readiness.
@@ -68,7 +68,7 @@ Snapshot bytes and decrypted credentials exist in process memory and travel
 over loopback HTTP. This is an experimental local trust boundary, not protection
 against a local process that has access to those tokens or process memory.
 
-The source supports the same simple OpenAI/OpenRouter priority combos as the
+The source supports the same simple OpenAI-compatible priority combos as the
 guarded transport. Configuration edits and credential revocations make new
 snapshot requests fail until restart; the FastLLM can retain its previous
 in-memory snapshot, so every client request must continue through the guarded
@@ -77,7 +77,7 @@ or implement token/spend quota reconciliation. It does not yet automatically
 launch or supervise FastLLM, and has not been validated with real credentials.
 
 Set `RED_ROUTER_PRODUCT_DB_PATH` to the existing product `storage.sqlite` file,
-`RED_ROUTER_PRODUCT_CONNECTION_ID` to the ID of an active OpenRouter or OpenAI API-key
+`RED_ROUTER_PRODUCT_CONNECTION_ID` to the ID of an active supported API-key
 connection. Unless using dashboard keys below, set `RED_ROUTER_CLIENT_KEY` to
 a separate strong client key. If the
 provider credential uses field encryption, provide the same
@@ -112,13 +112,15 @@ mode is described below.
 Missing expected schema fails closed. No usage or cost accounting is recorded by
 default. Provider choice is an explicit connection ID unless the limited
 startup selection below is enabled.
-Only direct chat requests to the two fixed provider endpoints are supported in
+Only direct chat requests to fixed endpoints for OpenAI, OpenRouter, Groq,
+Mistral and DeepSeek are supported in
 this mode. The requested model must start with the selected product provider,
 for example `openrouter/openai/gpt-4o` or `openai/gpt-4o`; the provider prefix
 is removed before forwarding. Do not use it as a production replacement.
 
 As an experimental alternative to `RED_ROUTER_PRODUCT_CONNECTION_ID`, set
-`RED_ROUTER_PRODUCT_PROVIDER` to `openai` or `openrouter`. Startup then
+`RED_ROUTER_PRODUCT_PROVIDER` to `openai`, `openrouter`, `groq`, `mistral`,
+or `deepseek`. Startup then
 selects the active connection with the dashboard's fill-first priority order.
 The selected connection is fixed until restart. Other configured routing
 strategies and unsupported connection health, proxy, concurrency or quota
@@ -138,7 +140,9 @@ or fallback after a response starts streaming.
 Alternatively set `RED_ROUTER_PRODUCT_COMBO` to a dashboard combo name,
 `RED_ROUTER_PRODUCT_CLIENT_KEYS=1`, and omit the provider and connection
 selection variables. This experimental mode reads one stored priority combo and
-selects fill-first API-key connections for its OpenAI and OpenRouter targets.
+selects fill-first API-key connections for supported provider targets. The
+new provider mappings are fixture-tested only; they do not establish full
+model-specific behavior or live-provider compatibility.
 It verifies the combo, key, permitted models and each connection before use;
 changes to the stored combo or selected connections require a restart. Only
 simple priority model steps with empty combo configuration are supported.

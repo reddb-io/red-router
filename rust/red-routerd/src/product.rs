@@ -49,7 +49,7 @@ impl ProductConnection {
     /// Pick the dashboard's fill-first connection at startup. More complex
     /// strategies and connection-level quota settings remain unsupported.
     pub async fn select_fill_first(path: &Path, provider: &str) -> Result<String, &'static str> {
-        if !matches!(provider, "openai" | "openrouter") {
+        if crate::product_provider::chat_url(provider).is_none() {
             return Err("unsupported automatic product provider");
         }
         let options = SqliteConnectOptions::new().filename(path).read_only(true);
@@ -212,13 +212,11 @@ impl ProductConnection {
         let active: i64 = row
             .try_get("is_active")
             .map_err(|_| "invalid product connection state")?;
-        if !matches!(provider.as_str(), "openrouter" | "openai")
+        if crate::product_provider::chat_url(&provider).is_none()
             || auth.as_deref() != Some("apikey")
             || active != 1
         {
-            return Err(
-                "selected connection must be an active OpenRouter or OpenAI API-key connection",
-            );
+            return Err("selected connection must be an active supported API-key connection");
         }
         let stored: String = row
             .try_get("api_key")
@@ -578,10 +576,8 @@ impl ProductConnection {
     }
 
     pub fn upstream_url(&self) -> &'static str {
-        match self.provider.as_ref() {
-            "openai" => "https://api.openai.com/v1/chat/completions",
-            _ => "https://openrouter.ai/api/v1/chat/completions",
-        }
+        crate::product_provider::chat_url(self.provider.as_ref())
+            .expect("provider is validated when the connection is opened")
     }
 
     /// Internal transport tokens must never equal a dashboard credential,
