@@ -1,4 +1,8 @@
-use axum::{http::HeaderMap, routing::post, Router};
+use axum::{
+    http::{header, HeaderMap},
+    routing::post,
+    Router,
+};
 use red_routerd::{
     control_plane::ControlPlane,
     router,
@@ -53,7 +57,8 @@ async fn chat(client: &reqwest::Client, base: &str) -> reqwest::Response {
     client
         .post(format!("{base}/v1/chat/completions"))
         .bearer_auth(CLIENT_KEY)
-        .json(&serde_json::json!({"model":"fixture-model","messages":[]}))
+        .header(header::CONTENT_TYPE.as_str(), "application/json")
+        .body(r#"{"model":"fixture-model","messages":[]}"#)
         .send()
         .await
         .unwrap()
@@ -96,11 +101,15 @@ async fn rust_control_plane_persists_redacts_and_live_reloads_providers() {
     let first_response = client
         .put(format!("{base}/api/admin/providers/first"))
         .bearer_auth(ADMIN_KEY)
-        .json(&serde_json::json!({
-            "provider":"openai",
-            "upstream_url":first_url,
-            "api_key":"first-provider-secret"
-        }))
+        .header(header::CONTENT_TYPE.as_str(), "application/json")
+        .body(
+            serde_json::json!({
+                "provider":"openai",
+                "upstream_url":first_url,
+                "api_key":"first-provider-secret"
+            })
+            .to_string(),
+        )
         .send()
         .await
         .unwrap();
@@ -115,11 +124,15 @@ async fn rust_control_plane_persists_redacts_and_live_reloads_providers() {
     let second_response = client
         .put(format!("{base}/api/admin/providers/second"))
         .bearer_auth(ADMIN_KEY)
-        .json(&serde_json::json!({
-            "provider":"openrouter",
-            "upstream_url":second_url,
-            "api_key":"second-provider-secret"
-        }))
+        .header(header::CONTENT_TYPE.as_str(), "application/json")
+        .body(
+            serde_json::json!({
+                "provider":"openrouter",
+                "upstream_url":second_url,
+                "api_key":"second-provider-secret"
+            })
+            .to_string(),
+        )
         .send()
         .await
         .unwrap();
