@@ -92,6 +92,8 @@ async fn product_combo_accepts_pinned_openai_compatible_provider_endpoints() {
         ("groq", "https://api.groq.com/openai/v1/chat/completions"),
         ("mistral", "https://api.mistral.ai/v1/chat/completions"),
         ("deepseek", "https://api.deepseek.com/chat/completions"),
+        ("together", "https://api.together.xyz/v1/chat/completions"),
+        ("perplexity", "https://api.perplexity.ai/chat/completions"),
     ] {
         sqlx::query("INSERT INTO provider_connections (id,provider,auth_type,is_active,api_key,updated_at) VALUES (?,?,'apikey',1,'fixture-provider-key','a')")
             .bind(provider).bind(provider).execute(&mut db).await.unwrap();

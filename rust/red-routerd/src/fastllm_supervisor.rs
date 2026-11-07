@@ -84,7 +84,8 @@ async fn wait_ready(
         .redirect(reqwest::redirect::Policy::none())
         .timeout(Duration::from_millis(500))
         .build()?;
-    for _ in 0..200 {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    while tokio::time::Instant::now() < deadline {
         if child.try_wait()?.is_some() {
             return Err("FastLLM exited before readiness".into());
         }
@@ -115,13 +116,17 @@ async fn wait_ready(
 
 /// Stops the gateway if the control service fails, or after repeated engine
 /// crashes. A restarted engine must load the same verified configuration.
+pub struct Config<'a> {
+    pub binary: &'a Path,
+    pub engine_address: SocketAddr,
+    pub control_address: SocketAddr,
+    pub control_token: &'a str,
+    pub internal_token: &'a str,
+    pub version: u64,
+}
+
 pub async fn run<F>(
-    binary: &Path,
-    engine_address: SocketAddr,
-    control_address: SocketAddr,
-    control_token: &str,
-    internal_token: &str,
-    version: u64,
+    config: Config<'_>,
     state: ProxyState,
     mut control_task: JoinHandle<std::io::Result<()>>,
     gateway: F,
@@ -129,8 +134,19 @@ pub async fn run<F>(
 where
     F: Future<Output = Result<(), Failure>>,
 {
-    let mut child = spawn_engine(binary, engine_address, control_address, control_token)?;
-    wait_ready(&mut child, engine_address, internal_token, version).await?;
+    let mut child = spawn_engine(
+        config.binary,
+        config.engine_address,
+        config.control_address,
+        config.control_token,
+    )?;
+    wait_ready(
+        &mut child,
+        config.engine_address,
+        config.internal_token,
+        config.version,
+    )
+    .await?;
     if !state.product_configuration_unchanged().await {
         return Err("dashboard configuration changed during FastLLM startup".into());
     }
@@ -147,8 +163,8 @@ where
                 }
                 restarts += 1;
                 tokio::time::sleep(Duration::from_millis(200 * restarts)).await;
-                child = spawn_engine(binary, engine_address, control_address, control_token)?;
-                wait_ready(&mut child, engine_address, internal_token, version).await?;
+                child = spawn_engine(config.binary, config.engine_address, config.control_address, config.control_token)?;
+                wait_ready(&mut child, config.engine_address, config.internal_token, config.version).await?;
                 if !state.product_configuration_unchanged().await { return Err("dashboard configuration changed during FastLLM restart".into()); }
             }
         }

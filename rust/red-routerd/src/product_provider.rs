@@ -7,6 +7,8 @@ pub fn chat_url(provider: &str) -> Option<&'static str> {
         "groq" => Some("https://api.groq.com/openai/v1/chat/completions"),
         "mistral" => Some("https://api.mistral.ai/v1/chat/completions"),
         "deepseek" => Some("https://api.deepseek.com/chat/completions"),
+        "together" => Some("https://api.together.xyz/v1/chat/completions"),
+        "perplexity" => Some("https://api.perplexity.ai/chat/completions"),
         _ => None,
     }
 }

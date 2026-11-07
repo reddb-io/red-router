@@ -455,12 +455,14 @@ async fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
             .await?;
             let gateway = serve_proxy(address, state.clone());
             return red_routerd::fastllm_supervisor::run(
-                &binary,
-                engine_address,
-                control_address,
-                control.as_str(),
-                internal.as_str(),
-                version,
+                red_routerd::fastllm_supervisor::Config {
+                    binary: &binary,
+                    engine_address,
+                    control_address,
+                    control_token: control.as_str(),
+                    internal_token: internal.as_str(),
+                    version,
+                },
                 state,
                 control_task,
                 gateway,

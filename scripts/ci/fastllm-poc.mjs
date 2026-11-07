@@ -373,10 +373,10 @@ try {
   assert.equal(rotatedSnapshot.status, 200);
   assert.notEqual(rotatedSnapshot.headers.get("etag"), firstEtag);
   assert.equal((await rotatedSnapshot.json()).models[0].backends[0].api_key, "rotated-fixture-provider-key");
-  for (const provider of ["groq", "mistral", "deepseek"]) {
+  for (const provider of ["groq", "mistral", "deepseek", "together", "perplexity"]) {
     credentialFixture.prepare("INSERT INTO provider_connections (id,provider,auth_type,api_key,is_active,created_at,updated_at) VALUES (?,?,'apikey','fixture-provider-key',1,'2026-01-01T00:00:00Z','2026-01-01T00:00:00Z')").run(provider, provider);
   }
-  credentialFixture.prepare("UPDATE combos SET data = ? WHERE name = 'bench'").run(JSON.stringify({ name: "bench", strategy: "priority", models: ["openrouter/vendor/model-a", "groq/fixture-groq", "mistral/fixture-mistral", "deepseek/fixture-deepseek"] }));
+  credentialFixture.prepare("UPDATE combos SET data = ? WHERE name = 'bench'").run(JSON.stringify({ name: "bench", strategy: "priority", models: ["openrouter/vendor/model-a", "groq/fixture-groq", "mistral/fixture-mistral", "deepseek/fixture-deepseek", "together/fixture-together", "perplexity/fixture-perplexity"] }));
   const multiControlPort = await unusedPort();
   const multiControl = childProcess(redBinary, ["fastllm-control"], {
     RED_ROUTER_PRODUCT_DB_PATH: credentialDbPath, RED_ROUTER_PRODUCT_COMBO: "bench",
@@ -398,7 +398,7 @@ try {
   const providerModels = (await multiResponse.json()).models;
   assert.deepEqual(providerModels.map((model) => model.backends[0].api_base), [
     "https://openrouter.ai/api/v1", "https://api.groq.com/openai/v1",
-    "https://api.mistral.ai/v1", "https://api.deepseek.com",
+    "https://api.mistral.ai/v1", "https://api.deepseek.com", "https://api.together.xyz/v1", "https://api.perplexity.ai",
   ]);
   // The actual Red Router process authenticates the dashboard key and guards
   // the SQLite combo/connection before forwarding to the FastLLM process.
@@ -436,6 +436,20 @@ try {
   const limited = await request(bridgeUrl, fixtureKey, "bench", AbortSignal.timeout(5000));
   assert.equal(limited.status, 429);
   await limited.body?.cancel();
+  db.prepare("DELETE FROM api_key_quota_limits WHERE api_key_id = ?").run(keyId);
+  // Token/spend enforcement is deliberately not enabled until reservations
+  // are wired through every writer. Reject this key without blocking others.
+  db.prepare("INSERT INTO api_key_quota_limits (api_key_id,tpm_limit,monthly_amount_usd) VALUES (?,100,1)").run(keyId);
+  const unimplementedQuota = await request(bridgeUrl, fixtureKey, "bench", AbortSignal.timeout(5000));
+  assert.equal(unimplementedQuota.status, 503);
+  await unimplementedQuota.body?.cancel();
+  const independentKey = "fixture-independent-dashboard-key-98765";
+  db.prepare("INSERT INTO api_keys (id,name,key,created_at,key_hash,is_active,allowed_models) VALUES ('independent','fixture-2',?,'2026-01-01T00:00:00Z',?,1,?)")
+    .run(independentKey, digest(independentKey), JSON.stringify(["openrouter/vendor/model-a"]));
+  const independent = await request(bridgeUrl, independentKey, "bench", AbortSignal.timeout(5000));
+  if (independent.status !== 200) throw new Error(`independent key returned ${independent.status}: ${await independent.text()}`);
+  assert.ok((await independent.text()).includes("[DONE]"));
+  db.prepare("DELETE FROM api_keys WHERE id = 'independent'").run();
   db.prepare("DELETE FROM api_key_quota_limits WHERE api_key_id = ?").run(keyId);
   db.prepare("UPDATE combos SET data = ? WHERE name = 'bench'").run(JSON.stringify({ name: "bench", strategy: "priority", models: ["openrouter/vendor/model-a", "openai/vendor/model-b"] }));
   const fallbackPort = await unusedPort();

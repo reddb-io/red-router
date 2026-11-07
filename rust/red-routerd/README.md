@@ -136,14 +136,14 @@ Missing expected schema fails closed. No usage or cost accounting is recorded by
 default. Provider choice is an explicit connection ID unless the limited
 startup selection below is enabled.
 Only direct chat requests to fixed endpoints for OpenAI, OpenRouter, Groq,
-Mistral and DeepSeek are supported in
+Mistral, DeepSeek, Together and Perplexity are supported in
 this mode. The requested model must start with the selected product provider,
 for example `openrouter/openai/gpt-4o` or `openai/gpt-4o`; the provider prefix
 is removed before forwarding. Do not use it as a production replacement.
 
 As an experimental alternative to `RED_ROUTER_PRODUCT_CONNECTION_ID`, set
 `RED_ROUTER_PRODUCT_PROVIDER` to `openai`, `openrouter`, `groq`, `mistral`,
-or `deepseek`. Startup then
+`deepseek`, `together`, or `perplexity`. Startup then
 selects the active connection with the dashboard's fill-first priority order.
 The selected connection is fixed until restart. Other configured routing
 strategies and unsupported connection health, proxy, concurrency or quota
