@@ -703,11 +703,15 @@ async fn rust_control_plane_balances_shared_stream_load_across_snapshot_reload()
             client
                 .put(format!("{base}/api/admin/providers/{id}"))
                 .bearer_auth(ADMIN_KEY)
-                .json(&serde_json::json!({
-                    "provider":"openai-compatible",
-                    "upstream_url":upstream_url,
-                    "api_key":api_key
-                }))
+                .header(header::CONTENT_TYPE.as_str(), "application/json")
+                .body(
+                    serde_json::json!({
+                        "provider":"openai-compatible",
+                        "upstream_url":upstream_url,
+                        "api_key":api_key
+                    })
+                    .to_string(),
+                )
                 .send()
                 .await
                 .unwrap()
@@ -719,14 +723,18 @@ async fn rust_control_plane_balances_shared_stream_load_across_snapshot_reload()
         client
             .put(format!("{base}/api/admin/client-keys/load-client"))
             .bearer_auth(ADMIN_KEY)
-            .json(&serde_json::json!({
-                "label":"Load balancing client",
-                "api_key":RUST_CLIENT_KEY,
-                "scopes":["inference:chat"],
-                "allowed_endpoints":["chat"],
-                "allowed_models":["load-combo","upstream-model"],
-                "allowed_provider_ids":["held","idle"]
-            }))
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(
+                serde_json::json!({
+                    "label":"Load balancing client",
+                    "api_key":RUST_CLIENT_KEY,
+                    "scopes":["inference:chat"],
+                    "allowed_endpoints":["chat"],
+                    "allowed_models":["load-combo","upstream-model"],
+                    "allowed_provider_ids":["held","idle"]
+                })
+                .to_string(),
+            )
             .send()
             .await
             .unwrap()
@@ -737,14 +745,18 @@ async fn rust_control_plane_balances_shared_stream_load_across_snapshot_reload()
         client
             .put(format!("{base}/api/admin/combos/load-combo"))
             .bearer_auth(ADMIN_KEY)
-            .json(&serde_json::json!({
-                "strategy":strategy,
-                "fallback":false,
-                "targets":[
-                    {"provider_id":"held","model":"upstream-model"},
-                    {"provider_id":"idle","model":"upstream-model"}
-                ]
-            }))
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(
+                serde_json::json!({
+                    "strategy":strategy,
+                    "fallback":false,
+                    "targets":[
+                        {"provider_id":"held","model":"upstream-model"},
+                        {"provider_id":"idle","model":"upstream-model"}
+                    ]
+                })
+                .to_string(),
+            )
             .send()
     };
     assert_eq!(configure("least-used").await.unwrap().status(), 200);
