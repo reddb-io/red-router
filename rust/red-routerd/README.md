@@ -23,6 +23,29 @@ process responds; it is not evidence of provider or database readiness.
 
 ## Experimental product SQLite credential
 
+### Experimental FastLLM transport for a single dashboard combo
+
+With `RED_ROUTER_PRODUCT_DB_PATH`, `RED_ROUTER_PRODUCT_COMBO` and
+`RED_ROUTER_PRODUCT_CLIENT_KEYS=1`, an operator may additionally set
+`RED_ROUTER_FASTLLM_URL` to a literal loopback HTTP
+`/v1/chat/completions` endpoint and `RED_ROUTER_FASTLLM_INTERNAL_KEY` to a
+separate, secret 32–512 character internal token. This opt-in mode supports
+only a simple one-target priority combo. Red Router checks the dashboard key,
+supported policies, combo and selected connection before forwarding. Existing
+shared RPM and optional accounting paths remain in the Red Router process;
+this mode does not add support for quota types or policies they do not handle.
+
+FastLLM must be independently configured to accept the internal token and
+resolve the combo's *upstream model name* to the same provider and connection
+selected in SQLite. The Red Router process cannot yet verify that mapping or
+provision, rotate or revoke the credential in FastLLM. Limit the FastLLM
+listener to loopback and give it no public client keys. Whoever has the
+internal token can bypass the dashboard gate. The tested upstream FastLLM
+HTTP control source also caches snapshots containing provider credentials on
+disk and retains stale snapshots on control-plane failure. Do not use this
+experimental mode with real secrets or production traffic until those gaps are
+fixed. It adds a loopback hop; no performance improvement is implied.
+
 Set `RED_ROUTER_PRODUCT_DB_PATH` to the existing product `storage.sqlite` file,
 `RED_ROUTER_PRODUCT_CONNECTION_ID` to the ID of an active OpenRouter or OpenAI API-key
 connection. Unless using dashboard keys below, set `RED_ROUTER_CLIENT_KEY` to

@@ -158,6 +158,24 @@ async fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
             Err(env::VarError::NotPresent) | Ok("0") => false,
             _ => return Err("RED_ROUTER_PRODUCT_CLIENT_KEYS must be 0 or 1".into()),
         };
+        let fastllm_transport = match (
+            env::var("RED_ROUTER_FASTLLM_URL"),
+            env::var("RED_ROUTER_FASTLLM_INTERNAL_KEY"),
+        ) {
+            (Err(env::VarError::NotPresent), Err(env::VarError::NotPresent)) => None,
+            (Ok(url), Ok(token)) => {
+                red_routerd::fastllm_plan::validate_transport(&url, &token)?;
+                if !product_client_keys || combo.as_ref().is_none_or(|c| c.targets.len() != 1) {
+                    return Err("FastLLM transport requires dashboard keys and a single-target priority combo".into());
+                }
+                Some((url, zeroize::Zeroizing::new(token)))
+            }
+            _ => {
+                return Err(
+                    "set both RED_ROUTER_FASTLLM_URL and RED_ROUTER_FASTLLM_INTERNAL_KEY".into(),
+                )
+            }
+        };
         let shared_rpm = match env::var("RED_ROUTER_PRODUCT_SHARED_RPM").as_deref() {
             Ok("1") => true,
             Err(env::VarError::NotPresent) | Ok("0") => false,
@@ -222,6 +240,12 @@ async fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
             storage_key.as_deref().map(String::as_str),
         )
         .await?;
+        if fastllm_transport
+            .as_ref()
+            .is_some_and(|(_, token)| token.as_str() == credential.as_str())
+        {
+            return Err("FastLLM internal token must differ from the provider credential".into());
+        }
         if auto_selection {
             connection = connection.with_auto_selection_guard();
         }
@@ -280,7 +304,13 @@ async fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
                         key,
                     )
                 };
-                targets.push(serde_json::json!({"url":source.upstream_url(),"model":target.model,"api_key_env":format!("KEY_{index}")}));
+                let (url, key) = match &fastllm_transport {
+                    Some((url, token)) => {
+                        (url.as_str(), zeroize::Zeroizing::new(token.to_string()))
+                    }
+                    None => (source.upstream_url(), key),
+                };
+                targets.push(serde_json::json!({"url":url,"model":target.model,"api_key_env":format!("KEY_{index}")}));
                 combo_connections.push(source);
                 combo_keys.push(key);
             }
@@ -324,6 +354,11 @@ async fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
         }
         eprintln!("Experimental product mode: only a restricted subset of product policies and quota accounting is supported");
         return serve_proxy(address, state).await;
+    }
+    if env::var_os("RED_ROUTER_FASTLLM_URL").is_some()
+        || env::var_os("RED_ROUTER_FASTLLM_INTERNAL_KEY").is_some()
+    {
+        return Err("FastLLM transport requires RED_ROUTER_PRODUCT_DB_PATH".into());
     }
     match env::var("RED_ROUTER_PRODUCT_ACCOUNT_USAGE").as_deref() {
         Ok("1") => {

@@ -18,10 +18,12 @@ assert.ok(fastBinary && redBinary, "CI must provide both binary paths");
 const temp = mkdtempSync(join(tmpdir(), "redrouter-fastllm-poc-"));
 const fixtureKey = "fixture-red-router-client-key-12345";
 const fixtureProviderKey = "fixture-upstream-key-12345";
+const internalKey = "fixture-internal-fastllm-key-1234567890";
 const controlToken = "fixture-control-token-12345";
 const agentPrompt = "agent-context ".repeat(2500);
 const principalId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const keyId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+const internalKeyId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 const digest = (value) => createHash("sha256").update(value).digest("hex");
 const fixtureDbPath = join(temp, "dashboard-fixture.sqlite");
 const db = new DatabaseSync(fixtureDbPath);
@@ -32,10 +34,44 @@ for (const migration of ["001_initial_schema.sql", "005_combo_agent_fields.sql",
 db.exec(`ALTER TABLE api_keys ADD COLUMN key_hash TEXT;
   ALTER TABLE api_keys ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1;
   ALTER TABLE api_keys ADD COLUMN allowed_models TEXT;
+  ALTER TABLE api_keys ADD COLUMN is_banned INTEGER DEFAULT 0;
+  ALTER TABLE api_keys ADD COLUMN revoked_at TEXT;
+  ALTER TABLE api_keys ADD COLUMN expires_at TEXT;
+  ALTER TABLE api_keys ADD COLUMN max_requests_per_day INTEGER;
+  ALTER TABLE api_keys ADD COLUMN max_requests_per_minute INTEGER;
+  ALTER TABLE api_keys ADD COLUMN throttle_delay_ms INTEGER;
+  ALTER TABLE api_keys ADD COLUMN max_sessions INTEGER DEFAULT 0;
+  ALTER TABLE api_keys ADD COLUMN usage_limit_enabled INTEGER DEFAULT 0;
+  ALTER TABLE api_keys ADD COLUMN disable_non_public_models INTEGER DEFAULT 0;
+  ALTER TABLE api_keys ADD COLUMN auto_resolve INTEGER DEFAULT 0;
+  ALTER TABLE api_keys ADD COLUMN access_schedule TEXT;
+  ALTER TABLE api_keys ADD COLUMN proxy_id TEXT;
+  ALTER TABLE api_keys ADD COLUMN tenant_id TEXT DEFAULT 'red';
+  ALTER TABLE api_keys ADD COLUMN ip_allowlist TEXT;
+  ALTER TABLE api_keys ADD COLUMN scopes TEXT;
+  ALTER TABLE api_keys ADD COLUMN rate_limits TEXT;
+  ALTER TABLE api_keys ADD COLUMN allowed_quotas TEXT;
+  ALTER TABLE api_keys ADD COLUMN allowed_connections TEXT;
+  ALTER TABLE api_keys ADD COLUMN allowed_combos TEXT;
+  ALTER TABLE api_keys ADD COLUMN blocked_models TEXT;
+  ALTER TABLE api_keys ADD COLUMN allowed_endpoints TEXT;
+  ALTER TABLE api_keys ADD COLUMN model_access_mode TEXT DEFAULT 'all';
+  ALTER TABLE provider_connections ADD COLUMN tenant_id TEXT NOT NULL DEFAULT 'red';
+  ALTER TABLE provider_connections ADD COLUMN per_key_proxy_enabled INTEGER DEFAULT 0;
+  ALTER TABLE provider_connections ADD COLUMN max_concurrent INTEGER;
+  ALTER TABLE provider_connections ADD COLUMN rate_limit_overrides_json TEXT;
+  CREATE TABLE api_key_token_limits (api_key_id TEXT, enabled INTEGER);
+  CREATE TABLE api_key_quota_limits (api_key_id TEXT, rpm_limit INTEGER, tpm_limit INTEGER, monthly_amount_usd REAL);
+  CREATE TABLE api_key_quota_counters (api_key_id TEXT, dimension_key TEXT, bucket_index INTEGER, consumed REAL, updated_at INTEGER, PRIMARY KEY(api_key_id,dimension_key,bucket_index));
+  CREATE TABLE api_key_daily_token_limits (api_key_id TEXT);
+  CREATE TABLE key_group_members (key_id TEXT);
+  CREATE TABLE budget_assignments (budget_id TEXT);
+  CREATE TABLE model_combo_mappings (enabled INTEGER);
+  CREATE TABLE provider_quota_state (connection_id TEXT);
   CREATE TABLE poc_usage (event_json TEXT);
   PRAGMA journal_mode=WAL;`);
 db.prepare("INSERT INTO api_keys (id, name, key, created_at, key_hash, is_active, allowed_models) VALUES (?, 'fixture', ?, '2026-01-01T00:00:00Z', ?, 1, ?)")
-  .run(keyId, fixtureKey, digest(fixtureKey), JSON.stringify(["bench"]));
+  .run(keyId, fixtureKey, digest(fixtureKey), JSON.stringify(["openrouter/vendor/model-a", "openrouter/vendor/model-b"]));
 db.prepare("INSERT INTO provider_connections (id, provider, auth_type, api_key, is_active, created_at, updated_at) VALUES ('fixture-connection', 'openrouter', 'apikey', ?, 1, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')").run(fixtureProviderKey);
 db.prepare("INSERT INTO combos (id, name, data, tenant_id, context_cache_protection, created_at, updated_at) VALUES ('fixture-combo', 'bench', ?, 'red', 0, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')")
   .run(JSON.stringify({ name: "bench", strategy: "priority", models: ["openrouter/vendor/model-a"] }));
@@ -109,9 +145,10 @@ const readSnapshot = (upstreamPort) => {
   return {
     version: snapshotVersion,
     open: false,
-    keys: { [key.key_hash]: { principal: principalId, expires_at: null, disabled: false, id: key.id } },
-    principals: [{ id: principalId, name: "fixture", allowed_models: JSON.parse(key.allowed_models), allow_all: false }],
-    models: [{ name: plan.frontend_model, backends: [{ api_base: `http://127.0.0.1:${upstreamPort}/v1`, upstream_model: plan.upstream_model, api_key: connection.api_key, protocol: "openai" }] }],
+    keys: { [key.key_hash]: { principal: principalId, expires_at: null, disabled: false, id: key.id },
+      [digest(internalKey)]: { principal: principalId, expires_at: null, disabled: false, id: internalKeyId } },
+    principals: [{ id: principalId, name: "fixture", allowed_models: ["bench", "vendor/model-a", "vendor/model-b"], allow_all: false }],
+    models: [plan.frontend_model, plan.upstream_model].map((name) => ({ name, backends: [{ api_base: `http://127.0.0.1:${upstreamPort}/v1`, upstream_model: plan.upstream_model, api_key: connection.api_key, protocol: "openai" }] })),
   };
 };
 
@@ -210,6 +247,43 @@ try {
   if (warm.status !== 200) throw new Error(`FastLLM snapshot adapter returned ${warm.status}: ${await warm.text()}`);
   assert.ok((await warm.text()).includes("[DONE]"));
   assert.equal(lastUpstreamModel, "vendor/model-a");
+  // The actual Red Router process authenticates the dashboard key and guards
+  // the SQLite combo/connection before forwarding to the FastLLM process.
+  const bridgePort = await unusedPort();
+  const bridge = childProcess(redBinary, [], {
+    RED_ROUTER_LISTEN: `127.0.0.1:${bridgePort}`,
+    RED_ROUTER_PRODUCT_DB_PATH: fixtureDbPath,
+    RED_ROUTER_PRODUCT_COMBO: "bench",
+    RED_ROUTER_PRODUCT_CLIENT_KEYS: "1",
+    RED_ROUTER_PRODUCT_SHARED_RPM: "1",
+    RED_ROUTER_FASTLLM_URL: fastUrl,
+    RED_ROUTER_FASTLLM_INTERNAL_KEY: internalKey,
+  });
+  await waitReady(`http://127.0.0.1:${bridgePort}/healthz`, bridge);
+  const bridgeUrl = `http://127.0.0.1:${bridgePort}/v1/chat/completions`;
+  const deniedBridge = await request(bridgeUrl, "unknown-dashboard-key-12345", "bench", AbortSignal.timeout(5000));
+  assert.equal(deniedBridge.status, 401);
+  await deniedBridge.body?.cancel();
+  peakActive = active;
+  const parallel = await Promise.all(Array.from({ length: 8 }, async () => {
+    const response = await request(bridgeUrl, fixtureKey, "bench", AbortSignal.timeout(5000));
+    if (response.status !== 200) throw new Error(`dashboard bridge returned ${response.status}: ${await response.text()}`);
+    assert.ok((await response.text()).includes("[DONE]"));
+  }));
+  void parallel;
+  const bridgePeak = peakActive;
+  assert.ok(bridgePeak > 1, `dashboard bridge serialized concurrent agents: ${bridgePeak}`);
+  assert.equal(lastUpstreamModel, "vendor/model-a");
+  db.prepare("UPDATE api_keys SET is_active = 0 WHERE id = ?").run(keyId);
+  const revoked = await request(bridgeUrl, fixtureKey, "bench", AbortSignal.timeout(5000));
+  assert.equal(revoked.status, 401);
+  await revoked.body?.cancel();
+  db.prepare("UPDATE api_keys SET is_active = 1 WHERE id = ?").run(keyId);
+  db.prepare("INSERT INTO api_key_quota_limits (api_key_id,rpm_limit) VALUES (?,1)").run(keyId);
+  const limited = await request(bridgeUrl, fixtureKey, "bench", AbortSignal.timeout(5000));
+  assert.equal(limited.status, 429);
+  await limited.body?.cancel();
+  db.prepare("DELETE FROM api_key_quota_limits WHERE api_key_id = ?").run(keyId);
   const responsesProbe = await fetch(`http://127.0.0.1:${fastPort}/v1/responses`, {
     method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${fixtureKey}` },
     body: JSON.stringify({ model: "bench", input: "hello", stream: false }), signal: AbortSignal.timeout(5000),
@@ -255,7 +329,7 @@ try {
   for (const event of usageEvents) db.prepare("INSERT INTO poc_usage VALUES (?)").run(JSON.stringify(event));
   const reported = db.prepare("SELECT COUNT(*) AS n FROM poc_usage").get().n;
   assert.ok(reported > 0, "FastLLM sent no usage events to the fixture control plane");
-  console.log(JSON.stringify({ fixture: "synthetic SQLite; no real dashboard or credentials", fastllm_commit: "07faa4a5068928da49eed5ffbd369d18f8a8243e", request_body_approx_bytes: Buffer.byteLength(agentPrompt), requests_per_case: 128, concurrency: [1, 8, 32, 64], upstream_simulated_first_chunk_ms: 15, upstream_simulated_remaining_ms: 10, fastllm_peak_concurrent_upstreams: fast64.upstream_peak_inflight, rejected_key_status: rejected.status, sqlite_fixture_reload: reloaded, fixture_usage_events: reported, protocol_probes: protocolProbes, memory_scope: "gateway process only; excludes Node fixture/control process and dashboard", measurements }, null, 2));
+  console.log(JSON.stringify({ fixture: "synthetic SQLite; no real dashboard or credentials", fastllm_commit: "07faa4a5068928da49eed5ffbd369d18f8a8243e", request_body_approx_bytes: Buffer.byteLength(agentPrompt), requests_per_case: 128, concurrency: [1, 8, 32, 64], upstream_simulated_first_chunk_ms: 15, upstream_simulated_remaining_ms: 10, fastllm_peak_concurrent_upstreams: fast64.upstream_peak_inflight, dashboard_bridge_peak_concurrent_upstreams: bridgePeak, dashboard_key_rejected: deniedBridge.status, dashboard_key_revoked: revoked.status, dashboard_rpm_limited: limited.status, rejected_key_status: rejected.status, sqlite_fixture_reload: reloaded, fixture_usage_events: reported, protocol_probes: protocolProbes, memory_scope: "gateway process only; excludes Node fixture/control process and dashboard", measurements }, null, 2));
 } finally {
   for (const child of children) child.kill("SIGTERM");
   await Promise.all(children.map(async (child) => { if (child.exitCode !== null) return; await Promise.race([new Promise((resolve) => child.once("exit", resolve)), delay(3000)]); if (child.exitCode === null) child.kill("SIGKILL"); }));
