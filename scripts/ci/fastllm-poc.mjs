@@ -373,6 +373,32 @@ try {
   }
   assert.ok(engineStopped, "FastLLM survived supervisor SIGTERM");
   db.prepare("UPDATE combos SET data = ? WHERE name = 'bench'").run(JSON.stringify({ name: "bench", strategy: "priority", models: ["openrouter/vendor/model-a"] }));
+  // A termination requested while a configuration is invalid must not be
+  // lost when the gateway is between shutdown and the next rebuild attempt.
+  const shutdownRacePort = await unusedPort();
+  const shutdownRace = childProcess(redBinary, [], { ...supervisedEnv,
+    RED_ROUTER_LISTEN: `127.0.0.1:${shutdownRacePort}`, RED_ROUTER_FASTLLM_MANAGED_BINARY: fastBinary,
+  });
+  await waitReady(`http://127.0.0.1:${shutdownRacePort}/healthz`, shutdownRace);
+  const raceChildren = () => {
+    const result = spawnSync("ps", ["-o", "pid=", "--ppid", String(shutdownRace.pid)], { encoding: "utf8" });
+    return result.stdout.trim().split(/\s+/).filter(Boolean).map(Number);
+  };
+  const raceEngine = raceChildren()[0];
+  assert.ok(raceEngine);
+  db.prepare("UPDATE provider_connections SET is_active = 0 WHERE id = 'fixture-connection'").run();
+  let raceDrained = false;
+  for (let attempt = 0; attempt < 150; attempt++) {
+    if (shutdownRace.exitCode !== null) throw new Error(`supervisor unexpectedly exited: ${shutdownRace.exitCode}`);
+    if (!raceChildren().includes(raceEngine)) { raceDrained = true; break; }
+    await delay(100);
+  }
+  assert.ok(raceDrained, "supervisor did not enter configuration reload");
+  shutdownRace.kill("SIGTERM");
+  await Promise.race([new Promise((resolve) => shutdownRace.once("exit", resolve)), delay(10_000)]);
+  assert.equal(shutdownRace.exitCode, 0, "SIGTERM was lost during configuration reload");
+  db.prepare("UPDATE provider_connections SET is_active = 1 WHERE id = 'fixture-connection'").run();
+  process.stderr.write("CI: termination during reload honored\n");
   // Load a real encrypted product-format credential through the Rust control
   // source, then prove the patched FastLLM loads it without creating a cache.
   const credentialDbPath = join(temp, "credential-fixture.sqlite");

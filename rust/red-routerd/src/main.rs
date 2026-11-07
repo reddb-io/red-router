@@ -25,9 +25,23 @@ fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
 }
 
 async fn run_with_reload() -> Result<(), Box<dyn Error + Send + Sync>> {
+    if env::args_os().nth(1).is_some() || env::var_os("RED_ROUTER_FASTLLM_MANAGED_BINARY").is_none()
+    {
+        return run(None).await;
+    }
+    // Keep one shutdown subscription alive across the drain/rebuild gap so a
+    // SIGTERM cannot be consumed during reload and followed by a restart.
+    let (shutdown_tx, mut shutdown_rx) = tokio::sync::watch::channel(false);
+    tokio::spawn(async move {
+        shutdown_signal().await;
+        let _ = shutdown_tx.send(true);
+    });
     let mut reloading = false;
     loop {
-        match run().await {
+        if *shutdown_rx.borrow() {
+            return Ok(());
+        }
+        match run(Some(shutdown_rx.clone())).await {
             Ok(()) => return Ok(()),
             Err(error)
                 if error
@@ -41,14 +55,19 @@ async fn run_with_reload() -> Result<(), Box<dyn Error + Send + Sync>> {
             }
             Err(error) => return Err(error),
         }
+        if *shutdown_rx.borrow() {
+            return Ok(());
+        }
         tokio::select! {
             _ = tokio::time::sleep(std::time::Duration::from_secs(1)) => {},
-            _ = shutdown_signal() => return Ok(()),
+            _ = shutdown_rx.changed() => return Ok(()),
         }
     }
 }
 
-async fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
+async fn run(
+    shutdown: Option<tokio::sync::watch::Receiver<bool>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
     let mut args = env::args().skip(1);
     let command = args.next();
     if command.as_deref() == Some("fastllm-control") {
@@ -517,7 +536,7 @@ async fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
                 return Err(Box::new(red_routerd::fastllm_supervisor::ReloadRequired));
             }
             let (reload_tx, reload_rx) = tokio::sync::oneshot::channel();
-            let gateway = serve_proxy(address, state.clone(), Some(reload_rx));
+            let gateway = serve_proxy(address, state.clone(), Some(reload_rx), shutdown);
             return red_routerd::fastllm_supervisor::run(
                 red_routerd::fastllm_supervisor::Config {
                     binary: &binary,
@@ -534,7 +553,7 @@ async fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
             )
             .await;
         }
-        return serve_proxy(address, state, None).await;
+        return serve_proxy(address, state, None, shutdown).await;
     }
     if env::var_os("RED_ROUTER_FASTLLM_MANAGED_BINARY").is_some()
         || env::var_os("RED_ROUTER_FASTLLM_URL").is_some()
@@ -624,7 +643,7 @@ async fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
         Err(env::VarError::NotPresent) => {}
         Err(_) => return Err("RED_ROUTER_CLIENT_POLICIES_JSON must be valid Unicode".into()),
     }
-    serve_proxy(address, state, None).await?;
+    serve_proxy(address, state, None, shutdown).await?;
     db.close().await?;
     Ok(())
 }
@@ -633,6 +652,7 @@ async fn serve_proxy(
     address: SocketAddr,
     state: ProxyState,
     reload: Option<tokio::sync::oneshot::Receiver<()>>,
+    shutdown: Option<tokio::sync::watch::Receiver<bool>>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     let listener = tokio::net::TcpListener::bind(address).await?;
     println!(
@@ -648,10 +668,19 @@ async fn serve_proxy(
     });
     axum::serve(listener, router(state))
         .with_graceful_shutdown(async move {
+            let stop = async move {
+                if let Some(mut receiver) = shutdown {
+                    if !*receiver.borrow() {
+                        let _ = receiver.changed().await;
+                    }
+                } else {
+                    shutdown_signal().await;
+                }
+            };
             if let Some(reload) = reload {
-                tokio::select! { _ = shutdown_signal() => {}, _ = reload => {} }
+                tokio::select! { _ = stop => {}, _ = reload => {} }
             } else {
-                shutdown_signal().await;
+                stop.await;
             }
         })
         .await?;
