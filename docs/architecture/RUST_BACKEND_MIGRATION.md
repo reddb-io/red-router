@@ -46,7 +46,7 @@ features must not be implemented only there.
 | --------------------------- | ---------------------- | ---------------------------------------------------------------------------------- |
 | Provider connections        | Implemented foundation | Authenticated CRUD, encrypted secrets, live reload, restart persistence, readiness |
 | API/client keys             | Implemented foundation | Hash-only lookup, scopes, endpoint/model/connection grants, revocation, expiry     |
-| Combos and routing          | Next                   | All dashboard strategies, connection selection, fallback and circuit state         |
+| Combos and routing          | Implemented foundation | Durable OpenAI priority/round-robin targets, provider grants, fallback, live reload |
 | Pricing, quotas and budgets | Partial                | Atomic reservations, streaming settlement, reconciliation, multi-process tests     |
 | Usage and audit             | Partial                | Complete protocol usage, idempotent ledger, retention/export APIs                  |
 | Settings and resilience     | Pending                | Versioned settings snapshots, health state and live invalidation                   |
@@ -71,6 +71,15 @@ The client-key slice stores only a SHA-256 lookup hash and redacted policy metad
 immutable policy snapshot becomes visible to inference requests. Creating the first
 durable key atomically retires the environment-key compatibility path. Revocation,
 expiry, protocol scopes, endpoint/model/provider grants, rolling request limits and
-per-key concurrency are enforced by Rust and survive restart. Provider grants currently
-name Rust-owned provider IDs; Rust-native combo target grants will extend the same policy
-when the routing slice lands.
+per-key concurrency are enforced by Rust and survive restart. Provider grants name
+Rust-owned provider IDs and are checked independently for every combo target before
+selection or fallback.
+
+The combo slice stores bounded routing records in `redrouter_control_combos` and exposes
+only authenticated Rust admin APIs. The first durable combo makes this table the routing
+authority: unknown aliases and a table with no enabled routes fail closed rather than
+falling through to an environment route or the active provider. Priority and round-robin
+selection, target model rewriting, provider grants, pre-response fallback, live snapshot
+replacement and restart persistence are implemented for OpenAI-compatible chat. The
+remaining dashboard strategies, health/circuit state and non-chat combo protocols remain
+explicit follow-up work rather than compatibility calls back into Next.js.

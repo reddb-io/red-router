@@ -29,7 +29,7 @@ It has not been validated as a production gateway. `/healthz` confirms that this
 process responds. `/readyz` additionally requires an active provider when the Rust
 control plane is enabled.
 
-## Rust-owned provider and client-key control plane
+## Rust-owned provider, client-key and combo control plane
 
 Set `RED_ROUTER_ADMIN_KEY` (32–512 bytes) and `STORAGE_ENCRYPTION_KEY` (16–512
 bytes) to enable the management API. `RED_ROUTER_CLIENT_KEY` is an optional migration
@@ -48,8 +48,13 @@ provider; subsequent provider changes do not require those environment secrets.
 - `PUT /api/admin/client-keys/{id}` creates or replaces a key policy. `api_key` is
   required on creation and may be omitted on later policy updates.
 - `DELETE /api/admin/client-keys/{id}` immediately revokes the key.
+- `GET /api/admin/combos` lists Rust-owned combo routes.
+- `PUT /api/admin/combos/{id}` creates or replaces an OpenAI-compatible combo with
+  `strategy` (`priority` or `round-robin`), `fallback`, `enabled`, and one to eight
+  `{provider_id, model}` targets.
+- `DELETE /api/admin/combos/{id}` disables the combo.
 
-All three endpoints require `Authorization: Bearer <RED_ROUTER_ADMIN_KEY>`.
+All management endpoints require `Authorization: Bearer <RED_ROUTER_ADMIN_KEY>`.
 Provider credentials are encrypted with a random salt and nonce, authenticated against their
 provider ID, and never returned by the API. The durable database is updated before an
 atomically replaced, DNS-pinned runtime target becomes visible. Invalid storage or
@@ -57,8 +62,10 @@ configuration fails closed. Client secrets are reduced to SHA-256 lookup hashes 
 storage and are never returned. Supported client policy fields are `enabled`,
 `expires_at_unix`, `scopes`, `allowed_endpoints`, `allowed_models`, `blocked_models`,
 `allowed_provider_ids`, `max_concurrent_requests`, `max_requests_per_minute` and
-`max_requests_per_day`. Combos, pricing, token/spend quotas and the remaining dashboard
-settings still need migration.
+`max_requests_per_day`. Combo writes are durable before an immutable, DNS-pinned routing
+snapshot becomes visible. Once any combo row exists, Rust-owned combos are authoritative;
+unknown or disabled aliases do not fall through to the active provider. Pricing,
+token/spend quotas and the remaining dashboard settings still need migration.
 
 ## Experimental product SQLite credential
 

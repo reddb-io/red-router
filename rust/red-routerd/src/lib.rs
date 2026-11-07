@@ -45,7 +45,7 @@ pub struct ProxyState {
     client_key: Arc<str>,
     provider_key: HeaderValue,
     permits: Arc<Semaphore>,
-    routes: Arc<HashMap<String, ModelRoute>>,
+    routes: Arc<HashMap<String, Arc<ModelRoute>>>,
     clients: Arc<policy::ClientPolicies>,
     product_connection: Option<product::ProductConnection>,
     product_client_keys: bool,
@@ -67,7 +67,7 @@ struct ProductFallback {
     provider_key: HeaderValue,
 }
 
-struct ModelRoute {
+pub(crate) struct ModelRoute {
     targets: Vec<ModelTarget>,
     protocol: ProviderProtocol,
     round_robin: bool,
@@ -76,7 +76,7 @@ struct ModelRoute {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum ProviderProtocol {
+pub(crate) enum ProviderProtocol {
     OpenAi,
     OpenAiResponses,
     OpenAiEmbeddings,
@@ -86,7 +86,7 @@ enum ProviderProtocol {
     Gemini,
 }
 
-struct ModelTarget {
+pub(crate) struct ModelTarget {
     client: reqwest::Client,
     upstream: reqwest::Url,
     provider_key: HeaderValue,
@@ -95,6 +95,7 @@ struct ModelTarget {
     protocol: ProviderProtocol,
     product_connection: Option<product::ProductConnection>,
     product_model: Option<String>,
+    provider_id: Option<Arc<str>>,
 }
 
 impl ProxyState {
@@ -267,6 +268,20 @@ impl ProxyState {
         })
     }
 
+    pub(crate) fn control_target(provider: &LiveProvider, model: String) -> ModelTarget {
+        ModelTarget {
+            client: provider.client.clone(),
+            upstream: provider.upstream.clone(),
+            provider_key: provider.provider_key.clone(),
+            model,
+            anthropic_bearer: false,
+            protocol: ProviderProtocol::OpenAi,
+            product_connection: None,
+            product_model: None,
+            provider_id: provider.provider_id.clone(),
+        }
+    }
+
     pub fn with_control_plane(mut self, control_plane: control_plane::ControlPlane) -> Self {
         self.control_plane = Some(control_plane);
         self
@@ -311,6 +326,7 @@ impl ProxyState {
         let route = routes
             .get_mut(combo.name())
             .ok_or("product combo route missing")?;
+        let route = Arc::get_mut(route).ok_or("product combo route is shared")?;
         if route.protocol != ProviderProtocol::OpenAi
             || !route.fallback
             || route.round_robin
@@ -548,18 +564,19 @@ impl ProxyState {
                     protocol: target_protocol,
                     product_connection: None,
                     product_model: None,
+                    provider_id: None,
                 });
             }
             if routes
                 .insert(
                     alias.to_string(),
-                    ModelRoute {
+                    Arc::new(ModelRoute {
                         targets,
                         protocol,
                         round_robin,
                         fallback,
                         cursor: AtomicUsize::new(0),
-                    },
+                    }),
                 )
                 .is_some()
             {
@@ -649,6 +666,11 @@ pub fn router(state: ProxyState) -> Router {
         .route(
             "/api/admin/client-keys/{id}",
             put(control_plane::put_client_key).delete(control_plane::delete_client_key),
+        )
+        .route("/api/admin/combos", get(control_plane::list_combos))
+        .route(
+            "/api/admin/combos/{id}",
+            put(control_plane::put_combo).delete(control_plane::delete_combo),
         )
         .route("/v1/chat/completions", post(chat))
         .route("/v1/responses", post(responses))
@@ -980,8 +1002,31 @@ async fn proxy_request(
     if state.product_combo.is_none() && !policy.route_allowed(&model) {
         return error(StatusCode::FORBIDDEN, "Model is not allowed");
     }
-    let route = state.routes.get(&model);
-    if (route.is_none() && (!state.routes.is_empty() || protocol != ProviderProtocol::OpenAi))
+    let control_routes = if state.product_combo.is_none() && !state.product_client_keys {
+        match &state.control_plane {
+            Some(control) => match control.routes().await {
+                Ok(routes) => routes,
+                Err(_) => {
+                    return error(
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "Combo routing policy unavailable",
+                    )
+                }
+            },
+            None => None,
+        }
+    } else {
+        None
+    };
+    let control_routes_authoritative = control_routes.is_some();
+    let route = control_routes
+        .as_ref()
+        .and_then(|routes| routes.get(&model))
+        .or_else(|| state.routes.get(&model));
+    if (route.is_none()
+        && (control_routes_authoritative
+            || !state.routes.is_empty()
+            || protocol != ProviderProtocol::OpenAi))
         || route.is_some_and(|route| {
             route.protocol != protocol
                 && !(protocol == ProviderProtocol::OpenAi
@@ -997,7 +1042,7 @@ async fn proxy_request(
     } else {
         None
     };
-    if !policy.provider_allowed(provider_id) {
+    if route.is_none() && !policy.provider_allowed(provider_id) {
         return error(StatusCode::FORBIDDEN, "Provider connection is not allowed");
     }
     let eligible: Vec<_> = route.map_or_else(Vec::new, |route| {
@@ -1006,6 +1051,7 @@ async fn proxy_request(
             .iter()
             .filter(|target| {
                 policy.target_allowed(target.product_model.as_deref().unwrap_or(&target.model))
+                    && policy.provider_allowed(target.provider_id.as_deref())
             })
             .collect()
     });

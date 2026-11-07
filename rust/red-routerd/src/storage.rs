@@ -20,6 +20,11 @@ const LIST_CLIENT_KEYS: &str = "SELECT id, label, key_hash, enabled, expiry_unix
 const UPSERT_CLIENT_KEY: &str = "INSERT INTO redrouter_control_client_keys (id, label, key_hash, enabled, expiry_unix, scopes_json, allowed_endpoints_json, allowed_models_json, blocked_models_json, allowed_provider_ids_json, max_concurrent, max_rpm, max_rpd, revision) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) ON CONFLICT (id) DO UPDATE SET label = $2, key_hash = $3, enabled = $4, expiry_unix = $5, scopes_json = $6, allowed_endpoints_json = $7, allowed_models_json = $8, blocked_models_json = $9, allowed_provider_ids_json = $10, max_concurrent = $11, max_rpm = $12, max_rpd = $13, revision = $14";
 const REVOKE_CLIENT_KEY: &str =
     "UPDATE redrouter_control_client_keys SET enabled = 0, revision = $2 WHERE id = $1";
+const CREATE_COMBOS: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_combos (id TEXT PRIMARY KEY, protocol TEXT NOT NULL, strategy TEXT NOT NULL, fallback_enabled BIGINT NOT NULL, targets_json TEXT NOT NULL, enabled BIGINT NOT NULL, revision BIGINT NOT NULL)";
+const LIST_COMBOS: &str = "SELECT id, protocol, strategy, fallback_enabled, targets_json, enabled, revision FROM redrouter_control_combos ORDER BY revision DESC, id ASC";
+const UPSERT_COMBO: &str = "INSERT INTO redrouter_control_combos (id, protocol, strategy, fallback_enabled, targets_json, enabled, revision) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (id) DO UPDATE SET protocol = $2, strategy = $3, fallback_enabled = $4, targets_json = $5, enabled = $6, revision = $7";
+const DISABLE_COMBO: &str =
+    "UPDATE redrouter_control_combos SET enabled = 0, revision = $2 WHERE id = $1";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StoredProvider {
@@ -46,6 +51,17 @@ pub struct StoredClientKey {
     pub max_concurrent: i64,
     pub max_rpm: i64,
     pub max_rpd: i64,
+    pub revision: i64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StoredCombo {
+    pub id: String,
+    pub protocol: String,
+    pub strategy: String,
+    pub fallback: bool,
+    pub targets_json: String,
+    pub enabled: bool,
     pub revision: i64,
 }
 
@@ -123,7 +139,7 @@ impl Database {
                     let embedded = reddb_client::embedded::EmbeddedClient::open(path)
                         .map_err(|_| "cannot open embedded RedDB")?;
                     let db = reddb_client::Reddb::Embedded(embedded);
-                    for statement in [CREATE, CREATE_PROVIDERS, CREATE_CLIENT_KEYS] {
+                    for statement in [CREATE, CREATE_PROVIDERS, CREATE_CLIENT_KEYS, CREATE_COMBOS] {
                         db.query(statement)
                             .await
                             .map_err(|_| "cannot initialize database")?;
@@ -205,6 +221,7 @@ impl Database {
                 db.remote_schema_query(CREATE).await?;
                 db.remote_schema_query(CREATE_PROVIDERS).await?;
                 db.remote_schema_query(CREATE_CLIENT_KEYS).await?;
+                db.remote_schema_query(CREATE_COMBOS).await?;
                 Ok(db)
             }
             Backend::Sqlite | Backend::Postgres => {
@@ -227,7 +244,7 @@ impl Database {
                     .connect(url)
                     .await
                     .map_err(|_| "cannot connect to selected database")?;
-                for statement in [CREATE, CREATE_PROVIDERS, CREATE_CLIENT_KEYS] {
+                for statement in [CREATE, CREATE_PROVIDERS, CREATE_CLIENT_KEYS, CREATE_COMBOS] {
                     sqlx::query(statement)
                         .execute(&pool)
                         .await
@@ -485,6 +502,101 @@ impl Database {
         Ok(())
     }
 
+    pub async fn combos(&self) -> Result<Vec<StoredCombo>, &'static str> {
+        match self {
+            Self::Sql(pool) => sqlx::query(LIST_COMBOS)
+                .fetch_all(pool)
+                .await
+                .map_err(|_| "cannot read combo configuration")?
+                .iter()
+                .map(read_sql_combo)
+                .collect(),
+            Self::Remote(_) => self
+                .remote_query(LIST_COMBOS, &[])
+                .await?
+                .rows
+                .iter()
+                .map(read_reddb_combo)
+                .collect(),
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => db
+                .query(LIST_COMBOS)
+                .await
+                .map_err(|_| "cannot read combo configuration")?
+                .rows
+                .iter()
+                .map(read_reddb_combo)
+                .collect(),
+        }
+    }
+
+    pub async fn upsert_combo(&self, combo: &StoredCombo) -> Result<(), &'static str> {
+        let fallback = if combo.fallback { 1_i64 } else { 0_i64 };
+        let enabled = if combo.enabled { 1_i64 } else { 0_i64 };
+        match self {
+            Self::Sql(pool) => {
+                sqlx::query(UPSERT_COMBO)
+                    .bind(&combo.id)
+                    .bind(&combo.protocol)
+                    .bind(&combo.strategy)
+                    .bind(fallback)
+                    .bind(&combo.targets_json)
+                    .bind(enabled)
+                    .bind(combo.revision)
+                    .execute(pool)
+                    .await
+                    .map_err(|_| "cannot write combo configuration")?;
+            }
+            Self::Remote(_) => {
+                self.remote_query(UPSERT_COMBO, &combo_params(combo, fallback, enabled))
+                    .await?;
+            }
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => {
+                db.query_with(UPSERT_COMBO, combo_params(combo, fallback, enabled))
+                    .await
+                    .map_err(|_| "cannot write combo configuration")?;
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn disable_combo(&self, id: &str, revision: i64) -> Result<(), &'static str> {
+        match self {
+            Self::Sql(pool) => {
+                sqlx::query(DISABLE_COMBO)
+                    .bind(id)
+                    .bind(revision)
+                    .execute(pool)
+                    .await
+                    .map_err(|_| "cannot disable combo")?;
+            }
+            Self::Remote(_) => {
+                self.remote_query(
+                    DISABLE_COMBO,
+                    &[
+                        reddb_client::Value::Text(id.to_owned()),
+                        reddb_client::Value::Int(revision),
+                    ],
+                )
+                .await?;
+            }
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => {
+                db.query_with(
+                    DISABLE_COMBO,
+                    vec![
+                        reddb_client::Value::Text(id.to_owned()),
+                        reddb_client::Value::Int(revision),
+                    ],
+                )
+                .await
+                .map_err(|_| "cannot disable combo")?;
+            }
+        }
+        Ok(())
+    }
+
     /// Insert only when no configuration exists. The existing authority wins.
     pub async fn seed(&self, value: &str) -> Result<(), &'static str> {
         self.write(SEED, value).await
@@ -734,6 +846,58 @@ fn client_key_params(key: &StoredClientKey, enabled: i64) -> Vec<reddb_client::V
         reddb_client::Value::Int(key.max_rpm),
         reddb_client::Value::Int(key.max_rpd),
         reddb_client::Value::Int(key.revision),
+    ]
+}
+
+fn read_sql_combo(row: &sqlx::any::AnyRow) -> Result<StoredCombo, &'static str> {
+    let text = |name| row.try_get(name).map_err(|_| "invalid combo record");
+    let integer = |name| row.try_get(name).map_err(|_| "invalid combo record");
+    Ok(StoredCombo {
+        id: text("id")?,
+        protocol: text("protocol")?,
+        strategy: text("strategy")?,
+        fallback: integer("fallback_enabled")? == 1,
+        targets_json: text("targets_json")?,
+        enabled: integer("enabled")? == 1,
+        revision: integer("revision")?,
+    })
+}
+
+fn read_reddb_combo(row: &reddb_client::Row) -> Result<StoredCombo, &'static str> {
+    let text = |name: &str| match row
+        .iter()
+        .find(|(column, _)| column.eq_ignore_ascii_case(name))
+    {
+        Some((_, reddb_client::ValueOut::String(value))) => Ok(value.clone()),
+        _ => Err("invalid combo record"),
+    };
+    let integer = |name: &str| match row
+        .iter()
+        .find(|(column, _)| column.eq_ignore_ascii_case(name))
+    {
+        Some((_, reddb_client::ValueOut::Integer(value))) => Ok(*value),
+        _ => Err("invalid combo record"),
+    };
+    Ok(StoredCombo {
+        id: text("id")?,
+        protocol: text("protocol")?,
+        strategy: text("strategy")?,
+        fallback: integer("fallback_enabled")? == 1,
+        targets_json: text("targets_json")?,
+        enabled: integer("enabled")? == 1,
+        revision: integer("revision")?,
+    })
+}
+
+fn combo_params(combo: &StoredCombo, fallback: i64, enabled: i64) -> Vec<reddb_client::Value> {
+    vec![
+        reddb_client::Value::Text(combo.id.clone()),
+        reddb_client::Value::Text(combo.protocol.clone()),
+        reddb_client::Value::Text(combo.strategy.clone()),
+        reddb_client::Value::Int(fallback),
+        reddb_client::Value::Text(combo.targets_json.clone()),
+        reddb_client::Value::Int(enabled),
+        reddb_client::Value::Int(combo.revision),
     ]
 }
 

@@ -1,8 +1,8 @@
 //! Authenticated Rust control plane for provider persistence and live reload.
 use crate::{
     policy::{ClientPolicies, StoredPolicy},
-    storage::{StoredClientKey, StoredProvider},
-    LiveProvider, ProxyState,
+    storage::{StoredClientKey, StoredCombo, StoredProvider},
+    LiveProvider, ModelRoute, ProviderProtocol, ProxyState,
 };
 use aes_gcm::aead::consts::U16;
 use aes_gcm::{
@@ -19,6 +19,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
+    collections::HashMap,
     sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -32,6 +33,8 @@ struct Inner {
     database: Arc<crate::storage::Database>,
     current: RwLock<Option<LiveProvider>>,
     clients: RwLock<ClientSnapshot>,
+    routes: RwLock<RouteSnapshot>,
+    mutation: tokio::sync::Mutex<()>,
     admin_hash: [u8; 32],
     encryption_key: Zeroizing<String>,
     allow_private: bool,
@@ -40,6 +43,12 @@ struct Inner {
 enum ClientSnapshot {
     Legacy,
     Current(Arc<ClientPolicies>),
+    Unavailable,
+}
+
+enum RouteSnapshot {
+    Legacy,
+    Current(Arc<HashMap<String, Arc<ModelRoute>>>),
     Unavailable,
 }
 
@@ -106,8 +115,48 @@ pub struct ClientKeyView {
     pub revision: String,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ComboTarget {
+    pub provider_id: String,
+    pub model: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ComboInput {
+    #[serde(default = "openai_protocol")]
+    pub protocol: String,
+    #[serde(default = "priority_strategy")]
+    pub strategy: String,
+    #[serde(default)]
+    pub fallback: bool,
+    pub targets: Vec<ComboTarget>,
+    #[serde(default = "enabled_by_default")]
+    pub enabled: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ComboView {
+    pub id: String,
+    pub protocol: String,
+    pub strategy: String,
+    pub fallback: bool,
+    pub targets: Vec<ComboTarget>,
+    pub enabled: bool,
+    pub revision: String,
+}
+
 fn enabled_by_default() -> bool {
     true
+}
+
+fn openai_protocol() -> String {
+    "openai".to_owned()
+}
+
+fn priority_strategy() -> String {
+    "priority".to_owned()
 }
 
 impl ControlPlane {
@@ -127,12 +176,15 @@ impl ControlPlane {
             database,
             current: RwLock::new(None),
             clients: RwLock::new(ClientSnapshot::Unavailable),
+            routes: RwLock::new(RouteSnapshot::Unavailable),
+            mutation: tokio::sync::Mutex::new(()),
             admin_hash: Sha256::digest(admin_key.as_bytes()).into(),
             encryption_key: Zeroizing::new(encryption_key.to_owned()),
             allow_private,
         }));
         plane.refresh().await?;
         plane.refresh_clients().await?;
+        plane.refresh_routes().await?;
         Ok(plane)
     }
 
@@ -150,6 +202,16 @@ impl ControlPlane {
         }
     }
 
+    pub(crate) async fn routes(
+        &self,
+    ) -> Result<Option<Arc<HashMap<String, Arc<ModelRoute>>>>, &'static str> {
+        match &*self.0.routes.read().await {
+            RouteSnapshot::Legacy => Ok(None),
+            RouteSnapshot::Current(routes) => Ok(Some(routes.clone())),
+            RouteSnapshot::Unavailable => Err("combo route storage unavailable"),
+        }
+    }
+
     pub async fn has_active_provider(&self) -> Result<bool, &'static str> {
         self.0
             .database
@@ -164,7 +226,13 @@ impl ControlPlane {
             ClientSnapshot::Current(policies) => policies.has_active(),
             ClientSnapshot::Unavailable => false,
         };
+        let routes_ready = match &*self.0.routes.read().await {
+            RouteSnapshot::Legacy => true,
+            RouteSnapshot::Current(routes) => !routes.is_empty(),
+            RouteSnapshot::Unavailable => false,
+        };
         client_keys_ready
+            && routes_ready
             && self
                 .0
                 .database
@@ -192,6 +260,7 @@ impl ControlPlane {
         let live =
             ProxyState::live_provider(&input.upstream_url, api_key.as_str(), self.0.allow_private)
                 .await?;
+        let _mutation = self.0.mutation.lock().await;
         let revision = revision()?;
         let ciphertext = encrypt(api_key.as_str(), id, self.0.encryption_key.as_str())?;
         let stored = StoredProvider {
@@ -209,6 +278,10 @@ impl ControlPlane {
             *self.0.current.write().await = None;
             return Err(error);
         }
+        if let Err(error) = self.refresh_routes().await {
+            *self.0.routes.write().await = RouteSnapshot::Unavailable;
+            return Err(error);
+        }
         // Avoid retaining an extra sensitive client/header graph for disabled rows.
         drop(live);
         Ok(view(&stored))
@@ -216,9 +289,61 @@ impl ControlPlane {
 
     pub async fn disable(&self, id: &str) -> Result<(), &'static str> {
         validate_id(id)?;
+        let _mutation = self.0.mutation.lock().await;
         self.0.database.disable_provider(id, revision()?).await?;
         if let Err(error) = self.refresh().await {
             *self.0.current.write().await = None;
+            return Err(error);
+        }
+        if let Err(error) = self.refresh_routes().await {
+            *self.0.routes.write().await = RouteSnapshot::Unavailable;
+            return Err(error);
+        }
+        Ok(())
+    }
+
+    pub async fn configure_combo(
+        &self,
+        id: &str,
+        input: ComboInput,
+    ) -> Result<ComboView, &'static str> {
+        validate_id(id)?;
+        validate_combo(&input)?;
+        let _mutation = self.0.mutation.lock().await;
+        if input.enabled {
+            let providers = self.0.database.providers().await?;
+            if !input.targets.iter().any(|target| {
+                providers
+                    .iter()
+                    .any(|provider| provider.id == target.provider_id && provider.enabled)
+            }) {
+                return Err("combo requires an enabled provider target");
+            }
+        }
+        let record = StoredCombo {
+            id: id.to_owned(),
+            protocol: input.protocol,
+            strategy: input.strategy,
+            fallback: input.fallback,
+            targets_json: serde_json::to_string(&input.targets)
+                .map_err(|_| "cannot encode combo targets")?,
+            enabled: input.enabled,
+            revision: revision()?,
+        };
+        self.0.database.upsert_combo(&record).await?;
+        if let Err(error) = self.refresh_routes().await {
+            *self.0.routes.write().await = RouteSnapshot::Unavailable;
+            return Err(error);
+        }
+        combo_view(&record)
+    }
+
+    pub async fn disable_combo(&self, id: &str) -> Result<(), &'static str> {
+        validate_id(id)?;
+        let _mutation = self.0.mutation.lock().await;
+        self.0.database.disable_combo(id, revision()?).await?;
+        if let Err(error) = self.refresh_routes().await {
+            *self.0.routes.write().await = RouteSnapshot::Unavailable;
             return Err(error);
         }
         Ok(())
@@ -232,6 +357,7 @@ impl ControlPlane {
         validate_id(id)?;
         validate_label(&input.label)?;
         validate_client_lists(&input)?;
+        let _mutation = self.0.mutation.lock().await;
         let existing = self
             .0
             .database
@@ -282,6 +408,7 @@ impl ControlPlane {
 
     pub async fn revoke_client_key(&self, id: &str) -> Result<(), &'static str> {
         validate_id(id)?;
+        let _mutation = self.0.mutation.lock().await;
         self.0.database.revoke_client_key(id, revision()?).await?;
         if self.refresh_clients().await.is_err() {
             *self.0.clients.write().await = ClientSnapshot::Unavailable;
@@ -328,6 +455,63 @@ impl ControlPlane {
         Ok(())
     }
 
+    async fn refresh_routes(&self) -> Result<(), &'static str> {
+        let records = self.0.database.combos().await?;
+        if records.is_empty() {
+            *self.0.routes.write().await = RouteSnapshot::Legacy;
+            return Ok(());
+        }
+        let providers = self.0.database.providers().await?;
+        let mut live = HashMap::<String, LiveProvider>::new();
+        let mut routes = HashMap::new();
+        for record in records.iter().filter(|record| record.enabled) {
+            let view = combo_view(record)?;
+            let mut targets = Vec::new();
+            for target in view.targets {
+                let Some(provider) = providers
+                    .iter()
+                    .find(|provider| provider.id == target.provider_id && provider.enabled)
+                else {
+                    continue;
+                };
+                if !live.contains_key(&provider.id) {
+                    let credential = decrypt(
+                        &provider.credential_ciphertext,
+                        &provider.id,
+                        self.0.encryption_key.as_str(),
+                    )?;
+                    let mut runtime = ProxyState::live_provider(
+                        &provider.upstream_url,
+                        credential.as_str(),
+                        self.0.allow_private,
+                    )
+                    .await?;
+                    runtime.provider_id = Some(Arc::from(provider.id.clone()));
+                    live.insert(provider.id.clone(), runtime);
+                }
+                targets.push(ProxyState::control_target(
+                    live.get(&provider.id).ok_or("combo provider unavailable")?,
+                    target.model,
+                ));
+            }
+            if targets.is_empty() {
+                return Err("combo has no enabled provider targets");
+            }
+            routes.insert(
+                record.id.clone(),
+                Arc::new(ModelRoute {
+                    targets,
+                    protocol: ProviderProtocol::OpenAi,
+                    round_robin: record.strategy == "round-robin",
+                    fallback: record.fallback,
+                    cursor: std::sync::atomic::AtomicUsize::new(0),
+                }),
+            );
+        }
+        *self.0.routes.write().await = RouteSnapshot::Current(Arc::new(routes));
+        Ok(())
+    }
+
     async fn views(&self) -> Result<Vec<ProviderView>, &'static str> {
         self.0
             .database
@@ -343,6 +527,16 @@ impl ControlPlane {
             .await?
             .iter()
             .map(client_view)
+            .collect()
+    }
+
+    async fn combo_views(&self) -> Result<Vec<ComboView>, &'static str> {
+        self.0
+            .database
+            .combos()
+            .await?
+            .iter()
+            .map(combo_view)
             .collect()
     }
 
@@ -393,6 +587,31 @@ fn client_view(record: &StoredClientKey) -> Result<ClientKeyView, &'static str> 
         max_concurrent_requests: positive_u64(record.max_concurrent)?,
         max_requests_per_minute: positive_u64(record.max_rpm)?,
         max_requests_per_day: positive_u64(record.max_rpd)?,
+        revision: record.revision.to_string(),
+    })
+}
+
+fn combo_view(record: &StoredCombo) -> Result<ComboView, &'static str> {
+    let targets: Vec<ComboTarget> = if record.targets_json.len() <= 256 * 1024 {
+        serde_json::from_str(&record.targets_json).map_err(|_| "invalid combo targets")?
+    } else {
+        return Err("invalid combo targets");
+    };
+    let input = ComboInput {
+        protocol: record.protocol.clone(),
+        strategy: record.strategy.clone(),
+        fallback: record.fallback,
+        targets: targets.clone(),
+        enabled: record.enabled,
+    };
+    validate_combo(&input)?;
+    Ok(ComboView {
+        id: record.id.clone(),
+        protocol: record.protocol.clone(),
+        strategy: record.strategy.clone(),
+        fallback: record.fallback,
+        targets,
+        enabled: record.enabled,
         revision: record.revision.to_string(),
     })
 }
@@ -497,6 +716,35 @@ fn validate_patterns(values: &[String]) -> Result<(), &'static str> {
 fn validate_label(value: &str) -> Result<(), &'static str> {
     if value.trim().is_empty() || value.len() > 128 || value.chars().any(char::is_control) {
         return Err("invalid client key label");
+    }
+    Ok(())
+}
+
+fn validate_combo(input: &ComboInput) -> Result<(), &'static str> {
+    if input.protocol != "openai" {
+        return Err("unsupported combo protocol");
+    }
+    if !matches!(input.strategy.as_str(), "priority" | "round-robin") {
+        return Err("unsupported combo strategy");
+    }
+    if input.targets.is_empty() || input.targets.len() > 8 {
+        return Err("combo targets must contain 1-8 entries");
+    }
+    for target in &input.targets {
+        validate_id(&target.provider_id)?;
+        if target.model.is_empty()
+            || target.model.len() > 256
+            || target.model.chars().any(char::is_control)
+        {
+            return Err("invalid combo target model");
+        }
+    }
+    if input.targets.iter().enumerate().any(|(index, target)| {
+        input.targets[..index]
+            .iter()
+            .any(|other| other.provider_id == target.provider_id && other.model == target.model)
+    }) {
+        return Err("combo contains duplicate targets");
     }
     Ok(())
 }
@@ -686,6 +934,19 @@ pub async fn list_client_keys(State(state): State<ProxyState>, headers: HeaderMa
     }
 }
 
+pub async fn list_combos(State(state): State<ProxyState>, headers: HeaderMap) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+    };
+    if !control.authorized(&headers) {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
+    }
+    match control.combo_views().await {
+        Ok(combos) => Json(serde_json::json!({"combos":combos})).into_response(),
+        Err(_) => api_error(StatusCode::SERVICE_UNAVAILABLE, "Combo storage unavailable"),
+    }
+}
+
 pub async fn put_provider(
     State(state): State<ProxyState>,
     Path(id): Path<String>,
@@ -718,6 +979,8 @@ fn is_runtime_error(error: &str) -> bool {
         || error.contains("cannot write")
         || error.contains("cannot read")
         || error.contains("cannot reload")
+        || error.contains("combo has no enabled")
+        || error.contains("combo provider unavailable")
 }
 
 pub async fn delete_provider(
@@ -738,6 +1001,48 @@ pub async fn delete_provider(
             "Provider storage unavailable",
         ),
         Err(_) => api_error(StatusCode::BAD_REQUEST, "Invalid provider identifier"),
+    }
+}
+
+pub async fn put_combo(
+    State(state): State<ProxyState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Json(input): Json<ComboInput>,
+) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+    };
+    if !control.authorized(&headers) {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
+    }
+    match control.configure_combo(&id, input).await {
+        Ok(combo) => Json(serde_json::json!({"combo":combo})).into_response(),
+        Err(error) if is_runtime_error(error) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Combo storage or runtime unavailable",
+        ),
+        Err(_) => api_error(StatusCode::BAD_REQUEST, "Invalid combo configuration"),
+    }
+}
+
+pub async fn delete_combo(
+    State(state): State<ProxyState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+    };
+    if !control.authorized(&headers) {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
+    }
+    match control.disable_combo(&id).await {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(error) if is_runtime_error(error) || error == "cannot disable combo" => {
+            api_error(StatusCode::SERVICE_UNAVAILABLE, "Combo storage unavailable")
+        }
+        Err(_) => api_error(StatusCode::BAD_REQUEST, "Invalid combo identifier"),
     }
 }
 

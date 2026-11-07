@@ -1,4 +1,4 @@
-use red_routerd::storage::{Backend, Database, StoredClientKey, StoredProvider};
+use red_routerd::storage::{Backend, Database, StoredClientKey, StoredCombo, StoredProvider};
 use tempfile::TempDir;
 use url::Url;
 
@@ -70,6 +70,22 @@ async fn exercise(backend: Backend, url: &str) {
     revoked_key.enabled = false;
     revoked_key.revision = 6;
     assert_eq!(db.client_keys().await.unwrap(), vec![revoked_key.clone()]);
+    let combo = StoredCombo {
+        id: "agent-combo".into(),
+        protocol: "openai".into(),
+        strategy: "priority".into(),
+        fallback: true,
+        targets_json: r#"[{"provider_id":"first","model":"openai/model"}]"#.into(),
+        enabled: true,
+        revision: 7,
+    };
+    db.upsert_combo(&combo).await.unwrap();
+    assert_eq!(db.combos().await.unwrap(), vec![combo.clone()]);
+    db.disable_combo("agent-combo", 8).await.unwrap();
+    let mut disabled_combo = combo;
+    disabled_combo.enabled = false;
+    disabled_combo.revision = 8;
+    assert_eq!(db.combos().await.unwrap(), vec![disabled_combo.clone()]);
     db.close().await.unwrap();
     drop(db);
     let reopened = Database::connect(backend, url).await.unwrap();
@@ -79,6 +95,7 @@ async fn exercise(backend: Backend, url: &str) {
     );
     assert_eq!(reopened.active_provider().await.unwrap(), Some(first));
     assert_eq!(reopened.client_keys().await.unwrap(), vec![revoked_key]);
+    assert_eq!(reopened.combos().await.unwrap(), vec![disabled_combo]);
     reopened.close().await.unwrap();
 }
 

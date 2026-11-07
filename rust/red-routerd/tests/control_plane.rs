@@ -1,5 +1,5 @@
 use axum::{
-    http::{header, HeaderMap},
+    http::{header, HeaderMap, StatusCode},
     routing::post,
     Router,
 };
@@ -38,6 +38,23 @@ async fn provider(
     (format!("http://{address}/v1/chat/completions"), task)
 }
 
+async fn failing_provider(expected_key: &'static str) -> (String, tokio::task::JoinHandle<()>) {
+    let app = Router::new().route(
+        "/v1/chat/completions",
+        post(move |headers: HeaderMap| async move {
+            assert_eq!(
+                headers["authorization"].to_str().unwrap(),
+                format!("Bearer {expected_key}")
+            );
+            (StatusCode::SERVICE_UNAVAILABLE, "retry")
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    (format!("http://{address}/v1/chat/completions"), task)
+}
+
 async fn gateway(control: ControlPlane) -> (String, tokio::task::JoinHandle<()>) {
     let state = ProxyState::new(
         "http://127.0.0.1:1/v1/chat/completions",
@@ -55,14 +72,248 @@ async fn gateway(control: ControlPlane) -> (String, tokio::task::JoinHandle<()>)
 }
 
 async fn chat(client: &reqwest::Client, base: &str, key: &str) -> reqwest::Response {
+    chat_model(client, base, key, "fixture-model").await
+}
+
+async fn chat_model(
+    client: &reqwest::Client,
+    base: &str,
+    key: &str,
+    model: &str,
+) -> reqwest::Response {
     client
         .post(format!("{base}/v1/chat/completions"))
         .bearer_auth(key)
         .header(header::CONTENT_TYPE.as_str(), "application/json")
-        .body(r#"{"model":"fixture-model","messages":[]}"#)
+        .body(serde_json::json!({"model":model,"messages":[]}).to_string())
         .send()
         .await
         .unwrap()
+}
+
+#[tokio::test]
+async fn rust_control_plane_persists_and_live_reloads_combo_routes() {
+    let directory = TempDir::new().unwrap();
+    let file = Url::from_file_path(directory.path().join("combos.sqlite")).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    let database = Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap());
+    let control = ControlPlane::new(database.clone(), ADMIN_KEY, STORAGE_KEY, false)
+        .await
+        .unwrap();
+    let (first_url, first_task) = provider("combo-first-secret", "combo-first").await;
+    let (second_url, second_task) = provider("combo-second-secret", "combo-second").await;
+    let (failing_url, failing_task) = failing_provider("combo-failing-secret").await;
+    let (base, gateway_task) = gateway(control).await;
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+
+    for (id, url, secret) in [
+        ("first", first_url, "combo-first-secret"),
+        ("second", second_url, "combo-second-secret"),
+        ("failing", failing_url, "combo-failing-secret"),
+    ] {
+        assert_eq!(
+            client
+                .put(format!("{base}/api/admin/providers/{id}"))
+                .bearer_auth(ADMIN_KEY)
+                .json(&serde_json::json!({
+                    "provider":"openai-compatible",
+                    "upstream_url":url,
+                    "api_key":secret
+                }))
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            200
+        );
+    }
+    assert_eq!(
+        client
+            .put(format!("{base}/api/admin/client-keys/combo-client"))
+            .bearer_auth(ADMIN_KEY)
+            .json(&serde_json::json!({
+                "label":"Combo client",
+                "api_key":RUST_CLIENT_KEY,
+                "scopes":["inference:chat"],
+                "allowed_endpoints":["chat"],
+                "allowed_models":["agent-combo","upstream-model"],
+                "allowed_provider_ids":["first"]
+            }))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
+    assert_eq!(
+        client
+            .put(format!("{base}/api/admin/combos/agent-combo"))
+            .bearer_auth(ADMIN_KEY)
+            .json(&serde_json::json!({
+                "strategy":"priority",
+                "fallback":true,
+                "targets":[{"provider_id":"first","model":"upstream-model"}]
+            }))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
+    assert_eq!(
+        chat_model(&client, &base, RUST_CLIENT_KEY, "agent-combo")
+            .await
+            .text()
+            .await
+            .unwrap(),
+        "combo-first"
+    );
+    assert_eq!(
+        client
+            .put(format!("{base}/api/admin/combos/agent-combo"))
+            .bearer_auth(ADMIN_KEY)
+            .json(&serde_json::json!({
+                "strategy":"round-robin",
+                "fallback":true,
+                "targets":[{"provider_id":"second","model":"upstream-model"}]
+            }))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
+    assert_eq!(
+        chat_model(&client, &base, RUST_CLIENT_KEY, "agent-combo")
+            .await
+            .status(),
+        403
+    );
+    assert_eq!(
+        client
+            .put(format!("{base}/api/admin/client-keys/combo-client"))
+            .bearer_auth(ADMIN_KEY)
+            .json(&serde_json::json!({
+                "label":"Combo client",
+                "scopes":["inference:chat"],
+                "allowed_endpoints":["chat"],
+                "allowed_models":["agent-combo","upstream-model"],
+                "allowed_provider_ids":["second"]
+            }))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
+    assert_eq!(
+        chat_model(&client, &base, RUST_CLIENT_KEY, "agent-combo")
+            .await
+            .text()
+            .await
+            .unwrap(),
+        "combo-second"
+    );
+    assert_eq!(
+        client
+            .put(format!("{base}/api/admin/combos/agent-combo"))
+            .bearer_auth(ADMIN_KEY)
+            .json(&serde_json::json!({
+                "strategy":"priority",
+                "fallback":true,
+                "targets":[
+                    {"provider_id":"failing","model":"upstream-model"},
+                    {"provider_id":"second","model":"upstream-model"}
+                ]
+            }))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
+    assert_eq!(
+        client
+            .put(format!("{base}/api/admin/client-keys/combo-client"))
+            .bearer_auth(ADMIN_KEY)
+            .json(&serde_json::json!({
+                "label":"Combo client",
+                "scopes":["inference:chat"],
+                "allowed_endpoints":["chat"],
+                "allowed_models":["agent-combo","upstream-model"],
+                "allowed_provider_ids":["failing","second"]
+            }))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
+    assert_eq!(
+        chat_model(&client, &base, RUST_CLIENT_KEY, "agent-combo")
+            .await
+            .text()
+            .await
+            .unwrap(),
+        "combo-second"
+    );
+    let listing = client
+        .get(format!("{base}/api/admin/combos"))
+        .bearer_auth(ADMIN_KEY)
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    assert!(listing.contains("agent-combo"));
+    assert!(listing.contains("second"));
+    assert!(!listing.contains("combo-second-secret"));
+
+    gateway_task.abort();
+    let restarted = ControlPlane::new(database.clone(), ADMIN_KEY, STORAGE_KEY, false)
+        .await
+        .unwrap();
+    let (restarted_base, restarted_task) = gateway(restarted).await;
+    assert_eq!(
+        chat_model(&client, &restarted_base, RUST_CLIENT_KEY, "agent-combo")
+            .await
+            .text()
+            .await
+            .unwrap(),
+        "combo-second"
+    );
+    assert_eq!(
+        client
+            .delete(format!("{restarted_base}/api/admin/combos/agent-combo"))
+            .bearer_auth(ADMIN_KEY)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        204
+    );
+    assert_eq!(
+        client
+            .get(format!("{restarted_base}/readyz"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        503
+    );
+    assert_eq!(
+        chat_model(&client, &restarted_base, RUST_CLIENT_KEY, "agent-combo")
+            .await
+            .status(),
+        404
+    );
+
+    restarted_task.abort();
+    first_task.abort();
+    second_task.abort();
+    failing_task.abort();
+    database.close().await.unwrap();
 }
 
 #[tokio::test]
