@@ -20,9 +20,9 @@ const LIST_CLIENT_KEYS: &str = "SELECT id, label, key_hash, enabled, expiry_unix
 const UPSERT_CLIENT_KEY: &str = "INSERT INTO redrouter_control_client_keys (id, label, key_hash, enabled, expiry_unix, scopes_json, allowed_endpoints_json, allowed_models_json, blocked_models_json, allowed_provider_ids_json, max_concurrent, max_rpm, max_rpd, revision) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) ON CONFLICT (id) DO UPDATE SET label = $2, key_hash = $3, enabled = $4, expiry_unix = $5, scopes_json = $6, allowed_endpoints_json = $7, allowed_models_json = $8, blocked_models_json = $9, allowed_provider_ids_json = $10, max_concurrent = $11, max_rpm = $12, max_rpd = $13, revision = $14";
 const REVOKE_CLIENT_KEY: &str =
     "UPDATE redrouter_control_client_keys SET enabled = 0, revision = $2 WHERE id = $1";
-const CREATE_COMBOS: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_combos (id TEXT PRIMARY KEY, protocol TEXT NOT NULL, strategy TEXT NOT NULL, fallback_enabled BIGINT NOT NULL, targets_json TEXT NOT NULL, enabled BIGINT NOT NULL, revision BIGINT NOT NULL)";
-const LIST_COMBOS: &str = "SELECT id, protocol, strategy, fallback_enabled, targets_json, enabled, revision FROM redrouter_control_combos ORDER BY revision DESC, id ASC";
-const UPSERT_COMBO: &str = "INSERT INTO redrouter_control_combos (id, protocol, strategy, fallback_enabled, targets_json, enabled, revision) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (id) DO UPDATE SET protocol = $2, strategy = $3, fallback_enabled = $4, targets_json = $5, enabled = $6, revision = $7";
+const CREATE_COMBOS: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_combos (id TEXT PRIMARY KEY, protocol TEXT NOT NULL, routing_strategy TEXT NOT NULL, fallback_enabled BIGINT NOT NULL, targets_json TEXT NOT NULL, enabled BIGINT NOT NULL, revision BIGINT NOT NULL)";
+const LIST_COMBOS: &str = "SELECT id, protocol, routing_strategy, fallback_enabled, targets_json, enabled, revision FROM redrouter_control_combos ORDER BY revision DESC, id ASC";
+const UPSERT_COMBO: &str = "INSERT INTO redrouter_control_combos (id, protocol, routing_strategy, fallback_enabled, targets_json, enabled, revision) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (id) DO UPDATE SET protocol = $2, routing_strategy = $3, fallback_enabled = $4, targets_json = $5, enabled = $6, revision = $7";
 const DISABLE_COMBO: &str =
     "UPDATE redrouter_control_combos SET enabled = 0, revision = $2 WHERE id = $1";
 
@@ -855,7 +855,7 @@ fn read_sql_combo(row: &sqlx::any::AnyRow) -> Result<StoredCombo, &'static str> 
     Ok(StoredCombo {
         id: text("id")?,
         protocol: text("protocol")?,
-        strategy: text("strategy")?,
+        strategy: text("routing_strategy")?,
         fallback: integer("fallback_enabled")? == 1,
         targets_json: text("targets_json")?,
         enabled: integer("enabled")? == 1,
@@ -881,7 +881,7 @@ fn read_reddb_combo(row: &reddb_client::Row) -> Result<StoredCombo, &'static str
     Ok(StoredCombo {
         id: text("id")?,
         protocol: text("protocol")?,
-        strategy: text("strategy")?,
+        strategy: text("routing_strategy")?,
         fallback: integer("fallback_enabled")? == 1,
         targets_json: text("targets_json")?,
         enabled: integer("enabled")? == 1,
