@@ -674,10 +674,8 @@ impl ProviderProtocol {
     }
 
     pub(crate) fn from_upstream(upstream: &str) -> Result<Self, &'static str> {
-        let path = reqwest::Url::parse(upstream)
-            .map_err(|_| "invalid upstream URL")?
-            .path()
-            .trim_end_matches('/');
+        let parsed = reqwest::Url::parse(upstream).map_err(|_| "invalid upstream URL")?;
+        let path = parsed.path().trim_end_matches('/');
         if path.ends_with("/chat/completions") {
             Ok(Self::OpenAi)
         } else if path.ends_with("/responses") {
