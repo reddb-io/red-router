@@ -14,7 +14,7 @@ dashboard database and is not an implementation of the production adapter.
   pinned to `07faa4a5068928da49eed5ffbd369d18f8a8243e` (2026-11-06).
 - Capability sources, not feature-parity claims: [9router](https://github.com/decolua/9router)
   `1fe586bb1cf35e1ed0cb2150a8ef7d1db040b21d`,
-  [OmniRoute](https://github.com/cheaper-inference/OmniRoute)
+  [upstream routing project](https://github.com/cheaper-inference/OmniRoute)
   `6d5f11878ae1610616724edc195d8bb80f767757`, and
   [LiteLLM](https://github.com/BerriAI/litellm)
   `3f38730d2c3059964a2232856e5fa5e688f58a59`.
@@ -69,19 +69,19 @@ Responses and streaming Anthropic Messages probes; a reported HTTP status is
 not full protocol compatibility. It does not prove durable
 or exactly-once accounting, actual quota enforcement under concurrent or
 multi-instance load, a complete dashboard, Windows support, the 9router or
-OmniRoute authentication flows, or a real provider response.
+upstream routing project's authentication flows, or a real provider response.
 
 ## Customization and compatibility work before adoption
 
-| Existing contract | Work required for a real Red Router integration |
-| --- | --- |
-| Dashboard and SQLite | Read actual schema/migrations and encrypted provider credentials; produce versioned snapshots atomically; invalidate and revoke keys safely. Do not copy the fixture adapter as a production security boundary. |
-| 9router provider auth | Compare provider identity, OAuth acquisition/refresh and per-account restrictions against `src/lib/oauth/providers/` and `open-sse/config/providerRegistry.ts`; a named provider alone does not prove compatibility. |
-| OmniRoute routing | Map dashboard combos, per-key allowed models/connections, ordering, fallback, cooldown and other strategies to FastLLM's route model; prove semantics with the existing Red Router contract tests. |
-| LiteLLM protocols | Compare chat, Responses, Anthropic Messages and other endpoints, tool calls, reasoning, errors, cancellation and SSE across providers. Keep LiteLLM MIT and separate enterprise-license boundaries. |
-| Quotas and usage | FastLLM documents asynchronous reporting and possible drops/retries and eventual reconciliation across replicas. Implement or integrate durable, idempotent accounting and concurrent limits consistent with Red Router; do not treat the fixture's `/usage` receiver as a billing implementation. |
-| Secrets and snapshots | FastLLM's snapshot contains usable upstream credentials and its HTTP mode can persist a last-known-good snapshot on disk. Define encryption, transport authentication, filesystem permissions, revocation and failure behavior before connecting real secrets. |
-| Cluster | SQLite remains local authority for this evaluation. Multi-node coordination needs an explicitly designed shared authority; neither a copied SQLite file nor the fixture provides it. |
+| Existing contract     | Work required for a real Red Router integration                                                                                                                                                                                                                                                    |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Dashboard and SQLite  | Read actual schema/migrations and encrypted provider credentials; produce versioned snapshots atomically; invalidate and revoke keys safely. Do not copy the fixture adapter as a production security boundary.                                                                                    |
+| 9router provider auth | Compare provider identity, OAuth acquisition/refresh and per-account restrictions against `src/lib/oauth/providers/` and `open-sse/config/providerRegistry.ts`; a named provider alone does not prove compatibility.                                                                               |
+| Upstream routing      | Map dashboard combos, per-key allowed models/connections, ordering, fallback, cooldown and other strategies to FastLLM's route model; prove semantics with the existing Red Router contract tests.                                                                                                 |
+| LiteLLM protocols     | Compare chat, Responses, Anthropic Messages and other endpoints, tool calls, reasoning, errors, cancellation and SSE across providers. Keep LiteLLM MIT and separate enterprise-license boundaries.                                                                                                |
+| Quotas and usage      | FastLLM documents asynchronous reporting and possible drops/retries and eventual reconciliation across replicas. Implement or integrate durable, idempotent accounting and concurrent limits consistent with Red Router; do not treat the fixture's `/usage` receiver as a billing implementation. |
+| Secrets and snapshots | FastLLM's snapshot contains usable upstream credentials and its HTTP mode can persist a last-known-good snapshot on disk. Define encryption, transport authentication, filesystem permissions, revocation and failure behavior before connecting real secrets.                                     |
+| Cluster               | SQLite remains local authority for this evaluation. Multi-node coordination needs an explicitly designed shared authority; neither a copied SQLite file nor the fixture provides it.                                                                                                               |
 
-The original 9router, OmniRoute and LiteLLM are upstream capability sources;
-this experiment does not replace them or establish complete inheritance.
+The original 9router, linked upstream routing project and LiteLLM are capability
+sources; this experiment does not replace them or establish complete inheritance.
