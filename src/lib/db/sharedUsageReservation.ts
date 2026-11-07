@@ -80,8 +80,11 @@ export function cancelUndispatchedUsageOnDb(db: ReservationDatabase, id: string,
   return removed;
 }
 
+// Keep in sync with the fixed chat endpoints in rust/red-routerd/src/product_provider.rs.
+const accountedProviders = ["openai", "openrouter", "groq", "cerebras", "sambanova", "mistral", "deepseek", "together", "perplexity", "fireworks"] as const;
+export type AccountedProvider = (typeof accountedProviders)[number];
 export type CompletedReservedUsage = Pick<UsageReservation, "id" | "keyId" | "nowMs"> & {
-  provider: "openai" | "openrouter";
+  provider: AccountedProvider;
   model: string;
   input: number;
   output: number;
@@ -94,7 +97,7 @@ export type CompletedReservedUsage = Pick<UsageReservation, "id" | "keyId" | "no
 /** Atomically commit a dispatched reservation, cost ledger and TPM counter. */
 export function settleUsageOnDb(db: ReservationDatabase, event: CompletedReservedUsage): boolean {
   if (db.driver === "sql.js" || !event.id || event.id.length > 128 || !event.keyId || event.keyId.length > 512 ||
-      !event.model || event.model.length > 256 || !["openai", "openrouter"].includes(event.provider) ||
+      !event.model || event.model.length > 256 || !accountedProviders.includes(event.provider) ||
       !Number.isSafeInteger(event.nowMs) || event.nowMs < 946_684_800_000 || event.nowMs >= 4_102_444_800_000 ||
       ![event.input, event.output, event.reasoning, event.cacheRead, event.cacheCreation].every(n => Number.isSafeInteger(n) && n >= 0) ||
       event.cacheRead + event.cacheCreation > event.input || event.reasoning > event.output)

@@ -25,6 +25,7 @@ process.stdin.once("data", () => {
   let modelMismatch = false;
   try { settleUsageOnDb(db, { ...event, model: "other" }); } catch { modelMismatch = true; }
   const settled = settleUsageOnDb(db, event);
+  const cerebrasSettled = settleUsageOnDb(db, { ...event, id: "rust-cerebras", provider: "cerebras", model: "llama" });
   const duplicate = settleUsageOnDb(db, event);
   let collision = false;
   try { settleUsageOnDb(db, { ...event, output: 51 }); } catch { collision = true; }
@@ -34,5 +35,5 @@ process.stdin.once("data", () => {
   let overrun = false;
   try { settleUsageOnDb(db, { ...event, id: "node-overrun" }); } catch { overrun = true; }
   raw.close();
-  process.stdout.write(JSON.stringify({ allowed, settled, duplicate, collision, modelMismatch, overrunReservation, dispatched, cancelled, overrun }) + "\n", () => process.exit(0));
+  process.stdout.write(JSON.stringify({ allowed, settled, cerebrasSettled, duplicate, collision, modelMismatch, overrunReservation, dispatched, cancelled, overrun }) + "\n", () => process.exit(0));
 });

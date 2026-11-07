@@ -63,6 +63,22 @@ async fn rust_and_typescript_reserve_one_shared_token_and_spend_budget() {
         .await
         .unwrap());
     sqlx::query("UPDATE api_key_usage_reservations SET provider='openai', model='gpt' WHERE id='rust-handoff'").execute(&pool).await.unwrap();
+    assert!(reserve_usage(
+        &pool,
+        &UsageReservation {
+            id: "rust-cerebras",
+            key_id: "node-key",
+            tokens: 150,
+            usd: 0.001,
+            now_ms: 1_700_000_000_000,
+        }
+    )
+    .await
+    .unwrap());
+    assert!(mark_dispatched(&pool, "rust-cerebras", "node-key")
+        .await
+        .unwrap());
+    sqlx::query("UPDATE api_key_usage_reservations SET provider='cerebras', model='llama' WHERE id='rust-cerebras'").execute(&pool).await.unwrap();
     sqlx::query("INSERT INTO api_key_quota_limits(api_key_id,tpm_limit,monthly_amount_usd) VALUES ('key',80,1.0)").execute(&pool).await.unwrap();
     sqlx::query(
         "INSERT INTO api_key_daily_token_limits(api_key_id,daily_tokens_limit) VALUES ('key',80)",
@@ -113,6 +129,7 @@ async fn rust_and_typescript_reserve_one_shared_token_and_spend_budget() {
     stdout.read_to_string(&mut output).unwrap();
     let node_result = serde_json::from_str::<serde_json::Value>(&output).unwrap();
     assert_eq!(node_result["settled"], true);
+    assert_eq!(node_result["cerebrasSettled"], true);
     assert_eq!(node_result["duplicate"], false);
     assert_eq!(node_result["collision"], true);
     assert_eq!(node_result["modelMismatch"], true);
