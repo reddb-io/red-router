@@ -37,6 +37,7 @@ use tokio::sync::Semaphore;
 
 const MAX_BODY_BYTES: usize = 2 * 1024 * 1024;
 const MAX_IN_FLIGHT: usize = 64;
+const MAX_ROUTE_TARGETS: usize = 8;
 const HEADER_TIMEOUT: Duration = Duration::from_secs(120);
 
 #[derive(Clone)]
@@ -94,6 +95,7 @@ pub(crate) struct ModelRoute {
     strategy: RouteStrategy,
     fallback: bool,
     cursor: AtomicUsize,
+    seed: usize,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -104,6 +106,8 @@ pub(crate) enum RouteStrategy {
     Random,
     LeastUsed,
     P2c,
+    FillFirst,
+    StrictRandom,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -135,7 +139,7 @@ pub(crate) struct ModelTarget {
 impl ModelRoute {
     fn selection_start(&self, eligible: &[&ModelTarget]) -> usize {
         match self.strategy {
-            RouteStrategy::Priority => 0,
+            RouteStrategy::Priority | RouteStrategy::FillFirst => 0,
             RouteStrategy::RoundRobin => {
                 self.cursor.fetch_add(1, Ordering::Relaxed) % eligible.len()
             }
@@ -191,7 +195,24 @@ impl ModelRoute {
                     first
                 }
             }
+            RouteStrategy::StrictRandom => unreachable!("strict-random uses an attempt deck"),
         }
+    }
+
+    fn attempt_order(&self, eligible: &[&ModelTarget]) -> [usize; MAX_ROUTE_TARGETS] {
+        if self.strategy == RouteStrategy::StrictRandom {
+            return strict_random_order(
+                eligible.len(),
+                self.seed,
+                self.cursor.fetch_add(1, Ordering::Relaxed),
+            );
+        }
+        let start = self.selection_start(eligible);
+        let mut order = [0; MAX_ROUTE_TARGETS];
+        for (offset, slot) in order.iter_mut().take(eligible.len()).enumerate() {
+            *slot = (start + offset) % eligible.len();
+        }
+        order
     }
 }
 
@@ -200,6 +221,60 @@ fn pseudo_random(counter: usize) -> usize {
     value = (value ^ (value >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
     value = (value ^ (value >> 27)).wrapping_mul(0x94d049bb133111eb);
     (value ^ (value >> 31)) as usize
+}
+
+fn route_seed(value: &str) -> usize {
+    value.bytes().fold(0xcbf29ce484222325_u64, |hash, byte| {
+        (hash ^ u64::from(byte)).wrapping_mul(0x100000001b3)
+    }) as usize
+}
+
+fn secure_route_seed(value: &str) -> Result<usize, &'static str> {
+    let mut bytes = [0_u8; 8];
+    getrandom::fill(&mut bytes).map_err(|_| "cannot seed strict-random route")?;
+    Ok(route_seed(value) ^ u64::from_ne_bytes(bytes) as usize)
+}
+
+fn greatest_common_divisor(mut left: usize, mut right: usize) -> usize {
+    while right != 0 {
+        (left, right) = (right, left % right);
+    }
+    left
+}
+
+fn strict_random_order(
+    target_count: usize,
+    seed: usize,
+    ticket: usize,
+) -> [usize; MAX_ROUTE_TARGETS] {
+    let mut order = [0; MAX_ROUTE_TARGETS];
+    if target_count <= 1 {
+        return order;
+    }
+    let cycle = ticket / target_count;
+    let position = ticket % target_count;
+    let mut step = 1 + pseudo_random(seed ^ target_count) % (target_count - 1);
+    while greatest_common_divisor(step, target_count) != 1 {
+        step = step % (target_count - 1) + 1;
+    }
+    let offset = pseudo_random(seed) % target_count;
+    let rotation = if target_count == 2 {
+        0
+    } else {
+        cycle % target_count
+    };
+    let primary = (offset + step * ((rotation + position) % target_count)) % target_count;
+
+    for (index, slot) in order.iter_mut().take(target_count).enumerate() {
+        *slot = index;
+    }
+    order.swap(0, primary);
+    let mut random = pseudo_random(seed ^ ticket ^ 0xd1b54a32d192ed03_u64 as usize);
+    for index in (2..target_count).rev() {
+        random = pseudo_random(random);
+        order.swap(index, 1 + random % index);
+    }
+    order
 }
 
 impl ProxyState {
@@ -579,6 +654,8 @@ impl ProxyState {
                 Some(v) if v.as_str() == Some("random") => RouteStrategy::Random,
                 Some(v) if v.as_str() == Some("least-used") => RouteStrategy::LeastUsed,
                 Some(v) if v.as_str() == Some("p2c") => RouteStrategy::P2c,
+                Some(v) if v.as_str() == Some("fill-first") => RouteStrategy::FillFirst,
+                Some(v) if v.as_str() == Some("strict-random") => RouteStrategy::StrictRandom,
                 _ => return Err("unsupported route strategy"),
             };
             let fallback = match object.get("fallback") {
@@ -717,6 +794,11 @@ impl ProxyState {
                         strategy,
                         fallback,
                         cursor: AtomicUsize::new(0),
+                        seed: if strategy == RouteStrategy::StrictRandom {
+                            secure_route_seed(alias)?
+                        } else {
+                            route_seed(alias)
+                        },
                     }),
                 )
                 .is_some()
@@ -1303,7 +1385,7 @@ async fn proxy_request(
             }
         }
     }
-    let start = route.map_or(0, |route| route.selection_start(&eligible));
+    let attempt_order = route.map(|route| route.attempt_order(&eligible));
     let attempts = if state.product_combo.is_some() {
         eligible.len()
     } else if product_access.is_some() {
@@ -1352,7 +1434,7 @@ async fn proxy_request(
                 continue;
             }
         }
-        let target = route.map(|_| eligible[(start + offset) % eligible.len()]);
+        let target = attempt_order.map(|order| eligible[order[offset]]);
         if let Some(combo) = &state.product_combo {
             let Some(target) = target else { break };
             let Some(connection) = &target.product_connection else {
@@ -1849,5 +1931,28 @@ mod address_tests {
         assert!(!allowed_address("10.0.0.1".parse().unwrap(), false));
         assert!(allowed_address("10.0.0.1".parse().unwrap(), true));
         assert!(allowed_address("8.8.8.8".parse().unwrap(), false));
+    }
+
+    #[test]
+    fn strict_random_deck_is_complete_and_never_repeats_at_cycle_boundaries() {
+        for target_count in 2..=MAX_ROUTE_TARGETS {
+            for seed in [route_seed("alpha"), route_seed("beta"), route_seed("gamma")] {
+                let selections: Vec<_> = (0..target_count * 6)
+                    .map(|ticket| {
+                        let order = strict_random_order(target_count, seed, ticket);
+                        let mut fallback = order[..target_count].to_vec();
+                        fallback.sort_unstable();
+                        assert_eq!(fallback, (0..target_count).collect::<Vec<_>>());
+                        order[0]
+                    })
+                    .collect();
+                for cycle in selections.chunks_exact(target_count) {
+                    let mut complete = cycle.to_vec();
+                    complete.sort_unstable();
+                    assert_eq!(complete, (0..target_count).collect::<Vec<_>>());
+                }
+                assert!(selections.windows(2).all(|pair| pair[0] != pair[1]));
+            }
+        }
     }
 }

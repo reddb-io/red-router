@@ -542,22 +542,30 @@ impl ControlPlane {
             if targets.is_empty() {
                 return Err("combo has no enabled provider targets");
             }
+            let strategy = match record.strategy.as_str() {
+                "priority" => RouteStrategy::Priority,
+                "round-robin" => RouteStrategy::RoundRobin,
+                "weighted" => RouteStrategy::Weighted,
+                "random" => RouteStrategy::Random,
+                "least-used" => RouteStrategy::LeastUsed,
+                "p2c" => RouteStrategy::P2c,
+                "fill-first" => RouteStrategy::FillFirst,
+                "strict-random" => RouteStrategy::StrictRandom,
+                _ => return Err("unsupported combo strategy"),
+            };
             routes.insert(
                 record.id.clone(),
                 Arc::new(ModelRoute {
                     targets,
                     protocol,
-                    strategy: match record.strategy.as_str() {
-                        "priority" => RouteStrategy::Priority,
-                        "round-robin" => RouteStrategy::RoundRobin,
-                        "weighted" => RouteStrategy::Weighted,
-                        "random" => RouteStrategy::Random,
-                        "least-used" => RouteStrategy::LeastUsed,
-                        "p2c" => RouteStrategy::P2c,
-                        _ => return Err("unsupported combo strategy"),
-                    },
+                    strategy,
                     fallback: record.fallback,
                     cursor: std::sync::atomic::AtomicUsize::new(0),
+                    seed: if strategy == RouteStrategy::StrictRandom {
+                        crate::secure_route_seed(&record.id)?
+                    } else {
+                        crate::route_seed(&record.id)
+                    },
                 }),
             );
         }
@@ -822,7 +830,14 @@ fn validate_combo(input: &ComboInput) -> Result<(), &'static str> {
     let protocol = ProviderProtocol::parse(&input.protocol)?;
     if !matches!(
         input.strategy.as_str(),
-        "priority" | "round-robin" | "weighted" | "random" | "least-used" | "p2c"
+        "priority"
+            | "round-robin"
+            | "weighted"
+            | "random"
+            | "least-used"
+            | "p2c"
+            | "fill-first"
+            | "strict-random"
     ) {
         return Err("unsupported combo strategy");
     }

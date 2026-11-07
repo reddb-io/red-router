@@ -443,6 +443,69 @@ async fn rust_control_plane_persists_and_live_reloads_combo_routes() {
             .header(header::CONTENT_TYPE.as_str(), "application/json")
             .body(
                 serde_json::json!({
+                    "strategy":"strict-random",
+                    "fallback":true,
+                    "targets":[
+                        {"provider_id":"first","model":"upstream-model"},
+                        {"provider_id":"second","model":"upstream-model"}
+                    ]
+                })
+                .to_string()
+            )
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
+    let mut strict_deck = Vec::new();
+    for _ in 0..4 {
+        strict_deck.push(
+            chat_model(&client, &base, RUST_CLIENT_KEY, "agent-combo")
+                .await
+                .text()
+                .await
+                .unwrap(),
+        );
+    }
+    assert!(strict_deck.windows(2).all(|pair| pair[0] != pair[1]));
+    assert_eq!(
+        client
+            .put(format!("{base}/api/admin/combos/agent-combo"))
+            .bearer_auth(ADMIN_KEY)
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(
+                serde_json::json!({
+                    "strategy":"fill-first",
+                    "fallback":true,
+                    "targets":[
+                        {"provider_id":"first","model":"upstream-model"},
+                        {"provider_id":"second","model":"upstream-model"}
+                    ]
+                })
+                .to_string()
+            )
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
+    assert_eq!(
+        chat_model(&client, &base, RUST_CLIENT_KEY, "agent-combo")
+            .await
+            .text()
+            .await
+            .unwrap(),
+        "combo-first"
+    );
+    assert_eq!(
+        client
+            .put(format!("{base}/api/admin/combos/agent-combo"))
+            .bearer_auth(ADMIN_KEY)
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(
+                serde_json::json!({
                     "strategy":"priority",
                     "fallback":true,
                     "targets":[
