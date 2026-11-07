@@ -313,13 +313,18 @@ impl ControlPlane {
         validate_combo(&input)?;
         let _mutation = self.0.mutation.lock().await;
         if input.enabled {
+            let protocol = ProviderProtocol::parse(&input.protocol)?;
             let providers = self.0.database.providers().await?;
-            if !input.targets.iter().any(|target| {
+            if !input.targets.iter().all(|target| {
                 providers
                     .iter()
-                    .any(|provider| provider.id == target.provider_id && provider.enabled)
+                    .find(|provider| provider.id == target.provider_id && provider.enabled)
+                    .and_then(|provider| {
+                        ProviderProtocol::from_upstream(&provider.upstream_url).ok()
+                    })
+                    == Some(protocol)
             }) {
-                return Err("combo requires an enabled provider target");
+                return Err("combo targets require enabled providers with the same protocol");
             }
         }
         let record = StoredCombo {
@@ -468,6 +473,7 @@ impl ControlPlane {
         let mut routes = HashMap::new();
         for record in records.iter().filter(|record| record.enabled) {
             let view = combo_view(record)?;
+            let protocol = ProviderProtocol::parse(&record.protocol)?;
             let mut targets = Vec::new();
             for target in view.targets {
                 let Some(provider) = providers
@@ -491,6 +497,12 @@ impl ControlPlane {
                     runtime.provider_id = Some(Arc::from(provider.id.clone()));
                     live.insert(provider.id.clone(), runtime);
                 }
+                if live
+                    .get(&provider.id)
+                    .is_none_or(|provider| provider.protocol != protocol)
+                {
+                    return Err("combo provider protocol changed");
+                }
                 targets.push(ProxyState::control_target(
                     live.get(&provider.id).ok_or("combo provider unavailable")?,
                     target.model,
@@ -504,7 +516,7 @@ impl ControlPlane {
                 record.id.clone(),
                 Arc::new(ModelRoute {
                     targets,
-                    protocol: ProviderProtocol::OpenAi,
+                    protocol,
                     strategy: match record.strategy.as_str() {
                         "priority" => RouteStrategy::Priority,
                         "round-robin" => RouteStrategy::RoundRobin,
@@ -730,9 +742,7 @@ fn validate_label(value: &str) -> Result<(), &'static str> {
 }
 
 fn validate_combo(input: &ComboInput) -> Result<(), &'static str> {
-    if input.protocol != "openai" {
-        return Err("unsupported combo protocol");
-    }
+    let protocol = ProviderProtocol::parse(&input.protocol)?;
     if !matches!(
         input.strategy.as_str(),
         "priority" | "round-robin" | "weighted" | "random"
@@ -747,6 +757,7 @@ fn validate_combo(input: &ComboInput) -> Result<(), &'static str> {
         if target.model.is_empty()
             || target.model.len() > 256
             || target.model.chars().any(char::is_control)
+            || (protocol == ProviderProtocol::Gemini && !crate::valid_gemini_model(&target.model))
         {
             return Err("invalid combo target model");
         }
@@ -839,9 +850,6 @@ fn validate_provider(value: &str) -> Result<(), &'static str> {
             .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
     {
         return Err("invalid provider name");
-    }
-    if value != "openai-compatible" && crate::product_provider::chat_url(value).is_none() {
-        return Err("provider is not OpenAI-compatible");
     }
     Ok(())
 }

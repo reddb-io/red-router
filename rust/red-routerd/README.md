@@ -7,14 +7,14 @@ implements OpenAI-compatible chat and embeddings, Cohere-compatible rerank, Open
 and native Gemini GenerateContent routes with a
 required client key, separate provider keys, bounded request size and concurrent
 streams, reusable HTTP connections, incremental responses, and safe redirect refusal.
-It binds only to loopback. The operator can configure OpenAI-compatible HTTPS
-providers or literal-loopback HTTP mocks. It does not provide a public listener.
+It binds only to loopback. The operator can configure supported protocol HTTPS
+endpoints or literal-loopback HTTP mocks. It does not provide a public listener.
 `RED_ROUTER_MAX_IN_FLIGHT` configures the process-wide simultaneous-request
 capacity (default 64); it is separate from any per-key policy or usage quota.
 
 It supports explicitly configured model aliases for OpenAI-compatible, native
 Anthropic Messages and Gemini GenerateContent endpoints,
-priority or round-robin selection, opt-in fallback, and basic per-key route and
+priority, round-robin, weighted or random selection, opt-in fallback, and basic per-key route and
 model restrictions. It does not yet implement
 RedRouter's full provider selection, quotas, policies, accounting, protocol
 full protocol translation, remote listening or inbound TLS.
@@ -49,8 +49,9 @@ provider; subsequent provider changes do not require those environment secrets.
   required on creation and may be omitted on later policy updates.
 - `DELETE /api/admin/client-keys/{id}` immediately revokes the key.
 - `GET /api/admin/combos` lists Rust-owned combo routes.
-- `PUT /api/admin/combos/{id}` creates or replaces an OpenAI-compatible combo with
-  `strategy` (`priority`, `round-robin`, `weighted` or `random`), `fallback`, `enabled`,
+- `PUT /api/admin/combos/{id}` creates or replaces a combo with `protocol`
+  (`openai`, `openai-responses`, `openai-embeddings`, `cohere-rerank`, `anthropic`
+  or `gemini`), `strategy` (`priority`, `round-robin`, `weighted` or `random`), `fallback`, `enabled`,
   and one to eight `{provider_id, model}` targets. Weighted targets require integer
   `weight` values from 1–100 that total exactly 100.
 - `DELETE /api/admin/combos/{id}` disables the combo.

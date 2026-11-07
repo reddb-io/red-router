@@ -60,6 +60,7 @@ pub(crate) struct LiveProvider {
     upstream: reqwest::Url,
     provider_key: HeaderValue,
     provider_id: Option<Arc<str>>,
+    protocol: ProviderProtocol,
 }
 
 struct ProductFallback {
@@ -219,7 +220,7 @@ impl ProxyState {
                 ProviderProtocol::Gemini => "/models",
             })
         {
-            return Err("upstream must be a credential-free HTTPS chat endpoint (HTTP is allowed for literal loopback only)");
+            return Err("upstream must be a credential-free HTTPS protocol endpoint (HTTP is allowed for literal loopback only)");
         }
         let host = upstream.host_str().ok_or("upstream host is missing")?;
         let bare_host = host.trim_matches(['[', ']']);
@@ -295,11 +296,13 @@ impl ProxyState {
         provider_key: &str,
         allow_private: bool,
     ) -> Result<LiveProvider, &'static str> {
-        let state = Self::new(
+        let protocol = ProviderProtocol::from_upstream(upstream)?;
+        let state = Self::new_for_protocol(
             upstream,
             "rust-control-plane-validation-key",
             provider_key,
             allow_private,
+            protocol,
         )
         .await?;
         Ok(LiveProvider {
@@ -307,6 +310,7 @@ impl ProxyState {
             upstream: state.upstream,
             provider_key: state.provider_key,
             provider_id: None,
+            protocol,
         })
     }
 
@@ -321,7 +325,7 @@ impl ProxyState {
             provider_key: provider.provider_key.clone(),
             model,
             anthropic_bearer: false,
-            protocol: ProviderProtocol::OpenAi,
+            protocol: provider.protocol,
             product_connection: None,
             product_model: None,
             provider_id: provider.provider_id.clone(),
@@ -653,6 +657,42 @@ impl ProxyState {
         }
         self.routes = Arc::new(routes);
         Ok(self)
+    }
+}
+
+impl ProviderProtocol {
+    pub(crate) fn parse(value: &str) -> Result<Self, &'static str> {
+        match value {
+            "openai" => Ok(Self::OpenAi),
+            "openai-responses" => Ok(Self::OpenAiResponses),
+            "openai-embeddings" => Ok(Self::OpenAiEmbeddings),
+            "cohere-rerank" => Ok(Self::CohereRerank),
+            "anthropic" => Ok(Self::Anthropic),
+            "gemini" => Ok(Self::Gemini),
+            _ => Err("unsupported combo protocol"),
+        }
+    }
+
+    pub(crate) fn from_upstream(upstream: &str) -> Result<Self, &'static str> {
+        let path = reqwest::Url::parse(upstream)
+            .map_err(|_| "invalid upstream URL")?
+            .path()
+            .trim_end_matches('/');
+        if path.ends_with("/chat/completions") {
+            Ok(Self::OpenAi)
+        } else if path.ends_with("/responses") {
+            Ok(Self::OpenAiResponses)
+        } else if path.ends_with("/embeddings") {
+            Ok(Self::OpenAiEmbeddings)
+        } else if path.ends_with("/rerank") {
+            Ok(Self::CohereRerank)
+        } else if path.ends_with("/messages") {
+            Ok(Self::Anthropic)
+        } else if path.ends_with("/models") {
+            Ok(Self::Gemini)
+        } else {
+            Err("unsupported provider endpoint protocol")
+        }
     }
 }
 
@@ -1112,6 +1152,16 @@ async fn proxy_request(
     };
     if route.is_none() && !policy.provider_allowed(provider_id) {
         return error(StatusCode::FORBIDDEN, "Provider connection is not allowed");
+    }
+    if route.is_none()
+        && live_provider
+            .as_ref()
+            .is_some_and(|provider| provider.protocol != protocol)
+    {
+        return error(
+            StatusCode::NOT_FOUND,
+            "Provider does not support this protocol",
+        );
     }
     let eligible: Vec<_> = route.map_or_else(Vec::new, |route| {
         route

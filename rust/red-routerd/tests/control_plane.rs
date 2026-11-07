@@ -55,6 +55,23 @@ async fn failing_provider(expected_key: &'static str) -> (String, tokio::task::J
     (format!("http://{address}/v1/chat/completions"), task)
 }
 
+async fn embeddings_provider(expected_key: &'static str) -> (String, tokio::task::JoinHandle<()>) {
+    let app = Router::new().route(
+        "/v1/embeddings",
+        post(move |headers: HeaderMap| async move {
+            assert_eq!(
+                headers["authorization"].to_str().unwrap(),
+                format!("Bearer {expected_key}")
+            );
+            "embedding-ok"
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    (format!("http://{address}/v1/embeddings"), task)
+}
+
 async fn gateway(control: ControlPlane) -> (String, tokio::task::JoinHandle<()>) {
     let state = ProxyState::new(
         "http://127.0.0.1:1/v1/chat/completions",
@@ -89,6 +106,104 @@ async fn chat_model(
         .send()
         .await
         .unwrap()
+}
+
+#[tokio::test]
+async fn rust_control_plane_routes_durable_non_chat_protocols() {
+    let directory = TempDir::new().unwrap();
+    let file = Url::from_file_path(directory.path().join("protocols.sqlite")).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    let database = Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap());
+    let control = ControlPlane::new(database, ADMIN_KEY, STORAGE_KEY, false)
+        .await
+        .unwrap();
+    let (provider_url, provider_task) = embeddings_provider("embedding-secret").await;
+    let (base, gateway_task) = gateway(control).await;
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+
+    assert_eq!(
+        client
+            .put(format!("{base}/api/admin/providers/embedding-provider"))
+            .bearer_auth(ADMIN_KEY)
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(
+                serde_json::json!({
+                    "provider":"openai",
+                    "upstream_url":provider_url,
+                    "api_key":"embedding-secret"
+                })
+                .to_string()
+            )
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
+    assert_eq!(
+        client
+            .put(format!("{base}/api/admin/client-keys/embedding-client"))
+            .bearer_auth(ADMIN_KEY)
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(
+                serde_json::json!({
+                    "label":"Embedding client",
+                    "api_key":RUST_CLIENT_KEY,
+                    "scopes":["inference:embeddings","inference:chat"],
+                    "allowed_endpoints":["embeddings","chat"],
+                    "allowed_models":["embedding-combo","text-embedding-3-small"],
+                    "allowed_provider_ids":["embedding-provider"]
+                })
+                .to_string()
+            )
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
+    assert_eq!(
+        client
+            .put(format!("{base}/api/admin/combos/embedding-combo"))
+            .bearer_auth(ADMIN_KEY)
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(
+                serde_json::json!({
+                    "protocol":"openai-embeddings",
+                    "strategy":"priority",
+                    "fallback":true,
+                    "targets":[{
+                        "provider_id":"embedding-provider",
+                        "model":"text-embedding-3-small"
+                    }]
+                })
+                .to_string()
+            )
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
+    let response = client
+        .post(format!("{base}/v1/embeddings"))
+        .bearer_auth(RUST_CLIENT_KEY)
+        .header(header::CONTENT_TYPE.as_str(), "application/json")
+        .body(serde_json::json!({"model":"embedding-combo","input":"hello"}).to_string())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    assert_eq!(response.text().await.unwrap(), "embedding-ok");
+    assert_eq!(
+        chat_model(&client, &base, RUST_CLIENT_KEY, "embedding-combo")
+            .await
+            .status(),
+        404
+    );
+
+    gateway_task.abort();
+    provider_task.abort();
 }
 
 #[tokio::test]
