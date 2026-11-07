@@ -81,7 +81,8 @@ function recordBillableTokens(
   usage: object,
   apiKeyInfo: RecordNonStreamingUsageStatsContext["apiKeyInfo"],
   provider: string | null | undefined,
-  model: string | null | undefined
+  model: string | null | undefined,
+  sharedUsageReserved: boolean | undefined
 ): void {
   if (!apiKeyInfo?.id) return;
   try {
@@ -91,7 +92,7 @@ function recordBillableTokens(
     // usage. Mirrors recordTokenUsage's swallow-and-continue.
     recordKeyQuotaUsage(apiKeyInfo.id, billable, {
       skipRpm: apiKeyInfo.sharedRpmReserved === true,
-      skipTpm: ctx.sharedUsageReserved === true,
+      skipTpm: sharedUsageReserved === true,
     });
     // Reusable budgets' tokens-per-minute counters advance on the same successful call.
     recordBudgetTokensFor(apiKeyInfo, provider, billable);
@@ -130,6 +131,6 @@ export function recordNonStreamingUsageStats(
 
   if (ctx.traceEnabled) logUsageTrace(usage, ctx.provider, ctx.connectionId);
   persistUsageRow(usage, ctx);
-  recordBillableTokens(usage, ctx.apiKeyInfo, ctx.provider, ctx.model);
+  recordBillableTokens(usage, ctx.apiKeyInfo, ctx.provider, ctx.model, ctx.sharedUsageReserved);
   recordNonStreamProviderHealth(ctx);
 }
