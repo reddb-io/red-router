@@ -335,6 +335,18 @@ try {
   await stoppedConfig.body?.cancel();
   process.stderr.write("CI: stale dashboard configuration rejected\n");
   db.prepare("UPDATE provider_connections SET is_active = 1 WHERE id = 'fixture-connection'").run();
+  const restartedEngine = engineChildren()[0];
+  assert.ok(restartedEngine, "supervised FastLLM disappeared before shutdown");
+  supervised.kill("SIGTERM");
+  await Promise.race([new Promise((resolve) => supervised.once("exit", resolve)), delay(10_000)]);
+  assert.notEqual(supervised.exitCode, null, "supervisor did not stop on SIGTERM");
+  let engineStopped = false;
+  for (let attempt = 0; attempt < 50; attempt++) {
+    const status = spawnSync("ps", ["-o", "stat=", "-p", String(restartedEngine)], { encoding: "utf8" });
+    if (status.status !== 0 || status.stdout.trim().startsWith("Z")) { engineStopped = true; break; }
+    await delay(100);
+  }
+  assert.ok(engineStopped, "FastLLM survived supervisor SIGTERM");
   // Load a real encrypted product-format credential through the Rust control
   // source, then prove the patched FastLLM loads it without creating a cache.
   const credentialDbPath = join(temp, "credential-fixture.sqlite");
