@@ -115,11 +115,15 @@ async fn rust_control_plane_persists_and_live_reloads_combo_routes() {
             client
                 .put(format!("{base}/api/admin/providers/{id}"))
                 .bearer_auth(ADMIN_KEY)
-                .json(&serde_json::json!({
-                    "provider":"openai-compatible",
-                    "upstream_url":url,
-                    "api_key":secret
-                }))
+                .header(header::CONTENT_TYPE.as_str(), "application/json")
+                .body(
+                    serde_json::json!({
+                        "provider":"openai-compatible",
+                        "upstream_url":url,
+                        "api_key":secret
+                    })
+                    .to_string()
+                )
                 .send()
                 .await
                 .unwrap()
@@ -131,14 +135,18 @@ async fn rust_control_plane_persists_and_live_reloads_combo_routes() {
         client
             .put(format!("{base}/api/admin/client-keys/combo-client"))
             .bearer_auth(ADMIN_KEY)
-            .json(&serde_json::json!({
-                "label":"Combo client",
-                "api_key":RUST_CLIENT_KEY,
-                "scopes":["inference:chat"],
-                "allowed_endpoints":["chat"],
-                "allowed_models":["agent-combo","upstream-model"],
-                "allowed_provider_ids":["first"]
-            }))
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(
+                serde_json::json!({
+                    "label":"Combo client",
+                    "api_key":RUST_CLIENT_KEY,
+                    "scopes":["inference:chat"],
+                    "allowed_endpoints":["chat"],
+                    "allowed_models":["agent-combo","upstream-model"],
+                    "allowed_provider_ids":["first"]
+                })
+                .to_string()
+            )
             .send()
             .await
             .unwrap()
@@ -149,11 +157,15 @@ async fn rust_control_plane_persists_and_live_reloads_combo_routes() {
         client
             .put(format!("{base}/api/admin/combos/agent-combo"))
             .bearer_auth(ADMIN_KEY)
-            .json(&serde_json::json!({
-                "strategy":"priority",
-                "fallback":true,
-                "targets":[{"provider_id":"first","model":"upstream-model"}]
-            }))
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(
+                serde_json::json!({
+                    "strategy":"priority",
+                    "fallback":true,
+                    "targets":[{"provider_id":"first","model":"upstream-model"}]
+                })
+                .to_string()
+            )
             .send()
             .await
             .unwrap()
@@ -172,11 +184,15 @@ async fn rust_control_plane_persists_and_live_reloads_combo_routes() {
         client
             .put(format!("{base}/api/admin/combos/agent-combo"))
             .bearer_auth(ADMIN_KEY)
-            .json(&serde_json::json!({
-                "strategy":"round-robin",
-                "fallback":true,
-                "targets":[{"provider_id":"second","model":"upstream-model"}]
-            }))
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(
+                serde_json::json!({
+                    "strategy":"round-robin",
+                    "fallback":true,
+                    "targets":[{"provider_id":"second","model":"upstream-model"}]
+                })
+                .to_string()
+            )
             .send()
             .await
             .unwrap()
@@ -193,13 +209,17 @@ async fn rust_control_plane_persists_and_live_reloads_combo_routes() {
         client
             .put(format!("{base}/api/admin/client-keys/combo-client"))
             .bearer_auth(ADMIN_KEY)
-            .json(&serde_json::json!({
-                "label":"Combo client",
-                "scopes":["inference:chat"],
-                "allowed_endpoints":["chat"],
-                "allowed_models":["agent-combo","upstream-model"],
-                "allowed_provider_ids":["second"]
-            }))
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(
+                serde_json::json!({
+                    "label":"Combo client",
+                    "scopes":["inference:chat"],
+                    "allowed_endpoints":["chat"],
+                    "allowed_models":["agent-combo","upstream-model"],
+                    "allowed_provider_ids":["second"]
+                })
+                .to_string()
+            )
             .send()
             .await
             .unwrap()
@@ -218,14 +238,18 @@ async fn rust_control_plane_persists_and_live_reloads_combo_routes() {
         client
             .put(format!("{base}/api/admin/combos/agent-combo"))
             .bearer_auth(ADMIN_KEY)
-            .json(&serde_json::json!({
-                "strategy":"priority",
-                "fallback":true,
-                "targets":[
-                    {"provider_id":"failing","model":"upstream-model"},
-                    {"provider_id":"second","model":"upstream-model"}
-                ]
-            }))
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(
+                serde_json::json!({
+                    "strategy":"priority",
+                    "fallback":true,
+                    "targets":[
+                        {"provider_id":"failing","model":"upstream-model"},
+                        {"provider_id":"second","model":"upstream-model"}
+                    ]
+                })
+                .to_string()
+            )
             .send()
             .await
             .unwrap()
@@ -236,13 +260,17 @@ async fn rust_control_plane_persists_and_live_reloads_combo_routes() {
         client
             .put(format!("{base}/api/admin/client-keys/combo-client"))
             .bearer_auth(ADMIN_KEY)
-            .json(&serde_json::json!({
-                "label":"Combo client",
-                "scopes":["inference:chat"],
-                "allowed_endpoints":["chat"],
-                "allowed_models":["agent-combo","upstream-model"],
-                "allowed_provider_ids":["failing","second"]
-            }))
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(
+                serde_json::json!({
+                    "label":"Combo client",
+                    "scopes":["inference:chat"],
+                    "allowed_endpoints":["chat"],
+                    "allowed_models":["agent-combo","upstream-model"],
+                    "allowed_provider_ids":["failing","second"]
+                })
+                .to_string()
+            )
             .send()
             .await
             .unwrap()
