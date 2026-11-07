@@ -611,14 +611,31 @@ impl ProductConnection {
             return Ok(None);
         }
         let hash = hex::encode(Sha256::digest(candidate.as_bytes()));
-        let mut tx = self
-            .pool
-            .begin()
-            .await
-            .map_err(|_| "product policy unavailable")?;
-        let row = sqlx::query("SELECT *, CASE WHEN expires_at IS NULL OR trim(expires_at) = '' THEN 1 WHEN julianday(expires_at) > julianday('now') THEN 1 ELSE 0 END AS unexpired FROM api_keys WHERE key = ? OR key_hash = ? LIMIT 1")
-            .bind(candidate).bind(hash).fetch_optional(&mut *tx).await
-            .map_err(|_| "product key schema unavailable")?;
+        // A single SQLite statement sees one consistent snapshot, while
+        // avoiding a transaction and multiple cross-thread SQL round trips on
+        // every key check. All policy and quota tables remain fail-closed.
+        let row = sqlx::query(
+            "SELECT k.*, CASE WHEN k.expires_at IS NULL OR trim(k.expires_at) = '' THEN 1 WHEN julianday(k.expires_at) > julianday('now') THEN 1 ELSE 0 END AS unexpired,
+              (EXISTS(SELECT 1 FROM domain_budgets WHERE api_key_id = k.id)
+               OR EXISTS(SELECT 1 FROM api_key_token_limits WHERE api_key_id = k.id AND enabled = 1)
+               OR EXISTS(SELECT 1 FROM api_key_quota_limits WHERE api_key_id = k.id AND ((COALESCE(tpm_limit,0)>0 AND ? = 0) OR (COALESCE(rpm_limit,0)>0 AND ? = 0) OR (COALESCE(monthly_amount_usd,0)>0 AND ? = 0)))
+               OR EXISTS(SELECT 1 FROM api_key_daily_token_limits WHERE api_key_id = k.id AND ? = 0)
+               OR EXISTS(SELECT 1 FROM key_group_members WHERE key_id = k.id)
+               OR EXISTS(SELECT 1 FROM budget_assignments)
+               OR NOT EXISTS(SELECT 1 FROM provider_connections WHERE id = ? AND tenant_id = 'red')
+               OR EXISTS(SELECT 1 FROM model_combo_mappings WHERE enabled = 1)) AS __rr_unsupported,
+              (SELECT value FROM key_value WHERE namespace = 'settings' AND key = 'disabledModels') AS __rr_disabled_models
+             FROM api_keys k WHERE k.key = ? OR k.key_hash = ? LIMIT 1"
+        )
+        .bind(i64::from(self.strict_usage.is_some()))
+        .bind(i64::from(self.shared_rpm.is_some()))
+        .bind(i64::from(self.strict_usage.is_some()))
+        .bind(i64::from(self.strict_usage.is_some()))
+        .bind(self.id.as_ref())
+        .bind(candidate)
+        .bind(hash)
+        .fetch_optional(&self.pool).await
+        .map_err(|_| "product policy schema unavailable")?;
         let Some(row) = row else { return Ok(None) };
         let integer = |name: &str| {
             row.try_get::<Option<i64>, _>(name)
@@ -703,26 +720,10 @@ impl ProductConnection {
             return Err("unsupported product model policy");
         }
         let restricted = mode.as_deref() == Some("restricted") || !allowed.is_empty();
-        let unsupported: i64 = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM domain_budgets WHERE api_key_id = ?)
-              OR EXISTS(SELECT 1 FROM api_key_token_limits WHERE api_key_id = ? AND enabled = 1)
-              OR EXISTS(SELECT 1 FROM api_key_quota_limits WHERE api_key_id = ? AND ((COALESCE(tpm_limit,0)>0 AND ? = 0) OR (COALESCE(rpm_limit,0)>0 AND ? = 0) OR (COALESCE(monthly_amount_usd,0)>0 AND ? = 0)))
-              OR EXISTS(SELECT 1 FROM api_key_daily_token_limits WHERE api_key_id = ? AND ? = 0)
-              OR EXISTS(SELECT 1 FROM key_group_members WHERE key_id = ?)
-              OR EXISTS(SELECT 1 FROM budget_assignments)
-              OR NOT EXISTS(SELECT 1 FROM provider_connections WHERE id = ? AND tenant_id = 'red')
-              OR EXISTS(SELECT 1 FROM model_combo_mappings WHERE enabled = 1)"
-        ).bind(&key_id).bind(&key_id).bind(&key_id).bind(i64::from(self.strict_usage.is_some())).bind(i64::from(self.shared_rpm.is_some())).bind(i64::from(self.strict_usage.is_some())).bind(&key_id).bind(i64::from(self.strict_usage.is_some())).bind(&key_id).bind(self.id.as_ref())
-            .fetch_one(&mut *tx).await.map_err(|_| "product quota schema unavailable")?;
-        if unsupported != 0 {
+        if integer("__rr_unsupported")? != Some(0) {
             return Err("unsupported product quota or routing policy");
         }
-        let disabled: Option<String> = sqlx::query_scalar(
-            "SELECT value FROM key_value WHERE namespace = 'settings' AND key = 'disabledModels'",
-        )
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(|_| "product settings unavailable")?;
+        let disabled = string("__rr_disabled_models")?;
         if let Some(value) = disabled {
             let disabled: Vec<String> =
                 serde_json::from_str(&value).map_err(|_| "invalid product disabled models")?;
@@ -730,9 +731,6 @@ impl ProductConnection {
                 return Err("unsupported global model policy");
             }
         }
-        tx.commit()
-            .await
-            .map_err(|_| "product policy unavailable")?;
         let mut config = serde_json::json!({"api_key_env":"PRODUCT_KEY", "blocked_models": blocked, "allowed_endpoints": endpoints});
         if restricted {
             config["allowed_routes"] = serde_json::json!(allowed);
