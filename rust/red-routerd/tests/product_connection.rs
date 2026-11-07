@@ -2,7 +2,13 @@ use axum::response::IntoResponse;
 use axum::{routing::post, Router};
 use futures_util::{stream, StreamExt};
 use red_routerd::product_combo::ProductCombo;
-use red_routerd::{product::ProductConnection, router, ProxyState};
+use red_routerd::{
+    control_plane::ControlPlane,
+    product::ProductConnection,
+    router,
+    storage::{Backend, Database},
+    ProxyState,
+};
 use sha2::{Digest, Sha256};
 use sqlx::{sqlite::SqliteConnectOptions, Connection, SqliteConnection};
 use std::io::{BufRead, Read, Write};
@@ -13,6 +19,7 @@ use std::sync::{
 };
 use std::time::Duration;
 use tempfile::TempDir;
+use url::Url;
 
 const ENCRYPTED: &str = "enc:v1:07070707070707070707070707070707:c08df6423606efea3e7c0312a4ec91a5e0a8d368:d4c8fcd1abdb884abc46108ca32ae870";
 
@@ -2020,6 +2027,155 @@ async fn benchmark_product_guard() {
     provider.abort();
 }
 
+async fn measure_quota_aware_control_plane() {
+    const ADMIN: &str = "quota-benchmark-admin-key-1234567890";
+    const STORAGE: &str = "quota-benchmark-storage-key-123456";
+    const CLIENT: &str = "quota-benchmark-client-key-1234567";
+    let directory = TempDir::new().unwrap();
+    let file = Url::from_file_path(directory.path().join("quota-routing.sqlite")).unwrap();
+    let database_url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    let database = Arc::new(
+        Database::connect(Backend::Sqlite, &database_url)
+            .await
+            .unwrap(),
+    );
+    let control = ControlPlane::new(database.clone(), ADMIN, STORAGE, false)
+        .await
+        .unwrap();
+    let upstream = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let upstream_address = upstream.local_addr().unwrap();
+    let provider = tokio::spawn(async move {
+        axum::serve(
+            upstream,
+            Router::new().route("/v1/chat/completions", post(|| async { "ok" })),
+        )
+        .await
+        .unwrap()
+    });
+    let upstream_url = format!("http://{upstream_address}/v1/chat/completions");
+    let state = ProxyState::new(
+        "http://127.0.0.1:1/v1/chat/completions",
+        "quota-placeholder-client-key",
+        "quota-placeholder-provider-key",
+        true,
+    )
+    .await
+    .unwrap()
+    .with_control_plane(control);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move { axum::serve(listener, router(state)).await.unwrap() });
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let base = format!("http://{address}");
+    for (id, api_key) in [("quota-first", "first-key"), ("quota-second", "second-key")] {
+        let response = client
+            .put(format!("{base}/api/admin/providers/{id}"))
+            .bearer_auth(ADMIN)
+            .header("content-type", "application/json")
+            .body(
+                serde_json::json!({
+                    "provider":"openai",
+                    "upstream_url":upstream_url,
+                    "api_key":api_key
+                })
+                .to_string(),
+            )
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 200);
+    }
+    let response = client
+        .put(format!("{base}/api/admin/client-keys/quota-benchmark"))
+        .bearer_auth(ADMIN)
+        .header("content-type", "application/json")
+        .body(
+            serde_json::json!({
+                "label":"Quota benchmark",
+                "api_key":CLIENT,
+                "scopes":["inference:chat"],
+                "allowed_endpoints":["chat"],
+                "allowed_models":["quota-combo","upstream-model"],
+                "allowed_provider_ids":["quota-first","quota-second"]
+            })
+            .to_string(),
+        )
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    for (id, session, weekly) in [("quota-first", 90.0, 80.0), ("quota-second", 65.0, 55.0)] {
+        let response = client
+            .put(format!("{base}/api/admin/provider-quotas/{id}"))
+            .bearer_auth(ADMIN)
+            .header("content-type", "application/json")
+            .body(
+                serde_json::json!({
+                    "session":{"remaining_percent":session},
+                    "weekly":{"remaining_percent":weekly},
+                    "ttl_seconds":600
+                })
+                .to_string(),
+            )
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 200);
+    }
+    let response = client
+        .put(format!("{base}/api/admin/combos/quota-combo"))
+        .bearer_auth(ADMIN)
+        .header("content-type", "application/json")
+        .body(
+            serde_json::json!({
+                "strategy":"quota-weighted",
+                "fallback":true,
+                "targets":[
+                    {"provider_id":"quota-first","model":"upstream-model"},
+                    {"provider_id":"quota-second","model":"upstream-model"}
+                ]
+            })
+            .to_string(),
+        )
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let samples: Vec<u128> = stream::iter(0..220)
+        .map(|_| {
+            let client = client.clone();
+            let url = format!("{base}/v1/chat/completions");
+            async move {
+                let start = std::time::Instant::now();
+                let response = client
+                    .post(url)
+                    .bearer_auth(CLIENT)
+                    .header("content-type", "application/json")
+                    .body(r#"{"model":"quota-combo","messages":[]}"#)
+                    .send()
+                    .await
+                    .unwrap();
+                assert_eq!(response.status(), 200);
+                response.bytes().await.unwrap();
+                start.elapsed().as_micros()
+            }
+        })
+        .buffered(16)
+        .collect()
+        .await;
+    let mut measured = samples[20..].to_vec();
+    measured.sort_unstable();
+    println!(
+        "quota-weighted-control: journal=wal n={} concurrency=16 p50={}us p95={}us",
+        measured.len(),
+        measured[measured.len() / 2],
+        measured[measured.len() * 95 / 100]
+    );
+    server.abort();
+    provider.abort();
+    database.close().await.unwrap();
+}
+
 // Measures the real dashboard combo/policy path with both a healthy first
 // provider and a 429 fallback, against loopback mocks on the same runner.
 #[tokio::test]
@@ -2159,4 +2315,5 @@ async fn benchmark_dashboard_combo() {
     }
     server.abort();
     provider.abort();
+    measure_quota_aware_control_plane().await;
 }
