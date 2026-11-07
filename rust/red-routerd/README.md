@@ -15,9 +15,10 @@ capacity (default 64); it is separate from any per-key policy or usage quota.
 It supports explicitly configured model aliases for OpenAI-compatible, native
 Anthropic Messages and Gemini GenerateContent endpoints,
 priority, fill-first, round-robin, weighted, random, strict-random, least-used,
-power-of-two-choices, cost-optimized, context-optimized or last-known-good selection, opt-in
+power-of-two-choices, cost-optimized, context-optimized, reset-aware, reset-window,
+headroom, quota-weighted or last-known-good selection, opt-in
 fallback, and basic per-key route and model restrictions. It does not yet implement
-RedRouter's full provider selection, quotas, policies, accounting, protocol
+RedRouter's full provider selection, automatic quota collection, policies, accounting, protocol
 full protocol translation, remote listening or inbound TLS.
 Its Rust-owned control plane now persists encrypted provider configurations and
 applies provider changes without restarting. It also owns durable client-key hashes,
@@ -53,7 +54,8 @@ provider; subsequent provider changes do not require those environment secrets.
 - `PUT /api/admin/combos/{id}` creates or replaces a combo with `protocol`
   (`openai`, `openai-responses`, `openai-embeddings`, `cohere-rerank`, `anthropic`
   or `gemini`), `strategy` (`priority`, `fill-first`, `round-robin`, `weighted`, `random`,
-  `strict-random`, `least-used`, `p2c`, `cost-optimized`, `context-optimized` or `lkgp`),
+  `strict-random`, `least-used`, `p2c`, `cost-optimized`, `context-optimized`,
+  `reset-aware`, `reset-window`, `headroom`, `quota-weighted` or `lkgp`),
   `fallback`, `enabled`,
   and one to eight `{provider_id, model}` targets. Weighted targets require integer
   `weight` values from 1–100 that total exactly 100. `least-used` and `p2c` use
@@ -72,6 +74,10 @@ provider; subsequent provider changes do not require those environment secrets.
 - `GET /api/admin/provider-health` lists provider breaker state, failure counts,
   thresholds and retry windows without exposing credentials.
 - `DELETE /api/admin/provider-health/{id}` durably resets one provider breaker.
+- `GET /api/admin/provider-quotas` lists the current redacted quota observations.
+- `PUT /api/admin/provider-quotas/{id}` publishes `session` and/or `weekly`
+  `{remaining_percent, reset_at_unix_ms}` windows, optional `limit_reached`, and a
+  bounded `ttl_seconds`. `DELETE` clears the observation immediately.
 
 All management endpoints require `Authorization: Bearer <RED_ROUTER_ADMIN_KEY>`.
 Provider credentials are encrypted with a random salt and nonce, authenticated against their
@@ -84,7 +90,8 @@ storage and are never returned. Supported client policy fields are `enabled`,
 `max_requests_per_day`. Combo writes are durable before an immutable, DNS-pinned routing
 snapshot becomes visible. Once any combo row exists, Rust-owned combos are authoritative;
 unknown or disabled aliases do not fall through to the active provider. Target
-routing metadata is durable; automatic catalog pricing, token/spend quotas and
+routing metadata and provider quota observations are durable; automatic quota polling,
+catalog pricing, token/spend quotas and
 the remaining dashboard settings still need migration.
 
 Rust-owned providers share durable circuit breakers across aliases and live route

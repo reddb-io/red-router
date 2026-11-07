@@ -30,6 +30,10 @@ const LIST_ROUTE_PINS: &str =
     "SELECT combo_id, provider_id, model, revision FROM redrouter_route_pins ORDER BY combo_id ASC";
 const UPSERT_ROUTE_PIN: &str = "INSERT INTO redrouter_route_pins (combo_id, provider_id, model, revision) VALUES ($1,$2,$3,$4) ON CONFLICT (combo_id) DO UPDATE SET provider_id = $2, model = $3, revision = $4";
 const DELETE_ROUTE_PIN: &str = "DELETE FROM redrouter_route_pins WHERE combo_id = $1";
+const CREATE_PROVIDER_QUOTAS: &str = "CREATE TABLE IF NOT EXISTS redrouter_provider_quotas (provider_id TEXT PRIMARY KEY, session_remaining_ppm BIGINT NOT NULL, session_reset_unix_ms BIGINT NOT NULL, weekly_remaining_ppm BIGINT NOT NULL, weekly_reset_unix_ms BIGINT NOT NULL, limit_reached BIGINT NOT NULL, observed_at_unix_ms BIGINT NOT NULL, expires_at_unix_ms BIGINT NOT NULL, revision BIGINT NOT NULL)";
+const LIST_PROVIDER_QUOTAS: &str = "SELECT provider_id, session_remaining_ppm, session_reset_unix_ms, weekly_remaining_ppm, weekly_reset_unix_ms, limit_reached, observed_at_unix_ms, expires_at_unix_ms, revision FROM redrouter_provider_quotas ORDER BY provider_id ASC";
+const UPSERT_PROVIDER_QUOTA: &str = "INSERT INTO redrouter_provider_quotas (provider_id, session_remaining_ppm, session_reset_unix_ms, weekly_remaining_ppm, weekly_reset_unix_ms, limit_reached, observed_at_unix_ms, expires_at_unix_ms, revision) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (provider_id) DO UPDATE SET session_remaining_ppm = $2, session_reset_unix_ms = $3, weekly_remaining_ppm = $4, weekly_reset_unix_ms = $5, limit_reached = $6, observed_at_unix_ms = $7, expires_at_unix_ms = $8, revision = $9";
+const DELETE_PROVIDER_QUOTA: &str = "DELETE FROM redrouter_provider_quotas WHERE provider_id = $1";
 const CREATE_BREAKERS: &str = "CREATE TABLE IF NOT EXISTS redrouter_provider_breakers (provider_id TEXT PRIMARY KEY, breaker_state TEXT NOT NULL, failure_count BIGINT NOT NULL, last_failure_unix_ms BIGINT NOT NULL, open_cycle_count BIGINT NOT NULL, failure_threshold BIGINT NOT NULL, degradation_threshold BIGINT NOT NULL, reset_timeout_ms BIGINT NOT NULL, revision BIGINT NOT NULL)";
 const LIST_BREAKERS: &str = "SELECT provider_id, breaker_state, failure_count, last_failure_unix_ms, open_cycle_count, failure_threshold, degradation_threshold, reset_timeout_ms, revision FROM redrouter_provider_breakers ORDER BY provider_id ASC";
 const UPSERT_BREAKER: &str = "INSERT INTO redrouter_provider_breakers (provider_id, breaker_state, failure_count, last_failure_unix_ms, open_cycle_count, failure_threshold, degradation_threshold, reset_timeout_ms, revision) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (provider_id) DO UPDATE SET breaker_state = $2, failure_count = $3, last_failure_unix_ms = $4, open_cycle_count = $5, failure_threshold = $6, degradation_threshold = $7, reset_timeout_ms = $8, revision = $9";
@@ -79,6 +83,21 @@ pub struct StoredRoutePin {
     pub combo_id: String,
     pub provider_id: String,
     pub model: String,
+    pub revision: i64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StoredProviderQuota {
+    pub provider_id: String,
+    /// Parts per million remaining, or -1 when the window is unknown.
+    pub session_remaining_ppm: i64,
+    pub session_reset_unix_ms: i64,
+    /// Parts per million remaining, or -1 when the window is unknown.
+    pub weekly_remaining_ppm: i64,
+    pub weekly_reset_unix_ms: i64,
+    pub limit_reached: bool,
+    pub observed_at_unix_ms: i64,
+    pub expires_at_unix_ms: i64,
     pub revision: i64,
 }
 
@@ -175,6 +194,7 @@ impl Database {
                         CREATE_CLIENT_KEYS,
                         CREATE_COMBOS,
                         CREATE_ROUTE_PINS,
+                        CREATE_PROVIDER_QUOTAS,
                         CREATE_BREAKERS,
                     ] {
                         db.query(statement)
@@ -260,6 +280,7 @@ impl Database {
                 db.remote_schema_query(CREATE_CLIENT_KEYS).await?;
                 db.remote_schema_query(CREATE_COMBOS).await?;
                 db.remote_schema_query(CREATE_ROUTE_PINS).await?;
+                db.remote_schema_query(CREATE_PROVIDER_QUOTAS).await?;
                 db.remote_schema_query(CREATE_BREAKERS).await?;
                 Ok(db)
             }
@@ -289,6 +310,7 @@ impl Database {
                     CREATE_CLIENT_KEYS,
                     CREATE_COMBOS,
                     CREATE_ROUTE_PINS,
+                    CREATE_PROVIDER_QUOTAS,
                     CREATE_BREAKERS,
                 ] {
                     sqlx::query(statement)
@@ -721,6 +743,104 @@ impl Database {
                 )
                 .await
                 .map_err(|_| "cannot delete route pin state")?;
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn provider_quotas(&self) -> Result<Vec<StoredProviderQuota>, &'static str> {
+        match self {
+            Self::Sql(pool) => sqlx::query(LIST_PROVIDER_QUOTAS)
+                .fetch_all(pool)
+                .await
+                .map_err(|_| "cannot read provider quota state")?
+                .iter()
+                .map(read_sql_provider_quota)
+                .collect(),
+            Self::Remote(_) => self
+                .remote_query(LIST_PROVIDER_QUOTAS, &[])
+                .await?
+                .rows
+                .iter()
+                .map(read_reddb_provider_quota)
+                .collect(),
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => db
+                .query(LIST_PROVIDER_QUOTAS)
+                .await
+                .map_err(|_| "cannot read provider quota state")?
+                .rows
+                .iter()
+                .map(read_reddb_provider_quota)
+                .collect(),
+        }
+    }
+
+    pub async fn upsert_provider_quota(
+        &self,
+        quota: &StoredProviderQuota,
+    ) -> Result<(), &'static str> {
+        let limit_reached = if quota.limit_reached { 1_i64 } else { 0_i64 };
+        match self {
+            Self::Sql(pool) => {
+                sqlx::query(UPSERT_PROVIDER_QUOTA)
+                    .bind(&quota.provider_id)
+                    .bind(quota.session_remaining_ppm)
+                    .bind(quota.session_reset_unix_ms)
+                    .bind(quota.weekly_remaining_ppm)
+                    .bind(quota.weekly_reset_unix_ms)
+                    .bind(limit_reached)
+                    .bind(quota.observed_at_unix_ms)
+                    .bind(quota.expires_at_unix_ms)
+                    .bind(quota.revision)
+                    .execute(pool)
+                    .await
+                    .map_err(|_| "cannot write provider quota state")?;
+            }
+            Self::Remote(_) => {
+                self.remote_query(
+                    UPSERT_PROVIDER_QUOTA,
+                    &provider_quota_params(quota, limit_reached),
+                )
+                .await?;
+            }
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => {
+                db.query_with(
+                    UPSERT_PROVIDER_QUOTA,
+                    provider_quota_params(quota, limit_reached),
+                )
+                .await
+                .map_err(|_| "cannot write provider quota state")?;
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn delete_provider_quota(&self, provider_id: &str) -> Result<(), &'static str> {
+        match self {
+            Self::Sql(pool) => {
+                sqlx::query(DELETE_PROVIDER_QUOTA)
+                    .bind(provider_id)
+                    .execute(pool)
+                    .await
+                    .map_err(|_| "cannot delete provider quota state")?;
+            }
+            Self::Remote(_) => {
+                self.remote_query(
+                    DELETE_PROVIDER_QUOTA,
+                    &[reddb_client::Value::Text(provider_id.to_owned())],
+                )
+                .await?;
+            }
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => {
+                db.query_with(
+                    DELETE_PROVIDER_QUOTA,
+                    vec![reddb_client::Value::Text(provider_id.to_owned())],
+                )
+                .await
+                .map_err(|_| "cannot delete provider quota state")?;
             }
         }
         Ok(())
@@ -1159,6 +1279,73 @@ fn route_pin_params(pin: &StoredRoutePin) -> Vec<reddb_client::Value> {
         reddb_client::Value::Text(pin.provider_id.clone()),
         reddb_client::Value::Text(pin.model.clone()),
         reddb_client::Value::Int(pin.revision),
+    ]
+}
+
+fn read_sql_provider_quota(row: &sqlx::any::AnyRow) -> Result<StoredProviderQuota, &'static str> {
+    let text = |name| {
+        row.try_get(name)
+            .map_err(|_| "invalid provider quota record")
+    };
+    let integer = |name| {
+        row.try_get(name)
+            .map_err(|_| "invalid provider quota record")
+    };
+    Ok(StoredProviderQuota {
+        provider_id: text("provider_id")?,
+        session_remaining_ppm: integer("session_remaining_ppm")?,
+        session_reset_unix_ms: integer("session_reset_unix_ms")?,
+        weekly_remaining_ppm: integer("weekly_remaining_ppm")?,
+        weekly_reset_unix_ms: integer("weekly_reset_unix_ms")?,
+        limit_reached: integer("limit_reached")? == 1,
+        observed_at_unix_ms: integer("observed_at_unix_ms")?,
+        expires_at_unix_ms: integer("expires_at_unix_ms")?,
+        revision: integer("revision")?,
+    })
+}
+
+fn read_reddb_provider_quota(row: &reddb_client::Row) -> Result<StoredProviderQuota, &'static str> {
+    let text = |name: &str| match row
+        .iter()
+        .find(|(column, _)| column.eq_ignore_ascii_case(name))
+    {
+        Some((_, reddb_client::ValueOut::String(value))) => Ok(value.clone()),
+        _ => Err("invalid provider quota record"),
+    };
+    let integer = |name: &str| match row
+        .iter()
+        .find(|(column, _)| column.eq_ignore_ascii_case(name))
+    {
+        Some((_, reddb_client::ValueOut::Integer(value))) => Ok(*value),
+        _ => Err("invalid provider quota record"),
+    };
+    Ok(StoredProviderQuota {
+        provider_id: text("provider_id")?,
+        session_remaining_ppm: integer("session_remaining_ppm")?,
+        session_reset_unix_ms: integer("session_reset_unix_ms")?,
+        weekly_remaining_ppm: integer("weekly_remaining_ppm")?,
+        weekly_reset_unix_ms: integer("weekly_reset_unix_ms")?,
+        limit_reached: integer("limit_reached")? == 1,
+        observed_at_unix_ms: integer("observed_at_unix_ms")?,
+        expires_at_unix_ms: integer("expires_at_unix_ms")?,
+        revision: integer("revision")?,
+    })
+}
+
+fn provider_quota_params(
+    quota: &StoredProviderQuota,
+    limit_reached: i64,
+) -> Vec<reddb_client::Value> {
+    vec![
+        reddb_client::Value::Text(quota.provider_id.clone()),
+        reddb_client::Value::Int(quota.session_remaining_ppm),
+        reddb_client::Value::Int(quota.session_reset_unix_ms),
+        reddb_client::Value::Int(quota.weekly_remaining_ppm),
+        reddb_client::Value::Int(quota.weekly_reset_unix_ms),
+        reddb_client::Value::Int(limit_reached),
+        reddb_client::Value::Int(quota.observed_at_unix_ms),
+        reddb_client::Value::Int(quota.expires_at_unix_ms),
+        reddb_client::Value::Int(quota.revision),
     ]
 }
 

@@ -2,8 +2,8 @@
 use crate::{
     circuit::{BreakerStatus, ProviderCircuit},
     policy::{ClientPolicies, StoredPolicy},
-    storage::{StoredClientKey, StoredCombo, StoredProvider, StoredRoutePin},
-    LiveProvider, ModelRoute, ProviderProtocol, ProxyState, RouteStrategy,
+    storage::{StoredClientKey, StoredCombo, StoredProvider, StoredProviderQuota, StoredRoutePin},
+    LiveProvider, ModelRoute, ProviderProtocol, ProxyState, RouteStrategy, TargetQuota,
 };
 use aes_gcm::aead::consts::U16;
 use aes_gcm::{
@@ -35,6 +35,7 @@ struct Inner {
     current: RwLock<Option<LiveProvider>>,
     clients: RwLock<ClientSnapshot>,
     routes: RwLock<RouteSnapshot>,
+    quotas: RwLock<HashMap<String, Arc<TargetQuota>>>,
     breakers: RwLock<HashMap<String, Arc<ProviderCircuit>>>,
     mutation: tokio::sync::Mutex<()>,
     admin_hash: [u8; 32],
@@ -166,6 +167,44 @@ pub struct RoutePinView {
     pub revision: String,
 }
 
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct QuotaWindowInput {
+    pub remaining_percent: f64,
+    pub reset_at_unix_ms: Option<u64>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProviderQuotaInput {
+    pub session: Option<QuotaWindowInput>,
+    pub weekly: Option<QuotaWindowInput>,
+    #[serde(default)]
+    pub limit_reached: bool,
+    #[serde(default = "default_quota_ttl_seconds")]
+    pub ttl_seconds: u64,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct QuotaWindowView {
+    pub remaining_percent: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reset_at_unix_ms: Option<u64>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ProviderQuotaView {
+    pub provider_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session: Option<QuotaWindowView>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub weekly: Option<QuotaWindowView>,
+    pub limit_reached: bool,
+    pub observed_at_unix_ms: u64,
+    pub expires_at_unix_ms: u64,
+    pub revision: String,
+}
+
 fn enabled_by_default() -> bool {
     true
 }
@@ -176,6 +215,10 @@ fn openai_protocol() -> String {
 
 fn priority_strategy() -> String {
     "priority".to_owned()
+}
+
+fn default_quota_ttl_seconds() -> u64 {
+    360
 }
 
 impl ControlPlane {
@@ -204,11 +247,21 @@ impl ControlPlane {
                 return Err("duplicate provider breaker state");
             }
         }
+        let mut quotas = HashMap::new();
+        for record in database.provider_quotas().await? {
+            validate_stored_quota(&record)?;
+            let state = Arc::new(TargetQuota::default());
+            state.update(&record);
+            if quotas.insert(record.provider_id.clone(), state).is_some() {
+                return Err("duplicate provider quota state");
+            }
+        }
         let plane = Self(Arc::new(Inner {
             database,
             current: RwLock::new(None),
             clients: RwLock::new(ClientSnapshot::Unavailable),
             routes: RwLock::new(RouteSnapshot::Unavailable),
+            quotas: RwLock::new(quotas),
             breakers: RwLock::new(breakers),
             mutation: tokio::sync::Mutex::new(()),
             admin_hash: Sha256::digest(admin_key.as_bytes()).into(),
@@ -395,6 +448,57 @@ impl ControlPlane {
         Ok(())
     }
 
+    pub async fn configure_provider_quota(
+        &self,
+        provider_id: &str,
+        input: ProviderQuotaInput,
+    ) -> Result<ProviderQuotaView, &'static str> {
+        validate_id(provider_id)?;
+        validate_quota_input(&input)?;
+        let _mutation = self.0.mutation.lock().await;
+        if !self
+            .0
+            .database
+            .providers()
+            .await?
+            .iter()
+            .any(|provider| provider.id == provider_id)
+        {
+            return Err("provider does not exist");
+        }
+        let observed_at_unix_ms = unix_time_ms()?;
+        let ttl_ms = i64::try_from(input.ttl_seconds)
+            .ok()
+            .and_then(|value| value.checked_mul(1_000))
+            .ok_or("provider quota TTL is out of range")?;
+        let record = StoredProviderQuota {
+            provider_id: provider_id.to_owned(),
+            session_remaining_ppm: quota_remaining_ppm(input.session.as_ref()),
+            session_reset_unix_ms: quota_reset_ms(input.session.as_ref())?,
+            weekly_remaining_ppm: quota_remaining_ppm(input.weekly.as_ref()),
+            weekly_reset_unix_ms: quota_reset_ms(input.weekly.as_ref())?,
+            limit_reached: input.limit_reached,
+            observed_at_unix_ms,
+            expires_at_unix_ms: observed_at_unix_ms
+                .checked_add(ttl_ms)
+                .ok_or("provider quota TTL is out of range")?,
+            revision: revision()?,
+        };
+        self.0.database.upsert_provider_quota(&record).await?;
+        self.quota_state(provider_id).await.update(&record);
+        quota_view(&record)
+    }
+
+    pub async fn clear_provider_quota(&self, provider_id: &str) -> Result<(), &'static str> {
+        validate_id(provider_id)?;
+        let _mutation = self.0.mutation.lock().await;
+        self.0.database.delete_provider_quota(provider_id).await?;
+        if let Some(state) = self.0.quotas.read().await.get(provider_id).cloned() {
+            state.clear();
+        }
+        Ok(())
+    }
+
     pub async fn configure_client_key(
         &self,
         id: &str,
@@ -557,6 +661,7 @@ impl ControlPlane {
                 {
                     return Err("combo provider protocol changed");
                 }
+                let quota = self.quota_state(&provider.id).await;
                 targets.push(ProxyState::control_target(
                     live.get(&provider.id).ok_or("combo provider unavailable")?,
                     target.model,
@@ -564,6 +669,7 @@ impl ControlPlane {
                     target.input_cost_per_million,
                     target.output_cost_per_million,
                     target.context_window_tokens,
+                    quota,
                 ));
             }
             if targets.is_empty() {
@@ -580,6 +686,10 @@ impl ControlPlane {
                 "strict-random" => RouteStrategy::StrictRandom,
                 "cost-optimized" => RouteStrategy::CostOptimized,
                 "context-optimized" => RouteStrategy::ContextOptimized,
+                "reset-aware" => RouteStrategy::ResetAware,
+                "reset-window" => RouteStrategy::ResetWindow,
+                "headroom" => RouteStrategy::Headroom,
+                "quota-weighted" => RouteStrategy::QuotaWeighted,
                 "lkgp" => RouteStrategy::Lkgp,
                 _ => return Err("unsupported combo strategy"),
             };
@@ -737,6 +847,27 @@ impl ControlPlane {
             .collect()
     }
 
+    async fn quota_views(&self) -> Result<Vec<ProviderQuotaView>, &'static str> {
+        self.0
+            .database
+            .provider_quotas()
+            .await?
+            .iter()
+            .map(quota_view)
+            .collect()
+    }
+
+    async fn quota_state(&self, provider_id: &str) -> Arc<TargetQuota> {
+        if let Some(state) = self.0.quotas.read().await.get(provider_id).cloned() {
+            return state;
+        }
+        let mut quotas = self.0.quotas.write().await;
+        quotas
+            .entry(provider_id.to_owned())
+            .or_insert_with(|| Arc::new(TargetQuota::default()))
+            .clone()
+    }
+
     async fn breaker_views(&self) -> Result<Vec<BreakerStatus>, &'static str> {
         let providers = self.0.database.providers().await?;
         let mut statuses = Vec::with_capacity(providers.len());
@@ -859,6 +990,76 @@ fn combo_view(record: &StoredCombo) -> Result<ComboView, &'static str> {
     })
 }
 
+fn validate_quota_input(input: &ProviderQuotaInput) -> Result<(), &'static str> {
+    if input.session.is_none() && input.weekly.is_none() && !input.limit_reached {
+        return Err("provider quota requires a window or exhausted state");
+    }
+    if !(1..=86_400).contains(&input.ttl_seconds) {
+        return Err("provider quota TTL must be 1-86400 seconds");
+    }
+    for window in [&input.session, &input.weekly].into_iter().flatten() {
+        if !window.remaining_percent.is_finite()
+            || !(0.0..=100.0).contains(&window.remaining_percent)
+            || window
+                .reset_at_unix_ms
+                .is_some_and(|value| value > i64::MAX as u64)
+        {
+            return Err("invalid provider quota window");
+        }
+    }
+    Ok(())
+}
+
+fn validate_stored_quota(record: &StoredProviderQuota) -> Result<(), &'static str> {
+    validate_id(&record.provider_id)?;
+    if !matches!(record.session_remaining_ppm, -1..=1_000_000)
+        || !matches!(record.weekly_remaining_ppm, -1..=1_000_000)
+        || record.session_reset_unix_ms < 0
+        || record.weekly_reset_unix_ms < 0
+        || record.observed_at_unix_ms < 0
+        || record.expires_at_unix_ms <= record.observed_at_unix_ms
+        || record.revision < 0
+    {
+        return Err("invalid provider quota record");
+    }
+    Ok(())
+}
+
+fn quota_remaining_ppm(window: Option<&QuotaWindowInput>) -> i64 {
+    window.map_or(-1, |window| {
+        (window.remaining_percent * 10_000.0).round() as i64
+    })
+}
+
+fn quota_reset_ms(window: Option<&QuotaWindowInput>) -> Result<i64, &'static str> {
+    window
+        .and_then(|window| window.reset_at_unix_ms)
+        .map(i64::try_from)
+        .transpose()
+        .map_err(|_| "provider quota reset is out of range")
+        .map(|value| value.unwrap_or(0))
+}
+
+fn quota_window_view(remaining_ppm: i64, reset_at_unix_ms: i64) -> Option<QuotaWindowView> {
+    (remaining_ppm >= 0).then_some(QuotaWindowView {
+        remaining_percent: remaining_ppm as f64 / 10_000.0,
+        reset_at_unix_ms: (reset_at_unix_ms > 0).then_some(reset_at_unix_ms as u64),
+    })
+}
+
+fn quota_view(record: &StoredProviderQuota) -> Result<ProviderQuotaView, &'static str> {
+    validate_stored_quota(record)?;
+    Ok(ProviderQuotaView {
+        provider_id: record.provider_id.clone(),
+        session: quota_window_view(record.session_remaining_ppm, record.session_reset_unix_ms),
+        weekly: quota_window_view(record.weekly_remaining_ppm, record.weekly_reset_unix_ms),
+        limit_reached: record.limit_reached,
+        observed_at_unix_ms: record.observed_at_unix_ms as u64,
+        expires_at_unix_ms: record.expires_at_unix_ms as u64,
+        revision: record.revision.to_string(),
+    })
+}
+
 fn stored_policy(record: &StoredClientKey) -> Result<StoredPolicy, &'static str> {
     let decoded = hex::decode(&record.key_hash).map_err(|_| "invalid client key hash")?;
     let key_hash: [u8; 32] = decoded.try_into().map_err(|_| "invalid client key hash")?;
@@ -977,6 +1178,10 @@ fn validate_combo(input: &ComboInput) -> Result<(), &'static str> {
             | "strict-random"
             | "cost-optimized"
             | "context-optimized"
+            | "reset-aware"
+            | "reset-window"
+            | "headroom"
+            | "quota-weighted"
             | "lkgp"
     ) {
         return Err("unsupported combo strategy");
@@ -1130,6 +1335,14 @@ fn revision() -> Result<i64, &'static str> {
     i64::try_from(nanos).map_err(|_| "system clock is out of range")
 }
 
+fn unix_time_ms() -> Result<i64, &'static str> {
+    let millis = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| "system clock is unavailable")?
+        .as_millis();
+    i64::try_from(millis).map_err(|_| "system clock is out of range")
+}
+
 fn derive_key(secret: &str, salt: &[u8]) -> Result<Zeroizing<[u8; 32]>, &'static str> {
     let mut key = Zeroizing::new([0u8; 32]);
     let params = scrypt::Params::new(14, 8, 1, 32).map_err(|_| "invalid encryption parameters")?;
@@ -1267,6 +1480,22 @@ pub async fn list_provider_health(State(state): State<ProxyState>, headers: Head
     }
 }
 
+pub async fn list_provider_quotas(State(state): State<ProxyState>, headers: HeaderMap) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+    };
+    if !control.authorized(&headers) {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
+    }
+    match control.quota_views().await {
+        Ok(quotas) => Json(serde_json::json!({"provider_quotas":quotas})).into_response(),
+        Err(_) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Provider quota storage unavailable",
+        ),
+    }
+}
+
 pub async fn delete_provider_health(
     State(state): State<ProxyState>,
     Path(id): Path<String>,
@@ -1322,8 +1551,52 @@ fn is_runtime_error(error: &str) -> bool {
         || error.contains("cannot reload")
         || error.contains("breaker")
         || error.contains("route pin")
+        || error.contains("quota state")
         || error.contains("combo has no enabled")
         || error.contains("combo provider unavailable")
+}
+
+pub async fn put_provider_quota(
+    State(state): State<ProxyState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Json(input): Json<ProviderQuotaInput>,
+) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+    };
+    if !control.authorized(&headers) {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
+    }
+    match control.configure_provider_quota(&id, input).await {
+        Ok(quota) => Json(serde_json::json!({"provider_quota":quota})).into_response(),
+        Err(error) if is_runtime_error(error) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Provider quota storage unavailable",
+        ),
+        Err(_) => api_error(StatusCode::BAD_REQUEST, "Invalid provider quota"),
+    }
+}
+
+pub async fn delete_provider_quota(
+    State(state): State<ProxyState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+    };
+    if !control.authorized(&headers) {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
+    }
+    match control.clear_provider_quota(&id).await {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(error) if is_runtime_error(error) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Provider quota storage unavailable",
+        ),
+        Err(_) => api_error(StatusCode::BAD_REQUEST, "Invalid provider identifier"),
+    }
 }
 
 pub async fn delete_provider(

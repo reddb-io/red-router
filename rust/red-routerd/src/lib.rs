@@ -28,10 +28,10 @@ use std::{
     collections::HashMap,
     net::IpAddr,
     sync::{
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicI64, AtomicU64, AtomicUsize, Ordering},
         Arc,
     },
-    time::Duration,
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio::sync::Semaphore;
 
@@ -90,6 +90,96 @@ impl Drop for ProviderLoadGuard {
     }
 }
 
+/// Lock-free quota telemetry shared by every route snapshot for one provider.
+/// The sequence counter gives readers a coherent multi-field view while the
+/// dashboard updates the values without rebuilding routes or touching storage
+/// on the request path.
+pub(crate) struct TargetQuota {
+    sequence: AtomicU64,
+    session_remaining_ppm: AtomicI64,
+    session_reset_unix_ms: AtomicI64,
+    weekly_remaining_ppm: AtomicI64,
+    weekly_reset_unix_ms: AtomicI64,
+    limit_reached: AtomicU64,
+    expires_at_unix_ms: AtomicI64,
+}
+
+#[derive(Clone, Copy)]
+struct QuotaSnapshot {
+    session_remaining_ppm: i64,
+    session_reset_unix_ms: i64,
+    weekly_remaining_ppm: i64,
+    weekly_reset_unix_ms: i64,
+    limit_reached: bool,
+    expires_at_unix_ms: i64,
+}
+
+impl Default for TargetQuota {
+    fn default() -> Self {
+        Self {
+            sequence: AtomicU64::new(0),
+            session_remaining_ppm: AtomicI64::new(-1),
+            session_reset_unix_ms: AtomicI64::new(0),
+            weekly_remaining_ppm: AtomicI64::new(-1),
+            weekly_reset_unix_ms: AtomicI64::new(0),
+            limit_reached: AtomicU64::new(0),
+            expires_at_unix_ms: AtomicI64::new(0),
+        }
+    }
+}
+
+impl TargetQuota {
+    pub(crate) fn update(&self, quota: &storage::StoredProviderQuota) {
+        self.sequence.fetch_add(1, Ordering::AcqRel);
+        self.session_remaining_ppm
+            .store(quota.session_remaining_ppm, Ordering::Relaxed);
+        self.session_reset_unix_ms
+            .store(quota.session_reset_unix_ms, Ordering::Relaxed);
+        self.weekly_remaining_ppm
+            .store(quota.weekly_remaining_ppm, Ordering::Relaxed);
+        self.weekly_reset_unix_ms
+            .store(quota.weekly_reset_unix_ms, Ordering::Relaxed);
+        self.limit_reached
+            .store(u64::from(quota.limit_reached), Ordering::Relaxed);
+        self.expires_at_unix_ms
+            .store(quota.expires_at_unix_ms, Ordering::Relaxed);
+        self.sequence.fetch_add(1, Ordering::Release);
+    }
+
+    pub(crate) fn clear(&self) {
+        self.sequence.fetch_add(1, Ordering::AcqRel);
+        self.session_remaining_ppm.store(-1, Ordering::Relaxed);
+        self.session_reset_unix_ms.store(0, Ordering::Relaxed);
+        self.weekly_remaining_ppm.store(-1, Ordering::Relaxed);
+        self.weekly_reset_unix_ms.store(0, Ordering::Relaxed);
+        self.limit_reached.store(0, Ordering::Relaxed);
+        self.expires_at_unix_ms.store(0, Ordering::Relaxed);
+        self.sequence.fetch_add(1, Ordering::Release);
+    }
+
+    fn snapshot(&self, now_unix_ms: i64) -> Option<QuotaSnapshot> {
+        loop {
+            let before = self.sequence.load(Ordering::Acquire);
+            if before & 1 == 1 {
+                std::hint::spin_loop();
+                continue;
+            }
+            let snapshot = QuotaSnapshot {
+                session_remaining_ppm: self.session_remaining_ppm.load(Ordering::Relaxed),
+                session_reset_unix_ms: self.session_reset_unix_ms.load(Ordering::Relaxed),
+                weekly_remaining_ppm: self.weekly_remaining_ppm.load(Ordering::Relaxed),
+                weekly_reset_unix_ms: self.weekly_reset_unix_ms.load(Ordering::Relaxed),
+                limit_reached: self.limit_reached.load(Ordering::Relaxed) == 1,
+                expires_at_unix_ms: self.expires_at_unix_ms.load(Ordering::Relaxed),
+            };
+            let after = self.sequence.load(Ordering::Acquire);
+            if before == after {
+                return (snapshot.expires_at_unix_ms > now_unix_ms).then_some(snapshot);
+            }
+        }
+    }
+}
+
 pub(crate) struct ModelRoute {
     targets: Vec<ModelTarget>,
     protocol: ProviderProtocol,
@@ -112,6 +202,10 @@ pub(crate) enum RouteStrategy {
     StrictRandom,
     CostOptimized,
     ContextOptimized,
+    ResetAware,
+    ResetWindow,
+    Headroom,
+    QuotaWeighted,
     Lkgp,
 }
 
@@ -140,6 +234,7 @@ pub(crate) struct ModelTarget {
     input_cost_per_million: Option<f64>,
     output_cost_per_million: Option<f64>,
     context_window_tokens: Option<u64>,
+    quota: Option<Arc<TargetQuota>>,
     circuit: Option<Arc<circuit::ProviderCircuit>>,
     in_flight: Arc<AtomicUsize>,
 }
@@ -206,6 +301,10 @@ impl ModelRoute {
             RouteStrategy::StrictRandom
             | RouteStrategy::CostOptimized
             | RouteStrategy::ContextOptimized
+            | RouteStrategy::ResetAware
+            | RouteStrategy::ResetWindow
+            | RouteStrategy::Headroom
+            | RouteStrategy::QuotaWeighted
             | RouteStrategy::Lkgp => {
                 unreachable!("strategy uses an ordered attempt deck")
             }
@@ -241,10 +340,18 @@ impl ModelRoute {
             }
             return order;
         }
+        if self.strategy == RouteStrategy::QuotaWeighted {
+            return self.quota_weighted_order(eligible);
+        }
         if matches!(
             self.strategy,
-            RouteStrategy::CostOptimized | RouteStrategy::ContextOptimized
+            RouteStrategy::CostOptimized
+                | RouteStrategy::ContextOptimized
+                | RouteStrategy::ResetAware
+                | RouteStrategy::ResetWindow
+                | RouteStrategy::Headroom
         ) {
+            let now_unix_ms = unix_time_ms();
             let mut order = [0; MAX_ROUTE_TARGETS];
             for (index, slot) in order.iter_mut().take(eligible.len()).enumerate() {
                 *slot = index;
@@ -255,7 +362,11 @@ impl ModelRoute {
                 let selected = order[index];
                 let mut position = index;
                 while position > 0
-                    && self.target_precedes(eligible[selected], eligible[order[position - 1]])
+                    && self.target_precedes(
+                        eligible[selected],
+                        eligible[order[position - 1]],
+                        now_unix_ms,
+                    )
                 {
                     order[position] = order[position - 1];
                     position -= 1;
@@ -272,7 +383,12 @@ impl ModelRoute {
         order
     }
 
-    fn target_precedes(&self, candidate: &ModelTarget, current: &ModelTarget) -> bool {
+    fn target_precedes(
+        &self,
+        candidate: &ModelTarget,
+        current: &ModelTarget,
+        now_unix_ms: i64,
+    ) -> bool {
         match self.strategy {
             RouteStrategy::CostOptimized => {
                 let candidate_cost = candidate.input_cost_per_million.unwrap_or(f64::INFINITY)
@@ -285,8 +401,73 @@ impl ModelRoute {
                 candidate.context_window_tokens.unwrap_or(0)
                     > current.context_window_tokens.unwrap_or(0)
             }
+            RouteStrategy::ResetAware | RouteStrategy::QuotaWeighted => {
+                quota_score(candidate, now_unix_ms) > quota_score(current, now_unix_ms)
+            }
+            RouteStrategy::ResetWindow => {
+                quota_reset(candidate, now_unix_ms) < quota_reset(current, now_unix_ms)
+            }
+            RouteStrategy::Headroom => {
+                quota_headroom(candidate, now_unix_ms) > quota_headroom(current, now_unix_ms)
+            }
             _ => false,
         }
+    }
+
+    fn quota_weighted_order(&self, eligible: &[&ModelTarget]) -> [usize; MAX_ROUTE_TARGETS] {
+        let now_unix_ms = unix_time_ms();
+        let mut order = [0; MAX_ROUTE_TARGETS];
+        let mut total = 0.0;
+        let mut weights = [0.0; MAX_ROUTE_TARGETS];
+        for (index, target) in eligible.iter().enumerate() {
+            let headroom = quota_headroom(target, now_unix_ms);
+            if headroom > 0.0 {
+                let load = target.in_flight.load(Ordering::Acquire) as f64;
+                weights[index] = quota_score(target, now_unix_ms).max(0.0) / (1.0 + load);
+                total += weights[index];
+            }
+        }
+        let sample = pseudo_random(self.cursor.fetch_add(1, Ordering::Relaxed));
+        let winner = if total > 0.0 {
+            let mut slot = (sample as f64 / (usize::MAX as f64 + 1.0)) * total;
+            let mut selected = 0;
+            for (index, weight) in weights.iter().take(eligible.len()).enumerate() {
+                if *weight <= 0.0 {
+                    continue;
+                }
+                selected = index;
+                if slot < *weight {
+                    break;
+                }
+                slot -= *weight;
+            }
+            selected
+        } else {
+            sample % eligible.len()
+        };
+        order[0] = winner;
+        let mut output = 1;
+        for index in 0..eligible.len() {
+            if index != winner {
+                order[output] = index;
+                output += 1;
+            }
+        }
+        // Fallbacks remain deterministic and prefer the strongest remaining
+        // quota score after the weighted primary draw.
+        for index in 2..eligible.len() {
+            let selected = order[index];
+            let mut position = index;
+            while position > 1
+                && quota_score(eligible[selected], now_unix_ms)
+                    > quota_score(eligible[order[position - 1]], now_unix_ms)
+            {
+                order[position] = order[position - 1];
+                position -= 1;
+            }
+            order[position] = selected;
+        }
+        order
     }
 
     fn set_last_good(&self, target: &ModelTarget) -> bool {
@@ -341,6 +522,110 @@ impl ModelRoute {
 
     fn clear_last_good_any(&self) {
         self.last_good.store(NO_ROUTE_TARGET, Ordering::Release);
+    }
+}
+
+fn unix_time_ms() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .ok()
+        .and_then(|value| i64::try_from(value.as_millis()).ok())
+        .unwrap_or(i64::MAX)
+}
+
+fn target_quota(target: &ModelTarget, now_unix_ms: i64) -> Option<QuotaSnapshot> {
+    target.quota.as_ref()?.snapshot(now_unix_ms)
+}
+
+fn remaining_fraction(value: i64) -> Option<f64> {
+    (0..=1_000_000)
+        .contains(&value)
+        .then_some(value as f64 / 1_000_000.0)
+}
+
+fn quota_window_score(
+    remaining: f64,
+    reset_at: i64,
+    now_unix_ms: i64,
+    window_ms: f64,
+    rw: f64,
+    pw: f64,
+) -> f64 {
+    let urgency = if reset_at <= 0 {
+        0.5
+    } else {
+        (1.0 - (reset_at - now_unix_ms).max(0) as f64 / window_ms).clamp(0.0, 1.0)
+    };
+    rw * remaining + pw * urgency * (1.0 - remaining)
+}
+
+fn quota_score(target: &ModelTarget, now_unix_ms: i64) -> f64 {
+    let Some(quota) = target_quota(target, now_unix_ms) else {
+        return 0.5;
+    };
+    if quota.limit_reached {
+        return f64::NEG_INFINITY;
+    }
+    let session = remaining_fraction(quota.session_remaining_ppm).unwrap_or(0.5);
+    let weekly = remaining_fraction(quota.weekly_remaining_ppm).unwrap_or(0.5);
+    let session_score = quota_window_score(
+        session,
+        quota.session_reset_unix_ms,
+        now_unix_ms,
+        5.0 * 60.0 * 60.0 * 1_000.0,
+        0.45,
+        0.55,
+    );
+    let weekly_score = quota_window_score(
+        weekly,
+        quota.weekly_reset_unix_ms,
+        now_unix_ms,
+        7.0 * 24.0 * 60.0 * 60.0 * 1_000.0,
+        0.25,
+        0.75,
+    );
+    let mut score = 0.35 * session_score + 0.65 * weekly_score;
+    if session < 0.1 {
+        score *= (session / 0.1).max(0.05);
+    }
+    score
+}
+
+fn quota_headroom(target: &ModelTarget, now_unix_ms: i64) -> f64 {
+    let Some(quota) = target_quota(target, now_unix_ms) else {
+        return 1.0;
+    };
+    if quota.limit_reached {
+        return 0.0;
+    }
+    [
+        remaining_fraction(quota.session_remaining_ppm),
+        remaining_fraction(quota.weekly_remaining_ppm),
+    ]
+    .into_iter()
+    .flatten()
+    .reduce(f64::min)
+    .unwrap_or(1.0)
+}
+
+fn quota_reset(target: &ModelTarget, now_unix_ms: i64) -> i64 {
+    let Some(quota) = target_quota(target, now_unix_ms) else {
+        return i64::MAX;
+    };
+    if quota.limit_reached {
+        return i64::MAX;
+    }
+    // The legacy default is weekly. Providers without a weekly signal fall
+    // back to their session window instead of becoming permanently unknown.
+    let reset = if quota.weekly_reset_unix_ms > 0 {
+        quota.weekly_reset_unix_ms
+    } else {
+        quota.session_reset_unix_ms
+    };
+    if reset > 0 {
+        reset.max(now_unix_ms)
+    } else {
+        i64::MAX
     }
 }
 
@@ -587,6 +872,7 @@ impl ProxyState {
         input_cost_per_million: Option<f64>,
         output_cost_per_million: Option<f64>,
         context_window_tokens: Option<u64>,
+        quota: Arc<TargetQuota>,
     ) -> ModelTarget {
         ModelTarget {
             client: provider.client.clone(),
@@ -602,6 +888,7 @@ impl ProxyState {
             input_cost_per_million,
             output_cost_per_million,
             context_window_tokens,
+            quota: Some(quota),
             circuit: provider.circuit.clone(),
             in_flight: provider.in_flight.clone(),
         }
@@ -794,6 +1081,10 @@ impl ProxyState {
                 Some(v) if v.as_str() == Some("context-optimized") => {
                     RouteStrategy::ContextOptimized
                 }
+                Some(v) if v.as_str() == Some("reset-aware") => RouteStrategy::ResetAware,
+                Some(v) if v.as_str() == Some("reset-window") => RouteStrategy::ResetWindow,
+                Some(v) if v.as_str() == Some("headroom") => RouteStrategy::Headroom,
+                Some(v) if v.as_str() == Some("quota-weighted") => RouteStrategy::QuotaWeighted,
                 Some(v) if v.as_str() == Some("lkgp") => RouteStrategy::Lkgp,
                 _ => return Err("unsupported route strategy"),
             };
@@ -960,6 +1251,7 @@ impl ProxyState {
                     input_cost_per_million,
                     output_cost_per_million,
                     context_window_tokens,
+                    quota: None,
                     circuit: None,
                     in_flight: Arc::new(AtomicUsize::new(0)),
                 });
@@ -1125,6 +1417,14 @@ pub fn router(state: ProxyState) -> Router {
         .route(
             "/api/admin/provider-health/{id}",
             axum::routing::delete(control_plane::delete_provider_health),
+        )
+        .route(
+            "/api/admin/provider-quotas",
+            get(control_plane::list_provider_quotas),
+        )
+        .route(
+            "/api/admin/provider-quotas/{id}",
+            put(control_plane::put_provider_quota).delete(control_plane::delete_provider_quota),
         )
         .route("/v1/chat/completions", post(chat))
         .route("/v1/responses", post(responses))

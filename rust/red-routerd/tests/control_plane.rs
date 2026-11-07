@@ -140,6 +140,45 @@ async fn chat_model(
         .unwrap()
 }
 
+async fn set_provider_quota(
+    client: &reqwest::Client,
+    base: &str,
+    provider_id: &str,
+    body: serde_json::Value,
+) -> StatusCode {
+    client
+        .put(format!("{base}/api/admin/provider-quotas/{provider_id}"))
+        .bearer_auth(ADMIN_KEY)
+        .header(header::CONTENT_TYPE.as_str(), "application/json")
+        .body(body.to_string())
+        .send()
+        .await
+        .unwrap()
+        .status()
+}
+
+async fn set_combo_strategy(client: &reqwest::Client, base: &str, strategy: &str) -> StatusCode {
+    client
+        .put(format!("{base}/api/admin/combos/quota-combo"))
+        .bearer_auth(ADMIN_KEY)
+        .header(header::CONTENT_TYPE.as_str(), "application/json")
+        .body(
+            serde_json::json!({
+                "strategy":strategy,
+                "fallback":true,
+                "targets":[
+                    {"provider_id":"quota-first","model":"upstream-model"},
+                    {"provider_id":"quota-second","model":"upstream-model"}
+                ]
+            })
+            .to_string(),
+        )
+        .send()
+        .await
+        .unwrap()
+        .status()
+}
+
 #[tokio::test]
 async fn rust_control_plane_routes_durable_non_chat_protocols() {
     let directory = TempDir::new().unwrap();
@@ -1497,6 +1536,195 @@ async fn rust_control_plane_persists_redacts_and_live_reloads_providers() {
     );
 
     restarted_task.abort();
+    first_task.abort();
+    second_task.abort();
+    database.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn rust_control_plane_applies_live_quota_strategies_without_route_reloads() {
+    let directory = TempDir::new().unwrap();
+    let file = Url::from_file_path(directory.path().join("quota-routing.sqlite")).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    let database = Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap());
+    let control = ControlPlane::new(database.clone(), ADMIN_KEY, STORAGE_KEY, false)
+        .await
+        .unwrap();
+    let (first_url, first_task) = provider("quota-first-secret", "quota-first").await;
+    let (second_url, second_task) = provider("quota-second-secret", "quota-second").await;
+    let (base, gateway_task) = gateway(control).await;
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+
+    for (id, upstream_url, api_key) in [
+        ("quota-first", first_url, "quota-first-secret"),
+        ("quota-second", second_url, "quota-second-secret"),
+    ] {
+        assert_eq!(
+            client
+                .put(format!("{base}/api/admin/providers/{id}"))
+                .bearer_auth(ADMIN_KEY)
+                .header(header::CONTENT_TYPE.as_str(), "application/json")
+                .body(
+                    serde_json::json!({
+                        "provider":"openai",
+                        "upstream_url":upstream_url,
+                        "api_key":api_key
+                    })
+                    .to_string(),
+                )
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            200
+        );
+    }
+    assert_eq!(
+        client
+            .put(format!("{base}/api/admin/client-keys/quota-client"))
+            .bearer_auth(ADMIN_KEY)
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(
+                serde_json::json!({
+                    "label":"Quota client",
+                    "api_key":RUST_CLIENT_KEY,
+                    "scopes":["inference:chat"],
+                    "allowed_endpoints":["chat"],
+                    "allowed_models":["quota-combo","upstream-model"],
+                    "allowed_provider_ids":["quota-first","quota-second"]
+                })
+                .to_string(),
+            )
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
+
+    let healthy = || {
+        serde_json::json!({
+            "session":{"remaining_percent":90.0},
+            "weekly":{"remaining_percent":80.0},
+            "ttl_seconds":600
+        })
+    };
+    let exhausted = || serde_json::json!({"limit_reached":true,"ttl_seconds":600});
+    for strategy in ["reset-aware", "headroom", "quota-weighted"] {
+        assert_eq!(
+            set_provider_quota(&client, &base, "quota-first", exhausted()).await,
+            200
+        );
+        assert_eq!(
+            set_provider_quota(&client, &base, "quota-second", healthy()).await,
+            200
+        );
+        assert_eq!(set_combo_strategy(&client, &base, strategy).await, 200);
+        assert_eq!(
+            chat_model(&client, &base, RUST_CLIENT_KEY, "quota-combo")
+                .await
+                .text()
+                .await
+                .unwrap(),
+            "quota-second"
+        );
+
+        // No combo write or route rebuild occurs between these two requests.
+        assert_eq!(
+            set_provider_quota(&client, &base, "quota-first", healthy()).await,
+            200
+        );
+        assert_eq!(
+            set_provider_quota(&client, &base, "quota-second", exhausted()).await,
+            200
+        );
+        assert_eq!(
+            chat_model(&client, &base, RUST_CLIENT_KEY, "quota-combo")
+                .await
+                .text()
+                .await
+                .unwrap(),
+            "quota-first"
+        );
+    }
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64;
+    assert_eq!(
+        set_provider_quota(
+            &client,
+            &base,
+            "quota-first",
+            serde_json::json!({
+                "weekly":{"remaining_percent":50.0,"reset_at_unix_ms":now + 86_400_000},
+                "ttl_seconds":600
+            })
+        )
+        .await,
+        200
+    );
+    assert_eq!(
+        set_provider_quota(
+            &client,
+            &base,
+            "quota-second",
+            serde_json::json!({
+                "weekly":{"remaining_percent":50.0,"reset_at_unix_ms":now + 3_600_000},
+                "ttl_seconds":600
+            })
+        )
+        .await,
+        200
+    );
+    assert_eq!(
+        set_combo_strategy(&client, &base, "reset-window").await,
+        200
+    );
+    assert_eq!(
+        chat_model(&client, &base, RUST_CLIENT_KEY, "quota-combo")
+            .await
+            .text()
+            .await
+            .unwrap(),
+        "quota-second"
+    );
+
+    let quotas = client
+        .get(format!("{base}/api/admin/provider-quotas"))
+        .bearer_auth(ADMIN_KEY)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(quotas.status(), 200);
+    let quotas: serde_json::Value = serde_json::from_str(&quotas.text().await.unwrap()).unwrap();
+    assert_eq!(quotas["provider_quotas"].as_array().unwrap().len(), 2);
+    assert_eq!(
+        set_provider_quota(
+            &client,
+            &base,
+            "quota-first",
+            serde_json::json!({
+                "weekly":{"remaining_percent":101.0},
+                "ttl_seconds":600
+            })
+        )
+        .await,
+        400
+    );
+    assert_eq!(
+        client
+            .delete(format!("{base}/api/admin/provider-quotas/quota-second"))
+            .bearer_auth(ADMIN_KEY)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        204
+    );
+
+    gateway_task.abort();
     first_task.abort();
     second_task.abort();
     database.close().await.unwrap();

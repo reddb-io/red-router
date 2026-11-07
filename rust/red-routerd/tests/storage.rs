@@ -1,5 +1,6 @@
 use red_routerd::storage::{
-    Backend, Database, StoredBreaker, StoredClientKey, StoredCombo, StoredProvider, StoredRoutePin,
+    Backend, Database, StoredBreaker, StoredClientKey, StoredCombo, StoredProvider,
+    StoredProviderQuota, StoredRoutePin,
 };
 use tempfile::TempDir;
 use url::Url;
@@ -96,6 +97,19 @@ async fn exercise(backend: Backend, url: &str) {
     };
     db.upsert_route_pin(&route_pin).await.unwrap();
     assert_eq!(db.route_pins().await.unwrap(), vec![route_pin.clone()]);
+    let quota = StoredProviderQuota {
+        provider_id: "first".into(),
+        session_remaining_ppm: 750_000,
+        session_reset_unix_ms: 1_700_000_100_000,
+        weekly_remaining_ppm: 500_000,
+        weekly_reset_unix_ms: 1_700_100_000_000,
+        limit_reached: false,
+        observed_at_unix_ms: 1_700_000_000_000,
+        expires_at_unix_ms: 1_700_000_360_000,
+        revision: 10,
+    };
+    db.upsert_provider_quota(&quota).await.unwrap();
+    assert_eq!(db.provider_quotas().await.unwrap(), vec![quota.clone()]);
     let breaker = StoredBreaker {
         provider_id: "first".into(),
         state: "open".into(),
@@ -105,7 +119,7 @@ async fn exercise(backend: Backend, url: &str) {
         failure_threshold: 12,
         degradation_threshold: 7,
         reset_timeout_ms: 30_000,
-        revision: 10,
+        revision: 11,
     };
     db.upsert_breaker(&breaker).await.unwrap();
     assert_eq!(db.breakers().await.unwrap(), vec![breaker.clone()]);
@@ -122,6 +136,9 @@ async fn exercise(backend: Backend, url: &str) {
     assert_eq!(reopened.route_pins().await.unwrap(), vec![route_pin]);
     reopened.delete_route_pin("agent-combo").await.unwrap();
     assert!(reopened.route_pins().await.unwrap().is_empty());
+    assert_eq!(reopened.provider_quotas().await.unwrap(), vec![quota]);
+    reopened.delete_provider_quota("first").await.unwrap();
+    assert!(reopened.provider_quotas().await.unwrap().is_empty());
     assert_eq!(reopened.breakers().await.unwrap(), vec![breaker]);
     reopened.delete_breaker("first").await.unwrap();
     assert!(reopened.breakers().await.unwrap().is_empty());
