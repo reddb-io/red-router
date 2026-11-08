@@ -476,7 +476,8 @@ async fn rust_control_plane_owns_oidc_pkce_login_and_csrf_bound_admin_sessions()
         .await
         .unwrap();
     assert_eq!(configured.status(), StatusCode::OK);
-    let configured_body: serde_json::Value = configured.json().await.unwrap();
+    let configured_body: serde_json::Value =
+        serde_json::from_str(&configured.text().await.unwrap()).unwrap();
     assert_eq!(
         configured_body["oidc"]["browser"]["has_client_secret"],
         true
