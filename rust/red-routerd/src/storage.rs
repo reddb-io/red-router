@@ -559,14 +559,14 @@ impl Database {
                 .map_err(|_| "cannot read client key configuration")?
                 .iter()
                 .map(read_sql_client_key)
-                .collect(),
+                .collect::<Result<Vec<_>, _>>(),
             Self::Remote(_) => self
                 .remote_query(LIST_CLIENT_KEYS, &[])
                 .await?
                 .rows
                 .iter()
                 .map(read_reddb_client_key)
-                .collect(),
+                .collect::<Result<Vec<_>, _>>(),
             #[cfg(feature = "reddb-embedded")]
             Self::Embedded { db, .. } => db
                 .query(LIST_CLIENT_KEYS)
@@ -575,7 +575,7 @@ impl Database {
                 .rows
                 .iter()
                 .map(read_reddb_client_key)
-                .collect(),
+                .collect::<Result<Vec<_>, _>>(),
         }?;
         let preferences = self.client_key_preferences().await?;
         for preference in preferences {
