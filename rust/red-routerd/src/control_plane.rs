@@ -37,6 +37,7 @@ use zeroize::{Zeroize, Zeroizing};
 
 type ControlCipher = AesGcm<Aes256, U16>;
 const MODEL_CATALOG_SYNC_INTERVAL: Duration = Duration::from_secs(5);
+const CLIENT_POLICY_SYNC_INTERVAL: Duration = Duration::from_secs(2);
 
 struct Inner {
     database: Arc<crate::storage::Database>,
@@ -686,7 +687,28 @@ impl ControlPlane {
         plane.refresh_clients().await?;
         plane.refresh_routes().await?;
         plane.spawn_model_catalog_sync(catalog_poll_interval);
+        plane.spawn_client_policy_sync(CLIENT_POLICY_SYNC_INTERVAL);
         Ok(plane)
+    }
+
+    fn spawn_client_policy_sync(&self, cadence: Duration) {
+        let weak = Arc::downgrade(&self.0);
+        tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(cadence);
+            ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            ticker.tick().await;
+            loop {
+                ticker.tick().await;
+                let Some(inner) = weak.upgrade() else {
+                    return;
+                };
+                let plane = ControlPlane(inner);
+                let _mutation = plane.0.mutation.lock().await;
+                if plane.refresh_clients().await.is_err() {
+                    *plane.0.clients.write().await = ClientSnapshot::Unavailable;
+                }
+            }
+        });
     }
 
     fn spawn_model_catalog_sync(&self, cadence: Duration) {

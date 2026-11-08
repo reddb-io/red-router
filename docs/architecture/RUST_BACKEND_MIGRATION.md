@@ -133,6 +133,10 @@ revision-coupled key-ownership sidecar containing only `tenant_id` and authentic
 `created_by`. The default tenant is `red`; legacy keys are adopted as `red/legacy`, while
 new keys reject missing or disabled tenants. No RedDB database identifier is stored in Red
 Router: RedDB Cloud owns any database-to-key association outside this service.
+Independent Rust replicas refresh the client-key/tenant snapshot from the shared authority
+on a bounded two-second cadence. A malformed or partially committed generation makes that
+replica reject client authentication until a complete snapshot can be read; disabling a
+tenant therefore retires its keys across the cluster without reviving environment keys.
 
 Verified OIDC identity is deliberately separate from authorization. Durable identity
 bindings associate an `oidc:` subject with one enabled tenant and an `admin`, `tenant-admin`

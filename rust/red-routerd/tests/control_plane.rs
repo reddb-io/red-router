@@ -809,6 +809,10 @@ async fn rust_control_plane_issues_hash_only_named_client_keys() {
         .await
         .unwrap();
     let (base, gateway_task) = gateway(control).await;
+    let replica = ControlPlane::new(database.clone(), ADMIN_KEY, STORAGE_KEY, false)
+        .await
+        .unwrap();
+    let (replica_base, replica_task) = gateway(replica).await;
     let client = reqwest::Client::builder().no_proxy().build().unwrap();
 
     assert_eq!(
@@ -907,6 +911,24 @@ async fn rust_control_plane_issues_hash_only_named_client_keys() {
         serde_json::from_str(&identity.text().await.unwrap()).unwrap();
     assert_eq!(identity["id"], key_id);
     assert_eq!(identity["name"], "RedDB Cloud / Acme production");
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if client
+                .get(format!("{replica_base}/v1/key"))
+                .bearer_auth(&raw_key)
+                .send()
+                .await
+                .unwrap()
+                .status()
+                == StatusCode::OK
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    })
+    .await
+    .expect("replica did not publish the client key snapshot");
 
     let provision_body = serde_json::json!({
         "label":"RedDB Cloud / Acme database key",
@@ -994,7 +1016,26 @@ async fn rust_control_plane_issues_hash_only_named_client_keys() {
             .status(),
         StatusCode::UNAUTHORIZED
     );
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if client
+                .get(format!("{replica_base}/v1/key"))
+                .bearer_auth(&raw_key)
+                .send()
+                .await
+                .unwrap()
+                .status()
+                == StatusCode::UNAUTHORIZED
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    })
+    .await
+    .expect("replica did not retire the disabled tenant snapshot");
     restarted_task.abort();
+    replica_task.abort();
 }
 
 #[tokio::test]
