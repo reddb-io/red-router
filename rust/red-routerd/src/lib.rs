@@ -1858,16 +1858,16 @@ async fn authenticate_product_request(
     state: &ProxyState,
     headers: &HeaderMap,
     protocol: ProviderProtocol,
-) -> Result<(product::ProductAccess, usize, zeroize::Zeroizing<String>), Response> {
+) -> Result<(product::ProductAccess, usize, zeroize::Zeroizing<String>), Box<Response>> {
     let Some(candidate) = policy::extract_candidate(headers, protocol) else {
-        return Err(error(StatusCode::UNAUTHORIZED, "Invalid API key"));
+        return Err(Box::new(error(StatusCode::UNAUTHORIZED, "Invalid API key")));
     };
     let candidate = zeroize::Zeroizing::new(candidate.to_owned());
     let Some(primary) = &state.product_connection else {
-        return Err(error(
+        return Err(Box::new(error(
             StatusCode::SERVICE_UNAVAILABLE,
             "Product policy unavailable",
-        ));
+        )));
     };
     let choices = state
         .product_combo
@@ -1909,14 +1909,14 @@ async fn authenticate_product_request(
             Ok(Some(access)) => return Ok((access, index, candidate)),
             Ok(None) => continue,
             Err(_) => {
-                return Err(error(
+                return Err(Box::new(error(
                     StatusCode::SERVICE_UNAVAILABLE,
                     "Product policy unavailable or unsupported",
-                ))
+                )))
             }
         }
     }
-    Err(error(StatusCode::UNAUTHORIZED, "Invalid API key"))
+    Err(Box::new(error(StatusCode::UNAUTHORIZED, "Invalid API key")))
 }
 
 async fn models(State(state): State<ProxyState>, request: Request) -> Response {
@@ -1926,7 +1926,7 @@ async fn models(State(state): State<ProxyState>, request: Request) -> Response {
                 .await
             {
                 Ok(authenticated) => authenticated,
-                Err(response) => return response,
+                Err(response) => return *response,
             };
         let Some(policy) = access
             .policies
@@ -2085,7 +2085,7 @@ async fn proxy_request(
     let (selected_product, product_candidate, product_access) = if state.product_client_keys {
         match authenticate_product_request(&state, request.headers(), protocol).await {
             Ok((access, index, candidate)) => (index, Some(candidate), Some(access)),
-            Err(response) => return response,
+            Err(response) => return *response,
         }
     } else {
         (0, None, None)
