@@ -379,7 +379,7 @@ async fn non_streaming_product_usage_is_recorded_and_unhandled_quotas_fail_close
         .unwrap();
     sqlx::query("INSERT INTO key_value VALUES ('pricing','openrouter',?)")
         .bind(
-            r#"{"vendor/gpt":{"input":2,"output":4,"cached":1,"cache_creation":2,"reasoning":4}}"#,
+            r#"{"vendor/gpt":{"input":2,"output":4,"cached":1,"cache_creation":2,"reasoning":4},"vendor/embed-priced":{"input":2,"output":0,"cached":2,"cache_creation":2,"reasoning":0}}"#,
         )
         .execute(&mut db)
         .await
@@ -397,6 +397,18 @@ async fn non_streaming_product_usage_is_recorded_and_unhandled_quotas_fail_close
         axum::serve(upstream, Router::new().route("/v1/chat/completions", post(move |axum::Json(request): axum::Json<serde_json::Value>| {
             let mode = provider_mode.clone();
             async move {
+                if request["model"]
+                    .as_str()
+                    .is_some_and(|model| model.starts_with("vendor/embed"))
+                {
+                    return axum::Json(serde_json::json!({
+                        "object":"list",
+                        "data":[{"object":"embedding","index":0,"embedding":[0.5]}],
+                        "model":request["model"],
+                        "usage":{"prompt_tokens":42,"total_tokens":42}
+                    }))
+                    .into_response();
+                }
                 if request["stream"] == true {
                     let usage = match mode.load(Ordering::SeqCst) {
                         1 => "data: {\"choices\":[]}\n\n",
@@ -532,6 +544,19 @@ async fn non_streaming_product_usage_is_recorded_and_unhandled_quotas_fail_close
             .status(),
         503
     );
+    for (model, expected) in [("embed-priced", 200), ("embed-unpriced", 503)] {
+        let response = client
+            .post(format!("http://{proxy}/v1/embeddings"))
+            .bearer_auth("usage-client-key-123456")
+            .json(&serde_json::json!({
+                "model":format!("openrouter/vendor/{model}"),
+                "input":"hello"
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status().as_u16(), expected);
+    }
     server.abort();
 
     let (connection, _) = ProductConnection::open(&dir.path().join("storage.sqlite"), "test", None)
@@ -594,6 +619,39 @@ async fn non_streaming_product_usage_is_recorded_and_unhandled_quotas_fail_close
     .await
     .unwrap();
     assert_eq!(unknown_count, 2);
+    let response = client
+        .post(format!("http://{proxy}/v1/embeddings"))
+        .bearer_auth("usage-client-key-123456")
+        .json(&serde_json::json!({
+            "model":"openrouter/vendor/embed-unpriced",
+            "input":"hello"
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    assert_eq!(
+        response.json::<serde_json::Value>().await.unwrap()["data"][0]["embedding"][0],
+        0.5
+    );
+    let priced_embedding: (i64, i64, i64, f64, Option<String>) = sqlx::query_as(
+        "SELECT tokens_input, tokens_output, pricing_known, amount_usd, pricing_snapshot FROM request_cost_ledger WHERE api_key_id = 'usage-client' AND model = 'vendor/embed-priced'",
+    )
+    .fetch_one(&mut db)
+    .await
+    .unwrap();
+    assert_eq!(priced_embedding.0, 42);
+    assert_eq!(priced_embedding.1, 0);
+    assert_eq!(priced_embedding.2, 1);
+    assert!((priced_embedding.3 - 0.000084).abs() < 1e-12);
+    assert!(priced_embedding.4.is_some());
+    let unpriced_embedding: (i64, i64, i64, f64, Option<String>) = sqlx::query_as(
+        "SELECT tokens_input, tokens_output, pricing_known, amount_usd, pricing_snapshot FROM request_cost_ledger WHERE api_key_id = 'usage-client' AND model = 'vendor/embed-unpriced'",
+    )
+    .fetch_one(&mut db)
+    .await
+    .unwrap();
+    assert_eq!(unpriced_embedding, (42, 0, 0, 0.0, None));
     sqlx::query("INSERT INTO api_key_quota_limits VALUES ('usage-client', 1000, NULL, NULL)")
         .execute(&mut db)
         .await

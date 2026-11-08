@@ -64,14 +64,14 @@ their Rust migration state:
 | --- | --- | --- |
 | Frozen model-price snapshots in usage export | Implemented for product-SQLite chat and streaming | Move the ledger behind the Rust-owned storage repository and cover every protocol |
 | Preserve unpriced chat and streaming consumption | Implemented as explicit opt-in with `pricing_known = 0` | Rust-owned reporting APIs and usage sinks |
-| Durable embedding usage | Pending | Normalize embedding usage, reserve/settle, idempotent ledger and failure recovery |
+| Durable embedding usage | Implemented for product-SQLite OpenAI-compatible responses | Move reservation and ledger ownership into the Rust storage repository |
 | Operator/key reporting attributes | Schema-compatible placeholder (`{}`) | Validate and snapshot immutable key plus instance attributes without exposing credentials |
 | Signed OIDC claim policies | Pending | Rust management authentication, issuer/JWKS verification and claim-policy enforcement |
 | Preserve stream deltas when terminal snapshots omit output | Direct OpenAI relay is not affected | Add parity fixtures for every translating stream path before declaring complete |
 | Bound router/cache/log stream retention | Rust SSE frames and channels are bounded | Audit admin logs, translated streams and future SPA subscriptions under sustained load |
 
 This table is a migration queue, not a parity claim. The next vertical slices are
-embedding accounting, reporting attributes, then Rust-owned OIDC management auth.
+reporting attributes, then Rust-owned OIDC management auth.
 
 ## Rust-owned production slices
 

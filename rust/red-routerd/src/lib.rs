@@ -1694,25 +1694,29 @@ async fn proxy_request(
             "Usage accounting requires product client keys",
         );
     }
-    let accounting_stream = parsed.get("stream").and_then(serde_json::Value::as_bool) == Some(true);
+    let accounting_stream = protocol == ProviderProtocol::OpenAi
+        && parsed.get("stream").and_then(serde_json::Value::as_bool) == Some(true);
     if usage_accounting
-        && (protocol != ProviderProtocol::OpenAi
-            || !matches!(
+        && (!matches!(
+            protocol,
+            ProviderProtocol::OpenAi | ProviderProtocol::OpenAiEmbeddings
+        ) || (protocol == ProviderProtocol::OpenAi
+            && (!matches!(
                 parsed.get("stream"),
                 None | Some(serde_json::Value::Bool(_))
-            )
-            || (accounting_stream
+            ) || (accounting_stream
                 && parsed
                     .pointer("/stream_options/include_usage")
                     .and_then(serde_json::Value::as_bool)
-                    != Some(true))
+                    != Some(true))))
+            || (protocol == ProviderProtocol::OpenAiEmbeddings && parsed.get("stream").is_some())
             || parsed
                 .get("service_tier")
                 .is_some_and(|v| !v.is_null() && v.as_str() != Some("default")))
     {
         return error(
             StatusCode::BAD_REQUEST,
-            "Usage accounting requires OpenAI chat, the default tier, and include_usage for streaming",
+            "Usage accounting requires OpenAI chat or embeddings, the default tier, and include_usage for streaming",
         );
     }
     let model = gemini.as_ref().map(|(model, _)| model.clone()).or_else(|| {
@@ -2408,7 +2412,12 @@ async fn proxy_request(
                     {
                         return None;
                     }
-                    accounting::ChatUsage::from_response(&v).ok()
+                    match protocol {
+                        ProviderProtocol::OpenAiEmbeddings => {
+                            accounting::ChatUsage::from_embedding_response(&v).ok()
+                        }
+                        _ => accounting::ChatUsage::from_response(&v).ok(),
+                    }
                 });
             let Some(usage) = usage else {
                 return error(

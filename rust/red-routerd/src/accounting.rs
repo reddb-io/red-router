@@ -66,6 +66,43 @@ impl ChatUsage {
         Ok(result)
     }
 
+    /// Normalize OpenAI-compatible embedding usage. Providers commonly return
+    /// either `prompt_tokens`, `total_tokens`, or both; when both exist they
+    /// must agree because embeddings have no completion token dimension.
+    pub fn from_embedding_response(response: &Value) -> Result<Self, &'static str> {
+        let usage = response
+            .get("usage")
+            .and_then(Value::as_object)
+            .ok_or("usage is missing")?;
+        let read = |field: &str| -> Result<Option<u64>, &'static str> {
+            match usage.get(field) {
+                None | Some(Value::Null) => Ok(None),
+                Some(value) => value
+                    .as_u64()
+                    .map(Some)
+                    .ok_or("invalid embedding token usage"),
+            }
+        };
+        let prompt = read("prompt_tokens")?;
+        let total = read("total_tokens")?;
+        if prompt.is_some() && total.is_some() && prompt != total {
+            return Err("inconsistent embedding token usage");
+        }
+        if read("completion_tokens")?.is_some_and(|tokens| tokens != 0) {
+            return Err("inconsistent embedding token usage");
+        }
+        let input = prompt.or(total).ok_or("embedding token usage is missing")?;
+        let result = Self {
+            input,
+            output: 0,
+            reasoning: 0,
+            cache_read: 0,
+            cache_creation: 0,
+        };
+        result.billable_tokens()?;
+        Ok(result)
+    }
+
     /// Matches the product's quota counter (input + output + reasoning).
     pub fn billable_tokens(&self) -> Result<u64, &'static str> {
         self.input
@@ -267,6 +304,15 @@ async fn record_usage(
             let snapshot: Option<String> = row
                 .try_get("pricing_snapshot")
                 .map_err(|_| "invalid reservation")?;
+            if state != "dispatched"
+                || token_bound < 0
+                || !usd_bound.is_finite()
+                || usd_bound < 0.0
+                || provider.as_deref().is_some_and(|v| v != event.provider)
+                || model.as_deref().is_some_and(|v| v != event.model)
+            {
+                return Err("invalid reservation");
+            }
             match (snapshot, event.prices) {
                 (Some(snapshot), Some(prices)) => {
                     let snapshot: Value =
@@ -277,15 +323,6 @@ async fn record_usage(
                 }
                 (None, None) => {}
                 _ => return Err("invalid reservation price"),
-            }
-            if state != "dispatched"
-                || token_bound < 0
-                || !usd_bound.is_finite()
-                || usd_bound < 0.0
-                || provider.as_deref().is_some_and(|v| v != event.provider)
-                || model.as_deref().is_some_and(|v| v != event.model)
-            {
-                return Err("invalid reservation");
             }
             if billable > token_bound as u64 || cost > usd_bound {
                 sqlx::query("UPDATE api_key_usage_reservations SET reserved_tokens = 9007199254740991, reserved_usd = 1e300 WHERE id = ? AND api_key_id = ?")
@@ -431,7 +468,7 @@ mod tests {
             Err("invalid reservation")
         );
         sqlx::query(
-            "UPDATE api_key_usage_reservations SET state = 'dispatched', provider = 'openai', model = 'gpt' WHERE id = 'event-1'",
+            "UPDATE api_key_usage_reservations SET state = 'dispatched', provider = 'openai', model = 'gpt', pricing_snapshot = '{\"input\":2,\"output\":4}' WHERE id = 'event-1'",
         )
         .execute(&pool)
         .await
@@ -449,7 +486,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(count, 0);
-        sqlx::query("INSERT INTO api_key_usage_reservations (id,api_key_id,reserved_tokens,reserved_usd,created_at,state) VALUES ('event-2','key',100,0.001,1700000000000,'dispatched')").execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO api_key_usage_reservations (id,api_key_id,reserved_tokens,reserved_usd,created_at,state,pricing_snapshot) VALUES ('event-2','key',100,0.001,1700000000000,'dispatched','{\"input\":2,\"output\":4}')").execute(&pool).await.unwrap();
         event.event_id = "event-2";
         assert_eq!(
             record_reserved_usage(&pool, &event).await,
@@ -488,7 +525,7 @@ mod tests {
             prices: Some(&prices),
             timestamp_ms: 1_700_000_000_000,
         };
-        sqlx::query("INSERT INTO api_key_usage_reservations (id,api_key_id,reserved_tokens,reserved_usd,created_at,state) VALUES ('event-fail','key',150,0.001,1700000000000,'dispatched')").execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO api_key_usage_reservations (id,api_key_id,reserved_tokens,reserved_usd,created_at,state,pricing_snapshot) VALUES ('event-fail','key',150,0.001,1700000000000,'dispatched','{\"input\":2,\"output\":4}')").execute(&pool).await.unwrap();
         sqlx::query("CREATE TRIGGER fail_counter BEFORE INSERT ON api_key_quota_counters BEGIN SELECT RAISE(ABORT, 'failure'); END").execute(&pool).await.unwrap();
         assert_eq!(
             record_reserved_usage(&pool, &event).await,
@@ -611,6 +648,35 @@ mod tests {
         )
         .unwrap();
         assert!((prices.cost_usd(&usage).unwrap() - 0.0004).abs() < 1e-12);
+    }
+
+    #[test]
+    fn normalizes_embedding_usage_without_inventing_output_tokens() {
+        for response in [
+            json!({"usage":{"prompt_tokens":42}}),
+            json!({"usage":{"total_tokens":42}}),
+            json!({"usage":{"prompt_tokens":42,"total_tokens":42,"completion_tokens":0}}),
+        ] {
+            assert_eq!(
+                ChatUsage::from_embedding_response(&response).unwrap(),
+                ChatUsage {
+                    input: 42,
+                    output: 0,
+                    reasoning: 0,
+                    cache_read: 0,
+                    cache_creation: 0,
+                }
+            );
+        }
+        for response in [
+            json!({}),
+            json!({"usage":{}}),
+            json!({"usage":{"prompt_tokens":42,"total_tokens":43}}),
+            json!({"usage":{"total_tokens":42,"completion_tokens":1}}),
+            json!({"usage":{"total_tokens":-1}}),
+        ] {
+            assert!(ChatUsage::from_embedding_response(&response).is_err());
+        }
     }
 
     #[test]
