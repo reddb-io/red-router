@@ -5,7 +5,7 @@
 //! than oversubscribing it in separate read/write transactions.
 
 use crate::accounting::{ChatUsage, TokenPrices};
-use sqlx::{Any, PoolConnection, Row};
+use sqlx::{pool::PoolConnection, Any, Row};
 use std::sync::Arc;
 use time::OffsetDateTime;
 
