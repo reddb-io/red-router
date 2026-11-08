@@ -96,4 +96,7 @@ qualification and npm provenance publication retain their existing hosted lanes.
 Public runner limits: 3 CPU / 12 GiB RAM and 8 GiB workspace, without Docker-in-Docker.
 The full Next/package build keeps its existing hosted runner and 10 GiB V8 heap: real
 qualification exceeded the bounded company-worker memory budget. The `workers` suite runs contracts and UI tests; full lint/typecheck and
-browser/database integration stay hosted after resource qualification.
+browser/database integration stay hosted after resource qualification. Native
+tray and network-service regressions require a real systemd user manager and
+run in the separate hosted desktop-services job. Choose `workers` for contracts
+and UI only, or `desktop` for those OS service integrations.

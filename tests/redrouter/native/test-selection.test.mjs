@@ -100,6 +100,8 @@ test("company worker suites keep heavyweight builds and publishers hosted", () =
     assert.match(quality.jobs[name]["runs-on"], /reddb-public-linux-x64/);
     assert.match(quality.jobs[name].if, /inputs\.suite == 'workers'/);
   }
+  assert.equal(quality.jobs["desktop-services"]["runs-on"], "ubuntu-latest");
+  assert.match(quality.jobs["desktop-services"].if, /inputs\.runner_qualification != true/);
   assert.equal(quality.jobs.checks["runs-on"], "ubuntu-latest");
   assert.doesNotMatch(quality.jobs.checks.if, /inputs\.suite == 'workers'/);
   assert.equal(publish.jobs.build["runs-on"], "ubuntu-latest");

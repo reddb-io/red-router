@@ -9,7 +9,7 @@ on:
       suite:
         type: choice
         description: Quality suite to run
-        options: [checks, unit, routing, vitest, browser, workers, all]
+        options: [checks, unit, routing, vitest, browser, desktop, workers, all]
         default: checks
 permissions:
   contents: read
@@ -78,6 +78,21 @@ jobs:
           cache: npm
       - uses: ./.github/actions/npm-ci-retry
       - run: npm run test:unit:ci
+  desktop-services:
+    name: Linux desktop service regressions
+    if: inputs.runner_qualification != true && (inputs.suite == 'all' || inputs.suite == 'unit' || inputs.suite == 'desktop')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.ref }}
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: ${{ env.CI_NODE_VERSION }}
+          cache: npm
+      - uses: ./.github/actions/npm-ci-retry
       - name: Install Linux desktop regression dependencies
         run: |
           sudo apt-get update -qq
@@ -86,7 +101,6 @@ jobs:
         run: node scripts/ci/check-linux-tray.mjs
       - name: Verify managed network access survives restart and binds the requested interface
         run: node scripts/ci/check-network-access.mjs
-
 
   test-routing-storage:
     if: inputs.runner_qualification != true && (inputs.suite == 'all' || inputs.suite == 'routing')

@@ -88,6 +88,7 @@ test("manual quality owns conformance while the package publisher owns no Docker
   assert.deepEqual(Object.keys(quality.jobs), [
     "checks",
     "test-unit",
+    "desktop-services",
     "test-routing-storage",
     "test-vitest",
     "browser",
