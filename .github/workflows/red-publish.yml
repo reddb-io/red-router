@@ -10,6 +10,10 @@ on:
     tags: ["v*.*.*"]
   workflow_dispatch:
     inputs:
+      runner_qualification:
+        type: boolean
+        description: Validate the hosted package build without a release tag or publication
+        default: false
       tag:
         description: "Existing SemVer tag to validate/publish (optional)"
         required: false
@@ -43,6 +47,7 @@ env:
 jobs:
   build:
     name: Build and package smoke
+    # The full Next build exceeds the bounded OCI worker memory budget.
     runs-on: ubuntu-latest
     timeout-minutes: 60
     outputs:
@@ -51,12 +56,20 @@ jobs:
       artifact_run_id: ${{ steps.promote.outputs.run_id || github.run_id }}
       artifact_run_attempt: ${{ steps.promote.outputs.run_attempt || github.run_attempt }}
     env:
+      # Keep the full production build on the existing hosted memory class.
       NODE_OPTIONS: --max-old-space-size=10240
       OMNIROUTE_USE_TURBOPACK: "0"
       OMNIROUTE_RELEASE_REF: HEAD
       REDROUTER_RELEASE_ARTIFACT_DIR: release-artifacts
       OMNIROUTE_PLAYWRIGHT_SKIP_BUILD: "1"
     steps:
+      - name: Require an unpublished branch qualification
+        if: inputs.runner_qualification == true
+        env:
+          QUALIFICATION_TAG: ${{ inputs.tag }}
+        run: |
+          test -z "$QUALIFICATION_TAG"
+          test "$GITHUB_REF_TYPE" = branch
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
@@ -116,7 +129,7 @@ jobs:
 
   release:
     name: Publish npm and GitHub Release
-    if: github.repository == 'reddb-io/red-router' && (startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.tag != ''))
+    if: inputs.runner_qualification != true && github.repository == 'reddb-io/red-router' && (startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.tag != ''))
     needs: [build]
     runs-on: ubuntu-latest
     timeout-minutes: 30
