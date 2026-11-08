@@ -34,6 +34,10 @@ kHmPRiazukxPLb6ilpRAewjW8nihRANCAATDskChT+Altkm9X7MI69T3IUmrQU0L
 -----END PRIVATE KEY-----"#;
 
 fn oidc_token(kid: &str, audience: &str, role: &str) -> String {
+    oidc_token_for(kid, audience, role, "operator-123", "operator@example.com")
+}
+
+fn oidc_token_for(kid: &str, audience: &str, role: &str, subject: &str, email: &str) -> String {
     let mut header = Header::new(Algorithm::ES256);
     header.kid = Some(kid.to_owned());
     encode(
@@ -41,8 +45,8 @@ fn oidc_token(kid: &str, audience: &str, role: &str) -> String {
         &serde_json::json!({
             "iss":"https://issuer.example",
             "aud":audience,
-            "sub":"operator-123",
-            "email":"operator@example.com",
+            "sub":subject,
+            "email":email,
             "email_verified":true,
             "org_role":role,
             "exp":SystemTime::now()
@@ -904,6 +908,55 @@ async fn rust_control_plane_issues_hash_only_named_client_keys() {
     assert_eq!(identity["id"], key_id);
     assert_eq!(identity["name"], "RedDB Cloud / Acme production");
 
+    let provision_body = serde_json::json!({
+        "label":"RedDB Cloud / Acme database key",
+        "api_key":"cloud-generated-key-1234567890",
+        "tenant_id":"acme",
+        "scopes":["inference:chat"]
+    })
+    .to_string();
+    for _ in 0..2 {
+        let provisioned = client
+            .put(format!(
+                "{base}/api/provision/client-keys/reddb-cloud-acme-production"
+            ))
+            .bearer_auth(ADMIN_KEY)
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(provision_body.clone())
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(provisioned.status(), StatusCode::OK);
+        let provisioned: serde_json::Value =
+            serde_json::from_str(&provisioned.text().await.unwrap()).unwrap();
+        assert_eq!(provisioned["client_key"]["tenant_id"], "acme");
+        assert_eq!(
+            provisioned["client_key"]["id"],
+            "reddb-cloud-acme-production"
+        );
+    }
+    assert_eq!(
+        client
+            .put(format!(
+                "{base}/api/provision/client-keys/reddb-cloud-acme-production"
+            ))
+            .bearer_auth(ADMIN_KEY)
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(
+                serde_json::json!({
+                    "label":"attempted owner change",
+                    "api_key":"cloud-generated-key-1234567890",
+                    "tenant_id":"red"
+                })
+                .to_string(),
+            )
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::BAD_REQUEST
+    );
+
     gateway_task.abort();
     let restarted = ControlPlane::new(database, ADMIN_KEY, STORAGE_KEY, false)
         .await
@@ -918,6 +971,28 @@ async fn rust_control_plane_issues_hash_only_named_client_keys() {
             .unwrap()
             .status(),
         StatusCode::OK
+    );
+    assert_eq!(
+        client
+            .put(format!("{restarted_base}/api/admin/tenants/acme"))
+            .bearer_auth(ADMIN_KEY)
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(r#"{"slug":"acme","name":"Acme Corporation","enabled":false}"#)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        client
+            .get(format!("{restarted_base}/v1/key"))
+            .bearer_auth(&raw_key)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::UNAUTHORIZED
     );
     restarted_task.abort();
 }
@@ -1346,7 +1421,7 @@ async fn rust_control_plane_persists_and_enforces_signed_oidc_admin_authenticati
                     "audience":"red-router-admin",
                     "jwks_uri":jwks_uri,
                     "required_claims":{"org_role":["owner","operator"]},
-                    "allowed_subjects":["operator@example.com"]
+                    "allowed_subjects":["operator@example.com","cloud@acme.example"]
                 })
                 .to_string(),
             )
@@ -1367,7 +1442,127 @@ async fn rust_control_plane_persists_and_enforces_signed_oidc_admin_authenticati
             .await
             .unwrap()
             .status(),
+        StatusCode::UNAUTHORIZED
+    );
+
+    assert_eq!(
+        client
+            .put(format!("{base}/api/admin/identity-bindings/operator-admin"))
+            .bearer_auth(ADMIN_KEY)
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(
+                serde_json::json!({
+                    "subject":"oidc:operator@example.com",
+                    "tenant_id":"red",
+                    "role":"admin"
+                })
+                .to_string(),
+            )
+            .send()
+            .await
+            .unwrap()
+            .status(),
         StatusCode::OK
+    );
+
+    assert_eq!(
+        client
+            .get(format!("{base}/api/admin/providers"))
+            .bearer_auth(&valid)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        client
+            .put(format!("{base}/api/admin/tenants/acme"))
+            .bearer_auth(ADMIN_KEY)
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(r#"{"slug":"acme","name":"Acme"}"#)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        client
+            .put(format!("{base}/api/admin/identity-bindings/acme-cloud"))
+            .bearer_auth(ADMIN_KEY)
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(
+                serde_json::json!({
+                    "subject":"oidc:cloud@acme.example",
+                    "tenant_id":"acme",
+                    "role":"issuer"
+                })
+                .to_string(),
+            )
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    let cloud = oidc_token_for(
+        "ec01",
+        "red-router-admin",
+        "operator",
+        "cloud-service",
+        "cloud@acme.example",
+    );
+    assert_eq!(
+        client
+            .get(format!("{base}/api/admin/providers"))
+            .bearer_auth(&cloud)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    let provisioned = client
+        .put(format!("{base}/api/provision/client-keys/acme-database"))
+        .bearer_auth(&cloud)
+        .header(header::CONTENT_TYPE.as_str(), "application/json")
+        .body(
+            serde_json::json!({
+                "label":"Acme database",
+                "api_key":"acme-cloud-generated-key-1234567890",
+                "tenant_id":"acme"
+            })
+            .to_string(),
+        )
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(provisioned.status(), StatusCode::OK);
+    let provisioned: serde_json::Value =
+        serde_json::from_str(&provisioned.text().await.unwrap()).unwrap();
+    assert_eq!(
+        provisioned["client_key"]["created_by"],
+        "oidc:cloud@acme.example"
+    );
+    assert_eq!(
+        client
+            .put(format!("{base}/api/provision/client-keys/red-database"))
+            .bearer_auth(&cloud)
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(
+                serde_json::json!({
+                    "label":"Red database",
+                    "api_key":"red-cloud-generated-key-1234567890",
+                    "tenant_id":"red"
+                })
+                .to_string(),
+            )
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::UNAUTHORIZED
     );
     for denied in [
         oidc_token("ec01", "other-audience", "operator"),
@@ -1563,6 +1758,26 @@ async fn rust_control_plane_owns_oidc_pkce_login_and_csrf_bound_admin_sessions()
     assert!(!configured_body.to_string().contains("browser-secret"));
     let stored_browser = database.oidc_browser_config().await.unwrap().unwrap();
     assert_ne!(stored_browser.client_secret_ciphertext, "browser-secret");
+
+    assert_eq!(
+        client
+            .put(format!("{base}/api/admin/identity-bindings/operator-admin"))
+            .bearer_auth(ADMIN_KEY)
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(
+                serde_json::json!({
+                    "subject":"oidc:operator@example.com",
+                    "tenant_id":"red",
+                    "role":"admin"
+                })
+                .to_string(),
+            )
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
 
     let public_config = client
         .get(format!("{base}/api/auth/config"))

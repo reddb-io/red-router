@@ -50,7 +50,7 @@ features must not be implemented only there.
 | Pricing, quotas and budgets | Partial                | Atomic reservations, streaming settlement, reconciliation, multi-process tests     |
 | Usage and audit             | Partial                | Complete protocol usage, idempotent ledger, retention/export APIs                  |
 | Settings and resilience     | Partial                | Durable provider breakers, connection cooldowns, model lockouts, provider-specific quota scope, terminal account states and reset API; the remaining versioned settings remain |
-| Management identity         | Implemented foundation | Signed bearer, discovery, browser PKCE, encrypted session, CSRF/fetch-metadata binding and logout |
+| Management identity         | Implemented foundation | Signed bearer, tenant/role binding, scoped service provisioning, browser PKCE, encrypted session, CSRF/fetch-metadata binding and logout |
 | SPA delivery                | Partial                | Rust serves a validated static bundle with safe SPA fallback; production dashboard export/packaging remains |
 | Legacy data migration       | Pending                | Maintenance-mode import, verification report and rollback boundary                 |
 
@@ -133,6 +133,15 @@ revision-coupled key-ownership sidecar containing only `tenant_id` and authentic
 `created_by`. The default tenant is `red`; legacy keys are adopted as `red/legacy`, while
 new keys reject missing or disabled tenants. No RedDB database identifier is stored in Red
 Router: RedDB Cloud owns any database-to-key association outside this service.
+
+Verified OIDC identity is deliberately separate from authorization. Durable identity
+bindings associate an `oidc:` subject with one enabled tenant and an `admin`, `tenant-admin`
+or `issuer` role. Only a bound `admin` can use the global management API. The scoped
+provisioning API accepts the bootstrap recovery identity or a matching bound role, requires
+an explicit tenant and refuses ownership changes for an existing key. Its PUT contract uses
+a caller-chosen stable key ID and caller-generated secret: RedDB Cloud can retry after a lost
+response while Red Router continues to persist only a hash. The caller retains the external
+database-to-key mapping; Red Router retains tenant, label and authenticated creator only.
 
 The combo slice stores bounded routing records in `redrouter_control_combos` and exposes
 only authenticated Rust admin APIs. The first durable combo makes this table the routing

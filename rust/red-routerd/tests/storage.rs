@@ -1,7 +1,7 @@
 use red_routerd::storage::{
     Backend, Database, StoredAvailability, StoredBreaker, StoredClientKey, StoredCombo,
-    StoredModelCatalogSnapshot, StoredOidcBrowserConfig, StoredOidcConfig, StoredProvider,
-    StoredProviderQuota, StoredResilience, StoredRoutePin, StoredTenant,
+    StoredIdentityBinding, StoredModelCatalogSnapshot, StoredOidcBrowserConfig, StoredOidcConfig,
+    StoredProvider, StoredProviderQuota, StoredResilience, StoredRoutePin, StoredTenant,
 };
 use sqlx::{sqlite::SqliteConnectOptions, Connection, SqliteConnection};
 use tempfile::TempDir;
@@ -28,6 +28,16 @@ async fn exercise(backend: Backend, url: &str) {
     };
     db.upsert_tenant(&tenant).await.unwrap();
     assert!(db.tenants().await.unwrap().contains(&tenant));
+    let identity = StoredIdentityBinding {
+        id: "acme-cloud".into(),
+        subject: "oidc:cloud@acme.example".into(),
+        tenant_id: "acme".into(),
+        role: "issuer".into(),
+        enabled: true,
+        revision: 2,
+    };
+    db.upsert_identity_binding(&identity).await.unwrap();
+    assert_eq!(db.identity_bindings().await.unwrap(), vec![identity]);
     assert_eq!(db.upstream().await.unwrap(), None);
     db.seed("https://first.example/v1/chat/completions")
         .await

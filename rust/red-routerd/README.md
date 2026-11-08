@@ -61,7 +61,16 @@ provider; subsequent provider changes do not require those environment secrets.
   the enabled `red` tenant.
 - `PUT /api/admin/tenants/{id}` creates or updates an organization with a stable ID,
   unique operator-facing slug, display name and enabled state. The default `red` tenant
-  cannot be disabled.
+  cannot be disabled. Disabling another tenant atomically removes all of its keys from
+  the live authentication snapshot without deleting their audit metadata.
+- `GET /api/admin/identity-bindings` and `PUT /api/admin/identity-bindings/{id}` map a
+  verified `oidc:` subject to an enabled tenant and one of `admin`, `tenant-admin` or
+  `issuer`. OIDC authentication alone grants no management authority; a durable enabled
+  binding is required. The bootstrap administrator remains the recovery identity.
+- `PUT /api/provision/client-keys/{id}` is the tenant-scoped service integration. It
+  requires an explicit `tenant_id` and caller-generated `api_key`, so a RedDB Cloud retry
+  can safely repeat the same stable key ID and secret without the router retaining plaintext.
+  Tenant issuers cannot take over an existing key from another tenant.
 - `GET /api/admin/client-keys` lists redacted key metadata and grants.
 - `POST /api/admin/client-keys` generates a cryptographically random `rrk_` client key,
   persists only its SHA-256 lookup hash and returns the raw secret once with `Cache-Control:

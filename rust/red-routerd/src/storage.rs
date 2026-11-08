@@ -25,6 +25,9 @@ const CREATE_TENANTS: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_tenan
 const SEED_DEFAULT_TENANT: &str = "INSERT INTO redrouter_control_tenants (id, slug, name, enabled, revision) VALUES ('red','red','Red',1,0) ON CONFLICT (id) DO NOTHING";
 const LIST_TENANTS: &str = "SELECT id, slug, name, enabled, revision FROM redrouter_control_tenants ORDER BY revision DESC, id ASC";
 const UPSERT_TENANT: &str = "INSERT INTO redrouter_control_tenants (id, slug, name, enabled, revision) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (id) DO UPDATE SET slug = $2, name = $3, enabled = $4, revision = $5";
+const CREATE_IDENTITY_BINDINGS: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_identity_bindings (id TEXT PRIMARY KEY, subject TEXT NOT NULL UNIQUE, tenant_id TEXT NOT NULL, binding_role TEXT NOT NULL, enabled BIGINT NOT NULL, revision BIGINT NOT NULL)";
+const LIST_IDENTITY_BINDINGS: &str = "SELECT id, subject, tenant_id, binding_role, enabled, revision FROM redrouter_control_identity_bindings ORDER BY revision DESC, id ASC";
+const UPSERT_IDENTITY_BINDING: &str = "INSERT INTO redrouter_control_identity_bindings (id, subject, tenant_id, binding_role, enabled, revision) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (id) DO UPDATE SET subject = $2, tenant_id = $3, binding_role = $4, enabled = $5, revision = $6";
 const CREATE_CLIENT_KEY_OWNERSHIP: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_client_key_ownership (key_id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, created_by TEXT NOT NULL, revision BIGINT NOT NULL)";
 const LIST_CLIENT_KEY_OWNERSHIP: &str = "SELECT key_id, tenant_id, created_by, revision FROM redrouter_control_client_key_ownership ORDER BY key_id ASC";
 const UPSERT_CLIENT_KEY_OWNERSHIP: &str = "INSERT INTO redrouter_control_client_key_ownership (key_id, tenant_id, created_by, revision) VALUES ($1,$2,$3,$4) ON CONFLICT (key_id) DO UPDATE SET tenant_id = $2, created_by = $3, revision = $4";
@@ -121,6 +124,16 @@ pub struct StoredTenant {
     pub id: String,
     pub slug: String,
     pub name: String,
+    pub enabled: bool,
+    pub revision: i64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StoredIdentityBinding {
+    pub id: String,
+    pub subject: String,
+    pub tenant_id: String,
+    pub role: String,
     pub enabled: bool,
     pub revision: i64,
 }
@@ -298,6 +311,7 @@ impl Database {
                         CREATE_CLIENT_KEYS,
                         CREATE_CLIENT_KEY_PREFERENCES,
                         CREATE_TENANTS,
+                        CREATE_IDENTITY_BINDINGS,
                         CREATE_CLIENT_KEY_OWNERSHIP,
                         CREATE_COMBOS,
                         CREATE_ROUTE_PINS,
@@ -396,6 +410,7 @@ impl Database {
                 db.remote_schema_query(CREATE_CLIENT_KEY_PREFERENCES)
                     .await?;
                 db.remote_schema_query(CREATE_TENANTS).await?;
+                db.remote_schema_query(CREATE_IDENTITY_BINDINGS).await?;
                 db.remote_schema_query(CREATE_CLIENT_KEY_OWNERSHIP).await?;
                 db.remote_schema_query(CREATE_COMBOS).await?;
                 db.remote_schema_query(CREATE_ROUTE_PINS).await?;
@@ -435,6 +450,7 @@ impl Database {
                     CREATE_CLIENT_KEYS,
                     CREATE_CLIENT_KEY_PREFERENCES,
                     CREATE_TENANTS,
+                    CREATE_IDENTITY_BINDINGS,
                     CREATE_CLIENT_KEY_OWNERSHIP,
                     CREATE_COMBOS,
                     CREATE_ROUTE_PINS,
@@ -657,6 +673,72 @@ impl Database {
                 db.query_with(UPSERT_TENANT, tenant_params(tenant, enabled))
                     .await
                     .map_err(|_| "cannot write tenant configuration")?;
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn identity_bindings(&self) -> Result<Vec<StoredIdentityBinding>, &'static str> {
+        match self {
+            Self::Sql(pool) => sqlx::query(LIST_IDENTITY_BINDINGS)
+                .fetch_all(pool)
+                .await
+                .map_err(|_| "cannot read identity binding configuration")?
+                .iter()
+                .map(read_sql_identity_binding)
+                .collect(),
+            Self::Remote(_) => self
+                .remote_query(LIST_IDENTITY_BINDINGS, &[])
+                .await?
+                .rows
+                .iter()
+                .map(read_reddb_identity_binding)
+                .collect(),
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => db
+                .query(LIST_IDENTITY_BINDINGS)
+                .await
+                .map_err(|_| "cannot read identity binding configuration")?
+                .rows
+                .iter()
+                .map(read_reddb_identity_binding)
+                .collect(),
+        }
+    }
+
+    pub async fn upsert_identity_binding(
+        &self,
+        binding: &StoredIdentityBinding,
+    ) -> Result<(), &'static str> {
+        let enabled = if binding.enabled { 1_i64 } else { 0_i64 };
+        match self {
+            Self::Sql(pool) => {
+                sqlx::query(UPSERT_IDENTITY_BINDING)
+                    .bind(&binding.id)
+                    .bind(&binding.subject)
+                    .bind(&binding.tenant_id)
+                    .bind(&binding.role)
+                    .bind(enabled)
+                    .bind(binding.revision)
+                    .execute(pool)
+                    .await
+                    .map_err(|_| "cannot write identity binding configuration")?;
+            }
+            Self::Remote(_) => {
+                self.remote_query(
+                    UPSERT_IDENTITY_BINDING,
+                    &identity_binding_params(binding, enabled),
+                )
+                .await?;
+            }
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => {
+                db.query_with(
+                    UPSERT_IDENTITY_BINDING,
+                    identity_binding_params(binding, enabled),
+                )
+                .await
+                .map_err(|_| "cannot write identity binding configuration")?;
             }
         }
         Ok(())
@@ -2097,6 +2179,73 @@ fn tenant_params(tenant: &StoredTenant, enabled: i64) -> Vec<reddb_client::Value
         reddb_client::Value::Text(tenant.name.clone()),
         reddb_client::Value::Int(enabled),
         reddb_client::Value::Int(tenant.revision),
+    ]
+}
+
+fn read_sql_identity_binding(
+    row: &sqlx::any::AnyRow,
+) -> Result<StoredIdentityBinding, &'static str> {
+    Ok(StoredIdentityBinding {
+        id: row
+            .try_get("id")
+            .map_err(|_| "invalid identity binding record")?,
+        subject: row
+            .try_get("subject")
+            .map_err(|_| "invalid identity binding record")?,
+        tenant_id: row
+            .try_get("tenant_id")
+            .map_err(|_| "invalid identity binding record")?,
+        role: row
+            .try_get("binding_role")
+            .map_err(|_| "invalid identity binding record")?,
+        enabled: row
+            .try_get::<i64, _>("enabled")
+            .map_err(|_| "invalid identity binding record")?
+            == 1,
+        revision: row
+            .try_get("revision")
+            .map_err(|_| "invalid identity binding record")?,
+    })
+}
+
+fn read_reddb_identity_binding(
+    row: &reddb_client::Row,
+) -> Result<StoredIdentityBinding, &'static str> {
+    let text = |name: &str| match row
+        .iter()
+        .find(|(column, _)| column.eq_ignore_ascii_case(name))
+    {
+        Some((_, reddb_client::ValueOut::String(value))) => Ok(value.clone()),
+        _ => Err("invalid identity binding record"),
+    };
+    let integer = |name: &str| match row
+        .iter()
+        .find(|(column, _)| column.eq_ignore_ascii_case(name))
+    {
+        Some((_, reddb_client::ValueOut::Integer(value))) => Ok(*value),
+        _ => Err("invalid identity binding record"),
+    };
+    Ok(StoredIdentityBinding {
+        id: text("id")?,
+        subject: text("subject")?,
+        tenant_id: text("tenant_id")?,
+        role: text("binding_role")?,
+        enabled: integer("enabled")? == 1,
+        revision: integer("revision")?,
+    })
+}
+
+fn identity_binding_params(
+    binding: &StoredIdentityBinding,
+    enabled: i64,
+) -> Vec<reddb_client::Value> {
+    vec![
+        reddb_client::Value::Text(binding.id.clone()),
+        reddb_client::Value::Text(binding.subject.clone()),
+        reddb_client::Value::Text(binding.tenant_id.clone()),
+        reddb_client::Value::Text(binding.role.clone()),
+        reddb_client::Value::Int(enabled),
+        reddb_client::Value::Int(binding.revision),
     ]
 }
 

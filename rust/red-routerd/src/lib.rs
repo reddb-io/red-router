@@ -1620,6 +1620,18 @@ pub fn router(state: ProxyState) -> Router {
         )
         .route("/api/admin/tenants", get(control_plane::list_tenants))
         .route("/api/admin/tenants/{id}", put(control_plane::put_tenant))
+        .route(
+            "/api/admin/identity-bindings",
+            get(control_plane::list_identity_bindings),
+        )
+        .route(
+            "/api/admin/identity-bindings/{id}",
+            put(control_plane::put_identity_binding),
+        )
+        .route(
+            "/api/provision/client-keys/{id}",
+            put(control_plane::provision_client_key),
+        )
         .route("/api/admin/combos", get(control_plane::list_combos))
         .route(
             "/api/admin/model-catalog",

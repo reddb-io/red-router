@@ -5,9 +5,9 @@ use crate::{
     policy::{ClientPolicies, StoredPolicy},
     resilience::RateLimitScope,
     storage::{
-        StoredClientKey, StoredCombo, StoredModelCatalogSnapshot, StoredOidcBrowserConfig,
-        StoredOidcConfig, StoredProvider, StoredProviderQuota, StoredResilience, StoredRoutePin,
-        StoredTenant,
+        StoredClientKey, StoredCombo, StoredIdentityBinding, StoredModelCatalogSnapshot,
+        StoredOidcBrowserConfig, StoredOidcConfig, StoredProvider, StoredProviderQuota,
+        StoredResilience, StoredRoutePin, StoredTenant,
     },
     LiveProvider, ModelRoute, ProviderProtocol, ProxyState, RouteStrategy, TargetQuota,
 };
@@ -27,7 +27,7 @@ use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, HashMap, HashSet},
     sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -224,6 +224,26 @@ pub struct TenantView {
     pub id: String,
     pub slug: String,
     pub name: String,
+    pub enabled: bool,
+    pub revision: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct IdentityBindingInput {
+    pub subject: String,
+    pub tenant_id: String,
+    pub role: String,
+    #[serde(default = "enabled_by_default")]
+    pub enabled: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct IdentityBindingView {
+    pub id: String,
+    pub subject: String,
+    pub tenant_id: String,
+    pub role: String,
     pub enabled: bool,
     pub revision: String,
 }
@@ -1194,6 +1214,23 @@ impl ControlPlane {
                 secure: browser.secure_cookies(),
             });
         }
+        let bindings = self.0.database.identity_bindings().await?;
+        let binding = bindings
+            .iter()
+            .find(|binding| {
+                binding.enabled && binding.subject == subject && binding.role == "admin"
+            })
+            .ok_or("OIDC subject has no dashboard authorization")?;
+        if !self
+            .0
+            .database
+            .tenants()
+            .await?
+            .iter()
+            .any(|tenant| tenant.enabled && tenant.id == binding.tenant_id)
+        {
+            return Err("OIDC subject tenant is unavailable");
+        }
         let csrf = random_token(32)?;
         let session = AdminSession {
             subject,
@@ -1370,7 +1407,7 @@ impl ControlPlane {
         id: &str,
         input: ClientKeyInput,
     ) -> Result<ClientKeyView, &'static str> {
-        self.configure_client_key_as(id, input, "bootstrap-admin")
+        self.configure_client_key_as(id, input, "bootstrap-admin", None)
             .await
     }
 
@@ -1379,6 +1416,7 @@ impl ControlPlane {
         id: &str,
         input: ClientKeyInput,
         actor: &str,
+        enforced_tenant: Option<&str>,
     ) -> Result<ClientKeyView, &'static str> {
         validate_id(id)?;
         validate_label(&input.label)?;
@@ -1397,6 +1435,14 @@ impl ControlPlane {
             .as_deref()
             .or_else(|| existing.as_ref().map(|row| row.tenant_id.as_str()))
             .unwrap_or("red");
+        if enforced_tenant.is_some_and(|required| {
+            required != tenant_id
+                || existing
+                    .as_ref()
+                    .is_some_and(|record| record.tenant_id != required)
+        }) {
+            return Err("client key tenant cannot be changed by this identity");
+        }
         validate_id(tenant_id)?;
         if !self
             .0
@@ -1479,7 +1525,7 @@ impl ControlPlane {
         let id = format!("key_{}", hex::encode(id_bytes.as_ref()));
         let secret = Zeroizing::new(format!("rrk_{}", random_token(32)?));
         let view = self
-            .configure_client_key_as(&id, input.with_secret(secret.to_string()), actor)
+            .configure_client_key_as(&id, input.with_secret(secret.to_string()), actor, None)
             .await?;
         Ok((view, secret))
     }
@@ -1511,7 +1557,50 @@ impl ControlPlane {
             revision: revision()?,
         };
         self.0.database.upsert_tenant(&record).await?;
+        if self.refresh_clients().await.is_err() {
+            *self.0.clients.write().await = ClientSnapshot::Unavailable;
+            return Err("cannot reload client key configuration");
+        }
         Ok(tenant_view(&record))
+    }
+
+    pub async fn configure_identity_binding(
+        &self,
+        id: &str,
+        input: IdentityBindingInput,
+    ) -> Result<IdentityBindingView, &'static str> {
+        validate_id(id)?;
+        validate_bound_subject(&input.subject)?;
+        validate_id(&input.tenant_id)?;
+        validate_identity_role(&input.role)?;
+        let _mutation = self.0.mutation.lock().await;
+        if !self
+            .0
+            .database
+            .tenants()
+            .await?
+            .iter()
+            .any(|tenant| tenant.id == input.tenant_id && tenant.enabled)
+        {
+            return Err("identity tenant is unavailable");
+        }
+        let bindings = self.0.database.identity_bindings().await?;
+        if bindings
+            .iter()
+            .any(|binding| binding.id != id && binding.subject == input.subject)
+        {
+            return Err("identity subject is already bound");
+        }
+        let record = StoredIdentityBinding {
+            id: id.to_owned(),
+            subject: input.subject,
+            tenant_id: input.tenant_id,
+            role: input.role,
+            enabled: input.enabled,
+            revision: revision()?,
+        };
+        self.0.database.upsert_identity_binding(&record).await?;
+        Ok(identity_binding_view(&record))
     }
 
     pub async fn revoke_client_key(&self, id: &str) -> Result<(), &'static str> {
@@ -1564,8 +1653,18 @@ impl ControlPlane {
         let snapshot = if records.is_empty() {
             ClientSnapshot::Legacy
         } else {
+            let enabled_tenants: HashSet<_> = self
+                .0
+                .database
+                .tenants()
+                .await?
+                .into_iter()
+                .filter(|tenant| tenant.enabled)
+                .map(|tenant| tenant.id)
+                .collect();
             let policies = records
                 .iter()
+                .filter(|record| enabled_tenants.contains(&record.tenant_id))
                 .map(stored_policy)
                 .collect::<Result<Vec<_>, _>>()?;
             ClientSnapshot::Current(Arc::new(ClientPolicies::from_stored(policies)))
@@ -1829,6 +1928,17 @@ impl ControlPlane {
             .collect())
     }
 
+    async fn identity_binding_views(&self) -> Result<Vec<IdentityBindingView>, &'static str> {
+        Ok(self
+            .0
+            .database
+            .identity_bindings()
+            .await?
+            .iter()
+            .map(identity_binding_view)
+            .collect())
+    }
+
     async fn combo_views(&self) -> Result<Vec<ComboView>, &'static str> {
         let pins: HashMap<_, _> = self
             .0
@@ -1959,7 +2069,62 @@ impl ControlPlane {
     }
 
     async fn authorized(&self, headers: &HeaderMap) -> bool {
-        self.authorized_actor(headers).await.is_some()
+        self.authorized_admin_actor(headers).await.is_some()
+    }
+
+    async fn authorized_admin_actor(&self, headers: &HeaderMap) -> Option<String> {
+        let actor = self.authorized_actor(headers).await?;
+        if actor == "bootstrap-admin" {
+            return Some(actor);
+        }
+        let bindings = self.0.database.identity_bindings().await.ok()?;
+        let binding = bindings.iter().find(|binding| {
+            binding.enabled && binding.subject == actor && binding.role == "admin"
+        })?;
+        if self
+            .0
+            .database
+            .tenants()
+            .await
+            .ok()?
+            .iter()
+            .any(|tenant| tenant.enabled && tenant.id == binding.tenant_id)
+        {
+            Some(actor)
+        } else {
+            None
+        }
+    }
+
+    async fn authorized_tenant_issuer(
+        &self,
+        headers: &HeaderMap,
+        tenant_id: &str,
+    ) -> Option<String> {
+        let actor = self.authorized_actor(headers).await?;
+        if actor == "bootstrap-admin" {
+            return Some(actor);
+        }
+        let bindings = self.0.database.identity_bindings().await.ok()?;
+        let binding = bindings.iter().find(|binding| {
+            binding.enabled
+                && binding.subject == actor
+                && binding.tenant_id == tenant_id
+                && matches!(binding.role.as_str(), "admin" | "tenant-admin" | "issuer")
+        })?;
+        if self
+            .0
+            .database
+            .tenants()
+            .await
+            .ok()?
+            .iter()
+            .any(|tenant| tenant.enabled && tenant.id == binding.tenant_id)
+        {
+            Some(actor)
+        } else {
+            None
+        }
     }
 
     async fn authorized_actor(&self, headers: &HeaderMap) -> Option<String> {
@@ -1968,14 +2133,11 @@ impl ControlPlane {
             if authorization_count != 1 {
                 return None;
             }
-            let Some(candidate) = headers
+            let candidate = headers
                 .get(header::AUTHORIZATION)
                 .and_then(|value| value.to_str().ok())
                 .and_then(|value| value.strip_prefix("Bearer "))
-                .filter(|value| !value.is_empty() && value.len() <= 16 * 1024)
-            else {
-                return None;
-            };
+                .filter(|value| !value.is_empty() && value.len() <= 16 * 1024)?;
             if (32..=512).contains(&candidate.len()) {
                 let digest: [u8; 32] = Sha256::digest(candidate.as_bytes()).into();
                 if bool::from(self.0.admin_hash.ct_eq(&digest)) {
@@ -1989,12 +2151,8 @@ impl ControlPlane {
             };
         }
 
-        let Some(session_cookie) = unique_cookie(headers, ADMIN_SESSION_COOKIE) else {
-            return None;
-        };
-        let Some(csrf_cookie) = unique_cookie(headers, ADMIN_CSRF_COOKIE) else {
-            return None;
-        };
+        let session_cookie = unique_cookie(headers, ADMIN_SESSION_COOKIE)?;
+        let csrf_cookie = unique_cookie(headers, ADMIN_CSRF_COOKIE)?;
         let origin_count = headers.get_all(header::ORIGIN).iter().count();
         let fetch_site_count = headers.get_all("sec-fetch-site").iter().count();
         if headers.get_all(ADMIN_CSRF_HEADER).iter().count() != 1
@@ -2003,13 +2161,10 @@ impl ControlPlane {
         {
             return None;
         }
-        let Some(csrf_header) = headers
+        let csrf_header = headers
             .get(ADMIN_CSRF_HEADER)
             .and_then(|value| value.to_str().ok())
-            .filter(|value| value.len() <= 256)
-        else {
-            return None;
-        };
+            .filter(|value| value.len() <= 256)?;
         if csrf_cookie.len() != csrf_header.len()
             || !bool::from(csrf_cookie.as_bytes().ct_eq(csrf_header.as_bytes()))
         {
@@ -2142,6 +2297,17 @@ fn tenant_view(record: &StoredTenant) -> TenantView {
         id: record.id.clone(),
         slug: record.slug.clone(),
         name: record.name.clone(),
+        enabled: record.enabled,
+        revision: record.revision.to_string(),
+    }
+}
+
+fn identity_binding_view(record: &StoredIdentityBinding) -> IdentityBindingView {
+    IdentityBindingView {
+        id: record.id.clone(),
+        subject: record.subject.clone(),
+        tenant_id: record.tenant_id.clone(),
+        role: record.role.clone(),
         enabled: record.enabled,
         revision: record.revision.to_string(),
     }
@@ -2379,6 +2545,24 @@ fn validate_tenant_name(value: &str) -> Result<(), &'static str> {
 fn validate_actor(value: &str) -> Result<(), &'static str> {
     if value.is_empty() || value.len() > 512 || value.chars().any(char::is_control) {
         return Err("invalid authenticated actor");
+    }
+    Ok(())
+}
+
+fn validate_bound_subject(value: &str) -> Result<(), &'static str> {
+    if !value.starts_with("oidc:")
+        || value.len() <= "oidc:".len()
+        || value.len() > 512
+        || value.chars().any(char::is_control)
+    {
+        return Err("invalid identity subject");
+    }
+    Ok(())
+}
+
+fn validate_identity_role(value: &str) -> Result<(), &'static str> {
+    if !matches!(value, "admin" | "tenant-admin" | "issuer") {
+        return Err("invalid identity role");
     }
     Ok(())
 }
@@ -3016,6 +3200,25 @@ pub async fn list_tenants(State(state): State<ProxyState>, headers: HeaderMap) -
     }
 }
 
+pub async fn list_identity_bindings(
+    State(state): State<ProxyState>,
+    headers: HeaderMap,
+) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+    };
+    if !control.authorized(&headers).await {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
+    }
+    match control.identity_binding_views().await {
+        Ok(bindings) => Json(serde_json::json!({"identity_bindings":bindings})).into_response(),
+        Err(_) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Identity binding storage unavailable",
+        ),
+    }
+}
+
 pub async fn issue_client_key(
     State(state): State<ProxyState>,
     headers: HeaderMap,
@@ -3024,7 +3227,7 @@ pub async fn issue_client_key(
     let Some(control) = &state.control_plane else {
         return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
     };
-    let Some(actor) = control.authorized_actor(&headers).await else {
+    let Some(actor) = control.authorized_admin_actor(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
     };
     match control.issue_client_key_as(input, &actor).await {
@@ -3386,10 +3589,13 @@ pub async fn put_client_key(
     let Some(control) = &state.control_plane else {
         return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
     };
-    let Some(actor) = control.authorized_actor(&headers).await else {
+    let Some(actor) = control.authorized_admin_actor(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
     };
-    match control.configure_client_key_as(&id, input, &actor).await {
+    match control
+        .configure_client_key_as(&id, input, &actor, None)
+        .await
+    {
         Ok(key) => Json(serde_json::json!({"client_key":key})).into_response(),
         Err(error) if is_runtime_error(error) => api_error(
             StatusCode::SERVICE_UNAVAILABLE,
@@ -3418,6 +3624,62 @@ pub async fn put_tenant(
             "Tenant storage unavailable",
         ),
         Err(_) => api_error(StatusCode::BAD_REQUEST, "Invalid tenant configuration"),
+    }
+}
+
+pub async fn put_identity_binding(
+    State(state): State<ProxyState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Json(input): Json<IdentityBindingInput>,
+) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+    };
+    if !control.authorized(&headers).await {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
+    }
+    match control.configure_identity_binding(&id, input).await {
+        Ok(binding) => Json(serde_json::json!({"identity_binding":binding})).into_response(),
+        Err(error) if is_runtime_error(error) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Identity binding storage unavailable",
+        ),
+        Err(_) => api_error(
+            StatusCode::BAD_REQUEST,
+            "Invalid identity binding configuration",
+        ),
+    }
+}
+
+pub async fn provision_client_key(
+    State(state): State<ProxyState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Json(input): Json<ClientKeyInput>,
+) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+    };
+    if input.api_key.is_none() {
+        return api_error(StatusCode::BAD_REQUEST, "api_key is required");
+    }
+    let Some(tenant_id) = input.tenant_id.clone() else {
+        return api_error(StatusCode::BAD_REQUEST, "tenant_id is required");
+    };
+    let Some(actor) = control.authorized_tenant_issuer(&headers, &tenant_id).await else {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid provisioning identity");
+    };
+    match control
+        .configure_client_key_as(&id, input, &actor, Some(&tenant_id))
+        .await
+    {
+        Ok(key) => Json(serde_json::json!({"client_key":key})).into_response(),
+        Err(error) if is_runtime_error(error) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Client key storage unavailable",
+        ),
+        Err(_) => api_error(StatusCode::BAD_REQUEST, "Invalid client key configuration"),
     }
 }
 
