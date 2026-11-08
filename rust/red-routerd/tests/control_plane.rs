@@ -1165,10 +1165,9 @@ async fn rust_control_plane_enforces_native_token_and_spend_quotas_for_chat_and_
         .await
         .unwrap();
     assert_eq!(ordinary.status(), StatusCode::OK);
-    assert_eq!(
-        ordinary.json::<serde_json::Value>().await.unwrap()["usage"]["prompt_tokens"],
-        3
-    );
+    let ordinary: serde_json::Value =
+        serde_json::from_str(&ordinary.text().await.unwrap()).unwrap();
+    assert_eq!(ordinary["usage"]["prompt_tokens"], 3);
     assert_eq!(
         chat_model(
             &client,
