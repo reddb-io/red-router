@@ -704,6 +704,96 @@ async fn rust_models_lists_only_routable_models_allowed_for_the_client() {
         assert_eq!(version, expected[..16]);
     }
 
+    for path in ["/v1/models/visible-combo", "/api/v1/models/VISIBLE-COMBO"] {
+        let response = client
+            .get(format!("{base}{path}"))
+            .bearer_auth(RUST_CLIENT_KEY)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers()["x-redrouter-catalog-version"]
+                .to_str()
+                .unwrap(),
+            catalog_version.as_deref().unwrap()
+        );
+        let model: serde_json::Value =
+            serde_json::from_str(&response.text().await.unwrap()).unwrap();
+        assert_eq!(model["id"], "visible-combo");
+        assert_eq!(model["context_length"], 128_000);
+    }
+
+    let model_info = client
+        .get(format!("{base}/v1/models/info?id=visible-combo&kind=llm"))
+        .bearer_auth(RUST_CLIENT_KEY)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(model_info.status(), StatusCode::OK);
+    assert_eq!(
+        model_info.headers()["x-redrouter-catalog-version"]
+            .to_str()
+            .unwrap(),
+        catalog_version.as_deref().unwrap()
+    );
+    let model_info: serde_json::Value =
+        serde_json::from_str(&model_info.text().await.unwrap()).unwrap();
+    assert_eq!(model_info["id"], "visible-combo");
+    assert_eq!(model_info["kind"], "llm");
+    assert_eq!(model_info["endpoint"], "/v1/chat/completions");
+    assert_eq!(model_info["contextWindow"], 128_000);
+    assert!(model_info["capabilities"]["tool_calling"].is_boolean());
+
+    for path in [
+        "/v1/models/provider-hidden",
+        "/v1/models/info?id=provider-hidden",
+    ] {
+        assert_eq!(
+            client
+                .get(format!("{base}{path}"))
+                .bearer_auth(RUST_CLIENT_KEY)
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::NOT_FOUND
+        );
+    }
+    assert_eq!(
+        client
+            .get(format!(
+                "{base}/v1/models/info?id=visible-combo&kind=embedding"
+            ))
+            .bearer_auth(RUST_CLIENT_KEY)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        client
+            .get(format!("{base}/v1/models/info?id=visible-combo&extra=true"))
+            .bearer_auth(RUST_CLIENT_KEY)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::BAD_REQUEST
+    );
+    let systemone = client
+        .get(format!("{base}/v1/models/systemone"))
+        .bearer_auth(RUST_CLIENT_KEY)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(systemone.status(), StatusCode::OK);
+    let systemone: serde_json::Value =
+        serde_json::from_str(&systemone.text().await.unwrap()).unwrap();
+    assert_eq!(systemone["object"], "list");
+    assert_eq!(systemone["data"], serde_json::json!([]));
+
     let catalog = client
         .get(format!("{base}/v1/catalog?for=redcode&variants=expand"))
         .header("x-api-key", RUST_CLIENT_KEY)

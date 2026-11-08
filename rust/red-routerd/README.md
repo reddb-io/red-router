@@ -10,6 +10,9 @@ streams, reusable HTTP connections, incremental responses, and safe redirect ref
 Its authenticated `/v1/models` and `/api/v1/models` discovery endpoints list only routes
 permitted for that client key, enrich configured targets from the bundled models.dev snapshot,
 and emit the stable `X-RedRouter-Catalog-Version` cache-invalidation contract.
+`/v1/models/{id}` returns one entry from that same scoped inventory (including provider-prefixed
+IDs), while `/v1/models/info?id=...` projects its endpoint, context limits, modalities and
+capabilities for RedCode without consulting the TypeScript server.
 `/v1/catalog` groups that same scoped inventory for RedCode, while `/v1/capabilities` reports
 only Rust-implemented routing behavior. Successful provider responses include
 `X-RedRouter-Served-Model` for the concrete target selected after fallback.

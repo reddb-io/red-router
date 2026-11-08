@@ -1653,6 +1653,10 @@ pub fn router(state: ProxyState) -> Router {
         )
         .route("/api/v1/models", get(models))
         .route("/v1/models", get(models))
+        .route("/api/v1/models/info", get(model_info))
+        .route("/v1/models/info", get(model_info))
+        .route("/api/v1/models/{*model}", get(model_by_id))
+        .route("/v1/models/{*model}", get(model_by_id))
         .route("/api/v1/catalog", get(catalog_discovery))
         .route("/v1/catalog", get(catalog_discovery))
         .route("/api/v1/capabilities", get(capabilities_discovery))
@@ -1695,6 +1699,11 @@ fn model_list_response(data: Vec<ListedModel>) -> Response {
         data,
     })
     .into_response();
+    attach_model_catalog_headers(&mut response, catalog_version.as_deref());
+    response
+}
+
+fn attach_model_catalog_headers(response: &mut Response, catalog_version: Option<&str>) {
     response.headers_mut().insert(
         header::CACHE_CONTROL,
         HeaderValue::from_static("private, no-store"),
@@ -1702,12 +1711,11 @@ fn model_list_response(data: Vec<ListedModel>) -> Response {
     response
         .headers_mut()
         .insert(header::VARY, HeaderValue::from_static("authorization"));
-    if let Some(version) = catalog_version.and_then(|value| HeaderValue::from_str(&value).ok()) {
+    if let Some(version) = catalog_version.and_then(|value| HeaderValue::from_str(value).ok()) {
         response
             .headers_mut()
             .insert(RED_ROUTER_CATALOG_VERSION, version);
     }
-    response
 }
 
 fn model_catalog_version(data: &[ListedModel]) -> Option<String> {
@@ -2129,6 +2137,189 @@ async fn models(State(state): State<ProxyState>, headers: HeaderMap) -> Response
         Ok(models) => model_list_response(models),
         Err(response) => *response,
     }
+}
+
+fn valid_model_identifier(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 1_024
+        && !value.bytes().any(|byte| byte < b' ' || byte == 0x7f)
+}
+
+fn model_not_found(requested: &str) -> Response {
+    (
+        StatusCode::NOT_FOUND,
+        Json(serde_json::json!({
+            "error": {
+                "message": format!("The model '{requested}' does not exist"),
+                "type": "invalid_request_error",
+                "code": "model_not_found"
+            }
+        })),
+    )
+        .into_response()
+}
+
+fn find_listed_model<'a>(models: &'a [ListedModel], requested: &str) -> Option<&'a ListedModel> {
+    models
+        .iter()
+        .find(|model| model.id == requested)
+        .or_else(|| {
+            models
+                .iter()
+                .find(|model| model.id.eq_ignore_ascii_case(requested))
+        })
+}
+
+async fn model_by_id(
+    State(state): State<ProxyState>,
+    Path(requested): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    let models = match authorized_models(&state, &headers).await {
+        Ok(models) => models,
+        Err(response) => return *response,
+    };
+    let requested = requested.strip_prefix('/').unwrap_or(&requested);
+    if !valid_model_identifier(requested) {
+        let mut response = error(StatusCode::BAD_REQUEST, "Invalid model identifier");
+        let catalog_version = model_catalog_version(&models);
+        attach_model_catalog_headers(&mut response, catalog_version.as_deref());
+        return response;
+    }
+    let catalog_version = model_catalog_version(&models);
+    if matches!(requested, "systemone" | "decisions") {
+        let mut response = Json(serde_json::json!({
+            "object":"list",
+            "id_format":"prefixed",
+            "data":models.iter().filter(|model| model.r#type == "systemone").collect::<Vec<_>>()
+        }))
+        .into_response();
+        attach_model_catalog_headers(&mut response, catalog_version.as_deref());
+        return response;
+    }
+    let mut response = match find_listed_model(&models, requested) {
+        Some(model) => Json(model).into_response(),
+        None => model_not_found(requested),
+    };
+    attach_model_catalog_headers(&mut response, catalog_version.as_deref());
+    response
+}
+
+fn parse_model_info_query(uri: &Uri) -> Option<(String, Option<String>)> {
+    let mut id = None;
+    let mut kind = None;
+    for (name, value) in url::form_urlencoded::parse(uri.query().unwrap_or_default().as_bytes()) {
+        match name.as_ref() {
+            "id" if id.is_none() && valid_model_identifier(&value) => id = Some(value.into_owned()),
+            "kind"
+                if kind.is_none()
+                    && matches!(
+                        value.as_ref(),
+                        "llm"
+                            | "image"
+                            | "imageToText"
+                            | "tts"
+                            | "stt"
+                            | "embedding"
+                            | "rerank"
+                            | "moderation"
+                            | "video"
+                            | "music"
+                            | "systemone"
+                            | "webSearch"
+                            | "webFetch"
+                    ) =>
+            {
+                kind = Some(value.into_owned())
+            }
+            _ => return None,
+        }
+    }
+    id.map(|id| (id, kind))
+}
+
+fn model_info_kind(model: &ListedModel) -> &'static str {
+    match model.r#type {
+        "chat" => "llm",
+        value => value,
+    }
+}
+
+fn model_endpoint(kind: &str) -> Option<&'static str> {
+    match kind {
+        "llm" | "imageToText" => Some("/v1/chat/completions"),
+        "image" => Some("/v1/images/generations"),
+        "tts" => Some("/v1/audio/speech"),
+        "stt" => Some("/v1/audio/transcriptions"),
+        "embedding" => Some("/v1/embeddings"),
+        "rerank" => Some("/v1/rerank"),
+        "moderation" => Some("/v1/moderations"),
+        "video" => Some("/v1/videos/generations"),
+        "music" => Some("/v1/music/generations"),
+        "systemone" => Some("/v1/systemone"),
+        "webSearch" => Some("/v1/search"),
+        "webFetch" => Some("/v1/web/fetch"),
+        _ => None,
+    }
+}
+
+fn listed_model_info(model: &ListedModel) -> serde_json::Value {
+    let kind = model_info_kind(model);
+    let mut info = serde_json::json!({
+        "id":model.id,
+        "name":model.id,
+        "kind":kind,
+        "owned_by":model.owned_by,
+        "endpoint":model_endpoint(kind)
+    });
+    let object = info
+        .as_object_mut()
+        .expect("model info is constructed as an object");
+    if let Some(value) = model.context_length {
+        object.insert("contextWindow".to_owned(), value.into());
+    }
+    if let Some(value) = model.max_input_tokens {
+        object.insert("max_input_tokens".to_owned(), value.into());
+    }
+    if let Some(value) = model.max_output_tokens {
+        object.insert("max_output_tokens".to_owned(), value.into());
+    }
+    for (name, value) in [
+        ("input_modalities", model.input_modalities.as_ref()),
+        ("output_modalities", model.output_modalities.as_ref()),
+    ] {
+        if let Some(value) = value {
+            object.insert(name.to_owned(), serde_json::json!(value));
+        }
+    }
+    if let Some(value) = &model.capabilities {
+        object.insert("capabilities".to_owned(), serde_json::json!(value));
+    }
+    info
+}
+
+async fn model_info(State(state): State<ProxyState>, uri: Uri, headers: HeaderMap) -> Response {
+    let models = match authorized_models(&state, &headers).await {
+        Ok(models) => models,
+        Err(response) => return *response,
+    };
+    let catalog_version = model_catalog_version(&models);
+    let Some((requested, requested_kind)) = parse_model_info_query(&uri) else {
+        let mut response = error(StatusCode::BAD_REQUEST, "Invalid model info query");
+        attach_model_catalog_headers(&mut response, catalog_version.as_deref());
+        return response;
+    };
+    let selected = find_listed_model(&models, &requested).filter(|model| {
+        requested_kind
+            .as_deref()
+            .is_none_or(|kind| kind == model_info_kind(model))
+    });
+    let mut response = match selected {
+        Some(model) => Json(listed_model_info(model)).into_response(),
+        None => model_not_found(&requested),
+    };
+    attach_model_catalog_headers(&mut response, catalog_version.as_deref());
+    response
 }
 
 async fn catalog_discovery(

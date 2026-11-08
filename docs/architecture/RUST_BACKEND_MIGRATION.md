@@ -174,6 +174,11 @@ catalog version. Capabilities advertise only implemented Rust strategies; System
 as unavailable rather than being falsely promised. Successful inference responses identify the
 actual provider/model selected after fallback through `X-RedRouter-Served-Model`; errors never
 carry that header.
+OpenAI-compatible single-model discovery at `/v1/models/{id}` and the RedCode metadata projection
+at `/v1/models/info?id=...` use that same authenticated, key-scoped inventory. They therefore
+cannot reveal a configured route hidden by endpoint, model or provider grants. Model info exposes
+the implemented endpoint plus models.dev-derived context, modality and capability metadata; the
+`systemone` and `decisions` kind lists remain empty while the Rust evaluator is unavailable.
 Refreshing and atomically publishing a newer catalog snapshot from Rust remains separate
 migration work.
 Quota observations live in `redrouter_provider_quotas` with an explicit TTL. Admin
