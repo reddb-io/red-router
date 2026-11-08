@@ -6,7 +6,7 @@ use jsonwebtoken::{
     jwk::{AlgorithmParameters, Jwk, JwkSet, KeyOperations, PublicKeyUse},
     Algorithm, DecodingKey, Validation,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{collections::BTreeMap, net::IpAddr, time::Duration};
 use subtle::ConstantTimeEq;
@@ -17,6 +17,7 @@ const MAX_TOKEN_BYTES: usize = 16 * 1024;
 const JWKS_TTL: Duration = Duration::from_secs(300);
 const JWKS_REFRESH_COOLDOWN: Duration = Duration::from_secs(30);
 const MAX_TOKEN_RESPONSE_BYTES: usize = 1024 * 1024;
+const MAX_DISCOVERY_BYTES: usize = 256 * 1024;
 
 #[derive(Clone, Debug)]
 pub(crate) struct OidcPolicy {
@@ -54,6 +55,77 @@ pub(crate) struct OidcBrowserConfig {
 #[derive(Deserialize)]
 struct TokenResponse {
     id_token: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct DiscoveryDocument {
+    issuer: String,
+    authorization_endpoint: String,
+    token_endpoint: String,
+    jwks_uri: String,
+    #[serde(default)]
+    scopes_supported: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub(crate) struct OidcDiscovery {
+    pub(crate) issuer: String,
+    pub(crate) authorization_endpoint: String,
+    pub(crate) token_endpoint: String,
+    pub(crate) jwks_uri: String,
+    pub(crate) scopes_supported: Vec<String>,
+}
+
+pub(crate) async fn discover(
+    issuer: &str,
+    allow_private: bool,
+) -> Result<OidcDiscovery, &'static str> {
+    let issuer_url = validate_issuer(issuer)?;
+    let discovery_url = reqwest::Url::parse(&format!(
+        "{}/.well-known/openid-configuration",
+        issuer_url.as_str().trim_end_matches('/')
+    ))
+    .map_err(|_| "invalid OIDC issuer")?;
+    let client = pinned_client(&discovery_url, allow_private).await?;
+    let response = tokio::time::timeout(
+        Duration::from_secs(5),
+        client
+            .get(discovery_url)
+            .header("accept", "application/json")
+            .send(),
+    )
+    .await
+    .map_err(|_| "OIDC discovery request timed out")?
+    .map_err(|_| "OIDC discovery request failed")?;
+    if !response.status().is_success()
+        || response
+            .content_length()
+            .is_some_and(|length| length > MAX_DISCOVERY_BYTES as u64)
+    {
+        return Err("OIDC discovery response is unavailable");
+    }
+    let bytes = bounded_body(response, MAX_DISCOVERY_BYTES, "OIDC discovery response").await?;
+    let document: DiscoveryDocument =
+        serde_json::from_slice(&bytes).map_err(|_| "OIDC discovery response is invalid")?;
+    let discovered_issuer = validate_issuer(&document.issuer)?;
+    if issuer_url.as_str().trim_end_matches('/') != discovered_issuer.as_str().trim_end_matches('/')
+    {
+        return Err("OIDC discovery issuer does not match");
+    }
+    let authorization_endpoint = validate_endpoint(&document.authorization_endpoint)?;
+    let token_endpoint = validate_endpoint(&document.token_endpoint)?;
+    let jwks_uri = validate_endpoint(&document.jwks_uri)?;
+    if authorization_endpoint.query().is_some() || token_endpoint.query().is_some() {
+        return Err("OIDC discovery response is invalid");
+    }
+    validate_discovered_scopes(&document.scopes_supported)?;
+    Ok(OidcDiscovery {
+        issuer: document.issuer,
+        authorization_endpoint: authorization_endpoint.to_string(),
+        token_endpoint: token_endpoint.to_string(),
+        jwks_uri: jwks_uri.to_string(),
+        scopes_supported: document.scopes_supported,
+    })
 }
 
 impl OidcBrowserConfig {
@@ -370,29 +442,34 @@ async fn bounded_body(
         let mut body = Vec::new();
         let mut stream = response.bytes_stream();
         while let Some(chunk) = stream.next().await {
-            let chunk = chunk.map_err(|_| match label {
-                "OIDC JWKS response" => "OIDC JWKS response is invalid",
-                _ => "OIDC token response is invalid",
-            })?;
+            let chunk = chunk.map_err(|_| body_error(label, "invalid"))?;
             if body
                 .len()
                 .checked_add(chunk.len())
                 .is_none_or(|length| length > limit)
             {
-                return Err(match label {
-                    "OIDC JWKS response" => "OIDC JWKS response is too large",
-                    _ => "OIDC token response is too large",
-                });
+                return Err(body_error(label, "large"));
             }
             body.extend_from_slice(&chunk);
         }
         Ok::<_, &'static str>(body)
     })
     .await
-    .map_err(|_| match label {
-        "OIDC JWKS response" => "OIDC JWKS response timed out",
-        _ => "OIDC token response timed out",
-    })?
+    .map_err(|_| body_error(label, "timeout"))?
+}
+
+fn body_error(label: &'static str, kind: &'static str) -> &'static str {
+    match (label, kind) {
+        ("OIDC JWKS response", "invalid") => "OIDC JWKS response is invalid",
+        ("OIDC JWKS response", "large") => "OIDC JWKS response is too large",
+        ("OIDC JWKS response", "timeout") => "OIDC JWKS response timed out",
+        ("OIDC discovery response", "invalid") => "OIDC discovery response is invalid",
+        ("OIDC discovery response", "large") => "OIDC discovery response is too large",
+        ("OIDC discovery response", "timeout") => "OIDC discovery response timed out",
+        (_, "large") => "OIDC token response is too large",
+        (_, "timeout") => "OIDC token response timed out",
+        _ => "OIDC token response is invalid",
+    }
 }
 
 fn usable_verification_key(key: &Jwk) -> bool {
@@ -520,18 +597,23 @@ fn algorithm_name(algorithm: Algorithm) -> &'static str {
     }
 }
 
-fn validate_issuer(raw: &str) -> Result<(), &'static str> {
+fn validate_issuer(raw: &str) -> Result<reqwest::Url, &'static str> {
     let issuer = reqwest::Url::parse(raw).map_err(|_| "invalid OIDC issuer")?;
-    if issuer.scheme() != "https"
+    let literal_loopback = issuer.host().is_some_and(|host| match host {
+        url::Host::Ipv4(ip) => ip.is_loopback(),
+        url::Host::Ipv6(ip) => ip.is_loopback(),
+        _ => false,
+    });
+    if !(issuer.scheme() == "https" || (issuer.scheme() == "http" && literal_loopback))
         || issuer.host_str().is_none()
         || !issuer.username().is_empty()
         || issuer.password().is_some()
         || issuer.query().is_some()
         || issuer.fragment().is_some()
     {
-        return Err("OIDC issuer must be a credential-free HTTPS URL");
+        return Err("OIDC issuer must be credential-free HTTPS or literal loopback HTTP");
     }
-    Ok(())
+    Ok(issuer)
 }
 
 fn validate_public_origin(raw: &str) -> Result<reqwest::Url, &'static str> {
@@ -571,6 +653,26 @@ pub(crate) fn validate_scopes(scopes: &[String]) -> Result<(), &'static str> {
         })
     {
         return Err("invalid OIDC browser scopes");
+    }
+    Ok(())
+}
+
+fn validate_discovered_scopes(scopes: &[String]) -> Result<(), &'static str> {
+    if scopes.is_empty() {
+        return Ok(());
+    }
+    let mut unique = std::collections::BTreeSet::new();
+    if scopes.len() > 128
+        || !scopes.iter().any(|scope| scope == "openid")
+        || scopes.iter().any(|scope| {
+            scope.is_empty()
+                || scope.len() > 100
+                || scope.trim() != scope
+                || scope.chars().any(char::is_whitespace)
+                || !unique.insert(scope)
+        })
+    {
+        return Err("OIDC discovery response is invalid");
     }
     Ok(())
 }

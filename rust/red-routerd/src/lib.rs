@@ -1389,6 +1389,7 @@ pub fn router(state: ProxyState) -> Router {
     Router::new()
         .route("/healthz", get(|| async { StatusCode::OK }))
         .route("/readyz", get(ready))
+        .route("/api/auth/config", get(control_plane::auth_config))
         .route("/api/auth/oidc/login", get(control_plane::oidc_login))
         .route("/api/auth/oidc/callback", get(control_plane::oidc_callback))
         .route("/api/auth/logout", post(control_plane::oidc_logout))
@@ -1398,6 +1399,10 @@ pub fn router(state: ProxyState) -> Router {
             get(control_plane::get_oidc)
                 .put(control_plane::put_oidc)
                 .delete(control_plane::delete_oidc),
+        )
+        .route(
+            "/api/admin/oidc/discover",
+            post(control_plane::discover_oidc),
         )
         .route(
             "/api/admin/providers/{id}",

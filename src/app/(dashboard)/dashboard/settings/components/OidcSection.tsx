@@ -10,6 +10,7 @@ import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Button, Card, Input, Toggle } from "@/shared/components";
 import { oidcRequiredClaimsSchema } from "@/shared/validation/oidcPolicy";
+import { readRustAuthConfig, rustAdminFetch } from "@/lib/rustControlPlane/browserClient";
 
 interface Check {
   name: string;
@@ -38,6 +39,7 @@ export default function OidcSection() {
   const testResult = params.get("oidc_test");
 
   const [loaded, setLoaded] = useState(false);
+  const [rustBackend, setRustBackend] = useState(false);
   const [hasPassword, setHasPassword] = useState(false);
   const [enabled, setEnabled] = useState(false);
   const [disablePassword, setDisablePassword] = useState(false);
@@ -45,6 +47,12 @@ export default function OidcSection() {
   const [clientId, setClientId] = useState("");
   const [clientSecret, setClientSecret] = useState("");
   const [secretSaved, setSecretSaved] = useState(false);
+  const [audience, setAudience] = useState("");
+  const [jwksUri, setJwksUri] = useState("");
+  const [publicOrigin, setPublicOrigin] = useState("");
+  const [authorizationEndpoint, setAuthorizationEndpoint] = useState("");
+  const [tokenEndpoint, setTokenEndpoint] = useState("");
+  const [scopes, setScopes] = useState("openid\nprofile\nemail");
   const [subjects, setSubjects] = useState("");
   const [requiredClaims, setRequiredClaims] = useState("{}");
   const [claimsError, setClaimsError] = useState<string | null>(null);
@@ -56,6 +64,42 @@ export default function OidcSection() {
 
   const load = async () => {
     try {
+      const rust = await readRustAuthConfig().catch(() => null);
+      if (rust?.backend === "rust") {
+        setRustBackend(true);
+        setHasPassword(false);
+        const response = await rustAdminFetch("/api/admin/oidc");
+        const data = await response.json().catch(() => null);
+        if (!response.ok) throw new Error("Rust OIDC settings are unavailable");
+        const oidc = data?.oidc;
+        const browser = oidc?.browser;
+        setEnabled(oidc?.enabled === true);
+        setIssuer(typeof oidc?.issuer === "string" ? oidc.issuer : "");
+        setAudience(typeof oidc?.audience === "string" ? oidc.audience : "");
+        setJwksUri(typeof oidc?.jwks_uri === "string" ? oidc.jwks_uri : "");
+        setClientId(typeof browser?.client_id === "string" ? browser.client_id : "");
+        setSecretSaved(browser?.has_client_secret === true);
+        setPublicOrigin(
+          typeof browser?.public_origin === "string" ? browser.public_origin : window.location.origin
+        );
+        setAuthorizationEndpoint(
+          typeof browser?.authorization_endpoint === "string"
+            ? browser.authorization_endpoint
+            : ""
+        );
+        setTokenEndpoint(
+          typeof browser?.token_endpoint === "string" ? browser.token_endpoint : ""
+        );
+        setScopes(
+          Array.isArray(browser?.scopes) && browser.scopes.length > 0
+            ? browser.scopes.join("\n")
+            : "openid\nprofile\nemail"
+        );
+        setSubjects(Array.isArray(oidc?.allowed_subjects) ? oidc.allowed_subjects.join("\n") : "");
+        setRequiredClaims(JSON.stringify(oidc?.required_claims ?? {}, null, 2));
+        setTested(testResult === "ok");
+        return;
+      }
       const data = await (await fetch("/api/settings")).json();
       setHasPassword(Boolean(data.hasPassword));
       setEnabled(data.oidcEnabled === true);
@@ -66,6 +110,8 @@ export default function OidcSection() {
       setSubjects(Array.isArray(data.oidcAllowedSubjects) ? data.oidcAllowedSubjects.join("\n") : "");
       setRequiredClaims(JSON.stringify(data.oidcRequiredClaims ?? {}, null, 2));
       setTested(typeof data.oidcLastTestSucceededAt === "string");
+    } catch {
+      setStatus({ ok: false, message: "Could not load the OIDC settings." });
     } finally {
       setLoaded(true);
     }
@@ -97,7 +143,7 @@ export default function OidcSection() {
     }
   };
 
-  const save = () => {
+  const save = async () => {
     let value: unknown;
     try {
       value = JSON.parse(requiredClaims);
@@ -111,6 +157,58 @@ export default function OidcSection() {
       return;
     }
     setClaimsError(null);
+    if (rustBackend) {
+      setBusy(true);
+      setStatus(null);
+      try {
+        const scopeValues = scopes
+          .split(/\s+/)
+          .map((scope) => scope.trim())
+          .filter(Boolean);
+        const response = await rustAdminFetch("/api/admin/oidc", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            enabled,
+            issuer: issuer.trim(),
+            audience: audience.trim() || clientId.trim(),
+            jwks_uri: jwksUri.trim(),
+            required_claims: parsed.data,
+            allowed_subjects: subjects
+              .split("\n")
+              .map((line) => line.trim())
+              .filter(Boolean),
+            browser: {
+              public_origin: publicOrigin.trim(),
+              client_id: clientId.trim(),
+              ...(clientSecret ? { client_secret: clientSecret } : {}),
+              authorization_endpoint: authorizationEndpoint.trim(),
+              token_endpoint: tokenEndpoint.trim(),
+              scopes: scopeValues,
+            },
+          }),
+        });
+        const data = await response.json().catch(() => null);
+        if (!response.ok) {
+          setStatus({
+            ok: false,
+            message: data?.error?.message || "Could not save the Rust OIDC settings.",
+          });
+        } else {
+          setClientSecret("");
+          setSecretSaved(data?.oidc?.browser?.has_client_secret === true);
+          setStatus({
+            ok: true,
+            message: "Saved in Rust. Sign in again to activate the new policy revision.",
+          });
+        }
+      } catch {
+        setStatus({ ok: false, message: "Could not save the Rust OIDC settings." });
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
     return patch(
       {
         oidcIssuer: issuer.trim(),
@@ -131,9 +229,40 @@ export default function OidcSection() {
     setBusy(true);
     setChecks(null);
     try {
+      if (rustBackend) {
+        const response = await rustAdminFetch("/api/admin/oidc/discover", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ issuer: issuer.trim() }),
+        });
+        const data = await response.json().catch(() => null);
+        if (!response.ok || !data?.discovery) {
+          setChecks([{ name: "discovery", ok: false, detail: "Discovery failed." }]);
+          return;
+        }
+        const discovery = data.discovery;
+        setIssuer(discovery.issuer);
+        setJwksUri(discovery.jwks_uri);
+        setAuthorizationEndpoint(discovery.authorization_endpoint);
+        setTokenEndpoint(discovery.token_endpoint);
+        const supported = Array.isArray(discovery.scopes_supported)
+          ? discovery.scopes_supported
+          : [];
+        const recommended = ["openid", "profile", "email"].filter(
+          (scope) => supported.length === 0 || supported.includes(scope)
+        );
+        setScopes(recommended.join("\n"));
+        setChecks([
+          { name: "discovery", ok: true, detail: "Issuer metadata loaded by Rust." },
+          { name: "endpoints", ok: true, detail: "Authorization, token and JWKS endpoints are valid." },
+        ]);
+        return;
+      }
       const response = await fetch("/api/auth/oidc/test", { method: "POST" });
       const data = await response.json().catch(() => null);
       setChecks(Array.isArray(data?.checks) ? data.checks : []);
+    } catch {
+      setChecks([{ name: "connection", ok: false, detail: "Connection check failed." }]);
     } finally {
       setBusy(false);
     }
@@ -150,8 +279,9 @@ export default function OidcSection() {
         <div>
           <p className="font-medium">Single sign-on (OIDC)</p>
           <p className="text-sm text-text-muted">
-            Sign in to the dashboard with your identity provider. Password login stays available
-            until you turn it off.
+            {rustBackend
+              ? "Rust owns discovery, credentials, PKCE sessions and access policy for the static dashboard."
+              : "Sign in to the dashboard with your identity provider. Password login stays available until you turn it off."}
           </p>
         </div>
       </div>
@@ -173,6 +303,24 @@ export default function OidcSection() {
           onChange={(event) => setIssuer(event.target.value)}
           disabled={!loaded}
         />
+        {rustBackend && (
+          <>
+            <Input
+              label="Token audience"
+              value={audience}
+              onChange={(event) => setAudience(event.target.value)}
+              hint="Defaults to the browser client ID when left empty."
+              disabled={!loaded}
+            />
+            <Input
+              label="Public dashboard origin"
+              value={publicOrigin}
+              onChange={(event) => setPublicOrigin(event.target.value)}
+              placeholder="https://router.example.com"
+              disabled={!loaded}
+            />
+          </>
+        )}
         <Input
           label="Client ID"
           value={clientId}
@@ -187,6 +335,41 @@ export default function OidcSection() {
           onChange={(event) => setClientSecret(event.target.value)}
           disabled={!loaded}
         />
+        {rustBackend && (
+          <>
+            <Input
+              label="Authorization endpoint"
+              value={authorizationEndpoint}
+              onChange={(event) => setAuthorizationEndpoint(event.target.value)}
+              disabled={!loaded}
+            />
+            <Input
+              label="Token endpoint"
+              value={tokenEndpoint}
+              onChange={(event) => setTokenEndpoint(event.target.value)}
+              disabled={!loaded}
+            />
+            <Input
+              label="JWKS endpoint"
+              value={jwksUri}
+              onChange={(event) => setJwksUri(event.target.value)}
+              disabled={!loaded}
+            />
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="oidc-scopes" className="text-sm font-medium text-text-main">
+                Browser scopes
+              </label>
+              <textarea
+                id="oidc-scopes"
+                rows={3}
+                value={scopes}
+                onChange={(event) => setScopes(event.target.value)}
+                disabled={!loaded}
+                className="rounded border border-control-edge bg-surface px-3 py-2 text-sm text-text-main"
+              />
+            </div>
+          </>
+        )}
         <div className="flex flex-col gap-1.5">
           <label htmlFor="oidc-allowed" className="text-sm font-medium text-text-main">
             Who may sign in
@@ -243,17 +426,19 @@ export default function OidcSection() {
             Save
           </Button>
           <Button size="sm" variant="secondary" onClick={checkConnection} disabled={!loaded || busy}>
-            Check connection
+            {rustBackend ? "Discover endpoints" : "Check connection"}
           </Button>
           <Button
             size="sm"
             variant="secondary"
             disabled={!loaded || busy || !enabled}
             onClick={() => {
-              window.location.href = "/api/auth/oidc/login?test=1";
+              window.location.href = rustBackend
+                ? "/api/auth/oidc/login"
+                : "/api/auth/oidc/login?test=1";
             }}
           >
-            Test sign-in
+            {rustBackend ? "Sign in with saved configuration" : "Test sign-in"}
           </Button>
         </div>
         {status && (
@@ -277,26 +462,28 @@ export default function OidcSection() {
           </ul>
         )}
 
-        <div className="mt-2 flex items-center justify-between border-t border-elevation-sunken-border pt-3">
-          <div>
-            <p className="font-medium">Turn password login off</p>
-            <p className="text-sm text-text-muted">
-              {tested
-                ? "Only OIDC can sign in. If you get locked out, run `red-router reset-password --disable-sso` on this machine."
-                : "Available after a successful test sign-in."}
-            </p>
+        {!rustBackend && (
+          <div className="mt-2 flex items-center justify-between border-t border-elevation-sunken-border pt-3">
+            <div>
+              <p className="font-medium">Turn password login off</p>
+              <p className="text-sm text-text-muted">
+                {tested
+                  ? "Only OIDC can sign in. If you get locked out, run `red-router reset-password --disable-sso` on this machine."
+                  : "Available after a successful test sign-in."}
+              </p>
+            </div>
+            <Toggle
+              checked={disablePassword}
+              onChange={() =>
+                patch(
+                  { oidcDisablePasswordLogin: !disablePassword },
+                  !disablePassword ? "Password login is off." : "Password login is on."
+                )
+              }
+              disabled={!loaded || busy || (!tested && !disablePassword)}
+            />
           </div>
-          <Toggle
-            checked={disablePassword}
-            onChange={() =>
-              patch(
-                { oidcDisablePasswordLogin: !disablePassword },
-                !disablePassword ? "Password login is off." : "Password login is on."
-              )
-            }
-            disabled={!loaded || busy || (!tested && !disablePassword)}
-          />
-        </div>
+        )}
       </div>
     </Card>
   );

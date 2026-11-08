@@ -115,6 +115,11 @@ encrypted before it is stored and is never returned by the API. Omitting `client
 update preserves the existing encrypted value; `clear_browser: true` removes browser login while
 retaining the signed-bearer policy.
 
+The static dashboard first reads the non-secret `GET /api/auth/config` bootstrap. An authenticated
+operator can call `POST /api/admin/oidc/discover` with `{ "issuer": "..." }`; Rust fetches the
+standard discovery document with a bounded body, timeout, redirect refusal, DNS pinning and issuer
+equality check, then returns only the validated authorization, token and JWKS endpoints and scopes.
+
 ```json
 {
   "enabled": true,
@@ -146,8 +151,10 @@ nonce, required claims, and subject before creating a 12-hour encrypted session.
 revision change invalidates all earlier Rust sessions.
 
 The Rust session uses `redrouter_admin_session` (HttpOnly) and `redrouter_admin_csrf`. SPA calls to
-`/api/admin/*` must send the CSRF value in `x-red-router-csrf` and carry an `Origin` exactly matching
-`public_origin`; this applies to reads as well as writes so one fetch wrapper can enforce the rule.
+`/api/admin/*` must send the CSRF value in `x-red-router-csrf`. Requests with `Origin` must match
+`public_origin` exactly. Same-origin browser reads, for which JavaScript cannot set `Origin` and the
+browser may omit it, must carry `Sec-Fetch-Site: same-origin`; missing or cross-site fetch metadata
+is rejected. This applies to reads as well as writes through the shared SPA fetch wrapper.
 `POST /api/auth/logout` expires both cookies. SQLite is the current default, and the same browser
 configuration record is implemented by the selected RedDB or PostgreSQL authority.
 

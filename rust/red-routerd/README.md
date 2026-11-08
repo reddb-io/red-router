@@ -86,6 +86,9 @@ provider; subsequent provider changes do not require those environment secrets.
   policy. `PUT` validates, fetches and verifies its JWKS before durably replacing
   the live policy; `DELETE` removes it. The payload contains `enabled`, `issuer`,
   `audience`, `jwks_uri`, `required_claims` and `allowed_subjects`.
+- `GET /api/auth/config` is a cache-disabled, non-secret bootstrap for the static
+  dashboard. `POST /api/admin/oidc/discover` performs authenticated, bounded and
+  DNS-pinned standard issuer discovery and returns validated endpoints and scopes.
 
 All management endpoints accept `Authorization: Bearer <RED_ROUTER_ADMIN_KEY>`.
 After a valid enabled OIDC policy has been committed, they also accept an
@@ -96,9 +99,11 @@ bootstrap and recovery credential, including after OIDC is deleted or unavailabl
 The verifier accepts only RS256/384/512, PS256/384/512, ES256/384 and EdDSA, pins
 validated DNS results, refuses redirects and system proxies, bounds token/JWKS sizes,
 caches keys and throttles unknown-key refreshes. JWKS endpoints must use HTTPS except
-for literal-loopback test servers. This slice authenticates already-issued bearer
-tokens; browser authorization-code login, discovery, PKCE, nonce/state, dashboard
-sessions and logout are still pending in the SPA migration.
+for literal-loopback development servers. Browser login uses Authorization Code + PKCE
+S256, encrypted state/nonce/verifier data, verified ID tokens, encrypted 12-hour sessions,
+double-submit CSRF, same-origin Fetch Metadata/Origin validation and explicit logout.
+The dashboard login/settings code can consume this Rust boundary; serving the complete
+static asset bundle without Next.js remains migration work.
 Provider credentials are encrypted with a random salt and nonce, authenticated against their
 provider ID, and never returned by the API. The durable database is updated before an
 atomically replaced, DNS-pinned runtime target becomes visible. Invalid storage or

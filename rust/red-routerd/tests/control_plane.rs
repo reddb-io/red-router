@@ -146,6 +146,50 @@ async fn oidc_token_server(
     (format!("http://{address}"), task)
 }
 
+async fn oidc_discovery_server() -> (String, tokio::task::JoinHandle<()>) {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let issuer = format!("http://{address}");
+    let document_issuer = issuer.clone();
+    let endpoint_base = issuer.clone();
+    let mismatch_base = issuer.clone();
+    let app = Router::new()
+        .route(
+            "/.well-known/openid-configuration",
+            get(move || {
+                let issuer = document_issuer.clone();
+                let endpoint_base = endpoint_base.clone();
+                async move {
+                    Json(serde_json::json!({
+                        "issuer":issuer,
+                        "authorization_endpoint":format!("{endpoint_base}/authorize"),
+                        "token_endpoint":format!("{endpoint_base}/token"),
+                        "jwks_uri":format!("{endpoint_base}/jwks"),
+                        "scopes_supported":["openid","profile","email","groups"],
+                        "response_types_supported":["code"]
+                    }))
+                }
+            }),
+        )
+        .route(
+            "/mismatch/.well-known/openid-configuration",
+            get(move || {
+                let endpoint_base = mismatch_base.clone();
+                async move {
+                    Json(serde_json::json!({
+                        "issuer":format!("{endpoint_base}/different"),
+                        "authorization_endpoint":format!("{endpoint_base}/authorize"),
+                        "token_endpoint":format!("{endpoint_base}/token"),
+                        "jwks_uri":format!("{endpoint_base}/jwks"),
+                        "scopes_supported":["openid"]
+                    }))
+                }
+            }),
+        );
+    let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    (issuer, task)
+}
+
 fn response_cookie(response: &reqwest::Response, name: &str) -> Option<String> {
     response
         .headers()
@@ -431,6 +475,84 @@ async fn rust_control_plane_persists_and_enforces_signed_oidc_admin_authenticati
 }
 
 #[tokio::test]
+async fn rust_control_plane_exposes_safe_browser_bootstrap_and_oidc_discovery() {
+    let directory = TempDir::new().unwrap();
+    let file = Url::from_file_path(directory.path().join("oidc-discovery.sqlite")).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    let database = Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap());
+    let control = ControlPlane::new(database, ADMIN_KEY, STORAGE_KEY, false)
+        .await
+        .unwrap();
+    let (issuer, discovery_task) = oidc_discovery_server().await;
+    let (base, gateway_task) = gateway(control).await;
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+
+    let config = client
+        .get(format!("{base}/api/auth/config"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(config.status(), StatusCode::OK);
+    assert_eq!(
+        config.headers()[header::CACHE_CONTROL],
+        "no-store, max-age=0"
+    );
+    let config: serde_json::Value = serde_json::from_str(&config.text().await.unwrap()).unwrap();
+    assert_eq!(config["backend"], "rust");
+    assert_eq!(config["control_plane_enabled"], true);
+    assert_eq!(config["oidc_browser_login"], false);
+    assert_eq!(config["password_login"], false);
+
+    let endpoint = format!("{base}/api/admin/oidc/discover");
+    assert_eq!(
+        client
+            .post(&endpoint)
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(serde_json::json!({"issuer":issuer}).to_string())
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    let discovered = client
+        .post(endpoint)
+        .bearer_auth(ADMIN_KEY)
+        .header(header::CONTENT_TYPE.as_str(), "application/json")
+        .body(serde_json::json!({"issuer":issuer}).to_string())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(discovered.status(), StatusCode::OK);
+    let discovered: serde_json::Value =
+        serde_json::from_str(&discovered.text().await.unwrap()).unwrap();
+    assert_eq!(discovered["discovery"]["issuer"], issuer);
+    assert_eq!(
+        discovered["discovery"]["scopes_supported"],
+        serde_json::json!(["openid", "profile", "email", "groups"])
+    );
+    assert_eq!(
+        discovered["discovery"]["authorization_endpoint"],
+        format!("{issuer}/authorize")
+    );
+    assert_eq!(
+        client
+            .post(format!("{base}/api/admin/oidc/discover"))
+            .bearer_auth(ADMIN_KEY)
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(serde_json::json!({"issuer":format!("{issuer}/mismatch")}).to_string())
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::BAD_REQUEST
+    );
+
+    gateway_task.abort();
+    discovery_task.abort();
+}
+
+#[tokio::test]
 async fn rust_control_plane_owns_oidc_pkce_login_and_csrf_bound_admin_sessions() {
     let directory = TempDir::new().unwrap();
     let file = Url::from_file_path(directory.path().join("oidc-browser.sqlite")).unwrap();
@@ -486,6 +608,44 @@ async fn rust_control_plane_owns_oidc_pkce_login_and_csrf_bound_admin_sessions()
     let stored_browser = database.oidc_browser_config().await.unwrap().unwrap();
     assert_ne!(stored_browser.client_secret_ciphertext, "browser-secret");
 
+    let public_config = client
+        .get(format!("{base}/api/auth/config"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(public_config.status(), StatusCode::OK);
+    let public_config: serde_json::Value =
+        serde_json::from_str(&public_config.text().await.unwrap()).unwrap();
+    assert_eq!(public_config["oidc_browser_login"], true);
+
+    let test_login = client
+        .get(format!("{base}/api/auth/oidc/login?test=1"))
+        .bearer_auth(ADMIN_KEY)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(test_login.status(), StatusCode::TEMPORARY_REDIRECT);
+    let test_flow_cookie = response_cookie(&test_login, "redrouter_oidc_flow").unwrap();
+    let test_authorization =
+        Url::parse(test_login.headers()[header::LOCATION].to_str().unwrap()).unwrap();
+    let test_parameters: std::collections::HashMap<_, _> =
+        test_authorization.query_pairs().into_owned().collect();
+    *nonce.write().await = test_parameters.get("nonce").unwrap().clone();
+    let test_callback = client
+        .get(format!(
+            "{base}/api/auth/oidc/callback?code=fixture-code&state={}",
+            test_parameters.get("state").unwrap()
+        ))
+        .header(header::COOKIE, test_flow_cookie)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(test_callback.status(), StatusCode::SEE_OTHER);
+    assert_eq!(
+        test_callback.headers()[header::LOCATION].to_str().unwrap(),
+        format!("{base}/dashboard/settings?tab=security&oidc_test=ok")
+    );
+
     let login = client
         .get(format!("{base}/api/auth/oidc/login"))
         .send()
@@ -540,6 +700,18 @@ async fn rust_control_plane_owns_oidc_pkce_login_and_csrf_bound_admin_sessions()
             .status(),
         StatusCode::OK
     );
+    assert_eq!(
+        client
+            .get(format!("{base}/api/admin/providers"))
+            .header(header::COOKIE, &cookies)
+            .header("x-red-router-csrf", &csrf)
+            .header("sec-fetch-site", "same-origin")
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
     for denied in [
         client
             .get(format!("{base}/api/admin/providers"))
@@ -553,6 +725,14 @@ async fn rust_control_plane_owns_oidc_pkce_login_and_csrf_bound_admin_sessions()
             .header(header::COOKIE, &cookies)
             .header("x-red-router-csrf", &csrf)
             .header(header::ORIGIN, "https://attacker.example")
+            .send()
+            .await
+            .unwrap(),
+        client
+            .get(format!("{base}/api/admin/providers"))
+            .header(header::COOKIE, &cookies)
+            .header("x-red-router-csrf", &csrf)
+            .header("sec-fetch-site", "cross-site")
             .send()
             .await
             .unwrap(),

@@ -228,6 +228,12 @@ pub struct OidcBrowserInput {
     pub scopes: Vec<String>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OidcDiscoveryInput {
+    pub issuer: String,
+}
+
 #[derive(Debug, Serialize)]
 pub struct OidcView {
     pub enabled: bool,
@@ -534,6 +540,13 @@ impl ControlPlane {
         Some(oidc_view(verifier.policy(), browser.as_deref()))
     }
 
+    async fn oidc_browser_enabled(&self) -> bool {
+        let verifier = self.0.oidc.read().await.clone();
+        let browser = self.0.oidc_browser.read().await.clone();
+        matches!((verifier, browser), (Some(verifier), Some(browser))
+            if verifier.policy().enabled && verifier.policy().revision == browser.revision)
+    }
+
     pub async fn configure_oidc(&self, mut input: OidcInput) -> Result<OidcView, &'static str> {
         if input.clear_browser && input.browser.is_some() {
             return Err("OIDC browser configuration is ambiguous");
@@ -748,7 +761,7 @@ impl ControlPlane {
             return Ok(BrowserCallback::Test {
                 location: browser
                     .public_origin
-                    .join("/settings?tab=security&oidcTest=success")
+                    .join("/dashboard/settings?tab=security&oidc_test=ok")
                     .map_err(|_| "invalid OIDC public origin")?
                     .to_string(),
                 secure: browser.secure_cookies(),
@@ -1371,8 +1384,11 @@ impl ControlPlane {
         let Some(csrf_cookie) = unique_cookie(headers, ADMIN_CSRF_COOKIE) else {
             return false;
         };
+        let origin_count = headers.get_all(header::ORIGIN).iter().count();
+        let fetch_site_count = headers.get_all("sec-fetch-site").iter().count();
         if headers.get_all(ADMIN_CSRF_HEADER).iter().count() != 1
-            || headers.get_all(header::ORIGIN).iter().count() != 1
+            || origin_count > 1
+            || fetch_site_count > 1
         {
             return false;
         }
@@ -1394,11 +1410,15 @@ impl ControlPlane {
             return false;
         };
         let expected_origin = browser.public_origin.origin().ascii_serialization();
-        if headers
-            .get(header::ORIGIN)
-            .and_then(|value| value.to_str().ok())
-            != Some(expected_origin.as_str())
-        {
+        let fetch_site = headers
+            .get("sec-fetch-site")
+            .and_then(|value| value.to_str().ok());
+        let same_origin = fetch_site.is_none_or(|site| site == "same-origin")
+            && match headers.get(header::ORIGIN) {
+                Some(origin) => origin.to_str().ok() == Some(expected_origin.as_str()),
+                None => fetch_site == Some("same-origin"),
+            };
+        if !same_origin {
             return false;
         }
         let Ok(session) = decrypt(
@@ -2021,6 +2041,25 @@ fn api_error(status: StatusCode, message: &'static str) -> Response {
         .into_response()
 }
 
+pub async fn auth_config(State(state): State<ProxyState>) -> Response {
+    let (control_plane_enabled, oidc_browser_login) = match &state.control_plane {
+        Some(control) => (true, control.oidc_browser_enabled().await),
+        None => (false, false),
+    };
+    let mut response = Json(serde_json::json!({
+        "backend":"rust",
+        "control_plane_enabled":control_plane_enabled,
+        "oidc_browser_login":oidc_browser_login,
+        "password_login":false
+    }))
+    .into_response();
+    response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("no-store, max-age=0"),
+    );
+    response
+}
+
 pub async fn oidc_login(
     State(state): State<ProxyState>,
     headers: HeaderMap,
@@ -2173,6 +2212,34 @@ pub async fn get_oidc(State(state): State<ProxyState>, headers: HeaderMap) -> Re
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin authentication");
     }
     Json(serde_json::json!({"oidc":control.oidc_view().await})).into_response()
+}
+
+pub async fn discover_oidc(
+    State(state): State<ProxyState>,
+    headers: HeaderMap,
+    Json(input): Json<OidcDiscoveryInput>,
+) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+    };
+    if !control.authorized(&headers).await {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin authentication");
+    }
+    match crate::oidc::discover(&input.issuer, control.0.allow_private).await {
+        Ok(discovery) => Json(serde_json::json!({"discovery":discovery})).into_response(),
+        Err(error)
+            if error.contains("request")
+                || error.contains("DNS")
+                || error.contains("unavailable")
+                || error.contains("timed out") =>
+        {
+            api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "OIDC discovery unavailable",
+            )
+        }
+        Err(_) => api_error(StatusCode::BAD_REQUEST, "Invalid OIDC discovery document"),
+    }
 }
 
 pub async fn put_oidc(

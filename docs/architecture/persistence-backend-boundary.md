@@ -14,7 +14,9 @@ Rust-owned control-plane slices persist encrypted provider configurations, hash-
 client keys and their authorization policy, combos, provider circuit-breaker state, and
 OIDC bearer/browser configuration with an encrypted confidential-client secret.
 Configuration snapshots reload without restart and breaker/session policy survives restart.
-They do not yet migrate the installed TypeScript product data or establish full domain parity.
+The SPA auth bridge and issuer discovery use those Rust APIs without adding TypeScript writes.
+They do not yet migrate the installed TypeScript product data, serve the full static asset bundle,
+or establish full domain parity.
 
 - **Status:** Architecture accepted on 2026-10-08; Rust production migration active
 - **Tracking issue:** [#8075](https://github.com/reddb-io/red-router/issues/8075)
