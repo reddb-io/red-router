@@ -12,7 +12,7 @@ on:
     inputs:
       runner_qualification:
         type: boolean
-        description: Qualify a reviewed ARC build without a release tag or publication
+        description: Validate the hosted package build without a release tag or publication
         default: false
       tag:
         description: "Existing SemVer tag to validate/publish (optional)"
