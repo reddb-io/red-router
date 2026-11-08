@@ -394,7 +394,7 @@ async fn non_streaming_product_usage_is_recorded_and_unhandled_quotas_fail_close
     let mode = Arc::new(AtomicUsize::new(0));
     let provider_mode = mode.clone();
     let provider = tokio::spawn(async move {
-        axum::serve(upstream, Router::new().route("/v1/chat/completions", post(move |axum::Json(request): axum::Json<serde_json::Value>| {
+        let handler = move |axum::Json(request): axum::Json<serde_json::Value>| {
             let mode = provider_mode.clone();
             async move {
                 if request["model"]
@@ -416,20 +416,37 @@ async fn non_streaming_product_usage_is_recorded_and_unhandled_quotas_fail_close
                         _ => "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":100,\"completion_tokens\":50}}\n\n",
                     };
                     let chunks = vec!["data: {\"choices\":[]}", "\n\n", usage, "data: [DONE]\n\n"];
-                    let body = axum::body::Body::from_stream(stream::iter(chunks).then(|part| async move {
-                        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
-                        Ok::<_, std::io::Error>(axum::body::Bytes::from_static(part.as_bytes()))
-                    }));
-                    return axum::http::Response::builder().header("content-type", "text/event-stream").body(body).unwrap();
+                    let body = axum::body::Body::from_stream(stream::iter(chunks).then(
+                        |part| async move {
+                            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                            Ok::<_, std::io::Error>(axum::body::Bytes::from_static(part.as_bytes()))
+                        },
+                    ));
+                    return axum::http::Response::builder()
+                        .header("content-type", "text/event-stream")
+                        .body(body)
+                        .unwrap();
                 }
                 let value = match mode.load(Ordering::SeqCst) {
                     1 => serde_json::json!({"id":"response"}),
-                    2 => serde_json::json!({"id":"response", "service_tier":"priority", "usage":{"prompt_tokens":100,"completion_tokens":50}}),
-                    _ => serde_json::json!({"id":"response", "usage":{"prompt_tokens":100,"completion_tokens":50}}),
+                    2 => {
+                        serde_json::json!({"id":"response", "service_tier":"priority", "usage":{"prompt_tokens":100,"completion_tokens":50}})
+                    }
+                    _ => {
+                        serde_json::json!({"id":"response", "usage":{"prompt_tokens":100,"completion_tokens":50}})
+                    }
                 };
                 axum::Json(value).into_response()
             }
-        }))).await.unwrap()
+        };
+        axum::serve(
+            upstream,
+            Router::new()
+                .route("/v1/chat/completions", post(handler.clone()))
+                .route("/v1/embeddings", post(handler)),
+        )
+        .await
+        .unwrap()
     });
     let state = ProxyState::new(
         &format!("http://{address}/v1/chat/completions"),
