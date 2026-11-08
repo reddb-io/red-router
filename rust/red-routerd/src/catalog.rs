@@ -593,7 +593,7 @@ fn normalize_model(id: &str, value: &serde_json::Value) -> Result<ModelMetadata,
     let limit = value
         .get("limit")
         .and_then(serde_json::Value::as_object)
-        .map(|limit| {
+        .map(|limit| -> Result<CatalogLimit, &'static str> {
             Ok(CatalogLimit {
                 context: optional_u64(limit.get("context"))?,
                 input: optional_u64(limit.get("input"))?,
@@ -604,7 +604,7 @@ fn normalize_model(id: &str, value: &serde_json::Value) -> Result<ModelMetadata,
     let cost = value
         .get("cost")
         .and_then(serde_json::Value::as_object)
-        .map(|cost| {
+        .map(|cost| -> Result<CatalogCost, &'static str> {
             Ok(CatalogCost {
                 input: optional_cost(cost.get("input"))?,
                 output: optional_cost(cost.get("output"))?,
