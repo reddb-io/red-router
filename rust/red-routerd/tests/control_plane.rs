@@ -231,6 +231,58 @@ async fn provider(
     (format!("http://{address}/v1/chat/completions"), task)
 }
 
+async fn usage_provider(
+    expected_key: &'static str,
+) -> (String, Arc<AtomicUsize>, tokio::task::JoinHandle<()>) {
+    let requests = Arc::new(AtomicUsize::new(0));
+    let observed = requests.clone();
+    let app = Router::new().route(
+        "/v1/chat/completions",
+        post(
+            move |headers: HeaderMap, Json(body): Json<serde_json::Value>| {
+                let observed = observed.clone();
+                async move {
+                    assert_eq!(
+                        headers["authorization"].to_str().unwrap(),
+                        format!("Bearer {expected_key}")
+                    );
+                    observed.fetch_add(1, Ordering::SeqCst);
+                    if body.get("stream").and_then(serde_json::Value::as_bool) == Some(true) {
+                        let frames = concat!(
+                            "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\n",
+                            "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":3,\"completion_tokens\":2}}\n\n",
+                            "data: [DONE]\n\n"
+                        );
+                        axum::http::Response::builder()
+                            .status(StatusCode::OK)
+                            .header(header::CONTENT_TYPE, "text/event-stream")
+                            .body(Body::from(frames))
+                            .unwrap()
+                    } else {
+                        (
+                            StatusCode::OK,
+                            Json(serde_json::json!({
+                                "id":"usage-fixture",
+                                "choices":[],
+                                "usage":{"prompt_tokens":3,"completion_tokens":2}
+                            })),
+                        )
+                            .into_response()
+                    }
+                }
+            },
+        ),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    (
+        format!("http://{address}/v1/chat/completions"),
+        requests,
+        task,
+    )
+}
+
 async fn models_dev_catalog_server() -> (
     String,
     Arc<AtomicUsize>,
@@ -1036,6 +1088,143 @@ async fn rust_control_plane_issues_hash_only_named_client_keys() {
     .expect("replica did not retire the disabled tenant snapshot");
     restarted_task.abort();
     replica_task.abort();
+}
+
+#[tokio::test]
+async fn rust_control_plane_enforces_native_token_and_spend_quotas_for_chat_and_streaming() {
+    let directory = TempDir::new().unwrap();
+    let file = Url::from_file_path(directory.path().join("native-quotas.sqlite")).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    let database = Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap());
+    let control = ControlPlane::new(database, ADMIN_KEY, STORAGE_KEY, false)
+        .await
+        .unwrap();
+    let (upstream, requests, provider_task) = usage_provider("native-usage-secret").await;
+    let (base, gateway_task) = gateway(control).await;
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+
+    assert_eq!(
+        client
+            .put(format!("{base}/api/admin/providers/native-usage"))
+            .bearer_auth(ADMIN_KEY)
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(
+                serde_json::json!({
+                    "provider":"openai",
+                    "upstream_url":upstream,
+                    "api_key":"native-usage-secret"
+                })
+                .to_string(),
+            )
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    for (id, key) in [
+        ("native-non-stream", "native-non-stream-key-1234567890"),
+        ("native-stream", "native-stream-key-1234567890"),
+    ] {
+        let response = client
+            .put(format!("{base}/api/admin/client-keys/{id}"))
+            .bearer_auth(ADMIN_KEY)
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(
+                serde_json::json!({
+                    "label":id,
+                    "api_key":key,
+                    "scopes":["inference:chat"],
+                    "allowed_endpoints":["chat"],
+                    "allowed_models":["gpt-3.5-turbo"],
+                    "allowed_provider_ids":["native-usage"],
+                    "max_tokens_per_minute":10,
+                    "max_tokens_per_day":100,
+                    "max_spend_per_month_usd":0.01,
+                    "reservation_tokens":10,
+                    "reservation_spend_usd":0.01
+                })
+                .to_string(),
+            )
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let configured: serde_json::Value =
+            serde_json::from_str(&response.text().await.unwrap()).unwrap();
+        assert_eq!(configured["client_key"]["max_tokens_per_minute"], 10);
+        assert_eq!(configured["client_key"]["max_spend_per_month_usd"], 0.01);
+    }
+
+    let ordinary = client
+        .post(format!("{base}/v1/chat/completions"))
+        .bearer_auth("native-non-stream-key-1234567890")
+        .json(&serde_json::json!({"model":"gpt-3.5-turbo","messages":[]}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(ordinary.status(), StatusCode::OK);
+    assert_eq!(
+        ordinary.json::<serde_json::Value>().await.unwrap()["usage"]["prompt_tokens"],
+        3
+    );
+    assert_eq!(
+        chat_model(
+            &client,
+            &base,
+            "native-non-stream-key-1234567890",
+            "gpt-3.5-turbo",
+        )
+        .await
+        .status(),
+        StatusCode::TOO_MANY_REQUESTS
+    );
+
+    let stream = client
+        .post(format!("{base}/v1/chat/completions"))
+        .bearer_auth("native-stream-key-1234567890")
+        .json(&serde_json::json!({
+            "model":"gpt-3.5-turbo",
+            "messages":[],
+            "stream":true,
+            "stream_options":{"include_usage":true}
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(stream.status(), StatusCode::OK);
+    assert!(stream.text().await.unwrap().contains("data: [DONE]"));
+    let blocked_stream = client
+        .post(format!("{base}/v1/chat/completions"))
+        .bearer_auth("native-stream-key-1234567890")
+        .json(&serde_json::json!({
+            "model":"gpt-3.5-turbo",
+            "messages":[],
+            "stream":true,
+            "stream_options":{"include_usage":true}
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(blocked_stream.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(requests.load(Ordering::SeqCst), 2);
+
+    let audit = sqlx::SqlitePool::connect(&url).await.unwrap();
+    let ledger: (i64, i64, i64) = sqlx::query_as(
+        "SELECT COUNT(*), SUM(tokens_input + tokens_output + tokens_reasoning), SUM(amount_microusd) FROM redrouter_usage_ledger",
+    )
+    .fetch_one(&audit)
+    .await
+    .unwrap();
+    assert_eq!(ledger, (2, 10, 10));
+    let pending: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM redrouter_usage_reservations")
+        .fetch_one(&audit)
+        .await
+        .unwrap();
+    assert_eq!(pending, 0);
+    audit.close().await;
+    gateway_task.abort();
+    provider_task.abort();
 }
 
 #[tokio::test]
