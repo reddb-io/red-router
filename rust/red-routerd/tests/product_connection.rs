@@ -548,10 +548,14 @@ async fn non_streaming_product_usage_is_recorded_and_unhandled_quotas_fail_close
         let response = client
             .post(format!("http://{proxy}/v1/embeddings"))
             .bearer_auth("usage-client-key-123456")
-            .json(&serde_json::json!({
-                "model":format!("openrouter/vendor/{model}"),
-                "input":"hello"
-            }))
+            .header("content-type", "application/json")
+            .body(
+                serde_json::json!({
+                    "model":format!("openrouter/vendor/{model}"),
+                    "input":"hello"
+                })
+                .to_string(),
+            )
             .send()
             .await
             .unwrap();
@@ -622,10 +626,14 @@ async fn non_streaming_product_usage_is_recorded_and_unhandled_quotas_fail_close
     let response = client
         .post(format!("http://{proxy}/v1/embeddings"))
         .bearer_auth("usage-client-key-123456")
-        .json(&serde_json::json!({
-            "model":"openrouter/vendor/embed-unpriced",
-            "input":"hello"
-        }))
+        .header("content-type", "application/json")
+        .body(
+            serde_json::json!({
+                "model":"openrouter/vendor/embed-unpriced",
+                "input":"hello"
+            })
+            .to_string(),
+        )
         .send()
         .await
         .unwrap();
