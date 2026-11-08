@@ -2,10 +2,7 @@ diff --git a/src/main.rs b/src/main.rs
 index ee74496..a89236d 100644
 --- a/src/main.rs
 +++ b/src/main.rs
-@@ -251,6 +251,10 @@ struct Cli {
-     #[arg(long, default_value = "/var/lib/fastllm/snapshot.json")]
-     snapshot_cache: PathBuf,
- 
+@@ -254,3 +254,7 @@ struct Cli {
 +    /// Red Router integration: never read or write the HTTP snapshot cache.
 +    #[arg(long, default_value_t = false)]
 +    redrouter_memory_only: bool,
@@ -35,9 +32,7 @@ diff --git a/src/source/http.rs b/src/source/http.rs
 index d8f52f9..e0386f7 100644
 --- a/src/source/http.rs
 +++ b/src/source/http.rs
-@@ -36,6 +36,9 @@ impl HttpSource {
-     }
- 
+@@ -38,4 +38,7 @@ impl HttpSource {
      pub fn write_cache(&self, snap: &Snapshot) -> anyhow::Result<()> {
 +        if self.cache_path.as_os_str().is_empty() {
 +            return Ok(());
@@ -45,8 +40,7 @@ index d8f52f9..e0386f7 100644
          if let Some(dir) = self.cache_path.parent() {
              std::fs::create_dir_all(dir)?;
          }
-@@ -49,6 +52,9 @@ impl HttpSource {
- 
+@@ -50,5 +53,8 @@ impl HttpSource {
      /// Last-known-good, or `None` for absent, unreadable or corrupt.
      pub fn load_cached(&self) -> Option<Snapshot> {
 +        if self.cache_path.as_os_str().is_empty() {
