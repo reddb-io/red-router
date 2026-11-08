@@ -102,8 +102,15 @@ caches keys and throttles unknown-key refreshes. JWKS endpoints must use HTTPS e
 for literal-loopback development servers. Browser login uses Authorization Code + PKCE
 S256, encrypted state/nonce/verifier data, verified ID tokens, encrypted 12-hour sessions,
 double-submit CSRF, same-origin Fetch Metadata/Origin validation and explicit logout.
-The dashboard login/settings code can consume this Rust boundary; serving the complete
-static asset bundle without Next.js remains migration work.
+The dashboard login/settings code can consume this Rust boundary. Set
+`RED_ROUTER_SPA_DIR` to a prepared static dashboard build containing `index.html` and
+Rust serves it on the same origin without a Next.js server. Startup fails for an invalid
+directory. Browser navigation receives the SPA shell, but reserved API namespaces,
+hidden paths and missing files with extensions never do. HTML and `sw.js` use `no-store`;
+versioned `/_next/static/` chunks use immutable one-year caching. Brotli and gzip sidecar
+files are selected when present. The server adds CSP, clickjacking, MIME-sniffing,
+referrer, permissions and opener protections. Producing and packaging the complete
+production dashboard export remains migration work.
 Provider credentials are encrypted with a random salt and nonce, authenticated against their
 provider ID, and never returned by the API. The durable database is updated before an
 atomically replaced, DNS-pinned runtime target becomes visible. Invalid storage or

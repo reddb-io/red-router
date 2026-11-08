@@ -22,6 +22,8 @@ sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-r
 subtle = "2"
 tokio = { version = "1", features = ["macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
 time = { version = "0.3.55", features = ["formatting"] }
+tower = { version = "0.5", features = ["util"] }
+tower-http = { version = "0.6.11", features = ["fs"] }
 url = "2"
 aes-gcm = "0.10"
 base64 = "0.22"

@@ -13,6 +13,7 @@ pub mod product_combo;
 pub mod product_provider;
 pub mod reconcile;
 pub mod shared_usage;
+pub mod spa;
 pub mod storage;
 mod translation;
 mod usage_stream;
@@ -1448,6 +1449,13 @@ pub fn router(state: ProxyState) -> Router {
         .route("/v1/messages", post(messages))
         .route("/v1beta/models/{model_action}", post(gemini))
         .with_state(state)
+}
+
+/// Attach a validated static dashboard build without putting Next.js on the
+/// production request path. Explicit API and inference routes always win;
+/// the SPA fallback also refuses reserved API namespaces.
+pub fn router_with_spa(state: ProxyState, assets: spa::SpaAssets) -> Router {
+    spa::attach(router(state), assets)
 }
 
 async fn ready(State(state): State<ProxyState>) -> StatusCode {

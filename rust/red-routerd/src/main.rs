@@ -3,7 +3,8 @@ use red_routerd::{
     control_plane::{ControlPlane, ProviderInput},
     product::ProductConnection,
     product_combo::ProductCombo,
-    router,
+    router, router_with_spa,
+    spa::SpaAssets,
     storage::{embedded_default_url, sqlite_default_url, Backend, Database},
     ProxyState,
 };
@@ -784,7 +785,11 @@ async fn serve_proxy(
             eprintln!("failed to enable TCP_NODELAY: {error}");
         }
     });
-    axum::serve(listener, router(state))
+    let app = match env::var_os("RED_ROUTER_SPA_DIR") {
+        Some(path) => router_with_spa(state, SpaAssets::open(path)?),
+        None => router(state),
+    };
+    axum::serve(listener, app)
         .with_graceful_shutdown(async move {
             let stop = async move {
                 if let Some(mut receiver) = shutdown {

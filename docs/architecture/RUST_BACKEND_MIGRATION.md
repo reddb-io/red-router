@@ -51,7 +51,7 @@ features must not be implemented only there.
 | Usage and audit             | Partial                | Complete protocol usage, idempotent ledger, retention/export APIs                  |
 | Settings and resilience     | Partial                | Durable configurable provider breakers and reset API; versioned settings snapshots remain |
 | Management identity         | Implemented foundation | Signed bearer, discovery, browser PKCE, encrypted session, CSRF/fetch-metadata binding and logout |
-| SPA delivery                | Partial                | Login bootstrap and Rust admin fetch bridge exist; package and serve static assets without Next.js |
+| SPA delivery                | Partial                | Rust serves a validated static bundle with safe SPA fallback; production dashboard export/packaging remains |
 | Legacy data migration       | Pending                | Maintenance-mode import, verification report and rollback boundary                 |
 
 ## Latest Next.js feature inventory (0.60.1–0.60.5)
@@ -67,15 +67,17 @@ their Rust migration state:
 | Preserve unpriced chat and streaming consumption | Implemented as explicit opt-in with `pricing_known = 0` | Rust-owned reporting APIs and usage sinks |
 | Durable embedding usage | Implemented for product-SQLite OpenAI-compatible responses | Move reservation and ledger ownership into the Rust storage repository |
 | Operator/key reporting attributes | Implemented for product-SQLite chat, streaming and embeddings | Move attributes and the ledger behind the Rust-owned storage repository |
-| Signed OIDC claim policies | Implemented foundation: signed bearer, browser flow, generic discovery and SPA auth bridge | Package static assets in Rust; add provider-specific diagnostics beyond standard discovery |
+| Signed OIDC claim policies | Implemented foundation: signed bearer, browser flow, generic discovery, SPA auth bridge and Rust asset serving | Package the production SPA artifact; add provider-specific diagnostics beyond standard discovery |
 | Preserve stream deltas when terminal snapshots omit output | Direct OpenAI relay is not affected | Add parity fixtures for every translating stream path before declaring complete |
 | Bound router/cache/log stream retention | Rust SSE frames and channels are bounded | Audit admin logs, translated streams and future SPA subscriptions under sustained load |
 
 This table is a migration queue, not a parity claim. The signed-token and browser
 session security boundaries are Rust-owned. The existing dashboard detects the Rust auth
-bootstrap, copies the CSRF cookie into admin requests and uses Rust discovery/configuration;
-remaining work is static asset packaging and provider-specific diagnostics rather than a
-Next.js backend dependency.
+bootstrap, copies the CSRF cookie into admin requests and uses Rust discovery/configuration.
+`red-routerd` can serve a prepared static bundle directly with route isolation, secure
+headers, immutable caching for versioned chunks and no-store HTML. Remaining work is the
+production dashboard export/packaging pipeline and provider-specific diagnostics rather
+than a Next.js backend dependency.
 
 ## Rust-owned production slices
 
@@ -110,8 +112,11 @@ browser omits Origin on a read. Policy changes
 invalidate prior sessions, logout expires all Rust auth cookies, and restart/storage
 coverage includes SQLite and the common RedDB/PostgreSQL repository contract. A public
 non-secret auth bootstrap, bounded standard discovery endpoint and browser fetch bridge are
-implemented. Rust static-asset delivery and provider-specific diagnostics remain; they do not
-require a Next.js persistence or session backend.
+implemented. With `RED_ROUTER_SPA_DIR`, Rust validates `index.html` at startup and serves the
+static build itself. Reserved API namespaces and missing asset paths never fall through to the
+SPA shell; HTML and the service worker are not cached, while `/_next/static/` assets are
+immutable. Building and packaging the complete production dashboard plus provider-specific
+diagnostics remain; neither requires a Next.js persistence or session backend.
 
 The client-key slice stores only a SHA-256 lookup hash and redacted policy metadata in
 `redrouter_control_client_keys`. Authenticated admin writes durably commit before a new
