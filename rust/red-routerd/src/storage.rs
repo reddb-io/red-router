@@ -336,9 +336,6 @@ impl Database {
                         CREATE_IDENTITY_BINDINGS,
                         CREATE_CLIENT_KEY_OWNERSHIP,
                         CREATE_CLIENT_KEY_QUOTAS,
-                        CREATE_USAGE_RESERVATIONS,
-                        CREATE_USAGE_LEDGER,
-                        CREATE_USAGE_COUNTERS,
                         CREATE_COMBOS,
                         CREATE_ROUTE_PINS,
                         CREATE_PROVIDER_QUOTAS,
@@ -439,9 +436,6 @@ impl Database {
                 db.remote_schema_query(CREATE_IDENTITY_BINDINGS).await?;
                 db.remote_schema_query(CREATE_CLIENT_KEY_OWNERSHIP).await?;
                 db.remote_schema_query(CREATE_CLIENT_KEY_QUOTAS).await?;
-                db.remote_schema_query(CREATE_USAGE_RESERVATIONS).await?;
-                db.remote_schema_query(CREATE_USAGE_LEDGER).await?;
-                db.remote_schema_query(CREATE_USAGE_COUNTERS).await?;
                 db.remote_schema_query(CREATE_COMBOS).await?;
                 db.remote_schema_query(CREATE_ROUTE_PINS).await?;
                 db.remote_schema_query(CREATE_PROVIDER_QUOTAS).await?;
@@ -483,9 +477,6 @@ impl Database {
                     CREATE_IDENTITY_BINDINGS,
                     CREATE_CLIENT_KEY_OWNERSHIP,
                     CREATE_CLIENT_KEY_QUOTAS,
-                    CREATE_USAGE_RESERVATIONS,
-                    CREATE_USAGE_LEDGER,
-                    CREATE_USAGE_COUNTERS,
                     CREATE_COMBOS,
                     CREATE_ROUTE_PINS,
                     CREATE_PROVIDER_QUOTAS,
@@ -500,6 +491,18 @@ impl Database {
                         .execute(&pool)
                         .await
                         .map_err(|_| "cannot initialize database")?;
+                }
+                if backend == Backend::Sqlite {
+                    for statement in [
+                        CREATE_USAGE_RESERVATIONS,
+                        CREATE_USAGE_LEDGER,
+                        CREATE_USAGE_COUNTERS,
+                    ] {
+                        sqlx::query(statement)
+                            .execute(&pool)
+                            .await
+                            .map_err(|_| "cannot initialize usage database")?;
+                    }
                 }
                 sqlx::query(SEED_DEFAULT_TENANT)
                     .execute(&pool)

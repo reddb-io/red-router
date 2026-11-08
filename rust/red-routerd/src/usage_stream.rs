@@ -166,13 +166,10 @@ pub(crate) fn forward(
                     Ok(Event::Done) => {
                         done_seen = true;
                         if let Some(usage) = usage.take() {
-                            if usage_context
-                                .take()
-                                .expect("usage context is consumed once")
-                                .record(&usage)
-                                .await
-                                .is_ok()
-                            {
+                            let Some(context) = usage_context.take() else {
+                                break;
+                            };
+                            if context.record(&usage).await.is_ok() {
                                 complete = true;
                                 if connected {
                                     let _ = sender.send(Ok(Bytes::from(frame))).await;
