@@ -15,6 +15,7 @@ pub(crate) struct ClientPolicies {
 
 pub(crate) struct ClientPolicy {
     credential: ClientCredential,
+    identity: Option<ClientIdentity>,
     enabled: bool,
     expires_at_unix: Option<u64>,
     scopes: Vec<String>,
@@ -27,12 +28,22 @@ pub(crate) struct ClientPolicy {
     rate_limit: Option<RateLimit>,
 }
 
+#[derive(Clone, Debug)]
+pub(crate) struct ClientIdentity {
+    pub id: Arc<str>,
+    pub name: Arc<str>,
+    pub role: &'static str,
+    pub id_format: &'static str,
+}
+
 enum ClientCredential {
     Plain(Arc<str>),
     Sha256([u8; 32]),
 }
 
 pub(crate) struct StoredPolicy {
+    pub id: String,
+    pub name: String,
     pub key_hash: [u8; 32],
     pub enabled: bool,
     pub expires_at_unix: Option<u64>,
@@ -97,6 +108,7 @@ impl ClientPolicies {
         Self {
             entries: vec![ClientPolicy {
                 credential: ClientCredential::Plain(Arc::from(key)),
+                identity: None,
                 enabled: true,
                 expires_at_unix: None,
                 scopes: Vec::new(),
@@ -133,6 +145,20 @@ impl ClientPolicies {
                     });
                     ClientPolicy {
                         credential: ClientCredential::Sha256(policy.key_hash),
+                        identity: Some(ClientIdentity {
+                            id: Arc::from(policy.id),
+                            name: Arc::from(policy.name),
+                            role: if policy
+                                .scopes
+                                .iter()
+                                .any(|scope| matches!(scope.as_str(), "manage" | "admin"))
+                            {
+                                "admin"
+                            } else {
+                                "standard"
+                            },
+                            id_format: "prefixed",
+                        }),
                         enabled: policy.enabled,
                         expires_at_unix: policy.expires_at_unix,
                         scopes: policy.scopes,
@@ -278,6 +304,7 @@ impl ClientPolicies {
             });
             entries.push(ClientPolicy {
                 credential: ClientCredential::Plain(Arc::from(key)),
+                identity: None,
                 enabled,
                 expires_at_unix,
                 scopes: Vec::new(),
@@ -429,6 +456,10 @@ impl ClientPolicy {
                     .iter()
                     .any(|allowed| allowed == id)
             })
+    }
+
+    pub(crate) fn identity(&self) -> Option<&ClientIdentity> {
+        self.identity.as_ref()
     }
 }
 

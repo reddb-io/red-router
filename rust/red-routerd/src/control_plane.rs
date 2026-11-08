@@ -1757,6 +1757,8 @@ fn stored_policy(record: &StoredClientKey) -> Result<StoredPolicy, &'static str>
         validate_id(id)?;
     }
     Ok(StoredPolicy {
+        id: record.id.clone(),
+        name: record.label.clone(),
         key_hash,
         enabled: record.enabled,
         expires_at_unix: view.expires_at_unix,

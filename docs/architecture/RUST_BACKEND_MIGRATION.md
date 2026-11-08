@@ -179,6 +179,11 @@ at `/v1/models/info?id=...` use that same authenticated, key-scoped inventory. T
 cannot reveal a configured route hidden by endpoint, model or provider grants. Model info exposes
 the implemented endpoint plus models.dev-derived context, modality and capability metadata; the
 `systemone` and `decisions` kind lists remain empty while the Rust evaluator is unavailable.
+Persisted key identity discovery at `/v1/key` and `/api/v1/key` is also Rust-owned. It returns
+only the successfully authenticated key's redacted ID, label, role and model-ID format, never
+builds the catalog, and refuses environment fallback keys because they have no durable identity.
+The dashboard SQLite compatibility reader retains its existing per-key `flat`/`prefixed` setting;
+Rust-owned keys remain explicitly `prefixed` until that setting is added to their durable schema.
 Refreshing and atomically publishing a newer catalog snapshot from Rust remains separate
 migration work.
 Quota observations live in `redrouter_provider_quotas` with an explicit TTL. Admin

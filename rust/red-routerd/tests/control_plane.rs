@@ -607,6 +607,41 @@ async fn rust_models_lists_only_routable_models_allowed_for_the_client() {
             .status(),
         StatusCode::OK
     );
+    assert_eq!(
+        client
+            .get(format!("{base}/v1/key"))
+            .bearer_auth(CLIENT_KEY)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    for path in ["/v1/key", "/api/v1/key"] {
+        let response = client
+            .get(format!("{base}{path}"))
+            .header("x-api-key", RUST_CLIENT_KEY)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers()[header::CACHE_CONTROL],
+            "private, no-store"
+        );
+        assert!(response.headers()[header::VARY]
+            .to_str()
+            .unwrap()
+            .contains("x-api-key"));
+        let key: serde_json::Value = serde_json::from_str(&response.text().await.unwrap()).unwrap();
+        assert_eq!(key["object"], "api_key");
+        assert_eq!(key["id"], "models-client");
+        assert_eq!(key["name"], "Models client");
+        assert_eq!(key["role"], "standard");
+        assert_eq!(key["id_format"], "prefixed");
+        assert_eq!(key["persisted"], true);
+        assert_eq!(key["compatibility"]["complete"], false);
+    }
     for (id, protocol, provider_id, model) in [
         ("visible-combo", "openai", "models-visible", "gpt-4o"),
         ("provider-hidden", "openai", "models-hidden", "gpt-4o"),

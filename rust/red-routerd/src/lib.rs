@@ -1661,6 +1661,8 @@ pub fn router(state: ProxyState) -> Router {
         .route("/v1/catalog", get(catalog_discovery))
         .route("/api/v1/capabilities", get(capabilities_discovery))
         .route("/v1/capabilities", get(capabilities_discovery))
+        .route("/api/v1/key", get(key_discovery))
+        .route("/v1/key", get(key_discovery))
         .route("/v1/chat/completions", post(chat))
         .route("/v1/responses", post(responses))
         .route("/v1/embeddings", post(embeddings))
@@ -1798,6 +1800,66 @@ fn discovery_response(body: serde_json::Value, version: &str) -> Response {
             .insert(RED_ROUTER_CATALOG_VERSION, value);
     }
     response
+}
+
+async fn key_discovery(State(state): State<ProxyState>, headers: HeaderMap) -> Response {
+    let headers = normalized_discovery_headers(&headers);
+    let identity = if state.product_client_keys {
+        match authenticate_product_request(&state, &headers, ProviderProtocol::OpenAi).await {
+            Ok((access, _, _)) => Some((
+                access.key_id,
+                access.key_name,
+                "standard",
+                access.key_id_format,
+            )),
+            Err(response) => return private_discovery_response(*response),
+        }
+    } else {
+        let Some(control) = &state.control_plane else {
+            return private_discovery_response(error(StatusCode::UNAUTHORIZED, "Invalid API key"));
+        };
+        let policies = match control.client_policies().await {
+            Ok(Some(policies)) => policies,
+            Ok(None) => {
+                return private_discovery_response(error(
+                    StatusCode::UNAUTHORIZED,
+                    "Invalid API key",
+                ))
+            }
+            Err(_) => {
+                return private_discovery_response(error(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "Client key identity unavailable",
+                ))
+            }
+        };
+        policies
+            .authenticate(&headers, ProviderProtocol::OpenAi)
+            .and_then(|policy| policy.identity())
+            .map(|identity| {
+                (
+                    identity.id.to_string(),
+                    identity.name.to_string(),
+                    identity.role,
+                    identity.id_format.to_owned(),
+                )
+            })
+    };
+    let Some((id, name, role, id_format)) = identity else {
+        return private_discovery_response(error(StatusCode::UNAUTHORIZED, "Invalid API key"));
+    };
+    private_discovery_response(
+        Json(serde_json::json!({
+            "object":"api_key",
+            "id":id,
+            "name":name,
+            "role":role,
+            "id_format":id_format,
+            "persisted":true,
+            "compatibility":{"baseline":"v0.33.0","complete":false}
+        }))
+        .into_response(),
+    )
 }
 
 fn served_model_header(provider: Option<&str>, model: &str) -> Option<HeaderValue> {

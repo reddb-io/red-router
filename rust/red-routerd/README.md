@@ -14,7 +14,9 @@ and emit the stable `X-RedRouter-Catalog-Version` cache-invalidation contract.
 IDs), while `/v1/models/info?id=...` projects its endpoint, context limits, modalities and
 capabilities for RedCode without consulting the TypeScript server.
 `/v1/catalog` groups that same scoped inventory for RedCode, while `/v1/capabilities` reports
-only Rust-implemented routing behavior. Successful provider responses include
+only Rust-implemented routing behavior. `/v1/key` returns the authenticated persisted key's
+redacted identity, role and model-ID format without building the model catalog; environment
+fallback keys intentionally receive `401`. Successful provider responses include
 `X-RedRouter-Served-Model` for the concrete target selected after fallback.
 It binds only to loopback. The operator can configure supported protocol HTTPS
 endpoints or literal-loopback HTTP mocks. It does not provide a public listener.
@@ -59,6 +61,9 @@ provider; subsequent provider changes do not require those environment secrets.
 - `PUT /api/admin/client-keys/{id}` creates or replaces a key policy. `api_key` is
   required on creation and may be omitted on later policy updates.
 - `DELETE /api/admin/client-keys/{id}` immediately revokes the key.
+- `GET /v1/key` and `/api/v1/key` return only the caller's persisted key identity. The
+  dashboard SQLite compatibility reader preserves its configured `flat` or `prefixed`
+  model-ID format; Rust-owned keys currently use `prefixed`.
 - `GET /api/admin/combos` lists Rust-owned combo routes.
 - `PUT /api/admin/combos/{id}` creates or replaces a combo with `protocol`
   (`openai`, `openai-responses`, `openai-embeddings`, `cohere-rerank`, `anthropic`

@@ -40,6 +40,8 @@ pub struct ProductConnection {
 pub(crate) struct ProductAccess {
     pub policies: crate::policy::ClientPolicies,
     pub key_id: String,
+    pub key_name: String,
+    pub key_id_format: String,
     pub usage_attributes: crate::accounting::UsageAttributes,
 }
 
@@ -671,6 +673,7 @@ impl ProductConnection {
                OR EXISTS(SELECT 1 FROM model_combo_mappings WHERE enabled = 1)) AS __rr_unsupported,
               (SELECT value FROM key_value WHERE namespace = 'settings' AND key = 'disabledModels') AS __rr_disabled_models
               ,(SELECT value FROM key_value WHERE namespace = 'api_key_usage_attributes' AND key = k.id) AS __rr_usage_attributes
+              ,(SELECT value FROM key_value WHERE namespace = 'api_key_id_format' AND key = k.id) AS __rr_id_format
              FROM api_keys k WHERE k.key = ? OR k.key_hash = ? LIMIT 1"
         )
         .bind(i64::from(self.strict_usage.is_some()))
@@ -708,6 +711,14 @@ impl ProductConnection {
             return Ok(None);
         }
         let key_id = string("id")?.ok_or("invalid product key")?;
+        let key_name = string("name")?
+            .filter(|name| !name.trim().is_empty())
+            .unwrap_or_else(|| key_id.clone());
+        let key_id_format = match string("__rr_id_format")?.as_deref() {
+            None | Some("prefixed") => "prefixed".to_owned(),
+            Some("flat") => "flat".to_owned(),
+            Some(_) => return Err("invalid product key ID format"),
+        };
         let key_usage_attributes = match string("__rr_usage_attributes")? {
             Some(raw) => crate::accounting::UsageAttributes::parse(&raw)?,
             None => crate::accounting::UsageAttributes::default(),
@@ -796,6 +807,8 @@ impl ProductConnection {
         Ok(Some(ProductAccess {
             policies,
             key_id,
+            key_name,
+            key_id_format,
             usage_attributes,
         }))
     }

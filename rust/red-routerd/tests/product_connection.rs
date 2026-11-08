@@ -39,7 +39,7 @@ async fn fixture() -> (TempDir, SqliteConnection) {
     .await
     .unwrap();
     for statement in [
-        "CREATE TABLE api_keys (id TEXT PRIMARY KEY, key TEXT NOT NULL, key_hash TEXT, is_active INTEGER DEFAULT 1, is_banned INTEGER DEFAULT 0, revoked_at TEXT, expires_at TEXT, max_requests_per_day INTEGER, max_requests_per_minute INTEGER, throttle_delay_ms INTEGER, max_sessions INTEGER DEFAULT 0, usage_limit_enabled INTEGER DEFAULT 0, disable_non_public_models INTEGER DEFAULT 0, auto_resolve INTEGER DEFAULT 0, access_schedule TEXT, proxy_id TEXT, tenant_id TEXT DEFAULT 'red', ip_allowlist TEXT, scopes TEXT, rate_limits TEXT, allowed_quotas TEXT DEFAULT '[]', allowed_connections TEXT, allowed_combos TEXT, allowed_models TEXT DEFAULT '[]', blocked_models TEXT, allowed_endpoints TEXT, model_access_mode TEXT DEFAULT 'all')",
+        "CREATE TABLE api_keys (id TEXT PRIMARY KEY, name TEXT, key TEXT NOT NULL, key_hash TEXT, is_active INTEGER DEFAULT 1, is_banned INTEGER DEFAULT 0, revoked_at TEXT, expires_at TEXT, max_requests_per_day INTEGER, max_requests_per_minute INTEGER, throttle_delay_ms INTEGER, max_sessions INTEGER DEFAULT 0, usage_limit_enabled INTEGER DEFAULT 0, disable_non_public_models INTEGER DEFAULT 0, auto_resolve INTEGER DEFAULT 0, access_schedule TEXT, proxy_id TEXT, tenant_id TEXT DEFAULT 'red', ip_allowlist TEXT, scopes TEXT, rate_limits TEXT, allowed_quotas TEXT DEFAULT '[]', allowed_connections TEXT, allowed_combos TEXT, allowed_models TEXT DEFAULT '[]', blocked_models TEXT, allowed_endpoints TEXT, model_access_mode TEXT DEFAULT 'all')",
         "CREATE TABLE domain_budgets (api_key_id TEXT)",
         "CREATE TABLE api_key_token_limits (api_key_id TEXT, enabled INTEGER)",
         "CREATE TABLE api_key_quota_limits (api_key_id TEXT, tpm_limit INTEGER, rpm_limit INTEGER, monthly_amount_usd REAL)",
@@ -1421,8 +1421,14 @@ async fn dashboard_keys_enforce_supported_policy_and_refuse_unimplemented_quotas
     .execute(&mut db)
     .await
     .unwrap();
-    sqlx::query("INSERT INTO api_keys (id, key, model_access_mode, allowed_models, blocked_models, allowed_endpoints, allowed_connections) VALUES ('client', 'dashboard-client-key-12345', 'restricted', '[\"openrouter/*\"]', '[]', '[\"chat\"]', '[\"test\"]')")
+    sqlx::query("INSERT INTO api_keys (id, name, key, model_access_mode, allowed_models, blocked_models, allowed_endpoints, allowed_connections) VALUES ('client', 'Dashboard client', 'dashboard-client-key-12345', 'restricted', '[\"openrouter/*\"]', '[]', '[\"chat\"]', '[\"test\"]')")
         .execute(&mut db).await.unwrap();
+    sqlx::query(
+        "INSERT INTO key_value(namespace,key,value) VALUES ('api_key_id_format','client','flat')",
+    )
+    .execute(&mut db)
+    .await
+    .unwrap();
     let hash = hex::encode(Sha256::digest(b"dashboard-hashed-key-12345"));
     sqlx::query("INSERT INTO api_keys (id, key, key_hash) VALUES ('hashed', 'hidden', ?)")
         .bind(hash)
@@ -1482,6 +1488,21 @@ async fn dashboard_keys_enforce_supported_policy_and_refuse_unimplemented_quotas
             .body(serde_json::json!({"model":model,"messages":[]}).to_string())
     };
     let client_key = "dashboard-client-key-12345";
+    let identity = client
+        .get(format!("http://{address}/v1/key"))
+        .header("x-api-key", client_key)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(identity.status(), 200);
+    assert_eq!(identity.headers()["cache-control"], "private, no-store");
+    let identity: serde_json::Value =
+        serde_json::from_str(&identity.text().await.unwrap()).unwrap();
+    assert_eq!(identity["id"], "client");
+    assert_eq!(identity["name"], "Dashboard client");
+    assert_eq!(identity["role"], "standard");
+    assert_eq!(identity["id_format"], "flat");
+    assert_eq!(identity["persisted"], true);
     assert_eq!(
         send(client_key, "openrouter/openai/gpt")
             .send()
