@@ -57,11 +57,19 @@ provider; subsequent provider changes do not require those environment secrets.
   and optional `enabled` and `rate_limit_scope` (`auto`, `connection` or `model`).
 - `DELETE /api/admin/providers/{id}` disables that provider and activates the
   most recently updated remaining enabled provider.
+- `GET /api/admin/tenants` lists the Rust-owned organizations. A fresh store contains
+  the enabled `red` tenant.
+- `PUT /api/admin/tenants/{id}` creates or updates an organization with a stable ID,
+  unique operator-facing slug, display name and enabled state. The default `red` tenant
+  cannot be disabled.
 - `GET /api/admin/client-keys` lists redacted key metadata and grants.
 - `POST /api/admin/client-keys` generates a cryptographically random `rrk_` client key,
   persists only its SHA-256 lookup hash and returns the raw secret once with `Cache-Control:
   no-store`. The required `label` is durable operator metadata and may describe the workload
-  that receives the key; it does not grant access by itself.
+  that receives the key; it does not grant access by itself. Optional `tenant_id` binds
+  the key to an enabled Rust-owned tenant and defaults to `red`. `created_by` is derived
+  from the authenticated bootstrap administrator or verified OIDC subject, never from
+  request JSON.
 - `PUT /api/admin/client-keys/{id}` creates or replaces a key policy. `api_key` is
   required on creation and may be omitted on later policy updates. Optional
   `model_id_format` is `prefixed` (default) or `flat`; omitting it on an update

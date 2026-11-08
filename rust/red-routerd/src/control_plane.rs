@@ -7,6 +7,7 @@ use crate::{
     storage::{
         StoredClientKey, StoredCombo, StoredModelCatalogSnapshot, StoredOidcBrowserConfig,
         StoredOidcConfig, StoredProvider, StoredProviderQuota, StoredResilience, StoredRoutePin,
+        StoredTenant,
     },
     LiveProvider, ModelRoute, ProviderProtocol, ProxyState, RouteStrategy, TargetQuota,
 };
@@ -124,6 +125,7 @@ pub struct ProviderView {
 pub struct ClientKeyInput {
     pub label: String,
     pub api_key: Option<String>,
+    pub tenant_id: Option<String>,
     pub model_id_format: Option<String>,
     #[serde(default = "enabled_by_default")]
     pub enabled: bool,
@@ -147,6 +149,7 @@ pub struct ClientKeyInput {
 #[serde(deny_unknown_fields)]
 pub struct ClientKeyIssueInput {
     pub label: String,
+    pub tenant_id: Option<String>,
     pub model_id_format: Option<String>,
     #[serde(default = "enabled_by_default")]
     pub enabled: bool,
@@ -171,6 +174,7 @@ impl ClientKeyIssueInput {
         ClientKeyInput {
             label: self.label,
             api_key: Some(api_key),
+            tenant_id: self.tenant_id,
             model_id_format: self.model_id_format,
             enabled: self.enabled,
             expires_at_unix: self.expires_at_unix,
@@ -190,6 +194,8 @@ impl ClientKeyIssueInput {
 pub struct ClientKeyView {
     pub id: String,
     pub label: String,
+    pub tenant_id: String,
+    pub created_by: String,
     pub model_id_format: String,
     pub enabled: bool,
     pub expires_at_unix: Option<u64>,
@@ -201,6 +207,24 @@ pub struct ClientKeyView {
     pub max_concurrent_requests: Option<u64>,
     pub max_requests_per_minute: Option<u64>,
     pub max_requests_per_day: Option<u64>,
+    pub revision: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TenantInput {
+    pub slug: String,
+    pub name: String,
+    #[serde(default = "enabled_by_default")]
+    pub enabled: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct TenantView {
+    pub id: String,
+    pub slug: String,
+    pub name: String,
+    pub enabled: bool,
     pub revision: String,
 }
 
@@ -1346,9 +1370,20 @@ impl ControlPlane {
         id: &str,
         input: ClientKeyInput,
     ) -> Result<ClientKeyView, &'static str> {
+        self.configure_client_key_as(id, input, "bootstrap-admin")
+            .await
+    }
+
+    async fn configure_client_key_as(
+        &self,
+        id: &str,
+        input: ClientKeyInput,
+        actor: &str,
+    ) -> Result<ClientKeyView, &'static str> {
         validate_id(id)?;
         validate_label(&input.label)?;
         validate_client_lists(&input)?;
+        validate_actor(actor)?;
         let _mutation = self.0.mutation.lock().await;
         let existing = self
             .0
@@ -1357,6 +1392,22 @@ impl ControlPlane {
             .await?
             .into_iter()
             .find(|row| row.id == id);
+        let tenant_id = input
+            .tenant_id
+            .as_deref()
+            .or_else(|| existing.as_ref().map(|row| row.tenant_id.as_str()))
+            .unwrap_or("red");
+        validate_id(tenant_id)?;
+        if !self
+            .0
+            .database
+            .tenants()
+            .await?
+            .iter()
+            .any(|tenant| tenant.id == tenant_id && tenant.enabled)
+        {
+            return Err("client key tenant is unavailable");
+        }
         let key_hash = match input.api_key {
             Some(key) if (16..=512).contains(&key.len()) => {
                 let key = Zeroizing::new(key);
@@ -1396,6 +1447,11 @@ impl ControlPlane {
                     .unwrap_or("prefixed"),
             )?
             .to_owned(),
+            tenant_id: tenant_id.to_owned(),
+            created_by: existing
+                .as_ref()
+                .map(|row| row.created_by.clone())
+                .unwrap_or_else(|| actor.to_owned()),
             revision: revision()?,
         };
         self.0.database.upsert_client_key(&record).await?;
@@ -1410,14 +1466,52 @@ impl ControlPlane {
         &self,
         input: ClientKeyIssueInput,
     ) -> Result<(ClientKeyView, Zeroizing<String>), &'static str> {
+        self.issue_client_key_as(input, "bootstrap-admin").await
+    }
+
+    async fn issue_client_key_as(
+        &self,
+        input: ClientKeyIssueInput,
+        actor: &str,
+    ) -> Result<(ClientKeyView, Zeroizing<String>), &'static str> {
         let mut id_bytes = Zeroizing::new([0_u8; 16]);
         getrandom::fill(id_bytes.as_mut()).map_err(|_| "cannot generate client key identifier")?;
         let id = format!("key_{}", hex::encode(id_bytes.as_ref()));
         let secret = Zeroizing::new(format!("rrk_{}", random_token(32)?));
         let view = self
-            .configure_client_key(&id, input.with_secret(secret.to_string()))
+            .configure_client_key_as(&id, input.with_secret(secret.to_string()), actor)
             .await?;
         Ok((view, secret))
+    }
+
+    pub async fn configure_tenant(
+        &self,
+        id: &str,
+        input: TenantInput,
+    ) -> Result<TenantView, &'static str> {
+        validate_id(id)?;
+        validate_tenant_slug(&input.slug)?;
+        validate_tenant_name(&input.name)?;
+        if id == "red" && !input.enabled {
+            return Err("default tenant cannot be disabled");
+        }
+        let _mutation = self.0.mutation.lock().await;
+        let tenants = self.0.database.tenants().await?;
+        if tenants
+            .iter()
+            .any(|tenant| tenant.id != id && tenant.slug == input.slug)
+        {
+            return Err("tenant slug is already in use");
+        }
+        let record = StoredTenant {
+            id: id.to_owned(),
+            slug: input.slug,
+            name: input.name,
+            enabled: input.enabled,
+            revision: revision()?,
+        };
+        self.0.database.upsert_tenant(&record).await?;
+        Ok(tenant_view(&record))
     }
 
     pub async fn revoke_client_key(&self, id: &str) -> Result<(), &'static str> {
@@ -1724,6 +1818,17 @@ impl ControlPlane {
             .collect()
     }
 
+    async fn tenant_views(&self) -> Result<Vec<TenantView>, &'static str> {
+        Ok(self
+            .0
+            .database
+            .tenants()
+            .await?
+            .iter()
+            .map(tenant_view)
+            .collect())
+    }
+
     async fn combo_views(&self) -> Result<Vec<ComboView>, &'static str> {
         let pins: HashMap<_, _> = self
             .0
@@ -1854,10 +1959,14 @@ impl ControlPlane {
     }
 
     async fn authorized(&self, headers: &HeaderMap) -> bool {
+        self.authorized_actor(headers).await.is_some()
+    }
+
+    async fn authorized_actor(&self, headers: &HeaderMap) -> Option<String> {
         let authorization_count = headers.get_all(header::AUTHORIZATION).iter().count();
         if authorization_count > 0 {
             if authorization_count != 1 {
-                return false;
+                return None;
             }
             let Some(candidate) = headers
                 .get(header::AUTHORIZATION)
@@ -1865,26 +1974,26 @@ impl ControlPlane {
                 .and_then(|value| value.strip_prefix("Bearer "))
                 .filter(|value| !value.is_empty() && value.len() <= 16 * 1024)
             else {
-                return false;
+                return None;
             };
             if (32..=512).contains(&candidate.len()) {
                 let digest: [u8; 32] = Sha256::digest(candidate.as_bytes()).into();
                 if bool::from(self.0.admin_hash.ct_eq(&digest)) {
-                    return true;
+                    return Some("bootstrap-admin".to_owned());
                 }
             }
             let verifier = self.0.oidc.read().await.clone();
             return match verifier {
-                Some(verifier) => verifier.verify(candidate).await.is_ok(),
-                None => false,
+                Some(verifier) => verifier.verify(candidate).await.ok(),
+                None => None,
             };
         }
 
         let Some(session_cookie) = unique_cookie(headers, ADMIN_SESSION_COOKIE) else {
-            return false;
+            return None;
         };
         let Some(csrf_cookie) = unique_cookie(headers, ADMIN_CSRF_COOKIE) else {
-            return false;
+            return None;
         };
         let origin_count = headers.get_all(header::ORIGIN).iter().count();
         let fetch_site_count = headers.get_all("sec-fetch-site").iter().count();
@@ -1892,24 +2001,24 @@ impl ControlPlane {
             || origin_count > 1
             || fetch_site_count > 1
         {
-            return false;
+            return None;
         }
         let Some(csrf_header) = headers
             .get(ADMIN_CSRF_HEADER)
             .and_then(|value| value.to_str().ok())
             .filter(|value| value.len() <= 256)
         else {
-            return false;
+            return None;
         };
         if csrf_cookie.len() != csrf_header.len()
             || !bool::from(csrf_cookie.as_bytes().ct_eq(csrf_header.as_bytes()))
         {
-            return false;
+            return None;
         }
         let browser = self.0.oidc_browser.read().await.clone();
         let verifier = self.0.oidc.read().await.clone();
         let (Some(browser), Some(verifier)) = (browser, verifier) else {
-            return false;
+            return None;
         };
         let expected_origin = browser.public_origin.origin().ascii_serialization();
         let fetch_site = headers
@@ -1921,20 +2030,20 @@ impl ControlPlane {
                 None => fetch_site == Some("same-origin"),
             };
         if !same_origin {
-            return false;
+            return None;
         }
         let Ok(session) = decrypt(
             &session_cookie,
             "oidc-browser-admin-session",
             self.0.encryption_key.as_str(),
         ) else {
-            return false;
+            return None;
         };
         let Ok(session) = serde_json::from_str::<AdminSession>(&session) else {
-            return false;
+            return None;
         };
         let Ok(now) = unix_time_seconds() else {
-            return false;
+            return None;
         };
         if session.subject.is_empty()
             || session.subject.len() > 512
@@ -1942,11 +2051,16 @@ impl ControlPlane {
             || session.revision != verifier.policy().revision
             || session.revision != browser.revision
         {
-            return false;
+            return None;
         }
         let csrf_hash = hex::encode(Sha256::digest(csrf_cookie.as_bytes()));
-        csrf_hash.len() == session.csrf_hash.len()
+        if csrf_hash.len() == session.csrf_hash.len()
             && bool::from(csrf_hash.as_bytes().ct_eq(session.csrf_hash.as_bytes()))
+        {
+            Some(session.subject)
+        } else {
+            None
+        }
     }
 }
 
@@ -2006,6 +2120,8 @@ fn client_view(record: &StoredClientKey) -> Result<ClientKeyView, &'static str> 
     Ok(ClientKeyView {
         id: record.id.clone(),
         label: record.label.clone(),
+        tenant_id: record.tenant_id.clone(),
+        created_by: record.created_by.clone(),
         model_id_format: validate_model_id_format(&record.model_id_format)?.to_owned(),
         enabled: record.enabled,
         expires_at_unix,
@@ -2019,6 +2135,16 @@ fn client_view(record: &StoredClientKey) -> Result<ClientKeyView, &'static str> 
         max_requests_per_day: positive_u64(record.max_rpd)?,
         revision: record.revision.to_string(),
     })
+}
+
+fn tenant_view(record: &StoredTenant) -> TenantView {
+    TenantView {
+        id: record.id.clone(),
+        slug: record.slug.clone(),
+        name: record.name.clone(),
+        enabled: record.enabled,
+        revision: record.revision.to_string(),
+    }
 }
 
 fn combo_view(record: &StoredCombo) -> Result<ComboView, &'static str> {
@@ -2227,6 +2353,32 @@ fn validate_patterns(values: &[String]) -> Result<(), &'static str> {
 fn validate_label(value: &str) -> Result<(), &'static str> {
     if value.trim().is_empty() || value.len() > 128 || value.chars().any(char::is_control) {
         return Err("invalid client key label");
+    }
+    Ok(())
+}
+
+fn validate_tenant_slug(value: &str) -> Result<(), &'static str> {
+    if value.is_empty()
+        || value.len() > 64
+        || !value.bytes().all(|byte| {
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'-' | b'_')
+        })
+    {
+        return Err("invalid tenant slug");
+    }
+    Ok(())
+}
+
+fn validate_tenant_name(value: &str) -> Result<(), &'static str> {
+    if value.trim().is_empty() || value.len() > 128 || value.chars().any(char::is_control) {
+        return Err("invalid tenant name");
+    }
+    Ok(())
+}
+
+fn validate_actor(value: &str) -> Result<(), &'static str> {
+    if value.is_empty() || value.len() > 512 || value.chars().any(char::is_control) {
+        return Err("invalid authenticated actor");
     }
     Ok(())
 }
@@ -2848,6 +3000,22 @@ pub async fn list_client_keys(State(state): State<ProxyState>, headers: HeaderMa
     }
 }
 
+pub async fn list_tenants(State(state): State<ProxyState>, headers: HeaderMap) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+    };
+    if !control.authorized(&headers).await {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
+    }
+    match control.tenant_views().await {
+        Ok(tenants) => Json(serde_json::json!({"tenants":tenants})).into_response(),
+        Err(_) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Tenant storage unavailable",
+        ),
+    }
+}
+
 pub async fn issue_client_key(
     State(state): State<ProxyState>,
     headers: HeaderMap,
@@ -2856,10 +3024,10 @@ pub async fn issue_client_key(
     let Some(control) = &state.control_plane else {
         return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
     };
-    if !control.authorized(&headers).await {
+    let Some(actor) = control.authorized_actor(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
-    }
-    match control.issue_client_key(input).await {
+    };
+    match control.issue_client_key_as(input, &actor).await {
         Ok((client_key, secret)) => {
             let mut response = (
                 StatusCode::CREATED,
@@ -3218,16 +3386,38 @@ pub async fn put_client_key(
     let Some(control) = &state.control_plane else {
         return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
     };
-    if !control.authorized(&headers).await {
+    let Some(actor) = control.authorized_actor(&headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
-    }
-    match control.configure_client_key(&id, input).await {
+    };
+    match control.configure_client_key_as(&id, input, &actor).await {
         Ok(key) => Json(serde_json::json!({"client_key":key})).into_response(),
         Err(error) if is_runtime_error(error) => api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "Client key storage unavailable",
         ),
         Err(_) => api_error(StatusCode::BAD_REQUEST, "Invalid client key configuration"),
+    }
+}
+
+pub async fn put_tenant(
+    State(state): State<ProxyState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Json(input): Json<TenantInput>,
+) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+    };
+    if !control.authorized(&headers).await {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
+    }
+    match control.configure_tenant(&id, input).await {
+        Ok(tenant) => Json(serde_json::json!({"tenant":tenant})).into_response(),
+        Err(error) if is_runtime_error(error) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Tenant storage unavailable",
+        ),
+        Err(_) => api_error(StatusCode::BAD_REQUEST, "Invalid tenant configuration"),
     }
 }
 

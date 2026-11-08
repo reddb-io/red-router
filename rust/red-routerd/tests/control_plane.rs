@@ -819,6 +819,27 @@ async fn rust_control_plane_issues_hash_only_named_client_keys() {
         StatusCode::UNAUTHORIZED
     );
 
+    let default_tenants = client
+        .get(format!("{base}/api/admin/tenants"))
+        .bearer_auth(ADMIN_KEY)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(default_tenants.status(), StatusCode::OK);
+    let default_tenants: serde_json::Value =
+        serde_json::from_str(&default_tenants.text().await.unwrap()).unwrap();
+    assert_eq!(default_tenants["tenants"][0]["id"], "red");
+
+    let tenant = client
+        .put(format!("{base}/api/admin/tenants/acme"))
+        .bearer_auth(ADMIN_KEY)
+        .header(header::CONTENT_TYPE.as_str(), "application/json")
+        .body(r#"{"slug":"acme","name":"Acme Corporation"}"#)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(tenant.status(), StatusCode::OK);
+
     let issued = client
         .post(format!("{base}/api/admin/client-keys"))
         .bearer_auth(ADMIN_KEY)
@@ -826,6 +847,7 @@ async fn rust_control_plane_issues_hash_only_named_client_keys() {
         .body(
             serde_json::json!({
                 "label":"RedDB Cloud / Acme production",
+                "tenant_id":"acme",
                 "scopes":["inference:chat"],
                 "allowed_endpoints":["chat"],
                 "allowed_models":["*"]
@@ -847,11 +869,15 @@ async fn rust_control_plane_issues_hash_only_named_client_keys() {
         issued["client_key"]["label"],
         "RedDB Cloud / Acme production"
     );
+    assert_eq!(issued["client_key"]["tenant_id"], "acme");
+    assert_eq!(issued["client_key"]["created_by"], "bootstrap-admin");
 
     let stored = database.client_keys().await.unwrap();
     assert_eq!(stored.len(), 1);
     assert_eq!(stored[0].id, key_id);
     assert_eq!(stored[0].label, "RedDB Cloud / Acme production");
+    assert_eq!(stored[0].tenant_id, "acme");
+    assert_eq!(stored[0].created_by, "bootstrap-admin");
     assert_ne!(stored[0].key_hash, raw_key);
     assert!(!format!("{stored:?}").contains(&raw_key));
 

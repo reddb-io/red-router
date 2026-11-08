@@ -128,7 +128,11 @@ Rust-owned provider IDs and are checked independently for every combo target bef
 selection or fallback. Authenticated `POST /api/admin/client-keys` generates a random
 `rrk_` secret, persists only its hash, returns the raw value once in a non-cacheable
 response and assigns a random stable key ID. Its durable `label` is descriptive metadata;
-organization ownership is a separate tenant slice and must not be inferred from the label.
+organization ownership is not inferred from the label. Rust now owns stable tenants and a
+revision-coupled key-ownership sidecar containing only `tenant_id` and authenticated
+`created_by`. The default tenant is `red`; legacy keys are adopted as `red/legacy`, while
+new keys reject missing or disabled tenants. No RedDB database identifier is stored in Red
+Router: RedDB Cloud owns any database-to-key association outside this service.
 
 The combo slice stores bounded routing records in `redrouter_control_combos` and exposes
 only authenticated Rust admin APIs. The first durable combo makes this table the routing

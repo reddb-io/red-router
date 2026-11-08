@@ -21,6 +21,13 @@ const LIST_CLIENT_KEYS: &str = "SELECT id, label, key_hash, enabled, expiry_unix
 const LIST_CLIENT_KEY_PREFERENCES: &str = "SELECT key_id, model_id_format, revision FROM redrouter_control_client_key_preferences ORDER BY key_id ASC";
 const UPSERT_CLIENT_KEY: &str = "INSERT INTO redrouter_control_client_keys (id, label, key_hash, enabled, expiry_unix, scopes_json, allowed_endpoints_json, allowed_models_json, blocked_models_json, allowed_provider_ids_json, max_concurrent, max_rpm, max_rpd, revision) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) ON CONFLICT (id) DO UPDATE SET label = $2, key_hash = $3, enabled = $4, expiry_unix = $5, scopes_json = $6, allowed_endpoints_json = $7, allowed_models_json = $8, blocked_models_json = $9, allowed_provider_ids_json = $10, max_concurrent = $11, max_rpm = $12, max_rpd = $13, revision = $14";
 const UPSERT_CLIENT_KEY_PREFERENCE: &str = "INSERT INTO redrouter_control_client_key_preferences (key_id, model_id_format, revision) VALUES ($1,$2,$3) ON CONFLICT (key_id) DO UPDATE SET model_id_format = $2, revision = $3";
+const CREATE_TENANTS: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_tenants (id TEXT PRIMARY KEY, slug TEXT NOT NULL UNIQUE, name TEXT NOT NULL, enabled BIGINT NOT NULL, revision BIGINT NOT NULL)";
+const SEED_DEFAULT_TENANT: &str = "INSERT INTO redrouter_control_tenants (id, slug, name, enabled, revision) VALUES ('red','red','Red',1,0) ON CONFLICT (id) DO NOTHING";
+const LIST_TENANTS: &str = "SELECT id, slug, name, enabled, revision FROM redrouter_control_tenants ORDER BY revision DESC, id ASC";
+const UPSERT_TENANT: &str = "INSERT INTO redrouter_control_tenants (id, slug, name, enabled, revision) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (id) DO UPDATE SET slug = $2, name = $3, enabled = $4, revision = $5";
+const CREATE_CLIENT_KEY_OWNERSHIP: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_client_key_ownership (key_id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, created_by TEXT NOT NULL, revision BIGINT NOT NULL)";
+const LIST_CLIENT_KEY_OWNERSHIP: &str = "SELECT key_id, tenant_id, created_by, revision FROM redrouter_control_client_key_ownership ORDER BY key_id ASC";
+const UPSERT_CLIENT_KEY_OWNERSHIP: &str = "INSERT INTO redrouter_control_client_key_ownership (key_id, tenant_id, created_by, revision) VALUES ($1,$2,$3,$4) ON CONFLICT (key_id) DO UPDATE SET tenant_id = $2, created_by = $3, revision = $4";
 const CREATE_COMBOS: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_combos (id TEXT PRIMARY KEY, protocol TEXT NOT NULL, routing_strategy TEXT NOT NULL, fallback_enabled BIGINT NOT NULL, targets_json TEXT NOT NULL, enabled BIGINT NOT NULL, revision BIGINT NOT NULL)";
 const LIST_COMBOS: &str = "SELECT id, protocol, routing_strategy, fallback_enabled, targets_json, enabled, revision FROM redrouter_control_combos ORDER BY revision DESC, id ASC";
 const UPSERT_COMBO: &str = "INSERT INTO redrouter_control_combos (id, protocol, routing_strategy, fallback_enabled, targets_json, enabled, revision) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (id) DO UPDATE SET protocol = $2, routing_strategy = $3, fallback_enabled = $4, targets_json = $5, enabled = $6, revision = $7";
@@ -89,6 +96,8 @@ pub struct StoredClientKey {
     pub max_rpm: i64,
     pub max_rpd: i64,
     pub model_id_format: String,
+    pub tenant_id: String,
+    pub created_by: String,
     pub revision: i64,
 }
 
@@ -97,6 +106,23 @@ struct StoredClientKeyPreference {
     key_id: String,
     model_id_format: String,
     revision: i64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct StoredClientKeyOwnership {
+    key_id: String,
+    tenant_id: String,
+    created_by: String,
+    revision: i64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StoredTenant {
+    pub id: String,
+    pub slug: String,
+    pub name: String,
+    pub enabled: bool,
+    pub revision: i64,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -271,6 +297,8 @@ impl Database {
                         CREATE_PROVIDERS,
                         CREATE_CLIENT_KEYS,
                         CREATE_CLIENT_KEY_PREFERENCES,
+                        CREATE_TENANTS,
+                        CREATE_CLIENT_KEY_OWNERSHIP,
                         CREATE_COMBOS,
                         CREATE_ROUTE_PINS,
                         CREATE_PROVIDER_QUOTAS,
@@ -285,6 +313,9 @@ impl Database {
                             .await
                             .map_err(|_| "cannot initialize database")?;
                     }
+                    db.query(SEED_DEFAULT_TENANT)
+                        .await
+                        .map_err(|_| "cannot initialize default tenant")?;
                     Ok(Self::Embedded { db, _lock: lock })
                 }
                 #[cfg(not(feature = "reddb-embedded"))]
@@ -364,6 +395,8 @@ impl Database {
                 db.remote_schema_query(CREATE_CLIENT_KEYS).await?;
                 db.remote_schema_query(CREATE_CLIENT_KEY_PREFERENCES)
                     .await?;
+                db.remote_schema_query(CREATE_TENANTS).await?;
+                db.remote_schema_query(CREATE_CLIENT_KEY_OWNERSHIP).await?;
                 db.remote_schema_query(CREATE_COMBOS).await?;
                 db.remote_schema_query(CREATE_ROUTE_PINS).await?;
                 db.remote_schema_query(CREATE_PROVIDER_QUOTAS).await?;
@@ -373,6 +406,7 @@ impl Database {
                 db.remote_schema_query(CREATE_OIDC).await?;
                 db.remote_schema_query(CREATE_OIDC_BROWSER).await?;
                 db.remote_schema_query(CREATE_MODEL_CATALOG).await?;
+                db.remote_query(SEED_DEFAULT_TENANT, &[]).await?;
                 Ok(db)
             }
             Backend::Sqlite | Backend::Postgres => {
@@ -400,6 +434,8 @@ impl Database {
                     CREATE_PROVIDERS,
                     CREATE_CLIENT_KEYS,
                     CREATE_CLIENT_KEY_PREFERENCES,
+                    CREATE_TENANTS,
+                    CREATE_CLIENT_KEY_OWNERSHIP,
                     CREATE_COMBOS,
                     CREATE_ROUTE_PINS,
                     CREATE_PROVIDER_QUOTAS,
@@ -415,6 +451,10 @@ impl Database {
                         .await
                         .map_err(|_| "cannot initialize database")?;
                 }
+                sqlx::query(SEED_DEFAULT_TENANT)
+                    .execute(&pool)
+                    .await
+                    .map_err(|_| "cannot initialize default tenant")?;
                 Ok(Self::Sql(pool))
             }
         }
@@ -566,6 +606,62 @@ impl Database {
         Ok(())
     }
 
+    pub async fn tenants(&self) -> Result<Vec<StoredTenant>, &'static str> {
+        match self {
+            Self::Sql(pool) => sqlx::query(LIST_TENANTS)
+                .fetch_all(pool)
+                .await
+                .map_err(|_| "cannot read tenant configuration")?
+                .iter()
+                .map(read_sql_tenant)
+                .collect(),
+            Self::Remote(_) => self
+                .remote_query(LIST_TENANTS, &[])
+                .await?
+                .rows
+                .iter()
+                .map(read_reddb_tenant)
+                .collect(),
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => db
+                .query(LIST_TENANTS)
+                .await
+                .map_err(|_| "cannot read tenant configuration")?
+                .rows
+                .iter()
+                .map(read_reddb_tenant)
+                .collect(),
+        }
+    }
+
+    pub async fn upsert_tenant(&self, tenant: &StoredTenant) -> Result<(), &'static str> {
+        let enabled = if tenant.enabled { 1_i64 } else { 0_i64 };
+        match self {
+            Self::Sql(pool) => {
+                sqlx::query(UPSERT_TENANT)
+                    .bind(&tenant.id)
+                    .bind(&tenant.slug)
+                    .bind(&tenant.name)
+                    .bind(enabled)
+                    .bind(tenant.revision)
+                    .execute(pool)
+                    .await
+                    .map_err(|_| "cannot write tenant configuration")?;
+            }
+            Self::Remote(_) => {
+                self.remote_query(UPSERT_TENANT, &tenant_params(tenant, enabled))
+                    .await?;
+            }
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => {
+                db.query_with(UPSERT_TENANT, tenant_params(tenant, enabled))
+                    .await
+                    .map_err(|_| "cannot write tenant configuration")?;
+            }
+        }
+        Ok(())
+    }
+
     pub async fn client_keys(&self) -> Result<Vec<StoredClientKey>, &'static str> {
         let mut keys: Vec<StoredClientKey> = match self {
             Self::Sql(pool) => sqlx::query(LIST_CLIENT_KEYS)
@@ -604,11 +700,24 @@ impl Database {
             }
             key.model_id_format = preference.model_id_format;
         }
+        for ownership in self.client_key_ownerships().await? {
+            let Some(key) = keys.iter_mut().find(|key| key.id == ownership.key_id) else {
+                // Ownership is committed before a key. An orphan is safe to
+                // ignore after a failed insert.
+                continue;
+            };
+            if key.revision != ownership.revision {
+                return Err("client key ownership revision mismatch");
+            }
+            key.tenant_id = ownership.tenant_id;
+            key.created_by = ownership.created_by;
+        }
         Ok(keys)
     }
 
     pub async fn upsert_client_key(&self, key: &StoredClientKey) -> Result<(), &'static str> {
         self.upsert_client_key_preference(key).await?;
+        self.upsert_client_key_ownership(key).await?;
         let enabled = if key.enabled { 1_i64 } else { 0_i64 };
         match self {
             Self::Sql(pool) => {
@@ -717,6 +826,66 @@ impl Database {
                 )
                 .await
                 .map_err(|_| "cannot write client key preferences")?;
+            }
+        }
+        Ok(())
+    }
+
+    async fn client_key_ownerships(&self) -> Result<Vec<StoredClientKeyOwnership>, &'static str> {
+        match self {
+            Self::Sql(pool) => sqlx::query(LIST_CLIENT_KEY_OWNERSHIP)
+                .fetch_all(pool)
+                .await
+                .map_err(|_| "cannot read client key ownership")?
+                .iter()
+                .map(read_sql_client_key_ownership)
+                .collect(),
+            Self::Remote(_) => self
+                .remote_query(LIST_CLIENT_KEY_OWNERSHIP, &[])
+                .await?
+                .rows
+                .iter()
+                .map(read_reddb_client_key_ownership)
+                .collect(),
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => db
+                .query(LIST_CLIENT_KEY_OWNERSHIP)
+                .await
+                .map_err(|_| "cannot read client key ownership")?
+                .rows
+                .iter()
+                .map(read_reddb_client_key_ownership)
+                .collect(),
+        }
+    }
+
+    async fn upsert_client_key_ownership(&self, key: &StoredClientKey) -> Result<(), &'static str> {
+        match self {
+            Self::Sql(pool) => {
+                sqlx::query(UPSERT_CLIENT_KEY_OWNERSHIP)
+                    .bind(&key.id)
+                    .bind(&key.tenant_id)
+                    .bind(&key.created_by)
+                    .bind(key.revision)
+                    .execute(pool)
+                    .await
+                    .map_err(|_| "cannot write client key ownership")?;
+            }
+            Self::Remote(_) => {
+                self.remote_query(
+                    UPSERT_CLIENT_KEY_OWNERSHIP,
+                    &client_key_ownership_params(key),
+                )
+                .await?;
+            }
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => {
+                db.query_with(
+                    UPSERT_CLIENT_KEY_OWNERSHIP,
+                    client_key_ownership_params(key),
+                )
+                .await
+                .map_err(|_| "cannot write client key ownership")?;
             }
         }
         Ok(())
@@ -1720,6 +1889,8 @@ fn read_sql_client_key(row: &sqlx::any::AnyRow) -> Result<StoredClientKey, &'sta
         max_rpm: integer("max_rpm")?,
         max_rpd: integer("max_rpd")?,
         model_id_format: "prefixed".to_owned(),
+        tenant_id: "red".to_owned(),
+        created_by: "legacy".to_owned(),
         revision: integer("revision")?,
     })
 }
@@ -1754,6 +1925,8 @@ fn read_reddb_client_key(row: &reddb_client::Row) -> Result<StoredClientKey, &'s
         max_rpm: integer("max_rpm")?,
         max_rpd: integer("max_rpd")?,
         model_id_format: "prefixed".to_owned(),
+        tenant_id: "red".to_owned(),
+        created_by: "legacy".to_owned(),
         revision: integer("revision")?,
     })
 }
@@ -1822,6 +1995,108 @@ fn client_key_preference_params(key: &StoredClientKey) -> Vec<reddb_client::Valu
         reddb_client::Value::Text(key.id.clone()),
         reddb_client::Value::Text(key.model_id_format.clone()),
         reddb_client::Value::Int(key.revision),
+    ]
+}
+
+fn read_sql_client_key_ownership(
+    row: &sqlx::any::AnyRow,
+) -> Result<StoredClientKeyOwnership, &'static str> {
+    Ok(StoredClientKeyOwnership {
+        key_id: row
+            .try_get("key_id")
+            .map_err(|_| "invalid client key ownership")?,
+        tenant_id: row
+            .try_get("tenant_id")
+            .map_err(|_| "invalid client key ownership")?,
+        created_by: row
+            .try_get("created_by")
+            .map_err(|_| "invalid client key ownership")?,
+        revision: row
+            .try_get("revision")
+            .map_err(|_| "invalid client key ownership")?,
+    })
+}
+
+fn read_reddb_client_key_ownership(
+    row: &reddb_client::Row,
+) -> Result<StoredClientKeyOwnership, &'static str> {
+    let text = |name: &str| match row
+        .iter()
+        .find(|(column, _)| column.eq_ignore_ascii_case(name))
+    {
+        Some((_, reddb_client::ValueOut::String(value))) => Ok(value.clone()),
+        _ => Err("invalid client key ownership"),
+    };
+    let revision = match row
+        .iter()
+        .find(|(column, _)| column.eq_ignore_ascii_case("revision"))
+    {
+        Some((_, reddb_client::ValueOut::Integer(value))) => Ok(*value),
+        _ => Err("invalid client key ownership"),
+    }?;
+    Ok(StoredClientKeyOwnership {
+        key_id: text("key_id")?,
+        tenant_id: text("tenant_id")?,
+        created_by: text("created_by")?,
+        revision,
+    })
+}
+
+fn client_key_ownership_params(key: &StoredClientKey) -> Vec<reddb_client::Value> {
+    vec![
+        reddb_client::Value::Text(key.id.clone()),
+        reddb_client::Value::Text(key.tenant_id.clone()),
+        reddb_client::Value::Text(key.created_by.clone()),
+        reddb_client::Value::Int(key.revision),
+    ]
+}
+
+fn read_sql_tenant(row: &sqlx::any::AnyRow) -> Result<StoredTenant, &'static str> {
+    Ok(StoredTenant {
+        id: row.try_get("id").map_err(|_| "invalid tenant record")?,
+        slug: row.try_get("slug").map_err(|_| "invalid tenant record")?,
+        name: row.try_get("name").map_err(|_| "invalid tenant record")?,
+        enabled: row
+            .try_get::<i64, _>("enabled")
+            .map_err(|_| "invalid tenant record")?
+            == 1,
+        revision: row
+            .try_get("revision")
+            .map_err(|_| "invalid tenant record")?,
+    })
+}
+
+fn read_reddb_tenant(row: &reddb_client::Row) -> Result<StoredTenant, &'static str> {
+    let text = |name: &str| match row
+        .iter()
+        .find(|(column, _)| column.eq_ignore_ascii_case(name))
+    {
+        Some((_, reddb_client::ValueOut::String(value))) => Ok(value.clone()),
+        _ => Err("invalid tenant record"),
+    };
+    let integer = |name: &str| match row
+        .iter()
+        .find(|(column, _)| column.eq_ignore_ascii_case(name))
+    {
+        Some((_, reddb_client::ValueOut::Integer(value))) => Ok(*value),
+        _ => Err("invalid tenant record"),
+    };
+    Ok(StoredTenant {
+        id: text("id")?,
+        slug: text("slug")?,
+        name: text("name")?,
+        enabled: integer("enabled")? == 1,
+        revision: integer("revision")?,
+    })
+}
+
+fn tenant_params(tenant: &StoredTenant, enabled: i64) -> Vec<reddb_client::Value> {
+    vec![
+        reddb_client::Value::Text(tenant.id.clone()),
+        reddb_client::Value::Text(tenant.slug.clone()),
+        reddb_client::Value::Text(tenant.name.clone()),
+        reddb_client::Value::Int(enabled),
+        reddb_client::Value::Int(tenant.revision),
     ]
 }
 

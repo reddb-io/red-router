@@ -1,7 +1,7 @@
 use red_routerd::storage::{
     Backend, Database, StoredAvailability, StoredBreaker, StoredClientKey, StoredCombo,
     StoredModelCatalogSnapshot, StoredOidcBrowserConfig, StoredOidcConfig, StoredProvider,
-    StoredProviderQuota, StoredResilience, StoredRoutePin,
+    StoredProviderQuota, StoredResilience, StoredRoutePin, StoredTenant,
 };
 use sqlx::{sqlite::SqliteConnectOptions, Connection, SqliteConnection};
 use tempfile::TempDir;
@@ -9,6 +9,25 @@ use url::Url;
 
 async fn exercise(backend: Backend, url: &str) {
     let db = Database::connect(backend, url).await.unwrap();
+    assert_eq!(
+        db.tenants().await.unwrap(),
+        vec![StoredTenant {
+            id: "red".into(),
+            slug: "red".into(),
+            name: "Red".into(),
+            enabled: true,
+            revision: 0,
+        }]
+    );
+    let tenant = StoredTenant {
+        id: "acme".into(),
+        slug: "acme".into(),
+        name: "Acme".into(),
+        enabled: true,
+        revision: 1,
+    };
+    db.upsert_tenant(&tenant).await.unwrap();
+    assert!(db.tenants().await.unwrap().contains(&tenant));
     assert_eq!(db.upstream().await.unwrap(), None);
     db.seed("https://first.example/v1/chat/completions")
         .await
@@ -67,6 +86,8 @@ async fn exercise(backend: Backend, url: &str) {
         max_rpm: 600,
         max_rpd: 50_000,
         model_id_format: "flat".into(),
+        tenant_id: "acme".into(),
+        created_by: "test-admin".into(),
         revision: 5,
     };
     db.upsert_client_key(&client_key).await.unwrap();
@@ -279,6 +300,8 @@ async fn sqlite_client_preference_revision_mismatch_fails_closed() {
         max_rpm: 0,
         max_rpd: 0,
         model_id_format: "flat".into(),
+        tenant_id: "red".into(),
+        created_by: "test-admin".into(),
         revision: 1,
     })
     .await
@@ -299,6 +322,54 @@ async fn sqlite_client_preference_revision_mismatch_fails_closed() {
     assert_eq!(
         reopened.client_keys().await.unwrap_err(),
         "client key preference revision mismatch"
+    );
+    reopened.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn sqlite_client_ownership_revision_mismatch_fails_closed() {
+    let temp = TempDir::new().unwrap();
+    let path = temp.path().join("ownership-revision.sqlite");
+    let file = Url::from_file_path(&path).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
+    db.upsert_client_key(&StoredClientKey {
+        id: "client".into(),
+        label: "Client".into(),
+        key_hash: "33".repeat(32),
+        enabled: true,
+        expiry_unix: 0,
+        scopes_json: "[]".into(),
+        allowed_endpoints_json: "[]".into(),
+        allowed_models_json: "[]".into(),
+        blocked_models_json: "[]".into(),
+        allowed_provider_ids_json: "[]".into(),
+        max_concurrent: 0,
+        max_rpm: 0,
+        max_rpd: 0,
+        model_id_format: "prefixed".into(),
+        tenant_id: "red".into(),
+        created_by: "test-admin".into(),
+        revision: 1,
+    })
+    .await
+    .unwrap();
+    db.close().await.unwrap();
+
+    let options = SqliteConnectOptions::new().filename(&path);
+    let mut raw = SqliteConnection::connect_with(&options).await.unwrap();
+    sqlx::query(
+        "UPDATE redrouter_control_client_key_ownership SET revision = 2 WHERE key_id = 'client'",
+    )
+    .execute(&mut raw)
+    .await
+    .unwrap();
+    raw.close().await.unwrap();
+
+    let reopened = Database::connect(Backend::Sqlite, &url).await.unwrap();
+    assert_eq!(
+        reopened.client_keys().await.unwrap_err(),
+        "client key ownership revision mismatch"
     );
     reopened.close().await.unwrap();
 }

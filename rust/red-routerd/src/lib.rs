@@ -1618,6 +1618,8 @@ pub fn router(state: ProxyState) -> Router {
             "/api/admin/client-keys/{id}",
             put(control_plane::put_client_key).delete(control_plane::delete_client_key),
         )
+        .route("/api/admin/tenants", get(control_plane::list_tenants))
+        .route("/api/admin/tenants/{id}", put(control_plane::put_tenant))
         .route("/api/admin/combos", get(control_plane::list_combos))
         .route(
             "/api/admin/model-catalog",
