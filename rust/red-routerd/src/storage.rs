@@ -43,9 +43,9 @@ const LIST_AVAILABILITY: &str = "SELECT provider_id, cooldown_until_unix_ms, bac
 const UPSERT_AVAILABILITY: &str = "INSERT INTO redrouter_provider_availability (provider_id, cooldown_until_unix_ms, backoff_level, last_status, model_lockouts_json, revision) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (provider_id) DO UPDATE SET cooldown_until_unix_ms = $2, backoff_level = $3, last_status = $4, model_lockouts_json = $5, revision = $6";
 const DELETE_AVAILABILITY: &str =
     "DELETE FROM redrouter_provider_availability WHERE provider_id = $1";
-const CREATE_RESILIENCE: &str = "CREATE TABLE IF NOT EXISTS redrouter_provider_resilience (provider_id TEXT NOT NULL, rate_limit_scope TEXT NOT NULL, revision BIGINT NOT NULL, PRIMARY KEY (provider_id, revision))";
+const CREATE_RESILIENCE: &str = "CREATE TABLE IF NOT EXISTS redrouter_provider_resilience (record_id TEXT PRIMARY KEY, provider_id TEXT NOT NULL, rate_limit_scope TEXT NOT NULL, revision BIGINT NOT NULL)";
 const LIST_RESILIENCE: &str = "SELECT provider_id, rate_limit_scope, revision FROM redrouter_provider_resilience ORDER BY provider_id ASC, revision DESC";
-const UPSERT_RESILIENCE: &str = "INSERT INTO redrouter_provider_resilience (provider_id, rate_limit_scope, revision) VALUES ($1,$2,$3) ON CONFLICT (provider_id, revision) DO UPDATE SET rate_limit_scope = $2";
+const UPSERT_RESILIENCE: &str = "INSERT INTO redrouter_provider_resilience (record_id, provider_id, rate_limit_scope, revision) VALUES ($1,$2,$3,$4) ON CONFLICT (record_id) DO UPDATE SET rate_limit_scope = $3";
 const DELETE_RESILIENCE: &str = "DELETE FROM redrouter_provider_resilience WHERE provider_id = $1";
 const CREATE_OIDC: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_oidc (id INTEGER PRIMARY KEY, enabled BIGINT NOT NULL, issuer TEXT NOT NULL, audience TEXT NOT NULL, jwks_uri TEXT NOT NULL, required_claims_json TEXT NOT NULL, allowed_subjects_json TEXT NOT NULL, revision BIGINT NOT NULL)";
 const READ_OIDC: &str = "SELECT enabled, issuer, audience, jwks_uri, required_claims_json, allowed_subjects_json, revision FROM redrouter_control_oidc WHERE id = 1";
@@ -1129,6 +1129,7 @@ impl Database {
         match self {
             Self::Sql(pool) => {
                 sqlx::query(UPSERT_RESILIENCE)
+                    .bind(resilience_record_id(resilience))
                     .bind(&resilience.provider_id)
                     .bind(&resilience.rate_limit_scope)
                     .bind(resilience.revision)
@@ -1907,10 +1908,15 @@ fn read_reddb_resilience(row: &reddb_client::Row) -> Result<StoredResilience, &'
 
 fn resilience_params(resilience: &StoredResilience) -> Vec<reddb_client::Value> {
     vec![
+        reddb_client::Value::Text(resilience_record_id(resilience)),
         reddb_client::Value::Text(resilience.provider_id.clone()),
         reddb_client::Value::Text(resilience.rate_limit_scope.clone()),
         reddb_client::Value::Int(resilience.revision),
     ]
+}
+
+fn resilience_record_id(resilience: &StoredResilience) -> String {
+    format!("{}:{}", resilience.provider_id, resilience.revision)
 }
 
 fn read_sql_oidc(row: &sqlx::any::AnyRow) -> Result<StoredOidcConfig, &'static str> {
