@@ -1886,7 +1886,7 @@ fn unix_time_seconds() -> Result<u64, &'static str> {
 fn random_token(bytes: usize) -> Result<String, &'static str> {
     let mut value = Zeroizing::new(vec![0u8; bytes]);
     getrandom::fill(value.as_mut()).map_err(|_| "cannot generate OIDC login state")?;
-    Ok(URL_SAFE_NO_PAD.encode(value.as_ref()))
+    Ok(URL_SAFE_NO_PAD.encode(value.as_slice()))
 }
 
 fn unique_cookie(headers: &HeaderMap, name: &str) -> Option<String> {
@@ -2057,6 +2057,7 @@ pub async fn oidc_login(
     }
 }
 
+#[axum::debug_handler]
 pub async fn oidc_callback(
     State(state): State<ProxyState>,
     headers: HeaderMap,
