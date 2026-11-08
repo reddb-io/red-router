@@ -2882,6 +2882,16 @@ async fn model_lockout_is_scoped_without_poisoning_the_provider_connection() {
     assert_eq!(missing_requests.load(Ordering::SeqCst), 2);
 
     missing_status.store(429, Ordering::SeqCst);
+    assert_eq!(
+        client
+            .delete(format!("{base}/api/admin/provider-health/scoped"))
+            .bearer_auth(ADMIN_KEY)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::NO_CONTENT
+    );
     for _ in 0..2 {
         assert_eq!(
             chat_model(&client, &base, RUST_CLIENT_KEY, "missing-combo")
