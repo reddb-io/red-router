@@ -125,7 +125,10 @@ durable key atomically retires the environment-key compatibility path. Revocatio
 expiry, protocol scopes, endpoint/model/provider grants, rolling request limits and
 per-key concurrency are enforced by Rust and survive restart. Provider grants name
 Rust-owned provider IDs and are checked independently for every combo target before
-selection or fallback.
+selection or fallback. Authenticated `POST /api/admin/client-keys` generates a random
+`rrk_` secret, persists only its hash, returns the raw value once in a non-cacheable
+response and assigns a random stable key ID. Its durable `label` is descriptive metadata;
+organization ownership is a separate tenant slice and must not be inferred from the label.
 
 The combo slice stores bounded routing records in `redrouter_control_combos` and exposes
 only authenticated Rust admin APIs. The first durable combo makes this table the routing

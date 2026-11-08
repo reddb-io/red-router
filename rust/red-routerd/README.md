@@ -58,6 +58,10 @@ provider; subsequent provider changes do not require those environment secrets.
 - `DELETE /api/admin/providers/{id}` disables that provider and activates the
   most recently updated remaining enabled provider.
 - `GET /api/admin/client-keys` lists redacted key metadata and grants.
+- `POST /api/admin/client-keys` generates a cryptographically random `rrk_` client key,
+  persists only its SHA-256 lookup hash and returns the raw secret once with `Cache-Control:
+  no-store`. The required `label` is durable operator metadata and may describe the workload
+  that receives the key; it does not grant access by itself.
 - `PUT /api/admin/client-keys/{id}` creates or replaces a key policy. `api_key` is
   required on creation and may be omitted on later policy updates. Optional
   `model_id_format` is `prefixed` (default) or `flat`; omitting it on an update

@@ -143,6 +143,49 @@ pub struct ClientKeyInput {
     pub max_requests_per_day: Option<u64>,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ClientKeyIssueInput {
+    pub label: String,
+    pub model_id_format: Option<String>,
+    #[serde(default = "enabled_by_default")]
+    pub enabled: bool,
+    pub expires_at_unix: Option<u64>,
+    #[serde(default)]
+    pub scopes: Vec<String>,
+    #[serde(default)]
+    pub allowed_endpoints: Vec<String>,
+    #[serde(default)]
+    pub allowed_models: Vec<String>,
+    #[serde(default)]
+    pub blocked_models: Vec<String>,
+    #[serde(default)]
+    pub allowed_provider_ids: Vec<String>,
+    pub max_concurrent_requests: Option<u64>,
+    pub max_requests_per_minute: Option<u64>,
+    pub max_requests_per_day: Option<u64>,
+}
+
+impl ClientKeyIssueInput {
+    fn with_secret(self, api_key: String) -> ClientKeyInput {
+        ClientKeyInput {
+            label: self.label,
+            api_key: Some(api_key),
+            model_id_format: self.model_id_format,
+            enabled: self.enabled,
+            expires_at_unix: self.expires_at_unix,
+            scopes: self.scopes,
+            allowed_endpoints: self.allowed_endpoints,
+            allowed_models: self.allowed_models,
+            blocked_models: self.blocked_models,
+            allowed_provider_ids: self.allowed_provider_ids,
+            max_concurrent_requests: self.max_concurrent_requests,
+            max_requests_per_minute: self.max_requests_per_minute,
+            max_requests_per_day: self.max_requests_per_day,
+        }
+    }
+}
+
 #[derive(Debug, Serialize)]
 pub struct ClientKeyView {
     pub id: String,
@@ -1361,6 +1404,20 @@ impl ControlPlane {
             return Err("cannot reload client key configuration");
         }
         client_view(&record)
+    }
+
+    pub async fn issue_client_key(
+        &self,
+        input: ClientKeyIssueInput,
+    ) -> Result<(ClientKeyView, Zeroizing<String>), &'static str> {
+        let mut id_bytes = Zeroizing::new([0_u8; 16]);
+        getrandom::fill(id_bytes.as_mut()).map_err(|_| "cannot generate client key identifier")?;
+        let id = format!("key_{}", hex::encode(id_bytes.as_ref()));
+        let secret = Zeroizing::new(format!("rrk_{}", random_token(32)?));
+        let view = self
+            .configure_client_key(&id, input.with_secret(secret.to_string()))
+            .await?;
+        Ok((view, secret))
     }
 
     pub async fn revoke_client_key(&self, id: &str) -> Result<(), &'static str> {
@@ -2791,6 +2848,41 @@ pub async fn list_client_keys(State(state): State<ProxyState>, headers: HeaderMa
     }
 }
 
+pub async fn issue_client_key(
+    State(state): State<ProxyState>,
+    headers: HeaderMap,
+    Json(input): Json<ClientKeyIssueInput>,
+) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+    };
+    if !control.authorized(&headers).await {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
+    }
+    match control.issue_client_key(input).await {
+        Ok((client_key, secret)) => {
+            let mut response = (
+                StatusCode::CREATED,
+                Json(serde_json::json!({
+                    "client_key": client_key,
+                    "key": secret.as_str(),
+                    "warning": "Store this key securely; it will not be shown again."
+                })),
+            )
+                .into_response();
+            response
+                .headers_mut()
+                .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+            response
+        }
+        Err(error) if is_runtime_error(error) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Client key storage unavailable",
+        ),
+        Err(_) => api_error(StatusCode::BAD_REQUEST, "Invalid client key configuration"),
+    }
+}
+
 pub async fn list_combos(State(state): State<ProxyState>, headers: HeaderMap) -> Response {
     let Some(control) = &state.control_plane else {
         return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
@@ -2986,6 +3078,7 @@ fn is_runtime_error(error: &str) -> bool {
         || error.contains("quota state")
         || error.contains("combo has no enabled")
         || error.contains("combo provider unavailable")
+        || error.contains("cannot generate client key")
         || error.contains("OIDC")
 }
 

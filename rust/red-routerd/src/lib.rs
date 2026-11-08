@@ -1612,7 +1612,7 @@ pub fn router(state: ProxyState) -> Router {
         )
         .route(
             "/api/admin/client-keys",
-            get(control_plane::list_client_keys),
+            get(control_plane::list_client_keys).post(control_plane::issue_client_key),
         )
         .route(
             "/api/admin/client-keys/{id}",

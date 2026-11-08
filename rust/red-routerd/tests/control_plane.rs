@@ -796,6 +796,107 @@ async fn rust_control_plane_atomically_refreshes_and_reloads_models_dev_snapshot
 }
 
 #[tokio::test]
+async fn rust_control_plane_issues_hash_only_named_client_keys() {
+    let directory = TempDir::new().unwrap();
+    let file = Url::from_file_path(directory.path().join("issued-keys.sqlite")).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    let database = Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap());
+    let control = ControlPlane::new(database.clone(), ADMIN_KEY, STORAGE_KEY, false)
+        .await
+        .unwrap();
+    let (base, gateway_task) = gateway(control).await;
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+
+    assert_eq!(
+        client
+            .post(format!("{base}/api/admin/client-keys"))
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(r#"{"label":"RedDB Cloud / Acme production"}"#)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+
+    let issued = client
+        .post(format!("{base}/api/admin/client-keys"))
+        .bearer_auth(ADMIN_KEY)
+        .header(header::CONTENT_TYPE.as_str(), "application/json")
+        .body(
+            serde_json::json!({
+                "label":"RedDB Cloud / Acme production",
+                "scopes":["inference:chat"],
+                "allowed_endpoints":["chat"],
+                "allowed_models":["*"]
+            })
+            .to_string(),
+        )
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(issued.status(), StatusCode::CREATED);
+    assert_eq!(issued.headers()[header::CACHE_CONTROL], "no-store");
+    let issued: serde_json::Value = serde_json::from_str(&issued.text().await.unwrap()).unwrap();
+    let raw_key = issued["key"].as_str().unwrap().to_owned();
+    let key_id = issued["client_key"]["id"].as_str().unwrap().to_owned();
+    assert!(raw_key.starts_with("rrk_"));
+    assert!(raw_key.len() >= 40);
+    assert!(key_id.starts_with("key_"));
+    assert_eq!(
+        issued["client_key"]["label"],
+        "RedDB Cloud / Acme production"
+    );
+
+    let stored = database.client_keys().await.unwrap();
+    assert_eq!(stored.len(), 1);
+    assert_eq!(stored[0].id, key_id);
+    assert_eq!(stored[0].label, "RedDB Cloud / Acme production");
+    assert_ne!(stored[0].key_hash, raw_key);
+    assert!(!format!("{stored:?}").contains(&raw_key));
+
+    let listed = client
+        .get(format!("{base}/api/admin/client-keys"))
+        .bearer_auth(ADMIN_KEY)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(listed.status(), StatusCode::OK);
+    let listed = listed.text().await.unwrap();
+    assert!(!listed.contains(&raw_key));
+    assert!(listed.contains("RedDB Cloud / Acme production"));
+
+    let identity = client
+        .get(format!("{base}/v1/key"))
+        .bearer_auth(&raw_key)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(identity.status(), StatusCode::OK);
+    let identity: serde_json::Value =
+        serde_json::from_str(&identity.text().await.unwrap()).unwrap();
+    assert_eq!(identity["id"], key_id);
+    assert_eq!(identity["name"], "RedDB Cloud / Acme production");
+
+    gateway_task.abort();
+    let restarted = ControlPlane::new(database, ADMIN_KEY, STORAGE_KEY, false)
+        .await
+        .unwrap();
+    let (restarted_base, restarted_task) = gateway(restarted).await;
+    assert_eq!(
+        client
+            .get(format!("{restarted_base}/v1/key"))
+            .bearer_auth(&raw_key)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    restarted_task.abort();
+}
+
+#[tokio::test]
 async fn rust_models_lists_only_routable_models_allowed_for_the_client() {
     let directory = TempDir::new().unwrap();
     let file = Url::from_file_path(directory.path().join("models.sqlite")).unwrap();
