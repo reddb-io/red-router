@@ -161,8 +161,11 @@ selected SQLite, embedded/remote RedDB or PostgreSQL authority. A successful wri
 one `Arc` swap publishes it, so requests see either the old or new generation and restart restores
 the same generation. HTTP 304 leaves the record untouched; network, schema, validation or storage
 failure keeps the last good in-memory snapshot. An invalid persisted row is rejected at startup in
-favor of the bundled catalog and is reported in the admin snapshot status. Multi-process polling
-of another replica's newly written revision remains separate work.
+favor of the bundled catalog and is reported in the admin snapshot status. Each replica probes only
+the small revision column every five seconds; it downloads and validates the full row only after a
+generation change, rechecks the revision after validation to prevent stale publication, and then
+performs the same local `Arc` swap. Invalid generations are remembered and are not reparsed on every
+poll.
 
 Available input/output cost and context-window metadata is frozen into the durable combo record
 when a combo is saved. Operator-supplied values retain precedence. The catalog does not create

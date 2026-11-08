@@ -28,13 +28,14 @@ use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, HashMap},
     sync::Arc,
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use subtle::ConstantTimeEq;
 use tokio::sync::RwLock;
 use zeroize::{Zeroize, Zeroizing};
 
 type ControlCipher = AesGcm<Aes256, U16>;
+const MODEL_CATALOG_SYNC_INTERVAL: Duration = Duration::from_secs(5);
 
 struct Inner {
     database: Arc<crate::storage::Database>,
@@ -60,6 +61,7 @@ struct CatalogState {
     catalog: Arc<crate::catalog::ModelCatalog>,
     source: &'static str,
     revision: Option<i64>,
+    rejected_revision: Option<i64>,
     last_error: Option<String>,
 }
 
@@ -450,11 +452,36 @@ impl ControlPlane {
         allow_private: bool,
         catalog_source: &str,
     ) -> Result<Self, &'static str> {
+        Self::new_with_model_catalog_source_and_poll_interval(
+            database,
+            admin_key,
+            encryption_key,
+            allow_private,
+            catalog_source,
+            MODEL_CATALOG_SYNC_INTERVAL,
+        )
+        .await
+    }
+
+    #[doc(hidden)]
+    pub async fn new_with_model_catalog_source_and_poll_interval(
+        database: Arc<crate::storage::Database>,
+        admin_key: &str,
+        encryption_key: &str,
+        allow_private: bool,
+        catalog_source: &str,
+        catalog_poll_interval: Duration,
+    ) -> Result<Self, &'static str> {
         if !(32..=512).contains(&admin_key.len()) {
             return Err("RED_ROUTER_ADMIN_KEY must be 32-512 bytes");
         }
         if !(16..=512).contains(&encryption_key.len()) {
             return Err("STORAGE_ENCRYPTION_KEY must be 16-512 bytes");
+        }
+        if !(Duration::from_millis(10)..=Duration::from_secs(3_600))
+            .contains(&catalog_poll_interval)
+        {
+            return Err("invalid model catalog poll interval");
         }
         let mut breakers = HashMap::new();
         for record in database.breakers().await? {
@@ -508,31 +535,34 @@ impl ControlPlane {
         };
         let bundled_catalog = crate::catalog::bundled_catalog()?;
         let stored_catalog = database.model_catalog_snapshot().await?;
-        let (catalog, source, catalog_revision, catalog_error) = match stored_catalog {
-            Some(snapshot) => {
-                match crate::catalog::ModelCatalog::from_snapshot(&snapshot.snapshot_json)
-                    .and_then(|catalog| catalog.validate_all())
-                    .and_then(|()| {
-                        // Validate with a disposable catalog so the active instance
-                        // starts with empty per-provider caches.
-                        crate::catalog::ModelCatalog::from_snapshot(&snapshot.snapshot_json)
-                    }) {
-                    Ok(catalog) => (
-                        Arc::new(catalog),
-                        "persisted",
-                        Some(snapshot.revision),
-                        None,
-                    ),
-                    Err(_) => (
-                        bundled_catalog,
-                        "bundled",
-                        None,
-                        Some("persisted snapshot rejected".to_owned()),
-                    ),
+        let (catalog, source, catalog_revision, rejected_revision, catalog_error) =
+            match stored_catalog {
+                Some(snapshot) => {
+                    match crate::catalog::ModelCatalog::from_snapshot(&snapshot.snapshot_json)
+                        .and_then(|catalog| catalog.validate_all())
+                        .and_then(|()| {
+                            // Validate with a disposable catalog so the active instance
+                            // starts with empty per-provider caches.
+                            crate::catalog::ModelCatalog::from_snapshot(&snapshot.snapshot_json)
+                        }) {
+                        Ok(catalog) => (
+                            Arc::new(catalog),
+                            "persisted",
+                            Some(snapshot.revision),
+                            None,
+                            None,
+                        ),
+                        Err(_) => (
+                            bundled_catalog,
+                            "bundled",
+                            None,
+                            Some(snapshot.revision),
+                            Some("persisted snapshot rejected".to_owned()),
+                        ),
+                    }
                 }
-            }
-            None => (bundled_catalog, "bundled", None, None),
-        };
+                None => (bundled_catalog, "bundled", None, None, None),
+            };
         let catalog_source = validate_catalog_source(catalog_source, allow_private)?;
         let catalog_client = reqwest::Client::builder()
             .no_proxy()
@@ -554,6 +584,7 @@ impl ControlPlane {
                 catalog,
                 source,
                 revision: catalog_revision,
+                rejected_revision,
                 last_error: catalog_error,
             }),
             catalog_refresh: tokio::sync::Mutex::new(()),
@@ -567,7 +598,78 @@ impl ControlPlane {
         plane.refresh().await?;
         plane.refresh_clients().await?;
         plane.refresh_routes().await?;
+        plane.spawn_model_catalog_sync(catalog_poll_interval);
         Ok(plane)
+    }
+
+    fn spawn_model_catalog_sync(&self, cadence: Duration) {
+        let weak = Arc::downgrade(&self.0);
+        tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(cadence);
+            ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            // Tokio intervals tick immediately. Consume that tick so startup
+            // does not duplicate the snapshot validation above.
+            ticker.tick().await;
+            loop {
+                ticker.tick().await;
+                let Some(inner) = weak.upgrade() else {
+                    return;
+                };
+                let (active_revision, rejected_revision) = {
+                    let active = inner.catalog.read().await;
+                    (active.revision, active.rejected_revision)
+                };
+                let database = inner.database.clone();
+                drop(inner);
+                let Ok(Some(database_revision)) = database.model_catalog_revision().await else {
+                    continue;
+                };
+                if active_revision == Some(database_revision)
+                    || rejected_revision == Some(database_revision)
+                {
+                    continue;
+                }
+                let Ok(Some(snapshot)) = database.model_catalog_snapshot().await else {
+                    continue;
+                };
+                let snapshot_revision = snapshot.revision;
+                let catalog = tokio::task::spawn_blocking(move || {
+                    crate::catalog::ModelCatalog::from_snapshot(&snapshot.snapshot_json)
+                        .and_then(|catalog| catalog.validate_all())
+                        .and_then(|()| {
+                            crate::catalog::ModelCatalog::from_snapshot(&snapshot.snapshot_json)
+                        })
+                })
+                .await;
+                let Ok(Ok(catalog)) = catalog else {
+                    if let Some(inner) = weak.upgrade() {
+                        let mut active = inner.catalog.write().await;
+                        active.rejected_revision = Some(snapshot_revision);
+                        active.last_error = Some("persisted snapshot rejected".to_owned());
+                    }
+                    continue;
+                };
+                // A writer may publish again while validation is running. Do
+                // not replace a newer generation with the stale row we read.
+                if database.model_catalog_revision().await.ok().flatten() != Some(snapshot_revision)
+                {
+                    continue;
+                }
+                let Some(inner) = weak.upgrade() else {
+                    return;
+                };
+                let mut active = inner.catalog.write().await;
+                if active.revision != Some(snapshot_revision) {
+                    *active = CatalogState {
+                        catalog: Arc::new(catalog),
+                        source: "persisted",
+                        revision: Some(snapshot_revision),
+                        rejected_revision: None,
+                        last_error: None,
+                    };
+                }
+            }
+        });
     }
 
     pub(crate) async fn model_catalog(&self) -> Arc<crate::catalog::ModelCatalog> {
@@ -593,7 +695,11 @@ impl ControlPlane {
         let (etag, schema_ref) = {
             let active = self.0.catalog.read().await;
             (
-                active.catalog.manifest().etag.clone(),
+                if active.rejected_revision.is_some() {
+                    None
+                } else {
+                    active.catalog.manifest().etag.clone()
+                },
                 active.catalog.manifest().upstream_schema_ref.clone(),
             )
         };
@@ -648,6 +754,7 @@ impl ControlPlane {
                     catalog,
                     source: "persisted",
                     revision: Some(revision),
+                    rejected_revision: None,
                     last_error: None,
                 };
                 Ok(CatalogRefreshView {

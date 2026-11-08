@@ -18,7 +18,7 @@ use std::{
         atomic::{AtomicUsize, Ordering},
         Arc,
     },
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tempfile::TempDir;
 use url::Url;
@@ -643,6 +643,18 @@ async fn rust_control_plane_atomically_refreshes_and_reloads_models_dev_snapshot
     .await
     .unwrap();
     let (base, gateway_task) = gateway(control).await;
+    let follower_database = Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap());
+    let follower = ControlPlane::new_with_model_catalog_source_and_poll_interval(
+        follower_database.clone(),
+        ADMIN_KEY,
+        STORAGE_KEY,
+        true,
+        &source,
+        Duration::from_millis(10),
+    )
+    .await
+    .unwrap();
+    let (follower_base, follower_task) = gateway(follower).await;
     let client = reqwest::Client::builder().no_proxy().build().unwrap();
 
     assert_eq!(
@@ -680,6 +692,26 @@ async fn rust_control_plane_atomically_refreshes_and_reloads_models_dev_snapshot
     let persisted = database.model_catalog_snapshot().await.unwrap().unwrap();
     assert!(!persisted.snapshot_json.contains("must-not-be-imported"));
     assert!(!persisted.snapshot_json.contains("MUST_NOT_BE_IMPORTED"));
+    tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            if client
+                .get(format!(
+                    "{follower_base}/api/admin/model-catalog/fixture-provider"
+                ))
+                .bearer_auth(ADMIN_KEY)
+                .send()
+                .await
+                .unwrap()
+                .status()
+                == StatusCode::OK
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("the follower did not publish the shared catalog revision");
 
     let unchanged = client
         .post(format!("{base}/api/admin/model-catalog/refresh"))
@@ -726,6 +758,10 @@ async fn rust_control_plane_atomically_refreshes_and_reloads_models_dev_snapshot
 
     gateway_task.abort();
     let _ = gateway_task.await;
+    follower_task.abort();
+    let _ = follower_task.await;
+    follower_database.close().await.unwrap();
+    drop(follower_database);
     database.close().await.unwrap();
     drop(database);
     let reopened = Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap());

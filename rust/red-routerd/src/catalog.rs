@@ -461,16 +461,21 @@ pub(crate) async fn refresh_from_source(
     })
     .await
     .map_err(|_| "models.dev response timed out")??;
-    let snapshot_json = normalize_source(&body, response_etag, schema_ref)?;
-    // Validate every provider before publication, but do it on a disposable
-    // instance. Publishing that instance would retain every parsed provider
-    // and defeat the catalog's lazy-memory design.
-    ModelCatalog::from_snapshot(&snapshot_json)?.validate_all()?;
-    let catalog = Arc::new(ModelCatalog::from_snapshot(&snapshot_json)?);
-    Ok(CatalogRefresh::Updated {
-        catalog,
-        snapshot_json,
+    let schema_ref = schema_ref.to_owned();
+    tokio::task::spawn_blocking(move || -> Result<CatalogRefresh, &'static str> {
+        let snapshot_json = normalize_source(&body, response_etag, &schema_ref)?;
+        // Validate every provider before publication, but do it on a disposable
+        // instance. Publishing that instance would retain every parsed provider
+        // and defeat the catalog's lazy-memory design.
+        ModelCatalog::from_snapshot(&snapshot_json)?.validate_all()?;
+        let catalog = Arc::new(ModelCatalog::from_snapshot(&snapshot_json)?);
+        Ok(CatalogRefresh::Updated {
+            catalog,
+            snapshot_json,
+        })
     })
+    .await
+    .map_err(|_| "models.dev normalization failed")?
 }
 
 fn normalize_source(

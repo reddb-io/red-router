@@ -72,7 +72,9 @@ provider; subsequent provider changes do not require those environment secrets.
   materializes one exact provider.
 - `POST /api/admin/model-catalog/refresh` conditionally downloads the fixed models.dev feed,
   strips executable/credential fields, validates the complete transformed catalog and atomically
-  persists then publishes one last-good snapshot. A 304 or failed refresh never replaces it.
+  persists then publishes one last-good snapshot. A 304 or failed refresh never replaces it;
+  other Rust replicas observe the lightweight durable revision and publish the same validated
+  generation without putting the catalog row on the inference path.
 - `PUT /api/admin/combos/{id}` creates or replaces a combo with `protocol`
   (`openai`, `openai-responses`, `openai-embeddings`, `cohere-rerank`, `anthropic`
   or `gemini`), `strategy` (`priority`, `fill-first`, `round-robin`, `weighted`, `random`,

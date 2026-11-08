@@ -400,7 +400,7 @@
         "rust/red-routerd/tests/control_plane.rs",
         "rust/red-routerd/tests/storage.rs"
       ],
-      "remaining": "The Rust authority now conditionally refreshes, normalizes, validates, atomically persists and publishes a last-good models.dev snapshot across every supported storage backend. Local adaptations still require the exact-commit CI gates. Public discovery does not prove credential entitlement or a successful typed decision evaluation; unimplemented decision protocols remain non-executable. Canonical links are optional, models.dev does not define a complete HTTP parameter schema, and multi-process/replica revision polling remains outside these process-local catalog guarantees.",
+      "remaining": "The Rust authority now conditionally refreshes, normalizes, validates, atomically persists and publishes a last-good models.dev snapshot across every supported storage backend, while replicas poll only its revision and safely adopt changed generations. Local adaptations still require the exact-commit CI gates. Public discovery does not prove credential entitlement or a successful typed decision evaluation; unimplemented decision protocols remain non-executable. Canonical links are optional and models.dev does not define a complete HTTP parameter schema.",
       "acceptance": [
         "Bundled metadata works offline and never creates connections or enables models.",
         "Provider-native IDs and declared endpoint/credential/payload contracts survive enrichment and router federation.",

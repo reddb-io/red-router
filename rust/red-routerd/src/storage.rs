@@ -59,6 +59,8 @@ const DELETE_OIDC_BROWSER: &str = "DELETE FROM redrouter_control_oidc_browser WH
 const CREATE_MODEL_CATALOG: &str = "CREATE TABLE IF NOT EXISTS redrouter_model_catalog_snapshot (id INTEGER PRIMARY KEY, snapshot_json TEXT NOT NULL, revision BIGINT NOT NULL)";
 const READ_MODEL_CATALOG: &str =
     "SELECT snapshot_json, revision FROM redrouter_model_catalog_snapshot WHERE id = 1";
+const READ_MODEL_CATALOG_REVISION: &str =
+    "SELECT revision FROM redrouter_model_catalog_snapshot WHERE id = 1";
 const UPSERT_MODEL_CATALOG: &str = "INSERT INTO redrouter_model_catalog_snapshot (id, snapshot_json, revision) VALUES (1,$1,$2) ON CONFLICT (id) DO UPDATE SET snapshot_json = $1, revision = $2";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1447,6 +1449,39 @@ impl Database {
         }
     }
 
+    /// Lightweight generation probe used by replicas. The multi-megabyte
+    /// snapshot is fetched only after this value changes.
+    pub async fn model_catalog_revision(&self) -> Result<Option<i64>, &'static str> {
+        match self {
+            Self::Sql(pool) => sqlx::query(READ_MODEL_CATALOG_REVISION)
+                .fetch_optional(pool)
+                .await
+                .map_err(|_| "cannot read model catalog revision")?
+                .as_ref()
+                .map(|row| {
+                    row.try_get("revision")
+                        .map_err(|_| "invalid model catalog revision")
+                })
+                .transpose(),
+            Self::Remote(_) => self
+                .remote_query(READ_MODEL_CATALOG_REVISION, &[])
+                .await?
+                .rows
+                .first()
+                .map(read_reddb_model_catalog_revision)
+                .transpose(),
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => db
+                .query(READ_MODEL_CATALOG_REVISION)
+                .await
+                .map_err(|_| "cannot read model catalog revision")?
+                .rows
+                .first()
+                .map(read_reddb_model_catalog_revision)
+                .transpose(),
+        }
+    }
+
     /// One row owns the entire transformed snapshot, so readers can never
     /// observe a manifest from one generation with providers from another.
     pub async fn upsert_model_catalog_snapshot(
@@ -2261,6 +2296,16 @@ fn read_reddb_model_catalog(
         snapshot_json,
         revision,
     })
+}
+
+fn read_reddb_model_catalog_revision(row: &reddb_client::Row) -> Result<i64, &'static str> {
+    match row
+        .iter()
+        .find(|(column, _)| column.eq_ignore_ascii_case("revision"))
+    {
+        Some((_, reddb_client::ValueOut::Integer(value))) => Ok(*value),
+        _ => Err("invalid model catalog revision"),
+    }
 }
 
 pub fn embedded_default_url() -> Result<String, &'static str> {

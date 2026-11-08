@@ -185,6 +185,7 @@ async fn exercise(backend: Backend, url: &str) {
         Some(oidc_browser.clone())
     );
     assert_eq!(db.model_catalog_snapshot().await.unwrap(), None);
+    assert_eq!(db.model_catalog_revision().await.unwrap(), None);
     let catalog = StoredModelCatalogSnapshot {
         snapshot_json: r#"{"manifest":{"contentSha256":"fixture"}}"#.into(),
         revision: 14,
@@ -194,6 +195,7 @@ async fn exercise(backend: Backend, url: &str) {
         db.model_catalog_snapshot().await.unwrap(),
         Some(catalog.clone())
     );
+    assert_eq!(db.model_catalog_revision().await.unwrap(), Some(14));
     db.close().await.unwrap();
     drop(db);
     let reopened = Database::connect(backend, url).await.unwrap();
@@ -237,6 +239,7 @@ async fn exercise(backend: Backend, url: &str) {
         reopened.model_catalog_snapshot().await.unwrap(),
         Some(catalog)
     );
+    assert_eq!(reopened.model_catalog_revision().await.unwrap(), Some(14));
     reopened.delete_oidc_browser().await.unwrap();
     assert_eq!(reopened.oidc_browser_config().await.unwrap(), None);
     reopened.delete_oidc().await.unwrap();
