@@ -545,6 +545,148 @@ async fn rust_control_plane_serves_the_bundled_models_dev_catalog_lazily() {
 }
 
 #[tokio::test]
+async fn rust_models_lists_only_routable_models_allowed_for_the_client() {
+    let directory = TempDir::new().unwrap();
+    let file = Url::from_file_path(directory.path().join("models.sqlite")).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    let database = Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap());
+    let control = ControlPlane::new(database, ADMIN_KEY, STORAGE_KEY, false)
+        .await
+        .unwrap();
+    let (visible_url, visible_task) = provider("models-visible-secret", "visible").await;
+    let (hidden_url, hidden_task) = provider("models-hidden-secret", "hidden").await;
+    let (embedding_url, embedding_task) = embeddings_provider("models-embedding-secret").await;
+    let (base, gateway_task) = gateway(control).await;
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+
+    for (id, upstream_url, api_key) in [
+        ("models-visible", visible_url, "models-visible-secret"),
+        ("models-hidden", hidden_url, "models-hidden-secret"),
+        ("models-embedding", embedding_url, "models-embedding-secret"),
+    ] {
+        assert_eq!(
+            client
+                .put(format!("{base}/api/admin/providers/{id}"))
+                .bearer_auth(ADMIN_KEY)
+                .header(header::CONTENT_TYPE.as_str(), "application/json")
+                .body(
+                    serde_json::json!({
+                        "provider":"openai",
+                        "upstream_url":upstream_url,
+                        "api_key":api_key
+                    })
+                    .to_string()
+                )
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::OK
+        );
+    }
+    assert_eq!(
+        client
+            .put(format!("{base}/api/admin/client-keys/models-client"))
+            .bearer_auth(ADMIN_KEY)
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(
+                serde_json::json!({
+                    "label":"Models client",
+                    "api_key":RUST_CLIENT_KEY,
+                    "scopes":["inference:chat"],
+                    "allowed_endpoints":["chat"],
+                    "allowed_models":["*"],
+                    "allowed_provider_ids":["models-visible","models-embedding"]
+                })
+                .to_string()
+            )
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    for (id, protocol, provider_id, model) in [
+        ("visible-combo", "openai", "models-visible", "gpt-4o"),
+        ("provider-hidden", "openai", "models-hidden", "gpt-4o"),
+        (
+            "endpoint-hidden",
+            "openai-embeddings",
+            "models-embedding",
+            "text-embedding-3-small",
+        ),
+    ] {
+        assert_eq!(
+            client
+                .put(format!("{base}/api/admin/combos/{id}"))
+                .bearer_auth(ADMIN_KEY)
+                .header(header::CONTENT_TYPE.as_str(), "application/json")
+                .body(
+                    serde_json::json!({
+                        "protocol":protocol,
+                        "strategy":"priority",
+                        "fallback":true,
+                        "targets":[{"provider_id":provider_id,"model":model}]
+                    })
+                    .to_string()
+                )
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::OK
+        );
+    }
+
+    assert_eq!(
+        client
+            .get(format!("{base}/v1/models"))
+            .bearer_auth("not-a-valid-client-key-123456")
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    for path in ["/v1/models", "/api/v1/models"] {
+        let response = client
+            .get(format!("{base}{path}"))
+            .bearer_auth(RUST_CLIENT_KEY)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response
+                .headers()
+                .get(header::CACHE_CONTROL)
+                .unwrap()
+                .to_str()
+                .unwrap(),
+            "private, no-store"
+        );
+        let body: serde_json::Value = response.json().await.unwrap();
+        assert_eq!(body["object"], "list");
+        let entries = body["data"].as_array().unwrap();
+        assert_eq!(entries.len(), 1, "unexpected model list: {body}");
+        let model = &entries[0];
+        assert_eq!(model["id"], "visible-combo");
+        assert_eq!(model["object"], "model");
+        assert_eq!(model["owned_by"], "combo");
+        assert_eq!(model["type"], "chat");
+        assert!(model["created"].as_u64().is_some());
+        assert!(model["context_length"].as_u64().is_some());
+        assert!(model["max_input_tokens"].as_u64().is_some());
+        assert!(model["capabilities"]["tool_calling"].is_boolean());
+    }
+
+    gateway_task.abort();
+    visible_task.abort();
+    hidden_task.abort();
+    embedding_task.abort();
+}
+
+#[tokio::test]
 async fn rust_control_plane_persists_and_enforces_signed_oidc_admin_authentication() {
     let directory = TempDir::new().unwrap();
     let file = Url::from_file_path(directory.path().join("oidc.sqlite")).unwrap();

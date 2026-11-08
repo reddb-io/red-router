@@ -30,7 +30,7 @@ use axum::{
 };
 use futures_util::{stream, stream::BoxStream, StreamExt};
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     net::IpAddr,
     sync::{
         atomic::{AtomicI64, AtomicU64, AtomicUsize, Ordering},
@@ -343,6 +343,33 @@ pub(crate) struct ModelTarget {
     circuit: Option<Arc<circuit::ProviderCircuit>>,
     availability: Option<Arc<availability::ProviderAvailability>>,
     in_flight: Arc<AtomicUsize>,
+}
+
+#[derive(serde::Serialize)]
+struct ModelListResponse {
+    object: &'static str,
+    data: Vec<ListedModel>,
+}
+
+#[derive(serde::Serialize)]
+struct ListedModel {
+    id: String,
+    object: &'static str,
+    created: u64,
+    owned_by: &'static str,
+    r#type: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    context_length: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    max_input_tokens: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    max_output_tokens: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    input_modalities: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    output_modalities: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    capabilities: Option<BTreeMap<&'static str, bool>>,
 }
 
 impl ModelRoute {
@@ -1119,6 +1146,7 @@ impl ProxyState {
                 return Err("product combo target does not match stored configuration");
             }
             target.product_model = Some(source.full_model.clone());
+            target.provider_name = Some(Arc::from(source.provider.as_str()));
             target.product_connection = Some(connection);
         }
         self.product_combo = Some(combo);
@@ -1603,6 +1631,8 @@ pub fn router(state: ProxyState) -> Router {
             "/api/admin/provider-quotas/{id}",
             put(control_plane::put_provider_quota).delete(control_plane::delete_provider_quota),
         )
+        .route("/api/v1/models", get(models))
+        .route("/v1/models", get(models))
         .route("/v1/chat/completions", post(chat))
         .route("/v1/responses", post(responses))
         .route("/v1/embeddings", post(embeddings))
@@ -1632,6 +1662,328 @@ fn error(status: StatusCode, message: &'static str) -> Response {
         Json(serde_json::json!({"error": {"message": message, "type": "proxy_error"}})),
     )
         .into_response()
+}
+
+fn model_list_response(data: Vec<ListedModel>) -> Response {
+    let mut response = Json(ModelListResponse {
+        object: "list",
+        data,
+    })
+    .into_response();
+    response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("private, no-store"),
+    );
+    response
+        .headers_mut()
+        .insert(header::VARY, HeaderValue::from_static("authorization"));
+    response
+}
+
+fn route_category(protocol: ProviderProtocol) -> &'static str {
+    match protocol {
+        ProviderProtocol::OpenAiEmbeddings => "embeddings",
+        ProviderProtocol::CohereRerank => "rerank",
+        _ => "chat",
+    }
+}
+
+fn route_model_type(protocol: ProviderProtocol) -> &'static str {
+    match protocol {
+        ProviderProtocol::OpenAiEmbeddings => "embedding",
+        ProviderProtocol::CohereRerank => "rerank",
+        _ => "chat",
+    }
+}
+
+fn intersect_modalities(values: &[Vec<String>]) -> Option<Vec<String>> {
+    let (first, rest) = values.split_first()?;
+    let intersection = first
+        .iter()
+        .filter(|candidate| rest.iter().all(|value| value.contains(candidate)))
+        .cloned()
+        .collect::<Vec<_>>();
+    (!intersection.is_empty()).then_some(intersection)
+}
+
+fn common_capability(
+    metadata: &[catalog::ModelMetadata],
+    read: impl Fn(&catalog::ModelMetadata) -> Option<bool>,
+) -> Option<bool> {
+    let first = read(metadata.first()?)?;
+    metadata
+        .iter()
+        .skip(1)
+        .all(|entry| read(entry) == Some(first))
+        .then_some(first)
+}
+
+fn listed_models(
+    routes: &HashMap<String, Arc<ModelRoute>>,
+    policy: &policy::ClientPolicy,
+) -> Result<Vec<ListedModel>, &'static str> {
+    let catalog = catalog::bundled_catalog()?;
+    let created = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| "system clock is before the Unix epoch")?
+        .as_secs();
+    let mut route_ids = routes.keys().collect::<Vec<_>>();
+    route_ids.sort_unstable();
+    let mut models = Vec::with_capacity(route_ids.len());
+
+    for id in route_ids {
+        let route = &routes[id];
+        if !policy.route_allowed(id) || !policy.endpoint_allowed(route_category(route.protocol)) {
+            continue;
+        }
+        let eligible = route
+            .targets
+            .iter()
+            .filter(|target| {
+                policy.target_allowed(target.product_model.as_deref().unwrap_or(&target.model))
+                    && policy.provider_allowed(target.provider_id.as_deref())
+            })
+            .collect::<Vec<_>>();
+        if eligible.is_empty() {
+            continue;
+        }
+
+        let mut metadata = Vec::new();
+        let mut context_lengths = Vec::new();
+        let mut max_input_tokens = Vec::new();
+        let mut max_output_tokens = Vec::new();
+        let mut input_modalities = Vec::new();
+        let mut output_modalities = Vec::new();
+        for target in eligible {
+            let discovered = match target.provider_name.as_deref() {
+                Some(provider) => catalog.model(provider, &target.model)?,
+                None => None,
+            };
+            let catalog_context = discovered
+                .as_ref()
+                .and_then(|entry| entry.limit.as_ref())
+                .and_then(|limit| limit.context);
+            let context = target.context_window_tokens.or(catalog_context);
+            if let Some(value) = context {
+                context_lengths.push(value);
+            }
+            if let Some(value) = discovered
+                .as_ref()
+                .and_then(|entry| entry.limit.as_ref())
+                .and_then(|limit| limit.input)
+                .or(context)
+            {
+                max_input_tokens.push(value);
+            }
+            if let Some(value) = discovered
+                .as_ref()
+                .and_then(|entry| entry.limit.as_ref())
+                .and_then(|limit| limit.output)
+            {
+                max_output_tokens.push(value);
+            }
+            if let Some(entry) = discovered {
+                input_modalities.push(
+                    entry
+                        .modalities
+                        .as_ref()
+                        .map(|modalities| modalities.input.clone())
+                        .unwrap_or_default(),
+                );
+                output_modalities.push(
+                    entry
+                        .modalities
+                        .as_ref()
+                        .map(|modalities| modalities.output.clone())
+                        .unwrap_or_default(),
+                );
+                metadata.push(entry);
+            }
+        }
+
+        let mut capabilities = BTreeMap::new();
+        for (name, value) in [
+            (
+                "tool_calling",
+                common_capability(&metadata, |entry| entry.tool_call),
+            ),
+            (
+                "reasoning",
+                common_capability(&metadata, |entry| entry.reasoning),
+            ),
+            (
+                "attachment",
+                common_capability(&metadata, |entry| entry.attachment),
+            ),
+            (
+                "structured_output",
+                common_capability(&metadata, |entry| entry.structured_output),
+            ),
+            (
+                "temperature",
+                common_capability(&metadata, |entry| entry.temperature),
+            ),
+            (
+                "vision",
+                common_capability(&metadata, |entry| {
+                    entry
+                        .modalities
+                        .as_ref()
+                        .map(|modalities| modalities.input.iter().any(|value| value == "image"))
+                }),
+            ),
+        ] {
+            if let Some(value) = value {
+                capabilities.insert(name, value);
+            }
+        }
+        models.push(ListedModel {
+            id: id.clone(),
+            object: "model",
+            created,
+            owned_by: "combo",
+            r#type: route_model_type(route.protocol),
+            context_length: context_lengths.into_iter().min(),
+            max_input_tokens: max_input_tokens.into_iter().min(),
+            max_output_tokens: max_output_tokens.into_iter().min(),
+            input_modalities: intersect_modalities(&input_modalities),
+            output_modalities: intersect_modalities(&output_modalities),
+            capabilities: (!capabilities.is_empty()).then_some(capabilities),
+        });
+    }
+    Ok(models)
+}
+
+async fn authenticate_product_request(
+    state: &ProxyState,
+    headers: &HeaderMap,
+    protocol: ProviderProtocol,
+) -> Result<(product::ProductAccess, usize, zeroize::Zeroizing<String>), Response> {
+    let Some(candidate) = policy::extract_candidate(headers, protocol) else {
+        return Err(error(StatusCode::UNAUTHORIZED, "Invalid API key"));
+    };
+    let candidate = zeroize::Zeroizing::new(candidate.to_owned());
+    let Some(primary) = &state.product_connection else {
+        return Err(error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Product policy unavailable",
+        ));
+    };
+    let choices = state
+        .product_combo
+        .as_ref()
+        .and_then(|combo| state.routes.get(combo.name()))
+        .map_or(1 + state.product_fallbacks.len(), |route| {
+            route.targets.len()
+        });
+    for index in 0..choices {
+        let connection = if let Some(combo) = &state.product_combo {
+            let Some(connection) = state
+                .routes
+                .get(combo.name())
+                .and_then(|route| route.targets.get(index))
+                .and_then(|target| target.product_connection.as_ref())
+            else {
+                continue;
+            };
+            if !connection.unchanged().await {
+                continue;
+            }
+            connection
+        } else if index == 0 {
+            primary
+        } else {
+            let connection = &state.product_fallbacks[index - 1].connection;
+            if !connection.fallback_eligible().await {
+                continue;
+            }
+            connection
+        };
+        match connection
+            .client_policies(
+                &candidate,
+                state.product_combo.as_ref().map(|combo| combo.name()),
+            )
+            .await
+        {
+            Ok(Some(access)) => return Ok((access, index, candidate)),
+            Ok(None) => continue,
+            Err(_) => {
+                return Err(error(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "Product policy unavailable or unsupported",
+                ))
+            }
+        }
+    }
+    Err(error(StatusCode::UNAUTHORIZED, "Invalid API key"))
+}
+
+async fn models(State(state): State<ProxyState>, request: Request) -> Response {
+    if state.product_client_keys {
+        let (access, _, _) =
+            match authenticate_product_request(&state, request.headers(), ProviderProtocol::OpenAi)
+                .await
+            {
+                Ok(authenticated) => authenticated,
+                Err(response) => return response,
+            };
+        let Some(policy) = access
+            .policies
+            .authenticate(request.headers(), ProviderProtocol::OpenAi)
+        else {
+            return error(StatusCode::UNAUTHORIZED, "Invalid API key");
+        };
+        if let Some(combo) = &state.product_combo {
+            if !combo.unchanged().await {
+                return error(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "Product combo changed or is unavailable; restart required",
+                );
+            }
+            return match listed_models(state.routes.as_ref(), policy) {
+                Ok(models) => model_list_response(models),
+                Err(_) => error(StatusCode::SERVICE_UNAVAILABLE, "Model catalog unavailable"),
+            };
+        }
+        // Direct provider mode has no durable, entitlement-scoped inventory.
+        // Never turn the descriptive models.dev catalog into an allow-list.
+        return model_list_response(Vec::new());
+    }
+
+    let control_clients = match &state.control_plane {
+        Some(control) => match control.client_policies().await {
+            Ok(policies) => policies,
+            Err(_) => {
+                return error(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "Client key policy unavailable",
+                )
+            }
+        },
+        None => None,
+    };
+    let clients = control_clients.as_deref().unwrap_or(state.clients.as_ref());
+    let Some(policy) = clients.authenticate(request.headers(), ProviderProtocol::OpenAi) else {
+        return error(StatusCode::UNAUTHORIZED, "Invalid API key");
+    };
+    let control_routes = match &state.control_plane {
+        Some(control) => match control.routes().await {
+            Ok(routes) => routes,
+            Err(_) => {
+                return error(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "Combo routing policy unavailable",
+                )
+            }
+        },
+        None => None,
+    };
+    let routes = control_routes.as_deref().unwrap_or(state.routes.as_ref());
+    match listed_models(routes, policy) {
+        Ok(models) => model_list_response(models),
+        Err(_) => error(StatusCode::SERVICE_UNAVAILABLE, "Model catalog unavailable"),
+    }
 }
 
 fn circuit_open_error(retry_after_ms: u64) -> Response {
@@ -1729,76 +2081,14 @@ async fn proxy_request(
     protocol: ProviderProtocol,
     gemini: Option<(String, bool)>,
 ) -> Response {
-    let mut selected_product = 0usize;
-    let mut product_candidate = None;
     let original_headers = request.headers().clone();
-    let product_access = if state.product_client_keys {
-        let Some(candidate) = policy::extract_candidate(request.headers(), protocol) else {
-            return error(StatusCode::UNAUTHORIZED, "Invalid API key");
-        };
-        let candidate = zeroize::Zeroizing::new(candidate.to_owned());
-        let Some(primary) = &state.product_connection else {
-            return error(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "Product policy unavailable",
-            );
-        };
-        let mut selected = None;
-        let choices = state
-            .product_combo
-            .as_ref()
-            .and_then(|combo| state.routes.get(combo.name()))
-            .map_or(1 + state.product_fallbacks.len(), |route| {
-                route.targets.len()
-            });
-        for index in 0..choices {
-            let connection = if let Some(combo) = &state.product_combo {
-                let Some(connection) = state
-                    .routes
-                    .get(combo.name())
-                    .and_then(|route| route.targets.get(index))
-                    .and_then(|target| target.product_connection.as_ref())
-                else {
-                    continue;
-                };
-                if !connection.unchanged().await {
-                    continue;
-                }
-                connection
-            } else if index == 0 {
-                primary
-            } else {
-                let connection = &state.product_fallbacks[index - 1].connection;
-                if !connection.fallback_eligible().await {
-                    continue;
-                }
-                connection
-            };
-            match connection
-                .client_policies(&candidate, state.product_combo.as_ref().map(|c| c.name()))
-                .await
-            {
-                Ok(Some(access)) => {
-                    selected_product = index;
-                    selected = Some(access);
-                    break;
-                }
-                Ok(None) => continue,
-                Err(_) => {
-                    return error(
-                        StatusCode::SERVICE_UNAVAILABLE,
-                        "Product policy unavailable or unsupported",
-                    )
-                }
-            }
-        }
-        product_candidate = Some(candidate);
-        match selected {
-            Some(access) => Some(access),
-            None => return error(StatusCode::UNAUTHORIZED, "Invalid API key"),
+    let (selected_product, product_candidate, product_access) = if state.product_client_keys {
+        match authenticate_product_request(&state, request.headers(), protocol).await {
+            Ok((access, index, candidate)) => (index, Some(candidate), Some(access)),
+            Err(response) => return response,
         }
     } else {
-        None
+        (0, None, None)
     };
     let control_clients = if product_access.is_none() {
         match &state.control_plane {
