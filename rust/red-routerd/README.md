@@ -59,11 +59,13 @@ provider; subsequent provider changes do not require those environment secrets.
   most recently updated remaining enabled provider.
 - `GET /api/admin/client-keys` lists redacted key metadata and grants.
 - `PUT /api/admin/client-keys/{id}` creates or replaces a key policy. `api_key` is
-  required on creation and may be omitted on later policy updates.
+  required on creation and may be omitted on later policy updates. Optional
+  `model_id_format` is `prefixed` (default) or `flat`; omitting it on an update
+  preserves the committed value.
 - `DELETE /api/admin/client-keys/{id}` immediately revokes the key.
 - `GET /v1/key` and `/api/v1/key` return only the caller's persisted key identity. The
   dashboard SQLite compatibility reader preserves its configured `flat` or `prefixed`
-  model-ID format; Rust-owned keys currently use `prefixed`.
+  model-ID format; Rust-owned keys return their own durable setting.
 - `GET /api/admin/combos` lists Rust-owned combo routes.
 - `PUT /api/admin/combos/{id}` creates or replaces a combo with `protocol`
   (`openai`, `openai-responses`, `openai-embeddings`, `cohere-rerank`, `anthropic`

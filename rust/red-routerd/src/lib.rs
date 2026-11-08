@@ -1841,7 +1841,7 @@ async fn key_discovery(State(state): State<ProxyState>, headers: HeaderMap) -> R
                     identity.id.to_string(),
                     identity.name.to_string(),
                     identity.role,
-                    identity.id_format.to_owned(),
+                    identity.id_format.to_string(),
                 )
             })
     };

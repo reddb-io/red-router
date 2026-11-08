@@ -3,6 +3,7 @@ use red_routerd::storage::{
     StoredOidcBrowserConfig, StoredOidcConfig, StoredProvider, StoredProviderQuota,
     StoredResilience, StoredRoutePin,
 };
+use sqlx::{sqlite::SqliteConnectOptions, Connection, SqliteConnection};
 use tempfile::TempDir;
 use url::Url;
 
@@ -65,6 +66,7 @@ async fn exercise(backend: Backend, url: &str) {
         max_concurrent: 32,
         max_rpm: 600,
         max_rpd: 50_000,
+        model_id_format: "flat".into(),
         revision: 5,
     };
     db.upsert_client_key(&client_key).await.unwrap();
@@ -236,6 +238,52 @@ async fn sqlite_configuration_survives_restart() {
     let file = Url::from_file_path(folder.join("config.sqlite")).unwrap();
     let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
     exercise(Backend::Sqlite, &url).await;
+}
+
+#[tokio::test]
+async fn sqlite_client_preference_revision_mismatch_fails_closed() {
+    let temp = TempDir::new().unwrap();
+    let path = temp.path().join("preference-revision.sqlite");
+    let file = Url::from_file_path(&path).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    let db = Database::connect(Backend::Sqlite, &url).await.unwrap();
+    db.upsert_client_key(&StoredClientKey {
+        id: "client".into(),
+        label: "Client".into(),
+        key_hash: "22".repeat(32),
+        enabled: true,
+        expiry_unix: 0,
+        scopes_json: "[]".into(),
+        allowed_endpoints_json: "[]".into(),
+        allowed_models_json: "[]".into(),
+        blocked_models_json: "[]".into(),
+        allowed_provider_ids_json: "[]".into(),
+        max_concurrent: 0,
+        max_rpm: 0,
+        max_rpd: 0,
+        model_id_format: "flat".into(),
+        revision: 1,
+    })
+    .await
+    .unwrap();
+    db.close().await.unwrap();
+
+    let options = SqliteConnectOptions::new().filename(&path);
+    let mut raw = SqliteConnection::connect_with(&options).await.unwrap();
+    sqlx::query(
+        "UPDATE redrouter_control_client_key_preferences SET revision = 2 WHERE key_id = 'client'",
+    )
+    .execute(&mut raw)
+    .await
+    .unwrap();
+    raw.close().await.unwrap();
+
+    let reopened = Database::connect(Backend::Sqlite, &url).await.unwrap();
+    assert_eq!(
+        reopened.client_keys().await.unwrap_err(),
+        "client key preference revision mismatch"
+    );
+    reopened.close().await.unwrap();
 }
 
 #[cfg(feature = "reddb-embedded")]

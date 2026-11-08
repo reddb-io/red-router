@@ -16,10 +16,11 @@ const UPSERT_PROVIDER: &str = "INSERT INTO redrouter_control_providers (id, prov
 const DISABLE_PROVIDER: &str =
     "UPDATE redrouter_control_providers SET enabled = 0, revision = $2 WHERE id = $1";
 const CREATE_CLIENT_KEYS: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_client_keys (id TEXT PRIMARY KEY, label TEXT NOT NULL, key_hash TEXT NOT NULL, enabled BIGINT NOT NULL, expiry_unix BIGINT NOT NULL, scopes_json TEXT NOT NULL, allowed_endpoints_json TEXT NOT NULL, allowed_models_json TEXT NOT NULL, blocked_models_json TEXT NOT NULL, allowed_provider_ids_json TEXT NOT NULL, max_concurrent BIGINT NOT NULL, max_rpm BIGINT NOT NULL, max_rpd BIGINT NOT NULL, revision BIGINT NOT NULL)";
+const CREATE_CLIENT_KEY_PREFERENCES: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_client_key_preferences (key_id TEXT PRIMARY KEY, model_id_format TEXT NOT NULL, revision BIGINT NOT NULL)";
 const LIST_CLIENT_KEYS: &str = "SELECT id, label, key_hash, enabled, expiry_unix, scopes_json, allowed_endpoints_json, allowed_models_json, blocked_models_json, allowed_provider_ids_json, max_concurrent, max_rpm, max_rpd, revision FROM redrouter_control_client_keys ORDER BY revision DESC, id ASC";
+const LIST_CLIENT_KEY_PREFERENCES: &str = "SELECT key_id, model_id_format, revision FROM redrouter_control_client_key_preferences ORDER BY key_id ASC";
 const UPSERT_CLIENT_KEY: &str = "INSERT INTO redrouter_control_client_keys (id, label, key_hash, enabled, expiry_unix, scopes_json, allowed_endpoints_json, allowed_models_json, blocked_models_json, allowed_provider_ids_json, max_concurrent, max_rpm, max_rpd, revision) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) ON CONFLICT (id) DO UPDATE SET label = $2, key_hash = $3, enabled = $4, expiry_unix = $5, scopes_json = $6, allowed_endpoints_json = $7, allowed_models_json = $8, blocked_models_json = $9, allowed_provider_ids_json = $10, max_concurrent = $11, max_rpm = $12, max_rpd = $13, revision = $14";
-const REVOKE_CLIENT_KEY: &str =
-    "UPDATE redrouter_control_client_keys SET enabled = 0, revision = $2 WHERE id = $1";
+const UPSERT_CLIENT_KEY_PREFERENCE: &str = "INSERT INTO redrouter_control_client_key_preferences (key_id, model_id_format, revision) VALUES ($1,$2,$3) ON CONFLICT (key_id) DO UPDATE SET model_id_format = $2, revision = $3";
 const CREATE_COMBOS: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_combos (id TEXT PRIMARY KEY, protocol TEXT NOT NULL, routing_strategy TEXT NOT NULL, fallback_enabled BIGINT NOT NULL, targets_json TEXT NOT NULL, enabled BIGINT NOT NULL, revision BIGINT NOT NULL)";
 const LIST_COMBOS: &str = "SELECT id, protocol, routing_strategy, fallback_enabled, targets_json, enabled, revision FROM redrouter_control_combos ORDER BY revision DESC, id ASC";
 const UPSERT_COMBO: &str = "INSERT INTO redrouter_control_combos (id, protocol, routing_strategy, fallback_enabled, targets_json, enabled, revision) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (id) DO UPDATE SET protocol = $2, routing_strategy = $3, fallback_enabled = $4, targets_json = $5, enabled = $6, revision = $7";
@@ -81,7 +82,15 @@ pub struct StoredClientKey {
     pub max_concurrent: i64,
     pub max_rpm: i64,
     pub max_rpd: i64,
+    pub model_id_format: String,
     pub revision: i64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct StoredClientKeyPreference {
+    key_id: String,
+    model_id_format: String,
+    revision: i64,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -249,6 +258,7 @@ impl Database {
                         CREATE,
                         CREATE_PROVIDERS,
                         CREATE_CLIENT_KEYS,
+                        CREATE_CLIENT_KEY_PREFERENCES,
                         CREATE_COMBOS,
                         CREATE_ROUTE_PINS,
                         CREATE_PROVIDER_QUOTAS,
@@ -339,6 +349,8 @@ impl Database {
                 db.remote_schema_query(CREATE).await?;
                 db.remote_schema_query(CREATE_PROVIDERS).await?;
                 db.remote_schema_query(CREATE_CLIENT_KEYS).await?;
+                db.remote_schema_query(CREATE_CLIENT_KEY_PREFERENCES)
+                    .await?;
                 db.remote_schema_query(CREATE_COMBOS).await?;
                 db.remote_schema_query(CREATE_ROUTE_PINS).await?;
                 db.remote_schema_query(CREATE_PROVIDER_QUOTAS).await?;
@@ -373,6 +385,7 @@ impl Database {
                     CREATE,
                     CREATE_PROVIDERS,
                     CREATE_CLIENT_KEYS,
+                    CREATE_CLIENT_KEY_PREFERENCES,
                     CREATE_COMBOS,
                     CREATE_ROUTE_PINS,
                     CREATE_PROVIDER_QUOTAS,
@@ -539,7 +552,7 @@ impl Database {
     }
 
     pub async fn client_keys(&self) -> Result<Vec<StoredClientKey>, &'static str> {
-        match self {
+        let mut keys: Vec<StoredClientKey> = match self {
             Self::Sql(pool) => sqlx::query(LIST_CLIENT_KEYS)
                 .fetch_all(pool)
                 .await
@@ -563,10 +576,24 @@ impl Database {
                 .iter()
                 .map(read_reddb_client_key)
                 .collect(),
+        }?;
+        let preferences = self.client_key_preferences().await?;
+        for preference in preferences {
+            let Some(key) = keys.iter_mut().find(|key| key.id == preference.key_id) else {
+                // A preference is committed first. An orphan can therefore be
+                // left by a failed new-key insert and is safe to ignore.
+                continue;
+            };
+            if key.revision != preference.revision {
+                return Err("client key preference revision mismatch");
+            }
+            key.model_id_format = preference.model_id_format;
         }
+        Ok(keys)
     }
 
     pub async fn upsert_client_key(&self, key: &StoredClientKey) -> Result<(), &'static str> {
+        self.upsert_client_key_preference(key).await?;
         let enabled = if key.enabled { 1_i64 } else { 0_i64 };
         match self {
             Self::Sql(pool) => {
@@ -604,36 +631,77 @@ impl Database {
     }
 
     pub async fn revoke_client_key(&self, id: &str, revision: i64) -> Result<(), &'static str> {
+        let mut key = self
+            .client_keys()
+            .await?
+            .into_iter()
+            .find(|key| key.id == id)
+            .ok_or("client key not found")?;
+        key.enabled = false;
+        key.revision = revision;
+        self.upsert_client_key(&key).await
+    }
+
+    async fn client_key_preferences(&self) -> Result<Vec<StoredClientKeyPreference>, &'static str> {
+        match self {
+            Self::Sql(pool) => sqlx::query(LIST_CLIENT_KEY_PREFERENCES)
+                .fetch_all(pool)
+                .await
+                .map_err(|_| "cannot read client key preferences")?
+                .iter()
+                .map(read_sql_client_key_preference)
+                .collect(),
+            Self::Remote(_) => self
+                .remote_query(LIST_CLIENT_KEY_PREFERENCES, &[])
+                .await?
+                .rows
+                .iter()
+                .map(read_reddb_client_key_preference)
+                .collect(),
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => db
+                .query(LIST_CLIENT_KEY_PREFERENCES)
+                .await
+                .map_err(|_| "cannot read client key preferences")?
+                .rows
+                .iter()
+                .map(read_reddb_client_key_preference)
+                .collect(),
+        }
+    }
+
+    async fn upsert_client_key_preference(
+        &self,
+        key: &StoredClientKey,
+    ) -> Result<(), &'static str> {
+        if !matches!(key.model_id_format.as_str(), "prefixed" | "flat") {
+            return Err("invalid client key model ID format");
+        }
         match self {
             Self::Sql(pool) => {
-                sqlx::query(REVOKE_CLIENT_KEY)
-                    .bind(id)
-                    .bind(revision)
+                sqlx::query(UPSERT_CLIENT_KEY_PREFERENCE)
+                    .bind(&key.id)
+                    .bind(&key.model_id_format)
+                    .bind(key.revision)
                     .execute(pool)
                     .await
-                    .map_err(|_| "cannot revoke client key")?;
+                    .map_err(|_| "cannot write client key preferences")?;
             }
             Self::Remote(_) => {
                 self.remote_query(
-                    REVOKE_CLIENT_KEY,
-                    &[
-                        reddb_client::Value::Text(id.to_owned()),
-                        reddb_client::Value::Int(revision),
-                    ],
+                    UPSERT_CLIENT_KEY_PREFERENCE,
+                    &client_key_preference_params(key),
                 )
                 .await?;
             }
             #[cfg(feature = "reddb-embedded")]
             Self::Embedded { db, .. } => {
                 db.query_with(
-                    REVOKE_CLIENT_KEY,
-                    vec![
-                        reddb_client::Value::Text(id.to_owned()),
-                        reddb_client::Value::Int(revision),
-                    ],
+                    UPSERT_CLIENT_KEY_PREFERENCE,
+                    client_key_preference_params(key),
                 )
                 .await
-                .map_err(|_| "cannot revoke client key")?;
+                .map_err(|_| "cannot write client key preferences")?;
             }
         }
         Ok(())
@@ -1532,6 +1600,7 @@ fn read_sql_client_key(row: &sqlx::any::AnyRow) -> Result<StoredClientKey, &'sta
         max_concurrent: integer("max_concurrent")?,
         max_rpm: integer("max_rpm")?,
         max_rpd: integer("max_rpd")?,
+        model_id_format: "prefixed".to_owned(),
         revision: integer("revision")?,
     })
 }
@@ -1565,6 +1634,7 @@ fn read_reddb_client_key(row: &reddb_client::Row) -> Result<StoredClientKey, &'s
         max_concurrent: integer("max_concurrent")?,
         max_rpm: integer("max_rpm")?,
         max_rpd: integer("max_rpd")?,
+        model_id_format: "prefixed".to_owned(),
         revision: integer("revision")?,
     })
 }
@@ -1584,6 +1654,54 @@ fn client_key_params(key: &StoredClientKey, enabled: i64) -> Vec<reddb_client::V
         reddb_client::Value::Int(key.max_concurrent),
         reddb_client::Value::Int(key.max_rpm),
         reddb_client::Value::Int(key.max_rpd),
+        reddb_client::Value::Int(key.revision),
+    ]
+}
+
+fn read_sql_client_key_preference(
+    row: &sqlx::any::AnyRow,
+) -> Result<StoredClientKeyPreference, &'static str> {
+    Ok(StoredClientKeyPreference {
+        key_id: row
+            .try_get("key_id")
+            .map_err(|_| "invalid client key preference")?,
+        model_id_format: row
+            .try_get("model_id_format")
+            .map_err(|_| "invalid client key preference")?,
+        revision: row
+            .try_get("revision")
+            .map_err(|_| "invalid client key preference")?,
+    })
+}
+
+fn read_reddb_client_key_preference(
+    row: &reddb_client::Row,
+) -> Result<StoredClientKeyPreference, &'static str> {
+    let text = |name: &str| match row
+        .iter()
+        .find(|(column, _)| column.eq_ignore_ascii_case(name))
+    {
+        Some((_, reddb_client::ValueOut::String(value))) => Ok(value.clone()),
+        _ => Err("invalid client key preference"),
+    };
+    let revision = match row
+        .iter()
+        .find(|(column, _)| column.eq_ignore_ascii_case("revision"))
+    {
+        Some((_, reddb_client::ValueOut::Integer(value))) => Ok(*value),
+        _ => Err("invalid client key preference"),
+    }?;
+    Ok(StoredClientKeyPreference {
+        key_id: text("key_id")?,
+        model_id_format: text("model_id_format")?,
+        revision,
+    })
+}
+
+fn client_key_preference_params(key: &StoredClientKey) -> Vec<reddb_client::Value> {
+    vec![
+        reddb_client::Value::Text(key.id.clone()),
+        reddb_client::Value::Text(key.model_id_format.clone()),
         reddb_client::Value::Int(key.revision),
     ]
 }

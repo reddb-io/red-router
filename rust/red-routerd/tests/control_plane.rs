@@ -2431,6 +2431,7 @@ async fn rust_control_plane_persists_redacts_and_live_reloads_providers() {
             serde_json::json!({
                 "label":"Agent fleet",
                 "api_key":RUST_CLIENT_KEY,
+                "model_id_format":"flat",
                 "scopes":["inference:chat"],
                 "allowed_endpoints":["chat"],
                 "allowed_models":["fixture-model"],
@@ -2447,6 +2448,25 @@ async fn rust_control_plane_persists_redacts_and_live_reloads_providers() {
     let key_body = key_response.text().await.unwrap();
     assert!(!key_body.contains(RUST_CLIENT_KEY));
     assert!(!key_body.contains("key_hash"));
+    assert_eq!(
+        client
+            .put(format!("{base}/api/admin/client-keys/invalid-format"))
+            .bearer_auth(ADMIN_KEY)
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(
+                serde_json::json!({
+                    "label":"Invalid format",
+                    "api_key":"invalid-format-client-key-123456",
+                    "model_id_format":"bare"
+                })
+                .to_string()
+            )
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::BAD_REQUEST
+    );
     let update_key = |provider: &str, expiry: Option<u64>| {
         serde_json::json!({
             "label":"Agent fleet",
@@ -2579,6 +2599,7 @@ async fn rust_control_plane_persists_redacts_and_live_reloads_providers() {
     let stored_keys = database.client_keys().await.unwrap();
     assert_eq!(stored_keys.len(), 1);
     assert_eq!(stored_keys[0].key_hash.len(), 64);
+    assert_eq!(stored_keys[0].model_id_format, "flat");
     assert!(!stored_keys[0].key_hash.contains(RUST_CLIENT_KEY));
     let key_listing = client
         .get(format!("{base}/api/admin/client-keys"))
@@ -2590,6 +2611,7 @@ async fn rust_control_plane_persists_redacts_and_live_reloads_providers() {
         .await
         .unwrap();
     assert!(key_listing.contains("Agent fleet"));
+    assert!(key_listing.contains("\"model_id_format\":\"flat\""));
     assert!(!key_listing.contains(RUST_CLIENT_KEY));
     assert!(!key_listing.contains("key_hash"));
 
@@ -2638,6 +2660,16 @@ async fn rust_control_plane_persists_redacts_and_live_reloads_providers() {
             .unwrap(),
         "first"
     );
+    let identity = client
+        .get(format!("{restarted_base}/v1/key"))
+        .bearer_auth(RUST_CLIENT_KEY)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(identity.status(), StatusCode::OK);
+    let identity: serde_json::Value =
+        serde_json::from_str(&identity.text().await.unwrap()).unwrap();
+    assert_eq!(identity["id_format"], "flat");
     assert_eq!(
         client
             .delete(format!(

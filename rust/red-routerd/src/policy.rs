@@ -33,7 +33,7 @@ pub(crate) struct ClientIdentity {
     pub id: Arc<str>,
     pub name: Arc<str>,
     pub role: &'static str,
-    pub id_format: &'static str,
+    pub id_format: Arc<str>,
 }
 
 enum ClientCredential {
@@ -44,6 +44,7 @@ enum ClientCredential {
 pub(crate) struct StoredPolicy {
     pub id: String,
     pub name: String,
+    pub model_id_format: String,
     pub key_hash: [u8; 32],
     pub enabled: bool,
     pub expires_at_unix: Option<u64>,
@@ -157,7 +158,7 @@ impl ClientPolicies {
                             } else {
                                 "standard"
                             },
-                            id_format: "prefixed",
+                            id_format: Arc::from(policy.model_id_format),
                         }),
                         enabled: policy.enabled,
                         expires_at_unix: policy.expires_at_unix,

@@ -183,7 +183,11 @@ Persisted key identity discovery at `/v1/key` and `/api/v1/key` is also Rust-own
 only the successfully authenticated key's redacted ID, label, role and model-ID format, never
 builds the catalog, and refuses environment fallback keys because they have no durable identity.
 The dashboard SQLite compatibility reader retains its existing per-key `flat`/`prefixed` setting;
-Rust-owned keys remain explicitly `prefixed` until that setting is added to their durable schema.
+Rust-owned keys persist the same setting in a revision-coupled preference record. The preference
+is committed before the key revision and a mismatched revision fails closed, so an interrupted
+two-record update cannot publish a partially changed identity. Missing legacy preferences default
+to `prefixed`. As in the current TypeScript contract, this setting is discoverable but does not yet
+rewrite the scoped catalog (`key_id_format_applied` remains false), and combo IDs stay unchanged.
 Refreshing and atomically publishing a newer catalog snapshot from Rust remains separate
 migration work.
 Quota observations live in `redrouter_provider_quotas` with an explicit TTL. Admin

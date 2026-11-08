@@ -95,6 +95,7 @@ pub struct ProviderView {
 pub struct ClientKeyInput {
     pub label: String,
     pub api_key: Option<String>,
+    pub model_id_format: Option<String>,
     #[serde(default = "enabled_by_default")]
     pub enabled: bool,
     pub expires_at_unix: Option<u64>,
@@ -117,6 +118,7 @@ pub struct ClientKeyInput {
 pub struct ClientKeyView {
     pub id: String,
     pub label: String,
+    pub model_id_format: String,
     pub enabled: bool,
     pub expires_at_unix: Option<u64>,
     pub scopes: Vec<String>,
@@ -1039,6 +1041,14 @@ impl ControlPlane {
             max_concurrent: optional_limit(input.max_concurrent_requests, 65_535)?,
             max_rpm: optional_limit(input.max_requests_per_minute, 10_000)?,
             max_rpd: optional_limit(input.max_requests_per_day, 10_000_000)?,
+            model_id_format: validate_model_id_format(
+                input
+                    .model_id_format
+                    .as_deref()
+                    .or_else(|| existing.as_ref().map(|row| row.model_id_format.as_str()))
+                    .unwrap_or("prefixed"),
+            )?
+            .to_owned(),
             revision: revision()?,
         };
         self.0.database.upsert_client_key(&record).await?;
@@ -1635,6 +1645,7 @@ fn client_view(record: &StoredClientKey) -> Result<ClientKeyView, &'static str> 
     Ok(ClientKeyView {
         id: record.id.clone(),
         label: record.label.clone(),
+        model_id_format: validate_model_id_format(&record.model_id_format)?.to_owned(),
         enabled: record.enabled,
         expires_at_unix,
         scopes: parse_list(&record.scopes_json)?,
@@ -1759,6 +1770,7 @@ fn stored_policy(record: &StoredClientKey) -> Result<StoredPolicy, &'static str>
     Ok(StoredPolicy {
         id: record.id.clone(),
         name: record.label.clone(),
+        model_id_format: view.model_id_format,
         key_hash,
         enabled: record.enabled,
         expires_at_unix: view.expires_at_unix,
@@ -1800,6 +1812,13 @@ fn validate_client_lists(input: &ClientKeyInput) -> Result<(), &'static str> {
         }
     }
     Ok(())
+}
+
+fn validate_model_id_format(value: &str) -> Result<&str, &'static str> {
+    match value {
+        "prefixed" | "flat" => Ok(value),
+        _ => Err("client key model ID format must be prefixed or flat"),
+    }
 }
 
 fn validate_scope_list(values: &[String]) -> Result<(), &'static str> {
