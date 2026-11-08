@@ -84,6 +84,10 @@ impl OidcVerifier {
         &self.policy
     }
 
+    pub(crate) fn set_revision(&mut self, revision: i64) {
+        self.policy.revision = revision;
+    }
+
     pub(crate) async fn prime(&self) -> Result<(), &'static str> {
         if self.policy.enabled {
             self.keys(true).await?;

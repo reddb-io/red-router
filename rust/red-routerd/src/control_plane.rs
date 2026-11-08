@@ -456,10 +456,11 @@ impl ControlPlane {
                 .map_err(|_| "cannot encode OIDC subject policy")?,
             revision: 0,
         };
-        let candidate = crate::oidc::OidcVerifier::from_stored(&record, self.0.allow_private)?;
+        let mut candidate = crate::oidc::OidcVerifier::from_stored(&record, self.0.allow_private)?;
         candidate.prime().await?;
         let _mutation = self.0.mutation.lock().await;
         record.revision = revision()?;
+        candidate.set_revision(record.revision);
         self.0.database.upsert_oidc(&record).await?;
         let stored = self
             .0
@@ -467,7 +468,13 @@ impl ControlPlane {
             .oidc_config()
             .await?
             .ok_or("cannot reload OIDC configuration")?;
-        let verifier = crate::oidc::OidcVerifier::from_stored(&stored, self.0.allow_private)?;
+        let verifier = if stored == record {
+            candidate
+        } else {
+            let verifier = crate::oidc::OidcVerifier::from_stored(&stored, self.0.allow_private)?;
+            verifier.prime().await?;
+            verifier
+        };
         *self.0.oidc.write().await = Some(Arc::new(verifier));
         oidc_stored_view(&stored)
     }
