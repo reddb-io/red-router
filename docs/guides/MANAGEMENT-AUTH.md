@@ -1,7 +1,7 @@
 ---
 title: "Management Authentication"
 version: 3.8.50
-lastUpdated: 2026-09-22
+lastUpdated: 2026-11-08
 ---
 
 # Management Authentication
@@ -102,6 +102,54 @@ Role changes govern the next OIDC sign-in; existing dashboard sessions must be r
 Run **Check connection** and **Test sign-in** before disabling password login. Changing the claim
 policy invalidates the previous successful sign-in test. Password recovery and inference keys retain
 their existing behavior.
+
+#### Rust gateway browser flow
+
+The Rust migration has a separate, Rust-owned management boundary for `/api/admin/*`. It accepts
+the bootstrap `RED_ROUTER_ADMIN_KEY`, a signed OIDC bearer token, or the browser session minted by
+the Rust callback. The legacy Next.js `auth_token` cookie is not an implicit credential for this
+boundary.
+
+Configure the browser client through `PUT /api/admin/oidc`. The confidential client secret is
+encrypted before it is stored and is never returned by the API. Omitting `client_secret` on a later
+update preserves the existing encrypted value; `clear_browser: true` removes browser login while
+retaining the signed-bearer policy.
+
+```json
+{
+  "enabled": true,
+  "issuer": "https://id.example.com",
+  "audience": "red-router-admin",
+  "jwks_uri": "https://id.example.com/.well-known/jwks.json",
+  "required_claims": { "org_role": ["operator"] },
+  "allowed_subjects": ["operator@example.com"],
+  "browser": {
+    "public_origin": "https://router.example.com",
+    "client_id": "red-router-dashboard",
+    "client_secret": "<confidential-client-secret>",
+    "authorization_endpoint": "https://id.example.com/authorize",
+    "token_endpoint": "https://id.example.com/token",
+    "scopes": ["openid", "profile", "email"]
+  }
+}
+```
+
+`public_origin` is an exact, path-free HTTPS origin (literal loopback HTTP is allowed for local
+development). RedRouter derives the callback as `/api/auth/oidc/callback`; it never derives a
+security-sensitive redirect from `Host` or `X-Forwarded-*`. The authorization and token endpoints
+are explicit and validated, redirects are disabled for server-side token exchange, and JWKS/token
+fetches use bounded bodies, timeouts, DNS pinning, and the existing private-address policy.
+
+`GET /api/auth/oidc/login` starts Authorization Code + PKCE S256 with encrypted, ten-minute
+state/nonce/verifier state. The callback verifies signature, issuer, audience/authorized party,
+nonce, required claims, and subject before creating a 12-hour encrypted session. A configuration
+revision change invalidates all earlier Rust sessions.
+
+The Rust session uses `redrouter_admin_session` (HttpOnly) and `redrouter_admin_csrf`. SPA calls to
+`/api/admin/*` must send the CSRF value in `x-red-router-csrf` and carry an `Origin` exactly matching
+`public_origin`; this applies to reads as well as writes so one fetch wrapper can enforce the rule.
+`POST /api/auth/logout` expires both cookies. SQLite is the current default, and the same browser
+configuration record is implemented by the selected RedDB or PostgreSQL authority.
 
 ### CLI machine-id token
 

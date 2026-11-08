@@ -1,7 +1,7 @@
 ---
 title: "Rust backend migration"
 status: accepted
-lastUpdated: 2026-11-07
+lastUpdated: 2026-11-08
 ---
 
 # Rust backend migration
@@ -50,7 +50,7 @@ features must not be implemented only there.
 | Pricing, quotas and budgets | Partial                | Atomic reservations, streaming settlement, reconciliation, multi-process tests     |
 | Usage and audit             | Partial                | Complete protocol usage, idempotent ledger, retention/export APIs                  |
 | Settings and resilience     | Partial                | Durable configurable provider breakers and reset API; versioned settings snapshots remain |
-| Management identity         | Partial                | Signed OIDC bearer policy is Rust-owned; browser PKCE/session lifecycle remains    |
+| Management identity         | Implemented foundation | Signed bearer plus browser PKCE, encrypted session, CSRF/origin binding and logout |
 | SPA delivery                | Pending                | Rust-served static assets, same-origin admin API, no Next.js runtime               |
 | Legacy data migration       | Pending                | Maintenance-mode import, verification report and rollback boundary                 |
 
@@ -67,12 +67,13 @@ their Rust migration state:
 | Preserve unpriced chat and streaming consumption | Implemented as explicit opt-in with `pricing_known = 0` | Rust-owned reporting APIs and usage sinks |
 | Durable embedding usage | Implemented for product-SQLite OpenAI-compatible responses | Move reservation and ledger ownership into the Rust storage repository |
 | Operator/key reporting attributes | Implemented for product-SQLite chat, streaming and embeddings | Move attributes and the ledger behind the Rust-owned storage repository |
-| Signed OIDC claim policies | Partial: Rust-owned signed bearer authentication implemented | Browser discovery, authorization-code PKCE, nonce/state, sessions and logout |
+| Signed OIDC claim policies | Implemented foundation: signed bearer and Rust-owned browser flow | Wire the static SPA fetch/login UX; add provider-specific discovery/connection-test adapters |
 | Preserve stream deltas when terminal snapshots omit output | Direct OpenAI relay is not affected | Add parity fixtures for every translating stream path before declaring complete |
 | Bound router/cache/log stream retention | Rust SSE frames and channels are bounded | Audit admin logs, translated streams and future SPA subscriptions under sustained load |
 
-This table is a migration queue, not a parity claim. The signed-token security
-boundary is now Rust-owned; the next OIDC layer is the browser session lifecycle.
+This table is a migration queue, not a parity claim. The signed-token and browser
+session security boundaries are Rust-owned; the remaining OIDC work is SPA integration
+and provider-specific discovery/diagnostics rather than a Next.js backend dependency.
 
 ## Rust-owned production slices
 
@@ -95,9 +96,18 @@ bootstrap key or a JWT with an approved algorithm, `kid`, issuer, audience, expi
 policy match. Key rotation is cached with a throttled refresh on an unknown `kid`, so
 untrusted tokens cannot cause one outbound fetch per request. Restart persistence and
 the policy repository are covered for SQLite, RedDB and PostgreSQL; end-to-end signed
-JWT behavior is covered against SQLite. This is not yet the Next.js browser OIDC flow:
-discovery, authorization-code PKCE, state/nonce, encrypted session cookies and logout
-remain with the SPA/session migration.
+JWT behavior is covered against SQLite. The confidential browser-client record is also
+Rust-owned: its secret is encrypted, its public origin and authorization/token endpoints
+are explicit, and its revision is coupled to the signed-token policy. Login uses
+Authorization Code + PKCE S256 with encrypted ten-minute state/nonce/verifier state;
+the callback performs bounded, DNS-pinned, redirect-free token exchange and verifies
+signature, issuer, audience/authorized party, nonce, claims and subject before minting
+a 12-hour encrypted session. Rust admin API calls made with that session require a
+matching CSRF cookie/header and exact configured Origin, including reads. Policy changes
+invalidate prior sessions, logout expires all Rust auth cookies, and restart/storage
+coverage includes SQLite and the common RedDB/PostgreSQL repository contract. Static SPA
+wiring and provider-specific discovery/connection-test UX remain; they do not require a
+Next.js persistence or session backend.
 
 The client-key slice stores only a SHA-256 lookup hash and redacted policy metadata in
 `redrouter_control_client_keys`. Authenticated admin writes durably commit before a new
