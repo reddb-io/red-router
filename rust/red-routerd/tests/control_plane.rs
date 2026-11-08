@@ -665,7 +665,8 @@ async fn rust_models_lists_only_routable_models_allowed_for_the_client() {
                 .unwrap(),
             "private, no-store"
         );
-        let body: serde_json::Value = response.json().await.unwrap();
+        let body: serde_json::Value =
+            serde_json::from_str(&response.text().await.unwrap()).unwrap();
         assert_eq!(body["object"], "list");
         let entries = body["data"].as_array().unwrap();
         assert_eq!(entries.len(), 1, "unexpected model list: {body}");
