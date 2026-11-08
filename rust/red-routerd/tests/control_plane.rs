@@ -2841,9 +2841,10 @@ async fn connection_cooldown_falls_back_and_survives_gateway_restart() {
         .send()
         .await
         .unwrap()
-        .json::<serde_json::Value>()
+        .text()
         .await
         .unwrap();
+    let health: serde_json::Value = serde_json::from_str(&health).unwrap();
     let limited = health["provider_health"]
         .as_array()
         .unwrap()
@@ -3195,9 +3196,10 @@ async fn model_lockout_is_scoped_without_poisoning_the_provider_connection() {
         .send()
         .await
         .unwrap()
-        .json::<serde_json::Value>()
+        .text()
         .await
         .unwrap();
+    let health: serde_json::Value = serde_json::from_str(&health).unwrap();
     let scoped = health["provider_health"]
         .as_array()
         .unwrap()
