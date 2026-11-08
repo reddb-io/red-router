@@ -45,7 +45,7 @@
       "role": "metadata-source",
       "repository": "anomalyco/models.dev",
       "ref": "dev",
-      "sha": "592a849d85d184cad180803a60ecaa0a521f96b9",
+      "sha": "a2753d98dacece3d1b52a99de967556146fa4b38",
       "reviewScope": "Provider/native versus canonical identity, type filtering, reasoning_options, public HTTP validators and OpenRouter decision omission; schema source ref is separate from live asset provenance.",
       "licenseBoundary": "MIT; snapshot notice and upstream attribution retained."
     },

@@ -2,6 +2,7 @@
 pub mod accounting;
 mod anthropic_stream;
 mod availability;
+pub mod catalog;
 mod circuit;
 pub mod control_plane;
 pub mod fastllm_control;
@@ -1570,6 +1571,14 @@ pub fn router(state: ProxyState) -> Router {
             put(control_plane::put_client_key).delete(control_plane::delete_client_key),
         )
         .route("/api/admin/combos", get(control_plane::list_combos))
+        .route(
+            "/api/admin/model-catalog",
+            get(control_plane::list_model_catalog),
+        )
+        .route(
+            "/api/admin/model-catalog/{provider}",
+            get(control_plane::get_model_catalog_provider),
+        )
         .route(
             "/api/admin/combos/{id}",
             put(control_plane::put_combo).delete(control_plane::delete_combo),

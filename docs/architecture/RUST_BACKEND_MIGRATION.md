@@ -139,12 +139,31 @@ are implemented for OpenAI chat, Responses, embeddings, Cohere rerank, native An
 and Gemini. Provider endpoints are validated and pinned for the protocol implied by their
 URL; an enabled combo cannot bind targets from a different protocol.
 
+The read-only dashboard SQLite bridge accepts fixed OpenAI-compatible chat endpoints for
+OpenAI, OpenRouter, Groq, Cerebras, SambaNova, Mistral, DeepSeek, Together, Perplexity,
+Fireworks, xAI, NVIDIA NIM, AI21, Moonshot/Kimi, SiliconFlow and Novita. These mappings do
+not accept dashboard-controlled endpoint overrides: custom and regional base URLs remain
+fail-closed until the Rust provider repository can validate and persist them as owned
+configuration.
+
 The load-aware strategies use provider-wide atomic counters that survive route snapshot
 replacement. Streaming attempts keep their counter until the upstream body is drained,
 including the background drain used to settle usage after a client disconnect.
 Cost and context strategies rank a fixed stack deck without adding a second request-path
 allocation; their validated price and context-window metadata lives in the durable combo record.
-Automatic catalog enrichment remains separate migration work.
+The Rust control plane now reads the committed `anomalyco/models.dev` snapshot lazily by
+exact native provider/model ID. It validates the snapshot manifest and provenance before use,
+parses only providers touched by configured combos, and freezes available input/output cost
+and context-window metadata into the durable combo record. Operator-supplied values retain
+precedence. The catalog does not create connections, grant model access, rewrite native IDs or
+select an upstream endpoint; those remain RedRouter-owned security and transport decisions.
+The authenticated `GET /api/admin/model-catalog` endpoint returns the lightweight upstream
+provider index and manifest; `GET /api/admin/model-catalog/{provider}` materializes the complete
+metadata for only that exact models.dev provider, including models, capabilities, modalities,
+limits, prices, dates and status. This keeps the dashboard catalog on the Rust backend without
+eagerly retaining all provider model maps in proxy memory.
+Refreshing and atomically publishing a newer catalog snapshot from Rust remains separate
+migration work.
 Quota observations live in `redrouter_provider_quotas` with an explicit TTL. Admin
 updates commit before the shared lock-free provider snapshot changes; route selection
 reads only atomics and never queries SQLite/RedDB/PostgreSQL. Expired observations become

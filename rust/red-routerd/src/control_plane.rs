@@ -891,14 +891,15 @@ impl ControlPlane {
     pub async fn configure_combo(
         &self,
         id: &str,
-        input: ComboInput,
+        mut input: ComboInput,
     ) -> Result<ComboView, &'static str> {
         validate_id(id)?;
-        validate_combo(&input)?;
         let _mutation = self.0.mutation.lock().await;
+        let providers = self.0.database.providers().await?;
+        enrich_combo_metadata(&mut input, &providers)?;
+        validate_combo(&input)?;
         if input.enabled {
             let protocol = ProviderProtocol::parse(&input.protocol)?;
-            let providers = self.0.database.providers().await?;
             if !input.targets.iter().all(|target| {
                 providers
                     .iter()
@@ -1934,6 +1935,32 @@ fn validate_combo(input: &ComboInput) -> Result<(), &'static str> {
     Ok(())
 }
 
+fn enrich_combo_metadata(
+    input: &mut ComboInput,
+    providers: &[StoredProvider],
+) -> Result<(), &'static str> {
+    let catalog = crate::catalog::bundled_catalog()?;
+    for target in &mut input.targets {
+        let Some(provider) = providers
+            .iter()
+            .find(|provider| provider.id == target.provider_id)
+        else {
+            continue;
+        };
+        let Some(metadata) = catalog.model(&provider.provider, &target.model)? else {
+            continue;
+        };
+        if let Some(cost) = metadata.cost {
+            target.input_cost_per_million = target.input_cost_per_million.or(cost.input);
+            target.output_cost_per_million = target.output_cost_per_million.or(cost.output);
+        }
+        if let Some(limit) = metadata.limit {
+            target.context_window_tokens = target.context_window_tokens.or(limit.context);
+        }
+    }
+    Ok(())
+}
+
 fn json_list(values: &[String]) -> Result<String, &'static str> {
     serde_json::to_string(values).map_err(|_| "cannot encode client key policy")
 }
@@ -2452,6 +2479,49 @@ pub async fn list_combos(State(state): State<ProxyState>, headers: HeaderMap) ->
     }
 }
 
+pub async fn list_model_catalog(State(state): State<ProxyState>, headers: HeaderMap) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+    };
+    if !control.authorized(&headers).await {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
+    }
+    let response = crate::catalog::bundled_catalog().and_then(|catalog| {
+        Ok(serde_json::json!({
+            "manifest": catalog.manifest(),
+            "providers": catalog.provider_summaries()?,
+        }))
+    });
+    match response {
+        Ok(response) => Json(response).into_response(),
+        Err(_) => api_error(StatusCode::SERVICE_UNAVAILABLE, "Model catalog unavailable"),
+    }
+}
+
+pub async fn get_model_catalog_provider(
+    State(state): State<ProxyState>,
+    Path(provider): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+    };
+    if !control.authorized(&headers).await {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
+    }
+    let catalog = match crate::catalog::bundled_catalog() {
+        Ok(catalog) => catalog,
+        Err(_) => {
+            return api_error(StatusCode::SERVICE_UNAVAILABLE, "Model catalog unavailable");
+        }
+    };
+    match catalog.provider(&provider) {
+        Ok(Some(provider)) => Json(serde_json::json!({"provider":provider})).into_response(),
+        Ok(None) => api_error(StatusCode::NOT_FOUND, "Catalog provider not found"),
+        Err(_) => api_error(StatusCode::SERVICE_UNAVAILABLE, "Model catalog unavailable"),
+    }
+}
+
 pub async fn list_provider_health(State(state): State<ProxyState>, headers: HeaderMap) -> Response {
     let Some(control) = &state.control_plane else {
         return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
@@ -2743,6 +2813,39 @@ pub async fn delete_client_key(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn combo_metadata_uses_models_dev_without_overriding_operator_values() {
+        let providers = vec![StoredProvider {
+            id: "first".to_owned(),
+            provider: "openai".to_owned(),
+            upstream_url: "https://api.openai.com/v1/chat/completions".to_owned(),
+            credential_ciphertext: "encrypted".to_owned(),
+            enabled: true,
+            updated_at: 1,
+        }];
+        let mut input = ComboInput {
+            protocol: "openai-chat".to_owned(),
+            strategy: "cost-optimized".to_owned(),
+            fallback: true,
+            targets: vec![ComboTarget {
+                provider_id: "first".to_owned(),
+                model: "gpt-3.5-turbo".to_owned(),
+                weight: None,
+                input_cost_per_million: Some(99.0),
+                output_cost_per_million: None,
+                context_window_tokens: None,
+            }],
+            enabled: true,
+        };
+
+        enrich_combo_metadata(&mut input, &providers).unwrap();
+
+        let target = &input.targets[0];
+        assert_eq!(target.input_cost_per_million, Some(99.0));
+        assert_eq!(target.output_cost_per_million, Some(1.5));
+        assert_eq!(target.context_window_tokens, Some(16_385));
+    }
 
     #[test]
     fn encrypted_credentials_are_bound_to_the_provider_id() {

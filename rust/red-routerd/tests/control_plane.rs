@@ -472,6 +472,78 @@ async fn set_combo_strategy(client: &reqwest::Client, base: &str, strategy: &str
 }
 
 #[tokio::test]
+async fn rust_control_plane_serves_the_bundled_models_dev_catalog_lazily() {
+    let directory = TempDir::new().unwrap();
+    let file = Url::from_file_path(directory.path().join("catalog.sqlite")).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    let database = Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap());
+    let control = ControlPlane::new(database, ADMIN_KEY, STORAGE_KEY, false)
+        .await
+        .unwrap();
+    let (base, gateway_task) = gateway(control).await;
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+
+    assert_eq!(
+        client
+            .get(format!("{base}/api/admin/model-catalog"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    let index = client
+        .get(format!("{base}/api/admin/model-catalog"))
+        .bearer_auth(ADMIN_KEY)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(index.status(), StatusCode::OK);
+    let index: serde_json::Value = index.json().await.unwrap();
+    assert_eq!(
+        index["manifest"]["upstreamRepository"],
+        "https://github.com/anomalyco/models.dev"
+    );
+    assert!(index["providers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|provider| provider["id"] == "openai" && provider["name"] == "OpenAI"));
+
+    let provider = client
+        .get(format!("{base}/api/admin/model-catalog/openai"))
+        .bearer_auth(ADMIN_KEY)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(provider.status(), StatusCode::OK);
+    let provider: serde_json::Value = provider.json().await.unwrap();
+    let model = provider["provider"]["models"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|model| model["id"] == "gpt-3.5-turbo")
+        .unwrap();
+    assert_eq!(model["limit"]["context"], 16_385);
+    assert_eq!(model["cost"]["input"], 0.5);
+    assert_eq!(model["cost"]["output"], 1.5);
+    assert_eq!(model["tool_call"], false);
+
+    assert_eq!(
+        client
+            .get(format!("{base}/api/admin/model-catalog/not-a-provider"))
+            .bearer_auth(ADMIN_KEY)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+
+    gateway_task.abort();
+}
+
+#[tokio::test]
 async fn rust_control_plane_persists_and_enforces_signed_oidc_admin_authentication() {
     let directory = TempDir::new().unwrap();
     let file = Url::from_file_path(directory.path().join("oidc.sqlite")).unwrap();

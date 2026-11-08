@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 
 export const CATALOG_URL = "https://models.dev/catalog.json?type=all";
-const DEFAULT_SCHEMA_REF = "592a849d85d184cad180803a60ecaa0a521f96b9";
+const DEFAULT_SCHEMA_REF = "a2753d98dacece3d1b52a99de967556146fa4b38";
 const OUTPUT = fileURLToPath(new URL("../../src/lib/catalog/modelsDevSeed.json", import.meta.url));
 const strings = [
   "name",
