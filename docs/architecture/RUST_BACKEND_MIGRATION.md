@@ -49,7 +49,7 @@ features must not be implemented only there.
 | Combos and routing          | Implemented foundation | Durable deterministic, metadata-ranked, deck-random and load-aware routes and reload |
 | Pricing, quotas and budgets | Partial                | Atomic reservations, streaming settlement, reconciliation, multi-process tests     |
 | Usage and audit             | Partial                | Complete protocol usage, idempotent ledger, retention/export APIs                  |
-| Settings and resilience     | Partial                | Durable configurable provider breakers and reset API; versioned settings snapshots remain |
+| Settings and resilience     | Partial                | Durable provider breakers, connection cooldowns, model lockouts and reset API; provider-specific classification and versioned settings snapshots remain |
 | Management identity         | Implemented foundation | Signed bearer, discovery, browser PKCE, encrypted session, CSRF/fetch-metadata binding and logout |
 | SPA delivery                | Partial                | Rust serves a validated static bundle with safe SPA fallback; production dashboard export/packaging remains |
 | Legacy data migration       | Pending                | Maintenance-mode import, verification report and rollback boundary                 |
@@ -165,5 +165,17 @@ probe is allowed after the durable cooldown, and success or failure is committed
 the updated runtime state is accepted. The authenticated health API exposes only
 non-secret state and supports durable per-provider thresholds, reset windows and an
 operator reset that preserves those settings. Configuration is committed before the
-live circuit changes and survives restart. The remaining connection/model cooldown
-layers still need migration.
+live circuit changes and survives restart.
+
+Connection and model availability is independently owned by
+`redrouter_provider_availability`, keyed by the Rust provider-connection ID. A `401`,
+`403` or `429` starts a connection-scoped exponential cooldown; standard `Retry-After`
+and common rate-limit reset headers can extend it. A `404` locks only the failing model,
+so another model on the same credential stays eligible. Both scopes are checked before
+usage reservation or dispatch, cause combo fallback, survive restart and are cleared by
+a successful recovery, provider credential change or authenticated health reset. A
+generation permit prevents concurrent failures from multiplying the backoff. SQLite is
+the selected production backend for this slice, while the common repository contract is
+also exercised for embedded/remote RedDB and PostgreSQL. Provider-specific `429` model
+classification, terminal banned/expired/credits states and resilience settings exposed
+as versioned dashboard configuration remain migration work.

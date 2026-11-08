@@ -1,6 +1,7 @@
 //! RedRouter's Rust proxy and production-backend migration target.
 pub mod accounting;
 mod anthropic_stream;
+mod availability;
 mod circuit;
 pub mod control_plane;
 pub mod fastllm_control;
@@ -67,6 +68,7 @@ pub(crate) struct LiveProvider {
     provider_id: Option<Arc<str>>,
     protocol: ProviderProtocol,
     circuit: Option<Arc<circuit::ProviderCircuit>>,
+    availability: Option<Arc<availability::ProviderAvailability>>,
     in_flight: Arc<AtomicUsize>,
 }
 
@@ -238,6 +240,7 @@ pub(crate) struct ModelTarget {
     context_window_tokens: Option<u64>,
     quota: Option<Arc<TargetQuota>>,
     circuit: Option<Arc<circuit::ProviderCircuit>>,
+    availability: Option<Arc<availability::ProviderAvailability>>,
     in_flight: Arc<AtomicUsize>,
 }
 
@@ -533,6 +536,46 @@ fn unix_time_ms() -> i64 {
         .ok()
         .and_then(|value| i64::try_from(value.as_millis()).ok())
         .unwrap_or(i64::MAX)
+}
+
+fn retry_after_hint_ms(headers: &HeaderMap) -> Option<u64> {
+    if let Some(seconds) = headers
+        .get(header::RETRY_AFTER)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.trim().parse::<u64>().ok())
+    {
+        return seconds.checked_mul(1_000);
+    }
+    let now = u64::try_from(unix_time_ms()).ok()?;
+    [
+        "x-ratelimit-reset",
+        "x-ratelimit-reset-requests",
+        "x-ratelimit-reset-tokens",
+    ]
+    .into_iter()
+    .filter_map(|name| headers.get(name))
+    .filter_map(|value| value.to_str().ok())
+    .filter_map(|value| reset_hint_ms(value.trim(), now))
+    .min()
+}
+
+fn reset_hint_ms(value: &str, now_unix_ms: u64) -> Option<u64> {
+    if let Some(milliseconds) = value.strip_suffix("ms") {
+        return milliseconds.trim().parse::<u64>().ok();
+    }
+    if let Some(seconds) = value.strip_suffix('s') {
+        return seconds.trim().parse::<u64>().ok()?.checked_mul(1_000);
+    }
+    let value = value.parse::<u64>().ok()?;
+    if value >= 1_000_000_000_000 {
+        Some(value.saturating_sub(now_unix_ms))
+    } else if value >= 1_000_000_000 {
+        value
+            .checked_mul(1_000)
+            .map(|unix_ms| unix_ms.saturating_sub(now_unix_ms))
+    } else {
+        value.checked_mul(1_000)
+    }
 }
 
 fn target_quota(target: &ModelTarget, now_unix_ms: i64) -> Option<QuotaSnapshot> {
@@ -863,6 +906,7 @@ impl ProxyState {
             provider_id: None,
             protocol,
             circuit: None,
+            availability: None,
             in_flight: Arc::new(AtomicUsize::new(0)),
         })
     }
@@ -892,6 +936,7 @@ impl ProxyState {
             context_window_tokens,
             quota: Some(quota),
             circuit: provider.circuit.clone(),
+            availability: provider.availability.clone(),
             in_flight: provider.in_flight.clone(),
         }
     }
@@ -1255,6 +1300,7 @@ impl ProxyState {
                     context_window_tokens,
                     quota: None,
                     circuit: None,
+                    availability: None,
                     in_flight: Arc::new(AtomicUsize::new(0)),
                 });
             }
@@ -1478,6 +1524,20 @@ fn circuit_open_error(retry_after_ms: u64) -> Response {
         StatusCode::SERVICE_UNAVAILABLE,
         "All permitted provider circuits are open",
     );
+    let seconds = retry_after_ms.div_ceil(1_000).max(1);
+    if let Ok(value) = HeaderValue::from_str(&seconds.to_string()) {
+        response.headers_mut().insert(header::RETRY_AFTER, value);
+    }
+    response
+}
+
+fn availability_blocked_error(retry_after_ms: u64, model_scope: bool) -> Response {
+    let message = if model_scope {
+        "All permitted provider models are temporarily unavailable"
+    } else {
+        "All permitted provider connections are temporarily unavailable"
+    };
+    let mut response = error(StatusCode::SERVICE_UNAVAILABLE, message);
     let seconds = retry_after_ms.div_ceil(1_000).max(1);
     if let Ok(value) = HeaderValue::from_str(&seconds.to_string()) {
         response.headers_mut().insert(header::RETRY_AFTER, value);
@@ -1918,6 +1978,9 @@ async fn proxy_request(
     let mut last_retry_load_guard = None;
     let mut saw_open_circuit = false;
     let mut closest_circuit_retry_ms: Option<u64> = None;
+    let mut saw_availability_block = false;
+    let mut closest_availability_retry_ms: Option<u64> = None;
+    let mut availability_model_scope = true;
     if state.control_plane.is_some() && route.is_none() && live_provider.is_none() {
         return error(
             StatusCode::SERVICE_UNAVAILABLE,
@@ -1984,6 +2047,50 @@ async fn proxy_request(
                 continue;
             }
         }
+        let target_model = target.map_or(model.as_str(), |target| target.model.as_str());
+        let availability = target
+            .and_then(|target| target.availability.as_ref())
+            .or_else(|| {
+                live_provider
+                    .as_ref()
+                    .and_then(|provider| provider.availability.as_ref())
+            });
+        let availability_permit = if let Some(availability) = availability {
+            match availability.try_acquire(target_model).await {
+                Ok(availability::AvailabilityDecision::Permit(permit)) => Some(permit),
+                Ok(availability::AvailabilityDecision::Blocked {
+                    retry_after_ms,
+                    model_scope,
+                }) => {
+                    if let Some(target) = target {
+                        record_route_outcome(
+                            &state,
+                            route.map(|route| route.as_ref()),
+                            target,
+                            &model,
+                            control_routes_authoritative,
+                            false,
+                        )
+                        .await;
+                    }
+                    saw_availability_block = true;
+                    availability_model_scope &= model_scope;
+                    closest_availability_retry_ms = Some(
+                        closest_availability_retry_ms
+                            .map_or(retry_after_ms, |current| current.min(retry_after_ms)),
+                    );
+                    continue;
+                }
+                Err(_) => {
+                    return error(
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "Provider availability accounting unavailable",
+                    )
+                }
+            }
+        } else {
+            None
+        };
         let accounting_attempt = if usage_accounting {
             let connection = if let Some(target) = target {
                 target.product_connection.as_ref()
@@ -2270,9 +2377,37 @@ async fn proxy_request(
                 );
             }
         }
+        if let (Some(availability), Some(permit)) = (availability, availability_permit) {
+            let recorded = if availability::connection_failure_status(response.status()) {
+                availability
+                    .record_connection_failure(
+                        permit,
+                        response.status(),
+                        retry_after_hint_ms(response.headers()),
+                    )
+                    .await
+            } else if availability::model_failure_status(response.status()) {
+                availability
+                    .record_model_failure(permit, target_model, response.status())
+                    .await
+            } else if response.status().is_success() {
+                availability.record_success(permit, target_model).await
+            } else {
+                Ok(())
+            };
+            if recorded.is_err() {
+                return error(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "Provider availability accounting unavailable",
+                );
+            }
+        }
         let retryable = response.status() == StatusCode::TOO_MANY_REQUESTS
             || response.status().is_server_error()
-            || response.status() == StatusCode::REQUEST_TIMEOUT;
+            || response.status() == StatusCode::REQUEST_TIMEOUT
+            || (availability.is_some()
+                && (availability::connection_failure_status(response.status())
+                    || availability::model_failure_status(response.status())));
         if let Some(target) = target {
             if response.status().is_success() {
                 record_route_outcome(
@@ -2312,6 +2447,12 @@ async fn proxy_request(
     } else if let Some(response) = last_retry_response {
         (response, last_retry_load_guard)
     } else {
+        if saw_availability_block {
+            return availability_blocked_error(
+                closest_availability_retry_ms.unwrap_or(1_000),
+                availability_model_scope,
+            );
+        }
         if saw_open_circuit {
             return circuit_open_error(closest_circuit_retry_ms.unwrap_or(1_000));
         }

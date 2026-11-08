@@ -1,6 +1,6 @@
 use red_routerd::storage::{
-    Backend, Database, StoredBreaker, StoredClientKey, StoredCombo, StoredOidcBrowserConfig,
-    StoredOidcConfig, StoredProvider, StoredProviderQuota, StoredRoutePin,
+    Backend, Database, StoredAvailability, StoredBreaker, StoredClientKey, StoredCombo,
+    StoredOidcBrowserConfig, StoredOidcConfig, StoredProvider, StoredProviderQuota, StoredRoutePin,
 };
 use tempfile::TempDir;
 use url::Url;
@@ -123,6 +123,21 @@ async fn exercise(backend: Backend, url: &str) {
     };
     db.upsert_breaker(&breaker).await.unwrap();
     assert_eq!(db.breakers().await.unwrap(), vec![breaker.clone()]);
+    let availability = StoredAvailability {
+        provider_id: "first".into(),
+        cooldown_until_unix_ms: 9_000_000_000_000,
+        backoff_level: 2,
+        last_status: 429,
+        model_lockouts_json: r#"[{"model":"openai/missing","until_unix_ms":9000000000000,"status":404,"backoff_level":1}]"#.into(),
+        revision: 12,
+    };
+    db.upsert_provider_availability(&availability)
+        .await
+        .unwrap();
+    assert_eq!(
+        db.provider_availability().await.unwrap(),
+        vec![availability.clone()]
+    );
     let oidc = StoredOidcConfig {
         enabled: true,
         issuer: "https://issuer.example".into(),
@@ -167,6 +182,15 @@ async fn exercise(backend: Backend, url: &str) {
     assert_eq!(reopened.breakers().await.unwrap(), vec![breaker]);
     reopened.delete_breaker("first").await.unwrap();
     assert!(reopened.breakers().await.unwrap().is_empty());
+    assert_eq!(
+        reopened.provider_availability().await.unwrap(),
+        vec![availability]
+    );
+    reopened
+        .delete_provider_availability("first")
+        .await
+        .unwrap();
+    assert!(reopened.provider_availability().await.unwrap().is_empty());
     assert_eq!(reopened.oidc_config().await.unwrap(), Some(oidc));
     assert_eq!(
         reopened.oidc_browser_config().await.unwrap(),

@@ -1,5 +1,6 @@
 //! Authenticated Rust control plane for provider persistence and live reload.
 use crate::{
+    availability::{AvailabilityStatus, ProviderAvailability},
     circuit::{BreakerStatus, ProviderCircuit},
     policy::{ClientPolicies, StoredPolicy},
     storage::{
@@ -41,6 +42,7 @@ struct Inner {
     routes: RwLock<RouteSnapshot>,
     quotas: RwLock<HashMap<String, Arc<TargetQuota>>>,
     breakers: RwLock<HashMap<String, Arc<ProviderCircuit>>>,
+    availability: RwLock<HashMap<String, Arc<ProviderAvailability>>>,
     oidc: RwLock<Option<Arc<crate::oidc::OidcVerifier>>>,
     oidc_browser: RwLock<Option<Arc<crate::oidc::OidcBrowserConfig>>>,
     mutation: tokio::sync::Mutex<()>,
@@ -197,6 +199,14 @@ pub struct ProviderHealthInput {
     pub failure_threshold: u64,
     pub degradation_threshold: u64,
     pub reset_timeout_ms: u64,
+}
+
+#[derive(Debug, Serialize)]
+struct ProviderHealthView {
+    #[serde(flatten)]
+    breaker: BreakerStatus,
+    #[serde(flatten)]
+    availability: AvailabilityStatus,
 }
 
 #[derive(Debug, Deserialize)]
@@ -395,6 +405,22 @@ impl ControlPlane {
                 return Err("duplicate provider quota state");
             }
         }
+        let mut availability = HashMap::new();
+        for record in database.provider_availability().await? {
+            let id = record.provider_id.clone();
+            if availability
+                .insert(
+                    id,
+                    Arc::new(ProviderAvailability::from_stored(
+                        &record,
+                        database.clone(),
+                    )?),
+                )
+                .is_some()
+            {
+                return Err("duplicate provider availability state");
+            }
+        }
         let stored_oidc = database.oidc_config().await?;
         let oidc = stored_oidc
             .as_ref()
@@ -414,6 +440,7 @@ impl ControlPlane {
             routes: RwLock::new(RouteSnapshot::Unavailable),
             quotas: RwLock::new(quotas),
             breakers: RwLock::new(breakers),
+            availability: RwLock::new(availability),
             oidc: RwLock::new(oidc),
             oidc_browser: RwLock::new(oidc_browser),
             mutation: tokio::sync::Mutex::new(()),
@@ -477,9 +504,17 @@ impl ControlPlane {
             .await
             .values()
             .all(|breaker| breaker.persistence_ready());
+        let availability_ready = self
+            .0
+            .availability
+            .read()
+            .await
+            .values()
+            .all(|availability| availability.persistence_ready());
         client_keys_ready
             && routes_ready
             && breakers_ready
+            && availability_ready
             && self
                 .0
                 .database
@@ -529,6 +564,7 @@ impl ControlPlane {
             *self.0.routes.write().await = RouteSnapshot::Unavailable;
             return Err(error);
         }
+        self.availability_for(id).await.reset().await?;
         // Avoid retaining an extra sensitive client/header graph for disabled rows.
         drop(live);
         Ok(view(&stored))
@@ -806,6 +842,7 @@ impl ControlPlane {
             *self.0.routes.write().await = RouteSnapshot::Unavailable;
             return Err(error);
         }
+        self.availability_for(id).await.reset().await?;
         Ok(())
     }
 
@@ -997,6 +1034,7 @@ impl ControlPlane {
                 let circuit = self.circuit_for(&record.id, &record.upstream_url).await;
                 live.in_flight = circuit.in_flight();
                 live.circuit = Some(circuit);
+                live.availability = Some(self.availability_for(&record.id).await);
                 live.provider_id = Some(Arc::from(record.id));
                 Some(live)
             }
@@ -1066,6 +1104,7 @@ impl ControlPlane {
                     let circuit = self.circuit_for(&provider.id, &provider.upstream_url).await;
                     runtime.in_flight = circuit.in_flight();
                     runtime.circuit = Some(circuit);
+                    runtime.availability = Some(self.availability_for(&provider.id).await);
                     live.insert(provider.id.clone(), runtime);
                 }
                 if live
@@ -1281,18 +1320,20 @@ impl ControlPlane {
             .clone()
     }
 
-    async fn breaker_views(&self) -> Result<Vec<BreakerStatus>, &'static str> {
+    async fn breaker_views(&self) -> Result<Vec<ProviderHealthView>, &'static str> {
         let providers = self.0.database.providers().await?;
         let mut statuses = Vec::with_capacity(providers.len());
         for provider in providers {
-            statuses.push(
-                self.circuit_for(&provider.id, &provider.upstream_url)
+            statuses.push(ProviderHealthView {
+                breaker: self
+                    .circuit_for(&provider.id, &provider.upstream_url)
                     .await
                     .status()
                     .await?,
-            );
+                availability: self.availability_for(&provider.id).await.status().await?,
+            });
         }
-        statuses.sort_by(|left, right| left.provider_id.cmp(&right.provider_id));
+        statuses.sort_by(|left, right| left.breaker.provider_id.cmp(&right.breaker.provider_id));
         Ok(statuses)
     }
 
@@ -1307,6 +1348,7 @@ impl ControlPlane {
             .into_iter()
             .find(|provider| provider.id == id)
             .ok_or("provider does not exist")?;
+        self.availability_for(&provider.id).await.reset().await?;
         self.circuit_for(&provider.id, &provider.upstream_url)
             .await
             .reset()
@@ -1349,6 +1391,15 @@ impl ControlPlane {
         ));
         let mut breakers = self.0.breakers.write().await;
         breakers.entry(id.to_owned()).or_insert(created).clone()
+    }
+
+    async fn availability_for(&self, id: &str) -> Arc<ProviderAvailability> {
+        if let Some(availability) = self.0.availability.read().await.get(id).cloned() {
+            return availability;
+        }
+        let created = Arc::new(ProviderAvailability::new(id, self.0.database.clone()));
+        let mut availability = self.0.availability.write().await;
+        availability.entry(id.to_owned()).or_insert(created).clone()
     }
 
     async fn authorized(&self, headers: &HeaderMap) -> bool {

@@ -1,6 +1,7 @@
 use axum::{
     body::{Body, Bytes},
     http::{header, HeaderMap, StatusCode},
+    response::IntoResponse,
     routing::{get, post},
     Json, Router,
 };
@@ -240,6 +241,76 @@ async fn failing_provider(expected_key: &'static str) -> (String, tokio::task::J
     let address = listener.local_addr().unwrap();
     let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
     (format!("http://{address}/v1/chat/completions"), task)
+}
+
+async fn counted_status_provider(
+    expected_key: &'static str,
+    status: StatusCode,
+    retry_after: Option<&'static str>,
+) -> (String, Arc<AtomicUsize>, tokio::task::JoinHandle<()>) {
+    let requests = Arc::new(AtomicUsize::new(0));
+    let observed = requests.clone();
+    let app = Router::new().route(
+        "/v1/chat/completions",
+        post(move |headers: HeaderMap| {
+            let observed = observed.clone();
+            async move {
+                assert_eq!(
+                    headers["authorization"].to_str().unwrap(),
+                    format!("Bearer {expected_key}")
+                );
+                observed.fetch_add(1, Ordering::SeqCst);
+                let mut response = axum::http::Response::builder().status(status);
+                if let Some(retry_after) = retry_after {
+                    response = response.header(header::RETRY_AFTER, retry_after);
+                }
+                response.body(Body::from("retry")).unwrap()
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    (
+        format!("http://{address}/v1/chat/completions"),
+        requests,
+        task,
+    )
+}
+
+async fn model_scoped_provider(
+    expected_key: &'static str,
+) -> (String, Arc<AtomicUsize>, tokio::task::JoinHandle<()>) {
+    let missing_requests = Arc::new(AtomicUsize::new(0));
+    let observed = missing_requests.clone();
+    let app = Router::new().route(
+        "/v1/chat/completions",
+        post(
+            move |headers: HeaderMap, Json(body): Json<serde_json::Value>| {
+                let observed = observed.clone();
+                async move {
+                    assert_eq!(
+                        headers["authorization"].to_str().unwrap(),
+                        format!("Bearer {expected_key}")
+                    );
+                    if body["model"] == "missing-model" {
+                        observed.fetch_add(1, Ordering::SeqCst);
+                        (StatusCode::NOT_FOUND, "missing").into_response()
+                    } else {
+                        (StatusCode::OK, "model-ok").into_response()
+                    }
+                }
+            },
+        ),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    (
+        format!("http://{address}/v1/chat/completions"),
+        missing_requests,
+        task,
+    )
 }
 
 async fn held_streaming_provider(
@@ -2463,5 +2534,331 @@ async fn rust_control_plane_persists_provider_breaker_configuration_across_reset
 
     reset_task.abort();
     provider_task.abort();
+    database.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn connection_cooldown_falls_back_and_survives_gateway_restart() {
+    let directory = TempDir::new().unwrap();
+    let file = Url::from_file_path(directory.path().join("availability.sqlite")).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    let database = Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap());
+    let control = ControlPlane::new(database.clone(), ADMIN_KEY, STORAGE_KEY, false)
+        .await
+        .unwrap();
+    let (limited_url, limited_requests, limited_task) =
+        counted_status_provider("limited-secret", StatusCode::TOO_MANY_REQUESTS, Some("60")).await;
+    let (healthy_url, healthy_task) = provider("healthy-secret", "healthy").await;
+    let (base, gateway_task) = gateway(control).await;
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+
+    for (id, upstream_url, api_key) in [
+        ("limited", limited_url, "limited-secret"),
+        ("healthy", healthy_url, "healthy-secret"),
+    ] {
+        assert_eq!(
+            client
+                .put(format!("{base}/api/admin/providers/{id}"))
+                .bearer_auth(ADMIN_KEY)
+                .header(header::CONTENT_TYPE.as_str(), "application/json")
+                .body(
+                    serde_json::json!({
+                        "provider":"openai-compatible",
+                        "upstream_url":upstream_url,
+                        "api_key":api_key
+                    })
+                    .to_string(),
+                )
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::OK
+        );
+    }
+    assert_eq!(
+        client
+            .put(format!("{base}/api/admin/client-keys/availability-client"))
+            .bearer_auth(ADMIN_KEY)
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(
+                serde_json::json!({
+                    "label":"Availability client",
+                    "api_key":RUST_CLIENT_KEY,
+                    "scopes":["inference:chat"],
+                    "allowed_endpoints":["chat"],
+                    "allowed_models":["availability-combo","upstream-model"],
+                    "allowed_provider_ids":["limited","healthy"]
+                })
+                .to_string(),
+            )
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        client
+            .put(format!("{base}/api/admin/combos/availability-combo"))
+            .bearer_auth(ADMIN_KEY)
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(
+                serde_json::json!({
+                    "strategy":"priority",
+                    "fallback":true,
+                    "targets":[
+                        {"provider_id":"limited","model":"upstream-model"},
+                        {"provider_id":"healthy","model":"upstream-model"}
+                    ]
+                })
+                .to_string(),
+            )
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+
+    for _ in 0..2 {
+        let response = chat_model(&client, &base, RUST_CLIENT_KEY, "availability-combo").await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.text().await.unwrap(), "healthy");
+    }
+    assert_eq!(limited_requests.load(Ordering::SeqCst), 1);
+    let health = client
+        .get(format!("{base}/api/admin/provider-health"))
+        .bearer_auth(ADMIN_KEY)
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    let health: serde_json::Value = serde_json::from_str(&health).unwrap();
+    let limited = health["provider_health"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["provider_id"] == "limited")
+        .unwrap();
+    assert_eq!(limited["connection_last_status"], 429);
+    assert_eq!(limited["connection_backoff_level"], 1);
+    assert!(limited["connection_retry_after_ms"].as_u64().unwrap() > 0);
+
+    gateway_task.abort();
+    let restarted = ControlPlane::new(database.clone(), ADMIN_KEY, STORAGE_KEY, false)
+        .await
+        .unwrap();
+    let (restarted_base, restarted_task) = gateway(restarted).await;
+    assert_eq!(
+        chat_model(
+            &client,
+            &restarted_base,
+            RUST_CLIENT_KEY,
+            "availability-combo"
+        )
+        .await
+        .text()
+        .await
+        .unwrap(),
+        "healthy"
+    );
+    assert_eq!(limited_requests.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        client
+            .delete(format!(
+                "{restarted_base}/api/admin/provider-health/limited"
+            ))
+            .bearer_auth(ADMIN_KEY)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(
+        chat_model(
+            &client,
+            &restarted_base,
+            RUST_CLIENT_KEY,
+            "availability-combo"
+        )
+        .await
+        .text()
+        .await
+        .unwrap(),
+        "healthy"
+    );
+    assert_eq!(limited_requests.load(Ordering::SeqCst), 2);
+
+    restarted_task.abort();
+    limited_task.abort();
+    healthy_task.abort();
+    database.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn model_lockout_is_scoped_without_poisoning_the_provider_connection() {
+    let directory = TempDir::new().unwrap();
+    let file = Url::from_file_path(directory.path().join("model-lockout.sqlite")).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    let database = Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap());
+    let control = ControlPlane::new(database.clone(), ADMIN_KEY, STORAGE_KEY, false)
+        .await
+        .unwrap();
+    let (scoped_url, missing_requests, scoped_task) = model_scoped_provider("scoped-secret").await;
+    let (fallback_url, fallback_task) = provider("model-fallback-secret", "fallback-ok").await;
+    let (base, gateway_task) = gateway(control).await;
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+
+    for (id, upstream_url, api_key) in [
+        ("scoped", scoped_url, "scoped-secret"),
+        ("model-fallback", fallback_url, "model-fallback-secret"),
+    ] {
+        assert_eq!(
+            client
+                .put(format!("{base}/api/admin/providers/{id}"))
+                .bearer_auth(ADMIN_KEY)
+                .header(header::CONTENT_TYPE.as_str(), "application/json")
+                .body(
+                    serde_json::json!({
+                        "provider":"openai-compatible",
+                        "upstream_url":upstream_url,
+                        "api_key":api_key
+                    })
+                    .to_string(),
+                )
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::OK
+        );
+    }
+    assert_eq!(
+        client
+            .put(format!("{base}/api/admin/client-keys/model-client"))
+            .bearer_auth(ADMIN_KEY)
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(
+                serde_json::json!({
+                    "label":"Model lockout client",
+                    "api_key":RUST_CLIENT_KEY,
+                    "scopes":["inference:chat"],
+                    "allowed_endpoints":["chat"],
+                    "allowed_models":[
+                        "missing-combo","working-combo","missing-model","working-model"
+                    ],
+                    "allowed_provider_ids":["scoped","model-fallback"]
+                })
+                .to_string(),
+            )
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    for (combo, fallback, targets) in [
+        (
+            "missing-combo",
+            true,
+            serde_json::json!([
+                {"provider_id":"scoped","model":"missing-model"},
+                {"provider_id":"model-fallback","model":"working-model"}
+            ]),
+        ),
+        (
+            "working-combo",
+            false,
+            serde_json::json!([
+                {"provider_id":"scoped","model":"working-model"}
+            ]),
+        ),
+    ] {
+        assert_eq!(
+            client
+                .put(format!("{base}/api/admin/combos/{combo}"))
+                .bearer_auth(ADMIN_KEY)
+                .header(header::CONTENT_TYPE.as_str(), "application/json")
+                .body(
+                    serde_json::json!({
+                        "strategy":"priority",
+                        "fallback":fallback,
+                        "targets":targets
+                    })
+                    .to_string(),
+                )
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::OK
+        );
+    }
+
+    for _ in 0..2 {
+        assert_eq!(
+            chat_model(&client, &base, RUST_CLIENT_KEY, "missing-combo")
+                .await
+                .text()
+                .await
+                .unwrap(),
+            "fallback-ok"
+        );
+    }
+    assert_eq!(missing_requests.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        chat_model(&client, &base, RUST_CLIENT_KEY, "working-combo")
+            .await
+            .text()
+            .await
+            .unwrap(),
+        "model-ok"
+    );
+    let health = client
+        .get(format!("{base}/api/admin/provider-health"))
+        .bearer_auth(ADMIN_KEY)
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    let health: serde_json::Value = serde_json::from_str(&health).unwrap();
+    let scoped = health["provider_health"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["provider_id"] == "scoped")
+        .unwrap();
+    assert_eq!(scoped["connection_last_status"], serde_json::Value::Null);
+    assert_eq!(scoped["model_lockouts"][0]["model"], "missing-model");
+    assert_eq!(scoped["model_lockouts"][0]["status"], 404);
+    assert_eq!(
+        client
+            .delete(format!("{base}/api/admin/provider-health/scoped"))
+            .bearer_auth(ADMIN_KEY)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(
+        chat_model(&client, &base, RUST_CLIENT_KEY, "missing-combo")
+            .await
+            .text()
+            .await
+            .unwrap(),
+        "fallback-ok"
+    );
+    assert_eq!(missing_requests.load(Ordering::SeqCst), 2);
+
+    gateway_task.abort();
+    scoped_task.abort();
+    fallback_task.abort();
     database.close().await.unwrap();
 }

@@ -38,6 +38,11 @@ const CREATE_BREAKERS: &str = "CREATE TABLE IF NOT EXISTS redrouter_provider_bre
 const LIST_BREAKERS: &str = "SELECT provider_id, breaker_state, failure_count, last_failure_unix_ms, open_cycle_count, failure_threshold, degradation_threshold, reset_timeout_ms, revision FROM redrouter_provider_breakers ORDER BY provider_id ASC";
 const UPSERT_BREAKER: &str = "INSERT INTO redrouter_provider_breakers (provider_id, breaker_state, failure_count, last_failure_unix_ms, open_cycle_count, failure_threshold, degradation_threshold, reset_timeout_ms, revision) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (provider_id) DO UPDATE SET breaker_state = $2, failure_count = $3, last_failure_unix_ms = $4, open_cycle_count = $5, failure_threshold = $6, degradation_threshold = $7, reset_timeout_ms = $8, revision = $9";
 const DELETE_BREAKER: &str = "DELETE FROM redrouter_provider_breakers WHERE provider_id = $1";
+const CREATE_AVAILABILITY: &str = "CREATE TABLE IF NOT EXISTS redrouter_provider_availability (provider_id TEXT PRIMARY KEY, cooldown_until_unix_ms BIGINT NOT NULL, backoff_level BIGINT NOT NULL, last_status BIGINT NOT NULL, model_lockouts_json TEXT NOT NULL, revision BIGINT NOT NULL)";
+const LIST_AVAILABILITY: &str = "SELECT provider_id, cooldown_until_unix_ms, backoff_level, last_status, model_lockouts_json, revision FROM redrouter_provider_availability ORDER BY provider_id ASC";
+const UPSERT_AVAILABILITY: &str = "INSERT INTO redrouter_provider_availability (provider_id, cooldown_until_unix_ms, backoff_level, last_status, model_lockouts_json, revision) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (provider_id) DO UPDATE SET cooldown_until_unix_ms = $2, backoff_level = $3, last_status = $4, model_lockouts_json = $5, revision = $6";
+const DELETE_AVAILABILITY: &str =
+    "DELETE FROM redrouter_provider_availability WHERE provider_id = $1";
 const CREATE_OIDC: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_oidc (id INTEGER PRIMARY KEY, enabled BIGINT NOT NULL, issuer TEXT NOT NULL, audience TEXT NOT NULL, jwks_uri TEXT NOT NULL, required_claims_json TEXT NOT NULL, allowed_subjects_json TEXT NOT NULL, revision BIGINT NOT NULL)";
 const READ_OIDC: &str = "SELECT enabled, issuer, audience, jwks_uri, required_claims_json, allowed_subjects_json, revision FROM redrouter_control_oidc WHERE id = 1";
 const UPSERT_OIDC: &str = "INSERT INTO redrouter_control_oidc (id, enabled, issuer, audience, jwks_uri, required_claims_json, allowed_subjects_json, revision) VALUES (1,$1,$2,$3,$4,$5,$6,$7) ON CONFLICT (id) DO UPDATE SET enabled = $1, issuer = $2, audience = $3, jwks_uri = $4, required_claims_json = $5, allowed_subjects_json = $6, revision = $7";
@@ -119,6 +124,17 @@ pub struct StoredBreaker {
     pub failure_threshold: i64,
     pub degradation_threshold: i64,
     pub reset_timeout_ms: i64,
+    pub revision: i64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StoredAvailability {
+    pub provider_id: String,
+    pub cooldown_until_unix_ms: i64,
+    pub backoff_level: i64,
+    /// HTTP status, or 0 when no connection-level failure is active.
+    pub last_status: i64,
+    pub model_lockouts_json: String,
     pub revision: i64,
 }
 
@@ -226,6 +242,7 @@ impl Database {
                         CREATE_ROUTE_PINS,
                         CREATE_PROVIDER_QUOTAS,
                         CREATE_BREAKERS,
+                        CREATE_AVAILABILITY,
                         CREATE_OIDC,
                         CREATE_OIDC_BROWSER,
                     ] {
@@ -314,6 +331,7 @@ impl Database {
                 db.remote_schema_query(CREATE_ROUTE_PINS).await?;
                 db.remote_schema_query(CREATE_PROVIDER_QUOTAS).await?;
                 db.remote_schema_query(CREATE_BREAKERS).await?;
+                db.remote_schema_query(CREATE_AVAILABILITY).await?;
                 db.remote_schema_query(CREATE_OIDC).await?;
                 db.remote_schema_query(CREATE_OIDC_BROWSER).await?;
                 Ok(db)
@@ -346,6 +364,7 @@ impl Database {
                     CREATE_ROUTE_PINS,
                     CREATE_PROVIDER_QUOTAS,
                     CREATE_BREAKERS,
+                    CREATE_AVAILABILITY,
                     CREATE_OIDC,
                     CREATE_OIDC_BROWSER,
                 ] {
@@ -965,6 +984,97 @@ impl Database {
                 )
                 .await
                 .map_err(|_| "cannot reset provider breaker")?;
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn provider_availability(&self) -> Result<Vec<StoredAvailability>, &'static str> {
+        match self {
+            Self::Sql(pool) => sqlx::query(LIST_AVAILABILITY)
+                .fetch_all(pool)
+                .await
+                .map_err(|_| "cannot read provider availability state")?
+                .iter()
+                .map(read_sql_availability)
+                .collect(),
+            Self::Remote(_) => self
+                .remote_query(LIST_AVAILABILITY, &[])
+                .await?
+                .rows
+                .iter()
+                .map(read_reddb_availability)
+                .collect(),
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => db
+                .query(LIST_AVAILABILITY)
+                .await
+                .map_err(|_| "cannot read provider availability state")?
+                .rows
+                .iter()
+                .map(read_reddb_availability)
+                .collect(),
+        }
+    }
+
+    pub async fn upsert_provider_availability(
+        &self,
+        availability: &StoredAvailability,
+    ) -> Result<(), &'static str> {
+        match self {
+            Self::Sql(pool) => {
+                sqlx::query(UPSERT_AVAILABILITY)
+                    .bind(&availability.provider_id)
+                    .bind(availability.cooldown_until_unix_ms)
+                    .bind(availability.backoff_level)
+                    .bind(availability.last_status)
+                    .bind(&availability.model_lockouts_json)
+                    .bind(availability.revision)
+                    .execute(pool)
+                    .await
+                    .map_err(|_| "cannot write provider availability state")?;
+            }
+            Self::Remote(_) => {
+                self.remote_query(UPSERT_AVAILABILITY, &availability_params(availability))
+                    .await?;
+            }
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => {
+                db.query_with(UPSERT_AVAILABILITY, availability_params(availability))
+                    .await
+                    .map_err(|_| "cannot write provider availability state")?;
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn delete_provider_availability(
+        &self,
+        provider_id: &str,
+    ) -> Result<(), &'static str> {
+        match self {
+            Self::Sql(pool) => {
+                sqlx::query(DELETE_AVAILABILITY)
+                    .bind(provider_id)
+                    .execute(pool)
+                    .await
+                    .map_err(|_| "cannot reset provider availability")?;
+            }
+            Self::Remote(_) => {
+                self.remote_query(
+                    DELETE_AVAILABILITY,
+                    &[reddb_client::Value::Text(provider_id.to_owned())],
+                )
+                .await?;
+            }
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => {
+                db.query_with(
+                    DELETE_AVAILABILITY,
+                    vec![reddb_client::Value::Text(provider_id.to_owned())],
+                )
+                .await
+                .map_err(|_| "cannot reset provider availability")?;
             }
         }
         Ok(())
@@ -1608,6 +1718,61 @@ fn breaker_params(breaker: &StoredBreaker) -> Vec<reddb_client::Value> {
         reddb_client::Value::Int(breaker.degradation_threshold),
         reddb_client::Value::Int(breaker.reset_timeout_ms),
         reddb_client::Value::Int(breaker.revision),
+    ]
+}
+
+fn read_sql_availability(row: &sqlx::any::AnyRow) -> Result<StoredAvailability, &'static str> {
+    let text = |name| {
+        row.try_get(name)
+            .map_err(|_| "invalid provider availability record")
+    };
+    let integer = |name| {
+        row.try_get(name)
+            .map_err(|_| "invalid provider availability record")
+    };
+    Ok(StoredAvailability {
+        provider_id: text("provider_id")?,
+        cooldown_until_unix_ms: integer("cooldown_until_unix_ms")?,
+        backoff_level: integer("backoff_level")?,
+        last_status: integer("last_status")?,
+        model_lockouts_json: text("model_lockouts_json")?,
+        revision: integer("revision")?,
+    })
+}
+
+fn read_reddb_availability(row: &reddb_client::Row) -> Result<StoredAvailability, &'static str> {
+    let text = |name: &str| match row
+        .iter()
+        .find(|(column, _)| column.eq_ignore_ascii_case(name))
+    {
+        Some((_, reddb_client::ValueOut::String(value))) => Ok(value.clone()),
+        _ => Err("invalid provider availability record"),
+    };
+    let integer = |name: &str| match row
+        .iter()
+        .find(|(column, _)| column.eq_ignore_ascii_case(name))
+    {
+        Some((_, reddb_client::ValueOut::Integer(value))) => Ok(*value),
+        _ => Err("invalid provider availability record"),
+    };
+    Ok(StoredAvailability {
+        provider_id: text("provider_id")?,
+        cooldown_until_unix_ms: integer("cooldown_until_unix_ms")?,
+        backoff_level: integer("backoff_level")?,
+        last_status: integer("last_status")?,
+        model_lockouts_json: text("model_lockouts_json")?,
+        revision: integer("revision")?,
+    })
+}
+
+fn availability_params(availability: &StoredAvailability) -> Vec<reddb_client::Value> {
+    vec![
+        reddb_client::Value::Text(availability.provider_id.clone()),
+        reddb_client::Value::Int(availability.cooldown_until_unix_ms),
+        reddb_client::Value::Int(availability.backoff_level),
+        reddb_client::Value::Int(availability.last_status),
+        reddb_client::Value::Text(availability.model_lockouts_json.clone()),
+        reddb_client::Value::Int(availability.revision),
     ]
 }
 
