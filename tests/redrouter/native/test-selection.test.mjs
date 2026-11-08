@@ -55,7 +55,7 @@ test("each product runner selects a nonempty, disjoint set of real test files", 
   }
 });
 
-test("default commands and CI run the selected product suites", () => {
+test("manual quality runs product suites and release owns one package build", () => {
   const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
   for (const key of ["test", "test:unit", "test:unit:ci"]) {
     assert.equal(pkg.scripts[key], "node scripts/test/run-redrouter.mjs native");
@@ -69,9 +69,13 @@ test("default commands and CI run the selected product suites", () => {
   assert.ok(pkg.scripts["test:upstream:unit"]);
   const ci = YAML.parse(readFileSync(join(root, ".github/workflows/red-publish.yml"), "utf8"));
   const quality = YAML.parse(readFileSync(join(root, ".github/workflows/quality.yml"), "utf8"));
+  assert.deepEqual(Object.keys(quality.on), ["workflow_dispatch"]);
+  const releaseCommands = Object.values(ci.jobs).flatMap((job) =>
+    job.steps.map((step) => step.run || "")
+  );
+  assert.equal(releaseCommands.filter((command) => command === "npm run build:release").length, 1);
   const jobs = [...Object.values(ci.jobs), ...Object.values(quality.jobs)];
   const commands = jobs.flatMap((job) => job.steps.map((step) => step.run || ""));
-  assert.equal(ci.jobs.build.steps.filter((step) => step.run === "npm run build:release").length, 1);
   for (const command of [
     "npm run test:unit:ci",
     "npm run test:vitest",
@@ -86,4 +90,23 @@ test("default commands and CI run the selected product suites", () => {
     /test:upstream|test:unit:ci:shard|test:coverage|test:ecosystem/
   );
   assert.ok(jobs.every((job) => !job["continue-on-error"]));
+});
+
+test("company worker suites keep heavyweight builds and publishers hosted", () => {
+  const quality = YAML.parse(readFileSync(join(root, ".github/workflows/quality.yml"), "utf8"));
+  const publish = YAML.parse(readFileSync(join(root, ".github/workflows/red-publish.yml"), "utf8"));
+  assert.ok(quality.on.workflow_dispatch.inputs.suite.options.includes("workers"));
+  for (const name of ["test-unit", "test-vitest"]) {
+    assert.match(quality.jobs[name]["runs-on"], /reddb-public-linux-x64/);
+    assert.match(quality.jobs[name].if, /inputs\.suite == 'workers'/);
+  }
+  assert.equal(quality.jobs["desktop-services"]["runs-on"], "ubuntu-latest");
+  assert.match(quality.jobs["desktop-services"].if, /inputs\.runner_qualification != true/);
+  assert.equal(quality.jobs.checks["runs-on"], "ubuntu-latest");
+  assert.doesNotMatch(quality.jobs.checks.if, /inputs\.suite == 'workers'/);
+  assert.equal(publish.jobs.build["runs-on"], "ubuntu-latest");
+  assert.equal(publish.jobs.release["runs-on"], "ubuntu-latest");
+  assert.equal(quality.jobs.browser["runs-on"], "ubuntu-24.04");
+  assert.equal(quality.jobs["test-routing-storage"]["runs-on"], "ubuntu-latest");
+  assert.match(publish.jobs.release.if, /inputs\.runner_qualification != true/);
 });

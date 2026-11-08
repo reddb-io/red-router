@@ -124,6 +124,13 @@ test("the caches survive a release: keys ignore the lockfile's own version", asy
   const text = readFileSync(".github/workflows/red-publish.yml", "utf8");
   const build = workflow.jobs.build.steps as Array<Record<string, unknown>>;
   assert.equal(build.find((step) => step.name === "Restore the Playwright browsers"), undefined);
+  const caches = action.runs.steps.filter((step: { uses?: string }) =>
+    step.uses?.startsWith("actions/cache@")
+  );
+  assert.ok(caches.length > 0, "the dependency cache remains enabled");
+  for (const cache of caches) {
+    assert.match(cache.with.key, /steps\.lock\.outputs\.hash/);
+  }
   assert.equal(build.find((step) => step.id === "ci")?.uses, "./.github/actions/npm-ci-retry");
   assert.doesNotMatch(text, /hashFiles\('package-lock\.json'/, "no cache keys on the raw lockfile");
 });
