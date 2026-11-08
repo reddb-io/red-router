@@ -50,6 +50,7 @@ features must not be implemented only there.
 | Pricing, quotas and budgets | Partial                | Atomic reservations, streaming settlement, reconciliation, multi-process tests     |
 | Usage and audit             | Partial                | Complete protocol usage, idempotent ledger, retention/export APIs                  |
 | Settings and resilience     | Partial                | Durable configurable provider breakers and reset API; versioned settings snapshots remain |
+| Management identity         | Partial                | Signed OIDC bearer policy is Rust-owned; browser PKCE/session lifecycle remains    |
 | SPA delivery                | Pending                | Rust-served static assets, same-origin admin API, no Next.js runtime               |
 | Legacy data migration       | Pending                | Maintenance-mode import, verification report and rollback boundary                 |
 
@@ -66,12 +67,12 @@ their Rust migration state:
 | Preserve unpriced chat and streaming consumption | Implemented as explicit opt-in with `pricing_known = 0` | Rust-owned reporting APIs and usage sinks |
 | Durable embedding usage | Implemented for product-SQLite OpenAI-compatible responses | Move reservation and ledger ownership into the Rust storage repository |
 | Operator/key reporting attributes | Implemented for product-SQLite chat, streaming and embeddings | Move attributes and the ledger behind the Rust-owned storage repository |
-| Signed OIDC claim policies | Pending | Rust management authentication, issuer/JWKS verification and claim-policy enforcement |
+| Signed OIDC claim policies | Partial: Rust-owned signed bearer authentication implemented | Browser discovery, authorization-code PKCE, nonce/state, sessions and logout |
 | Preserve stream deltas when terminal snapshots omit output | Direct OpenAI relay is not affected | Add parity fixtures for every translating stream path before declaring complete |
 | Bound router/cache/log stream retention | Rust SSE frames and channels are bounded | Audit admin logs, translated streams and future SPA subscriptions under sustained load |
 
-This table is a migration queue, not a parity claim. The next vertical slice is
-Rust-owned OIDC management authentication.
+This table is a migration queue, not a parity claim. The signed-token security
+boundary is now Rust-owned; the next OIDC layer is the browser session lifecycle.
 
 ## Rust-owned production slices
 
@@ -85,6 +86,18 @@ while `/healthz` and the authenticated admin API remain available for repair.
 
 This slice deliberately does not claim complete backend parity. Its purpose is to
 establish the production ownership boundary that subsequent domains extend.
+
+The management-identity slice stores issuer, audience, explicit JWKS URI, claim
+conditions and subject/e-mail allowlists in the selected Rust database backend. An
+enabled replacement is committed only after a bounded, DNS-pinned and redirect-free
+JWKS fetch contains a usable asymmetric verification key. Admin requests accept the
+bootstrap key or a JWT with an approved algorithm, `kid`, issuer, audience, expiry and
+policy match. Key rotation is cached with a throttled refresh on an unknown `kid`, so
+untrusted tokens cannot cause one outbound fetch per request. Restart persistence and
+the policy repository are covered for SQLite, RedDB and PostgreSQL; end-to-end signed
+JWT behavior is covered against SQLite. This is not yet the Next.js browser OIDC flow:
+discovery, authorization-code PKCE, state/nonce, encrypted session cookies and logout
+remain with the SPA/session migration.
 
 The client-key slice stores only a SHA-256 lookup hash and redacted policy metadata in
 `redrouter_control_client_keys`. Authenticated admin writes durably commit before a new

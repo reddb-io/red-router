@@ -1,16 +1,23 @@
 use axum::{
     body::{Body, Bytes},
     http::{header, HeaderMap, StatusCode},
-    routing::post,
-    Router,
+    routing::{get, post},
+    Json, Router,
 };
+use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
 use red_routerd::{
     control_plane::ControlPlane,
     router,
     storage::{Backend, Database},
     ProxyState,
 };
-use std::sync::Arc;
+use std::{
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    },
+    time::{SystemTime, UNIX_EPOCH},
+};
 use tempfile::TempDir;
 use url::Url;
 
@@ -18,6 +25,60 @@ const ADMIN_KEY: &str = "fixture-admin-key-1234567890-abcdef";
 const CLIENT_KEY: &str = "fixture-client-key-1234567890";
 const RUST_CLIENT_KEY: &str = "rust-owned-client-key-1234567890";
 const STORAGE_KEY: &str = "fixture-storage-key-1234567890";
+const OIDC_PRIVATE_KEY: &str = r#"-----BEGIN PRIVATE KEY-----
+MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgWTFfCGljY6aw3Hrt
+kHmPRiazukxPLb6ilpRAewjW8nihRANCAATDskChT+Altkm9X7MI69T3IUmrQU0L
+950IxEzvw/x5BMEINRMrXLBJhqzO9Bm+d6JbqA21YQmd1Kt4RzLJR1W+
+-----END PRIVATE KEY-----"#;
+
+fn oidc_token(kid: &str, audience: &str, role: &str) -> String {
+    let mut header = Header::new(Algorithm::ES256);
+    header.kid = Some(kid.to_owned());
+    encode(
+        &header,
+        &serde_json::json!({
+            "iss":"https://issuer.example",
+            "aud":audience,
+            "sub":"operator-123",
+            "email":"operator@example.com",
+            "email_verified":true,
+            "org_role":role,
+            "exp":SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs() + 300
+        }),
+        &EncodingKey::from_ec_pem(OIDC_PRIVATE_KEY.as_bytes()).unwrap(),
+    )
+    .unwrap()
+}
+
+async fn oidc_jwks() -> (String, Arc<AtomicUsize>, tokio::task::JoinHandle<()>) {
+    let requests = Arc::new(AtomicUsize::new(0));
+    let observed = requests.clone();
+    let app = Router::new().route(
+        "/jwks",
+        get(move || {
+            let observed = observed.clone();
+            async move {
+                observed.fetch_add(1, Ordering::SeqCst);
+                Json(serde_json::json!({"keys":[{
+                    "kty":"EC",
+                    "crv":"P-256",
+                    "x":"w7JAoU_gJbZJvV-zCOvU9yFJq0FNC_edCMRM78P8eQQ",
+                    "y":"wQg1EytcsEmGrM70Gb53oluoDbVhCZ3Uq3hHMslHVb4",
+                    "kid":"ec01",
+                    "alg":"ES256",
+                    "use":"sig"
+                }]}))
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    (format!("http://{address}/jwks"), requests, task)
+}
 
 async fn provider(
     expected_key: &'static str,
@@ -177,6 +238,111 @@ async fn set_combo_strategy(client: &reqwest::Client, base: &str, strategy: &str
         .await
         .unwrap()
         .status()
+}
+
+#[tokio::test]
+async fn rust_control_plane_persists_and_enforces_signed_oidc_admin_authentication() {
+    let directory = TempDir::new().unwrap();
+    let file = Url::from_file_path(directory.path().join("oidc.sqlite")).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    let database = Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap());
+    let control = ControlPlane::new(database.clone(), ADMIN_KEY, STORAGE_KEY, false)
+        .await
+        .unwrap();
+    let (jwks_uri, jwks_requests, jwks_task) = oidc_jwks().await;
+    let (base, gateway_task) = gateway(control).await;
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+
+    assert_eq!(
+        client
+            .put(format!("{base}/api/admin/oidc"))
+            .bearer_auth(ADMIN_KEY)
+            .json(&serde_json::json!({
+                "enabled":true,
+                "issuer":"https://issuer.example",
+                "audience":"red-router-admin",
+                "jwks_uri":jwks_uri,
+                "required_claims":{"org_role":["owner","operator"]},
+                "allowed_subjects":["operator@example.com"]
+            }))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    assert_eq!(jwks_requests.load(Ordering::SeqCst), 1);
+
+    let valid = oidc_token("ec01", "red-router-admin", "operator");
+    assert_eq!(
+        client
+            .get(format!("{base}/api/admin/providers"))
+            .bearer_auth(&valid)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    for denied in [
+        oidc_token("ec01", "other-audience", "operator"),
+        oidc_token("ec01", "red-router-admin", "viewer"),
+        oidc_token("unknown-key", "red-router-admin", "operator"),
+    ] {
+        assert_eq!(
+            client
+                .get(format!("{base}/api/admin/providers"))
+                .bearer_auth(denied)
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::UNAUTHORIZED
+        );
+    }
+    // Unknown key IDs do not turn the management endpoint into an unbounded
+    // attacker-controlled JWKS refresh loop.
+    assert_eq!(jwks_requests.load(Ordering::SeqCst), 1);
+
+    gateway_task.abort();
+    let restarted = ControlPlane::new(database, ADMIN_KEY, STORAGE_KEY, false)
+        .await
+        .unwrap();
+    let (restarted_base, restarted_task) = gateway(restarted).await;
+    assert_eq!(
+        client
+            .get(format!("{restarted_base}/api/admin/providers"))
+            .bearer_auth(&valid)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    assert_eq!(jwks_requests.load(Ordering::SeqCst), 2);
+    assert_eq!(
+        client
+            .delete(format!("{restarted_base}/api/admin/oidc"))
+            .bearer_auth(ADMIN_KEY)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(
+        client
+            .get(format!("{restarted_base}/api/admin/providers"))
+            .bearer_auth(valid)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+
+    restarted_task.abort();
+    jwks_task.abort();
 }
 
 #[tokio::test]

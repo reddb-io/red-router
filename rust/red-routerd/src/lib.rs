@@ -6,6 +6,7 @@ pub mod control_plane;
 pub mod fastllm_control;
 pub mod fastllm_plan;
 pub mod fastllm_supervisor;
+mod oidc;
 mod policy;
 pub mod product;
 pub mod product_combo;
@@ -1334,7 +1335,7 @@ fn valid_gemini_model(model: &str) -> bool {
         && model != ".."
 }
 
-fn allowed_address(ip: IpAddr, allow_private: bool) -> bool {
+pub(crate) fn allowed_address(ip: IpAddr, allow_private: bool) -> bool {
     match ip {
         IpAddr::V4(ip) => {
             let octets = ip.octets();
@@ -1389,6 +1390,12 @@ pub fn router(state: ProxyState) -> Router {
         .route("/healthz", get(|| async { StatusCode::OK }))
         .route("/readyz", get(ready))
         .route("/api/admin/providers", get(control_plane::list))
+        .route(
+            "/api/admin/oidc",
+            get(control_plane::get_oidc)
+                .put(control_plane::put_oidc)
+                .delete(control_plane::delete_oidc),
+        )
         .route(
             "/api/admin/providers/{id}",
             put(control_plane::put_provider).delete(control_plane::delete_provider),

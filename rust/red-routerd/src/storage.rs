@@ -38,6 +38,10 @@ const CREATE_BREAKERS: &str = "CREATE TABLE IF NOT EXISTS redrouter_provider_bre
 const LIST_BREAKERS: &str = "SELECT provider_id, breaker_state, failure_count, last_failure_unix_ms, open_cycle_count, failure_threshold, degradation_threshold, reset_timeout_ms, revision FROM redrouter_provider_breakers ORDER BY provider_id ASC";
 const UPSERT_BREAKER: &str = "INSERT INTO redrouter_provider_breakers (provider_id, breaker_state, failure_count, last_failure_unix_ms, open_cycle_count, failure_threshold, degradation_threshold, reset_timeout_ms, revision) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (provider_id) DO UPDATE SET breaker_state = $2, failure_count = $3, last_failure_unix_ms = $4, open_cycle_count = $5, failure_threshold = $6, degradation_threshold = $7, reset_timeout_ms = $8, revision = $9";
 const DELETE_BREAKER: &str = "DELETE FROM redrouter_provider_breakers WHERE provider_id = $1";
+const CREATE_OIDC: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_oidc (id INTEGER PRIMARY KEY, enabled BIGINT NOT NULL, issuer TEXT NOT NULL, audience TEXT NOT NULL, jwks_uri TEXT NOT NULL, required_claims_json TEXT NOT NULL, allowed_subjects_json TEXT NOT NULL, revision BIGINT NOT NULL)";
+const READ_OIDC: &str = "SELECT enabled, issuer, audience, jwks_uri, required_claims_json, allowed_subjects_json, revision FROM redrouter_control_oidc WHERE id = 1";
+const UPSERT_OIDC: &str = "INSERT INTO redrouter_control_oidc (id, enabled, issuer, audience, jwks_uri, required_claims_json, allowed_subjects_json, revision) VALUES (1,$1,$2,$3,$4,$5,$6,$7) ON CONFLICT (id) DO UPDATE SET enabled = $1, issuer = $2, audience = $3, jwks_uri = $4, required_claims_json = $5, allowed_subjects_json = $6, revision = $7";
+const DELETE_OIDC: &str = "DELETE FROM redrouter_control_oidc WHERE id = 1";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StoredProvider {
@@ -111,6 +115,17 @@ pub struct StoredBreaker {
     pub failure_threshold: i64,
     pub degradation_threshold: i64,
     pub reset_timeout_ms: i64,
+    pub revision: i64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StoredOidcConfig {
+    pub enabled: bool,
+    pub issuer: String,
+    pub audience: String,
+    pub jwks_uri: String,
+    pub required_claims_json: String,
+    pub allowed_subjects_json: String,
     pub revision: i64,
 }
 
@@ -196,6 +211,7 @@ impl Database {
                         CREATE_ROUTE_PINS,
                         CREATE_PROVIDER_QUOTAS,
                         CREATE_BREAKERS,
+                        CREATE_OIDC,
                     ] {
                         db.query(statement)
                             .await
@@ -282,6 +298,7 @@ impl Database {
                 db.remote_schema_query(CREATE_ROUTE_PINS).await?;
                 db.remote_schema_query(CREATE_PROVIDER_QUOTAS).await?;
                 db.remote_schema_query(CREATE_BREAKERS).await?;
+                db.remote_schema_query(CREATE_OIDC).await?;
                 Ok(db)
             }
             Backend::Sqlite | Backend::Postgres => {
@@ -312,6 +329,7 @@ impl Database {
                     CREATE_ROUTE_PINS,
                     CREATE_PROVIDER_QUOTAS,
                     CREATE_BREAKERS,
+                    CREATE_OIDC,
                 ] {
                     sqlx::query(statement)
                         .execute(&pool)
@@ -934,6 +952,85 @@ impl Database {
         Ok(())
     }
 
+    pub async fn oidc_config(&self) -> Result<Option<StoredOidcConfig>, &'static str> {
+        match self {
+            Self::Sql(pool) => sqlx::query(READ_OIDC)
+                .fetch_optional(pool)
+                .await
+                .map_err(|_| "cannot read OIDC configuration")?
+                .as_ref()
+                .map(read_sql_oidc)
+                .transpose(),
+            Self::Remote(_) => self
+                .remote_query(READ_OIDC, &[])
+                .await?
+                .rows
+                .first()
+                .map(read_reddb_oidc)
+                .transpose(),
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => db
+                .query(READ_OIDC)
+                .await
+                .map_err(|_| "cannot read OIDC configuration")?
+                .rows
+                .first()
+                .map(read_reddb_oidc)
+                .transpose(),
+        }
+    }
+
+    pub async fn upsert_oidc(&self, config: &StoredOidcConfig) -> Result<(), &'static str> {
+        let enabled = if config.enabled { 1_i64 } else { 0_i64 };
+        match self {
+            Self::Sql(pool) => {
+                sqlx::query(UPSERT_OIDC)
+                    .bind(enabled)
+                    .bind(&config.issuer)
+                    .bind(&config.audience)
+                    .bind(&config.jwks_uri)
+                    .bind(&config.required_claims_json)
+                    .bind(&config.allowed_subjects_json)
+                    .bind(config.revision)
+                    .execute(pool)
+                    .await
+                    .map_err(|_| "cannot write OIDC configuration")?;
+            }
+            Self::Remote(_) => {
+                self.remote_query(UPSERT_OIDC, &oidc_params(config, enabled))
+                    .await?;
+            }
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => {
+                db.query_with(UPSERT_OIDC, oidc_params(config, enabled))
+                    .await
+                    .map_err(|_| "cannot write OIDC configuration")?;
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn delete_oidc(&self) -> Result<(), &'static str> {
+        match self {
+            Self::Sql(pool) => {
+                sqlx::query(DELETE_OIDC)
+                    .execute(pool)
+                    .await
+                    .map_err(|_| "cannot delete OIDC configuration")?;
+            }
+            Self::Remote(_) => {
+                self.remote_query(DELETE_OIDC, &[]).await?;
+            }
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => {
+                db.query(DELETE_OIDC)
+                    .await
+                    .map_err(|_| "cannot delete OIDC configuration")?;
+            }
+        }
+        Ok(())
+    }
+
     /// Insert only when no configuration exists. The existing authority wins.
     pub async fn seed(&self, value: &str) -> Result<(), &'static str> {
         self.write(SEED, value).await
@@ -1410,6 +1507,58 @@ fn breaker_params(breaker: &StoredBreaker) -> Vec<reddb_client::Value> {
         reddb_client::Value::Int(breaker.degradation_threshold),
         reddb_client::Value::Int(breaker.reset_timeout_ms),
         reddb_client::Value::Int(breaker.revision),
+    ]
+}
+
+fn read_sql_oidc(row: &sqlx::any::AnyRow) -> Result<StoredOidcConfig, &'static str> {
+    let text = |name| row.try_get(name).map_err(|_| "invalid OIDC record");
+    let integer = |name| row.try_get(name).map_err(|_| "invalid OIDC record");
+    Ok(StoredOidcConfig {
+        enabled: integer("enabled")? == 1,
+        issuer: text("issuer")?,
+        audience: text("audience")?,
+        jwks_uri: text("jwks_uri")?,
+        required_claims_json: text("required_claims_json")?,
+        allowed_subjects_json: text("allowed_subjects_json")?,
+        revision: integer("revision")?,
+    })
+}
+
+fn read_reddb_oidc(row: &reddb_client::Row) -> Result<StoredOidcConfig, &'static str> {
+    let text = |name: &str| match row
+        .iter()
+        .find(|(column, _)| column.eq_ignore_ascii_case(name))
+    {
+        Some((_, reddb_client::ValueOut::String(value))) => Ok(value.clone()),
+        _ => Err("invalid OIDC record"),
+    };
+    let integer = |name: &str| match row
+        .iter()
+        .find(|(column, _)| column.eq_ignore_ascii_case(name))
+    {
+        Some((_, reddb_client::ValueOut::Integer(value))) => Ok(*value),
+        _ => Err("invalid OIDC record"),
+    };
+    Ok(StoredOidcConfig {
+        enabled: integer("enabled")? == 1,
+        issuer: text("issuer")?,
+        audience: text("audience")?,
+        jwks_uri: text("jwks_uri")?,
+        required_claims_json: text("required_claims_json")?,
+        allowed_subjects_json: text("allowed_subjects_json")?,
+        revision: integer("revision")?,
+    })
+}
+
+fn oidc_params(config: &StoredOidcConfig, enabled: i64) -> Vec<reddb_client::Value> {
+    vec![
+        reddb_client::Value::Int(enabled),
+        reddb_client::Value::Text(config.issuer.clone()),
+        reddb_client::Value::Text(config.audience.clone()),
+        reddb_client::Value::Text(config.jwks_uri.clone()),
+        reddb_client::Value::Text(config.required_claims_json.clone()),
+        reddb_client::Value::Text(config.allowed_subjects_json.clone()),
+        reddb_client::Value::Int(config.revision),
     ]
 }
 

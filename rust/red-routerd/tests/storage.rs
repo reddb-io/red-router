@@ -1,6 +1,6 @@
 use red_routerd::storage::{
-    Backend, Database, StoredBreaker, StoredClientKey, StoredCombo, StoredProvider,
-    StoredProviderQuota, StoredRoutePin,
+    Backend, Database, StoredBreaker, StoredClientKey, StoredCombo, StoredOidcConfig,
+    StoredProvider, StoredProviderQuota, StoredRoutePin,
 };
 use tempfile::TempDir;
 use url::Url;
@@ -123,6 +123,17 @@ async fn exercise(backend: Backend, url: &str) {
     };
     db.upsert_breaker(&breaker).await.unwrap();
     assert_eq!(db.breakers().await.unwrap(), vec![breaker.clone()]);
+    let oidc = StoredOidcConfig {
+        enabled: true,
+        issuer: "https://issuer.example".into(),
+        audience: "red-router-admin".into(),
+        jwks_uri: "https://issuer.example/.well-known/jwks.json".into(),
+        required_claims_json: r#"{"org_role":["owner"]}"#.into(),
+        allowed_subjects_json: r#"["operator@example.com"]"#.into(),
+        revision: 12,
+    };
+    db.upsert_oidc(&oidc).await.unwrap();
+    assert_eq!(db.oidc_config().await.unwrap(), Some(oidc.clone()));
     db.close().await.unwrap();
     drop(db);
     let reopened = Database::connect(backend, url).await.unwrap();
@@ -142,6 +153,9 @@ async fn exercise(backend: Backend, url: &str) {
     assert_eq!(reopened.breakers().await.unwrap(), vec![breaker]);
     reopened.delete_breaker("first").await.unwrap();
     assert!(reopened.breakers().await.unwrap().is_empty());
+    assert_eq!(reopened.oidc_config().await.unwrap(), Some(oidc));
+    reopened.delete_oidc().await.unwrap();
+    assert_eq!(reopened.oidc_config().await.unwrap(), None);
     reopened.close().await.unwrap();
 }
 

@@ -2454,6 +2454,7 @@ dependencies = [
  "futures-util",
  "getrandom 0.3.4",
  "hex",
+ "jsonwebtoken",
  "percent-encoding",
  "reddb-io-client",
  "reqwest",

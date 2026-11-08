@@ -82,8 +82,23 @@ provider; subsequent provider changes do not require those environment secrets.
 - `PUT /api/admin/provider-quotas/{id}` publishes `session` and/or `weekly`
   `{remaining_percent, reset_at_unix_ms}` windows, optional `limit_reached`, and a
   bounded `ttl_seconds`. `DELETE` clears the observation immediately.
+- `GET /api/admin/oidc` returns the redacted Rust-owned management authentication
+  policy. `PUT` validates, fetches and verifies its JWKS before durably replacing
+  the live policy; `DELETE` removes it. The payload contains `enabled`, `issuer`,
+  `audience`, `jwks_uri`, `required_claims` and `allowed_subjects`.
 
-All management endpoints require `Authorization: Bearer <RED_ROUTER_ADMIN_KEY>`.
+All management endpoints accept `Authorization: Bearer <RED_ROUTER_ADMIN_KEY>`.
+After a valid enabled OIDC policy has been committed, they also accept an
+asymmetrically signed OIDC JWT whose issuer, audience, expiry, required claims and
+subject or verified e-mail match that policy. Every configured claim must match;
+array claims match when at least one value is allowed. The admin key remains the
+bootstrap and recovery credential, including after OIDC is deleted or unavailable.
+The verifier accepts only RS256/384/512, PS256/384/512, ES256/384 and EdDSA, pins
+validated DNS results, refuses redirects and system proxies, bounds token/JWKS sizes,
+caches keys and throttles unknown-key refreshes. JWKS endpoints must use HTTPS except
+for literal-loopback test servers. This slice authenticates already-issued bearer
+tokens; browser authorization-code login, discovery, PKCE, nonce/state, dashboard
+sessions and logout are still pending in the SPA migration.
 Provider credentials are encrypted with a random salt and nonce, authenticated against their
 provider ID, and never returned by the API. The durable database is updated before an
 atomically replaced, DNS-pinned runtime target becomes visible. Invalid storage or

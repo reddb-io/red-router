@@ -2,7 +2,10 @@
 use crate::{
     circuit::{BreakerStatus, ProviderCircuit},
     policy::{ClientPolicies, StoredPolicy},
-    storage::{StoredClientKey, StoredCombo, StoredProvider, StoredProviderQuota, StoredRoutePin},
+    storage::{
+        StoredClientKey, StoredCombo, StoredOidcConfig, StoredProvider, StoredProviderQuota,
+        StoredRoutePin,
+    },
     LiveProvider, ModelRoute, ProviderProtocol, ProxyState, RouteStrategy, TargetQuota,
 };
 use aes_gcm::aead::consts::U16;
@@ -20,7 +23,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -37,6 +40,7 @@ struct Inner {
     routes: RwLock<RouteSnapshot>,
     quotas: RwLock<HashMap<String, Arc<TargetQuota>>>,
     breakers: RwLock<HashMap<String, Arc<ProviderCircuit>>>,
+    oidc: RwLock<Option<Arc<crate::oidc::OidcVerifier>>>,
     mutation: tokio::sync::Mutex<()>,
     admin_hash: [u8; 32],
     encryption_key: Zeroizing<String>,
@@ -193,6 +197,31 @@ pub struct ProviderHealthInput {
     pub reset_timeout_ms: u64,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OidcInput {
+    #[serde(default = "enabled_by_default")]
+    pub enabled: bool,
+    pub issuer: String,
+    pub audience: String,
+    pub jwks_uri: String,
+    #[serde(default)]
+    pub required_claims: BTreeMap<String, Vec<String>>,
+    #[serde(default)]
+    pub allowed_subjects: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct OidcView {
+    pub enabled: bool,
+    pub issuer: String,
+    pub audience: String,
+    pub jwks_uri: String,
+    pub required_claims: BTreeMap<String, Vec<String>>,
+    pub allowed_subjects: Vec<String>,
+    pub revision: String,
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub struct QuotaWindowView {
     pub remaining_percent: f64,
@@ -264,6 +293,12 @@ impl ControlPlane {
                 return Err("duplicate provider quota state");
             }
         }
+        let oidc = database
+            .oidc_config()
+            .await?
+            .map(|record| crate::oidc::OidcVerifier::from_stored(&record, allow_private))
+            .transpose()?
+            .map(Arc::new);
         let plane = Self(Arc::new(Inner {
             database,
             current: RwLock::new(None),
@@ -271,6 +306,7 @@ impl ControlPlane {
             routes: RwLock::new(RouteSnapshot::Unavailable),
             quotas: RwLock::new(quotas),
             breakers: RwLock::new(breakers),
+            oidc: RwLock::new(oidc),
             mutation: tokio::sync::Mutex::new(()),
             admin_hash: Sha256::digest(admin_key.as_bytes()).into(),
             encryption_key: Zeroizing::new(encryption_key.to_owned()),
@@ -387,6 +423,60 @@ impl ControlPlane {
         // Avoid retaining an extra sensitive client/header graph for disabled rows.
         drop(live);
         Ok(view(&stored))
+    }
+
+    pub async fn oidc_view(&self) -> Option<OidcView> {
+        self.0
+            .oidc
+            .read()
+            .await
+            .as_ref()
+            .map(|verifier| oidc_view(verifier.policy()))
+    }
+
+    pub async fn configure_oidc(&self, mut input: OidcInput) -> Result<OidcView, &'static str> {
+        for allowed in input.required_claims.values_mut() {
+            for value in allowed {
+                *value = value.trim().to_owned();
+            }
+        }
+        for subject in &mut input.allowed_subjects {
+            *subject = subject.trim().to_owned();
+        }
+        crate::oidc::validate_claim_policy(&input.required_claims)?;
+        crate::oidc::validate_subjects(&input.allowed_subjects)?;
+        let mut record = StoredOidcConfig {
+            enabled: input.enabled,
+            issuer: input.issuer,
+            audience: input.audience,
+            jwks_uri: input.jwks_uri,
+            required_claims_json: serde_json::to_string(&input.required_claims)
+                .map_err(|_| "cannot encode OIDC claim policy")?,
+            allowed_subjects_json: serde_json::to_string(&input.allowed_subjects)
+                .map_err(|_| "cannot encode OIDC subject policy")?,
+            revision: 0,
+        };
+        let candidate = crate::oidc::OidcVerifier::from_stored(&record, self.0.allow_private)?;
+        candidate.prime().await?;
+        let _mutation = self.0.mutation.lock().await;
+        record.revision = revision()?;
+        self.0.database.upsert_oidc(&record).await?;
+        let stored = self
+            .0
+            .database
+            .oidc_config()
+            .await?
+            .ok_or("cannot reload OIDC configuration")?;
+        let verifier = crate::oidc::OidcVerifier::from_stored(&stored, self.0.allow_private)?;
+        *self.0.oidc.write().await = Some(Arc::new(verifier));
+        oidc_stored_view(&stored)
+    }
+
+    pub async fn delete_oidc(&self) -> Result<(), &'static str> {
+        let _mutation = self.0.mutation.lock().await;
+        self.0.database.delete_oidc().await?;
+        *self.0.oidc.write().await = None;
+        Ok(())
     }
 
     pub async fn disable(&self, id: &str) -> Result<(), &'static str> {
@@ -946,7 +1036,7 @@ impl ControlPlane {
         breakers.entry(id.to_owned()).or_insert(created).clone()
     }
 
-    fn authorized(&self, headers: &HeaderMap) -> bool {
+    async fn authorized(&self, headers: &HeaderMap) -> bool {
         if headers.get_all(header::AUTHORIZATION).iter().count() != 1 {
             return false;
         }
@@ -954,13 +1044,39 @@ impl ControlPlane {
             .get(header::AUTHORIZATION)
             .and_then(|value| value.to_str().ok())
             .and_then(|value| value.strip_prefix("Bearer "))
-            .filter(|value| (32..=512).contains(&value.len()))
+            .filter(|value| !value.is_empty() && value.len() <= 16 * 1024)
         else {
             return false;
         };
-        let digest: [u8; 32] = Sha256::digest(candidate.as_bytes()).into();
-        bool::from(self.0.admin_hash.ct_eq(&digest))
+        if (32..=512).contains(&candidate.len()) {
+            let digest: [u8; 32] = Sha256::digest(candidate.as_bytes()).into();
+            if bool::from(self.0.admin_hash.ct_eq(&digest)) {
+                return true;
+            }
+        }
+        let verifier = self.0.oidc.read().await.clone();
+        match verifier {
+            Some(verifier) => verifier.verify(candidate).await.is_ok(),
+            None => false,
+        }
     }
+}
+
+fn oidc_view(policy: &crate::oidc::OidcPolicy) -> OidcView {
+    OidcView {
+        enabled: policy.enabled,
+        issuer: policy.issuer.clone(),
+        audience: policy.audience.clone(),
+        jwks_uri: policy.jwks_uri.to_string(),
+        required_claims: policy.required_claims.clone(),
+        allowed_subjects: policy.allowed_subjects.clone(),
+        revision: policy.revision.to_string(),
+    }
+}
+
+fn oidc_stored_view(stored: &StoredOidcConfig) -> Result<OidcView, &'static str> {
+    let verifier = crate::oidc::OidcVerifier::from_stored(stored, false)?;
+    Ok(oidc_view(verifier.policy()))
 }
 
 fn view(record: &StoredProvider) -> ProviderView {
@@ -1452,11 +1568,55 @@ fn api_error(status: StatusCode, message: &'static str) -> Response {
         .into_response()
 }
 
+pub async fn get_oidc(State(state): State<ProxyState>, headers: HeaderMap) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+    };
+    if !control.authorized(&headers).await {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin authentication");
+    }
+    Json(serde_json::json!({"oidc":control.oidc_view().await})).into_response()
+}
+
+pub async fn put_oidc(
+    State(state): State<ProxyState>,
+    headers: HeaderMap,
+    Json(input): Json<OidcInput>,
+) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+    };
+    if !control.authorized(&headers).await {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin authentication");
+    }
+    match control.configure_oidc(input).await {
+        Ok(oidc) => Json(serde_json::json!({"oidc":oidc})).into_response(),
+        Err(error) if is_runtime_error(error) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "OIDC storage or JWKS unavailable",
+        ),
+        Err(_) => api_error(StatusCode::BAD_REQUEST, "Invalid OIDC configuration"),
+    }
+}
+
+pub async fn delete_oidc(State(state): State<ProxyState>, headers: HeaderMap) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+    };
+    if !control.authorized(&headers).await {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin authentication");
+    }
+    match control.delete_oidc().await {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(_) => api_error(StatusCode::SERVICE_UNAVAILABLE, "OIDC storage unavailable"),
+    }
+}
+
 pub async fn list(State(state): State<ProxyState>, headers: HeaderMap) -> Response {
     let Some(control) = &state.control_plane else {
         return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
     };
-    if !control.authorized(&headers) {
+    if !control.authorized(&headers).await {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
     }
     match control.views().await {
@@ -1472,7 +1632,7 @@ pub async fn list_client_keys(State(state): State<ProxyState>, headers: HeaderMa
     let Some(control) = &state.control_plane else {
         return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
     };
-    if !control.authorized(&headers) {
+    if !control.authorized(&headers).await {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
     }
     match control.client_views().await {
@@ -1488,7 +1648,7 @@ pub async fn list_combos(State(state): State<ProxyState>, headers: HeaderMap) ->
     let Some(control) = &state.control_plane else {
         return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
     };
-    if !control.authorized(&headers) {
+    if !control.authorized(&headers).await {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
     }
     match control.combo_views().await {
@@ -1501,7 +1661,7 @@ pub async fn list_provider_health(State(state): State<ProxyState>, headers: Head
     let Some(control) = &state.control_plane else {
         return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
     };
-    if !control.authorized(&headers) {
+    if !control.authorized(&headers).await {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
     }
     match control.breaker_views().await {
@@ -1517,7 +1677,7 @@ pub async fn list_provider_quotas(State(state): State<ProxyState>, headers: Head
     let Some(control) = &state.control_plane else {
         return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
     };
-    if !control.authorized(&headers) {
+    if !control.authorized(&headers).await {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
     }
     match control.quota_views().await {
@@ -1537,7 +1697,7 @@ pub async fn delete_provider_health(
     let Some(control) = &state.control_plane else {
         return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
     };
-    if !control.authorized(&headers) {
+    if !control.authorized(&headers).await {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
     }
     match control.reset_breaker(&id).await {
@@ -1559,7 +1719,7 @@ pub async fn put_provider_health(
     let Some(control) = &state.control_plane else {
         return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
     };
-    if !control.authorized(&headers) {
+    if !control.authorized(&headers).await {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
     }
     match control.configure_breaker(&id, input).await {
@@ -1584,7 +1744,7 @@ pub async fn put_provider(
     let Some(control) = &state.control_plane else {
         return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
     };
-    if !control.authorized(&headers) {
+    if !control.authorized(&headers).await {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
     }
     match control.configure_provider(&id, input).await {
@@ -1612,6 +1772,7 @@ fn is_runtime_error(error: &str) -> bool {
         || error.contains("quota state")
         || error.contains("combo has no enabled")
         || error.contains("combo provider unavailable")
+        || error.contains("OIDC")
 }
 
 pub async fn put_provider_quota(
@@ -1623,7 +1784,7 @@ pub async fn put_provider_quota(
     let Some(control) = &state.control_plane else {
         return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
     };
-    if !control.authorized(&headers) {
+    if !control.authorized(&headers).await {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
     }
     match control.configure_provider_quota(&id, input).await {
@@ -1644,7 +1805,7 @@ pub async fn delete_provider_quota(
     let Some(control) = &state.control_plane else {
         return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
     };
-    if !control.authorized(&headers) {
+    if !control.authorized(&headers).await {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
     }
     match control.clear_provider_quota(&id).await {
@@ -1665,7 +1826,7 @@ pub async fn delete_provider(
     let Some(control) = &state.control_plane else {
         return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
     };
-    if !control.authorized(&headers) {
+    if !control.authorized(&headers).await {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
     }
     match control.disable(&id).await {
@@ -1687,7 +1848,7 @@ pub async fn put_combo(
     let Some(control) = &state.control_plane else {
         return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
     };
-    if !control.authorized(&headers) {
+    if !control.authorized(&headers).await {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
     }
     match control.configure_combo(&id, input).await {
@@ -1708,7 +1869,7 @@ pub async fn delete_combo(
     let Some(control) = &state.control_plane else {
         return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
     };
-    if !control.authorized(&headers) {
+    if !control.authorized(&headers).await {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
     }
     match control.disable_combo(&id).await {
@@ -1728,7 +1889,7 @@ pub async fn delete_combo_route_pin(
     let Some(control) = &state.control_plane else {
         return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
     };
-    if !control.authorized(&headers) {
+    if !control.authorized(&headers).await {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
     }
     match control.clear_route_pin(&id).await {
@@ -1750,7 +1911,7 @@ pub async fn put_client_key(
     let Some(control) = &state.control_plane else {
         return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
     };
-    if !control.authorized(&headers) {
+    if !control.authorized(&headers).await {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
     }
     match control.configure_client_key(&id, input).await {
@@ -1771,7 +1932,7 @@ pub async fn delete_client_key(
     let Some(control) = &state.control_plane else {
         return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
     };
-    if !control.authorized(&headers) {
+    if !control.authorized(&headers).await {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
     }
     match control.revoke_client_key(&id).await {
