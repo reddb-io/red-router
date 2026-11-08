@@ -52,7 +52,7 @@ async fn rust_and_typescript_reserve_one_shared_token_and_spend_budget() {
     .execute(&pool)
     .await
     .unwrap();
-    sqlx::raw_sql("CREATE TABLE api_keys (id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL); INSERT INTO api_keys VALUES ('node-key','red'); ALTER TABLE request_cost_ledger ADD COLUMN tenant_id TEXT; ALTER TABLE request_cost_ledger ADD COLUMN pricing_known INTEGER NOT NULL DEFAULT 1;").execute(&pool).await.unwrap();
+    sqlx::raw_sql("CREATE TABLE api_keys (id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL); INSERT INTO api_keys VALUES ('node-key','red'); ALTER TABLE request_cost_ledger ADD COLUMN tenant_id TEXT; ALTER TABLE request_cost_ledger ADD COLUMN usage_attributes TEXT NOT NULL DEFAULT '{}'; ALTER TABLE request_cost_ledger ADD COLUMN pricing_known INTEGER NOT NULL DEFAULT 1; ALTER TABLE request_cost_ledger ADD COLUMN pricing_snapshot TEXT;").execute(&pool).await.unwrap();
     assert!(reserve_usage(
         &pool,
         &UsageReservation {
@@ -171,7 +171,7 @@ async fn rust_and_typescript_reserve_one_shared_token_and_spend_budget() {
                 provider: "openai",
                 model: "gpt",
                 usage: &usage,
-                prices: &prices,
+                prices: Some(&prices),
                 timestamp_ms: 1_700_000_000_000
             }
         )

@@ -16,7 +16,7 @@ pub(crate) struct UsageContext {
     pub(crate) event_id: String,
     pub(crate) key: String,
     pub(crate) model: String,
-    pub(crate) prices: TokenPrices,
+    pub(crate) prices: Option<TokenPrices>,
 }
 
 enum Event {
@@ -117,7 +117,7 @@ pub(crate) fn forward(
                         done_seen = true;
                         if let Some(usage) = usage.take() {
                             if connection
-                                .record_usage(&event_id, &key, &model, &usage, &prices)
+                                .record_usage(&event_id, &key, &model, &usage, prices.as_ref())
                                 .await
                                 .is_ok()
                             {

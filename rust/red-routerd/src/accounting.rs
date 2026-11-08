@@ -2,6 +2,7 @@
 //! These primitives are not connected to request admission or response handling.
 use serde_json::Value;
 use sqlx::{Row, SqlitePool};
+use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChatUsage {
@@ -150,13 +151,42 @@ pub struct CompletedUsage<'a> {
     pub provider: &'a str,
     pub model: &'a str,
     pub usage: &'a ChatUsage,
-    pub prices: &'a TokenPrices,
+    /// `None` means the model price was unresolved, never that it was free.
+    pub prices: Option<&'a TokenPrices>,
     pub timestamp_ms: i64,
 }
 
-/// Atomically record one fully observed, explicitly priced response in the
-/// product ledger and TPM counter. Duplicate event IDs are idempotent only
-/// when their persisted accounting values match. This is not admission:
+fn ledger_pricing_snapshot(
+    prices: Option<&TokenPrices>,
+    timestamp_ms: i64,
+) -> Result<Option<String>, &'static str> {
+    let Some(prices) = prices else {
+        return Ok(None);
+    };
+    let captured_at = OffsetDateTime::from_unix_timestamp_nanos(timestamp_ms as i128 * 1_000_000)
+        .map_err(|_| "invalid accounting timestamp")?
+        .format(&Rfc3339)
+        .map_err(|_| "invalid accounting timestamp")?;
+    Ok(Some(
+        serde_json::json!({
+            "currency": "USD",
+            "unit": "million-tokens",
+            "source": "router-model-pricing",
+            "capturedAt": captured_at,
+            "input": prices.input,
+            "output": prices.output,
+            "cacheRead": prices.cache_read,
+            "cacheWrite": prices.cache_creation,
+            "reasoning": prices.reasoning,
+            "serviceTierMultiplier": 1
+        })
+        .to_string(),
+    ))
+}
+
+/// Atomically record one fully observed response in the product ledger and
+/// TPM counter. An absent price is persisted as unknown, never free. Duplicate
+/// event IDs are idempotent only when their persisted accounting values match. This is not admission:
 /// callers must reserve quota and coordinate incomplete streams separately.
 pub async fn record_completed_usage(
     pool: &SqlitePool,
@@ -191,7 +221,15 @@ async fn record_usage(
         return Err("invalid accounting event");
     }
     let billable = event.usage.billable_tokens()?;
-    let cost = event.prices.cost_usd(event.usage)?;
+    let cost = match event.prices {
+        Some(prices) => prices.cost_usd(event.usage)?,
+        None => 0.0,
+    };
+    let pricing_known = i64::from(event.prices.is_some());
+    let unit_price_input = event.prices.map_or(0.0, |prices| prices.input);
+    let unit_price_output = event.prices.map_or(0.0, |prices| prices.output);
+    let pricing_snapshot = ledger_pricing_snapshot(event.prices, event.timestamp_ms)?;
+    let usage_attributes = "{}";
     let input = i64::try_from(event.usage.input).map_err(|_| "invalid token usage")?;
     let output = i64::try_from(event.usage.output).map_err(|_| "invalid token usage")?;
     let reasoning = i64::try_from(event.usage.reasoning).map_err(|_| "invalid token usage")?;
@@ -229,12 +267,16 @@ async fn record_usage(
             let snapshot: Option<String> = row
                 .try_get("pricing_snapshot")
                 .map_err(|_| "invalid reservation")?;
-            if let Some(snapshot) = snapshot {
-                let snapshot: Value =
-                    serde_json::from_str(&snapshot).map_err(|_| "invalid reservation")?;
-                if TokenPrices::from_record(&snapshot)? != *event.prices {
-                    return Err("invalid reservation price");
+            match (snapshot, event.prices) {
+                (Some(snapshot), Some(prices)) => {
+                    let snapshot: Value =
+                        serde_json::from_str(&snapshot).map_err(|_| "invalid reservation")?;
+                    if TokenPrices::from_record(&snapshot)? != *prices {
+                        return Err("invalid reservation price");
+                    }
                 }
+                (None, None) => {}
+                _ => return Err("invalid reservation price"),
             }
             if state != "dispatched"
                 || token_bound < 0
@@ -264,13 +306,14 @@ async fn record_usage(
             }
         }
     }
-    let inserted = sqlx::query("INSERT INTO request_cost_ledger (api_key_id, provider, model, tokens_input, tokens_output, tokens_cache_read, tokens_cache_creation, tokens_reasoning, unit_price_input, unit_price_output, amount_usd, service_tier, success, timestamp, event_id, pricing_known, tenant_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'standard', 1, strftime('%Y-%m-%dT%H:%M:%fZ', ? / 1000.0, 'unixepoch'), ?, 1, 'red') ON CONFLICT(event_id) WHERE event_id IS NOT NULL DO NOTHING")
+    let inserted = sqlx::query("INSERT INTO request_cost_ledger (api_key_id, provider, model, tokens_input, tokens_output, tokens_cache_read, tokens_cache_creation, tokens_reasoning, unit_price_input, unit_price_output, amount_usd, service_tier, success, timestamp, event_id, usage_attributes, pricing_known, pricing_snapshot, tenant_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'standard', 1, strftime('%Y-%m-%dT%H:%M:%fZ', ? / 1000.0, 'unixepoch'), ?, ?, ?, ?, 'red') ON CONFLICT(event_id) WHERE event_id IS NOT NULL DO NOTHING")
         .bind(event.key_id).bind(event.provider).bind(event.model).bind(input).bind(output)
-        .bind(cache_read).bind(cache_creation).bind(reasoning).bind(event.prices.input).bind(event.prices.output)
-        .bind(cost).bind(event.timestamp_ms).bind(event.event_id).execute(&mut *tx).await
+        .bind(cache_read).bind(cache_creation).bind(reasoning).bind(unit_price_input).bind(unit_price_output)
+        .bind(cost).bind(event.timestamp_ms).bind(event.event_id).bind(usage_attributes).bind(pricing_known)
+        .bind(pricing_snapshot.as_deref()).execute(&mut *tx).await
         .map_err(|_| "cost ledger unavailable")?.rows_affected();
     if inserted == 0 {
-        let row = sqlx::query("SELECT api_key_id, provider, model, tokens_input, tokens_output, tokens_cache_read, tokens_cache_creation, tokens_reasoning, unit_price_input, unit_price_output, amount_usd, (timestamp = strftime('%Y-%m-%dT%H:%M:%fZ', ? / 1000.0, 'unixepoch')) AS same_time, tenant_id, success, pricing_known FROM request_cost_ledger WHERE event_id = ?")
+        let row = sqlx::query("SELECT api_key_id, provider, model, tokens_input, tokens_output, tokens_cache_read, tokens_cache_creation, tokens_reasoning, unit_price_input, unit_price_output, amount_usd, (timestamp = strftime('%Y-%m-%dT%H:%M:%fZ', ? / 1000.0, 'unixepoch')) AS same_time, tenant_id, success, usage_attributes, pricing_known, pricing_snapshot FROM request_cost_ledger WHERE event_id = ?")
             .bind(event.timestamp_ms).bind(event.event_id).fetch_optional(&mut *tx).await.map_err(|_| "cost ledger unavailable")?
             .ok_or("cost ledger unavailable")?;
         let same = row.try_get::<String, _>("api_key_id").ok().as_deref() == Some(event.key_id)
@@ -281,13 +324,20 @@ async fn record_usage(
             && row.try_get::<i64, _>("tokens_reasoning").ok() == Some(reasoning)
             && row.try_get::<i64, _>("tokens_cache_read").ok() == Some(cache_read)
             && row.try_get::<i64, _>("tokens_cache_creation").ok() == Some(cache_creation)
-            && row.try_get::<f64, _>("unit_price_input").ok() == Some(event.prices.input)
-            && row.try_get::<f64, _>("unit_price_output").ok() == Some(event.prices.output)
+            && row.try_get::<f64, _>("unit_price_input").ok() == Some(unit_price_input)
+            && row.try_get::<f64, _>("unit_price_output").ok() == Some(unit_price_output)
             && row.try_get::<f64, _>("amount_usd").ok() == Some(cost)
             && row.try_get::<i64, _>("same_time").ok() == Some(1)
             && row.try_get::<String, _>("tenant_id").ok().as_deref() == Some("red")
             && row.try_get::<i64, _>("success").ok() == Some(1)
-            && row.try_get::<i64, _>("pricing_known").ok() == Some(1);
+            && row.try_get::<String, _>("usage_attributes").ok().as_deref()
+                == Some(usage_attributes)
+            && row.try_get::<i64, _>("pricing_known").ok() == Some(pricing_known)
+            && row
+                .try_get::<Option<String>, _>("pricing_snapshot")
+                .ok()
+                .flatten()
+                == pricing_snapshot;
         if !same {
             return Err("accounting event ID collision");
         }
@@ -341,8 +391,20 @@ mod tests {
         .execute(&pool)
         .await
         .unwrap();
-        sqlx::raw_sql("CREATE TABLE api_keys (id TEXT PRIMARY KEY, tenant_id TEXT); INSERT INTO api_keys VALUES ('key', 'red'); ALTER TABLE request_cost_ledger ADD COLUMN tenant_id TEXT; ALTER TABLE request_cost_ledger ADD COLUMN pricing_known INTEGER NOT NULL DEFAULT 1;")
+        sqlx::raw_sql("CREATE TABLE api_keys (id TEXT PRIMARY KEY, tenant_id TEXT); INSERT INTO api_keys VALUES ('key', 'red'); ALTER TABLE request_cost_ledger ADD COLUMN tenant_id TEXT;")
             .execute(&pool).await.unwrap();
+        sqlx::raw_sql(include_str!(
+            "../../../src/lib/db/migrations/224_usage_reporting_context.sql"
+        ))
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::raw_sql(include_str!(
+            "../../../src/lib/db/migrations/225_usage_pricing_snapshot.sql"
+        ))
+        .execute(&pool)
+        .await
+        .unwrap();
         pool
     }
 
@@ -360,7 +422,7 @@ mod tests {
             provider: "openai",
             model: "gpt",
             usage: &usage,
-            prices: &prices,
+            prices: Some(&prices),
             timestamp_ms: 1_700_000_000_000,
         };
         sqlx::query("INSERT INTO api_key_usage_reservations (id,api_key_id,reserved_tokens,reserved_usd,created_at,state) VALUES ('event-1','key',150,0.001,1700000000000,'reserved')").execute(&pool).await.unwrap();
@@ -423,7 +485,7 @@ mod tests {
             provider: "openai",
             model: "gpt",
             usage: &usage,
-            prices: &prices,
+            prices: Some(&prices),
             timestamp_ms: 1_700_000_000_000,
         };
         sqlx::query("INSERT INTO api_key_usage_reservations (id,api_key_id,reserved_tokens,reserved_usd,created_at,state) VALUES ('event-fail','key',150,0.001,1700000000000,'dispatched')").execute(&pool).await.unwrap();
@@ -456,7 +518,7 @@ mod tests {
             provider: "openai",
             model: "gpt",
             usage: &usage,
-            prices: &prices,
+            prices: Some(&prices),
             timestamp_ms: 1_700_000_000_000,
         };
         assert_eq!(record_completed_usage(&pool, &event).await, Ok(true));
@@ -475,6 +537,20 @@ mod tests {
         assert!((amount - 0.0004).abs() < 1e-12);
         let tokens: f64 = sqlx::query_scalar("SELECT consumed FROM api_key_quota_counters WHERE api_key_id = 'key' AND dimension_key = 'key-quota:tpm'").fetch_one(&pool).await.unwrap();
         assert_eq!(tokens, 150.0);
+        let (known, snapshot, attributes): (i64, Option<String>, String) = sqlx::query_as(
+            "SELECT pricing_known, pricing_snapshot, usage_attributes FROM request_cost_ledger WHERE event_id = 'event-1'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let snapshot: Value = serde_json::from_str(snapshot.as_deref().unwrap()).unwrap();
+        assert_eq!(known, 1);
+        assert_eq!(attributes, "{}");
+        assert_eq!(snapshot["currency"], "USD");
+        assert_eq!(snapshot["unit"], "million-tokens");
+        assert_eq!(snapshot["capturedAt"], "2023-11-14T22:13:20Z");
+        assert_eq!(snapshot["input"], 2.0);
+        assert_eq!(snapshot["output"], 4.0);
         sqlx::query("CREATE TRIGGER fail_counter BEFORE INSERT ON api_key_quota_counters BEGIN SELECT RAISE(ABORT, 'failure'); END").execute(&pool).await.unwrap();
         event.event_id = "event-2";
         assert_eq!(
@@ -489,6 +565,36 @@ mod tests {
             count, 1,
             "ledger insert must roll back when the counter fails"
         );
+    }
+
+    #[tokio::test]
+    async fn unpriced_usage_is_explicitly_unknown_and_still_counts_tokens() {
+        let pool = accounting_database().await;
+        let usage = ChatUsage::from_response(
+            &json!({"usage":{"prompt_tokens":100,"completion_tokens":50}}),
+        )
+        .unwrap();
+        let event = CompletedUsage {
+            event_id: "unpriced",
+            key_id: "key",
+            provider: "openai",
+            model: "new-model",
+            usage: &usage,
+            prices: None,
+            timestamp_ms: 1_700_000_000_000,
+        };
+        assert_eq!(record_completed_usage(&pool, &event).await, Ok(true));
+        assert_eq!(record_completed_usage(&pool, &event).await, Ok(false));
+        let row: (i64, f64, f64, f64, Option<String>, String) = sqlx::query_as(
+            "SELECT pricing_known, unit_price_input, unit_price_output, amount_usd, pricing_snapshot, usage_attributes FROM request_cost_ledger WHERE event_id = 'unpriced'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(row, (0, 0.0, 0.0, 0.0, None, "{}".to_owned()));
+        let tokens: f64 = sqlx::query_scalar("SELECT consumed FROM api_key_quota_counters WHERE api_key_id = 'key' AND dimension_key = 'key-quota:tpm'")
+            .fetch_one(&pool).await.unwrap();
+        assert_eq!(tokens, 150.0);
     }
 
     #[test]

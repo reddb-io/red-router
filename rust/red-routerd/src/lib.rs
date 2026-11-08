@@ -1980,7 +1980,8 @@ async fn proxy_request(
                 return error(StatusCode::BAD_REQUEST, "A model is required");
             };
             let prices = match connection.usage_prices(target_model).await {
-                Ok(prices) => prices,
+                Ok(prices) => Some(prices),
+                Err(_) if connection.reports_all_usage() => None,
                 Err(_) => {
                     return error(
                         StatusCode::SERVICE_UNAVAILABLE,
@@ -1995,7 +1996,7 @@ async fn proxy_request(
                 );
             };
             let event_id = match connection
-                .begin_usage(&access.key_id, target_model, &prices)
+                .begin_usage(&access.key_id, target_model, prices.as_ref())
                 .await
             {
                 Ok(id) => id,
@@ -2416,7 +2417,7 @@ async fn proxy_request(
                 );
             };
             if connection
-                .record_usage(&event_id, &access.key_id, &model, &usage, &prices)
+                .record_usage(&event_id, &access.key_id, &model, &usage, prices.as_ref())
                 .await
                 .is_err()
             {

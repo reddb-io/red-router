@@ -32,6 +32,7 @@ pub struct ProductConnection {
     usage_pool: Option<SqlitePool>,
     strict_usage: Option<(i64, f64)>,
     concurrent_usage: bool,
+    report_all_usage: bool,
     auto_selection: bool,
 }
 
@@ -238,6 +239,7 @@ impl ProductConnection {
                 usage_pool: None,
                 strict_usage: None,
                 concurrent_usage: false,
+                report_all_usage: false,
                 auto_selection: false,
             },
             credential,
@@ -273,10 +275,11 @@ impl ProductConnection {
         self.usage_pool = source.usage_pool.clone();
         self.strict_usage = source.strict_usage;
         self.concurrent_usage = source.concurrent_usage;
+        self.report_all_usage = source.report_all_usage;
         Ok(self)
     }
 
-    /// Opt in to recording complete non-streaming chat responses. This does
+    /// Opt in to recording complete chat and streaming responses. This does
     /// not enable token or spend quotas; those remain explicitly unsupported.
     pub async fn with_usage_accounting(mut self) -> Result<Self, &'static str> {
         let options = SqliteConnectOptions::new()
@@ -289,7 +292,7 @@ impl ProductConnection {
             .connect_with(options)
             .await
             .map_err(|_| "cannot open product SQLite for usage accounting")?;
-        sqlx::query("SELECT event_id, pricing_known, tenant_id FROM request_cost_ledger LIMIT 0")
+        sqlx::query("SELECT event_id, usage_attributes, pricing_known, pricing_snapshot, tenant_id FROM request_cost_ledger LIMIT 0")
             .execute(&pool)
             .await
             .map_err(|_| "product cost ledger schema unavailable")?;
@@ -301,6 +304,20 @@ impl ProductConnection {
 
     pub(crate) fn usage_accounting_enabled(&self) -> bool {
         self.usage_pool.is_some()
+    }
+
+    /// Match the dashboard opt-in that reports completed requests even when
+    /// model pricing is unresolved. Such rows are marked `pricing_known = 0`.
+    pub fn with_all_usage_reporting(mut self) -> Result<Self, &'static str> {
+        if self.usage_pool.is_none() {
+            return Err("all-request reporting requires usage accounting");
+        }
+        self.report_all_usage = true;
+        Ok(self)
+    }
+
+    pub(crate) fn reports_all_usage(&self) -> bool {
+        self.report_all_usage && self.strict_usage.is_none()
     }
 
     /// Opt in to bounded, exclusive admission. Every other live proxy must
@@ -369,12 +386,15 @@ impl ProductConnection {
         &self,
         key_id: &str,
         model: &str,
-        prices: &crate::accounting::TokenPrices,
+        prices: Option<&crate::accounting::TokenPrices>,
     ) -> Result<String, &'static str> {
         let pool = self
             .usage_pool
             .as_ref()
             .ok_or("usage accounting unavailable")?;
+        if self.strict_usage.is_some() && prices.is_none() {
+            return Err("strict spend quota requires explicit model pricing");
+        }
         let event_id: String = sqlx::query_scalar("SELECT lower(hex(randomblob(16)))")
             .fetch_one(pool)
             .await
@@ -402,7 +422,7 @@ impl ProductConnection {
         if !allowed {
             return Err("usage reservation denied");
         }
-        let snapshot = serde_json::json!({"input":prices.input,"output":prices.output,"cached":prices.cache_read,"cache_creation":prices.cache_creation,"reasoning":prices.reasoning}).to_string();
+        let snapshot = prices.map(|prices| serde_json::json!({"input":prices.input,"output":prices.output,"cached":prices.cache_read,"cache_creation":prices.cache_creation,"reasoning":prices.reasoning}).to_string());
         let marked = sqlx::query("UPDATE api_key_usage_reservations SET state = 'dispatched', provider = ?, model = ?, connection_id = ?, pricing_snapshot = ? WHERE id = ? AND api_key_id = ? AND state = 'reserved'")
             .bind(self.provider.as_ref()).bind(model).bind(self.id.as_ref()).bind(snapshot).bind(&event_id).bind(key_id)
             .execute(pool).await.map_err(|_| "usage reservation unavailable")?;
@@ -418,7 +438,7 @@ impl ProductConnection {
         key_id: &str,
         model: &str,
         usage: &crate::accounting::ChatUsage,
-        prices: &crate::accounting::TokenPrices,
+        prices: Option<&crate::accounting::TokenPrices>,
     ) -> Result<(), &'static str> {
         let pool = self
             .usage_pool

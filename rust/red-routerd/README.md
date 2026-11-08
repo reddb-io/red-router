@@ -318,7 +318,19 @@ For experimental recording of completed OpenAI-compatible chat
 responses, opt in with `RED_ROUTER_PRODUCT_ACCOUNT_USAGE=1` and product client
 keys. Each target must have explicit numeric `input`, `output`, `cached`,
 `cache_creation`, and `reasoning` prices in the dashboard's user pricing for
-that exact provider and model. Streaming requires `stream_options.include_usage`
+that exact provider and model. Every priced ledger row freezes the complete
+recording-time price breakdown in `pricing_snapshot`, so later pricing edits do
+not rewrite historical meaning.
+
+Set `REDROUTER_USAGE_REPORT_ALL_REQUESTS=true` to also record completed chat and
+streaming calls whose exact model price cannot be resolved. These rows retain
+their token counts with `pricing_known=0`, zero numeric cost fields and a null
+price snapshot; zero is a storage placeholder and must not be interpreted as a
+free model. Without this flag, unresolved pricing still fails closed. Strict
+token/spend quota mode always requires explicit pricing even when reporting all
+requests is enabled.
+
+Streaming requires `stream_options.include_usage`
 to be true; non-default service tiers are rejected. In streaming mode the
 proxy drains the provider even if the client disconnects and forwards the final
 `[DONE]` only after recording usage. A successful response without valid usage or a failed

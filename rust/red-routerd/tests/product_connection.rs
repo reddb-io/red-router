@@ -366,7 +366,7 @@ async fn non_streaming_product_usage_is_recorded_and_unhandled_quotas_fail_close
     .execute(&mut db)
     .await
     .unwrap();
-    sqlx::raw_sql("ALTER TABLE request_cost_ledger ADD COLUMN tenant_id TEXT; ALTER TABLE request_cost_ledger ADD COLUMN pricing_known INTEGER NOT NULL DEFAULT 1;").execute(&mut db).await.unwrap();
+    sqlx::raw_sql("ALTER TABLE request_cost_ledger ADD COLUMN tenant_id TEXT; ALTER TABLE request_cost_ledger ADD COLUMN usage_attributes TEXT NOT NULL DEFAULT '{}'; ALTER TABLE request_cost_ledger ADD COLUMN pricing_known INTEGER NOT NULL DEFAULT 1; ALTER TABLE request_cost_ledger ADD COLUMN pricing_snapshot TEXT;").execute(&mut db).await.unwrap();
     sqlx::query(
         "UPDATE provider_connections SET api_key = 'fixture-provider-key' WHERE id = 'test'",
     )
@@ -532,6 +532,68 @@ async fn non_streaming_product_usage_is_recorded_and_unhandled_quotas_fail_close
             .status(),
         503
     );
+    server.abort();
+
+    let (connection, _) = ProductConnection::open(&dir.path().join("storage.sqlite"), "test", None)
+        .await
+        .unwrap();
+    let connection = connection
+        .with_usage_accounting()
+        .await
+        .unwrap()
+        .with_all_usage_reporting()
+        .unwrap();
+    let state = ProxyState::new(
+        &format!("http://{address}/v1/chat/completions"),
+        "unused-client-key-12345",
+        &key,
+        false,
+    )
+    .await
+    .unwrap()
+    .with_product_connection(connection)
+    .with_product_client_keys()
+    .unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let proxy = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move { axum::serve(listener, router(state)).await.unwrap() });
+    let send = |body: &'static str| {
+        client
+            .post(format!("http://{proxy}/v1/chat/completions"))
+            .bearer_auth("usage-client-key-123456")
+            .header("content-type", "application/json")
+            .body(body)
+    };
+    assert_eq!(
+        send(r#"{"model":"openrouter/vendor/unknown","messages":[]}"#)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
+    let unknown: (i64, f64, Option<String>, String) = sqlx::query_as(
+        "SELECT pricing_known, amount_usd, pricing_snapshot, usage_attributes FROM request_cost_ledger WHERE api_key_id = 'usage-client' AND model = 'vendor/unknown'",
+    )
+    .fetch_one(&mut db)
+    .await
+    .unwrap();
+    assert_eq!(unknown, (0, 0.0, None, "{}".to_owned()));
+    let unknown_stream = send(
+        r#"{"model":"openrouter/vendor/unknown","messages":[],"stream":true,"stream_options":{"include_usage":true}}"#,
+    )
+    .send()
+    .await
+    .unwrap();
+    assert_eq!(unknown_stream.status(), 200);
+    assert!(unknown_stream.text().await.unwrap().contains("[DONE]"));
+    let unknown_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM request_cost_ledger WHERE api_key_id = 'usage-client' AND model = 'vendor/unknown' AND pricing_known = 0 AND pricing_snapshot IS NULL",
+    )
+    .fetch_one(&mut db)
+    .await
+    .unwrap();
+    assert_eq!(unknown_count, 2);
     sqlx::query("INSERT INTO api_key_quota_limits VALUES ('usage-client', 1000, NULL, NULL)")
         .execute(&mut db)
         .await
@@ -558,7 +620,7 @@ async fn concurrent_direct_requests_share_reservations_with_typescript() {
     ] {
         sqlx::raw_sql(migration).execute(&mut db).await.unwrap();
     }
-    sqlx::raw_sql("ALTER TABLE request_cost_ledger ADD COLUMN tenant_id TEXT; ALTER TABLE request_cost_ledger ADD COLUMN pricing_known INTEGER NOT NULL DEFAULT 1;").execute(&mut db).await.unwrap();
+    sqlx::raw_sql("ALTER TABLE request_cost_ledger ADD COLUMN tenant_id TEXT; ALTER TABLE request_cost_ledger ADD COLUMN usage_attributes TEXT NOT NULL DEFAULT '{}'; ALTER TABLE request_cost_ledger ADD COLUMN pricing_known INTEGER NOT NULL DEFAULT 1; ALTER TABLE request_cost_ledger ADD COLUMN pricing_snapshot TEXT;").execute(&mut db).await.unwrap();
     sqlx::query("UPDATE provider_connections SET api_key='provider-key' WHERE id='test'")
         .execute(&mut db)
         .await
@@ -703,7 +765,7 @@ async fn strict_usage_applies_product_limits_and_keeps_uncertain_attempts() {
     .execute(&mut db)
     .await
     .unwrap();
-    sqlx::raw_sql("ALTER TABLE request_cost_ledger ADD COLUMN tenant_id TEXT; ALTER TABLE request_cost_ledger ADD COLUMN pricing_known INTEGER NOT NULL DEFAULT 1;").execute(&mut db).await.unwrap();
+    sqlx::raw_sql("ALTER TABLE request_cost_ledger ADD COLUMN tenant_id TEXT; ALTER TABLE request_cost_ledger ADD COLUMN usage_attributes TEXT NOT NULL DEFAULT '{}'; ALTER TABLE request_cost_ledger ADD COLUMN pricing_known INTEGER NOT NULL DEFAULT 1; ALTER TABLE request_cost_ledger ADD COLUMN pricing_snapshot TEXT;").execute(&mut db).await.unwrap();
     sqlx::query("UPDATE provider_connections SET api_key='provider-key' WHERE id='test'")
         .execute(&mut db)
         .await

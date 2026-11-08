@@ -113,7 +113,7 @@ pub async fn reconcile(path: &Path, id: &str, response: &Value) -> Result<bool, 
         provider: &provider,
         model: &model,
         usage: &usage,
-        prices: &prices,
+        prices: Some(&prices),
         timestamp_ms: timestamp,
     };
     match record_reserved_usage(&pool, &event).await {

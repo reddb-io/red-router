@@ -320,6 +320,18 @@ async fn run(
         if usage_accounting && !product_client_keys {
             return Err("usage accounting requires product client keys".into());
         }
+        let report_all_usage = match env::var("REDROUTER_USAGE_REPORT_ALL_REQUESTS").as_deref() {
+            Ok("true") | Ok("1") => true,
+            Err(env::VarError::NotPresent) | Ok("false") | Ok("0") => false,
+            _ => {
+                return Err(
+                    "REDROUTER_USAGE_REPORT_ALL_REQUESTS must be true, false, 1 or 0".into(),
+                )
+            }
+        };
+        if report_all_usage && !usage_accounting {
+            return Err("all-request reporting requires product usage accounting".into());
+        }
         let strict_quotas = match env::var("RED_ROUTER_PRODUCT_STRICT_QUOTAS").as_deref() {
             Ok("1") => true,
             Err(env::VarError::NotPresent) | Ok("0") => false,
@@ -398,6 +410,9 @@ async fn run(
         }
         if usage_accounting {
             connection = connection.with_usage_accounting().await?;
+        }
+        if report_all_usage {
+            connection = connection.with_all_usage_reporting()?;
         }
         if strict_quotas {
             let tokens: i64 = env::var("RED_ROUTER_PRODUCT_RESERVE_TOKENS")?.parse()?;
@@ -583,6 +598,13 @@ async fn run(
         }
         Err(env::VarError::NotPresent) | Ok("0") => {}
         _ => return Err("RED_ROUTER_PRODUCT_ACCOUNT_USAGE must be 0 or 1".into()),
+    }
+    match env::var("REDROUTER_USAGE_REPORT_ALL_REQUESTS").as_deref() {
+        Ok("true") | Ok("1") => {
+            return Err("all-request reporting requires RED_ROUTER_PRODUCT_DB_PATH".into())
+        }
+        Err(env::VarError::NotPresent) | Ok("false") | Ok("0") => {}
+        _ => return Err("REDROUTER_USAGE_REPORT_ALL_REQUESTS must be true, false, 1 or 0".into()),
     }
     if env::var_os("RED_ROUTER_PRODUCT_STRICT_QUOTAS").is_some_and(|v| v != "0") {
         return Err("strict quotas require RED_ROUTER_PRODUCT_DB_PATH".into());
