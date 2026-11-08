@@ -6,7 +6,7 @@
 
 import { KeyRound } from "lucide-react";
 import Icon from "@/shared/components/Icon";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Button, Card, Input, Toggle } from "@/shared/components";
 import { oidcRequiredClaimsSchema } from "@/shared/validation/oidcPolicy";
@@ -62,7 +62,7 @@ export default function OidcSection() {
   const [status, setStatus] = useState<{ ok: boolean; message: string } | null>(null);
   const [checks, setChecks] = useState<Check[] | null>(null);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     try {
       const rust = await readRustAuthConfig().catch(() => null);
       if (rust?.backend === "rust") {
@@ -115,11 +115,12 @@ export default function OidcSection() {
     } finally {
       setLoaded(true);
     }
-  };
+  }, [testResult]);
 
   useEffect(() => {
-    void load();
-  }, []);
+    const timeout = window.setTimeout(() => void load(), 0);
+    return () => window.clearTimeout(timeout);
+  }, [load]);
 
   const patch = async (body: Record<string, unknown>, success: string) => {
     setBusy(true);
