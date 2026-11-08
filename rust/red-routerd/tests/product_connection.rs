@@ -638,10 +638,9 @@ async fn non_streaming_product_usage_is_recorded_and_unhandled_quotas_fail_close
         .await
         .unwrap();
     assert_eq!(response.status(), 200);
-    assert_eq!(
-        response.json::<serde_json::Value>().await.unwrap()["data"][0]["embedding"][0],
-        0.5
-    );
+    let response: serde_json::Value =
+        serde_json::from_slice(&response.bytes().await.unwrap()).unwrap();
+    assert_eq!(response["data"][0]["embedding"][0], 0.5);
     let priced_embedding: (i64, i64, i64, f64, Option<String>) = sqlx::query_as(
         "SELECT tokens_input, tokens_output, pricing_known, amount_usd, pricing_snapshot FROM request_cost_ledger WHERE api_key_id = 'usage-client' AND model = 'vendor/embed-priced'",
     )
