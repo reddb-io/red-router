@@ -151,12 +151,23 @@ replacement. Streaming attempts keep their counter until the upstream body is dr
 including the background drain used to settle usage after a client disconnect.
 Cost and context strategies rank a fixed stack deck without adding a second request-path
 allocation; their validated price and context-window metadata lives in the durable combo record.
-The Rust control plane now reads the committed `anomalyco/models.dev` snapshot lazily by
-exact native provider/model ID. It validates the snapshot manifest and provenance before use,
-parses only providers touched by configured combos, and freezes available input/output cost
-and context-window metadata into the durable combo record. Operator-supplied values retain
-precedence. The catalog does not create connections, grant model access, rewrite native IDs or
-select an upstream endpoint; those remain RedRouter-owned security and transport decisions.
+The Rust control plane reads the committed `anomalyco/models.dev` snapshot lazily by exact native
+provider/model ID and can replace it through authenticated
+`POST /api/admin/model-catalog/refresh`. Refreshes use the fixed models.dev catalog URL, bounded
+timeouts and a 16 MiB response limit, forward the active ETag, normalize only public descriptive
+fields, validate every provider before publication and discard upstream endpoints, environment
+names, headers and credentials. The complete transformed snapshot is one durable row in the
+selected SQLite, embedded/remote RedDB or PostgreSQL authority. A successful write happens before
+one `Arc` swap publishes it, so requests see either the old or new generation and restart restores
+the same generation. HTTP 304 leaves the record untouched; network, schema, validation or storage
+failure keeps the last good in-memory snapshot. An invalid persisted row is rejected at startup in
+favor of the bundled catalog and is reported in the admin snapshot status. Multi-process polling
+of another replica's newly written revision remains separate work.
+
+Available input/output cost and context-window metadata is frozen into the durable combo record
+when a combo is saved. Operator-supplied values retain precedence. The catalog does not create
+connections, grant model access, rewrite native IDs or select an upstream endpoint; those remain
+RedRouter-owned security and transport decisions.
 The authenticated `GET /api/admin/model-catalog` endpoint returns the lightweight upstream
 provider index and manifest; `GET /api/admin/model-catalog/{provider}` materializes the complete
 metadata for only that exact models.dev provider, including models, capabilities, modalities,
@@ -188,8 +199,6 @@ is committed before the key revision and a mismatched revision fails closed, so 
 two-record update cannot publish a partially changed identity. Missing legacy preferences default
 to `prefixed`. As in the current TypeScript contract, this setting is discoverable but does not yet
 rewrite the scoped catalog (`key_id_format_applied` remains false), and combo IDs stay unchanged.
-Refreshing and atomically publishing a newer catalog snapshot from Rust remains separate
-migration work.
 Quota observations live in `redrouter_provider_quotas` with an explicit TTL. Admin
 updates commit before the shared lock-free provider snapshot changes; route selection
 reads only atomics and never queries SQLite/RedDB/PostgreSQL. Expired observations become

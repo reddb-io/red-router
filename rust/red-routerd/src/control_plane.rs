@@ -5,8 +5,8 @@ use crate::{
     policy::{ClientPolicies, StoredPolicy},
     resilience::RateLimitScope,
     storage::{
-        StoredClientKey, StoredCombo, StoredOidcBrowserConfig, StoredOidcConfig, StoredProvider,
-        StoredProviderQuota, StoredResilience, StoredRoutePin,
+        StoredClientKey, StoredCombo, StoredModelCatalogSnapshot, StoredOidcBrowserConfig,
+        StoredOidcConfig, StoredProvider, StoredProviderQuota, StoredResilience, StoredRoutePin,
     },
     LiveProvider, ModelRoute, ProviderProtocol, ProxyState, RouteStrategy, TargetQuota,
 };
@@ -46,10 +46,37 @@ struct Inner {
     availability: RwLock<HashMap<String, Arc<ProviderAvailability>>>,
     oidc: RwLock<Option<Arc<crate::oidc::OidcVerifier>>>,
     oidc_browser: RwLock<Option<Arc<crate::oidc::OidcBrowserConfig>>>,
+    catalog: RwLock<CatalogState>,
+    catalog_refresh: tokio::sync::Mutex<()>,
+    catalog_client: reqwest::Client,
+    catalog_source: reqwest::Url,
     mutation: tokio::sync::Mutex<()>,
     admin_hash: [u8; 32],
     encryption_key: Zeroizing<String>,
     allow_private: bool,
+}
+
+struct CatalogState {
+    catalog: Arc<crate::catalog::ModelCatalog>,
+    source: &'static str,
+    revision: Option<i64>,
+    last_error: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CatalogRuntimeView {
+    pub source: &'static str,
+    pub revision: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_error: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CatalogRefreshView {
+    pub changed: bool,
+    pub source: &'static str,
+    pub revision: Option<String>,
+    pub manifest: crate::catalog::CatalogManifest,
 }
 
 enum ClientSnapshot {
@@ -380,12 +407,48 @@ fn default_oidc_scopes() -> Vec<String> {
     ]
 }
 
+fn validate_catalog_source(value: &str, allow_private: bool) -> Result<reqwest::Url, &'static str> {
+    let url = reqwest::Url::parse(value).map_err(|_| "invalid models.dev source URL")?;
+    if !url.username().is_empty()
+        || url.password().is_some()
+        || url.fragment().is_some()
+        || (value != crate::catalog::EXPECTED_SOURCE
+            && !(allow_private
+                && url.scheme() == "http"
+                && url
+                    .host_str()
+                    .and_then(|host| host.parse::<std::net::IpAddr>().ok())
+                    .is_some_and(|address| address.is_loopback())))
+    {
+        return Err("invalid models.dev source URL");
+    }
+    Ok(url)
+}
+
 impl ControlPlane {
     pub async fn new(
         database: Arc<crate::storage::Database>,
         admin_key: &str,
         encryption_key: &str,
         allow_private: bool,
+    ) -> Result<Self, &'static str> {
+        Self::new_with_model_catalog_source(
+            database,
+            admin_key,
+            encryption_key,
+            allow_private,
+            crate::catalog::EXPECTED_SOURCE,
+        )
+        .await
+    }
+
+    #[doc(hidden)]
+    pub async fn new_with_model_catalog_source(
+        database: Arc<crate::storage::Database>,
+        admin_key: &str,
+        encryption_key: &str,
+        allow_private: bool,
+        catalog_source: &str,
     ) -> Result<Self, &'static str> {
         if !(32..=512).contains(&admin_key.len()) {
             return Err("RED_ROUTER_ADMIN_KEY must be 32-512 bytes");
@@ -443,6 +506,40 @@ impl ControlPlane {
             )),
             _ => None,
         };
+        let bundled_catalog = crate::catalog::bundled_catalog()?;
+        let stored_catalog = database.model_catalog_snapshot().await?;
+        let (catalog, source, catalog_revision, catalog_error) = match stored_catalog {
+            Some(snapshot) => {
+                match crate::catalog::ModelCatalog::from_snapshot(&snapshot.snapshot_json)
+                    .and_then(|catalog| catalog.validate_all())
+                    .and_then(|()| {
+                        // Validate with a disposable catalog so the active instance
+                        // starts with empty per-provider caches.
+                        crate::catalog::ModelCatalog::from_snapshot(&snapshot.snapshot_json)
+                    }) {
+                    Ok(catalog) => (
+                        Arc::new(catalog),
+                        "persisted",
+                        Some(snapshot.revision),
+                        None,
+                    ),
+                    Err(_) => (
+                        bundled_catalog,
+                        "bundled",
+                        None,
+                        Some("persisted snapshot rejected".to_owned()),
+                    ),
+                }
+            }
+            None => (bundled_catalog, "bundled", None, None),
+        };
+        let catalog_source = validate_catalog_source(catalog_source, allow_private)?;
+        let catalog_client = reqwest::Client::builder()
+            .no_proxy()
+            .redirect(reqwest::redirect::Policy::none())
+            .connect_timeout(std::time::Duration::from_secs(5))
+            .build()
+            .map_err(|_| "cannot initialize models.dev client")?;
         let plane = Self(Arc::new(Inner {
             database,
             current: RwLock::new(None),
@@ -453,6 +550,15 @@ impl ControlPlane {
             availability: RwLock::new(availability),
             oidc: RwLock::new(oidc),
             oidc_browser: RwLock::new(oidc_browser),
+            catalog: RwLock::new(CatalogState {
+                catalog,
+                source,
+                revision: catalog_revision,
+                last_error: catalog_error,
+            }),
+            catalog_refresh: tokio::sync::Mutex::new(()),
+            catalog_client,
+            catalog_source,
             mutation: tokio::sync::Mutex::new(()),
             admin_hash: Sha256::digest(admin_key.as_bytes()).into(),
             encryption_key: Zeroizing::new(encryption_key.to_owned()),
@@ -462,6 +568,96 @@ impl ControlPlane {
         plane.refresh_clients().await?;
         plane.refresh_routes().await?;
         Ok(plane)
+    }
+
+    pub(crate) async fn model_catalog(&self) -> Arc<crate::catalog::ModelCatalog> {
+        self.0.catalog.read().await.catalog.clone()
+    }
+
+    async fn model_catalog_snapshot(
+        &self,
+    ) -> (Arc<crate::catalog::ModelCatalog>, CatalogRuntimeView) {
+        let catalog = self.0.catalog.read().await;
+        (
+            catalog.catalog.clone(),
+            CatalogRuntimeView {
+                source: catalog.source,
+                revision: catalog.revision.map(|revision| revision.to_string()),
+                last_error: catalog.last_error.clone(),
+            },
+        )
+    }
+
+    pub async fn refresh_model_catalog(&self) -> Result<CatalogRefreshView, &'static str> {
+        let _refresh = self.0.catalog_refresh.lock().await;
+        let (etag, schema_ref) = {
+            let active = self.0.catalog.read().await;
+            (
+                active.catalog.manifest().etag.clone(),
+                active.catalog.manifest().upstream_schema_ref.clone(),
+            )
+        };
+        let refresh = crate::catalog::refresh_from_source(
+            &self.0.catalog_client,
+            &self.0.catalog_source,
+            etag.as_deref(),
+            &schema_ref,
+        )
+        .await;
+        let refresh = match refresh {
+            Ok(refresh) => refresh,
+            Err(error) => {
+                self.0.catalog.write().await.last_error =
+                    Some("models.dev refresh failed".to_owned());
+                return Err(error);
+            }
+        };
+        match refresh {
+            crate::catalog::CatalogRefresh::NotModified => {
+                let mut active = self.0.catalog.write().await;
+                active.last_error = None;
+                Ok(CatalogRefreshView {
+                    changed: false,
+                    source: active.source,
+                    revision: active.revision.map(|revision| revision.to_string()),
+                    manifest: active.catalog.manifest().clone(),
+                })
+            }
+            crate::catalog::CatalogRefresh::Updated {
+                catalog,
+                snapshot_json,
+            } => {
+                let revision = revision()?;
+                let stored = StoredModelCatalogSnapshot {
+                    snapshot_json,
+                    revision,
+                };
+                if self
+                    .0
+                    .database
+                    .upsert_model_catalog_snapshot(&stored)
+                    .await
+                    .is_err()
+                {
+                    self.0.catalog.write().await.last_error =
+                        Some("model catalog storage unavailable".to_owned());
+                    return Err("model catalog storage unavailable");
+                }
+                let manifest = catalog.manifest().clone();
+                *self.0.catalog.write().await = CatalogState {
+                    catalog,
+                    source: "persisted",
+                    revision: Some(revision),
+                    last_error: None,
+                };
+                Ok(CatalogRefreshView {
+                    changed: true,
+                    source: "persisted",
+                    revision: Some(revision.to_string()),
+                    manifest,
+                })
+            }
+        }
     }
 
     pub(crate) async fn current(&self) -> Option<LiveProvider> {
@@ -898,7 +1094,8 @@ impl ControlPlane {
         validate_id(id)?;
         let _mutation = self.0.mutation.lock().await;
         let providers = self.0.database.providers().await?;
-        enrich_combo_metadata(&mut input, &providers)?;
+        let catalog = self.model_catalog().await;
+        enrich_combo_metadata(&mut input, &providers, &catalog)?;
         validate_combo(&input)?;
         if input.enabled {
             let protocol = ProviderProtocol::parse(&input.protocol)?;
@@ -1959,8 +2156,8 @@ fn validate_combo(input: &ComboInput) -> Result<(), &'static str> {
 fn enrich_combo_metadata(
     input: &mut ComboInput,
     providers: &[StoredProvider],
+    catalog: &crate::catalog::ModelCatalog,
 ) -> Result<(), &'static str> {
-    let catalog = crate::catalog::bundled_catalog()?;
     for target in &mut input.targets {
         let Some(provider) = providers
             .iter()
@@ -2507,12 +2704,14 @@ pub async fn list_model_catalog(State(state): State<ProxyState>, headers: Header
     if !control.authorized(&headers).await {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
     }
-    let response = crate::catalog::bundled_catalog().and_then(|catalog| {
+    let (catalog, runtime) = control.model_catalog_snapshot().await;
+    let response: Result<serde_json::Value, &'static str> = (|| {
         Ok(serde_json::json!({
             "manifest": catalog.manifest(),
             "providers": catalog.provider_summaries()?,
+            "snapshot": runtime,
         }))
-    });
+    })();
     match response {
         Ok(response) => Json(response).into_response(),
         Err(_) => api_error(StatusCode::SERVICE_UNAVAILABLE, "Model catalog unavailable"),
@@ -2530,16 +2729,38 @@ pub async fn get_model_catalog_provider(
     if !control.authorized(&headers).await {
         return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
     }
-    let catalog = match crate::catalog::bundled_catalog() {
-        Ok(catalog) => catalog,
-        Err(_) => {
-            return api_error(StatusCode::SERVICE_UNAVAILABLE, "Model catalog unavailable");
-        }
-    };
+    let catalog = control.model_catalog().await;
     match catalog.provider(&provider) {
         Ok(Some(provider)) => Json(serde_json::json!({"provider":provider})).into_response(),
         Ok(None) => api_error(StatusCode::NOT_FOUND, "Catalog provider not found"),
         Err(_) => api_error(StatusCode::SERVICE_UNAVAILABLE, "Model catalog unavailable"),
+    }
+}
+
+pub async fn refresh_model_catalog(
+    State(state): State<ProxyState>,
+    headers: HeaderMap,
+) -> Response {
+    let Some(control) = &state.control_plane else {
+        return api_error(StatusCode::NOT_FOUND, "Rust control plane is disabled");
+    };
+    if !control.authorized(&headers).await {
+        return api_error(StatusCode::UNAUTHORIZED, "Invalid admin key");
+    }
+    match control.refresh_model_catalog().await {
+        Ok(snapshot) => Json(serde_json::json!({"snapshot":snapshot})).into_response(),
+        Err(error) if error.contains("request") || error.contains("timed out") => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "models.dev catalog refresh unavailable",
+        ),
+        Err(error) if error.contains("write") || error.contains("storage") => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Model catalog storage unavailable",
+        ),
+        Err(_) => api_error(
+            StatusCode::BAD_GATEWAY,
+            "models.dev returned an invalid catalog",
+        ),
     }
 }
 
@@ -2860,7 +3081,8 @@ mod tests {
             enabled: true,
         };
 
-        enrich_combo_metadata(&mut input, &providers).unwrap();
+        let catalog = crate::catalog::bundled_catalog().unwrap();
+        enrich_combo_metadata(&mut input, &providers, &catalog).unwrap();
 
         let target = &input.targets[0];
         assert_eq!(target.input_cost_per_million, Some(99.0));

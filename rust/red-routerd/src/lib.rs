@@ -1628,6 +1628,10 @@ pub fn router(state: ProxyState) -> Router {
             get(control_plane::get_model_catalog_provider),
         )
         .route(
+            "/api/admin/model-catalog/refresh",
+            post(control_plane::refresh_model_catalog),
+        )
+        .route(
             "/api/admin/combos/{id}",
             put(control_plane::put_combo).delete(control_plane::delete_combo),
         )
@@ -1927,8 +1931,8 @@ fn common_capability(
 fn listed_models(
     routes: &HashMap<String, Arc<ModelRoute>>,
     policy: &policy::ClientPolicy,
+    catalog: &catalog::ModelCatalog,
 ) -> Result<Vec<ListedModel>, &'static str> {
-    let catalog = catalog::bundled_catalog()?;
     let created = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|_| "system clock is before the Unix epoch")?
@@ -2129,6 +2133,15 @@ async fn authorized_models(
     state: &ProxyState,
     headers: &HeaderMap,
 ) -> Result<Vec<ListedModel>, Box<Response>> {
+    let catalog = match &state.control_plane {
+        Some(control) => control.model_catalog().await,
+        None => catalog::bundled_catalog().map_err(|_| {
+            Box::new(error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "Model catalog unavailable",
+            ))
+        })?,
+    };
     if state.product_client_keys {
         let (access, _, _) =
             authenticate_product_request(state, headers, ProviderProtocol::OpenAi).await?;
@@ -2145,7 +2158,7 @@ async fn authorized_models(
                     "Product combo changed or is unavailable; restart required",
                 )));
             }
-            return listed_models(state.routes.as_ref(), policy).map_err(|_| {
+            return listed_models(state.routes.as_ref(), policy, &catalog).map_err(|_| {
                 Box::new(error(
                     StatusCode::SERVICE_UNAVAILABLE,
                     "Model catalog unavailable",
@@ -2186,7 +2199,7 @@ async fn authorized_models(
         None => None,
     };
     let routes = control_routes.as_deref().unwrap_or(state.routes.as_ref());
-    listed_models(routes, policy).map_err(|_| {
+    listed_models(routes, policy, &catalog).map_err(|_| {
         Box::new(error(
             StatusCode::SERVICE_UNAVAILABLE,
             "Model catalog unavailable",

@@ -8,7 +8,7 @@ and native Gemini GenerateContent routes with a
 required client key, separate provider keys, bounded request size and concurrent
 streams, reusable HTTP connections, incremental responses, and safe redirect refusal.
 Its authenticated `/v1/models` and `/api/v1/models` discovery endpoints list only routes
-permitted for that client key, enrich configured targets from the bundled models.dev snapshot,
+permitted for that client key, enrich configured targets from the active models.dev snapshot,
 and emit the stable `X-RedRouter-Catalog-Version` cache-invalidation contract.
 `/v1/models/{id}` returns one entry from that same scoped inventory (including provider-prefixed
 IDs), while `/v1/models/info?id=...` projects its endpoint, context limits, modalities and
@@ -67,6 +67,12 @@ provider; subsequent provider changes do not require those environment secrets.
   dashboard SQLite compatibility reader preserves its configured `flat` or `prefixed`
   model-ID format; Rust-owned keys return their own durable setting.
 - `GET /api/admin/combos` lists Rust-owned combo routes.
+- `GET /api/admin/model-catalog` lists the active models.dev manifest, provider index and
+  whether the generation is bundled or persisted. `GET /api/admin/model-catalog/{provider}`
+  materializes one exact provider.
+- `POST /api/admin/model-catalog/refresh` conditionally downloads the fixed models.dev feed,
+  strips executable/credential fields, validates the complete transformed catalog and atomically
+  persists then publishes one last-good snapshot. A 304 or failed refresh never replaces it.
 - `PUT /api/admin/combos/{id}` creates or replaces a combo with `protocol`
   (`openai`, `openai-responses`, `openai-embeddings`, `cohere-rerank`, `anthropic`
   or `gemini`), `strategy` (`priority`, `fill-first`, `round-robin`, `weighted`, `random`,

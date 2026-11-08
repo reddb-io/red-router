@@ -1,7 +1,7 @@
 use red_routerd::storage::{
     Backend, Database, StoredAvailability, StoredBreaker, StoredClientKey, StoredCombo,
-    StoredOidcBrowserConfig, StoredOidcConfig, StoredProvider, StoredProviderQuota,
-    StoredResilience, StoredRoutePin,
+    StoredModelCatalogSnapshot, StoredOidcBrowserConfig, StoredOidcConfig, StoredProvider,
+    StoredProviderQuota, StoredResilience, StoredRoutePin,
 };
 use sqlx::{sqlite::SqliteConnectOptions, Connection, SqliteConnection};
 use tempfile::TempDir;
@@ -184,6 +184,16 @@ async fn exercise(backend: Backend, url: &str) {
         db.oidc_browser_config().await.unwrap(),
         Some(oidc_browser.clone())
     );
+    assert_eq!(db.model_catalog_snapshot().await.unwrap(), None);
+    let catalog = StoredModelCatalogSnapshot {
+        snapshot_json: r#"{"manifest":{"contentSha256":"fixture"}}"#.into(),
+        revision: 14,
+    };
+    db.upsert_model_catalog_snapshot(&catalog).await.unwrap();
+    assert_eq!(
+        db.model_catalog_snapshot().await.unwrap(),
+        Some(catalog.clone())
+    );
     db.close().await.unwrap();
     drop(db);
     let reopened = Database::connect(backend, url).await.unwrap();
@@ -222,6 +232,10 @@ async fn exercise(backend: Backend, url: &str) {
     assert_eq!(
         reopened.oidc_browser_config().await.unwrap(),
         Some(oidc_browser)
+    );
+    assert_eq!(
+        reopened.model_catalog_snapshot().await.unwrap(),
+        Some(catalog)
     );
     reopened.delete_oidc_browser().await.unwrap();
     assert_eq!(reopened.oidc_browser_config().await.unwrap(), None);

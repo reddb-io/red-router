@@ -227,6 +227,86 @@ async fn provider(
     (format!("http://{address}/v1/chat/completions"), task)
 }
 
+async fn models_dev_catalog_server() -> (
+    String,
+    Arc<AtomicUsize>,
+    Arc<AtomicUsize>,
+    tokio::task::JoinHandle<()>,
+) {
+    let requests = Arc::new(AtomicUsize::new(0));
+    let mode = Arc::new(AtomicUsize::new(0));
+    let observed = requests.clone();
+    let current_mode = mode.clone();
+    let app = Router::new().route(
+        "/catalog.json",
+        get(move |headers: HeaderMap| {
+            let observed = observed.clone();
+            let current_mode = current_mode.clone();
+            async move {
+                observed.fetch_add(1, Ordering::SeqCst);
+                if current_mode.load(Ordering::SeqCst) == 0
+                    && headers
+                        .get(header::IF_NONE_MATCH)
+                        .and_then(|value| value.to_str().ok())
+                        == Some("\"fixture-v1\"")
+                {
+                    return StatusCode::NOT_MODIFIED.into_response();
+                }
+                if current_mode.load(Ordering::SeqCst) == 1 {
+                    return Json(serde_json::json!({"error":"invalid fixture"})).into_response();
+                }
+                let mut response = Json(serde_json::json!({
+                    "providers":{
+                        "fixture-provider":{
+                            "id":"fixture-provider",
+                            "name":"Fixture Provider",
+                            "api":"https://must-not-be-imported.invalid",
+                            "env":["MUST_NOT_BE_IMPORTED"],
+                            "models":{
+                                "fixture-model":{
+                                    "id":"fixture-model",
+                                    "name":"Fixture Model",
+                                    "reasoning":true,
+                                    "tool_call":true,
+                                    "modalities":{"input":["text"],"output":["text"]},
+                                    "limit":{"context":4242,"output":42},
+                                    "cost":{"input":0.25,"output":0.5},
+                                    "headers":{"authorization":"must-not-be-imported"}
+                                }
+                            }
+                        }
+                    },
+                    "models":{
+                        "fixture/fixture-model":{
+                            "id":"fixture/fixture-model",
+                            "name":"Fixture Canonical Model",
+                            "reasoning":true,
+                            "tool_call":true,
+                            "modalities":{"input":["text"],"output":["text"]},
+                            "limit":{"context":4242,"output":42}
+                        }
+                    }
+                }))
+                .into_response();
+                response.headers_mut().insert(
+                    header::ETAG,
+                    header::HeaderValue::from_static("\"fixture-v1\""),
+                );
+                response
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    (
+        format!("http://{address}/catalog.json"),
+        requests,
+        mode,
+        task,
+    )
+}
+
 async fn failing_provider(expected_key: &'static str) -> (String, tokio::task::JoinHandle<()>) {
     let app = Router::new().route(
         "/v1/chat/completions",
@@ -505,6 +585,7 @@ async fn rust_control_plane_serves_the_bundled_models_dev_catalog_lazily() {
         index["manifest"]["upstreamRepository"],
         "https://github.com/anomalyco/models.dev"
     );
+    assert_eq!(index["snapshot"]["source"], "bundled");
     assert!(index["providers"]
         .as_array()
         .unwrap()
@@ -543,6 +624,139 @@ async fn rust_control_plane_serves_the_bundled_models_dev_catalog_lazily() {
     );
 
     gateway_task.abort();
+}
+
+#[tokio::test]
+async fn rust_control_plane_atomically_refreshes_and_reloads_models_dev_snapshot() {
+    let directory = TempDir::new().unwrap();
+    let file = Url::from_file_path(directory.path().join("catalog-refresh.sqlite")).unwrap();
+    let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+    let (source, requests, mode, source_task) = models_dev_catalog_server().await;
+    let database = Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap());
+    let control = ControlPlane::new_with_model_catalog_source(
+        database.clone(),
+        ADMIN_KEY,
+        STORAGE_KEY,
+        true,
+        &source,
+    )
+    .await
+    .unwrap();
+    let (base, gateway_task) = gateway(control).await;
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+
+    assert_eq!(
+        client
+            .post(format!("{base}/api/admin/model-catalog/refresh"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    let refreshed = client
+        .post(format!("{base}/api/admin/model-catalog/refresh"))
+        .bearer_auth(ADMIN_KEY)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(refreshed.status(), StatusCode::OK);
+    let refreshed: serde_json::Value =
+        serde_json::from_str(&refreshed.text().await.unwrap()).unwrap();
+    assert_eq!(refreshed["snapshot"]["changed"], true);
+    assert_eq!(refreshed["snapshot"]["source"], "persisted");
+    assert_eq!(refreshed["snapshot"]["manifest"]["providers"], 1);
+
+    let provider = client
+        .get(format!("{base}/api/admin/model-catalog/fixture-provider"))
+        .bearer_auth(ADMIN_KEY)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(provider.status(), StatusCode::OK);
+    let provider: serde_json::Value =
+        serde_json::from_str(&provider.text().await.unwrap()).unwrap();
+    assert_eq!(provider["provider"]["models"][0]["limit"]["context"], 4242);
+    let persisted = database.model_catalog_snapshot().await.unwrap().unwrap();
+    assert!(!persisted.snapshot_json.contains("must-not-be-imported"));
+    assert!(!persisted.snapshot_json.contains("MUST_NOT_BE_IMPORTED"));
+
+    let unchanged = client
+        .post(format!("{base}/api/admin/model-catalog/refresh"))
+        .bearer_auth(ADMIN_KEY)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(unchanged.status(), StatusCode::OK);
+    let unchanged: serde_json::Value =
+        serde_json::from_str(&unchanged.text().await.unwrap()).unwrap();
+    assert_eq!(unchanged["snapshot"]["changed"], false);
+    assert_eq!(requests.load(Ordering::SeqCst), 2);
+
+    mode.store(1, Ordering::SeqCst);
+    assert_eq!(
+        client
+            .post(format!("{base}/api/admin/model-catalog/refresh"))
+            .bearer_auth(ADMIN_KEY)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::BAD_GATEWAY
+    );
+    assert_eq!(
+        client
+            .get(format!("{base}/api/admin/model-catalog/fixture-provider"))
+            .bearer_auth(ADMIN_KEY)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    let index = client
+        .get(format!("{base}/api/admin/model-catalog"))
+        .bearer_auth(ADMIN_KEY)
+        .send()
+        .await
+        .unwrap();
+    let index: serde_json::Value = serde_json::from_str(&index.text().await.unwrap()).unwrap();
+    assert_eq!(index["snapshot"]["source"], "persisted");
+    assert_eq!(index["snapshot"]["last_error"], "models.dev refresh failed");
+
+    gateway_task.abort();
+    let _ = gateway_task.await;
+    database.close().await.unwrap();
+    drop(database);
+    let reopened = Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap());
+    let restored = ControlPlane::new_with_model_catalog_source(
+        reopened,
+        ADMIN_KEY,
+        STORAGE_KEY,
+        true,
+        &source,
+    )
+    .await
+    .unwrap();
+    let (restored_base, restored_task) = gateway(restored).await;
+    let restored_provider = client
+        .get(format!(
+            "{restored_base}/api/admin/model-catalog/fixture-provider"
+        ))
+        .bearer_auth(ADMIN_KEY)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(restored_provider.status(), StatusCode::OK);
+    let restored_provider: serde_json::Value =
+        serde_json::from_str(&restored_provider.text().await.unwrap()).unwrap();
+    assert_eq!(
+        restored_provider["provider"]["models"][0]["limit"]["context"],
+        4242
+    );
+
+    restored_task.abort();
+    source_task.abort();
 }
 
 #[tokio::test]

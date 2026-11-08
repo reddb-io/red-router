@@ -56,6 +56,10 @@ const CREATE_OIDC_BROWSER: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_
 const READ_OIDC_BROWSER: &str = "SELECT public_origin, client_id, client_secret_ciphertext, authorization_endpoint, token_endpoint, scopes_json, revision FROM redrouter_control_oidc_browser WHERE id = 1";
 const UPSERT_OIDC_BROWSER: &str = "INSERT INTO redrouter_control_oidc_browser (id, public_origin, client_id, client_secret_ciphertext, authorization_endpoint, token_endpoint, scopes_json, revision) VALUES (1,$1,$2,$3,$4,$5,$6,$7) ON CONFLICT (id) DO UPDATE SET public_origin = $1, client_id = $2, client_secret_ciphertext = $3, authorization_endpoint = $4, token_endpoint = $5, scopes_json = $6, revision = $7";
 const DELETE_OIDC_BROWSER: &str = "DELETE FROM redrouter_control_oidc_browser WHERE id = 1";
+const CREATE_MODEL_CATALOG: &str = "CREATE TABLE IF NOT EXISTS redrouter_model_catalog_snapshot (id INTEGER PRIMARY KEY, snapshot_json TEXT NOT NULL, revision BIGINT NOT NULL)";
+const READ_MODEL_CATALOG: &str =
+    "SELECT snapshot_json, revision FROM redrouter_model_catalog_snapshot WHERE id = 1";
+const UPSERT_MODEL_CATALOG: &str = "INSERT INTO redrouter_model_catalog_snapshot (id, snapshot_json, revision) VALUES (1,$1,$2) ON CONFLICT (id) DO UPDATE SET snapshot_json = $1, revision = $2";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StoredProvider {
@@ -180,6 +184,12 @@ pub struct StoredOidcBrowserConfig {
     pub revision: i64,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StoredModelCatalogSnapshot {
+    pub snapshot_json: String,
+    pub revision: i64,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Backend {
     ReddbEmbedded,
@@ -267,6 +277,7 @@ impl Database {
                         CREATE_RESILIENCE,
                         CREATE_OIDC,
                         CREATE_OIDC_BROWSER,
+                        CREATE_MODEL_CATALOG,
                     ] {
                         db.query(statement)
                             .await
@@ -359,6 +370,7 @@ impl Database {
                 db.remote_schema_query(CREATE_RESILIENCE).await?;
                 db.remote_schema_query(CREATE_OIDC).await?;
                 db.remote_schema_query(CREATE_OIDC_BROWSER).await?;
+                db.remote_schema_query(CREATE_MODEL_CATALOG).await?;
                 Ok(db)
             }
             Backend::Sqlite | Backend::Postgres => {
@@ -394,6 +406,7 @@ impl Database {
                     CREATE_RESILIENCE,
                     CREATE_OIDC,
                     CREATE_OIDC_BROWSER,
+                    CREATE_MODEL_CATALOG,
                 ] {
                     sqlx::query(statement)
                         .execute(&pool)
@@ -1404,6 +1417,77 @@ impl Database {
         Ok(())
     }
 
+    pub async fn model_catalog_snapshot(
+        &self,
+    ) -> Result<Option<StoredModelCatalogSnapshot>, &'static str> {
+        match self {
+            Self::Sql(pool) => sqlx::query(READ_MODEL_CATALOG)
+                .fetch_optional(pool)
+                .await
+                .map_err(|_| "cannot read model catalog snapshot")?
+                .as_ref()
+                .map(read_sql_model_catalog)
+                .transpose(),
+            Self::Remote(_) => self
+                .remote_query(READ_MODEL_CATALOG, &[])
+                .await?
+                .rows
+                .first()
+                .map(read_reddb_model_catalog)
+                .transpose(),
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => db
+                .query(READ_MODEL_CATALOG)
+                .await
+                .map_err(|_| "cannot read model catalog snapshot")?
+                .rows
+                .first()
+                .map(read_reddb_model_catalog)
+                .transpose(),
+        }
+    }
+
+    /// One row owns the entire transformed snapshot, so readers can never
+    /// observe a manifest from one generation with providers from another.
+    pub async fn upsert_model_catalog_snapshot(
+        &self,
+        snapshot: &StoredModelCatalogSnapshot,
+    ) -> Result<(), &'static str> {
+        match self {
+            Self::Sql(pool) => {
+                sqlx::query(UPSERT_MODEL_CATALOG)
+                    .bind(&snapshot.snapshot_json)
+                    .bind(snapshot.revision)
+                    .execute(pool)
+                    .await
+                    .map_err(|_| "cannot write model catalog snapshot")?;
+            }
+            Self::Remote(_) => {
+                self.remote_query(
+                    UPSERT_MODEL_CATALOG,
+                    &[
+                        reddb_client::Value::Text(snapshot.snapshot_json.clone()),
+                        reddb_client::Value::Int(snapshot.revision),
+                    ],
+                )
+                .await?;
+            }
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => {
+                db.query_with(
+                    UPSERT_MODEL_CATALOG,
+                    vec![
+                        reddb_client::Value::Text(snapshot.snapshot_json.clone()),
+                        reddb_client::Value::Int(snapshot.revision),
+                    ],
+                )
+                .await
+                .map_err(|_| "cannot write model catalog snapshot")?;
+            }
+        }
+        Ok(())
+    }
+
     /// Insert only when no configuration exists. The existing authority wins.
     pub async fn seed(&self, value: &str) -> Result<(), &'static str> {
         self.write(SEED, value).await
@@ -2141,6 +2225,42 @@ fn oidc_browser_params(config: &StoredOidcBrowserConfig) -> Vec<reddb_client::Va
         reddb_client::Value::Text(config.scopes_json.clone()),
         reddb_client::Value::Int(config.revision),
     ]
+}
+
+fn read_sql_model_catalog(
+    row: &sqlx::any::AnyRow,
+) -> Result<StoredModelCatalogSnapshot, &'static str> {
+    Ok(StoredModelCatalogSnapshot {
+        snapshot_json: row
+            .try_get("snapshot_json")
+            .map_err(|_| "invalid model catalog snapshot")?,
+        revision: row
+            .try_get("revision")
+            .map_err(|_| "invalid model catalog snapshot")?,
+    })
+}
+
+fn read_reddb_model_catalog(
+    row: &reddb_client::Row,
+) -> Result<StoredModelCatalogSnapshot, &'static str> {
+    let snapshot_json = match row
+        .iter()
+        .find(|(column, _)| column.eq_ignore_ascii_case("snapshot_json"))
+    {
+        Some((_, reddb_client::ValueOut::String(value))) => value.clone(),
+        _ => return Err("invalid model catalog snapshot"),
+    };
+    let revision = match row
+        .iter()
+        .find(|(column, _)| column.eq_ignore_ascii_case("revision"))
+    {
+        Some((_, reddb_client::ValueOut::Integer(value))) => *value,
+        _ => return Err("invalid model catalog snapshot"),
+    };
+    Ok(StoredModelCatalogSnapshot {
+        snapshot_json,
+        revision,
+    })
 }
 
 pub fn embedded_default_url() -> Result<String, &'static str> {
