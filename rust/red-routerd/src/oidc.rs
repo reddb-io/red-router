@@ -180,14 +180,16 @@ impl OidcVerifier {
         {
             return Err("invalid OIDC authorization response");
         }
-        let mut body = url::form_urlencoded::Serializer::new(String::new());
-        body.append_pair("grant_type", "authorization_code")
-            .append_pair("code", code)
-            .append_pair("redirect_uri", &browser.callback_uri())
-            .append_pair("client_id", &browser.client_id)
-            .append_pair("client_secret", client_secret)
-            .append_pair("code_verifier", verifier);
-        let body = body.finish();
+        let body = {
+            let mut form = url::form_urlencoded::Serializer::new(String::new());
+            form.append_pair("grant_type", "authorization_code")
+                .append_pair("code", code)
+                .append_pair("redirect_uri", &browser.callback_uri())
+                .append_pair("client_id", &browser.client_id)
+                .append_pair("client_secret", client_secret)
+                .append_pair("code_verifier", verifier);
+            form.finish()
+        };
         let client = pinned_client(&browser.token_endpoint, self.allow_private).await?;
         let response = tokio::time::timeout(
             Duration::from_secs(10),

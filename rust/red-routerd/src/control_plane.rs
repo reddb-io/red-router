@@ -2057,7 +2057,6 @@ pub async fn oidc_login(
     }
 }
 
-#[axum::debug_handler]
 pub async fn oidc_callback(
     State(state): State<ProxyState>,
     headers: HeaderMap,
