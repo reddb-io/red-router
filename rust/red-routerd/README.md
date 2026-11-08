@@ -254,7 +254,7 @@ mode is described below.
 Missing expected schema fails closed. No usage or cost accounting is recorded by
 default. Provider choice is an explicit connection ID unless the limited
 startup selection below is enabled.
-Only direct chat requests to fixed endpoints for OpenAI, OpenRouter, Groq,
+Only direct chat and OpenAI-compatible embedding requests to fixed endpoints for OpenAI, OpenRouter, Groq,
 Mistral, DeepSeek, Together, Perplexity, Fireworks, Cerebras and SambaNova are supported in
 this mode. The requested model must start with the selected product provider,
 for example `openrouter/openai/gpt-4o` or `openai/gpt-4o`; the provider prefix

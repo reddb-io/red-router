@@ -1769,6 +1769,7 @@ async fn proxy_request(
     } else {
         None
     };
+    let direct_product_model = product_target.is_some();
     if state.product_combo.is_none() && !policy.route_allowed(&model) {
         return error(StatusCode::FORBIDDEN, "Model is not allowed");
     }
@@ -1796,7 +1797,7 @@ async fn proxy_request(
     if (route.is_none()
         && (control_routes_authoritative
             || !state.routes.is_empty()
-            || protocol != ProviderProtocol::OpenAi))
+            || (protocol != ProviderProtocol::OpenAi && !direct_product_model)))
         || route.is_some_and(|route| {
             route.protocol != protocol
                 && !(protocol == ProviderProtocol::OpenAi
@@ -2073,6 +2074,15 @@ async fn proxy_request(
             }
         };
         let mut target_url = url.clone();
+        if direct_product_model && protocol == ProviderProtocol::OpenAiEmbeddings {
+            let Some(prefix) = target_url.path().strip_suffix("/chat/completions") else {
+                return error(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "Product provider does not expose a compatible embeddings endpoint",
+                );
+            };
+            target_url.set_path(&format!("{prefix}/embeddings"));
+        }
         if let (Some(target), Some((_, stream))) = (target, &gemini) {
             let action = if *stream {
                 "streamGenerateContent"
