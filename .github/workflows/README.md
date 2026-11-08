@@ -93,5 +93,5 @@ the reviewed qualification ref; that temporary admission is revoked afterwards.
 No automatic quality trigger, platform flag or publication gate is enabled.
 Desktop/native/multiplatform lanes, Docker publication, integration/browser
 qualification and npm provenance publication retain their existing hosted lanes.
-Public runner limits: 3 CPU / 11 GiB RAM, 8 GiB workspace; DinD 1 CPU / 1 GiB RAM
-and 4 GiB disk. RedRouter build heap is bounded to 6 GiB on the main build lane.
+Public runner limits: 3 CPU / 12 GiB RAM and 8 GiB workspace, without Docker-in-Docker.
+RedRouter V8 heap is bounded to 8 GiB, leaving room for native buffers and file cache.

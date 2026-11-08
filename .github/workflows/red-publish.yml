@@ -55,7 +55,8 @@ jobs:
       artifact_run_id: ${{ steps.promote.outputs.run_id || github.run_id }}
       artifact_run_attempt: ${{ steps.promote.outputs.run_attempt || github.run_attempt }}
     env:
-      NODE_OPTIONS: ${{ ((github.ref == 'refs/heads/main' || inputs.runner_qualification == true) && inputs.tag == '' && !startsWith(github.ref, 'refs/tags/')) && '--max-old-space-size=6144' || '--max-old-space-size=10240' }}
+      # The 12 GiB Node-only runner leaves room for native buffers and page cache.
+      NODE_OPTIONS: ${{ ((github.ref == 'refs/heads/main' || inputs.runner_qualification == true) && inputs.tag == '' && !startsWith(github.ref, 'refs/tags/')) && '--max-old-space-size=8192' || '--max-old-space-size=10240' }}
       OMNIROUTE_USE_TURBOPACK: "0"
       OMNIROUTE_RELEASE_REF: HEAD
       REDROUTER_RELEASE_ARTIFACT_DIR: release-artifacts
