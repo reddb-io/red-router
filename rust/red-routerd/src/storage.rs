@@ -43,6 +43,10 @@ const LIST_AVAILABILITY: &str = "SELECT provider_id, cooldown_until_unix_ms, bac
 const UPSERT_AVAILABILITY: &str = "INSERT INTO redrouter_provider_availability (provider_id, cooldown_until_unix_ms, backoff_level, last_status, model_lockouts_json, revision) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (provider_id) DO UPDATE SET cooldown_until_unix_ms = $2, backoff_level = $3, last_status = $4, model_lockouts_json = $5, revision = $6";
 const DELETE_AVAILABILITY: &str =
     "DELETE FROM redrouter_provider_availability WHERE provider_id = $1";
+const CREATE_RESILIENCE: &str = "CREATE TABLE IF NOT EXISTS redrouter_provider_resilience (provider_id TEXT NOT NULL, rate_limit_scope TEXT NOT NULL, revision BIGINT NOT NULL, PRIMARY KEY (provider_id, revision))";
+const LIST_RESILIENCE: &str = "SELECT provider_id, rate_limit_scope, revision FROM redrouter_provider_resilience ORDER BY provider_id ASC, revision DESC";
+const UPSERT_RESILIENCE: &str = "INSERT INTO redrouter_provider_resilience (provider_id, rate_limit_scope, revision) VALUES ($1,$2,$3) ON CONFLICT (provider_id, revision) DO UPDATE SET rate_limit_scope = $2";
+const DELETE_RESILIENCE: &str = "DELETE FROM redrouter_provider_resilience WHERE provider_id = $1";
 const CREATE_OIDC: &str = "CREATE TABLE IF NOT EXISTS redrouter_control_oidc (id INTEGER PRIMARY KEY, enabled BIGINT NOT NULL, issuer TEXT NOT NULL, audience TEXT NOT NULL, jwks_uri TEXT NOT NULL, required_claims_json TEXT NOT NULL, allowed_subjects_json TEXT NOT NULL, revision BIGINT NOT NULL)";
 const READ_OIDC: &str = "SELECT enabled, issuer, audience, jwks_uri, required_claims_json, allowed_subjects_json, revision FROM redrouter_control_oidc WHERE id = 1";
 const UPSERT_OIDC: &str = "INSERT INTO redrouter_control_oidc (id, enabled, issuer, audience, jwks_uri, required_claims_json, allowed_subjects_json, revision) VALUES (1,$1,$2,$3,$4,$5,$6,$7) ON CONFLICT (id) DO UPDATE SET enabled = $1, issuer = $2, audience = $3, jwks_uri = $4, required_claims_json = $5, allowed_subjects_json = $6, revision = $7";
@@ -135,6 +139,13 @@ pub struct StoredAvailability {
     /// HTTP status, or 0 when no connection-level failure is active.
     pub last_status: i64,
     pub model_lockouts_json: String,
+    pub revision: i64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StoredResilience {
+    pub provider_id: String,
+    pub rate_limit_scope: String,
     pub revision: i64,
 }
 
@@ -243,6 +254,7 @@ impl Database {
                         CREATE_PROVIDER_QUOTAS,
                         CREATE_BREAKERS,
                         CREATE_AVAILABILITY,
+                        CREATE_RESILIENCE,
                         CREATE_OIDC,
                         CREATE_OIDC_BROWSER,
                     ] {
@@ -332,6 +344,7 @@ impl Database {
                 db.remote_schema_query(CREATE_PROVIDER_QUOTAS).await?;
                 db.remote_schema_query(CREATE_BREAKERS).await?;
                 db.remote_schema_query(CREATE_AVAILABILITY).await?;
+                db.remote_schema_query(CREATE_RESILIENCE).await?;
                 db.remote_schema_query(CREATE_OIDC).await?;
                 db.remote_schema_query(CREATE_OIDC_BROWSER).await?;
                 Ok(db)
@@ -365,6 +378,7 @@ impl Database {
                     CREATE_PROVIDER_QUOTAS,
                     CREATE_BREAKERS,
                     CREATE_AVAILABILITY,
+                    CREATE_RESILIENCE,
                     CREATE_OIDC,
                     CREATE_OIDC_BROWSER,
                 ] {
@@ -1080,6 +1094,85 @@ impl Database {
         Ok(())
     }
 
+    pub async fn provider_resilience(&self) -> Result<Vec<StoredResilience>, &'static str> {
+        match self {
+            Self::Sql(pool) => sqlx::query(LIST_RESILIENCE)
+                .fetch_all(pool)
+                .await
+                .map_err(|_| "cannot read provider resilience configuration")?
+                .iter()
+                .map(read_sql_resilience)
+                .collect(),
+            Self::Remote(_) => self
+                .remote_query(LIST_RESILIENCE, &[])
+                .await?
+                .rows
+                .iter()
+                .map(read_reddb_resilience)
+                .collect(),
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => db
+                .query(LIST_RESILIENCE)
+                .await
+                .map_err(|_| "cannot read provider resilience configuration")?
+                .rows
+                .iter()
+                .map(read_reddb_resilience)
+                .collect(),
+        }
+    }
+
+    pub async fn upsert_provider_resilience(
+        &self,
+        resilience: &StoredResilience,
+    ) -> Result<(), &'static str> {
+        match self {
+            Self::Sql(pool) => {
+                sqlx::query(UPSERT_RESILIENCE)
+                    .bind(&resilience.provider_id)
+                    .bind(&resilience.rate_limit_scope)
+                    .bind(resilience.revision)
+                    .execute(pool)
+                    .await
+                    .map_err(|_| "cannot write provider resilience configuration")?;
+            }
+            Self::Remote(_) => {
+                self.remote_query(UPSERT_RESILIENCE, &resilience_params(resilience))
+                    .await?;
+            }
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => {
+                db.query_with(UPSERT_RESILIENCE, resilience_params(resilience))
+                    .await
+                    .map_err(|_| "cannot write provider resilience configuration")?;
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn delete_provider_resilience(&self, provider_id: &str) -> Result<(), &'static str> {
+        let params = || vec![reddb_client::Value::Text(provider_id.to_owned())];
+        match self {
+            Self::Sql(pool) => {
+                sqlx::query(DELETE_RESILIENCE)
+                    .bind(provider_id)
+                    .execute(pool)
+                    .await
+                    .map_err(|_| "cannot delete provider resilience configuration")?;
+            }
+            Self::Remote(_) => {
+                self.remote_query(DELETE_RESILIENCE, &params()).await?;
+            }
+            #[cfg(feature = "reddb-embedded")]
+            Self::Embedded { db, .. } => {
+                db.query_with(DELETE_RESILIENCE, params())
+                    .await
+                    .map_err(|_| "cannot delete provider resilience configuration")?;
+            }
+        }
+        Ok(())
+    }
+
     pub async fn oidc_config(&self) -> Result<Option<StoredOidcConfig>, &'static str> {
         match self {
             Self::Sql(pool) => sqlx::query(READ_OIDC)
@@ -1773,6 +1866,50 @@ fn availability_params(availability: &StoredAvailability) -> Vec<reddb_client::V
         reddb_client::Value::Int(availability.last_status),
         reddb_client::Value::Text(availability.model_lockouts_json.clone()),
         reddb_client::Value::Int(availability.revision),
+    ]
+}
+
+fn read_sql_resilience(row: &sqlx::any::AnyRow) -> Result<StoredResilience, &'static str> {
+    Ok(StoredResilience {
+        provider_id: row
+            .try_get("provider_id")
+            .map_err(|_| "invalid provider resilience record")?,
+        rate_limit_scope: row
+            .try_get("rate_limit_scope")
+            .map_err(|_| "invalid provider resilience record")?,
+        revision: row
+            .try_get("revision")
+            .map_err(|_| "invalid provider resilience record")?,
+    })
+}
+
+fn read_reddb_resilience(row: &reddb_client::Row) -> Result<StoredResilience, &'static str> {
+    let text = |name: &str| match row
+        .iter()
+        .find(|(column, _)| column.eq_ignore_ascii_case(name))
+    {
+        Some((_, reddb_client::ValueOut::String(value))) => Ok(value.clone()),
+        _ => Err("invalid provider resilience record"),
+    };
+    let revision = match row
+        .iter()
+        .find(|(column, _)| column.eq_ignore_ascii_case("revision"))
+    {
+        Some((_, reddb_client::ValueOut::Integer(value))) => *value,
+        _ => return Err("invalid provider resilience record"),
+    };
+    Ok(StoredResilience {
+        provider_id: text("provider_id")?,
+        rate_limit_scope: text("rate_limit_scope")?,
+        revision,
+    })
+}
+
+fn resilience_params(resilience: &StoredResilience) -> Vec<reddb_client::Value> {
+    vec![
+        reddb_client::Value::Text(resilience.provider_id.clone()),
+        reddb_client::Value::Text(resilience.rate_limit_scope.clone()),
+        reddb_client::Value::Int(resilience.revision),
     ]
 }
 

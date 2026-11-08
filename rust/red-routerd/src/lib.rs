@@ -13,6 +13,7 @@ pub mod product;
 pub mod product_combo;
 pub mod product_provider;
 pub mod reconcile;
+mod resilience;
 pub mod shared_usage;
 pub mod spa;
 pub mod storage;
@@ -66,7 +67,9 @@ pub(crate) struct LiveProvider {
     upstream: reqwest::Url,
     provider_key: HeaderValue,
     provider_id: Option<Arc<str>>,
+    provider_name: Option<Arc<str>>,
     protocol: ProviderProtocol,
+    rate_limit_scope: resilience::RateLimitScope,
     circuit: Option<Arc<circuit::ProviderCircuit>>,
     availability: Option<Arc<availability::ProviderAvailability>>,
     in_flight: Arc<AtomicUsize>,
@@ -234,6 +237,8 @@ pub(crate) struct ModelTarget {
     product_connection: Option<product::ProductConnection>,
     product_model: Option<String>,
     provider_id: Option<Arc<str>>,
+    provider_name: Option<Arc<str>>,
+    rate_limit_scope: resilience::RateLimitScope,
     weight: u32,
     input_cost_per_million: Option<f64>,
     output_cost_per_million: Option<f64>,
@@ -904,7 +909,9 @@ impl ProxyState {
             upstream: state.upstream,
             provider_key: state.provider_key,
             provider_id: None,
+            provider_name: None,
             protocol,
+            rate_limit_scope: resilience::RateLimitScope::Auto,
             circuit: None,
             availability: None,
             in_flight: Arc::new(AtomicUsize::new(0)),
@@ -930,6 +937,8 @@ impl ProxyState {
             product_connection: None,
             product_model: None,
             provider_id: provider.provider_id.clone(),
+            provider_name: provider.provider_name.clone(),
+            rate_limit_scope: provider.rate_limit_scope,
             weight,
             input_cost_per_million,
             output_cost_per_million,
@@ -1294,6 +1303,8 @@ impl ProxyState {
                     product_connection: None,
                     product_model: None,
                     provider_id: None,
+                    provider_name: None,
+                    rate_limit_scope: resilience::RateLimitScope::Auto,
                     weight,
                     input_cost_per_million,
                     output_cost_per_million,
@@ -2378,7 +2389,39 @@ async fn proxy_request(
             }
         }
         if let (Some(availability), Some(permit)) = (availability, availability_permit) {
-            let recorded = if availability::connection_failure_status(response.status()) {
+            let rate_limit_scope = target
+                .map(|target| target.rate_limit_scope)
+                .or_else(|| {
+                    live_provider
+                        .as_ref()
+                        .map(|provider| provider.rate_limit_scope)
+                })
+                .unwrap_or_default();
+            let provider_name = target
+                .and_then(|target| target.provider_name.as_deref())
+                .or_else(|| {
+                    live_provider
+                        .as_ref()
+                        .and_then(|provider| provider.provider_name.as_deref())
+                });
+            let rate_limit_scope = resilience::rate_limit_failure_scope(
+                rate_limit_scope,
+                provider_name,
+                response.status(),
+                response.headers(),
+            );
+            let recorded = if response.status() == StatusCode::TOO_MANY_REQUESTS
+                && rate_limit_scope == resilience::FailureScope::Model
+            {
+                availability
+                    .record_model_failure(
+                        permit,
+                        target_model,
+                        response.status(),
+                        retry_after_hint_ms(response.headers()),
+                    )
+                    .await
+            } else if availability::connection_failure_status(response.status()) {
                 availability
                     .record_connection_failure(
                         permit,
@@ -2388,7 +2431,7 @@ async fn proxy_request(
                     .await
             } else if availability::model_failure_status(response.status()) {
                 availability
-                    .record_model_failure(permit, target_model, response.status())
+                    .record_model_failure(permit, target_model, response.status(), None)
                     .await
             } else if response.status().is_success() {
                 availability.record_success(permit, target_model).await

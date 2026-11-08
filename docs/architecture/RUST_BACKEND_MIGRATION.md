@@ -49,7 +49,7 @@ features must not be implemented only there.
 | Combos and routing          | Implemented foundation | Durable deterministic, metadata-ranked, deck-random and load-aware routes and reload |
 | Pricing, quotas and budgets | Partial                | Atomic reservations, streaming settlement, reconciliation, multi-process tests     |
 | Usage and audit             | Partial                | Complete protocol usage, idempotent ledger, retention/export APIs                  |
-| Settings and resilience     | Partial                | Durable provider breakers, connection cooldowns, model lockouts and reset API; provider-specific classification and versioned settings snapshots remain |
+| Settings and resilience     | Partial                | Durable provider breakers, connection cooldowns, model lockouts, provider-specific `429` scope and reset API; terminal states and the remaining versioned settings remain |
 | Management identity         | Implemented foundation | Signed bearer, discovery, browser PKCE, encrypted session, CSRF/fetch-metadata binding and logout |
 | SPA delivery                | Partial                | Rust serves a validated static bundle with safe SPA fallback; production dashboard export/packaging remains |
 | Legacy data migration       | Pending                | Maintenance-mode import, verification report and rollback boundary                 |
@@ -174,8 +174,16 @@ and common rate-limit reset headers can extend it. A `404` locks only the failin
 so another model on the same credential stays eligible. Both scopes are checked before
 usage reservation or dispatch, cause combo fallback, survive restart and are cleared by
 a successful recovery, provider credential change or authenticated health reset. A
-generation permit prevents concurrent failures from multiplying the backoff. SQLite is
+generation permit prevents concurrent failures from multiplying the backoff. A separate
+`redrouter_provider_resilience` record gives each provider an explicit `auto`, `connection`
+or `model` rate-limit scope. Settings are coupled to the provider revision, so an interrupted
+two-record update cannot publish a half-new runtime configuration. The automatic Rust policy
+recognizes the current catalog's
+main independently limited provider families; an operator override is persisted, returned
+to the dashboard, applied to immutable route snapshots and survives restart. Model-scoped
+`429` state retains upstream retry hints without cooling sibling models. SQLite is
 the selected production backend for this slice, while the common repository contract is
-also exercised for embedded/remote RedDB and PostgreSQL. Provider-specific `429` model
-classification, terminal banned/expired/credits states and resilience settings exposed
-as versioned dashboard configuration remain migration work.
+also exercised for embedded/remote RedDB and PostgreSQL. Expanding automatic classification
+to the complete dynamic provider catalog, terminal banned/expired/credits states and the
+remaining resilience settings exposed as versioned dashboard configuration remain migration
+work.

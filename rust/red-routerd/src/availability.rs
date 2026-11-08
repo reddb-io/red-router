@@ -143,7 +143,7 @@ impl ProviderAvailability {
         for lockout in stored {
             validate_model(&lockout.model)?;
             if !seen_models.insert(lockout.model.clone())
-                || lockout.status != StatusCode::NOT_FOUND.as_u16()
+                || !matches!(lockout.status, 404 | 429)
                 || !(1..=MAX_BACKOFF_LEVEL).contains(&lockout.backoff_level)
             {
                 return Err("invalid provider availability record");
@@ -290,6 +290,7 @@ impl ProviderAvailability {
         permit: AvailabilityPermit,
         model: &str,
         status: StatusCode,
+        retry_hint_ms: Option<u64>,
     ) -> Result<(), &'static str> {
         if !model_failure_status(status) {
             return Err("invalid provider model failure status");
@@ -308,9 +309,13 @@ impl ProviderAvailability {
         }
         let mut candidate = inner.clone();
         let previous_level = current.map_or(0, |lockout| lockout.backoff_level);
-        let duration = MODEL_BASE_MS
+        let exponential = MODEL_BASE_MS
             .saturating_mul(1_u64 << previous_level.min(4))
             .min(MODEL_MAX_MS);
+        let duration = retry_hint_ms
+            .map(|hint| hint.clamp(1_000, RETRY_HINT_MAX_MS))
+            .unwrap_or(0)
+            .max(exponential);
         let generation = current.map_or(1, |lockout| lockout.generation.wrapping_add(1));
         candidate.model_lockouts.insert(
             model.to_owned(),
@@ -464,7 +469,7 @@ pub(crate) fn connection_failure_status(status: StatusCode) -> bool {
 }
 
 pub(crate) fn model_failure_status(status: StatusCode) -> bool {
-    status == StatusCode::NOT_FOUND
+    matches!(status.as_u16(), 404 | 429)
 }
 
 fn validate_provider_id(value: &str) -> Result<(), &'static str> {

@@ -3,9 +3,10 @@ use crate::{
     availability::{AvailabilityStatus, ProviderAvailability},
     circuit::{BreakerStatus, ProviderCircuit},
     policy::{ClientPolicies, StoredPolicy},
+    resilience::RateLimitScope,
     storage::{
         StoredClientKey, StoredCombo, StoredOidcBrowserConfig, StoredOidcConfig, StoredProvider,
-        StoredProviderQuota, StoredRoutePin,
+        StoredProviderQuota, StoredResilience, StoredRoutePin,
     },
     LiveProvider, ModelRoute, ProviderProtocol, ProxyState, RouteStrategy, TargetQuota,
 };
@@ -74,6 +75,8 @@ pub struct ProviderInput {
     pub api_key: String,
     #[serde(default = "enabled_by_default")]
     pub enabled: bool,
+    #[serde(default = "auto_rate_limit_scope")]
+    pub rate_limit_scope: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -84,6 +87,7 @@ pub struct ProviderView {
     pub enabled: bool,
     pub revision: String,
     pub has_credential: bool,
+    pub rate_limit_scope: String,
 }
 
 #[derive(Deserialize)]
@@ -354,6 +358,10 @@ fn openai_protocol() -> String {
     "openai".to_owned()
 }
 
+fn auto_rate_limit_scope() -> String {
+    "auto".to_owned()
+}
+
 fn priority_strategy() -> String {
     "priority".to_owned()
 }
@@ -515,6 +523,7 @@ impl ControlPlane {
             && routes_ready
             && breakers_ready
             && availability_ready
+            && self.0.database.provider_resilience().await.is_ok()
             && self
                 .0
                 .database
@@ -537,6 +546,7 @@ impl ControlPlane {
         if input.upstream_url.len() > 2048 {
             return Err("provider upstream URL is too long");
         }
+        let rate_limit_scope = RateLimitScope::parse(&input.rate_limit_scope)?;
         // Resolve and pin DNS before changing durable or live configuration.
         let api_key = Zeroizing::new(input.api_key);
         let live =
@@ -553,6 +563,15 @@ impl ControlPlane {
             enabled: input.enabled,
             updated_at: revision,
         };
+        let resilience = StoredResilience {
+            provider_id: id.to_owned(),
+            rate_limit_scope: rate_limit_scope.as_str().to_owned(),
+            revision,
+        };
+        self.0
+            .database
+            .upsert_provider_resilience(&resilience)
+            .await?;
         self.0.database.upsert_provider(&stored).await?;
         // Refresh from the durable authority so concurrent writers converge on
         // the same latest enabled record rather than on local write order.
@@ -567,7 +586,7 @@ impl ControlPlane {
         self.availability_for(id).await.reset().await?;
         // Avoid retaining an extra sensitive client/header graph for disabled rows.
         drop(live);
-        Ok(view(&stored))
+        Ok(view(&stored, rate_limit_scope))
     }
 
     pub async fn oidc_view(&self) -> Option<OidcView> {
@@ -833,7 +852,30 @@ impl ControlPlane {
     pub async fn disable(&self, id: &str) -> Result<(), &'static str> {
         validate_id(id)?;
         let _mutation = self.0.mutation.lock().await;
-        self.0.database.disable_provider(id, revision()?).await?;
+        let provider = self
+            .0
+            .database
+            .providers()
+            .await?
+            .into_iter()
+            .find(|provider| provider.id == id)
+            .ok_or("provider configuration not found")?;
+        let scope = self
+            .resilience_settings()
+            .await?
+            .get(&(provider.id, provider.updated_at))
+            .copied()
+            .unwrap_or_default();
+        let revision = revision()?;
+        self.0
+            .database
+            .upsert_provider_resilience(&StoredResilience {
+                provider_id: id.to_owned(),
+                rate_limit_scope: scope.as_str().to_owned(),
+                revision,
+            })
+            .await?;
+        self.0.database.disable_provider(id, revision).await?;
         if let Err(error) = self.refresh().await {
             *self.0.current.write().await = None;
             return Err(error);
@@ -1018,8 +1060,13 @@ impl ControlPlane {
     }
 
     async fn refresh(&self) -> Result<(), &'static str> {
+        let resilience = self.resilience_settings().await?;
         let live = match self.0.database.active_provider().await? {
             Some(record) => {
+                let rate_limit_scope = resilience
+                    .get(&(record.id.clone(), record.updated_at))
+                    .copied()
+                    .unwrap_or_default();
                 let credential = decrypt(
                     &record.credential_ciphertext,
                     &record.id,
@@ -1036,6 +1083,8 @@ impl ControlPlane {
                 live.circuit = Some(circuit);
                 live.availability = Some(self.availability_for(&record.id).await);
                 live.provider_id = Some(Arc::from(record.id));
+                live.provider_name = Some(Arc::from(record.provider));
+                live.rate_limit_scope = rate_limit_scope;
                 Some(live)
             }
             None => None,
@@ -1066,6 +1115,7 @@ impl ControlPlane {
             return Ok(());
         }
         let providers = self.0.database.providers().await?;
+        let resilience = self.resilience_settings().await?;
         let pins: HashMap<_, _> = self
             .0
             .database
@@ -1101,6 +1151,11 @@ impl ControlPlane {
                     )
                     .await?;
                     runtime.provider_id = Some(Arc::from(provider.id.clone()));
+                    runtime.provider_name = Some(Arc::from(provider.provider.clone()));
+                    runtime.rate_limit_scope = resilience
+                        .get(&(provider.id.clone(), provider.updated_at))
+                        .copied()
+                        .unwrap_or_default();
                     let circuit = self.circuit_for(&provider.id, &provider.upstream_url).await;
                     runtime.in_flight = circuit.in_flight();
                     runtime.circuit = Some(circuit);
@@ -1256,11 +1311,35 @@ impl ControlPlane {
     }
 
     async fn views(&self) -> Result<Vec<ProviderView>, &'static str> {
+        let resilience = self.resilience_settings().await?;
+        self.0.database.providers().await.map(|rows| {
+            rows.iter()
+                .map(|record| {
+                    view(
+                        record,
+                        resilience
+                            .get(&(record.id.clone(), record.updated_at))
+                            .copied()
+                            .unwrap_or_default(),
+                    )
+                })
+                .collect()
+        })
+    }
+
+    async fn resilience_settings(
+        &self,
+    ) -> Result<HashMap<(String, i64), RateLimitScope>, &'static str> {
         self.0
             .database
-            .providers()
-            .await
-            .map(|rows| rows.iter().map(view).collect())
+            .provider_resilience()
+            .await?
+            .into_iter()
+            .map(|record| {
+                RateLimitScope::parse(&record.rate_limit_scope)
+                    .map(|scope| ((record.provider_id, record.revision), scope))
+            })
+            .collect()
     }
 
     async fn client_views(&self) -> Result<Vec<ClientKeyView>, &'static str> {
@@ -1534,7 +1613,7 @@ fn oidc_stored_view(
     Ok(oidc_view(verifier.policy(), browser))
 }
 
-fn view(record: &StoredProvider) -> ProviderView {
+fn view(record: &StoredProvider, rate_limit_scope: RateLimitScope) -> ProviderView {
     ProviderView {
         id: record.id.clone(),
         provider: record.provider.clone(),
@@ -1542,6 +1621,7 @@ fn view(record: &StoredProvider) -> ProviderView {
         enabled: record.enabled,
         revision: record.updated_at.to_string(),
         has_credential: !record.credential_ciphertext.is_empty(),
+        rate_limit_scope: rate_limit_scope.as_str().to_owned(),
     }
 }
 

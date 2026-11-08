@@ -686,6 +686,8 @@ async fn run(
                 let provider_key = zeroize::Zeroizing::new(env::var("RED_ROUTER_PROVIDER_KEY")?);
                 let provider =
                     env::var("RED_ROUTER_PROVIDER_NAME").unwrap_or_else(|_| "openai".into());
+                let rate_limit_scope = env::var("RED_ROUTER_PROVIDER_RATE_LIMIT_SCOPE")
+                    .unwrap_or_else(|_| "auto".into());
                 control
                     .configure_provider(
                         "default",
@@ -694,6 +696,7 @@ async fn run(
                             upstream_url: upstream.to_owned(),
                             api_key: provider_key.to_string(),
                             enabled: true,
+                            rate_limit_scope,
                         },
                     )
                     .await?;

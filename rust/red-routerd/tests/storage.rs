@@ -1,6 +1,7 @@
 use red_routerd::storage::{
     Backend, Database, StoredAvailability, StoredBreaker, StoredClientKey, StoredCombo,
-    StoredOidcBrowserConfig, StoredOidcConfig, StoredProvider, StoredProviderQuota, StoredRoutePin,
+    StoredOidcBrowserConfig, StoredOidcConfig, StoredProvider, StoredProviderQuota,
+    StoredResilience, StoredRoutePin,
 };
 use tempfile::TempDir;
 use url::Url;
@@ -138,6 +139,24 @@ async fn exercise(backend: Backend, url: &str) {
         db.provider_availability().await.unwrap(),
         vec![availability.clone()]
     );
+    let previous_resilience = StoredResilience {
+        provider_id: "first".into(),
+        rate_limit_scope: "auto".into(),
+        revision: 12,
+    };
+    db.upsert_provider_resilience(&previous_resilience)
+        .await
+        .unwrap();
+    let resilience = StoredResilience {
+        provider_id: "first".into(),
+        rate_limit_scope: "model".into(),
+        revision: 13,
+    };
+    db.upsert_provider_resilience(&resilience).await.unwrap();
+    assert_eq!(
+        db.provider_resilience().await.unwrap(),
+        vec![resilience.clone(), previous_resilience.clone()]
+    );
     let oidc = StoredOidcConfig {
         enabled: true,
         issuer: "https://issuer.example".into(),
@@ -191,6 +210,12 @@ async fn exercise(backend: Backend, url: &str) {
         .await
         .unwrap();
     assert!(reopened.provider_availability().await.unwrap().is_empty());
+    assert_eq!(
+        reopened.provider_resilience().await.unwrap(),
+        vec![resilience, previous_resilience]
+    );
+    reopened.delete_provider_resilience("first").await.unwrap();
+    assert!(reopened.provider_resilience().await.unwrap().is_empty());
     assert_eq!(reopened.oidc_config().await.unwrap(), Some(oidc));
     assert_eq!(
         reopened.oidc_browser_config().await.unwrap(),
