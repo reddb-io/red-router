@@ -353,6 +353,25 @@ async fn record_usage(
         let row = sqlx::query("SELECT api_key_id, provider, model, tokens_input, tokens_output, tokens_cache_read, tokens_cache_creation, tokens_reasoning, unit_price_input, unit_price_output, amount_usd, (timestamp = strftime('%Y-%m-%dT%H:%M:%fZ', ? / 1000.0, 'unixepoch')) AS same_time, tenant_id, success, usage_attributes, pricing_known, pricing_snapshot FROM request_cost_ledger WHERE event_id = ?")
             .bind(event.timestamp_ms).bind(event.event_id).fetch_optional(&mut *tx).await.map_err(|_| "cost ledger unavailable")?
             .ok_or("cost ledger unavailable")?;
+        let stored_snapshot = row
+            .try_get::<Option<String>, _>("pricing_snapshot")
+            .ok()
+            .flatten();
+        let same_snapshot = match (stored_snapshot.as_deref(), pricing_snapshot.as_deref()) {
+            (None, None) => true,
+            // TypeScript reservations created before the frozen-snapshot slice
+            // already own this event ID. Matching persisted prices remain an
+            // idempotent duplicate; absence must not be rewritten as a snapshot.
+            (None, Some(_)) if pricing_known == 1 => true,
+            (Some(stored), Some(expected)) => match (
+                serde_json::from_str::<Value>(stored),
+                serde_json::from_str::<Value>(expected),
+            ) {
+                (Ok(stored), Ok(expected)) => stored == expected,
+                _ => false,
+            },
+            _ => false,
+        };
         let same = row.try_get::<String, _>("api_key_id").ok().as_deref() == Some(event.key_id)
             && row.try_get::<String, _>("provider").ok().as_deref() == Some(event.provider)
             && row.try_get::<String, _>("model").ok().as_deref() == Some(event.model)
@@ -370,11 +389,7 @@ async fn record_usage(
             && row.try_get::<String, _>("usage_attributes").ok().as_deref()
                 == Some(usage_attributes)
             && row.try_get::<i64, _>("pricing_known").ok() == Some(pricing_known)
-            && row
-                .try_get::<Option<String>, _>("pricing_snapshot")
-                .ok()
-                .flatten()
-                == pricing_snapshot;
+            && same_snapshot;
         if !same {
             return Err("accounting event ID collision");
         }
@@ -560,11 +575,6 @@ mod tests {
         };
         assert_eq!(record_completed_usage(&pool, &event).await, Ok(true));
         assert_eq!(record_completed_usage(&pool, &event).await, Ok(false));
-        event.timestamp_ms += 60_000;
-        assert_eq!(
-            record_completed_usage(&pool, &event).await,
-            Err("accounting event ID collision")
-        );
         let (count, amount): (i64, f64) =
             sqlx::query_as("SELECT count(*), sum(amount_usd) FROM request_cost_ledger")
                 .fetch_one(&pool)
@@ -588,6 +598,18 @@ mod tests {
         assert_eq!(snapshot["capturedAt"], "2023-11-14T22:13:20Z");
         assert_eq!(snapshot["input"], 2.0);
         assert_eq!(snapshot["output"], 4.0);
+        sqlx::query(
+            "UPDATE request_cost_ledger SET pricing_snapshot = NULL WHERE event_id = 'event-1'",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        assert_eq!(record_completed_usage(&pool, &event).await, Ok(false));
+        event.timestamp_ms += 60_000;
+        assert_eq!(
+            record_completed_usage(&pool, &event).await,
+            Err("accounting event ID collision")
+        );
         sqlx::query("CREATE TRIGGER fail_counter BEFORE INSERT ON api_key_quota_counters BEGIN SELECT RAISE(ABORT, 'failure'); END").execute(&pool).await.unwrap();
         event.event_id = "event-2";
         assert_eq!(
