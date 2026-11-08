@@ -70,21 +70,29 @@ test("packages: write is granted to the image job only", () => {
 test("the image is built from the published package for both platforms", () => {
   assert.match(dockerText, /npm view "@reddb-io\/red-router@\$VERSION" version/);
   assert.match(dockerText, /file: Dockerfile\.npm/);
-  assert.match(dockerText, /platforms: linux\/amd64,linux\/arm64/);
+  assert.match(dockerText, /platforms: \$\{\{ needs\.platforms\.outputs\.docker_platforms \}\}/);
+  const selector = parse(dockerText).jobs.platforms.steps.find(
+    (step: { id?: string }) => step.id === "select"
+  );
+  assert.deepEqual(JSON.parse(selector.env.PLATFORM_AVAILABLE).sort(), ["linux_arm64", "linux_x64"]);
+  assert.equal(JSON.parse(selector.env.PLATFORM_DEFAULTS).linux_x64, true);
+  assert.equal(JSON.parse(selector.env.PLATFORM_DEFAULTS).linux_arm64, true);
+  assert.match(selector.run, /if enabled\[key\]/);
   assert.match(dockerText, /password: \$\{\{ secrets\.GITHUB_TOKEN \}\}/);
   assert.match(dockerText, /enable=\$\{\{ !contains\(needs\.resolve\.outputs\.version, '-'\) \}\}/);
   assert.match(dockerText, /\/healthz/);
 });
 
-test("red-publish.yml adds routing conformance and gains no Docker publication job", () => {
-  assert.deepEqual(Object.keys(publish.jobs), [
+test("manual quality owns conformance while the package publisher owns no Docker job", () => {
+  const quality = parse(read(".github/workflows/quality.yml")) as Workflow;
+  assert.deepEqual(Object.keys(quality.jobs), [
     "checks",
     "test-unit",
     "test-routing-storage",
     "test-vitest",
-    "build",
-    "release",
+    "browser",
   ]);
+  assert.deepEqual(Object.keys(publish.jobs), ["build", "release"]);
   assert.doesNotMatch(read(".github/workflows/red-publish.yml"), /ghcr\.io|docker\//);
 });
 

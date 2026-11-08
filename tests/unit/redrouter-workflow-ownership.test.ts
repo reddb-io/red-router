@@ -9,29 +9,26 @@ const active = join(root, ".github/workflows");
 
 // red-docker.yml only publishes an image built from the already-published npm package; it has no
 // push/pull_request/schedule trigger and cannot affect the release workflow (see docker-workflow.test.ts).
-test("RedRouter has one product-owned validation and release workflow", () => {
+test("RedRouter keeps manual quality separate from exact-artifact releases", () => {
   const files = readdirSync(active)
     .filter((file) => /\.ya?ml$/.test(file))
     .sort();
-  assert.deepEqual(files, ["red-docker.yml", "red-publish.yml"]);
+  assert.deepEqual(files, ["quality.yml", "quick-checks.yml", "red-docker.yml", "red-publish.yml"]);
 
   const text = readFileSync(join(active, "red-publish.yml"), "utf8");
   const workflow = YAML.parse(text);
-  assert.deepEqual(workflow.on.push.branches, ["main"]);
-  assert.deepEqual(workflow.on.pull_request.branches, ["main"]);
+  assert.deepEqual(workflow.on.push.tags, ["v*.*.*"]);
+  assert.equal(workflow.on.push.branches, undefined);
+  assert.equal(workflow.on.pull_request, undefined);
   assert.equal(workflow.on.schedule, undefined);
-  assert.ok(workflow.jobs.checks);
-  assert.ok(workflow.jobs["test-unit"]);
-  assert.ok(workflow.jobs["test-vitest"]);
+  const quality = YAML.parse(readFileSync(join(active, "quality.yml"), "utf8"));
+  assert.deepEqual(Object.keys(quality.on), ["workflow_dispatch"]);
+  assert.ok(quality.jobs.checks);
+  assert.ok(quality.jobs["test-unit"]);
+  assert.ok(quality.jobs["test-vitest"]);
   assert.ok(workflow.jobs.build);
   assert.ok(workflow.jobs.release);
-  assert.deepEqual(workflow.jobs.release.needs, [
-    "checks",
-    "test-unit",
-    "test-routing-storage",
-    "test-vitest",
-    "build",
-  ]);
+  assert.deepEqual(workflow.jobs.release.needs, ["build"]);
 });
 
 test("the one workflow owns exact-artifact npm and GitHub publication", () => {
@@ -107,7 +104,6 @@ test("foreign upstream operational workflows remain inert fixtures", () => {
     "electron-release.yml",
     "nightly-release-green.yml",
     "build.yml",
-    "quality.yml",
     "release-acceptance.yml",
     "docker-publish.yml",
     "opencode-provider-ci.yml",
@@ -124,4 +120,8 @@ test("foreign upstream operational workflows remain inert fixtures", () => {
     assert.equal(existsSync(join(active, file)), false, file);
     assert.equal(existsSync(join(root, "tests/fixtures/upstream-workflows", file)), true, file);
   }
+  assert.ok(existsSync(join(root, "tests/fixtures/upstream-workflows/quality.yml")));
+  const owned = YAML.parse(readFileSync(join(active, "quality.yml"), "utf8"));
+  assert.equal(owned.name, "Optional quality");
+  assert.deepEqual(Object.keys(owned.on), ["workflow_dispatch"]);
 });
