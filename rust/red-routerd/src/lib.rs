@@ -2001,7 +2001,12 @@ async fn proxy_request(
                 );
             };
             let event_id = match connection
-                .begin_usage(&access.key_id, target_model, prices.as_ref())
+                .begin_usage(
+                    &access.key_id,
+                    target_model,
+                    prices.as_ref(),
+                    &access.usage_attributes,
+                )
                 .await
             {
                 Ok(id) => id,
@@ -2380,6 +2385,7 @@ async fn proxy_request(
                         key: access.key_id.clone(),
                         model,
                         prices,
+                        usage_attributes: access.usage_attributes.clone(),
                     },
                     (permit, client_permit),
                     provider_load_guard,
@@ -2436,7 +2442,14 @@ async fn proxy_request(
                 );
             };
             if connection
-                .record_usage(&event_id, &access.key_id, &model, &usage, prices.as_ref())
+                .record_usage(
+                    &event_id,
+                    &access.key_id,
+                    &model,
+                    &usage,
+                    prices.as_ref(),
+                    &access.usage_attributes,
+                )
                 .await
                 .is_err()
             {

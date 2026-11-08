@@ -17,6 +17,7 @@ pub(crate) struct UsageContext {
     pub(crate) key: String,
     pub(crate) model: String,
     pub(crate) prices: Option<TokenPrices>,
+    pub(crate) usage_attributes: crate::accounting::UsageAttributes,
 }
 
 enum Event {
@@ -87,6 +88,7 @@ pub(crate) fn forward(
             key,
             model,
             prices,
+            usage_attributes,
         } = usage;
         let _permits = permits;
         let _provider_load = provider_load;
@@ -117,7 +119,14 @@ pub(crate) fn forward(
                         done_seen = true;
                         if let Some(usage) = usage.take() {
                             if connection
-                                .record_usage(&event_id, &key, &model, &usage, prices.as_ref())
+                                .record_usage(
+                                    &event_id,
+                                    &key,
+                                    &model,
+                                    &usage,
+                                    prices.as_ref(),
+                                    &usage_attributes,
+                                )
                                 .await
                                 .is_ok()
                             {

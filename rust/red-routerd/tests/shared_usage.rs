@@ -47,6 +47,12 @@ async fn rust_and_typescript_reserve_one_shared_token_and_spend_budget() {
     .await
     .unwrap();
     sqlx::raw_sql(include_str!(
+        "../../../src/lib/db/migrations/227_usage_reservation_attributes.sql"
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::raw_sql(include_str!(
         "../../../src/lib/db/migrations/219_cost_ledger_recovery.sql"
     ))
     .execute(&pool)
@@ -244,6 +250,12 @@ async fn daily_and_monthly_limits_include_ledger_and_uncertain_reservations() {
     .execute(&pool)
     .await
     .unwrap();
+    sqlx::raw_sql(include_str!(
+        "../../../src/lib/db/migrations/227_usage_reservation_attributes.sql"
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
     sqlx::query(
         "INSERT INTO api_key_quota_limits(api_key_id,monthly_amount_usd) VALUES ('key',0.5)",
     )
@@ -309,6 +321,12 @@ async fn dispatched_reservation_survives_database_reopen() {
     .unwrap();
     sqlx::raw_sql(include_str!(
         "../../../src/lib/db/migrations/226_shared_usage_reservations.sql"
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::raw_sql(include_str!(
+        "../../../src/lib/db/migrations/227_usage_reservation_attributes.sql"
     ))
     .execute(&pool)
     .await

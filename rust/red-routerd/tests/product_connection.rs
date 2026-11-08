@@ -366,6 +366,12 @@ async fn non_streaming_product_usage_is_recorded_and_unhandled_quotas_fail_close
     .execute(&mut db)
     .await
     .unwrap();
+    sqlx::raw_sql(include_str!(
+        "../../../src/lib/db/migrations/227_usage_reservation_attributes.sql"
+    ))
+    .execute(&mut db)
+    .await
+    .unwrap();
     sqlx::raw_sql("ALTER TABLE request_cost_ledger ADD COLUMN tenant_id TEXT; ALTER TABLE request_cost_ledger ADD COLUMN usage_attributes TEXT NOT NULL DEFAULT '{}'; ALTER TABLE request_cost_ledger ADD COLUMN pricing_known INTEGER NOT NULL DEFAULT 1; ALTER TABLE request_cost_ledger ADD COLUMN pricing_snapshot TEXT;").execute(&mut db).await.unwrap();
     sqlx::query(
         "UPDATE provider_connections SET api_key = 'fixture-provider-key' WHERE id = 'test'",
@@ -374,6 +380,11 @@ async fn non_streaming_product_usage_is_recorded_and_unhandled_quotas_fail_close
     .await
     .unwrap();
     sqlx::query("INSERT INTO api_keys (id,key) VALUES ('usage-client','usage-client-key-123456')")
+        .execute(&mut db)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO key_value VALUES ('api_key_usage_attributes','usage-client',?)")
+        .bind(r#"{"operator":"agents","cost_center":42}"#)
         .execute(&mut db)
         .await
         .unwrap();
@@ -388,7 +399,12 @@ async fn non_streaming_product_usage_is_recorded_and_unhandled_quotas_fail_close
         ProductConnection::open(&dir.path().join("storage.sqlite"), "test", None)
             .await
             .unwrap();
-    let connection = connection.with_usage_accounting().await.unwrap();
+    let connection = connection
+        .with_instance_usage_attributes(r#"{"region":"br","production":true}"#)
+        .unwrap()
+        .with_usage_accounting()
+        .await
+        .unwrap();
     let upstream = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = upstream.local_addr().unwrap();
     let mode = Arc::new(AtomicUsize::new(0));
@@ -483,6 +499,16 @@ async fn non_streaming_product_usage_is_recorded_and_unhandled_quotas_fail_close
     assert!((cost - 0.0004).abs() < 1e-12);
     let tokens: f64 = sqlx::query_scalar("SELECT consumed FROM api_key_quota_counters WHERE api_key_id = 'usage-client' AND dimension_key = 'key-quota:tpm'").fetch_one(&mut db).await.unwrap();
     assert_eq!(tokens, 150.0);
+    let attributes: String = sqlx::query_scalar(
+        "SELECT usage_attributes FROM request_cost_ledger WHERE api_key_id = 'usage-client' LIMIT 1",
+    )
+    .fetch_one(&mut db)
+    .await
+    .unwrap();
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&attributes).unwrap(),
+        serde_json::json!({"operator":"agents","cost_center":42,"region":"br","production":true})
+    );
     for unsupported in [1, 2] {
         mode.store(unsupported, Ordering::SeqCst);
         assert_eq!(
@@ -551,6 +577,13 @@ async fn non_streaming_product_usage_is_recorded_and_unhandled_quotas_fail_close
         uncertain, 3,
         "responses without trustworthy usage must retain their reservations"
     );
+    let unattributed_reservations: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM api_key_usage_reservations WHERE api_key_id = 'usage-client' AND usage_attributes = '{}'",
+    )
+    .fetch_one(&mut db)
+    .await
+    .unwrap();
+    assert_eq!(unattributed_reservations, 0);
     let labeled: i64 = sqlx::query_scalar("SELECT count(*) FROM api_key_usage_reservations WHERE api_key_id = 'usage-client' AND provider = 'openrouter' AND model = 'vendor/gpt' AND connection_id = 'test'").fetch_one(&mut db).await.unwrap();
     assert_eq!(labeled, 3);
     assert_eq!(
@@ -584,6 +617,8 @@ async fn non_streaming_product_usage_is_recorded_and_unhandled_quotas_fail_close
         .await
         .unwrap();
     let connection = connection
+        .with_instance_usage_attributes(r#"{"region":"br","production":true}"#)
+        .unwrap()
         .with_usage_accounting()
         .await
         .unwrap()
@@ -624,7 +659,11 @@ async fn non_streaming_product_usage_is_recorded_and_unhandled_quotas_fail_close
     .fetch_one(&mut db)
     .await
     .unwrap();
-    assert_eq!(unknown, (0, 0.0, None, "{}".to_owned()));
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&unknown.3).unwrap(),
+        serde_json::json!({"operator":"agents","cost_center":42,"region":"br","production":true})
+    );
+    assert_eq!((unknown.0, unknown.1, unknown.2), (0, 0.0, None));
     let unknown_stream = send(
         r#"{"model":"openrouter/vendor/unknown","messages":[],"stream":true,"stream_options":{"include_usage":true}}"#,
     )
@@ -676,6 +715,13 @@ async fn non_streaming_product_usage_is_recorded_and_unhandled_quotas_fail_close
     .await
     .unwrap();
     assert_eq!(unpriced_embedding, (42, 0, 0, 0.0, None));
+    let unattributed: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM request_cost_ledger WHERE api_key_id = 'usage-client' AND usage_attributes = '{}'",
+    )
+    .fetch_one(&mut db)
+    .await
+    .unwrap();
+    assert_eq!(unattributed, 0);
     sqlx::query("INSERT INTO api_key_quota_limits VALUES ('usage-client', 1000, NULL, NULL)")
         .execute(&mut db)
         .await
@@ -699,6 +745,7 @@ async fn concurrent_direct_requests_share_reservations_with_typescript() {
         include_str!("../../../src/lib/db/migrations/182_request_cost_ledger_and_key_quota.sql"),
         include_str!("../../../src/lib/db/migrations/219_cost_ledger_recovery.sql"),
         include_str!("../../../src/lib/db/migrations/226_shared_usage_reservations.sql"),
+        include_str!("../../../src/lib/db/migrations/227_usage_reservation_attributes.sql"),
     ] {
         sqlx::raw_sql(migration).execute(&mut db).await.unwrap();
     }
@@ -843,6 +890,12 @@ async fn strict_usage_applies_product_limits_and_keeps_uncertain_attempts() {
     .unwrap();
     sqlx::raw_sql(include_str!(
         "../../../src/lib/db/migrations/226_shared_usage_reservations.sql"
+    ))
+    .execute(&mut db)
+    .await
+    .unwrap();
+    sqlx::raw_sql(include_str!(
+        "../../../src/lib/db/migrations/227_usage_reservation_attributes.sql"
     ))
     .execute(&mut db)
     .await

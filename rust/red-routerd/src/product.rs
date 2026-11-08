@@ -33,12 +33,14 @@ pub struct ProductConnection {
     strict_usage: Option<(i64, f64)>,
     concurrent_usage: bool,
     report_all_usage: bool,
+    instance_usage_attributes: crate::accounting::UsageAttributes,
     auto_selection: bool,
 }
 
 pub(crate) struct ProductAccess {
     pub policies: crate::policy::ClientPolicies,
     pub key_id: String,
+    pub usage_attributes: crate::accounting::UsageAttributes,
 }
 
 struct RpmReservation {
@@ -240,6 +242,7 @@ impl ProductConnection {
                 strict_usage: None,
                 concurrent_usage: false,
                 report_all_usage: false,
+                instance_usage_attributes: crate::accounting::UsageAttributes::default(),
                 auto_selection: false,
             },
             credential,
@@ -276,6 +279,12 @@ impl ProductConnection {
         self.strict_usage = source.strict_usage;
         self.concurrent_usage = source.concurrent_usage;
         self.report_all_usage = source.report_all_usage;
+        self.instance_usage_attributes = source.instance_usage_attributes.clone();
+        Ok(self)
+    }
+
+    pub fn with_instance_usage_attributes(mut self, raw: &str) -> Result<Self, &'static str> {
+        self.instance_usage_attributes = crate::accounting::UsageAttributes::parse(raw)?;
         Ok(self)
     }
 
@@ -296,7 +305,7 @@ impl ProductConnection {
             .execute(&pool)
             .await
             .map_err(|_| "product cost ledger schema unavailable")?;
-        sqlx::query("SELECT id, api_key_id, reserved_tokens, reserved_usd, created_at, state FROM api_key_usage_reservations LIMIT 0")
+        sqlx::query("SELECT id, api_key_id, reserved_tokens, reserved_usd, created_at, state, usage_attributes FROM api_key_usage_reservations LIMIT 0")
             .execute(&pool).await.map_err(|_| "product usage reservation schema unavailable")?;
         self.usage_pool = Some(pool);
         Ok(self)
@@ -387,6 +396,7 @@ impl ProductConnection {
         key_id: &str,
         model: &str,
         prices: Option<&crate::accounting::TokenPrices>,
+        usage_attributes: &crate::accounting::UsageAttributes,
     ) -> Result<String, &'static str> {
         let pool = self
             .usage_pool
@@ -423,8 +433,8 @@ impl ProductConnection {
             return Err("usage reservation denied");
         }
         let snapshot = prices.map(|prices| serde_json::json!({"input":prices.input,"output":prices.output,"cached":prices.cache_read,"cache_creation":prices.cache_creation,"reasoning":prices.reasoning}).to_string());
-        let marked = sqlx::query("UPDATE api_key_usage_reservations SET state = 'dispatched', provider = ?, model = ?, connection_id = ?, pricing_snapshot = ? WHERE id = ? AND api_key_id = ? AND state = 'reserved'")
-            .bind(self.provider.as_ref()).bind(model).bind(self.id.as_ref()).bind(snapshot).bind(&event_id).bind(key_id)
+        let marked = sqlx::query("UPDATE api_key_usage_reservations SET state = 'dispatched', provider = ?, model = ?, connection_id = ?, pricing_snapshot = ?, usage_attributes = ? WHERE id = ? AND api_key_id = ? AND state = 'reserved'")
+            .bind(self.provider.as_ref()).bind(model).bind(self.id.as_ref()).bind(snapshot).bind(usage_attributes.json()).bind(&event_id).bind(key_id)
             .execute(pool).await.map_err(|_| "usage reservation unavailable")?;
         if marked.rows_affected() != 1 {
             return Err("usage reservation unavailable");
@@ -439,6 +449,7 @@ impl ProductConnection {
         model: &str,
         usage: &crate::accounting::ChatUsage,
         prices: Option<&crate::accounting::TokenPrices>,
+        usage_attributes: &crate::accounting::UsageAttributes,
     ) -> Result<(), &'static str> {
         let pool = self
             .usage_pool
@@ -451,7 +462,7 @@ impl ProductConnection {
                 .as_millis(),
         )
         .map_err(|_| "invalid clock")?;
-        crate::accounting::record_reserved_usage(
+        crate::accounting::record_reserved_usage_with_attributes(
             pool,
             &crate::accounting::CompletedUsage {
                 event_id,
@@ -462,6 +473,7 @@ impl ProductConnection {
                 prices,
                 timestamp_ms,
             },
+            usage_attributes,
         )
         .await?;
         Ok(())
@@ -658,6 +670,7 @@ impl ProductConnection {
                OR NOT EXISTS(SELECT 1 FROM provider_connections WHERE id = ? AND tenant_id = 'red')
                OR EXISTS(SELECT 1 FROM model_combo_mappings WHERE enabled = 1)) AS __rr_unsupported,
               (SELECT value FROM key_value WHERE namespace = 'settings' AND key = 'disabledModels') AS __rr_disabled_models
+              ,(SELECT value FROM key_value WHERE namespace = 'api_key_usage_attributes' AND key = k.id) AS __rr_usage_attributes
              FROM api_keys k WHERE k.key = ? OR k.key_hash = ? LIMIT 1"
         )
         .bind(i64::from(self.strict_usage.is_some()))
@@ -695,6 +708,13 @@ impl ProductConnection {
             return Ok(None);
         }
         let key_id = string("id")?.ok_or("invalid product key")?;
+        let key_usage_attributes = match string("__rr_usage_attributes")? {
+            Some(raw) => crate::accounting::UsageAttributes::parse(&raw)?,
+            None => crate::accounting::UsageAttributes::default(),
+        };
+        let usage_attributes = self
+            .instance_usage_attributes
+            .merge(&key_usage_attributes)?;
         for name in [
             "max_requests_per_day",
             "max_requests_per_minute",
@@ -773,7 +793,11 @@ impl ProductConnection {
         let policies =
             crate::policy::ClientPolicies::parse(&config, |_| Some(candidate.to_owned()))
                 .map_err(|_| "unsupported product policy")?;
-        Ok(Some(ProductAccess { policies, key_id }))
+        Ok(Some(ProductAccess {
+            policies,
+            key_id,
+            usage_attributes,
+        }))
     }
 
     pub(crate) async fn direct_model(&self, model: &str) -> Result<Option<String>, &'static str> {

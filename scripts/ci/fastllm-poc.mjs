@@ -108,15 +108,17 @@ db.exec(`ALTER TABLE api_keys ADD COLUMN key_hash TEXT;
 for (const migration of [
   "182_request_cost_ledger_and_key_quota.sql",
   "219_cost_ledger_recovery.sql",
+  "224_usage_reporting_context.sql",
+  "225_usage_pricing_snapshot.sql",
   "226_shared_usage_reservations.sql",
+  "227_usage_reservation_attributes.sql",
 ]) {
   db.exec(
     readFileSync(new URL(`../../src/lib/db/migrations/${migration}`, import.meta.url), "utf8")
   );
 }
 db.exec(`ALTER TABLE api_key_daily_token_limits ADD COLUMN daily_tokens_limit INTEGER;
-  ALTER TABLE request_cost_ledger ADD COLUMN tenant_id TEXT;
-  ALTER TABLE request_cost_ledger ADD COLUMN pricing_known INTEGER NOT NULL DEFAULT 1;`);
+  ALTER TABLE request_cost_ledger ADD COLUMN tenant_id TEXT;`);
 const fixturePrices = { input: 2, output: 4, cached: 1, cache_creation: 2, reasoning: 4 };
 db.prepare("INSERT INTO key_value(namespace,key,value) VALUES ('pricing','openrouter',?)").run(
   JSON.stringify({ "vendor/model-a": fixturePrices })

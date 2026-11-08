@@ -391,6 +391,9 @@ async fn run(
             storage_key.as_deref().map(String::as_str),
         )
         .await?;
+        if let Ok(attributes) = env::var("REDROUTER_USAGE_ATTRIBUTES_JSON") {
+            connection = connection.with_instance_usage_attributes(&attributes)?;
+        }
         if fastllm_transport
             .as_ref()
             .is_some_and(|(_, token)| token.as_str() == credential.as_str())

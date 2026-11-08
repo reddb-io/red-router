@@ -4,6 +4,71 @@ use serde_json::Value;
 use sqlx::{Row, SqlitePool};
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(crate) struct UsageAttributes(serde_json::Map<String, Value>);
+
+impl UsageAttributes {
+    pub(crate) fn parse(raw: &str) -> Result<Self, &'static str> {
+        let value: Value = serde_json::from_str(raw).map_err(|_| "invalid usage attributes")?;
+        let object = value.as_object().ok_or("invalid usage attributes")?;
+        if object.len() > 32 {
+            return Err("invalid usage attributes");
+        }
+        for (name, value) in object {
+            let mut chars = name.chars();
+            if name.len() > 63
+                || !chars.next().is_some_and(|c| c.is_ascii_lowercase())
+                || !chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+                || has_credential_attribute_name(name)
+            {
+                return Err("invalid usage attributes");
+            }
+            match value {
+                Value::String(value) if value.encode_utf16().count() <= 256 => {}
+                Value::Number(value) if value.as_f64().is_some_and(f64::is_finite) => {}
+                Value::Bool(_) => {}
+                _ => return Err("invalid usage attributes"),
+            }
+        }
+        Ok(Self(object.clone()))
+    }
+
+    pub(crate) fn merge(&self, key: &Self) -> Result<Self, &'static str> {
+        let mut merged = key.0.clone();
+        for (name, value) in &self.0 {
+            if merged.get(name).is_some_and(|stored| stored != value) {
+                return Err("key usage attributes conflict with instance attributes");
+            }
+            merged.insert(name.clone(), value.clone());
+        }
+        if merged.len() > 32 {
+            return Err("invalid usage attributes");
+        }
+        Ok(Self(merged))
+    }
+
+    pub(crate) fn json(&self) -> String {
+        Value::Object(self.0.clone()).to_string()
+    }
+}
+
+fn has_credential_attribute_name(name: &str) -> bool {
+    const FORBIDDEN: [&str; 6] = [
+        "secret",
+        "password",
+        "token",
+        "authorization",
+        "credential",
+        "api_key",
+    ];
+    FORBIDDEN.iter().any(|forbidden| {
+        name == *forbidden
+            || name.starts_with(&format!("{forbidden}_"))
+            || name.ends_with(&format!("_{forbidden}"))
+            || name.contains(&format!("_{forbidden}_"))
+    })
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChatUsage {
     pub input: u64,
@@ -229,7 +294,7 @@ pub async fn record_completed_usage(
     pool: &SqlitePool,
     event: &CompletedUsage<'_>,
 ) -> Result<bool, &'static str> {
-    record_usage(pool, event, false).await
+    record_usage(pool, event, false, &UsageAttributes::default()).await
 }
 
 /// Settle a dispatched reservation and its observed usage atomically. If the
@@ -238,13 +303,22 @@ pub async fn record_reserved_usage(
     pool: &SqlitePool,
     event: &CompletedUsage<'_>,
 ) -> Result<bool, &'static str> {
-    record_usage(pool, event, true).await
+    record_usage(pool, event, true, &UsageAttributes::default()).await
+}
+
+pub(crate) async fn record_reserved_usage_with_attributes(
+    pool: &SqlitePool,
+    event: &CompletedUsage<'_>,
+    usage_attributes: &UsageAttributes,
+) -> Result<bool, &'static str> {
+    record_usage(pool, event, true, usage_attributes).await
 }
 
 async fn record_usage(
     pool: &SqlitePool,
     event: &CompletedUsage<'_>,
     reserved: bool,
+    usage_attributes: &UsageAttributes,
 ) -> Result<bool, &'static str> {
     if event.event_id.is_empty()
         || event.event_id.len() > 256
@@ -266,7 +340,7 @@ async fn record_usage(
     let unit_price_input = event.prices.map_or(0.0, |prices| prices.input);
     let unit_price_output = event.prices.map_or(0.0, |prices| prices.output);
     let pricing_snapshot = ledger_pricing_snapshot(event.prices, event.timestamp_ms)?;
-    let usage_attributes = "{}";
+    let usage_attributes = usage_attributes.json();
     let input = i64::try_from(event.usage.input).map_err(|_| "invalid token usage")?;
     let output = i64::try_from(event.usage.output).map_err(|_| "invalid token usage")?;
     let reasoning = i64::try_from(event.usage.reasoning).map_err(|_| "invalid token usage")?;
@@ -346,7 +420,7 @@ async fn record_usage(
     let inserted = sqlx::query("INSERT INTO request_cost_ledger (api_key_id, provider, model, tokens_input, tokens_output, tokens_cache_read, tokens_cache_creation, tokens_reasoning, unit_price_input, unit_price_output, amount_usd, service_tier, success, timestamp, event_id, usage_attributes, pricing_known, pricing_snapshot, tenant_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'standard', 1, strftime('%Y-%m-%dT%H:%M:%fZ', ? / 1000.0, 'unixepoch'), ?, ?, ?, ?, 'red') ON CONFLICT(event_id) WHERE event_id IS NOT NULL DO NOTHING")
         .bind(event.key_id).bind(event.provider).bind(event.model).bind(input).bind(output)
         .bind(cache_read).bind(cache_creation).bind(reasoning).bind(unit_price_input).bind(unit_price_output)
-        .bind(cost).bind(event.timestamp_ms).bind(event.event_id).bind(usage_attributes).bind(pricing_known)
+        .bind(cost).bind(event.timestamp_ms).bind(event.event_id).bind(&usage_attributes).bind(pricing_known)
         .bind(pricing_snapshot.as_deref()).execute(&mut *tx).await
         .map_err(|_| "cost ledger unavailable")?.rows_affected();
     if inserted == 0 {
@@ -372,6 +446,11 @@ async fn record_usage(
             },
             _ => false,
         };
+        let stored_attributes = row
+            .try_get::<String, _>("usage_attributes")
+            .ok()
+            .and_then(|raw| serde_json::from_str::<Value>(&raw).ok());
+        let expected_attributes = serde_json::from_str::<Value>(&usage_attributes).ok();
         let same = row.try_get::<String, _>("api_key_id").ok().as_deref() == Some(event.key_id)
             && row.try_get::<String, _>("provider").ok().as_deref() == Some(event.provider)
             && row.try_get::<String, _>("model").ok().as_deref() == Some(event.model)
@@ -386,8 +465,8 @@ async fn record_usage(
             && row.try_get::<i64, _>("same_time").ok() == Some(1)
             && row.try_get::<String, _>("tenant_id").ok().as_deref() == Some("red")
             && row.try_get::<i64, _>("success").ok() == Some(1)
-            && row.try_get::<String, _>("usage_attributes").ok().as_deref()
-                == Some(usage_attributes)
+            && stored_attributes.is_some()
+            && stored_attributes == expected_attributes
             && row.try_get::<i64, _>("pricing_known").ok() == Some(pricing_known)
             && same_snapshot;
         if !same {
@@ -439,6 +518,12 @@ mod tests {
         .unwrap();
         sqlx::raw_sql(include_str!(
             "../../../src/lib/db/migrations/226_shared_usage_reservations.sql"
+        ))
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::raw_sql(include_str!(
+            "../../../src/lib/db/migrations/227_usage_reservation_attributes.sql"
         ))
         .execute(&pool)
         .await
@@ -670,6 +755,22 @@ mod tests {
         )
         .unwrap();
         assert!((prices.cost_usd(&usage).unwrap() - 0.0004).abs() < 1e-12);
+    }
+
+    #[test]
+    fn validates_and_merges_usage_attributes_without_credentials() {
+        let instance = UsageAttributes::parse(r#"{"region":"br","production":true}"#).unwrap();
+        let key = UsageAttributes::parse(r#"{"operator":"agents","cost_center":42}"#).unwrap();
+        assert_eq!(
+            instance.merge(&key).unwrap().json(),
+            r#"{"cost_center":42,"operator":"agents","production":true,"region":"br"}"#
+        );
+        assert!(UsageAttributes::parse(r#"{"api_key":"leak"}"#).is_err());
+        assert!(UsageAttributes::parse(r#"{"provider_token_hash":"leak"}"#).is_err());
+        assert!(UsageAttributes::parse(r#"{"BadName":true}"#).is_err());
+        assert!(instance
+            .merge(&UsageAttributes::parse(r#"{"region":"us"}"#).unwrap())
+            .is_err());
     }
 
     #[test]

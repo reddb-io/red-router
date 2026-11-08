@@ -330,6 +330,16 @@ free model. Without this flag, unresolved pricing still fails closed. Strict
 token/spend quota mode always requires explicit pricing even when reporting all
 requests is enabled.
 
+`REDROUTER_USAGE_ATTRIBUTES_JSON` adds validated instance/operator metadata to
+every Rust usage row. Immutable per-key attributes from the dashboard are merged
+at authentication time and snapshotted into `usage_attributes` for chat,
+streaming, embeddings and any durable reservation requiring reconciliation. The
+Rust proxy enforces the dashboard limits of 32
+scalar fields, lowercase identifier names and 256 UTF-16 code units per string;
+attribute names that can contain credentials (including secrets, passwords,
+tokens, authorization, credentials or API keys) are rejected. A conflicting
+instance/key value fails closed instead of silently changing attribution.
+
 Streaming requires `stream_options.include_usage`
 to be true; non-default service tiers are rejected. In streaming mode the
 proxy drains the provider even if the client disconnects and forwards the final
@@ -382,8 +392,9 @@ the actual usage and completion time with the provider before running
 `red-routerd reconcile-usage <reservation-id> <usage.json>`. The JSON file must
 contain `timestamp_ms` (UTC Unix milliseconds) and an OpenAI-compatible `usage`
 object with `prompt_tokens` and `completion_tokens`; include supported token
-details when present. Reconciliation uses the price snapshot from dispatch and
-atomically records usage before clearing the reservation. Only use zero tokens
+details when present. Reconciliation uses the price and attribution snapshots
+from dispatch and atomically records usage before clearing the reservation. Only
+use zero tokens
 when the provider has confirmed that no usage occurred. Entries lacking the
 provider, model or price snapshot cannot be reconciled by this command.
 

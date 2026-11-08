@@ -1,5 +1,7 @@
 //! Explicit administrative inspection and reconciliation of pending usage.
-use crate::accounting::{record_reserved_usage, ChatUsage, CompletedUsage, TokenPrices};
+use crate::accounting::{
+    record_reserved_usage_with_attributes, ChatUsage, CompletedUsage, TokenPrices, UsageAttributes,
+};
 use serde_json::{json, Value};
 use sqlx::{
     sqlite::{SqliteConnectOptions, SqlitePoolOptions},
@@ -84,7 +86,7 @@ pub async fn reconcile(path: &Path, id: &str, response: &Value) -> Result<bool, 
     }
     let usage = ChatUsage::from_response(response)?;
     let pool = database(path, false).await?;
-    let row = sqlx::query("SELECT api_key_id, provider, model, pricing_snapshot, state, created_at FROM api_key_usage_reservations WHERE id = ?")
+    let row = sqlx::query("SELECT api_key_id, provider, model, pricing_snapshot, usage_attributes, state, created_at FROM api_key_usage_reservations WHERE id = ?")
         .bind(id).fetch_optional(&pool).await.map_err(|_| "reservation unavailable")?.ok_or("reservation not found")?;
     let key: String = row
         .try_get("api_key_id")
@@ -98,6 +100,10 @@ pub async fn reconcile(path: &Path, id: &str, response: &Value) -> Result<bool, 
     let snapshot: String = row
         .try_get("pricing_snapshot")
         .map_err(|_| "reservation has no pricing snapshot")?;
+    let usage_attributes: String = row
+        .try_get("usage_attributes")
+        .map_err(|_| "reservation has no usage attributes")?;
+    let usage_attributes = UsageAttributes::parse(&usage_attributes)?;
     let state: String = row.try_get("state").map_err(|_| "invalid reservation")?;
     let created: i64 = row
         .try_get("created_at")
@@ -116,11 +122,11 @@ pub async fn reconcile(path: &Path, id: &str, response: &Value) -> Result<bool, 
         prices: Some(&prices),
         timestamp_ms: timestamp,
     };
-    match record_reserved_usage(&pool, &event).await {
+    match record_reserved_usage_with_attributes(&pool, &event, &usage_attributes).await {
         // The first transaction quarantines an underestimated bound. This is
         // an explicit operator reconciliation, so retry with that durable bound.
         Err("usage exceeds reservation; reconciliation required") => {
-            record_reserved_usage(&pool, &event).await
+            record_reserved_usage_with_attributes(&pool, &event, &usage_attributes).await
         }
         other => other,
     }
