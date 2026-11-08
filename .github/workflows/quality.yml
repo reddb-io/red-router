@@ -4,7 +4,7 @@ on:
     inputs:
       runner_qualification:
         type: boolean
-        description: Qualify only the company-worker checks, contracts and UI suites
+        description: Allow reviewed company-worker contract and UI qualification
         default: false
       suite:
         type: choice
