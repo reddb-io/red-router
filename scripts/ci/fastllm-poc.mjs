@@ -165,6 +165,13 @@ let usageEvents = [];
 let credentialFixture;
 const children = [];
 const servers = [];
+// Linux may immediately hand the same just-released ephemeral port to a later
+// `listen(0)`. Reusing one of this harness's earlier gateway ports can make a
+// readiness probe hit the process that is still draining while the new process
+// fails its bind with EADDRINUSE. Keep every selected process port unique for
+// the lifetime of the fixture so that failure cannot masquerade as a lost
+// shutdown signal.
+const selectedProcessPorts = new Set();
 const serverListen = async (server) => {
   servers.push(server);
   await new Promise((resolve, reject) => {
@@ -174,14 +181,20 @@ const serverListen = async (server) => {
   return server.address().port;
 };
 const unusedPort = async () => {
-  const server = createTcpServer();
-  await new Promise((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", resolve);
-  });
-  const port = server.address().port;
-  await new Promise((resolve) => server.close(resolve));
-  return port;
+  for (let attempt = 0; attempt < 32; attempt++) {
+    const server = createTcpServer();
+    await new Promise((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(0, "127.0.0.1", resolve);
+    });
+    const port = server.address().port;
+    await new Promise((resolve) => server.close(resolve));
+    if (!selectedProcessPorts.has(port)) {
+      selectedProcessPorts.add(port);
+      return port;
+    }
+  }
+  throw new Error("could not allocate a unique fixture port");
 };
 const upstream = createServer(async (req, res) => {
   if (req.method !== "POST" || !["/v1/chat/completions", "/v1/responses"].includes(req.url)) {
