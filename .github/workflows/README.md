@@ -82,7 +82,7 @@ platform selector. Builds, tests and publication are all skipped in this mode.
 
 ## Bounded company workers
 
-Reviewed Linux web/package workflows on main select `reddb-ci-public` /
+Reviewed Linux checks and UI/contract suites on main select `reddb-ci-public` /
 `reddb-public-linux-x64`. One public job at a time shares the existing two
 dedicated CI nodes with the private repositories; no new node or disk is added.
 The GitHub group admits exact workflow paths at `refs/heads/main`, not PR refs,
@@ -94,4 +94,6 @@ No automatic quality trigger, platform flag or publication gate is enabled.
 Desktop/native/multiplatform lanes, Docker publication, integration/browser
 qualification and npm provenance publication retain their existing hosted lanes.
 Public runner limits: 3 CPU / 12 GiB RAM and 8 GiB workspace, without Docker-in-Docker.
-RedRouter V8 heap is bounded to 8 GiB, leaving room for native buffers and file cache.
+The full Next/package build keeps its existing hosted runner and 10 GiB V8 heap: real
+qualification exceeded the bounded company-worker memory budget. Worker qualification
+runs checks, contracts and UI suites only; browser/database integration stays hosted.

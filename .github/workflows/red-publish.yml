@@ -47,7 +47,8 @@ env:
 jobs:
   build:
     name: Build and package smoke
-    runs-on: ${{ fromJSON((github.repository == 'reddb-io/red-router' && (github.ref == 'refs/heads/main' || inputs.runner_qualification == true) && inputs.tag == '' && !startsWith(github.ref, 'refs/tags/')) && '"reddb-public-linux-x64"' || '"ubuntu-latest"') }}
+    # The full Next build exceeds the bounded OCI worker memory budget.
+    runs-on: ubuntu-latest
     timeout-minutes: 60
     outputs:
       source_sha: ${{ steps.source.outputs.sha }}
@@ -55,8 +56,8 @@ jobs:
       artifact_run_id: ${{ steps.promote.outputs.run_id || github.run_id }}
       artifact_run_attempt: ${{ steps.promote.outputs.run_attempt || github.run_attempt }}
     env:
-      # The 12 GiB Node-only runner leaves room for native buffers and page cache.
-      NODE_OPTIONS: ${{ ((github.ref == 'refs/heads/main' || inputs.runner_qualification == true) && inputs.tag == '' && !startsWith(github.ref, 'refs/tags/')) && '--max-old-space-size=8192' || '--max-old-space-size=10240' }}
+      # Keep the full production build on the existing hosted memory class.
+      NODE_OPTIONS: --max-old-space-size=10240
       OMNIROUTE_USE_TURBOPACK: "0"
       OMNIROUTE_RELEASE_REF: HEAD
       REDROUTER_RELEASE_ARTIFACT_DIR: release-artifacts
@@ -74,8 +75,6 @@ jobs:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
           fetch-depth: 0
           persist-credentials: false
-      - uses: ./.github/actions/setup-runner
-        if: runner.environment == 'self-hosted'
       - name: Resolve source identity
         id: source
         run: |
