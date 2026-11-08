@@ -1243,6 +1243,13 @@ try {
   // alive across the supervisor lifecycle makes its pooled socket race Node's
   // short fixture keep-alive timeout and can create an unrelated 502.
   // Strict quotas stay disabled; this tests observability before enabling them.
+  const accountingCombo = db.prepare("SELECT data FROM combos WHERE name = 'bench'").get().data;
+  // The standalone control fixture intentionally models one backend plan at a
+  // time. Seed the same simple snapshot the old early-start engine consumed,
+  // then restore the dashboard fallback combo before red-routerd opens it.
+  db.prepare("UPDATE combos SET data = ? WHERE name = 'bench'").run(
+    JSON.stringify({ name: "bench", strategy: "priority", models: ["openrouter/vendor/model-a"] })
+  );
   const accountingEnginePort = await unusedPort();
   const accountingEngine = childProcess(
     fastBinary,
@@ -1272,6 +1279,7 @@ try {
     { RED_ROUTER_DISABLE_UPSTREAM_RETRY: "1" }
   );
   await waitReady(`http://127.0.0.1:${accountingEnginePort}/health`, accountingEngine);
+  db.prepare("UPDATE combos SET data = ? WHERE name = 'bench'").run(accountingCombo);
   const accountingEngineUrl = `http://127.0.0.1:${accountingEnginePort}/v1/chat/completions`;
   const accountedPort = await unusedPort();
   const accounted = childProcess(redBinary, [], {
