@@ -499,7 +499,7 @@ async fn rust_control_plane_serves_the_bundled_models_dev_catalog_lazily() {
         .await
         .unwrap();
     assert_eq!(index.status(), StatusCode::OK);
-    let index: serde_json::Value = index.json().await.unwrap();
+    let index: serde_json::Value = serde_json::from_str(&index.text().await.unwrap()).unwrap();
     assert_eq!(
         index["manifest"]["upstreamRepository"],
         "https://github.com/anomalyco/models.dev"
@@ -517,7 +517,8 @@ async fn rust_control_plane_serves_the_bundled_models_dev_catalog_lazily() {
         .await
         .unwrap();
     assert_eq!(provider.status(), StatusCode::OK);
-    let provider: serde_json::Value = provider.json().await.unwrap();
+    let provider: serde_json::Value =
+        serde_json::from_str(&provider.text().await.unwrap()).unwrap();
     let model = provider["provider"]["models"]
         .as_array()
         .unwrap()
