@@ -182,7 +182,7 @@ impl ProviderAvailability {
         for lockout in stored {
             validate_model(&lockout.model)?;
             if !seen_models.insert(lockout.model.clone())
-                || !matches!(lockout.status, 402 | 404 | 429)
+                || !matches!(lockout.status, 400 | 401 | 402 | 403 | 404 | 429)
                 || !(1..=MAX_BACKOFF_LEVEL).contains(&lockout.backoff_level)
             {
                 return Err("invalid provider availability record");
@@ -364,7 +364,7 @@ impl ProviderAvailability {
         status: StatusCode,
         retry_hint_ms: Option<u64>,
     ) -> Result<(), &'static str> {
-        if !model_failure_status(status) {
+        if !recordable_model_failure_status(status) {
             return Err("invalid provider model failure status");
         }
         validate_model(model)?;
@@ -545,6 +545,10 @@ pub(crate) fn connection_failure_status(status: StatusCode) -> bool {
 
 pub(crate) fn model_failure_status(status: StatusCode) -> bool {
     matches!(status.as_u16(), 402 | 404 | 429)
+}
+
+fn recordable_model_failure_status(status: StatusCode) -> bool {
+    matches!(status.as_u16(), 400 | 401 | 402 | 403 | 404 | 429)
 }
 
 fn validate_provider_id(value: &str) -> Result<(), &'static str> {

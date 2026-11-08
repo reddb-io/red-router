@@ -49,7 +49,7 @@ features must not be implemented only there.
 | Combos and routing          | Implemented foundation | Durable deterministic, metadata-ranked, deck-random and load-aware routes and reload |
 | Pricing, quotas and budgets | Partial                | Atomic reservations, streaming settlement, reconciliation, multi-process tests     |
 | Usage and audit             | Partial                | Complete protocol usage, idempotent ledger, retention/export APIs                  |
-| Settings and resilience     | Partial                | Durable provider breakers, connection cooldowns, model lockouts, provider-specific `429` scope and reset API; terminal states and the remaining versioned settings remain |
+| Settings and resilience     | Partial                | Durable provider breakers, connection cooldowns, model lockouts, provider-specific quota scope, terminal account states and reset API; the remaining versioned settings remain |
 | Management identity         | Implemented foundation | Signed bearer, discovery, browser PKCE, encrypted session, CSRF/fetch-metadata binding and logout |
 | SPA delivery                | Partial                | Rust serves a validated static bundle with safe SPA fallback; production dashboard export/packaging remains |
 | Legacy data migration       | Pending                | Maintenance-mode import, verification report and rollback boundary                 |
@@ -168,10 +168,14 @@ operator reset that preserves those settings. Configuration is committed before 
 live circuit changes and survives restart.
 
 Connection and model availability is independently owned by
-`redrouter_provider_availability`, keyed by the Rust provider-connection ID. A `401`,
-`403` or `429` starts a connection-scoped exponential cooldown; standard `Retry-After`
-and common rate-limit reset headers can extend it. A `404` locks only the failing model,
-so another model on the same credential stays eligible. Both scopes are checked before
+`redrouter_provider_availability`, keyed by the Rust provider-connection ID. The proxy
+inspects only `400`, `401`, `402`, `403`, `404` and `429` bodies, with a 64 KiB and
+two-second bound; normal responses and SSE remain streaming. Provider evidence separates
+model entitlement failures from banned, expired and credits-exhausted account states, so
+an aggregator's model-specific `401` cannot park the whole credential. Unreadable or
+oversized error bodies are not relayed partially. Generic `401`, `403` and `429` failures
+retain their conservative connection cooldown behavior, while `404` and classified model
+errors lock only the failing model, leaving sibling models eligible. Both scopes are checked before
 usage reservation or dispatch, cause combo fallback, survive restart and are cleared by
 a successful recovery, provider credential change or authenticated health reset. A
 generation permit prevents concurrent failures from multiplying the backoff. A separate
@@ -181,9 +185,10 @@ two-record update cannot publish a half-new runtime configuration. The automatic
 recognizes the current catalog's
 main independently limited provider families; an operator override is persisted, returned
 to the dashboard, applied to immutable route snapshots and survives restart. Model-scoped
-`429` state retains upstream retry hints without cooling sibling models. SQLite is
+`429` state retains upstream retry hints without cooling sibling models. Terminal account
+states are persisted and exposed to the authenticated health API without provider error
+bodies or credentials. SQLite is
 the selected production backend for this slice, while the common repository contract is
 also exercised for embedded/remote RedDB and PostgreSQL. Expanding automatic classification
-to the complete dynamic provider catalog, terminal banned/expired/credits states and the
-remaining resilience settings exposed as versioned dashboard configuration remain migration
-work.
+to the complete dynamic provider catalog and the remaining resilience settings exposed as
+versioned dashboard configuration remain migration work.

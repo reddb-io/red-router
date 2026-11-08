@@ -20,14 +20,14 @@ pub mod storage;
 mod translation;
 mod usage_stream;
 use axum::{
-    body::{to_bytes, Body},
+    body::{to_bytes, Body, Bytes},
     extract::{Path, Request, State},
     http::{header, HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, post, put},
     Json, Router,
 };
-use futures_util::StreamExt;
+use futures_util::{stream, stream::BoxStream, StreamExt};
 use std::{
     collections::HashMap,
     net::IpAddr,
@@ -40,10 +40,105 @@ use std::{
 use tokio::sync::Semaphore;
 
 const MAX_BODY_BYTES: usize = 2 * 1024 * 1024;
+const MAX_PROVIDER_ERROR_BODY_BYTES: usize = 64 * 1024;
 const MAX_IN_FLIGHT: usize = 64;
 const MAX_ROUTE_TARGETS: usize = 8;
 const NO_ROUTE_TARGET: usize = usize::MAX;
 const HEADER_TIMEOUT: Duration = Duration::from_secs(120);
+const PROVIDER_ERROR_BODY_TIMEOUT: Duration = Duration::from_secs(2);
+
+struct BufferedProviderResponse {
+    status: StatusCode,
+    headers: HeaderMap,
+    body: Option<Bytes>,
+}
+
+enum ProviderResponse {
+    Streaming(reqwest::Response),
+    Buffered(BufferedProviderResponse),
+}
+
+impl ProviderResponse {
+    fn status(&self) -> StatusCode {
+        match self {
+            Self::Streaming(response) => response.status(),
+            Self::Buffered(response) => response.status,
+        }
+    }
+
+    fn headers(&self) -> &HeaderMap {
+        match self {
+            Self::Streaming(response) => response.headers(),
+            Self::Buffered(response) => &response.headers,
+        }
+    }
+
+    fn error_body(&self) -> Option<&[u8]> {
+        match self {
+            Self::Streaming(_) => None,
+            Self::Buffered(response) => response.body.as_deref(),
+        }
+    }
+
+    fn into_streaming(self) -> Option<reqwest::Response> {
+        match self {
+            Self::Streaming(response) => Some(response),
+            Self::Buffered(_) => None,
+        }
+    }
+
+    fn into_body_stream(self) -> Option<BoxStream<'static, Result<Bytes, reqwest::Error>>> {
+        match self {
+            Self::Streaming(response) => Some(response.bytes_stream().boxed()),
+            Self::Buffered(response) => response
+                .body
+                .map(|body| stream::once(async move { Ok(body) }).boxed()),
+        }
+    }
+}
+
+fn inspectable_provider_error(status: StatusCode) -> bool {
+    matches!(status.as_u16(), 400 | 401 | 402 | 403 | 404 | 429)
+}
+
+async fn inspect_provider_response(response: reqwest::Response) -> ProviderResponse {
+    if !inspectable_provider_error(response.status()) {
+        return ProviderResponse::Streaming(response);
+    }
+    let status = response.status();
+    let headers = response.headers().clone();
+    if response
+        .content_length()
+        .is_some_and(|length| length > MAX_PROVIDER_ERROR_BODY_BYTES as u64)
+    {
+        return ProviderResponse::Buffered(BufferedProviderResponse {
+            status,
+            headers,
+            body: None,
+        });
+    }
+    let read = async move {
+        let mut bytes = Vec::new();
+        let mut stream = response.bytes_stream();
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk.map_err(|_| ())?;
+            if bytes.len().saturating_add(chunk.len()) > MAX_PROVIDER_ERROR_BODY_BYTES {
+                return Err(());
+            }
+            bytes.extend_from_slice(&chunk);
+        }
+        Ok::<_, ()>(Bytes::from(bytes))
+    };
+    let body = match tokio::time::timeout(PROVIDER_ERROR_BODY_TIMEOUT, read).await {
+        Ok(Ok(body)) => Some(body),
+        _ => None,
+    };
+    ProviderResponse::Buffered(BufferedProviderResponse {
+        status,
+        headers,
+        body,
+    })
+}
 
 #[derive(Clone)]
 pub struct ProxyState {
@@ -2385,6 +2480,7 @@ async fn proxy_request(
                 return error(StatusCode::GATEWAY_TIMEOUT, "Upstream response timed out");
             }
         };
+        let response = inspect_provider_response(response).await;
         if let (Some(circuit), Some(permit)) = (circuit, circuit_permit) {
             let recorded = if circuit::provider_failure_status(response.status()) {
                 circuit.record_failure(permit).await
@@ -2401,69 +2497,85 @@ async fn proxy_request(
                 );
             }
         }
+        let rate_limit_scope = target
+            .map(|target| target.rate_limit_scope)
+            .or_else(|| {
+                live_provider
+                    .as_ref()
+                    .map(|provider| provider.rate_limit_scope)
+            })
+            .unwrap_or_default();
+        let provider_name = target
+            .and_then(|target| target.provider_name.as_deref())
+            .or_else(|| {
+                live_provider
+                    .as_ref()
+                    .and_then(|provider| provider.provider_name.as_deref())
+            });
+        let failure_class = resilience::classify_provider_failure(
+            rate_limit_scope,
+            provider_name,
+            response.status(),
+            response.headers(),
+            response.error_body(),
+        );
         if let (Some(availability), Some(permit)) = (availability, availability_permit) {
-            let rate_limit_scope = target
-                .map(|target| target.rate_limit_scope)
-                .or_else(|| {
-                    live_provider
-                        .as_ref()
-                        .map(|provider| provider.rate_limit_scope)
-                })
-                .unwrap_or_default();
-            let provider_name = target
-                .and_then(|target| target.provider_name.as_deref())
-                .or_else(|| {
-                    live_provider
-                        .as_ref()
-                        .and_then(|provider| provider.provider_name.as_deref())
-                });
-            let quota_scope = resilience::quota_failure_scope(
-                rate_limit_scope,
-                provider_name,
-                response.status(),
-                response.headers(),
-            );
-            let recorded = if response.status() == StatusCode::UNAUTHORIZED
-                && resilience::authentication_failure_is_terminal(provider_name)
-            {
-                availability
-                    .record_terminal_failure(permit, availability::TerminalStatus::Expired)
-                    .await
-            } else if response.status() == StatusCode::PAYMENT_REQUIRED
-                && quota_scope == resilience::FailureScope::Connection
-            {
-                availability
-                    .record_terminal_failure(permit, availability::TerminalStatus::CreditsExhausted)
-                    .await
-            } else if matches!(
-                response.status(),
-                StatusCode::PAYMENT_REQUIRED | StatusCode::TOO_MANY_REQUESTS
-            ) && quota_scope == resilience::FailureScope::Model
-            {
-                availability
-                    .record_model_failure(
-                        permit,
-                        target_model,
-                        response.status(),
-                        retry_after_hint_ms(response.headers()),
-                    )
-                    .await
-            } else if availability::connection_failure_status(response.status()) {
-                availability
-                    .record_connection_failure(
-                        permit,
-                        response.status(),
-                        retry_after_hint_ms(response.headers()),
-                    )
-                    .await
-            } else if availability::model_failure_status(response.status()) {
-                availability
-                    .record_model_failure(permit, target_model, response.status(), None)
-                    .await
-            } else if response.status().is_success() {
-                availability.record_success(permit, target_model).await
-            } else {
-                Ok(())
+            let recorded = match failure_class {
+                resilience::ProviderFailureClass::Banned => {
+                    availability
+                        .record_terminal_failure(permit, availability::TerminalStatus::Banned)
+                        .await
+                }
+                resilience::ProviderFailureClass::Expired => {
+                    availability
+                        .record_terminal_failure(permit, availability::TerminalStatus::Expired)
+                        .await
+                }
+                resilience::ProviderFailureClass::CreditsExhausted => {
+                    availability
+                        .record_terminal_failure(
+                            permit,
+                            availability::TerminalStatus::CreditsExhausted,
+                        )
+                        .await
+                }
+                resilience::ProviderFailureClass::Model => {
+                    availability
+                        .record_model_failure(
+                            permit,
+                            target_model,
+                            response.status(),
+                            retry_after_hint_ms(response.headers()),
+                        )
+                        .await
+                }
+                resilience::ProviderFailureClass::Transient
+                    if availability::connection_failure_status(response.status()) =>
+                {
+                    availability
+                        .record_connection_failure(
+                            permit,
+                            response.status(),
+                            retry_after_hint_ms(response.headers()),
+                        )
+                        .await
+                }
+                resilience::ProviderFailureClass::Transient
+                    if availability::model_failure_status(response.status()) =>
+                {
+                    availability
+                        .record_model_failure(
+                            permit,
+                            target_model,
+                            response.status(),
+                            retry_after_hint_ms(response.headers()),
+                        )
+                        .await
+                }
+                resilience::ProviderFailureClass::Transient if response.status().is_success() => {
+                    availability.record_success(permit, target_model).await
+                }
+                resilience::ProviderFailureClass::Transient => Ok(()),
             };
             if recorded.is_err() {
                 return error(
@@ -2472,7 +2584,8 @@ async fn proxy_request(
                 );
             }
         }
-        let retryable = response.status() == StatusCode::TOO_MANY_REQUESTS
+        let retryable = failure_class.semantic_fallback()
+            || response.status() == StatusCode::TOO_MANY_REQUESTS
             || response.status().is_server_error()
             || response.status() == StatusCode::REQUEST_TIMEOUT
             || (availability.is_some()
@@ -2534,6 +2647,9 @@ async fn proxy_request(
         return error(StatusCode::BAD_GATEWAY, "Upstream redirect refused");
     }
     if final_translated && response.status().is_success() {
+        let Some(response) = response.into_streaming() else {
+            return error(StatusCode::BAD_GATEWAY, "Invalid provider response");
+        };
         if parsed.get("stream").and_then(serde_json::Value::as_bool) == Some(true) {
             let event_stream = response
                 .headers()
@@ -2597,6 +2713,9 @@ async fn proxy_request(
             };
             let status = response.status();
             let content_type = response.headers().get(header::CONTENT_TYPE).cloned();
+            let Some(response) = response.into_streaming() else {
+                return error(StatusCode::BAD_GATEWAY, "Invalid provider response");
+            };
             if accounting_stream {
                 let event_stream = content_type
                     .as_ref()
@@ -2716,7 +2835,10 @@ async fn proxy_request(
     }
     headers.insert("x-accel-buffering", HeaderValue::from_static("no"));
     // The permit is retained until the upstream stream finishes or the client drops it.
-    let stream = response.bytes_stream().map(move |chunk| {
+    let Some(stream) = response.into_body_stream() else {
+        return error(StatusCode::BAD_GATEWAY, "Invalid provider error response");
+    };
+    let stream = stream.map(move |chunk| {
         let _keep_alive = (&permit, &client_permit, &provider_load_guard);
         chunk
     });
