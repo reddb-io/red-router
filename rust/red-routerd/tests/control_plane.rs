@@ -2588,8 +2588,8 @@ async fn connection_cooldown_falls_back_and_survives_gateway_restart() {
     let client = reqwest::Client::builder().no_proxy().build().unwrap();
 
     for (id, upstream_url, api_key) in [
-        ("limited", limited_url, "limited-secret"),
-        ("healthy", healthy_url, "healthy-secret"),
+        ("limited", limited_url.clone(), "limited-secret"),
+        ("healthy", healthy_url.clone(), "healthy-secret"),
     ] {
         assert_eq!(
             client
@@ -2875,6 +2875,89 @@ async fn connection_cooldown_falls_back_and_survives_gateway_restart() {
     assert_eq!(limited_requests.load(Ordering::SeqCst), 4);
 
     banned_restart_task.abort();
+    let ambiguous = ControlPlane::new(database.clone(), ADMIN_KEY, STORAGE_KEY, false)
+        .await
+        .unwrap();
+    let (ambiguous_base, ambiguous_task) = gateway(ambiguous).await;
+    assert_eq!(
+        client
+            .put(format!("{ambiguous_base}/api/admin/providers/limited"))
+            .bearer_auth(ADMIN_KEY)
+            .header(header::CONTENT_TYPE.as_str(), "application/json")
+            .body(
+                serde_json::json!({
+                    "provider":"mistral",
+                    "upstream_url":limited_url,
+                    "api_key":"limited-secret"
+                })
+                .to_string(),
+            )
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    limited_status.store(StatusCode::UNAUTHORIZED.as_u16() as usize, Ordering::SeqCst);
+    *limited_body.write().await = r#"{"detail":"Unauthorized"}"#.to_owned();
+    for _ in 0..2 {
+        assert_eq!(
+            chat_model(
+                &client,
+                &ambiguous_base,
+                RUST_CLIENT_KEY,
+                "availability-combo"
+            )
+            .await
+            .text()
+            .await
+            .unwrap(),
+            "healthy"
+        );
+    }
+    assert_eq!(limited_requests.load(Ordering::SeqCst), 5);
+    let health = client
+        .get(format!("{ambiguous_base}/api/admin/provider-health"))
+        .bearer_auth(ADMIN_KEY)
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    let health: serde_json::Value = serde_json::from_str(&health).unwrap();
+    let limited = health["provider_health"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["provider_id"] == "limited")
+        .unwrap();
+    assert_eq!(limited["terminal_status"], serde_json::Value::Null);
+    assert_eq!(limited["ambiguous_auth_strikes"], 1);
+    assert_eq!(limited["ambiguous_auth_retry_limit"], 3);
+    assert_eq!(limited["connection_last_status"], 401);
+
+    ambiguous_task.abort();
+    let ambiguous_restart = ControlPlane::new(database.clone(), ADMIN_KEY, STORAGE_KEY, false)
+        .await
+        .unwrap();
+    let (ambiguous_restart_base, ambiguous_restart_task) = gateway(ambiguous_restart).await;
+    assert_eq!(
+        chat_model(
+            &client,
+            &ambiguous_restart_base,
+            RUST_CLIENT_KEY,
+            "availability-combo"
+        )
+        .await
+        .text()
+        .await
+        .unwrap(),
+        "healthy"
+    );
+    assert_eq!(limited_requests.load(Ordering::SeqCst), 5);
+
+    ambiguous_restart_task.abort();
     limited_task.abort();
     healthy_task.abort();
     database.close().await.unwrap();

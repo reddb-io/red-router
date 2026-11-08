@@ -2531,6 +2531,15 @@ async fn proxy_request(
                         .record_terminal_failure(permit, availability::TerminalStatus::Expired)
                         .await
                 }
+                resilience::ProviderFailureClass::AmbiguousExpired => {
+                    availability
+                        .record_ambiguous_auth_failure(
+                            permit,
+                            response.status(),
+                            retry_after_hint_ms(response.headers()),
+                        )
+                        .await
+                }
                 resilience::ProviderFailureClass::CreditsExhausted => {
                     availability
                         .record_terminal_failure(

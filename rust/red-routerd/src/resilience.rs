@@ -43,6 +43,7 @@ pub(crate) enum ProviderFailureClass {
     Model,
     Banned,
     Expired,
+    AmbiguousExpired,
     CreditsExhausted,
 }
 
@@ -116,6 +117,9 @@ pub(crate) fn classify_provider_failure(
     }
     if matches!(status.as_u16(), 401 | 403) && credential_failure_text(text) {
         return ProviderFailureClass::Expired;
+    }
+    if ambiguous_auth_failure(provider, status, text) {
+        return ProviderFailureClass::AmbiguousExpired;
     }
     if matches!(status.as_u16(), 400 | 402 | 403 | 429) && credits_exhausted_text(text) {
         return if quota_failure_scope(configured, provider, StatusCode::PAYMENT_REQUIRED, headers)
@@ -267,6 +271,12 @@ fn credential_failure_text(text: &str) -> bool {
             "invalid token",
         ],
     )
+}
+
+fn ambiguous_auth_failure(provider: Option<&str>, status: StatusCode, text: &str) -> bool {
+    status == StatusCode::UNAUTHORIZED
+        && provider.is_some_and(|provider| provider.eq_ignore_ascii_case("mistral"))
+        && matches!(text.trim(), "" | "unauthorized" | "unauthorized.")
 }
 
 fn automatic_scope(provider: Option<&str>, headers: &HeaderMap) -> FailureScope {
@@ -451,6 +461,26 @@ mod tests {
                 ),
             ),
             ProviderFailureClass::Transient
+        );
+        assert_eq!(
+            classify_provider_failure(
+                RateLimitScope::Auto,
+                Some("mistral"),
+                StatusCode::UNAUTHORIZED,
+                &headers,
+                Some(br#"{"detail":"Unauthorized"}"#),
+            ),
+            ProviderFailureClass::AmbiguousExpired
+        );
+        assert_eq!(
+            classify_provider_failure(
+                RateLimitScope::Auto,
+                Some("mistral"),
+                StatusCode::UNAUTHORIZED,
+                &headers,
+                Some(br#"{"message":"invalid API key"}"#),
+            ),
+            ProviderFailureClass::Expired
         );
     }
 }

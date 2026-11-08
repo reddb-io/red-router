@@ -22,6 +22,8 @@ const MODEL_BASE_MS: u64 = 30_000;
 const MODEL_MAX_MS: u64 = 10 * 60 * 1_000;
 const MAX_BACKOFF_LEVEL: u32 = 16;
 const MAX_MODEL_LOCKOUTS: usize = 1_024;
+const AMBIGUOUS_AUTH_MAX_SOFT_STRIKES: u32 = 3;
+const AMBIGUOUS_AUTH_STRIKE_WINDOW_MS: u64 = 60 * 60 * 1_000;
 const TERMINAL_UNTIL_UNIX_MS: u64 = i64::MAX as u64;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -58,6 +60,8 @@ struct Inner {
     last_status: Option<u16>,
     terminal_status: Option<TerminalStatus>,
     connection_generation: u64,
+    ambiguous_auth_strikes: u32,
+    ambiguous_auth_window_started_unix_ms: u64,
     model_lockouts: HashMap<String, ModelLockout>,
 }
 
@@ -76,6 +80,22 @@ struct StoredModelLockout {
     until_unix_ms: u64,
     status: u16,
     backoff_level: u32,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct StoredAvailabilityState {
+    version: u8,
+    model_lockouts: Vec<StoredModelLockout>,
+    ambiguous_auth_strikes: u32,
+    ambiguous_auth_window_started_unix_ms: u64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum StoredAvailabilityStateCompat {
+    Legacy(Vec<StoredModelLockout>),
+    Current(StoredAvailabilityState),
 }
 
 pub(crate) struct ProviderAvailability {
@@ -111,6 +131,8 @@ pub(crate) struct AvailabilityStatus {
     pub connection_backoff_level: u32,
     pub connection_last_status: Option<u16>,
     pub terminal_status: Option<TerminalStatus>,
+    pub ambiguous_auth_strikes: u32,
+    pub ambiguous_auth_retry_limit: u32,
     pub model_lockouts: Vec<ModelLockoutStatus>,
 }
 
@@ -134,6 +156,8 @@ impl ProviderAvailability {
                 last_status: None,
                 terminal_status: None,
                 connection_generation: 0,
+                ambiguous_auth_strikes: 0,
+                ambiguous_auth_window_started_unix_ms: 0,
                 model_lockouts: HashMap::new(),
             },
         )
@@ -171,12 +195,34 @@ impl ProviderAvailability {
         {
             return Err("invalid provider availability record");
         }
-        let stored: Vec<StoredModelLockout> = serde_json::from_str(&record.model_lockouts_json)
-            .map_err(|_| "invalid provider availability record")?;
+        let now = unix_ms()?;
+        let stored =
+            serde_json::from_str::<StoredAvailabilityStateCompat>(&record.model_lockouts_json)
+                .map_err(|_| "invalid provider availability record")?;
+        let (stored, ambiguous_auth_strikes, ambiguous_auth_window_started_unix_ms) = match stored {
+            StoredAvailabilityStateCompat::Legacy(model_lockouts) => (model_lockouts, 0, 0),
+            StoredAvailabilityStateCompat::Current(state)
+                if state.version == 1
+                    && state.ambiguous_auth_strikes <= AMBIGUOUS_AUTH_MAX_SOFT_STRIKES
+                    && ((state.ambiguous_auth_strikes == 0
+                        && state.ambiguous_auth_window_started_unix_ms == 0)
+                        || (state.ambiguous_auth_strikes > 0
+                            && state.ambiguous_auth_window_started_unix_ms > 0
+                            && state.ambiguous_auth_window_started_unix_ms <= now)) =>
+            {
+                (
+                    state.model_lockouts,
+                    state.ambiguous_auth_strikes,
+                    state.ambiguous_auth_window_started_unix_ms,
+                )
+            }
+            StoredAvailabilityStateCompat::Current(_) => {
+                return Err("invalid provider availability record")
+            }
+        };
         if stored.len() > MAX_MODEL_LOCKOUTS {
             return Err("invalid provider availability record");
         }
-        let now = unix_ms()?;
         let mut model_lockouts = HashMap::new();
         let mut seen_models = HashSet::new();
         for lockout in stored {
@@ -208,6 +254,8 @@ impl ProviderAvailability {
                 last_status,
                 terminal_status,
                 connection_generation: 0,
+                ambiguous_auth_strikes,
+                ambiguous_auth_window_started_unix_ms,
                 model_lockouts,
             },
         ))
@@ -312,21 +360,53 @@ impl ProviderAvailability {
             return Ok(());
         }
         let mut candidate = inner.clone();
-        let exponent = candidate.backoff_level.min(6);
-        let exponential = CONNECTION_BASE_MS
-            .saturating_mul(1_u64 << exponent)
-            .min(CONNECTION_MAX_MS);
-        let duration = retry_hint_ms
-            .map(|hint| hint.clamp(1_000, RETRY_HINT_MAX_MS))
-            .unwrap_or(0)
-            .max(exponential);
-        candidate.cooldown_until_unix_ms = now.saturating_add(duration);
-        candidate.backoff_level = candidate
-            .backoff_level
-            .saturating_add(1)
-            .min(MAX_BACKOFF_LEVEL);
-        candidate.last_status = Some(status.as_u16());
-        candidate.connection_generation = candidate.connection_generation.wrapping_add(1);
+        apply_connection_cooldown(&mut candidate, now, status, retry_hint_ms);
+        self.persist(&candidate, now).await?;
+        *inner = candidate;
+        self.publish(&inner);
+        Ok(())
+    }
+
+    /// A bare Mistral 401 can mean either a revoked credential or exhausted
+    /// quota. Give it three durable, bounded cooldowns in a one-hour window;
+    /// the next identical failure converges to terminal expiry.
+    pub(crate) async fn record_ambiguous_auth_failure(
+        &self,
+        permit: AvailabilityPermit,
+        status: StatusCode,
+        retry_hint_ms: Option<u64>,
+    ) -> Result<(), &'static str> {
+        if status != StatusCode::UNAUTHORIZED {
+            return Err("invalid ambiguous provider authentication status");
+        }
+        let now = unix_ms()?;
+        let mut inner = self.inner.lock().await;
+        if permit.connection_generation != inner.connection_generation
+            || inner.cooldown_until_unix_ms > now
+        {
+            return Ok(());
+        }
+        let mut candidate = inner.clone();
+        let reset_window = candidate.ambiguous_auth_window_started_unix_ms == 0
+            || now.saturating_sub(candidate.ambiguous_auth_window_started_unix_ms)
+                >= AMBIGUOUS_AUTH_STRIKE_WINDOW_MS;
+        if reset_window {
+            if candidate.ambiguous_auth_strikes > 0 {
+                candidate.backoff_level = 0;
+            }
+            candidate.ambiguous_auth_strikes = 0;
+            candidate.ambiguous_auth_window_started_unix_ms = now;
+        }
+        if candidate.ambiguous_auth_strikes >= AMBIGUOUS_AUTH_MAX_SOFT_STRIKES {
+            candidate.cooldown_until_unix_ms = TERMINAL_UNTIL_UNIX_MS;
+            candidate.backoff_level = candidate.backoff_level.max(1);
+            candidate.last_status = Some(StatusCode::UNAUTHORIZED.as_u16());
+            candidate.terminal_status = Some(TerminalStatus::Expired);
+            candidate.connection_generation = candidate.connection_generation.wrapping_add(1);
+        } else {
+            candidate.ambiguous_auth_strikes = candidate.ambiguous_auth_strikes.saturating_add(1);
+            apply_connection_cooldown(&mut candidate, now, status, retry_hint_ms);
+        }
         self.persist(&candidate, now).await?;
         *inner = candidate;
         self.publish(&inner);
@@ -350,6 +430,8 @@ impl ProviderAvailability {
         candidate.backoff_level = candidate.backoff_level.max(1);
         candidate.last_status = Some(terminal_status.http_status().as_u16());
         candidate.terminal_status = Some(terminal_status);
+        candidate.ambiguous_auth_strikes = 0;
+        candidate.ambiguous_auth_window_started_unix_ms = 0;
         candidate.connection_generation = candidate.connection_generation.wrapping_add(1);
         self.persist(&candidate, now).await?;
         *inner = candidate;
@@ -423,6 +505,8 @@ impl ProviderAvailability {
             candidate.cooldown_until_unix_ms = 0;
             candidate.backoff_level = 0;
             candidate.last_status = None;
+            candidate.ambiguous_auth_strikes = 0;
+            candidate.ambiguous_auth_window_started_unix_ms = 0;
             candidate.connection_generation = candidate.connection_generation.wrapping_add(1);
             changed = true;
         }
@@ -463,6 +547,8 @@ impl ProviderAvailability {
             connection_backoff_level: inner.backoff_level,
             connection_last_status: inner.last_status,
             terminal_status: inner.terminal_status,
+            ambiguous_auth_strikes: inner.ambiguous_auth_strikes,
+            ambiguous_auth_retry_limit: AMBIGUOUS_AUTH_MAX_SOFT_STRIKES,
             model_lockouts,
         })
     }
@@ -482,6 +568,8 @@ impl ProviderAvailability {
         inner.backoff_level = 0;
         inner.last_status = None;
         inner.terminal_status = None;
+        inner.ambiguous_auth_strikes = 0;
+        inner.ambiguous_auth_window_started_unix_ms = 0;
         inner.connection_generation = inner.connection_generation.wrapping_add(1);
         inner.model_lockouts.clear();
         self.persistence_ok.store(true, Ordering::Release);
@@ -501,13 +589,19 @@ impl ProviderAvailability {
             })
             .collect();
         model_lockouts.sort_by(|left, right| left.model.cmp(&right.model));
+        let state = StoredAvailabilityState {
+            version: 1,
+            model_lockouts,
+            ambiguous_auth_strikes: inner.ambiguous_auth_strikes,
+            ambiguous_auth_window_started_unix_ms: inner.ambiguous_auth_window_started_unix_ms,
+        };
         let record = StoredAvailability {
             provider_id: self.provider_id.to_string(),
             cooldown_until_unix_ms: to_i64(inner.cooldown_until_unix_ms)?,
             backoff_level: i64::from(inner.backoff_level),
             last_status: i64::from(inner.last_status.unwrap_or(0)),
-            model_lockouts_json: serde_json::to_string(&model_lockouts)
-                .map_err(|_| "cannot encode provider model lockouts")?,
+            model_lockouts_json: serde_json::to_string(&state)
+                .map_err(|_| "cannot encode provider availability state")?,
             revision: to_i64(revision)?,
         };
         match self.database.upsert_provider_availability(&record).await {
@@ -533,10 +627,34 @@ impl ProviderAvailability {
             inner.cooldown_until_unix_ms > 0
                 || inner.terminal_status.is_some()
                 || inner.backoff_level > 0
+                || inner.ambiguous_auth_strikes > 0
                 || !inner.model_lockouts.is_empty(),
             Ordering::Release,
         );
     }
+}
+
+fn apply_connection_cooldown(
+    candidate: &mut Inner,
+    now: u64,
+    status: StatusCode,
+    retry_hint_ms: Option<u64>,
+) {
+    let exponent = candidate.backoff_level.min(6);
+    let exponential = CONNECTION_BASE_MS
+        .saturating_mul(1_u64 << exponent)
+        .min(CONNECTION_MAX_MS);
+    let duration = retry_hint_ms
+        .map(|hint| hint.clamp(1_000, RETRY_HINT_MAX_MS))
+        .unwrap_or(0)
+        .max(exponential);
+    candidate.cooldown_until_unix_ms = now.saturating_add(duration);
+    candidate.backoff_level = candidate
+        .backoff_level
+        .saturating_add(1)
+        .min(MAX_BACKOFF_LEVEL);
+    candidate.last_status = Some(status.as_u16());
+    candidate.connection_generation = candidate.connection_generation.wrapping_add(1);
 }
 
 pub(crate) fn connection_failure_status(status: StatusCode) -> bool {
@@ -671,6 +789,98 @@ mod tests {
             restored.try_acquire("model").await.unwrap(),
             AvailabilityDecision::Permit(_)
         ));
+        database.close().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn ambiguous_auth_strikes_are_bounded_concurrent_and_durable() {
+        let directory = TempDir::new().unwrap();
+        let file = Url::from_file_path(directory.path().join("ambiguous-auth.sqlite")).unwrap();
+        let url = format!("{}?mode=rwc", file.as_str().replacen("file:", "sqlite:", 1));
+        let database = Arc::new(Database::connect(Backend::Sqlite, &url).await.unwrap());
+        let legacy = StoredAvailability {
+            provider_id: "legacy".into(),
+            cooldown_until_unix_ms: 0,
+            backoff_level: 0,
+            last_status: 0,
+            model_lockouts_json: "[]".into(),
+            revision: 1,
+        };
+        let legacy = ProviderAvailability::from_stored(&legacy, database.clone()).unwrap();
+        assert_eq!(legacy.status().await.unwrap().ambiguous_auth_strikes, 0);
+        let mut availability = ProviderAvailability::new("mistral", database.clone());
+
+        for expected_strikes in 1..=AMBIGUOUS_AUTH_MAX_SOFT_STRIKES {
+            let AvailabilityDecision::Permit(permit) =
+                availability.try_acquire("mistral-large").await.unwrap()
+            else {
+                panic!("expired cooldown must permit the next bounded probe");
+            };
+            if expected_strikes == 1 {
+                let (one, two, three) = tokio::join!(
+                    availability.record_ambiguous_auth_failure(
+                        permit,
+                        StatusCode::UNAUTHORIZED,
+                        None
+                    ),
+                    availability.record_ambiguous_auth_failure(
+                        permit,
+                        StatusCode::UNAUTHORIZED,
+                        None
+                    ),
+                    availability.record_ambiguous_auth_failure(
+                        permit,
+                        StatusCode::UNAUTHORIZED,
+                        None
+                    )
+                );
+                assert!(one.is_ok() && two.is_ok() && three.is_ok());
+            } else {
+                availability
+                    .record_ambiguous_auth_failure(permit, StatusCode::UNAUTHORIZED, None)
+                    .await
+                    .unwrap();
+            }
+            let status = availability.status().await.unwrap();
+            assert_eq!(status.ambiguous_auth_strikes, expected_strikes);
+            assert_eq!(
+                status.ambiguous_auth_retry_limit,
+                AMBIGUOUS_AUTH_MAX_SOFT_STRIKES
+            );
+            assert_eq!(status.terminal_status, None);
+
+            let mut stored = database.provider_availability().await.unwrap().remove(0);
+            stored.cooldown_until_unix_ms = 1;
+            availability = ProviderAvailability::from_stored(&stored, database.clone()).unwrap();
+        }
+
+        let AvailabilityDecision::Permit(permit) =
+            availability.try_acquire("mistral-large").await.unwrap()
+        else {
+            panic!("the terminal probe must be admitted after its last cooldown");
+        };
+        availability
+            .record_ambiguous_auth_failure(permit, StatusCode::UNAUTHORIZED, None)
+            .await
+            .unwrap();
+        let status = availability.status().await.unwrap();
+        assert_eq!(status.ambiguous_auth_strikes, 3);
+        assert_eq!(status.terminal_status, Some(TerminalStatus::Expired));
+
+        let records = database.provider_availability().await.unwrap();
+        let restored = ProviderAvailability::from_stored(&records[0], database.clone()).unwrap();
+        assert!(matches!(
+            restored.try_acquire("mistral-large").await.unwrap(),
+            AvailabilityDecision::Blocked {
+                terminal_status: Some(TerminalStatus::Expired),
+                model_scope: false,
+                ..
+            }
+        ));
+        restored.reset().await.unwrap();
+        let status = restored.status().await.unwrap();
+        assert_eq!(status.ambiguous_auth_strikes, 0);
+        assert_eq!(status.terminal_status, None);
         database.close().await.unwrap();
     }
 }
